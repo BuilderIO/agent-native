@@ -24,6 +24,7 @@ import {
   componentNameForElementInfo,
   elementHasComponentAnnotation,
   inferElementSizing,
+  inspectorObjectTitle,
   isContainerElement,
   measuredElementSize,
   parentFlexDirection,
@@ -198,6 +199,28 @@ describe("componentNameForElementInfo", () => {
   });
 });
 
+describe("inspectorObjectTitle", () => {
+  it("names an explicit Group wrapper instead of its div backing tag", () => {
+    expect(
+      inspectorObjectTitle(
+        makeElement({ tagName: "div", isGroup: true, childElementCount: 2 }),
+      ),
+    ).toBe("Group");
+  });
+
+  it("keeps an explicit component name ahead of the Group label", () => {
+    expect(
+      inspectorObjectTitle(
+        makeElement({
+          tagName: "div",
+          isGroup: true,
+          componentName: "Card",
+        }),
+      ),
+    ).toBe("Card");
+  });
+});
+
 describe("isContainerElement — primitive inspector layout semantics", () => {
   it("treats empty rectangle and frame primitives as containers", () => {
     expect(
@@ -229,6 +252,18 @@ describe("isContainerElement — primitive inspector layout semantics", () => {
           isFlexContainer: true,
           childElementCount: 0,
           textContent: "Label",
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps an explicit Group wrapper out of Auto layout", () => {
+    expect(
+      isContainerElement(
+        makeElement({
+          isGroup: true,
+          isFlexContainer: true,
+          childElementCount: 2,
         }),
       ),
     ).toBe(false);
@@ -432,6 +467,80 @@ describe("inferElementSizing — authored vs resolved size", () => {
       inlineStyles: { width: "42px" },
     });
     expect(inferElementSizing(element, "horizontal")).toBe("fixed");
+  });
+
+  it("prefers the winning stylesheet value over stale inline intent", () => {
+    const element = makeElement({
+      isFlexContainer: true,
+      computedStyles: { width: "240px" },
+      inlineStyles: { width: "auto" },
+      authoredSizeStyles: { width: "240px" },
+    });
+    expect(inferElementSizing(element, "horizontal")).toBe("fixed");
+  });
+
+  it("distinguishes stylesheet-authored dimensions from flex/grid auto sizing", () => {
+    const explicitFlex = makeElement({
+      isFlexContainer: true,
+      computedStyles: { width: "240px", height: "100px" },
+      inlineStyles: {},
+      authoredSizeStyles: { width: "240px", height: "100px" },
+    });
+    expect(inferElementSizing(explicitFlex, "horizontal")).toBe("fixed");
+    expect(inferElementSizing(explicitFlex, "vertical")).toBe("fixed");
+
+    const autoGrid = makeElement({
+      isGridContainer: true,
+      computedStyles: { width: "780px", height: "38px" },
+      inlineStyles: {},
+      authoredSizeStyles: { width: "auto", height: "auto" },
+    });
+    expect(inferElementSizing(autoGrid, "horizontal")).toBe("hug");
+    expect(inferElementSizing(autoGrid, "vertical")).toBe("hug");
+  });
+
+  it("reads Hug from an auto-layout container with no authored height", () => {
+    // The bridge reports the resolved pixel height even when the source has
+    // no height declaration. For a flex container that is the source's
+    // intrinsic sizing intent, so the inspector must not relabel it Fixed.
+    const element = makeElement({
+      isFlexContainer: true,
+      computedStyles: {
+        display: "flex",
+        width: "180px",
+        height: "38.8px",
+      },
+      inlineStyles: { width: "fit-content" },
+      authoredSizeStyles: { width: "fit-content", height: "auto" },
+    });
+    expect(inferElementSizing(element, "vertical")).toBe("hug");
+  });
+
+  it("does not infer Hug from a resolved px size when native evidence is absent", () => {
+    const element = makeElement({
+      isFlexContainer: true,
+      computedStyles: { height: "38.8px" },
+      inlineStyles: {},
+    });
+    expect(inferElementSizing(element, "vertical")).toBe("fixed");
+  });
+
+  it("keeps stylesheet-sized containers fixed when the authored snapshot has no inline value", () => {
+    const element = makeElement({
+      isGridContainer: true,
+      computedStyles: { width: "240px" },
+      inlineStyles: {},
+      authoredSizeStyles: {},
+    });
+    expect(inferElementSizing(element, "horizontal")).toBe("fixed");
+  });
+
+  it("keeps a non-container with no authored height conservative", () => {
+    const element = makeElement({
+      computedStyles: { height: "38.8px" },
+      inlineStyles: {},
+    });
+    expect(inferElementSizing(element, "vertical")).toBe("fixed");
   });
 
   it("reads a stretch child of a row parent as filling the cross axis", () => {

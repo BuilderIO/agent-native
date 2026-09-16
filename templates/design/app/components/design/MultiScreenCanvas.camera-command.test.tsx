@@ -60,12 +60,18 @@ describe("MultiScreenCanvas camera command delivery", () => {
 
   const renderCanvas = async (
     cameraCommand: NonNullable<MultiScreenCanvasProps["cameraCommand"]>,
+    options: {
+      screens?: MultiScreenCanvasProps["screens"];
+      selectedScreenIds?: string[];
+      zoom?: number;
+    } = {},
   ) => {
     await act(async () => {
       root.render(
         <MultiScreenCanvas
-          screens={[]}
-          zoom={100}
+          screens={options.screens ?? []}
+          selectedScreenIds={options.selectedScreenIds}
+          zoom={options.zoom ?? 100}
           onPick={() => {}}
           cameraCommand={cameraCommand}
         />,
@@ -145,6 +151,86 @@ describe("MultiScreenCanvas camera command delivery", () => {
     expect(
       Number.parseFloat(world!.style.getPropertyValue("--an-chrome-scale")),
     ).toBeCloseTo(1 / worldScale, 10);
+  });
+
+  it("does not let a screen rerender restore the stale controlled zoom during a pending fit", async () => {
+    const fitBounds = {
+      left: 0,
+      top: 0,
+      right: 700,
+      bottom: 500,
+      width: 700,
+      height: 500,
+      centerX: 350,
+      centerY: 250,
+    };
+    const cameraCommand = { fitBounds, nonce: 1 };
+    const newScreen = {
+      id: "new-screen.html",
+      filename: "new-screen.html",
+      content: "<body></body>",
+    };
+    await renderCanvas(cameraCommand, { zoom: 240 });
+    measurable = true;
+    await waitForAnimationFrame();
+
+    const expected = getCameraForBounds(
+      fitBounds,
+      { width: 800, height: 600 },
+      { paddingScreenPx: 64, canvasPadding: SURFACE_PADDING },
+    );
+    const world = container.querySelector<HTMLElement>(
+      "[data-multi-screen-canvas-world]",
+    );
+    expect(world?.style.transform).toContain(`scale(${expected.zoom / 100})`);
+
+    // The screen/selection update happens before the 120ms controlled zoom
+    // commit. The controlled prop is intentionally still the old 240 value.
+    await renderCanvas(cameraCommand, {
+      screens: [newScreen],
+      selectedScreenIds: [newScreen.id],
+      zoom: 240,
+    });
+
+    expect(world?.style.transform).toContain(`scale(${expected.zoom / 100})`);
+  });
+
+  it("keeps the overview surface clipped without taking ownership of preview scrolling", async () => {
+    await renderCanvas({
+      fitBounds: {
+        left: 0,
+        top: 0,
+        right: 100,
+        bottom: 100,
+        width: 100,
+        height: 100,
+        centerX: 50,
+        centerY: 50,
+      },
+      nonce: 1,
+    });
+    const surface = container.firstElementChild as HTMLElement;
+    expect(surface.className).toContain("overflow-clip");
+    expect(surface.className).not.toContain("overflow-hidden");
+
+    const offscreenFocusable = document.createElement("button");
+    offscreenFocusable.tabIndex = 0;
+    offscreenFocusable.style.position = "absolute";
+    offscreenFocusable.style.top = "2000px";
+    surface.append(offscreenFocusable);
+    offscreenFocusable.focus();
+    expect(surface.scrollTop).toBe(0);
+
+    const previewScroller = document.createElement("div");
+    previewScroller.style.overflow = "auto";
+    Object.defineProperty(previewScroller, "scrollTop", {
+      configurable: true,
+      writable: true,
+      value: 0,
+    });
+    surface.append(previewScroller);
+    previewScroller.scrollTop = 24;
+    expect(previewScroller.scrollTop).toBe(24);
   });
 
   it("cancels a stale zero-size nonce when a newer command supersedes it", async () => {

@@ -69,9 +69,20 @@ const messages: AgentChatTranslation = {
     "Builder.io 계정을 생성하거나 재사용하는 중입니다. 보통 몇 초 정도 걸립니다.",
   "onboarding.builderConnectionDescription":
     "새 창에서 한 번의 클릭으로 연결을 완료하세요.",
+  "onboarding.builderReadyWithCodeChanges":
+    "AI 크레딧과 클라우드 코드 변경을 사용할 수 있습니다.",
+  "onboarding.builderReadyCreditsOnly":
+    "AI 크레딧을 사용할 수 있습니다. 클라우드 코드 편집에는 Background Agent 설정의 Builder 프로젝트가 필요합니다.",
+  "onboarding.openBackgroundAgentSettings": "Background Agent 설정 열기",
   "onboarding.capability.llm.keySummary": "AI 제공업체 또는 로컬 모델 연결",
   "onboarding.capability.fileStorage.keySummary":
     "Builder 스토리지 또는 S3 호환 버킷",
+  "onboarding.fileStorage.title": "파일 저장소 선택",
+  "onboarding.fileStorage.description":
+    "관리형 Builder 스토리지 또는 자체 S3 호환 버킷용 사용자 지정 스토리지 키를 선택하세요.",
+  "onboarding.fileStorage.custom": "사용자 지정 스토리지 키 사용",
+  "onboarding.fileStorage.customDescription":
+    "안정적인 공개 URL을 사용하는 S3 호환 버킷을 구성하세요.",
   "onboarding.capability.voiceInput.label": "음성 입력",
   "onboarding.capability.voiceInput.keySummary":
     "브라우저 음성 인식 또는 음성 텍스트 변환",
@@ -136,6 +147,20 @@ const messages: AgentChatTranslation = {
   "common.retry": "다시 시도",
   "common.save": "저장",
   "agents.hostedAgent": "호스팅된 에이전트",
+  "agents.provider": "제공업체",
+  "agents.providerA2A": "A2A 에이전트 (Foundry, Gemini 또는 사용자 지정)",
+  "agents.providerAnthropic": "Anthropic 관리형 에이전트",
+  "agents.agentId": "에이전트 ID",
+  "agents.agentIdPlaceholder": "agent_...",
+  "agents.environmentId": "환경 ID",
+  "agents.environmentIdPlaceholder": "env_...",
+  "agents.apiBaseUrl": "API 기본 URL (선택 사항)",
+  "agents.apiBaseUrlPlaceholder": "https://api.anthropic.com",
+  "agents.managedAgentIncomplete":
+    "Anthropic Managed Agents 필드를 입력하세요.",
+  "agents.managedAgentCheck": "채팅에서 위임하면 연결을 확인합니다.",
+  "agents.managedAgentSaved":
+    "Anthropic Managed Agent가 저장되었습니다. 채팅에서 위임하세요.",
   "agents.cardUrl": "에이전트 카드 URL",
   "agents.cardUrlPlaceholder": "https://host.example/agent-card.json",
   "agents.authType": "인증",
@@ -381,6 +406,8 @@ const messages: AgentChatTranslation = {
   "error.stopped": "에이전트가 완료 전에 중지되었습니다",
   "errorMessages.agentConnection":
     "에이전트 연결이 중단되었습니다. 연결을 확인한 후 다시 시도하세요.",
+  "errorMessages.attachmentPasswordProtected":
+    "이 PDF는 비밀번호로 보호되어 있어 읽을 수 없습니다. 비밀번호 보호를 해제하거나 관련 텍스트를 붙여넣은 후 다시 시도하세요.",
   "errorMessages.builderAuthentication":
     "Builder가 연결된 자격 증명을 거부했습니다. 설정에서 Builder.io를 다시 연결한 후 다시 시도하세요.",
   "errorMessages.builderModelUnauthorized":

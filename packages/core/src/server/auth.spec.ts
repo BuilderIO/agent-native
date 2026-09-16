@@ -15,6 +15,7 @@ import {
   SSR_CACHE_ENV_VAR,
   SSR_QUERY_CACHE_KEY_HEADER,
 } from "../shared/cache-control.js";
+import { FIRST_RUN_ONBOARDING_COOKIE } from "../shared/first-run-onboarding.js";
 import {
   PASSWORD_MAX_LENGTH,
   PASSWORD_MAX_LENGTH_MESSAGE,
@@ -8325,6 +8326,52 @@ describe("server/auth", () => {
   });
 
   describe("OAuth session creation", () => {
+    it.each([
+      { isNewUser: true, shouldSetCookie: true },
+      { isNewUser: false, shouldSetCookie: false },
+      { isNewUser: undefined, shouldSetCookie: true },
+    ])(
+      "sets first-run onboarding unless trackSignup.isNewUser is false",
+      async ({ isNewUser, shouldSetCookie }) => {
+        vi.stubEnv("NODE_ENV", "production");
+        vi.stubEnv("BETTER_AUTH_SECRET", "test-auth-secret");
+
+        const mockExecute = vi.fn(async () => ({ rows: [] }));
+        vi.doMock("../db/client.js", () => ({
+          getDbExec: () => ({ execute: mockExecute }),
+          isLocalDatabase: () => false,
+          retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        }));
+        vi.doMock("./better-auth-instance.js", () => ({
+          getAuthSecret: vi.fn(() => "test-auth-secret"),
+          getBetterAuth: vi.fn(),
+          getBetterAuthSync: vi.fn(),
+          getBetterAuthUserIdForEmail: vi.fn(async () => "better-auth-user-id"),
+          hasBetterAuthUserEmail: vi.fn(async () => false),
+          trackSignupEvent: vi.fn(async () => {}),
+        }));
+
+        const { createOAuthSession } = await import("./google-oauth.js");
+        const event = createMockEvent({
+          headers: { "x-forwarded-proto": "https" },
+        });
+
+        await createOAuthSession(event, "user@gmail.com", {
+          hasProductionSession: false,
+          trackSignup: {
+            authProvider: "google",
+            isNewUser,
+          },
+        });
+
+        const setCookie = event.res.headers.get("set-cookie") ?? "";
+        expect(setCookie.includes(`${FIRST_RUN_ONBOARDING_COOKIE}=1`)).toBe(
+          shouldSetCookie,
+        );
+      },
+      20_000,
+    );
+
     it("uses cross-site cookie attributes for HTTPS Google sign-in sessions", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("BETTER_AUTH_SECRET", "test-auth-secret");
@@ -8351,6 +8398,7 @@ describe("server/auth", () => {
       expect(setCookie).toContain(result.sessionToken);
       expect(setCookie).toContain("SameSite=None");
       expect(setCookie).toContain("Secure");
+      expect(setCookie).not.toContain(`${FIRST_RUN_ONBOARDING_COOKIE}=1`);
     });
 
     it("clears stale host-only cookies before setting a custom-domain shared session", async () => {
@@ -8404,11 +8452,15 @@ describe("server/auth", () => {
       }));
 
       const trackSignupEvent = vi.fn(async () => {});
+      const getBetterAuthUserIdForEmail = vi.fn(
+        async () => "better-auth-user-id",
+      );
       const hasBetterAuthUserEmail = vi.fn(async () => false);
       vi.doMock("./better-auth-instance.js", () => ({
         getAuthSecret: vi.fn(() => "test-auth-secret"),
         getBetterAuth: vi.fn(),
         getBetterAuthSync: vi.fn(),
+        getBetterAuthUserIdForEmail,
         hasBetterAuthUserEmail,
         trackSignupEvent,
       }));
@@ -8440,11 +8492,14 @@ describe("server/auth", () => {
       });
 
       expect(hasBetterAuthUserEmail).toHaveBeenCalledWith("user@gmail.com");
+      expect(getBetterAuthUserIdForEmail).toHaveBeenCalledWith(
+        "user@gmail.com",
+      );
       expect(trackSignupEvent).toHaveBeenCalledWith({
         authProvider: "google",
         origin: "google_oauth",
         signupMethod: "google",
-        authUserId: "google-user-1",
+        authUserId: "better-auth-user-id",
         email: "user@gmail.com",
         name: "Google User",
         attribution: {
@@ -8481,6 +8536,7 @@ describe("server/auth", () => {
         getAuthSecret: vi.fn(() => "test-auth-secret"),
         getBetterAuth: vi.fn(),
         getBetterAuthSync: vi.fn(),
+        getBetterAuthUserIdForEmail: vi.fn(async () => "better-auth-user-id"),
         hasBetterAuthUserEmail,
         trackSignupEvent,
       }));
@@ -8511,7 +8567,7 @@ describe("server/auth", () => {
         authProvider: "google",
         origin: "google_oauth",
         signupMethod: "google",
-        authUserId: "google-user-1",
+        authUserId: "better-auth-user-id",
         email: "user@gmail.com",
         name: "Google User",
         attribution: {
@@ -8546,6 +8602,7 @@ describe("server/auth", () => {
         getAuthSecret: vi.fn(() => "test-auth-secret"),
         getBetterAuth: vi.fn(),
         getBetterAuthSync: vi.fn(),
+        getBetterAuthUserIdForEmail: vi.fn(async () => "better-auth-user-id"),
         hasBetterAuthUserEmail,
         trackSignupEvent,
       }));

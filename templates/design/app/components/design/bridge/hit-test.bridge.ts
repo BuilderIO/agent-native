@@ -888,9 +888,23 @@
   ): Element | null {
     var element = elementFromEditorPoint(clientX, clientY);
     if (!element) return null;
-    var identifiedAncestor = element.closest(
-      "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[id]",
-    );
+    var identifiedAncestor: Element | null = null;
+    var current: Element | null = element;
+    while (
+      current &&
+      current !== document.body &&
+      current !== document.documentElement
+    ) {
+      if (
+        current.matches(
+          "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[id]",
+        )
+      ) {
+        identifiedAncestor = current;
+        break;
+      }
+      current = current.parentElement;
+    }
     if (
       identifiedAncestor &&
       identifiedAncestor !== document.body &&

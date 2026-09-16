@@ -35,6 +35,47 @@ import {
 } from "./react-semantic-handoff";
 import { camelStyleProperty } from "./style-utils";
 
+export interface RuntimeStructureNodeSignature {
+  tag: string;
+  text: string;
+  classes: string[];
+  component?: string;
+}
+
+export function normalizeRuntimeStructureClasses(
+  values: readonly string[],
+): string[] {
+  return Array.from(
+    new Set(values.map((value) => value.trim()).filter(Boolean)),
+  ).sort();
+}
+
+export function normalizeRuntimeStructureText(
+  value: string | null | undefined,
+): string {
+  // The code-layer projection collapses text before it reaches this matcher;
+  // keep this cap below that projection's 157-character snippet ceiling.
+  return value?.replace(/\s+/g, " ").trim().slice(0, 120) ?? "";
+}
+
+export function runtimeStructureNodeSignature(args: {
+  info?: Pick<
+    ElementInfo,
+    "tagName" | "textContent" | "classes" | "componentName"
+  > | null;
+  sourceAnchor?: ReactSourceAnchor;
+}): RuntimeStructureNodeSignature | undefined {
+  if (!args.info?.tagName) return undefined;
+  const component =
+    args.sourceAnchor?.component?.trim() || args.info.componentName?.trim();
+  return {
+    tag: args.info.tagName.trim().toLowerCase(),
+    text: normalizeRuntimeStructureText(args.info.textContent),
+    classes: normalizeRuntimeStructureClasses(args.info.classes),
+    ...(component ? { component } : {}),
+  };
+}
+
 export interface PendingVisualStyleEdit {
   screenId: string;
   filename: string;
@@ -253,9 +294,11 @@ export interface PendingLiveStructureEdit {
   selector: string;
   sourceId?: string | null;
   sourceAnchor?: ReactSourceAnchor;
+  subjectSignature?: RuntimeStructureNodeSignature;
   anchorSelector: string;
   anchorSourceId?: string | null;
   anchorSourceAnchor?: ReactSourceAnchor;
+  anchorSignature?: RuntimeStructureNodeSignature;
   /**
    * Project-relative route module reported by the localhost manifest. A
    * top-level canvas insert targets the live document body, which intentionally
@@ -282,6 +325,7 @@ export interface PendingLiveStructureEdit {
   /** Runtime identity of the optimistic replacement used for verification. */
   replacementSelector?: string;
   replacementSourceId?: string | null;
+  replacementSignature?: RuntimeStructureNodeSignature;
   /**
    * This edit DELETED the subject from the running app. A removal has no
    * anchor — `anchorSelector`/`placement` carry no meaning for it — so every
@@ -666,11 +710,12 @@ export function pendingStructureEditSourcePaths(
   const required = [
     ...(edit.insertedHtml && !edit.replaced
       ? []
-      : [edit.sourceAnchor?.relPath]),
+      : [edit.sourceAnchor?.relPath ?? edit.sourceAnchor?.ownerRelPath]),
     ...(edit.removed || edit.replaced
       ? []
       : [
           edit.anchorSourceAnchor?.relPath ??
+            edit.anchorSourceAnchor?.ownerRelPath ??
             (edit.insertedHtml ? edit.routeSourceFile : undefined),
         ]),
   ];
@@ -981,6 +1026,9 @@ export function formatPendingVisualStylePrompt(args: {
   /** Screen id → the route it renders, for naming screens the way the app does. */
   screenRoutes?: Readonly<Record<string, string>>;
 }): string {
+  if (args.edits.length === 0 && (args.liveEdits?.length ?? 0) === 0) {
+    return "";
+  }
   const codingAgent = args.audience === "coding-agent";
   const nameScreen = (screenId: string, filename: string) =>
     (codingAgent ? args.screenRoutes?.[screenId] : undefined) ?? filename;
@@ -1202,6 +1250,9 @@ export function formatPendingVisualStylePrompt(args: {
       selector: edit.selector,
       sourceId: edit.sourceId ?? null,
       sourceAnchor: redactReactSourceAnchor(edit.sourceAnchor),
+      ...(edit.subjectSignature
+        ? { subjectSignature: edit.subjectSignature }
+        : {}),
       // A removal has no anchor; emitting empty anchor fields alongside a
       // meaningless placement reads as a half-captured move.
       ...(edit.removed || edit.replaced
@@ -1211,6 +1262,9 @@ export function formatPendingVisualStylePrompt(args: {
               replaced: true as const,
               replacementSelector: edit.replacementSelector,
               replacementSourceId: edit.replacementSourceId ?? null,
+              ...(edit.replacementSignature
+                ? { replacementSignature: edit.replacementSignature }
+                : {}),
             }
         : {
             anchorSelector: edit.anchorSelector,
@@ -1218,6 +1272,9 @@ export function formatPendingVisualStylePrompt(args: {
             anchorSourceAnchor: redactReactSourceAnchor(
               edit.anchorSourceAnchor,
             ),
+            ...(edit.anchorSignature
+              ? { anchorSignature: edit.anchorSignature }
+              : {}),
             placement: edit.placement,
           }),
       ...(edit.dropMode ? { dropMode: edit.dropMode } : {}),
@@ -1266,6 +1323,10 @@ export function formatPendingVisualStylePrompt(args: {
       : "",
     hasReactSourceAnchors && !codingAgent
       ? "React sourceAnchor fields are source provenance; runtime source ids and selectors are correlation hints only. For a single-instance leaf text, literal className/class, or flat literal style-object edit, call apply-visual-edit with source.kind=local-file plus designId, connectionId, the verified project-relative path, and target.sourceAnchor. First omit persist and inspect proposedDiff; then retry with persist=true only when the diff matches the preview. That write still requires human localhost consent and exact version-hash concurrency. Verify every file, line, column, component, and surrounding control flow before editing. Never use a generic AST reparent, group, wrapper, breakpoint, dynamic expression, repeated render, or shared component transform through this path. For semantic structure edits, follow the embedded semanticHandoff packet and use this exact guarded sequence: read-local-file, capture its versionHash, obtain human write consent, write-local-file with expectedVersionHash and requireExpectedVersionHash: true, then keep the preview pending until HMR proves the intended runtime relationship. On a version conflict, re-read and re-plan; never overwrite blindly."
+      : "",
+    codingAgent &&
+    (args.liveEdits ?? []).some((edit) => edit.kind === "structure")
+      ? "Design verifies each structure edit via HMR as you write; write file-by-file rather than one final batch write."
       : "",
     hasRepeatedOrSharedReactScope
       ? "At least one React anchor is repeated at runtime or resolves to a shared component definition. Inspect map/conditional/component call sites and confirm whether the change should affect one instance or every instance before writing source."

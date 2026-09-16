@@ -336,7 +336,9 @@ export default defineAction({
         title: rec.title,
         description: rec.description,
         thumbnailUrl: resolvePlayerThumbnailUrl(rec),
-        animatedThumbnailUrl: rec.animatedThumbnailUrl,
+        animatedThumbnailUrl: rec.animatedThumbnailUrl
+          ? resolvePlayerThumbnailUrl(rec, { animated: true })
+          : null,
         filmstripUrl: rec.filmstripUrl ?? null,
         filmstripFrameCount: rec.filmstripFrameCount ?? 0,
         filmstripColumns: rec.filmstripColumns ?? 0,

@@ -336,6 +336,9 @@ export function createAgentEngineApiKeyHandler() {
         setResponseStatus(event, keyValidation.statusCode);
         return { error: keyValidation.error };
       }
+    }
+
+    if (payload.value) {
       await writeAppSecret({
         key: payload.key,
         value: payload.value,
@@ -367,6 +370,49 @@ export function createAgentEngineApiKeyHandler() {
         scope: resolved.target.scope,
         scopeId: resolved.target.scopeId,
       });
+    }
+
+    // Organization keys are the only keys the framework UI creates now. Clear
+    // a legacy personal row after the organization write succeeds, otherwise
+    // the resolver's user-first precedence would keep silently shadowing it.
+    if (resolved.target.scope === "org") {
+      let session: Awaited<ReturnType<typeof getSession>> | null = null;
+      try {
+        session = await getSession(event);
+      } catch (error) {
+        console.warn(
+          "[agent-engine] could not read session for legacy-key cleanup",
+          error,
+        );
+      }
+      if (!session?.email) {
+        setResponseStatus(event, 503);
+        return {
+          ok: false,
+          error:
+            "Organization key saved, but the legacy personal key could not be cleared. Retry this save before using the organization key.",
+        };
+      }
+
+      const personalKeys = new Set([payload.key]);
+      if (payload.key === OPENAI_PROVIDER_KEY) {
+        personalKeys.add(OPENAI_BASE_URL_ENV_VAR);
+      }
+      if (payload.key === OPENAI_BASE_URL_ENV_VAR) {
+        personalKeys.add(OPENAI_PROVIDER_KEY);
+      }
+      if (payload.key === OLLAMA_BASE_URL_ENV_VAR) {
+        personalKeys.add(OLLAMA_BASE_URL_ENV_VAR);
+      }
+      await Promise.all(
+        [...personalKeys].map((key) =>
+          deleteAppSecret({
+            key,
+            scope: "user",
+            scopeId: session.email,
+          }),
+        ),
+      );
     }
 
     return {

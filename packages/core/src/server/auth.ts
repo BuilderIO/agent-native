@@ -30,6 +30,8 @@ import {
   MCP_EMBED_CORS_ALLOW_HEADERS,
   shouldAllowMcpEmbedCredentials,
 } from "../shared/mcp-embed-headers.js";
+import { readDevActionDiscoveryFile } from "./dev-action-discovery.js";
+import { devLoopbackAuthHint } from "./dev-origin-hint.js";
 import {
   isEmbedCapabilityScope,
   requestHasEmbedAuthMarker,
@@ -4042,6 +4044,23 @@ function createAuthGuardFn(
 
     if (p.startsWith("/api/") || p.startsWith("/_agent-native/")) {
       setResponseStatus(event, 401);
+      // Dev-only breadcrumb for the loopback origin-label trap: the session
+      // cookie is host-scoped, so a session minted on the printed origin
+      // (localhost) never reaches the other loopback label, and every
+      // /_agent-native/* call 401s silently until the app redirects to
+      // sign-in. Non-dev and non-loopback requests keep the bare 401.
+      if (
+        p.startsWith("/_agent-native/") &&
+        isDevEnvironment() &&
+        isLoopbackRequest(event)
+      ) {
+        const hint = devLoopbackAuthHint(
+          event,
+          readDevActionDiscoveryFile(process.cwd())?.origin,
+        );
+        setResponseHeader(event, "x-agent-native-dev-auth-hint", hint);
+        return { error: "Unauthorized", hint };
+      }
       return { error: "Unauthorized" };
     }
 
@@ -4675,7 +4694,7 @@ function desktopOAuthBrowserBindingCookieAttrs(event: H3Event): {
     : { sameSite: "lax", secure: false };
 }
 
-function setFirstRunOnboardingCookie(event: H3Event): void {
+export function setFirstRunOnboardingCookie(event: H3Event): void {
   setCookie(event, FIRST_RUN_ONBOARDING_COOKIE, "1", {
     ...crossSiteCookieAttrs(event),
     ...cookieDomainAttrs(),
@@ -5272,9 +5291,6 @@ async function mountBetterAuthRoutes(
             name: typeof user.name === "string" ? user.name : undefined,
             image: typeof user.picture === "string" ? user.picture : undefined,
           });
-          if (isNewGoogleUser === true) {
-            setFirstRunOnboardingCookie(event);
-          }
           if (isGoogleProfileImageUrl(user.picture)) {
             await putSetting(`avatar:${email}`, {
               image: user.picture.trim(),
@@ -5296,7 +5312,7 @@ async function mountBetterAuthRoutes(
               // panels, which is always a Better Auth id — the Google profile
               // id that used to go here joined to nothing. Only looked up when
               // the event will actually be emitted.
-              authUserId: isNewGoogleUser
+              canonicalAuthUserId: isNewGoogleUser
                 ? await getBetterAuthUserIdForEmail(email)
                 : undefined,
               name: typeof user.name === "string" ? user.name : undefined,

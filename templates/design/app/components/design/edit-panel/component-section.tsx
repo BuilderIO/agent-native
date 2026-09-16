@@ -8,11 +8,20 @@ import {
   useBuilderConnectFlow,
 } from "@agent-native/core/client/settings";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
-import type { CodeLayerNode, CodeLayerProjection } from "@shared/code-layer";
+import {
+  buildCodeLayerProjection,
+  type CodeLayerNode,
+  type CodeLayerProjection,
+} from "@shared/code-layer";
+import {
+  COMPONENT_ARCHIVE_ATTR,
+  readComponentArchivePointer,
+} from "@shared/component-archive";
 import {
   COMPONENT_ID_ATTR,
   COMPONENT_OVERRIDES_ATTR,
   COMPONENT_REF_ATTR,
+  componentNodeIdMatches,
   propNameToDataAttribute,
 } from "@shared/component-model";
 import {
@@ -26,7 +35,7 @@ import {
   IconUnlink,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -51,6 +60,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
+import { findCanvasIframeForScreen } from "../multi-screen/iframe-targeting";
 import {
   canRebuildAlpineDataLosslessly,
   isBooleanPropValue,
@@ -298,6 +308,8 @@ interface ComponentDetailsResult {
   nodeId: string;
   name: string;
   sourceType: string;
+  isMain?: boolean;
+  canRestore?: boolean;
   observedProps: Array<{ name: string; value: string }>;
   persistedVariants: Record<string, string[]>;
   sourceLocation?: { filePath: string; exportName?: string } | null;
@@ -509,6 +521,8 @@ export function isMessageFromOwnPreviewIframe(
 export function ComponentSection({
   designId,
   fileId,
+  boardFileId,
+  previewFrameId,
   activeContent,
   activeFileUpdatedAt,
   componentDetailsReady = true,
@@ -516,11 +530,16 @@ export function ComponentSection({
   swapPickerRequest = 0,
   hasLocalOverrides = false,
   onResetOverrides,
+  onRestoreComponent,
   onComponentPropApplied,
   sourceCapabilities = [],
 }: {
   designId: string;
   fileId?: string;
+  /** Reserved board file id for the dedicated board preview iframe. */
+  boardFileId?: string;
+  /** Host iframe id for live prop previews when several frames are mounted. */
+  previewFrameId?: string;
   activeContent?: string;
   activeFileUpdatedAt?: string | null;
   /** Whether the selected component is present in the accepted source snapshot. */
@@ -532,6 +551,8 @@ export function ComponentSection({
   hasLocalOverrides?: boolean;
   /** Reset the selected linked instance through the editor's mutation queue. */
   onResetOverrides?: () => void;
+  /** Restore the selected linked component through the editor's mutation queue. */
+  onRestoreComponent?: () => void;
   onComponentPropApplied?: (
     fileId: string,
     content: string,
@@ -567,6 +588,31 @@ export function ComponentSection({
       detailsParams,
       { refetchOnMount: "always", enabled: componentDetailsReady },
     );
+  const sourceRestoreState = useMemo<
+    "unreadable" | "absent" | "invalid" | "valid"
+  >(() => {
+    if (typeof activeContent !== "string") return "unreadable";
+    try {
+      const node = buildCodeLayerProjection(activeContent, {
+        source: {
+          kind: "design-file",
+          designId,
+          ...(fileId ? { fileId } : {}),
+        },
+      }).nodes.find((candidate) => componentNodeIdMatches(candidate, nodeId));
+      if (!node) return "absent";
+      const componentRef = node.dataAttributes[COMPONENT_REF_ATTR]?.trim();
+      if (!componentRef) return "absent";
+      const archive = readComponentArchivePointer(
+        node.dataAttributes[COMPONENT_ARCHIVE_ATTR],
+      );
+      if (archive.status === "absent") return "absent";
+      if (archive.status === "invalid") return "invalid";
+      return archive.pointer.componentId === componentRef ? "valid" : "invalid";
+    } catch {
+      return "unreadable";
+    }
+  }, [activeContent, designId, fileId, nodeId]);
 
   const openSourceMutation = useActionMutation("open-component-source");
   const applyPropMutation = useActionMutation("apply-component-prop-edit");
@@ -721,8 +767,12 @@ export function ComponentSection({
     (attribute: string, value: string) => {
       if (typeof document === "undefined") return;
 
-      const iframe = document.querySelector<HTMLIFrameElement>(
-        "iframe[data-design-preview-iframe]",
+      const targetFrameId = previewFrameId ?? fileId;
+      if (!targetFrameId) return;
+      const iframe = findCanvasIframeForScreen(
+        document.body,
+        targetFrameId,
+        boardFileId,
       );
       iframe?.contentWindow?.postMessage(
         {
@@ -734,7 +784,14 @@ export function ComponentSection({
         "*",
       );
     },
-    [data?.instance?.nodeId, data?.instance?.selector, nodeId],
+    [
+      data?.instance?.nodeId,
+      data?.instance?.selector,
+      boardFileId,
+      fileId,
+      nodeId,
+      previewFrameId,
+    ],
   );
 
   // Persist a single prop change through apply-component-prop-edit. Attribute
@@ -861,7 +918,12 @@ export function ComponentSection({
     persistedVariants,
     instance,
     capabilities,
+    canRestore: serverCanRestore,
   } = data;
+  const canRestore =
+    sourceRestoreState === "unreadable"
+      ? serverCanRestore
+      : sourceRestoreState === "valid";
 
   // ── Editable prop model ───────────────────────────────────────────────────
   // Inline/Alpine designs persist through apply-component-prop-edit. Two write
@@ -988,7 +1050,7 @@ export function ComponentSection({
             designs only — the underlying actions fail closed for real-app
             sources, so hide them entirely there rather than show a
             perpetually-disabled button. */}
-              {isInline && (
+              {isInline && !data.isMain && (
                 <>
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -997,17 +1059,35 @@ export function ComponentSection({
                         variant="ghost"
                         size="icon"
                         className="size-6 rounded-md text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-                        disabled={goToMainMutation.isPending}
+                        disabled={
+                          canRestore
+                            ? !onRestoreComponent
+                            : goToMainMutation.isPending
+                        }
                         aria-label={t(
-                          "designEditor.componentInstances.goToMain",
+                          canRestore
+                            ? "designEditor.componentInstances.restore"
+                            : "designEditor.componentInstances.goToMain",
                         )}
-                        onClick={handleGoToMainComponent}
+                        onClick={
+                          canRestore
+                            ? onRestoreComponent
+                            : handleGoToMainComponent
+                        }
                       >
-                        <IconComponents className="size-3.5" />
+                        {canRestore ? (
+                          <IconRefresh className="size-3.5" />
+                        ) : (
+                          <IconComponents className="size-3.5" />
+                        )}
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>
-                      {t("designEditor.componentInstances.goToMain")}
+                      {t(
+                        canRestore
+                          ? "designEditor.componentInstances.restore"
+                          : "designEditor.componentInstances.goToMain",
+                      )}
                     </TooltipContent>
                   </Tooltip>
 

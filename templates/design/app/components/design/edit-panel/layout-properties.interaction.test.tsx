@@ -22,12 +22,13 @@ import {
 } from "./layout-properties";
 
 describe("LayoutContextProperties interactions", () => {
-  it("commits Grid atomically while preserving authored custom tracks", async () => {
+  it("re-clicking Grid on an existing grid invokes no command at all, preserving authored custom tracks untouched", async () => {
     const container = document.createElement("div");
     document.body.append(container);
     const root = createRoot(container);
     const onStyleChange = vi.fn();
     const onStylesChange = vi.fn();
+    const onApplyLayoutFlow = vi.fn().mockReturnValue("applied");
     const customColumns = "96px 1fr minmax(80px, 2fr)";
     const customRows = "repeat(2, max-content)";
     const element = {
@@ -62,6 +63,7 @@ describe("LayoutContextProperties interactions", () => {
           element={element}
           onStyleChange={onStyleChange}
           onStylesChange={onStylesChange}
+          onApplyLayoutFlow={onApplyLayoutFlow}
         />,
       );
     });
@@ -71,14 +73,298 @@ describe("LayoutContextProperties interactions", () => {
     );
     expect(gridButton?.getAttribute("aria-pressed")).toBe("true");
     await act(async () => gridButton?.click());
-    expect(onStylesChange).toHaveBeenCalledOnce();
-    expect(onStylesChange).toHaveBeenCalledWith({
-      display: "grid",
-      gridTemplateColumns: customColumns,
-      gridTemplateRows: customRows,
-      gridAutoFlow: "row",
-    });
+    // The element is already a grid (isGridContainer) — re-committing Grid
+    // is a pure no-op at the UI level: an EMPTY patch is not itself a safe
+    // no-op to hand to a command (apply-layout-flow forwards it to
+    // applyVisualEdit, and the code-layer patcher treats an empty style
+    // declaration as unresolvable, surfacing an error toast), so the
+    // handler must return before invoking onApplyLayoutFlow, onStylesChange,
+    // or onStyleChange at all — leaving the authored custom tracks
+    // completely untouched.
+    expect(onApplyLayoutFlow).not.toHaveBeenCalled();
+    expect(onStylesChange).not.toHaveBeenCalled();
     expect(onStyleChange).not.toHaveBeenCalled();
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it("disables the Columns field for an unknown-sizing axis, enables it once inline-authored", async () => {
+    const renderGrid = async (inlineStyles: Record<string, string>) => {
+      const container = document.createElement("div");
+      document.body.append(container);
+      const root = createRoot(container);
+      const element = {
+        tagName: "div",
+        classes: [],
+        computedStyles: {
+          display: "grid",
+          gridTemplateColumns: "80px 80px",
+          gridTemplateRows: "40px",
+          columnGap: "0px",
+          rowGap: "0px",
+          width: "160px",
+          height: "40px",
+        },
+        inlineStyles,
+        boundingRect: { x: 0, y: 0, width: 160, height: 40 },
+        isFlexChild: false,
+        isFlexContainer: false,
+        isGridContainer: true,
+        childElementCount: 2,
+        sourceId: "grid-2",
+      } as ElementInfo;
+
+      await act(async () => {
+        root.render(
+          <LayoutContextProperties element={element} onStyleChange={vi.fn()} />,
+        );
+      });
+
+      const settingsButton = container.querySelector<HTMLButtonElement>(
+        'button[aria-label="Grid settings"]',
+      );
+      await act(async () => settingsButton?.click());
+      const columnsInput = document.querySelector<HTMLInputElement>(
+        'input[aria-label="Columns"]',
+      );
+      const disabled = columnsInput?.disabled;
+
+      await act(async () => root.unmount());
+      container.remove();
+      return disabled;
+    };
+
+    // No inline columns template: sizing is unknown off a computed "grid".
+    expect(await renderGrid({})).toBe(true);
+    // Inline-authored columns: sizing is known, field re-enables.
+    expect(
+      await renderGrid({ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }),
+    ).toBe(false);
+  });
+
+  it("disables the Columns field for a known non-uniform inline template", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const element = {
+      tagName: "div",
+      classes: [],
+      computedStyles: {
+        display: "grid",
+        gridTemplateColumns: "96px 180px 180px",
+        gridTemplateRows: "24px",
+        columnGap: "0px",
+        rowGap: "0px",
+        width: "480px",
+        height: "40px",
+      },
+      inlineStyles: {
+        gridTemplateColumns: "96px 1fr minmax(0, 200px)",
+      },
+      boundingRect: { x: 0, y: 0, width: 480, height: 40 },
+      isFlexChild: false,
+      isFlexContainer: false,
+      isGridContainer: true,
+      childElementCount: 3,
+      sourceId: "grid-custom",
+    } as ElementInfo;
+
+    await act(async () => {
+      root.render(
+        <LayoutContextProperties element={element} onStyleChange={vi.fn()} />,
+      );
+    });
+
+    const settingsButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Grid settings"]',
+    );
+    await act(async () => settingsButton?.click());
+
+    // Known (inline-authored) but non-uniform — there is no count-preserving
+    // write to make (see gridTemplatePatchForChange's "custom" skip), so the
+    // count field stays disabled even though sizing is known, not unknown.
+    const columnsInput = document.querySelector<HTMLInputElement>(
+      'input[aria-label="Columns"]',
+    );
+    expect(columnsInput?.disabled).toBe(true);
+    // The sizing picker is the recovery path and stays enabled.
+    const columnSizingButton = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="Column sizing"]',
+    );
+    expect(columnSizingButton?.disabled).toBe(false);
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it("disables Columns and Column sizing for a mixed multi-selection axis, shows the Mixed placeholder", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    // Shaped like mixedElementFromSelection's output for a multi-selection
+    // whose elements have differing gridTemplateColumns: the MIXED_VALUE
+    // sentinel lands in inlineStyles, not a real template.
+    const element = {
+      tagName: "div",
+      classes: [],
+      computedStyles: {
+        display: "grid",
+        gridTemplateColumns: "80px 80px",
+        gridTemplateRows: "repeat(2, max-content)",
+        columnGap: "0px",
+        rowGap: "0px",
+        width: "160px",
+        height: "80px",
+      },
+      inlineStyles: {
+        gridTemplateColumns: "Mixed",
+        gridTemplateRows: "repeat(2, max-content)",
+      },
+      boundingRect: { x: 0, y: 0, width: 160, height: 80 },
+      isFlexChild: false,
+      isFlexContainer: false,
+      isGridContainer: true,
+      childElementCount: 2,
+      sourceId: "grid-mixed",
+    } as ElementInfo;
+
+    await act(async () => {
+      root.render(
+        <LayoutContextProperties element={element} onStyleChange={vi.fn()} />,
+      );
+    });
+
+    // The track matrix is visible without opening the popover — every cell
+    // must be unreachable by keyboard/click while the axis is unknown.
+    const cellButtons = Array.from(
+      container.querySelectorAll<HTMLButtonElement>('button[aria-label*="×"]'),
+    );
+    expect(cellButtons.length).toBeGreaterThan(0);
+    expect(cellButtons.every((button) => button.disabled)).toBe(true);
+
+    const settingsButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Grid settings"]',
+    );
+    await act(async () => settingsButton?.click());
+
+    const columnsInput = document.querySelector<HTMLInputElement>(
+      'input[aria-label="Columns"]',
+    );
+    expect(columnsInput?.disabled).toBe(true);
+    expect(columnsInput?.value).toBe("Mixed");
+
+    const columnSizingButton = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="Column sizing"]',
+    );
+    expect(columnSizingButton?.disabled).toBe(true);
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it("resolves flow to grid, not mixed, when every element is a grid even if unrelated computed properties differ", async () => {
+    // Regression: a multi-selection where every element is a grid
+    // (isGridContainer aggregated true) with byte-identical INLINE
+    // templates still hid the entire Grid settings section, because
+    // flowMixed independently re-checked display/flexDirection/flexWrap for
+    // the MIXED_VALUE sentinel without isGrid's isGridContainer fallback —
+    // so a differing COMPUTED template (same authored template at
+    // different widths) or a stale, layout-irrelevant flexDirection/
+    // flexWrap disagreement (from before one element was converted to
+    // grid) alone hid the Grid controls even though isGrid already
+    // correctly resolved "every element is a grid".
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const element = {
+      tagName: "div",
+      classes: [],
+      computedStyles: {
+        display: "grid",
+        flexDirection: "Mixed",
+        flexWrap: "Mixed",
+        gridTemplateColumns: "Mixed",
+        gridTemplateRows: "Mixed",
+        columnGap: "0px",
+        rowGap: "0px",
+        width: "160px",
+        height: "80px",
+      },
+      inlineStyles: {
+        gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+        gridTemplateRows: "repeat(1, max-content)",
+      },
+      boundingRect: { x: 0, y: 0, width: 160, height: 80 },
+      isFlexChild: false,
+      isFlexContainer: false,
+      isGridContainer: true,
+      childElementCount: 4,
+      sourceId: "merged-grid",
+    } as ElementInfo;
+
+    await act(async () => {
+      root.render(
+        <LayoutContextProperties element={element} onStyleChange={vi.fn()} />,
+      );
+    });
+
+    const flowRow = container.querySelector("[data-flow-value]");
+    expect(flowRow?.getAttribute("data-flow-value")).toBe("grid");
+    expect(container.textContent).not.toContain("Mixed");
+
+    const settingsButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Grid settings"]',
+    );
+    expect(settingsButton).not.toBeNull();
+    await act(async () => settingsButton?.click());
+    const columnsInput = document.querySelector<HTMLInputElement>(
+      'input[aria-label="Columns"]',
+    );
+    expect(columnsInput?.disabled).toBe(false);
+    expect(columnsInput?.value).toBe("2");
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it("still reports flow as mixed for a genuine flex/grid multi-selection", async () => {
+    // Not every Mixed display is a grid selection in disguise: when
+    // isGridContainer itself is not uniformly true (mixedElementFromSelection's
+    // .every() only returns true when EVERY element is a grid container),
+    // a differing display must still read as a mixed flow.
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const element = {
+      tagName: "div",
+      classes: [],
+      computedStyles: {
+        display: "Mixed",
+        flexDirection: "row",
+        flexWrap: "nowrap",
+        width: "160px",
+        height: "80px",
+      },
+      inlineStyles: {},
+      boundingRect: { x: 0, y: 0, width: 160, height: 80 },
+      isFlexChild: false,
+      isFlexContainer: false,
+      childElementCount: 2,
+      sourceId: "merged-flex-grid",
+    } as ElementInfo;
+
+    await act(async () => {
+      root.render(
+        <LayoutContextProperties element={element} onStyleChange={vi.fn()} />,
+      );
+    });
+
+    const flowRow = container.querySelector("[data-flow-value]");
+    expect(flowRow?.getAttribute("data-flow-value")).toBe("mixed");
+    expect(
+      container.querySelector('button[aria-label="Grid settings"]'),
+    ).toBeNull();
 
     await act(async () => root.unmount());
     container.remove();

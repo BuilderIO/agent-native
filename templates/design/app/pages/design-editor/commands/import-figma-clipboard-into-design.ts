@@ -113,7 +113,13 @@ export async function runImportFigmaClipboardIntoDesign(
         description: remainingWarnings[0],
       });
     }
-    void navigate(`/design/${result?.designId ?? id}?view=overview`);
+    const overviewPath = `/design/${result?.designId ?? id}?view=overview`;
+    const firstImportedFileId = result.files[0]?.id;
+    void navigate(
+      firstImportedFileId
+        ? `${overviewPath}&screen=${encodeURIComponent(firstImportedFileId)}`
+        : overviewPath,
+    );
   } catch (error) {
     toast.error(t("designEditor.import.errors.figmaPasteFailed"), {
       description:

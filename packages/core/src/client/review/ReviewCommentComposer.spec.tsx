@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { act } from "react";
+import { useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -84,5 +85,121 @@ describe("ReviewCommentComposer actions", () => {
     expect(onSubmit).toHaveBeenCalledTimes(2);
     expect(onSubmit).toHaveBeenNthCalledWith(1, "agent");
     expect(onSubmit).toHaveBeenNthCalledWith(2, "agent");
+  });
+
+  it("replaces the full typed mention token", () => {
+    let submittedMentions: unknown;
+    const mention = { label: "Alice", email: "alice@example.com" };
+    const otherMention = { label: "Bob", email: "bob@example.com" };
+    function Harness() {
+      const [value, setValue] = useState("");
+      const [mentions, setMentions] = useState([mention]);
+      return (
+        <ReviewCommentComposer
+          value={value}
+          onChange={setValue}
+          onSubmit={() => {
+            submittedMentions = mentions;
+          }}
+          mentions={mentions}
+          onMentionsChange={setMentions}
+          mentionOptions={[mention, otherMention]}
+          showCommentTools
+        />
+      );
+    }
+
+    act(() => root.render(<Harness />));
+    const textarea = container.querySelector<HTMLTextAreaElement>("textarea");
+    expect(textarea).toBeTruthy();
+    act(() => {
+      textarea!.setSelectionRange(0, 0);
+      textarea!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "@", bubbles: true }),
+      );
+    });
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(
+        Object.getPrototypeOf(textarea!),
+        "value",
+      )?.set;
+      setter?.call(textarea, "@ali");
+      textarea!.setSelectionRange(4, 4);
+      textarea!.dispatchEvent(new Event("input", { bubbles: true }));
+      textarea!.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    const alice = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent?.includes("Alice"));
+    expect(
+      Array.from(
+        document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+      ).some((item) => item.textContent?.includes("Bob")),
+    ).toBe(false);
+    expect(alice).toBeTruthy();
+    act(() => alice?.click());
+
+    expect(textarea!.value).toBe("@Alice");
+    const submit = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Comment"),
+    );
+    act(() => submit?.click());
+    expect(submittedMentions).toEqual([mention]);
+  });
+
+  it("drops a replaced mention from submitted metadata", () => {
+    let submittedMentions: unknown;
+    const alice = { label: "Alice", email: "alice@example.com" };
+    const bob = { label: "Bob", email: "bob@example.com" };
+    function Harness() {
+      const [value, setValue] = useState("@Alice");
+      const [mentions, setMentions] = useState([alice]);
+      return (
+        <ReviewCommentComposer
+          value={value}
+          onChange={setValue}
+          onSubmit={() => {
+            submittedMentions = mentions;
+          }}
+          mentions={mentions}
+          onMentionsChange={setMentions}
+          mentionOptions={[alice, bob]}
+          showCommentTools
+        />
+      );
+    }
+
+    act(() => root.render(<Harness />));
+    const textarea = container.querySelector<HTMLTextAreaElement>("textarea");
+    expect(textarea).toBeTruthy();
+    act(() => {
+      textarea!.setSelectionRange(0, 6);
+      textarea!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "@", bubbles: true }),
+      );
+    });
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(
+        Object.getPrototypeOf(textarea!),
+        "value",
+      )?.set;
+      setter?.call(textarea, "@bo");
+      textarea!.setSelectionRange(3, 3);
+      textarea!.dispatchEvent(new Event("input", { bubbles: true }));
+      textarea!.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    const bobOption = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent?.includes("Bob"));
+    expect(bobOption).toBeTruthy();
+    act(() => bobOption?.click());
+
+    const submit = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Comment"),
+    );
+    act(() => submit?.click());
+    expect(submittedMentions).toEqual([bob]);
   });
 });

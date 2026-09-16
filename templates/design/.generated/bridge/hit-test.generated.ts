@@ -552,9 +552,17 @@ export const hitTestBridgeScript: string = `"use strict";
     function reviewAnchorElementAtPoint(clientX, clientY) {
       var element = elementFromEditorPoint(clientX, clientY);
       if (!element) return null;
-      var identifiedAncestor = element.closest(
-        "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[id]"
-      );
+      var identifiedAncestor = null;
+      var current = element;
+      while (current && current !== document.body && current !== document.documentElement) {
+        if (current.matches(
+          "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[id]"
+        )) {
+          identifiedAncestor = current;
+          break;
+        }
+        current = current.parentElement;
+      }
       if (identifiedAncestor && identifiedAncestor !== document.body && identifiedAncestor !== document.documentElement) {
         return identifiedAncestor;
       }

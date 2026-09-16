@@ -12,6 +12,8 @@ const dbState = vi.hoisted(() => ({
   syncAccounts: [] as any[],
   threadRows: [] as any[],
   updates: [] as Array<{ table: string; set: any; cond: any }>,
+  conflictUpdates: [] as any[],
+  deletes: [] as any[],
   // When true, the next update().set().where().returning() call reports 0
   // matched rows — simulates a fenced write whose claimId no longer matches
   // the row (another worker already claimed it).
@@ -43,6 +45,7 @@ vi.mock("../db/index.js", () => {
     const obj: any = {
       orderBy: () => chainable(getRows),
       limit: () => chainable(getRows),
+      for: () => chainable(getRows),
       then: (resolve: any, reject: any) =>
         Promise.resolve(getRows()).then(resolve, reject),
     };
@@ -75,10 +78,17 @@ vi.mock("../db/index.js", () => {
     insert: () => ({
       values: () => ({
         onConflictDoNothing: async () => undefined,
-        onConflictDoUpdate: async () => undefined,
+        onConflictDoUpdate: async (config: any) => {
+          dbState.conflictUpdates.push(config);
+        },
       }),
     }),
-    delete: () => ({ where: async () => undefined }),
+    delete: () => ({
+      where: async (cond: any) => {
+        dbState.deletes.push(cond);
+      },
+    }),
+    transaction: async (fn: (tx: any) => Promise<unknown>) => fn(db),
   };
 
   return { schema, getDb: () => db };
@@ -91,6 +101,9 @@ import {
   readCachedLabels,
   resetSyncAccountProgress,
   SyncClaimLostError,
+  deleteInboxThreadRow,
+  markThreadsOutOfInboxBeforeSync,
+  upsertInboxThreadRows,
 } from "./inbox-store.js";
 
 function syncAccountRow(overrides: Partial<Record<string, unknown>> = {}) {
@@ -119,6 +132,8 @@ beforeEach(() => {
   dbState.syncAccounts = [];
   dbState.threadRows = [];
   dbState.updates = [];
+  dbState.conflictUpdates = [];
+  dbState.deletes = [];
   dbState.forceNoRowsMatched = false;
 });
 
@@ -378,6 +393,59 @@ describe("applyLocalLabelDelta", () => {
         "STARRED",
       );
     });
+  });
+});
+
+describe("sync write fences", () => {
+  it("only applies a sync row when it is newer than a local update", async () => {
+    await upsertInboxThreadRows([
+      {
+        ownerEmail: "owner@example.com",
+        accountEmail: "acct1@example.com",
+        threadId: "t1",
+        inInbox: true,
+        isUnread: true,
+        isStarred: false,
+        isImportant: false,
+        isAutomated: false,
+        latestDate: 1,
+        latestMessageId: "m1",
+        subject: "subject",
+        snippet: "snippet",
+        fromName: "Sender",
+        fromEmail: "sender@example.com",
+        to: [],
+        labelIds: ["INBOX", "UNREAD"],
+        messageIds: ["m1"],
+        messageCount: 1,
+        unreadCount: 1,
+        hasAttachments: false,
+        syncedAt: 100,
+      },
+    ]);
+
+    expect(dbState.conflictUpdates[0].setWhere).toMatchObject({ op: "sql" });
+  });
+
+  it("does not let full-sync cleanup mark a locally updated row stale", async () => {
+    await markThreadsOutOfInboxBeforeSync(
+      "owner@example.com",
+      "acct1@example.com",
+      100,
+    );
+
+    expect(dbState.updates[0].cond.args).toHaveLength(5);
+  });
+
+  it("fences incremental deletes to the start of the Gmail read", async () => {
+    await deleteInboxThreadRow(
+      "owner@example.com",
+      "acct1@example.com",
+      "t1",
+      100,
+    );
+
+    expect(dbState.deletes[0].args).toHaveLength(2);
   });
 });
 

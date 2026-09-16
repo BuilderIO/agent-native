@@ -75,7 +75,11 @@ import { Spinner } from "@/components/ui/spinner";
 import { Switch as UiSwitch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 
-import { CLIPS_MEETINGS, CLIPS_WISPRFLOW } from "../../shared/labs";
+import {
+  CLIPS_MEETINGS,
+  CLIPS_WISPRFLOW,
+  isLabEnabled,
+} from "../../shared/labs";
 import {
   CamIcon,
   GoogleIcon,
@@ -875,12 +879,7 @@ function compactVoiceShortcutLabel(
   }
 }
 
-/**
- * The shadcn Switch, engaged in green rather than `bg-primary`. A menu-bar app
- * sits next to macOS's own switches all day, and green is what that audience
- * reads as "on" — the one accent on this surface, hence the `--success` token
- * rather than a literal.
- */
+/** Keeps settings switches on the shared shadcn prop contract. */
 function SettingsSwitch({
   checked,
   onCheckedChange,
@@ -898,7 +897,6 @@ function SettingsSwitch({
       onCheckedChange={onCheckedChange}
       disabled={disabled}
       aria-label={label}
-      tone="success"
     />
   );
 }
@@ -1354,8 +1352,10 @@ export function App({
     setCameraError,
     setRecError,
   });
-  const meetingsLabEnabled = labValues[CLIPS_MEETINGS.key] === true;
-  const wisprFlowLabEnabled = labValues[CLIPS_WISPRFLOW.key] === true;
+  const meetingsLabEnabled =
+    authStatus === "authed" && isLabEnabled(labValues, CLIPS_MEETINGS);
+  const wisprFlowLabEnabled =
+    authStatus === "authed" && isLabEnabled(labValues, CLIPS_WISPRFLOW);
   const voiceDictationEnabled =
     wisprFlowLabEnabled && featureConfig?.voiceEnabled !== false;
   const fnShortcutEnabled =
@@ -4375,8 +4375,8 @@ export function App({
                 <div className="setup-mini-field">
                   <span>Microphone</span>
                   <Switch
-                    on={agentHandoff.includeMicrophone}
-                    onChange={(includeMicrophone) =>
+                    checked={agentHandoff.includeMicrophone}
+                    onCheckedChange={(includeMicrophone) =>
                       setAgentHandoff({ ...agentHandoff, includeMicrophone })
                     }
                     label="Include microphone audio"
@@ -4385,8 +4385,8 @@ export function App({
                 <div className="setup-mini-field">
                   <span>System audio</span>
                   <Switch
-                    on={agentHandoff.includeSystemAudio}
-                    onChange={(includeSystemAudio) =>
+                    checked={agentHandoff.includeSystemAudio}
+                    onCheckedChange={(includeSystemAudio) =>
                       setAgentHandoff({ ...agentHandoff, includeSystemAudio })
                     }
                     label="Include system audio"

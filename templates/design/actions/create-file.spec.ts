@@ -210,6 +210,24 @@ describe("create-file: node-id annotation", () => {
     );
   });
 
+  it("stamps the body of a new blank screen before persistence", async () => {
+    await action.run({
+      designId: "design-1",
+      filename: "screen-1.html",
+      content:
+        "<!doctype html><html><head><title>Screen 1</title></head>" +
+        '<body data-agent-native-layer-name="Screen 1"></body></html>',
+      fileType: "html",
+    });
+
+    const insertedValues = mocks.insertValues.mock.calls[0]![0] as {
+      content: string;
+    };
+    expect(insertedValues.content).toMatch(
+      /<body[^>]*data-agent-native-node-id="[^"]+"/,
+    );
+  });
+
   it("keeps optimistic created-screen bytes aligned with the persisted source projection", async () => {
     const rawContent = "<main><button>Buy</button></main>";
     const result = await action.run({

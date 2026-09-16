@@ -92,7 +92,7 @@ describe("live style runtime history", () => {
         "if (isRunningAppSourceType(activeCanvasSourceType))",
       ),
       commitVisualStylesSource.indexOf(
-        "// Base every patch off the freshest known content",
+        "// Read through the editor's source boundary",
       ),
     );
     const undoReplaySection = editorSource.slice(

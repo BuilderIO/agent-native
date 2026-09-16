@@ -21,6 +21,7 @@ import {
   agentRecordingAccessFilter,
   isAgentRecordingCaller,
 } from "../server/lib/agent-recording-access.js";
+import { resolvePlayerThumbnailUrl } from "../server/lib/player-thumbnail-url.js";
 import { resolvePlayerVideoUrl } from "../server/lib/player-video-url.js";
 import {
   countedViewCondition,
@@ -446,8 +447,10 @@ export default defineAction({
         sourceAppName: r.sourceAppName,
         sourceWindowTitle: r.sourceWindowTitle,
         description: r.description,
-        thumbnailUrl: r.thumbnailUrl,
-        animatedThumbnailUrl: r.animatedThumbnailUrl,
+        thumbnailUrl: resolvePlayerThumbnailUrl(r),
+        animatedThumbnailUrl: r.animatedThumbnailUrl
+          ? resolvePlayerThumbnailUrl(r, { animated: true })
+          : null,
         // Raw source length. StitchManager sums this across queued
         // recordings to size the concatenated export, which always
         // includes each source's full untrimmed media — trims are applied

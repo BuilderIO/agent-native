@@ -1,12 +1,19 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TEMPLATES } from "../cli/templates-meta.js";
 import {
+  agentHandleNumberVariant,
   BUILTIN_AGENTS_FOR_SEEDING,
   discoverAgents,
   discoverOrgDirectoryAgents,
+  findAgent,
   findWorkspaceDispatchAgent,
   getBuiltinAgents,
+  loadWorkspaceAppsManifest,
   normalizeAgentId,
   shouldIncludeRemoteAgentManifest,
 } from "./agent-discovery.js";
@@ -1007,6 +1014,48 @@ describe("agent discovery", () => {
     });
   });
 
+  it("skips filesystem apps with unreadable route trees in best-effort discovery", async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-discovery-workspace-"),
+    );
+    const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(workspaceRoot);
+    try {
+      fs.writeFileSync(
+        path.join(workspaceRoot, "package.json"),
+        JSON.stringify({
+          name: "test-workspace",
+          "agent-native": { workspaceCore: "workspace-core" },
+        }),
+      );
+      for (const app of ["dispatch", "healthy", "broken"]) {
+        const appDir = path.join(workspaceRoot, "apps", app);
+        fs.mkdirSync(appDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(appDir, "package.json"),
+          JSON.stringify({ name: app, displayName: app }),
+        );
+      }
+      const brokenRoutes = path.join(
+        workspaceRoot,
+        "apps",
+        "broken",
+        "app",
+        "routes",
+      );
+      fs.mkdirSync(path.dirname(brokenRoutes), { recursive: true });
+      fs.writeFileSync(brokenRoutes, "not a directory");
+
+      await expect(loadWorkspaceAppsManifest()).resolves.toEqual([
+        expect.objectContaining({ id: "dispatch" }),
+        expect.objectContaining({ id: "healthy" }),
+      ]);
+      await expect(loadWorkspaceAppsManifest(true)).rejects.toThrow();
+    } finally {
+      cwdSpy.mockRestore();
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
   it("starts remote manifests and workspace metadata concurrently", async () => {
     process.env.APP_URL = "https://workspace.example.test";
     process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
@@ -1036,6 +1085,70 @@ describe("agent discovery", () => {
     resolveMetadata(null);
 
     await expect(pending).resolves.toMatchObject({ status: "available" });
+  });
+
+  describe("singular/plural handle resolution", () => {
+    it("resolves the Plan app when a caller asks for 'plans'", async () => {
+      // The Plan app labels itself "Plans" in its own sidebar, nav state, and
+      // skills, so the model naturally delegates to agent="plans".
+      await expect(findAgent("plans", "brain")).resolves.toMatchObject({
+        id: "plan",
+      });
+    });
+
+    it("resolves every built-in agent from its other grammatical number", async () => {
+      const unresolved: string[] = [];
+      for (const agent of getBuiltinAgents()) {
+        const variant = agentHandleNumberVariant(agent.id);
+        if (!variant) continue;
+        if ((await findAgent(variant))?.id !== agent.id) {
+          unresolved.push(`${variant} -> ${agent.id}`);
+        }
+      }
+      expect(unresolved).toEqual([]);
+    });
+
+    it("leaves a genuinely unknown handle unresolved", async () => {
+      await expect(findAgent("nosuchapp", "brain")).resolves.toBeUndefined();
+    });
+
+    it("refuses to guess when two agents differ only by a trailing s", async () => {
+      resourceListMock.mockResolvedValue([
+        { id: "r-report", path: "remote-agents/report.json" },
+        { id: "r-reports", path: "remote-agents/reports.json" },
+      ]);
+      resourceGetMock.mockImplementation(async (id: string) =>
+        id === "r-report"
+          ? {
+              content: JSON.stringify({
+                id: "report",
+                name: "Report",
+                url: "https://report.example.com",
+              }),
+            }
+          : {
+              content: JSON.stringify({
+                id: "reports",
+                name: "Reports",
+                url: "https://reports.example.com",
+              }),
+            },
+      );
+
+      // "report" matches exactly; only the ambiguous variant lookup is refused.
+      await expect(findAgent("report")).resolves.toMatchObject({
+        id: "report",
+      });
+      await expect(findAgent("reportss")).resolves.toBeUndefined();
+    });
+
+    it("produces no variant for handles where the swap is meaningless", () => {
+      expect(agentHandleNumberVariant("")).toBeNull();
+      expect(agentHandleNumberVariant("  ")).toBeNull();
+      expect(agentHandleNumberVariant("access")).toBeNull();
+      expect(agentHandleNumberVariant("plan")).toBe("plans");
+      expect(agentHandleNumberVariant("Forms")).toBe("form");
+    });
   });
 });
 

@@ -346,6 +346,75 @@ describe("workspace dev startup", () => {
     ).toMatchObject({ homePath: "/inbox" });
   });
 
+  it("infers a root home path when a local app has no home route", async () => {
+    tmpDir = makeWorkspace(["dispatch"]);
+    makeApp(tmpDir, "root-app", { rootRoute: true });
+    makeApp(tmpDir, "standard", { homeRoute: true, rootRoute: true });
+    const fake = fakeSpawn();
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      args: ["--eager"],
+      env: testEnv(),
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+    });
+    await handle.ready;
+
+    const dispatchEnv = fake
+      .calls()
+      .find((call) => call.options?.env?.APP_NAME === "dispatch")?.options?.env;
+    const apps = JSON.parse(
+      dispatchEnv?.AGENT_NATIVE_WORKSPACE_APPS_JSON ?? "[]",
+    );
+    expect(apps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "root-app", homePath: "/" }),
+        expect.objectContaining({ id: "standard", homePath: "/home" }),
+      ]),
+    );
+  });
+
+  it("keeps healthy apps discoverable when a sibling config or route tree is broken", async () => {
+    tmpDir = makeWorkspace([
+      "dispatch",
+      "healthy",
+      "config-broken",
+      "routes-broken",
+    ]);
+    const configDir = path.join(
+      tmpDir,
+      "apps",
+      "config-broken",
+      "server",
+      "plugins",
+    );
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(configDir, "config.ts"),
+      'import "missing-workspace-app-dependency";\n',
+    );
+    const brokenRoutes = path.join(
+      tmpDir,
+      "apps",
+      "routes-broken",
+      "app",
+      "routes",
+    );
+    fs.mkdirSync(path.dirname(brokenRoutes), { recursive: true });
+    fs.writeFileSync(brokenRoutes, "not a directory");
+
+    const fake = fakeSpawn();
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      args: ["--eager"],
+      env: testEnv(),
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+    });
+
+    expect(handle.apps.map((app) => app.id)).toEqual(["dispatch", "healthy"]);
+  });
+
   it("uses polling watchers in Builder-style remote dev environments", async () => {
     tmpDir = makeWorkspace(["dispatch"]);
     const fake = fakeSpawn();
@@ -858,10 +927,12 @@ function makeApp(
   app: string,
   opts: {
     audience?: "internal" | "public";
+    homeRoute?: boolean;
     homePath?: string;
     installVite?: boolean;
     protectedPaths?: string[];
     publicPaths?: string[];
+    rootRoute?: boolean;
   } = {},
 ): void {
   const appDir = path.join(workspaceRoot, "apps", app);
@@ -897,6 +968,22 @@ function makeApp(
         "",
       ].join("\n"),
     );
+  }
+  if (opts.rootRoute || opts.homeRoute) {
+    const routesDir = path.join(appDir, "app", "routes");
+    fs.mkdirSync(routesDir, { recursive: true });
+    if (opts.rootRoute) {
+      fs.writeFileSync(
+        path.join(routesDir, "_index.tsx"),
+        "export default function RootRoute() { return null; }\n",
+      );
+    }
+    if (opts.homeRoute) {
+      fs.writeFileSync(
+        path.join(routesDir, "_app.home.tsx"),
+        "export default function HomeRoute() { return null; }\n",
+      );
+    }
   }
   if (opts.installVite !== false) createViteBin(appDir);
 }

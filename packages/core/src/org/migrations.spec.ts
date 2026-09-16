@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 
+import { AGENT_AUDIT_LOG_CREATE_SQL } from "../audit/store.js";
 import { ORG_MIGRATIONS } from "./migrations.js";
 
 describe("ORG_MIGRATIONS", () => {
@@ -134,6 +135,16 @@ describe("ORG_MIGRATIONS", () => {
     const migration = ORG_MIGRATIONS.find((m) => m.version === 1021);
     expect(migration?.sql).toMatch(
       /ALTER TABLE organizations[\s\S]*federation_roster_initialized_at/i,
+    );
+  });
+
+  it("provisions the audit table before SCIM can write its first event", () => {
+    const migration = ORG_MIGRATIONS.find(
+      (entry) => entry.name === "agent-audit-log-base-table",
+    );
+    expect(migration?.sql).toBe(AGENT_AUDIT_LOG_CREATE_SQL);
+    expect(migration?.sql).toMatch(
+      /CREATE TABLE IF NOT EXISTS agent_audit_log/i,
     );
   });
 });
