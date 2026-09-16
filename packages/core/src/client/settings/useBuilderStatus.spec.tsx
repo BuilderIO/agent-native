@@ -109,13 +109,27 @@ function BuilderStatusProbe() {
 
 function createPopupStub() {
   const doc = document.implementation.createHTMLDocument("popup");
+  const listeners = new Map<string, EventListener>();
+  const addEventListener = vi.fn(
+    (type: string, listener: EventListenerOrEventListenerObject) => {
+      if (typeof listener === "function") listeners.set(type, listener);
+    },
+  );
+  const removeEventListener = vi.fn(
+    (type: string, listener: EventListenerOrEventListenerObject) => {
+      if (listeners.get(type) === listener) listeners.delete(type);
+    },
+  );
   return {
     closed: false,
     close: vi.fn(),
     document: doc,
     location: { href: "" },
     opener: window,
-  } as unknown as Window;
+    addEventListener,
+    removeEventListener,
+    fireLoad: () => listeners.get("load")?.(new Event("load")),
+  } as unknown as Window & { fireLoad: () => void };
 }
 
 const signedConnectUrl =
@@ -440,6 +454,43 @@ describe("useBuilderConnectFlow", () => {
       expectedConnectUrl(signedConnectUrl),
     );
     expect(container.textContent).not.toContain("Popup blocked");
+  });
+
+  it("waits for an embedded waiting popup before navigating to Builder", async () => {
+    setEmbeddedWindow(true);
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await flushAfterPaint();
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(openSpy).toHaveBeenCalledWith(
+      expect.stringContaining("/_agent-native/oauth/popup?"),
+      "_blank",
+      "width=600,height=700",
+    );
+    expect(popup.location.href).toBe("");
+
+    await act(async () => {
+      popup.fireLoad();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(withoutConnectAttempt(popup.location.href)).toBe(
+      expectedConnectUrl(signedConnectUrl),
+    );
   });
 
   it("marks the first-run popup for account provisioning", async () => {

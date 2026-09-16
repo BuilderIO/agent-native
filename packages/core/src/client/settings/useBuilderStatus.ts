@@ -517,6 +517,29 @@ function navigateBuilderConnectPopup(opened: Window, url: string): boolean {
   }
 }
 
+function waitForBuilderConnectPopupLoad(opened: Window): Promise<boolean> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const onLoad = () => finish(true);
+    const finish = (ready: boolean) => {
+      if (settled) return;
+      settled = true;
+      try {
+        opened.removeEventListener("load", onLoad);
+      } catch {
+        // coercion-ok: cleanup is best effort after a popup becomes unavailable.
+        // Ignore a popup that became unavailable before cleanup.
+      }
+      resolve(ready);
+    };
+    try {
+      opened.addEventListener("load", onLoad);
+    } catch {
+      finish(false);
+    }
+  });
+}
+
 function isPopupClosed(popup: Window | null): boolean {
   if (!popup) return false;
   try {
@@ -987,15 +1010,16 @@ export function useBuilderConnectFlow(
           // null to the embedded webview, so null is not a blocker here.
         }
       } else {
+        const embeddedWindow = isEmbeddedWindow();
         const opened = openBuilderConnectPopup({
-          url: isEmbeddedWindow() ? oauthPopupWaitingUrl() : "about:blank",
+          url: embeddedWindow ? oauthPopupWaitingUrl() : "about:blank",
           source: clickTrackingSource,
           flow: clickTrackingFlow,
           features: "width=600,height=700",
         });
         if (opened) activePopupRef.current = opened;
         if (!opened) {
-          if (!isEmbeddedWindow()) {
+          if (!embeddedWindow) {
             connectStartedAtRef.current = null;
             setConnecting(false);
             setError("Couldn't open Builder. Allow popups and try again.");
@@ -1048,6 +1072,9 @@ export function useBuilderConnectFlow(
             );
           })();
         } else {
+          const popupReady = embeddedWindow
+            ? waitForBuilderConnectPopupLoad(opened)
+            : Promise.resolve(true);
           showBuilderConnectPopupPlaceholder(opened);
           void (async () => {
             const s = await fetchStatus(undefined, connectAttemptId);
@@ -1102,6 +1129,20 @@ export function useBuilderConnectFlow(
               setConnecting(false);
               setError(
                 "Couldn't start Builder connect. Refresh this page and try again.",
+              );
+              return;
+            }
+            if (!(await popupReady)) {
+              try {
+                opened.close();
+              } catch {
+                // coercion-ok: closing a failed popup is best effort.
+                // Ignore close failures.
+              }
+              connectStartedAtRef.current = null;
+              setConnecting(false);
+              setError(
+                "Couldn't navigate the Builder popup. Allow popups and try again.",
               );
               return;
             }
