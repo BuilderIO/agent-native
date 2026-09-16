@@ -935,8 +935,9 @@ export function useBuilderConnectFlow(
         ? statusConnectUrl
         : null;
       // popupUrl props and statusConnectUrl are signed URLs minted before the
-      // click. In web browsers, always refresh inside the inert HTTP waiting
-      // page so a server/package restart cannot leave the user with stale state.
+      // click. Top-level browsers use about:blank so the waiting document
+      // cannot race the refreshed signed URL navigation. Embedded hosts use
+      // the inert HTTP page because their popup policy can reject about:blank.
       // Desktop keeps the direct path because the Electron shell owns the popup.
       const signedPropUrl = hasSignedConnectToken(popupUrl) ? popupUrl : null;
       const fallbackUrl = new URL(
@@ -987,7 +988,7 @@ export function useBuilderConnectFlow(
         }
       } else {
         const opened = openBuilderConnectPopup({
-          url: oauthPopupWaitingUrl(),
+          url: isEmbeddedWindow() ? oauthPopupWaitingUrl() : "about:blank",
           source: clickTrackingSource,
           flow: clickTrackingFlow,
           features: "width=600,height=700",

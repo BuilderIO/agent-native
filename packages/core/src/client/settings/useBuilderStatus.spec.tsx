@@ -412,7 +412,7 @@ describe("useBuilderConnectFlow", () => {
     );
   });
 
-  it("opens a blank web popup and navigates to a freshly fetched connect URL", async () => {
+  it("opens a top-level blank popup and navigates to a freshly fetched connect URL", async () => {
     setUserAgent("Mozilla/5.0 Chrome/140.0");
     const popup = createPopupStub();
     openSpy.mockReturnValue(popup);
@@ -432,7 +432,7 @@ describe("useBuilderConnectFlow", () => {
     });
 
     expect(openSpy).toHaveBeenCalledWith(
-      expect.stringContaining("/_agent-native/oauth/popup?"),
+      "about:blank",
       "_blank",
       "width=600,height=700",
     );
@@ -658,7 +658,7 @@ describe("useBuilderConnectFlow", () => {
     });
 
     expect(openSpy).toHaveBeenCalledWith(
-      expect.stringContaining("/_agent-native/oauth/popup?"),
+      "about:blank",
       "_blank",
       "width=600,height=700",
     );
@@ -908,7 +908,7 @@ describe("useBuilderConnectFlow", () => {
     });
 
     expect(openSpy).toHaveBeenCalledWith(
-      expect.stringContaining("/_agent-native/oauth/popup?"),
+      "about:blank",
       "_blank",
       "width=600,height=700",
     );
@@ -947,7 +947,7 @@ describe("useBuilderConnectFlow", () => {
     });
 
     expect(openSpy).toHaveBeenCalledWith(
-      expect.stringContaining("/_agent-native/oauth/popup?"),
+      "about:blank",
       "_blank",
       "width=600,height=700",
     );
@@ -1546,7 +1546,7 @@ describe("useBuilderConnectFlow", () => {
     });
 
     expect(openSpy).toHaveBeenCalledWith(
-      expect.stringContaining("/_agent-native/oauth/popup?"),
+      "about:blank",
       "_blank",
       "width=600,height=700",
     );
