@@ -135,6 +135,21 @@ import { withLocalRuntimes } from "./design-canvas/local-runtime";
 import { LocalNetworkAccessPrompt } from "./design-canvas/LocalNetworkAccessPrompt";
 import type { MotionTrackWire } from "./design-canvas/motion-types";
 import {
+  acknowledgePendingTextInsert,
+  beginPendingTextDelivery,
+  type BeginTextEditOptions,
+  cancelPendingTextCapture,
+  isPendingTextInterceptionOpen,
+  onPendingTextCaptureCancel,
+  owePendingTextCapture,
+  registerTextEditOwner,
+  releasePendingTextCapture,
+  returnPendingTextCapture,
+  takePendingTextCapture,
+} from "./design-canvas/pending-text-capture";
+import {
+  BRIDGE_READINESS_PROBE_ATTEMPTS,
+  BRIDGE_READINESS_PROBE_INTERVAL_MS,
   PENDING_TEXT_EDIT_TIMEOUT_MS,
   routePendingTextEditKey,
   schedulePendingTextEditActivation,
@@ -1431,10 +1446,10 @@ export function DesignCanvas({
     const probe = () => {
       const win = iframeRef.current?.contentWindow;
       const drained = pendingOneShotMessagesRef.current.length === 0;
-      // 20 x 250ms covers a frame still finishing navigation without leaving a
-      // timer running against a frame that has no bridge at all (interact-mode
+      // The schedule covers a frame still finishing navigation without leaving
+      // a timer running against a frame that has no bridge at all (interact-mode
       // documents never inject one, and must keep queueing as before).
-      if (!win || drained || attempts >= 20) {
+      if (!win || drained || attempts >= BRIDGE_READINESS_PROBE_ATTEMPTS) {
         window.clearInterval(bridgeReadinessProbeTimerRef.current);
         bridgeReadinessProbeTimerRef.current = undefined;
         return;
@@ -1451,7 +1466,10 @@ export function DesignCanvas({
     };
     probe();
     if (pendingOneShotMessagesRef.current.length === 0) return;
-    bridgeReadinessProbeTimerRef.current = window.setInterval(probe, 250);
+    bridgeReadinessProbeTimerRef.current = window.setInterval(
+      probe,
+      BRIDGE_READINESS_PROBE_INTERVAL_MS,
+    );
   }, []);
   useEffect(
     () => () => {
@@ -1462,6 +1480,18 @@ export function DesignCanvas({
     },
     [],
   );
+  /** Removes a not-yet-flushed begin-text-edit for `nodeId` from the one-shot
+   *  ready queue. Identity-scoped so a cancelled creation cannot take a live
+   *  one's command with it. */
+  const dropQueuedBeginTextEdit = useCallback((nodeId: string) => {
+    pendingOneShotMessagesRef.current =
+      pendingOneShotMessagesRef.current.filter((message) => {
+        const queued = message as { type?: unknown; nodeId?: unknown } | null;
+        return !(
+          queued?.type === "begin-text-edit" && queued.nodeId === nodeId
+        );
+      });
+  }, []);
   const postOneShotBridgeMessage = useCallback(
     (message: unknown) => {
       const iframe = iframeRef.current;
@@ -3602,33 +3632,124 @@ export function DesignCanvas({
         const pendingNodeId =
           typeof e.data.nodeId === "string" ? e.data.nodeId : "";
         const currentPending = pendingTextEditRef.current;
+        // A breakpoint preview renders the SAME screenId as the primary frame
+        // (which is why owner registration excludes it). Without the same
+        // exclusion here, a preview's reply drains the creation's buffer into
+        // a frame that will never own the session.
+        const capturedOwner = capturedOwnerRef.current;
         if (e.data.pending && pendingNodeId) {
+          // A reply for a request that has already been stood down (pointer
+          // away, Escape, undo, superseded) must not re-arm the buffer or keep
+          // the abandoned node alive; only this canvas's own live request may.
+          // Owed text rides in its own begin-text-edit, so once interception
+          // has ended nothing moves it back into a canvas that intercepts.
+          // A breakpoint preview deliberately has no owner identity: it can
+          // never take this capture, drain it, or acknowledge it, so arming its
+          // key listener only swallowed keys nobody could ever deliver.
+          if (!capturedOwner) return;
+          if (
+            currentPending?.nodeId !== pendingNodeId &&
+            !isPendingTextInterceptionOpen(capturedOwner, pendingNodeId)
+          ) {
+            return;
+          }
           if (currentPending && currentPending.nodeId === pendingNodeId) {
             currentPending.startedAt = Date.now();
           } else {
+            // The retry ladder posts begin-text-edit straight at the iframe,
+            // so this can be the first time THIS canvas learns it owns the
+            // node — take the creation gesture's buffer here too.
             pendingTextEditRef.current = {
               nodeId: pendingNodeId,
-              buffer: "",
+              buffer:
+                takePendingTextCapture(capturedOwner, pendingNodeId) ?? "",
               startedAt: Date.now(),
             };
           }
-        } else if (currentPending?.nodeId === pendingNodeId) {
-          pendingTextEditRef.current = null;
+        } else if (pendingNodeId) {
+          // pending:false covers two different facts. Escape, a pointerdown in
+          // the frame, and a superseding dblclick are the USER abandoning this
+          // request, and the host request dies with it. The frame's own
+          // pump deadline is not: it only means the node has not arrived there
+          // yet, and escalating it to abandonment deletes a node the host's own
+          // ladder is still working on. An unlabelled report is treated as the
+          // latter — the host's deadline still decides.
+          const abandonedByUser =
+            e.data.reason === "escape" ||
+            e.data.reason === "pointerdown" ||
+            e.data.reason === "superseded";
+          // The frame's own deadline, a failed takeover, and an unlabelled
+          // report all mean "not yet", not "abandoned". Clearing the typed
+          // buffer on those discarded everything the user had typed while a
+          // slow board mounted.
+          if (abandonedByUser && currentPending?.nodeId === pendingNodeId) {
+            pendingTextEditRef.current = null;
+          }
+          if (!capturedOwner) return;
+          if (abandonedByUser) {
+            cancelPendingTextCapture(capturedOwner, pendingNodeId);
+          } else if (e.data.reason === "committed") {
+            // The frame has the text; the host copy is no longer the original.
+            pendingTextEditRef.current =
+              currentPending?.nodeId === pendingNodeId
+                ? null
+                : pendingTextEditRef.current;
+            releasePendingTextCapture(capturedOwner, pendingNodeId);
+          }
+        }
+        return;
+      }
+      if (e.data.type === "text-edit-insert-result") {
+        // The frame is the only place that knows whether handed-over keystrokes
+        // reached the document. Until it says so the capture keeps owing them,
+        // so a dropped insert is re-delivered instead of vanishing.
+        const insertNodeId =
+          typeof e.data.nodeId === "string" ? e.data.nodeId : "";
+        const owner = capturedOwnerRef.current;
+        if (owner && insertNodeId) {
+          acknowledgePendingTextInsert(
+            owner,
+            insertNodeId,
+            e.data.inserted === true,
+          );
         }
         return;
       }
       if (e.data.type === "text-editing-state") {
         // Creation-race replay: the bridge just armed the session for the
-        // node we were waiting on — flush any keystrokes the host buffered
-        // during the round-trip window into the now-live editable.
-        if (e.data.active && pendingTextEditRef.current) {
-          const pendingBuffer = pendingTextEditRef.current.buffer;
-          pendingTextEditRef.current = null;
-          if (pendingBuffer) {
+        // node we were waiting on — complete that request and flush everything
+        // still held for it into the now-live editable. Keyed on the reported
+        // element: a late activation for the PREVIOUS creation used to swallow
+        // the next one's buffer, splicing its keystrokes into the wrong layer
+        // ("Beta" landing inside "Alpha"). Complete first: a capture that ends
+        // interception on this very call reclaims this canvas's buffer.
+        const activatedSourceId =
+          typeof e.data.sourceId === "string" ? e.data.sourceId : "";
+        if (e.data.active && activatedSourceId) {
+          const owner = capturedOwnerRef.current;
+          const pending = pendingTextEditRef.current;
+          let buffered = "";
+          if (pending && pending.nodeId === activatedSourceId) {
+            buffered = pending.buffer;
+            pendingTextEditRef.current = null;
+          }
+          const delivery = owner
+            ? beginPendingTextDelivery(owner, activatedSourceId, buffered)
+            : null;
+          const text = delivery ? delivery.text : buffered;
+          // An owed delivery carried its text in its own begin command, so its
+          // result settles the request — a second copy would double the text.
+          // The capture keeps owning this one until the frame says it landed.
+          if (delivery?.alreadyPosted) {
+            // Nothing to send; the begin command's own result decides.
+          } else if (text) {
             postOneShotBridgeMessage({
               type: "text-edit-insert-text",
-              text: pendingBuffer,
+              nodeId: activatedSourceId,
+              text,
             });
+          } else if (owner && delivery) {
+            releasePendingTextCapture(owner, activatedSourceId);
           }
         }
         const textState = {
@@ -4416,23 +4537,94 @@ export function DesignCanvas({
    * Posts { type: 'begin-text-edit', nodeId } to the iframe bridge.
    * The bridge enters the same contenteditable text-editing path used on dblclick.
    */
+  // The one identity this canvas owns text-edit requests under. A breakpoint
+  // preview renders the SAME screenId and must never own one. Read through a
+  // ref because the keystroke listener below installs once while `screenId`
+  // mutates in place on the single-screen canvas (no key), and a stale owner
+  // made every identity check a silent no-op.
+  const capturedOwnerRef = useRef<string | null>(null);
+  capturedOwnerRef.current = previewFrameId ? null : (screenId ?? null);
+
   const beginTextEdit = useCallback(
-    (nodeId: string, options?: { afterPointerGesture?: boolean }) => {
+    (nodeId: string, options?: BeginTextEditOptions): boolean => {
       const iframe = iframeRef.current;
-      if (!iframe?.contentWindow || !nodeId) return;
-      // Arm the creation-race keystroke buffer (see routePendingTextEditKey):
-      // until the bridge reports text-editing-state active for this command,
-      // host keystrokes are buffered/swallowed instead of hitting host
-      // shortcuts, then replayed into the editable. Re-arming for the same
-      // node preserves an in-progress buffer.
+      // Not delivered: the caller keeps the intent so a later render (or the
+      // next registration) can post it, instead of losing the creation here.
+      if (!iframe?.contentWindow || !nodeId) return false;
+      const owner = capturedOwnerRef.current;
+      // Take over the creation gesture's host-level buffer (see
+      // pending-text-capture.ts) for this node: from here until the bridge
+      // reports text-editing-state active, host keystrokes are
+      // buffered/swallowed here instead of hitting host shortcuts, then
+      // replayed into the editable. Re-arming for the same node preserves an
+      // in-progress buffer.
+      const adopted = owner ? takePendingTextCapture(owner, nodeId) : null;
       if (pendingTextEditRef.current?.nodeId !== nodeId) {
         pendingTextEditRef.current = {
           nodeId,
-          buffer: "",
+          buffer: adopted ?? "",
           startedAt: Date.now(),
         };
+      } else if (adopted) {
+        pendingTextEditRef.current.buffer += adopted;
       }
-      schedulePendingTextEditActivation(
+      // Re-arming the same node only replaces its timer. Running the full
+      // cancel here would drop the buffer this call just adopted and tell the
+      // bridge to forget a request we are about to re-issue.
+      const previousActivation = pendingTextEditActivationRef.current;
+      if (previousActivation?.nodeId === nodeId) {
+        previousActivation.cancelTimer();
+      } else {
+        previousActivation?.cancelRequest();
+      }
+      if (options?.commitImmediately || options?.deliverOwed) {
+        // Escape's commit, or text still owed after interception ended: the
+        // buffer travels WITH the command, and the command is only a COPY — the
+        // host capture keeps the original until the frame acknowledges it,
+        // because this payload dies with an iframe swap or an unmount and
+        // nothing downstream would know the text had been lost. Nothing
+        // intercepts from here: new keys belong to the host, or to the session.
+        const commitImmediately = options.commitImmediately === true;
+        const local = pendingTextEditRef.current;
+        const localText = local?.nodeId === nodeId ? local.buffer : "";
+        if (local?.nodeId === nodeId) pendingTextEditRef.current = null;
+        // No live request means no host original to fold into; this canvas's
+        // own copy is then the only text there is.
+        const insertText = owner
+          ? (owePendingTextCapture(owner, nodeId, localText, {
+              commit: commitImmediately,
+            }) ?? localText)
+          : localText;
+        // The plain activation for this node may still be queued; letting both
+        // flush would open an empty session and then re-open it for the text.
+        dropQueuedBeginTextEdit(nodeId);
+        postOneShotBridgeMessage({
+          type: "begin-text-edit",
+          nodeId,
+          force: true,
+          insertText,
+          ...(commitImmediately ? { commitImmediately: true } : {}),
+        });
+        if (owner) {
+          onPendingTextCaptureCancel(owner, nodeId, () => {
+            dropQueuedBeginTextEdit(nodeId);
+            // Dropping the QUEUED copy is not enough: the frame may already
+            // hold this begin, and the host-side commit that follows a
+            // stand-down would then be a second copy of the same characters.
+            // Revoke it at the frame, identity-scoped, before that commit.
+            iframeRef.current?.contentWindow?.postMessage(
+              {
+                type: "agent-native:cancel-text-edit",
+                screenId: capturedOwnerRef.current ?? "",
+                nodeId,
+              },
+              "*",
+            );
+          });
+        }
+        return true;
+      }
+      const cancelTimer = schedulePendingTextEditActivation(
         () => {
           postOneShotBridgeMessage({
             type: "begin-text-edit",
@@ -4442,9 +4634,87 @@ export function DesignCanvas({
         },
         { afterPointerGesture: options?.afterPointerGesture },
       );
+      // Pointer-away stands the creation's whole request down, and this post is
+      // part of it. Cancelling the timer is not enough: a post made while the
+      // bridge was not ready is sitting in the one-shot queue, and the flush
+      // that follows readiness focuses a node the user has already left. Drop
+      // it by node id while it is still ours to drop — once the iframe has the
+      // message, only the iframe can decide.
+      const cancelRequest = () => {
+        cancelTimer();
+        dropQueuedBeginTextEdit(nodeId);
+        // Posted straight at the frame, not through the one-shot queue: a
+        // cancel only matters to a bridge that already HAS the begin, and
+        // queueing it would just replay behind the begin we dropped.
+        iframeRef.current?.contentWindow?.postMessage(
+          {
+            type: "agent-native:cancel-text-edit",
+            screenId: capturedOwnerRef.current ?? "",
+            nodeId,
+          },
+          "*",
+        );
+        if (pendingTextEditRef.current?.nodeId === nodeId) {
+          pendingTextEditRef.current = null;
+        }
+      };
+      pendingTextEditActivationRef.current = {
+        nodeId,
+        cancelTimer,
+        cancelRequest,
+      };
+      if (owner) onPendingTextCaptureCancel(owner, nodeId, cancelRequest);
+      return true;
     },
-    [postOneShotBridgeMessage],
+    [dropQueuedBeginTextEdit, postOneShotBridgeMessage],
   );
+  // The keystroke listener below is installed once and must still reach the
+  // CURRENT beginTextEdit when Escape asks it to commit.
+  const beginTextEditRef = useRef(beginTextEdit);
+  beginTextEditRef.current = beginTextEdit;
+
+  // Routing target for a just-created node's text edit. Only the PRIMARY frame
+  // of a screen registers — a breakpoint preview renders the same screen and
+  // would collide on the same key — and the board canvas registers under the
+  // board file id. Deliberately NOT gated on `registerRuntimeBridge`: a board
+  // canvas is inactive at the moment its own first primitive is created, and
+  // an unroutable owner is exactly how the gesture's typing got lost.
+  useEffect(() => {
+    if (previewFrameId) return;
+    const owner = screenId;
+    // Registered per OWNER IDENTITY, not per callback identity: beginTextEdit
+    // is re-created whenever its own dependencies churn, and re-running this
+    // effect for that treated a live creation as an owner going away — handing
+    // its buffer back and re-beginning mid-session.
+    const unregister = registerTextEditOwner(
+      owner,
+      (nodeId, options) => Boolean(beginTextEditRef.current?.(nodeId, options)),
+      (nodeId) => {
+        const pending = pendingTextEditRef.current;
+        if (pending?.nodeId !== nodeId) return "";
+        pendingTextEditRef.current = null;
+        return pending.buffer;
+      },
+    );
+    return () => {
+      unregister();
+      // Unmounting between the handoff and activation would otherwise destroy
+      // the only copy of the gesture's keystrokes; hand them back so a remount
+      // (or the retry ladder's own pending-window arming) can still use them.
+      // An EMPTY buffer has to go back too: the user may not have typed their
+      // first character yet, and a capture left handed-off buffers nothing
+      // during the remount window.
+      const pending = pendingTextEditRef.current;
+      if (owner && pending) {
+        returnPendingTextCapture(owner, pending.nodeId, pending.buffer);
+      }
+      pendingTextEditRef.current = null;
+      // Only the timer: the REQUEST outlives this instance, so cancelling it
+      // here would tell the bridge to drop a begin the replacement still wants.
+      pendingTextEditActivationRef.current?.cancelTimer();
+      pendingTextEditActivationRef.current = null;
+    };
+  }, [previewFrameId, screenId]);
 
   // Creation-race keystroke routing (host side). Active only while a
   // beginTextEdit() command is pending; see routePendingTextEditKey's doc
@@ -4455,11 +4725,32 @@ export function DesignCanvas({
     buffer: string;
     startedAt: number;
   } | null>(null);
+  // The one in-flight delayed begin-text-edit post, kept so pointer-away (and
+  // the next creation) can drop it instead of letting it land late.
+  const pendingTextEditActivationRef = useRef<{
+    nodeId: string;
+    /** Drops only this instance's delayed post — what an unmount needs, since
+     *  the request itself survives into the replacement canvas. */
+    cancelTimer: () => void;
+    /** Drops the whole request: timer, queued command, and the bridge's copy. */
+    cancelRequest: () => void;
+  } | null>(null);
   useEffect(() => {
     function onPendingTextEditKeyDown(e: KeyboardEvent) {
       const pending = pendingTextEditRef.current;
       if (!pending) return;
-      if (Date.now() - pending.startedAt > PENDING_TEXT_EDIT_TIMEOUT_MS) {
+      const interceptOwner = capturedOwnerRef.current;
+      if (interceptOwner) {
+        // The creation's capture decides how long keys are held back. Asking it
+        // past the cap is what takes this buffer on for delivery, and the key
+        // that asked goes to the host like every key after it.
+        if (!isPendingTextInterceptionOpen(interceptOwner, pending.nodeId)) {
+          return;
+        }
+      } else if (
+        Date.now() - pending.startedAt >
+        PENDING_TEXT_EDIT_TIMEOUT_MS
+      ) {
         pendingTextEditRef.current = null;
         return;
       }
@@ -4473,13 +4764,36 @@ export function DesignCanvas({
       } else if (routed.action === "drop-last") {
         pending.buffer = pending.buffer.slice(0, -1);
       } else if (routed.action === "clear-and-swallow") {
+        // This handler registered on mount, so it runs BEFORE the capture's own
+        // listener and stopImmediatePropagation() above means that listener
+        // never sees the Escape. Decide it here instead, or the capture and its
+        // retry ladder stay live and re-focus the node.
+        const escapedNodeId = pending.nodeId;
+        const escapedText = pending.buffer;
+        pendingTextEditActivationRef.current?.cancelTimer();
+        pendingTextEditActivationRef.current = null;
+        if (escapedText) {
+          // Escape ends the session and KEEPS the text (Figma). The commit
+          // rides straight to the bridge; the creation's own exhaustion
+          // cleanup then keeps the node because it now has content.
+          beginTextEditRef.current?.(escapedNodeId, {
+            commitImmediately: true,
+          });
+          return;
+        }
         pendingTextEditRef.current = null;
+        pendingTextEditActivationRef.current = null;
+        const owner = capturedOwnerRef.current;
+        if (owner) cancelPendingTextCapture(owner, escapedNodeId);
       }
     }
     function onPendingTextEditPointerDown() {
       // The user clicked somewhere else in the host — stand down so buffered
-      // keys are never replayed into an edit they've abandoned.
+      // keys are never replayed into an edit they've abandoned, and so the
+      // delayed begin-text-edit cannot arrive after they moved on.
       pendingTextEditRef.current = null;
+      pendingTextEditActivationRef.current?.cancelRequest();
+      pendingTextEditActivationRef.current = null;
     }
     window.addEventListener("keydown", onPendingTextEditKeyDown, true);
     window.addEventListener("pointerdown", onPendingTextEditPointerDown, true);
@@ -5137,9 +5451,6 @@ export function DesignCanvas({
     (window as any).__designCanvasSendShaderFillPreview = sendShaderFillPreview;
     (window as any).__designCanvasClearShaderFillPreview =
       clearShaderFillPreview;
-    // Imperative text-edit entry — call after creating a TEXT primitive so the
-    // user can type immediately without a second click.
-    (window as any).__designCanvasBeginTextEdit = beginTextEdit;
     return () => {
       // Identity-guard each delete so a stale unmounting instance never clobbers
       // a freshly mounted instance's bridge during a remount race.
@@ -5191,9 +5502,6 @@ export function DesignCanvas({
       ) {
         delete (window as any).__designCanvasClearShaderFillPreview;
       }
-      if ((window as any).__designCanvasBeginTextEdit === beginTextEdit) {
-        delete (window as any).__designCanvasBeginTextEdit;
-      }
     };
   }, [
     deleteRuntimeElement,
@@ -5206,7 +5514,6 @@ export function DesignCanvas({
     clearMotionPreview,
     sendShaderFillPreview,
     clearShaderFillPreview,
-    beginTextEdit,
   ]);
 
   // Device dimensions match real-world devices. iframes are replaced elements

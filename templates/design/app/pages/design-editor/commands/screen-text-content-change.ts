@@ -10,6 +10,7 @@ import { toast } from "sonner";
 
 import type { ElementInfo } from "@/components/design/types";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
+import { defaultTextLayerName } from "@/pages/design-editor/canvas-primitive-insert";
 import {
   bridgeSourceIdForCodeLayerNode,
   codeLayerNodeMatchesBridgeTarget,
@@ -20,6 +21,8 @@ import {
 } from "@/pages/design-editor/code-layer-state";
 import type { LiveScreenSnapshot } from "@/pages/design-editor/command-types";
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
+import type { PendingTextCreationFinalization } from "@/pages/design-editor/history";
+import { setCodeLayerAttributeInHtml } from "@/pages/design-editor/html-layer-positioning";
 import { updateElementContentInHtml } from "@/pages/design-editor/text-edit-utils";
 import type {
   DesignFile,
@@ -56,11 +59,14 @@ export interface ScreenTextContentChangeArgs {
   ) => void;
   canEditDesign: boolean;
   designSourceType: "inline" | "localhost" | "fusion";
-  finalizePendingTextCreation: (
+  /** Decides whether this write is the creation's first commit BEFORE the
+   *  content is applied, and hands back a `confirm` the caller runs only once
+   *  that publication is accepted. */
+  prepareTextCreationFinalization: (
     fileId: string,
     nodeIds: readonly (string | null | undefined)[],
     finalContent: string,
-  ) => boolean;
+  ) => PendingTextCreationFinalization;
   getScreenContent: (screenId: string) => string;
   handleTextContentChange: (
     selector: string,
@@ -97,7 +103,7 @@ export function runScreenTextContentChange(
     applyLinkedComponentEdit,
     canEditDesign,
     designSourceType,
-    finalizePendingTextCreation,
+    prepareTextCreationFinalization,
     getScreenContent,
     handleTextContentChange,
     liveScreenSnapshotsById,
@@ -202,27 +208,63 @@ export function runScreenTextContentChange(
     );
     return;
   }
-  const finalizedCreation = finalizePendingTextCreation(
+  const nextProjection = buildCodeLayerProjection(nextContent, { source });
+  const layerNamingNode = targetNode
+    ? nextProjection.nodes.find((node) =>
+        codeLayerNodeMatchesBridgeTarget(
+          node,
+          selector,
+          bridgeSourceIdForCodeLayerNode(targetNode),
+        ),
+      )
+    : null;
+  // Mirrors handleTextContentChange's namedContent computation (Figma names
+  // a freshly typed text layer after its own content) so a board — or any
+  // other inactive-screen — text creation is named from its content exactly
+  // like an active-screen one, instead of staying "Text" forever.
+  const namedContent = layerNamingNode
+    ? (setCodeLayerAttributeInHtml(
+        nextContent,
+        layerNamingNode,
+        "data-agent-native-layer-name",
+        defaultTextLayerName(value),
+      ) ?? nextContent)
+    : nextContent;
+  const finalizedCreation = prepareTextCreationFinalization(
     screenId,
     [
       elementInfo?.sourceId,
       targetNode?.id,
       targetNode ? bridgeSourceIdForCodeLayerNode(targetNode) : null,
     ],
-    nextContent,
+    namedContent,
   );
+  const contentToApply = finalizedCreation.isCreationCommit
+    ? namedContent
+    : nextContent;
   let publication: ApplyFileContentUpdateResult | null = null;
   if (liveSnapshot) {
-    updateLiveScreenSnapshotContent(screenId, nextContent, {
-      recordHistory: !finalizedCreation,
-    });
+    // A snapshot that vanished, or an integrity check that rejected this edit,
+    // leaves the source unchanged — consuming the creation's pending history
+    // here would spend it on a write that never happened.
+    if (
+      !updateLiveScreenSnapshotContent(screenId, contentToApply, {
+        recordHistory: !finalizedCreation.historyHandled,
+      })
+    ) {
+      return;
+    }
   } else {
-    publication = applyFileContentUpdate(screenId, nextContent, {
+    publication = applyFileContentUpdate(screenId, contentToApply, {
       skipPreview: true,
-      recordHistory: !finalizedCreation,
+      recordHistory: !finalizedCreation.historyHandled,
     });
+    // A refused publication never wrote this text. Finalizing before it landed
+    // consumed the creation's pending history and left the typed text nowhere:
+    // keep the record so the retry still coalesces into one undo step.
     if (publication.status !== "accepted") return;
   }
+  finalizedCreation.confirm();
   setActiveFileId(screenId);
   // T8: see the matching note in handleTextContentChange — commit
   // should hand back to the move tool, not re-arm text.
@@ -233,7 +275,9 @@ export function runScreenTextContentChange(
     setSelectedLayerIdsState([]);
     return;
   }
-  const submittedProjection = buildCodeLayerProjection(nextContent, { source });
+  const submittedProjection = buildCodeLayerProjection(contentToApply, {
+    source,
+  });
   const nextNodeCandidate = targetNode
     ? submittedProjection.nodes.find((node) =>
         codeLayerNodeMatchesBridgeTarget(

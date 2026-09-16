@@ -1,9 +1,8 @@
 // @vitest-environment happy-dom
 //
-// canvas-primitive-insert.ts's appendCanvasPrimitiveToHtml (and the
-// html-layer-positioning.ts attribute writer this pulls in) early-return
-// null under `typeof window === "undefined"` (the default node test
-// environment), so this needs a real DOM.
+// Same DOM requirement as text-content-change.default-name.test.ts:
+// html-layer-positioning.ts's attribute writer early-returns null under
+// `typeof window === "undefined"`.
 import { buildCodeLayerProjection } from "@shared/code-layer";
 import { describe, expect, it, vi } from "vitest";
 
@@ -11,45 +10,52 @@ import { prepareCanonicalSourceContent } from "@/pages/design-editor/source-publ
 import type { DesignFile } from "@/pages/design-editor/types";
 
 import {
-  runTextContentChange,
-  type TextContentChangeArgs,
-} from "./text-content-change";
+  runScreenTextContentChange,
+  type ScreenTextContentChangeArgs,
+} from "./screen-text-content-change";
+
+const SCREEN_ID = "board.html";
 
 function buildArgs(
   content: string,
   isPendingCreation: boolean,
 ): {
-  args: TextContentChangeArgs;
+  args: ScreenTextContentChangeArgs;
   nodeId: string;
   getContent: () => string;
 } {
   let stored = content;
+  // A different id than SCREEN_ID: runScreenTextContentChange only takes
+  // this file's own (unnamed) path when screenId !== activeFile.id — the
+  // board is deliberately kept out of activeFileId on creation (see
+  // primitive-created.ts's "Board guard"), so this is the path an actual
+  // board text commit always takes.
   const activeFile: DesignFile = {
     id: "index.html",
     filename: "index.html",
     fileType: "html",
-    content,
+    content: "<body></body>",
     createdAt: "",
     updatedAt: "",
   };
   const nodeId = buildCodeLayerProjection(content, {
-    source: { kind: "design-file", fileId: "index.html" },
+    source: { kind: "design-file", fileId: SCREEN_ID },
   }).nodes.find(
     (node) => node.dataAttributes["data-agent-native-node-id"] === "t1",
   )!.id;
 
-  const args: TextContentChangeArgs = {
-    activeCanvasSourceType: "inline",
+  const args: ScreenTextContentChangeArgs = {
     activeFile,
-    applyLocalContentUpdate: (nextContent) => {
+    applyFileContentUpdate: (fileId, nextContent) => {
       const publication = prepareCanonicalSourceContent(nextContent, {
-        fileId: activeFile.id,
-        fileType: activeFile.fileType,
+        fileId,
+        fileType: "html",
       });
       stored = publication.content;
       return { status: "accepted", ...publication };
     },
     canEditDesign: true,
+    designSourceType: "inline",
     // Mirrors prepareTextCreationFinalization's own contract: only this exact
     // node's creation commit names the layer. historyHandled is deliberately
     // false — an unrelated write can leave the undo stack stale without making
@@ -60,9 +66,12 @@ function buildArgs(
       historyHandled: false,
       confirm: () => {},
     }),
-    getFreshActiveContent: () => stored,
+    getScreenContent: () => stored,
+    handleTextContentChange: () => {},
     liveScreenSnapshotsById: {},
+    overviewScreens: [],
     recordPendingLiveTextEdit: () => {},
+    setActiveFileId: () => {},
     setActiveTool: () => {},
     setMode: () => {},
     setSelectedElement: () => {},
@@ -74,32 +83,41 @@ function buildArgs(
   return { args, nodeId, getContent: () => stored };
 }
 
-describe("runTextContentChange default text-layer naming", () => {
-  it("names a freshly created text layer after its typed content", () => {
-    // The draft primitive is committed with an empty draft and the "Text"
-    // placeholder name (primitiveLayerName's text case), exactly as
-    // appendCanvasPrimitiveToHtml stamps it at creation.
+describe("runScreenTextContentChange default text-layer naming", () => {
+  it("names a freshly created board text layer after its typed content", () => {
+    // Same draft shape appendCanvasPrimitiveToHtml stamps at creation: empty
+    // draft, "Text" placeholder name.
     const content = `<body><div data-agent-native-node-id="t1" data-agent-native-layer-name="Text"></div></body>`;
     const { args, nodeId, getContent } = buildArgs(content, true);
 
-    runTextContentChange(args, `[data-agent-native-node-id="t1"]`, "Button");
+    runScreenTextContentChange(
+      args,
+      SCREEN_ID,
+      `[data-agent-native-node-id="t1"]`,
+      "Standalone",
+    );
 
     const nextNode = buildCodeLayerProjection(getContent(), {
-      source: { kind: "design-file", fileId: "index.html" },
+      source: { kind: "design-file", fileId: SCREEN_ID },
     }).nodes.find((node) => node.id === nodeId)!;
     expect(nextNode.dataAttributes["data-agent-native-layer-name"]).toBe(
-      "Button",
+      "Standalone",
     );
   });
 
-  it("does not rename an already-named text layer on a later edit", () => {
+  it("does not rename an already-named board text layer on a later edit", () => {
     const content = `<body><div data-agent-native-node-id="t1" data-agent-native-layer-name="Label">Button</div></body>`;
     const { args, nodeId, getContent } = buildArgs(content, false);
 
-    runTextContentChange(args, `[data-agent-native-node-id="t1"]`, "Sign up");
+    runScreenTextContentChange(
+      args,
+      SCREEN_ID,
+      `[data-agent-native-node-id="t1"]`,
+      "Sign up",
+    );
 
     const nextNode = buildCodeLayerProjection(getContent(), {
-      source: { kind: "design-file", fileId: "index.html" },
+      source: { kind: "design-file", fileId: SCREEN_ID },
     }).nodes.find((node) => node.id === nodeId)!;
     expect(nextNode.dataAttributes["data-agent-native-layer-name"]).toBe(
       "Label",
@@ -108,15 +126,45 @@ describe("runTextContentChange default text-layer naming", () => {
   });
 });
 
-describe("runTextContentChange rejected live-snapshot write", () => {
+describe("runScreenTextContentChange refused publication", () => {
+  it("keeps the creation record when the publication is refused", () => {
+    const content = `<body><div data-agent-native-node-id="t1" data-agent-native-layer-name="Text"></div></body>`;
+    const { args, getContent } = buildArgs(content, true);
+    const confirm = vi.fn();
+    const refused: ScreenTextContentChangeArgs = {
+      ...args,
+      applyFileContentUpdate: () => ({ status: "refused" }) as never,
+      prepareTextCreationFinalization: () => ({
+        isCreationCommit: true,
+        historyHandled: true,
+        confirm,
+      }),
+    };
+
+    runScreenTextContentChange(
+      refused,
+      SCREEN_ID,
+      `[data-agent-native-node-id="t1"]`,
+      "Standalone",
+    );
+
+    // Nothing published, so the creation still owns its pending history — and
+    // the typed text is still owed. Consuming the record here left it in
+    // neither the source nor the undo stack.
+    expect(confirm).not.toHaveBeenCalled();
+    expect(getContent()).toBe(content);
+  });
+});
+
+describe("runScreenTextContentChange rejected live-snapshot write", () => {
   it("keeps the creation record when the live snapshot write is rejected", () => {
     const content = `<body><div data-agent-native-node-id="t1" data-agent-native-layer-name="Text"></div></body>`;
     const { args } = buildArgs(content, true);
     const confirm = vi.fn();
-    const rejected: TextContentChangeArgs = {
+    const rejected: ScreenTextContentChangeArgs = {
       ...args,
       liveScreenSnapshotsById: {
-        "index.html": { html: content } as never,
+        [SCREEN_ID]: { html: content } as never,
       },
       // The snapshot vanished, or integrity validation refused this edit.
       updateLiveScreenSnapshotContent: () => false,
@@ -127,8 +175,9 @@ describe("runTextContentChange rejected live-snapshot write", () => {
       }),
     };
 
-    runTextContentChange(
+    runScreenTextContentChange(
       rejected,
+      SCREEN_ID,
       `[data-agent-native-node-id="t1"]`,
       "Standalone",
     );

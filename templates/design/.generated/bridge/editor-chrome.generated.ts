@@ -2858,6 +2858,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       "display",
       "overflow",
       "lineHeight",
+      "letterSpacing",
+      "gridTemplateColumns",
+      "gridTemplateRows",
+      "gridAutoFlow",
       "webkitBoxOrient",
       "webkitLineClamp",
       "--agent-native-truncate-original-display",
@@ -3848,9 +3852,24 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       pendingBeginTextEdit = null;
     }
-    function postTextEditPending(nodeId, pending) {
+    function postTextEditPending(nodeId, pending, reason) {
       window.parent.postMessage(
-        { type: "text-edit-pending", nodeId, pending },
+        {
+          type: "text-edit-pending",
+          nodeId,
+          pending,
+          reason
+        },
+        "*"
+      );
+    }
+    function postTextEditInsertResult(nodeId, inserted) {
+      window.parent.postMessage(
+        {
+          type: "text-edit-insert-result",
+          nodeId,
+          inserted
+        },
         "*"
       );
     }
@@ -7944,13 +7963,18 @@ export const editorChromeBridgeScript: string = `"use strict";
       postTextEditingState(suspended.target, false, suspended.selector, false);
     }
     function insertPlainTextAtSelection(text) {
-      if (!text) return;
+      if (!text) return false;
       if (document.queryCommandSupported && document.queryCommandSupported("insertText")) {
-        document.execCommand("insertText", false, text);
-        return;
+        var executed = false;
+        try {
+          executed = document.execCommand("insertText", false, text) === true;
+        } catch (_err) {
+          executed = false;
+        }
+        if (executed) return true;
       }
       var selection = window.getSelection ? window.getSelection() : null;
-      if (!selection || selection.rangeCount === 0) return;
+      if (!selection || selection.rangeCount === 0) return false;
       var range = selection.getRangeAt(0);
       range.deleteContents();
       var textNode = document.createTextNode(text);
@@ -7959,6 +7983,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       range.setEndAfter(textNode);
       selection.removeAllRanges();
       selection.addRange(range);
+      return textNode.isConnected === true;
     }
     function insertLineBreak() {
       if (document.queryCommandSupported && document.queryCommandSupported("insertText")) {
@@ -12555,9 +12580,14 @@ export const editorChromeBridgeScript: string = `"use strict";
           if (!(e.isComposing || e.keyCode === 229) && !e.metaKey && !e.ctrlKey) {
             var pendingKey = e.key || "";
             if (pendingKey === "Escape") {
+              if (pendingBeginTextEdit.buffer) {
+                pendingBeginTextEdit.commitImmediately = true;
+                stopNativeInteraction(e);
+                return;
+              }
               var abandonedPendingNodeId = pendingBeginTextEdit.nodeId;
               cancelPendingBeginTextEdit();
-              postTextEditPending(abandonedPendingNodeId, false);
+              postTextEditPending(abandonedPendingNodeId, false, "escape");
               stopNativeInteraction(e);
               return;
             }
@@ -12665,7 +12695,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (pendingBeginTextEdit) {
           var canceledPendingNodeId = pendingBeginTextEdit.nodeId;
           cancelPendingBeginTextEdit();
-          postTextEditPending(canceledPendingNodeId, false);
+          postTextEditPending(canceledPendingNodeId, false, "pointerdown");
         }
         if (!activeTextEditEl) return;
         if (exitStaleTextEditSession()) return;
@@ -12814,7 +12844,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (pendingBeginTextEdit) {
         var supersededPendingNodeId = pendingBeginTextEdit.nodeId;
         cancelPendingBeginTextEdit();
-        postTextEditPending(supersededPendingNodeId, false);
+        postTextEditPending(supersededPendingNodeId, false, "superseded");
       }
       if (activeTextEditEl && finishActiveTextEdit) finishActiveTextEdit(true);
       clearSuspendedTextEditRange();
@@ -13214,31 +13244,48 @@ export const editorChromeBridgeScript: string = `"use strict";
         resumeBookmark
       );
     }
+    var PENDING_BEGIN_TEXT_EDIT_MS = 5e3;
     function pumpPendingBeginTextEdit() {
       if (!pendingBeginTextEdit) return;
       var entry = pendingBeginTextEdit;
       var node = queryBeginTextEditNode(entry.nodeId, entry.repeat);
       if (node) {
         pendingBeginTextEdit = null;
+        if (activeTextEditEl) {
+          if (entry.buffer) postTextEditInsertResult(entry.nodeId, false);
+        }
         if (!activeTextEditEl) {
           activateProgrammaticTextEdit(node, entry.force);
-          if (entry.buffer && activeTextEditEl === node) {
-            insertPlainTextAtSelection(entry.buffer);
+          var replayLanded = false;
+          if (entry.buffer) {
+            replayLanded = activeTextEditEl === node && insertPlainTextAtSelection(entry.buffer);
+            postTextEditInsertResult(entry.nodeId, replayLanded);
+          }
+          if (entry.commitImmediately) {
+            if (activeTextEditEl === node && finishActiveTextEdit && (replayLanded || !entry.buffer)) {
+              finishActiveTextEdit(true);
+              node.blur();
+              postTextEditPending(entry.nodeId, false, "committed");
+            } else {
+              postTextEditPending(entry.nodeId, false, "not-taken");
+            }
           }
         }
         return;
       }
       if (Date.now() > entry.deadline) {
         pendingBeginTextEdit = null;
-        postTextEditPending(entry.nodeId, false);
+        postTextEditPending(entry.nodeId, false, "deadline");
         return;
       }
       entry.raf = window.requestAnimationFrame(pumpPendingBeginTextEdit);
     }
-    function scheduleBeginTextEditRetry(nodeId, repeat, force) {
+    function scheduleBeginTextEditRetry(nodeId, repeat, force, insertText, commitImmediately) {
       if (pendingBeginTextEdit && pendingBeginTextEdit.nodeId === nodeId && sameBeginTextEditRepeat(pendingBeginTextEdit.repeat, repeat)) {
         pendingBeginTextEdit.force = pendingBeginTextEdit.force || force;
-        pendingBeginTextEdit.deadline = Date.now() + 2e3;
+        pendingBeginTextEdit.deadline = Date.now() + PENDING_BEGIN_TEXT_EDIT_MS;
+        if (insertText) pendingBeginTextEdit.buffer += insertText;
+        if (commitImmediately) pendingBeginTextEdit.commitImmediately = true;
         return;
       }
       cancelPendingBeginTextEdit();
@@ -13246,9 +13293,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         nodeId,
         repeat,
         force,
-        deadline: Date.now() + 2e3,
+        commitImmediately: commitImmediately === true,
+        deadline: Date.now() + PENDING_BEGIN_TEXT_EDIT_MS,
         raf: window.requestAnimationFrame(pumpPendingBeginTextEdit),
-        buffer: ""
+        buffer: insertText || ""
       };
     }
     shieldOverlay.addEventListener("dblclick", beginTextEditingFromEvent, true);
@@ -13495,6 +13543,20 @@ export const editorChromeBridgeScript: string = `"use strict";
         designCanvasContentOffsetY = Number.isFinite(nextContentOffsetY) ? nextContentOffsetY : 0;
         return;
       }
+      if (e.data.type === "agent-native:cancel-text-edit") {
+        var cancelScreenId = typeof e.data.screenId === "string" ? e.data.screenId : "";
+        var cancelNodeId = typeof e.data.nodeId === "string" ? e.data.nodeId : "";
+        if (!cancelNodeId) return;
+        if (cancelScreenId && cancelScreenId !== designCanvasScreenId) return;
+        if (pendingBeginTextEdit && pendingBeginTextEdit.nodeId === cancelNodeId) {
+          cancelPendingBeginTextEdit();
+          postTextEditPending(cancelNodeId, false, "superseded");
+        }
+        if (activeTextEditEl && getSourceId(activeTextEditEl) === cancelNodeId && (activeTextEditEl.textContent || "").trim() === "" && finishActiveTextEdit) {
+          finishActiveTextEdit(false);
+        }
+        return;
+      }
       if (e.data.type === "begin-text-edit") {
         var forceBeginTextEdit = e.data.force === true;
         if ((readOnly || !textEditingEnabled) && !forceBeginTextEdit) return;
@@ -13502,24 +13564,51 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (!nodeId) return;
         var beginTextEditRepeat = beginTextEditRepeatFromMessage(e.data.repeat);
         if (e.data.repeat !== void 0 && !beginTextEditRepeat) return;
+        var beginInsertText = typeof e.data.insertText === "string" ? e.data.insertText : "";
+        var beginCommitImmediately = e.data.commitImmediately === true;
         var textTarget = queryBeginTextEditNode(nodeId, beginTextEditRepeat);
         if (!textTarget) {
           scheduleBeginTextEditRetry(
             nodeId,
             beginTextEditRepeat,
-            forceBeginTextEdit
+            forceBeginTextEdit,
+            beginInsertText,
+            beginCommitImmediately
           );
           postTextEditPending(nodeId, true);
           return;
         }
         cancelPendingBeginTextEdit();
         activateProgrammaticTextEdit(textTarget, forceBeginTextEdit);
+        var tookTarget = activeTextEditEl === textTarget;
+        var beginInsertLanded = false;
+        if (beginInsertText) {
+          beginInsertLanded = tookTarget && insertPlainTextAtSelection(beginInsertText);
+          postTextEditInsertResult(nodeId, beginInsertLanded);
+        }
+        if (beginCommitImmediately) {
+          if (tookTarget && finishActiveTextEdit && (beginInsertLanded || !beginInsertText)) {
+            finishActiveTextEdit(true);
+            textTarget.blur();
+            postTextEditPending(nodeId, false, "committed");
+          } else {
+            postTextEditPending(nodeId, false, "not-taken");
+          }
+        }
         return;
       }
       if (e.data.type === "text-edit-insert-text") {
         var bufferedText = typeof e.data.text === "string" ? e.data.text : "";
-        if (!bufferedText || !activeTextEditEl || !isTextEditElConnected())
+        var bufferedNodeId = typeof e.data.nodeId === "string" ? e.data.nodeId : "";
+        if (!bufferedText) return;
+        if (!activeTextEditEl || !isTextEditElConnected()) {
+          postTextEditInsertResult(bufferedNodeId, false);
           return;
+        }
+        if (bufferedNodeId && getSourceId(activeTextEditEl) !== bufferedNodeId) {
+          postTextEditInsertResult(bufferedNodeId, false);
+          return;
+        }
         var bufferedActive = document.activeElement;
         if (!bufferedActive || bufferedActive !== activeTextEditEl && !activeTextEditEl.contains(bufferedActive)) {
           try {
@@ -13531,8 +13620,9 @@ export const editorChromeBridgeScript: string = `"use strict";
           activeTextEditEl,
           true
         );
-        insertPlainTextAtSelection(bufferedText);
+        var bufferedInserted = insertPlainTextAtSelection(bufferedText);
         if (positionedAtStart) collapseSelectionIntoContents(activeTextEditEl);
+        postTextEditInsertResult(bufferedNodeId, bufferedInserted);
         return;
       }
       if (e.data.type === "set-editor-chrome-scale") {
