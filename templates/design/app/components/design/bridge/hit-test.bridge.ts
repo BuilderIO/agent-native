@@ -454,11 +454,17 @@
 
   function layerNameForElement(el: Element | null): string {
     if (!el || !el.getAttribute) return "";
-    return (
-      el.getAttribute("data-agent-native-layer-name") ||
-      el.getAttribute("data-layer-name") ||
-      ""
-    );
+    var attributes = [
+      "data-agent-native-layer-name",
+      "data-layer-name",
+      "layer-name",
+    ];
+    for (var i = 0; i < attributes.length; i += 1) {
+      var value = el.getAttribute(attributes[i]);
+      var trimmed = value && value.trim ? value.trim() : "";
+      if (trimmed) return trimmed;
+    }
+    return "";
   }
 
   // Detects exact Alpine-generated x-for/x-if instances by the template's own
@@ -1234,6 +1240,9 @@
           placement: placement,
           axis: axis,
           dropMode: dropMode,
+          layerName: result
+            ? layerNameForElement(result.anchor) || undefined
+            : undefined,
           anchorRect: anchorRect
             ? {
                 left: anchorRect.left,
