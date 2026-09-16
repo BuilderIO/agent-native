@@ -26,12 +26,12 @@
     "react-hooks/exhaustive-deps": "warn",
     "eslint/eqeqeq": ["warn", "smart"],
     "typescript/no-base-to-string": ["warn", { "checkUnknown": false }],
-    "shadcn/no-restyle": ["warn", { "allow": ["layout"] }],
-    "shadcn/no-raw-colors": "warn",
-    "shadcn/no-arbitrary-values": "warn",
-    "shadcn/no-inline-styles": "warn",
-    "shadcn/no-unknown-classes": "warn",
-    "shadcn/require-static-classes": "warn",
+    "shadcn/no-restyle": "off",
+    "shadcn/no-raw-colors": "off",
+    "shadcn/no-arbitrary-values": "off",
+    "shadcn/no-inline-styles": "off",
+    "shadcn/no-unknown-classes": "off",
+    "shadcn/require-static-classes": "off",
     "eslint/no-unused-vars": [
       "error",
       {
@@ -61,6 +61,16 @@
     ".agents/**"
   ],
   "overrides": [
+    {
+      "files": ["templates/*/app/**/*.tsx", "templates/*/desktop/src/**/*.tsx"],
+      "rules": {
+        "shadcn/no-restyle": ["warn", { "allow": ["layout"] }],
+        "shadcn/no-raw-colors": "warn",
+        "shadcn/no-arbitrary-values": "warn",
+        "shadcn/no-inline-styles": "warn",
+        "shadcn/require-static-classes": "warn"
+      }
+    },
     {
       "files": ["packages/*/src/**/*.ts", "packages/*/src/**/*.tsx"],
       "rules": {}

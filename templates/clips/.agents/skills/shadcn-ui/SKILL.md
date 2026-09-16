@@ -57,6 +57,10 @@ after UI changes and fix every `shadcn/*` finding before handing off. Template
 packages use the workspace lint configuration; do not create a second local
 lint configuration just for one app.
 
+The Plan template is intentionally excluded from this rollout. Its files remain
+under `templates/plan/**`, but the root Oxlint ignore list keeps them out of the
+shadcn checks until that template has a separate lint baseline.
+
 - `no-restyle`: use the component's `variant`, `size`, and semantic props; put
   layout on a parent and add a component variant only when the design system
   genuinely needs a new treatment.
