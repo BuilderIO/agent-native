@@ -458,7 +458,7 @@ async function main() {
       },
       authenticatedStorageCookieCount: signedInStorage.cookies.length,
       bridgeAuthResponseStatus:
-        directAuthStatus ?? authResponses.at(-1) ?? null,
+        directAuthStatus ?? authResponses[authResponses.length - 1] ?? null,
       webMcp: {
         tool: webMcpCall.tool,
         state: webMcpCall.state,
