@@ -474,6 +474,53 @@ Prüfen Sie daher die Verfügbarkeit im Zielprojekt, bevor Sie sie im
 Arbeitsbereichs-Picker anbieten. Siehe [Gemini-Enterprise-Agent aufrufen](https://docs.cloud.google.com/gemini/enterprise/docs/invoke-agent-a2a)
 für Ressourcen-URL und IAM-Anforderungen.
 
+### Anthropic Managed Agents {#anthropic-managed-agents}
+
+Anthropic Managed Agents stellt keinen eingehenden A2A-Endpunkt bereit.
+Verwenden Sie den Framework-Adapter, wenn Agent-Native die A2A-Oberfläche, den
+Workflow-Zustand und die Genehmigungen besitzen soll, während der gehostete
+Agent seine Sitzung, seinen Kontext und seine Tools besitzt. Der Adapter legt
+eine Managed-Agents-Sitzung an, sendet `user.message`-Ereignisse und liest den
+Sitzungsereignisstrom. Ein blockierendes `agent.tool_use`- oder
+`agent.mcp_tool_use`-Ereignis wird zu einer A2A-Aufgabe mit
+`input-required` und einem `approval-request`-Laufzeitereignis. Setzen Sie die
+Sitzung mit ausdrücklichen strukturierten Bestätigungen in den zurückgegebenen
+Metadaten fort. Genehmigungen dürfen nie aus einer Nachricht abgeleitet werden:
+
+```json
+{
+  "id": "anthropic-research",
+  "name": "Anthropic Research",
+  "url": "https://api.anthropic.com",
+  "kind": {
+    "provider": "anthropic-managed-agents",
+    "agentId": "agt_01...<AGENT_ID>",
+    "environmentId": "env_01...<ENVIRONMENT_ID>",
+    "credentialRef": "ANTHROPIC_API_KEY"
+  }
+}
+```
+
+`credentialRef` ist ein Vault-Verweis auf den Anthropic-API-Schlüssel. Der
+Adapter löst ihn im Benutzer- und Organisationsbereich des Aufrufers auf und
+sendet die erforderlichen Header `anthropic-beta:
+managed-agents-2026-04-01` und `anthropic-version: 2023-06-01`. Registrieren Sie
+`anthropic-managed-agents` im Workspace-Verbindungskatalog, um die vorhandenen
+Verbindungsfreigaben pro App wiederzuverwenden. Der Adapter wird über den
+üblichen `A2AConfig.handler`-Einstiegspunkt eingebunden:
+
+```ts
+import { createAnthropicManagedAgentsHandler } from "@agent-native/core/a2a";
+
+const handler = createAnthropicManagedAgentsHandler({
+  agentId: "agt_01...<AGENT_ID>",
+  environmentId: "env_01...<ENVIRONMENT_ID>",
+  credentialRef: "ANTHROPIC_API_KEY",
+});
+
+// `handler` in die an mountA2A() übergebene A2AConfig einsetzen
+```
+
 ## Programmatischer Arbeitsbereichsaufruf {#programmatic-invoke}
 
 Bevorzugen Sie für agentennative Arbeitsbereiche den `agentNative`-Hilfscode oder einen

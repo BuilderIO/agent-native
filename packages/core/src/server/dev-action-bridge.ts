@@ -35,6 +35,11 @@ import { resolveDevUserEmail } from "../scripts/dev-session.js";
 import { actionCallIsReadOnly, notifyActionChange } from "./action-change.js";
 import { isLoopbackRequest } from "./auth.js";
 import { resolveDeployEnvironment } from "./deploy-environment.js";
+import {
+  DEV_ACTION_DISCOVERY_PATH,
+  type DevActionDiscovery,
+  readDevActionDiscoveryFile,
+} from "./dev-action-discovery.js";
 import { getH3App } from "./framework-request-handler.js";
 import {
   getRequestOrgId,
@@ -47,14 +52,7 @@ export const DEV_ACTION_TOKEN_HEADER = "x-agent-native-dev-token";
 export const DEV_ACTION_USER_HEADER = "x-agent-native-dev-user";
 export const DEV_ACTION_ORG_HEADER = "x-agent-native-dev-org";
 
-const DISCOVERY_PATH = path.join(".agent-native", "dev-server.json");
-
-export interface DevActionDiscovery {
-  origin: string;
-  pid: number;
-  token: string;
-  databaseKey: string;
-}
+export { readDevActionDiscoveryFile } from "./dev-action-discovery.js";
 
 /** Hash a resolved `DATABASE_URL` so the discovery file never carries the raw connection string. */
 export function hashDatabaseKey(databaseUrl: string): string {
@@ -170,7 +168,7 @@ export function writeDevActionDiscoveryFile(
 ): void {
   const token = crypto.randomBytes(32).toString("hex");
   devBridgeProcess.__agentNativeDevActionToken = token;
-  const filePath = path.join(appRoot, DISCOVERY_PATH);
+  const filePath = path.join(appRoot, DEV_ACTION_DISCOVERY_PATH);
   const discovery: DevActionDiscovery = {
     origin,
     pid: process.pid,
@@ -209,7 +207,7 @@ export function removeDevActionDiscoveryFile(appRoot: string): void {
   const current = readDevActionDiscoveryFile(appRoot);
   if (!current || current.pid !== process.pid) return;
   try {
-    fs.unlinkSync(path.join(appRoot, DISCOVERY_PATH));
+    fs.unlinkSync(path.join(appRoot, DEV_ACTION_DISCOVERY_PATH));
   } catch (error) {
     if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") {
       console.warn(
@@ -218,54 +216,6 @@ export function removeDevActionDiscoveryFile(appRoot: string): void {
       );
     }
   }
-}
-
-/**
- * Read the discovery file for a CLI forward attempt. Returns `undefined`
- * ("no usable dev server") for every failure mode — missing file, unreadable
- * file, malformed JSON, wrong shape — logging unexpected ones so a broken
- * file doesn't look identical to "no dev server running" during debugging.
- */
-export function readDevActionDiscoveryFile(
-  appRoot: string,
-): DevActionDiscovery | undefined {
-  const filePath = path.join(appRoot, DISCOVERY_PATH);
-  let raw: string;
-  try {
-    raw = fs.readFileSync(filePath, "utf8");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") {
-      console.warn(
-        "[agent-native] could not read dev action discovery file:",
-        error,
-      );
-    }
-    return undefined;
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (error) {
-    console.warn(
-      "[agent-native] dev action discovery file is not valid JSON:",
-      error,
-    );
-    return undefined;
-  }
-  const candidate = parsed as Partial<DevActionDiscovery> | null;
-  if (
-    !candidate ||
-    typeof candidate.origin !== "string" ||
-    !Number.isInteger(candidate.pid) ||
-    typeof candidate.token !== "string" ||
-    typeof candidate.databaseKey !== "string"
-  ) {
-    console.warn(
-      "[agent-native] dev action discovery file has an unexpected shape; ignoring it",
-    );
-    return undefined;
-  }
-  return candidate as DevActionDiscovery;
 }
 
 function timingSafeTokenEqual(a: string, b: string): boolean {

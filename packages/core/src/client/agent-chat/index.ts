@@ -1,6 +1,17 @@
 export { MemoryRouter as AgentChatMemoryRouter } from "react-router";
 
 export {
+  cancelBackgroundAgentSession,
+  getBackgroundAgentSessionStatus,
+  startBackgroundAgentSession,
+  type BackgroundAgentSessionHandle,
+  type BackgroundAgentSessionReceipt,
+  type BackgroundAgentSessionSnapshot,
+  type BackgroundAgentSessionStartOptions,
+  type BackgroundAgentSessionStatus,
+} from "../background-agent-session.js";
+
+export {
   AgentAskPopover,
   type AgentAskPopoverProps,
 } from "../AgentAskPopover.js";

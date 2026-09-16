@@ -4,6 +4,11 @@ import {
   findSlideExportSource,
   preloadImagesWithCors,
 } from "./export-pdf-client";
+import {
+  type FontMetrics,
+  retargetPptxForGoogleSlides,
+  WRAP_MARK,
+} from "./pptx-google-slides";
 
 interface PptxExportSlide {
   id: string;
@@ -263,7 +268,10 @@ function createUnscaledExportClone(
 ) {
   const sourceRect = source.getBoundingClientRect();
   const imageGeometry = collectImageGeometry(source);
-  const textGeometry = collectTextGeometry(source);
+  const textGeometry = collectTextGeometry(source, {
+    x: sourceRect.width / dims.width || 1,
+    y: sourceRect.height / dims.height || 1,
+  });
   const positionedGeometry = collectPositionedGeometry(source);
 
   const stage = document.createElement("div");
@@ -421,7 +429,19 @@ function collectImageGeometry(root: HTMLElement) {
   );
 }
 
-function collectTextGeometry(root: HTMLElement) {
+/**
+ * `slideScale` is how much the whole slide canvas is scaled on the page. The
+ * export reads the active slide at the editor's zoom and every other slide from
+ * its sidebar thumbnail, so a text element's own rect-to-layout ratio is mostly
+ * that page scale; only what is left after dividing it out is a real transform
+ * inside the slide, such as autofit. Using the raw ratio shrank every
+ * non-active slide's type to thumbnail size and flagged its paragraphs as
+ * single lines.
+ */
+function collectTextGeometry(
+  root: HTMLElement,
+  slideScale: { x: number; y: number },
+) {
   return Array.from(root.querySelectorAll<HTMLElement>("h1,h2,h3,p,div"))
     .filter(isTextGeometryCandidate)
     .flatMap((element): TextGeometryRecord[] => {
@@ -446,9 +466,9 @@ function collectTextGeometry(root: HTMLElement) {
           path,
           position: style.position,
           rect,
-          scaleX: rect.width / Math.max(1, layoutWidth),
-          scaleY: rect.height / Math.max(1, layoutHeight),
-          singleLine: rect.height <= lineHeight * 1.35,
+          scaleX: rect.width / Math.max(1, layoutWidth) / slideScale.x,
+          scaleY: rect.height / Math.max(1, layoutHeight) / slideScale.y,
+          singleLine: rect.height / slideScale.y <= lineHeight * 1.35,
         },
       ];
     });
@@ -681,6 +701,53 @@ function restoreImageGeometry(
   }
 }
 
+/**
+ * Grows a text box to `width` without moving anything around it. The extra
+ * width comes back out of the margin on the side the text is aligned away
+ * from, so the element keeps its footprint in flow, flex and grid layout and
+ * its text stays where it was drawn. Setting the width alone grew grid tracks
+ * and slid every later column of a table sideways in the export, after
+ * `restoreTextGeometry` had already pinned positions from the old layout.
+ */
+export function widenInPlace(element: HTMLElement, width: number) {
+  const rect = element.getBoundingClientRect();
+  const extra = width - rect.width;
+  if (!(extra > 0)) return;
+  const style = window.getComputedStyle(element);
+  const rightToLeft = style.direction === "rtl";
+  const align =
+    style.textAlign === "start" || style.textAlign === "justify"
+      ? rightToLeft
+        ? "right"
+        : "left"
+      : style.textAlign === "end"
+        ? rightToLeft
+          ? "left"
+          : "right"
+        : style.textAlign;
+  const share =
+    align === "center" || align === "-webkit-center"
+      ? 0.5
+      : align === "right"
+        ? 1
+        : 0;
+  const marginLeft = Number.parseFloat(style.marginLeft) || 0;
+  const marginRight = Number.parseFloat(style.marginRight) || 0;
+  element.style.boxSizing = "border-box";
+  element.style.maxWidth = "none";
+  element.style.width = `${width}px`;
+  element.style.marginLeft = `${marginLeft - extra * share}px`;
+  element.style.marginRight = `${marginRight - extra * (1 - share)}px`;
+  // Chrome reports a grid item's auto margins as 0px, so pinning them in
+  // pixels drops the centring they applied; move the box back by what it drifted.
+  const drift =
+    element.getBoundingClientRect().left - (rect.left - extra * share);
+  if (Math.abs(drift) > 0.5) {
+    element.style.marginLeft = `${marginLeft - extra * share - drift}px`;
+    element.style.marginRight = `${marginRight - extra * (1 - share) + drift}px`;
+  }
+}
+
 function normalizeSingleLineText(
   clone: HTMLElement,
   records: TextGeometryRecord[],
@@ -698,8 +765,10 @@ function normalizeSingleLineText(
     element.style.boxSizing = "border-box";
     element.style.whiteSpace = noWrapWhiteSpace(element);
     if (record.heading) {
-      element.style.maxWidth = "none";
-      element.style.width = `${Math.max(1, Math.ceil(cloneRect.right - rect.left))}px`;
+      widenInPlace(
+        element,
+        Math.max(rect.width, Math.ceil(cloneRect.right - rect.left)),
+      );
       continue;
     }
 
@@ -714,10 +783,10 @@ function normalizeSingleLineText(
     // zero-slack width.
     const buffer = Math.max(24, rect.width * 0.25);
     const available = Math.max(rect.width, cloneRect.right - rect.left);
-    element.style.width = `${Math.max(
-      1,
-      Math.ceil(Math.min(rect.width + buffer, available)),
-    )}px`;
+    widenInPlace(
+      element,
+      Math.max(1, Math.ceil(Math.min(rect.width + buffer, available))),
+    );
   }
 }
 
@@ -1755,11 +1824,10 @@ function widenNoWrapTextElements(root: HTMLElement) {
     const rect = element.getBoundingClientRect();
     if (!rect.width || !rect.height) continue;
     const buffer = Math.max(24, rect.width * 0.25);
-    element.style.boxSizing = "border-box";
     if (style.display === "inline") {
       element.style.display = "inline-block";
     }
-    element.style.width = `${Math.ceil(rect.width + buffer)}px`;
+    widenInPlace(element, Math.ceil(rect.width + buffer));
   }
 }
 
@@ -1851,10 +1919,270 @@ function materializeImportedBackgroundGrid(root: HTMLElement) {
   slideRoot.style.backgroundRepeat = "no-repeat";
 }
 
+/** The app a PPTX is built for. Google Slides lays text out on its own terms; see `pptx-google-slides.ts`. */
+export type PptxExportTarget = "powerpoint" | "google-slides";
+
+/**
+ * Ascent and descent, in em, of each family the clones paint text with — the
+ * metrics Chrome centres each line's leading around. Families it cannot
+ * measure are left out, and their boxes keep their measured position.
+ */
+function measureFontMetrics(roots: HTMLElement[]): Record<string, FontMetrics> {
+  const context = document.createElement("canvas").getContext?.("2d");
+  if (!context || typeof context.measureText !== "function") return {};
+  const metrics: Record<string, FontMetrics> = {};
+  for (const family of usedFontFamilies(roots)) {
+    context.font = `100px "${family.replace(/["\\]/g, "\\$&")}"`;
+    const { fontBoundingBoxAscent, fontBoundingBoxDescent } =
+      context.measureText("Hg");
+    if (fontBoundingBoxAscent > 0 && fontBoundingBoxDescent >= 0) {
+      metrics[family] = {
+        ascent: fontBoundingBoxAscent / 100,
+        descent: fontBoundingBoxDescent / 100,
+      };
+    }
+  }
+  return metrics;
+}
+
+const FONT_PROBE_TEXT = "mmmmmmmmmmlli 0123 WwQq";
+
+/** Concrete faces for generic families, which name nothing a receiving app can set. */
+const GENERIC_EXPORT_FACES: Record<string, string> = {
+  "sans-serif": "Arial",
+  "system-ui": "Arial",
+  "ui-sans-serif": "Arial",
+  "ui-rounded": "Arial",
+  "-apple-system": "Arial",
+  blinkmacsystemfont: "Arial",
+  serif: "Times New Roman",
+  "ui-serif": "Times New Roman",
+  monospace: "Courier New",
+  "ui-monospace": "Courier New",
+};
+
+/** Metric-compatible stand-ins for system faces Google Slides does not serve. */
+const GOOGLE_SLIDES_FACE_EQUIVALENTS: Record<string, string> = {
+  helvetica: "Arial",
+  "helvetica neue": "Arial",
+  "segoe ui": "Arial",
+  "sf pro": "Arial",
+  "sf pro text": "Arial",
+  "sf pro display": "Arial",
+  times: "Times New Roman",
+  courier: "Courier New",
+  menlo: "Courier New",
+  monaco: "Courier New",
+  consolas: "Courier New",
+  "sf mono": "Courier New",
+};
+
+/**
+ * Whether Chrome is painting a family rather than falling through to the next
+ * face in the stack — undefined when this document cannot measure text, which
+ * is not the same as "every family is missing".
+ */
+function createFontRenderProbe(): ((family: string) => boolean) | undefined {
+  const context = document.createElement("canvas").getContext?.("2d");
+  if (!context || typeof context.measureText !== "function") return undefined;
+  const width = (font: string) => {
+    context.font = font;
+    return context.measureText(FONT_PROBE_TEXT).width;
+  };
+  if (width("72px monospace") === width("72px serif")) return undefined;
+  const cache = new Map<string, boolean>();
+  return (family) => {
+    const key = family.toLowerCase();
+    if (key in GENERIC_EXPORT_FACES) return true;
+    let rendered = cache.get(key);
+    if (rendered === undefined) {
+      const quoted = `"${family.replace(/["\\]/g, "\\$&")}"`;
+      rendered = ["monospace", "serif"].some(
+        (generic) =>
+          width(`72px ${quoted}, ${generic}`) !== width(`72px ${generic}`),
+      );
+      cache.set(key, rendered);
+    }
+    return rendered;
+  };
+}
+
+/**
+ * Names, on every text element, the face Chrome actually paints it with.
+ *
+ * Agent-written slides ask for `font-family: Inter, sans-serif`, and unless the
+ * viewer has Inter the slide is set in the fallback. dom-to-pptx declares the
+ * first family in the stack regardless, so the file said Inter for text Chrome
+ * measured in Helvetica, and Google Slides — which does serve Inter — set every
+ * line wider than the box it was measured into.
+ */
+export function pinRenderedFontFamilies(
+  root: HTMLElement,
+  target: PptxExportTarget,
+) {
+  const isRendered = createFontRenderProbe();
+  if (!isRendered) return;
+  for (const element of [root, ...Array.from(root.querySelectorAll("*"))]) {
+    if (!(element instanceof HTMLElement)) continue;
+    if (NON_RENDERING_TAGS.has(element.tagName)) continue;
+    const ownText = Array.from(element.childNodes).some(
+      (child) => child.nodeType === Node.TEXT_NODE && child.nodeValue?.trim(),
+    );
+    if (!ownText) continue;
+    const stack = window
+      .getComputedStyle(element)
+      .fontFamily.split(",")
+      .map((family) => family.trim().replace(/^["']|["']$/g, ""))
+      .filter(Boolean);
+    const painted = stack.find((family) => isRendered(family));
+    if (!painted) continue;
+    const key = painted.toLowerCase();
+    const face =
+      GENERIC_EXPORT_FACES[key] ??
+      (target === "google-slides"
+        ? GOOGLE_SLIDES_FACE_EQUIVALENTS[key]
+        : undefined) ??
+      painted;
+    if (face !== stack[0]) element.style.fontFamily = `"${face}"`;
+  }
+}
+
+function hasRotatedAncestor(
+  element: Element,
+  root: HTMLElement,
+  cache: Map<Element, boolean>,
+): boolean {
+  const cached = cache.get(element);
+  if (cached !== undefined) return cached;
+  const transform = window.getComputedStyle(element).transform;
+  const matrix = transform.match(/^matrix\(([^)]*)\)$/)?.[1].split(",");
+  const rotated =
+    (matrix !== undefined &&
+      (Math.abs(Number(matrix[1])) > 1e-6 ||
+        Math.abs(Number(matrix[2])) > 1e-6)) ||
+    transform.startsWith("matrix3d") ||
+    (element !== root &&
+      element.parentElement !== null &&
+      hasRotatedAncestor(element.parentElement, root, cache));
+  cache.set(element, rotated);
+  return rotated;
+}
+
+const PRESERVED_NEWLINE_WHITE_SPACE = /^(pre|pre-wrap|pre-line|break-spaces)$/;
+
+/**
+ * Marks each place Chrome wrapped a line inside a block with `WRAP_MARK`, so the
+ * Google Slides build can pin the break rather than let Slides choose its own.
+ * A line that starts after a `<br>`, a preserved newline, or a nested block is
+ * already its own paragraph in dom-to-pptx and is left unmarked.
+ */
+export function markWrappedLines(root: HTMLElement): number {
+  const displays = new Map<Element, string>();
+  const display = (element: Element) => {
+    let value = displays.get(element);
+    if (value === undefined) {
+      value = window.getComputedStyle(element).display;
+      displays.set(element, value);
+    }
+    return value;
+  };
+  const containerOf = (node: Node): Element => {
+    let element = node.parentElement;
+    while (
+      element &&
+      element !== root &&
+      (display(element) === "inline" || display(element) === "contents")
+    ) {
+      element = element.parentElement;
+    }
+    return element ?? root;
+  };
+
+  const rotation = new Map<Element, boolean>();
+  const lineBottoms = new Map<Element, number>();
+  // A tall inline run can reach below the centres of the next line's glyphs,
+  // so a glyph that lands below the one before it and back toward the side
+  // lines start on also starts a line.
+  const previousGlyphs = new Map<Element, DOMRect>();
+  const marks: Array<{ node: Text; offset: number }> = [];
+  const range = document.createRange();
+  const walker = document.createTreeWalker(
+    root,
+    NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT,
+  );
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (node instanceof Element) {
+      const value = display(node);
+      if (
+        node.tagName === "BR" ||
+        (value !== "inline" && value !== "contents")
+      ) {
+        const container = containerOf(node);
+        lineBottoms.delete(container);
+        previousGlyphs.delete(container);
+      }
+      continue;
+    }
+    if (!(node instanceof Text)) continue;
+    const parent = node.parentElement;
+    if (!parent || NON_RENDERING_TAGS.has(parent.tagName)) continue;
+    // The export stage itself is aria-hidden, so only a hidden subtree inside
+    // the slide counts.
+    const hidden = parent.closest('[aria-hidden="true"]');
+    if (hidden && hidden !== root && root.contains(hidden)) continue;
+    const container = containerOf(node);
+    if (hasRotatedAncestor(container, root, rotation)) continue;
+    const keepsNewlines = PRESERVED_NEWLINE_WHITE_SPACE.test(
+      window.getComputedStyle(parent).whiteSpace,
+    );
+    const rightToLeft = window.getComputedStyle(container).direction === "rtl";
+    const text = node.data;
+    for (let offset = 0; offset < text.length; offset++) {
+      const character = text[offset];
+      if (character === "\n" && keepsNewlines) {
+        lineBottoms.delete(container);
+        previousGlyphs.delete(container);
+        continue;
+      }
+      if (/\s/.test(character)) continue;
+      range.setStart(node, offset);
+      range.setEnd(node, offset + 1);
+      const rect = range.getClientRects()[0];
+      if (!rect || (!rect.width && !rect.height)) continue;
+      const bottom = lineBottoms.get(container);
+      const previous = previousGlyphs.get(container);
+      const wrapped =
+        bottom !== undefined &&
+        (rect.top + rect.height / 2 > bottom ||
+          (previous !== undefined &&
+            rect.top > previous.top + 0.5 &&
+            (rightToLeft
+              ? rect.right > previous.right + 0.5
+              : rect.left < previous.left - 0.5)));
+      if (wrapped) {
+        marks.push({ node, offset });
+        lineBottoms.set(container, rect.bottom);
+      } else {
+        lineBottoms.set(
+          container,
+          Math.max(bottom ?? rect.bottom, rect.bottom),
+        );
+      }
+      previousGlyphs.set(container, rect);
+    }
+  }
+  // Last offset first, so an insertion never shifts one still to be made.
+  for (const { node, offset } of marks.reverse()) {
+    node.insertData(offset, WRAP_MARK);
+  }
+  return marks.length;
+}
+
 export async function buildDeckPptxBlob(
   deckTitle: string,
   slides: PptxExportSlide[],
   aspectRatio?: AspectRatio,
+  { target = "powerpoint" }: { target?: PptxExportTarget } = {},
 ): Promise<{ blob: Blob; filename: string; blankShapes: number }> {
   const { exportToPptx } = await importExportModule(
     () => import("dom-to-pptx"),
@@ -1916,6 +2244,10 @@ export async function buildDeckPptxBlob(
       // child index the geometry passes above resolve their recorded paths
       // through.
       materializeImportedBackgroundGrid(clone.element);
+      pinRenderedFontFamilies(clone.element, target);
+      // After the font swap, so the marked breaks are the ones the declared
+      // face produces.
+      if (target === "google-slides") markWrappedLines(clone.element);
     }
 
     // `autoEmbedFonts` is off because it cannot see this deck's fonts and
@@ -1942,11 +2274,18 @@ export async function buildDeckPptxBlob(
       pinnedBlob,
       slideBulletIndents,
     );
-    const blob = await addSpeakerNotesToPptxBlob(
+    const notedBlob = await addSpeakerNotesToPptxBlob(
       bulletPatchedBlob,
       slides,
       dims.pptxInches,
     );
+    const blob =
+      target === "google-slides"
+        ? await retargetPptxForGoogleSlides(
+            notedBlob,
+            measureFontMetrics(cloneElements),
+          )
+        : notedBlob;
     if (blankShapes > 0) {
       console.warn(
         `[export-pptx] ${blankShapes} shape(s) rendered empty and are missing from ${deckTitle}`,

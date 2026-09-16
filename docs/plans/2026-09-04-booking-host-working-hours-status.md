@@ -4,7 +4,7 @@
 > Do not skip verification steps. Commit after each task.
 
 **Goal:** In the Calendar template's booking-link editor, show a per-host status
-icon telling the owner whether each host's *real working hours* are actually
+icon telling the owner whether each host's _real working hours_ are actually
 being used for that link, and give the owner a one-click path to fix it when
 they aren't.
 
@@ -30,15 +30,15 @@ All paths below are relative to `templates/calendar/` unless noted.
 Four decisions were taken during review. Each one changes the task list, so they
 are recorded here rather than left implicit:
 
-| Decision | Effect |
-|---|---|
-| Manual raw-email hosts **do** get an indicator | New client-derived fourth state (Task 9, 10). `getHostOverlayStatuses` keeps its overlay-list-only server contract. |
-| Manual hosts use a **muted** icon, not the red warning | External hosts are a permanent, non-actionable condition; red would be permanent noise. Red stays reserved for the actionable "peer hasn't added you back" case. |
-| Manual host popover offers **Add to my calendar** | Wired to the existing `useAddOverlayPerson`. `send-overlay-request` must keep rejecting non-overlay emails — that guard is what stops arbitrary emailing. |
-| Email CTA deep-links to the **add-people dialog**, prefilled | New Task 6a: an `addPersonEmail` param on `navigate`, drained into `AppLayout`'s dialog state, plus a prefill prop on `PeopleTab`. |
+| Decision                                                     | Effect                                                                                                                                                           |
+| ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Manual raw-email hosts **do** get an indicator               | New client-derived fourth state (Task 9, 10). `getHostOverlayStatuses` keeps its overlay-list-only server contract.                                              |
+| Manual hosts use a **muted** icon, not the red warning       | External hosts are a permanent, non-actionable condition; red would be permanent noise. Red stays reserved for the actionable "peer hasn't added you back" case. |
+| Manual host popover offers **Add to my calendar**            | Wired to the existing `useAddOverlayPerson`. `send-overlay-request` must keep rejecting non-overlay emails — that guard is what stops arbitrary emailing.        |
+| Email CTA deep-links to the **add-people dialog**, prefilled | New Task 6a: an `addPersonEmail` param on `navigate`, drained into `AppLayout`'s dialog state, plus a prefill prop on `PeopleTab`.                               |
 
 **Why the deep link goes through `navigate` and not a route query param.**
-`open-route.ts:250-253` serves the sign-in form *at the deep-link URL* and
+`open-route.ts:250-253` serves the sign-in form _at the deep-link URL_ and
 replays the navigation after login. The recipient of this email is a peer
 clicking from their inbox — frequently signed out or in another browser profile.
 A bare `/calendar/?addPerson=…` link loses its param across the auth redirect and
@@ -57,8 +57,8 @@ The Calendar template lets a user "overlay" a peer's calendar — stored in the
 For a booking link with multiple hosts, a host's **real working-hours schedule**
 can only be used when the relationship is **two-way**:
 
-1. The link owner has the host in *their* `calendar-overlay-people`, **and**
-2. the host has the owner in *their* `calendar-overlay-people` (reciprocal), **and**
+1. The link owner has the host in _their_ `calendar-overlay-people`, **and**
+2. the host has the owner in _their_ `calendar-overlay-people` (reciprocal), **and**
 3. the host has actually saved a `calendar-availability.weeklySchedule` **and** a
    resolvable IANA time zone.
 
@@ -74,14 +74,14 @@ action. Do not collapse them into one boolean.
 owner's overlay list at all, so `getHostOverlayStatuses` returns no row for it —
 correctly, because widening the server contract to report on arbitrary emails is
 exactly the probing surface the identity rule below is designed to close. The
-manual state is therefore derived in the component from the *absence* of a
+manual state is therefore derived in the component from the _absence_ of a
 status row on a chip the client already knows is non-overlay
 (`isOverlayHost(host)` in `BookingLinksPage.tsx`). It is never a server row.
 
 **Identity rule (security-critical).** Both actions resolve the owner from the
 booking link row's persisted `ownerEmail`, never from the signed-in caller,
 because links are shareable with non-owner editors/viewers and the working-hours
-relationship is always about the *owner's* calendar. When the caller is not the
+relationship is always about the _owner's_ calendar. When the caller is not the
 resolved owner, both actions additionally scope requested emails to that link's
 own persisted host list, so a shared viewer cannot use these actions to probe the
 owner's entire personal overlay list.
@@ -91,6 +91,7 @@ owner's entire personal overlay list.
 ## Task 1: Extract the shared peer schedule/timezone resolver
 
 **Files:**
+
 - Modify: `server/lib/booking-host-availability.ts`
 
 **Step 1.** Read the existing file in full. Note that
@@ -141,8 +142,11 @@ async function resolvePeerScheduleAndTimezone(email: string): Promise<{
 `Promise.all` map with:
 
 ```ts
-const { weeklySchedule, timezone } = await resolvePeerScheduleAndTimezone(email);
-return weeklySchedule ? { email, weeklySchedule, timezone } : { email, timezone };
+const { weeklySchedule, timezone } =
+  await resolvePeerScheduleAndTimezone(email);
+return weeklySchedule
+  ? { email, weeklySchedule, timezone }
+  : { email, timezone };
 ```
 
 **Step 4. Verify.** `pnpm vitest run templates/calendar/server/lib/booking-host-availability.spec.ts`
@@ -157,6 +161,7 @@ changes, you have altered behavior.
 ## Task 2: Add `getHostOverlayStatuses`
 
 **Files:**
+
 - Modify: `server/lib/booking-host-availability.ts`
 
 **Step 1.** Export the status interface next to `EligibleHostAvailability`:
@@ -172,7 +177,7 @@ export interface HostOverlayStatus {
 }
 ```
 
-Document *why* `reciprocal` and `hasWorkingHours` are separate in the doc comment.
+Document _why_ `reciprocal` and `hasWorkingHours` are separate in the doc comment.
 
 **Step 2.** Add `getHostOverlayStatuses(ownerEmail, hostEmails)`. Order of
 operations matters:
@@ -188,7 +193,7 @@ operations matters:
    reciprocity per candidate.
 6. For each candidate: pull `displayName` from the overlay map. If not
    reciprocal, return `{ email, isOverlaidByOwner: true, reciprocal: false,
-   hasWorkingHours: false, displayName }` and **skip the schedule read entirely**
+hasWorkingHours: false, displayName }` and **skip the schedule read entirely**
    — there is nothing to resolve and it saves two settings reads plus a possible
    Google API round-trip per host. If reciprocal, call
    `resolvePeerScheduleAndTimezone` and set
@@ -202,7 +207,7 @@ mocking style. Seven cases:
 - drops candidates not in the owner overlay list
 - reports not-reciprocal for an overlaid host who has not added the owner back
 - reports reciprocal but no working hours when the peer has not saved a schedule
-- reports reciprocal *and* working hours when peer has schedule + timezone
+- reports reciprocal _and_ working hours when peer has schedule + timezone
 - never reports the owner as their own host
 - **does not read peer schedule settings at all for a non-reciprocal host**
   (assert the `getUserSetting` mock was not called with `calendar-availability`
@@ -219,6 +224,7 @@ mocking style. Seven cases:
 ## Task 3: Add the shared result types
 
 **Files:**
+
 - Modify: `shared/api.ts`
 
 **Step 1.** After the existing `BookingHost` interface, add:
@@ -262,6 +268,7 @@ server row (see Background); the component derives it.
 ## Task 4: The overlay-request email
 
 **Files:**
+
 - Create: `server/lib/overlay-request-emails.ts`
 - Create: `server/lib/overlay-request-emails.spec.ts`
 - Modify: `server/lib/emails.ts`
@@ -313,12 +320,13 @@ the new template renders.
 ## Task 5: The `get-host-overlay-status` action
 
 **Files:**
+
 - Create: `actions/get-host-overlay-status.ts`
 - Create: `actions/get-host-overlay-status.spec.ts`
 
 **Step 1.** `defineAction` with `http: { method: "GET" }` and schema
 `{ emails: string[], bookingLinkId?: string }`. The description should say what
-the *user* gets ("check whether each booking-link host's real working hours are
+the _user_ gets ("check whether each booking-link host's real working hours are
 being used, vs. free/busy-only"), not restate the parameters. Mark
 `bookingLinkId` as omitted "only for a brand-new, unsaved draft."
 
@@ -355,7 +363,7 @@ amplification vector even for an authorized caller.
 > `getRequestUserEmail()` in step 1 blocks anonymous callers, but that still
 > leaves every signed-in Calendar user able to call this against any public
 > link. The `linkHostEmails` scope means they cannot dump the host list, but
-> they *can* confirm one guessed address at a time and receive that host's
+> they _can_ confirm one guessed address at a time and receive that host's
 > `displayName`, `timezone`, and `requestSentAt` — a confirmation oracle over
 > the owner's private overlay relationships.
 >
@@ -368,7 +376,7 @@ amplification vector even for an authorized caller.
 **Step 3.** Spec — eight cases: uses the caller as owner for a new unsaved draft;
 resolves the owner from the row rather than the caller when `bookingLinkId` is
 given; scopes requested emails to the link's own hosts for a non-owner caller;
-does **not** scope when the caller *is* the owner; attaches `requestSentAt` from
+does **not** scope when the caller _is_ the owner; attaches `requestSentAt` from
 the setting; throws when the link is not found; **rejects an `emails` array over
 the cap**; **rejects a signed-in caller who has only public `viewer` access to a
 public-visibility link**.
@@ -383,6 +391,7 @@ public-visibility link**.
 ## Task 6: The `send-overlay-request` action
 
 **Files:**
+
 - Create: `actions/send-overlay-request.ts`
 - Create: `actions/send-overlay-request.spec.ts`
 
@@ -419,7 +428,7 @@ reordering weakens one of them:
    `{ email, requestSentAt: existingSentAt, emailSent: false }` — idempotent, so
    a double-click or a second tab gets the existing timestamp instead of a second
    email.
-6. Count timestamps across *all* peers within `DAY_MS`; throw
+6. Count timestamps across _all_ peers within `DAY_MS`; throw
    `"Too many calendar-access requests sent today. Try again tomorrow."` at
    `>= DAILY_CAP`. The per-peer cooldown alone does not stop someone adding many
    peers and sending each exactly one request — this cap is what does. Note the
@@ -463,6 +472,7 @@ recording a new one**.
 ## Task 6a: Deep link into the add-people dialog
 
 **Files:**
+
 - Modify: `actions/navigate.ts`
 - Modify: `app/components/layout/AppLayout.tsx`
 - Modify: `app/components/calendar/AddCalendarDialog.tsx`
@@ -502,6 +512,7 @@ proves nothing.
 ## Task 7: Relative-time formatter
 
 **Files:**
+
 - Create: `app/lib/relative-time.ts`
 - Create: `app/lib/relative-time.test.ts`
 
@@ -527,6 +538,7 @@ hours; days.
 ## Task 8: Client hooks
 
 **Files:**
+
 - Create: `app/hooks/use-host-overlay-status.ts`
 
 **Step 1.** Two exports, both thin wrappers — no `fetch`, no REST paths:
@@ -552,7 +564,7 @@ export function useSendOverlayRequest() {
 }
 ```
 
-Document that `data` is `undefined` while loading *and* on error, and that
+Document that `data` is `undefined` while loading _and_ on error, and that
 callers must render no icon in that case rather than a guessed state — this is a
 secondary indicator, not a blocking one.
 
@@ -565,6 +577,7 @@ secondary indicator, not a blocking one.
 ## Task 9: The status icon component
 
 **Files:**
+
 - Create: `app/components/booking/HostOverlayStatusIcon.tsx`
 - Modify: `app/global.css`
 
@@ -594,7 +607,8 @@ state is derived from the mutation's `variables`.
 ```ts
 const name = status?.displayName || email;
 const isThisPending = mutation.isPending && mutation.variables?.email === email;
-const overrideResult = mutation.data?.email === email ? mutation.data : undefined;
+const overrideResult =
+  mutation.data?.email === email ? mutation.data : undefined;
 ```
 
 **Step 4.** Branch on `variant` first, then on `reciprocal`, then on
@@ -603,7 +617,7 @@ const overrideResult = mutation.data?.email === email ? mutation.data : undefine
 - `variant === "manual"` → `IconInfoCircle`, `text-muted-foreground`, wrapped in
   a `Popover`: copy explaining that only free/busy is checked for a host who is
   not on the owner's calendar, plus an **Add to my calendar** button calling
-  `addPerson`. This is deliberately *not* a send-request button — the peer is not
+  `addPerson`. This is deliberately _not_ a send-request button — the peer is not
   in the overlay list, and `send-overlay-request` rejects exactly that. Adding
   them flips the chip to the not-reciprocal state, which is where the real
   request button lives.
@@ -617,16 +631,18 @@ const overrideResult = mutation.data?.email === email ? mutation.data : undefine
 
 The manual and pending-schedule states share an icon but never appear on the same
 chip (one is overlay, one is manual), so the shape collision is not ambiguous in
-context. Colour is never the sole differentiator between two states that *can*
+context. Colour is never the sole differentiator between two states that _can_
 co-occur: the three overlay states use three distinct glyphs.
 
 **Step 5.** In the popover, resolve the status line from the mutation result
 first, then the server value:
 
 ```ts
-const emailNotConfigured = overrideResult?.skippedReason === "email-not-configured";
+const emailNotConfigured =
+  overrideResult?.skippedReason === "email-not-configured";
 const justSentThisSession = overrideResult?.emailSent === true;
-const latestRequestSentAt = overrideResult?.requestSentAt ?? status?.requestSentAt ?? null;
+const latestRequestSentAt =
+  overrideResult?.requestSentAt ?? status?.requestSentAt ?? null;
 ```
 
 Render, in priority order: the email-not-configured note (destructive, xs), else
@@ -650,6 +666,7 @@ browser check in Task 13.
 ## Task 10: Wire it into `BookingLinksPage`
 
 **Files:**
+
 - Modify: `app/pages/BookingLinksPage.tsx`
 
 **Step 1.** In `BookingHostsEditor` (line ~555), add props
@@ -725,29 +742,30 @@ imported in this file.
 ## Task 11: Localization (all locales, same change)
 
 **Files:**
+
 - Modify: `app/i18n-data.ts`
 - Modify: `app/i18n/zh-TW.ts`
 
 **Step 1.** Add these 15 keys to the `bookingLinks` group of the `enUS` source
 catalog in `app/i18n-data.ts`:
 
-| Key | English |
-|---|---|
-| `workingHoursAppliedTooltip` | `{{name}}'s working hours ({{timezone}}) are applied to this link.` |
-| `workingHoursAppliedAriaLabel` | `{{email}}'s working hours are applied` |
-| `workingHoursPendingScheduleTooltip` | `{{name}} hasn't set up their working hours yet, so only their free/busy is checked.` |
-| `workingHoursPendingScheduleAriaLabel` | `{{email}} hasn't set up their working hours yet` |
-| `workingHoursNotAppliedWarning` | `{{name}} hasn't added you back to their calendar yet, so only their free/busy is checked, not their working hours.` |
-| `workingHoursNotAppliedAriaLabel` | `{{email}} hasn't added you back to their calendar` |
-| `workingHoursManualHost` | `{{name}} isn't on your calendar, so only their free/busy is checked, not their working hours.` |
-| `workingHoursManualHostAriaLabel` | `{{email}} isn't on your calendar` |
-| `addHostToMyCalendar` | `Add to my calendar` |
-| `sendOverlayRequest` | `Send request` |
-| `resendOverlayRequest` | `Resend request` |
-| `overlayRequestSentJustNow` | `Request sent just now` |
-| `overlayRequestSentAgo` | `Request sent {{time}}` |
-| `overlayRequestFailed` | `Failed to send request` |
-| `overlayRequestEmailNotConfigured` | `Email sending isn't set up yet` |
+| Key                                    | English                                                                                                              |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `workingHoursAppliedTooltip`           | `{{name}}'s working hours ({{timezone}}) are applied to this link.`                                                  |
+| `workingHoursAppliedAriaLabel`         | `{{email}}'s working hours are applied`                                                                              |
+| `workingHoursPendingScheduleTooltip`   | `{{name}} hasn't set up their working hours yet, so only their free/busy is checked.`                                |
+| `workingHoursPendingScheduleAriaLabel` | `{{email}} hasn't set up their working hours yet`                                                                    |
+| `workingHoursNotAppliedWarning`        | `{{name}} hasn't added you back to their calendar yet, so only their free/busy is checked, not their working hours.` |
+| `workingHoursNotAppliedAriaLabel`      | `{{email}} hasn't added you back to their calendar`                                                                  |
+| `workingHoursManualHost`               | `{{name}} isn't on your calendar, so only their free/busy is checked, not their working hours.`                      |
+| `workingHoursManualHostAriaLabel`      | `{{email}} isn't on your calendar`                                                                                   |
+| `addHostToMyCalendar`                  | `Add to my calendar`                                                                                                 |
+| `sendOverlayRequest`                   | `Send request`                                                                                                       |
+| `resendOverlayRequest`                 | `Resend request`                                                                                                     |
+| `overlayRequestSentJustNow`            | `Request sent just now`                                                                                              |
+| `overlayRequestSentAgo`                | `Request sent {{time}}`                                                                                              |
+| `overlayRequestFailed`                 | `Failed to send request`                                                                                             |
+| `overlayRequestEmailNotConfigured`     | `Email sending isn't set up yet`                                                                                     |
 
 **Step 2.** Add the same keys to each locale block in the
 `translatedBookingHostAvailability` override map: `es-ES`, `fr-FR`, `de-DE`,
@@ -774,6 +792,7 @@ translatable copy.
 ## Task 12: Skill documentation
 
 **Files:**
+
 - Modify: `.agents/skills/availability-booking/SKILL.md`
 
 **Step 1.** After the existing time-zone-grid section and before the
@@ -799,10 +818,10 @@ translatable copy.
   must not be relaxed to `"viewer"`: `booking-link` allows public access, so
   `"viewer"` on a public-visibility link means any signed-in caller.
 - The send guardrails: overlay-list-only, per-peer cooldown, per-**owner** daily
-  cap (a shared editor spends the owner's quota), and *why the daily cap exists
-  on top of the cooldown*.
+  cap (a shared editor spends the owner's quota), and _why the daily cap exists
+  on top of the cooldown_.
 - Where timestamps live (`calendar-overlay-requests`, `{ [peerEmailLower]:
-  isoTimestamp }`), that entries older than a day are pruned on write, and that
+isoTimestamp }`), that entries older than a day are pruned on write, and that
   `get-host-overlay-status` reads them back.
 - That `navigate` now accepts `addPersonEmail`, and that it opens the dialog
   prefilled but never auto-adds.
@@ -845,7 +864,7 @@ feature works, so exercise all four states with two real accounts:
    immediately → no second email (cooldown), timestamp unchanged.
 3. **Open the emailed CTA in a signed-out private window.** Confirm it serves the
    sign-in form at that URL, and that after signing in as peer A the add-people
-   dialog opens prefilled with the owner's address and does *not* auto-add.
+   dialog opens prefilled with the owner's address and does _not_ auto-add.
    Confirm adding from there flips the owner's view.
 4. Peer A adds the owner back but saves no working hours → muted
    `IconInfoCircle`, tooltip only, **no** send button.
@@ -854,9 +873,9 @@ feature works, so exercise all four states with two real accounts:
 6. Add a manual raw-email host → muted `IconInfoCircle`, popover with **Add to my
    calendar**. Click it; confirm the chip moves to the overlay group and becomes
    the red not-reciprocal state.
-7. Open the link as a shared non-owner editor → status reflects the *owner's*
+7. Open the link as a shared non-owner editor → status reflects the _owner's_
    relationships, not the editor's.
-7a. Sign in as an unrelated user with no share on the link, and call
+   7a. Sign in as an unrelated user with no share on the link, and call
    `get-host-overlay-status` against a **public-visibility** link id. Confirm it
    is rejected. This is the access-bar regression that a future "it's only a
    read" refactor would reintroduce.

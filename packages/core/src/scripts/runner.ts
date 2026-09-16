@@ -15,6 +15,8 @@ import { spawnSync } from "node:child_process";
 import path from "path";
 import { pathToFileURL } from "url";
 
+import { Agent } from "undici";
+
 import type { ActionEntry } from "../agent/production-agent.js";
 import { getAppConfig } from "../app-config/index.js";
 import {
@@ -374,8 +376,14 @@ export async function tryForwardToDevServer(
   }
 
   let response: Response;
+  // Vite's local HTTPS mode commonly uses a self-signed certificate. This
+  // dispatcher is created only after the strict loopback-origin check above,
+  // so certificate bypass cannot send the dev token to a remote host.
+  const tlsDispatcher = discovery.origin.startsWith("https:")
+    ? new Agent({ connect: { rejectUnauthorized: false } })
+    : undefined;
   try {
-    response = await fetch(`${discovery.origin}${DEV_ACTION_ROUTE}`, {
+    const request: RequestInit & { dispatcher?: Agent } = {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -388,8 +396,11 @@ export async function tryForwardToDevServer(
           : {}),
       },
       body: JSON.stringify({ name: actionName, input }),
-    });
+      ...(tlsDispatcher ? { dispatcher: tlsDispatcher } : {}),
+    };
+    response = await fetch(`${discovery.origin}${DEV_ACTION_ROUTE}`, request);
   } catch {
+    await tlsDispatcher?.destroy();
     // The dev server isn't actually listening (stale discovery file,
     // ECONNREFUSED) or is otherwise unreachable — run in-process.
     return;
@@ -398,7 +409,10 @@ export async function tryForwardToDevServer(
   // The dev server doesn't serve this action at all (e.g. a core script
   // like db-query, which is never mounted as an HTTP route) — run in-process
   // rather than treating an unrelated 404 as a hard failure.
-  if (response.status === 404) return;
+  if (response.status === 404) {
+    await tlsDispatcher?.close();
+    return;
+  }
 
   if (response.status === 401 || response.status === 403) {
     const body = await response
@@ -408,6 +422,7 @@ export async function tryForwardToDevServer(
       `Action "${actionName}" failed:`,
       (body as { error?: string })?.error ?? `HTTP ${response.status}`,
     );
+    await tlsDispatcher?.close();
     process.exit(1);
   }
 
@@ -420,6 +435,7 @@ export async function tryForwardToDevServer(
     error?: string;
     devHandoffUrl?: unknown;
   };
+  await tlsDispatcher?.close();
   if (!body.ok) {
     console.error(
       `Action "${actionName}" failed:`,
@@ -449,9 +465,14 @@ export async function tryForwardToDevServer(
 function isLoopbackDevActionOrigin(origin: string): boolean {
   try {
     const url = new URL(origin);
+    // Discovery files record the URL Vite prints — `localhost` on the default
+    // wildcard bind; older dev servers recorded the 127.0.0.1 literal. Both
+    // are loopback labels for the same local server.
     return (
-      url.protocol === "http:" &&
-      url.hostname === "127.0.0.1" &&
+      (url.protocol === "http:" || url.protocol === "https:") &&
+      (url.hostname === "127.0.0.1" ||
+        url.hostname === "localhost" ||
+        url.hostname === "[::1]") &&
       url.pathname === "/" &&
       !url.search &&
       !url.hash

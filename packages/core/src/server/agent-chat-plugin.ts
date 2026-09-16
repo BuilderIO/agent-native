@@ -84,6 +84,7 @@ import {
   toolCallCacheKey,
   getActiveRunForThreadAsync,
   abortRunDurably,
+  abortTurnByRefDurably,
   abortTurnDurably,
   subscribeToRun,
   type ActionEntry,
@@ -96,7 +97,7 @@ import {
   callerHasRunAccess,
   callerHasThreadAccess,
 } from "../agent/run-ownership.js";
-import { markTurnAborted, readBackgroundRunClaim } from "../agent/run-store.js";
+import { readBackgroundRunClaim } from "../agent/run-store.js";
 import {
   buildCurrentTimeUserContext,
   buildRuntimeContextPrompt,
@@ -5645,7 +5646,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               setResponseStatus(event, 404);
               return { error: "Run not found" };
             }
-            await markTurnAborted(threadId, turnId, reason);
+            const outcome = await abortTurnByRefDurably(
+              threadId,
+              turnId,
+              reason,
+            );
+            if (outcome === "already_terminal") {
+              setResponseStatus(event, 409);
+              return { error: "Turn is already terminal" };
+            }
             return { ok: true };
           }
 
@@ -5832,6 +5841,44 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               runClaim?.dispatchMode ?? "foreground",
             );
             return stream;
+          }
+
+          // Route: GET /runs/latest?threadId=X
+          if (method === "GET" && url.includes("/runs/latest")) {
+            const query = getQuery(event);
+            const threadId = query.threadId ? String(query.threadId) : null;
+            const turnId = query.turnId ? String(query.turnId) : undefined;
+            if (!threadId) {
+              setResponseStatus(event, 400);
+              return { error: "threadId query parameter is required" };
+            }
+            if (!(await canViewThread(threadId))) {
+              setResponseStatus(event, 404);
+              return { error: "Run not found" };
+            }
+            const { getRunByThread } = await import("../agent/run-store.js");
+            const run = await getRunByThread(threadId, {
+              includeTerminal: true,
+              ...(turnId ? { turnId } : {}),
+            });
+            if (!run) {
+              if (turnId) {
+                setResponseStatus(event, 404);
+                return { error: "Run not found" };
+              }
+              return { threadId, status: "queued" };
+            }
+            return {
+              runId: run.id,
+              threadId: run.threadId,
+              turnId: run.turnId ?? null,
+              status: run.status,
+              heartbeatAt: run.heartbeatAt,
+              completedAt: run.completedAt,
+              lastProgressAt: run.lastProgressAt,
+              dispatchMode: run.dispatchMode,
+              terminalReason: run.terminalReason,
+            };
           }
 
           // Route: GET /runs/active?threadId=X
