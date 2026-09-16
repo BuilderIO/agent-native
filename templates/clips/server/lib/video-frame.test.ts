@@ -1,6 +1,6 @@
 import { execFile, execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -24,6 +24,39 @@ const availableFfmpegPath =
       })();
 
 describe("probeMediaDurationMs", () => {
+  it("fails a queued complete validation before the worker deadline", async () => {
+    const root = await mkdtemp(join(tmpdir(), "clips-video-frame-queue-test-"));
+    const slowFfmpegPath = join(root, "slow-ffmpeg.sh");
+    const previousFfmpegPath = process.env.FFMPEG_PATH;
+    process.env.FFMPEG_PATH = slowFfmpegPath;
+
+    try {
+      await writeFile(slowFfmpegPath, "#!/bin/sh\nsleep 0.1\nexit 1\n");
+      await chmod(slowFfmpegPath, 0o755);
+
+      const activeValidation = probeMediaDurationMs(
+        new Uint8Array([1]),
+        "video/mp4",
+        { requireComplete: true },
+      );
+      const queuedValidation = probeMediaDurationMs(
+        new Uint8Array([1]),
+        "video/mp4",
+        { requireComplete: true, maxQueueWaitMs: 1 },
+      );
+
+      await expect(queuedValidation).resolves.toBeNull();
+      await expect(activeValidation).resolves.toBeNull();
+    } finally {
+      if (previousFfmpegPath === undefined) {
+        delete process.env.FFMPEG_PATH;
+      } else {
+        process.env.FFMPEG_PATH = previousFfmpegPath;
+      }
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it.skipIf(!availableFfmpegPath)(
     "rejects a truncated faststart MP4 when complete validation is requested",
     async () => {

@@ -6,6 +6,7 @@ import {
   makeSeekable,
   normalizeTimelineToMp4,
   probeHasAudioStream,
+  resolveFfmpegCommand,
   remuxWebmToSeekable,
   timelineNormalizationFfmpegArgs,
 } from "./video-remux";
@@ -128,6 +129,22 @@ describe("makeSeekable dispatch", () => {
 
   it("reports ffmpeg availability as a boolean", () => {
     expect(typeof isFfmpegAvailable()).toBe("boolean");
+  });
+
+  it("uses the configured system command for availability and execution", () => {
+    const previousFfmpegPath = process.env.FFMPEG_PATH;
+    process.env.FFMPEG_PATH = "ffmpeg";
+
+    try {
+      expect(resolveFfmpegCommand()).toBe("ffmpeg");
+      expect(isFfmpegAvailable()).toBe(true);
+    } finally {
+      if (previousFfmpegPath === undefined) {
+        delete process.env.FFMPEG_PATH;
+      } else {
+        process.env.FFMPEG_PATH = previousFfmpegPath;
+      }
+    }
   });
 });
 
