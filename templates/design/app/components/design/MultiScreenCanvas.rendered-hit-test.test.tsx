@@ -183,15 +183,21 @@ describe("frame hit-testing uses rendered (content-fit) geometry", () => {
             {
               id: "remote-settings",
               filename: "settings.html",
-              content: "https://authenticated.example.test/settings",
-              sourceType: "localhost",
+              content: "https://preview.builderio.xyz/settings",
+              sourceType: "fusion",
               breakpointWidths: [390],
             },
             {
               id: "remote-library",
               filename: "library.html",
-              content: "https://authenticated.example.test/library",
+              content: "https://preview.builderio.xyz/library",
               sourceType: "fusion",
+            },
+            {
+              id: "localhost-settings",
+              filename: "localhost-settings.html",
+              content: "http://localhost:8081/settings",
+              sourceType: "localhost",
             },
             {
               id: "same-origin",
@@ -200,9 +206,9 @@ describe("frame hit-testing uses rendered (content-fit) geometry", () => {
               sourceType: "localhost",
             },
             {
-              id: "untrusted",
-              filename: "untrusted.html",
-              content: "https://untrusted.example.test/landing",
+              id: "hostile-fusion",
+              filename: "fusion.attacker.html",
+              content: "https://fusion.attacker.example/landing",
             },
             {
               id: "inline",
@@ -214,9 +220,20 @@ describe("frame hit-testing uses rendered (content-fit) geometry", () => {
           zoom={100}
           activeTool="move"
           readOnly
+          selectedScreenIds={[
+            "remote-settings",
+            "remote-library",
+            "localhost-settings",
+            "same-origin",
+            "hostile-fusion",
+            "inline",
+          ]}
           geometryById={{
             "remote-settings": { x: 0, y: 0, width: 400, height: 300 },
             "remote-library": { x: 500, y: 0, width: 400, height: 300 },
+            "localhost-settings": { x: 1000, y: 0, width: 400, height: 300 },
+            "same-origin": { x: 0, y: 400, width: 400, height: 300 },
+            "hostile-fusion": { x: 500, y: 400, width: 400, height: 300 },
             inline: { x: 1000, y: 0, width: 400, height: 300 },
           }}
           onPick={() => {}}
@@ -241,8 +258,11 @@ describe("frame hit-testing uses rendered (content-fit) geometry", () => {
     expect(primarySandboxById.get("remote-library")).toBe(
       "allow-scripts allow-same-origin",
     );
+    expect(primarySandboxById.get("localhost-settings")).toBe(
+      "allow-scripts allow-same-origin",
+    );
     expect(primarySandboxById.get("same-origin")).toBe("allow-scripts");
-    expect(primarySandboxById.get("untrusted")).toBe("allow-scripts");
+    expect(primarySandboxById.get("hostile-fusion")).toBe("allow-scripts");
     expect(primarySandboxById.get("inline")).toBe("allow-scripts");
 
     const breakpointFrames = Array.from(
