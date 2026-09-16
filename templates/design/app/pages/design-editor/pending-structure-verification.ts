@@ -116,10 +116,7 @@ function resolveRuntimeStructureNode(args: {
 
   if (!args.signature) {
     return {
-      failure: runtimeStructureResolutionFailure(
-        direct.status === "ambiguous" ? "ambiguous" : "absent",
-        args.role,
-      ),
+      failure: runtimeStructureResolutionFailure("absent", args.role),
     };
   }
 
@@ -200,7 +197,6 @@ function resolveRuntimeStructureNodeForPresence(args: {
 }): RuntimeStructureNodeResolution {
   // A source id remains a stable identity; a selector-only match is a
   // positional hint and may point at a different node after replacement.
-  if (args.sourceId) return resolveRuntimeStructureNode(args);
   const identity = resolveRuntimeStructureNodeByIdentity(args);
   if (identity.failure?.startsWith("ambiguous")) return identity;
   if (
@@ -220,6 +216,10 @@ function resolveRuntimeStructureNodeForPresence(args: {
             : "missing-anchor",
     };
   }
+  // A changed original can leave the replacement as the only node matching
+  // its old signature. Do not turn that signature match into absence proof
+  // while the pending subject still has a source identity.
+  if (args.sourceId && args.role === "subject") return identity;
   return resolveRuntimeStructureNodeBySignature(args);
 }
 

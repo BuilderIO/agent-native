@@ -363,7 +363,34 @@ describe("verifyPendingStructureRuntime", () => {
     });
   });
 
-  it("accepts a same-shaped replacement when its new identity is stable", () => {
+  it("does not acknowledge replacement when a changed old node shares its signature", () => {
+    const sameShapeSignature = {
+      tag: "section",
+      text: "Same",
+      classes: [],
+    };
+    const replaceEdit = edit({
+      selector: "main > p:nth-of-type(1)",
+      sourceId: "subject",
+      insertedHtml:
+        '<section data-agent-native-node-id="replacement">Same</section>',
+      replaced: true,
+      replacementSelector: '[data-agent-native-node-id="replacement"]',
+      replacementSourceId: "replacement",
+      subjectSignature: sameShapeSignature,
+      replacementSignature: sameShapeSignature,
+    });
+    const html = `<!doctype html><body><main>
+      <div>Changed</div>
+      <section data-agent-native-node-id="replacement">Same</section>
+    </main></body>`;
+    expect(verifyPendingStructureRuntime(html, replaceEdit)).toEqual({
+      ok: false,
+      failure: "missing-subject",
+    });
+  });
+
+  it("accepts an identity-less same-shaped replacement when its new identity is stable", () => {
     const sameShapeSignature = {
       tag: "section",
       text: "Same",
@@ -371,7 +398,7 @@ describe("verifyPendingStructureRuntime", () => {
     };
     const replaceEdit = edit({
       selector: '[data-agent-native-node-id="subject"]',
-      sourceId: "subject",
+      sourceId: null,
       insertedHtml:
         '<section data-agent-native-node-id="replacement">Same</section>',
       replaced: true,
