@@ -7,7 +7,7 @@ test.beforeEach(async ({}, testInfo) => {
   setBaseURL(testInfo);
 });
 
-test("Design full-page chat keeps shared tabs and new-chat controls", async ({
+test("Design full-page chat keeps shared tabs, new-chat, and clear controls", async ({
   page,
 }) => {
   const designId = await newDesign(page);
@@ -22,22 +22,34 @@ test("Design full-page chat keeps shared tabs and new-chat controls", async ({
   await expect(
     header.getByRole("button", { name: "Agent panel options", exact: true }),
   ).toBeVisible();
+  await header
+    .getByRole("button", { name: "Agent panel options", exact: true })
+    .click();
+  await expect(
+    page.getByRole("menuitem", { name: "Clear chat", exact: true }),
+  ).toBeVisible();
+  await page.keyboard.press("Escape");
 
+  const readOpenTabCount = () =>
+    page.evaluate(() => {
+      const counts = Object.keys(localStorage)
+        .filter((candidate) => candidate.includes("agent-chat-open-tabs"))
+        .map((key) => {
+          try {
+            const value = JSON.parse(localStorage.getItem(key) ?? "[]");
+            return Array.isArray(value) ? value.length : 0;
+          } catch {
+            return 0;
+          }
+        });
+      return Math.max(0, ...counts);
+    });
+  const initialOpenTabCount = await readOpenTabCount();
   await newChat.click();
-  // A fresh page may still be reconciling its first client-only tab into the
-  // persisted open-tab list; let that tab become the stable predecessor.
-  await expect
-    .poll(() =>
-      page.evaluate(() => {
-        const key = Object.keys(localStorage).find((candidate) =>
-          candidate.includes("agent-chat-open-tabs"),
-        );
-        if (!key) return 0;
-        const value = JSON.parse(localStorage.getItem(key) ?? "[]");
-        return Array.isArray(value) ? value.length : -1;
-      }),
-    )
-    .toBeGreaterThan(0);
+  // Wait for this click's new thread, not merely the initial tab persisted by
+  // mount-time reconciliation. Legacy and browser-tab-scoped keys can coexist,
+  // so read the largest valid list rather than relying on key order.
+  await expect.poll(readOpenTabCount).toBeGreaterThan(initialOpenTabCount);
   await newChat.click();
   await expect
     .poll(() => header.locator(".agent-tab").count())
