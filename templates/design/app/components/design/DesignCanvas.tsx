@@ -3440,9 +3440,12 @@ export function DesignCanvas({
           // the abandoned node alive; only this canvas's own live request may.
           // Owed text rides in its own begin-text-edit, so once interception
           // has ended nothing moves it back into a canvas that intercepts.
+          // A breakpoint preview deliberately has no owner identity: it can
+          // never take this capture, drain it, or acknowledge it, so arming its
+          // key listener only swallowed keys nobody could ever deliver.
+          if (!capturedOwner) return;
           if (
             currentPending?.nodeId !== pendingNodeId &&
-            capturedOwner &&
             !isPendingTextInterceptionOpen(capturedOwner, pendingNodeId)
           ) {
             return;
@@ -3455,9 +3458,8 @@ export function DesignCanvas({
             // node — take the creation gesture's buffer here too.
             pendingTextEditRef.current = {
               nodeId: pendingNodeId,
-              buffer: capturedOwner
-                ? (takePendingTextCapture(capturedOwner, pendingNodeId) ?? "")
-                : "",
+              buffer:
+                takePendingTextCapture(capturedOwner, pendingNodeId) ?? "",
               startedAt: Date.now(),
             };
           }
@@ -4401,9 +4403,21 @@ export function DesignCanvas({
           ...(commitImmediately ? { commitImmediately: true } : {}),
         });
         if (owner) {
-          onPendingTextCaptureCancel(owner, nodeId, () =>
-            dropQueuedBeginTextEdit(nodeId),
-          );
+          onPendingTextCaptureCancel(owner, nodeId, () => {
+            dropQueuedBeginTextEdit(nodeId);
+            // Dropping the QUEUED copy is not enough: the frame may already
+            // hold this begin, and the host-side commit that follows a
+            // stand-down would then be a second copy of the same characters.
+            // Revoke it at the frame, identity-scoped, before that commit.
+            iframeRef.current?.contentWindow?.postMessage(
+              {
+                type: "agent-native:cancel-text-edit",
+                screenId: capturedOwnerRef.current ?? "",
+                nodeId,
+              },
+              "*",
+            );
+          });
         }
         return true;
       }

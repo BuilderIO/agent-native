@@ -938,3 +938,83 @@ it("keeps owing the text when the frame reports the insert did not land", async 
   });
   expect(isPendingTextRequestLive("screen-live", "text-drop")).toBe(false);
 });
+
+/**
+ * The host-side commit fallback writes the owed text into the source. If the
+ * frame is still holding the begin that carries those same characters, that
+ * commit is a SECOND copy — dropping the queued message never reached the copy
+ * the iframe already had. The owed delivery is the ONLY begin here on purpose:
+ * the ordinary activation path registers its own revoke, which would mask this.
+ */
+it("revokes an owed delivery the frame may already hold when the request stands down", async () => {
+  const canvas = await mountCanvas("text-edit-revoke-preview-token");
+  await canvas.markReady(canvas.iframeWindow);
+
+  const capture = armPendingTextCapture({ owner: "screen-live" });
+  capture.bind("text-revoke");
+  await act(async () => {
+    for (const char of "Sta") {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: char }));
+    }
+  });
+
+  // The cap passes with the text still owed: interception ends and the owner is
+  // asked to open the session holding it.
+  const armedAt = Date.now();
+  vi.spyOn(Date, "now").mockReturnValue(
+    armedAt + PENDING_TEXT_INTERCEPT_CAP_MS + 1,
+  );
+  await act(async () => {
+    expect(isPendingTextRequestLive("screen-live", "text-revoke")).toBe(true);
+  });
+  const begins = canvas
+    .typed("begin-text-edit")
+    .filter(
+      (message) => (message as { nodeId?: string }).nodeId === "text-revoke",
+    );
+  expect(begins[begins.length - 1]).toMatchObject({
+    nodeId: "text-revoke",
+    insertText: "Sta",
+  });
+
+  // The frame holds that begin now. Standing the request down — the same path
+  // the host-side commit takes before it writes — has to revoke it there.
+  await act(async () => {
+    window.dispatchEvent(new PointerEvent("pointerdown"));
+  });
+  expect(
+    canvas
+      .typed("agent-native:cancel-text-edit")
+      .filter(
+        (message) => (message as { nodeId?: string }).nodeId === "text-revoke",
+      ),
+  ).toHaveLength(1);
+});
+
+/**
+ * A breakpoint preview renders the same screen with NO owner identity, so it
+ * can never take the capture, drain it, or acknowledge it. Arming its key
+ * listener from a pending report swallowed keys that nothing could deliver.
+ */
+it("never arms a preview canvas's key buffer from a pending report", async () => {
+  const canvas = await mountCanvas("text-edit-preview-pending-token", {
+    previewFrameId: "bp-390",
+  });
+  await canvas.markReady(canvas.iframeWindow);
+
+  const capture = armPendingTextCapture({ owner: "screen-live" });
+  capture.bind("text-preview-pending");
+  await canvas.fromFrame(canvas.iframeWindow, {
+    type: "text-edit-pending",
+    nodeId: "text-preview-pending",
+    pending: true,
+  });
+
+  // The key must reach the creation's own capture, not this preview.
+  await act(async () => {
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "x" }));
+  });
+  expect(peekPendingTextCapture("screen-live", "text-preview-pending")).toBe(
+    "x",
+  );
+});

@@ -41,16 +41,19 @@ export function isTextEditSessionOutcome(
  * and they all post into one shared state, so a stale report must not clobber
  * the session the user is really in. Screen alone is not an identity: two text
  * nodes on one surface (a board creation, then the next) let the first's late
- * active:false close the second's live session. Element identity only
- * discriminates when both sides carry one — a report with no `sourceId` still
- * has to be able to close the session it belongs to.
+ * active:false close the second's live session. An IDENTIFIED report names the
+ * session it ended, so it can only close that one: letting it close an
+ * unidentified live session closed whichever session happened to be open. An
+ * unidentified report carries no such claim and still closes its screen's
+ * session, rather than stranding it active forever.
  */
 export function endedTextEditClosesActiveSession(
   activeSession: { screenId: string; sourceId?: string } | null,
   ended: { screenId: string; sourceId?: string },
 ): boolean {
   if (!activeSession || activeSession.screenId !== ended.screenId) return false;
-  if (!activeSession.sourceId || !ended.sourceId) return true;
+  if (!activeSession.sourceId) return !ended.sourceId;
+  if (!ended.sourceId) return true;
   return activeSession.sourceId === ended.sourceId;
 }
 

@@ -184,10 +184,21 @@ it("keeps a live session when an earlier one on the same screen reports ended", 
   // A report or a session without element identity still closes its screen's
   // session rather than stranding it active forever.
   expect(endedTextEditClosesActiveSession(b, { screenId: "board" })).toBe(true);
+  // An IDENTIFIED ended report names the session it closed. Letting it close an
+  // unidentified live session closed whichever session happened to be open —
+  // creation A's late report ending the session the user was typing into.
   expect(
     endedTextEditClosesActiveSession(
       { screenId: "board" },
       { screenId: "board", sourceId: "text-a" },
+    ),
+  ).toBe(false);
+  // Neither side claims an identity: the report still closes its screen's
+  // session instead of stranding it active forever.
+  expect(
+    endedTextEditClosesActiveSession(
+      { screenId: "board" },
+      { screenId: "board" },
     ),
   ).toBe(true);
   expect(
