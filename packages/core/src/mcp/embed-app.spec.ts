@@ -52,10 +52,10 @@ describe("embedApp", () => {
     expect(html).toContain("record.embedTargetPath");
     expect(html).toContain("record.deepLinkUrl");
     expect(html).toContain(
-      "record.deepLink,\n        structuredOpenLinkUrl,\n        metaUrl,\n        record.openUrl,",
+      "record.deepLink,\n        metaUrl,\n        structuredOpenLinkUrl,\n        record.openUrl,",
     );
-    expect(html.indexOf("structuredOpenLinkUrl")).toBeLessThan(
-      html.indexOf("record.url"),
+    expect(html).not.toContain(
+      "record.deepLink,\n        structuredOpenLinkUrl,\n        metaUrl,\n        record.openUrl,",
     );
     expect(html).toContain("let launchUrl = openStartUrl || openUrl");
     expect(html).not.toContain("launchUrl = openUrl;");

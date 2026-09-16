@@ -283,8 +283,8 @@ export function embedApp(
         record.embedTargetPath,
         record.deepLinkUrl,
         record.deepLink,
-        structuredOpenLinkUrl,
         metaUrl,
+        structuredOpenLinkUrl,
         record.openUrl,
         record.url
       ]);

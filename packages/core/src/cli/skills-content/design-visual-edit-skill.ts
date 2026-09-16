@@ -240,13 +240,13 @@ separate Postgres-backed databases.
 
 ## Action Flow
 
-Prefer the single \`open-visual-edit\` action through the connected Design MCP
-server when the target app is not Design. It registers or refreshes the
-localhost bridge connection, mints and stores the bridge token, creates or
-reuses a Design project, places URL-backed screens, stores the active visual-edit
-context, and navigates to overview mode in one call. Never run \`pnpm action\`
-from the target app's checkout: its local action registry does not contain
-Design actions.
+From another app, call the connected Design MCP tool
+\`mcp__agent-native-design__open-visual-edit\` with the JSON arguments below. It
+registers or refreshes the localhost bridge,
+mints and stores the bridge token, creates or reuses a Design project, places
+URL-backed screens, stores visual-edit context, and navigates to overview mode
+in one call. Never run \`pnpm action\` from the target app's checkout: its local
+registry does not contain Design actions.
 
 Call it BEFORE starting the durable bridge (step 3 above): it does not contact
 the bridge, so the bridge need not be running yet, and you need its returned
