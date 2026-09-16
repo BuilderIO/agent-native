@@ -1427,6 +1427,25 @@ describe("AppWebview theme propagation", () => {
     ).toBe("light");
   });
 
+  it("updates and clears the guest override when the guest changes theme", () => {
+    new Function(buildGuestThemeScript("dark"))();
+    window.localStorage.setItem("theme", "light");
+    new Function(buildGuestThemeScript("dark"))();
+
+    window.localStorage.setItem("theme", "dark");
+    new Function(buildGuestThemeScript("dark"))();
+    expect(
+      window.localStorage.getItem("agent-native-desktop-guest-theme"),
+    ).toBe("dark");
+
+    window.localStorage.setItem("theme", "system");
+    new Function(buildGuestThemeScript("light"))();
+    expect(
+      window.localStorage.getItem("agent-native-desktop-guest-theme"),
+    ).toBeNull();
+    expect(window.localStorage.getItem("theme")).toBe("light");
+  });
+
   it("follows the host when the guest has not selected a different theme", () => {
     new Function(buildGuestThemeScript("dark"))();
 
