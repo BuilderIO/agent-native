@@ -47,6 +47,7 @@ export interface QueryReviewCommentsInput {
   includeResolved?: boolean;
   includeDeleted?: boolean;
   targetId?: string | null;
+  newestFirst?: boolean;
   rootOnly?: boolean;
   resolutionTargets?: readonly (ReviewResolutionTarget | null)[];
   unconsumedOnly?: boolean;
@@ -546,13 +547,15 @@ export async function queryReviewComments(
     : `SELECT ${commentColumns()}
          FROM agent_review_comments
         WHERE ${filters.join(" AND ")}`;
+  const order = input.newestFirst ? "DESC" : "ASC";
   const result = await client.execute({
     sql: `${selectSql}
-      ORDER BY created_at ASC${input.rootOnly ? ", id ASC" : ""}
+      ORDER BY created_at ${order}${input.rootOnly ? `, id ${order}` : ""}
       LIMIT ?`,
     args: [...filterParams, clampLimit(input.limit)],
   });
-  return (result.rows ?? []).map(mapCommentRow);
+  const rows = result.rows ?? [];
+  return (input.newestFirst ? [...rows].reverse() : rows).map(mapCommentRow);
 }
 
 export async function getReviewThreadSummary(

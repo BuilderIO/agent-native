@@ -27,6 +27,7 @@ const schema = z.object({
   includeResolved: z.boolean().optional(),
   includeDeleted: z.boolean().optional(),
   targetId: z.string().nullable().optional(),
+  newestFirst: z.boolean().optional(),
   limit: z.number().int().positive().max(500).optional(),
 });
 
@@ -59,6 +60,7 @@ export default defineAction({
         includeResolved: args.includeResolved,
         includeDeleted: args.includeDeleted,
         targetId: args.targetId,
+        newestFirst: args.newestFirst,
         limit: args.limit,
       }),
       getReviewStatus(args.resourceType, args.resourceId, scope, {

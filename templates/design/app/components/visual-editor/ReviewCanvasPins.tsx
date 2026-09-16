@@ -10,6 +10,7 @@ import {
   useResolveReviewThread,
   useUpdateReviewCommentAnchor,
   useReviewComments,
+  isTrustedReviewAttachmentUrl,
   type ReviewThread,
 } from "@agent-native/core/client/review";
 import { uploadEditorImage } from "@agent-native/core/client/uploads";
@@ -372,6 +373,7 @@ export function ReviewCanvasPins({
       resourceId,
       targetId,
       includeResolved: true,
+      newestFirst: true,
       limit: 500,
     },
     {
@@ -1062,23 +1064,30 @@ export function ReviewCanvasPins({
   );
 
   const moveThreadPin = useCallback(
-    (thread: ReviewThread, point: ReviewAnchorPoint) => {
-      const anchor =
-        thread.root.anchor &&
-        typeof thread.root.anchor === "object" &&
-        !Array.isArray(thread.root.anchor)
-          ? (thread.root.anchor as Record<string, unknown>)
-          : {};
-      updateAnchor.mutate(
-        {
-          resourceType,
-          resourceId,
-          commentId: thread.root.id,
-          anchor: { ...anchor, point },
-        },
-        { onError: () => toast.error(t("review.moveFailed")) },
-      );
-    },
+    (thread: ReviewThread, point: ReviewAnchorPoint) =>
+      new Promise<void>((resolve, reject) => {
+        const anchor =
+          thread.root.anchor &&
+          typeof thread.root.anchor === "object" &&
+          !Array.isArray(thread.root.anchor)
+            ? (thread.root.anchor as Record<string, unknown>)
+            : {};
+        updateAnchor.mutate(
+          {
+            resourceType,
+            resourceId,
+            commentId: thread.root.id,
+            anchor: { ...anchor, point },
+          },
+          {
+            onSuccess: () => resolve(),
+            onError: (error) => {
+              toast.error(t("review.moveFailed"));
+              reject(error);
+            },
+          },
+        );
+      }),
     [resourceId, resourceType, t, updateAnchor],
   );
 
@@ -1333,17 +1342,35 @@ function ReviewPin({
   pending?: boolean;
   resolved?: boolean;
   onClick: () => void;
-  onDragEnd?: (point: ReviewAnchorPoint) => void;
+  onDragEnd?: (point: ReviewAnchorPoint) => Promise<void> | void;
   children?: ReactNode;
 }) {
   const t = useT();
   const [dragPoint, setDragPoint] = useState(point);
+  const pointRef = useRef(point);
+  pointRef.current = point;
   const dragRef = useRef<{
     pointerId: number;
     moved: boolean;
+    origin: ReviewAnchorPoint;
   } | null>(null);
   const suppressClickRef = useRef(false);
-  useEffect(() => setDragPoint(point), [point]);
+  const pendingDragRef = useRef<{
+    next: ReviewAnchorPoint;
+    origin: ReviewAnchorPoint;
+    settled: boolean;
+  } | null>(null);
+  useEffect(() => {
+    const pendingDrag = pendingDragRef.current;
+    if (!pendingDrag) {
+      setDragPoint(point);
+      return;
+    }
+    if (pendingDrag.settled && sameReviewAnchorPoint(point, pendingDrag.next)) {
+      pendingDragRef.current = null;
+      setDragPoint(point);
+    }
+  }, [point]);
   const pointToCanvas = (event: PointerEvent): ReviewAnchorPoint => ({
     xPct: Math.min(
       100,
@@ -1396,14 +1423,18 @@ function ReviewPin({
           if (draft || pending || !onDragEnd) return;
           event.stopPropagation();
           event.currentTarget.setPointerCapture(event.pointerId);
-          dragRef.current = { pointerId: event.pointerId, moved: false };
+          dragRef.current = {
+            pointerId: event.pointerId,
+            moved: false,
+            origin: dragPoint,
+          };
         }}
         onPointerMove={(event) => {
           if (dragRef.current?.pointerId !== event.pointerId) return;
           const next = pointToCanvas(event);
           if (
-            Math.abs(next.xPct - point.xPct) > 0.2 ||
-            Math.abs(next.yPct - point.yPct) > 0.2
+            Math.abs(next.xPct - dragRef.current.origin.xPct) > 0.2 ||
+            Math.abs(next.yPct - dragRef.current.origin.yPct) > 0.2
           ) {
             dragRef.current.moved = true;
           }
@@ -1412,18 +1443,42 @@ function ReviewPin({
         onPointerUp={(event) => {
           if (dragRef.current?.pointerId !== event.pointerId) return;
           const next = pointToCanvas(event);
-          const moved = dragRef.current.moved;
+          const drag = dragRef.current;
+          const moved = drag.moved;
           dragRef.current = null;
           event.currentTarget.releasePointerCapture(event.pointerId);
           if (moved) {
             suppressClickRef.current = true;
-            onDragEnd?.(next);
+            pendingDragRef.current = {
+              next,
+              origin: drag.origin,
+              settled: false,
+            };
+            setDragPoint(next);
+            void Promise.resolve()
+              .then(() => onDragEnd?.(next))
+              .then(
+                () => {
+                  const pendingDrag = pendingDragRef.current;
+                  if (pendingDrag?.next !== next) return;
+                  pendingDrag.settled = true;
+                  if (sameReviewAnchorPoint(pointRef.current, next)) {
+                    pendingDragRef.current = null;
+                  }
+                },
+                () => {
+                  const pendingDrag = pendingDragRef.current;
+                  if (pendingDrag?.next !== next) return;
+                  pendingDragRef.current = null;
+                  setDragPoint(pendingDrag.origin);
+                },
+              );
           }
         }}
         onPointerCancel={() => {
           dragRef.current = null;
           suppressClickRef.current = false;
-          setDragPoint(point);
+          if (!pendingDragRef.current) setDragPoint(point);
         }}
         style={{ touchAction: onDragEnd ? "none" : undefined }}
         aria-label={t("review.commentNumber", { count: index + 1 })}
@@ -1433,6 +1488,13 @@ function ReviewPin({
       {children}
     </div>
   );
+}
+
+function sameReviewAnchorPoint(
+  first: ReviewAnchorPoint,
+  second: ReviewAnchorPoint,
+): boolean {
+  return first.xPct === second.xPct && first.yPct === second.yPct;
 }
 
 function ReviewImageAttachments({
@@ -2070,7 +2132,8 @@ function reviewCommentAttachments(
           : undefined;
       if (
         !/^https?:\/\//i.test(url) ||
-        (contentType && !contentType.startsWith("image/"))
+        (contentType && !contentType.startsWith("image/")) ||
+        !isTrustedReviewAttachmentUrl(url)
       ) {
         return [];
       }

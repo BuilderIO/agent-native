@@ -877,7 +877,8 @@ function reviewCommentAttachments(
           : undefined;
       if (
         !/^https?:\/\//i.test(url) ||
-        (contentType && !contentType.startsWith("image/"))
+        (contentType && !contentType.startsWith("image/")) ||
+        !isTrustedReviewAttachmentUrl(url)
       ) {
         return [];
       }
@@ -892,6 +893,25 @@ function reviewCommentAttachments(
       ];
     })
     .slice(0, MAX_REVIEW_IMAGE_ATTACHMENTS);
+}
+
+export function isTrustedReviewAttachmentUrl(value: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(
+      value,
+      typeof window === "undefined"
+        ? "http://localhost"
+        : window.location.origin,
+    );
+    // coercion-ok: an unparseable attachment URL is untrusted, not absent.
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
+  if (typeof window !== "undefined" && parsed.origin === window.location.origin)
+    return true;
+  return parsed.protocol === "https:" && parsed.hostname === "cdn.builder.io";
 }
 
 function displayReviewCommentBody(body: string): string {

@@ -217,6 +217,7 @@ export default function Present() {
           targetId={activeFile.id}
           canPost={canPost}
           canResolve={canResolve}
+          currentUserEmail={session?.email}
         />
       </div>
 

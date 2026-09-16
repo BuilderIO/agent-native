@@ -54,7 +54,10 @@ vi.mock("./use-review.js", () => ({
   useReactToReviewComment: () => ({ mutate, isPending: false }),
 }));
 
-import { ReviewThreadPanel } from "./ReviewThreadPanel.js";
+import {
+  isTrustedReviewAttachmentUrl,
+  ReviewThreadPanel,
+} from "./ReviewThreadPanel.js";
 
 function setTextareaValue(textarea: HTMLTextAreaElement, value: string) {
   const setter = Object.getOwnPropertyDescriptor(
@@ -92,6 +95,21 @@ describe("ReviewThreadPanel sidebar layout", () => {
     delete comment.resolutionNote;
     mutate.mockReset();
     vi.unstubAllGlobals();
+  });
+
+  it("fails closed for untrusted persisted attachment URLs", () => {
+    expect(
+      isTrustedReviewAttachmentUrl(
+        `${window.location.origin}/uploads/image.png`,
+      ),
+    ).toBe(true);
+    expect(
+      isTrustedReviewAttachmentUrl("https://cdn.builder.io/image.png"),
+    ).toBe(true);
+    expect(isTrustedReviewAttachmentUrl("https://tracker.example/pixel")).toBe(
+      false,
+    );
+    expect(isTrustedReviewAttachmentUrl("javascript:alert(1)")).toBe(false);
   });
 
   it("uses the localized agent label without displaying the acting human as author", () => {

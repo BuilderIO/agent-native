@@ -245,6 +245,41 @@ describe("review store", () => {
     });
   });
 
+  it("can select newest comments before restoring chronological order", async () => {
+    const old = await insertReviewComment({
+      resourceType: "design",
+      resourceId: "d1",
+      body: "Old resolved item",
+      ownerEmail: "alice@example.com",
+    });
+    const newest = await insertReviewComment({
+      resourceType: "design",
+      resourceId: "d1",
+      body: "Newest open item",
+      ownerEmail: "alice@example.com",
+    });
+    await resolveReviewThread(old.threadId, "alice@example.com");
+    await rawClient.execute({
+      sql: "UPDATE agent_review_comments SET created_at = ? WHERE id = ?",
+      args: ["2020-01-01T00:00:00.000Z", old.id],
+    });
+    await rawClient.execute({
+      sql: "UPDATE agent_review_comments SET created_at = ? WHERE id = ?",
+      args: ["2030-01-01T00:00:00.000Z", newest.id],
+    });
+
+    const comments = await queryReviewComments({
+      resourceType: "design",
+      resourceId: "d1",
+      scope: { userEmail: "alice@example.com" },
+      includeResolved: true,
+      newestFirst: true,
+      limit: 1,
+    });
+
+    expect(comments.map((comment) => comment.id)).toEqual([newest.id]);
+  });
+
   it("returns zero when resolving a missing thread", async () => {
     await expect(
       resolveReviewThread("missing-thread", "alice@example.com", {
