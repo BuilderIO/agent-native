@@ -98,6 +98,14 @@ To edit a slide's content:
 5. For browser/editor code, enqueue granular deck operations through
    `patch-deck` / `DeckContext.tsx` instead of replacing the whole deck JSON.
 
+   For a deck-wide restyle such as "beautify this", report only what the write
+   actually returned. `patch-deck` lists genuinely changed slides in
+   `updatedSlideIds` and byte-identical ones in `unchangedSlideIds`; a slide in
+   `unchangedSlideIds` was not edited and must not be described as restyled.
+   `update-slide` fails with `slide_edit_noop` for the same reason. Both
+   reject a batch in which nothing changed, so re-read those slides and send
+   different content rather than narrating a summary the deck does not show.
+
 6. For factual edits, compare changed text against the retrieved source and
    preserve quote, speaker, date, metric, and uncertainty status. Existing HTML
    or visual similarity is not proof of source fidelity.

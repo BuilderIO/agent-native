@@ -2917,15 +2917,17 @@ function HtmlEmailBody({
 
     const doc = iframe.contentDocument;
     if (!doc) return;
+    const head = doc.head;
+    if (!head) return;
 
-    const existingThemeStyle = doc.head.querySelector<HTMLStyleElement>(
+    const existingThemeStyle = head.querySelector<HTMLStyleElement>(
       "style[data-mail-theme]",
     );
     const themeStyle = existingThemeStyle ?? doc.createElement("style");
     const ownsThemeStyle = !existingThemeStyle;
     themeStyle.setAttribute("data-mail-theme", "");
     themeStyle.textContent = iframeCss;
-    if (!themeStyle.parentNode) doc.head.appendChild(themeStyle);
+    if (!themeStyle.parentNode) head.appendChild(themeStyle);
 
     const resize = () => {
       const h = measureEmailDocumentHeight(doc);

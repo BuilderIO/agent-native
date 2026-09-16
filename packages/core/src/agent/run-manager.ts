@@ -47,6 +47,10 @@ import {
   recordRunDiagnostic,
   RUN_DIAG_STAGE,
   terminalEventForAbortReason,
+  RUN_RECORD_MISSING_ERROR_EVENT,
+  RUN_RECORD_MISSING_GRACE_MS,
+  RUN_TERMINAL_LOOKUP_FAILED_ERROR_EVENT,
+  UNKNOWN_RUN_STATUS_ERROR_EVENT,
 } from "./run-store.js";
 import { isContinuationTerminalReason } from "./types.js";
 import type { AgentChatEvent, RunEvent, RunStatus } from "./types.js";
@@ -350,6 +354,14 @@ export const SQL_SUBSCRIPTION_REAP_POLL_MS = 5_000;
 
 /** Initial retry delay after a transient cross-isolate SQL polling failure. */
 export const SQL_SUBSCRIPTION_RETRY_BASE_MS = 250;
+
+/**
+ * How long an in-memory reconnect waits for a non-running run to emit the
+ * terminal event its completion callback is still assembling, before failing
+ * loud. Generous relative to that callback (thread_data persistence plus a
+ * possible continuation dispatch) and far inside the client's idle timeout.
+ */
+export const IN_MEMORY_TERMINAL_SETTLE_MS = 5_000;
 
 /** Bound consecutive SQL polling failures so a dead subscription fails loud. */
 export const SQL_SUBSCRIPTION_MAX_CONSECUTIVE_FAILURES = 4;
@@ -2446,6 +2458,7 @@ function subscribeInMemory(
   const encoder = new TextEncoder();
   let subscriberRef: ((event: RunEvent) => void) | null = null;
   let pingTimer: ReturnType<typeof setInterval> | null = null;
+  let terminalSettleTimer: ReturnType<typeof setTimeout> | null = null;
 
   return new ReadableStream({
     start(controller) {
@@ -2455,6 +2468,7 @@ function subscribeInMemory(
         } catch {
           if (subscriberRef) run.subscribers.delete(subscriberRef);
           if (pingTimer) clearInterval(pingTimer);
+          if (terminalSettleTimer) clearTimeout(terminalSettleTimer);
         }
       };
       ping();
@@ -2473,11 +2487,76 @@ function subscribeInMemory(
         }
       }
 
-      // If run is already done, close immediately
+      // If run is already done, close immediately — but only once a terminal
+      // event actually exists to close on. `run.status` flips to "completed"
+      // when runFn resolves, while the terminal event is emitted later by the
+      // completion callback (it may still become auto_continue or error). A
+      // reconnect landing in that window used to get a clean close with no
+      // terminal frame, which the client cannot tell from an abandoned turn.
       if (run.status !== "running") {
-        if (pingTimer) clearInterval(pingTimer);
-        controller.close();
-        return;
+        const bufferedTerminalIndex = run.events.findLastIndex((buffered) =>
+          isTerminalRunEvent(buffered.event),
+        );
+        if (bufferedTerminalIndex >= 0) {
+          // The replay loop above only delivered events at or after `fromSeq`.
+          // A cursor already past the terminal event would otherwise close with
+          // no terminal frame — the same ambiguous close this change exists to
+          // remove. Re-emit it, matching the SQL path's past-cursor handling.
+          if (bufferedTerminalIndex < fromSeq) {
+            const buffered = run.events[bufferedTerminalIndex]!;
+            try {
+              controller.enqueue(
+                encoder.encode(
+                  `data: ${JSON.stringify({ ...buffered.event, seq: buffered.seq })}\n\n`,
+                ),
+              );
+            } catch {
+              if (pingTimer) clearInterval(pingTimer);
+              return;
+            }
+          }
+          if (pingTimer) clearInterval(pingTimer);
+          controller.close();
+          return;
+        }
+        // The producer is in this isolate and is about to emit its real
+        // terminal event, so wait for it rather than inventing one. Bounded so
+        // a producer that died between the status flip and the emit still
+        // fails loudly instead of hanging the stream open.
+        terminalSettleTimer = setTimeout(() => {
+          captureError(
+            new Error(
+              `Agent run ${run.runId} reached status ${run.status} without emitting a terminal event`,
+            ),
+            {
+              route: "/_agent-native/agent-chat/runs/:id/events",
+              aiTraceId: run.runId,
+              tags: {
+                source: "agent-run-manager",
+                phase: "memory-subscription-terminal",
+                runStatus: run.status,
+              },
+              extra: { runId: run.runId, fromSeq },
+            },
+          );
+          try {
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({
+                  ...UNKNOWN_RUN_STATUS_ERROR_EVENT,
+                  seq: run.events.length,
+                })}\n\n`,
+              ),
+            );
+            // coercion-ok: enqueue throws only once the reader is gone; the lost terminal event is already reported by captureError above.
+          } catch {}
+          if (subscriberRef) run.subscribers.delete(subscriberRef);
+          if (pingTimer) clearInterval(pingTimer);
+          try {
+            controller.close();
+            // coercion-ok: closing an already-closed controller is this cleanup's success case, not a failure to report.
+          } catch {}
+        }, IN_MEMORY_TERMINAL_SETTLE_MS);
       }
 
       // Subscribe to live events
@@ -2492,6 +2571,7 @@ function subscribeInMemory(
           if (isTerminalRunEvent(event.event)) {
             run.subscribers.delete(subscriberRef!);
             if (pingTimer) clearInterval(pingTimer);
+            if (terminalSettleTimer) clearTimeout(terminalSettleTimer);
             controller.close();
           }
         } catch {
@@ -2505,6 +2585,7 @@ function subscribeInMemory(
       // Only unsubscribe — do NOT abort the agent run
       if (subscriberRef) run.subscribers.delete(subscriberRef);
       if (pingTimer) clearInterval(pingTimer);
+      if (terminalSettleTimer) clearTimeout(terminalSettleTimer);
     },
   });
 }
@@ -2522,6 +2603,7 @@ function subscribeFromSQL(
   return new ReadableStream({
     async start(controller) {
       let lastSeq = fromSeq;
+      const subscriptionStartedAt = Date.now();
       let activePollUntil = 0;
       let lastStatusCheckAt = 0;
       let lastReapCheckAt = 0;
@@ -2654,6 +2736,26 @@ function subscribeFromSQL(
               await reapIfStale(runId).catch(() => {});
             }
             const run = await getRunById(runId);
+            if (
+              !run &&
+              now - subscriptionStartedAt < RUN_RECORD_MISSING_GRACE_MS
+            ) {
+              // The producer's INSERT may simply not be visible to this
+              // isolate/replica yet. Keep polling rather than reporting an
+              // absent row as a finished turn.
+              if (!cancelled) {
+                consecutivePollFailures = 0;
+                pollTimer = setTimeout(
+                  poll,
+                  resolveSqlSubscriptionPollMs(
+                    now,
+                    activePollUntil,
+                    consecutiveEmptyPolls,
+                  ),
+                );
+              }
+              return;
+            }
             if (!run || run.status !== "running") {
               // Run ended — do one final event read, then close
               const finalEvents = await getRunEventsSince(runId, lastSeq);
@@ -2767,6 +2869,68 @@ function subscribeFromSQL(
                     encoder.encode(
                       `data: ${JSON.stringify({
                         ...resolved.event,
+                        seq: existing?.seq ?? lastSeq,
+                      })}\n\n`,
+                    ),
+                  );
+                } catch {
+                  cancelled = true;
+                  return;
+                }
+              } else {
+                // Every remaining way out of 'running' — no row at all, or a
+                // status this branch list does not know — used to close the
+                // stream with zero terminal frames. The client cannot tell that
+                // apart from a turn still in flight, so it settles open tool
+                // calls to outcome "unknown" and renders "stopped without
+                // sending a final message". Prefer the run's REAL terminal
+                // event, then fail loudly with an attributable code.
+                //
+                // The branches above may discard a rejection here, because an
+                // unread terminal event degrades to an event synthesized from
+                // the row's own known status. In THIS branch the absence is
+                // itself the diagnosis, so collapsing a read failure into a
+                // null result would report "no terminal event exists" when we
+                // only failed to look. Keep unreadable and absent apart.
+                const lookup = await getLastTerminalRunEvent(runId).then(
+                  (event) => ({ read: true as const, event }),
+                  () => ({ read: false as const, event: null }),
+                );
+                const existing = lookup.event;
+                const terminalEvent = existing
+                  ? existing.event
+                  : !lookup.read
+                    ? { ...RUN_TERMINAL_LOOKUP_FAILED_ERROR_EVENT }
+                    : run
+                      ? { ...UNKNOWN_RUN_STATUS_ERROR_EVENT }
+                      : { ...RUN_RECORD_MISSING_ERROR_EVENT };
+                if (!existing) {
+                  captureError(
+                    new Error(
+                      !lookup.read
+                        ? `Agent run ${runId} terminal-event lookup failed; outcome unknown`
+                        : run
+                          ? `Agent run ${runId} left 'running' with unrecognized status ${run.status}`
+                          : `Agent run ${runId} has no agent_runs row and no terminal event`,
+                    ),
+                    {
+                      route: "/_agent-native/agent-chat/runs/:id/events",
+                      aiTraceId: runId,
+                      tags: {
+                        source: "agent-run-manager",
+                        phase: "sql-subscription-terminal",
+                        runStatus: run?.status ?? "missing",
+                        terminalLookup: lookup.read ? "read" : "failed",
+                      },
+                      extra: { runId, fromSeq, lastSeq },
+                    },
+                  );
+                }
+                try {
+                  controller.enqueue(
+                    encoder.encode(
+                      `data: ${JSON.stringify({
+                        ...terminalEvent,
                         seq: existing?.seq ?? lastSeq,
                       })}\n\n`,
                     ),

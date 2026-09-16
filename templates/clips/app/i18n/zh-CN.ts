@@ -621,6 +621,7 @@ const messages = {
     organizationFallback: "组织",
     saving: "保存…",
     save: "节省",
+    saved: "已保存",
   },
   downloadRoute: {
     pageTitle: "下载 Clips Desktop",

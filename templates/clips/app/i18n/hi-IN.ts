@@ -641,6 +641,7 @@ const messages = {
     organizationFallback: "संगठन",
     saving: "सहेजा जा रहा है…",
     save: "सहेजें",
+    saved: "सहेजा गया",
   },
   downloadRoute: {
     pageTitle: "Clips Desktop डाउनलोड करें",

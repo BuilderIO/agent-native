@@ -4053,6 +4053,62 @@ describe("SSE event processor error classification", () => {
     );
   });
 
+  it.each([
+    ["run_record_missing", "The agent run record is no longer available."],
+    [
+      "unknown_run_status",
+      "The agent run ended in a state this app does not recognize.",
+    ],
+  ])(
+    "does not auto-continue %s, whose outcome is unknown",
+    async (errorCode, message) => {
+      // These say the turn's outcome is UNKNOWN. An automatic re-POST would
+      // assert it did not finish and could replay side effects that already
+      // landed, so they must reach the user as a manual Retry instead.
+      const dispatchEvent = vi.fn();
+      vi.stubGlobal("window", { dispatchEvent });
+      vi.stubGlobal(
+        "CustomEvent",
+        class CustomEvent {
+          type: string;
+          detail: unknown;
+          constructor(type: string, init?: { detail?: unknown }) {
+            this.type = type;
+            this.detail = init?.detail;
+          }
+        },
+      );
+
+      // Must NOT throw AgentAutoContinueSignal — it must terminate with a result.
+      const results = await drain(
+        readSSEStream(
+          eventStream([
+            { type: "error", error: message, errorCode, recoverable: true },
+          ]),
+          [],
+          { value: 0 },
+          `tab-${errorCode}`,
+        ),
+      );
+
+      const terminal = results.at(-1) as
+        | {
+            status?: { type: string; reason: string };
+            metadata?: { custom?: { runError?: { recoverable?: boolean } } };
+          }
+        | undefined;
+      expect(terminal?.status).toEqual({ type: "incomplete", reason: "error" });
+      // recoverable:true survives so the banner still offers a manual Retry.
+      expect(terminal?.metadata?.custom?.runError?.recoverable).toBe(true);
+      expect(dispatchEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "agent-chat:run-error",
+          detail: expect.objectContaining({ errorCode, recoverable: true }),
+        }),
+      );
+    },
+  );
+
   it("does not auto-continue a deliberate abort reported as a recoverable aborted_* error", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
