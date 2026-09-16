@@ -3,6 +3,7 @@ import {
   buildCodeLayerProjection,
   removeCodeLayerNodeFromHtml,
 } from "@shared/code-layer";
+import { linkedComponentRootForNode } from "@shared/component-links";
 import type { Dispatch, SetStateAction } from "react";
 import { toast } from "sonner";
 
@@ -18,7 +19,11 @@ import {
   resolveCodeLayerNodeFromBridge,
   resolveCodeLayerNodeFromElementInfo,
 } from "@/pages/design-editor/code-layer-state";
-import type { LiveScreenSnapshot } from "@/pages/design-editor/command-types";
+import type {
+  LiveScreenSnapshot,
+  TextCommitStatus,
+} from "@/pages/design-editor/command-types";
+import type { PendingTextCreationFinalization } from "@/pages/design-editor/history";
 import { setCodeLayerAttributeInHtml } from "@/pages/design-editor/html-layer-positioning";
 import { updateElementContentInHtml } from "@/pages/design-editor/text-edit-utils";
 import type {
@@ -27,11 +32,21 @@ import type {
   EditorMode,
 } from "@/pages/design-editor/types";
 
+import type { ApplyLocalContentUpdateResult } from "./apply-local-content-update";
 import { runRepeatItemEdit } from "./repeat-item-edit";
+import {
+  mapAcceptedSelectionNode,
+  projectAcceptedSource,
+} from "./selection-publication";
 
 export interface TextContentChangeArgs {
   activeCanvasSourceType: "inline" | "localhost" | "fusion";
   activeFile: DesignFile;
+  applyLinkedComponentEdit?: (
+    fileId: string,
+    nodeId: string,
+    edit: { kind: "textContent"; value: string },
+  ) => void;
   applyLocalContentUpdate: (
     nextContent: string,
     options?: {
@@ -45,13 +60,16 @@ export interface TextContentChangeArgs {
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
     },
-  ) => void;
+  ) => ApplyLocalContentUpdateResult;
   canEditDesign: boolean;
-  finalizePendingTextCreation: (
+  /** Decides whether this write is the creation's first commit BEFORE the
+   *  content is applied, and hands back a `confirm` the caller runs only once
+   *  that publication is accepted. */
+  prepareTextCreationFinalization: (
     fileId: string,
     nodeIds: readonly (string | null | undefined)[],
     finalContent: string,
-  ) => boolean;
+  ) => PendingTextCreationFinalization;
   getFreshActiveContent: () => string;
   liveScreenSnapshotsById: Record<string, LiveScreenSnapshot>;
   recordPendingLiveTextEdit: (
@@ -77,11 +95,12 @@ export function runTextContentChange(
   {
     activeCanvasSourceType,
     activeFile,
+    applyLinkedComponentEdit,
     applyLocalContentUpdate,
     canEditDesign,
-    finalizePendingTextCreation,
     getFreshActiveContent,
     liveScreenSnapshotsById,
+    prepareTextCreationFinalization,
     recordPendingLiveTextEdit,
     setActiveTool,
     setMode,
@@ -98,9 +117,9 @@ export function runTextContentChange(
     originalValue?: string;
     originalHtml?: string;
   },
-) {
-  if (!canEditDesign) return;
-  if (!activeFile) return;
+): TextCommitStatus {
+  if (!canEditDesign) return "refused";
+  if (!activeFile) return "refused";
   if (activeCanvasSourceType === "localhost") {
     recordPendingLiveTextEdit(
       activeFile.id,
@@ -111,11 +130,15 @@ export function runTextContentChange(
     );
     setActiveTool("move");
     setMode("edit");
-    return;
+    // Queued against the running app: accepted, just not via a source write.
+    return "accepted";
   }
   const activeLiveSnapshot = liveScreenSnapshotsById[activeFile.id];
+  const source = activeLiveSnapshot
+    ? { kind: "inline-html" as const, fileId: activeFile.id }
+    : { kind: "design-file" as const, fileId: activeFile.id };
   const baseContent = activeLiveSnapshot?.html ?? getFreshActiveContent();
-  const projection = buildCodeLayerProjection(baseContent);
+  const projection = buildCodeLayerProjection(baseContent, { source });
   const targetInfo = elementInfo ? { ...elementInfo, selector } : null;
   const targetNode = targetInfo
     ? resolveCodeLayerNodeFromElementInfo(projection, targetInfo)
@@ -146,7 +169,7 @@ export function runTextContentChange(
       });
       setActiveTool("move");
       setMode("edit");
-      return;
+      return "accepted";
     }
     if (edit.status === "refused") {
       trace("structure", "repeat-item-refused", {
@@ -160,8 +183,29 @@ export function runTextContentChange(
             : "designEditor.toasts.repeatListNotEditable",
         ),
       );
-      return;
+      return "refused";
     }
+  }
+  if (
+    activeCanvasSourceType === "inline" &&
+    targetNode &&
+    linkedComponentRootForNode(targetNode, projection)
+  ) {
+    const durableNodeId =
+      targetNode.dataAttributes["data-agent-native-node-id"];
+    if (!durableNodeId || !applyLinkedComponentEdit) {
+      toast.error(t("designEditor.patchProof.selectorMissing"), {
+        duration: 4000,
+      });
+      return "refused";
+    }
+    applyLinkedComponentEdit(activeFile.id, durableNodeId, {
+      kind: "textContent",
+      value,
+    });
+    setActiveTool("move");
+    setMode("edit");
+    return "accepted";
   }
   const isEmpty = value.trim().length === 0;
   const removedContent =
@@ -169,12 +213,16 @@ export function runTextContentChange(
       ? removeCodeLayerNodeFromHtml(baseContent, targetNode)
       : null;
   const patch = !removedContent
-    ? applyVisualEdit(baseContent, {
-        kind: "textContent",
-        target: targetNode ? { nodeId: targetNode.id } : { selector },
-        value,
-        html: details?.html,
-      })
+    ? applyVisualEdit(
+        baseContent,
+        {
+          kind: "textContent",
+          target: targetNode ? { nodeId: targetNode.id } : { selector },
+          value,
+          html: details?.html,
+        },
+        { source },
+      )
     : null;
   const nextContent =
     removedContent ??
@@ -188,9 +236,9 @@ export function runTextContentChange(
       ),
       { duration: 4000 },
     );
-    return;
+    return "refused";
   }
-  const nextProjection = buildCodeLayerProjection(nextContent);
+  const nextProjection = buildCodeLayerProjection(nextContent, { source });
   const nextNode = targetNode
     ? nextProjection.nodes.find((node) =>
         codeLayerNodeMatchesBridgeTarget(
@@ -215,7 +263,7 @@ export function runTextContentChange(
         defaultTextLayerName(value),
       ) ?? nextContent)
     : nextContent;
-  const finalizedCreation = finalizePendingTextCreation(
+  const finalizedCreation = prepareTextCreationFinalization(
     activeFile.id,
     [
       elementInfo?.sourceId,
@@ -224,17 +272,32 @@ export function runTextContentChange(
     ],
     namedContent,
   );
-  const contentToApply = finalizedCreation ? namedContent : nextContent;
+  const contentToApply = finalizedCreation.isCreationCommit
+    ? namedContent
+    : nextContent;
+  let publication: ApplyLocalContentUpdateResult | null = null;
   if (activeLiveSnapshot) {
-    updateLiveScreenSnapshotContent(activeFile.id, contentToApply, {
-      recordHistory: !finalizedCreation,
-    });
+    // A snapshot that vanished, or an integrity check that rejected this edit,
+    // leaves the source unchanged — consuming the creation's pending history
+    // here would spend it on a write that never happened.
+    if (
+      !updateLiveScreenSnapshotContent(activeFile.id, contentToApply, {
+        recordHistory: !finalizedCreation.historyHandled,
+      })
+    ) {
+      return "refused";
+    }
   } else {
-    applyLocalContentUpdate(contentToApply, {
+    publication = applyLocalContentUpdate(contentToApply, {
       skipPreview: true,
-      recordHistory: !finalizedCreation,
+      recordHistory: !finalizedCreation.historyHandled,
     });
+    // A refused publication never wrote this text. Finalizing before it landed
+    // consumed the creation's pending history and left the typed text nowhere:
+    // keep the record so the retry still coalesces into one undo step.
+    if (publication.status !== "accepted") return "refused";
   }
+  finalizedCreation.confirm();
   // T8: committing text editing should return to the move tool (matches
   // the creation path, which already does this), not re-arm the text
   // tool — re-arming it meant every subsequent click anywhere on the
@@ -244,22 +307,45 @@ export function runTextContentChange(
   if (removedContent) {
     setSelectedElement(null);
     setSelectedLayerIdsState([]);
-    return;
+    return "accepted";
   }
-  if (nextNode) setSelectedLayerIdsState([nextNode.id]);
+  let selectedNode = nextNode;
+  if (publication) {
+    const submittedProjection = buildCodeLayerProjection(contentToApply, {
+      source,
+    });
+    const submittedNode = targetNode
+      ? submittedProjection.nodes.find((node) =>
+          codeLayerNodeMatchesBridgeTarget(
+            node,
+            selector,
+            bridgeSourceIdForCodeLayerNode(targetNode),
+          ),
+        )
+      : null;
+    selectedNode = mapAcceptedSelectionNode(
+      publication,
+      projectAcceptedSource(publication, source),
+      submittedNode,
+    );
+  }
+  if (selectedNode) setSelectedLayerIdsState([selectedNode.id]);
   setSelectedElement((previous) => {
     const base =
       elementInfo ?? (previous?.selector === selector ? previous : undefined);
     return base
       ? {
           ...base,
-          sourceId: nextNode
-            ? bridgeSourceIdForCodeLayerNode(nextNode)
+          sourceId: selectedNode
+            ? bridgeSourceIdForCodeLayerNode(selectedNode)
             : base.sourceId,
-          selector: nextNode ? preferredCodeLayerSelector(nextNode) : selector,
+          selector: selectedNode
+            ? preferredCodeLayerSelector(selectedNode)
+            : selector,
           textContent: value.slice(0, 200),
           htmlContent: details?.html,
         }
       : previous;
   });
+  return "accepted";
 }

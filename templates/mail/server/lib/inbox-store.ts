@@ -315,25 +315,30 @@ export async function applyLocalLabelDelta(
 ): Promise<void> {
   if (threadIds.length === 0) return;
   const ids = threadIds.map((t) => threadRowId(ownerEmail, accountEmail, t));
-  const rows = await getDb()
-    .select({
-      id: schema.mailInboxThreads.id,
-      labelIdsJson: schema.mailInboxThreads.labelIdsJson,
-      messageIdsJson: schema.mailInboxThreads.messageIdsJson,
-      unreadCount: schema.mailInboxThreads.unreadCount,
-    })
-    .from(schema.mailInboxThreads)
-    .where(inArray(schema.mailInboxThreads.id, ids));
-  if (rows.length === 0) return;
+  await getDb().transaction(async (tx) => {
+    // Sync upserts and local deltas must observe and write one row in order.
+    // Without this lock, a read based on the pre-archive labels can restore
+    // INBOX after the archive commits.
+    const rows = await tx
+      .select({
+        id: schema.mailInboxThreads.id,
+        labelIdsJson: schema.mailInboxThreads.labelIdsJson,
+        messageIdsJson: schema.mailInboxThreads.messageIdsJson,
+        unreadCount: schema.mailInboxThreads.unreadCount,
+      })
+      .from(schema.mailInboxThreads)
+      .where(inArray(schema.mailInboxThreads.id, ids))
+      .orderBy(schema.mailInboxThreads.id)
+      .for("update");
+    if (rows.length === 0) return;
 
-  const add = delta.add ?? [];
-  const remove = new Set(delta.remove ?? []);
-  const now = Date.now();
-  const messageScoped = delta.scope === "message";
-  const targetMessageIds = new Set(delta.messageIds ?? []);
+    const add = delta.add ?? [];
+    const remove = new Set(delta.remove ?? []);
+    const now = Date.now();
+    const messageScoped = delta.scope === "message";
+    const targetMessageIds = new Set(delta.messageIds ?? []);
 
-  await Promise.all(
-    rows.map((row) => {
+    for (const row of rows) {
       const labels = new Set(parseJsonArray<string>(row.labelIdsJson, []));
       // UNREAD/STARRED are handled separately below, not applied blindly
       // here: at message scope the delta only describes the last-touched
@@ -400,12 +405,12 @@ export async function applyLocalLabelDelta(
       }
 
       set.labelIdsJson = JSON.stringify([...labels]);
-      return getDb()
+      await tx
         .update(schema.mailInboxThreads)
         .set(set)
         .where(eq(schema.mailInboxThreads.id, row.id));
-    }),
-  );
+    }
+  });
 }
 
 /**
@@ -577,32 +582,38 @@ export async function upsertInboxThreadRows(
 ): Promise<void> {
   if (rows.length === 0) return;
   const now = Date.now();
-  const values = rows.map((r) => ({
-    id: threadRowId(r.ownerEmail, r.accountEmail, r.threadId),
-    ownerEmail: r.ownerEmail.toLowerCase(),
-    accountEmail: r.accountEmail.toLowerCase(),
-    threadId: r.threadId,
-    historyId: r.historyId ?? null,
-    inInbox: r.inInbox ? 1 : 0,
-    isUnread: r.isUnread ? 1 : 0,
-    isStarred: r.isStarred ? 1 : 0,
-    isImportant: r.isImportant ? 1 : 0,
-    isAutomated: r.isAutomated ? 1 : 0,
-    latestDate: r.latestDate,
-    latestMessageId: r.latestMessageId,
-    subject: r.subject,
-    snippet: r.snippet,
-    fromName: r.fromName,
-    fromEmail: r.fromEmail,
-    toJson: JSON.stringify(r.to),
-    labelIdsJson: JSON.stringify(r.labelIds),
-    messageIdsJson: JSON.stringify(r.messageIds),
-    messageCount: r.messageCount,
-    unreadCount: r.unreadCount,
-    hasAttachments: r.hasAttachments ? 1 : 0,
-    syncedAt: r.syncedAt,
-    updatedAt: now,
-  }));
+  const values = [...rows]
+    .sort((a, b) =>
+      threadRowId(a.ownerEmail, a.accountEmail, a.threadId).localeCompare(
+        threadRowId(b.ownerEmail, b.accountEmail, b.threadId),
+      ),
+    )
+    .map((r) => ({
+      id: threadRowId(r.ownerEmail, r.accountEmail, r.threadId),
+      ownerEmail: r.ownerEmail.toLowerCase(),
+      accountEmail: r.accountEmail.toLowerCase(),
+      threadId: r.threadId,
+      historyId: r.historyId ?? null,
+      inInbox: r.inInbox ? 1 : 0,
+      isUnread: r.isUnread ? 1 : 0,
+      isStarred: r.isStarred ? 1 : 0,
+      isImportant: r.isImportant ? 1 : 0,
+      isAutomated: r.isAutomated ? 1 : 0,
+      latestDate: r.latestDate,
+      latestMessageId: r.latestMessageId,
+      subject: r.subject,
+      snippet: r.snippet,
+      fromName: r.fromName,
+      fromEmail: r.fromEmail,
+      toJson: JSON.stringify(r.to),
+      labelIdsJson: JSON.stringify(r.labelIds),
+      messageIdsJson: JSON.stringify(r.messageIds),
+      messageCount: r.messageCount,
+      unreadCount: r.unreadCount,
+      hasAttachments: r.hasAttachments ? 1 : 0,
+      syncedAt: r.syncedAt,
+      updatedAt: now,
+    }));
 
   await getDb()
     .insert(schema.mailInboxThreads)
@@ -631,6 +642,10 @@ export async function upsertInboxThreadRows(
         syncedAt: sql`excluded.synced_at`,
         updatedAt: sql`excluded.updated_at`,
       },
+      // A Gmail read started before a local mutation may return the old
+      // labels after that mutation has already updated this row. Keep the
+      // newer local write until a later sync observation catches up.
+      setWhere: sql`excluded.synced_at > ${schema.mailInboxThreads.updatedAt}`,
     });
 }
 
@@ -638,18 +653,26 @@ export async function deleteInboxThreadRow(
   ownerEmail: string,
   accountEmail: string,
   threadId: string,
+  readStartedAt?: number,
 ): Promise<void> {
+  const conditions = [
+    eq(
+      schema.mailInboxThreads.id,
+      threadRowId(ownerEmail, accountEmail, threadId),
+    ),
+  ];
+  if (readStartedAt !== undefined) {
+    conditions.push(lt(schema.mailInboxThreads.updatedAt, readStartedAt));
+  }
   await getDb()
     .delete(schema.mailInboxThreads)
-    .where(
-      eq(
-        schema.mailInboxThreads.id,
-        threadRowId(ownerEmail, accountEmail, threadId),
-      ),
-    );
+    .where(and(...conditions));
 }
 
-/** Threads that left the inbox mid full-sync: rows not touched since `cutoffSyncedAt`. */
+/**
+ * Threads that left the inbox mid full-sync: rows not touched since
+ * `cutoffSyncedAt`.
+ */
 export async function markThreadsOutOfInboxBeforeSync(
   ownerEmail: string,
   accountEmail: string,
@@ -664,6 +687,7 @@ export async function markThreadsOutOfInboxBeforeSync(
         eq(schema.mailInboxThreads.accountEmail, accountEmail.toLowerCase()),
         eq(schema.mailInboxThreads.inInbox, 1),
         lt(schema.mailInboxThreads.syncedAt, cutoffSyncedAt),
+        lt(schema.mailInboxThreads.updatedAt, cutoffSyncedAt),
       ),
     );
 }

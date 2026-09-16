@@ -28,6 +28,7 @@ async function flushLazyImport(isReady: () => boolean) {
 describe("ConnectionsSettingsContent", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
     document.body.innerHTML = "";
   });
 
@@ -321,5 +322,42 @@ describe("ConnectionsSettingsContent", () => {
     });
 
     act(() => root.unmount());
+  });
+
+  it("keeps workspace app discovery in workspace settings", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    Object.defineProperty(window, "__AGENT_NATIVE_CONFIG__", {
+      configurable: true,
+      value: { workspaceRuntime: true },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify([]), {
+            headers: { "Content-Type": "application/json" },
+          }),
+      ),
+    );
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter>
+          <AgentSettingsContent sections={["llm"]} />
+        </MemoryRouter>,
+      );
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("Workspace apps");
+    expect(container.querySelector('a[href="/dispatch/apps"]')).not.toBe(null);
+
+    act(() => root.unmount());
+    delete (window as Window & { __AGENT_NATIVE_CONFIG__?: unknown })
+      .__AGENT_NATIVE_CONFIG__;
   });
 });

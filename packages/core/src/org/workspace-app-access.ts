@@ -67,16 +67,40 @@ function workspaceAppsActionUrl(base: string): URL | null {
   }
 }
 
-function workspaceAppsFromResponse(value: unknown): Array<{ id?: unknown }> {
-  if (Array.isArray(value)) return value as Array<{ id?: unknown }>;
+function workspaceAppsFromResponse(
+  value: unknown,
+): Array<{ id?: unknown; orgEnabled?: unknown; org_enabled?: unknown }> {
+  if (Array.isArray(value)) {
+    return value as Array<{
+      id?: unknown;
+      orgEnabled?: unknown;
+      org_enabled?: unknown;
+    }>;
+  }
   if (
     value &&
     typeof value === "object" &&
     Array.isArray((value as { apps?: unknown }).apps)
   ) {
-    return (value as { apps: Array<{ id?: unknown }> }).apps;
+    return (
+      value as {
+        apps: Array<{
+          id?: unknown;
+          orgEnabled?: unknown;
+          org_enabled?: unknown;
+        }>;
+      }
+    ).apps;
   }
   return [];
+}
+
+function workspaceAppIsDisabled(app: {
+  orgEnabled?: unknown;
+  org_enabled?: unknown;
+}): boolean {
+  const value = app.orgEnabled ?? app.org_enabled;
+  return value === false || value === 0 || value === "false" || value === "0";
 }
 
 /**
@@ -144,7 +168,8 @@ async function hostedWorkspaceAppAccess(
       // coercion-ok: malformed registry JSON is an authorization failure.
       await response.json().catch(() => null),
     );
-    if (apps.some((app) => app.id === appId)) return true;
+    const matchingApp = apps.find((app) => app.id === appId);
+    if (matchingApp) return !workspaceAppIsDisabled(matchingApp);
 
     const claimUrl = new URL(url);
     claimUrl.pathname = claimUrl.pathname.replace(
@@ -183,12 +208,45 @@ async function hostedWorkspaceAppAccess(
       // coercion-ok: malformed registry JSON is an authorization failure.
       await refreshedResponse.json().catch(() => null),
     );
-    return refreshedApps.some((app) => app.id === appId);
+    const refreshedApp = refreshedApps.find((app) => app.id === appId);
+    return refreshedApp ? !workspaceAppIsDisabled(refreshedApp) : false;
   } catch (error) {
     console.error("[workspace-app-access] registry access check failed", error);
     return false;
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+async function localOrganizationAppEnabled(
+  appId: string,
+  orgId: string | null,
+): Promise<boolean | null> {
+  if (!orgId) return null;
+  try {
+    const result = await getDbExec().execute({
+      sql: `SELECT org_enabled FROM workspace_apps
+            WHERE id = ? AND org_id = ? LIMIT 1`,
+      args: [appId, orgId],
+    });
+    const row = Array.isArray(result?.rows)
+      ? (result.rows[0] as { org_enabled?: unknown } | undefined)
+      : undefined;
+    if (!row) return null;
+    return !(
+      row.org_enabled === false ||
+      row.org_enabled === 0 ||
+      row.org_enabled === "false" ||
+      row.org_enabled === "0"
+    );
+  } catch (error) {
+    if (!isMissingOrganizationTableError(error)) {
+      console.error(
+        "[workspace-app-access] local organization app state unavailable",
+        error,
+      );
+    }
+    return null;
   }
 }
 
@@ -340,6 +398,17 @@ export async function isWorkspaceAppAccessAllowed(
     return isDispatchWorkspaceAppAccessAllowed(context, email);
   }
 
+  // A local disable is an explicit organization decision and must win over
+  // the hosted registry response. Missing local rows preserve the registry
+  // path for hosted deployments that do not mirror workspace_apps locally.
+  if (configuredWorkspaceDirectory()) {
+    const locallyEnabled = await localOrganizationAppEnabled(
+      normalizedAppId,
+      context.orgId?.trim() || null,
+    );
+    if (locallyEnabled === false) return false;
+  }
+
   const hostedAccess = await hostedWorkspaceAppAccess(
     normalizedAppId,
     context,
@@ -353,12 +422,17 @@ export async function isWorkspaceAppAccessAllowed(
   try {
     const db = getDbExec();
     const appResult = await db.execute({
-      sql: `SELECT owner_email, org_id, visibility
+      sql: `SELECT owner_email, org_id, visibility, org_enabled
             FROM workspace_apps WHERE id = ? LIMIT 1`,
       args: [normalizedAppId],
     });
     const app = appResult.rows[0] as
-      | { owner_email?: unknown; org_id?: unknown; visibility?: unknown }
+      | {
+          owner_email?: unknown;
+          org_id?: unknown;
+          visibility?: unknown;
+          org_enabled?: unknown;
+        }
       | undefined;
     if (!app) return false;
 
@@ -369,9 +443,15 @@ export async function isWorkspaceAppAccessAllowed(
       (typeof app.org_id === "string" ? app.org_id : "").trim() || null;
     const orgId = context.orgId?.trim() || null;
     const sameOrg = !!resourceOrgId && resourceOrgId === orgId;
+    const orgEnabled =
+      app.org_enabled !== false &&
+      app.org_enabled !== 0 &&
+      app.org_enabled !== "false" &&
+      app.org_enabled !== "0";
     const canClaimCallerOrg =
       !resourceOrgId && !ownerEmail && app.visibility === "org" && !!orgId;
 
+    if (sameOrg && !orgEnabled) return false;
     if (ownerEmail === email && (!resourceOrgId || sameOrg)) return true;
     if ((!sameOrg && !canClaimCallerOrg) || !orgId) return false;
 

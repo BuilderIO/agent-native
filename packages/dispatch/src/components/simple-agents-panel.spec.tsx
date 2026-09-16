@@ -184,6 +184,32 @@ describe("readAgentPack", () => {
   });
 });
 
+describe("summarizeSkippedPackFiles", () => {
+  it("stays quiet when every file was importable", () => {
+    expect(summarizeSkippedPackFiles([], 4)).toEqual([]);
+  });
+
+  it("names the skipped files without listing a whole photo folder", () => {
+    expect(summarizeSkippedPackFiles(["a.pdf"], 3)).toEqual([
+      "Skipped 1 non-text file: a.pdf. The rest of the folder will still be imported.",
+    ]);
+    expect(
+      summarizeSkippedPackFiles(
+        ["a.pdf", "b.png", "c.zip", "d.mov", "e.psd"],
+        3,
+      ),
+    ).toEqual([
+      "Skipped 5 non-text files: a.pdf, b.png, c.zip, and 2 more. The rest of the folder will still be imported.",
+    ]);
+  });
+
+  it("explains the empty result instead of a bare disabled button", () => {
+    expect(summarizeSkippedPackFiles(["a.pdf", "b.png"], 0)).toEqual([
+      "No importable files in that folder. Agent folders take text files such as Markdown, JSON, and YAML.",
+    ]);
+  });
+});
+
 describe("SimpleAgentsPanel", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -307,28 +333,46 @@ describe("SimpleAgentsPanel", () => {
     expect(folderInput?.hasAttribute("webkitdirectory")).toBe(true);
     expect(folderInput?.hasAttribute("multiple")).toBe(true);
   });
-});
 
-describe("summarizeSkippedPackFiles", () => {
-  it("stays quiet when every file was importable", () => {
-    expect(summarizeSkippedPackFiles([], 4)).toEqual([]);
-  });
+  it("shows the skipped-file notice as an informational status, not an error", async () => {
+    await act(async () => {
+      root.render(<SimpleAgentsPanel />);
+    });
 
-  it("names the skipped files without listing a whole photo folder", () => {
-    expect(summarizeSkippedPackFiles(["a.pdf"], 3)).toEqual([
-      "Skipped 1 non-text file: a.pdf.",
-    ]);
-    expect(
-      summarizeSkippedPackFiles(
-        ["a.pdf", "b.png", "c.zip", "d.mov", "e.psd"],
-        3,
-      ),
-    ).toEqual(["Skipped 5 non-text files: a.pdf, b.png, c.zip, and 2 more."]);
-  });
+    await act(async () => {
+      Array.from(container.querySelectorAll("button"))
+        .find((button) => button.textContent?.includes("Import or connect"))
+        ?.click();
+    });
 
-  it("explains the empty result instead of a bare disabled button", () => {
-    expect(summarizeSkippedPackFiles(["a.pdf", "b.png"], 0)).toEqual([
-      "No importable files in that folder. Agent folders take text files such as Markdown, JSON, and YAML.",
-    ]);
+    await act(async () => {
+      selectTab("Agent folder");
+    });
+
+    const [folderInput] = fileInputs();
+    expect(folderInput).not.toBeUndefined();
+
+    const files = [
+      new File(["# notes"], "notes.md", { type: "text/markdown" }),
+      new File(["binary"], "diagram.pdf", { type: "application/pdf" }),
+    ];
+    Object.defineProperty(folderInput, "files", {
+      value: files,
+      configurable: true,
+    });
+
+    await act(async () => {
+      folderInput?.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    const notice = document.body.querySelector('[role="status"]');
+    expect(notice).not.toBeNull();
+    expect(notice?.textContent).toContain("Skipped 1 non-text file");
+    expect(notice?.textContent).toContain(
+      "The rest of the folder will still be imported",
+    );
+    expect(notice?.className).not.toContain("destructive");
+    expect(notice?.className).not.toMatch(/\bred-\d/);
+    expect(document.body.querySelector('[role="alert"]')).toBeNull();
   });
 });

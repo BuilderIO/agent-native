@@ -1,3 +1,4 @@
+import { fail } from "@agent-native/core/action";
 import { getUserLabs } from "@agent-native/core/labs/server";
 import type { ActionEntry } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
@@ -23,7 +24,10 @@ export async function assertCreativeContextLabEnabled(
       getCreativeContext().labKey,
     ))
   ) {
-    throw new Error("Creative Context is disabled in Labs");
+    fail("Creative Context is disabled in Labs", {
+      errorCode: "creative_context_disabled",
+      statusCode: 404,
+    });
   }
 }
 

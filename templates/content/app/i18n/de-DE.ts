@@ -441,6 +441,17 @@ const editor = {
     "Die gespeicherte Blockquelle kann nicht gelesen werden.",
   blocksFieldRevisionConflict:
     "Dieses Blocks-Feld wurde an anderer Stelle geändert. Deine Bearbeitung wurde nicht gespeichert; jetzt wird die neueste Version angezeigt.",
+  reconcileConflict:
+    "Diese Seite wurde an anderer Stelle geändert. Deine Änderungen sind noch nicht gespeichert.",
+  reconcileFailed:
+    "Die neuesten Änderungen konnten nicht zusammengeführt werden. Deine Änderungen sind noch nicht gespeichert.",
+  reconcileSaveFailed:
+    "Deine Änderungen konnten nicht gespeichert werden. Prüfe sie und versuche es erneut.",
+  reconcileSaving: "Deine Änderungen werden gespeichert…",
+  reconcileReview: "Änderungen prüfen",
+  reconcileReviewStale:
+    "Die gespeicherte Version wurde erneut geändert. Prüfe vor dem Speichern den neuesten Text.",
+  reconcileRefresh: "Neueste Version prüfen",
   collabConnectingReadOnly:
     "Live-Editor wird verbunden. Schreibgeschützte Momentaufnahme wird angezeigt.",
   liveDocumentSaveBeforeSyncFailed:
@@ -802,7 +813,7 @@ const editor = {
     searchNotionPages: "Notion-Seiten durchsuchen...",
     setUpNotion: "Konzept einrichten",
     setUpNotionFirst:
-      "Richten Sie Notion zunächst in der Seitenleiste ein – klicken Sie auf das Notion-Symbol.",
+      "Richten Sie Notion zunächst ein – öffnen Sie die Einstellungen, dann Integrations, und verbinden Sie Notion.",
     setUpNotionToSync:
       "Richten Sie Notion ein, um dieses Dokument zu synchronisieren.",
     share: "Teilen",
@@ -842,6 +853,9 @@ const rawLiterals = {
     previewDraftSavedSeparately:
       "Deine Änderungen wurden als separate Seite gespeichert",
     previewDraftOpenSavedPage: "Seite öffnen",
+    previewDraftMoreOptions: "Weitere Optionen",
+    previewDraftViewFullVersions: "Vollständige Versionen anzeigen",
+    previewDraftShowChanges: "Änderungen anzeigen",
     previewDraftConflict:
       "Dieser Entwurf steht im Konflikt mit einer neueren Seitenversion. Er wurde nicht wiederhergestellt.",
     restorePreviewDraft: "Entwurf wiederherstellen",
@@ -1145,7 +1159,26 @@ const overrides = {
   root: {
     commandContent: "Inhalt",
     commandSearchDocuments: "Dokumente suchen",
+    searchSince: "Seit {{date}}",
+    searchModifiedSince: "Geändert seit {{date}}",
     commandSearchHeading: "Suchen",
+    searchScope: "Bereich",
+    searchAllWorkspaces: "Alle Bereiche",
+    searchFields: "Suchfelder",
+    searchAllText: "Gesamter Text",
+    searchTitleOnly: "Nur Titel",
+    searchType: "Objekttyp",
+    searchAllTypes: "Alle Typen",
+    searchDate: "Änderungsdatum",
+    searchAnyDate: "Beliebiges Datum",
+    searchPastWeek: "Letzte Woche",
+    searchPastMonth: "Letzter Monat",
+    searchPrevious: "Vorherige Ergebnisse",
+    searchNext: "Nächste Ergebnisse",
+    searchRetry: "Erneut versuchen",
+    searchScopeUnavailable: "Der Suchbereich ist nicht verfügbar.",
+    searchModified: "Geändert {{date}}",
+    searchSourceUpdated: "Quelle aktualisiert {{date}}",
     commandSearchPlaceholder: "Dokumente und Sammlungen suchen...",
     commandSearchLoading: "Suche...",
     commandSearchError: "Die Suche ist derzeit nicht verfügbar.",

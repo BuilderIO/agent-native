@@ -17,6 +17,13 @@ import {
 } from "@agent-native/toolkit/ui/avatar";
 import { Button as ToolkitButton } from "@agent-native/toolkit/ui/button";
 import { Checkbox } from "@agent-native/toolkit/ui/checkbox";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandItem,
+  CommandList,
+} from "@agent-native/toolkit/ui/command";
 import { Input } from "@agent-native/toolkit/ui/input";
 import {
   Pagination,
@@ -32,7 +39,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@agent-native/toolkit/ui/select";
-import { Switch } from "@agent-native/toolkit/ui/switch";
 import {
   IconUserPlus,
   IconTrash,
@@ -70,6 +76,7 @@ import {
 // Type-only: erased at build time, so declaring app roles pulls no server or
 // database code into the browser bundle.
 import type { AppRolesDescriptor } from "../../org/app-roles.js";
+import { canInviteOrgMembers } from "../../org/permissions.js";
 import type { DomainMatchOrg, OrgRole } from "../../org/types.js";
 import { docsUrl } from "../../shared/docs-url.js";
 import type { WorkspaceUserGroup } from "../../workspace-connections/groups.js";
@@ -114,6 +121,8 @@ import {
   useSwitchOrg,
   useSetOrgDomain,
   useSetWorkspaceAppDefaultVisibility,
+  useWorkspaceAppAccess,
+  useSetWorkspaceAppAccess,
   useSetOrgWorkspaceUrl,
   useSetOrgAuthProvider,
   useRevealA2ASecret,
@@ -121,7 +130,14 @@ import {
   useSyncA2ASecret,
   useJoinByDomain,
   useAppRoles,
-  useSetAppMemberRole,
+  useSetAppMemberRoles,
+  useOrgSsoProviders,
+  useCreateOrgSsoProvider,
+  useVerifyOrgSsoProvider,
+  useDeleteOrgSsoProvider,
+  useOrgScim,
+  useCreateOrgScimConnection,
+  useDeleteOrgScimConnection,
   ORG_MEMBER_PAGE_SIZE,
   type InviteRole,
   type SyncA2ASecretResult,
@@ -422,6 +438,27 @@ function CreateOrgCard({ description }: { description?: string }) {
   );
 }
 
+function NoOrgCard({
+  description,
+  orgCreation,
+}: {
+  description?: string;
+  orgCreation?: "open" | "closed";
+}) {
+  const t = useT();
+  if (orgCreation !== "closed") {
+    return <CreateOrgCard description={description} />;
+  }
+  return (
+    <section className="rounded-lg border border-border bg-card p-4 space-y-3">
+      <h3 className="text-sm font-medium">{t("org.askAdminTitle")}</h3>
+      <p className="text-sm text-muted-foreground">
+        {t("org.askAdminDescription")}
+      </p>
+    </section>
+  );
+}
+
 function OrgNameDisplay({ name, canEdit }: { name: string; canEdit: boolean }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(name);
@@ -492,10 +529,12 @@ interface PendingInviteListItem {
 function WorkspaceGroupEditor({
   open,
   group,
+  initialMemberEmails = [],
   onClose,
 }: {
   open: boolean;
   group: WorkspaceUserGroup | null;
+  initialMemberEmails?: string[];
   onClose: () => void;
 }) {
   const t = useT();
@@ -512,9 +551,9 @@ function WorkspaceGroupEditor({
   useEffect(() => {
     if (!open) return;
     setName(group?.name ?? "");
-    setMembers(group?.memberEmails ?? []);
+    setMembers(group?.memberEmails ?? initialMemberEmails);
     setSearch("");
-  }, [group, open]);
+  }, [group, initialMemberEmails, open]);
 
   const searchMembers = memberSearch.members.map((member) => ({
     email: member.email.toLowerCase(),
@@ -679,19 +718,18 @@ function WorkspaceGroupEditor({
   );
 }
 
-function WorkspaceGroupsCard({ groups }: { groups: WorkspaceUserGroup[] }) {
+function WorkspaceGroupsCard({
+  groups,
+  onNewGroup,
+  onEditGroup,
+}: {
+  groups: WorkspaceUserGroup[];
+  onNewGroup: () => void;
+  onEditGroup: (group: WorkspaceUserGroup) => void;
+}) {
   const t = useT();
-  const [editorOpen, setEditorOpen] = useState(false);
-  const [editingGroup, setEditingGroup] = useState<WorkspaceUserGroup | null>(
-    null,
-  );
   const [deleteError, setDeleteError] = useState<unknown>(null);
   const deleteGroup = useActionMutation("delete-workspace-user-group");
-
-  function openEditor(group: WorkspaceUserGroup | null) {
-    setEditingGroup(group);
-    setEditorOpen(true);
-  }
 
   return (
     <section className="overflow-hidden rounded-xl bg-card text-card-foreground">
@@ -703,7 +741,7 @@ function WorkspaceGroupsCard({ groups }: { groups: WorkspaceUserGroup[] }) {
           type="button"
           intent="primary"
           emphasis="solid"
-          onClick={() => openEditor(null)}
+          onClick={onNewGroup}
           className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
         >
           <IconPlus size={14} />
@@ -726,7 +764,7 @@ function WorkspaceGroupsCard({ groups }: { groups: WorkspaceUserGroup[] }) {
               </span>
               <Button
                 type="button"
-                onClick={() => openEditor(group)}
+                onClick={() => onEditGroup(group)}
                 aria-label={t("org.editGroupAria", {
                   defaultValue: "Edit group {{name}}",
                   name: group.name,
@@ -793,14 +831,6 @@ function WorkspaceGroupsCard({ groups }: { groups: WorkspaceUserGroup[] }) {
         )}
         <ErrorText error={deleteError} />
       </div>
-      <WorkspaceGroupEditor
-        open={editorOpen}
-        group={editingGroup}
-        onClose={() => {
-          setEditorOpen(false);
-          setEditingGroup(null);
-        }}
-      />
     </section>
   );
 }
@@ -811,6 +841,11 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
   const [memberOffset, setMemberOffset] = useState(0);
   const [memberSearchInput, setMemberSearchInput] = useState("");
   const [memberSearch, setMemberSearch] = useState("");
+  const [groupEditorOpen, setGroupEditorOpen] = useState(false);
+  const [editingGroup, setEditingGroup] = useState<WorkspaceUserGroup | null>(
+    null,
+  );
+  const [initialGroupMembers, setInitialGroupMembers] = useState<string[]>([]);
   const {
     data: membersData,
     isLoading: isLoadingMembers,
@@ -875,6 +910,21 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
   const pendingInvites = invitationsData?.invitations ?? [];
   const hasMultipleOrgs = (org.orgs?.length ?? 0) > 1;
 
+  function openGroupEditor(
+    group: WorkspaceUserGroup | null,
+    memberEmails: string[] = [],
+  ) {
+    setEditingGroup(group);
+    setInitialGroupMembers(memberEmails);
+    setGroupEditorOpen(true);
+  }
+
+  function closeGroupEditor() {
+    setGroupEditorOpen(false);
+    setEditingGroup(null);
+    setInitialGroupMembers([]);
+  }
+
   return (
     <div className="space-y-6">
       <SettingsGroup title="Organization">
@@ -925,8 +975,10 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
             <WorkspaceAppPrivacySettingsSection
               visibility={org.workspaceAppDefaultVisibility ?? "org"}
             />
+            <WorkspaceApplicationsSection />
             <WorkspaceUrlSettingsSection workspaceUrl={org.workspaceUrl} />
-            <AuthProviderSettingsSection
+            <OrgIdentitySettings
+              org={org}
               requiredAuthProvider={org.requiredAuthProvider}
             />
             {isOwner && <A2ASecretSection isSet={Boolean(org.a2aSecretSet)} />}
@@ -950,6 +1002,7 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
         onRetryMembers={() => void refetchMembers()}
         currentUserEmail={org.email}
         currentUserRole={org.role ?? null}
+        emailConfigured={org.emailConfigured}
         appRoles={appRoles}
         groups={groupsQuery.data ?? []}
         canManageGroups={isOwnerOrAdmin}
@@ -960,10 +1013,23 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
         nextMemberOffset={membersData?.nextOffset ?? null}
         onMemberPageChange={setMemberOffset}
         onMemberSearchChange={setMemberSearchInput}
+        onCreateGroup={(memberEmails) => openGroupEditor(null, memberEmails)}
       />
 
       {isOwnerOrAdmin && (
-        <WorkspaceGroupsCard groups={groupsQuery.data ?? []} />
+        <>
+          <WorkspaceGroupsCard
+            groups={groupsQuery.data ?? []}
+            onNewGroup={() => openGroupEditor(null)}
+            onEditGroup={(group) => openGroupEditor(group)}
+          />
+          <WorkspaceGroupEditor
+            open={groupEditorOpen}
+            group={editingGroup}
+            initialMemberEmails={initialGroupMembers}
+            onClose={closeGroupEditor}
+          />
+        </>
       )}
 
       {isOwner && <DangerZoneCard orgName={org.orgName ?? ""} />}
@@ -1017,6 +1083,81 @@ function WorkspaceAppPrivacySettingsSection({
   );
 }
 
+function WorkspaceApplicationsSection() {
+  const t = useT();
+  const query = useWorkspaceAppAccess();
+  const setAccess = useSetWorkspaceAppAccess();
+  const apps = query.data?.apps ?? [];
+
+  return (
+    <section className="border-t border-border/60 px-5 pt-4">
+      <h3 className="text-sm font-medium">{t("org.applications")}</h3>
+      {query.isLoading ? (
+        <div className="mt-3 space-y-2" aria-busy="true">
+          <Skeleton className="h-9 w-full" />
+          <Skeleton className="h-9 w-full" />
+        </div>
+      ) : query.error ? (
+        <p className="mt-2 text-xs text-destructive" role="alert">
+          {t("org.applicationsLoadFailed")}
+        </p>
+      ) : apps.length === 0 ? (
+        <p className="mt-2 text-xs text-muted-foreground">
+          {t("org.applicationsEmpty")}
+        </p>
+      ) : (
+        <div className="mt-2 divide-y divide-border/60">
+          {apps.map((app) => (
+            <div
+              key={app.id}
+              className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between"
+            >
+              <div className="min-w-0">
+                <p className="truncate text-sm">{app.name}</p>
+                <p className="truncate text-xs text-muted-foreground">
+                  {app.id}
+                </p>
+              </div>
+              <Select
+                value={app.mode}
+                onValueChange={(value) => {
+                  if (
+                    value !== "all" &&
+                    value !== "restricted" &&
+                    value !== "disabled"
+                  )
+                    return;
+                  setAccess.mutate({ appId: app.id, mode: value });
+                }}
+                disabled={setAccess.isPending}
+              >
+                <SelectTrigger
+                  className="h-auto w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-xs sm:w-36"
+                  aria-label={t("org.applicationAccess", { name: app.name })}
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">
+                    {t("org.applicationAccessAll")}
+                  </SelectItem>
+                  <SelectItem value="restricted">
+                    {t("org.applicationAccessRestricted")}
+                  </SelectItem>
+                  <SelectItem value="disabled">
+                    {t("org.applicationAccessDisabled")}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          ))}
+        </div>
+      )}
+      <ErrorText error={setAccess.error} />
+    </section>
+  );
+}
+
 export function MembersTableCard({
   members,
   totalMembers,
@@ -1027,6 +1168,7 @@ export function MembersTableCard({
   onRetryMembers,
   currentUserEmail,
   currentUserRole,
+  emailConfigured,
   appRoles,
   groups,
   canManageGroups,
@@ -1037,6 +1179,7 @@ export function MembersTableCard({
   nextMemberOffset,
   onMemberPageChange,
   onMemberSearchChange,
+  onCreateGroup,
 }: {
   members: MemberListItem[];
   totalMembers: number | undefined;
@@ -1047,6 +1190,7 @@ export function MembersTableCard({
   onRetryMembers: () => void;
   currentUserEmail: string;
   currentUserRole: OrgRole | null;
+  emailConfigured?: boolean;
   appRoles?: AppRolesDescriptor;
   groups: WorkspaceUserGroup[];
   canManageGroups: boolean;
@@ -1057,6 +1201,7 @@ export function MembersTableCard({
   nextMemberOffset: number | null;
   onMemberPageChange: (offset: number) => void;
   onMemberSearchChange: (value: string) => void;
+  onCreateGroup: (memberEmails: string[]) => void;
 }) {
   const t = useT();
   const [showInviteForm, setShowInviteForm] = useState(false);
@@ -1064,15 +1209,19 @@ export function MembersTableCard({
     () => new Set(),
   );
   const [bulkActionKey, setBulkActionKey] = useState(0);
-  const canInvite = currentUserRole === "owner" || currentUserRole === "admin";
+  const [bulkAppRoles, setBulkAppRoles] = useState<string[]>([]);
+  const canInvite = canInviteOrgMembers(currentUserRole, emailConfigured);
   const updateGroupMembers = useActionMutation(
     "bulk-update-workspace-user-groups",
   );
   const { data: appRoleData } = useAppRoles(appRoles?.appId);
+  const setAppMemberRoles = useSetAppMemberRoles();
+  const canManageAppRoles = Boolean(appRoles && appRoleData?.canManage);
+  const canBulkSelect = canManageGroups || canManageAppRoles;
   const appRoleByEmail = new Map(
     (appRoleData?.assignments ?? []).map((a) => [
       a.email.toLowerCase(),
-      a.role,
+      a.roles,
     ]),
   );
   const selectedCount = selectedEmails.size;
@@ -1122,6 +1271,26 @@ export function MembersTableCard({
     );
   }
 
+  async function applyBulkAppRoles() {
+    if (!appRoles || !canManageAppRoles || selectedEmails.size === 0) return;
+    try {
+      for (const email of selectedEmails) {
+        await setAppMemberRoles.mutateAsync({
+          appId: appRoles.appId,
+          email,
+          roles: bulkAppRoles,
+        });
+      }
+      setSelectedEmails(new Set());
+      // The mutation error remains available on the shared mutation object so
+      // the administrator can correct the selection and retry.
+      // coercion-ok: the mutation object carries the typed failure to the UI.
+    } catch {
+      // The mutation exposes the failed request through its shared error UI;
+      // keep the selection so the administrator can correct and retry.
+    }
+  }
+
   return (
     <section className="overflow-hidden rounded-xl bg-muted/20 p-1 text-card-foreground">
       <div className="flex flex-col gap-3 rounded-lg bg-card px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
@@ -1130,9 +1299,6 @@ export function MembersTableCard({
           {totalMembers !== undefined && (
             <p className="text-xs text-muted-foreground" aria-live="polite">
               {t("org.memberCount", { count: totalMembers })}
-              {appRoles
-                ? ` · ${appRoles.label ?? appRoles.appId} can be assigned here`
-                : ""}
             </p>
           )}
         </div>
@@ -1176,11 +1342,20 @@ export function MembersTableCard({
         <div className="rounded-lg bg-card p-4">
           <BulkInviteForm
             currentUserRole={currentUserRole}
+            appRoles={appRoles}
             onClose={() => setShowInviteForm(false)}
           />
         </div>
       )}
-      {canManageGroups && members.length > 0 ? (
+      {appRoles && (
+        <div className="hidden grid-cols-[minmax(0,1fr)_auto_minmax(9rem,auto)_auto] items-center gap-x-3 px-5 pt-2 text-[11px] text-muted-foreground sm:grid">
+          <span className="col-start-2 text-end">{t("org.role")}</span>
+          <span className="min-w-36 text-start">
+            {appRoles.label ?? t("org.appRolesOptional")}
+          </span>
+        </div>
+      )}
+      {canBulkSelect && members.length > 0 ? (
         <div className="flex flex-col gap-3 rounded-lg bg-muted/40 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2">
             <Checkbox
@@ -1202,12 +1377,70 @@ export function MembersTableCard({
                     defaultValue: "{{count}} selected",
                     count: selectedCount,
                   })
-                : t("org.selectMembers", {
-                    defaultValue: "Select people to edit groups",
-                  })}
+                : t("org.selectMembers")}
             </span>
           </div>
-          {selectedCount > 0 && groups.length > 0 ? (
+          {selectedCount > 0 && canManageAppRoles ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    type="button"
+                    className="h-8 min-w-36 border-0 bg-background px-2 text-xs"
+                  >
+                    {bulkAppRoles.length
+                      ? bulkAppRoles
+                          .map((role) => appRoles?.roleLabels?.[role] ?? role)
+                          .join(", ")
+                      : t("org.notAssigned")}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-56 p-0">
+                  <Command>
+                    <CommandList>
+                      <CommandGroup>
+                        {appRoles?.roles.map((role) => {
+                          const checked = bulkAppRoles.includes(role);
+                          return (
+                            <CommandItem
+                              key={role}
+                              value={role}
+                              className="gap-2"
+                              onSelect={() =>
+                                setBulkAppRoles(
+                                  checked
+                                    ? bulkAppRoles.filter(
+                                        (item) => item !== role,
+                                      )
+                                    : [...bulkAppRoles, role],
+                                )
+                              }
+                            >
+                              <Checkbox checked={checked} />
+                              <span>
+                                {appRoles?.roleLabels?.[role] ?? role}
+                              </span>
+                            </CommandItem>
+                          );
+                        })}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+              <Button
+                type="button"
+                intent="primary"
+                emphasis="solid"
+                disabled={setAppMemberRoles.isPending}
+                onClick={() => void applyBulkAppRoles()}
+                className="h-8 px-2 text-xs"
+              >
+                {t("org.save")}
+              </Button>
+            </div>
+          ) : null}
+          {selectedCount > 0 && canManageGroups && groups.length > 0 ? (
             <div className="flex flex-wrap items-center gap-2">
               <Select
                 key={`add-${bulkActionKey}`}
@@ -1258,14 +1491,20 @@ export function MembersTableCard({
               </Button>
             </div>
           ) : null}
-          {selectedCount > 0 && groups.length === 0 ? (
-            <span className="text-xs text-muted-foreground">
-              {t("org.createGroupForBulk", {
-                defaultValue: "Create a group below first",
-              })}
-            </span>
+          {selectedCount > 0 && canManageGroups && groups.length === 0 ? (
+            <Button
+              type="button"
+              intent="primary"
+              emphasis="solid"
+              onClick={() => onCreateGroup(Array.from(selectedEmails))}
+              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+            >
+              <IconPlus size={14} />
+              {t("org.newGroup", { defaultValue: "New group" })}
+            </Button>
           ) : null}
           <ErrorText error={updateGroupMembers.error} />
+          <ErrorText error={setAppMemberRoles.error} />
         </div>
       ) : null}
       <div
@@ -1327,10 +1566,12 @@ export function MembersTableCard({
                 image={m.image}
                 isCurrentUser={m.email === currentUserEmail}
                 currentUserRole={currentUserRole}
+                currentUserEmail={currentUserEmail}
                 appRoles={appRoles}
-                appRole={appRoleByEmail.get(m.email.toLowerCase()) ?? null}
+                appRole={appRoleByEmail.get(m.email.toLowerCase()) ?? []}
                 canManageAppRoles={Boolean(appRoleData?.canManage)}
-                canSelect={canManageGroups}
+                transferCandidates={members}
+                canSelect={canBulkSelect}
                 selected={selectedEmails.has(m.email)}
                 onSelect={(checked) => toggleSelected(m.email, checked)}
               />
@@ -1341,6 +1582,12 @@ export function MembersTableCard({
           </>
         )}
       </div>
+      {appRoles && Object.keys(appRoles.permissions ?? {}).length > 0 && (
+        <AppPermissionsPanel
+          appRoles={appRoles}
+          canManage={Boolean(appRoleData?.canManage)}
+        />
+      )}
       {totalMembers !== undefined && (memberOffset > 0 || hasNextPage) && (
         <MemberPagination
           memberOffset={memberOffset}
@@ -1536,7 +1783,7 @@ function roleLabel(role: string, t: ReturnType<typeof useT>) {
 function RoleBadge({ role }: { role: string }) {
   const t = useT();
   return (
-    <span className="inline-flex items-center gap-1.5 rounded border border-border px-2 py-1 text-xs text-muted-foreground">
+    <span className="inline-flex h-8 items-center gap-1.5 rounded border border-border px-2 py-1 text-xs text-muted-foreground">
       <RoleIcon role={role} />
       {roleLabel(role, t)}
     </span>
@@ -1574,89 +1821,300 @@ function PendingInviteRow({ invite }: { invite: PendingInviteListItem }) {
   );
 }
 
-/** Sentinel for "clear the assignment" — Select cannot carry an empty value. */
-const UNASSIGNED = "__unassigned__";
-
 function AppRoleControl({
   email,
   appRoles,
-  appRole,
+  assignedRoles,
   canManage,
 }: {
   email: string;
   appRoles: AppRolesDescriptor;
-  appRole: string | null;
+  assignedRoles: string[];
   canManage: boolean;
 }) {
-  const [editing, setEditing] = useState(false);
-  const setAppRole = useSetAppMemberRole(appRoles.appId);
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const setAppRoles = useSetAppMemberRoles();
+  const [draftRoles, setDraftRoles] = useState(assignedRoles);
   const labelFor = (r: string) => appRoles.roleLabels?.[r] ?? r;
 
-  if (editing) {
-    return (
-      <Select
-        defaultOpen
-        value={appRole ?? UNASSIGNED}
-        onOpenChange={(open) => {
-          if (!open) setEditing(false);
-        }}
-        onValueChange={(value) => {
-          const next = value === UNASSIGNED ? null : value;
-          if (next === appRole) {
-            setEditing(false);
-            return;
-          }
-          setAppRole.mutate(
-            { email, role: next },
-            { onSuccess: () => setEditing(false) },
-          );
-        }}
-        disabled={setAppRole.isPending}
-      >
-        <SelectTrigger
-          autoFocus
-          className="h-auto w-auto rounded-md border border-border bg-background px-2 py-1 text-xs"
-        >
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value={UNASSIGNED}>
-            {appRoles.defaultRole
-              ? labelFor(appRoles.defaultRole)
-              : "Not assigned"}
-          </SelectItem>
-          {appRoles.roles.map((r) => (
-            <SelectItem key={r} value={r}>
-              {labelFor(r)}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    );
-  }
+  useEffect(() => {
+    if (!setAppRoles.isPending) setDraftRoles(assignedRoles);
+  }, [assignedRoles, setAppRoles.isPending]);
 
   // An unassigned member shows the app's default only as a hint. The default
   // never satisfies a server guard, so it must not read as a granted role.
-  const display = appRole ? (
-    <span className="inline-flex items-center rounded border border-border px-2 py-1 text-xs text-muted-foreground">
-      {labelFor(appRole)}
+  const display = draftRoles.length ? (
+    <span className="inline-flex min-h-8 items-center rounded border border-border px-2 py-1 text-xs text-muted-foreground">
+      {draftRoles.map(labelFor).join(", ")}
     </span>
   ) : (
     <span className="text-xs text-muted-foreground/70">
-      {appRoles.defaultRole ? labelFor(appRoles.defaultRole) : "Not assigned"}
+      {t("org.notAssigned")}
     </span>
   );
 
   return canManage ? (
-    <Button
-      type="button"
-      onClick={() => setEditing(true)}
-      className="cursor-pointer rounded hover:opacity-80"
-    >
-      {display}
-    </Button>
+    <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
+      <div className="min-w-0">
+        <Popover open={open} onOpenChange={setOpen}>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              className="min-h-8 cursor-pointer rounded hover:opacity-80"
+              disabled={setAppRoles.isPending}
+              aria-busy={setAppRoles.isPending}
+            >
+              {display}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="start" className="w-56 p-0">
+            <Command>
+              <CommandList>
+                <CommandEmpty>{t("org.noAppRolesFound")}</CommandEmpty>
+                <CommandGroup>
+                  {appRoles.roles.map((role) => {
+                    const selected = draftRoles.includes(role);
+                    return (
+                      <CommandItem
+                        key={role}
+                        value={role}
+                        className="gap-2"
+                        onSelect={() => {
+                          const roles = selected
+                            ? draftRoles.filter((item) => item !== role)
+                            : [...draftRoles, role];
+                          setDraftRoles(roles);
+                          setAppRoles.mutate(
+                            { appId: appRoles.appId, email, roles },
+                            { onError: () => setDraftRoles(assignedRoles) },
+                          );
+                        }}
+                        disabled={setAppRoles.isPending}
+                      >
+                        <Checkbox
+                          checked={selected}
+                          aria-label={labelFor(role)}
+                        />
+                        <span>{labelFor(role)}</span>
+                      </CommandItem>
+                    );
+                  })}
+                </CommandGroup>
+              </CommandList>
+            </Command>
+          </PopoverContent>
+        </Popover>
+        <div className="basis-full">
+          <ErrorText error={setAppRoles.error} />
+        </div>
+      </div>
+      {Object.keys(appRoles.permissions ?? {}).length > 0 && (
+        <ExplainAccessPopover appRoles={appRoles} email={email} />
+      )}
+    </div>
   ) : (
     display
+  );
+}
+
+function ExplainAccessPopover({
+  appRoles,
+  email,
+}: {
+  appRoles: AppRolesDescriptor;
+  email: string;
+}) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const [selectedPermission, setSelectedPermission] = useState<string>();
+  const explain = useActionMutation<
+    { allowed: boolean; reason: string; roles: string[] },
+    { appId: string; email: string; permission: string }
+  >("explain-access");
+  const permissions = Object.keys(appRoles.permissions ?? {});
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          aria-label={t("org.appPermissions")}
+          className="inline-flex size-8 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          <IconHelpCircle className="size-3" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-64 p-2">
+        <p className="mb-1 text-xs font-medium">{t("org.appPermissions")}</p>
+        <p className="mb-2 truncate text-[11px] text-muted-foreground">
+          {email}
+        </p>
+        <Command>
+          <CommandList>
+            <CommandGroup>
+              {permissions.map((permission) => (
+                <CommandItem
+                  key={permission}
+                  value={permission}
+                  onSelect={() => {
+                    setSelectedPermission(permission);
+                    explain.mutate({
+                      appId: appRoles.appId,
+                      email,
+                      permission,
+                    });
+                  }}
+                  disabled={explain.isPending}
+                >
+                  {appRoles.permissionLabels?.[permission] ?? permission}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+        {explain.isPending && (
+          <div className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
+            <IconLoader2 className="size-3 animate-spin" />
+            {t("org.loading")}
+          </div>
+        )}
+        {explain.data && selectedPermission && (
+          <p
+            className={cn(
+              "mt-2 text-xs",
+              explain.data.allowed
+                ? "text-emerald-600 dark:text-emerald-400"
+                : "text-destructive",
+            )}
+            aria-live="polite"
+          >
+            {explain.data.reason}
+          </p>
+        )}
+        <ErrorText error={explain.error} />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function AppPermissionsPanel({
+  appRoles,
+  canManage,
+}: {
+  appRoles: AppRolesDescriptor;
+  canManage: boolean;
+}) {
+  const t = useT();
+  const query = useActionQuery(
+    "list-app-permissions",
+    { appId: appRoles.appId },
+    { enabled: canManage },
+  );
+  const setPermission = useActionMutation("set-app-permission-roles");
+  const data = query.data as
+    | {
+        permissions?: Record<
+          string,
+          { defaults: string[]; roles: string[]; overridden: boolean }
+        >;
+      }
+    | undefined;
+  const [draftPermissions, setDraftPermissions] = useState(
+    data?.permissions ?? {},
+  );
+  useEffect(() => {
+    if (!setPermission.isPending && data?.permissions) {
+      setDraftPermissions(data.permissions);
+    }
+  }, [data?.permissions, setPermission.isPending]);
+  if (!canManage || !data?.permissions) return null;
+  return (
+    <section className="mt-3 rounded-lg border border-border bg-card px-4 py-3">
+      <h3 className="mb-2 text-sm font-medium">{t("org.appPermissions")}</h3>
+      {query.error && (
+        <p className="mb-2 text-xs text-destructive" role="alert">
+          {query.error instanceof Error
+            ? query.error.message
+            : String(query.error)}
+        </p>
+      )}
+      {setPermission.error && (
+        <p className="mb-2 text-xs text-destructive" role="alert">
+          {setPermission.error.message}
+        </p>
+      )}
+      <div className="space-y-3">
+        {Object.entries(draftPermissions).map(([permission, grant]) => (
+          <div
+            key={permission}
+            className="grid items-center gap-x-4 gap-y-2 border-t border-border pt-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,auto)]"
+          >
+            <span className="text-sm">
+              {appRoles.permissionLabels?.[permission] ?? permission}
+            </span>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 sm:justify-end">
+              {appRoles.roles.map((role) => (
+                <label
+                  key={role}
+                  className="inline-flex items-center gap-1.5 text-xs text-muted-foreground"
+                >
+                  <Checkbox
+                    checked={grant.roles.includes(role)}
+                    disabled={setPermission.isPending}
+                    onCheckedChange={(checked) => {
+                      const roles = checked
+                        ? [...grant.roles, role]
+                        : grant.roles.filter((item) => item !== role);
+                      const previous = draftPermissions;
+                      setDraftPermissions({
+                        ...draftPermissions,
+                        [permission]: { ...grant, roles, overridden: true },
+                      });
+                      setPermission.mutate(
+                        { appId: appRoles.appId, permission, roles },
+                        { onError: () => setDraftPermissions(previous) },
+                      );
+                    }}
+                  />
+                  {appRoles.roleLabels?.[role] ?? role}
+                </label>
+              ))}
+              {grant.overridden && (
+                <Button
+                  type="button"
+                  disabled={setPermission.isPending}
+                  onClick={() =>
+                    (() => {
+                      const previous = draftPermissions;
+                      setDraftPermissions({
+                        ...draftPermissions,
+                        [permission]: {
+                          ...grant,
+                          roles: grant.defaults,
+                          overridden: false,
+                        },
+                      });
+                      setPermission.mutate(
+                        {
+                          appId: appRoles.appId,
+                          permission,
+                          reset: true,
+                        },
+                        { onError: () => setDraftPermissions(previous) },
+                      );
+                    })()
+                  }
+                  className="text-xs text-muted-foreground"
+                >
+                  {t("org.resetToDefaults")}
+                </Button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -1667,9 +2125,11 @@ export function MemberRow({
   image,
   isCurrentUser,
   currentUserRole,
+  currentUserEmail,
   appRoles,
   appRole,
   canManageAppRoles,
+  transferCandidates = [],
   canSelect = false,
   selected = false,
   onSelect,
@@ -1680,9 +2140,11 @@ export function MemberRow({
   image?: string | null;
   isCurrentUser: boolean;
   currentUserRole: OrgRole | null;
+  currentUserEmail?: string;
   appRoles?: AppRolesDescriptor;
-  appRole?: string | null;
+  appRole?: string[];
   canManageAppRoles?: boolean;
+  transferCandidates?: MemberListItem[];
   canSelect?: boolean;
   selected?: boolean;
   onSelect?: (checked: boolean) => void;
@@ -1692,6 +2154,22 @@ export function MemberRow({
   const changeRole = useChangeMemberRole();
   const [editing, setEditing] = useState(false);
   const [confirmingRemove, setConfirmingRemove] = useState(false);
+  const [transferTo, setTransferTo] = useState(currentUserEmail ?? "");
+  const transferOptions = useMemo(() => {
+    const options = transferCandidates.filter(
+      (candidate) => candidate.email.toLowerCase() !== email.toLowerCase(),
+    );
+    if (
+      currentUserEmail &&
+      !options.some(
+        (candidate) =>
+          candidate.email.toLowerCase() === currentUserEmail.toLowerCase(),
+      )
+    ) {
+      options.unshift({ email: currentUserEmail, role: "member" });
+    }
+    return options;
+  }, [currentUserEmail, email, transferCandidates]);
   const avatarUrl = image?.trim() || null;
   const displayName = name?.trim() || email;
 
@@ -1703,7 +2181,14 @@ export function MemberRow({
   const canChangeRole = canManage && currentUserRole === "owner";
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg bg-card px-5 py-3.5 sm:flex-row sm:items-center">
+    <div
+      className={cn(
+        "flex flex-col gap-3 rounded-lg bg-card px-5 py-3.5 sm:items-center",
+        appRoles
+          ? "sm:grid sm:grid-cols-[minmax(0,1fr)_auto_minmax(9rem,auto)_auto] sm:gap-x-3"
+          : "sm:flex-row",
+      )}
+    >
       <div className="flex min-w-0 flex-1 items-center gap-3">
         {canSelect ? (
           <Checkbox
@@ -1732,18 +2217,22 @@ export function MemberRow({
           )}
         </div>
       </div>
-      <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-        <RoleBadge role={role} />
-        {appRoles && (
-          <AppRoleControl
-            email={email}
-            appRoles={appRoles}
-            appRole={appRole ?? null}
-            canManage={Boolean(canManageAppRoles)}
-          />
-        )}
+      <div className="flex flex-wrap items-center gap-2 sm:contents">
+        <div className="flex items-center gap-2 sm:justify-self-end">
+          <RoleBadge role={role} />
+        </div>
+        {appRoles ? (
+          <div className="flex min-w-36 items-center gap-1">
+            <AppRoleControl
+              email={email}
+              appRoles={appRoles}
+              assignedRoles={appRole ?? []}
+              canManage={Boolean(canManageAppRoles)}
+            />
+          </div>
+        ) : null}
         {canManage && (
-          <div className="flex shrink-0 items-center gap-1">
+          <div className="flex flex-wrap items-center justify-end gap-1 sm:justify-self-end">
             {canChangeRole && editing ? (
               <Select
                 defaultOpen
@@ -1782,7 +2271,7 @@ export function MemberRow({
                     type="button"
                     aria-label={t("org.changeRole")}
                     onClick={() => setEditing(true)}
-                    className="text-muted-foreground hover:text-foreground"
+                    className="inline-flex size-8 items-center justify-center text-muted-foreground hover:text-foreground"
                   >
                     <IconPencil size={14} />
                   </Button>
@@ -1791,30 +2280,63 @@ export function MemberRow({
               </Tooltip>
             ) : null}
             {confirmingRemove ? (
-              <div className="flex items-center gap-1">
-                <Button
-                  type="button"
-                  intent="neutral"
-                  emphasis="ghost"
-                  onClick={() => setConfirmingRemove(false)}
-                  className="rounded px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
-                >
-                  {t("org.cancel")}
-                </Button>
-                <Button
-                  type="button"
-                  intent="danger"
-                  emphasis="solid"
-                  disabled={removeMember.isPending}
-                  onClick={() =>
-                    removeMember.mutate(email, {
-                      onSettled: () => setConfirmingRemove(false),
-                    })
+              <div className="flex flex-col items-end gap-1">
+                <Select
+                  value={transferTo || undefined}
+                  onValueChange={setTransferTo}
+                  disabled={
+                    removeMember.isPending || transferOptions.length === 0
                   }
-                  className="rounded bg-destructive px-1.5 py-0.5 text-[11px] text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50"
                 >
-                  {t("org.remove")}
-                </Button>
+                  <SelectTrigger
+                    className="h-7 w-52 text-xs"
+                    aria-label={t("org.transferTo")}
+                  >
+                    <SelectValue placeholder={t("org.transferTo")} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {transferOptions.map((candidate) => (
+                      <SelectItem key={candidate.email} value={candidate.email}>
+                        {candidate.name?.trim() || candidate.email}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <div className="flex items-center gap-1">
+                  <Button
+                    type="button"
+                    intent="neutral"
+                    emphasis="ghost"
+                    onClick={() => setConfirmingRemove(false)}
+                    className="rounded px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
+                  >
+                    {t("org.cancel")}
+                  </Button>
+                  <Button
+                    type="button"
+                    intent="danger"
+                    emphasis="solid"
+                    disabled={
+                      removeMember.isPending ||
+                      !transferOptions.some(
+                        (candidate) =>
+                          candidate.email.toLowerCase() ===
+                          transferTo.trim().toLowerCase(),
+                      ) ||
+                      transferTo.trim().toLowerCase() === email.toLowerCase()
+                    }
+                    onClick={() =>
+                      removeMember.mutate(
+                        { email, transferTo: transferTo.trim() },
+                        { onSettled: () => setConfirmingRemove(false) },
+                      )
+                    }
+                    className="rounded bg-destructive px-1.5 py-0.5 text-[11px] text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50"
+                  >
+                    {t("org.remove")}
+                  </Button>
+                </div>
+                <ErrorText error={removeMember.error} />
               </div>
             ) : (
               <Tooltip>
@@ -1825,8 +2347,11 @@ export function MemberRow({
                     emphasis="ghost"
                     aria-label={t("org.removeMember")}
                     disabled={removeMember.isPending}
-                    onClick={() => setConfirmingRemove(true)}
-                    className="text-muted-foreground hover:text-destructive disabled:opacity-50"
+                    onClick={() => {
+                      setTransferTo(currentUserEmail ?? "");
+                      setConfirmingRemove(true);
+                    }}
+                    className="inline-flex size-8 items-center justify-center text-muted-foreground hover:text-destructive disabled:opacity-50"
                   >
                     <IconTrash size={14} />
                   </Button>
@@ -1844,6 +2369,7 @@ export function MemberRow({
 interface DraftInvite {
   email: string;
   role: InviteRole;
+  appRoles?: string[];
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -1875,11 +2401,70 @@ function parseCsvEmails(text: string): string[] {
   );
 }
 
+function InviteAppRolePicker({
+  appRoles,
+  selected,
+  onChange,
+}: {
+  appRoles: AppRolesDescriptor;
+  selected: string[];
+  onChange: (roles: string[]) => void;
+}) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const labelFor = (role: string) => appRoles.roleLabels?.[role] ?? role;
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          className="h-auto max-w-40 truncate rounded-md border border-border bg-background px-2 py-1.5 text-xs"
+        >
+          {selected.length
+            ? selected.map(labelFor).join(", ")
+            : t("org.appRolesOptional")}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-56 p-0">
+        <Command>
+          <CommandList>
+            <CommandEmpty>{t("org.noAppRolesFound")}</CommandEmpty>
+            <CommandGroup>
+              {appRoles.roles.map((role) => {
+                const checked = selected.includes(role);
+                return (
+                  <CommandItem
+                    key={role}
+                    value={role}
+                    className="gap-2"
+                    onSelect={() =>
+                      onChange(
+                        checked
+                          ? selected.filter((item) => item !== role)
+                          : [...selected, role],
+                      )
+                    }
+                  >
+                    <Checkbox checked={checked} aria-label={labelFor(role)} />
+                    <span>{labelFor(role)}</span>
+                  </CommandItem>
+                );
+              })}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function BulkInviteForm({
   currentUserRole,
+  appRoles,
   onClose,
 }: {
   currentUserRole: string | null;
+  appRoles?: AppRolesDescriptor;
   onClose: () => void;
 }) {
   const bulkInvite = useBulkInviteMembers();
@@ -1956,7 +2541,11 @@ function BulkInviteForm({
       const role = canSetAdmin ? d.role : "member";
       dedup.set(d.email, { ...d, role });
     }
-    const invites = Array.from(dedup.values());
+    const invites = Array.from(dedup.values()).map((invite) => ({
+      ...invite,
+      appId: appRoles?.appId,
+      appRoles: invite.appRoles?.length ? invite.appRoles : undefined,
+    }));
     if (invites.length === 0) return;
 
     const result = await bulkInvite.mutateAsync(invites);
@@ -2018,6 +2607,13 @@ function BulkInviteForm({
                 <SelectItem value="admin">Admin</SelectItem>
               </SelectContent>
             </Select>
+            {appRoles && (
+              <InviteAppRolePicker
+                appRoles={appRoles}
+                selected={draft.appRoles ?? []}
+                onChange={(next) => setDraft(i, { appRoles: next })}
+              />
+            )}
             {drafts.length > 1 && (
               <Button
                 type="button"
@@ -2478,52 +3074,150 @@ function WorkspaceUrlSettingsSection({
   );
 }
 
-function AuthProviderSettingsSection({
+export function OrgIdentitySettings({
+  org,
   requiredAuthProvider,
 }: {
-  requiredAuthProvider: "google" | null | undefined;
+  org: { orgId: string | null; allowedDomain: string | null; access?: unknown };
+  requiredAuthProvider: string | null | undefined;
 }) {
+  const t = useT();
+  const access = org.access as
+    | { sso?: { enabled?: boolean }; scim?: { enabled?: boolean } }
+    | undefined;
+  const ssoEnabled = Boolean(access?.sso?.enabled);
+  const scimEnabled = Boolean(access?.scim?.enabled);
+  const [pendingAuthProvider, setPendingAuthProvider] = useState<
+    "google" | `sso:${string}` | null
+  >(null);
   const setAuthProvider = useSetOrgAuthProvider();
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const enabled = requiredAuthProvider === "google";
+  const ssoQuery = useOrgSsoProviders(ssoEnabled);
+  const createSso = useCreateOrgSsoProvider();
+  const verifySso = useVerifyOrgSsoProvider();
+  const deleteSso = useDeleteOrgSsoProvider();
+  const scimQuery = useOrgScim(scimEnabled);
+  const createScim = useCreateOrgScimConnection();
+  const deleteScim = useDeleteOrgScimConnection();
+  const [providerType, setProviderType] = useState<"oidc" | "saml">("oidc");
+  const [providerId, setProviderId] = useState("");
+  const [issuer, setIssuer] = useState("");
+  const [clientId, setClientId] = useState("");
+  const [clientSecret, setClientSecret] = useState("");
+  const [discoveryEndpoint, setDiscoveryEndpoint] = useState("");
+  const [entryPoint, setEntryPoint] = useState("");
+  const [cert, setCert] = useState("");
+  const [entityId, setEntityId] = useState("");
+  const [metadata, setMetadata] = useState("");
+  const [showProviderForm, setShowProviderForm] = useState(false);
+  const [domainVerificationTokens, setDomainVerificationTokens] = useState<
+    Record<string, string>
+  >({});
+  const [oneTimeScimToken, setOneTimeScimToken] = useState<string | null>(null);
+  useEffect(() => {
+    setOneTimeScimToken(null);
+    setClientSecret("");
+    setMetadata("");
+    setCert("");
+    setDomainVerificationTokens({});
+  }, [org.orgId]);
+  const providers = ssoQuery.data?.providers ?? [];
 
-  function changeProvider(nextEnabled: boolean) {
-    if (nextEnabled) {
-      setConfirmOpen(true);
-      return;
-    }
-    setAuthProvider.mutate(null);
+  function submitProvider(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const base = {
+      providerId: providerId.trim(),
+      issuer: issuer.trim(),
+      domain: org.allowedDomain ?? "",
+      type: providerType,
+    };
+    const oidcConfig =
+      providerType === "oidc"
+        ? {
+            clientId: clientId.trim(),
+            clientSecret,
+            ...(discoveryEndpoint.trim()
+              ? { discoveryEndpoint: discoveryEndpoint.trim() }
+              : {}),
+          }
+        : undefined;
+    const samlConfig =
+      providerType === "saml"
+        ? {
+            entryPoint: entryPoint.trim(),
+            ...(cert.trim() ? { cert: cert.trim() } : {}),
+            idpMetadata: { entityID: entityId.trim(), metadata },
+          }
+        : undefined;
+    createSso.mutate(
+      {
+        ...base,
+        ...(oidcConfig ? { oidcConfig } : {}),
+        ...(samlConfig ? { samlConfig } : {}),
+      },
+      {
+        onSuccess: (result) => {
+          setClientSecret("");
+          setMetadata("");
+          setCert("");
+          if (result.domainVerificationToken) {
+            setDomainVerificationTokens((current) => ({
+              ...current,
+              [result.provider.providerId]: result.domainVerificationToken!,
+            }));
+          }
+          setShowProviderForm(false);
+        },
+      },
+    );
   }
 
   return (
     <>
       <SettingsRow
         id="organization-sign-in"
-        label="Organization sign-in"
-        description={
-          <OrganizationDescription
-            help="Require Google sign-in for every member. Enabling this revokes current sessions and rejects future password or non-Google sign-ins."
-            docsUrl={docsUrl("authentication", {
-              campaign: "organization_settings",
-              content: "organization_sign_in",
-              hash: "social-providers",
-            })}
-          >
-            Choose how members sign in.
-          </OrganizationDescription>
-        }
+        label={t("org.sso.signIn")}
+        description={t("org.sso.signInHelp")}
         control={
-          <div className="flex items-center gap-3">
-            <span className="text-sm font-medium">
-              {enabled ? "Google required" : "Google optional"}
-            </span>
-            <Switch
-              checked={enabled}
-              disabled={setAuthProvider.isPending}
-              onCheckedChange={changeProvider}
-              aria-label="Require Google sign-in"
-            />
-          </div>
+          <Select
+            value={requiredAuthProvider ?? "optional"}
+            onValueChange={(value) => {
+              const next =
+                value === "optional"
+                  ? null
+                  : (value as "google" | `sso:${string}`);
+              if (next) setPendingAuthProvider(next);
+              else setAuthProvider.mutate(null);
+            }}
+            disabled={
+              setAuthProvider.isPending ||
+              (requiredAuthProvider?.startsWith("sso:") &&
+                !providers.some(
+                  (provider) =>
+                    `sso:${provider.providerId}` === requiredAuthProvider,
+                ))
+            }
+          >
+            <SelectTrigger
+              className="h-auto w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-xs sm:w-auto"
+              aria-label={t("org.sso.requiredProvider")}
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="optional">{t("org.sso.optional")}</SelectItem>
+              <SelectItem value="google">{t("org.sso.google")}</SelectItem>
+              {providers
+                .filter((provider) => provider.domainVerified)
+                .map((provider) => (
+                  <SelectItem
+                    key={provider.providerId}
+                    value={`sso:${provider.providerId}`}
+                  >
+                    {provider.domain} ({provider.type.toUpperCase()})
+                  </SelectItem>
+                ))}
+            </SelectContent>
+          </Select>
         }
       >
         {setAuthProvider.error ? (
@@ -2531,32 +3225,299 @@ function AuthProviderSettingsSection({
         ) : null}
       </SettingsRow>
 
-      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+      {ssoEnabled && (
+        <SettingsRow
+          id="organization-sso"
+          label={t("org.sso.title")}
+          description={t("org.sso.description")}
+        >
+          {ssoQuery.error ? <ErrorText error={ssoQuery.error} /> : null}
+          {providers.map((provider) => (
+            <div
+              key={provider.providerId}
+              className="flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm last:border-0"
+            >
+              <span>
+                {provider.domain} · {provider.type.toUpperCase()} ·{" "}
+                {provider.domainVerified
+                  ? t("org.sso.verified")
+                  : t("org.sso.verifyRequired")}
+              </span>
+              <span className="flex gap-2">
+                {!provider.domainVerified && (
+                  <ToolkitButton
+                    size="sm"
+                    variant="outline"
+                    disabled={verifySso.isPending}
+                    onClick={() => verifySso.mutate(provider.providerId)}
+                  >
+                    {t("org.sso.verify")}
+                  </ToolkitButton>
+                )}
+                <ToolkitButton
+                  size="sm"
+                  variant="ghost"
+                  disabled={deleteSso.isPending}
+                  onClick={() => deleteSso.mutate(provider.providerId)}
+                >
+                  {t("org.sso.remove")}
+                </ToolkitButton>
+              </span>
+              <details className="w-full text-xs text-muted-foreground">
+                <summary className="cursor-pointer">
+                  {t("org.ssoSetup.idpSetup")}
+                </summary>
+                <dl className="mt-2 grid gap-1">
+                  <dt>{t("org.ssoSetup.redirectUri")}</dt>
+                  <dd className="break-all font-mono">
+                    {provider.redirectURI}
+                  </dd>
+                  {provider.spMetadataUrl ? (
+                    <>
+                      <dt>{t("org.ssoSetup.spMetadataUrl")}</dt>
+                      <dd className="break-all font-mono">
+                        {provider.spMetadataUrl}
+                      </dd>
+                    </>
+                  ) : null}
+                  {domainVerificationTokens[provider.providerId] ? (
+                    <>
+                      <dt>{t("org.ssoSetup.dnsRecordName")}</dt>
+                      <dd className="break-all font-mono">
+                        _better-auth-token-{provider.providerId}.
+                        {provider.domain}
+                      </dd>
+                      <dt>{t("org.ssoSetup.dnsRecordValue")}</dt>
+                      <dd className="break-all font-mono">
+                        {domainVerificationTokens[provider.providerId]}
+                      </dd>
+                      <p>{t("org.ssoSetup.dnsPropagation")}</p>
+                    </>
+                  ) : null}
+                </dl>
+              </details>
+            </div>
+          ))}
+          {verifySso.error ? <ErrorText error={verifySso.error} /> : null}
+          {deleteSso.error ? <ErrorText error={deleteSso.error} /> : null}
+          {showProviderForm ? (
+            <form
+              onSubmit={submitProvider}
+              className="grid gap-2 border-t pt-3"
+            >
+              <Select
+                value={providerType}
+                onValueChange={(value) =>
+                  setProviderType(value as "oidc" | "saml")
+                }
+              >
+                <SelectTrigger aria-label={t("org.sso.type")}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="oidc">OIDC</SelectItem>
+                  <SelectItem value="saml">SAML</SelectItem>
+                </SelectContent>
+              </Select>
+              <Input
+                aria-label={t("org.sso.providerId")}
+                placeholder={t("org.sso.providerId")}
+                value={providerId}
+                onChange={(event) => setProviderId(event.target.value)}
+                required
+              />
+              <Input
+                aria-label={t("org.sso.issuer")}
+                placeholder={t("org.sso.issuer")}
+                value={issuer}
+                onChange={(event) => setIssuer(event.target.value)}
+                required
+              />
+              <Input
+                aria-label={t("org.sso.domain")}
+                value={org.allowedDomain ?? t("org.sso.noDomain")}
+                readOnly
+              />
+              {providerType === "oidc" ? (
+                <>
+                  <Input
+                    aria-label={t("org.sso.clientId")}
+                    placeholder={t("org.sso.clientId")}
+                    value={clientId}
+                    onChange={(event) => setClientId(event.target.value)}
+                    required
+                  />
+                  <Input
+                    aria-label={t("org.sso.clientSecret")}
+                    placeholder={t("org.sso.clientSecret")}
+                    type="password"
+                    value={clientSecret}
+                    onChange={(event) => setClientSecret(event.target.value)}
+                    required
+                  />
+                  <Input
+                    aria-label={t("org.sso.discoveryEndpoint")}
+                    placeholder={t("org.sso.discoveryEndpoint")}
+                    value={discoveryEndpoint}
+                    onChange={(event) =>
+                      setDiscoveryEndpoint(event.target.value)
+                    }
+                  />
+                </>
+              ) : (
+                <>
+                  <Input
+                    aria-label={t("org.sso.entryPoint")}
+                    placeholder={t("org.sso.entryPoint")}
+                    value={entryPoint}
+                    onChange={(event) => setEntryPoint(event.target.value)}
+                    required
+                  />
+                  <Input
+                    aria-label={t("org.sso.entityId")}
+                    placeholder={t("org.sso.entityId")}
+                    value={entityId}
+                    onChange={(event) => setEntityId(event.target.value)}
+                    required
+                  />
+                  <textarea
+                    aria-label={t("org.sso.metadata")}
+                    className="min-h-28 rounded-md border bg-background p-2 text-sm"
+                    placeholder={t("org.sso.metadata")}
+                    value={metadata}
+                    onChange={(event) => setMetadata(event.target.value)}
+                    required
+                  />
+                  <textarea
+                    aria-label={t("org.sso.certificate")}
+                    className="min-h-20 rounded-md border bg-background p-2 text-sm"
+                    placeholder={t("org.sso.certificate")}
+                    value={cert}
+                    onChange={(event) => setCert(event.target.value)}
+                  />
+                </>
+              )}
+              <p className="text-xs text-muted-foreground">
+                {t("org.sso.domainHelp")}
+              </p>
+              {createSso.error ? <ErrorText error={createSso.error} /> : null}
+              <div className="flex gap-2">
+                <ToolkitButton
+                  type="submit"
+                  size="sm"
+                  disabled={createSso.isPending || !org.allowedDomain}
+                >
+                  {t("org.sso.saveProvider")}
+                </ToolkitButton>
+                <ToolkitButton
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setShowProviderForm(false);
+                    setClientSecret("");
+                    setMetadata("");
+                    setCert("");
+                  }}
+                >
+                  {t("org.sso.cancel")}
+                </ToolkitButton>
+              </div>
+            </form>
+          ) : (
+            <ToolkitButton
+              variant="outline"
+              size="sm"
+              className="mt-2"
+              onClick={() => setShowProviderForm(true)}
+            >
+              {t("org.sso.addProvider")}
+            </ToolkitButton>
+          )}
+        </SettingsRow>
+      )}
+
+      {scimEnabled && (
+        <SettingsRow
+          id="organization-scim"
+          label={t("org.scim.title")}
+          description={t("org.scim.description")}
+        >
+          {scimQuery.error ? <ErrorText error={scimQuery.error} /> : null}
+          {scimQuery.data?.connections.map((connection) => (
+            <div
+              key={connection.connectionId}
+              className="flex items-center justify-between gap-2 border-b py-2 text-sm last:border-0"
+            >
+              <span>{connection.status}</span>
+              <ToolkitButton
+                size="sm"
+                variant="ghost"
+                disabled={deleteScim.isPending}
+                onClick={() => deleteScim.mutate(connection.connectionId)}
+              >
+                {t("org.scim.revoke")}
+              </ToolkitButton>
+            </div>
+          ))}
+          {deleteScim.error ? <ErrorText error={deleteScim.error} /> : null}
+          {oneTimeScimToken ? (
+            <div className="grid gap-2 rounded-md border p-3 text-sm">
+              <p>{t("org.scim.copyTokenOnce")}</p>
+              <code className="break-all">{oneTimeScimToken}</code>
+              <code className="break-all">{scimQuery.data?.endpoint}</code>
+              <ToolkitButton
+                size="sm"
+                variant="outline"
+                onClick={() => setOneTimeScimToken(null)}
+              >
+                {t("org.scim.dismissToken")}
+              </ToolkitButton>
+            </div>
+          ) : (
+            <ToolkitButton
+              size="sm"
+              variant="outline"
+              disabled={createScim.isPending}
+              onClick={() =>
+                createScim.mutate(undefined, {
+                  onSuccess: (result) => setOneTimeScimToken(result.token),
+                })
+              }
+            >
+              {t("org.scim.createConnection")}
+            </ToolkitButton>
+          )}
+          {createScim.error ? <ErrorText error={createScim.error} /> : null}
+        </SettingsRow>
+      )}
+      <AlertDialog
+        open={pendingAuthProvider !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingAuthProvider(null);
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Require Google sign-in?</AlertDialogTitle>
+            <AlertDialogTitle>{t("org.ssoConfirm.title")}</AlertDialogTitle>
             <AlertDialogDescription>
-              Every current session in this organization will be revoked.
-              Members must use their Google Workspace account the next time they
-              sign in. Continue only after Google sign-in is configured for this
-              app.
+              {t("org.ssoConfirm.description")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={setAuthProvider.isPending}>
-              Cancel
+              {t("org.sso.cancel")}
             </AlertDialogCancel>
             <AlertDialogAction
               disabled={setAuthProvider.isPending}
               onClick={() => {
-                setAuthProvider.mutate("google", {
-                  onSuccess: () => setConfirmOpen(false),
+                if (!pendingAuthProvider) return;
+                setAuthProvider.mutate(pendingAuthProvider, {
+                  onSuccess: () => setPendingAuthProvider(null),
                 });
               }}
             >
-              {setAuthProvider.isPending
-                ? "Enabling…"
-                : "Require Google sign-in"}
+              {t("org.ssoConfirm.confirm")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -2915,7 +3876,10 @@ export function TeamPage({
             <JoinByDomainCard matches={org.domainMatches} />
           )}
           {!org?.orgId ? (
-            <CreateOrgCard description={createOrgDescription} />
+            <NoOrgCard
+              description={createOrgDescription}
+              orgCreation={org?.access?.orgCreation}
+            />
           ) : (
             <MembersCard key={org.orgId} appRoles={appRoles} />
           )}

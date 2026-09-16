@@ -34,7 +34,7 @@ export interface DispatchConfig {
   browserExtensionIds?: readonly string[];
   /**
    * App IDs to hide from `list-connected-agents` results. Used to filter
-   * out first-party Builder apps (calls, issues, macros, …) from the
+   * out first-party Builder apps (calls, issues, …) from the
    * Connected Agents list when those apps aren't shipped to end users.
    */
   hiddenAgentIds?: string[];

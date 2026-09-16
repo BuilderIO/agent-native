@@ -82,6 +82,7 @@ import {
   toAppDefinition,
   type AppConfig,
 } from "@shared/app-registry";
+import { CODE_AGENTS_SURFACE_ID } from "@shared/code-agents";
 import { isDesktopChatToggleShortcut } from "@shared/desktop-shortcuts";
 import {
   IconArrowLeft,
@@ -1541,6 +1542,9 @@ export default function CodeAgentsHub({
   const activateChatFirstSurfaceTab = useCallback(
     (tab: ChatFirstSurfaceTab) => {
       chatFirstSurfaceTabsStore.activate(tab.id);
+      window.electronAPI?.setActiveApp?.(
+        tab.kind === "app" && tab.appId ? tab.appId : CODE_AGENTS_SURFACE_ID,
+      );
       if (tab.kind === "app" && tab.appId) {
         closeChatFirstSessionWatch();
         setChatFirstBrowserSelection(null);

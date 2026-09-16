@@ -610,6 +610,14 @@ describe("backfillBoardPrimitiveMarkers — frame inference", () => {
     const out = backfillBoardPrimitiveMarkers(html);
     expect(out).toContain('data-an-primitive="frame"');
   });
+
+  it("ignores layer-name text inside another quoted attribute", () => {
+    const html = `<!DOCTYPE html><html><head></head><body>
+<div title='layer-name="Frame forged"' style="position:absolute;left:0px;top:0px;width:200px;height:200px;background:#fff" data-agent-native-node-id="f3"></div>
+</body></html>`;
+    const out = backfillBoardPrimitiveMarkers(html);
+    expect(out).toContain('data-an-primitive="rectangle"');
+  });
 });
 
 describe("backfillBoardPrimitiveMarkers — text inference", () => {

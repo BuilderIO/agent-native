@@ -538,7 +538,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 .media-device-row .row,
 .system-audio-row {
   display: grid;
-  grid-template-columns: 20px minmax(0, 1fr) 36px;
+  grid-template-columns: 20px minmax(0, 1fr) 44px;
   column-gap: 10px;
 }
 
@@ -548,7 +548,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 
 .row-trailing-control {
   display: flex;
-  width: 36px;
+  width: 44px;
   align-items: center;
   justify-content: flex-end;
 }

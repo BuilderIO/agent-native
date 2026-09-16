@@ -3235,11 +3235,11 @@ export function createIntegrationsPlugin(
           return status;
         }
 
-        // ─── POST /:platform/webhook ───────────────────────────
-        if (action === "webhook" && method === "POST") {
+        // ─── GET|POST /:platform/webhook ───────────────────────
+        if (action === "webhook" && (method === "GET" || method === "POST")) {
           // Google Drive push notifications are opaque "something changed"
           // pings. Verify the native channel token before forcing a Drive pull.
-          if (platform === "google-docs") {
+          if (platform === "google-docs" && method === "POST") {
             const verified = await verifyGoogleDocsPushNotification({
               channelId: getRequestHeader(event, "x-goog-channel-id"),
               channelToken: getRequestHeader(event, "x-goog-channel-token"),
@@ -3267,13 +3267,21 @@ export function createIntegrationsPlugin(
           const credentialContext =
             await credentialContextForIntegrationConfig(config);
 
-          // Let the adapter cache the raw request and identify setup
-          // challenges, but never return a challenge response until the
-          // provider signature has been verified.
+          // Let the adapter cache POST bodies and identify GET setup
+          // challenges before entering the method-specific verification flow.
           const verification = await withCredentialContext(
             credentialContext,
             () => adapter.handleVerification(event),
           );
+
+          if (method === "GET") {
+            if (verification.handled) {
+              setResponseStatus(event, 200);
+              return verification.response ?? "ok";
+            }
+            setResponseStatus(event, 403);
+            return { error: "Invalid webhook verification challenge" };
+          }
 
           // Verify the webhook signature BEFORE parsing. We pre-parse the
           // body here (so handleWebhook can skip its second readBody, which

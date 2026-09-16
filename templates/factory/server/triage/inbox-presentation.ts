@@ -82,6 +82,11 @@ const BABYSIT_PHASE: Record<
     labelKey: "triage.inboxPhase.babysit.ineligible",
     tone: "muted",
   },
+  merged: {
+    key: "babysit.merged",
+    labelKey: "triage.inboxPhase.babysit.merged",
+    tone: "success",
+  },
   "out-of-scope": {
     key: "babysit.ineligible",
     labelKey: "triage.inboxPhase.babysit.ineligible",
@@ -134,9 +139,12 @@ function resolveGithubBabysitPhase(metadata: TriageMetadata): InboxPill | null {
   if (!babysitState) return null;
   const mapped = BABYSIT_PHASE[babysitState];
   if (!mapped) return null;
+  const mergeableAt = metadataString(metadata, "prBabysitMergeableAt");
   const hintKey = metadataBoolean(metadata, "prBabysitPendingReopen")
     ? "triage.inboxPhase.babysit.reopened"
-    : undefined;
+    : babysitState === "clean" && mergeableAt
+      ? "triage.inboxPhase.babysit.mergeable_as_of"
+      : undefined;
   return hintKey ? { ...mapped, hintKey } : mapped;
 }
 

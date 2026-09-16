@@ -401,6 +401,7 @@ describe("AgentPanel mode and full-view visibility", () => {
   it("hides mode buttons in the sidebar and shows them on the full page", () => {
     expect(shouldShowAgentPanelModeButtons(true)).toBe(false);
     expect(shouldShowAgentPanelModeButtons(false)).toBe(true);
+    expect(shouldShowAgentPanelModeButtons(false, true)).toBe(false);
   });
 
   it("shows the full-view action for resources when a page href exists", () => {
@@ -735,7 +736,10 @@ describe("AgentPanel header overflow actions", () => {
     expect(source).toContain("if (open && !showWhenOpen) return null");
     expect(source).toContain("aria-pressed={open}");
     expect(source).toContain('data-state={open ? "open" : "closed"}');
-    expect(source).toContain("IconLayoutSidebarRight");
+    expect(source).toContain(
+      "{icon ?? <IconLayoutSidebarRight size={18} aria-hidden />}",
+    );
+    expect(source).not.toContain("IconLayoutSidebarRightExpand");
     expect(source).toContain("{onCollapse && showCollapseButton && (");
     expect(source).toContain("showCollapseButton={showCollapseButton}");
   });

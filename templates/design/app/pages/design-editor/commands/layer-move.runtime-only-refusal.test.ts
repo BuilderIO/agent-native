@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
 import { toast } from "sonner";
 
+import { prepareCanonicalSourceContent } from "@/pages/design-editor/source-publication";
 import type { DesignFile } from "@/pages/design-editor/types";
 
 import { runLayerMove, type LayerMoveArgs } from "./layer-move";
@@ -41,15 +42,33 @@ function buildArgs() {
   const codeLayerOwnerByNodeId = new Map([
     [
       regularNode.id,
-      { fileId: "index.html", node: regularNode, tree, runtimeOnly: false },
+      {
+        fileId: "index.html",
+        node: regularNode,
+        sourceProjection: projection,
+        tree,
+        runtimeOnly: false,
+      },
     ],
     [
       targetNode.id,
-      { fileId: "index.html", node: targetNode, tree, runtimeOnly: false },
+      {
+        fileId: "index.html",
+        node: targetNode,
+        sourceProjection: projection,
+        tree,
+        runtimeOnly: false,
+      },
     ],
     [
       runtimeOnlyId,
-      { fileId: "index.html", node: regularNode, tree, runtimeOnly: true },
+      {
+        fileId: "index.html",
+        node: regularNode,
+        sourceProjection: projection,
+        tree,
+        runtimeOnly: true,
+      },
     ],
   ]);
 
@@ -65,8 +84,17 @@ function buildArgs() {
   let applyCalled = false;
   const args: LayerMoveArgs = {
     activeFile,
-    applyFileContentUpdate: () => {
+    applyFileContentUpdate: (fileId, nextContent) => {
       applyCalled = true;
+      const prepared = prepareCanonicalSourceContent(nextContent, {
+        fileId,
+        fileType: "html",
+      });
+      return {
+        status: "accepted" as const,
+        content: prepared.content,
+        nodeIdMap: prepared.nodeIdMap,
+      };
     },
     canEditDesign: true,
     canMoveLayer: () => true,

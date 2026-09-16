@@ -265,8 +265,12 @@ export function classifyChangedPaths(paths: readonly string[]): ChangeScope {
     full,
     nonDocsPaths,
     checks: docsOnly
-      ? (Object.fromEntries(
-          CHECK_NAMES.map((name) => [name, false]),
+      ? // `fmt:check` formats the whole tree, docs included, so it is the one
+        // check a docs-only change can still fail. Skipping it here let
+        // unformatted .md/.mdx land on main and turn Lint red on every
+        // unrelated PR afterwards.
+        (Object.fromEntries(
+          CHECK_NAMES.map((name) => [name, name === "lint"]),
         ) as CheckSelection)
       : buildChecks(changedPaths, full),
     workspaceFilters,

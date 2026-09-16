@@ -64,7 +64,8 @@ function validateDocumentEditSnapshot(
   document: typeof schema.documents.$inferSelect | undefined,
   base: { revision: number; contentHash: string },
   baseRevision: string,
-  edits: DocumentTextEdit[],
+  edits: DocumentTextEdit[] | undefined,
+  initializeContent?: string,
 ) {
   if (!document) {
     throw new ActionContractError("Document not found.", {
@@ -88,7 +89,19 @@ function validateDocumentEditSnapshot(
       currentContentHash: beforeHash,
     });
   }
-  const resolved = resolveDocumentTextEdits(beforeContent, edits);
+  const resolved = edits
+    ? resolveDocumentTextEdits(beforeContent, edits)
+    : beforeContent === ""
+      ? {
+          ok: true as const,
+          content: initializeContent as string,
+          ranges: [{ start: 0, end: 0 }],
+        }
+      : conflict(
+          "DOCUMENT_BODY_NOT_EMPTY",
+          "Document initialization requires a literally empty body.",
+          { currentRevision: baseRevision },
+        );
   if (!resolved.ok) {
     conflict(
       resolved.error.kind === "missing"
@@ -178,19 +191,24 @@ export interface DocumentEditCreativeContext {
   }>;
 }
 
-export async function mutateDocumentBody(args: {
-  documentId: string;
-  baseRevision: string;
-  idempotencyKey: string;
-  edits: DocumentTextEdit[];
-  creativeContext?: DocumentEditCreativeContext;
-  creativeContextDigest?: unknown;
-  resolveCreativeContext?: () => Promise<
-    DocumentEditCreativeContext | undefined
-  >;
-  ctx: ActionRunContext;
-  db?: Db;
-}): Promise<DocumentEditMutationResult> {
+type DocumentBodyMutation =
+  | { edits: DocumentTextEdit[]; initializeContent?: never }
+  | { edits?: never; initializeContent: string };
+
+export async function mutateDocumentBody(
+  args: {
+    documentId: string;
+    baseRevision: string;
+    idempotencyKey: string;
+    creativeContext?: DocumentEditCreativeContext;
+    creativeContextDigest?: unknown;
+    resolveCreativeContext?: () => Promise<
+      DocumentEditCreativeContext | undefined
+    >;
+    ctx: ActionRunContext;
+    db?: Db;
+  } & DocumentBodyMutation,
+): Promise<DocumentEditMutationResult> {
   const db = args.db ?? getDb();
   const scope = callerScope(args.ctx);
   const base = parseDocumentRevisionToken(args.baseRevision);
@@ -203,16 +221,47 @@ export async function mutateDocumentBody(args: {
       },
     );
   }
-  const normalizedEdits = args.edits.map(({ find, replace }) => ({
+  const normalizedEdits = args.edits?.map(({ find, replace }) => ({
     find,
     replace,
   }));
-  const payloadDigest = digest({
-    documentId: args.documentId,
-    baseRevision: args.baseRevision,
-    edits: normalizedEdits,
-    creativeContext: args.creativeContextDigest ?? args.creativeContext ?? null,
-  });
+  const initializationContent = args.initializeContent;
+  if (!normalizedEdits && initializationContent === undefined) {
+    throw new ActionContractError("A document body mutation is required.", {
+      errorCode: "DOCUMENT_EDIT_MODE_REQUIRED",
+      statusCode: 400,
+    });
+  }
+  if (
+    initializationContent !== undefined &&
+    initializationContent.trim().length === 0
+  ) {
+    throw new ActionContractError(
+      "initializeContent must contain non-whitespace content.",
+      {
+        errorCode: "DOCUMENT_INITIALIZATION_CONTENT_REQUIRED",
+        statusCode: 400,
+      },
+    );
+  }
+  const payloadDigest = digest(
+    normalizedEdits
+      ? {
+          documentId: args.documentId,
+          baseRevision: args.baseRevision,
+          edits: normalizedEdits,
+          creativeContext:
+            args.creativeContextDigest ?? args.creativeContext ?? null,
+        }
+      : {
+          documentId: args.documentId,
+          baseRevision: args.baseRevision,
+          operation: "initialize",
+          initializeContent: initializationContent,
+          creativeContext:
+            args.creativeContextDigest ?? args.creativeContext ?? null,
+        },
+  );
 
   const readReplay = async (client: Db) => {
     const [stored] = await client
@@ -250,6 +299,7 @@ export async function mutateDocumentBody(args: {
       base,
       args.baseRevision,
       normalizedEdits,
+      initializationContent,
     );
     const creativeContext = args.resolveCreativeContext
       ? await args.resolveCreativeContext()
@@ -274,6 +324,7 @@ export async function mutateDocumentBody(args: {
         base,
         args.baseRevision,
         normalizedEdits,
+        initializationContent,
       );
       const { beforeContent, beforeHash, resolved } = validated;
 
@@ -352,7 +403,7 @@ export async function mutateDocumentBody(args: {
       }));
       const result: DocumentEditMutationResult = {
         applied: changed ? resolved.ranges.length : 0,
-        total: normalizedEdits.length,
+        total: normalizedEdits?.length ?? 1,
         receipt: {
           receiptId,
           outcome: changed ? "applied" : "unchanged",

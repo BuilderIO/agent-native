@@ -73,7 +73,10 @@ The same action is available from Design's empty-canvas context menu.
 - The editor page registers a stable page-local WebMCP tool named
   `get-visual-edit-prompt`. Call it after canvas edits to retrieve the latest
   bounded source instructions instead of copying stale chat text. It returns
-  `status: "empty"` when there is nothing to apply.
+  `status: "empty"` when there is nothing to apply. If a previous editor
+  session ended with unapplied edits, it returns `status: "session-ended"`
+  with the pending count; `status: "unknown"` means the session marker
+  could not be read and must not be treated as an empty result.
 - The skill enters through local `pnpm action open-visual-edit`. When that CLI
   has no account session, the action uses a stable, workspace-scoped local
   principal to register the bridge, create/reuse the local design, and place
@@ -102,13 +105,16 @@ The same action is available from Design's empty-canvas context menu.
 
 ## Useful Canvas Sets
 
-Use the smallest useful set: one ordered frame per requested route/query state,
-repeat routes at requested desktop/tablet/mobile viewports, and include
-URL-addressable empty, loading, error, modal-open, or selected-item states.
+Use a focused batch of 3-7 frames by default: one ordered frame per requested
+route/query state, repeat routes at requested desktop/tablet/mobile viewports,
+and include URL-addressable empty, loading, error, modal-open, or selected-item
+states. Keep the Screens section readable so Layers remains useful while
+editing. Do not expand beyond 7 frames unless the user explicitly asks for an
+exhaustive audit or a complete route inventory.
 
 Do not expand every discovered route or every viewport unless the user asks for
-an exhaustive audit. Preserve the user's labels and sequence so the canvas reads
-like the workflow they described.
+an exhaustive audit. Preserve the user's labels and sequence so the canvas
+reads like the workflow they described.
 
 ## Select And Reprompt
 
@@ -140,10 +146,6 @@ check meaningful URL, hover, focus, scroll, and modal states.
 
 ## Account And Sharing Model
 
-- `/visual-edit/:id` is the dedicated local-editor surface. The one-time
-  handoff returned by `open-visual-edit` opens it with edit access without a
-  Design login. A copied or bare `/visual-edit/:id` URL is read-only because it
-  does not carry the capability.
 - The capability permits live iframe inspection, session-local edits, undo/redo,
   **Apply design updates**, and **Copy prompt**. These hand bounded source
   instructions to the coding agent; they do not persist account-owned Design data.
@@ -361,10 +363,12 @@ Fallback, only when `open-visual-edit` is unavailable:
   `vscode://builder.agent-native/open?url=<encoded-design-url>`. Its
   `Agent-Native: Open Design Canvas` command also starts the local bridge and
   opens hosted Design in the VS Code side panel.
-- After `open-visual-edit`, confirm the Design editor is in overview mode
-  with the requested URL-backed frames visible, and that they render the app
-  rather than a spinner. Do not stop at "screens added" when the user asked to
-  inspect or edit visually.
+- Once `open-visual-edit` returns the expected `screenCount`, hand back the
+  link and stop. Do not open it yourself in a browser-automation tool to
+  screenshot or poll until it renders — a cold dev server can take 10-30s
+  regardless of who's watching, and that wait adds nothing the response didn't
+  already confirm. Reach for browser automation only if the user later reports
+  the canvas is broken.
 
 ## Applying Visual Edits Back To Source
 
@@ -458,6 +462,10 @@ the connected app's text/code files through the bridge
   the result. Human write consent remains mandatory and agents cannot grant it.
 
 ## Verification
+
+For a plain "open this app" request, `open-visual-edit`'s own response is
+the verification — see Open The Design Surface. Reach for the checks below
+only to diagnose an actual report, or to confirm an applied edit landed:
 
 - `list-localhost-connections` returns the expected connection and routes.
 - The Design editor opens in overview mode.

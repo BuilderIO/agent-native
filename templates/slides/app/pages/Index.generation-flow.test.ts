@@ -44,6 +44,29 @@ describe("new deck generation flow", () => {
     expect(flow).toContain("recoverFromGenerationSetupFailure");
   });
 
+  it("carries the already-imported reference source into a retry", () => {
+    // The failed attempt keeps which upload became the reference deck, and the
+    // retry reuses it only while that same deck is still selected — otherwise
+    // the retry re-reads a file the reference deck already represents.
+    expect(source).toContain("retryImportedReference: importedReferenceSource");
+    expect(source).toContain(
+      "setNewDeckRetryImportedReference(state.retryImportedReference)",
+    );
+    expect(source).toContain(
+      "selection.referenceDeckId === carriedImportedReference.deckId",
+    );
+    // A deleted reference deck must not keep its source excluded, or the run
+    // has neither the deck nor the file it was built from.
+    expect(source).toContain(
+      "!decks.some((deck) => deck.id === carriedImportedReference.deckId)",
+    );
+    // A deck that is gone must also stop being passed as the reference, or it
+    // reads as one while loading nothing.
+    expect(source).toContain(
+      "...(carriedDeckMissing ? { referenceDeckId: null } : {})",
+    );
+  });
+
   it("shows the destination-shaped loading surface before navigation", () => {
     const loadingIndex = flow.indexOf("setIsStartingNewDeck(true)");
     const navigateIndex = flow.indexOf(
@@ -102,13 +125,33 @@ describe("new deck generation flow", () => {
     expect(onboardingSource).toContain("...referenceFilePaths,");
   });
 
+  it("only seeds the reference step from an explicit onboarding preview URL", () => {
+    expect(onboardingSource).toContain(
+      "isOnboardingPreviewQuery(location.search)",
+    );
+    expect(onboardingSource).toContain(
+      'searchParams.get("step") === "references"',
+    );
+    expect(onboardingSource).toContain(
+      "isOnboardingPreviewQuery(location.search) &&",
+    );
+  });
+
+  it("syncs the reference step when an onboarding preview URL changes", () => {
+    expect(onboardingSource).toContain(
+      "if (!isOnboardingPreviewQuery(location.search)) return;",
+    );
+    expect(onboardingSource).toContain("setStep(");
+    expect(onboardingSource).toContain("[location.search]");
+  });
+
   it("requires a generated title before the first slide", () => {
     const titleInstructionIndex = flow.indexOf(
       "After reading any requested or attached reference material, but before adding the first slide",
     );
     const titlePatchIndex = flow.indexOf('"op": "patch-deck-fields"');
     const addSlideInstructionIndex = flow.indexOf(
-      "Add slides ONE AT A TIME using the `add-slide` action",
+      "Add every generated slide ONE AT A TIME using the `add-slide` action",
     );
     const sparseTitleInstructionIndex = flow.indexOf(
       "Include only `title` in `fields`; omit all other optional fields.",
@@ -129,19 +172,31 @@ describe("new deck generation flow", () => {
     );
     expect(flow).toContain("Do not call the legacy generate-slides-ai action");
     expect(flow).toContain(
-      "Treat each successful add-slide result as confirmation",
+      "Treat each successful write and compact readback as confirmation",
     );
+    expect(flow).toContain("deck-level visual contract");
+    expect(flow).toContain(
+      "Add every generated slide ONE AT A TIME using the `add-slide` action",
+    );
+    expect(flow).toContain(
+      "Do not use `patch-deck` to append generated slides because `add-slide` records per-slide Creative Context provenance",
+    );
+    expect(flow).toContain(
+      "call `get-deck` with its returned slideId and compact=false",
+    );
+    expect(flow).not.toContain("at most three `add-slide` operations");
+    expect(flow).toContain("Never issue parallel writes to the same deck");
   });
 
-  it("keeps unreferenced decks content-first instead of inventing text-covering boxes", () => {
+  it("keeps unreferenced decks coherent instead of inventing text-covering boxes", () => {
     expect(flow).toContain(
-      "When no reference deck or hydrated design system is available",
+      "When no reference deck or hydrated design system is available, choose a subject-appropriate editorial direction",
     );
     expect(flow).toContain(
-      "Do not invent colorful cards, boxes, or decorative rectangles behind or over text",
+      "semantic --deck-* values on every fmd-slide wrapper",
     );
     expect(flow).toContain(
-      "leaves the text unobscured. Prefer typography, spacing, alignment, and one restrained accent.",
+      "Keep the canvas and type system consistent across slides",
     );
   });
 

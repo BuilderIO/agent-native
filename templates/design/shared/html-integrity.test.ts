@@ -14,6 +14,98 @@ const DOCUMENT = `<!doctype html>
 </style></head><body x-data="{ open: true }"><template x-if="open"><p>Hi</p></template></body></html>`;
 
 describe("Design HTML integrity", () => {
+  it("rejects a malformed AI CSS replacement and accepts its repair", () => {
+    const before =
+      "<style>\n:root{--primary:#0F766E;--accent:#ccfbf1}\nbody{font:16px Inter}\n</style><main>Orbit</main>";
+    const broken = before.replace(
+      "--primary:#0F766E;",
+      '--primary:#0F766E;"}]',
+    );
+    expect(inspectDesignHtmlDocumentIntegrity(broken)).toMatchObject({
+      valid: false,
+      issue: "style-invalid",
+      detail: [
+        { line: 2, column: 25, tag: "style", reason: "Unclosed string" },
+      ],
+    });
+    expect(() =>
+      assertDesignHtmlEditIntegrity({
+        previousContent: before,
+        nextContent: broken,
+        fileType: "html",
+      }),
+    ).toThrow(DESIGN_HTML_INTEGRITY_ERROR_CODE);
+    expect(() =>
+      assertDesignHtmlEditIntegrity({
+        previousContent: broken,
+        nextContent: before,
+        fileType: "html",
+      }),
+    ).not.toThrow();
+  });
+
+  it("accepts modern CSS syntax without enforcing a property vocabulary", () => {
+    const content =
+      '<style type="text/tailwindcss">@theme{--color-brand:#123456}.card{color:var(--future-color);.child{width:anchor-size(width)}&:hover{@apply p-4;}@media(width>400px){container-type:inline-size}}</style><main>Orbit</main>';
+    expect(() => assertDesignHtmlWellFormed({ content })).not.toThrow();
+  });
+
+  it("accepts top-level HTML comment tokens in a style block", () => {
+    const content =
+      "<style><!--\n.card { color: red; }\n--></style><main>Orbit</main>";
+
+    expect(inspectDesignHtmlDocumentIntegrity(content)).toEqual({
+      valid: true,
+    });
+  });
+
+  it("accepts adjacent HTML comment tokens while preserving trailing selectors", () => {
+    const styles = [
+      "<!--a { color: red; }-->",
+      "-->b { color: blue; }-->",
+      "<!--<!--c { color: green; }--><!--",
+    ];
+    const content = `<style>${styles.join("")}</style><main>Orbit</main>`;
+
+    expect(inspectDesignHtmlDocumentIntegrity(content)).toEqual({
+      valid: true,
+    });
+  });
+
+  it("preserves comment, string, and nested CSS token boundaries", () => {
+    const valid =
+      '<style>/* <!-- --> */ .card::before { content: "<!-- -->"; }</style><main>Orbit</main>';
+    const invalidNestedToken =
+      "<style>.card { <!-- color: red; }</style><main>Orbit</main>";
+
+    expect(inspectDesignHtmlDocumentIntegrity(valid)).toEqual({ valid: true });
+    expect(
+      inspectDesignHtmlDocumentIntegrity(invalidNestedToken),
+    ).toMatchObject({
+      valid: false,
+      issue: "style-invalid",
+      detail: [{ tag: "style" }],
+    });
+  });
+
+  it("keeps CSS error offsets stable after top-level HTML comment tokens", () => {
+    const content =
+      "<style><!--\n.card { color: red; broken }\n--></style><main>Orbit</main>";
+
+    expect(inspectDesignHtmlDocumentIntegrity(content)).toMatchObject({
+      valid: false,
+      issue: "style-invalid",
+      detail: [
+        {
+          line: 2,
+          column: 21,
+          tag: "style",
+          reason: "Unknown word broken",
+        },
+      ],
+    });
+  });
+
   it("accepts complete Alpine documents and balanced managed raw-text blocks", () => {
     expect(inspectDesignHtmlDocumentIntegrity(DOCUMENT)).toEqual({
       valid: true,

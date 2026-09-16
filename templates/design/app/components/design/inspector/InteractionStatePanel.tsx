@@ -164,7 +164,7 @@ export function InteractionStatePanel({
   };
 
   return (
-    <div className="px-2 py-1.5 shadow-[inset_0_-1px_var(--design-editor-control-border)]">
+    <div className="px-2 py-1.5">
       <DropdownMenu open={open} onOpenChange={handleOpenChange}>
         <DropdownMenuTrigger asChild>
           <button

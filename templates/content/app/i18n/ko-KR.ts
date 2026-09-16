@@ -422,6 +422,17 @@ const editor = {
   registryBlockUnreadable: "저장된 블록 소스를 읽을 수 없습니다.",
   blocksFieldRevisionConflict:
     "이 블록 필드가 다른 곳에서 변경되었습니다. 편집 내용은 저장되지 않았으며 최신 버전이 표시됩니다.",
+  reconcileConflict:
+    "이 페이지가 다른 곳에서 변경되었습니다. 편집 내용은 아직 저장되지 않았습니다.",
+  reconcileFailed:
+    "최신 변경 내용을 합칠 수 없습니다. 편집 내용은 아직 저장되지 않았습니다.",
+  reconcileSaveFailed:
+    "편집 내용을 저장할 수 없습니다. 검토한 후 다시 시도하세요.",
+  reconcileSaving: "편집 내용을 저장하는 중…",
+  reconcileReview: "변경 사항 검토",
+  reconcileReviewStale:
+    "저장된 버전이 다시 변경되었습니다. 저장하기 전에 최신 텍스트를 검토하세요.",
+  reconcileRefresh: "최신 버전 검토",
   collabConnectingReadOnly:
     "라이브 편집기에 연결하는 중입니다. 읽기 전용 스냅샷을 표시합니다.",
   liveDocumentSaveBeforeSyncFailed:
@@ -775,7 +786,7 @@ const editor = {
     searchNotionPages: "Notion 페이지 검색...",
     setUpNotion: "노션 설정",
     setUpNotionFirst:
-      "먼저 사이드바에서 Notion을 설정하세요. Notion 아이콘을 클릭하세요.",
+      "먼저 Notion을 설정하세요. 설정을 열고 Integrations에서 Notion을 연결하세요.",
     setUpNotionToSync: "이 문서를 동기화하려면 Notion을 설정하세요.",
     share: "공유",
     shareableCopyReady: "공유 가능한 사본 준비됨",
@@ -811,6 +822,9 @@ const rawLiterals = {
     previewDraftSavedToHistory: "편집 내용이 버전 기록에 저장되었습니다",
     previewDraftSavedSeparately: "편집 내용이 별도 페이지로 저장되었습니다",
     previewDraftOpenSavedPage: "페이지 열기",
+    previewDraftMoreOptions: "추가 옵션",
+    previewDraftViewFullVersions: "전체 버전 보기",
+    previewDraftShowChanges: "변경 사항 보기",
     previewDraftConflict:
       "이 초안은 더 최신 페이지 버전과 충돌하여 복원되지 않았습니다.",
     restorePreviewDraft: "초안 복원",
@@ -1104,7 +1118,26 @@ const overrides = {
   root: {
     commandContent: "콘텐츠",
     commandSearchDocuments: "문서 검색",
+    searchSince: "{{date}} 이후",
+    searchModifiedSince: "{{date}} 이후 수정됨",
     commandSearchHeading: "검색",
+    searchScope: "검색 범위",
+    searchAllWorkspaces: "모든 워크스페이스",
+    searchFields: "검색 필드",
+    searchAllText: "전체 텍스트",
+    searchTitleOnly: "제목만",
+    searchType: "개체 유형",
+    searchAllTypes: "모든 유형",
+    searchDate: "수정 날짜",
+    searchAnyDate: "모든 날짜",
+    searchPastWeek: "지난주",
+    searchPastMonth: "지난달",
+    searchPrevious: "이전 결과",
+    searchNext: "다음 결과",
+    searchRetry: "다시 시도",
+    searchScopeUnavailable: "검색 범위를 사용할 수 없습니다.",
+    searchModified: "수정일 {{date}}",
+    searchSourceUpdated: "소스 업데이트 {{date}}",
     commandSearchPlaceholder: "문서와 컬렉션 검색...",
     commandSearchLoading: "검색 중...",
     commandSearchError: "지금은 검색을 사용할 수 없습니다.",

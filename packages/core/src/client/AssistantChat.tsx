@@ -6002,6 +6002,9 @@ const AssistantChatInner = forwardRef<
     if (!canImplementPlan) return false;
     onExecModeChange?.("build");
     const continuation = latestProtocolContinuationContext(messagesRef.current);
+    // Plan approval starts a new turn. Keep the scoped action surface from
+    // the completed Plan turn, but omit its ID so the run store does not
+    // replay the Plan response instead of running Act.
     void addToQueue(
       "Implement the plan.",
       undefined,
@@ -6016,7 +6019,7 @@ const AssistantChatInner = forwardRef<
       false,
       undefined,
       undefined,
-      continuation.turnId,
+      undefined,
       undefined,
       continuation.actionScope,
     );

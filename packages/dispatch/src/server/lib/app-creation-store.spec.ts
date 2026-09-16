@@ -1,4 +1,12 @@
-import { runWithRequestContext } from "@agent-native/core/server";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+import { ActionContractError } from "@agent-native/core/action";
+import {
+  CredentialStoreUnavailableError,
+  runWithRequestContext,
+} from "@agent-native/core/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -72,6 +80,7 @@ const mocks = vi.hoisted(() => {
     createBuilderProject: vi.fn(),
     runBuilderAgent: vi.fn(),
     getBuilderBranchProjectId: vi.fn(() => ""),
+    readConfiguredWorkspaceAppHomePath: vi.fn(async () => undefined),
     writeAppSecret: vi.fn(async () => "secret-id"),
     deleteAppSecret: vi.fn(async () => true),
   };
@@ -133,6 +142,8 @@ vi.mock("@agent-native/core/server", async (importOriginal) => {
     runBuilderAgent: (...args: any[]) => mocks.runBuilderAgent(...args),
     getBuilderBranchProjectId: (...args: any[]) =>
       mocks.getBuilderBranchProjectId(...args),
+    readConfiguredWorkspaceAppHomePath: (...args: any[]) =>
+      mocks.readConfiguredWorkspaceAppHomePath(...args),
     resolveAppRuntimeUrl: (...args: any[]) =>
       actual.resolveAppRuntimeUrl(...args),
     resolveVercelDeploymentProtectionHeaders: (...args: any[]) =>
@@ -199,6 +210,8 @@ afterEach(() => {
     lookupFailed: false,
   });
   mocks.getBuilderBranchProjectId.mockReturnValue("");
+  mocks.readConfiguredWorkspaceAppHomePath.mockReset();
+  mocks.readConfiguredWorkspaceAppHomePath.mockResolvedValue(undefined);
   mocks.createBuilderProject.mockReset();
   mocks.createBuilderProject.mockResolvedValue({
     projectId: "project-created",
@@ -419,6 +432,50 @@ describe("listWorkspaceApps", () => {
     expect(apps[0]?.url).toBe("https://agent-workspace.builder.io/atlas");
   });
 
+  it.each([401, 403])(
+    "surfaces hosted registry authorization failures instead of using local manifests (%i)",
+    async (status) => {
+      const fetchMock = vi.fn(async () => new Response("denied", { status }));
+      vi.stubGlobal("fetch", fetchMock);
+      vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+      vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+      stubManifest([
+        { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+        { id: "clips", name: "Clips", path: "/clips" },
+      ]);
+
+      await expect(
+        runWithRequestContext({ userEmail: "dev@example.test" }, () =>
+          listWorkspaceApps({ includeAgentCards: false }),
+        ),
+      ).rejects.toThrow(
+        `Workspace apps gateway rejected the request with HTTP ${status}.`,
+      );
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("falls back to local manifests when the hosted registry route is missing", async () => {
+    const fetchMock = vi.fn(
+      async () => new Response("not found", { status: 404 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+    stubManifest([
+      { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+      { id: "clips", name: "Clips", path: "/clips" },
+    ]);
+
+    const apps = await runWithRequestContext(
+      { userEmail: "dev@example.test" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(apps.map((app) => app.id)).toEqual(["dispatch", "clips"]);
+  });
+
   it("passes the Vercel protection bypass to the hosted workspace registry", async () => {
     const fetchMock = vi.fn(async () => {
       return new Response(
@@ -545,6 +602,61 @@ describe("listWorkspaceApps", () => {
 
     expect(fetchMock).not.toHaveBeenCalled();
     expect(apps.map((app) => app.id)).toEqual(["dispatch"]);
+  });
+
+  it("keeps healthy filesystem apps discoverable when config or routes cannot load", async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "dispatch-workspace-"),
+    );
+    const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(workspaceRoot);
+    try {
+      fs.writeFileSync(
+        path.join(workspaceRoot, "package.json"),
+        JSON.stringify({
+          name: "test-workspace",
+          "agent-native": { workspaceCore: "workspace-core" },
+        }),
+      );
+      for (const app of [
+        "dispatch",
+        "healthy",
+        "config-broken",
+        "routes-broken",
+      ]) {
+        const appDir = path.join(workspaceRoot, "apps", app);
+        fs.mkdirSync(appDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(appDir, "package.json"),
+          JSON.stringify({ name: app, displayName: app }),
+        );
+        if (app === "routes-broken") {
+          const brokenRoutes = path.join(appDir, "app", "routes");
+          fs.mkdirSync(path.dirname(brokenRoutes), { recursive: true });
+          fs.writeFileSync(brokenRoutes, "not a directory");
+        }
+      }
+      stubNoPendingContext();
+      vi.stubEnv("NODE_ENV", "test");
+      mocks.readConfiguredWorkspaceAppHomePath.mockImplementation(
+        async (appDir: string) => {
+          if (appDir.endsWith(path.join("apps", "config-broken"))) {
+            throw new Error("missing app-only dependency");
+          }
+          return undefined;
+        },
+      );
+
+      const apps = await runWithRequestContext(
+        { userEmail: "dev@example.test" },
+        () => listWorkspaceApps({ includeAgentCards: false }),
+      );
+
+      expect(apps.map((app) => app.id)).toEqual(["dispatch", "healthy"]);
+      expect(mocks.readConfiguredWorkspaceAppHomePath).toHaveBeenCalledTimes(4);
+    } finally {
+      cwdSpy.mockRestore();
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    }
   });
 
   it("keeps legacy apps organization-visible when the org default cannot be read", async () => {
@@ -885,6 +997,56 @@ describe("listWorkspaceApps", () => {
     );
 
     expect(apps.map((app) => app.id)).toEqual(["portal"]);
+  });
+
+  it("preserves disabled app state for owners and hides it from other members", async () => {
+    stubNoPendingContext();
+    stubManifest([
+      { id: "disabled-app", name: "Disabled app", path: "/disabled-app" },
+    ]);
+    const execute = vi.fn(async (statement: unknown) => {
+      const sql =
+        typeof statement === "string"
+          ? statement
+          : String((statement as { sql?: unknown })?.sql ?? "");
+      if (sql.startsWith("SELECT id, owner_email, org_id, visibility")) {
+        return {
+          rows: [
+            {
+              id: "disabled-app",
+              owner_email: "owner@example.test",
+              org_id: "org-123",
+              visibility: "org",
+              org_enabled: false,
+              name: "Disabled app",
+              description: null,
+              path: "/disabled-app",
+            },
+          ],
+          rowsAffected: 0,
+        };
+      }
+      if (sql.startsWith("SELECT id FROM workspace_apps WHERE org_id = ?")) {
+        return { rows: [{ id: "disabled-app" }], rowsAffected: 0 };
+      }
+      return { rows: [], rowsAffected: 0 };
+    });
+    mocks.getDbExec.mockReturnValue({ execute });
+
+    const ownerApps = await runWithRequestContext(
+      { userEmail: "owner@example.test", orgId: "org-123" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+    expect(ownerApps.find((app) => app.id === "disabled-app")).toMatchObject({
+      orgEnabled: false,
+      owner: "owner@example.test",
+    });
+
+    const memberApps = await runWithRequestContext(
+      { userEmail: "member@example.test", orgId: "org-123" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+    expect(memberApps.map((app) => app.id)).toEqual([]);
   });
 
   it("does not reconcile audience-hidden manifest apps as stale", async () => {
@@ -1488,6 +1650,117 @@ describe("startWorkspaceAppCreation", () => {
     expect(result.message).not.toContain(leakedProjectId);
   });
 
+  // The reported dead end: chat said "Builder isn't connected" with nothing to
+  // click. Every Builder authorization failure used to collapse into
+  // `builder-error` ("try again in a moment"), so neither the agent nor the
+  // create-app UI could offer the Connect control they already implement.
+  it("classifies a disconnected Builder as builder-not-connected with a connect action", async () => {
+    stubHostedRuntime();
+    stubBuilderProjectConfigured();
+    mocks.resolveBuilderCredentialsDetailed.mockResolvedValue(credentials());
+    mocks.runBuilderAgent.mockRejectedValue(
+      new ActionContractError("Builder.io is not connected.", {
+        errorCode: "builder_not_connected",
+        statusCode: 400,
+      }),
+    );
+
+    const result = (await create()) as any;
+
+    expect(result.mode).toBe("builder-unavailable");
+    expect(result.reason).toBe("builder-not-connected");
+    expect(result.detail).toBe("Builder.io is not connected.");
+    expect(result.connectRequired).toMatchObject({
+      provider: "builder",
+      providerLabel: "Builder.io",
+    });
+    expect(result.message).toContain("Builder.io is not connected");
+    expect(result.message).toContain("Connect Builder.io");
+    expect(result.message).not.toContain("try again");
+  });
+
+  it("classifies a disconnected Builder while provisioning the workspace project", async () => {
+    stubHostedRuntime();
+    mocks.resolveBuilderCredentialsDetailed.mockResolvedValue(credentials());
+    mocks.createBuilderProject.mockRejectedValue(
+      new ActionContractError("Builder.io is not connected.", {
+        errorCode: "builder_not_connected",
+        statusCode: 400,
+      }),
+    );
+
+    const result = (await create()) as any;
+
+    expect(result.reason).toBe("builder-not-connected");
+    expect(result.connectRequired?.message).toBe(result.message);
+    expect(mocks.runBuilderAgent).not.toHaveBeenCalled();
+  });
+
+  // Revocation upstream is not an outage: the stored credential is present but
+  // rejected, so retry prose sends the user back into the same wall.
+  it("treats a Builder-rejected credential as reconnectable, not transient", async () => {
+    stubHostedRuntime();
+    stubBuilderProjectConfigured();
+    mocks.resolveBuilderCredentialsDetailed.mockResolvedValue(
+      credentials({
+        privateKey: "priv",
+        publicKey: "pub",
+        userId: "builder-user-9",
+      }),
+    );
+    mocks.runBuilderAgent.mockRejectedValue(
+      new ActionContractError("Unauthorized", {
+        errorCode: "builder_not_connected",
+        statusCode: 400,
+      }),
+    );
+
+    const result = (await create()) as any;
+
+    expect(result.reason).toBe("builder-not-connected");
+    expect(result.connectRequired?.provider).toBe("builder");
+    expect(result.detail).toBe("Unauthorized");
+    expect(result.message).not.toContain("try again");
+  });
+
+  it("keeps an unreadable credential store separate from a missing connection", async () => {
+    stubHostedRuntime();
+    stubBuilderProjectConfigured();
+    mocks.resolveBuilderCredentialsDetailed.mockResolvedValue(credentials());
+    mocks.runBuilderAgent.mockRejectedValue(
+      new CredentialStoreUnavailableError(new Error("connection terminated")),
+    );
+
+    const result = (await create()) as any;
+
+    expect(result.reason).toBe("credential-store-unavailable");
+    expect(result.connectRequired).toBeUndefined();
+    expect(result.message).toContain("try again");
+  });
+
+  it("attaches no connect prompt when Builder is connected", async () => {
+    stubHostedRuntime();
+    stubBuilderProjectConfigured();
+    mocks.resolveBuilderCredentialsDetailed.mockResolvedValue(
+      credentials({
+        privateKey: "priv",
+        publicKey: "pub",
+        userId: "builder-user-7",
+      }),
+    );
+    mocks.runBuilderAgent.mockResolvedValue({
+      branchName: "onboarding1",
+      url: `https://builder.io/app/projects/${leakedProjectId}/onboarding1`,
+      status: "processing",
+    });
+
+    const result = (await create()) as any;
+
+    expect(result.mode).toBe("builder");
+    expect(result.connectRequired).toBeUndefined();
+    expect(result.message).not.toContain("Connect Builder.io");
+  });
+
   it("provisions and remembers the workspace Builder project when none is configured", async () => {
     stubHostedRuntime();
     mocks.resolveBuilderCredentialsDetailed.mockResolvedValue(
@@ -1524,6 +1797,55 @@ describe("startWorkspaceAppCreation", () => {
     });
     expect(mocks.writeAppSecret).not.toHaveBeenCalled();
     expect(mocks.deleteAppSecret).not.toHaveBeenCalled();
+  });
+
+  it("forwards Builder attachments without putting them in the prompt", async () => {
+    stubHostedRuntime();
+    stubBuilderProjectConfigured();
+    mocks.resolveBuilderCredentialsDetailed.mockResolvedValue(
+      credentials({
+        privateKey: "priv",
+        publicKey: "pub",
+        userId: "builder-user-42",
+      }),
+    );
+    mocks.runBuilderAgent.mockResolvedValue({
+      branchName: "onboarding1",
+      url: "https://builder.io/app/projects/project-1/onboarding1",
+      status: "processing",
+    });
+
+    await runWithRequestContext(
+      { userEmail: "dev@example.test", orgId: "org-123" },
+      () =>
+        startWorkspaceAppCreation({
+          prompt: "Build an app from the attached notes",
+          appId: "onboarding",
+          attachments: [
+            {
+              type: "upload",
+              contentType: "text/plain",
+              name: "notes.txt",
+              dataUrl: "",
+              text: "Requirements",
+              size: Buffer.byteLength("Requirements", "utf8"),
+              id: "file-notes",
+            },
+          ],
+        }),
+    );
+
+    expect(mocks.runBuilderAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: expect.not.stringContaining("Requirements"),
+        attachments: [
+          expect.objectContaining({
+            name: "notes.txt",
+            text: "Requirements",
+          }),
+        ],
+      }),
+    );
   });
 
   it("does not let an organization member persist an auto-provisioned project", async () => {

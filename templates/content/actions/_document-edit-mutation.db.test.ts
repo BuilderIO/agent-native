@@ -48,6 +48,156 @@ afterAll(() => {
 const ctx = { caller: "mcp" as const, userEmail: OWNER };
 
 describe("revisioned document edit mutation", () => {
+  it("initializes an exactly empty body without normalizing Markdown bytes", async () => {
+    const db = getDb();
+    await db
+      .update(schema.documents)
+      .set({ content: "" })
+      .where(eq(schema.documents.id, DOCUMENT_ID));
+    const content = "# Integrity test\n\nCafé 🌱\n";
+    const input = {
+      documentId: DOCUMENT_ID,
+      baseRevision: documentRevisionToken(0, ""),
+      idempotencyKey: "initialize-empty-body",
+      initializeContent: content,
+      ctx,
+    };
+
+    const first = await mutateDocumentBody(input);
+    const replay = await mutateDocumentBody(input);
+    const [document] = await db
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, DOCUMENT_ID));
+
+    expect(document).toMatchObject({ content, bodyRevision: 1 });
+    expect(first.receipt).toMatchObject({
+      outcome: "applied",
+      bodyRevision: { before: 0, after: 1 },
+      ranges: [{ editIndex: 0, start: 0, end: 0 }],
+      readback: { verified: true },
+    });
+    expect(replay.receipt.receiptId).toBe(first.receipt.receiptId);
+    expect(replay.receipt.idempotency.result).toBe("replayed");
+    expect(await db.select().from(schema.documentVersions)).toHaveLength(2);
+    expect(await db.select().from(schema.documentEditReceipts)).toHaveLength(1);
+  });
+
+  it("never treats whitespace or later content as an empty initialization target", async () => {
+    const db = getDb();
+    await db
+      .update(schema.documents)
+      .set({ content: " " })
+      .where(eq(schema.documents.id, DOCUMENT_ID));
+
+    await expect(
+      mutateDocumentBody({
+        documentId: DOCUMENT_ID,
+        baseRevision: documentRevisionToken(0, " "),
+        idempotencyKey: "initialize-whitespace",
+        initializeContent: "new body",
+        ctx,
+      }),
+    ).rejects.toMatchObject({ errorCode: "DOCUMENT_BODY_NOT_EMPTY" });
+    expect(await db.select().from(schema.documentEditReceipts)).toHaveLength(0);
+  });
+
+  it("rejects whitespace-only initialization content without consuming the empty body", async () => {
+    const db = getDb();
+    await db
+      .update(schema.documents)
+      .set({ content: "" })
+      .where(eq(schema.documents.id, DOCUMENT_ID));
+
+    await expect(
+      mutateDocumentBody({
+        documentId: DOCUMENT_ID,
+        baseRevision: documentRevisionToken(0, ""),
+        idempotencyKey: "initialize-whitespace-content",
+        initializeContent: " \n\t",
+        ctx,
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "DOCUMENT_INITIALIZATION_CONTENT_REQUIRED",
+    });
+    expect(await db.select().from(schema.documentEditReceipts)).toHaveLength(0);
+    const [document] = await db
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, DOCUMENT_ID));
+    expect(document).toMatchObject({ content: "", bodyRevision: 0 });
+  });
+
+  it("allows only one of two differently keyed concurrent initializers", async () => {
+    const db = getDb();
+    await db
+      .update(schema.documents)
+      .set({ content: "" })
+      .where(eq(schema.documents.id, DOCUMENT_ID));
+    const attempts = await Promise.allSettled(
+      ["left", "right"].map((side) =>
+        mutateDocumentBody({
+          documentId: DOCUMENT_ID,
+          baseRevision: documentRevisionToken(0, ""),
+          idempotencyKey: `concurrent-initialize-${side}`,
+          initializeContent: `${side} body`,
+          ctx,
+        }),
+      ),
+    );
+
+    expect(
+      attempts.filter(({ status }) => status === "fulfilled"),
+    ).toHaveLength(1);
+    expect(attempts.filter(({ status }) => status === "rejected")).toHaveLength(
+      1,
+    );
+    expect(await db.select().from(schema.documentEditReceipts)).toHaveLength(1);
+    const [document] = await db
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, DOCUMENT_ID));
+    expect(["left body", "right body"]).toContain(document.content);
+  });
+
+  it("replays initialization after a later edit and rejects changed retry content", async () => {
+    const db = getDb();
+    await db
+      .update(schema.documents)
+      .set({ content: "" })
+      .where(eq(schema.documents.id, DOCUMENT_ID));
+    const initialization = {
+      documentId: DOCUMENT_ID,
+      baseRevision: documentRevisionToken(0, ""),
+      idempotencyKey: "initialize-then-edit",
+      initializeContent: "first body",
+      ctx,
+    };
+    const first = await mutateDocumentBody(initialization);
+    await mutateDocumentBody({
+      documentId: DOCUMENT_ID,
+      baseRevision: first.receipt.revisions.after,
+      idempotencyKey: "later-edit",
+      edits: [{ find: "first", replace: "later" }],
+      ctx,
+    });
+
+    const replay = await mutateDocumentBody(initialization);
+    expect(replay.receipt.receiptId).toBe(first.receipt.receiptId);
+    expect(replay.receipt.idempotency.result).toBe("replayed");
+    await expect(
+      mutateDocumentBody({
+        ...initialization,
+        initializeContent: "different body",
+      }),
+    ).rejects.toMatchObject({ errorCode: "IDEMPOTENCY_KEY_REUSED" });
+    const [document] = await db
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, DOCUMENT_ID));
+    expect(document.content).toBe("later body");
+  });
+
   it("rechecks editor access inside the write transaction", async () => {
     await expect(
       mutateDocumentBody({

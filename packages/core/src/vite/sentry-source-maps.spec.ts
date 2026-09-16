@@ -182,6 +182,28 @@ describe("vite/sentry-source-maps", () => {
       expect(existsSync(path.join(publishDirectory, "client.js"))).toBe(true);
     });
 
+    it("preserves source maps that were not emitted by the build", async () => {
+      const { entryPath, mapPath, publishDirectory } = temporaryBuild();
+      const dependencyMapPath = path.join(
+        publishDirectory,
+        "node_modules/dependency/index.js.map",
+      );
+      sentryUpload.mockImplementation(async () => {
+        mkdirSync(path.dirname(dependencyMapPath), { recursive: true });
+        writeFileSync(dependencyMapPath, "{}");
+      });
+      const plugins = createSentrySourceMapUploadPlugin({
+        SENTRY_AUTH_TOKEN: "tok",
+        SENTRY_ORG: "acme",
+        SENTRY_PROJECT: "web",
+      });
+
+      await runViteBuild(entryPath, publishDirectory, plugins);
+
+      expect(existsSync(mapPath)).toBe(false);
+      expect(existsSync(dependencyMapPath)).toBe(true);
+    });
+
     it("removes source maps and completes when upload fails", async () => {
       const { entryPath, mapPath, publishDirectory } = temporaryBuild();
       const warning = vi

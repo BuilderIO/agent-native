@@ -436,6 +436,17 @@ const editor = {
   registryBlockUnreadable: "No se puede leer el origen guardado del bloque.",
   blocksFieldRevisionConflict:
     "Este campo de bloques cambió en otro lugar. Tu edición no se guardó; ahora se muestra la versión más reciente.",
+  reconcileConflict:
+    "Esta página cambió en otro lugar. Tus cambios aún no se han guardado.",
+  reconcileFailed:
+    "No se pudieron combinar los últimos cambios. Tus cambios aún no se han guardado.",
+  reconcileSaveFailed:
+    "No se pudieron guardar tus cambios. Revísalos e inténtalo de nuevo.",
+  reconcileSaving: "Guardando tus cambios…",
+  reconcileReview: "Revisar cambios",
+  reconcileReviewStale:
+    "La versión guardada volvió a cambiar. Revisa el texto más reciente antes de guardar.",
+  reconcileRefresh: "Revisar la última versión",
   collabConnectingReadOnly:
     "Conectando el editor en vivo. Mostrando una instantánea de solo lectura.",
   liveDocumentSaveBeforeSyncFailed:
@@ -793,7 +804,7 @@ const editor = {
     searchNotionPages: "Buscar páginas de Notion...",
     setUpNotion: "Configurar noción",
     setUpNotionFirst:
-      "Primero configure Notion en la barra lateral: haga clic en el icono de Notion.",
+      "Primero configure Notion - abra Ajustes, luego Integrations, y conecte Notion.",
     setUpNotionToSync: "Configure Notion para sincronizar este documento.",
     share: "Compartir",
     shareableCopyReady: "Copia compartible lista",
@@ -958,6 +969,9 @@ const rawLiterals = {
     previewDraftSavedToHistory: "Tus cambios se guardaron en el historial",
     previewDraftSavedSeparately: "Tus cambios se guardaron como página aparte",
     previewDraftOpenSavedPage: "Abrir página",
+    previewDraftMoreOptions: "Más opciones",
+    previewDraftViewFullVersions: "Ver versiones completas",
+    previewDraftShowChanges: "Mostrar cambios",
     previewDraftConflict:
       "Este borrador entra en conflicto con una versión más reciente de la página. No se restauró.",
     restorePreviewDraft: "Restaurar borrador",
@@ -1391,7 +1405,26 @@ const overrides = {
   root: {
     commandContent: "Contenido",
     commandSearchDocuments: "Buscar documentos",
+    searchSince: "Desde {{date}}",
+    searchModifiedSince: "Modificado desde {{date}}",
     commandSearchHeading: "Buscar",
+    searchScope: "Ámbito",
+    searchAllWorkspaces: "Todos los espacios",
+    searchFields: "Campos de búsqueda",
+    searchAllText: "Todo el texto",
+    searchTitleOnly: "Solo título",
+    searchType: "Tipo de objeto",
+    searchAllTypes: "Todos los tipos",
+    searchDate: "Fecha de modificación",
+    searchAnyDate: "Cualquier fecha",
+    searchPastWeek: "Última semana",
+    searchPastMonth: "Último mes",
+    searchPrevious: "Resultados anteriores",
+    searchNext: "Resultados siguientes",
+    searchRetry: "Reintentar",
+    searchScopeUnavailable: "El ámbito de búsqueda no está disponible.",
+    searchModified: "Modificado {{date}}",
+    searchSourceUpdated: "Fuente actualizada {{date}}",
     commandSearchPlaceholder: "Buscar documentos y colecciones...",
     commandSearchLoading: "Buscando...",
     commandSearchError: "La búsqueda no está disponible ahora.",

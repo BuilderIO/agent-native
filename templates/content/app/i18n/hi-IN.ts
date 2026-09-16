@@ -418,6 +418,15 @@ const editor = {
   registryBlockUnreadable: "सहेजा गया ब्लॉक स्रोत पढ़ा नहीं जा सकता।",
   blocksFieldRevisionConflict:
     "यह ब्लॉक फ़ील्ड कहीं और बदल गया है। आपका संपादन सहेजा नहीं गया; अब नवीनतम संस्करण दिखाया जा रहा है।",
+  reconcileConflict: "यह पेज कहीं और बदल गया है। आपके संपादन अभी तक सहेजे नहीं गए हैं।",
+  reconcileFailed:
+    "नवीनतम बदलावों को जोड़ा नहीं जा सका। आपके संपादन अभी तक सहेजे नहीं गए हैं।",
+  reconcileSaveFailed: "आपके संपादन सहेजे नहीं जा सके। समीक्षा करें और फिर से कोशिश करें।",
+  reconcileSaving: "आपके संपादन सहेजे जा रहे हैं…",
+  reconcileReview: "बदलावों की समीक्षा करें",
+  reconcileReviewStale:
+    "सहेजा गया संस्करण फिर से बदल गया है। सहेजने से पहले नवीनतम टेक्स्ट की समीक्षा करें।",
+  reconcileRefresh: "नवीनतम संस्करण की समीक्षा करें",
   collabConnectingReadOnly:
     "लाइव संपादक कनेक्ट हो रहा है। केवल-पठन स्नैपशॉट दिखाया जा रहा है।",
   liveDocumentSaveBeforeSyncFailed:
@@ -767,7 +776,8 @@ const editor = {
     revealedLocalFile: "स्थानीय फ़ाइल का खुलासा",
     searchNotionPages: "धारणा पृष्ठ खोजें...",
     setUpNotion: "धारणा स्थापित करें",
-    setUpNotionFirst: "सबसे पहले साइडबार में नोशन सेट करें - नोशन आइकन पर क्लिक करें।",
+    setUpNotionFirst:
+      "सबसे पहले नोशन सेट करें - सेटिंग्स खोलें, फिर Integrations खोलें, और नोशन कनेक्ट करें।",
     setUpNotionToSync: "इस दस्तावेज़ को सिंक करने के लिए नोशन सेट करें।",
     share: "साझा करें",
     shareableCopyReady: "साझा करने योग्य प्रति तैयार",
@@ -803,6 +813,9 @@ const rawLiterals = {
     previewDraftSavedToHistory: "आपके बदलाव वर्शन इतिहास में सहेजे गए",
     previewDraftSavedSeparately: "आपके बदलाव अलग पेज के रूप में सहेजे गए",
     previewDraftOpenSavedPage: "पेज खोलें",
+    previewDraftMoreOptions: "ज़्यादा विकल्प",
+    previewDraftViewFullVersions: "पूरे वर्शन देखें",
+    previewDraftShowChanges: "बदलाव देखें",
     previewDraftConflict:
       "यह ड्राफ़्ट पेज के नए वर्शन से मेल नहीं खाता। इसे बहाल नहीं किया गया।",
     restorePreviewDraft: "ड्राफ़्ट बहाल करें",
@@ -1095,7 +1108,26 @@ const overrides = {
   root: {
     commandContent: "कॉन्टेंट",
     commandSearchDocuments: "दस्तावेज़ खोजें",
+    searchSince: "{{date}} से",
+    searchModifiedSince: "{{date}} से संशोधित",
     commandSearchHeading: "खोजें",
+    searchScope: "दायरा",
+    searchAllWorkspaces: "सभी कार्यक्षेत्र",
+    searchFields: "खोज फ़ील्ड",
+    searchAllText: "पूरा पाठ",
+    searchTitleOnly: "केवल शीर्षक",
+    searchType: "ऑब्जेक्ट प्रकार",
+    searchAllTypes: "सभी प्रकार",
+    searchDate: "बदलाव की तारीख",
+    searchAnyDate: "कोई भी तारीख",
+    searchPastWeek: "पिछला सप्ताह",
+    searchPastMonth: "पिछला महीना",
+    searchPrevious: "पिछले परिणाम",
+    searchNext: "अगले परिणाम",
+    searchRetry: "फिर प्रयास करें",
+    searchScopeUnavailable: "खोज का दायरा उपलब्ध नहीं है।",
+    searchModified: "{{date}} को बदला गया",
+    searchSourceUpdated: "स्रोत {{date}} को अपडेट हुआ",
     commandSearchPlaceholder: "दस्तावेज़ और संग्रह खोजें...",
     commandSearchLoading: "खोजा जा रहा है...",
     commandSearchError: "खोज अभी उपलब्ध नहीं है।",

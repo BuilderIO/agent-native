@@ -54,7 +54,11 @@ function captureTarget(
   return () => ({
     cropSelection,
     doc: document,
-    iframe: { clientWidth: 1440, clientHeight: 900 } as HTMLIFrameElement,
+    iframe: {
+      clientWidth: 1440,
+      clientHeight: 900,
+      hasAttribute: () => true,
+    } as unknown as HTMLIFrameElement,
   });
 }
 
@@ -157,24 +161,30 @@ describe("resolveExportCropTarget", () => {
     ).toEqual({ kind: "whole-screen" });
   });
 
-  it("crops to the painted members of a partly unresolvable selection", () => {
+  it("refuses a root selection when an ordinary selected member is unresolved", () => {
+    expect(
+      resolveExportCropTarget(document, [
+        elementInfo({ tagName: "BODY" }),
+        elementInfo({ selector: "#never-rendered" }),
+      ]),
+    ).toEqual({ kind: "unresolved" });
+  });
+
+  it("refuses a partly unresolvable ordinary selection instead of cropping a subset", () => {
     const painted = document.createElement("div");
     painted.id = "painted";
     painted.getBoundingClientRect = () =>
       ({ left: 10, top: 20, width: 100, height: 50 }) as DOMRect;
     document.body.appendChild(painted);
 
-    // An unrendered `x-if` branch or a `display: none` node contributes no
-    // pixels, so the union of what paints is the whole visible selection.
+    // A missing target may be a stale or wrongly scoped selection. Exporting
+    // only the other members would make that failure look like success.
     expect(
       resolveExportCropTarget(document, [
         elementInfo({ selector: "#painted" }),
         elementInfo({ selector: "#never-rendered" }),
       ]),
-    ).toEqual({
-      kind: "rect",
-      rect: { x: 10, y: 20, width: 100, height: 50 },
-    });
+    ).toEqual({ kind: "unresolved" });
   });
 });
 
@@ -189,13 +199,39 @@ describe("runRenderPngBlob element scope", () => {
     expect(cropCanvasToRect).not.toHaveBeenCalled();
   });
 
-  it("renders the whole screen when a frame is selected with no element", async () => {
-    const blob = await runRenderPngBlob(renderArgs(null), {
-      scope: "element",
+  it("renders the whole screen when a selected root contains a selected child", async () => {
+    const node = document.createElement("div");
+    node.id = "child";
+    document.body.appendChild(node);
+
+    const blob = await runRenderPngBlob(
+      renderArgs([
+        elementInfo({ tagName: "BODY" }),
+        elementInfo({ selector: "#child" }),
+      ]),
+      { scope: "element", settings: { scale: 1 } },
+    );
+
+    expect(await blob.text()).toBe("full");
+    expect(cropCanvasToRect).not.toHaveBeenCalled();
+  });
+
+  it("keeps empty element selections unresolved but allows an empty document capture", async () => {
+    for (const cropSelection of [null, []] as const) {
+      await expect(
+        runRenderPngBlob(renderArgs(cropSelection), {
+          scope: "element",
+          settings: { scale: 1 },
+        }),
+      ).rejects.toMatchObject({ code: "selection-unresolved" });
+    }
+
+    const documentBlob = await runRenderPngBlob(renderArgs(null), {
+      scope: "document",
       settings: { scale: 1 },
     });
 
-    expect(await blob.text()).toBe("full");
+    expect(await documentBlob.text()).toBe("full");
     expect(cropCanvasToRect).not.toHaveBeenCalled();
   });
 

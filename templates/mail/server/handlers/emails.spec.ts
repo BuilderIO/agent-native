@@ -6,6 +6,16 @@ function emailsHandlerSource(): string {
   return readFileSync(new URL("./emails.ts", import.meta.url), "utf8");
 }
 
+function handlerSection(source: string, handlerName: string): string {
+  const start = source.indexOf(
+    `export const ${handlerName} = defineEventHandler`,
+  );
+  if (start < 0) return "";
+  const remainder = source.slice(start);
+  const nextHandler = remainder.indexOf("\n// ───", 1);
+  return nextHandler < 0 ? remainder : remainder.slice(0, nextHandler);
+}
+
 describe("emails handler Gmail draft listing", () => {
   it("hydrates drafts and attachment-filter inboxes while keeping other lists on metadata", () => {
     const source = emailsHandlerSource();
@@ -74,7 +84,7 @@ describe("emails handler Gmail label listing", () => {
     const source = emailsHandlerSource();
 
     expect(source).toContain("setResponseStatus(_event, 502)");
-    expect(source).toContain("failedAccountReads > 0");
+    expect(source).toContain("let failedAccountReads = tokenErrors.length;");
     expect(source).toContain("Unable to load Gmail labels. Please retry.");
   });
 
@@ -84,12 +94,48 @@ describe("emails handler Gmail label listing", () => {
     expect(source).toContain(
       "if (label) emails = filterLabelMessages(emails, label);",
     );
-    expect(source).toContain(
-      "const accountTokens = await getAccountTokens(email, accountEmails);",
-    );
+    expect(source).toContain("await getAccountTokens(email, accountEmails);");
+    expect(source).toContain("errors: tokenErrors");
     expect(source).toContain(
       "return recomputeUnreadCounts(\n    await readEmails(email),\n    await readLabels(email),\n  );",
     );
+  });
+});
+
+describe("emails handler connected-account mutation errors", () => {
+  it("returns structured account-resolution and refresh failures before Gmail mutations", () => {
+    const source = emailsHandlerSource();
+    for (const handlerName of [
+      "reportSpam",
+      "blockSender",
+      "muteThread",
+      "calendarRsvp",
+      "unsubscribeEmail",
+    ]) {
+      const section = handlerSection(source, handlerName);
+      expect(section, handlerName).toContain("resolveGmailAccess(");
+      expect(section, handlerName).toContain(
+        "if (!gmailAccess.ok) return gmailAccess.response;",
+      );
+    }
+
+    expect(source).toContain("setResponseStatus(event, 503);");
+    expect(source).toContain("error: formatMailAccountErrors(accountErrors)");
+    expect(source).toContain("accountErrors,");
+  });
+});
+
+describe("emails handler triage account selection", () => {
+  it("passes the requested account into every connected-mailbox triage path", () => {
+    const source = emailsHandlerSource();
+
+    for (const handlerName of ["reportSpam", "blockSender", "muteThread"]) {
+      const section = handlerSection(source, handlerName);
+      expect(section, handlerName).toContain("accountEmail?: string");
+      expect(section, handlerName).toContain(
+        "resolveGmailAccess(event, email, accountEmail)",
+      );
+    }
   });
 });
 

@@ -177,6 +177,65 @@ export function createSlideObjectPlacementGeometry(
   };
 }
 
+/**
+ * A line is a thin bar drawn at its true length between the two drag points,
+ * then rotated to the drag angle around its own center. Reusing the
+ * axis-aligned bounding box from `createSlideObjectPlacementGeometry` would
+ * discard the drag direction and always yield a horizontal/vertical rect.
+ */
+export function createSlideLinePlacementGeometry(
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+  thickness = 4,
+): SlideObjectGeometry & { rotation: number } {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const length = Math.max(Math.hypot(dx, dy), thickness);
+  return {
+    x: (start.x + end.x) / 2 - length / 2,
+    y: (start.y + end.y) / 2 - thickness / 2,
+    width: length,
+    height: thickness,
+    rotation: (Math.atan2(dy, dx) * 180) / Math.PI,
+  };
+}
+
+/**
+ * Clamps a newly placed shape's unrotated `left`/`top` so its *rendered*
+ * bounding box stays inside the containing block, not its unrotated box.
+ * A rotated bar's unrotated width/height (e.g. a line's full drag length)
+ * can be far larger than its actual on-screen footprint, so clamping the
+ * unrotated box directly would drag the shape's visual center away from
+ * where the user placed it. With `rotation` omitted (or 0) this reduces to
+ * the plain axis-aligned clamp used for every other shape.
+ */
+export function clampSlideObjectPlacementPosition(
+  geometry: SlideObjectGeometry,
+  containerWidth: number,
+  containerHeight: number,
+  rotation = 0,
+): { x: number; y: number } {
+  const radians = (rotation * Math.PI) / 180;
+  const cos = Math.abs(Math.cos(radians));
+  const sin = Math.abs(Math.sin(radians));
+  const renderedWidth = geometry.width * cos + geometry.height * sin;
+  const renderedHeight = geometry.width * sin + geometry.height * cos;
+  const centerX = geometry.x + geometry.width / 2;
+  const centerY = geometry.y + geometry.height / 2;
+  const clampedCenterX = Math.max(
+    renderedWidth / 2,
+    Math.min(centerX, containerWidth - renderedWidth / 2),
+  );
+  const clampedCenterY = Math.max(
+    renderedHeight / 2,
+    Math.min(centerY, containerHeight - renderedHeight / 2),
+  );
+  return {
+    x: clampedCenterX - geometry.width / 2,
+    y: clampedCenterY - geometry.height / 2,
+  };
+}
+
 export interface SlideLayoutRect {
   left: number;
   top: number;

@@ -8,10 +8,12 @@ import {
   ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER,
   ACTION_CHAT_UI_WORKSPACE_FILE_RENDERER,
 } from "../../../action-ui.js";
+import { normalizeConnectRequiredResult } from "../../../shared/connect-required.js";
 import { useT } from "../../i18n.js";
 import {
   registerReservedActionChatRenderer,
   registerReservedFallbackToolRenderer,
+  registerReservedToolRenderer,
   type ToolRendererContext,
   type ToolRendererComponent,
 } from "../tool-render-registry.js";
@@ -39,6 +41,11 @@ const LazyDataInsightsWidget = lazy(() =>
 const LazyDataTableWidget = lazy(() =>
   import("./DataTableWidget.js").then((module) => ({
     default: module.DataTableWidget,
+  })),
+);
+const LazyConnectRequiredWidget = lazy(() =>
+  import("./ConnectRequiredWidget.js").then((module) => ({
+    default: module.ConnectRequiredWidget,
   })),
 );
 const LazyInlineExtensionWidget = lazy(() =>
@@ -158,6 +165,15 @@ const BuiltinInlineExtensionRenderer: ToolRendererComponent = ({ context }) =>
     </Suspense>
   ) : null;
 
+const BuiltinConnectRequiredRenderer: ToolRendererComponent = ({ context }) => {
+  const card = normalizeConnectRequiredResult(context.resultJson);
+  return card ? (
+    <Suspense fallback={<BuiltinToolRendererSkeleton framed={false} />}>
+      <LazyConnectRequiredWidget card={card} />
+    </Suspense>
+  ) : null;
+};
+
 const BuiltinWorkspaceFileRenderer: ToolRendererComponent = ({ context }) => {
   const result = normalizeWorkspaceFileResult(context.resultJson);
   return result ? (
@@ -166,6 +182,15 @@ const BuiltinWorkspaceFileRenderer: ToolRendererComponent = ({ context }) => {
     </Suspense>
   ) : null;
 };
+
+/** True when a result is a connect blocker, which the widget frames itself.
+ *  Callers pass this alongside `isBuiltinDataWidgetActionRenderer` so a gated
+ *  action that also declares a chatUI renderer does not get a second border. */
+export function isBuiltinConnectRequiredResult(
+  context: ToolRendererContext,
+): boolean {
+  return normalizeConnectRequiredResult(context.resultJson) !== null;
+}
 
 export function isBuiltinDataWidgetActionRenderer(
   context: ToolRendererContext,
@@ -193,6 +218,12 @@ export function isBuiltinWorkspaceFileResult(
 export function resolveBuiltinActionChatRenderer(
   context: ToolRendererContext,
 ): ToolRendererComponent | null {
+  // A blocked call did not produce the table/chart/extension the action
+  // advertises, so its declared renderer would draw an empty or blank widget
+  // over the Connect control. The blocker outranks the success renderer.
+  if (normalizeConnectRequiredResult(context.resultJson)) {
+    return BuiltinConnectRequiredRenderer;
+  }
   if (
     context.chatUI?.renderer === ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER &&
     normalizeInlineExtensionToolResult(context)
@@ -223,6 +254,9 @@ export function resolveBuiltinFallbackToolRenderer(
   ) {
     return BuiltinInlineExtensionRenderer;
   }
+  if (normalizeConnectRequiredResult(context.resultJson)) {
+    return BuiltinConnectRequiredRenderer;
+  }
   return normalizeActionDataWidgetResult(context) !== null
     ? BuiltinDataWidgetRenderer
     : null;
@@ -249,6 +283,18 @@ registerReservedFallbackToolRenderer({
   id: "core.data-widgets",
   match: (context) => normalizeActionDataWidgetResult(context) !== null,
   Component: BuiltinDataWidgetRenderer,
+});
+
+// Shape-based like the workspace-file card below, but registered as a reserved
+// renderer rather than a fallback: reserved is the only tier `resolveToolRenderer`
+// checks before an action's declared `chatUI.renderer`. A gated action that also
+// advertises a table or chart did not produce one when it stopped, so leaving it
+// in the fallback tier would draw that empty widget over the Connect control.
+registerReservedToolRenderer({
+  id: "core.connect-required",
+  match: (context) =>
+    normalizeConnectRequiredResult(context.resultJson) !== null,
+  Component: BuiltinConnectRequiredRenderer,
 });
 
 // Shape-based, not chatUI-based: any tool result — from show-workspace-file,

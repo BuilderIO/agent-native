@@ -70,7 +70,8 @@ export interface UploadedFile {
   dataUrl?: string;
 }
 
-const DEFAULT_ASSETS_PICKER_URL = "https://assets.agent-native.com/picker";
+const DEFAULT_ASSETS_PICKER_URL =
+  "https://assets.agent-native.com/library?__an_picker=1&mediaType=image&layout=vertical&embedded=1&callerAppId=design";
 const RAW_CHAT_IMAGE_ATTACHMENT_BYTES = 512 * 1024;
 const MAX_TOTAL_CHAT_IMAGE_DATA_URL_BYTES = 3_000_000;
 const DEFAULT_MAX_CHAT_IMAGE_DATA_URL_BYTES = 1_250_000;
@@ -97,11 +98,29 @@ interface PickedAssetImagePayload {
   mimeType?: unknown;
 }
 
-function assetsPickerUrl() {
-  return (
+export function assetsPickerUrl(): string {
+  const configured =
     import.meta.env.VITE_AGENT_NATIVE_ASSETS_PICKER_URL ||
-    DEFAULT_ASSETS_PICKER_URL
-  );
+    DEFAULT_ASSETS_PICKER_URL;
+  try {
+    const base =
+      typeof window !== "undefined"
+        ? window.location.origin
+        : "https://assets.agent-native.com";
+    const url = new URL(configured, base);
+    if (url.pathname === "/picker") url.pathname = "/library";
+    url.searchParams.set("__an_picker", "1");
+    url.searchParams.set(
+      "mediaType",
+      url.searchParams.get("mediaType") || "image",
+    );
+    url.searchParams.set("layout", "vertical");
+    url.searchParams.set("embedded", "1");
+    url.searchParams.set("callerAppId", "design");
+    return url.toString();
+  } catch {
+    return DEFAULT_ASSETS_PICKER_URL;
+  }
 }
 
 function pickedAssetString(value: unknown): string | null {
@@ -369,6 +388,8 @@ interface PromptPopoverProps {
    * fold the org id in themselves.
    */
   draftScope?: string;
+  /** Keep organization lookups out of unauthenticated prompt hosts. */
+  scopeDraftsToOrg?: boolean;
 }
 
 export interface PromptCreativeContextOption {
@@ -443,6 +464,7 @@ export default function PromptPopover({
   creationMode,
   onCreationModeChange,
   draftScope,
+  scopeDraftsToOrg = true,
 }: PromptPopoverProps) {
   const t = useT();
   // Composer drafts persist to localStorage, which is scoped to the browser
@@ -450,7 +472,9 @@ export default function PromptPopover({
   // transition with no reload and no storage clear (see useSwitchOrg). Fold
   // the active org id into the key so a draft abandoned under one account
   // never resurfaces after switching to another.
-  const { data: org, isPending: orgPending } = useOrg();
+  const { data: org, isPending: orgPending } = useOrg({
+    enabled: scopeDraftsToOrg,
+  });
   const baseDraftScope = draftScope ?? title;
   // Before the org query resolves, we don't yet know which account this
   // draft belongs to. Route to a distinct "pending" bucket rather than
@@ -458,9 +482,11 @@ export default function PromptPopover({
   // (or later leak) a different account's abandoned draft during the brief
   // window before `org` loads. `org?.orgId` is legitimately `null` for
   // users with no active org, so that gets its own stable suffix too.
-  const orgScopedDraftScope = orgPending
-    ? `${baseDraftScope}:pending`
-    : `${baseDraftScope}:${org?.orgId ?? "none"}`;
+  const orgScopedDraftScope = scopeDraftsToOrg
+    ? orgPending
+      ? `${baseDraftScope}:pending`
+      : `${baseDraftScope}:${org?.orgId ?? "none"}`
+    : `${baseDraftScope}:anonymous`;
   const [showStartChoice, setShowStartChoice] = useState(offerStartChoice);
   const [skipInFlight, setSkipInFlight] = useState(false);
   const skipInFlightRef = useRef(false);
@@ -978,7 +1004,7 @@ export default function PromptPopover({
             key={placeholder ?? t("home.describeBuild")}
             autoFocus
             attachmentsEnabled
-            disabled={loading || uploading || submitting}
+            disabled={loading || submitting}
             placeholder={placeholder ?? t("home.describeBuild")}
             onSubmit={handleSubmit}
             onAttachmentsChange={handleAttachmentsChange}

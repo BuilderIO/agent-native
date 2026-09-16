@@ -1,0 +1,18 @@
+---
+title: Organisations, équipes et permissions
+description: Gérer le contexte de l’organisation, les rôles d’équipe et d’application, et l’accès aux ressources.
+---
+
+# Organisations, équipes et permissions
+
+L’organisation définit les membres de l’équipe et la limite du tenant. L’espace de travail regroupe les applications et la configuration de déploiement sans remplacer l’organisation. Le serveur doit vérifier les permissions. Masquer un bouton ne constitue pas un contrôle d’accès.
+
+## Trois portées de rôle
+
+- Les rôles d’organisation `owner`, `admin` et `member` contrôlent l’administration de l’équipe.
+- Les rôles d’application contrôlent les actions dans une application. Un membre peut avoir plusieurs rôles.
+- Les rôles de ressource `viewer`, `editor` et `admin` contrôlent l’accès à une ligne.
+
+L’application déclare les rôles et les clés de permission dans le code. Un administrateur peut remplacer l’ensemble des rôles d’un membre et associer les permissions déclarées à des rôles depuis l’équipe. Sans remplacement, les valeurs par défaut de l’application s’appliquent. Les invitations peuvent inclure des rôles d’application. Le rôle admin d’une application ne donne pas de droits d’administration de l’organisation.
+
+Consultez [Déploiements administrés](/docs/administered-deployments) pour les invitations et la configuration. Consultez [Cloisonnement des données](/docs/security#data-scoping) pour l’accès aux données.

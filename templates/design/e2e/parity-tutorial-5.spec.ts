@@ -947,7 +947,18 @@ test.describe("parity: Tutorial 5 - overview canvas (outside any screen) and cro
     await page.mouse.up();
     await page.waitForTimeout(400);
 
-    const frameId = await waitForNewBoardObjectId(page, before);
+    const newFrameIds = async () =>
+      Object.keys(await boardObjects(page)).filter(
+        (id) => !before.has(id) && !id.startsWith("draft-"),
+      );
+    await expect
+      .poll(newFrameIds, {
+        timeout: 10_000,
+        message: "one Frame-tool gesture must create exactly one board frame",
+      })
+      .toHaveLength(1);
+    const [frameId] = await newFrameIds();
+    if (!frameId) throw new Error("Frame-tool gesture created no board frame");
     const box = await boardObjectBoundingBox(page, frameId);
     expect(
       box,

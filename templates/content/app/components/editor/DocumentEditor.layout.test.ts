@@ -496,7 +496,7 @@ describe("document editor layout", () => {
     );
     const handler = source.slice(
       source.indexOf("const handleContentChange"),
-      source.indexOf("const handleContentSaveNow"),
+      source.indexOf("const handleImmediateContentChange"),
     );
     expect(handler).toContain("localContentRef.current = newContent");
     expect(
@@ -511,22 +511,24 @@ describe("document editor layout", () => {
     );
     const handler = source.slice(
       source.indexOf("const handleContentChange"),
-      source.indexOf("const handleContentSaveNow"),
+      source.indexOf("const handleImmediateContentChange"),
     );
-    expect(handler).toContain("if (documentReconcileConflict)");
-    expect(handler).toContain(
-      "setDocumentReconcileConflict({ localDraft: newContent });",
-    );
+    expect(handler).toContain("if (updateReconcileDraft(newContent)) {");
+    expect(handler).toContain("retainActiveRecoveryDraft({");
     expect(handler.indexOf("return;")).toBeLessThan(
       handler.indexOf("debouncedSave("),
     );
-    expect(source).toContain('{t("editor.keepLocalDraft")}');
-    expect(source).toContain("void handleContentSaveNow(localDraft, true);");
-    expect(source).toContain("handleContentSaveNow(result.content, true)");
-    expect(source).toContain("if (options.adoptCurrentServerBase)");
-    expect(source).toContain(
-      "else if (contentEditVersionRef.current === contentEditVersion)",
+    expect(handler.indexOf("updateReconcileDraft(newContent)")).toBeLessThan(
+      handler.indexOf("debouncedSave("),
     );
+    expect(source).toContain("if (reconcileRecoveryStateRef.current) return;");
+    expect(handler).toContain("retainActiveRecoveryDraft({");
+    expect(source).toContain(
+      "void reconcileRetainRef.current(draft).catch(reportRetentionFailure)",
+    );
+    expect(source).toContain("<DocumentReconcileRecovery");
+    expect(source).toContain("onKeepMine={handleResolveReconcile}");
+    expect(source).toContain("contentBase: reconcileBase");
     expect(source).toContain("if (!result.contentPersisted)");
   });
 
@@ -1884,7 +1886,25 @@ describe("document editor layout", () => {
     expect(source).toContain(
       "const copyPageUrl = isLocalFileDocument ? pageUrl : shareUrl",
     );
-    expect(source).toContain("navigator.clipboard.writeText(copyPageUrl)");
+    expect(source).toContain("writeClipboardText(copyPageUrl)");
+    expect(source).not.toContain("navigator.clipboard.writeText");
+  });
+
+  it("routes Content text-copy controls through the shared clipboard boundary", () => {
+    const sources = [
+      "./DocumentToolbar.tsx",
+      "./extensions/AudioBlock.tsx",
+      "./extensions/ImageBlock.tsx",
+      "./extensions/VideoBlock.tsx",
+      "../sidebar/NotionButton.tsx",
+    ].map((path) =>
+      readFileSync(new URL(path, import.meta.url), { encoding: "utf8" }),
+    );
+
+    for (const source of sources) {
+      expect(source).toContain("writeClipboardText");
+      expect(source).not.toContain("navigator.clipboard.writeText");
+    }
   });
 
   it("builds a Notion-style breadcrumb from parent documents", () => {

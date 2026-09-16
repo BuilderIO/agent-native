@@ -829,7 +829,7 @@ const editorToolbarMessages = {
   searchNotionPages: "Search Notion pages...",
   setUpNotion: "Set up Notion",
   setUpNotionFirst:
-    "Set up Notion in the sidebar first - click the Notion icon.",
+    "Set up Notion first - open Settings, then Integrations, and connect Notion.",
   setUpNotionToSync: "Set up Notion to sync this document.",
   pasteNotionPageUrlOrId: "Paste a Notion page URL or page ID.",
   pasteNotionPageUrlOrIdToLink:
@@ -993,7 +993,26 @@ const enUS = {
   root: {
     commandContent: "Content",
     commandSearchDocuments: "Search documents",
+    searchSince: "Since {{date}}",
+    searchModifiedSince: "Modified since {{date}}",
     commandSearchHeading: "Search",
+    searchScope: "Scope",
+    searchAllWorkspaces: "All workspaces",
+    searchFields: "Search fields",
+    searchAllText: "All text",
+    searchTitleOnly: "Title only",
+    searchType: "Object type",
+    searchAllTypes: "All types",
+    searchDate: "Modified date",
+    searchAnyDate: "Any date",
+    searchPastWeek: "Past week",
+    searchPastMonth: "Past month",
+    searchPrevious: "Previous results",
+    searchNext: "Next results",
+    searchRetry: "Try again",
+    searchScopeUnavailable: "Search scope is unavailable.",
+    searchModified: "Modified {{date}}",
+    searchSourceUpdated: "Source updated {{date}}",
     commandSearchPlaceholder: "Search documents and collections...",
     commandSearchLoading: "Searching...",
     commandSearchError: "Search is unavailable right now.",
@@ -1135,6 +1154,16 @@ const enUS = {
     registryBlockUnreadable: "Persisted block source is unreadable.",
     blocksFieldRevisionConflict:
       "This Blocks field changed elsewhere. Your edit wasn't saved; the latest version is now shown.",
+    reconcileConflict:
+      "This page changed elsewhere. Your edits aren’t saved yet.",
+    reconcileFailed:
+      "The latest changes couldn’t be combined. Your edits aren’t saved yet.",
+    reconcileSaveFailed: "Your edits couldn’t be saved. Review and try again.",
+    reconcileSaving: "Saving your edits…",
+    reconcileReview: "Review changes",
+    reconcileReviewStale:
+      "The saved version changed again. Review the latest text before saving.",
+    reconcileRefresh: "Review latest version",
     couldNotReadLocalSourceFile: "Could not read local source file",
     couldNotSaveLocalFile: "Could not save local file",
     localFileChangedWithUnsavedEdits:
@@ -1155,6 +1184,9 @@ const enUS = {
     previewDraftSavedToHistory: "Your edits were saved to Version History",
     previewDraftSavedSeparately: "Your edits were saved as a separate page",
     previewDraftOpenSavedPage: "Open page",
+    previewDraftMoreOptions: "More options",
+    previewDraftViewFullVersions: "View full versions",
+    previewDraftShowChanges: "Show changes",
     restorePreviewDraft: "Restore draft",
     previewDraftConflict:
       "This draft conflicts with a newer page version. It was not restored.",

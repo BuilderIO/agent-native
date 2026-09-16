@@ -133,6 +133,7 @@ export default function Index() {
     () => new Set(),
   );
   const [showNewPrompt, setShowNewPrompt] = useState(false);
+  const [newDesignDraftRevision, setNewDesignDraftRevision] = useState(0);
   const fullAppBuildingEnabled = useFeatureFlag(FULL_APP_BUILDING.key);
   const [newDesignHandoffPending, setNewDesignHandoffPending] = useState(false);
   const [newDesignSystemId, setNewDesignSystemId] = useState<
@@ -482,9 +483,7 @@ export default function Index() {
           id,
           title: finalTitle,
           projectType,
-          ...(linkedDesignSystemId
-            ? { designSystemId: linkedDesignSystemId }
-            : {}),
+          designSystemId: linkedDesignSystemId,
         } as any)
         .then(() => {
           void queryClient.invalidateQueries({
@@ -774,6 +773,7 @@ export default function Index() {
   const openNewDesign = useCallback(
     (e: React.MouseEvent<HTMLElement>) => {
       anchorElRef.current = e.currentTarget;
+      setNewDesignDraftRevision((revision) => revision + 1);
       newDesignSystemWasChosenRef.current = false;
       syncSelectedTemplate(null);
       setNewDesignSystemId(
@@ -1315,6 +1315,7 @@ export default function Index() {
         open={showNewPrompt}
         onOpenChange={handleNewPromptOpenChange}
         title={t("home.newDesignLower")}
+        draftScope={`design:new:${newDesignDraftRevision}`}
         placeholder={
           selectedTemplate
             ? t("promptDialog.templatePromptPlaceholder", {

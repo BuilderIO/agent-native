@@ -69,10 +69,21 @@ const messages: AgentChatTranslation = {
     "جارٍ إنشاء حساب Builder.io الخاص بك أو إعادة استخدامه. يستغرق ذلك عادةً بضع ثوانٍ.",
   "onboarding.builderConnectionDescription":
     "أكمل الاتصال بنقرة واحدة في النافذة الجديدة.",
+  "onboarding.builderReadyWithCodeChanges":
+    "اعتمادات الذكاء الاصطناعي وتغييرات التعليمات البرمجية السحابية جاهزة للاستخدام.",
+  "onboarding.builderReadyCreditsOnly":
+    "اعتمادات الذكاء الاصطناعي جاهزة للاستخدام. تتطلب تعديلات التعليمات البرمجية السحابية مشروع Builder في إعدادات الوكيل في الخلفية.",
+  "onboarding.openBackgroundAgentSettings": "فتح إعدادات الوكيل في الخلفية",
   "onboarding.capability.llm.keySummary":
     "اربط مزود ذكاء اصطناعي أو نموذجًا محليًا",
   "onboarding.capability.fileStorage.keySummary":
     "تخزين Builder أو حاوية متوافقة مع S3",
+  "onboarding.fileStorage.title": "اختر تخزين الملفات",
+  "onboarding.fileStorage.description":
+    "اختر تخزين Builder المُدار أو مفاتيح تخزين مخصصة لحاويتك المتوافقة مع S3.",
+  "onboarding.fileStorage.custom": "استخدم مفاتيح تخزين مخصصة",
+  "onboarding.fileStorage.customDescription":
+    "اضبط حاوية متوافقة مع S3 باستخدام عنوان URL عام ثابت.",
   "onboarding.capability.voiceInput.label": "الإدخال الصوتي",
   "onboarding.capability.voiceInput.keySummary":
     "التعرف على الكلام في المتصفح أو تحويل الكلام إلى نص",
@@ -106,6 +117,14 @@ const messages: AgentChatTranslation = {
   "common.agent": "الوكيل",
   "agentPanel.mode": "الوضع",
   "agentPanel.uiMode": "واجهة المستخدم",
+  "agentPanel.keyScope": "نطاق المفتاح",
+  "agentPanel.personalKeyScope": "شخصي",
+  "agentPanel.organizationKeyScope": "المؤسسة",
+  "agentPanel.personalKeyInEffect": "مفتاحك الشخصي قيد الاستخدام.",
+  "agentPanel.organizationKeyInEffect": "مفتاح المؤسسة قيد الاستخدام.",
+  "agentPanel.sharedKeyInEffect": "مفتاح مشترك قيد الاستخدام.",
+  "agentPanel.useOrganizationKey": "استخدم مفتاح المؤسسة",
+  "agentPanel.keyStatusUnavailable": "حالة المفتاح غير متاحة.",
   "agentHostNudge.sidebarTitle": "استخدم محادثة {{agent}}",
   "agentHostNudge.sidebarDescription":
     "أنت تتحدث مع {{agent}} بالفعل. اطلب منه العمل مع هذا التطبيق مباشرةً.",
@@ -128,6 +147,37 @@ const messages: AgentChatTranslation = {
   "common.no": "لا",
   "common.retry": "إعادة المحاولة",
   "common.save": "حفظ",
+  "agents.hostedAgent": "وكيل مستضاف",
+  "agents.provider": "المزوّد",
+  "agents.providerA2A": "وكيل A2A (Foundry أو Gemini أو مخصّص)",
+  "agents.providerAnthropic": "وكلاء Anthropic المُدارون",
+  "agents.agentId": "معرّف الوكيل",
+  "agents.agentIdPlaceholder": "agent_...",
+  "agents.environmentId": "معرّف البيئة",
+  "agents.environmentIdPlaceholder": "env_...",
+  "agents.apiBaseUrl": "عنوان URL الأساسي لـ API (اختياري)",
+  "agents.apiBaseUrlPlaceholder": "https://api.anthropic.com",
+  "agents.managedAgentIncomplete": "أكمل حقول Anthropic Managed Agents.",
+  "agents.managedAgentCheck": "يتم التحقق من الاتصال عند التفويض من الدردشة.",
+  "agents.managedAgentSaved":
+    "تم حفظ Anthropic Managed Agent. فوّض إليه من الدردشة.",
+  "agents.cardUrl": "عنوان بطاقة الوكيل",
+  "agents.cardUrlPlaceholder": "https://host.example/agent-card.json",
+  "agents.authType": "المصادقة",
+  "agents.authNone": "بدون مصادقة",
+  "agents.authBearer": "رمز Bearer",
+  "agents.authClientCredentials": "بيانات اعتماد عميل OAuth",
+  "agents.chooseCredential": "اختيار بيانات الاعتماد",
+  "agents.vault": "الخزنة",
+  "agents.tokenUrl": "عنوان الرمز",
+  "agents.clientId": "معرّف العميل",
+  "agents.scope": "النطاق",
+  "agents.authIncomplete": "أكمل حقول مصادقة الوكيل المستضاف.",
+  "agents.invalidUrl":
+    "يجب استخدام HTTPS لعناوين URL الخاصة بالوكيل، باستثناء localhost أو عناوين الاسترجاع المحلية.",
+  "agents.statusReachable": "يمكن الوصول إليه",
+  "agents.statusAuthRejected": "رُفضت المصادقة",
+  "agents.statusNoJsonRpc": "لا يوجد JSON-RPC",
   "common.saveFailed": "فشل الحفظ",
   "common.saveFailedStatus": "فشل الحفظ ({{status}})",
   "common.saving": "جارٍ الحفظ...",
@@ -363,6 +413,8 @@ const messages: AgentChatTranslation = {
   "error.stopped": "توقف الوكيل قبل الانتهاء",
   "errorMessages.agentConnection":
     "انقطع اتصال الوكيل. تحقّق من اتصالك وأعد المحاولة.",
+  "errorMessages.attachmentPasswordProtected":
+    "ملف PDF هذا محمي بكلمة مرور، لذا لا يمكن قراءته. أزل الحماية بكلمة المرور أو الصق النص المطلوب، ثم أعد المحاولة.",
   "errorMessages.builderAuthentication":
     "رفض Builder بيانات الاعتماد المتصلة. أعد الاتصال بـ Builder.io من الإعدادات، ثم أعد المحاولة.",
   "errorMessages.builderModelUnauthorized":
@@ -378,6 +430,10 @@ const messages: AgentChatTranslation = {
     "انتهت مهلة اتصال الوكيل قبل أن يتمكن من الإكمال. يمكنك المتابعة من العمل الجزئي أو إعادة المحاولة.",
   "errorMessages.invalidToolSchema":
     "كان مخطط إحدى الأدوات غير صالح، لذلك رفض النموذج الطلب قبل بدئه. يمكن تخطي الأداة غير الصالحة وإعادة محاولة الطلب.",
+  "errorMessages.malformedRequest":
+    "رفض مزوّد النموذج هذا الطلب لأنه غير صالح، لذلك لم تُعد المحاولة. أعد المحاولة، أو ابدأ محادثة جديدة إذا استمر الأمر.",
+  "errorMessages.malformedRequestAttachment":
+    "رفض النموذج ملفًا مرفقًا، لذلك لم تُرسل هذه الرسالة إطلاقًا. أزل المرفق وأعد المحاولة — تُقرأ ملفات PDF والنصوص العادية وصور JPEG وPNG وGIF وWebP مباشرةً، أما الصيغ الأخرى فيجب رفعها والإشارة إليها برابط.",
   "errorMessages.noProviderConnected":
     "لا يوجد مزوّد LLM متصل. افتح الإعدادات > الوكيل > مزوّدو الذكاء الاصطناعي، ثم اربط Builder.io (تتوفر خطة مجانية) أو أضف مفتاح مزوّد.",
   "errorMessages.openBuilderSpaceSettings": "فتح إعدادات مساحة Builder",
@@ -724,6 +780,7 @@ const messages: AgentChatTranslation = {
   "widget.dataInsights": "رؤى البيانات",
   "widget.dataTable": "جدول بيانات",
   "widget.downloadCsv": "تنزيل CSV",
+  "widget.connectProvider": "ربط {{provider}}",
   "widget.loadingToolResult": "جارٍ تحميل نتيجة الأداة",
   "widget.noRows": "لا توجد صفوف",
   "widget.points": "{{formattedCount}} نقطة",
@@ -741,6 +798,14 @@ const messages: AgentChatTranslation = {
   "widget.rows_many": "{{formattedCount}} صفًا",
   "widget.rows_other": "{{formattedCount}} صف",
   "widget.sampled": "عيّنة",
+  "settings.emailTitle": "البريد الإلكتروني",
+  "settings.emailChange": "تغيير البريد الإلكتروني",
+  "settings.emailChanging": "جارٍ الإرسال...",
+  "settings.emailChangeSent":
+    "تحقق من بريدك الإلكتروني لمعرفة كيفية تأكيد هذا التغيير.",
+  "settings.emailChangeError": "تعذر إرسال التأكيد.",
+  "settings.emailNewLabel": "البريد الإلكتروني الجديد",
+  "settings.emailNewPlaceholder": "أدخل بريدًا إلكترونيًا جديدًا",
 };
 
 export default messages;

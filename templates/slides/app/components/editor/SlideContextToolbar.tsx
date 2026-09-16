@@ -26,6 +26,7 @@ import {
   IconDots,
   IconGridDots,
   IconItalic,
+  IconMessageCircle,
   IconLayoutAlignBottom,
   IconLayoutAlignCenter,
   IconLayoutAlignLeft,
@@ -155,6 +156,8 @@ export function SlideContextToolbar({
   animationsOpen = false,
   hasSelectedElement = Boolean(snapshot),
   onOpenAnimations,
+  canComment = false,
+  onComment,
   onChange,
   onBackgroundChange,
   onArrange,
@@ -180,6 +183,10 @@ export function SlideContextToolbar({
   animationsOpen?: boolean;
   /** Open transitions for the current canvas selection. */
   onOpenAnimations?: () => void;
+  /** Whether the current user can add comments to this deck. */
+  canComment?: boolean;
+  /** Start a comment anchored to the selected slide object. */
+  onComment?: () => void;
   onChange: (patch: SlideStylePatch) => void;
   onBackgroundChange: (background: string) => void;
   onArrange?: (target: SlideObjectZOrderTarget) => void;
@@ -299,6 +306,26 @@ export function SlideContextToolbar({
               </Button>
             </TooltipTrigger>
             <TooltipContent>{t("animations.title")}</TooltipContent>
+          </Tooltip>
+          <div className={TOOLBAR_DIVIDER} />
+        </>
+      )}
+      {hasSelectedElement && canComment && onComment && (
+        <>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className={MENU_BUTTON_CLASS}
+                aria-label={t("comments.addComment")}
+                onClick={onComment}
+              >
+                <IconMessageCircle className="size-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t("comments.addComment")}</TooltipContent>
           </Tooltip>
           <div className={TOOLBAR_DIVIDER} />
         </>

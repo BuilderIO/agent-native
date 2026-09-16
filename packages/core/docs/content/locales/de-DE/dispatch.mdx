@@ -255,7 +255,7 @@ Die gesamte Pipeline ist so konzipiert, dass sie auf jedem serverlosen Host (Net
 
 Drei kurze Schritte:
 
-1. **Bauen Sie ein Gerüst für einen Arbeitsbereich auf, der Dispatch enthält.** Führen Sie `npx @agent-native/core@latest create my-company-platform` aus und wählen Sie `dispatch` neben den gewünschten Domänenvorlagen aus. Dispatch befindet sich bei `apps/dispatch` und die restlichen Apps befinden sich daneben. Siehe [Multi-App Workspace](/docs/multi-app-workspace).
+1. **Bauen Sie ein Gerüst für einen Arbeitsbereich auf, der Dispatch enthält.** Führen Sie `npx --yes @agent-native/core@latest create my-company-platform` aus und wählen Sie `dispatch` neben den gewünschten Domänenvorlagen aus. Dispatch befindet sich bei `apps/dispatch` und die restlichen Apps befinden sich daneben. Siehe [Multi-App Workspace](/docs/multi-app-workspace).
 2. **Messaging verbinden.** Öffnen Sie **Verwaltung → Messaging** in Dispatch und klicken Sie auf Verbinden für Slack, E-Mail, Telegram oder WhatsApp. Die Formularfelder stimmen mit den Umgebungsvariablen im Dokument [Messaging](/docs/messaging) überein – siehe dort, was die einzelnen Plattformen benötigen.
 3. **Andere Apps hinzufügen.** Führen Sie `npx @agent-native/core@latest add-app` vom Arbeitsbereichsstammverzeichnis für jede Domänen-App aus. Sie erscheinen automatisch als A2A-Peers in `list-workspace-apps` von Dispatch – keine manuelle Registrierung, keine Bearbeitung der Agentenkarte. Dispatch beginnt mit der Delegierung an sie, sobald ihre Agentenkarten erreichbar sind.
 

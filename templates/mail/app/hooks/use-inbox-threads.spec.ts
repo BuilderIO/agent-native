@@ -1,14 +1,22 @@
 import { QueryClient } from "@tanstack/react-query";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
+  applyInboxMutationOverlay,
   adjustInboxThreadUnreadOptimistic,
+  cancelInboxThreadsQueries,
+  clearInboxThreadRemoval,
+  findInboxThreadIdByMessageId,
+  INBOX_THREADS_QUERY_KEY,
   inboxThreadsHasNextPage,
   markInboxThreadReadOptimistic,
   mergeInboxThreadPages,
   removeInboxThreadsOptimistic,
+  retainInboxMutationTargets,
   resolveInboxTabId,
+  restoreInboxThreadRemovals,
   restoreInboxThreadsOptimistic,
+  settleInboxMutationIfObserved,
   snapshotInboxThreads,
   toggleInboxThreadsStarOptimistic,
 } from "./use-inbox-threads";
@@ -98,17 +106,29 @@ function makeClient(seeded: ReturnType<typeof seedResult>) {
   return qc;
 }
 
+function visibleResult(qc: QueryClient) {
+  const raw = qc.getQueryData<ReturnType<typeof seedResult>>([
+    "action",
+    "list-inbox-threads",
+    { tab: "important" },
+  ])!;
+  return applyInboxMutationOverlay(qc, raw as any);
+}
+
 describe("removeInboxThreadsOptimistic", () => {
+  it("resolves message ids to the action cache's thread key", () => {
+    const qc = makeClient(seedResult());
+
+    expect(findInboxThreadIdByMessageId(qc, "m1")).toBe("t1");
+    expect(findInboxThreadIdByMessageId(qc, "missing")).toBeUndefined();
+  });
+
   it("drops the matching threads and decrements only the active tab's counts", () => {
     const qc = makeClient(seedResult());
 
     removeInboxThreadsOptimistic(qc, new Set(["t1"]));
 
-    const result = qc.getQueryData<ReturnType<typeof seedResult>>([
-      "action",
-      "list-inbox-threads",
-      { tab: "important" },
-    ])!;
+    const result = visibleResult(qc);
 
     expect(result.items.map((i) => i.id)).toEqual(["m2"]);
     expect(result.total).toBe(1);
@@ -141,11 +161,7 @@ describe("removeInboxThreadsOptimistic", () => {
 
     removeInboxThreadsOptimistic(qc, new Set(["t1"]));
 
-    const result = qc.getQueryData<ReturnType<typeof seedResult>>([
-      "action",
-      "list-inbox-threads",
-      { tab: "important" },
-    ])!;
+    const result = visibleResult(qc);
     expect(result.tabs[0]).toMatchObject({ total: 0, unread: 0 });
     expect(result.total).toBe(0);
   });
@@ -156,11 +172,7 @@ describe("removeInboxThreadsOptimistic", () => {
 
     removeInboxThreadsOptimistic(qc, new Set(["not-a-thread"]));
 
-    const result = qc.getQueryData<ReturnType<typeof seedResult>>([
-      "action",
-      "list-inbox-threads",
-      { tab: "important" },
-    ])!;
+    const result = visibleResult(qc);
     expect(result).toEqual(seeded);
   });
 });
@@ -171,11 +183,7 @@ describe("markInboxThreadReadOptimistic", () => {
 
     markInboxThreadReadOptimistic(qc, new Set(["t1"]), true);
 
-    const result = qc.getQueryData<ReturnType<typeof seedResult>>([
-      "action",
-      "list-inbox-threads",
-      { tab: "important" },
-    ])!;
+    const result = visibleResult(qc);
     const item = result.items.find((i) => i.id === "m1")!;
     expect(item.isRead).toBe(true);
     expect(item.unreadCount).toBe(0);
@@ -187,11 +195,7 @@ describe("markInboxThreadReadOptimistic", () => {
 
     markInboxThreadReadOptimistic(qc, new Set(["t2"]), false);
 
-    const result = qc.getQueryData<ReturnType<typeof seedResult>>([
-      "action",
-      "list-inbox-threads",
-      { tab: "important" },
-    ])!;
+    const result = visibleResult(qc);
     const item = result.items.find((i) => i.id === "m2")!;
     expect(item.isRead).toBe(false);
     expect(item.unreadCount).toBe(1);
@@ -218,11 +222,7 @@ describe("adjustInboxThreadUnreadOptimistic", () => {
 
     adjustInboxThreadUnreadOptimistic(qc, "t1", -1);
 
-    const result = qc.getQueryData<ReturnType<typeof seedResult>>([
-      "action",
-      "list-inbox-threads",
-      { tab: "important" },
-    ])!;
+    const result = visibleResult(qc);
     const item = result.items.find((i) => i.id === "m1")!;
     expect(item.unreadCount).toBe(1);
     expect(item.isRead).toBe(false);
@@ -248,11 +248,7 @@ describe("adjustInboxThreadUnreadOptimistic", () => {
 
     adjustInboxThreadUnreadOptimistic(qc, "t1", -1);
 
-    const result = qc.getQueryData<ReturnType<typeof seedResult>>([
-      "action",
-      "list-inbox-threads",
-      { tab: "important" },
-    ])!;
+    const result = visibleResult(qc);
     const item = result.items.find((i) => i.id === "m1")!;
     expect(item.unreadCount).toBe(0);
     expect(item.isRead).toBe(true);
@@ -277,11 +273,7 @@ describe("adjustInboxThreadUnreadOptimistic", () => {
 
     adjustInboxThreadUnreadOptimistic(qc, "t1", 1);
 
-    const result = qc.getQueryData<ReturnType<typeof seedResult>>([
-      "action",
-      "list-inbox-threads",
-      { tab: "important" },
-    ])!;
+    const result = visibleResult(qc);
     const item = result.items.find((i) => i.id === "m1")!;
     expect(item.unreadCount).toBe(1);
     expect(item.isRead).toBe(false);
@@ -307,37 +299,30 @@ describe("adjustInboxThreadUnreadOptimistic", () => {
     // Reading an already-read message must not push unreadCount negative.
     adjustInboxThreadUnreadOptimistic(qc, "t1", -1);
 
-    let result = qc.getQueryData<ReturnType<typeof seedResult>>([
-      "action",
-      "list-inbox-threads",
-      { tab: "important" },
-    ])!;
+    let result = visibleResult(qc);
     expect(result.items.find((i) => i.id === "m1")?.unreadCount).toBe(0);
     // No change means no crossing — tab count untouched.
     expect(result.tabs.find((t) => t.id === "important")?.unread).toBe(2);
 
-    qc.setQueryData(["action", "list-inbox-threads", { tab: "important" }], {
-      ...result,
-      items: [
-        {
-          id: "m1",
-          threadId: "t1",
-          unreadCount: 2,
-          isRead: false,
-          isStarred: false,
-          messageCount: 2,
-        },
-      ],
-    });
+    const fullUnreadClient = makeClient(
+      seedResult({
+        items: [
+          {
+            id: "m1",
+            threadId: "t1",
+            unreadCount: 2,
+            isRead: false,
+            isStarred: false,
+            messageCount: 2,
+          },
+        ],
+      }),
+    );
 
     // Marking unread past messageCount must clamp at messageCount, not exceed it.
-    adjustInboxThreadUnreadOptimistic(qc, "t1", 1);
+    adjustInboxThreadUnreadOptimistic(fullUnreadClient, "t1", 1);
 
-    result = qc.getQueryData<ReturnType<typeof seedResult>>([
-      "action",
-      "list-inbox-threads",
-      { tab: "important" },
-    ])!;
+    result = visibleResult(fullUnreadClient);
     expect(result.items.find((i) => i.id === "m1")?.unreadCount).toBe(2);
   });
 
@@ -358,11 +343,7 @@ describe("adjustInboxThreadUnreadOptimistic", () => {
 
     adjustInboxThreadUnreadOptimistic(qc, "not-a-thread", -1);
 
-    const result = qc.getQueryData<ReturnType<typeof seedResult>>([
-      "action",
-      "list-inbox-threads",
-      { tab: "important" },
-    ])!;
+    const result = visibleResult(qc);
     expect(result).toEqual(seeded);
   });
 });
@@ -373,11 +354,7 @@ describe("toggleInboxThreadsStarOptimistic", () => {
 
     toggleInboxThreadsStarOptimistic(qc, new Set(["t1"]), true);
 
-    const result = qc.getQueryData<ReturnType<typeof seedResult>>([
-      "action",
-      "list-inbox-threads",
-      { tab: "important" },
-    ])!;
+    const result = visibleResult(qc);
     expect(result.items.find((i) => i.id === "m1")?.isStarred).toBe(true);
     expect(result.tabs).toEqual(seedResult().tabs);
   });
@@ -441,16 +418,9 @@ describe("snapshotInboxThreads / restoreInboxThreadsOptimistic", () => {
     removeInboxThreadsOptimistic(qc, new Set(["t1"]));
 
     // Sanity: the optimistic write actually landed before we roll it back.
-    expect(
-      qc
-        .getQueryData<ReturnType<typeof seedResult>>([
-          "action",
-          "list-inbox-threads",
-          { tab: "important" },
-        ])!
-        .items.map((i) => i.id),
-    ).toEqual(["m2"]);
+    expect(visibleResult(qc).items.map((i) => i.id)).toEqual(["m2"]);
 
+    clearInboxThreadRemoval(qc, "t1");
     restoreInboxThreadsOptimistic(qc, snapshot);
 
     for (const tab of ["important", "other"]) {
@@ -462,5 +432,215 @@ describe("snapshotInboxThreads / restoreInboxThreadsOptimistic", () => {
       expect(restored.items.map((i) => i.id)).toEqual(["m1", "m2"]);
       expect(restored.total).toBe(2);
     }
+  });
+});
+
+describe("synced inbox mutation consistency", () => {
+  it("shows a removed thread immediately after undo clears its journal entry", () => {
+    const qc = makeClient(seedResult());
+    removeInboxThreadsOptimistic(qc, new Set(["t1"]));
+
+    clearInboxThreadRemoval(qc, "t1");
+
+    expect(visibleResult(qc).items).toContainEqual(
+      expect.objectContaining({ threadId: "t1" }),
+    );
+  });
+
+  it("retires one overlapping journal entry without restoring another", () => {
+    const qc = makeClient(seedResult());
+    removeInboxThreadsOptimistic(qc, new Set(["t1"]));
+    const readId = markInboxThreadReadOptimistic(qc, new Set(["t2"]), false);
+
+    clearInboxThreadRemoval(qc, "t1");
+    expect(visibleResult(qc).items.map((item) => item.threadId)).toEqual([
+      "t1",
+      "t2",
+    ]);
+    expect(visibleResult(qc).items[1]).toMatchObject({
+      isRead: false,
+      unreadCount: 1,
+    });
+
+    // Keep the second mutation alive until its server evidence arrives.
+    expect(readId).toMatch(/^inbox-mutation-/);
+  });
+
+  it("retires an older read target when a newer target settles", () => {
+    const qc = makeClient(seedResult());
+    markInboxThreadReadOptimistic(qc, new Set(["t1"]), true);
+    const unreadId = markInboxThreadReadOptimistic(qc, new Set(["t1"]), false);
+
+    qc.setQueryData(
+      ["action", "list-inbox-threads", { tab: "important" }],
+      seedResult(),
+    );
+    settleInboxMutationIfObserved(qc, unreadId);
+
+    expect(visibleResult(qc).items[0]).toMatchObject({
+      isRead: false,
+      unreadCount: 1,
+    });
+  });
+
+  it("supersedes only the overlapping targets in a bulk read mutation", () => {
+    const qc = makeClient(seedResult());
+    markInboxThreadReadOptimistic(qc, new Set(["t1", "t2"]), true);
+    const unreadId = markInboxThreadReadOptimistic(qc, new Set(["t1"]), false);
+
+    qc.setQueryData(
+      ["action", "list-inbox-threads", { tab: "important" }],
+      seedResult({
+        items: [
+          { ...seedResult().items[0], isRead: false, unreadCount: 1 },
+          { ...seedResult().items[1], isRead: true, unreadCount: 0 },
+        ],
+      }),
+    );
+    settleInboxMutationIfObserved(qc, unreadId);
+
+    expect(visibleResult(qc).items).toMatchObject([
+      { threadId: "t1", isRead: false, unreadCount: 1 },
+      { threadId: "t2", isRead: true, unreadCount: 0 },
+    ]);
+  });
+
+  it("retains the original sequence when a bulk mutation partially succeeds", () => {
+    const qc = makeClient(seedResult());
+    const mutationId = markInboxThreadReadOptimistic(
+      qc,
+      new Set(["t1", "t2"]),
+      true,
+    );
+    const newerId = markInboxThreadReadOptimistic(qc, new Set(["t1"]), false);
+
+    expect(retainInboxMutationTargets(qc, mutationId, new Set(["t2"]))).toBe(
+      mutationId,
+    );
+
+    const stale = seedResult();
+    expect(applyInboxMutationOverlay(qc, stale as any).items).toMatchObject([
+      { threadId: "t1", isRead: false, unreadCount: 1 },
+      { threadId: "t2", isRead: true, unreadCount: 0 },
+    ]);
+    expect(newerId).toMatch(/^inbox-mutation-/);
+  });
+
+  it("restores a removal journal when an undo action fails", () => {
+    const qc = makeClient(seedResult());
+    removeInboxThreadsOptimistic(qc, new Set(["t1"]));
+
+    const snapshot = clearInboxThreadRemoval(qc, "t1");
+    restoreInboxThreadRemovals(qc, snapshot);
+
+    expect(
+      applyInboxMutationOverlay(qc, seedResult() as any).items,
+    ).not.toContainEqual(expect.objectContaining({ threadId: "t1" }));
+  });
+
+  it("does not keep cleared undo targets in removal evidence", () => {
+    const qc = makeClient(seedResult());
+    const mutationId = removeInboxThreadsOptimistic(qc, new Set(["t1", "t2"]));
+    clearInboxThreadRemoval(qc, "t1");
+
+    qc.setQueryData(
+      ["action", "list-inbox-threads", { tab: "important" }],
+      seedResult({ items: [] }),
+    );
+    settleInboxMutationIfObserved(qc, mutationId);
+
+    expect(applyInboxMutationOverlay(qc, seedResult() as any).items).toEqual(
+      seedResult().items,
+    );
+  });
+
+  it("keeps a removal journal through a stale refetch and retires it after evidence", () => {
+    const qc = makeClient(seedResult());
+    const mutationId = removeInboxThreadsOptimistic(qc, new Set(["t1"]));
+    const stale = seedResult();
+
+    qc.setQueryData(
+      ["action", "list-inbox-threads", { tab: "important" }],
+      stale,
+    );
+    settleInboxMutationIfObserved(qc, mutationId);
+    expect(
+      applyInboxMutationOverlay(qc, stale as any).items,
+    ).not.toContainEqual(expect.objectContaining({ threadId: "t1" }));
+
+    qc.setQueryData(
+      ["action", "list-inbox-threads", { tab: "important" }],
+      seedResult({ items: [stale.items[1]] }),
+    );
+    settleInboxMutationIfObserved(qc, mutationId);
+    expect(applyInboxMutationOverlay(qc, stale as any).items).toContainEqual(
+      expect.objectContaining({ threadId: "t1" }),
+    );
+  });
+
+  it("replays an absolute unread target without decrementing it twice", () => {
+    const qc = makeClient(
+      seedResult({
+        items: [
+          {
+            id: "m1",
+            threadId: "t1",
+            unreadCount: 2,
+            isRead: false,
+            isStarred: false,
+            messageCount: 2,
+          },
+        ],
+      }),
+    );
+    adjustInboxThreadUnreadOptimistic(qc, "t1", -1);
+
+    const stale = seedResult({
+      items: [
+        {
+          id: "m1",
+          threadId: "t1",
+          unreadCount: 1,
+          isRead: false,
+          isStarred: false,
+          messageCount: 2,
+        },
+      ],
+    });
+    const visible = applyInboxMutationOverlay(qc, stale as any);
+
+    expect(visible.items[0]).toMatchObject({
+      isRead: false,
+      unreadCount: 1,
+    });
+  });
+
+  it("replays local changes over a stale server snapshot", () => {
+    const qc = makeClient(seedResult());
+    const removeId = removeInboxThreadsOptimistic(qc, new Set(["t1"]));
+    const readId = markInboxThreadReadOptimistic(qc, new Set(["t2"]), false);
+
+    const stale = seedResult();
+    const visible = applyInboxMutationOverlay(qc, stale as any);
+
+    expect(visible.items.map((item) => item.threadId)).toEqual(["t2"]);
+    expect(visible.items[0]).toMatchObject({
+      isRead: false,
+      unreadCount: 1,
+    });
+
+    expect(removeId).toMatch(/^inbox-mutation-/);
+    expect(readId).toMatch(/^inbox-mutation-/);
+  });
+
+  it("cancels every in-flight inbox page before an optimistic write", async () => {
+    const qc = new QueryClient();
+    const cancel = vi.spyOn(qc, "cancelQueries").mockResolvedValue();
+
+    await cancelInboxThreadsQueries(qc);
+
+    expect(cancel).toHaveBeenCalledWith({
+      queryKey: INBOX_THREADS_QUERY_KEY,
+    });
   });
 });
