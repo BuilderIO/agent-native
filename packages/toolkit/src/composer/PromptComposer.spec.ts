@@ -26,19 +26,12 @@ afterEach(() => {
 });
 
 describe("shouldGateComposerForMissingEngine", () => {
-  it("holds first-run submission until the engine check answers", () => {
-    expect(
-      shouldGateComposerForMissingEngine({
-        state: "unknown",
-        hasSetupComponent: true,
-      }),
-    ).toBe(true);
-    expect(
-      shouldGateComposerForMissingEngine({
-        state: "unavailable",
-        hasSetupComponent: true,
-      }),
-    ).toBe(false);
+  it("never disables the composer while the status check is unresolved", () => {
+    for (const state of ["unknown", "unavailable"]) {
+      expect(
+        shouldGateComposerForMissingEngine({ state, hasSetupComponent: true }),
+      ).toBe(false);
+    }
   });
 
   it("gates only when a connect affordance can be rendered", () => {

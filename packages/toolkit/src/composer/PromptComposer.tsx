@@ -280,18 +280,16 @@ function formatInlineTextFile(name: string, text: string): string {
 }
 
 /**
- * Hold first-run submission until the engine check answers so a missing key
- * cannot race the first prompt. An unavailable check stays usable because it
- * cannot offer a reliable setup decision.
+ * Only a confirmed-missing engine that also has a setup component to render
+ * may block typing: a disabled composer with no way out is never an acceptable
+ * terminal state, and `unknown`/`unavailable` mean the status check has not
+ * answered — not that no provider is configured.
  */
 export function shouldGateComposerForMissingEngine(input: {
   state: string;
   hasSetupComponent: boolean;
 }): boolean {
-  return (
-    (input.state === "unknown" || input.state === "missing") &&
-    input.hasSetupComponent
-  );
+  return input.state === "missing" && input.hasSetupComponent;
 }
 
 export async function buildPromptComposerSubmission(options: {
@@ -667,6 +665,17 @@ function PromptComposerInner({
       useInlineMissingKeySetup ? BuilderSetupContent : BuilderSetupCard,
     ),
   });
+  const ensureEngineReadyBeforeSubmit = useCallback(async () => {
+    if (agentEngineConfigured.state !== "unknown") return true;
+    const state = await modelsAdapter.fetchAgentEngineConfiguredState?.(true, {
+      timeoutMs: 5_000,
+    });
+    if (state === "missing") {
+      bounceMissingKeySetup();
+      return false;
+    }
+    return true;
+  }, [agentEngineConfigured.state, bounceMissingKeySetup, modelsAdapter]);
 
   useEffect(() => {
     if (!autoFocus || gateComposer) return;
@@ -765,6 +774,7 @@ function PromptComposerInner({
           initialText={initialText}
           initialTextKey={initialTextKey}
           onSubmit={handleSubmit}
+          onBeforeSubmit={ensureEngineReadyBeforeSubmit}
           clearOnSubmit={!preserveDraftOnSubmit}
           plusMenuMode={
             plusMenuMode ?? (attachmentsEnabled ? "upload-only" : "hidden")
