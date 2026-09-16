@@ -3,6 +3,14 @@
 All notable user-facing changes to Agent-Native Mail are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-16
+
+### Fixed
+
+- Light and dark mode choices now persist while navigating in the desktop app.
+- Moving a conversation to a label now shows it in that label's list immediately, and when two quick actions touch the same conversation, undoing or failing one no longer makes the other one reappear in the inbox.
+- Reporting spam, blocking a sender, or muting a conversation now updates the inbox immediately, and if the action fails only that conversation comes back instead of other recent changes being undone.
+
 ## 2026-09-15
 
 ### Improved
@@ -13,6 +21,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Google connections now open reliably in embedded browsers
 - Inbox archive and read-state changes stay consistent during rapid actions
 - Mail keeps rapid archive and read actions in sync
 - Mail recovers cleanly when an email view or navigation takes too long to load.

@@ -3,6 +3,18 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-16
+
+### Improved
+
+- Agents can continue through long recording transcripts without losing later sections.
+
+### Fixed
+
+- Clips no longer marks incomplete Loom downloads as ready
+- The desktop retry control stays still while it offers cancellation.
+- Google sign-in now opens reliably from embedded Clips viewers
+
 ## 2026-09-15
 
 ### Added
@@ -17,6 +29,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Google sign-up now opens reliably in embedded browsers
 - Clips Desktop keeps Dictate visible when voice dictation is enabled
 - Clips no longer reports 0% completion on a clip that only agents have read - completion and CTA conversion now show as unknown until a human view is counted
 - Clips popovers now close when you switch to another application.

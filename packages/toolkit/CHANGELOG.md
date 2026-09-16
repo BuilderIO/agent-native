@@ -1,5 +1,14 @@
 # @agent-native/toolkit
 
+## 0.20.3
+
+### Patch Changes
+
+- 901376b: Keep composer controls balanced, keep popovers within the viewport, and prevent first-run prompts from racing model authentication.
+- b35949b: Distinguish acknowledged editor saves from external revisions during concurrent document reconciliation.
+- 116c315: Keep embedded Design editor agent chat aligned with the shared sidebar and use concise OpenAI model labels.
+- Release all public npm packages with a patch version bump.
+
 ## 0.20.2
 
 ### Patch Changes

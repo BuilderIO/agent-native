@@ -21,6 +21,7 @@ import {
   shouldEagerStartWorkspaceApps,
   shouldPrewarmWorkspaceApps,
   shouldUsePollingFileWatcher,
+  workspaceGatewayUrl,
   workspacePrewarmConcurrency,
   type WorkspaceDevHandle,
 } from "./workspace-dev.js";
@@ -40,6 +41,65 @@ afterEach(() => {
 });
 
 describe("workspace dev startup", () => {
+  it.each([
+    ["127.0.0.1", "http://127.0.0.1:8080"],
+    ["0.0.0.0", "http://127.0.0.1:8080"],
+    ["::", "http://[::1]:8080"],
+    ["::1", "http://[::1]:8080"],
+  ])("advertises a usable URL for gateway host %s", (host, expected) => {
+    expect(workspaceGatewayUrl(host, 8080)).toBe(expected);
+  });
+
+  it("prints the workspace root and usable app URLs", async () => {
+    tmpDir = makeWorkspace(["dispatch"]);
+    const fake = fakeSpawn();
+    let output = "";
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      env: testEnv(),
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+      stdout: { write: (chunk) => void (output += String(chunk)) },
+    });
+    const { url } = await handle.ready;
+
+    expect(output).toContain(`[workspace] Root: ${tmpDir}`);
+    expect(output).toContain(`[workspace] dispatch: ${url}/dispatch`);
+  });
+
+  it("prints the actual URL when the requested gateway port is occupied", async () => {
+    const occupied = http.createServer();
+    await new Promise<void>((resolve, reject) => {
+      occupied.once("error", reject);
+      occupied.listen(0, "127.0.0.1", () => resolve());
+    });
+    try {
+      const address = occupied.address();
+      if (!address || typeof address === "string") {
+        throw new Error("Expected the occupied server to expose a TCP port");
+      }
+      tmpDir = makeWorkspace(["dispatch"]);
+      const fake = fakeSpawn();
+      let output = "";
+      handle = await runWorkspaceDev({
+        root: tmpDir,
+        env: { ...testEnv(), WORKSPACE_PORT: String(address.port) },
+        spawnProcess: fake.spawnProcess,
+        openBrowser: false,
+        stdout: { write: (chunk) => void (output += String(chunk)) },
+      });
+      const { url, port } = await handle.ready;
+
+      expect(port).toBe(address.port + 1);
+      expect(output).toContain(
+        `[workspace] Gateway port ${address.port} was in use; listening on ${port} instead`,
+      );
+      expect(output).toContain(`[workspace] dispatch: ${url}/dispatch`);
+    } finally {
+      await new Promise<void>((resolve) => occupied.close(() => resolve()));
+    }
+  });
+
   it("starts only Dispatch by default and starts other apps on first visit", async () => {
     tmpDir = makeWorkspace(["dispatch", "starter"]);
     const fake = fakeSpawn();

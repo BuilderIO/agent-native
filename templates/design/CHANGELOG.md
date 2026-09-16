@@ -5,8 +5,22 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ## 2026-09-16
 
+### Improved
+
+- Design editor agent chat uses shared conversation tabs and stays usable at narrow widths
+- Empty template libraries now link directly back to your designs.
+
 ### Fixed
 
+- Canvas zoom controls and keyboard shortcuts now update the canvas immediately
+- Design auto layout controls stay aligned to the 28-column inspector grid
+- Design review pins follow screens and keep comment actions together
+- Honor requested Design page counts, visual direction, and interactive prototype controls.
+- Inspector alignment, gap, and padding controls keep their 8px spacing at narrow widths
+- Imported layer names stay consistent across editing, selection, comments, exports, and linked components.
+- URL-backed design previews keep authenticated sessions across screens
+- URL-backed overview screens keep their app session and same-origin resources
+- Visual edits stay applied when the page structure shifts after a replacement.
 - Authored flex direction, wrap, gaps, justify-content, and padding now survive layout edits instead of being reset.
 - A message that only mentions a design, or pastes Design's own guidance back into chat, no longer ends with a false "couldn't confirm that a Design artifact was saved" reply.
 
