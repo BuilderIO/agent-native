@@ -2968,6 +2968,13 @@ function DesignEditor() {
   // commits (keyboard nudge auto-repeat) so they coalesce into one undo entry
   // and one debounced server write instead of one of each per tick.
   const lastGeometryCommitAtRef = useRef(0);
+  const lastGeometryCommitSourceRef = useRef<"pointer" | "keyboard" | null>(
+    null,
+  );
+  const resetGeometryCommitCoalescing = useCallback(() => {
+    lastGeometryCommitAtRef.current = 0;
+    lastGeometryCommitSourceRef.current = null;
+  }, []);
   // Localhost write-consent dialog state. When the agent wants to write a local
   // file and no valid grant exists for the active connection, we show the dialog
   // with a pending payload; the user clicks "Allow writes" to mint a grant.
@@ -5143,6 +5150,7 @@ function DesignEditor() {
     (
       geometryById: CanvasFrameGeometryById,
       options?: {
+        replacePendingGeometrySave?: boolean;
         syncViewportFrameIds?: string[];
         pinHeightFrameIds?: string[];
       },
@@ -5321,6 +5329,7 @@ function DesignEditor() {
           applyLinkedContentChanges: (changes, direction) =>
             applyGeometryHistoryContentChangesRef.current(changes, direction),
           lastGeometryCommitAtRef,
+          lastGeometryCommitSourceRef,
           liveFrameGeometryRef,
           locallyPinnedHeightIdsRef,
           queryClient,
@@ -15025,6 +15034,7 @@ function DesignEditor() {
         id,
         isSynced,
         lastLocalContentRef,
+        resetGeometryCommitCoalescing,
         liveFrameGeometryRef,
         liveScreenSnapshotsById,
         localContentRedoStackRef,
@@ -15088,6 +15098,7 @@ function DesignEditor() {
       queryClient,
       queueFileContentSave,
       replacePreviewContent,
+      resetGeometryCommitCoalescing,
       restoreSelectionSnapshot,
       requestPendingLiveNonStyleRevert,
       requestPendingVisualStyleRevert,
@@ -15136,6 +15147,7 @@ function DesignEditor() {
         id,
         isSynced,
         lastLocalContentRef,
+        resetGeometryCommitCoalescing,
         liveFrameGeometryRef,
         liveScreenSnapshotsById,
         localContentRedoStackRef,
@@ -15211,6 +15223,7 @@ function DesignEditor() {
       queueFileContentSave,
       recordLocalContentHistoryChangeFallback,
       replacePreviewContent,
+      resetGeometryCommitCoalescing,
       restoreSelectionSnapshot,
       syncLiveScreenSnapshotPreview,
       syncUndoRedoState,
