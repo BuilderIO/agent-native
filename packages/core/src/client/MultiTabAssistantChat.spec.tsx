@@ -2944,6 +2944,27 @@ describe("MultiTabAssistantChat history popover", () => {
     expect(titles).toEqual(["Pinned chat", "Active chat", "Other chat"]);
   });
 
+  it("does not expose an untitled prompt in history", async () => {
+    threadMocks.threads = [
+      ...threadMocks.threads,
+      {
+        id: "thread-4",
+        title: "",
+        preview: "Please summarize the latest release notes",
+        messageCount: 1,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        scope: null,
+      },
+    ];
+
+    await openHistory();
+
+    expect(container.textContent).not.toContain(
+      "Please summarize the latest release notes",
+    );
+  });
+
   it("pins an unpinned thread via the row action menu", async () => {
     await openHistory();
 

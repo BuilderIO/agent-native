@@ -5568,6 +5568,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             setResponseStatus(event, 400);
             return { error: "message is required" };
           }
+          const orgId = await getOrgIdFromEvent(event);
           // Strip hidden context and mention markup before title generation.
           // Never let injected prompt context become a visible tab label.
           const cleanMessage = message
@@ -5578,9 +5579,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             .trim();
           try {
             const result = await runWithRequestContext(
-              { userEmail: ownerEmail },
+              { userEmail: ownerEmail, orgId },
               () =>
                 completeText({
+                  appId: options?.appId,
                   systemPrompt:
                     "Create a concise chat tab title for the user's request. Return only 3-6 words, with no quotes, punctuation, or explanation.",
                   input: cleanMessage.slice(0, 500),

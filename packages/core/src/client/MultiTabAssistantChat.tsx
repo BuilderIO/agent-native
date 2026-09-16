@@ -441,14 +441,14 @@ function HistoryPopover({
 
   const toHistoryItem = (thread: ChatThreadSummary): ChatHistoryItem => {
     const isActive = thread.id === activeThreadId;
-    const title =
-      thread.title || thread.preview || t("agentChat.history.untitledChat");
+    const hasTitle = Boolean(thread.title);
+    const title = thread.title || t("agentChat.history.untitledChat");
     return {
       id: thread.id,
       title,
       titleText: title,
       subtitle:
-        thread.preview && thread.title !== thread.preview
+        hasTitle && thread.preview && thread.title !== thread.preview
           ? thread.preview
           : undefined,
       timestamp: isActive

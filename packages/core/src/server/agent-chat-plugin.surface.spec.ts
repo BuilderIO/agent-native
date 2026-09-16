@@ -271,7 +271,10 @@ describe("request-scoped action surface", () => {
     expect(start).toBeGreaterThan(-1);
     expect(end).toBeGreaterThan(start);
     expect(route).toContain("runWithRequestContext");
+    expect(route).toContain("const orgId = await getOrgIdFromEvent(event);");
+    expect(route).toContain("{ userEmail: ownerEmail, orgId }");
     expect(route).toContain("completeText({");
+    expect(route).toContain("appId: options?.appId");
     expect(route).toContain('return { title: "" };');
     expect(route).not.toContain("cleanMessage.trim().slice(0, 60)");
   });
