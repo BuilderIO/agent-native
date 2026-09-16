@@ -2032,8 +2032,8 @@ describe("plan implementation handoff", () => {
 
     expect(implementationSource).toContain('onExecModeChange?.("build")');
     expect(implementationSource).toContain('"act"');
-    expect(implementationSource).toContain(
-      "latestProtocolContinuationContext(\n      messagesRef.current,\n    )",
+    expect(implementationSource).toMatch(
+      /latestProtocolContinuationContext\(\s*messagesRef\.current\s*\)/,
     );
     expect(implementationSource).not.toContain("continuation.turnId");
     expect(implementationSource).toContain("continuation.actionScope");
