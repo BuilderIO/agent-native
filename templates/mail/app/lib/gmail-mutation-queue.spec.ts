@@ -108,6 +108,33 @@ describe("gmailMutationQueue", () => {
     expect(callAction).not.toHaveBeenCalled();
   });
 
+  it("waits for an in-flight archive before allowing its inverse", async () => {
+    let resolveAction!: (value: string) => void;
+    callAction.mockReturnValueOnce(
+      new Promise<string>((resolve) => {
+        resolveAction = resolve;
+      }),
+    );
+    const pending = gmailMutationQueue.enqueue("archive", {
+      id: "m1",
+      threadId: "t1",
+    });
+
+    await vi.advanceTimersByTimeAsync(200);
+    const waiting = gmailMutationQueue.cancelOrWait("archive", "m1");
+    let settled = false;
+    void waiting.then(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    resolveAction("ok");
+    await expect(waiting).resolves.toBe("succeeded");
+    await expect(pending).resolves.toBeUndefined();
+    expect(callAction).toHaveBeenCalledTimes(1);
+  });
+
   it("retries each item when a bulk flush fails", async () => {
     callAction.mockRejectedValueOnce(new Error("rate limited"));
     const pending = gmailMutationQueue.enqueue("archive", {

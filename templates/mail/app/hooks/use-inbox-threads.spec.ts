@@ -465,6 +465,45 @@ describe("synced inbox mutation consistency", () => {
     expect(readId).toMatch(/^inbox-mutation-/);
   });
 
+  it("retires an older read target when a newer target settles", () => {
+    const qc = makeClient(seedResult());
+    markInboxThreadReadOptimistic(qc, new Set(["t1"]), true);
+    const unreadId = markInboxThreadReadOptimistic(qc, new Set(["t1"]), false);
+
+    qc.setQueryData(
+      ["action", "list-inbox-threads", { tab: "important" }],
+      seedResult(),
+    );
+    settleInboxMutationIfObserved(qc, unreadId);
+
+    expect(visibleResult(qc).items[0]).toMatchObject({
+      isRead: false,
+      unreadCount: 1,
+    });
+  });
+
+  it("supersedes only the overlapping targets in a bulk read mutation", () => {
+    const qc = makeClient(seedResult());
+    markInboxThreadReadOptimistic(qc, new Set(["t1", "t2"]), true);
+    const unreadId = markInboxThreadReadOptimistic(qc, new Set(["t1"]), false);
+
+    qc.setQueryData(
+      ["action", "list-inbox-threads", { tab: "important" }],
+      seedResult({
+        items: [
+          { ...seedResult().items[0], isRead: false, unreadCount: 1 },
+          { ...seedResult().items[1], isRead: true, unreadCount: 0 },
+        ],
+      }),
+    );
+    settleInboxMutationIfObserved(qc, unreadId);
+
+    expect(visibleResult(qc).items).toMatchObject([
+      { threadId: "t1", isRead: false, unreadCount: 1 },
+      { threadId: "t2", isRead: true, unreadCount: 0 },
+    ]);
+  });
+
   it("restores a removal journal when an undo action fails", () => {
     const qc = makeClient(seedResult());
     removeInboxThreadsOptimistic(qc, new Set(["t1"]));

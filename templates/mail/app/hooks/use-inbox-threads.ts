@@ -248,6 +248,81 @@ function activeInboxMutations(qc: QueryClient): InboxMutation[] {
   return [...journal.values()];
 }
 
+function inboxMutationConflictKeys(mutation: InboxMutation): string[] {
+  if (mutation.kind === "read") {
+    return mutation.states.map((state) => `state:${state.threadId}`);
+  }
+  if (mutation.kind === "unread-count") {
+    return [`state:${mutation.state.threadId}`];
+  }
+  if (mutation.kind === "star") {
+    return mutation.threadIds.map((threadId) => `star:${threadId}`);
+  }
+  return [];
+}
+
+function currentInboxMutation(
+  mutation: InboxMutation,
+  latestByKey: ReadonlyMap<string, string>,
+): InboxMutation | undefined {
+  if (mutation.kind === "read") {
+    const states = mutation.states.filter(
+      (state) => latestByKey.get(`state:${state.threadId}`) === mutation.id,
+    );
+    return states.length > 0 ? { ...mutation, states } : undefined;
+  }
+  if (mutation.kind === "unread-count") {
+    return latestByKey.get(`state:${mutation.state.threadId}`) === mutation.id
+      ? mutation
+      : undefined;
+  }
+  if (mutation.kind === "star") {
+    const threadIds = mutation.threadIds.filter(
+      (threadId) => latestByKey.get(`star:${threadId}`) === mutation.id,
+    );
+    return threadIds.length > 0 ? { ...mutation, threadIds } : undefined;
+  }
+  return mutation;
+}
+
+function inboxMutationSequence(id: string): number {
+  return Number(id.slice("inbox-mutation-".length)) || 0;
+}
+
+function supersedeOlderInboxMutations(qc: QueryClient, settled: InboxMutation) {
+  const settledKeys = new Set(inboxMutationConflictKeys(settled));
+  if (settledKeys.size === 0) return;
+  const settledSequence = inboxMutationSequence(settled.id);
+  const journal = inboxMutationJournal(qc);
+
+  for (const [id, mutation] of journal) {
+    if (
+      id === settled.id ||
+      inboxMutationSequence(id) >= settledSequence ||
+      mutation.kind === "remove"
+    ) {
+      continue;
+    }
+    if (mutation.kind === "read") {
+      const states = mutation.states.filter(
+        (state) => !settledKeys.has(`state:${state.threadId}`),
+      );
+      if (states.length === 0) journal.delete(id);
+      else journal.set(id, { ...mutation, states });
+    } else if (mutation.kind === "unread-count") {
+      if (settledKeys.has(`state:${mutation.state.threadId}`)) {
+        journal.delete(id);
+      }
+    } else if (mutation.kind === "star") {
+      const threadIds = mutation.threadIds.filter(
+        (threadId) => !settledKeys.has(`star:${threadId}`),
+      );
+      if (threadIds.length === 0) journal.delete(id);
+      else journal.set(id, { ...mutation, threadIds });
+    }
+  }
+}
+
 function applyInboxMutationToItem(
   item: InboxThreadItem,
   mutation: InboxMutation,
@@ -352,6 +427,7 @@ export function settleInboxMutationIfObserved(
     }
   }
 
+  supersedeOlderInboxMutations(qc, mutation);
   forgetInboxMutation(qc, id);
 }
 
@@ -498,8 +574,24 @@ export function applyInboxMutationOverlay(
   data: ListInboxThreadsResult,
 ): ListInboxThreadsResult {
   let result = data;
-  for (const mutation of activeInboxMutations(qc)) {
-    result = applyInboxMutation(result, mutation);
+  const mutations = activeInboxMutations(qc);
+  const latestByKey = new Map<string, string>();
+  for (const mutation of mutations) {
+    for (const key of inboxMutationConflictKeys(mutation)) {
+      const current = latestByKey.get(key);
+      if (
+        !current ||
+        inboxMutationSequence(mutation.id) > inboxMutationSequence(current)
+      ) {
+        latestByKey.set(key, mutation.id);
+      }
+    }
+  }
+  // Keep older entries for rollback, but project only the newest intent for
+  // each thread field until that newer mutation settles.
+  for (const mutation of mutations) {
+    const current = currentInboxMutation(mutation, latestByKey);
+    if (current) result = applyInboxMutation(result, current);
   }
   return result;
 }

@@ -1498,13 +1498,18 @@ export function useUnarchiveEmail() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, accountEmail }: EmailAccountRef) => {
-      // Undo often lands inside the debounce window — drop the pending
-      // archive so we never send a modify we immediately reverse.
-      const cancelled = gmailMutationQueue.cancel("archive", id);
-      if (cancelled) return Promise.resolve("cancelled-pending-archive");
-      return callAction("unarchive-email", { id, accountEmail }).then(
-        assertActionSuccess,
-      );
+      // Undo can land while the archive is already flushing. Wait for that
+      // result before sending the inverse so the archive cannot win last.
+      return gmailMutationQueue
+        .cancelOrWait("archive", id)
+        .then((archiveOutcome) => {
+          if (archiveOutcome === "cancelled" || archiveOutcome === "failed") {
+            return "archive-not-applied";
+          }
+          return callAction("unarchive-email", { id, accountEmail }).then(
+            assertActionSuccess,
+          );
+        });
     },
     onMutate: ({ id, threadId: hintedThreadId }: EmailAccountRef) => {
       const threadId = hintedThreadId || findInboxThreadIdByMessageId(qc, id);
