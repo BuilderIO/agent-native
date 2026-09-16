@@ -181,6 +181,9 @@ describe("new deck generation flow", () => {
     expect(flow).toContain(
       "Do not use `patch-deck` to append generated slides because `add-slide` records per-slide Creative Context provenance",
     );
+    expect(flow).toContain(
+      "call `get-deck` with its returned slideId and compact=false",
+    );
     expect(flow).not.toContain("at most three `add-slide` operations");
     expect(flow).toContain("Never issue parallel writes to the same deck");
   });

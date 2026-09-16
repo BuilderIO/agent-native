@@ -28,8 +28,9 @@ Context, reference deck, or source material that the app already provides.
    `navigate` with the new deck id.
 6. Add every generated slide with `add-slide` in slide order, waiting for each
    result so each slide preserves its per-slide Creative Context provenance.
-   After the first slide, read back the compact deck to verify the visual
-   contract before continuing.
+   After the first slide, read it back with `get-deck` using its returned
+   `slideId` and `compact=false` to verify the visual contract before
+   continuing.
 
 When speaker notes are requested, put presenter-only text in each slide's
 `notes` field on `create-deck` or `add-slide`; keep it out of the slide HTML.
@@ -240,13 +241,15 @@ was rendered and compared.
 
 ## Ready-to-Use Templates
 
-Copy and fill in the bracketed values. Keep the wrapper styles and replace
-tokens with the hydrated design-system values when available.
+Copy and fill in the bracketed values. Each example includes the complete
+semantic wrapper contract. If no design system is linked, replace the
+`--ds-*` fallbacks with the one subject-appropriate contract chosen for this
+deck before copying the wrapper to another slide.
 
 ### Title Slide
 
 ```html
-<div class="fmd-slide" style="background: var(--deck-bg, var(--ds-bg, Canvas)); color: var(--deck-ink, var(--ds-text, CanvasText)); padding: 64px 80px; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; gap: 18px; font-family: var(--deck-body-font, var(--ds-body-font, sans-serif));">
+<div class="fmd-slide" style="--deck-bg: var(--ds-bg, Canvas); --deck-ink: var(--ds-text, CanvasText); --deck-muted: var(--ds-text-muted, GrayText); --deck-accent: var(--ds-accent, currentColor); --deck-surface: var(--ds-surface, transparent); --deck-heading-font: var(--ds-heading-font, sans-serif); --deck-body-font: var(--ds-body-font, sans-serif); --deck-radius: var(--ds-radius, 0px); background: var(--deck-bg); color: var(--deck-ink); padding: 64px 80px; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; gap: 18px; font-family: var(--deck-body-font);">
   <div style="font-size: 14px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--deck-accent, var(--ds-accent, currentColor));">[LABEL OR DATE]</div>
   <h1 style="font-size: 56px; font-weight: 750; color: var(--deck-ink, var(--ds-text, currentColor)); font-family: var(--deck-heading-font, var(--ds-heading-font, var(--deck-body-font, sans-serif))); line-height: 1.05; letter-spacing: -0.04em; margin: 0; max-width: 760px;">[TITLE]</h1>
   <p style="font-size: 20px; color: var(--deck-muted, var(--ds-text-muted, currentColor)); margin: 4px 0 0;">[SUBTITLE OR PRESENTER]</p>
@@ -256,7 +259,7 @@ tokens with the hydrated design-system values when available.
 ### Content or Two-Column Slide
 
 ```html
-<div class="fmd-slide" style="background: var(--deck-bg, var(--ds-bg, Canvas)); color: var(--deck-ink, var(--ds-text, CanvasText)); padding: 64px 80px; display: flex; flex-direction: column; justify-content: flex-start; gap: 18px; font-family: var(--deck-body-font, var(--ds-body-font, sans-serif));">
+<div class="fmd-slide" style="--deck-bg: var(--ds-bg, Canvas); --deck-ink: var(--ds-text, CanvasText); --deck-muted: var(--ds-text-muted, GrayText); --deck-accent: var(--ds-accent, currentColor); --deck-surface: var(--ds-surface, transparent); --deck-heading-font: var(--ds-heading-font, sans-serif); --deck-body-font: var(--ds-body-font, sans-serif); --deck-radius: var(--ds-radius, 0px); background: var(--deck-bg); color: var(--deck-ink); padding: 64px 80px; display: flex; flex-direction: column; justify-content: flex-start; gap: 18px; font-family: var(--deck-body-font);">
   <div style="font-size: 13px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--deck-accent, var(--ds-accent, currentColor));">[SECTION LABEL]</div>
   <h2 style="font-size: 34px; font-weight: 750; color: var(--deck-ink, var(--ds-text, currentColor)); font-family: var(--deck-heading-font, var(--ds-heading-font, var(--deck-body-font, sans-serif))); line-height: 1.12; letter-spacing: -0.03em; margin: 0 0 18px;">[SLIDE HEADING]</h2>
   <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start;">

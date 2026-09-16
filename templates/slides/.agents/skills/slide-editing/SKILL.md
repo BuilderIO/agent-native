@@ -19,7 +19,7 @@ registry; do not assume a fixed 1920x1080 canvas.
 Every slide uses this wrapper:
 
 ```html
-<div class="fmd-slide" style="background: var(--deck-bg, var(--ds-bg, Canvas)); color: var(--deck-ink, var(--ds-text, CanvasText)); padding: 64px 80px; display: flex; flex-direction: column; justify-content: flex-start; font-family: var(--deck-body-font, var(--ds-body-font, sans-serif));">
+<div class="fmd-slide" style="--deck-bg: var(--ds-bg, Canvas); --deck-ink: var(--ds-text, CanvasText); --deck-muted: var(--ds-text-muted, GrayText); --deck-accent: var(--ds-accent, currentColor); --deck-surface: var(--ds-surface, transparent); --deck-heading-font: var(--ds-heading-font, sans-serif); --deck-body-font: var(--ds-body-font, sans-serif); --deck-radius: var(--ds-radius, 0px); background: var(--deck-bg); color: var(--deck-ink); padding: 64px 80px; display: flex; flex-direction: column; justify-content: flex-start; font-family: var(--deck-body-font);">
   <!-- Slide content here -->
 </div>
 ```
