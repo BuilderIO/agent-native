@@ -58,7 +58,7 @@ describe("getGithubStarCount", () => {
     vi.restoreAllMocks();
   });
 
-  it("returns without waiting while warming a cold cache", async () => {
+  it("returns quickly when a cold-cache refresh is slow", async () => {
     let resolveFetch!: (response: Response) => void;
     const fetchMock = vi.fn().mockImplementation(
       () =>
@@ -68,8 +68,9 @@ describe("getGithubStarCount", () => {
     );
     global.fetch = fetchMock;
 
-    expect(await getGithubStarCount()).toBeNull();
+    const result = getGithubStarCount();
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await expect(result).resolves.toBeNull();
 
     resolveFetch(
       new Response(JSON.stringify({ stargazers_count: 42 }), {
@@ -87,7 +88,6 @@ describe("getGithubStarCount", () => {
     global.fetch = fetchMock;
 
     expect(await getGithubStarCount()).toBeNull();
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     await vi.waitFor(() =>
       expect(settings.putSetting).toHaveBeenCalledTimes(1),
     );
@@ -134,17 +134,15 @@ describe("getGithubStarCount", () => {
     vi.setSystemTime(new Date("2026-09-02T17:00:00.000Z"));
 
     expect(await getGithubStarCount()).toBeNull();
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     vi.advanceTimersByTime(60_000);
     expect(await getGithubStarCount()).toBeNull();
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
     vi.advanceTimersByTime(60_001);
-    expect(await getGithubStarCount()).toBeNull();
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-    await vi.waitFor(async () => {
-      expect(await getGithubStarCount()).toBe(11);
-    });
+    const refreshed = getGithubStarCount();
+    await vi.advanceTimersByTimeAsync(250);
+    expect(await refreshed).toBe(11);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("serves cached value without refetching within the fresh window", async () => {
@@ -156,11 +154,7 @@ describe("getGithubStarCount", () => {
     );
     global.fetch = fetchMock;
 
-    expect(await getGithubStarCount()).toBeNull();
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    await vi.waitFor(async () => {
-      expect(await getGithubStarCount()).toBe(7);
-    });
+    expect(await getGithubStarCount()).toBe(7);
     expect(await getGithubStarCount()).toBe(7);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
@@ -180,7 +174,6 @@ describe("getGithubStarCount", () => {
     global.fetch = fetchMock;
 
     expect(await getGithubStarCount()).toBeNull();
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     await vi.waitFor(() =>
       expect(settings.putSetting).toHaveBeenCalledTimes(1),
     );
@@ -246,10 +239,7 @@ describe("getGithubStarCount", () => {
       .mockResolvedValueOnce(new Response(null, { status: 429 }));
     global.fetch = fetchMock;
 
-    expect(await getGithubStarCount()).toBeNull();
-    await vi.waitFor(async () => {
-      expect(await getGithubStarCount()).toBe(7);
-    });
+    expect(await getGithubStarCount()).toBe(7);
     vi.useFakeTimers();
     vi.setSystemTime(Date.now() + 5 * 60_000);
 
@@ -276,11 +266,8 @@ describe("getGithubStarCount", () => {
       getGithubStarCount(),
     ]);
 
-    expect(a).toBeNull();
-    expect(b).toBeNull();
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    await vi.waitFor(async () => {
-      expect(await getGithubStarCount()).toBe(5);
-    });
+    expect(a).toBe(5);
+    expect(b).toBe(5);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

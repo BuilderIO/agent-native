@@ -7,6 +7,7 @@ import {
 const REPO_URL = "https://api.github.com/repos/BuilderIO/agent-native";
 const CACHE_KEY = "docs:github-stars";
 const FETCH_TIMEOUT_MS = 5_000;
+const SSR_FETCH_BUDGET_MS = 1_000;
 const CACHE_FRESH_MS = 5 * 60_000;
 const REFRESH_LEASE_MS = 30_000;
 const FAILURE_RETRY_MS = 60_000;
@@ -229,19 +230,30 @@ function refresh(): Promise<number | null> {
   return refreshInFlight;
 }
 
+async function withSsrBudget(
+  refreshPromise: Promise<number | null>,
+): Promise<number | null> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<null>((resolve) => {
+    timeout = setTimeout(() => resolve(null), SSR_FETCH_BUDGET_MS);
+  });
+  return Promise.race([refreshPromise, timeoutPromise]).finally(() => {
+    if (timeout !== undefined) clearTimeout(timeout);
+  });
+}
+
 export async function getGithubStarCount(): Promise<number | null> {
   const persisted = await readPersistedCache();
   const current = cache ?? persisted;
   if (current) {
     if (shouldRefresh(current, Date.now())) {
+      if (current.count === null) return withSsrBudget(refresh());
       void refresh();
     }
     return current.count;
   }
 
-  // GitHub is outside the SSR latency budget; warm the cache for the next request.
-  void refresh();
-  return null;
+  return withSsrBudget(refresh());
 }
 
 export function resetGithubStarCountCacheForTests(): void {
