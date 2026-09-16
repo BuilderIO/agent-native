@@ -7,7 +7,43 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Authored flex direction, wrap, gaps, justify-content, and padding now survive layout edits instead of being reset.
 - A message that only mentions a design, or pastes Design's own guidance back into chat, no longer ends with a false "couldn't confirm that a Design artifact was saved" reply.
+
+## 2026-09-15
+
+### Improved
+
+- Auto layout controls use a compact alignment and gap layout with smaller constraint controls.
+- Keep the Screens list focused and resize its split with Layers
+- Large-design element selection keeps bulk geometry collection lightweight for faster marquee interactions.
+- Large visual-edit maps limit concurrent live app boots so more screens stay responsive
+- Layers have more breathing room, smaller chevrons, and balanced toolbar icons; inspector tabs have more vertical padding.
+- Main component structure edits stay linked across instances, and deleted main components can be restored from an instance.
+- Marquee select and double-click element select on the canvas are much faster on large screens.
+- Responsive breakpoint edits preserve authored CSS, and Shift-dragging a padding handle updates all four sides together.
+- Account menus are now shorter, with workspace apps and agent management available in Settings.
+- Visual structure reorders now verify after source updates even when HMR changes runtime identities
+
+### Fixed
+
+- Alt-dragging a layer inside a group now keeps the duplicate under the cursor for the whole drag instead of jumping into place on release.
+- Breakpoint width edits preserve the existing breakpoint, and new Screens stay clear of visible breakpoint previews.
+- Changing a grid's column or row count no longer turns fill or hug tracks into fixed pixel sizes
+- Creating and focusing Screens keeps the canvas zoom and position stable.
+- Figma imports preserve original layer names in the Layers panel
+- Figma layer names now survive import, rename, and reload in Design
+- Fixed padding indicator tick marks so they render at the same length on every edge
+- Groups now resize with linked text overrides in the editor, previews, and exports.
+- Keep local Design rotation edits undoable while preserving collaboration conflict checks.
+- New designs start with fresh prompts, reliable asset picking, and responsive screens.
+- Overview canvas no longer shows generated screens as blank or black frames at low zoom
+- Prevent pending visual edits from being lost during screen navigation
+- Rapid dependent layout edits now retain changes made immediately before them.
+- Restore the standard Agent-Native chat header and tabs in the Design editor.
+- Text typed immediately after clicking the Text tool on empty canvas space is no longer lost, and the new layer is named from what you typed
+- The Letter spacing field now accepts percentages and em values like Figma, and keeps two decimals instead of rounding 0.64 to 0.6
+- Visual edit maps keep query-specific screens distinct and expose the latest native WebMCP surface.
 
 ## 2026-09-14
 

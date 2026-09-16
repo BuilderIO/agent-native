@@ -1557,11 +1557,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
-  function serializeRuntimeLayerSnapshot(): {
-    html: string;
-    nodeCount: number;
-  } | null {
-    if (!document.body) return null;
+  function serializeRuntimeLayerSnapshot(
+    excludedRoot?: Element,
+  ):
+    | { ok: true; html: string; nodeCount: number; documentId: string }
+    | { ok: false; reason: "snapshot-unavailable" | "snapshot-too-large" } {
+    if (!document.body) return { ok: false, reason: "snapshot-unavailable" };
     // Keep this list export-focused and bounded. The runtime snapshot is also
     // the hosted/cross-origin Design→Figma fallback: inlining the resolved
     // paint/layout values lets the parent reconstruct the already-rendered
@@ -1666,7 +1667,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     ) {
       var sourceNode = sourceNodes[index];
       var cloneNode = cloneNodes[index];
-      if (!isRuntimeLayerVisualNode(sourceNode)) {
+      if (
+        excludedRoot?.contains(sourceNode) ||
+        !isRuntimeLayerVisualNode(sourceNode)
+      ) {
         cloneNode.setAttribute("data-an-runtime-layer-remove", "true");
         continue;
       }
@@ -1787,8 +1791,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     inlineSnapshotComputedStyle(document.body, cloneBody);
     cloneBody.setAttribute("data-an-runtime-layer-snapshot", "true");
     var html = "<!doctype html><html>" + cloneBody.outerHTML + "</html>"; // i18n-ignore serialized runtime-layer HTML payload, not visible UI copy
-    if (html.length > 2_000_000) return null;
+    if (html.length > 2_000_000)
+      return { ok: false, reason: "snapshot-too-large" };
     return {
+      ok: true,
       html: html,
       nodeCount: nodeCount,
       documentId: runtimeDocumentId,
@@ -1805,7 +1811,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     runtimeLayerSnapshotTimer = null;
     runtimeLayerSnapshotMaxTimer = null;
     var snapshot = serializeRuntimeLayerSnapshot();
-    if (!snapshot || snapshot.html === lastRuntimeLayerSnapshotHtml) return;
+    if (!snapshot.ok) {
+      (window.parent as Window).postMessage(
+        {
+          type: "agent-native:runtime-layer-snapshot-error",
+          payload: snapshot,
+        },
+        "*",
+      );
+      return;
+    }
+    if (snapshot.html === lastRuntimeLayerSnapshotHtml) return;
     lastRuntimeLayerSnapshotHtml = snapshot.html;
     (window.parent as Window).postMessage(
       {
@@ -13603,6 +13619,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     origin,
     insertedHtml?,
     replaced?,
+    replacementSnapshotHtml?: string,
   ) {
     if (!el || !target || !target.anchor) return;
     dndLog("post:structure-change", {
@@ -13636,6 +13653,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         insertedHtml:
           typeof insertedHtml === "string" ? insertedHtml : undefined,
         replaced: replaced === true ? true : undefined,
+        replacementSnapshotHtml: replacementSnapshotHtml,
         sourceRect: rectInfoForElement(el),
         anchorRect: rectInfoForElement(target.anchor),
         payload: getElementInfo(el),
@@ -20146,6 +20164,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         }
         var replaceNextSibling = insertAnchor.nextSibling;
         replaceParent.insertBefore(parsedInsertEl, insertAnchor);
+        // Capture while the original still supplies its selector/provenance,
+        // and reject before publishing a pending operation if proof is unavailable.
+        var replacementSnapshot = serializeRuntimeLayerSnapshot(insertAnchor);
+        if (!replacementSnapshot.ok) {
+          parsedInsertEl.remove();
+          rejectInsert("replacement-" + replacementSnapshot.reason);
+          return;
+        }
         selectedEl = parsedInsertEl;
         positionOverlay(selectionOverlay, selectedEl);
         refreshOverlays();
@@ -20160,6 +20186,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           },
           parsedInsertEl.outerHTML,
           true,
+          replacementSnapshot.html,
         );
         replaceParent.removeChild(insertAnchor);
         refreshOverlays();

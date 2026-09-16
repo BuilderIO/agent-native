@@ -36,3 +36,17 @@ export function isElementInfoPayload(value: unknown): value is ElementInfo {
     typeof value.isFlexContainer === "boolean"
   );
 }
+
+export function parseRuntimeSnapshotHtml(
+  value: unknown,
+):
+  | { ok: true; html: string }
+  | { ok: false; reason: "snapshot-unavailable" | "snapshot-too-large" } {
+  if (typeof value !== "string" || !value) {
+    return { ok: false, reason: "snapshot-unavailable" };
+  }
+  if (value.length > 2_000_000) {
+    return { ok: false, reason: "snapshot-too-large" };
+  }
+  return { ok: true, html: value };
+}

@@ -103,6 +103,7 @@ import {
 import {
   isComputedStyleMap,
   isElementInfoPayload,
+  parseRuntimeSnapshotHtml,
 } from "./design-canvas/element-payload";
 import {
   embeddedContentOffsetCss,
@@ -698,6 +699,7 @@ interface DesignCanvasProps {
       replacementSelector?: string;
       replacementSourceId?: string;
       replacementElementInfo?: ElementInfo;
+      replacementSnapshotHtml?: string;
     },
   ) => boolean | "pending" | void;
   onVisualDuplicateChange?: (
@@ -3298,24 +3300,34 @@ export function DesignCanvas({
           allowedOrigins: canvasBridgeAllowedOrigins,
         });
       if (trustedRuntimeVerificationFrame) {
+        if (e.data?.type === "agent-native:runtime-layer-snapshot-error") {
+          onRuntimeStructureInsertRejected?.(
+            e.data.payload?.reason === "snapshot-too-large"
+              ? "verification-snapshot-too-large"
+              : "verification-snapshot-unavailable",
+          );
+          return;
+        }
         if (e.data?.type !== "agent-native:runtime-layer-snapshot") return;
         const payload = e.data.payload;
-        if (
-          payload &&
-          typeof payload.html === "string" &&
-          payload.html.length <= 2_000_000 &&
-          Number.isFinite(payload.nodeCount)
-        ) {
-          onRuntimeVerificationSnapshot?.({
-            requestId: runtimeVerificationRequest.requestId,
-            html: payload.html,
-            nodeCount: Math.max(0, Math.floor(payload.nodeCount)),
-            documentId:
-              typeof payload.documentId === "string"
-                ? payload.documentId
-                : undefined,
-          });
+        const snapshot = parseRuntimeSnapshotHtml(payload?.html);
+        if (!snapshot.ok || !Number.isFinite(payload?.nodeCount)) {
+          onRuntimeStructureInsertRejected?.(
+            snapshot.ok
+              ? "verification-snapshot-unavailable"
+              : `verification-${snapshot.reason}`,
+          );
+          return;
         }
+        onRuntimeVerificationSnapshot?.({
+          requestId: runtimeVerificationRequest.requestId,
+          html: snapshot.html,
+          nodeCount: Math.max(0, Math.floor(payload.nodeCount)),
+          documentId:
+            typeof payload.documentId === "string"
+              ? payload.documentId
+              : undefined,
+        });
         return;
       }
       const lateReadyRecovery =
@@ -3593,6 +3605,21 @@ export function DesignCanvas({
         });
         const requestId =
           typeof e.data.requestId === "string" ? e.data.requestId : undefined;
+        const replacementSnapshot = replaced
+          ? parseRuntimeSnapshotHtml(e.data.replacementSnapshotHtml)
+          : undefined;
+        if (replacementSnapshot?.ok === false) {
+          if (requestId) {
+            iframeRef.current?.contentWindow?.postMessage(
+              { type: "visual-structure-ack", requestId, applied: false },
+              "*",
+            );
+          }
+          onRuntimeStructureInsertRejected?.(
+            `replacement-${replacementSnapshot.reason}`,
+          );
+          return;
+        }
         const sourceId =
           typeof e.data.sourceId === "string" ? e.data.sourceId : undefined;
         const anchorSourceId =
@@ -3667,6 +3694,9 @@ export function DesignCanvas({
                     replaced: true as const,
                     replacementSelector: selector,
                     replacementSourceId: sourceId,
+                    replacementSnapshotHtml: replacementSnapshot?.ok
+                      ? replacementSnapshot.html
+                      : undefined,
                     replacementElementInfo: isElementInfoPayload(e.data.payload)
                       ? e.data.payload
                       : undefined,
