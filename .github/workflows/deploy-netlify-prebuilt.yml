@@ -695,6 +695,12 @@ jobs:
                 !relay.scopes?.includes("runtime") ||
                 !value
               ) {
+                if (context === "deploy-preview") {
+                  console.error(
+                    "::warning::AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET is not provisioned as a runtime secret for deploy-preview; continuing because preview relay configuration is optional.",
+                  );
+                  process.exit(0);
+                }
                 throw new Error(
                   "AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET is not provisioned as a runtime secret for " +
                     context +

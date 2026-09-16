@@ -131,6 +131,9 @@ describe("Google callback deploy verification guard", () => {
       /if \[\[ \"\$TARGET\" == \"beta\" && \"\$DEPLOY_MODE\" == \"production\" \]\]/,
     );
     assert.match(step, /relay_context=production/);
+    assert.match(step, /context === "deploy-preview"/);
+    assert.match(step, /preview relay configuration is optional/);
+    assert.match(step, /throw new Error/);
     assert.match(step, /!value/);
     assert.match(step, /Netlify masks secret values/);
     assert.match(step, /Verified Google OAuth relay metadata/);

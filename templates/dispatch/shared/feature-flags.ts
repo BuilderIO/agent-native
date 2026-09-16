@@ -3,11 +3,13 @@ import {
   defineFeatureFlags,
 } from "@agent-native/core/feature-flags/registry";
 import {
+  DISPATCH_CONNECT_APPS_FLAG,
   DISPATCH_WORKSPACE_APP_LIST_FLAG,
   DISPATCH_WORKSPACE_SSO_FLAG,
 } from "@agent-native/dispatch/shared/feature-flags";
 
 export { DISPATCH_WORKSPACE_APP_LIST_FLAG, DISPATCH_WORKSPACE_SSO_FLAG };
+export { DISPATCH_CONNECT_APPS_FLAG };
 
 export const BROWSER_IDENTITY_SSO_FLAG = defineFeatureFlag({
   key: "browser.identity-sso",
@@ -28,4 +30,5 @@ export const DISPATCH_FEATURE_FLAGS = defineFeatureFlags([
   DESKTOP_WORKSPACE_SSO_FLAG,
   DISPATCH_WORKSPACE_SSO_FLAG,
   DISPATCH_WORKSPACE_APP_LIST_FLAG,
+  DISPATCH_CONNECT_APPS_FLAG,
 ]);

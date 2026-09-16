@@ -5,6 +5,8 @@ description: Eine invite-only Agent-Native-Workspace-Bereitstellung für eine Or
 
 # Verwaltete Bereitstellungen
 
+Bei einer SCIM-Deaktivierung wird die bereitgestellte Mitgliedschaft als ausstehend markiert und die App-Rollen werden sofort entfernt. Ein Administrator muss einen Nachfolger auswählen, um die Eigentumsübertragung abzuschließen; dabei wird das unveränderliche Audit-Ereignis geschrieben.
+
 Verwenden Sie einen Workspace für interne Apps einer Organisation. Die Organisation bildet die Mitgliedschafts- und Datengrenze. Der Workspace bündelt Bereitstellung und Konfiguration für eine oder mehrere Apps.
 
 ## Registrierung und Org-Erstellung schließen
@@ -22,6 +24,8 @@ Bei `AUTH_SIGNUP=invited` benötigt ein neues Konto eine offene Einladung, eine 
 Der erste angemeldete Bootstrap-Admin erstellt die kanonische Organisation und wird Eigentümer. Gibt es bereits genau eine Organisation, wird der Admin dort Eigentümer. Bei mehreren Organisationen nimmt der Bootstrap keine Auswahl vor. Konfigurieren Sie anschließend die erlaubte Domain und laden Sie das Team unter **Team settings** ein.
 
 Bei `ORG_CREATION=closed` wird die Erstellung von Organisationen verweigert, bis `AUTH_BOOTSTRAP_ADMINS` mindestens einen verifizierten Administrator enthält, der die kanonische Organisation bei seiner ersten Anmeldung erstellt.
+
+Halten Sie für die Ersteinrichtung und Wiederherstellung eine verifizierte Bootstrap-Admin-Adresse bereit.
 
 ## Unternehmensschlüssel und Rollen
 

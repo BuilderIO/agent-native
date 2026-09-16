@@ -5,6 +5,8 @@ description: Configure um workspace Agent-Native restrito a convites para uma or
 
 # Implantações administradas
 
+A desativação via SCIM marca a associação provisionada como pendente e remove imediatamente as funções do aplicativo. Um administrador deve escolher um sucessor para concluir a transferência de propriedade; ao concluir, o evento de auditoria imutável é registrado.
+
 Use um workspace para aplicativos internos de uma organização. A organização define os limites de membros e dados. O workspace reúne a configuração de implantação de um ou mais aplicativos.
 
 ## Fechar cadastro e criação de organizações
@@ -22,6 +24,8 @@ Com `AUTH_SIGNUP=invited`, uma conta nova precisa de um convite pendente, um dom
 O primeiro administrador de bootstrap a entrar cria a organização canônica e se torna proprietário. Se já houver uma organização, ele será adicionado como proprietário. Se houver várias, o sistema não escolhe. Depois configure o domínio permitido e convide a equipe em **Team settings**.
 
 Com `ORG_CREATION=closed`, a criação de organizações é recusada até que `AUTH_BOOTSTRAP_ADMINS` liste pelo menos um administrador verificado, que cria a organização canônica no primeiro login.
+
+Mantenha um endereço de administrador de bootstrap verificado disponível para a configuração inicial e a recuperação.
 
 ## Chaves e funções da empresa
 

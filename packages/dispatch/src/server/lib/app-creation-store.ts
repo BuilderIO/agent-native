@@ -148,6 +148,8 @@ export interface WorkspaceAppSummary {
   archived?: boolean;
   /** Safe server-side eligibility projection for the workspace SSO action. */
   workspaceSso?: boolean;
+  /** Organization admins can keep a row visible while disabling app access. */
+  orgEnabled?: boolean;
 }
 
 interface WorkspaceAppDiscovery {
@@ -716,6 +718,9 @@ function parseWorkspaceAppsManifest(parsed: any): WorkspaceAppSummary[] | null {
         publicPaths: normalizeWorkspaceAppPathList(entry.publicPaths),
         protectedPaths: normalizeWorkspaceAppPathList(entry.protectedPaths),
         status: "ready",
+        ...(typeof entry.orgEnabled === "boolean"
+          ? { orgEnabled: entry.orgEnabled }
+          : {}),
         ...metadata,
       } satisfies WorkspaceAppSummary;
     })
@@ -1269,6 +1274,7 @@ async function ensureWorkspaceAppRecords(
       ownerEmail: string;
       orgId: string | null;
       visibility: WorkspaceAppVisibility;
+      orgEnabled: boolean;
     }
   >();
 
@@ -1282,12 +1288,13 @@ async function ensureWorkspaceAppRecords(
         name?: unknown;
         description?: unknown;
         path?: unknown;
+        org_enabled?: unknown;
       }
     >();
     for (let start = 0; start < readyApps.length; start += 500) {
       const ids = readyApps.slice(start, start + 500).map((app) => app.id);
       const result = await db.execute({
-        sql: `SELECT id, owner_email, org_id, visibility, name, description, path
+        sql: `SELECT id, owner_email, org_id, visibility, org_enabled, name, description, path
               FROM workspace_apps
               WHERE id IN (${ids.map(() => "?").join(", ")})`,
         args: ids,
@@ -1333,7 +1340,12 @@ async function ensureWorkspaceAppRecords(
             Date.now(),
           ],
         });
-        records.set(app.id, { ownerEmail, orgId, visibility });
+        records.set(app.id, {
+          ownerEmail,
+          orgId,
+          visibility,
+          orgEnabled: true,
+        });
       } else {
         const existingOwnerEmail =
           cleanOptionalText(existing.owner_email) ?? "";
@@ -1345,6 +1357,11 @@ async function ensureWorkspaceAppRecords(
             ownerEmail: existingOwnerEmail,
             orgId: existingOrgId,
             visibility: existing.visibility === "private" ? "private" : "org",
+            orgEnabled:
+              existing.org_enabled !== false &&
+              existing.org_enabled !== 0 &&
+              existing.org_enabled !== "false" &&
+              existing.org_enabled !== "0",
           });
           continue;
         }
@@ -1396,6 +1413,11 @@ async function ensureWorkspaceAppRecords(
           ownerEmail,
           orgId: nextOrgId,
           visibility: existing.visibility === "private" ? "private" : "org",
+          orgEnabled:
+            existing.org_enabled !== false &&
+            existing.org_enabled !== 0 &&
+            existing.org_enabled !== "false" &&
+            existing.org_enabled !== "0",
         });
       }
     }
@@ -1440,6 +1462,7 @@ async function ensureWorkspaceAppRecords(
           ...app,
           visibility: record.visibility,
           owner,
+          orgEnabled: record.orgEnabled,
         }
       : app;
   });
@@ -1461,6 +1484,14 @@ async function filterWorkspaceAppsByAccess(
   const visibleIds = new Set<string>();
   const candidates: WorkspaceAppSummary[] = [];
   for (const app of apps) {
+    if (app.orgEnabled === false) {
+      // Keep disabled rows visible to their owner so they can understand and
+      // re-enable the app; no other member should discover its metadata.
+      if (app.owner?.trim().toLowerCase() === userEmail.toLowerCase()) {
+        visibleIds.add(app.id);
+      }
+      continue;
+    }
     if (app.status === "pending") {
       const viewerEmail = userEmail.toLowerCase();
       const creatorEmail = app.createdBy?.trim().toLowerCase();

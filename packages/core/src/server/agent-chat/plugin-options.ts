@@ -101,6 +101,8 @@ export interface AgentChatPluginOptions {
         | Promise<Record<string, MentionProvider>>);
   /** App ID used to exclude self from agent discovery (e.g., "mail", "calendar") */
   appId?: string;
+  /** Advertise the existing identity-hub connect handoff in the A2A card. */
+  connectApps?: boolean;
   /**
    * Controls connected MCP tools available to unattended recurring and trigger
    * runs. "requested" only loads tools named by a job; "all" loads every
