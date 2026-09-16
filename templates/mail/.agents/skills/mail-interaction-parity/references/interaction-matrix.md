@@ -22,6 +22,18 @@ interaction is safe and repeatable. Report `n`, p50, and empirical p95 only at
 `n >= 30`; below that, report `n`, median, and range, and mark p95 unsupported.
 Do not treat live provider-send time as a client-latency benchmark.
 
+Captured evidence for the post-fix head `7d080b8` is available in the
+[dark visual recap image](https://plan.agent-native.com/_agent-native/recap-image/e56aa10a91f59d04e12cb7e2e816fc8f0700614d7ef240fe1fba40a2f6162edb.png?v=34988715504-1)
+and [light visual recap image](https://plan.agent-native.com/_agent-native/recap-image/af44730d61a368149a97eb899203d847433e574878dd979ff1610cc2b2b1205f.png?v=34988715504-1).
+Captions: the inbox/list panel shows localized row-action labels and the
+account-filter popover; the compact compose panel shows localized recipient and
+compose controls; the thread panel shows the localized conversation controls.
+The before/after layout comparison is recorded in COMPOSE-001: the previous
+Mail card was 540px by 520px at bottom-right, while the post-fix desktop card
+is 490px by 300px near the top of the workspace. Inline CUA captures in the
+task also show the post-fix no-results Search and Command palette states, but
+no stable local screenshot artifact was returned for those captures.
+
 Unverified local performance lead (reported 2026-09-14 by the coordinating
 task, not a controlled profile): the normal Mail server logged about 408
 requests over 23 minutes. Repeated `GET /api/emails` and
@@ -275,7 +287,7 @@ traffic to any one path.
   Official reference: Superhuman's [Undo](https://help.superhuman.com/hc/en-us/articles/46005666743309-Undo)
   guide documents `Z` to undo the last action within 10 seconds. Local
   regression evidence on 2026-09-14: `pnpm --filter mail exec vitest run
-  app/hooks/use-undo.test.tsx app/components/email/EmailList.keyboard-navigation.test.tsx`
+app/hooks/use-undo.test.tsx app/components/email/EmailList.keyboard-navigation.test.tsx`
   passed (2 files, 15 tests). The hook tests cover before/at/after expiry,
   latest-action replacement, stale toast callbacks, keyboard/toast
   consume-once behavior, active-toast-only dismissal, clearing, and
@@ -446,6 +458,30 @@ traffic to any one path.
   Escape. No email was sent. No screenshot/layout or latency comparison was
   performed, and remaining compose actions and aligned-state replay are still
   open.
+  Follow-up paired visual check on 2026-09-14 (Superhuman 1041.0.54; local Mail
+  working tree; 1280×720) found that both Superhuman's reopened approved draft
+  and a fresh blank compose use a compact card by default. Mail now matches that
+  default for both saved/reopened and fresh drafts; fullscreen remains an
+  explicit, reversible toggle. The local replay opened a fresh blank compose
+  from the Compose email button, confirmed `Full screen compose` was off, then
+  closed it with Escape and verified the approved draft's recipient, subject,
+  and empty body were unchanged. Superhuman's paired reference screenshot
+  shows a roughly 490px-wide, shallow workspace card near the top of the main
+  pane; Mail's prior card was fixed bottom-right, 540px wide, and 520px tall.
+  The follow-up source change now uses a 490px-wide, 300px-tall desktop card
+  positioned near the top while preserving the full-height mobile layout and
+  explicit fullscreen branch. A follow-up local CUA replay on 2026-09-15 at
+  1280x720 confirmed the compact inbox, thread, and compose states after the
+  change, including the named account filter, recipient removal control, and
+  To combobox. The same replay opened and dismissed no-results Search and the
+  Command palette, found no unlabeled buttons, and reported no browser console
+  errors. Search open measured n=30, p50=273.9ms, empirical p95=281.2ms;
+  Command palette open measured n=30, p50=63.3ms, empirical p95=102.1ms.
+  These are local UI/harness observations, not provider or global performance
+  proof. Captures were shown inline in the task; CUA returned no stable image
+  artifact path. The only connected account was steve@builder.io, so the
+  separate sewell.steve@gmail.com provider round trip and all send/reply
+  mutation cases remain unverified; no email was sent.
 - COMPOSE-002 — Minimize, restore, fullscreen, pop out, close, close all, switch
   draft tabs, create a second draft, and reopen a closed draft. Test mouse,
   keyboard, outside click, Escape, and browser navigation. On 2026-09-14,
@@ -465,8 +501,11 @@ traffic to any one path.
   draft was discarded and the pre-existing draft restored/minimized; the blank
   Superhuman compose was closed with Escape. Neither draft's contents were
   changed and no message was sent.
-  Close/close-all recovery, outside click, browser navigation, and other
-  platform/focus variants remain unverified.
+  A follow-up compact-default replay confirmed Escape closes a fresh blank Mail
+  compose and restores the approved draft without changing it; the fullscreen
+  toggle remains reversible in both directions. Close/close-all recovery,
+  outside click, browser navigation, and other platform/focus variants remain
+  unverified.
 - COMPOSE-003 — Type To/Cc/Bcc recipients by name, full/partial address, aliases,
   commas, semicolons, newline paste, drag between fields, duplicate casing,
   invalid address, display name, whitespace, Backspace, Delete, Enter, Tab,
@@ -481,7 +520,7 @@ traffic to any one path.
   account was connected and no provider call occurred. `RecipientInput` tests
   also verify that comma commits a typed address, empty commas add no chip, and
   Backspace removes the last chip only when the input is empty. The focused
-  recipient interaction suite passes 15 tests. Superhuman behavior and a
+  recipient interaction suite passes 16 tests. Superhuman behavior and a
   connected-provider round trip remain unverified.
 - COMPOSE-004 — Navigate recipient suggestions with arrows, Enter, Tab, hover,
   click, scroll, and no-match/error/slow contact data. Confirm selected option,
@@ -511,8 +550,11 @@ traffic to any one path.
   interaction proof, not a confirmed Superhuman discrepancy. Further isolated
   regressions verify that combined alias/contact options keep keyboard indexes
   and `aria-activedescendant` aligned, and Enter accepts an alias and resets the
-  query. The recipient interaction suite passes 15 tests; Superhuman's
-  alias-ranking and selection behavior remains unobserved.
+  query. The recipient interaction suite passes 16 tests; Superhuman's
+  alias-ranking and selection behavior remains unobserved. A follow-up Mail-only
+  regression changes the query after ArrowDown and verifies that the active
+  suggestion resets to the first result with a matching `aria-activedescendant`;
+  this closes a stale-selection discrepancy without claiming Superhuman parity.
 - COMPOSE-005 — Open alias details, edit, expand to individual recipients, save
   a group, cancel/fail/retry, remove one chip, and remove all chips.
 - COMPOSE-006 — Enter subject/body with plain text, rich text, markdown, links,

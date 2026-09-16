@@ -104,6 +104,8 @@ function setupFetch(options?: {
   deferredPatch?: boolean;
   failDeckList?: boolean;
   deleteDeckNotFound?: boolean;
+  deferredDelete?: boolean;
+  deferredDuplicate?: boolean;
   patchFailures?: { deckId: string; count: number };
   putFailures?: { deckId: string; count: number };
   patchResponse?: unknown | ((body: Record<string, unknown>) => unknown);
@@ -117,6 +119,8 @@ function setupFetch(options?: {
   let firstPatchSignal: AbortSignal | undefined;
   let deferNextGetDeck = false;
   let resolveDeferredGetDeck: (() => void) | null = null;
+  let rejectDeferredDelete: ((error: unknown) => void) | null = null;
+  const pendingDuplicateRejects: Array<(error: unknown) => void> = [];
   let deferNextDeckList = false;
   let resolveDeferredDeckList: (() => void) | null = null;
   let accessibleDeck: Deck | null = null;
@@ -186,12 +190,28 @@ function setupFetch(options?: {
     }
 
     if (href.includes("/_agent-native/actions/delete-deck")) {
+      if (options?.deferredDelete) {
+        return new Promise<Response>((_resolve, reject) => {
+          rejectDeferredDelete = reject;
+        });
+      }
       if (options?.deleteDeckNotFound) {
         return Promise.resolve(
           new Response(JSON.stringify({ error: "Deck not found" }), {
             status: 404,
           }),
         );
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ success: true }), { status: 200 }),
+      );
+    }
+
+    if (href.includes("/_agent-native/actions/duplicate-deck")) {
+      if (options?.deferredDuplicate) {
+        return new Promise<Response>((_resolve, reject) => {
+          pendingDuplicateRejects.push(reject);
+        });
       }
       return Promise.resolve(
         new Response(JSON.stringify({ success: true }), { status: 200 }),
@@ -279,6 +299,12 @@ function setupFetch(options?: {
     resolveDeferredPut: () => resolveDeferredPut?.(),
     rejectDeferredPut: (error: unknown = new Error("late save failure")) =>
       rejectDeferredPut?.(error),
+    rejectDeferredDelete: (error: unknown = new Error("late delete failure")) =>
+      rejectDeferredDelete?.(error),
+    rejectNextDuplicate: (
+      error: unknown = new Error("late duplicate failure"),
+    ) => pendingDuplicateRejects.shift()?.(error),
+    pendingDuplicateCount: () => pendingDuplicateRejects.length,
     getFirstPutSignal: () => firstPutSignal,
     getPutAttempts: (deckId: string) => putAttempts.get(deckId) ?? 0,
     resolveDeferredPatch: () => resolveDeferredPatch?.(),
@@ -1630,6 +1656,193 @@ describe("DeckContext deck creation persistence", () => {
       result.current.undo();
     });
     expect(result.current.getDeck(deckId)?.title).toBe("Disposable");
+  });
+
+  it("does not continue a preview-backed duplicate after switching organizations", async () => {
+    window.history.pushState({}, "", "/");
+    orgQueryState.data = { orgId: "org-a" };
+    const source: Deck = {
+      id: "source-deck",
+      title: "Source Deck",
+      createdAt: "2026-09-14T00:00:00.000Z",
+      updatedAt: "2026-09-14T00:00:00.000Z",
+      slides: [],
+      previewSlide: {
+        id: "preview-slide",
+        content: "<div>Preview</div>",
+        notes: "",
+        layout: "content",
+      },
+    };
+    const {
+      fetchMock,
+      setAccessibleDeck,
+      deferNextGetDeck,
+      hasDeferredGetDeck,
+      resolveDeferredGetDeck,
+    } = setupFetch();
+    setAccessibleDeck(source);
+    const { result, rerender } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    deferNextGetDeck();
+    let duplicatePromise: Promise<Deck | null> = Promise.resolve(null);
+    act(() => {
+      duplicatePromise = result.current.duplicateDeck(
+        source.id,
+        "duplicate-deck",
+      );
+    });
+    await waitFor(() => expect(hasDeferredGetDeck()).toBe(true));
+
+    setAccessibleDeck(null);
+    act(() => {
+      orgQueryState.data = { orgId: "org-b" };
+      rerender();
+    });
+
+    let duplicate: Deck | null = source;
+    await act(async () => {
+      resolveDeferredGetDeck();
+      duplicate = await duplicatePromise;
+    });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(duplicate).toBeNull();
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        requestString(url).includes("/_agent-native/actions/duplicate-deck"),
+      ),
+    ).toBe(false);
+  });
+
+  it("does not let an old duplicate failure mutate a new-organization duplicate", async () => {
+    window.history.pushState({}, "", "/");
+    orgQueryState.data = { orgId: "org-a" };
+    const sourceSlide: Slide = {
+      id: "source-slide",
+      content: "<div>Source</div>",
+      notes: "",
+      layout: "content",
+    };
+    const oldSource: Deck = {
+      id: "shared-source-id",
+      title: "Old Source",
+      createdAt: "2026-09-14T00:00:00.000Z",
+      updatedAt: "2026-09-14T00:00:00.000Z",
+      slides: [sourceSlide],
+    };
+    const { setAccessibleDeck, rejectNextDuplicate, pendingDuplicateCount } =
+      setupFetch({ deferredDuplicate: true });
+    setAccessibleDeck(oldSource);
+    const { result, rerender } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const oldFailure = vi.fn();
+    await act(async () => {
+      await result.current.duplicateDeck(
+        oldSource.id,
+        "old-org-copy",
+        undefined,
+        oldFailure,
+      );
+    });
+    expect(pendingDuplicateCount()).toBe(1);
+
+    const newSource = { ...oldSource, title: "New Source" };
+    setAccessibleDeck(newSource);
+    act(() => {
+      orgQueryState.data = { orgId: "org-b" };
+      rerender();
+    });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.duplicateDeck(newSource.id, "new-org-copy");
+    });
+    expect(pendingDuplicateCount()).toBe(2);
+
+    await act(async () => {
+      rejectNextDuplicate();
+      await Promise.resolve();
+    });
+
+    let overlappingDuplicate: Deck | null = newSource;
+    await act(async () => {
+      overlappingDuplicate = await result.current.duplicateDeck(
+        newSource.id,
+        "overlapping-copy",
+      );
+    });
+
+    expect(oldFailure).not.toHaveBeenCalled();
+    expect(overlappingDuplicate).toBeNull();
+    expect(pendingDuplicateCount()).toBe(1);
+    expect(result.current.getDeck("new-org-copy")).toBeDefined();
+  });
+
+  it("does not restore a failed old-organization delete after switching organizations", async () => {
+    window.history.pushState({}, "", "/");
+    orgQueryState.data = { orgId: "org-a" };
+    const oldDeck: Deck = {
+      id: "old-org-deck",
+      title: "Old Org Deck",
+      createdAt: "2026-09-14T00:00:00.000Z",
+      updatedAt: "2026-09-14T00:00:00.000Z",
+      slides: [],
+    };
+    const { setAccessibleDeck, rejectDeferredDelete } = setupFetch({
+      deferredDelete: true,
+    });
+    setAccessibleDeck(oldDeck);
+    const { result, rerender } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    act(() => result.current.deleteDeck(oldDeck.id));
+    setAccessibleDeck(null);
+    act(() => {
+      orgQueryState.data = { orgId: "org-b" };
+      rerender();
+    });
+
+    await act(async () => {
+      rejectDeferredDelete();
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.decks).toEqual([]);
+    expect(result.current.getDeck(oldDeck.id)).toBeUndefined();
+  });
+
+  it("does not defer an optimistic delete into the next organization", async () => {
+    window.history.pushState({}, "", "/");
+    orgQueryState.data = { orgId: "org-a" };
+    const { fetchMock, resolveCreate } = setupFetch();
+    const { result, rerender } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    let deckId = "";
+    act(() => {
+      deckId = result.current.createDeck("Optimistic Deck", {
+        noDefaultSlides: true,
+      }).id;
+      result.current.deleteDeck(deckId);
+    });
+    expect(deletedDeck(fetchMock, deckId)).toBe(false);
+
+    act(() => {
+      orgQueryState.data = { orgId: "org-b" };
+      rerender();
+    });
+
+    await act(async () => {
+      resolveCreate(new Response("", { status: 200 }));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(deletedDeck(fetchMock, deckId)).toBe(false);
   });
 
   it("records generated slide replacement on the undo stack", async () => {

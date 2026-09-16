@@ -127,6 +127,13 @@ import {
 } from "@/lib/ingest-handoff";
 import { cn } from "@/lib/utils";
 
+import {
+  sourceListValues,
+  validateGitHubRepoInput,
+  validateSlackChannelInput,
+  type SourceConfigIssue,
+} from "../../shared/source-config-validation";
+
 type Provider = "manual" | "generic" | "clips" | "slack" | "granola" | "github";
 type CaptureStatusFilter = BrainCaptureReviewStatus | "all";
 type BrainT = ReturnType<typeof useT>;
@@ -294,10 +301,11 @@ function formFromSource(source: BrainSource): SourceFormState {
 }
 
 function splitLines(value: string) {
-  return value
-    .split(/[\n,]/g)
-    .map((item) => item.trim().replace(/^#/, ""))
-    .filter(Boolean);
+  return sourceListValues(value);
+}
+
+function issueEntryList(issues: readonly SourceConfigIssue[]) {
+  return issues.map((issue) => `"${issue.value}"`).join(", ");
 }
 
 function numberValue(
@@ -2131,6 +2139,24 @@ export default function SourcesRoute() {
   const selectedWorkspaceConnection = formWorkspaceConnections.find(
     (connection) => connection.id === form.workspaceConnectionId,
   );
+  const slackChannelIssues =
+    form.provider === "slack"
+      ? validateSlackChannelInput(form.channelRefs)
+      : [];
+  const slackDirectMessageIssues = slackChannelIssues.filter(
+    (issue) => issue.code === "slack_direct_message",
+  );
+  const slackFormatIssues = slackChannelIssues.filter(
+    (issue) => issue.code !== "slack_direct_message",
+  );
+  const githubRepoIssues =
+    form.provider === "github" ? validateGitHubRepoInput(form.githubRepos) : [];
+  const formConfigInvalid =
+    slackChannelIssues.length > 0 || githubRepoIssues.length > 0;
+  const formMissingCredentialKeys =
+    formProviderMetadata?.credentialHealth?.status === "missing"
+      ? formProviderMetadata.credentialHealth.missingCredentialKeys
+      : [];
   const captures = capturesQuery.data?.captures ?? [];
   const queueableCaptures = captures.filter(captureCanQueue);
   const queueableCaptureIds = new Set(
@@ -2231,6 +2257,7 @@ export default function SourcesRoute() {
   }
 
   async function submitSource() {
+    if (formConfigInvalid) return;
     const config = buildConfig(form);
     if (editingSource) {
       await updateSource.mutateAsync({
@@ -2935,6 +2962,17 @@ export default function SourcesRoute() {
               </Select>
             </div>
 
+            {formMissingCredentialKeys.length > 0 ? (
+              <p className="flex items-start gap-2 rounded-md border border-destructive/25 bg-destructive/10 p-3 text-xs leading-5 text-destructive">
+                <IconAlertTriangle className="mt-0.5 size-4 shrink-0" />
+                <span>
+                  {t("sources.missingProviderCredential", {
+                    keys: formMissingCredentialKeys.join(", "),
+                  })}
+                </span>
+              </p>
+            ) : null}
+
             {supportsWorkspaceConnectionBinding(form.provider) && (
               <div className="grid gap-2">
                 <Label htmlFor="workspace-connection">
@@ -3013,8 +3051,35 @@ export default function SourcesRoute() {
                     onChange={(event) =>
                       updateForm({ channelRefs: event.target.value })
                     }
+                    aria-invalid={slackChannelIssues.length > 0}
+                    aria-describedby={
+                      slackChannelIssues.length > 0
+                        ? "slack-channels-error"
+                        : undefined
+                    }
                     placeholder={"C0123456789\n#product\n#launches"}
                   />
+                  {slackChannelIssues.length > 0 ? (
+                    <div
+                      id="slack-channels-error"
+                      className="grid gap-1 text-xs leading-5 text-destructive"
+                    >
+                      {slackDirectMessageIssues.length > 0 ? (
+                        <p>
+                          {t("sources.invalidSlackDirectMessages", {
+                            entries: issueEntryList(slackDirectMessageIssues),
+                          })}
+                        </p>
+                      ) : null}
+                      {slackFormatIssues.length > 0 ? (
+                        <p>
+                          {t("sources.invalidAllowedChannels", {
+                            entries: issueEntryList(slackFormatIssues),
+                          })}
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
                   <p className="text-xs leading-5 text-muted-foreground">
                     {t("sources.allowedChannelsDescription")}
                   </p>
@@ -3135,8 +3200,24 @@ export default function SourcesRoute() {
                     onChange={(event) =>
                       updateForm({ githubRepos: event.target.value })
                     }
+                    aria-invalid={githubRepoIssues.length > 0}
+                    aria-describedby={
+                      githubRepoIssues.length > 0
+                        ? "github-repos-error"
+                        : undefined
+                    }
                     placeholder={"owner/repo\nhttps://github.com/owner/repo"}
                   />
+                  {githubRepoIssues.length > 0 ? (
+                    <p
+                      id="github-repos-error"
+                      className="text-xs leading-5 text-destructive"
+                    >
+                      {t("sources.invalidGithubRepositories", {
+                        entries: issueEntryList(githubRepoIssues),
+                      })}
+                    </p>
+                  ) : null}
                   <p className="text-xs leading-5 text-muted-foreground">
                     {t("sources.githubRepositoriesDescription")}
                   </p>
@@ -3286,6 +3367,7 @@ export default function SourcesRoute() {
               disabled={
                 createSource.isPending ||
                 updateSource.isPending ||
+                formConfigInvalid ||
                 !form.title.trim()
               }
             >

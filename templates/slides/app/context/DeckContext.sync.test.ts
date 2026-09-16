@@ -13,6 +13,15 @@ const requestString = (value: unknown) =>
         : (JSON.stringify(value) ?? "");
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const orgQueryState = vi.hoisted(() => ({
+  data: undefined as unknown,
+  isLoading: false,
+}));
+
+vi.mock("@agent-native/core/client/org", () => ({
+  useOrg: () => orgQueryState,
+}));
+
 import { DeckProvider, useDecks, type Deck } from "./DeckContext";
 
 class MockEventSource {
@@ -61,8 +70,8 @@ function wrapper({ children }: { children: ReactNode }) {
 function setupFetch() {
   let serverDecks: Deck[] = [];
   let resolveCreate: (response: Response) => void = () => {};
-  let holdList: ((decks: Deck[]) => void) | null = null;
-  let pendingListResolve: ((response: Response) => void) | null = null;
+  let heldListRequestBudget = 0;
+  const pendingListResolves: Array<(response: Response) => void> = [];
 
   const listResponse = (decks: Deck[]) =>
     new Response(JSON.stringify({ count: decks.length, decks }), {
@@ -78,9 +87,10 @@ function setupFetch() {
           : url.url;
 
     if (href.includes("/_agent-native/actions/list-decks")) {
-      if (holdList) {
+      if (heldListRequestBudget > 0) {
+        heldListRequestBudget -= 1;
         return new Promise<Response>((resolve) => {
-          pendingListResolve = resolve;
+          pendingListResolves.push(resolve);
         });
       }
       return Promise.resolve(listResponse(serverDecks));
@@ -114,14 +124,12 @@ function setupFetch() {
     resolveCreate: (response: Response) => resolveCreate(response),
     /** Make the next list-decks request hang until `releaseList` is called. */
     holdNextList: () => {
-      holdList = () => {};
+      heldListRequestBudget += 1;
     },
-    listRequestPending: () => pendingListResolve !== null,
+    listRequestPending: () => pendingListResolves.length > 0,
+    pendingListCount: () => pendingListResolves.length,
     releaseList: (decks: Deck[]) => {
-      const resolve = pendingListResolve;
-      pendingListResolve = null;
-      holdList = null;
-      resolve?.(listResponse(decks));
+      pendingListResolves.shift()?.(listResponse(decks));
     },
   };
 }
@@ -169,6 +177,8 @@ async function lastEventSource(): Promise<MockEventSource> {
 describe("DeckContext optimistic create", () => {
   beforeEach(() => {
     _resetSyncTransportRegistryForTests();
+    orgQueryState.data = undefined;
+    orgQueryState.isLoading = false;
     vi.stubGlobal("EventSource", MockEventSource);
     vi.stubGlobal("BroadcastChannel", undefined);
     vi.spyOn(console, "error").mockImplementation(() => {});
@@ -177,6 +187,8 @@ describe("DeckContext optimistic create", () => {
 
   afterEach(() => {
     cleanup();
+    orgQueryState.data = undefined;
+    orgQueryState.isLoading = false;
     _resetSyncTransportRegistryForTests();
     vi.useRealTimers();
     vi.restoreAllMocks();
@@ -232,9 +244,8 @@ describe("DeckContext optimistic create", () => {
     const { result } = renderHook(() => useDecks(), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    // Baseline reloads (mount, route change, org switch) replace `decks`
-    // wholesale rather than diffing, so they need the same protection as the
-    // poll path — otherwise a create racing the reload is silently erased.
+    // Baseline reloads replace `decks` wholesale, so they need the same
+    // protection as the poll path when the active organization is unchanged.
     api.holdNextList();
     let reload: Promise<void> = Promise.resolve();
     act(() => {
@@ -259,6 +270,69 @@ describe("DeckContext optimistic create", () => {
 
     expect(result.current.getDeck(deckId)?.title).toBe("Reload Race Deck");
     expect(result.current.decks).toHaveLength(1);
+  });
+
+  it("clears previous-organization decks before loading the next organization", async () => {
+    window.history.pushState({}, "", "/");
+    orgQueryState.data = { orgId: "org-a" };
+    const api = setupFetch();
+    const { result, rerender } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    let previousDeckId = "";
+    act(() => {
+      previousDeckId = result.current.createDeck("Previous Org Deck").id;
+    });
+    api.setServerDecks([result.current.getDeck(previousDeckId)!]);
+    await act(async () => {
+      api.resolveCreate(new Response("", { status: 200 }));
+      await Promise.resolve();
+    });
+    const previousOrgDeck = result.current.getDeck(previousDeckId)!;
+    window.history.pushState({}, "", `/deck/${previousDeckId}`);
+
+    const currentOrgDeck: Deck = {
+      id: "current-org-deck",
+      title: "Current Org Deck",
+      createdAt: "2026-09-14T00:00:00.000Z",
+      updatedAt: "2026-09-14T00:00:00.000Z",
+      slides: [],
+    };
+    api.holdNextList();
+    let previousOrgReload: Promise<void> = Promise.resolve();
+    act(() => {
+      previousOrgReload = result.current.reloadDecks();
+    });
+    await waitFor(() => expect(api.pendingListCount()).toBe(1));
+
+    api.holdNextList();
+    api.setServerDecks([currentOrgDeck]);
+    act(() => {
+      orgQueryState.data = { orgId: "org-b" };
+      rerender();
+    });
+
+    await waitFor(() => expect(api.pendingListCount()).toBe(2));
+    expect(result.current.decks).toEqual([]);
+    expect(window.location.pathname).toBe("/home");
+
+    await act(async () => {
+      api.releaseList([previousOrgDeck]);
+      await previousOrgReload;
+    });
+    expect(result.current.loading).toBe(true);
+    expect(result.current.decks).toEqual([]);
+
+    await act(async () => {
+      api.releaseList([currentOrgDeck]);
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.decks.map((deck) => deck.id)).toEqual([
+      currentOrgDeck.id,
+    ]);
+    expect(result.current.getDeck(previousDeckId)).toBeUndefined();
   });
 });
 

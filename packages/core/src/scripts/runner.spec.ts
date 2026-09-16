@@ -564,6 +564,31 @@ describe("runScript package actions", () => {
     ]);
   });
 
+  it("uses the supported gateway fallback for relative handoffs", () => {
+    const calls: Array<{ command: string; args: string[] }> = [];
+    const result = openCliHandoff(
+      "/_agent-native/embed/start?ticket=gateway-fallback",
+      {
+        env: { WORKSPACE_GATEWAY_URL: "http://127.0.0.1:8140" },
+        platform: "linux",
+        spawn: (command, args) => {
+          calls.push({ command, args });
+          return { status: 0 };
+        },
+      },
+    );
+
+    expect(result).toEqual({ ok: true });
+    expect(calls).toEqual([
+      {
+        command: "xdg-open",
+        args: [
+          "http://127.0.0.1:8140/_agent-native/embed/start?ticket=gateway-fallback",
+        ],
+      },
+    ]);
+  });
+
   it("reports an opener failure without returning the handoff credential", () => {
     const result = openCliHandoff(
       "/_agent-native/embed/start?ticket=trusted-only",

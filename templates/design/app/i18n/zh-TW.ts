@@ -1060,6 +1060,7 @@ const messages = {
   layersPanel: {
     title: "圖層",
     screens: "畫面",
+    resizeScreens: "調整畫面區段大小",
     allScreens: "所有畫面",
     thumbnail: "縮圖",
     addScreen: "新增畫面",

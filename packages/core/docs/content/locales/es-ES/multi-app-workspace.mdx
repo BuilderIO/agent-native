@@ -7,6 +7,10 @@ description: "Aloje muchas aplicaciones nativas del agente en un monorepo con au
 
 > **¿Qué documento de espacio de trabajo?** Esta página cubre la **forma de implementación**: un monorepo, muchas aplicaciones, autenticación compartida y una implementación unificada. Para conocer la capa de personalización del agente (Recursos del Agente: `AGENTS.md`, memoria, skills, agentes personalizados), consulte [Recursos del Agente](/docs/agent-resources); para la gobernanza (quién revisa, aprueba y es propietario de qué), consulte [Workspace Governance](/docs/workspace-management).
 
+## ¿Aplicación independiente o espacio de trabajo? {#standalone-or-workspace}
+
+Elige un espacio de trabajo cuando una empresa administra varias aplicaciones internas que deben compartir configuración de despliegue y contexto de organización. Una aplicación independiente sirve para una herramienta aislada o un prototipo. Es una forma de despliegue compatible, pero no incluye paquetes compartidos ni configuración raíz del espacio de trabajo. Consulta [Despliegues administrados](/docs/administered-deployments).
+
 Cuando codificar una herramienta interna requiere una tarde, no te detienes en una. Un equipo termina con un CRM, una bandeja de entrada de soporte, un tablero, una consola de operaciones: diez pequeñas aplicaciones, cada una estructurada de forma independiente. Eso es genial hasta que necesites cambiar algo en todos ellos.
 
 En ese momento, cada aplicación tiene su propio `AGENTS.md`, su propio complemento de autenticación, su propio componente de diseño copiado y pegado, su propio token Slack codificado y su propia idea de lo que es una "organización". Un cambio de regla de cumplimiento significa diez RP. Girar una clave API significa diez redespliegues. Una actualización de marca significa que diez encabezados diferentes no están sincronizados. Lo que facilitó su creación ahora dificulta su gestión.

@@ -474,6 +474,25 @@ describe("resolveNitroBuildReplacements", () => {
     ).toBe(JSON.stringify("beta"));
   });
 
+  it("marks enterprise auth adapters only when enabled at build time", () => {
+    const marker = "process.env.AGENT_NATIVE_BUILD_ENTERPRISE_AUTH";
+    expect(resolveNitroBuildReplacements({})[marker]).toBe(
+      JSON.stringify("false"),
+    );
+    expect(resolveNitroBuildReplacements({ AUTH_SSO: "true" })[marker]).toBe(
+      JSON.stringify("true"),
+    );
+    expect(resolveNitroBuildReplacements({ AUTH_SCIM: "true" })[marker]).toBe(
+      JSON.stringify("true"),
+    );
+    expect(resolveNitroBuildReplacements({ AUTH_SSO: "1" })[marker]).toBe(
+      JSON.stringify("true"),
+    );
+    expect(resolveNitroBuildReplacements({ AUTH_SCIM: "on" })[marker]).toBe(
+      JSON.stringify("true"),
+    );
+  });
+
   it("falls back to the source revision for the server build id", () => {
     const replacements = resolveNitroBuildReplacements({
       COMMIT_REF: "commit-auth-client-123",

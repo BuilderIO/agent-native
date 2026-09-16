@@ -27,3 +27,40 @@ describe("EmailThread trash shortcuts", () => {
     expect(source).toContain('t("mail.actions.moveToTrash")} (D / #)');
   });
 });
+
+describe("EmailThread control accessibility", () => {
+  it("names icon-only toolbar, message, attachment, and search controls", () => {
+    for (const label of [
+      'aria-label={t("mail.thread.back")}',
+      'aria-label={t("mail.actions.archive")}',
+      'aria-label={t("mail.actions.moveToTrash")}',
+      'aria-label={t("mail.thread.previousConversation")}',
+      'aria-label={t("mail.thread.nextConversation")}',
+      'aria-label={t("mail.thread.closeDetails")}',
+      'aria-label={t("mail.compose.reply")}',
+      'aria-label={t("mail.mobileActions.replyAll")}',
+      'aria-label={t("mail.compose.forward")}',
+      'aria-label={t("mail.thread.downloadAll")}',
+      'aria-label={t("mail.thread.previousMatch")}',
+      'aria-label={t("mail.thread.nextMatch")}',
+      'aria-label={t("mail.thread.closeSearch")}',
+    ]) {
+      expect(source).toContain(label);
+    }
+    expect(source).toContain(
+      'aria-label={t("mail.thread.searchConversationLabel")}',
+    );
+    expect(source).not.toContain("<TooltipContent>Back (Esc)</TooltipContent>");
+    expect(source).not.toContain("<TooltipContent>Reply</TooltipContent>");
+    expect(source).not.toContain("<TooltipContent>Forward</TooltipContent>");
+    expect(source).not.toContain(
+      "<TooltipContent>Previous match (Shift+Enter)</TooltipContent>",
+    );
+    expect(source).not.toContain(
+      "<TooltipContent>Next match (Enter)</TooltipContent>",
+    );
+    expect(source).not.toContain(
+      "<TooltipContent>Close (Esc)</TooltipContent>",
+    );
+  });
+});

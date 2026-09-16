@@ -10,6 +10,7 @@ import {
   resolveGoogleProviderCredentialCandidatesWithReader,
   resolveOAuthRedirectUri,
   encodeOAuthState,
+  wrapNetlifyPreviewGoogleOAuthState,
   decodeOAuthState,
   logOAuthStateDecodeFailure,
   ensureGoogleAuthIdentity,
@@ -243,7 +244,10 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
     const redirectUri = resolveOAuthRedirectUri(
       event,
       "/_agent-native/google/callback",
-      { allowRootCallback: true },
+      {
+        allowRootCallback: true,
+        useNetlifyPreviewGoogleOAuthRelay: true,
+      },
     );
     if (!redirectUri) {
       setResponseStatus(event, 400);
@@ -329,9 +333,10 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
       desktopVerifierHash,
       desktopBrowserBindingHash,
     });
+    const oauthState = wrapNetlifyPreviewGoogleOAuthState(event, state);
 
     const url = calendarConnect
-      ? await getAuthUrl(undefined, redirectUri, state, owner, orgId)
+      ? await getAuthUrl(undefined, redirectUri, oauthState, owner, orgId)
       : `${GOOGLE_AUTH_URL}?${new URLSearchParams({
           client_id: credentials.clientId,
           redirect_uri: redirectUri,
@@ -339,7 +344,7 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
           scope: GOOGLE_IDENTITY_SCOPES.join(" "),
           access_type: "online",
           prompt: "select_account",
-          state,
+          state: oauthState,
         })}`;
     if (q.redirect === "1") {
       return oauthRedirectResponse(url);
@@ -558,7 +563,10 @@ export const getGoogleAddAccountUrl = defineEventHandler(
       const redirectUri = resolveOAuthRedirectUri(
         event,
         "/_agent-native/google/callback",
-        { allowRootCallback: true },
+        {
+          allowRootCallback: true,
+          useNetlifyPreviewGoogleOAuthRelay: true,
+        },
       );
       if (!redirectUri) {
         setResponseStatus(event, 400);
@@ -603,10 +611,11 @@ export const getGoogleAddAccountUrl = defineEventHandler(
         desktopVerifierHash,
         desktopBrowserBindingHash,
       });
+      const oauthState = wrapNetlifyPreviewGoogleOAuthState(event, state);
       const url = await getAuthUrl(
         undefined,
         redirectUri,
-        state,
+        oauthState,
         session.email,
         session.orgId,
       );
