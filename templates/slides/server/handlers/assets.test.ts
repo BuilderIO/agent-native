@@ -130,6 +130,22 @@ describe("uploaded asset validation", () => {
     ).toBe(false);
     expect(
       canSaveAsUploadedAsset({
+        originalName: "image-css.svg",
+        data: Buffer.from(
+          '<svg><style>rect{fill:image("https://example.com/pixel")}</style><rect /></svg>',
+        ),
+      }),
+    ).toBe(false);
+    expect(
+      canSaveAsUploadedAsset({
+        originalName: "animate-transform.svg",
+        data: Buffer.from(
+          '<svg><animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="1s" repeatCount="indefinite" /></svg>',
+        ),
+      }),
+    ).toBe(false);
+    expect(
+      canSaveAsUploadedAsset({
         originalName: "commented-css.svg",
         data: Buffer.from(
           '<svg><style>@im/**/port "https://example.com/style.css";</style></svg>',

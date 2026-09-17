@@ -176,7 +176,7 @@ export function isSafeSvg(data: Uint8Array): boolean {
     decodeXmlReferences(source),
   ).replace(/\/\*[\s\S]*?\*\//g, "");
   const forbidden = [
-    /<\s*(?:script|foreignObject|iframe|object|embed|link|audio|video|animate|set|discard)\b/i,
+    /<\s*(?:script|foreignObject|iframe|object|embed|link|audio|video|animate(?:Transform|Motion|Color)?|set|discard)\b/i,
     /<\s*\/?[a-z_][\w.-]*:[a-z_][\w.-]*\b/i,
     /<!\s*(?:DOCTYPE|ENTITY)\b/i,
     /<\?xml-stylesheet\b/i,
@@ -185,7 +185,7 @@ export function isSafeSvg(data: Uint8Array): boolean {
     /\b(?:javascript|vbscript)\s*:/i,
     /\b(?:expression|behavior|-moz-binding)\s*\(/i,
     /@import\b/i,
-    /\b(?:-webkit-)?image-set\s*\(/i,
+    /\b(?:image|(?:-webkit-)?image-set)\s*\(/i,
   ];
   if (forbidden.some((pattern) => pattern.test(normalizedSource))) return false;
 
