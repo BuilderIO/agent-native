@@ -228,15 +228,52 @@ export function OpenVisualEditWebMcp() {
   );
 
   useEffect(() => {
-    const registration = createAgentNativeWebMcpRegistration({
-      actions: createOpenVisualEditWebMcpActions(),
-      approve: requestApproval,
-    });
-    void registration.start().catch(() => {
-      // WebMCP is progressive enhancement; the MCP-connector/CLI path remains available.
-    });
+    let disposed = false;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let retryDelayMs = 1_000;
+    let registration:
+      | ReturnType<typeof createAgentNativeWebMcpRegistration>
+      | undefined;
+    const actions = createOpenVisualEditWebMcpActions();
+
+    const scheduleRetry = () => {
+      if (disposed || retryTimer !== undefined) return;
+      const delay = retryDelayMs;
+      retryDelayMs = Math.min(retryDelayMs * 2, 30_000);
+      retryTimer = setTimeout(() => {
+        retryTimer = undefined;
+        startRegistration();
+      }, delay);
+    };
+    const startRegistration = () => {
+      if (disposed) return;
+      registration?.stop();
+      const nextRegistration = createAgentNativeWebMcpRegistration({
+        actions,
+        approve: requestApproval,
+      });
+      registration = nextRegistration;
+      void nextRegistration
+        .start()
+        .then(() => {
+          if (!nextRegistration.supported) {
+            scheduleRetry();
+          } else {
+            retryDelayMs = 1_000;
+          }
+        })
+        .catch(() => {
+          // WebMCP is progressive enhancement; retry while the model context
+          // or the action manifest becomes available.
+          scheduleRetry();
+        });
+    };
+
+    startRegistration();
     return () => {
-      registration.stop();
+      disposed = true;
+      if (retryTimer !== undefined) clearTimeout(retryTimer);
+      registration?.stop();
       resolveApproval(false);
     };
   }, [requestApproval, resolveApproval]);

@@ -223,8 +223,18 @@ function DesignToaster() {
 
 function RootContent() {
   const location = useLocation();
-  if (location.pathname === "/") return <Outlet />;
+  if (location.pathname === "/") return <MarketingRootContent />;
   return <PrivateRootContent />;
+}
+
+function MarketingRootContent() {
+  const { session } = useSession();
+  return (
+    <>
+      {session?.email && <OpenVisualEditWebMcp />}
+      <Outlet />
+    </>
+  );
 }
 
 function PrivateRootContent() {
