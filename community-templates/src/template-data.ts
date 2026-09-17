@@ -1,0 +1,778 @@
+export type TemplateMode =
+  | "advisor"
+  | "queue"
+  | "draft"
+  | "memo"
+  | "watch"
+  | "library"
+  | "account";
+
+export type Accent = "amber" | "teal" | "coral" | "violet";
+
+export interface QueueItem {
+  id: string;
+  name: string;
+  meta: string;
+  status: string;
+  statusTone: "attention" | "ready" | "quiet" | "complete";
+  score: string;
+  age: string;
+  owner: string;
+  summary: string;
+  tags: string[];
+}
+
+export interface DetailSection {
+  label: string;
+  value: string;
+}
+
+export interface DraftData {
+  recipient: string;
+  subject: string;
+  body: string[];
+  source: string;
+  confidence: string;
+}
+
+export interface MemoData {
+  headline: string;
+  sections: Array<{ label: string; body: string }>;
+  evidence: string[];
+}
+
+export interface SignalItem {
+  id: string;
+  source: string;
+  sourceTone: "linkedin" | "web" | "internal";
+  title: string;
+  body: string;
+  time: string;
+  impact: string;
+  impactTone: "high" | "medium" | "low";
+}
+
+export interface ClipItem {
+  id: string;
+  title: string;
+  account: string;
+  duration: string;
+  tag: string;
+  color: "gold" | "mint" | "rose" | "sky";
+  transcript: string;
+}
+
+export interface AdvisorData {
+  observed: string[];
+  recommendation: string;
+  steps: string[];
+}
+
+export interface Template {
+  slug: string;
+  title: string;
+  shortTitle: string;
+  category: string;
+  audience: string;
+  summary: string;
+  mode: TemplateMode;
+  accent: Accent;
+  systems: string[];
+  cadence: string;
+  primaryAction: string;
+  secondaryAction: string;
+  prompt: string;
+  metric: { value: string; label: string };
+  setup: string;
+  rows?: QueueItem[];
+  sections?: DetailSection[];
+  draft?: DraftData;
+  memo?: MemoData;
+  signals?: SignalItem[];
+  clips?: ClipItem[];
+  advisor?: AdvisorData;
+}
+
+const accountTieringRows: QueueItem[] = [
+  {
+    id: "acme-health",
+    name: "Acme Health",
+    meta: "Enterprise · 1,240 seats",
+    status: "Expansion ready",
+    statusTone: "ready",
+    score: "96",
+    age: "2h ago",
+    owner: "JL",
+    summary:
+      "Usage is up 34% and the procurement contact opened the security pack twice.",
+    tags: ["Expansion", "Product signal"],
+  },
+  {
+    id: "northstar-labs",
+    name: "Northstar Labs",
+    meta: "Mid-market · 84 seats",
+    status: "Review tier",
+    statusTone: "attention",
+    score: "81",
+    age: "4h ago",
+    owner: "MR",
+    summary:
+      "Champion changed roles. Keep the account high-touch until the new owner is confirmed.",
+    tags: ["Champion change", "Renewal"],
+  },
+  {
+    id: "fieldwire",
+    name: "Fieldwire",
+    meta: "Growth · 42 seats",
+    status: "Review tier",
+    statusTone: "attention",
+    score: "72",
+    age: "Yesterday",
+    owner: "SK",
+    summary:
+      "Three active teams are approaching the usage threshold for the next plan.",
+    tags: ["Usage", "Plan fit"],
+  },
+  {
+    id: "meridian-bio",
+    name: "Meridian Bio",
+    meta: "Growth · 28 seats",
+    status: "Nurture",
+    statusTone: "quiet",
+    score: "54",
+    age: "2d ago",
+    owner: "AC",
+    summary: "Low activity and no open opportunity in the last 30 days.",
+    tags: ["Low activity"],
+  },
+];
+
+const churnRows: QueueItem[] = [
+  {
+    id: "vector-works",
+    name: "Vector Works",
+    meta: "Renewal in 21 days · $84k ARR",
+    status: "Intervene",
+    statusTone: "attention",
+    score: "88",
+    age: "18m ago",
+    owner: "DA",
+    summary:
+      "Weekly active users fell 41%; the executive sponsor has not replied to two check-ins.",
+    tags: ["Usage drop", "Sponsor silent"],
+  },
+  {
+    id: "lumen-payments",
+    name: "Lumen Payments",
+    meta: "Renewal in 46 days · $52k ARR",
+    status: "Watch",
+    statusTone: "attention",
+    score: "74",
+    age: "1h ago",
+    owner: "RP",
+    summary:
+      "Support volume is elevated and the main workspace has not invited a new user in 30 days.",
+    tags: ["Support", "Adoption"],
+  },
+  {
+    id: "harbor-logistics",
+    name: "Harbor Logistics",
+    meta: "Renewal in 73 days · $29k ARR",
+    status: "Healthy",
+    statusTone: "complete",
+    score: "28",
+    age: "3h ago",
+    owner: "JM",
+    summary:
+      "Usage is steady, key workflows are active, and the account added two teams this month.",
+    tags: ["Healthy", "Adoption"],
+  },
+  {
+    id: "sunroom-retail",
+    name: "Sunroom Retail",
+    meta: "Renewal in 9 days · $18k ARR",
+    status: "Needs owner",
+    statusTone: "attention",
+    score: "67",
+    age: "Yesterday",
+    owner: "—",
+    summary:
+      "The renewal task is unassigned and the latest account note is six weeks old.",
+    tags: ["Renewal", "Unassigned"],
+  },
+];
+
+const linkedinIcpRows: QueueItem[] = [
+  {
+    id: "rivet-security",
+    name: "Rivet Security",
+    meta: "Series B · 220 employees",
+    status: "Strong fit",
+    statusTone: "ready",
+    score: "94",
+    age: "11m ago",
+    owner: "—",
+    summary:
+      "Hiring three platform engineers and recently opened a second data center in Chicago.",
+    tags: ["Hiring", "Data infra"],
+  },
+  {
+    id: "kindred-health",
+    name: "Kindred Health",
+    meta: "Series C · 480 employees",
+    status: "Research",
+    statusTone: "attention",
+    score: "86",
+    age: "42m ago",
+    owner: "—",
+    summary:
+      "VP Engineering posted about reducing operational drag across a fast-growing team.",
+    tags: ["Exec signal", "Growth"],
+  },
+  {
+    id: "cinder-finance",
+    name: "Cinder Finance",
+    meta: "Series A · 96 employees",
+    status: "Watch",
+    statusTone: "quiet",
+    score: "68",
+    age: "2h ago",
+    owner: "—",
+    summary:
+      "Fits the company profile, but no timely trigger was found this week.",
+    tags: ["ICP fit"],
+  },
+  {
+    id: "redwood-robotics",
+    name: "Redwood Robotics",
+    meta: "Series B · 150 employees",
+    status: "Strong fit",
+    statusTone: "ready",
+    score: "82",
+    age: "Yesterday",
+    owner: "—",
+    summary:
+      "New product launch and a fresh operations leadership hire create a timing window.",
+    tags: ["Launch", "New hire"],
+  },
+];
+
+export const templates: Template[] = [
+  {
+    slug: "agent-advisor",
+    title: "Agent Advisor",
+    shortTitle: "Advisor",
+    category: "Meta workflow",
+    audience: "Every operator",
+    summary:
+      "Find the repeatable work hiding in the way your team already operates.",
+    mode: "advisor",
+    accent: "teal",
+    systems: ["Activity", "Chat", "Builder"],
+    cadence: "On demand",
+    primaryAction: "Inspect a workflow",
+    secondaryAction: "See sample recommendation",
+    prompt:
+      "Inspect this workflow for repeated steps, judgment calls, and a useful Agent-Native app boundary.",
+    metric: { value: "12", label: "repeated steps found" },
+    setup: "Choose a recent workflow or start from a saved run.",
+    advisor: {
+      observed: [
+        "4 reps rebuild the same account brief every Monday",
+        "The same 3 systems are opened in sequence",
+        "Approval happens after research, before outreach",
+      ],
+      recommendation:
+        "Create an Account Tiering template with a ranked queue, evidence drawer, and approval step.",
+      steps: [
+        "Collect the workflow inputs",
+        "Separate deterministic steps from judgment",
+        "Preview the app boundary",
+        "Open the clone in Builder",
+      ],
+    },
+  },
+  {
+    slug: "account-tiering",
+    title: "Account Tiering",
+    shortTitle: "Account tiering",
+    category: "GTM operations",
+    audience: "RevOps + sales",
+    summary:
+      "Keep account priority aligned with live product and relationship signals.",
+    mode: "queue",
+    accent: "amber",
+    systems: ["CRM", "Product", "Calendar"],
+    cadence: "Every Monday",
+    primaryAction: "Re-score accounts",
+    secondaryAction: "Review changes",
+    prompt:
+      "Re-score these accounts using usage, relationship, and expansion signals, then explain the biggest tier changes.",
+    metric: { value: "42", label: "accounts in scope" },
+    setup: "Connect a CRM and choose the signals that define priority.",
+    rows: accountTieringRows,
+    sections: [
+      { label: "Why now", value: "Usage up 34%; security pack opened twice" },
+      { label: "Relationship", value: "Champion active · procurement engaged" },
+      { label: "Next move", value: "Invite VP Operations to expansion review" },
+      { label: "Sources", value: "CRM · Product analytics · Calendar" },
+    ],
+  },
+  {
+    slug: "call-follow-up-drafter",
+    title: "Call Follow-up Drafter",
+    shortTitle: "Call follow-up",
+    category: "GTM operations",
+    audience: "AEs + CSMs",
+    summary:
+      "Turn the last call into a precise follow-up while the context is fresh.",
+    mode: "draft",
+    accent: "coral",
+    systems: ["Calls", "CRM", "Mail"],
+    cadence: "After every call",
+    primaryAction: "Draft follow-up",
+    secondaryAction: "Compare call evidence",
+    prompt:
+      "Draft a concise follow-up for the selected call. Keep commitments, open questions, and next steps explicit.",
+    metric: { value: "8", label: "calls awaiting follow-up" },
+    setup: "Connect call notes, CRM activity, and the sending inbox.",
+    rows: [
+      {
+        id: "helio-call",
+        name: "Helio Systems",
+        meta: "Discovery call · 38 min",
+        status: "Draft ready",
+        statusTone: "ready",
+        score: "91",
+        age: "18m ago",
+        owner: "MR",
+        summary:
+          "They need a faster handoff from sales to implementation before Q4.",
+        tags: ["Discovery", "Q4"],
+      },
+      {
+        id: "northstar-call",
+        name: "Northstar Labs",
+        meta: "Renewal call · 24 min",
+        status: "Needs review",
+        statusTone: "attention",
+        score: "78",
+        age: "2h ago",
+        owner: "JL",
+        summary:
+          "The champion asked about procurement timing but no date was recorded.",
+        tags: ["Renewal", "Open question"],
+      },
+      {
+        id: "alto-call",
+        name: "Alto Commerce",
+        meta: "Demo · 46 min",
+        status: "Not started",
+        statusTone: "quiet",
+        score: "63",
+        age: "Yesterday",
+        owner: "AC",
+        summary:
+          "Three stakeholders attended; the requested integration is still unclear.",
+        tags: ["Demo", "Integration"],
+      },
+    ],
+    draft: {
+      recipient: "Maya Chen · Helio Systems",
+      subject: "Next steps for Helio’s implementation handoff",
+      body: [
+        "Maya, thanks for walking through the handoff process today.",
+        "The main gap is getting implementation the right context before the first customer meeting. I’ll send the current handoff checklist and a short example from a similar team.",
+        "Would Thursday afternoon work to review the workflow with your implementation lead?",
+      ],
+      source: "Helio discovery call · CRM opportunity · Handoff checklist",
+      confidence: "High confidence",
+    },
+  },
+  {
+    slug: "win-loss-memo",
+    title: "Win / Loss Memo",
+    shortTitle: "Win / loss",
+    category: "GTM operations",
+    audience: "Sales leaders",
+    summary:
+      "Make every closed deal improve the next one with evidence-backed patterns.",
+    mode: "memo",
+    accent: "violet",
+    systems: ["CRM", "Calls", "Mail"],
+    cadence: "After close",
+    primaryAction: "Generate memo",
+    secondaryAction: "Inspect evidence",
+    prompt:
+      "Synthesize the selected closed deal into a win/loss memo with evidence, contributing factors, and one recommended change.",
+    metric: { value: "17", label: "closed deals this quarter" },
+    setup: "Connect closed opportunities and the conversations behind them.",
+    rows: [
+      {
+        id: "lumen-win",
+        name: "Lumen Payments",
+        meta: "Won · $52k ARR",
+        status: "Memo ready",
+        statusTone: "ready",
+        score: "89",
+        age: "Today",
+        owner: "RP",
+        summary:
+          "The security review and a customer proof point changed the decision.",
+        tags: ["Win", "Security"],
+      },
+      {
+        id: "orbit-loss",
+        name: "Orbit Freight",
+        meta: "Lost · $38k ARR",
+        status: "Needs synthesis",
+        statusTone: "attention",
+        score: "76",
+        age: "Yesterday",
+        owner: "DA",
+        summary:
+          "Pricing entered late and the economic buyer joined only at the end.",
+        tags: ["Loss", "Pricing"],
+      },
+      {
+        id: "fieldwire-win",
+        name: "Fieldwire",
+        meta: "Won · $24k ARR",
+        status: "Memo ready",
+        statusTone: "ready",
+        score: "84",
+        age: "3d ago",
+        owner: "SK",
+        summary:
+          "The team won by leading with a small pilot and clear adoption milestones.",
+        tags: ["Win", "Pilot"],
+      },
+    ],
+    memo: {
+      headline: "Lumen chose confidence over feature breadth.",
+      sections: [
+        {
+          label: "Decision pattern",
+          body: "The deal moved after the security review became a guided working session rather than a checklist exchange.",
+        },
+        {
+          label: "What changed the outcome",
+          body: "A peer proof point gave the buyer cover with finance, while the implementation plan reduced perceived switching risk.",
+        },
+        {
+          label: "Change for next time",
+          body: "Bring the implementation plan into the second meeting for regulated accounts.",
+        },
+      ],
+      evidence: [
+        "Call note: “We need to know this will not become another six-month project.”",
+        "Email thread: security review approved on Sep 12",
+        "CRM: implementation plan shared before legal review",
+      ],
+    },
+  },
+  {
+    slug: "churn-early-warning",
+    title: "Churn Early Warning",
+    shortTitle: "Churn warning",
+    category: "Customer success",
+    audience: "CS + account teams",
+    summary:
+      "See the accounts that need a human before renewal risk becomes a forecast.",
+    mode: "queue",
+    accent: "coral",
+    systems: ["CRM", "Product", "Support"],
+    cadence: "Every morning",
+    primaryAction: "Scan renewal risk",
+    secondaryAction: "Plan intervention",
+    prompt:
+      "Scan these accounts for churn risk, cite the signals, and propose the smallest useful intervention for each.",
+    metric: { value: "4", label: "accounts needing review" },
+    setup: "Connect product usage, support history, and renewal dates.",
+    rows: churnRows,
+    sections: [
+      { label: "Risk signal", value: "Weekly active users down 41%" },
+      { label: "Relationship", value: "Sponsor silent on 2 check-ins" },
+      {
+        label: "Suggested play",
+        value: "Executive value review with a usage recovery plan",
+      },
+      { label: "Sources", value: "Product analytics · Support · CRM" },
+    ],
+  },
+  {
+    slug: "account-expert",
+    title: "Account Expert",
+    shortTitle: "Account expert",
+    category: "GTM operations",
+    audience: "Anyone with an account",
+    summary:
+      "Ask one account question and get a sourced answer instead of opening six tabs.",
+    mode: "account",
+    accent: "teal",
+    systems: ["CRM", "Calls", "Mail", "Docs"],
+    cadence: "On demand",
+    primaryAction: "Ask about account",
+    secondaryAction: "Open source trail",
+    prompt:
+      "Give me the current account picture: goals, risks, open commitments, stakeholders, and the best next question.",
+    metric: { value: "1", label: "account in focus" },
+    setup: "Choose an account and connect the systems that hold its context.",
+    sections: [
+      { label: "Account", value: "Acme Health · Enterprise" },
+      { label: "Current goal", value: "Expand from data team to operations" },
+      {
+        label: "Open commitment",
+        value: "Share security architecture before Friday",
+      },
+      {
+        label: "Risk",
+        value: "Procurement has not joined a live conversation",
+      },
+      {
+        label: "Best next question",
+        value: "What does operations need to see to sponsor the rollout?",
+      },
+      { label: "Sources", value: "3 calls · 8 emails · 1 CRM opportunity" },
+    ],
+  },
+  {
+    slug: "demo-clip-library",
+    title: "Demo Clip Library",
+    shortTitle: "Demo clips",
+    category: "GTM enablement",
+    audience: "Sales + marketing",
+    summary:
+      "Find the proof point from a past demo and reuse it in the next conversation.",
+    mode: "library",
+    accent: "amber",
+    systems: ["Clips", "Calls", "CRM"],
+    cadence: "As demos land",
+    primaryAction: "Find a proof point",
+    secondaryAction: "Tag selected clips",
+    prompt:
+      "Find the most relevant demo clips for the selected account and explain why each one is useful.",
+    metric: { value: "126", label: "clips indexed" },
+    setup: "Connect your recordings and choose the account metadata to index.",
+    clips: [
+      {
+        id: "clip-1",
+        title: "Permissioning in one minute",
+        account: "Lumen Payments",
+        duration: "01:08",
+        tag: "Security",
+        color: "gold",
+        transcript:
+          "The admin can set the boundary once, then every team inherits the same policy.",
+      },
+      {
+        id: "clip-2",
+        title: "The handoff that does not get lost",
+        account: "Helio Systems",
+        duration: "02:14",
+        tag: "Handoff",
+        color: "mint",
+        transcript:
+          "The implementation team sees the decision trail before they ever join the call.",
+      },
+      {
+        id: "clip-3",
+        title: "From signal to next action",
+        account: "Acme Health",
+        duration: "00:54",
+        tag: "Workflow",
+        color: "rose",
+        transcript:
+          "The account view turns a product signal into a precise question for the next meeting.",
+      },
+      {
+        id: "clip-4",
+        title: "A pilot with a finish line",
+        account: "Fieldwire",
+        duration: "01:42",
+        tag: "Pilot",
+        color: "sky",
+        transcript:
+          "We agreed on the first three workflows and the adoption signal that earns expansion.",
+      },
+    ],
+  },
+  {
+    slug: "outbound-in-your-voice",
+    title: "Outbound in Your Voice",
+    shortTitle: "Outbound voice",
+    category: "GTM operations",
+    audience: "Founders + AEs",
+    summary:
+      "Turn a real trigger into a thoughtful first draft that sounds like your team.",
+    mode: "draft",
+    accent: "coral",
+    systems: ["CRM", "LinkedIn", "Mail"],
+    cadence: "When a signal appears",
+    primaryAction: "Draft outreach",
+    secondaryAction: "Review voice sources",
+    prompt:
+      "Draft outreach for the selected prospect using the trigger, account context, and my approved examples. Do not send.",
+    metric: { value: "6", label: "new signals this week" },
+    setup: "Add approved examples and define the outbound review boundary.",
+    rows: [
+      {
+        id: "rivet-outbound",
+        name: "Rivet Security",
+        meta: "New VP Platform hire",
+        status: "Draft ready",
+        statusTone: "ready",
+        score: "94",
+        age: "11m ago",
+        owner: "—",
+        summary:
+          "Their new platform leader is hiring around the exact workflow you solve.",
+        tags: ["New hire", "ICP"],
+      },
+      {
+        id: "kindred-outbound",
+        name: "Kindred Health",
+        meta: "Ops post · 2d ago",
+        status: "Review tone",
+        statusTone: "attention",
+        score: "86",
+        age: "42m ago",
+        owner: "—",
+        summary:
+          "The signal is strong, but the post is personal and needs a lighter touch.",
+        tags: ["Signal", "Tone"],
+      },
+      {
+        id: "cinder-outbound",
+        name: "Cinder Finance",
+        meta: "ICP match · no trigger",
+        status: "Hold",
+        statusTone: "quiet",
+        score: "68",
+        age: "2h ago",
+        owner: "—",
+        summary:
+          "Good fit, but there is no timely reason to interrupt the team yet.",
+        tags: ["ICP fit"],
+      },
+    ],
+    draft: {
+      recipient: "Avery Patel · VP Platform, Rivet Security",
+      subject: "The platform handoff after a new team hire",
+      body: [
+        "Avery, congrats on the new role.",
+        "I noticed Rivet is building out the platform team. A pattern we see at that stage is the work between product, platform, and security becoming the slowest part of the launch.",
+        "If that is showing up for you, I can share the short workflow one of our security teams uses to keep those handoffs visible.",
+      ],
+      source:
+        "LinkedIn hiring signal · 3 approved outbound examples · Rivet account brief",
+      confidence: "Review before sending",
+    },
+  },
+  {
+    slug: "linkedin-signal-watch",
+    title: "LinkedIn Signal Watch",
+    shortTitle: "Signal watch",
+    category: "GTM intelligence",
+    audience: "Marketing + sales",
+    summary:
+      "Turn the people and company changes you care about into a focused signal feed.",
+    mode: "watch",
+    accent: "teal",
+    systems: ["LinkedIn", "CRM", "Slack"],
+    cadence: "Daily at 8:00",
+    primaryAction: "Scan new signals",
+    secondaryAction: "Tune watchlist",
+    prompt:
+      "Scan the watchlist for meaningful people or company changes, remove noise, and explain which signals deserve action.",
+    metric: { value: "9", label: "signals worth review" },
+    setup: "Choose the people, accounts, and signal types worth watching.",
+    signals: [
+      {
+        id: "signal-1",
+        source: "LinkedIn",
+        sourceTone: "linkedin",
+        title: "Rivet Security hired a VP Platform",
+        body: "Avery Patel joined this week and is hiring three platform engineers.",
+        time: "11m ago",
+        impact: "High relevance",
+        impactTone: "high",
+      },
+      {
+        id: "signal-2",
+        source: "LinkedIn",
+        sourceTone: "linkedin",
+        title: "Kindred Health posted about operational drag",
+        body: "The post names handoffs across a growing engineering team as a current focus.",
+        time: "42m ago",
+        impact: "High relevance",
+        impactTone: "high",
+      },
+      {
+        id: "signal-3",
+        source: "CRM",
+        sourceTone: "internal",
+        title: "Northstar Labs changed champions",
+        body: "The former champion moved teams; a new operations contact opened the latest brief.",
+        time: "2h ago",
+        impact: "Needs context",
+        impactTone: "medium",
+      },
+      {
+        id: "signal-4",
+        source: "Web",
+        sourceTone: "web",
+        title: "Lumen Payments opened a Chicago office",
+        body: "A new office is listed on the company site, but no related hiring signal is confirmed.",
+        time: "Yesterday",
+        impact: "Low confidence",
+        impactTone: "low",
+      },
+    ],
+  },
+  {
+    slug: "linkedin-icp-prospect-tracker",
+    title: "LinkedIn ICP Prospect Tracker",
+    shortTitle: "ICP tracker",
+    category: "GTM intelligence",
+    audience: "Founders + growth",
+    summary:
+      "Keep a living prospect list ranked by fit and the reason to reach out now.",
+    mode: "queue",
+    accent: "violet",
+    systems: ["LinkedIn", "CRM", "Web"],
+    cadence: "Every morning",
+    primaryAction: "Refresh prospect list",
+    secondaryAction: "Open research brief",
+    prompt:
+      "Refresh the ICP prospect list, rank by fit and timing, and cite the signal behind each recommendation.",
+    metric: { value: "24", label: "prospects in scope" },
+    setup: "Define your ICP and the signals that create a timing window.",
+    rows: linkedinIcpRows,
+    sections: [
+      { label: "Fit", value: "Series A-C · 80-500 employees" },
+      { label: "Timing", value: "Hiring, launch, or new operations leader" },
+      {
+        label: "Suggested opener",
+        value: "Reference the platform handoff signal",
+      },
+      { label: "Sources", value: "LinkedIn · Company site · CRM" },
+    ],
+  },
+];
+
+export const featuredTemplateSlugs = [
+  "account-tiering",
+  "call-follow-up-drafter",
+  "win-loss-memo",
+  "churn-early-warning",
+  "account-expert",
+  "demo-clip-library",
+  "outbound-in-your-voice",
+  "linkedin-signal-watch",
+  "linkedin-icp-prospect-tracker",
+];
+
+export function getTemplate(slug: string | null): Template {
+  return templates.find((template) => template.slug === slug) ?? templates[0];
+}
