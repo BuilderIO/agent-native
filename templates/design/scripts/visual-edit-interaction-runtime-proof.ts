@@ -549,8 +549,7 @@ async function main() {
         .innerText({ timeout: 2_000 })
         .catch(() => "<unreadable>");
       throw new Error(
-        `Nested target did not load in ${targetFrame.url()}: ${frameText.slice(0, 500)}`,
-        { cause: error },
+        `Nested target did not load in ${targetFrame.url()}: ${frameText.slice(0, 500)} (${String(error)})`,
       );
     }
 
@@ -960,16 +959,20 @@ async function main() {
     }
   }
   if (proofError && cleanupErrors.length > 0) {
-    throw new AggregateError(
-      [proofError, ...cleanupErrors],
-      "Visual-edit proof and cleanup failed.",
+    throw new Error(
+      [
+        "Visual-edit proof and cleanup failed.",
+        String(proofError),
+        ...cleanupErrors.map(String),
+      ].join("\n"),
     );
   }
   if (proofError) throw proofError;
   if (cleanupErrors.length > 0) {
-    throw new AggregateError(
-      cleanupErrors,
-      "Visual-edit proof cleanup failed.",
+    throw new Error(
+      ["Visual-edit proof cleanup failed.", ...cleanupErrors.map(String)].join(
+        "\n",
+      ),
     );
   }
 }

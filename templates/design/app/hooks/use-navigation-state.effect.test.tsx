@@ -76,7 +76,8 @@ describe("useNavigationState selection cleanup", () => {
     await renderProbe("/visual-edit/design-123?view=overview");
 
     expect(coreClientMocks.setClientAppState).not.toHaveBeenCalled();
-    const config = coreClientMocks.useAgentRouteState.mock.calls.at(-1)?.[0];
+    const routeStateCalls = coreClientMocks.useAgentRouteState.mock.calls;
+    const config = routeStateCalls[routeStateCalls.length - 1]?.[0];
     expect(
       config.getNavigationState({
         pathname: "/visual-edit/design-123",
