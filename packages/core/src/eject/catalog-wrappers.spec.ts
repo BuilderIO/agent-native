@@ -35,6 +35,7 @@ describe("ejected catalog wrappers", () => {
       connectionMode: "manual",
       availability: "provider-setup",
       supportsOrganizationScope: true,
+      organizationScopeOnly: true,
       setupNoteKey: "mcpIntegrations.catalog.dbt.setupNote",
       headerPlaceholder:
         "Authorization: Token <DBT_SERVICE_TOKEN>\nx-dbt-prod-environment-id: <DBT_PROD_ENVIRONMENT_ID>",

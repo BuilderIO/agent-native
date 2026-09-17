@@ -1,9 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const listVisibleMcpTools = vi.hoisted(() => vi.fn());
+const mocks = vi.hoisted(() => ({
+  findConnectedMcpServersForProvider: vi.fn(),
+  getRequestOrgId: vi.fn(),
+  listVisibleMcpTools: vi.fn(),
+}));
 
 vi.mock("@agent-native/core/mcp-client", () => ({
-  listVisibleMcpTools,
+  findConnectedMcpServersForProvider: mocks.findConnectedMcpServersForProvider,
+  listVisibleMcpTools: mocks.listVisibleMcpTools,
+}));
+
+vi.mock("@agent-native/core/server", () => ({
+  getRequestOrgId: mocks.getRequestOrgId,
 }));
 
 const { readDbtMcpStatus } = await import("./dbt-mcp-status");
@@ -19,7 +28,15 @@ const metadataToolNames = [
   "get_model_performance",
 ];
 
-function tool(name: string, serverId = "org-dbt") {
+const dbtServer = {
+  id: "mcps-dbt",
+  mergedId: "org_org-1_dbt",
+  name: "dbt",
+  url: "https://acct.us1.dbt.com/api/ai/v1/mcp/",
+  scope: "org",
+};
+
+function tool(name: string, serverId = dbtServer.mergedId) {
   return {
     serverId,
     name,
@@ -30,11 +47,17 @@ function tool(name: string, serverId = "org-dbt") {
 
 describe("readDbtMcpStatus", () => {
   beforeEach(() => {
-    listVisibleMcpTools.mockReset();
+    vi.clearAllMocks();
+    mocks.getRequestOrgId.mockReturnValue("org-1");
+    mocks.findConnectedMcpServersForProvider.mockResolvedValue({
+      servers: [dbtServer],
+      unreadableScopes: [],
+    });
+    mocks.listVisibleMcpTools.mockResolvedValue([]);
   });
 
-  it("projects only the dbt metadata capability contract", async () => {
-    listVisibleMcpTools.mockResolvedValue([
+  it("projects metadata capabilities from a verified organization dbt server", async () => {
+    mocks.listVisibleMcpTools.mockResolvedValue([
       ...metadataToolNames.map((name) => tool(name)),
       tool("execute_sql"),
       tool("text_to_sql"),
@@ -43,7 +66,7 @@ describe("readDbtMcpStatus", () => {
     await expect(readDbtMcpStatus()).resolves.toEqual({
       available: true,
       configured: true,
-      serverId: "org-dbt",
+      serverId: "mcps-dbt",
       capabilities: {
         discovery: true,
         lineage: true,
@@ -52,33 +75,40 @@ describe("readDbtMcpStatus", () => {
       toolCount: metadataToolNames.length,
       setupLink: "/data-sources?source=dbt&returnTo=ask",
     });
+    expect(mocks.findConnectedMcpServersForProvider).toHaveBeenCalledWith({
+      providerId: "dbt",
+      orgId: "org-1",
+    });
+    expect(mocks.listVisibleMcpTools).toHaveBeenCalledWith({
+      serverId: "org_org-1_dbt",
+    });
   });
 
-  it("ignores dbt SQL and unrelated tools", async () => {
-    listVisibleMcpTools.mockResolvedValue([
-      tool("get_all_models", "dbt-discovery"),
-      tool("execute_sql", "dbt-discovery"),
-      tool("unrelated_tool", "dbt-discovery"),
+  it("ignores SQL and unrelated tools after verifying the dbt server", async () => {
+    mocks.listVisibleMcpTools.mockResolvedValue([
+      tool("get_all_models"),
+      tool("execute_sql"),
+      tool("unrelated_tool"),
     ]);
 
-    await expect(readDbtMcpStatus()).resolves.toEqual({
-      available: true,
+    await expect(readDbtMcpStatus()).resolves.toMatchObject({
       configured: true,
-      serverId: "dbt-discovery",
       capabilities: {
         discovery: true,
         lineage: false,
         healthAndFreshness: false,
       },
       toolCount: 1,
-      setupLink: "/data-sources?source=dbt&returnTo=ask",
     });
   });
 
-  it("reports SQL-only dbt tools as disconnected", async () => {
-    listVisibleMcpTools.mockResolvedValue([
-      tool("execute_sql"),
-      tool("text_to_sql"),
+  it("does not treat unrelated servers with dbt-like tool names as dbt", async () => {
+    mocks.findConnectedMcpServersForProvider.mockResolvedValue({
+      servers: [],
+      unreadableScopes: [],
+    });
+    mocks.listVisibleMcpTools.mockResolvedValue([
+      tool("get_lineage", "unrelated"),
     ]);
 
     await expect(readDbtMcpStatus()).resolves.toMatchObject({
@@ -86,10 +116,44 @@ describe("readDbtMcpStatus", () => {
       configured: false,
       toolCount: 0,
     });
+    expect(mocks.listVisibleMcpTools).not.toHaveBeenCalled();
   });
 
-  it("reports manager or list failure as unreadable rather than disconnected", async () => {
-    listVisibleMcpTools.mockRejectedValue(
+  it("keeps a verified dbt connection configured when it exposes no metadata tools", async () => {
+    mocks.listVisibleMcpTools.mockResolvedValue([
+      tool("execute_sql"),
+      tool("text_to_sql"),
+    ]);
+
+    await expect(readDbtMcpStatus()).resolves.toMatchObject({
+      available: true,
+      configured: true,
+      serverId: "mcps-dbt",
+      capabilities: {
+        discovery: false,
+        lineage: false,
+        healthAndFreshness: false,
+      },
+      toolCount: 0,
+    });
+  });
+
+  it("reports organization connection lookup failures as unreadable", async () => {
+    mocks.findConnectedMcpServersForProvider.mockResolvedValue({
+      servers: [],
+      unreadableScopes: ["org"],
+    });
+
+    await expect(readDbtMcpStatus()).resolves.toMatchObject({
+      available: false,
+      configured: null,
+      error: "The organization MCP server list could not be read.",
+      toolCount: 0,
+    });
+  });
+
+  it("reports tool-list failures as unreadable rather than disconnected", async () => {
+    mocks.listVisibleMcpTools.mockRejectedValue(
       new Error("MCP client is not configured."),
     );
 
@@ -99,5 +163,17 @@ describe("readDbtMcpStatus", () => {
       error: "MCP client is not configured.",
       toolCount: 0,
     });
+  });
+
+  it("does not inspect personal connections without an organization", async () => {
+    mocks.getRequestOrgId.mockReturnValue(null);
+
+    await expect(readDbtMcpStatus()).resolves.toMatchObject({
+      available: true,
+      configured: false,
+      toolCount: 0,
+    });
+    expect(mocks.findConnectedMcpServersForProvider).not.toHaveBeenCalled();
+    expect(mocks.listVisibleMcpTools).not.toHaveBeenCalled();
   });
 });

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  allowsMcpIntegrationPersonalScope,
   buildMcpOAuthStartUrl,
   createMcpIntegrationFormDefaults,
   DEFAULT_MCP_INTEGRATIONS,
@@ -163,6 +164,7 @@ describe("MCP integration catalog", () => {
       availability: "provider-setup",
       verification: "restricted",
       supportsOrganizationScope: true,
+      organizationScopeOnly: true,
       docsUrl: "https://docs.getdbt.com/docs/dbt-ai/mcp-quickstart-remote",
       setupNoteKey: "mcpIntegrations.catalog.dbt.setupNote",
       headerPlaceholder:
@@ -175,6 +177,7 @@ describe("MCP integration catalog", () => {
       headersText: "",
     });
     expect(supportsMcpIntegrationOrganizationScope(dbt)).toBe(true);
+    expect(allowsMcpIntegrationPersonalScope(dbt)).toBe(false);
     expect(shouldOfferMcpIntegrationOrganizationScope(dbt, true, true)).toBe(
       true,
     );

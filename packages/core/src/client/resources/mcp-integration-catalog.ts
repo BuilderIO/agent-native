@@ -545,6 +545,7 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     verification: "restricted",
     logoUrl: mcpIntegrationLogo("dbt"),
     supportsOrganizationScope: true,
+    organizationScopeOnly: true,
     docsUrl: "https://docs.getdbt.com/docs/dbt-ai/mcp-quickstart-remote",
     setupNoteKey: "mcpIntegrations.catalog.dbt.setupNote",
     headerPlaceholder:

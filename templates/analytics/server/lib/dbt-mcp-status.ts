@@ -1,7 +1,9 @@
 import {
+  findConnectedMcpServersForProvider,
   listVisibleMcpTools,
   type AppMcpTool,
 } from "@agent-native/core/mcp-client";
+import { getRequestOrgId } from "@agent-native/core/server";
 
 const DBT_DISCOVERY_TOOLS = new Set([
   "get_all_models",
@@ -51,36 +53,28 @@ function emptyStatus(configured: false | null, error?: string): DbtMcpStatus {
   };
 }
 
-function selectDbtServer(tools: AppMcpTool[]): AppMcpTool[] {
-  const byServer = new Map<string, AppMcpTool[]>();
-  for (const tool of tools) {
-    if (!DBT_METADATA_TOOLS.has(tool.name)) continue;
-    const current = byServer.get(tool.serverId) ?? [];
-    current.push(tool);
-    byServer.set(tool.serverId, current);
-  }
+interface DbtServerTools {
+  id: string;
+  tools: AppMcpTool[];
+}
 
-  return (
-    [...byServer.values()]
-      .filter((serverTools) =>
-        serverTools.some((tool) => DBT_METADATA_TOOLS.has(tool.name)),
-      )
-      .sort((left, right) => {
-        const capabilityDifference =
-          right.filter((tool) => DBT_METADATA_TOOLS.has(tool.name)).length -
-          left.filter((tool) => DBT_METADATA_TOOLS.has(tool.name)).length;
-        return (
-          capabilityDifference ||
-          left[0].serverId.localeCompare(right[0].serverId)
-        );
-      })[0] ?? []
-  );
+function selectDbtServer(servers: DbtServerTools[]): DbtServerTools {
+  return [...servers].sort(
+    (left, right) =>
+      right.tools.length - left.tools.length || left.id.localeCompare(right.id),
+  )[0];
 }
 
 export async function readDbtMcpStatus(): Promise<DbtMcpStatus> {
-  let tools: AppMcpTool[];
+  const orgId = getRequestOrgId() ?? null;
+  if (!orgId) return emptyStatus(false);
+
+  let connections;
   try {
-    tools = await listVisibleMcpTools();
+    connections = await findConnectedMcpServersForProvider({
+      providerId: "dbt",
+      orgId,
+    });
   } catch (error) {
     return emptyStatus(
       null,
@@ -88,21 +82,46 @@ export async function readDbtMcpStatus(): Promise<DbtMcpStatus> {
     );
   }
 
-  const dbtTools = selectDbtServer(tools);
-  if (dbtTools.length === 0) return emptyStatus(false);
+  if (connections.unreadableScopes.includes("org")) {
+    return emptyStatus(
+      null,
+      "The organization MCP server list could not be read.",
+    );
+  }
+  if (connections.servers.length === 0) return emptyStatus(false);
 
+  let servers: DbtServerTools[];
+  try {
+    servers = await Promise.all(
+      connections.servers.map(async (server) => ({
+        id: server.id,
+        tools: (
+          await listVisibleMcpTools({ serverId: server.mergedId })
+        ).filter((tool) => DBT_METADATA_TOOLS.has(tool.name)),
+      })),
+    );
+  } catch (error) {
+    return emptyStatus(
+      null,
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+
+  const selected = selectDbtServer(servers);
   return {
     available: true,
     configured: true,
-    serverId: dbtTools[0].serverId,
+    serverId: selected.id,
     capabilities: {
-      discovery: dbtTools.some((tool) => DBT_DISCOVERY_TOOLS.has(tool.name)),
-      lineage: dbtTools.some((tool) => DBT_LINEAGE_TOOLS.has(tool.name)),
-      healthAndFreshness: dbtTools.some((tool) =>
+      discovery: selected.tools.some((tool) =>
+        DBT_DISCOVERY_TOOLS.has(tool.name),
+      ),
+      lineage: selected.tools.some((tool) => DBT_LINEAGE_TOOLS.has(tool.name)),
+      healthAndFreshness: selected.tools.some((tool) =>
         DBT_HEALTH_TOOLS.has(tool.name),
       ),
     },
-    toolCount: dbtTools.length,
+    toolCount: selected.tools.length,
     setupLink: "/data-sources?source=dbt&returnTo=ask",
   };
 }
