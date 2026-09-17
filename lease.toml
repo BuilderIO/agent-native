@@ -1,0 +1,8 @@
+pr = "5259"
+owner_thread = "01a0af63-3fb3-7001-b3da-59576d23f807"
+version = "1"
+expires_at = "2026-09-17T13:59:06Z"
+parent_version = "absent"
+legacy_heartbeat_version = "absent"
+legacy_retired = true
+state = "active"
