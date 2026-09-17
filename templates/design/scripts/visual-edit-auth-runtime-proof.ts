@@ -452,7 +452,7 @@ async function main() {
             .map((screen) => [screen.id as string, screen.path as string]),
         );
       }
-      targetUrl = `${designUrl}${urlPath}&view=overview&zoom=24`;
+      targetUrl = `${designUrl}${urlPath}&zoom=24`;
     }
 
     const assertPreviewRouteMapping = (
@@ -732,7 +732,7 @@ async function main() {
       waitUntil: "domcontentloaded",
     });
     const logout = settingsFrame.locator("#sign-out button").first();
-    await logout.waitFor({ state: "visible", timeout: 10_000 });
+    await logout.waitFor({ state: "visible", timeout: 30_000 });
     const logoutResponsePromise = page
       .waitForResponse(
         (response) =>

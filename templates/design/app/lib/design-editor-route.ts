@@ -28,3 +28,10 @@ export function isPersistedDesignEditorRoute(pathname: string): boolean {
   const route = designEditorRoute(pathname);
   return route !== null && route.designId !== SHELL_DESIGN_ID;
 }
+
+export function designEditorViewFromSearchParams(
+  searchParams: URLSearchParams,
+): "single" | "overview" | undefined {
+  const value = searchParams.get("editorView") ?? searchParams.get("view");
+  return value === "single" || value === "overview" ? value : undefined;
+}

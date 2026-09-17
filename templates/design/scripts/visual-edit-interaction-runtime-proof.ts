@@ -43,6 +43,7 @@ type WebMcpCall = {
   tool?: string;
   result?: JsonObject;
 };
+type HmrSignal = { type: "update" | "full-reload"; url: string; at: number };
 
 function requireValue<T>(value: T | null | undefined, message: string): T {
   if (value === null || value === undefined) throw new Error(message);
@@ -167,6 +168,24 @@ async function main() {
     viewport: { width: 1900, height: 1100 },
   });
   const page = await context.newPage();
+  const hmrSignals: HmrSignal[] = [];
+  page.on("websocket", (socket) => {
+    socket.on("framereceived", ({ payload }) => {
+      let message: { type?: unknown } | null = null;
+      try {
+        message = JSON.parse(String(payload)) as { type?: unknown };
+      } catch {
+        // coercion-ok: Vite heartbeat/control frames are not JSON or HMR evidence.
+      }
+      if (message?.type === "update" || message?.type === "full-reload") {
+        hmrSignals.push({
+          type: message.type,
+          url: socket.url(),
+          at: Date.now(),
+        });
+      }
+    });
+  });
   let browserTabId = "";
   let createdDesignId: string | undefined;
   let connectionId: string | undefined;
@@ -520,7 +539,7 @@ async function main() {
       ],
     });
 
-    await page.goto(`${designUrl}${opened.urlPath}&view=overview&zoom=100`, {
+    await page.goto(`${designUrl}${opened.urlPath}&zoom=100`, {
       waitUntil: "domcontentloaded",
     });
     await page
@@ -591,13 +610,34 @@ async function main() {
     const boardIframe = page.locator(
       "[data-board-surface-layer] iframe[data-design-preview-iframe]",
     );
-    const dragAtZoom = async (zoom: number, undoAfterDrop: boolean) => {
-      await page.goto(
-        `${designUrl}${opened.urlPath}&view=overview&zoom=${zoom}`,
-        {
-          waitUntil: "domcontentloaded",
-        },
+    const inspectorSection = (name: string) =>
+      page
+        .locator("[data-design-inspector-section]")
+        .filter({ has: page.getByRole("heading", { name, exact: true }) })
+        .first();
+    const inspectorReceipt = async () =>
+      waitFor(
+        async () => ({
+          selectedLayerNames: await page
+            .locator(
+              '[role="treeitem"][aria-selected="true"] [data-layer-row-button]',
+            )
+            .allInnerTexts(),
+          positionSectionCount: await inspectorSection("Position").count(),
+          fillSectionCount: await inspectorSection("Fill").count(),
+        }),
+        (value) =>
+          value.selectedLayerNames.some((name) =>
+            name.includes("Proof board primitive"),
+          ) &&
+          value.positionSectionCount === 1 &&
+          value.fillSectionCount === 1,
+        "selected primitive inspector state",
       );
+    const dragAtZoom = async (zoom: number, undoAfterDrop: boolean) => {
+      await page.goto(`${designUrl}${opened.urlPath}&zoom=${zoom}`, {
+        waitUntil: "domcontentloaded",
+      });
       await page
         .locator("iframe[data-design-preview-iframe]")
         .first()
@@ -755,6 +795,7 @@ async function main() {
     zoomRuntimeProof.push(primaryZoomProof);
     targetFrame = primaryZoomProof.targetFrame;
     const { coordinateProbe, pendingPayload, liveAfterDrop } = primaryZoomProof;
+    const inspectorState = await inspectorReceipt();
     await cdpScreenshot(page, `${outputDir}/url-backed-nested-pending.png`);
 
     await page.keyboard.press("ControlOrMeta+z");
@@ -810,12 +851,13 @@ async function main() {
       ),
       "Fixture source was not clean before apply.",
     );
+    const hmrMarker = "url-backed-structure-proof-hmr";
     const search = `        </div>\n        <div\n          data-agent-native-node-id="${tailNodeId}"`;
     assert(
       sourceOriginal.content.split(search).length === 2,
       "Target source anchor boundary is not unique.",
     );
-    const replace = `        </div>\n        ${redone.insertedHtml}\n        <div\n          data-agent-native-node-id="${tailNodeId}"`;
+    const replace = `        </div>\n        ${redone.insertedHtml}\n        <div\n          data-agent-native-node-id="${tailNodeId}"\n          data-visual-edit-hmr="${hmrMarker}"`;
     expectedEditedContent = sourceOriginal.content.replace(search, replace);
     assert(
       expectedEditedContent !== sourceOriginal.content,
@@ -843,6 +885,7 @@ async function main() {
     await consentDialog.waitFor({ state: "hidden", timeout: 10_000 });
 
     sourceNeedsRestore = true;
+    const hmrSignalStart = hmrSignals.length;
     const applied = await callWebMcp("write-local-file", {
       designId: createdDesignId,
       connectionId,
@@ -877,6 +920,24 @@ async function main() {
     assert(
       pendingAfterApply.sourceId === boardNodeId,
       "Source apply lost the pending edit before reload.",
+    );
+
+    await waitFor(
+      async () => {
+        const currentTargetFrame = await frameForIframe(targetIframe);
+        return currentTargetFrame
+          .locator(`[data-agent-native-node-id="${tailNodeId}"]`)
+          .getAttribute("data-visual-edit-hmr");
+      },
+      (value) => value === hmrMarker,
+      "URL-backed iframe HMR source update",
+      60_000,
+    );
+    const hmrDuringApply = await waitFor(
+      () => Promise.resolve(hmrSignals.slice(hmrSignalStart)),
+      (signals) => signals.length > 0,
+      "Vite HMR signal after local source write",
+      60_000,
     );
 
     await page.reload({ waitUntil: "commit" });
@@ -948,6 +1009,11 @@ async function main() {
       undonePendingEditCount: undoneCall.result?.pendingEditCount ?? null,
       liveAfterReload,
       sourceSemantics,
+      inspectorState,
+      hmr: {
+        signals: hmrDuringApply,
+        marker: hmrMarker,
+      },
       supportedWrite: {
         transport: "page-webmcp",
         tool: applied.tool,

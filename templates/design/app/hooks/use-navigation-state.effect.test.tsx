@@ -72,8 +72,8 @@ describe("useNavigationState selection cleanup", () => {
     expect(coreClientMocks.setClientAppState).not.toHaveBeenCalled();
   });
 
-  it("keeps editor selection and navigation state on local visual-edit routes", async () => {
-    await renderProbe("/visual-edit/design-123?view=overview");
+  it("keeps editor selection and navigation state on canonical visual-edit routes", async () => {
+    await renderProbe("/visual-edit/design-123?editorView=overview");
 
     expect(coreClientMocks.setClientAppState).not.toHaveBeenCalled();
     const routeStateCalls = coreClientMocks.useAgentRouteState.mock.calls;
@@ -81,13 +81,26 @@ describe("useNavigationState selection cleanup", () => {
     expect(
       config.getNavigationState({
         pathname: "/visual-edit/design-123",
-        search: "?view=overview",
+        search: "?editorView=overview",
       }),
     ).toEqual({
       view: "editor",
       designId: "design-123",
       editorView: "overview",
     });
+  });
+
+  it("accepts the legacy view query on persisted editor routes", async () => {
+    await renderProbe("/visual-edit/design-123?view=overview");
+
+    const routeStateCalls = coreClientMocks.useAgentRouteState.mock.calls;
+    const config = routeStateCalls[routeStateCalls.length - 1]?.[0];
+    expect(
+      config.getNavigationState({
+        pathname: "/visual-edit/design-123",
+        search: "?view=overview",
+      }),
+    ).toMatchObject({ editorView: "overview" });
   });
 
   it("keeps the Builder shell out of persisted editor navigation state", async () => {
