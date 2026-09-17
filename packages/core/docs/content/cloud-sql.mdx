@@ -1,0 +1,55 @@
+---
+title: "Cloud SQL for PostgreSQL"
+description: "Connect an agent-native app to Cloud SQL for PostgreSQL with a standard DATABASE_URL."
+search: "Cloud SQL PostgreSQL Google Cloud connection string proxy SSL migrations"
+---
+
+# Cloud SQL for PostgreSQL
+
+Cloud SQL for PostgreSQL is Google's managed PostgreSQL service. Use a direct
+instance address or the local listener provided by a Cloud SQL connector in a
+standard PostgreSQL URL.
+
+## Configure the app
+
+Create a database and application user in Cloud SQL. For a direct public or
+private IP connection, copy the instance address and set `DATABASE_URL` in the
+server environment:
+
+```bash
+DATABASE_URL=postgresql://app_user:password@your-cloud-sql-host:5432/appdb?sslmode=require
+```
+
+If the deployment runs the [Cloud SQL Auth Proxy](https://cloud.google.com/sql/docs/postgres/connect-auth-proxy)
+or another connector that exposes a local Postgres listener, point
+`DATABASE_URL` at that listener and disable client-side PostgreSQL TLS. The
+proxy or connector encrypts and authorizes its connection to Cloud SQL:
+
+```bash
+DATABASE_URL=postgresql://app_user:password@127.0.0.1:5432/appdb?sslmode=disable
+```
+
+Follow the deployment platform's connector setup. The framework accepts the
+resulting PostgreSQL URL and does not configure the connector itself.
+
+## Networking and TLS
+
+Use a private IP when the deployment platform shares the right VPC network.
+For public IP connections, configure the instance's authorized networks or use
+a Cloud SQL connector. Enforce TLS for direct connections. For a local proxy or
+connector listener, use `sslmode=disable` in the client URL because the proxy or
+connector provides the encrypted connection to Cloud SQL. Keep database
+credentials in the deployment's secret storage.
+
+## Migrations
+
+Run production migrations in the release or deployment step. Use the same
+network path as runtime traffic, or provide the migration runner with a
+directly reachable instance address. Never run `drizzle-kit push` against a
+production database.
+
+## What's next
+
+- [Database](/docs/server-database) - schema, migrations, and connection rules
+- [Deployment](/docs/deployment) - choose a runtime and deployment preset
+- [Cloud SQL for PostgreSQL connection options](https://cloud.google.com/sql/docs/postgres/connect-overview) - choose direct, proxy, or connector access

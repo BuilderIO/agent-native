@@ -1,0 +1,276 @@
+---
+title: "Calendar: Features"
+description: "Every core Calendar feature, including views, availability, finding time, and booking links, with setup steps for each."
+---
+
+# Features
+
+Every core Calendar feature: how it works, and how to set it up. See
+[Calendar](/docs/template-calendar) for the overview and
+[Talk to the Agent](/docs/template-calendar-agent) for the full list of
+prompts.
+
+## Calendar views
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd033f1071872452687ea570ed2ab6da3?alt=media&token=c6318aee-94cc-4898-be16-32b8fbf4fb2f&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="A brief tour of the calendar view."
+  caption="A tour of the calendar view, including viewing another person's calendar and adding events."
+  autoplay={true}
+  loop={true}
+/>
+
+Switch between day, week, and month view from the toolbar. Every view reads
+your real, connected Google Calendar. Nothing is cached or synthetic.
+
+- **Multiple accounts** show in the same grid, color-coded, if you connect
+  more than one Google account (work + personal).
+- **Read-only ICS/`webcal://` feeds** cover things like company holidays, a
+  conference schedule, or a teammate's public calendar. They mix into the
+  same view with their own color, though you can't edit events that come
+  from a feed.
+- **Overlay a teammate's calendar** so their events show alongside yours,
+  each in their own color. This helps when a manager needs to check a direct
+  report's schedule.
+- **Attendee timezones** show a guest's local start time when Google reports
+  it, or from a saved per-guest override when it doesn't.
+- **Working locations** (home, office, elsewhere) show as a real status, not
+  a generic all-day event, and never block your availability. **Recurring
+  events** are supported end to end. Edit a single occurrence or the whole
+  series.
+
+<Callout tone="warning">
+
+If part of your schedule fails to load, whether one account's token expired
+or a feed URL times out, the app tells you which source failed instead of
+quietly showing an empty day. A blank calendar and a broken connection look
+different on purpose, so you never mistake "nothing loaded" for "nothing
+scheduled."
+
+</Callout>
+
+<Steps>
+
+### Connect your calendar
+
+Open **Settings**, click **Connect Google Calendar**, and approve. Connect
+more accounts the same way if you want personal + work overlayed.
+
+### Subscribe to a read-only feed
+
+In **Settings → External Calendars**, paste an ICS or `webcal://` URL.
+
+### Overlay a teammate's calendar
+
+Ask the agent to "Add Priya's calendar to my view in blue," or add them from
+**Settings → Overlays**.
+
+</Steps>
+
+## Finding time
+
+Ask the agent to find time and it checks your availability and your real
+Google Calendar events. When you name other people, it also checks their
+free/busy status, then proposes concrete slots. Once you pick one, the agent
+books it directly on Google Calendar.
+
+When you're scheduling with someone new, search by name or email instead of
+typing an exact address. Calendar searches your Google Contacts plus your
+Workspace directory, so you can ask "who is Dana at Acme" or "find people
+named Priya" and get real matches to pick from.
+
+<Diagram id="doc-block-calendar3" title="From availability to a booked event" summary="The agent combines your availability rules, your existing events, and (when named) other attendees' free/busy before proposing slots.">
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-box">
+      Your availability<br /><small class="diagram-muted"
+        >weekly hours, buffer, notice</small
+      >
+    </div>
+    <div class="diagram-box">
+      Existing events<br /><small class="diagram-muted"
+        >Google Calendar, live</small
+      >
+    </div>
+    <div class="diagram-box">
+      Attendees' free/busy<br /><small class="diagram-muted"
+        >when you name people</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Find a time</span
+    ><small class="diagram-muted">candidate slots</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">You pick one</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">Event created on Google Calendar</div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+<Steps>
+
+### Ask for a slot
+
+"Find a 1-hour slot next week with Sam and Priya."
+
+### Pick one
+
+The agent proposes concrete slots. Pick one in chat, or from the suggested
+options in the UI.
+
+### It's booked
+
+The agent creates the event directly on Google Calendar and it shows up in
+your view immediately.
+
+</Steps>
+
+## Booking links
+
+Booking links are public pages where anyone can pick a time and book it
+directly onto your calendar. This is the Calendly-style part of Calendar: set
+up meeting types, the availability they draw from, and track who books.
+
+### Meeting Types
+
+A meeting type is one specific booking link, like "15 min intro" or "30 min
+demo," each with its own duration, fields, and conferencing choice.
+
+<Steps>
+
+### Create a meeting type
+
+Give it a title and duration (like "15 min intro" at 15 minutes), then ask
+the agent or click **New booking link**.
+
+### Add options
+
+Set alternate durations so a visitor can choose 15, 30, or 60 minutes on the
+same link, custom fields to collect a company name or topic, a conferencing
+choice (Google Meet, Zoom, or a custom link), a color, and required
+co-hosts, other people who must also be free before a slot is offered. When
+someone books, everyone (you and your co-hosts) gets invited to the resulting
+Google Calendar event.
+
+### Connect Zoom (optional)
+
+Google Meet needs no setup. It's added the same way any Google Calendar
+invite gets a Meet link. For Zoom, connect your account once from
+**Settings**. After that, any meeting type set to Zoom creates a real Zoom
+meeting for each new booking and attaches the join link to the confirmation.
+
+### Share it
+
+Share the public URL anywhere. Grant a teammate viewer/editor/admin access
+from the link's **Share** menu if they should help manage it too. That's
+separate from public booking access, which anyone with the URL always has
+while the link is active.
+
+</Steps>
+
+Every meeting type has a public URL at `/book/{your-booking-name}/{slug}`,
+for example `/book/steve/30min`. Your booking name is generated automatically
+from your email the first time you create a link, and you can change it later
+from Settings (up to three times every 30 days, since it's part of every
+public link you've shared).
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F3dda132ad91b44dfa11c9d4e4b9e1b79?alt=media&token=b25577a1-ef91-48f8-a474-e5a39b246c25&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="Video showing how to create a new booking meeting type."
+  caption="Video showing how to create a new booking meeting type."
+  autoplay={true}
+  loop={true}
+/>
+
+- **Renaming a meeting type**: change its URL slug at any time, for example
+  from `/book/steve/into-call` to `/book/steve/intro`. The old URL keeps
+  working: visitors who still have it are automatically forwarded to the new
+  one, so nothing you've already shared breaks.
+
+### Availability
+
+Availability is a weekly schedule: which days you work and what hours you're
+open on each one, plus your timezone. On top of that you can set **buffer
+time** between meetings so back-to-back bookings don't happen, **minimum
+notice** so people can't book you five minutes from now, **how far ahead**
+people can book (advance window), and a **default slot length** for new
+meeting types.
+
+The agent reads the same schedule the UI edits, so "set my hours to 9-5
+weekdays" and dragging the sliders in the Availability tab produce the same
+result.
+
+<Steps>
+
+### Set your weekly hours
+
+Switch to the **Availability** tab and toggle on the days and hours you're
+open, per day if needed.
+
+### Add buffer and notice
+
+Set **buffer time** between meetings and a **minimum notice** window so
+people can't book you five minutes from now.
+
+### Set your advance window and default slot length
+
+Choose how far ahead people can book, and the default duration new meeting
+types start with.
+
+</Steps>
+
+Or just ask the agent: "Block Friday afternoons on my availability."
+
+### Bookings
+
+A visitor picks an available time from your real availability, fills in
+their name, email, and any custom fields you added, then confirms. They get a
+confirmation with a private manage link. No sign-in is required, since the
+link itself is the credential.
+
+- **Managing bookings**: you (the host) see every booking, past and
+  upcoming, filtered by all, confirmed, or cancelled, in the **Bookings** tab.
+- **Rescheduling or cancelling**: visitors use their manage link to move to
+  a different open slot or cancel outright, without needing an account. You
+  can also cancel a booking yourself from the **Bookings** tab.
+
+Or ask the agent: "Show me this week's bookings."
+
+## What's next
+
+- [**Calendar**](/docs/template-calendar) — the overview and getting-started steps
+- [**Talk to the Agent**](/docs/template-calendar-agent) — every prompt by task, application state, and Extensions
+- [**Calendar in a Multi-App Workspace**](/docs/template-calendar-integrations) — integration strategies and connecting to Dispatch
+- [**Developer Guide**](/docs/template-calendar-developers) — the actions and data model behind these features
+- [**Sharing**](/docs/sharing) — the share-grant model booking links build on

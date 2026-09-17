@@ -1,0 +1,44 @@
+import { describe, expect, it } from "vitest";
+
+import { formatChatErrorText, normalizeChatError } from "./error-format.js";
+
+// Regression coverage for the Mail app surfacing a raw provider JSON error
+// bubble when a chat attachment is a password-protected PDF. Split into its
+// own file because error-format.spec.ts is being edited concurrently by a
+// related investigation (topaz-terminal-ro4r6chn) into the same shared
+// normalizeChatError boundary.
+describe("normalizeChatError for password-protected PDF attachments", () => {
+  const CLEAN_MESSAGE =
+    "This PDF is password-protected, so it can't be read. Remove the password protection or paste the relevant text, then retry.";
+
+  it("translates the already-unwrapped gateway message into an actionable one", () => {
+    const raw =
+      "messages.0.content.0.pdf.source.base64.data: The PDF specified is password protected.";
+    const normalized = normalizeChatError(raw, "invalid_request_error");
+
+    expect(normalized.message).toBe(CLEAN_MESSAGE);
+    expect(normalized.details).toBe(raw);
+    expect(formatChatErrorText(raw, undefined, "invalid_request_error")).toBe(
+      `Error: ${CLEAN_MESSAGE}`,
+    );
+  });
+
+  it("translates the raw provider envelope reported in the Mail bug", () => {
+    const raw =
+      '400 {"type":"error","error":{"type":"invalid_request_error","message":"messages.0.content.0.pdf.source.base64.data: The PDF specified is password protected."},"request_id":"req_011Cf4z4ndjZtcUm5pPTkjPA"}';
+    const normalized = normalizeChatError(raw);
+
+    expect(normalized.message).toBe(CLEAN_MESSAGE);
+  });
+
+  it("does not misclassify an unrelated invalid_request_error as a password-protected attachment", () => {
+    const raw = "model is required";
+    const normalized = normalizeChatError(raw, "invalid_request_error");
+
+    // Falls through to the generic malformed-request classification instead
+    // (a separate, already-landed fix for the same invalid_request_error
+    // lane), not the password-protected-PDF copy this file is testing.
+    expect(normalized.message).not.toBe(CLEAN_MESSAGE);
+    expect(normalized.details).toBe(raw);
+  });
+});
