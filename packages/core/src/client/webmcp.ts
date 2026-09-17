@@ -1432,6 +1432,8 @@ export function createAgentNativeWebMcpRegistration(
   let generation = 0;
   let startPromise: Promise<void> | undefined;
   const registrationId = Symbol("webmcp-registration");
+  // WebMCP has no portable unregisterTool method. The registration signal is
+  // the lifecycle owner for tools already published to the page context.
 
   async function runStart(): Promise<void> {
     if (started || options.enabled === false || !modelContext) return;
@@ -1526,6 +1528,11 @@ export function createAgentNativeWebMcpRegistration(
                 : {}),
             },
             execute: async (input, executionOptions) => {
+              if (!isActive()) {
+                throw new Error(
+                  `WebMCP action "${action.name}" was unregistered`,
+                );
+              }
               if (executionOptions?.signal?.aborted) {
                 throw new Error(`WebMCP action "${action.name}" was aborted`);
               }
@@ -1537,6 +1544,11 @@ export function createAgentNativeWebMcpRegistration(
               const context = options.getContext
                 ? await options.getContext()
                 : {};
+              if (!isActive()) {
+                throw new Error(
+                  `WebMCP action "${action.name}" was unregistered`,
+                );
+              }
               const request = {
                 action,
                 args: input,
@@ -1581,6 +1593,11 @@ export function createAgentNativeWebMcpRegistration(
                   throw new Error(`WebMCP action "${action.name}" was aborted`);
                 }
               }
+              if (!isActive()) {
+                throw new Error(
+                  `WebMCP action "${action.name}" was unregistered`,
+                );
+              }
               const result = await action.run(
                 input,
                 actionRuntime(
@@ -1590,6 +1607,11 @@ export function createAgentNativeWebMcpRegistration(
                   executionOptions?.signal,
                 ),
               );
+              if (!isActive()) {
+                throw new Error(
+                  `WebMCP action "${action.name}" was unregistered`,
+                );
+              }
               if (executionOptions?.signal?.aborted) {
                 throw new Error(`WebMCP action "${action.name}" was aborted`);
               }

@@ -253,20 +253,24 @@ export function OpenVisualEditWebMcp() {
         approve: requestApproval,
       });
       registration = nextRegistration;
-      void nextRegistration
-        .start()
-        .then(() => {
+      const isCurrentRegistration = () =>
+        !disposed && registration === nextRegistration;
+      void nextRegistration.start().then(
+        () => {
+          if (!isCurrentRegistration()) return;
           if (!nextRegistration.supported) {
             scheduleRetry();
           } else {
             retryDelayMs = 1_000;
           }
-        })
-        .catch(() => {
+        },
+        () => {
+          if (!isCurrentRegistration()) return;
           // WebMCP is progressive enhancement; retry while the model context
           // or the action manifest becomes available.
           scheduleRetry();
-        });
+        },
+      );
     };
 
     startRegistration();
