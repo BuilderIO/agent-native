@@ -116,6 +116,9 @@ export default defineAction({
     if (!oldName) {
       throw new ComponentRenameAmbiguousError();
     }
+    if (newName === oldName) {
+      return { designId, componentId, renamed: false };
+    }
     const oldIndexId = componentIndexId(designId, oldName);
     const newIndexId = componentIndexId(designId, newName);
     if (newIndexId !== oldIndexId) {

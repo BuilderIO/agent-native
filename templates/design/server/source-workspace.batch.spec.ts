@@ -43,6 +43,7 @@ import { sourceContentHash } from "../shared/source-workspace.js";
 import { getDb } from "./db/index.js";
 import {
   writeInlineSourceFilesBatch,
+  withSourceFileWriteLock,
   type SourceWorkspaceFile,
 } from "./source-workspace.js";
 
@@ -189,6 +190,39 @@ afterAll(async () => {
 });
 
 describe("writeInlineSourceFilesBatch", () => {
+  it("serializes index-first and rename-first critical sections on one source file", async () => {
+    const run = async (fileId: string, first: string, second: string) => {
+      const order: string[] = [];
+      let enterFirst!: () => void;
+      let releaseFirst!: () => void;
+      const firstEntered = new Promise<void>((resolve) => {
+        enterFirst = resolve;
+      });
+      const firstRelease = new Promise<void>((resolve) => {
+        releaseFirst = resolve;
+      });
+
+      const firstRun = withSourceFileWriteLock(fileId, async () => {
+        order.push(first);
+        enterFirst();
+        await firstRelease;
+      });
+      await firstEntered;
+
+      const secondRun = withSourceFileWriteLock(fileId, async () => {
+        order.push(second);
+      });
+      expect(order).toEqual([first]);
+
+      releaseFirst();
+      await Promise.all([firstRun, secondRun]);
+      expect(order).toEqual([first, second]);
+    };
+
+    await run("lock-order-index-first", "index", "rename");
+    await run("lock-order-rename-first", "rename", "index");
+  });
+
   it.each(["sql-ahead", "live-ahead"] as const)(
     "rejects a destination whose %s is newer than the captured base before writing",
     async (newerSide) => {

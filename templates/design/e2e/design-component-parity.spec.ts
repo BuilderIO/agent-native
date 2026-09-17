@@ -507,6 +507,13 @@ test("Design components preserve identity across inline and URL-backed React bou
       ]),
     );
 
+    const sameName = await action(request, "rename-component", {
+      designId,
+      componentId: id,
+      newName: "ReusableCard",
+    });
+    expect(sameName.renamed).toBe(false);
+
     const renamed = await action(request, "rename-component", {
       designId,
       componentId: id,
