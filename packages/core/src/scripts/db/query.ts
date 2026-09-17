@@ -7,7 +7,7 @@
 
 import path from "node:path";
 
-import { getDatabaseUrl, toPostgresParams } from "../../db/client.js";
+import { getRuntimeDatabaseUrl, toPostgresParams } from "../../db/client.js";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -121,7 +121,12 @@ export async function runDbQuery(
     query = `${options.sql} LIMIT ${options.limit}`;
   }
 
-  const url = options.databaseUrl ?? getDatabaseUrl("pglite:./data/pglite");
+  // Must match the resolver `tryForwardDbQueryToDevServer` hashes for its
+  // forward-eligibility check (dev-query-proxy.ts) — otherwise the same
+  // command reads a different database depending on whether forwarding
+  // happened to succeed.
+  const url =
+    options.databaseUrl ?? getRuntimeDatabaseUrl("pglite:./data/pglite");
   const client = await createPostgresScriptClient(url);
   try {
     let rows: Record<string, unknown>[] = [];
