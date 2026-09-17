@@ -587,6 +587,12 @@ export function restorePendingFileContent<
 
 export interface FileContentSaveRequest {
   identityMigrationSourceContent?: string;
+  /**
+   * CAS base for the durable latest-content replay. Normal saves keep their
+   * per-edit base so the serialized chain remains strict; the outbox needs the
+   * oldest unacknowledged base so a pagehide can replay the full snapshot.
+   */
+  unloadExpectedVersionHash?: string;
   id: string;
   content: string;
   syncCollab: boolean;

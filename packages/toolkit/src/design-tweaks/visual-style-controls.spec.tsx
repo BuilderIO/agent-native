@@ -136,12 +136,20 @@ describe("visual style controls", () => {
     act(() => dragContainer.dispatchEvent(pointer("pointermove", 10, true)));
     expect(onChange).toHaveBeenCalledWith(
       20,
-      expect.objectContaining({ source: "scrub", phase: "preview" }),
+      expect.objectContaining({
+        source: "scrub",
+        phase: "preview",
+        altKey: true,
+      }),
     );
     act(() => dragContainer.dispatchEvent(pointer("pointerup", 10, true)));
     expect(onChange).toHaveBeenLastCalledWith(
       20,
-      expect.objectContaining({ source: "scrub", phase: "commit" }),
+      expect.objectContaining({
+        source: "scrub",
+        phase: "commit",
+        altKey: true,
+      }),
     );
     expect(dragContainer.setPointerCapture).toHaveBeenCalledWith(1);
   });

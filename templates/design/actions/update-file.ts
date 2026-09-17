@@ -138,6 +138,12 @@ export default defineAction({
         .describe(
           "Monotonic per-file revision allocated when the client queues the save. Must be paired with operationSource.",
         ),
+      queuedReplay: z
+        .boolean()
+        .optional()
+        .describe(
+          "Internal durable replay marker for browser save outbox entries.",
+        ),
     })
     .superRefine((value, ctx) => {
       if (
@@ -205,6 +211,7 @@ export default defineAction({
       expectedVersionHash,
       operationSource,
       operationRevision,
+      queuedReplay,
     },
     context,
   ) => {
@@ -365,6 +372,17 @@ export default defineAction({
           hasVersionedContentOperation &&
           persistedFile.contentOperationSource === operationSource &&
           typeof persistedFile.contentOperationRevision === "number";
+        // A durable replay may carry the oldest base hash while a prior
+        // revision from this same browser tab already landed. The persisted
+        // SQL mirror and live collab text prove that no other writer moved the
+        // document, so the newer full snapshot is a safe continuation.
+        const sameClientContinuation =
+          hasVersionedContentOperation &&
+          sameOperationSource &&
+          operationRevision! > persistedFile.contentOperationRevision! &&
+          syncCollab !== false &&
+          queuedReplay === true &&
+          persistedContentHash === sourceContentHash(liveContent);
 
         // A pagehide keepalive can overtake the older normal fetch for this
         // same tab. Once the newer revision has committed, the late request is
@@ -428,7 +446,8 @@ export default defineAction({
         ) {
           if (
             liveContent !== content &&
-            sourceContentHash(liveContent) !== expectedVersionHash
+            sourceContentHash(liveContent) !== expectedVersionHash &&
+            !sameClientContinuation
           ) {
             if (syncCollab === false && collabExists) {
               // A delayed client transport does not invalidate the SQL lineage.

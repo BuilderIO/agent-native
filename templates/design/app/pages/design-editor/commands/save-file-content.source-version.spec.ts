@@ -133,6 +133,51 @@ describe("runSaveFileContent source version", () => {
     ]);
   });
 
+  it("retires the identity migration marker after its canonical save lands", async () => {
+    const id = "screen-identity-marker";
+    const raw = "<main><button>Before</button></main>";
+    const canonical =
+      '<main><button data-agent-native-node-id="button-a">Before</button></main>';
+    const pending: FileContentSaveRequest = {
+      id,
+      content: canonical,
+      identityMigrationSourceContent: raw,
+      syncCollab: true,
+      operationSource: "tab-a",
+      operationRevision: 1,
+      expectedVersionHash: sourceContentHash(raw),
+    };
+    const markPendingLocalFileContent = vi.fn();
+    const fileSaveChainsRef: SaveFileContentArgs["fileSaveChainsRef"] = {
+      current: {},
+    };
+    const args: SaveFileContentArgs = {
+      acknowledgeOutboxEntry: vi.fn(async () => {}),
+      canEditDesignRef: { current: true },
+      createFileSaveOutboxEntry: vi.fn(() => null),
+      fileSaveChainsRef,
+      journalOutboxEntry: vi.fn(async () => true),
+      latestFileSaveForUnloadRef: { current: {} },
+      rollbackPendingLocalFileContent: vi.fn(),
+      markPendingLocalFileContent,
+      queryClient: { invalidateQueries: vi.fn() } as unknown as QueryClient,
+      setPatchProof: vi.fn(),
+      t: (key) => key,
+      updateFileMutation: {
+        mutateAsync: vi.fn(async () => ({
+          updated: true,
+          versionHash: sourceContentHash(canonical),
+        })),
+      } as unknown as SaveFileContentArgs["updateFileMutation"],
+      warnChangesWillRetry: vi.fn(),
+    };
+
+    runSaveFileContent(args, pending);
+    await fileSaveChainsRef.current[id];
+
+    expect(markPendingLocalFileContent).toHaveBeenLastCalledWith(id, canonical);
+  });
+
   it("persists an in-flight identity migration before its dependent user edit", async () => {
     const id = "screen-identity-chain";
     const raw = "<main><button>Before</button></main>";

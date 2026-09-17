@@ -68,3 +68,24 @@ it("keeps an identity migration's raw bytes as the CAS base for a follow-up edit
     }),
   ).toBe(raw);
 });
+
+it("uses canonical pending bytes once identity migration is durable", () => {
+  const raw = "<main><button>Listen now</button></main>";
+  const canonical = prepareCanonicalSourceContent(raw, {
+    fileId: "screen-a",
+    fileType: "html",
+  }).content;
+
+  expect(
+    resolveSourceBaseForPublication({
+      fileId: "screen-a",
+      fileType: "html",
+      pending: {
+        content: canonical,
+        identityMigrationSourceContent: raw,
+      },
+      persistedContent: canonical,
+      beforeContent: canonical,
+    }),
+  ).toBe(canonical);
+});

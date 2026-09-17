@@ -3920,7 +3920,11 @@ function DesignEditor() {
           syncCollab: pending.syncCollab,
           operationSource: pending.operationSource,
           operationRevision: pending.operationRevision,
-          expectedVersionHash: pending.expectedVersionHash,
+          expectedVersionHash:
+            pending.unloadExpectedVersionHash ?? pending.expectedVersionHash,
+          ...(pending.unloadExpectedVersionHash !== undefined
+            ? { queuedReplay: true }
+            : {}),
           ...(pending.identityMigrationSourceContent !== undefined
             ? { identityOnly: true }
             : {}),
@@ -3993,21 +3997,39 @@ function DesignEditor() {
       },
     ) => {
       if (!canEditDesignRef.current) return;
+      const queuedIdentityMigration = pendingFileSavesRef.current[fileId];
+      const latestIdentityMigration =
+        latestFileSaveForUnloadRef.current[fileId];
+      const identityMigrationIsInFlight =
+        options.identityMigrationSourceContent === undefined &&
+        queuedIdentityMigration === undefined &&
+        latestIdentityMigration?.identityMigrationSourceContent !== undefined;
+      const expectedVersionHash = identityMigrationIsInFlight
+        ? sourceContentHash(latestIdentityMigration.content)
+        : options.expectedVersionHash;
       // Allocate the revision when the edit ENTERS the queue, not when its
       // debounce fires. A pagehide keepalive and the ordinary chained save
       // therefore carry the same idempotency key, while any newer queued edit
       // is guaranteed to have a higher revision even if requests arrive at
       // the server out of order.
-      const pending = coalescePendingFileContentSave(
+      const nextPending = coalescePendingFileContentSave(
         createFileContentSaveRequest(
           fileId,
           content,
           options.syncCollab ?? true,
-          options.expectedVersionHash,
+          expectedVersionHash,
           options.identityMigrationSourceContent,
         ),
         pendingFileSavesRef.current[fileId],
       );
+      const pending = {
+        ...nextPending,
+        unloadExpectedVersionHash:
+          pendingFileSavesRef.current[fileId]?.unloadExpectedVersionHash ??
+          latestFileSaveForUnloadRef.current[fileId]
+            ?.unloadExpectedVersionHash ??
+          nextPending.expectedVersionHash,
+      };
       markPendingLocalFileContent(
         fileId,
         content,
@@ -7386,21 +7408,21 @@ function DesignEditor() {
           freshActiveContent: getFreshActiveFileContent({
             activeContent,
             pendingContent: activeFile?.id
-              ? pendingLocalFileContentsRef.current.get(activeFile.id)?.content
+              ? (latestFileSaveForUnloadRef.current[activeFile.id]?.content ??
+                pendingLocalFileContentsRef.current.get(activeFile.id)?.content)
               : null,
             latestContent: latestActiveContentRef.current,
             lastLocalContent: lastLocalContentRef.current,
           }),
           fileContentById,
-          // Same-tick freshness for NON-ACTIVE screens (see the param's doc on
-          // getFreshScreenContent): applyFileContentUpdate writes this ref
-          // synchronously via markPendingLocalFileContent, while the
-          // files-derived map above only refreshes on the next render. Without
-          // it, the second message of a bridge drop sequence (auto-layout
-          // conversion style → structure move) rebased off stale content and
-          // clobbered the first message's edit.
+          // Same-tick freshness (see the param's doc on getFreshScreenContent):
+          // applyFileContentUpdate writes these refs synchronously, while the
+          // files-derived map above only refreshes on the next render. The
+          // save outbox is also authoritative while reconciliation lags.
           pendingContent:
-            pendingLocalFileContentsRef.current.get(screenId)?.content ?? null,
+            latestFileSaveForUnloadRef.current[screenId]?.content ??
+            pendingLocalFileContentsRef.current.get(screenId)?.content ??
+            null,
         }),
         {
           fileId: screenId,
@@ -8970,6 +8992,7 @@ function DesignEditor() {
         refreshPreview?: boolean;
         skipPreview?: boolean;
         forcePreviewFullDocument?: boolean;
+        immediateSave?: boolean;
         persist?: boolean;
         recordHistory?: boolean;
         historyBeforeContent?: string;
@@ -8983,6 +9006,12 @@ function DesignEditor() {
       if (options.persist !== false && !canApplyContentEdit(fileId)) {
         return { status: "refused" as const };
       }
+      const sourceBaseContent =
+        options.sourceBaseContent ??
+        sourceBaseForPublication(
+          fileId,
+          options.historyBeforeContent ?? getScreenContent(fileId),
+        );
       return runApplyFileContentUpdate(
         {
           acknowledgeAuthoritativeClipboardMutation,
@@ -9009,12 +9038,7 @@ function DesignEditor() {
         nextContent,
         {
           ...options,
-          sourceBaseContent:
-            options.sourceBaseContent ??
-            sourceBaseForPublication(
-              fileId,
-              options.historyBeforeContent ?? getScreenContent(fileId),
-            ),
+          sourceBaseContent,
         },
       );
     },
@@ -19229,6 +19253,7 @@ function DesignEditor() {
         screenStylePreviewRef.current.delete(screenId);
       }
       applyFileContentUpdate(screenId, next, {
+        immediateSave: !previewOnly,
         persist: !previewOnly,
         recordHistory: !previewOnly,
         historyBeforeContent: previewOnly ? undefined : historyBeforeContent,

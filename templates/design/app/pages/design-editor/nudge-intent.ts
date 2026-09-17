@@ -477,14 +477,39 @@ export function resolveElementNudgeIntent(
   // round-trip has happened yet and `parentDisplay` is simply absent. An
   // element that really is inline or a flex child is handled above — the parser
   // sees those, and a rendered value always wins over this default.
-  const rendered = args.selectedElement.parentDisplay;
-  // A rendered grid needs its column count to map an arrow onto the next visual
-  // cell, and `display: grid` alone does not carry it. Guessing "flex row" walks
-  // DOM order instead, which is a different element in any multi-column grid.
-  if (
+  const rendered =
+    args.selectedElement.parentDisplay ??
+    args.selectedElement.parentLayout?.display;
+  // A rendered grid needs its track count to map an arrow onto the next visual
+  // cell, and `display: grid` alone does not carry it. Reuse the computed track
+  // templates already reported by the bridge instead of guessing a flex row.
+  const renderedGrid =
     parsedContainer.kind === "none" &&
     !escapesFlow(position) &&
     (rendered === "grid" || rendered === "inline-grid")
+      ? describeFlowContainer({
+          style: {
+            display: rendered,
+            ...(args.selectedElement.parentLayout?.gridTemplateColumns
+              ? {
+                  "grid-template-columns":
+                    args.selectedElement.parentLayout.gridTemplateColumns,
+                }
+              : {}),
+            ...(args.selectedElement.parentLayout?.gridTemplateRows
+              ? {
+                  "grid-template-rows":
+                    args.selectedElement.parentLayout.gridTemplateRows,
+                }
+              : {}),
+          },
+        })
+      : NO_FLOW_CONTAINER;
+  if (
+    parsedContainer.kind === "none" &&
+    !escapesFlow(position) &&
+    (rendered === "grid" || rendered === "inline-grid") &&
+    (renderedGrid.kind !== "grid" || renderedGrid.lineLength === null)
   ) {
     return { kind: "none" };
   }
@@ -496,29 +521,31 @@ export function resolveElementNudgeIntent(
   if (
     parsedContainer.kind === "none" &&
     !escapesFlow(position) &&
-    isRenderedFlowDisplay(rendered) &&
+    (rendered === "flex" || rendered === "inline-flex") &&
     !renderedFlexDirection
   ) {
     return { kind: "none" };
   }
   const container: FlowContainerInfo =
     parsedContainer.kind === "none" && !escapesFlow(position)
-      ? isRenderedFlowDisplay(rendered)
-        ? {
-            ...NO_FLOW_CONTAINER,
-            kind: "flex",
-            axis: renderedFlexDirection?.startsWith("column")
-              ? "vertical"
-              : "horizontal",
-            reversed: renderedFlexDirection?.endsWith("-reverse") ?? false,
-          }
-        : // `parent` null means the node is a projection root: it has no flow to
-          // reorder within, and the bridge reports `parentDisplay: undefined`
-          // for it exactly as it does for a not-yet-measured selection.
-          isRenderedBlockDisplay(rendered) ||
-            (rendered === undefined && parent !== null)
-          ? BLOCK_FLOW_CONTAINER
-          : parsedContainer
+      ? renderedGrid.kind === "grid"
+        ? renderedGrid
+        : isRenderedFlowDisplay(rendered)
+          ? {
+              ...NO_FLOW_CONTAINER,
+              kind: "flex",
+              axis: renderedFlexDirection?.startsWith("column")
+                ? "vertical"
+                : "horizontal",
+              reversed: renderedFlexDirection?.endsWith("-reverse") ?? false,
+            }
+          : // `parent` null means the node is a projection root: it has no flow to
+            // reorder within, and the bridge reports `parentDisplay: undefined`
+            // for it exactly as it does for a not-yet-measured selection.
+            isRenderedBlockDisplay(rendered) ||
+              (rendered === undefined && parent !== null)
+            ? BLOCK_FLOW_CONTAINER
+            : parsedContainer
       : parsedContainer;
   // Flex/grid paint children by `order` and explicit grid placement, not DOM
   // position, so moving the node would write a source change that produces no

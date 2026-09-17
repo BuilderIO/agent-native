@@ -120,6 +120,15 @@ export function runSaveFileContent(
           pending.content,
           t("common.genericError"),
         );
+        if (
+          persistedContentMatches &&
+          pending.identityMigrationSourceContent !== undefined &&
+          latestFileSaveForUnloadRef.current[pending.id] === pending
+        ) {
+          // Identity repair has landed. Retire its raw-base marker so the next
+          // user edit publishes against the canonical bytes it already sees.
+          markPendingLocalFileContent(pending.id, pending.content);
+        }
         if (persistedContentMatches && outboxEntry) {
           await acknowledgeOutboxEntry(outboxEntry);
         } else if (!persistedContentMatches) {

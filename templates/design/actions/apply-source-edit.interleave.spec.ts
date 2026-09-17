@@ -1049,6 +1049,36 @@ describe("update-file expectedVersionHash guard (server-discipline layer)", () =
     assertWellFormed(finalLive.content);
   });
 
+  it("accepts a newer same-tab replay against the oldest queued base", async () => {
+    const initial = await readLiveSourceFile(currentFileRef());
+    const first = buildDoc(" data-first");
+    const final = buildDoc(" data-first data-final");
+
+    await updateFileAction.run({
+      id: FILE_ID,
+      content: first,
+      syncCollab: true,
+      operationSource: "tab-a",
+      operationRevision: 1,
+      expectedVersionHash: initial.versionHash,
+    } as never);
+
+    const result = await updateFileAction.run({
+      id: FILE_ID,
+      content: final,
+      syncCollab: true,
+      operationSource: "tab-a",
+      operationRevision: 2,
+      queuedReplay: true,
+      // A pagehide/outbox replay can carry the base from before revision 1.
+      expectedVersionHash: initial.versionHash,
+    } as never);
+
+    expect(result).toMatchObject({ id: FILE_ID, updated: true });
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(final);
+    expect((await readLiveSourceFile(currentFileRef())).content).toBe(final);
+  });
+
   it("checks the hash against LIVE collab text once collab state exists, not the SQL row", async () => {
     // Seed collab with content that diverges from SQL (a collab write whose
     // SQL mirror hasn't landed yet). The guard must compare against the live
