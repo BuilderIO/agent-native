@@ -66,13 +66,29 @@ const messages: AgentChatTranslation = {
   "onboarding.builderProvisioningDescription":
     "正在建立或重新使用您的 Builder.io 帳戶，通常需要幾秒鐘。",
   "onboarding.builderConnectionDescription": "在新視窗中按一下即可完成連線。",
+  "onboarding.builderReadyWithCodeChanges":
+    "AI 點數與雲端程式碼變更已準備就緒。",
+  "onboarding.builderReadyCreditsOnly":
+    "AI 點數已準備就緒。雲端程式碼編輯需要在背景代理程式設定中設定 Builder 專案。",
+  "onboarding.openBackgroundAgentSettings": "開啟背景代理程式設定",
   "onboarding.capability.llm.keySummary": "連線 AI 提供者或本機模型",
   "onboarding.capability.fileStorage.keySummary":
     "Builder 儲存空間或相容 S3 的儲存桶",
+  "onboarding.fileStorage.title": "選擇檔案儲存空間",
+  "onboarding.fileStorage.description":
+    "選擇 Builder 託管儲存空間，或為自己的相容 S3 儲存桶使用自訂儲存金鑰。",
+  "onboarding.fileStorage.custom": "使用自訂儲存金鑰",
+  "onboarding.fileStorage.customDescription":
+    "設定具有穩定公開 URL 的相容 S3 儲存桶。",
   "onboarding.capability.voiceInput.label": "語音輸入",
   "onboarding.capability.voiceInput.keySummary": "瀏覽器語音辨識或語音轉文字",
   "onboarding.capability.voiceInput.why":
     "語音輸入會將口述要求轉換為文字；隨時都可以使用鍵盤輸入。",
+  "onboarding.capability.embeddings.label": "嵌入向量",
+  "onboarding.capability.embeddings.keySummary":
+    "Gemini、Cohere 或 Voyage 金鑰",
+  "onboarding.capability.embeddings.why":
+    "嵌入向量可改善語意搜尋。沒有嵌入向量時，關鍵字搜尋仍可運作。",
   "onboarding.capability.assetsImageGeneration.label": "影像生成",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Builder 點數或影像提供者金鑰",
@@ -131,6 +147,19 @@ const messages: AgentChatTranslation = {
   "common.retry": "重試",
   "common.save": "儲存",
   "agents.hostedAgent": "託管代理",
+  "agents.provider": "提供者",
+  "agents.providerA2A": "A2A 代理程式（Foundry、Gemini 或自訂）",
+  "agents.providerAnthropic": "Anthropic 託管代理程式",
+  "agents.agentId": "代理程式 ID",
+  "agents.agentIdPlaceholder": "agent_...",
+  "agents.environmentId": "環境 ID",
+  "agents.environmentIdPlaceholder": "env_...",
+  "agents.apiBaseUrl": "API 基底 URL（選填）",
+  "agents.apiBaseUrlPlaceholder": "https://api.anthropic.com",
+  "agents.managedAgentIncomplete": "請完成 Anthropic 託管代理程式欄位。",
+  "agents.managedAgentCheck": "從聊天委派時會檢查連線。",
+  "agents.managedAgentSaved":
+    "Anthropic 託管代理程式已儲存。可從聊天向它委派工作。",
   "agents.cardUrl": "代理卡 URL",
   "agents.cardUrlPlaceholder": "https://host.example/agent-card.json",
   "agents.authType": "驗證",
@@ -148,6 +177,23 @@ const messages: AgentChatTranslation = {
   "agents.statusReachable": "可連線",
   "agents.statusAuthRejected": "驗證遭拒",
   "agents.statusNoJsonRpc": "沒有 JSON-RPC",
+  "agents.directoryTab": "代理程式目錄",
+  "agents.directoryPageHint": "尋找代理程式後端並連接到你的工作區。",
+  "agents.directorySearch": "搜尋提供者",
+  "agents.directoryProviders": "提供者",
+  "agents.directoryManual": "透過 URL 新增",
+  "agents.directoryA2A": "A2A",
+  "agents.directoryManaged": "託管 API",
+  "agents.directoryFoundry": "Microsoft Foundry",
+  "agents.directoryFoundryHint": "透過 A2A 連接 Foundry 代理程式。",
+  "agents.directoryGemini": "Gemini Enterprise",
+  "agents.directoryGeminiHint": "透過 A2A 連接 Gemini Enterprise 代理程式。",
+  "agents.directoryAnthropic": "Anthropic 託管代理程式",
+  "agents.directoryAnthropicHint": "連接 Anthropic 的工作階段與核准。",
+  "agents.directoryNoMatches": "沒有提供者符合你的搜尋。",
+  "agents.directoryRegistry": "全球 A2A 登錄",
+  "agents.directoryRegistryHint": "瀏覽公開 Agent Card，連接前先完成驗證。",
+  "agents.directoryBrowse": "瀏覽登錄",
   "common.saveFailed": "儲存失敗",
   "common.saveFailedStatus": "儲存失敗（{{status}}）",
   "common.saving": "儲存中...",
@@ -365,6 +411,8 @@ const messages: AgentChatTranslation = {
   "error.failed": "代理發生錯誤",
   "error.stopped": "代理在完成前已停止",
   "errorMessages.agentConnection": "代理連線已中斷。請檢查網路連線後重試。",
+  "errorMessages.attachmentPasswordProtected":
+    "此 PDF 受密碼保護，無法讀取。請移除密碼保護或貼上相關文字後重試。",
   "errorMessages.builderAuthentication":
     "Builder 拒絕了已連線的憑證。請在設定中重新連線至 Builder.io，然後重試。",
   "errorMessages.builderModelUnauthorized":

@@ -743,30 +743,6 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
         className,
       )}
     >
-      <EditorToolbar
-        recordingId={recordingId}
-        playheadMs={playheadMs}
-        durationMs={durationMs}
-        playing={playing}
-        onPlayPause={() => setPlaying((p) => !p)}
-        playbackSpeed={playbackSpeed}
-        onPlaybackSpeedChange={handlePlaybackSpeedChange}
-        zoom={zoom}
-        onZoomChange={handleZoomChange}
-        timelineActive={editingSurface === "timeline"}
-        edits={edits}
-        selectionRange={selectionRange}
-        video={{ videoUrl, videoFormat, title: recording.title }}
-        onOpenThumbnailPicker={() => setThumbOpen(true)}
-        onOpenChapters={() => setChaptersOpen((v) => !v)}
-        onOpenStitch={() => setStitchOpen(true)}
-        onOpenRewind={() => setRewindOpen(true)}
-        rewindAlreadyAdded={Boolean(edits.rewindOriginalStartMs)}
-        rewindAvailable={canOfferRewindHistory(playerData?.role)}
-        rewindRequiresPrivate={recording?.visibility !== "private"}
-        chaptersOpen={chaptersOpen}
-      />
-
       {/* Preview + transcript + chapters sidebar */}
       <div
         className={cn(
@@ -794,6 +770,30 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
               </div>
             )}
           </div>
+
+          <EditorToolbar
+            recordingId={recordingId}
+            playheadMs={playheadMs}
+            durationMs={durationMs}
+            playing={playing}
+            onPlayPause={() => setPlaying((p) => !p)}
+            playbackSpeed={playbackSpeed}
+            onPlaybackSpeedChange={handlePlaybackSpeedChange}
+            zoom={zoom}
+            onZoomChange={handleZoomChange}
+            timelineActive={editingSurface === "timeline"}
+            edits={edits}
+            selectionRange={selectionRange}
+            video={{ videoUrl, videoFormat, title: recording.title }}
+            onOpenThumbnailPicker={() => setThumbOpen(true)}
+            onOpenChapters={() => setChaptersOpen((v) => !v)}
+            onOpenStitch={() => setStitchOpen(true)}
+            onOpenRewind={() => setRewindOpen(true)}
+            rewindAlreadyAdded={Boolean(edits.rewindOriginalStartMs)}
+            rewindAvailable={canOfferRewindHistory(playerData?.role)}
+            rewindRequiresPrivate={recording?.visibility !== "private"}
+            chaptersOpen={chaptersOpen}
+          />
 
           <div className="shrink-0 border-t border-border bg-card/30">
             <div className="flex h-10 items-center px-2">

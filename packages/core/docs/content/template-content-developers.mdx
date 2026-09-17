@@ -19,14 +19,15 @@ Node.js tooling.
 ### Create the app
 
 ```bash
-npx @agent-native/core@latest create my-content --standalone --template content
+npx --yes @agent-native/core@latest create my-content --standalone --template content
 cd my-content
+corepack enable
 pnpm install
 ```
 
-This needs [Node.js](https://nodejs.org) 22 or later and
-[pnpm](https://pnpm.io) installed first. See [Getting
-started](/docs/getting-started) if you haven't installed either yet.
+This needs [Node.js](https://nodejs.org) 22.22 or later. If `pnpm` is not on
+your `PATH`, run `corepack enable` in the generated app. See [Getting
+started](/docs/getting-started) if you haven't installed Node.js yet.
 
 ### Start the dev server
 

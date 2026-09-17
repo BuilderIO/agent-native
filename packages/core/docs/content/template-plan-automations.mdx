@@ -20,29 +20,29 @@ The Plan template emits four events. Any automation can subscribe to them.
 Fires when a new visual plan or recap is created.
 
 | Field       | Type                  | Description                              |
-| ----------- | --------------------- | ----------------------------------------- |
-| `planId`    | string                | Unique plan identifier                    |
-| `title`     | string                | Plan title                                |
-| `kind`      | `"plan"` \| `"recap"` | Whether this is a plan or a recap         |
-| `status`    | string                | Initial status (e.g. `"review"`)          |
+| ----------- | --------------------- | ---------------------------------------- |
+| `planId`    | string                | Unique plan identifier                   |
+| `title`     | string                | Plan title                               |
+| `kind`      | `"plan"` \| `"recap"` | Whether this is a plan or a recap        |
+| `status`    | string                | Initial status (e.g. `"review"`)         |
 | `path`      | string                | App-relative path (e.g. `/plans/plan-…`) |
-| `createdBy` | string                | Always `"agent"` for plan creation        |
+| `createdBy` | string                | Always `"agent"` for plan creation       |
 
 #### `plan.commented`
 
 Fires when one or more comments are added to a plan.
 
 | Field              | Type                             | Description                                                 |
-| ------------------ | -------------------------------- | ------------------------------------------------------------- |
-| `planId`           | string                           | Plan identifier                                              |
-| `title`            | string                           | Plan title                                                    |
-| `kind`             | `"plan"` \| `"recap"`            | Plan or recap                                                 |
-| `commentIds`       | string[]                         | IDs of the new comments                                      |
-| `commentCount`     | number                           | Number of new comments in this batch                          |
+| ------------------ | -------------------------------- | ----------------------------------------------------------- |
+| `planId`           | string                           | Plan identifier                                             |
+| `title`            | string                           | Plan title                                                  |
+| `kind`             | `"plan"` \| `"recap"`            | Plan or recap                                               |
+| `commentIds`       | string[]                         | IDs of the new comments                                     |
+| `commentCount`     | number                           | Number of new comments in this batch                        |
 | `resolutionTarget` | `"agent"` \| `"human"` \| `null` | Dominant target — `"agent"` if any comment targets an agent |
-| `excerpt`          | string                           | First 200 characters of the first comment                    |
-| `author`           | string \| null                   | Email of the commenter, if known                              |
-| `path`             | string                           | App-relative path                                             |
+| `excerpt`          | string                           | First 200 characters of the first comment                   |
+| `author`           | string \| null                   | Email of the commenter, if known                            |
+| `path`             | string                           | App-relative path                                           |
 
 #### `plan.published`
 
@@ -50,27 +50,27 @@ Fires when a local plan is published (or re-published) to a hosted shareable
 URL.
 
 | Field                 | Type                  | Description                        |
-| --------------------- | --------------------- | ------------------------------------ |
-| `planId`              | string                | Local plan identifier                |
-| `title`               | string                | Plan title                           |
-| `kind`                | `"plan"` \| `"recap"` | Plan or recap                        |
-| `hostedPlanId`        | string                | Hosted plan identifier               |
-| `url`                 | string                | Full public URL of the hosted plan   |
-| `requestedVisibility` | string                | `"public"`, `"private"`, etc.        |
+| --------------------- | --------------------- | ---------------------------------- |
+| `planId`              | string                | Local plan identifier              |
+| `title`               | string                | Plan title                         |
+| `kind`                | `"plan"` \| `"recap"` | Plan or recap                      |
+| `hostedPlanId`        | string                | Hosted plan identifier             |
+| `url`                 | string                | Full public URL of the hosted plan |
+| `requestedVisibility` | string                | `"public"`, `"private"`, etc.      |
 
 #### `plan.status.changed`
 
 Fires when a plan's status changes (e.g. `review` → `approved`).
 
 | Field       | Type                  | Description                        |
-| ----------- | --------------------- | ------------------------------------ |
-| `planId`    | string                | Plan identifier                      |
-| `title`     | string                | Plan title                           |
-| `kind`      | `"plan"` \| `"recap"` | Plan or recap                        |
-| `oldStatus` | string \| null        | Previous status                      |
-| `newStatus` | string                | New status                           |
-| `changedBy` | string \| null        | Email of the person who changed it   |
-| `path`      | string                | App-relative path                    |
+| ----------- | --------------------- | ---------------------------------- |
+| `planId`    | string                | Plan identifier                    |
+| `title`     | string                | Plan title                         |
+| `kind`      | `"plan"` \| `"recap"` | Plan or recap                      |
+| `oldStatus` | string \| null        | Previous status                    |
+| `newStatus` | string                | New status                         |
+| `changedBy` | string \| null        | Email of the person who changed it |
+| `path`      | string                | App-relative path                  |
 
 <Diagram id="doc-block-plan5" title="Event to notification" summary="Plan events fire on the shared event bus; an automation subscribes with a trigger and an optional condition, then acts.">
 

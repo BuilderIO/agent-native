@@ -1579,7 +1579,11 @@ function AppLayoutInner({ children }: AppLayoutProps) {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <PopoverTrigger asChild>
-                    <button className="flex items-center hover:opacity-90 transition-opacity ms-1">
+                    <button
+                      type="button"
+                      aria-label={t("mail.toolbar.accounts")}
+                      className="flex items-center hover:opacity-90 transition-opacity ms-1"
+                    >
                       <div
                         className="flex items-center"
                         style={{
@@ -1680,6 +1684,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
             >
               <AppSidebarHeader
                 brandName={t("mail.appName")}
+                appId="mail"
                 brandHref="/inbox"
                 collapsed={showCollapsedSidebar}
               >
@@ -2914,6 +2919,9 @@ function AccountPopover({
             >
               {/* Checkbox */}
               <button
+                type="button"
+                aria-label={account.email}
+                aria-pressed={isChecked}
                 onClick={() => onToggleAccount(account.email)}
                 className="shrink-0"
               >

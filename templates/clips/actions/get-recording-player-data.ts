@@ -99,9 +99,10 @@ function recordingDeepLink(recordingId: string): string {
 
 export default defineAction({
   description:
-    "Fetch everything the player page needs for a recording: metadata, transcript, comments, reactions, chapters, CTAs, the counted-view total, and the caller's effective role. Agent calls receive a bounded transcript payload; browser player calls receive the full transcript.",
+    "Fetch everything the player page needs for a recording: metadata, transcript, comments, reactions, chapters, CTAs, the counted-view total, and the caller's effective role. Agent calls receive a bounded transcript chunk; pass transcriptOffset from nextFullTextOffset until it is null to read the complete transcript. Browser player calls receive the full transcript.",
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
+    transcriptOffset: z.coerce.number().int().min(0).optional(),
   }),
   mcpApp: {
     compactCatalog: true,
@@ -297,6 +298,7 @@ export default defineAction({
         ? boundTranscriptForAgent({
             fullText: transcript?.fullText,
             segments: transcriptSegments,
+            fullTextOffset: args.transcriptOffset,
           })
         : null;
 
@@ -336,7 +338,9 @@ export default defineAction({
         title: rec.title,
         description: rec.description,
         thumbnailUrl: resolvePlayerThumbnailUrl(rec),
-        animatedThumbnailUrl: rec.animatedThumbnailUrl,
+        animatedThumbnailUrl: rec.animatedThumbnailUrl
+          ? resolvePlayerThumbnailUrl(rec, { animated: true })
+          : null,
         filmstripUrl: rec.filmstripUrl ?? null,
         filmstripFrameCount: rec.filmstripFrameCount ?? 0,
         filmstripColumns: rec.filmstripColumns ?? 0,
@@ -388,6 +392,8 @@ export default defineAction({
             ...(agentTranscript
               ? {
                   fullTextLength: agentTranscript.fullTextLength,
+                  fullTextOffset: agentTranscript.fullTextOffset,
+                  nextFullTextOffset: agentTranscript.nextFullTextOffset,
                   segmentCount: agentTranscript.segmentCount,
                   previewTruncated: agentTranscript.previewTruncated,
                   note: agentTranscript.note,

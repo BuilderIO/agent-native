@@ -131,6 +131,7 @@ export function CrmSidebar({ onNavigate }: { onNavigate?: () => void }) {
       collapsed={collapsed}
       onCollapsedChange={setCollapsed}
       brandName="CRM"
+      appId="crm"
       brandHref="/home"
       items={items}
       secondaryItems={secondaryItems}

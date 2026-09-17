@@ -2304,6 +2304,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         <>
           <AppSidebarHeader
             brandName={t("navigation.brand")}
+            appId="analytics"
             brandHref="/home"
             collapsed={true}
           />
@@ -2348,6 +2349,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         <>
           <AppSidebarHeader
             brandName={t("navigation.brand")}
+            appId="analytics"
             brandHref="/home"
             collapsed={false}
           />

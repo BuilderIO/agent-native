@@ -38,6 +38,7 @@ import {
   matchesSavedHostedAgentProbe,
   stripRemoteAgentAuth,
   createPublicRemoteAgentsHandler,
+  createOAuthPopupWaitingHandler,
 } from "./core-routes-plugin.js";
 import type { H3AppShim } from "./framework-request-handler.js";
 
@@ -60,6 +61,37 @@ describe("mountApplicationStateRoutes", () => {
   });
 });
 
+describe("OAuth popup waiting route", () => {
+  it("serves an inert public HTML document with restrictive framing policy", async () => {
+    const app = createApp();
+    app.use("/_agent-native/oauth/popup", createOAuthPopupWaitingHandler());
+
+    const response = await app.fetch(
+      new Request("http://example.test/_agent-native/oauth/popup"),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/html");
+    expect(response.headers.get("content-security-policy")).toBe(
+      "default-src 'none'; frame-ancestors 'none'",
+    );
+    expect(await response.text()).not.toContain("script");
+  });
+
+  it("rejects writes", async () => {
+    const app = createApp();
+    app.use("/_agent-native/oauth/popup", createOAuthPopupWaitingHandler());
+
+    const response = await app.fetch(
+      new Request("http://example.test/_agent-native/oauth/popup", {
+        method: "POST",
+      }),
+    );
+
+    expect(response.status).toBe(405);
+  });
+});
+
 describe("public remote-agent discovery", () => {
   it("does not expose hosted-agent credential wiring", () => {
     const publicAgent = stripRemoteAgentAuth({
@@ -74,6 +106,12 @@ describe("public remote-agent discovery", () => {
         clientId: "client-id",
         clientSecretRef: "FOUNDRY_SECRET",
       },
+      kind: {
+        provider: "anthropic-managed-agents",
+        agentId: "agt_01",
+        environmentId: "env_01",
+        credentialRef: "ANTHROPIC_API_KEY",
+      },
     });
 
     expect(publicAgent).toEqual({
@@ -84,6 +122,7 @@ describe("public remote-agent discovery", () => {
       cardUrl: "https://agent.example.test/card",
     });
     expect("auth" in publicAgent).toBe(false);
+    expect("kind" in publicAgent).toBe(false);
   });
 
   it("omits hosted-agent auth from the HTTP listing response", async () => {
@@ -158,6 +197,30 @@ describe("hosted-agent probes", () => {
           url: "https://attacker.example.test",
           cardUrl: "https://attacker.example.test/card",
           auth,
+        },
+      ),
+    ).toBe(false);
+  });
+
+  it("matches a saved managed-agent provider reference", () => {
+    const kind = {
+      provider: "anthropic-managed-agents" as const,
+      agentId: "agt_01",
+      environmentId: "env_01",
+      credentialRef: "ANTHROPIC_API_KEY",
+    };
+    expect(
+      matchesSavedHostedAgentProbe(
+        { url: "https://api.anthropic.com", kind },
+        { url: "https://api.anthropic.com", kind },
+      ),
+    ).toBe(true);
+    expect(
+      matchesSavedHostedAgentProbe(
+        { url: "https://api.anthropic.com", kind },
+        {
+          url: "https://api.anthropic.com",
+          kind: { ...kind, agentId: "agt_other" },
         },
       ),
     ).toBe(false);

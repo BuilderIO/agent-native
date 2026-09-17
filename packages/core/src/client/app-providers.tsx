@@ -91,7 +91,7 @@ export interface AppProvidersProps {
 
   /**
    * Default theme passed to next-themes `ThemeProvider`.
-   * Defaults to `"system"`.  Dark-first templates (slides, macros, analytics)
+   * Defaults to `"system"`.  Dark-first templates (slides, analytics)
    * pass `"dark"`.
    */
   defaultTheme?: string;

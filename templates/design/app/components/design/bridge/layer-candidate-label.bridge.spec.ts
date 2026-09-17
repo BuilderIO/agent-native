@@ -33,13 +33,23 @@ const FIXTURE = `<!doctype html><html><body style="margin:0">
   </div>
 </body></html>`;
 
-async function contextMenuLayerCandidates(clientX: number, clientY: number) {
+const LEGACY_FIXTURE = `<!doctype html><html><body style="margin:0">
+  <div data-agent-native-node-id="stage" data-agent-native-layer-name="Stage" style="position:relative;width:400px;height:300px;background:#eee">
+    <div data-agent-native-node-id="card" layer-name="Imported card" style="position:absolute;left:40px;top:40px;width:300px;height:200px;background:#fff"><span>Tiana</span></div>
+  </div>
+</body></html>`;
+
+async function contextMenuLayerCandidates(
+  content: string,
+  clientX: number,
+  clientY: number,
+) {
   const browser = await chromium.launch({ headless: true });
   try {
     const page = await browser.newPage({
       viewport: { width: 600, height: 500 },
     });
-    await page.setContent(FIXTURE);
+    await page.setContent(content);
     await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
     await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
     await page.evaluate(() => {
@@ -87,11 +97,23 @@ describe("layer candidate label matches the layers-panel name", () => {
     // "card" is a <div> with no explicit/semantic name wrapping one <span>
     // child — a container, per the layers panel's own leaf-vs-container
     // rule, so it must read "Frame" everywhere, never the span's "Tiana".
-    const candidates = await contextMenuLayerCandidates(190, 140);
+    const candidates = await contextMenuLayerCandidates(FIXTURE, 190, 140);
     const cardCandidate = candidates.find(
       (candidate) => (candidate.info as any)?.sourceId === "card",
     );
     expect(cardCandidate?.label).toBe("Frame");
     expect(cardCandidate?.label).not.toBe("Tiana");
+  });
+
+  it("reads a legacy imported layer-name attribute for nested layers", async () => {
+    const candidates = await contextMenuLayerCandidates(
+      LEGACY_FIXTURE,
+      190,
+      140,
+    );
+    const cardCandidate = candidates.find(
+      (candidate) => (candidate.info as any)?.sourceId === "card",
+    );
+    expect(cardCandidate?.label).toBe("Imported card");
   });
 });

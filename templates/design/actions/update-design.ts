@@ -9,6 +9,11 @@ import { numericDesignDataWriteError } from "../shared/canvas-frames.js";
 
 const MAX_DATA_CAS_ATTEMPTS = 5;
 const MAX_DATA_OPERATION_SOURCES = 128;
+const NUMERIC_DESIGN_DATA_MAPS = new Set([
+  "canvasFrames",
+  "screenMetadata",
+  "localhostScreens",
+]);
 const FORBIDDEN_DATA_PATH_SEGMENTS = new Set([
   "__proto__",
   "constructor",
@@ -237,6 +242,39 @@ function applyDataOperations(
   return JSON.stringify(root);
 }
 
+function validatePersistedDataSnapshot(
+  raw: string,
+  touchedMaps?: ReadonlySet<string>,
+  touchedCanvasFrameIds?: ReadonlySet<string>,
+): void {
+  const parsed = JSON.parse(raw);
+  if (!isRecord(parsed)) return;
+  for (const [key, value] of Object.entries(parsed)) {
+    if (
+      touchedMaps &&
+      NUMERIC_DESIGN_DATA_MAPS.has(key) &&
+      !touchedMaps.has(key)
+    ) {
+      continue;
+    }
+    if (key === "canvasFrames" && touchedCanvasFrameIds) {
+      if (!isRecord(value)) {
+        const message = numericDesignDataWriteError([key], value);
+        if (message) throw new Error(message);
+        continue;
+      }
+      for (const [frameId, frame] of Object.entries(value)) {
+        if (!touchedCanvasFrameIds.has(frameId)) continue;
+        const message = numericDesignDataWriteError([key, frameId], frame);
+        if (message) throw new Error(message);
+      }
+      continue;
+    }
+    const message = numericDesignDataWriteError([key], value);
+    if (message) throw new Error(message);
+  }
+}
+
 export default defineAction({
   description:
     "Update an existing design project. Requires editor access. " +
@@ -244,7 +282,11 @@ export default defineAction({
     "For map entries such as canvasFrames, use dataOperations " +
     "with explicit set/delete paths instead of a full data snapshot. " +
     "Dimensions and positions (x, y, width, height, rotation, z) are " +
-    "numbers. String values are rejected.",
+    "numbers. String values are rejected. Renderable screens created by " +
+    "create-file or generate-design are auto-placed, so omit canvasFrames " +
+    "unless intentionally placing or moving a frame. Full placement objects " +
+    "must provide complete numeric geometry; path-addressed updates may change " +
+    "individual numeric fields.",
   schema: z
     .object({
       id: z.string().describe("Design ID"),
@@ -457,6 +499,32 @@ export default defineAction({
             })
           : data!;
       }
+      // Validate the complete post-operation snapshot. Nested set/delete
+      // operations can otherwise leave an empty canvas frame after the
+      // per-value numeric checks have passed.
+      const touchedMaps = dataOperations
+        ? new Set(dataOperations.map((operation) => operation.path[0]))
+        : (() => {
+            const parsed = JSON.parse(data!);
+            return new Set(isRecord(parsed) ? Object.keys(parsed) : []);
+          })();
+      const touchedCanvasFrameIds = dataOperations
+        ? (() => {
+            const ids = dataOperations
+              .filter(
+                (operation) =>
+                  operation.path[0] === "canvasFrames" &&
+                  operation.path.length > 1,
+              )
+              .map((operation) => operation.path[1]!);
+            return ids.length > 0 ? new Set(ids) : undefined;
+          })()
+        : undefined;
+      validatePersistedDataSnapshot(
+        nextData,
+        touchedMaps,
+        touchedCanvasFrameIds,
+      );
 
       // Compare-and-swap on the exact data snapshot. Transactions at the
       // default isolation level do not make a read-merge-write safe: two

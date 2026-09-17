@@ -1,5 +1,42 @@
 # @agent-native/agentkit
 
+## 0.2.3
+
+### Patch Changes
+
+- 901376b: Keep composer controls balanced, keep popovers within the viewport, and prevent first-run prompts from racing model authentication.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [901376b]
+- Updated dependencies [b35949b]
+- Updated dependencies [116c315]
+- Updated dependencies
+  - @agent-native/toolkit@0.20.3
+
+## 0.2.2
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [c9cb7de]
+  - @agent-native/toolkit@0.20.2
+
+## 0.2.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [9f08f5d]
+- Updated dependencies [cd40555]
+- Updated dependencies [1f43d89]
+- Updated dependencies [25dc407]
+- Updated dependencies [e32e1d5]
+- Updated dependencies
+- Updated dependencies [657bba1]
+- Updated dependencies [25dc407]
+- Updated dependencies [6ba23d3]
+  - @agent-native/toolkit@0.20.1
+
 ## 0.2.0
 
 ### Minor Changes

@@ -68,15 +68,31 @@ const messages = {
     "Creating or reusing your Builder.io account. This usually takes a few seconds.",
   "onboarding.builderConnectionDescription":
     "Finish the one-click connection in the new window.",
+  "onboarding.builderReadyWithCodeChanges":
+    "AI credits and cloud code changes are ready to use.",
+  "onboarding.builderReadyCreditsOnly":
+    "AI credits are ready to use. Cloud code edits require a Builder project in Background Agent settings.",
+  "onboarding.openBackgroundAgentSettings": "Open Background Agent settings",
   "onboarding.capability.llm.keySummary":
     "Connect an AI provider or local model",
   "onboarding.capability.fileStorage.keySummary":
     "Builder storage or an S3-compatible bucket",
+  "onboarding.fileStorage.title": "Choose file storage",
+  "onboarding.fileStorage.description":
+    "Choose Builder.io for managed file storage, or use custom storage keys for your own S3-compatible bucket.",
+  "onboarding.fileStorage.custom": "Use custom storage keys",
+  "onboarding.fileStorage.customDescription":
+    "Configure an S3-compatible bucket with a stable public URL.",
   "onboarding.capability.voiceInput.label": "Voice input",
   "onboarding.capability.voiceInput.keySummary":
     "Browser speech recognition or speech-to-text",
   "onboarding.capability.voiceInput.why":
     "Voice input turns spoken requests into text; typing always works without it.",
+  "onboarding.capability.embeddings.label": "Embeddings",
+  "onboarding.capability.embeddings.keySummary":
+    "Gemini, Cohere, or Voyage key",
+  "onboarding.capability.embeddings.why":
+    "Embeddings improve semantic search. Keyword search still works without them.",
   "onboarding.capability.assetsImageGeneration.label": "Image generation",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Builder credits or an image provider key",
@@ -136,6 +152,21 @@ const messages = {
   "common.retry": "Retry",
   "common.save": "Save",
   "agents.hostedAgent": "Hosted agent",
+  "agents.provider": "Provider",
+  "agents.providerA2A": "A2A (Foundry, Gemini, or custom)",
+  "agents.providerAnthropic": "Anthropic Managed Agents",
+  "agents.agentId": "Agent ID",
+  "agents.agentIdPlaceholder": "agent_...",
+  "agents.environmentId": "Environment ID",
+  "agents.environmentIdPlaceholder": "env_...",
+  "agents.apiBaseUrl": "API base URL (optional)",
+  "agents.apiBaseUrlPlaceholder": "https://api.anthropic.com",
+  "agents.managedAgentIncomplete":
+    "Complete the Anthropic Managed Agents fields.",
+  "agents.managedAgentCheck":
+    "Connection is checked when you delegate from chat.",
+  "agents.managedAgentSaved":
+    "Anthropic Managed Agent saved. Delegate to it from chat.",
   "agents.cardUrl": "Agent card URL",
   "agents.cardUrlPlaceholder": "https://host.example/agent-card.json",
   "agents.authType": "Authentication",
@@ -153,6 +184,26 @@ const messages = {
   "agents.statusReachable": "Reachable",
   "agents.statusAuthRejected": "Auth rejected",
   "agents.statusNoJsonRpc": "No JSON-RPC",
+  "agents.directoryTab": "Agent directory",
+  "agents.directoryPageHint":
+    "Find an agent backend and connect it to your workspace.",
+  "agents.directorySearch": "Search providers",
+  "agents.directoryProviders": "Providers",
+  "agents.directoryManual": "Add by URL",
+  "agents.directoryA2A": "A2A",
+  "agents.directoryManaged": "Managed API",
+  "agents.directoryFoundry": "Microsoft Foundry",
+  "agents.directoryFoundryHint": "Connect a Foundry agent over A2A.",
+  "agents.directoryGemini": "Gemini Enterprise",
+  "agents.directoryGeminiHint": "Connect a Gemini Enterprise agent over A2A.",
+  "agents.directoryAnthropic": "Anthropic Managed Agents",
+  "agents.directoryAnthropicHint":
+    "Connect sessions and approvals from Anthropic.",
+  "agents.directoryNoMatches": "No providers match your search.",
+  "agents.directoryRegistry": "Global A2A Registry",
+  "agents.directoryRegistryHint":
+    "Browse public Agent Cards, then verify before connecting.",
+  "agents.directoryBrowse": "Browse registry",
   "common.saveFailed": "Save failed",
   "common.saveFailedStatus": "Save failed ({{status}})",
   "common.saving": "Saving...",
@@ -384,6 +435,8 @@ const messages = {
   "error.stopped": "The agent stopped before finishing",
   "errorMessages.agentConnection":
     "The agent connection was interrupted. Check your connection and retry.",
+  "errorMessages.attachmentPasswordProtected":
+    "This PDF is password-protected, so it can't be read. Remove the password protection or paste the relevant text, then retry.",
   "errorMessages.builderAuthentication":
     "Builder rejected the connected credentials. Reconnect Builder.io in Settings, then retry.",
   "errorMessages.builderModelUnauthorized":

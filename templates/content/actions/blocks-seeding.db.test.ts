@@ -40,6 +40,7 @@ let databaseUtils: typeof import("./_database-utils.js");
 let createInlineContentDatabaseAction: typeof import("./create-inline-content-database.js").default;
 let updateDocumentAction: typeof import("./update-document.js").default;
 let editDocumentAction: typeof import("./edit-document.js").default;
+let documentRevisionToken: typeof import("./_document-edit-mutation.js").documentRevisionToken;
 let setDocumentPropertyAction: typeof import("./set-document-property.js").default;
 let createContentDatabaseAction: typeof import("./create-content-database.js").default;
 let createContentDatabaseModule: typeof import("./create-content-database.js");
@@ -65,6 +66,7 @@ beforeAll(async () => {
   ).default;
   updateDocumentAction = (await import("./update-document.js")).default;
   editDocumentAction = (await import("./edit-document.js")).default;
+  ({ documentRevisionToken } = await import("./_document-edit-mutation.js"));
   setDocumentPropertyAction = (await import("./set-document-property.js"))
     .default;
   createContentDatabaseModule = await import("./create-content-database.js");
@@ -684,6 +686,106 @@ describe("writeBlockFieldContent — upsert race (finding 4)", () => {
 });
 
 describe("database Blocks field identity sidecar", () => {
+  it("initializes an empty collection row without changing its membership or properties", async () => {
+    const { databaseId } = await createDatabaseRow();
+    const db = getDb();
+    const now = new Date().toISOString();
+    const primaryPropertyId = await propertyUtils.seedDefaultBlocksField({
+      databaseId,
+      ownerEmail: OWNER,
+      orgId: null,
+      now,
+    });
+    const rowDocumentId = `empty_row_${++counter}`;
+    const itemId = `empty_item_${counter}`;
+    const textPropertyId = `status_${counter}`;
+    await db.insert(schema.documents).values({
+      id: rowDocumentId,
+      ownerEmail: OWNER,
+      title: "Empty collection row",
+      content: "",
+      description: "Preserve this description",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.contentDatabaseItems).values({
+      id: itemId,
+      ownerEmail: OWNER,
+      databaseId,
+      documentId: rowDocumentId,
+      position: 7,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.documentPropertyDefinitions).values({
+      id: textPropertyId,
+      ownerEmail: OWNER,
+      databaseId,
+      name: "Status",
+      type: "text",
+      position: 1,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.documentPropertyValues).values({
+      id: `value_${counter}`,
+      ownerEmail: OWNER,
+      documentId: rowDocumentId,
+      propertyId: textPropertyId,
+      valueJson: JSON.stringify("Keep me"),
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      editDocumentAction.run(
+        {
+          id: rowDocumentId,
+          baseRevision: documentRevisionToken(0, ""),
+          idempotencyKey: `initialize-row-${counter}`,
+          initializeContent: "Row body\n",
+        },
+        { caller: "mcp", userEmail: OWNER },
+      ),
+    );
+
+    const [document] = await db
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, rowDocumentId));
+    const [membership] = await db
+      .select()
+      .from(schema.contentDatabaseItems)
+      .where(eq(schema.contentDatabaseItems.id, itemId));
+    const [propertyValue] = await db
+      .select()
+      .from(schema.documentPropertyValues)
+      .where(eq(schema.documentPropertyValues.documentId, rowDocumentId));
+    const [blocksField] = await db
+      .select()
+      .from(schema.documentBlockFields)
+      .where(
+        and(
+          eq(schema.documentBlockFields.documentId, rowDocumentId),
+          eq(schema.documentBlockFields.propertyId, primaryPropertyId),
+        ),
+      );
+
+    expect(document).toMatchObject({
+      title: "Empty collection row",
+      description: "Preserve this description",
+      content: "Row body\n",
+      bodyRevision: 1,
+    });
+    expect(membership).toMatchObject({
+      databaseId,
+      documentId: rowDocumentId,
+      position: 7,
+    });
+    expect(propertyValue.valueJson).toBe(JSON.stringify("Keep me"));
+    expect(blocksField.revision).toBe(1);
+  });
+
   it("preserves ordered IDs, independent revisions, and bounded recovery", async () => {
     const { documentId } = await createDatabaseRow();
     const db = getDb();

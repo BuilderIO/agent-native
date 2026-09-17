@@ -72,15 +72,31 @@ const messages: AgentChatTranslation = {
     "Builder.io アカウントを作成または再利用しています。通常は数秒かかります。",
   "onboarding.builderConnectionDescription":
     "新しいウィンドウでワンクリック接続を完了してください。",
+  "onboarding.builderReadyWithCodeChanges":
+    "AI クレジットとクラウドコードの変更を利用できます。",
+  "onboarding.builderReadyCreditsOnly":
+    "AI クレジットを利用できます。クラウドコードの編集には、Background Agent 設定で Builder プロジェクトが必要です。",
+  "onboarding.openBackgroundAgentSettings": "Background Agent 設定を開く",
   "onboarding.capability.llm.keySummary":
     "AIプロバイダーまたはローカルモデルに接続",
   "onboarding.capability.fileStorage.keySummary":
     "BuilderストレージまたはS3互換バケット",
+  "onboarding.fileStorage.title": "ファイルストレージを選択",
+  "onboarding.fileStorage.description":
+    "Builderの管理ストレージ、または独自のS3互換バケット用のカスタムストレージキーを選択します。",
+  "onboarding.fileStorage.custom": "カスタムストレージキーを使用",
+  "onboarding.fileStorage.customDescription":
+    "安定した公開URLを持つS3互換バケットを設定します。",
   "onboarding.capability.voiceInput.label": "音声入力",
   "onboarding.capability.voiceInput.keySummary":
     "ブラウザーの音声認識または音声文字変換",
   "onboarding.capability.voiceInput.why":
     "音声入力は話したリクエストをテキストに変換します。入力はいつでも使えます。",
+  "onboarding.capability.embeddings.label": "埋め込み",
+  "onboarding.capability.embeddings.keySummary":
+    "Gemini、Cohere、またはVoyageのキー",
+  "onboarding.capability.embeddings.why":
+    "埋め込みは意味検索を改善します。埋め込みがなくてもキーワード検索は使えます。",
   "onboarding.capability.assetsImageGeneration.label": "画像生成",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Builderクレジットまたは画像プロバイダーのキー",
@@ -140,6 +156,20 @@ const messages: AgentChatTranslation = {
   "common.retry": "再試行",
   "common.save": "保存",
   "agents.hostedAgent": "ホスト型エージェント",
+  "agents.provider": "プロバイダー",
+  "agents.providerA2A": "A2A エージェント（Foundry、Gemini、またはカスタム）",
+  "agents.providerAnthropic": "Anthropic 管理エージェント",
+  "agents.agentId": "エージェント ID",
+  "agents.agentIdPlaceholder": "agent_...",
+  "agents.environmentId": "環境 ID",
+  "agents.environmentIdPlaceholder": "env_...",
+  "agents.apiBaseUrl": "API ベース URL（任意）",
+  "agents.apiBaseUrlPlaceholder": "https://api.anthropic.com",
+  "agents.managedAgentIncomplete":
+    "Anthropic Managed Agents の項目を入力してください。",
+  "agents.managedAgentCheck": "チャットから委任すると接続が確認されます。",
+  "agents.managedAgentSaved":
+    "Anthropic Managed Agent を保存しました。チャットから委任できます。",
   "agents.cardUrl": "エージェントカード URL",
   "agents.cardUrlPlaceholder": "https://host.example/agent-card.json",
   "agents.authType": "認証",
@@ -158,6 +188,27 @@ const messages: AgentChatTranslation = {
   "agents.statusReachable": "接続可能",
   "agents.statusAuthRejected": "認証拒否",
   "agents.statusNoJsonRpc": "JSON-RPC なし",
+  "agents.directoryTab": "エージェントディレクトリ",
+  "agents.directoryPageHint":
+    "エージェントバックエンドを見つけてワークスペースに接続します。",
+  "agents.directorySearch": "プロバイダーを検索",
+  "agents.directoryProviders": "プロバイダー",
+  "agents.directoryManual": "URL で追加",
+  "agents.directoryA2A": "A2A",
+  "agents.directoryManaged": "マネージド API",
+  "agents.directoryFoundry": "Microsoft Foundry",
+  "agents.directoryFoundryHint":
+    "A2A 経由で Foundry エージェントを接続します。",
+  "agents.directoryGemini": "Gemini Enterprise",
+  "agents.directoryGeminiHint":
+    "A2A 経由で Gemini Enterprise エージェントを接続します。",
+  "agents.directoryAnthropic": "Anthropic 管理エージェント",
+  "agents.directoryAnthropicHint": "Anthropic のセッションと承認を接続します。",
+  "agents.directoryNoMatches": "検索に一致するプロバイダーはありません。",
+  "agents.directoryRegistry": "グローバル A2A レジストリ",
+  "agents.directoryRegistryHint":
+    "公開 Agent Card を参照し、接続前に確認してください。",
+  "agents.directoryBrowse": "レジストリを開く",
   "common.saveFailed": "保存に失敗しました",
   "common.saveFailedStatus": "保存に失敗しました（{{status}}）",
   "common.saving": "保存中...",
@@ -393,6 +444,8 @@ const messages: AgentChatTranslation = {
   "error.stopped": "エージェントは完了前に停止しました",
   "errorMessages.agentConnection":
     "エージェントとの接続が中断されました。接続を確認して再試行してください。",
+  "errorMessages.attachmentPasswordProtected":
+    "このPDFはパスワードで保護されているため読み取れません。パスワード保護を解除するか、関連するテキストを貼り付けてから再試行してください。",
   "errorMessages.builderAuthentication":
     "Builder が接続済みの認証情報を拒否しました。設定で Builder.io に再接続してから再試行してください。",
   "errorMessages.builderModelUnauthorized":

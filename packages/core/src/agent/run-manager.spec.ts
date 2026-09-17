@@ -12,7 +12,41 @@ import {
 import { EngineError } from "./engine/types.js";
 import type { AgentChatEvent } from "./types.js";
 
+// The whole run-store module is mocked, so the subscription's missing-row and
+// unknown-status fallbacks would otherwise spread `undefined` into the frame.
+const RUN_RECORD_MISSING_ERROR_CODE = "run_record_missing";
+const UNKNOWN_RUN_STATUS_ERROR_CODE = "unknown_run_status";
+const RUN_TERMINAL_LOOKUP_FAILED_ERROR_CODE = "run_terminal_lookup_failed";
+
+// Mutable so one test can exercise the grace window while the rest read the
+// terminal frames without waiting it out.
+const runStoreTestState = vi.hoisted(() => ({ runRecordMissingGraceMs: 0 }));
+
 vi.mock("./run-store.js", () => ({
+  RUN_RECORD_MISSING_ERROR_EVENT: {
+    type: "error",
+    error:
+      "The agent run record is no longer available, so this turn could not be confirmed as finished. Retry if the result is missing.",
+    errorCode: "run_record_missing",
+    recoverable: true,
+  },
+  UNKNOWN_RUN_STATUS_ERROR_EVENT: {
+    type: "error",
+    error:
+      "The agent run ended in a state this app does not recognize, so the result could not be confirmed. Retry if the result is missing.",
+    errorCode: "unknown_run_status",
+    recoverable: true,
+  },
+  RUN_TERMINAL_LOOKUP_FAILED_ERROR_EVENT: {
+    type: "error",
+    error:
+      "The agent run's final state could not be read, so this turn could not be confirmed as finished. Retry if the result is missing.",
+    errorCode: "run_terminal_lookup_failed",
+    recoverable: true,
+  },
+  get RUN_RECORD_MISSING_GRACE_MS() {
+    return runStoreTestState.runRecordMissingGraceMs;
+  },
   insertRun: vi.fn(() => Promise.resolve()),
   insertRunEvent: vi.fn(() => Promise.resolve()),
   updateRunStatus: vi.fn(() => Promise.resolve()),
@@ -22,9 +56,12 @@ vi.mock("./run-store.js", () => ({
     Promise.resolve({ claimed: true, activeRunId: null }),
   ),
   markRunAborted: vi.fn(() => Promise.resolve()),
+  markTurnAborted: vi.fn(() => Promise.resolve()),
   isRunAborted: vi.fn(() => Promise.resolve(false)),
   getRunAbortState: vi.fn(() => Promise.resolve({ aborted: false })),
   getRunEventsSince: vi.fn(() => Promise.resolve([])),
+  getCurrentTurnEventsForThread: vi.fn(() => Promise.resolve([])),
+  getCurrentTurnRunEventsForThread: vi.fn(() => Promise.resolve([])),
   getRunById: vi.fn(() => Promise.resolve(null)),
   isContinuationTerminalReason: (reason: unknown) =>
     reason === "auto_continue" ||
@@ -140,6 +177,7 @@ import { isInBackgroundFunctionRuntime } from "./durable-background.js";
 import {
   abortRun,
   abortRunDurably,
+  abortTurnByRefDurably,
   engineRequestShapeTags,
   DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS,
   DEFAULT_COMPLETED_RUN_RETENTION_MS,
@@ -150,9 +188,11 @@ import {
   resolveRunToolTimeoutCeilingMs,
   getActiveRunForThreadAsync,
   getRun,
+  IN_MEMORY_TERMINAL_SETTLE_MS,
   resolveCompletedRunRetentionMs,
   resolveErroredRunRetentionMs,
   resolveRunSoftTimeoutMs,
+  replayCompletedTurn,
   nextSqlSubscriptionEmptyPolls,
   resolveSqlSubscriptionPollMs,
   resolveSqlSubscriptionRetryMs,
@@ -175,7 +215,9 @@ import {
   getRunById,
   getRunByThread,
   getRunEventsSince,
+  getCurrentTurnRunEventsForThread,
   markRunAborted,
+  markTurnAborted,
   updateRunStatus,
   updateRunStatusIfRunning,
   ensureTerminalRunEvent,
@@ -258,6 +300,7 @@ function restoreHostedEnvAfterTest() {
 describe("run manager soft timeout", () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    runStoreTestState.runRecordMissingGraceMs = 0;
     clearHostedEnvForTest();
     vi.mocked(getRunAbortState).mockResolvedValue({ aborted: false });
     vi.mocked(getRunStatus).mockResolvedValue("running");
@@ -1117,7 +1160,9 @@ describe("run manager soft timeout", () => {
       if (result.done) break;
       chunks.push(decoder.decode(result.value));
     }
-    expect(chunks.join("")).toContain('data: {"type":"done","seq":0}');
+    expect(chunks.join("")).toContain(
+      'data: {"type":"done","seq":0,"eventId":"run-explicit-abort:0"}',
+    );
 
     await vi.waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
     expect(markRunAborted).toHaveBeenCalledWith("run-explicit-abort", "user");
@@ -1151,6 +1196,89 @@ describe("run manager soft timeout", () => {
     persistAbort?.();
     await expect(abortPromise).resolves.toBe(false);
     expect(resolved).toBe(true);
+  });
+
+  it("aborts the in-process run before a turn-reference abort resolves", async () => {
+    let observedAbortReason: unknown;
+    const run = startRun(
+      "run-turn-ref-abort",
+      "thread-turn-ref-abort",
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener(
+            "abort",
+            () => {
+              observedAbortReason = signal.reason;
+              resolve();
+            },
+            { once: true },
+          );
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0, turnId: "turn-ref-abort" },
+    );
+
+    await abortTurnByRefDurably(
+      "thread-turn-ref-abort",
+      "turn-ref-abort",
+      "dismissed",
+    );
+
+    expect(observedAbortReason).toBe("dismissed");
+    expect(run.status).toBe("aborted");
+    expect(markTurnAborted).toHaveBeenCalledWith(
+      "thread-turn-ref-abort",
+      "turn-ref-abort",
+      "dismissed",
+    );
+  });
+
+  it("replays every chunk of a completed logical turn as one stream", async () => {
+    vi.mocked(getCurrentTurnRunEventsForThread).mockResolvedValueOnce([
+      {
+        runId: "run-turn-1",
+        seq: 0,
+        event: { type: "text", text: "first chunk" },
+      },
+      {
+        runId: "run-turn-1",
+        seq: 1,
+        event: { type: "auto_continue", reason: "run_timeout" },
+      },
+      {
+        runId: "run-turn-2",
+        seq: 0,
+        event: { type: "text", text: "second chunk" },
+      },
+      { runId: "run-turn-2", seq: 1, event: { type: "done" } },
+    ]);
+
+    const stream = await replayCompletedTurn("thread-turn", "turn-1");
+    const reader = stream!.getReader();
+    const decoder = new TextDecoder();
+    const chunks: string[] = [];
+    for (;;) {
+      const next = await reader.read();
+      if (next.done) break;
+      chunks.push(decoder.decode(next.value));
+    }
+
+    const output = chunks.join("");
+    expect(output).toContain(
+      'data: {"type":"text","text":"first chunk","seq":0,"eventId":"run-turn-1:0"}',
+    );
+    expect(output).toContain(
+      'data: {"type":"text","text":"second chunk","seq":1,"eventId":"run-turn-2:0"}',
+    );
+    expect(output).toContain(
+      'data: {"type":"done","seq":2,"eventId":"run-turn-2:1"}',
+    );
+    expect(output).not.toContain("auto_continue");
+    expect(getCurrentTurnRunEventsForThread).toHaveBeenCalledWith(
+      "thread-turn",
+      "turn-1",
+    );
   });
 
   it("keeps an in-memory abort successful when durable cleanup fails", async () => {
@@ -2900,10 +3028,53 @@ describe("run manager soft timeout", () => {
     const output = chunks.join("");
     expect(getRunEventsSince).toHaveBeenCalledTimes(2);
     expect(output).toContain(
-      'data: {"type":"text","text":"recovered","seq":0}',
+      'data: {"type":"text","text":"recovered","seq":0,"eventId":"run-sql-retry:0"}',
     );
-    expect(output).toContain('data: {"type":"done","seq":1}');
+    expect(output).toContain(
+      'data: {"type":"done","seq":1,"eventId":"run-sql-retry:1"}',
+    );
     expect(output).not.toContain("run_subscription_poll_failed");
+  });
+
+  it("keeps the exact SQL cursor after a recoverable poll failure", async () => {
+    vi.mocked(getRunEventsSince)
+      .mockClear()
+      .mockRejectedValueOnce(new Error("transient pool timeout"))
+      .mockResolvedValueOnce([
+        {
+          seq: 4,
+          eventData: JSON.stringify({ type: "text", text: "cursor-safe" }),
+        },
+        { seq: 5, eventData: JSON.stringify({ type: "done" }) },
+      ]);
+
+    const stream = subscribeToRun("run-sql-cursor-safe", 4);
+    const reader = stream!.getReader();
+    const decoder = new TextDecoder();
+
+    await vi.waitFor(() => expect(getRunEventsSince).toHaveBeenCalledTimes(1));
+    await vi.advanceTimersByTimeAsync(SQL_SUBSCRIPTION_RETRY_BASE_MS);
+
+    const chunks: string[] = [];
+    for (let i = 0; i < 2; i++) {
+      const next = await reader.read();
+      if (next.done) break;
+      chunks.push(decoder.decode(next.value));
+    }
+
+    expect(getRunEventsSince).toHaveBeenNthCalledWith(
+      1,
+      "run-sql-cursor-safe",
+      4,
+    );
+    expect(getRunEventsSince).toHaveBeenNthCalledWith(
+      2,
+      "run-sql-cursor-safe",
+      4,
+    );
+    expect(chunks.join("")).toContain(
+      '"text":"cursor-safe","seq":4,"eventId":"run-sql-cursor-safe:4"',
+    );
   });
 
   it("fails a SQL subscription loudly after bounded consecutive polling failures", async () => {
@@ -2946,6 +3117,24 @@ describe("run manager soft timeout", () => {
         '"errorCode":"run_subscription_poll_failed"',
       );
       expect(chunks.join("")).toContain('"recoverable":true');
+      const failure = chunks
+        .join("")
+        .split("data: ")
+        .map((chunk) => chunk.split("\n", 1)[0])
+        .map((chunk) => {
+          try {
+            return JSON.parse(chunk) as Record<string, unknown>;
+          } catch {
+            return null;
+          }
+        })
+        .find((event) => event?.errorCode === "run_subscription_poll_failed");
+      expect(failure).toEqual(
+        expect.not.objectContaining({ seq: expect.anything() }),
+      );
+      expect(failure).toEqual(
+        expect.not.objectContaining({ eventId: expect.anything() }),
+      );
       expect(capture).toHaveBeenCalledWith(
         expect.any(Error),
         expect.objectContaining({
@@ -2990,7 +3179,9 @@ describe("run manager soft timeout", () => {
       chunks.push(decoder.decode(next.value));
     }
 
-    expect(chunks.join("")).toContain('data: {"type":"done","seq":0}');
+    expect(chunks.join("")).toContain(
+      'data: {"type":"done","seq":0,"eventId":"run-sql-aborted:0"}',
+    );
     expect(getRunEventsSince).toHaveBeenCalledWith("run-sql-aborted", 0);
   });
 
@@ -3017,7 +3208,9 @@ describe("run manager soft timeout", () => {
       chunks.push(decoder.decode(next.value));
     }
 
-    expect(chunks.join("")).toContain('data: {"type":"done","seq":0}');
+    expect(chunks.join("")).toContain(
+      'data: {"type":"done","seq":0,"eventId":"run-sql-completed:0"}',
+    );
   });
 
   it("preserves continuation boundaries for completed SQL runs", async () => {
@@ -3047,7 +3240,7 @@ describe("run manager soft timeout", () => {
 
     const output = chunks.join("");
     expect(output).toContain(
-      'data: {"type":"auto_continue","reason":"stream_ended","seq":0}',
+      'data: {"type":"auto_continue","reason":"stream_ended","seq":0,"eventId":"run-sql-continuation:0"}',
     );
     expect(output).not.toContain('"type":"done"');
   });
@@ -3079,7 +3272,7 @@ describe("run manager soft timeout", () => {
     // A false `done` here tells the client the agent stopped while the chained
     // successor run is still working ("stopped without sending a final message").
     expect(chunks.join("")).toContain(
-      'data: {"type":"auto_continue","reason":"run_timeout","seq":0}',
+      'data: {"type":"auto_continue","reason":"run_timeout","seq":0,"eventId":"run-sql-chunk:0"}',
     );
     expect(chunks.join("")).not.toContain('"type":"done"');
   });
@@ -3109,7 +3302,7 @@ describe("run manager soft timeout", () => {
     }
 
     expect(chunks.join("")).toContain(
-      'data: {"type":"auto_continue","reason":"no_progress","seq":0}',
+      'data: {"type":"auto_continue","reason":"no_progress","seq":0,"eventId":"run-sql-aborted:0"}',
     );
     expect(chunks.join("")).not.toContain('"type":"done"');
   });
@@ -3142,8 +3335,258 @@ describe("run manager soft timeout", () => {
     }
 
     expect(chunks.join("")).toContain(
-      'data: {"type":"auto_continue","reason":"run_timeout","seq":12}',
+      'data: {"type":"auto_continue","reason":"run_timeout","seq":12,"eventId":"run-sql-aborted-real:12"}',
     );
+  });
+
+  it("waits for the real terminal event when an in-memory run has none buffered", async () => {
+    // `run.status` flips to "completed" when runFn resolves, while the
+    // completion callback emits the terminal event afterwards (it can still
+    // become auto_continue or error). A reconnect inside that window must not
+    // be told the turn is over with no terminal frame.
+    const run = startRun(
+      "run-memory-terminal-race",
+      "thread-memory-terminal-race",
+      async () => {},
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    await vi.waitFor(() => expect(run.status).not.toBe("running"));
+    run.events.length = 0;
+
+    const stream = subscribeToRun("run-memory-terminal-race", 0);
+    const reader = stream!.getReader();
+    const decoder = new TextDecoder();
+    const chunks: string[] = [];
+    let closed = false;
+    const pump = (async () => {
+      while (true) {
+        const next = await reader.read();
+        if (next.done) {
+          closed = true;
+          return;
+        }
+        chunks.push(decoder.decode(next.value));
+      }
+    })();
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(closed).toBe(false);
+    expect(chunks.join("")).not.toContain('"type":"done"');
+
+    // The producer's real terminal event arrives and closes the stream.
+    for (const notify of run.subscribers) {
+      notify({ seq: 0, event: { type: "done" } });
+    }
+    await pump;
+    expect(closed).toBe(true);
+    expect(chunks.join("")).toContain(
+      'data: {"type":"done","seq":0,"eventId":"run-memory-terminal-race:0"}',
+    );
+  });
+
+  it("re-emits an in-memory terminal event when the cursor is past it", async () => {
+    const run = startRun(
+      "run-memory-past-cursor",
+      "thread-memory-past-cursor",
+      async () => {},
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    await vi.waitFor(() => expect(run.status).not.toBe("running"));
+    expect(run.events).toEqual([{ seq: 0, event: { type: "done" } }]);
+
+    // Cursor already past the buffered terminal event, so the replay loop
+    // delivers nothing. Closing here would recreate the ambiguous close.
+    const stream = subscribeToRun("run-memory-past-cursor", 1);
+    const reader = stream!.getReader();
+    const decoder = new TextDecoder();
+    const chunks: string[] = [];
+
+    for (let i = 0; i < 5; i++) {
+      const next = await reader.read();
+      if (next.done) break;
+      chunks.push(decoder.decode(next.value));
+    }
+
+    expect(chunks.join("")).toContain(
+      'data: {"type":"done","seq":0,"eventId":"run-memory-past-cursor:0"}',
+    );
+  });
+
+  it("retries instead of reporting a missing row when the terminal lookup fails", async () => {
+    // An unreadable terminal event is not an absent one. Reporting
+    // run_record_missing off a failed read would claim a confirmed outcome the
+    // subscription never established.
+    vi.mocked(getRunById).mockResolvedValue(null);
+    vi.mocked(getRunEventsSince).mockResolvedValue([]);
+    vi.mocked(getLastTerminalRunEvent).mockRejectedValue(
+      new Error("connection terminated unexpectedly"),
+    );
+
+    const stream = subscribeToRun("run-sql-terminal-lookup-failed", 0);
+    const reader = stream!.getReader();
+    const decoder = new TextDecoder();
+    const chunks: string[] = [];
+    const pump = (async () => {
+      while (true) {
+        const next = await reader.read();
+        if (next.done) return;
+        chunks.push(decoder.decode(next.value));
+      }
+    })();
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    await pump;
+
+    const output = chunks.join("");
+    expect(output).not.toContain(RUN_RECORD_MISSING_ERROR_CODE);
+    expect(output).toContain(RUN_TERMINAL_LOOKUP_FAILED_ERROR_CODE);
+  });
+
+  it("fails loud when an in-memory run never emits its terminal event", async () => {
+    const run = startRun(
+      "run-memory-terminal-lost",
+      "thread-memory-terminal-lost",
+      async () => {},
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    await vi.waitFor(() => expect(run.status).not.toBe("running"));
+    run.events.length = 0;
+
+    const stream = subscribeToRun("run-memory-terminal-lost", 0);
+    const reader = stream!.getReader();
+    const decoder = new TextDecoder();
+    const chunks: string[] = [];
+    const pump = (async () => {
+      while (true) {
+        const next = await reader.read();
+        if (next.done) return;
+        chunks.push(decoder.decode(next.value));
+      }
+    })();
+
+    await vi.advanceTimersByTimeAsync(IN_MEMORY_TERMINAL_SETTLE_MS + 10);
+    await pump;
+
+    expect(chunks.join("")).toContain(UNKNOWN_RUN_STATUS_ERROR_CODE);
+  });
+
+  it("emits a terminal event when the run row is gone instead of closing silently", async () => {
+    // Retention prunes `agent_runs` (and its events) on a cutoff, so a
+    // reconnecting subscriber can legitimately find no row. Closing the stream
+    // with zero terminal frames leaves the client unable to tell "finished"
+    // from "still running", which renders as the interrupted/unknown-outcome
+    // card plus "stopped without sending a final message".
+    vi.mocked(getRunById).mockResolvedValue(null);
+    vi.mocked(getRunEventsSince).mockResolvedValue([]);
+    vi.mocked(getLastTerminalRunEvent).mockResolvedValue(null);
+
+    const stream = subscribeToRun("run-sql-missing-row", 0);
+    const reader = stream!.getReader();
+    const decoder = new TextDecoder();
+    const chunks: string[] = [];
+
+    for (let i = 0; i < 5; i++) {
+      const next = await reader.read();
+      if (next.done) break;
+      chunks.push(decoder.decode(next.value));
+    }
+
+    const output = chunks.join("");
+    expect(output).toContain('"type":"error"');
+    expect(output).toContain(RUN_RECORD_MISSING_ERROR_CODE);
+  });
+
+  it("keeps polling a not-yet-visible run row instead of ending the stream", async () => {
+    // The run id is minted in the request handler and the events endpoint often
+    // runs in another isolate, so the first status probe can precede the
+    // producer's INSERT. That ordinary race must not end the turn.
+    runStoreTestState.runRecordMissingGraceMs = 60_000;
+    vi.mocked(getRunById).mockResolvedValue(null);
+    vi.mocked(getRunEventsSince).mockResolvedValue([]);
+    vi.mocked(getLastTerminalRunEvent).mockResolvedValue(null);
+
+    const stream = subscribeToRun("run-sql-not-yet-inserted", 0);
+    const reader = stream!.getReader();
+    const decoder = new TextDecoder();
+    const chunks: string[] = [];
+    let closed = false;
+    const pump = (async () => {
+      while (true) {
+        const next = await reader.read();
+        if (next.done) {
+          closed = true;
+          return;
+        }
+        chunks.push(decoder.decode(next.value));
+      }
+    })();
+
+    await vi.advanceTimersByTimeAsync(3_000);
+
+    const output = chunks.join("");
+    expect(closed).toBe(false);
+    expect(output).not.toContain('"type":"error"');
+    expect(output).not.toContain('"type":"done"');
+    await reader.cancel();
+    await pump;
+  });
+
+  it("replays a pruned run's real terminal event rather than a missing-row error", async () => {
+    vi.mocked(getRunById).mockResolvedValue(null);
+    vi.mocked(getRunEventsSince).mockResolvedValue([]);
+    vi.mocked(getLastTerminalRunEvent).mockResolvedValue({
+      seq: 5,
+      event: { type: "done" },
+    });
+
+    const stream = subscribeToRun("run-sql-missing-row-with-event", 9);
+    const reader = stream!.getReader();
+    const decoder = new TextDecoder();
+    const chunks: string[] = [];
+
+    for (let i = 0; i < 5; i++) {
+      const next = await reader.read();
+      if (next.done) break;
+      chunks.push(decoder.decode(next.value));
+    }
+
+    expect(chunks.join("")).toContain(
+      'data: {"type":"done","seq":5,"eventId":"run-sql-missing-row-with-event:5"}',
+    );
+  });
+
+  it("emits a terminal event for an unrecognized non-running status", async () => {
+    // `agent_runs.status` is a plain TEXT column, so the branch list here is a
+    // guess about the column's domain, not a guarantee from the type system.
+    vi.mocked(getRunById).mockResolvedValue({
+      id: "run-sql-unknown-status",
+      threadId: "thread-sql-unknown-status",
+      status: "some_future_status",
+      startedAt: Date.now(),
+      errorCode: null,
+      errorDetail: null,
+      terminalReason: null,
+    } as any);
+    vi.mocked(getRunEventsSince).mockResolvedValue([]);
+    vi.mocked(getLastTerminalRunEvent).mockResolvedValue(null);
+
+    const stream = subscribeToRun("run-sql-unknown-status", 0);
+    const reader = stream!.getReader();
+    const decoder = new TextDecoder();
+    const chunks: string[] = [];
+
+    for (let i = 0; i < 5; i++) {
+      const next = await reader.read();
+      if (next.done) break;
+      chunks.push(decoder.decode(next.value));
+    }
+
+    const output = chunks.join("");
+    expect(output).toContain('"type":"error"');
+    expect(output).toContain(UNKNOWN_RUN_STATUS_ERROR_CODE);
   });
 
   it("re-emits the run's real terminal event when the subscriber cursor is past it", async () => {
@@ -3174,7 +3617,7 @@ describe("run manager soft timeout", () => {
     }
 
     expect(chunks.join("")).toContain(
-      'data: {"type":"auto_continue","reason":"no_progress","seq":7}',
+      'data: {"type":"auto_continue","reason":"no_progress","seq":7,"eventId":"run-sql-past-cursor:7"}',
     );
   });
 

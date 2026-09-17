@@ -568,6 +568,64 @@ test("typography edits update size and spacing inputs", async ({ page }) => {
       selectedElementStyle(page, "E2E Hero Heading", "letter-spacing"),
     )
     .toBe("2px");
+
+  // Figma's tracking field takes a percentage of the font size, so "2%" is
+  // authored as 0.02em (1.04px at this 52px size).
+  await setScrubInput(typographySection, "Letter spacing", "2%");
+  await expect
+    .poll(() =>
+      selectedElementStyle(page, "E2E Hero Heading", "letter-spacing"),
+    )
+    .toBe("0.02em");
+  // The field now reads back in percent, so a bare number would be a
+  // percentage; an explicit px keeps absolute tracking.
+  await expect(
+    typographySection.locator('input[aria-label="Letter spacing" i]'),
+  ).toHaveValue("2%");
+  await setScrubInput(typographySection, "Letter spacing", "0.64px");
+  await expect
+    .poll(() =>
+      selectedElementStyle(page, "E2E Hero Heading", "letter-spacing"),
+    )
+    .toBe("0.64px");
+
+  // A percent this small must round to 4 em decimals to round-trip instead
+  // of collapsing to "0em" (LETTER_SPACING_EM_PRECISION).
+  await setScrubInput(typographySection, "Letter spacing", "0.01%");
+  await expect
+    .poll(() =>
+      selectedElementStyle(page, "E2E Hero Heading", "letter-spacing"),
+    )
+    .toBe("0.0001em");
+  await expect(
+    typographySection.locator('input[aria-label="Letter spacing" i]'),
+  ).toHaveValue("0.01%");
+
+  // An explicit "em" input is authored verbatim and read back in the
+  // field's percent unit (0.005em == 0.5% of the 52px font-size).
+  await setScrubInput(typographySection, "Letter spacing", "0.005em");
+  await expect
+    .poll(() =>
+      selectedElementStyle(page, "E2E Hero Heading", "letter-spacing"),
+    )
+    .toBe("0.005em");
+  await expect(
+    typographySection.locator('input[aria-label="Letter spacing" i]'),
+  ).toHaveValue("0.5%");
+
+  // "2pxpx" is a doubled unit suffix - singleUnitToken sees two "px"
+  // matches and parseLetterSpacingInput returns null, so ScrubInput's
+  // onTextCommit reports { accepted: false } and reverts the field instead
+  // of committing. Nothing is persisted.
+  await setScrubInput(typographySection, "Letter spacing", "2pxpx");
+  await expect
+    .poll(() =>
+      selectedElementStyle(page, "E2E Hero Heading", "letter-spacing"),
+    )
+    .toBe("0.005em");
+  await expect(
+    typographySection.locator('input[aria-label="Letter spacing" i]'),
+  ).toHaveValue("0.5%");
 });
 
 test("search selects Lato Medium and keeps custom font names offline", async ({

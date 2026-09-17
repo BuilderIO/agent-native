@@ -76,15 +76,32 @@ const messages: AgentChatTranslation = {
     "Création ou réutilisation de votre compte Builder.io. Cela prend généralement quelques secondes.",
   "onboarding.builderConnectionDescription":
     "Terminez la connexion en un clic dans la nouvelle fenêtre.",
+  "onboarding.builderReadyWithCodeChanges":
+    "Les crédits IA et les modifications de code dans le cloud sont prêts à l’emploi.",
+  "onboarding.builderReadyCreditsOnly":
+    "Les crédits IA sont prêts à l’emploi. Les modifications de code dans le cloud nécessitent un projet Builder dans les paramètres de l’agent en arrière-plan.",
+  "onboarding.openBackgroundAgentSettings":
+    "Ouvrir les paramètres de l’agent en arrière-plan",
   "onboarding.capability.llm.keySummary":
     "Connectez un fournisseur d’IA ou un modèle local",
   "onboarding.capability.fileStorage.keySummary":
     "Stockage Builder ou bucket compatible S3",
+  "onboarding.fileStorage.title": "Choisir le stockage des fichiers",
+  "onboarding.fileStorage.description":
+    "Choisissez le stockage Builder géré ou vos propres clés pour un bucket compatible S3.",
+  "onboarding.fileStorage.custom":
+    "Utiliser des clés de stockage personnalisées",
+  "onboarding.fileStorage.customDescription":
+    "Configurez un bucket compatible S3 avec une URL publique stable.",
   "onboarding.capability.voiceInput.label": "Entrée vocale",
   "onboarding.capability.voiceInput.keySummary":
     "Reconnaissance vocale du navigateur ou conversion parole-texte",
   "onboarding.capability.voiceInput.why":
     "L’entrée vocale transforme les demandes parlées en texte ; la saisie reste toujours disponible.",
+  "onboarding.capability.embeddings.label": "Représentations vectorielles",
+  "onboarding.capability.embeddings.keySummary": "Clé Gemini, Cohere ou Voyage",
+  "onboarding.capability.embeddings.why":
+    "Les représentations vectorielles améliorent la recherche sémantique. La recherche par mots-clés fonctionne toujours sans elles.",
   "onboarding.capability.assetsImageGeneration.label": "Génération d’images",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Crédits Builder ou clé d’un fournisseur d’images",
@@ -145,6 +162,21 @@ const messages: AgentChatTranslation = {
   "common.retry": "Réessayer",
   "common.save": "Enregistrer",
   "agents.hostedAgent": "Agent hébergé",
+  "agents.provider": "Fournisseur",
+  "agents.providerA2A": "Agent A2A (Foundry, Gemini ou personnalisé)",
+  "agents.providerAnthropic": "Agents gérés Anthropic",
+  "agents.agentId": "ID de l’agent",
+  "agents.agentIdPlaceholder": "agent_...",
+  "agents.environmentId": "ID de l’environnement",
+  "agents.environmentIdPlaceholder": "env_...",
+  "agents.apiBaseUrl": "URL de base de l’API (facultative)",
+  "agents.apiBaseUrlPlaceholder": "https://api.anthropic.com",
+  "agents.managedAgentIncomplete":
+    "Complétez les champs Anthropic Managed Agents.",
+  "agents.managedAgentCheck":
+    "La connexion est vérifiée lorsque vous déléguez depuis le chat.",
+  "agents.managedAgentSaved":
+    "Anthropic Managed Agent enregistré. Déléguez-lui une tâche depuis le chat.",
   "agents.cardUrl": "URL de la carte de l’agent",
   "agents.cardUrlPlaceholder": "https://host.example/agent-card.json",
   "agents.authType": "Authentification",
@@ -163,6 +195,27 @@ const messages: AgentChatTranslation = {
   "agents.statusReachable": "Accessible",
   "agents.statusAuthRejected": "Authentification refusée",
   "agents.statusNoJsonRpc": "Pas de JSON-RPC",
+  "agents.directoryTab": "Annuaire des agents",
+  "agents.directoryPageHint":
+    "Trouvez un backend d’agent et connectez-le à votre espace de travail.",
+  "agents.directorySearch": "Rechercher des fournisseurs",
+  "agents.directoryProviders": "Fournisseurs",
+  "agents.directoryManual": "Ajouter par URL",
+  "agents.directoryA2A": "A2A",
+  "agents.directoryManaged": "API gérée",
+  "agents.directoryFoundry": "Microsoft Foundry",
+  "agents.directoryFoundryHint": "Connectez un agent Foundry via A2A.",
+  "agents.directoryGemini": "Gemini Enterprise",
+  "agents.directoryGeminiHint": "Connectez un agent Gemini Enterprise via A2A.",
+  "agents.directoryAnthropic": "Agents gérés Anthropic",
+  "agents.directoryAnthropicHint":
+    "Connectez les sessions et approbations Anthropic.",
+  "agents.directoryNoMatches":
+    "Aucun fournisseur ne correspond à votre recherche.",
+  "agents.directoryRegistry": "Registre A2A mondial",
+  "agents.directoryRegistryHint":
+    "Parcourez les cartes d’agents publiques et vérifiez-les avant la connexion.",
+  "agents.directoryBrowse": "Parcourir le registre",
   "common.saveFailed": "Échec de l’enregistrement",
   "common.saveFailedStatus": "Échec de l’enregistrement ({{status}})",
   "common.saving": "Enregistrement...",
@@ -627,6 +680,8 @@ const messages: AgentChatTranslation = {
   "widget.rows_other": "{{formattedCount}} lignes",
   "errorMessages.agentConnection":
     "La connexion de l'agent a été interrompue. Vérifiez votre connexion et réessayez.",
+  "errorMessages.attachmentPasswordProtected":
+    "Ce PDF est protégé par mot de passe et ne peut pas être lu. Supprimez la protection par mot de passe ou collez le texte pertinent, puis réessayez.",
   "errorMessages.builderAuthentication":
     "Builder a rejeté les identifiants connectés. Reconnectez Builder.io dans les paramètres, puis réessayez.",
   "errorMessages.builderModelUnauthorized":

@@ -74,10 +74,14 @@ import {
   isKnownFontWeight,
   isTextDecorationLineActive,
   nextTextDecorationLineValue,
+  letterSpacingScrubCssValue,
+  parseLetterSpacingInput,
   parseLineHeightInput,
+  resolveLetterSpacingFieldValue,
   resolveFixedResizeDimension,
   resolveFontFamilyFieldValue,
   resolveLineHeightFieldValue,
+  sortFontFamilyOptions,
   textTruncationLineCount,
   textTruncationStyleChanges,
   TEXT_CASE_OPTIONS,
@@ -389,13 +393,13 @@ export function TypographyProperties({
 }) {
   const t = useT();
   const styles = element.computedStyles;
-  const baseFontFamilyOptions = [
+  const baseFontFamilyOptions = sortFontFamilyOptions([
     ...FONT_FAMILY_OPTIONS.map((option) => ({
       value: option.value,
       label: t(`editPanel.fontFamilies.${option.key}`),
     })),
     LATO_FONT_FAMILY_OPTION,
-  ];
+  ]);
   // Mixed-selection guards: a multi-selection with differing values injects
   // the MIXED_VALUE sentinel string into these computedStyles fields (see
   // mixedElementFromSelection/sameOrMixed). Parsing that sentinel with
@@ -410,6 +414,10 @@ export function TypographyProperties({
   const lineHeightIsMixed = isMixedValue(styles.lineHeight);
   const letterSpacingIsMixed = isMixedValue(styles.letterSpacing);
   const textTransformIsMixed = isMixedValue(styles.textTransform);
+  const letterSpacingField = resolveLetterSpacingFieldValue(
+    authoredStyleValue(element, "letterSpacing"),
+    styles.letterSpacing,
+  );
   const lineHeightField = resolveLineHeightFieldValue(
     authoredStyleValue(element, "lineHeight"),
     styles.lineHeight,
@@ -472,18 +480,20 @@ export function TypographyProperties({
   // instead of a normal, clickable option that could commit the literal
   // string "Mixed" as a font-family value.
   const fontFamily = resolveFontFamilyFieldValue(styles.fontFamily);
-  const fontFamilyOptions = fontFamilyIsMixed
-    ? baseFontFamilyOptions
-    : FONT_FAMILY_OPTIONS.some((option) => option.value === fontFamily) ||
-        displayFontFamilyName(fontFamily).toLowerCase() === "lato"
+  const fontFamilyOptions = sortFontFamilyOptions(
+    fontFamilyIsMixed
       ? baseFontFamilyOptions
-      : [
-          {
-            value: fontFamily,
-            label: displayFontFamilyName(styles.fontFamily || fontFamily),
-          },
-          ...baseFontFamilyOptions,
-        ];
+      : FONT_FAMILY_OPTIONS.some((option) => option.value === fontFamily) ||
+          displayFontFamilyName(fontFamily).toLowerCase() === "lato"
+        ? baseFontFamilyOptions
+        : [
+            {
+              value: fontFamily,
+              label: displayFontFamilyName(styles.fontFamily || fontFamily),
+            },
+            ...baseFontFamilyOptions,
+          ],
+  );
   const baseFontWeightOptions = FONT_WEIGHT_OPTIONS.map((option) => ({
     value: option.value,
     label: t(`editPanel.fontWeights.${option.key}`),
@@ -742,19 +752,29 @@ export function TypographyProperties({
               label={t("editPanel.labels.tracking")}
               ariaLabel={t("editPanel.labels.tracking")}
               icon={IconLetterSpacing}
-              value={
-                letterSpacingIsMixed
-                  ? 0
-                  : styles.letterSpacing
-                    ? parseNumericValue(styles.letterSpacing)
-                    : 0
+              value={letterSpacingIsMixed ? 0 : letterSpacingField.value}
+              textValue={
+                letterSpacingIsMixed ? undefined : letterSpacingField.text
               }
               mixed={letterSpacingIsMixed}
               onChange={(value, meta) =>
-                onStyleChange("letterSpacing", `${value}px`, meta)
+                onStyleChange(
+                  "letterSpacing",
+                  letterSpacingScrubCssValue(value, letterSpacingField.unit),
+                  meta,
+                )
               }
-              unit="px"
-              precision={1}
+              onTextCommit={(draft, meta) => {
+                const parsed = parseLetterSpacingInput(
+                  draft,
+                  letterSpacingField,
+                );
+                if (!parsed) return { accepted: false };
+                onStyleChange("letterSpacing", parsed.cssValue, meta);
+                return { accepted: true, displayValue: parsed.text };
+              }}
+              unit={letterSpacingField.unit}
+              precision={2}
               className="w-full gap-0"
               labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] !text-[11px] [&>span]:hidden"
               inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"

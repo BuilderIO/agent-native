@@ -23,6 +23,9 @@ export default createCollabPlugin({
   table: "decks",
   contentColumn: "data",
   idColumn: "id",
+  // These documents carry presence and cursors, not deck content. Seeding the
+  // full deck into every deck/slide presence document wastes cold-start work.
+  autoSeed: false,
   access: {
     mode: "resource",
     resourceType: "deck",

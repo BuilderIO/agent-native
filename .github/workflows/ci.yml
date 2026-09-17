@@ -98,7 +98,10 @@ jobs:
           while IFS= read -r -d '' file; do
             [ -f "$file" ] || continue
             case "$file" in
-              *.ts|*.tsx|*.js|*.jsx|*.mjs|*.cjs|*.mts|*.cts|*.json|*.jsonc|*.css)
+              # oxfmt formats Markdown too, and `fmt:check` covers the whole
+              # tree. Leaving .md/.mdx out here let unformatted docs land on
+              # main and turn this job red on every unrelated PR afterwards.
+              *.ts|*.tsx|*.js|*.jsx|*.mjs|*.cjs|*.mts|*.cts|*.json|*.jsonc|*.css|*.md|*.mdx)
                 format_files+=("$file")
                 ;;
             esac

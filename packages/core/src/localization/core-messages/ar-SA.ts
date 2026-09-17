@@ -69,15 +69,31 @@ const messages: AgentChatTranslation = {
     "جارٍ إنشاء حساب Builder.io الخاص بك أو إعادة استخدامه. يستغرق ذلك عادةً بضع ثوانٍ.",
   "onboarding.builderConnectionDescription":
     "أكمل الاتصال بنقرة واحدة في النافذة الجديدة.",
+  "onboarding.builderReadyWithCodeChanges":
+    "اعتمادات الذكاء الاصطناعي وتغييرات التعليمات البرمجية السحابية جاهزة للاستخدام.",
+  "onboarding.builderReadyCreditsOnly":
+    "اعتمادات الذكاء الاصطناعي جاهزة للاستخدام. تتطلب تعديلات التعليمات البرمجية السحابية مشروع Builder في إعدادات الوكيل في الخلفية.",
+  "onboarding.openBackgroundAgentSettings": "فتح إعدادات الوكيل في الخلفية",
   "onboarding.capability.llm.keySummary":
     "اربط مزود ذكاء اصطناعي أو نموذجًا محليًا",
   "onboarding.capability.fileStorage.keySummary":
     "تخزين Builder أو حاوية متوافقة مع S3",
+  "onboarding.fileStorage.title": "اختر تخزين الملفات",
+  "onboarding.fileStorage.description":
+    "اختر تخزين Builder المُدار أو مفاتيح تخزين مخصصة لحاويتك المتوافقة مع S3.",
+  "onboarding.fileStorage.custom": "استخدم مفاتيح تخزين مخصصة",
+  "onboarding.fileStorage.customDescription":
+    "اضبط حاوية متوافقة مع S3 باستخدام عنوان URL عام ثابت.",
   "onboarding.capability.voiceInput.label": "الإدخال الصوتي",
   "onboarding.capability.voiceInput.keySummary":
     "التعرف على الكلام في المتصفح أو تحويل الكلام إلى نص",
   "onboarding.capability.voiceInput.why":
     "يحوّل الإدخال الصوتي الطلبات المنطوقة إلى نص؛ وتظل الكتابة متاحة دائمًا.",
+  "onboarding.capability.embeddings.label": "التضمينات",
+  "onboarding.capability.embeddings.keySummary":
+    "مفتاح Gemini أو Cohere أو Voyage",
+  "onboarding.capability.embeddings.why":
+    "تُحسّن التضمينات البحث الدلالي. يظل البحث بالكلمات المفتاحية يعمل من دونها.",
   "onboarding.capability.assetsImageGeneration.label": "إنشاء الصور",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "أرصدة Builder أو مفتاح مزود صور",
@@ -137,6 +153,19 @@ const messages: AgentChatTranslation = {
   "common.retry": "إعادة المحاولة",
   "common.save": "حفظ",
   "agents.hostedAgent": "وكيل مستضاف",
+  "agents.provider": "المزوّد",
+  "agents.providerA2A": "وكيل A2A (Foundry أو Gemini أو مخصّص)",
+  "agents.providerAnthropic": "وكلاء Anthropic المُدارون",
+  "agents.agentId": "معرّف الوكيل",
+  "agents.agentIdPlaceholder": "agent_...",
+  "agents.environmentId": "معرّف البيئة",
+  "agents.environmentIdPlaceholder": "env_...",
+  "agents.apiBaseUrl": "عنوان URL الأساسي لـ API (اختياري)",
+  "agents.apiBaseUrlPlaceholder": "https://api.anthropic.com",
+  "agents.managedAgentIncomplete": "أكمل حقول Anthropic Managed Agents.",
+  "agents.managedAgentCheck": "يتم التحقق من الاتصال عند التفويض من الدردشة.",
+  "agents.managedAgentSaved":
+    "تم حفظ Anthropic Managed Agent. فوّض إليه من الدردشة.",
   "agents.cardUrl": "عنوان بطاقة الوكيل",
   "agents.cardUrlPlaceholder": "https://host.example/agent-card.json",
   "agents.authType": "المصادقة",
@@ -154,6 +183,24 @@ const messages: AgentChatTranslation = {
   "agents.statusReachable": "يمكن الوصول إليه",
   "agents.statusAuthRejected": "رُفضت المصادقة",
   "agents.statusNoJsonRpc": "لا يوجد JSON-RPC",
+  "agents.directoryTab": "دليل الوكلاء",
+  "agents.directoryPageHint": "اعثر على خلفية وكيل واربطها بمساحة عملك.",
+  "agents.directorySearch": "البحث في المزوّدين",
+  "agents.directoryProviders": "المزوّدون",
+  "agents.directoryManual": "الإضافة عبر عنوان URL",
+  "agents.directoryA2A": "A2A",
+  "agents.directoryManaged": "واجهة مُدارة",
+  "agents.directoryFoundry": "Microsoft Foundry",
+  "agents.directoryFoundryHint": "اربط وكيل Foundry عبر A2A.",
+  "agents.directoryGemini": "Gemini Enterprise",
+  "agents.directoryGeminiHint": "اربط وكيل Gemini Enterprise عبر A2A.",
+  "agents.directoryAnthropic": "وكلاء Anthropic المُدارون",
+  "agents.directoryAnthropicHint": "اربط الجلسات والموافقات من Anthropic.",
+  "agents.directoryNoMatches": "لا يطابق بحثك أي مزوّد.",
+  "agents.directoryRegistry": "سجل A2A العالمي",
+  "agents.directoryRegistryHint":
+    "تصفّح بطاقات الوكلاء العامة ثم تحقّق منها قبل الربط.",
+  "agents.directoryBrowse": "تصفح السجل",
   "common.saveFailed": "فشل الحفظ",
   "common.saveFailedStatus": "فشل الحفظ ({{status}})",
   "common.saving": "جارٍ الحفظ...",
@@ -389,6 +436,8 @@ const messages: AgentChatTranslation = {
   "error.stopped": "توقف الوكيل قبل الانتهاء",
   "errorMessages.agentConnection":
     "انقطع اتصال الوكيل. تحقّق من اتصالك وأعد المحاولة.",
+  "errorMessages.attachmentPasswordProtected":
+    "ملف PDF هذا محمي بكلمة مرور، لذا لا يمكن قراءته. أزل الحماية بكلمة المرور أو الصق النص المطلوب، ثم أعد المحاولة.",
   "errorMessages.builderAuthentication":
     "رفض Builder بيانات الاعتماد المتصلة. أعد الاتصال بـ Builder.io من الإعدادات، ثم أعد المحاولة.",
   "errorMessages.builderModelUnauthorized":

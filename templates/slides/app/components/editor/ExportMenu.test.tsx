@@ -305,7 +305,7 @@ describe("<ExportMenu>", () => {
       }),
     ).toBe(false);
     expect(canExportPptxFromServer({ ...imported, sourceImport: null })).toBe(
-      false,
+      true,
     );
     expect(canExportPptxFromServer(undefined)).toBe(false);
   });

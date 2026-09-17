@@ -1505,7 +1505,7 @@ function hasMatchingBacktickRun(
   return false;
 }
 
-function splitGfmPipeRow(line: string): string[] | null {
+export function splitGfmPipeRow(line: string): string[] | null {
   const value = line.trim();
   if (!value) return null;
 

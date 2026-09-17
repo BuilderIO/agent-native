@@ -16,7 +16,13 @@ vi.mock("../shared/source-mode.js", () => ({
   designSourceTypeFromData: () => "fusion",
 }));
 
+import {
+  COMPONENT_ARCHIVE_ATTR,
+  encodeComponentArchivePointer,
+} from "../shared/component-archive.js";
+import { COMPONENT_REF_ATTR } from "../shared/component-model.js";
 import action from "./get-component-details.js";
+import { canRestoreComponentMain } from "./get-component-details.js";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -39,5 +45,44 @@ describe("get-component-details", () => {
       "editor",
     );
     expect(mocks.getDb).not.toHaveBeenCalled();
+  });
+
+  it("exposes restore only for an instance with a matching valid archive pointer", () => {
+    const archive = encodeComponentArchivePointer({
+      schemaVersion: 1,
+      versionId: "checkpoint-1",
+      fileId: "file-main",
+      componentId: "cmp-card",
+      mainNodeId: "main-root",
+      sourceVersionHash: "hash-main",
+    });
+    const node = (dataAttributes: Record<string, string>) =>
+      ({ dataAttributes }) as never;
+
+    expect(
+      canRestoreComponentMain(
+        node({
+          [COMPONENT_REF_ATTR]: "cmp-card",
+          [COMPONENT_ARCHIVE_ATTR]: archive,
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      canRestoreComponentMain(
+        node({
+          [COMPONENT_REF_ATTR]: "cmp-other",
+          [COMPONENT_ARCHIVE_ATTR]: archive,
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      canRestoreComponentMain(
+        node({
+          [COMPONENT_REF_ATTR]: "cmp-card",
+          [COMPONENT_ARCHIVE_ATTR]: encodeURIComponent("{}"),
+        }),
+      ),
+    ).toBe(false);
+    expect(canRestoreComponentMain(node({}))).toBe(false);
   });
 });

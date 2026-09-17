@@ -166,6 +166,40 @@ export function shiftEndForStartChange(
 }
 
 /**
+ * Move a timed event's start date without changing its visible duration. The
+ * end date is shifted by the same number of calendar days; this keeps a
+ * multi-day event intact when its start date changes in the composer.
+ */
+export function shiftEndForDateChange(
+  range: EventTimeRange,
+  nextDate: string,
+): EventTimeRange {
+  const next = { ...range, date: nextDate };
+  const currentStart = rangeToAbsoluteMinutes(range.date, range.startTime);
+  const nextStart = rangeToAbsoluteMinutes(nextDate, range.startTime);
+  if (currentStart === null || nextStart === null) return next;
+
+  const shifted = addMinutesToTimeValue(
+    range.endDate,
+    range.endTime,
+    nextStart - currentStart,
+  );
+  if (!shifted) return next;
+  const shiftedEnd = rangeToAbsoluteMinutes(shifted.date, shifted.time);
+  if (shiftedEnd !== null && shiftedEnd > nextStart) {
+    return { ...next, endDate: shifted.date, endTime: shifted.time };
+  }
+
+  const repaired = addMinutesToTimeValue(
+    nextDate,
+    range.startTime,
+    TIME_SLOT_MINUTES,
+  );
+  if (!repaired) return next;
+  return { ...next, endDate: repaired.date, endTime: repaired.time };
+}
+
+/**
  * Resolves an end-time pick against the start. A pick that reads as earlier in
  * the day is the wrapped option from `buildTimeOptions`, so it belongs to the
  * next day rather than being an invalid end.

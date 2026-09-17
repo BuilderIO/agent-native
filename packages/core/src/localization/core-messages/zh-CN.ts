@@ -66,13 +66,28 @@ const messages: AgentChatTranslation = {
   "onboarding.builderProvisioningDescription":
     "正在创建或重新使用您的 Builder.io 账户，通常需要几秒钟。",
   "onboarding.builderConnectionDescription": "在新窗口中一键完成连接。",
+  "onboarding.builderReadyWithCodeChanges": "AI 积分和云端代码更改已准备就绪。",
+  "onboarding.builderReadyCreditsOnly":
+    "AI 积分已准备就绪。云端代码编辑需要在后台代理设置中配置 Builder 项目。",
+  "onboarding.openBackgroundAgentSettings": "打开后台代理设置",
   "onboarding.capability.llm.keySummary": "连接 AI 提供商或本地模型",
   "onboarding.capability.fileStorage.keySummary":
     "Builder 存储或兼容 S3 的存储桶",
+  "onboarding.fileStorage.title": "选择文件存储",
+  "onboarding.fileStorage.description":
+    "选择 Builder 托管存储，或为自己的兼容 S3 存储桶使用自定义存储密钥。",
+  "onboarding.fileStorage.custom": "使用自定义存储密钥",
+  "onboarding.fileStorage.customDescription":
+    "配置带有稳定公共 URL 的兼容 S3 存储桶。",
   "onboarding.capability.voiceInput.label": "语音输入",
   "onboarding.capability.voiceInput.keySummary": "浏览器语音识别或语音转文字",
   "onboarding.capability.voiceInput.why":
     "语音输入会将口述请求转换为文字；始终可以使用键盘输入。",
+  "onboarding.capability.embeddings.label": "嵌入向量",
+  "onboarding.capability.embeddings.keySummary":
+    "Gemini、Cohere 或 Voyage 密钥",
+  "onboarding.capability.embeddings.why":
+    "嵌入向量可以改进语义搜索。没有嵌入向量时，关键词搜索仍然有效。",
   "onboarding.capability.assetsImageGeneration.label": "图像生成",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Builder 积分或图像提供商密钥",
@@ -131,6 +146,19 @@ const messages: AgentChatTranslation = {
   "common.retry": "重试",
   "common.save": "保存",
   "agents.hostedAgent": "托管代理",
+  "agents.provider": "提供商",
+  "agents.providerA2A": "A2A 代理（Foundry、Gemini 或自定义）",
+  "agents.providerAnthropic": "Anthropic 托管代理",
+  "agents.agentId": "代理 ID",
+  "agents.agentIdPlaceholder": "agent_...",
+  "agents.environmentId": "环境 ID",
+  "agents.environmentIdPlaceholder": "env_...",
+  "agents.apiBaseUrl": "API 基础 URL（可选）",
+  "agents.apiBaseUrlPlaceholder": "https://api.anthropic.com",
+  "agents.managedAgentIncomplete": "请填写 Anthropic 托管代理字段。",
+  "agents.managedAgentCheck": "从聊天中委派时会检查连接。",
+  "agents.managedAgentSaved":
+    "Anthropic 托管代理已保存。可从聊天中向它委派任务。",
   "agents.cardUrl": "代理卡 URL",
   "agents.cardUrlPlaceholder": "https://host.example/agent-card.json",
   "agents.authType": "身份验证",
@@ -148,6 +176,23 @@ const messages: AgentChatTranslation = {
   "agents.statusReachable": "可访问",
   "agents.statusAuthRejected": "身份验证被拒",
   "agents.statusNoJsonRpc": "无 JSON-RPC",
+  "agents.directoryTab": "代理目录",
+  "agents.directoryPageHint": "查找代理后端并将其连接到你的工作区。",
+  "agents.directorySearch": "搜索提供商",
+  "agents.directoryProviders": "提供商",
+  "agents.directoryManual": "通过 URL 添加",
+  "agents.directoryA2A": "A2A",
+  "agents.directoryManaged": "托管 API",
+  "agents.directoryFoundry": "Microsoft Foundry",
+  "agents.directoryFoundryHint": "通过 A2A 连接 Foundry 代理。",
+  "agents.directoryGemini": "Gemini Enterprise",
+  "agents.directoryGeminiHint": "通过 A2A 连接 Gemini Enterprise 代理。",
+  "agents.directoryAnthropic": "Anthropic 托管代理",
+  "agents.directoryAnthropicHint": "连接 Anthropic 的会话和审批。",
+  "agents.directoryNoMatches": "没有提供商匹配你的搜索。",
+  "agents.directoryRegistry": "全球 A2A 注册表",
+  "agents.directoryRegistryHint": "浏览公开 Agent Card，并在连接前完成验证。",
+  "agents.directoryBrowse": "浏览注册表",
   "common.saveFailed": "保存失败",
   "common.saveFailedStatus": "保存失败（{{status}}）",
   "common.saving": "正在保存...",
@@ -365,6 +410,8 @@ const messages: AgentChatTranslation = {
   "error.failed": "智能体遇到错误",
   "error.stopped": "智能体在完成前已停止",
   "errorMessages.agentConnection": "智能体连接已中断。请检查网络连接后重试。",
+  "errorMessages.attachmentPasswordProtected":
+    "此 PDF 受密码保护，无法读取。请移除密码保护或粘贴相关文本后重试。",
   "errorMessages.builderAuthentication":
     "Builder 拒绝了已连接的凭据。请在设置中重新连接 Builder.io，然后重试。",
   "errorMessages.builderModelUnauthorized":

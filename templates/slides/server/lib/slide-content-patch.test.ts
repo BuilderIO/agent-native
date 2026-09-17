@@ -300,6 +300,56 @@ describe("SlideContentEditError transport contract", () => {
     }
   });
 
+  it("refuses a regex-replace pattern that can backtrack catastrophically", async () => {
+    // `matchAll` over slide content is unbounded work for a pattern like this,
+    // and nothing can interrupt it once V8 is inside the match, so the refusal
+    // has to happen before the first match attempt.
+    const error = await applySlideContentEdits("<p>aaaaaaaaaaaaaaaaaaaa!</p>", [
+      { op: "regex-replace", pattern: "^([A-Za-z]+\\s?)+$", replace: "x" },
+    ]).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(SlideContentEditError);
+    expect((error as Error).message).toMatch(/cannot be run safely/i);
+  });
+
+  it("refuses quadratic overlap before scanning uncapped slide content", async () => {
+    const error = await applySlideContentEdits("<p>aaaaaaaa</p>", [
+      { op: "regex-replace", pattern: "^(a+)(a+)$", replace: "x" },
+    ]).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(SlideContentEditError);
+    expect((error as Error).message).toMatch(/cannot be run safely/i);
+  });
+
+  it("judges a regex-replace pattern with the flags it will run under", async () => {
+    // `(a|A)+` is unambiguous on its own and catastrophic under `i`, so the
+    // verdict has to see the same flags the RegExp is built with.
+    const safe = await applySlideContentEdits("<p>aaa</p>", [
+      { op: "regex-replace", pattern: "(a|A)+", replace: "x" },
+    ]);
+    expect(safe.content).toContain("x");
+
+    const error = await applySlideContentEdits("<p>aaa</p>", [
+      { op: "regex-replace", pattern: "(a|A)+", replace: "x", flags: "i" },
+    ]).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(SlideContentEditError);
+  });
+
+  it("refuses a pattern too long to analyze rather than stalling on it", async () => {
+    // regex-replace reaches the analyzer directly, without the length cap
+    // `compileUserRegex` applies. The analysis is itself super-linear in the
+    // source length, so the bound lives in the analyzer and this proves the
+    // Slides path inherits it.
+    const pattern = `^(${Array.from({ length: 400 }, (_, i) => `a${i}`).join("|")})+$`;
+    const started = Date.now();
+    const error = await applySlideContentEdits("<p>a1a2</p>", [
+      { op: "regex-replace", pattern, replace: "x" },
+    ]).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(SlideContentEditError);
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
+
   it("keeps formatter failures out of the caller-correctable contract", async () => {
     const error = await applySlideContentEdits(
       "<div><span></div>",

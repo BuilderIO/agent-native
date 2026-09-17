@@ -208,7 +208,7 @@ test.describe("parity: right-click canvas context menu (§17)", () => {
     }
   });
 
-  test("Rename is wired (canRename/onRename/labels.rename all exist) but is never rendered in the canvas context menu", async ({
+  test("Rename is not offered on the canvas context menu (Figma parity) but is offered on the layer row's context menu", async ({
     page,
     request,
   }) => {
@@ -218,15 +218,35 @@ test.describe("parity: right-click canvas context menu (§17)", () => {
       await enterDirectMode(page);
       await installBridge(page);
 
+      // Real Figma's canvas right-click menu has no Rename item: renaming is
+      // ⌘R / double-click, and the only right-click Rename lives on a LAYERS
+      // PANEL row (help.figma.com "Rename layers"; forum "Add rename layers
+      // to context menu on canvas"). The canvas menu here matches that even
+      // though canRename/onRename/labels.rename are all wired.
       await rightClickNode(page, "a");
-      const menu = page.getByRole("menu").last();
-      // Real Figma's right-click-on-a-layer menu has a Rename item (§17 /
-      // Part 3: "Rename: ⌘R or double-click the layer name"). The single
-      // selected node here is exactly the case CanvasContextMenu's own
-      // `canRename` default (`selectedCount === 1`) is written for, and the
-      // DesignEditor.tsx call site passes a real onRename that starts the
-      // layers-panel inline editor. It should render.
-      await expect(menu.getByText("Rename", { exact: true })).toBeVisible();
+      const canvasMenu = page.getByRole("menu").last();
+      await expect(canvasMenu).toBeVisible();
+      await expect(
+        canvasMenu.getByRole("menuitem", { name: /rename/i }),
+      ).toHaveCount(0);
+      await page.keyboard.press("Escape");
+      await expect(canvasMenu).toBeHidden();
+
+      await expandAllLayers(page);
+      const rowButton = page
+        .locator("[data-layer-row-button]")
+        .filter({ has: page.locator('span[title="Box A"]') })
+        .first();
+      await rowButton.click({ button: "right" });
+      const rowMenu = page.getByRole("menu").last();
+      const rename = rowMenu.getByRole("menuitem", { name: /^Rename layer/ });
+      await expect(rename).toBeVisible();
+      await rename.click();
+      const renameInput = page.getByRole("textbox", { name: /rename/i });
+      await expect(renameInput).toBeVisible();
+      await expect(renameInput).toHaveValue("Box A");
+      await page.keyboard.press("Escape");
+      await expect(renameInput).toBeHidden();
     } finally {
       await postAction(request, "delete-design", { id: designId }).catch(
         () => {},

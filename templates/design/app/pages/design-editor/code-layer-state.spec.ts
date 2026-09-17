@@ -5,6 +5,11 @@ import {
 } from "@shared/code-layer";
 import { describe, expect, it } from "vitest";
 
+import { gridValueForElement } from "@/components/design/edit-panel/layout-properties";
+import {
+  MIXED_VALUE,
+  mixedElementFromSelection,
+} from "@/components/design/edit-panel/selection-helpers";
 import type { ElementInfo } from "@/components/design/types";
 
 import {
@@ -1242,6 +1247,126 @@ describe("canonicalElementInfoForCodeLayerNode runtime identity", () => {
     );
 
     expect(canonical.isGroup).toBe(false);
+  });
+});
+
+// ── grid-template source overlay (bug fix) ──────────────────────────────
+// The live bridge's inline-style read normalizes a bare zero-length grid
+// track with its implied unit ("minmax(0, 1fr)" -> "minmax(0px, 1fr)"),
+// while a passive multi-selection member (elementInfoFromCodeLayerNode)
+// reads the same declaration straight off the raw source — same authored
+// template, two byte-different strings, which made
+// mixedElementFromSelection's exact-string compare report a false Mixed.
+
+describe("canonicalElementInfoForCodeLayerNode grid-template source overlay", () => {
+  const gridNode = makeNode({
+    id: "html:grid-a",
+    selectors: ['[data-agent-native-node-id="grid-a"]'],
+    selector: '[data-agent-native-node-id="grid-a"]',
+    dataAttributes: { "data-agent-native-node-id": "grid-a" },
+    // Hyphen-cased and lowercased, matching how parseStyle/cssPropertyKey
+    // actually store a real buildCodeLayerProjection node's raw
+    // declarations — a camelCase fixture here would not exercise
+    // sourceAuthoredGridTemplateOverlay's pre-check at all.
+    style: { "grid-template-columns": "repeat(2, minmax(0, 1fr))" },
+  });
+
+  it("overlays the source-authored gridTemplateColumns onto the live CSSOM-read value, leaving computed/geometry untouched", () => {
+    const liveInfo = makeElementInfo({
+      inlineStyles: { gridTemplateColumns: "repeat(2, minmax(0px, 1fr))" },
+      computedStyles: { display: "grid", gridTemplateColumns: "100px 100px" },
+      boundingRect: { x: 10, y: 20, width: 200, height: 80 },
+    });
+
+    const canonical = canonicalElementInfoForCodeLayerNode(liveInfo, gridNode);
+
+    expect(canonical.inlineStyles?.gridTemplateColumns).toBe(
+      "repeat(2, minmax(0, 1fr))",
+    );
+    expect(canonical.computedStyles).toEqual(liveInfo.computedStyles);
+    expect(canonical.boundingRect).toEqual(liveInfo.boundingRect);
+  });
+
+  it("leaves an undefined inlineStyles snapshot undefined when the source has no grid-template keys", () => {
+    const nonGridNode = makeNode({
+      id: "html:plain",
+      selectors: ['[data-agent-native-node-id="plain-a"]'],
+      selector: '[data-agent-native-node-id="plain-a"]',
+      dataAttributes: { "data-agent-native-node-id": "plain-a" },
+      style: { color: "red" },
+    });
+    const liveInfo = makeElementInfo({ inlineStyles: undefined });
+
+    const canonical = canonicalElementInfoForCodeLayerNode(
+      liveInfo,
+      nonGridNode,
+    );
+
+    // "No inline snapshot" must stay that way, not become a new `{}` —
+    // authoredStyleValue and friends read the two as different states.
+    expect(canonical.inlineStyles).toBeUndefined();
+  });
+
+  it("returns an existing inlineStyles object unchanged (same reference) when the source has no grid-template keys", () => {
+    const nonGridNode = makeNode({
+      id: "html:plain",
+      selectors: ['[data-agent-native-node-id="plain-a"]'],
+      selector: '[data-agent-native-node-id="plain-a"]',
+      dataAttributes: { "data-agent-native-node-id": "plain-a" },
+      style: { color: "red" },
+    });
+    const existingInlineStyles = { left: "10px" };
+    const liveInfo = makeElementInfo({ inlineStyles: existingInlineStyles });
+
+    const canonical = canonicalElementInfoForCodeLayerNode(
+      liveInfo,
+      nonGridNode,
+    );
+
+    expect(canonical.inlineStyles).toBe(existingInlineStyles);
+  });
+
+  it("merges a canonicalized primary with a passive member's source-parsed info without reporting Mixed", () => {
+    const liveInfo = makeElementInfo({
+      isGridContainer: true,
+      inlineStyles: { gridTemplateColumns: "repeat(2, minmax(0px, 1fr))" },
+      computedStyles: {
+        display: "grid",
+        gridTemplateColumns: "100px 100px",
+        width: "200px",
+        height: "80px",
+      },
+    });
+    const canonical = canonicalElementInfoForCodeLayerNode(liveInfo, gridNode);
+    const passiveMember = elementInfoFromCodeLayerNode(gridNode);
+
+    const merged = mixedElementFromSelection([canonical, passiveMember]);
+    expect(merged?.inlineStyles?.gridTemplateColumns).not.toBe(MIXED_VALUE);
+    expect(merged?.inlineStyles?.gridTemplateColumns).toBe(
+      "repeat(2, minmax(0, 1fr))",
+    );
+
+    const grid = gridValueForElement(merged!);
+    expect(grid.columns).toBe(2);
+    expect(grid.columnSizing).toBe("fill");
+  });
+
+  it("still merges to Mixed when the source-authored templates genuinely differ", () => {
+    const differentGridNode = makeNode({
+      id: "html:grid-b",
+      selectors: ['[data-agent-native-node-id="grid-b"]'],
+      selector: '[data-agent-native-node-id="grid-b"]',
+      dataAttributes: { "data-agent-native-node-id": "grid-b" },
+      style: { "grid-template-columns": "repeat(3, 80px)" },
+    });
+    const liveInfo = makeElementInfo({
+      inlineStyles: { gridTemplateColumns: "repeat(2, minmax(0px, 1fr))" },
+    });
+    const canonical = canonicalElementInfoForCodeLayerNode(liveInfo, gridNode);
+    const passiveMember = elementInfoFromCodeLayerNode(differentGridNode);
+
+    const merged = mixedElementFromSelection([canonical, passiveMember]);
+    expect(merged?.inlineStyles?.gridTemplateColumns).toBe(MIXED_VALUE);
   });
 });
 

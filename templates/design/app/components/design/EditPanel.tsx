@@ -91,7 +91,6 @@ import {
   inspectorObjectTitle,
   isContainerElement,
   isTextElement,
-  TEXT_TAGS,
   commitElementMinMax,
 } from "./edit-panel/element-classification";
 import {
@@ -135,6 +134,7 @@ import {
   InspectorActionRail,
   InspectorGrid,
   InspectorGridCell,
+  INSPECTOR_GRID_PAIR_SPAN,
   PanelSection,
   PropInput,
   PropSelect,
@@ -173,6 +173,7 @@ import {
   displayFontFamilyName,
   FONT_FAMILY_OPTIONS,
   resolveFontFamilySelectValue,
+  sortFontFamilyOptions,
 } from "./edit-panel/typography-helpers";
 import { TypographyProperties } from "./edit-panel/typography-properties";
 import {
@@ -187,6 +188,7 @@ import {
 } from "./inspector";
 import { IconText } from "./inspector/design-icons";
 import { type GlslShaderPanelContext } from "./inspector/GlslShaderPanel";
+import { getActiveScreenIframeId } from "./multi-screen/iframe-targeting";
 import type { ScreenHeightMode } from "./multi-screen/screen-height";
 import {
   clampScreenDimension,
@@ -383,6 +385,10 @@ interface EditPanelProps {
   exporting?: boolean;
   /** Active file id — used for component prop editing context. */
   fileId?: string;
+  /** Reserved board file id, used to resolve the board preview iframe. */
+  boardFileId?: string;
+  /** Host iframe id for live component previews when overview has frame siblings. */
+  previewFrameId?: string;
   /** Latest active file HTML, used to compose rapid sequential source edits. */
   activeContent?: string;
   /** Optimistic localhost state styles that are not persisted into activeContent. */
@@ -452,6 +458,8 @@ interface EditPanelProps {
   componentInstanceHasLocalOverrides?: boolean;
   /** Reset local component overrides through the editor's mutation queue. */
   onResetComponentInstanceOverrides?: (nodeId: string) => void;
+  /** Restore a deleted linked component through the editor's mutation queue. */
+  onRestoreComponent?: (nodeId: string) => void;
   /** Increment to open the selected component's Swap instance picker. */
   componentSwapPickerRequest?: number;
   /**
@@ -1081,7 +1089,7 @@ function CodeInspectPanel({
         >
           <InspectorGrid layout="pair-flow">
             {measurements.map(([label, value]) => (
-              <InspectorGridCell key={label} span={14}>
+              <InspectorGridCell key={label} span={INSPECTOR_GRID_PAIR_SPAN}>
                 <div className="flex h-6 items-center justify-between rounded border border-border/70 bg-[var(--design-editor-control-bg)] px-2 text-[11px]">
                   <span className="text-muted-foreground">{label}</span>
                   <span className="font-mono text-foreground">
@@ -1142,7 +1150,7 @@ function CodeInspectPanel({
 function elementTypeIcon(element: ElementInfo) {
   if (elementIsComponentSelection(element)) return IconComponents;
   const tag = normalizedElementTagName(element.tagName);
-  if (TEXT_TAGS.has(tag)) return IconText;
+  if (isTextElement(element)) return IconText;
   if (tag === "img" || tag === "video" || tag === "picture") return IconPhoto;
   if (tag === "svg" || tag === "path") return IconVector;
   if (tag === "button" || tag === "a") return IconComponents;
@@ -1674,7 +1682,10 @@ function InspectorTabsHeader({
   const t = useT();
 
   return (
-    <div className="h-10 min-w-0 shrink-0 border-b border-border/90 px-2 py-1">
+    <div
+      data-design-inspector-tabs
+      className="h-12 min-w-0 shrink-0 border-b border-border/90 px-2 py-2"
+    >
       <InspectorGrid className="h-full items-center" layout="header-actions">
         <InspectorGridCell span={24}>
           <Tabs
@@ -1682,24 +1693,29 @@ function InspectorTabsHeader({
             onValueChange={(value) => onActiveTabChange(value as InspectorTab)}
             className="min-w-0"
           >
-            <TabsList className="h-7 max-w-full justify-start gap-0.5 overflow-hidden rounded-none bg-transparent p-0">
+            <TabsList
+              data-design-inspector-tabs-list
+              className="h-7 max-w-full justify-start gap-0.5 overflow-hidden rounded-none bg-transparent p-0"
+            >
               {!readOnly ? (
                 <TabsTrigger
                   value="design"
+                  data-design-inspector-tab="design"
                   aria-label={t("navigation.brand")}
-                  className="design-sidebar-section-title h-6 rounded-md px-1.5 text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
+                  className="design-sidebar-section-title h-6 rounded-md px-1.5 py-1 text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
                 >
                   {t("navigation.brand")}
                 </TabsTrigger>
               ) : null}
               <TabsTrigger
                 value="comments"
+                data-design-inspector-tab="comments"
                 aria-label={
                   commentsCount > 0
                     ? t("review.commentsTab", { count: commentsCount })
                     : t("review.comments")
                 }
-                className="design-sidebar-section-title group h-6 min-w-0 rounded-md gap-1 px-1.5 text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
+                className="design-sidebar-section-title group h-6 min-w-0 rounded-md gap-1 px-1.5 py-1 text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
               >
                 <span className="truncate">{t("review.comments")}</span>
                 {commentsCount > 0 ? (
@@ -1716,16 +1732,18 @@ function InspectorTabsHeader({
               {!readOnly && tweaksEnabled ? (
                 <TabsTrigger
                   value="tweaks"
+                  data-design-inspector-tab="tweaks"
                   aria-label={t("designEditor.tweaks")}
-                  className="design-sidebar-section-title h-6 rounded-md px-1.5 text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
+                  className="design-sidebar-section-title h-6 rounded-md px-1.5 py-1 text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
                 >
                   {t("designEditor.tweaks")}
                 </TabsTrigger>
               ) : (
                 <TabsTrigger
                   value="code"
+                  data-design-inspector-tab="code"
                   aria-label={"Code" /* i18n-ignore design inspector tab */}
-                  className="design-sidebar-section-title h-6 rounded-md px-1.5 text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
+                  className="design-sidebar-section-title h-6 rounded-md px-1.5 py-1 text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
                 >
                   {"Code" /* i18n-ignore design inspector tab */}
                 </TabsTrigger>
@@ -1818,22 +1836,24 @@ function PageProperties({
   onCanvasBackgroundChange?: (value: string, meta?: StyleChangeMeta) => void;
 }) {
   const t = useT();
-  const baseFontFamilyOptions = FONT_FAMILY_OPTIONS.map((option) => ({
-    value: option.value,
-    label: t(`editPanel.fontFamilies.${option.key}`),
-  }));
+  const baseFontFamilyOptions = sortFontFamilyOptions(
+    FONT_FAMILY_OPTIONS.map((option) => ({
+      value: option.value,
+      label: t(`editPanel.fontFamilies.${option.key}`),
+    })),
+  );
   const fontFamily = resolveFontFamilySelectValue(styles.fontFamily);
-  const fontFamilyOptions = FONT_FAMILY_OPTIONS.some(
-    (option) => option.value === fontFamily,
-  )
-    ? baseFontFamilyOptions
-    : [
-        {
-          value: fontFamily,
-          label: displayFontFamilyName(styles.fontFamily || fontFamily),
-        },
-        ...baseFontFamilyOptions,
-      ];
+  const fontFamilyOptions = sortFontFamilyOptions(
+    FONT_FAMILY_OPTIONS.some((option) => option.value === fontFamily)
+      ? baseFontFamilyOptions
+      : [
+          {
+            value: fontFamily,
+            label: displayFontFamilyName(styles.fontFamily || fontFamily),
+          },
+          ...baseFontFamilyOptions,
+        ],
+  );
 
   return (
     <div>
@@ -2396,6 +2416,8 @@ export const EditPanel = memo(function EditPanel({
   onRenderExportPreview,
   exporting = false,
   fileId,
+  boardFileId,
+  previewFrameId,
   activeContent,
   pendingInteractionStateStyles,
   activeFileUpdatedAt,
@@ -2410,6 +2432,7 @@ export const EditPanel = memo(function EditPanel({
   componentDetailsReady = true,
   componentInstanceHasLocalOverrides = false,
   onResetComponentInstanceOverrides,
+  onRestoreComponent,
   componentSwapPickerRequest,
   sourceCapabilities = [],
   onCreateComponent,
@@ -3023,6 +3046,20 @@ export const EditPanel = memo(function EditPanel({
                 <ComponentSection
                   designId={designId}
                   fileId={fileId}
+                  boardFileId={boardFileId}
+                  previewFrameId={
+                    previewFrameId ??
+                    (viewMode === "overview" && fileId && breakpointContext
+                      ? getActiveScreenIframeId({
+                          id: fileId,
+                          activeBreakpointWidth:
+                            breakpointContext.activeWidthPx ?? undefined,
+                          breakpointWidths: [
+                            ...breakpointContext.breakpointWidths,
+                          ],
+                        })
+                      : fileId)
+                  }
                   activeContent={activeContent}
                   activeFileUpdatedAt={activeFileUpdatedAt}
                   componentDetailsReady={componentDetailsReady}
@@ -3032,6 +3069,11 @@ export const EditPanel = memo(function EditPanel({
                   onResetOverrides={
                     onResetComponentInstanceOverrides
                       ? () => onResetComponentInstanceOverrides(componentNodeId)
+                      : undefined
+                  }
+                  onRestoreComponent={
+                    onRestoreComponent
+                      ? () => onRestoreComponent(componentNodeId)
                       : undefined
                   }
                   onComponentPropApplied={onComponentPropApplied}

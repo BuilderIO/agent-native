@@ -25,9 +25,11 @@ plugins, opciones y alias propios de Chat.
 Para una aplicación independiente, compila la salida de Netlify e implementa los activos y las funciones:
 
 ```bash
-NITRO_PRESET=netlify npx @agent-native/core@latest build
+NITRO_PRESET=netlify pnpm build
 npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
 ```
+
+Antes del primer despliegue de producción, configura `DATABASE_URL` y un `BETTER_AUTH_SECRET` estable en las variables de entorno del sitio de Netlify. No dependas de la base de datos PGlite local; `DATABASE_URL` debe apuntar a una base de datos PostgreSQL persistente a la que pueda acceder la función desplegada.
 
 Para un espacio de trabajo, implementa todas las aplicaciones desde un único sitio de Netlify ejecutando:
 

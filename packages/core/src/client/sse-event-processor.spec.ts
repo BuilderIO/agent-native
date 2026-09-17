@@ -4,6 +4,7 @@ import { RUN_NO_PROGRESS_HARD_TIMEOUT_MS } from "../app-config/run-lifecycle-inv
 import { subscribeChatFirstOpenApp } from "./chat-first.js";
 import {
   AgentAutoContinueSignal,
+  admitSSEEvent,
   processEvent,
   readSSEStream,
   readSSEStreamRaw,
@@ -15,6 +16,42 @@ import {
   settleInterruptedToolCalls,
   type ContentPart,
 } from "./sse-event-processor.js";
+
+describe("SSE event admission across deploy versions", () => {
+  it("deduplicates an old seq-only frame followed by its identified replay", () => {
+    const seenSeqs = new Set<number>();
+    const seenIds = new Set<string>();
+
+    expect(
+      admitSSEEvent({ type: "tool_start", seq: 5 }, seenSeqs, seenIds),
+    ).toBe(true);
+    expect(
+      admitSSEEvent(
+        { type: "tool_start", seq: 5, eventId: "run-1:5" },
+        seenSeqs,
+        seenIds,
+      ),
+    ).toBe(false);
+  });
+
+  it("records both identities for new frames so either replay shape is safe", () => {
+    const seenSeqs = new Set<number>();
+    const seenIds = new Set<string>();
+
+    expect(
+      admitSSEEvent(
+        { type: "tool_done", seq: 6, eventId: "run-1:6" },
+        seenSeqs,
+        seenIds,
+      ),
+    ).toBe(true);
+    expect(seenSeqs).toEqual(new Set([6]));
+    expect(seenIds).toEqual(new Set(["run-1:6"]));
+    expect(
+      admitSSEEvent({ type: "tool_done", seq: 6 }, seenSeqs, seenIds),
+    ).toBe(false);
+  });
+});
 
 function commentOnlyStream(delayMs: number): ReadableStream<Uint8Array> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -2806,6 +2843,66 @@ describe("SSE event processor error classification", () => {
     );
   });
 
+  it("keeps direct SSE and durable replay folds identical across a replayed frame", async () => {
+    const events = [
+      {
+        type: "tool_start",
+        seq: 0,
+        tool: "get-deck",
+        input: { deckId: "deck-1" },
+      },
+      // This is the hosted background shape: a reconnect replays the last
+      // persisted frame after the first response dropped before its cursor was
+      // committed. The duplicate has no call id, so content-level matching
+      // cannot safely distinguish it from a second real call.
+      {
+        type: "tool_start",
+        seq: 0,
+        tool: "get-deck",
+        input: { deckId: "deck-1" },
+      },
+      { type: "done", seq: 1, reason: "user" },
+    ];
+    const direct = (await drain(
+      readSSEStream(
+        eventStream(events),
+        [],
+        { value: 0 },
+        "tab-parity",
+        undefined,
+        "run-parity",
+        { seenEventSeqs: new Set<number>() },
+      ),
+    )) as Array<{
+      content?: ContentPart[];
+      status?: unknown;
+      metadata?: unknown;
+    }>;
+    const durableContent: ContentPart[] = [];
+    await readSSEStreamRaw(
+      eventStream(events),
+      durableContent,
+      { value: 0 },
+      "tab-parity",
+      () => {},
+      undefined,
+      { runId: "run-parity", seenEventSeqs: new Set<number>() },
+    );
+
+    expect(direct.at(-1)).toMatchObject({
+      status: { type: "complete", reason: "stop" },
+      metadata: { custom: { userStopped: true } },
+    });
+    expect(direct.at(-1)?.content).toEqual(durableContent);
+    expect(durableContent).toHaveLength(1);
+    expect(durableContent[0]).toMatchObject({
+      type: "tool-call",
+      toolName: "get-deck",
+      result: "",
+    });
+    expect(durableContent[0]).not.toHaveProperty("outcome");
+  });
+
   it("fills the pending tool activity card when tool_start arrives", async () => {
     const results = await drain(
       readSSEStream(
@@ -4052,6 +4149,62 @@ describe("SSE event processor error classification", () => {
       }),
     );
   });
+
+  it.each([
+    ["run_record_missing", "The agent run record is no longer available."],
+    [
+      "unknown_run_status",
+      "The agent run ended in a state this app does not recognize.",
+    ],
+  ])(
+    "does not auto-continue %s, whose outcome is unknown",
+    async (errorCode, message) => {
+      // These say the turn's outcome is UNKNOWN. An automatic re-POST would
+      // assert it did not finish and could replay side effects that already
+      // landed, so they must reach the user as a manual Retry instead.
+      const dispatchEvent = vi.fn();
+      vi.stubGlobal("window", { dispatchEvent });
+      vi.stubGlobal(
+        "CustomEvent",
+        class CustomEvent {
+          type: string;
+          detail: unknown;
+          constructor(type: string, init?: { detail?: unknown }) {
+            this.type = type;
+            this.detail = init?.detail;
+          }
+        },
+      );
+
+      // Must NOT throw AgentAutoContinueSignal — it must terminate with a result.
+      const results = await drain(
+        readSSEStream(
+          eventStream([
+            { type: "error", error: message, errorCode, recoverable: true },
+          ]),
+          [],
+          { value: 0 },
+          `tab-${errorCode}`,
+        ),
+      );
+
+      const terminal = results.at(-1) as
+        | {
+            status?: { type: string; reason: string };
+            metadata?: { custom?: { runError?: { recoverable?: boolean } } };
+          }
+        | undefined;
+      expect(terminal?.status).toEqual({ type: "incomplete", reason: "error" });
+      // recoverable:true survives so the banner still offers a manual Retry.
+      expect(terminal?.metadata?.custom?.runError?.recoverable).toBe(true);
+      expect(dispatchEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "agent-chat:run-error",
+          detail: expect.objectContaining({ errorCode, recoverable: true }),
+        }),
+      );
+    },
+  );
 
   it("does not auto-continue a deliberate abort reported as a recoverable aborted_* error", async () => {
     const dispatchEvent = vi.fn();

@@ -73,15 +73,33 @@ const messages: AgentChatTranslation = {
     "Criando ou reutilizando sua conta do Builder.io. Isso geralmente leva alguns segundos.",
   "onboarding.builderConnectionDescription":
     "Conclua a conexão com um clique na nova janela.",
+  "onboarding.builderReadyWithCodeChanges":
+    "Os créditos de IA e as alterações de código na nuvem estão prontos para uso.",
+  "onboarding.builderReadyCreditsOnly":
+    "Os créditos de IA estão prontos para uso. As edições de código na nuvem exigem um projeto Builder nas configurações do agente em segundo plano.",
+  "onboarding.openBackgroundAgentSettings":
+    "Abrir configurações do agente em segundo plano",
   "onboarding.capability.llm.keySummary":
     "Conecte um provedor de IA ou modelo local",
   "onboarding.capability.fileStorage.keySummary":
     "Armazenamento Builder ou bucket compatível com S3",
+  "onboarding.fileStorage.title": "Escolha o armazenamento de arquivos",
+  "onboarding.fileStorage.description":
+    "Escolha o armazenamento gerenciado do Builder ou suas próprias chaves para um bucket compatível com S3.",
+  "onboarding.fileStorage.custom":
+    "Usar chaves de armazenamento personalizadas",
+  "onboarding.fileStorage.customDescription":
+    "Configure um bucket compatível com S3 com uma URL pública estável.",
   "onboarding.capability.voiceInput.label": "Entrada de voz",
   "onboarding.capability.voiceInput.keySummary":
     "Reconhecimento de voz do navegador ou conversão de fala em texto",
   "onboarding.capability.voiceInput.why":
     "A entrada de voz transforma solicitações faladas em texto; digitar sempre funciona.",
+  "onboarding.capability.embeddings.label": "Vetores semânticos",
+  "onboarding.capability.embeddings.keySummary":
+    "Chave do Gemini, Cohere ou Voyage",
+  "onboarding.capability.embeddings.why":
+    "Vetores semânticos melhoram a busca semântica. A busca por palavras-chave continua funcionando sem eles.",
   "onboarding.capability.assetsImageGeneration.label": "Geração de imagens",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Créditos Builder ou chave de provedor de imagens",
@@ -143,6 +161,21 @@ const messages: AgentChatTranslation = {
   "common.retry": "Tentar novamente",
   "common.save": "Salvar",
   "agents.hostedAgent": "Agente hospedado",
+  "agents.provider": "Provedor",
+  "agents.providerA2A": "Agente A2A (Foundry, Gemini ou personalizado)",
+  "agents.providerAnthropic": "Agentes gerenciados da Anthropic",
+  "agents.agentId": "ID do agente",
+  "agents.agentIdPlaceholder": "agent_...",
+  "agents.environmentId": "ID do ambiente",
+  "agents.environmentIdPlaceholder": "env_...",
+  "agents.apiBaseUrl": "URL base da API (opcional)",
+  "agents.apiBaseUrlPlaceholder": "https://api.anthropic.com",
+  "agents.managedAgentIncomplete":
+    "Preencha os campos do Anthropic Managed Agents.",
+  "agents.managedAgentCheck":
+    "A conexão é verificada quando você delega pelo chat.",
+  "agents.managedAgentSaved":
+    "Anthropic Managed Agent salvo. Delegue para ele pelo chat.",
   "agents.cardUrl": "URL do cartão do agente",
   "agents.cardUrlPlaceholder": "https://host.example/agent-card.json",
   "agents.authType": "Autenticação",
@@ -161,6 +194,26 @@ const messages: AgentChatTranslation = {
   "agents.statusReachable": "Acessível",
   "agents.statusAuthRejected": "Autenticação rejeitada",
   "agents.statusNoJsonRpc": "Sem JSON-RPC",
+  "agents.directoryTab": "Diretório de agentes",
+  "agents.directoryPageHint":
+    "Encontre um backend de agente e conecte-o ao seu workspace.",
+  "agents.directorySearch": "Pesquisar provedores",
+  "agents.directoryProviders": "Provedores",
+  "agents.directoryManual": "Adicionar por URL",
+  "agents.directoryA2A": "A2A",
+  "agents.directoryManaged": "API gerenciada",
+  "agents.directoryFoundry": "Microsoft Foundry",
+  "agents.directoryFoundryHint": "Conecte um agente do Foundry via A2A.",
+  "agents.directoryGemini": "Gemini Enterprise",
+  "agents.directoryGeminiHint":
+    "Conecte um agente do Gemini Enterprise via A2A.",
+  "agents.directoryAnthropic": "Agentes gerenciados da Anthropic",
+  "agents.directoryAnthropicHint": "Conecte sessões e aprovações da Anthropic.",
+  "agents.directoryNoMatches": "Nenhum provedor corresponde à sua pesquisa.",
+  "agents.directoryRegistry": "Registro global de A2A",
+  "agents.directoryRegistryHint":
+    "Explore Agent Cards públicas e verifique-as antes de conectar.",
+  "agents.directoryBrowse": "Explorar registro",
   "common.saveFailed": "Falha ao salvar",
   "common.saveFailedStatus": "Falha ao salvar ({{status}})",
   "common.saving": "Salvando...",
@@ -616,6 +669,8 @@ const messages: AgentChatTranslation = {
   "widget.rows_other": "{{formattedCount}} linhas",
   "errorMessages.agentConnection":
     "A conexão do agente foi interrompida. Verifique sua conexão e tente novamente.",
+  "errorMessages.attachmentPasswordProtected":
+    "Este PDF está protegido por senha e não pode ser lido. Remova a proteção por senha ou cole o texto relevante e tente novamente.",
   "errorMessages.builderAuthentication":
     "O Builder rejeitou as credenciais conectadas. Reconecte Builder.io em Configurações e tente novamente.",
   "errorMessages.builderModelUnauthorized":

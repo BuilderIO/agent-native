@@ -7,6 +7,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReviewComment } from "../../review/types.js";
 
 const mutate = vi.hoisted(() => vi.fn());
+const discussion = vi.hoisted(() => ({
+  reactions: {},
+  threadPreferences: {} as Record<string, { unread: boolean }>,
+  canReact: false,
+}));
+const reviewComments = vi.hoisted(() => vi.fn());
+const writeClipboardText = vi.hoisted(() => vi.fn());
 const rootComment = vi.hoisted(
   () =>
     ({
@@ -38,22 +45,58 @@ const rootComment = vi.hoisted(
       metadata: null,
     }) satisfies ReviewComment,
 );
+const resolvedComment = vi.hoisted(
+  () =>
+    ({
+      id: "comment-2",
+      resourceType: "design",
+      resourceId: "design-1",
+      threadId: "thread-2",
+      parentCommentId: null,
+      targetId: "screen-1",
+      kind: "comment",
+      status: "resolved",
+      anchor: null,
+      body: "Resolved note",
+      authorEmail: "reviewer@example.com",
+      authorName: null,
+      createdBy: "human",
+      resolutionTarget: "human",
+      mentions: [],
+      ownerEmail: "owner@example.com",
+      orgId: null,
+      visibility: "private",
+      resolvedBy: "owner@example.com",
+      resolvedAt: "2026-07-13T13:05:00.000Z",
+      consumedAt: null,
+      deletedBy: null,
+      deletedAt: null,
+      createdAt: "2026-07-13T13:01:00.000Z",
+      updatedAt: "2026-07-13T13:05:00.000Z",
+      metadata: null,
+    }) satisfies ReviewComment,
+);
 
 vi.mock("./use-review.js", () => ({
-  useReviewComments: () => ({
-    data: {
-      comments: [rootComment],
-      reviewStatus: { status: "draft" },
-    },
-    isLoading: false,
-  }),
+  useReviewComments: (...args: unknown[]) => reviewComments(...args),
   useCreateReviewComment: () => ({ mutate, isPending: false }),
   useDeleteReviewComment: () => ({ mutate, isPending: false }),
   useReplyReviewComment: () => ({ mutate, isPending: false }),
+  useReactToReviewComment: () => ({
+    mutate,
+    isPending: false,
+    variables: undefined,
+  }),
+  useUpdateReviewComment: () => ({ mutate, isPending: false }),
   useResolveReviewThread: () => ({ mutate, isPending: false }),
+  useReactToReviewComment: () => ({ mutate, isPending: false }),
 }));
 
-import { ReviewThreadPanel } from "./ReviewThreadPanel.js";
+import {
+  isTrustedReviewAttachmentUrl,
+  ReviewThreadPanel,
+} from "./ReviewThreadPanel.js";
+vi.mock("../clipboard.js", () => ({ writeClipboardText }));
 
 function setTextareaValue(textarea: HTMLTextAreaElement, value: string) {
   const setter = Object.getOwnPropertyDescriptor(
@@ -73,6 +116,15 @@ describe("ReviewThreadPanel sidebar layout", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    reviewComments.mockImplementation(() => ({
+      data: {
+        comments: [rootComment],
+        reviewStatus: { status: "draft" },
+        discussion,
+      },
+      isLoading: false,
+    }));
+    writeClipboardText.mockResolvedValue(true);
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -82,6 +134,7 @@ describe("ReviewThreadPanel sidebar layout", () => {
     act(() => root.unmount());
     container.remove();
     rootComment.body = "Make the heading clearer";
+    (rootComment as ReviewComment).mentions = [];
     (rootComment as ReviewComment).createdBy = "human";
     const comment = rootComment as ReviewComment & {
       resolutionNote?: string;
@@ -89,8 +142,51 @@ describe("ReviewThreadPanel sidebar layout", () => {
     comment.status = "open";
     comment.metadata = null;
     delete comment.resolutionNote;
+    discussion.threadPreferences = {};
     mutate.mockReset();
+    reviewComments.mockReset();
+    writeClipboardText.mockReset();
     vi.unstubAllGlobals();
+  });
+
+  it("fails closed for untrusted persisted attachment URLs", () => {
+    expect(
+      isTrustedReviewAttachmentUrl(
+        `${window.location.origin}/uploads/image.png`,
+      ),
+    ).toBe(true);
+    expect(
+      isTrustedReviewAttachmentUrl("https://cdn.builder.io/image.png"),
+    ).toBe(true);
+    expect(isTrustedReviewAttachmentUrl("https://tracker.example/pixel")).toBe(
+      false,
+    );
+    expect(isTrustedReviewAttachmentUrl("javascript:alert(1)")).toBe(false);
+  });
+
+  it("renders all five trusted persisted image attachments", () => {
+    rootComment.metadata = {
+      attachments: Array.from({ length: 6 }, (_, index) => ({
+        url: `${window.location.origin}/uploads/review-${index + 1}.png`,
+        name: `Review ${index + 1}`,
+        contentType: "image/png",
+      })),
+    };
+
+    act(() => {
+      root.render(
+        <ReviewThreadPanel
+          resourceType="design"
+          resourceId="design-1"
+          showHeader={false}
+          showComposer={false}
+        />,
+      );
+    });
+
+    expect(
+      container.querySelectorAll("[data-review-comment-attachments] img"),
+    ).toHaveLength(5);
   });
 
   it("uses the localized agent label without displaying the acting human as author", () => {
@@ -107,6 +203,27 @@ describe("ReviewThreadPanel sidebar layout", () => {
     });
     expect(container.textContent).toContain("KI");
     expect(container.textContent).not.toContain("reviewer@example.com");
+  });
+
+  it("shows persisted unread state and filters to unread threads", () => {
+    discussion.threadPreferences["thread-1"] = { unread: true };
+
+    act(() => {
+      root.render(
+        <ReviewThreadPanel
+          resourceType="design"
+          resourceId="design-1"
+          unreadOnly
+          unreadLabel="Unread feedback"
+          showComposer={false}
+        />,
+      );
+    });
+
+    expect(
+      container.querySelector('[data-review-thread-unread="true"]'),
+    ).not.toBeNull();
+    expect(container.textContent).toContain("Unread feedback");
   });
 
   it("uses a flat container and progressively discloses reply and narrow actions", () => {
@@ -204,7 +321,7 @@ describe("ReviewThreadPanel sidebar layout", () => {
     act(() => replyButton?.click());
 
     expect(
-      container.querySelector('input[placeholder="Reply to this thread"]'),
+      container.querySelector('textarea[placeholder="Reply to this thread"]'),
     ).not.toBeNull();
     expect(
       container.querySelector('button[aria-label="Cancel reply"]'),
@@ -285,6 +402,58 @@ describe("ReviewThreadPanel sidebar layout", () => {
     ).toBeNull();
   });
 
+  it("preserves mentions while editing a comment", async () => {
+    const mention = { label: "Alice", email: "alice@example.com" };
+    rootComment.body = "Ping @Alice";
+    rootComment.mentions = [mention];
+    act(() => {
+      root.render(
+        <ReviewThreadPanel
+          resourceType="design"
+          resourceId="design-1"
+          showHeader={false}
+          showComposer={false}
+          canEditComment
+          mentionOptions={[mention]}
+        />,
+      );
+    });
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="More actions"]')
+        ?.dispatchEvent(
+          new PointerEvent("pointerdown", {
+            bubbles: true,
+            button: 0,
+          }),
+        );
+    });
+    const editItem = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent?.trim() === "Edit comment");
+    expect(editItem).toBeTruthy();
+    await act(async () => editItem?.click());
+
+    const editComposer = document.querySelector<HTMLTextAreaElement>(
+      'textarea[aria-label="Edit comment"]',
+    );
+    expect(editComposer).not.toBeNull();
+    setTextareaValue(editComposer!, "Ping @Alice updated");
+    const save = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Save",
+    );
+    await act(async () => save?.click());
+
+    expect(mutate).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        body: "Ping @Alice updated",
+        mentions: [mention],
+      }),
+      expect.any(Object),
+    );
+  });
+
   it("shows only the controls authorized for the current viewer", () => {
     act(() => {
       root.render(
@@ -313,7 +482,7 @@ describe("ReviewThreadPanel sidebar layout", () => {
 
     act(() => replyButton?.click());
     expect(
-      container.querySelector('input[placeholder="Reply..."]'),
+      container.querySelector('textarea[placeholder="Reply..."]'),
     ).not.toBeNull();
 
     act(() => {
@@ -338,6 +507,112 @@ describe("ReviewThreadPanel sidebar layout", () => {
     expect(
       container.querySelector('button[aria-label="More actions"]'),
     ).not.toBeNull();
+  });
+
+  it("filters review history by open and resolved status", () => {
+    reviewComments.mockReturnValue({
+      data: {
+        comments: [rootComment, resolvedComment],
+        reviewStatus: { status: "draft" },
+      },
+      isLoading: false,
+    });
+
+    act(() => {
+      root.render(
+        <ReviewThreadPanel
+          resourceType="design"
+          resourceId="design-1"
+          showHeader={false}
+          showComposer={false}
+          showFilter
+          filterLabel="Filter comments"
+          allCommentsLabel="All"
+          openCommentsLabel="Open"
+          resolvedCommentsLabel="Resolved"
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Make the heading clearer");
+    expect(container.textContent).not.toContain("Resolved note");
+    expect(reviewComments).toHaveBeenLastCalledWith(
+      expect.objectContaining({ includeResolved: false }),
+    );
+
+    const filterTrigger = container.querySelector<HTMLButtonElement>(
+      "[data-review-filter-trigger]",
+    );
+    expect(filterTrigger).not.toBeNull();
+    act(() => {
+      filterTrigger?.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+        }),
+      );
+    });
+
+    const resolvedOption = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="menuitemradio"]'),
+    ).find((item) => item.textContent?.trim() === "Resolved");
+    expect(resolvedOption).not.toBeUndefined();
+    act(() => resolvedOption?.click());
+
+    expect(container.textContent).toContain("Resolved note");
+    expect(container.textContent).not.toContain("Make the heading clearer");
+    expect(reviewComments).toHaveBeenLastCalledWith(
+      expect.objectContaining({ includeResolved: true }),
+    );
+  });
+
+  it("copies a stable thread link through the shared clipboard helper", async () => {
+    writeClipboardText.mockResolvedValue(true);
+
+    act(() => {
+      root.render(
+        <ReviewThreadPanel
+          resourceType="design"
+          resourceId="design-1"
+          showHeader={false}
+          showComposer={false}
+          canCopyLink
+          copyLinkLabel="Copy link"
+          linkCopiedLabel="Link copied"
+        />,
+      );
+    });
+
+    const moreActions = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="More actions"]',
+    );
+    expect(moreActions).not.toBeNull();
+    act(() => {
+      moreActions?.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+        }),
+      );
+    });
+
+    const copyItem = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent?.trim() === "Copy link");
+    expect(copyItem).not.toBeUndefined();
+    expect(
+      Array.from(
+        document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+      ).some((item) => item.textContent?.trim() === "Delete comment"),
+    ).toBe(false);
+    act(() => copyItem?.click());
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const expectedUrl = new URL(window.location.href);
+    expectedUrl.hash = "review-thread=thread-1";
+    expect(writeClipboardText).toHaveBeenCalledWith(expectedUrl.toString());
   });
 
   it("renders resolution notes from metadata and a future typed field", () => {
