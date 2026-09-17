@@ -4977,14 +4977,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             finishDrag();
           } else {
             const finalRect = latestRect;
-            const releasedSelectionRevision = `${selectedIdsRef.current.join(",")}\u001e${marqueeHostSelectionRevisionRef.current}`;
+            const releasedSelectionRevision = `${selectedIdsRef.current.join(",")}\u001e${selectedDraftIdsRef.current.join(",")}\u001e${marqueeHostSelectionRevisionRef.current}`;
             void Promise.allSettled(pendingMarqueeCollections).then(() => {
               if (
                 dragState.current !== marqueeState ||
                 marqueeLifecycleRef.current !== marqueeToken
               )
                 return;
-              const currentSelectionRevision = `${selectedIdsRef.current.join(",")}\u001e${marqueeHostSelectionRevisionRef.current}`;
+              const currentSelectionRevision = `${selectedIdsRef.current.join(",")}\u001e${selectedDraftIdsRef.current.join(",")}\u001e${marqueeHostSelectionRevisionRef.current}`;
               if (currentSelectionRevision !== releasedSelectionRevision) {
                 onLayerMarqueeSelectionChange?.([], {
                   source: "marquee",
