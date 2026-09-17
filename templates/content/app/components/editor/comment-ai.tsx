@@ -215,8 +215,10 @@ export function shouldReconcileCommentAiSnapshot(
   if (snapshot.status === "queued" || snapshot.status === "running")
     return false;
   // An exact receipt can be temporarily invisible while dispatch or scoped
-  // authorization catches up. Absence alone must never manufacture failure.
-  return snapshot.status !== "unavailable";
+  // authorization catches up. A terminal label without a durable run identity
+  // can likewise come from the transport boundary before dispatch reaches the
+  // run manager; neither observation has authority to finish the operation.
+  return snapshot.status !== "unavailable" && Boolean(snapshot.runId);
 }
 
 export function useCommentAiRequests(
@@ -324,7 +326,7 @@ export function useCommentAiRequests(
         } catch (caughtStatusError) {
           statusError = caughtStatusError;
         }
-        if (snapshot && snapshot.status !== "unavailable") {
+        if (snapshot && shouldReconcileCommentAiSnapshot(snapshot)) {
           setDispatchRecoveryRecord((current) => {
             if (!current[requestId]) return current;
             const next = { ...current };

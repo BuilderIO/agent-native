@@ -570,7 +570,8 @@ describe("comment AI controls", () => {
         operationId: "request-1",
         threadId: "agent-thread-1",
         turnId: "agent-turn-1",
-        status: "unavailable",
+        status: "errored",
+        terminalReason: "Background agent session acknowledgement timed out",
       }),
     });
     act(() => root.render(createElement(Probe)));
@@ -971,7 +972,29 @@ describe("comment AI session reconciliation", () => {
       expect(shouldReconcileCommentAiSnapshot(snapshot)).toBe(false);
     }
     expect(
-      shouldReconcileCommentAiSnapshot({ ...snapshot, status: "completed" }),
+      shouldReconcileCommentAiSnapshot({
+        ...snapshot,
+        status: "completed",
+        runId: "run-1",
+      }),
+    ).toBe(true);
+  });
+
+  it("does not terminalize a pre-dispatch error without a durable run", () => {
+    expect(
+      shouldReconcileCommentAiSnapshot({
+        ...snapshot,
+        status: "errored",
+        terminalReason: "Background agent session acknowledgement timed out",
+      }),
+    ).toBe(false);
+    expect(
+      shouldReconcileCommentAiSnapshot({
+        ...snapshot,
+        status: "errored",
+        runId: "run-1",
+        terminalReason: "provider_error",
+      }),
     ).toBe(true);
   });
 
