@@ -29,7 +29,6 @@ export interface OpenVisualEditWebMcpResult {
   publicReadOnly: boolean;
   devServerUrl: string;
   bridgeUrl?: string;
-  rootPath?: string;
   screenCount: number;
   overview: boolean;
   urlPath: string;
@@ -163,7 +162,6 @@ export function createOpenVisualEditWebMcpActions() {
           publicReadOnly,
           devServerUrl,
           bridgeUrl,
-          rootPath,
           screenCount,
           overview,
           urlPath,
@@ -176,7 +174,6 @@ export function createOpenVisualEditWebMcpActions() {
           publicReadOnly,
           devServerUrl,
           bridgeUrl: bridgeUrl ?? undefined,
-          rootPath: rootPath ?? undefined,
           screenCount,
           overview,
           urlPath,
