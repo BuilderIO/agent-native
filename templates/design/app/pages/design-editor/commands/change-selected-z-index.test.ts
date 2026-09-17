@@ -141,6 +141,23 @@ describe("runChangeSelectedZIndex — a paint-order change must not move anythin
     expect(commitVisualStyles).toHaveBeenCalledTimes(1);
   });
 
+  it("writes z-index instead of relying on DOM order for an explicit stack", () => {
+    const stackedContent = `<div data-agent-native-node-id="wrap">
+<div data-agent-native-node-id="a" style="position:absolute;z-index:2"></div>
+<div data-agent-native-node-id="b" style="position:absolute;z-index:9"></div>
+</div>`;
+    const { args, applyLocalContentUpdate, commitVisualStyles, targetStyles } =
+      harness(
+        { computedStyles: { position: "absolute", zIndex: "2" } },
+        "a",
+        stackedContent,
+      );
+    runChangeSelectedZIndex(args, "front");
+    expect(applyLocalContentUpdate).not.toHaveBeenCalled();
+    expect(commitVisualStyles).toHaveBeenCalledTimes(1);
+    expect(targetStyles()?.zIndex).toBe("999");
+  });
+
   it("sends to back below static siblings, not to z-index 0", () => {
     const { args, applyLocalContentUpdate } = harness({
       computedStyles: { position: "static", zIndex: "auto" },
@@ -438,7 +455,7 @@ describe("runChangeSelectedZIndex — rendered multi-selection order", () => {
     expect(next).toMatch(/data-agent-native-node-id="C"[^>]*z-index/);
   });
 
-  it("publishes mixed moves, z-index, isolation, and responsive scope once", () => {
+  it("publishes responsive z-index and isolation scope without a base DOM move", () => {
     const content = `<div data-agent-native-node-id="screen">
 <div data-agent-native-node-id="S"></div>
 <div data-agent-native-node-id="A" style="position:absolute"></div>
@@ -463,10 +480,36 @@ describe("runChangeSelectedZIndex — rendered multi-selection order", () => {
 
     expect(applyLocalContentUpdate).toHaveBeenCalledOnce();
     const next = applyLocalContentUpdate.mock.calls[0]![0];
-    expect(directChildNames(next)).toEqual(["A", "S", "B", "C"]);
+    expect(directChildNames(next)).toEqual(["S", "A", "B", "C"]);
     expect(next).toMatch(/isolation:\s*isolate/);
     expect(next).toMatch(/max-width:\s*640px/);
     expect(next).toMatch(/min-width:\s*480px/);
+  });
+
+  it("publishes a mixed base move, z-index, and isolation edit once", () => {
+    const content = `<div data-agent-native-node-id="screen">
+<div data-agent-native-node-id="S"></div>
+<div data-agent-native-node-id="A" style="position:absolute"></div>
+<div data-agent-native-node-id="B"></div>
+<div data-agent-native-node-id="C"></div>
+</div>`;
+    const { args, applyLocalContentUpdate } = multiHarness(
+      content,
+      ["A", "B"],
+      {
+        rendered: {
+          A: { computedStyles: { position: "absolute", zIndex: "auto" } },
+          B: { computedStyles: { position: "static", zIndex: "auto" } },
+        },
+      },
+    );
+
+    runChangeSelectedZIndex(args, "back");
+
+    expect(applyLocalContentUpdate).toHaveBeenCalledOnce();
+    const next = applyLocalContentUpdate.mock.calls[0]![0];
+    expect(directChildNames(next)).toEqual(["A", "S", "B", "C"]);
+    expect(next).toMatch(/isolation:\s*isolate/);
   });
   it("does not use a substring selector to classify another selected layer", () => {
     const content = `<div data-agent-native-node-id="screen">
@@ -560,6 +603,27 @@ describe("runChangeSelectedZIndex — refusal is atomic and visible", () => {
     expect(result).toEqual({ status: "refused", reason: "linked-component" });
     expect(applyLocalContentUpdate).not.toHaveBeenCalled();
     expect(reportRefusal).toHaveBeenCalledWith("linked-component");
+  });
+
+  it("refuses responsive linked-component style edits before delegation", () => {
+    const content = `<section data-agent-native-node-id="main" data-agent-native-component-id="card">
+<div data-agent-native-node-id="first" style="position:absolute"></div>
+</section>`;
+    const { args, applyLocalContentUpdate, reportRefusal } = multiHarness(
+      content,
+      ["first"],
+      {
+        activeBreakpointUpperBoundPx: 640,
+        rendered: { first: { computedStyles: { position: "absolute" } } },
+      },
+    );
+
+    expect(runChangeSelectedZIndex(args, "front")).toEqual({
+      status: "refused",
+      reason: "responsive-scope",
+    });
+    expect(applyLocalContentUpdate).not.toHaveBeenCalled();
+    expect(reportRefusal).toHaveBeenCalledWith("responsive-scope");
   });
 
   it("stops positioned-descendant scans at an intermediate wrapper", () => {

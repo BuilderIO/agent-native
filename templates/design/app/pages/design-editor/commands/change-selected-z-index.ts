@@ -47,6 +47,7 @@ export type ZOrderRefusal =
   | "runtime-only"
   | "repeat-anchor"
   | "linked-component"
+  | "responsive-scope"
   | "patch"
   | "publication";
 
@@ -202,6 +203,13 @@ function renderedZIndex(info: ElementInfo, node: CodeLayerNode): number {
   if (Number.isFinite(computed)) return computed;
   const source = Number.parseInt(node.style["z-index"] ?? "", 10);
   return Number.isFinite(source) ? source : 0;
+}
+
+function hasExplicitZIndex(info: ElementInfo, node: CodeLayerNode): boolean {
+  const computed = info.computedStyles.zIndex?.trim().toLowerCase();
+  if (computed && computed !== "auto") return true;
+  const authored = node.style["z-index"]?.trim().toLowerCase();
+  return Boolean(authored && authored !== "auto");
 }
 
 function renderedParentDisplay(info: ElementInfo, node: CodeLayerNode): string {
@@ -493,6 +501,12 @@ export function runChangeSelectedZIndex(
   const initialProjection = buildCodeLayerProjection(baseContent, { source });
   const byId = new Map(initialProjection.nodes.map((node) => [node.id, node]));
   const owners = codeLayerOwnerByNodeIdRef.current;
+  const lowerBoundPx =
+    responsiveEditScopeRef?.current === "only"
+      ? (activeBreakpointWidthStateRef?.current ?? null)
+      : null;
+  const hasResponsiveBounds =
+    activeBreakpointUpperBoundPx !== null || lowerBoundPx !== null;
   const targets: TargetPlan[] = [];
 
   for (const selectedId of selectedLayerIdsState) {
@@ -524,7 +538,9 @@ export function runChangeSelectedZIndex(
     const flowLayout = isFlowLayoutTarget(info, node);
     const hasReorderableSibling = (siblingOrder?.siblingIds.length ?? 0) > 1;
     const reorder =
+      !hasResponsiveBounds &&
       hasReorderableSibling &&
+      !hasExplicitZIndex(info, node) &&
       (position === "absolute" ||
         position === "fixed" ||
         flowLayout ||
@@ -607,6 +623,7 @@ export function runChangeSelectedZIndex(
   }
 
   if (linkedRoots.size > 0 && styles.length > 0) {
+    if (hasResponsiveBounds) return refuse("responsive-scope");
     // The linked style action can batch one canonical component write, but it
     // cannot atomically combine that write with local sibling moves.
     if (targets.length > 1 || intents.length > 0 || styles.length > 2) {
@@ -702,10 +719,6 @@ export function runChangeSelectedZIndex(
     nextProjection = patch.projection;
   }
 
-  const lowerBoundPx =
-    responsiveEditScopeRef?.current === "only"
-      ? (activeBreakpointWidthStateRef?.current ?? null)
-      : null;
   if (styles.length > 0) {
     const patchedStyles = applyStyleWrites(
       nextContent,
