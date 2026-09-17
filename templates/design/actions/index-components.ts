@@ -19,7 +19,7 @@ import { defineAction } from "@agent-native/core/action";
 import { getText, hasCollabState } from "@agent-native/core/collab";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -113,125 +113,140 @@ export default defineAction({
       };
     }
 
-    // ── Fetch the design file ────────────────────────────────────────────────
-    const conditions = [
-      accessFilter(schema.designs, schema.designShares),
-      eq(schema.designFiles.designId, designId),
-      fileId
-        ? eq(schema.designFiles.id, fileId)
-        : eq(schema.designFiles.filename, "index.html"),
-    ];
+    const result = await db.transaction(async (tx) => {
+      await (
+        tx as unknown as {
+          execute: (query: unknown) => Promise<unknown>;
+        }
+      ).execute(sql`LOCK TABLE design_files IN SHARE ROW EXCLUSIVE MODE`);
+      await (
+        tx as unknown as {
+          execute: (query: unknown) => Promise<unknown>;
+        }
+      ).execute(sql`LOCK TABLE component_index IN SHARE ROW EXCLUSIVE MODE`);
 
-    const [file] = await db
-      .select({
-        id: schema.designFiles.id,
-        designId: schema.designFiles.designId,
-        filename: schema.designFiles.filename,
-        content: schema.designFiles.content,
-      })
-      .from(schema.designFiles)
-      .innerJoin(
-        schema.designs,
-        eq(schema.designFiles.designId, schema.designs.id),
-      )
-      .where(and(...conditions))
-      .limit(1);
+      // ── Fetch the design file ──────────────────────────────────────────────
+      const conditions = [
+        accessFilter(schema.designs, schema.designShares),
+        eq(schema.designFiles.designId, designId),
+        fileId
+          ? eq(schema.designFiles.id, fileId)
+          : eq(schema.designFiles.filename, "index.html"),
+      ];
 
-    if (!file) throw new Error("Design HTML file not found.");
-
-    const html = await liveContent(file.id, file.content ?? "");
-
-    // ── Projection + detection ───────────────────────────────────────────────
-    const codeLayerSource: CodeLayerSource = {
-      kind: "design-file",
-      designId: file.designId,
-      fileId: file.id,
-      filename: file.filename,
-    };
-
-    const projection = buildCodeLayerProjection(html, {
-      source: codeLayerSource,
-    });
-
-    const instances = detectInstances(projection.nodes);
-    const definitions = buildDefinitions(instances);
-
-    // ── Persist discovered components ────────────────────────────────────────
-    // Write each distinct component name into component_index so that
-    // get-component-details can resolve metadata by node id.
-    const now = new Date().toISOString();
-    // Derive the owner from the request user, falling back to the design's
-    // owner. Never stamp an empty-string owner (an unowned row): require a real
-    // owner before writing a new component_index row.
-    const designOwner = (access.resource as { ownerEmail?: unknown })
-      .ownerEmail;
-    const ownerEmail =
-      getRequestUserEmail() ??
-      (typeof designOwner === "string" && designOwner ? designOwner : null);
-    if (!ownerEmail) throw new Error("no authenticated user");
-
-    for (const def of definitions) {
-      const id = componentIndexId(designId, def.name);
-      const existing = await db
-        .select({ id: schema.componentIndex.id })
-        .from(schema.componentIndex)
-        .where(eq(schema.componentIndex.id, id))
+      const [file] = await tx
+        .select({
+          id: schema.designFiles.id,
+          designId: schema.designFiles.designId,
+          filename: schema.designFiles.filename,
+          content: schema.designFiles.content,
+        })
+        .from(schema.designFiles)
+        .innerJoin(
+          schema.designs,
+          eq(schema.designFiles.designId, schema.designs.id),
+        )
+        .where(and(...conditions))
         .limit(1);
 
-      if (existing.length === 0) {
-        await db.insert(schema.componentIndex).values({
-          id,
-          designId,
-          name: def.name,
-          runtimeSelectors: JSON.stringify(
-            def.instanceNodeIds.map(
-              (nodeId) => `[data-agent-native-node-id="${nodeId}"]`,
-            ),
-          ),
-          ownerEmail,
-          createdAt: now,
-          updatedAt: now,
-        });
-      } else {
-        await db
-          .update(schema.componentIndex)
-          .set({
+      if (!file) throw new Error("Design HTML file not found.");
+
+      const html = await liveContent(file.id, file.content ?? "");
+
+      // ── Projection + detection ─────────────────────────────────────────────
+      const codeLayerSource: CodeLayerSource = {
+        kind: "design-file",
+        designId: file.designId,
+        fileId: file.id,
+        filename: file.filename,
+      };
+
+      const projection = buildCodeLayerProjection(html, {
+        source: codeLayerSource,
+      });
+
+      const instances = detectInstances(projection.nodes);
+      const definitions = buildDefinitions(instances);
+
+      // ── Persist discovered components ──────────────────────────────────────
+      // Write each distinct component name into component_index so that
+      // get-component-details can resolve metadata by node id.
+      const now = new Date().toISOString();
+      // Derive the owner from the request user, falling back to the design's
+      // owner. Never stamp an empty-string owner (an unowned row): require a real
+      // owner before writing a new component_index row.
+      const designOwner = (access.resource as { ownerEmail?: unknown })
+        .ownerEmail;
+      const ownerEmail =
+        getRequestUserEmail() ??
+        (typeof designOwner === "string" && designOwner ? designOwner : null);
+      if (!ownerEmail) throw new Error("no authenticated user");
+
+      for (const def of definitions) {
+        const id = componentIndexId(designId, def.name);
+        const existing = await tx
+          .select({ id: schema.componentIndex.id })
+          .from(schema.componentIndex)
+          .where(eq(schema.componentIndex.id, id))
+          .limit(1);
+
+        if (existing.length === 0) {
+          await tx.insert(schema.componentIndex).values({
+            id,
+            designId,
+            name: def.name,
             runtimeSelectors: JSON.stringify(
               def.instanceNodeIds.map(
                 (nodeId) => `[data-agent-native-node-id="${nodeId}"]`,
               ),
             ),
+            ownerEmail,
+            createdAt: now,
             updatedAt: now,
-          })
-          .where(eq(schema.componentIndex.id, id));
+          });
+        } else {
+          await tx
+            .update(schema.componentIndex)
+            .set({
+              runtimeSelectors: JSON.stringify(
+                def.instanceNodeIds.map(
+                  (nodeId) => `[data-agent-native-node-id="${nodeId}"]`,
+                ),
+              ),
+              updatedAt: now,
+            })
+            .where(eq(schema.componentIndex.id, id));
+        }
       }
-    }
 
-    // Annotate instances with their component_index id.
-    const indexMap = new Map(
-      definitions.map((def) => [
-        def.name,
-        componentIndexId(designId, def.name),
-      ]),
-    );
-    const annotatedInstances = instances.map((inst) => ({
-      ...inst,
-      componentIndexId: indexMap.get(inst.name),
-    }));
+      // Annotate instances with their component_index id.
+      const indexMap = new Map(
+        definitions.map((def) => [
+          def.name,
+          componentIndexId(designId, def.name),
+        ]),
+      );
+      const annotatedInstances = instances.map((inst) => ({
+        ...inst,
+        componentIndexId: indexMap.get(inst.name),
+      }));
 
-    return {
-      designId,
-      sourceType,
-      ctaRequired: false,
-      hasFullIndex,
-      components: definitions,
-      instances: annotatedInstances,
-      totalComponents: definitions.length,
-      totalInstances: instances.length,
-      note:
-        sourceType === "inline"
-          ? "Showing annotated Alpine components from data-agent-native-component attributes. Connect Builder (free tier available) for full TS prop types and cva variants."
-          : undefined,
-    };
+      return {
+        designId,
+        sourceType,
+        ctaRequired: false,
+        hasFullIndex,
+        components: definitions,
+        instances: annotatedInstances,
+        totalComponents: definitions.length,
+        totalInstances: instances.length,
+        note:
+          sourceType === "inline"
+            ? "Showing annotated Alpine components from data-agent-native-component attributes. Connect Builder (free tier available) for full TS prop types and cva variants."
+            : undefined,
+      };
+    });
+
+    return result;
   },
 });

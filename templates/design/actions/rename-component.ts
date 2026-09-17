@@ -29,6 +29,8 @@ import {
 import { designSourceTypeFromData } from "../shared/source-mode.js";
 
 export class ComponentRenameAmbiguousError extends Error {
+  readonly statusCode = 409;
+
   constructor(
     message = "The component is a legacy same-name-only component and cannot be renamed safely.",
   ) {
@@ -104,23 +106,18 @@ export default defineAction({
         live: await readLiveSourceFile(file),
       })),
     );
-    const canonical = liveFiles
-      .flatMap(({ live }) => buildCodeLayerProjection(live.content).nodes)
-      .find(
-        (node) =>
-          node.dataAttributes[COMPONENT_ID_ATTR]?.trim() === componentId,
-      );
+    const projectedNodes = liveFiles.flatMap(
+      ({ live }) => buildCodeLayerProjection(live.content).nodes,
+    );
+    const canonical = projectedNodes.find(
+      (node) => node.dataAttributes[COMPONENT_ID_ATTR]?.trim() === componentId,
+    );
     const oldName = canonical ? componentNameFor(canonical) : null;
     if (!oldName) {
       throw new ComponentRenameAmbiguousError();
     }
     const oldIndexId = componentIndexId(designId, oldName);
     const newIndexId = componentIndexId(designId, newName);
-    if (newIndexId === oldIndexId && newName !== oldName) {
-      throw new ComponentRenameConflictError(
-        "The new component name conflicts with the existing component identity.",
-      );
-    }
     if (newIndexId !== oldIndexId) {
       const [existing] = await getDb()
         .select({ id: schema.componentIndex.id })
@@ -134,13 +131,23 @@ export default defineAction({
         .limit(1);
       if (existing) throw new ComponentRenameConflictError();
     }
-    const linkedNodes = liveFiles
-      .flatMap(({ live }) => buildCodeLayerProjection(live.content).nodes)
-      .filter(
-        (node) =>
-          node.dataAttributes[COMPONENT_ID_ATTR]?.trim() === componentId ||
-          node.dataAttributes[COMPONENT_REF_ATTR]?.trim() === componentId,
+    const conflictingMarkup = projectedNodes.some((node) => {
+      const name = componentNameFor(node);
+      if (!name || componentIndexId(designId, name) !== newIndexId) {
+        return false;
+      }
+      return (
+        node.dataAttributes[COMPONENT_ID_ATTR]?.trim() !== componentId &&
+        node.dataAttributes[COMPONENT_REF_ATTR]?.trim() !== componentId
       );
+    });
+    if (conflictingMarkup) throw new ComponentRenameConflictError();
+
+    const linkedNodes = projectedNodes.filter(
+      (node) =>
+        node.dataAttributes[COMPONENT_ID_ATTR]?.trim() === componentId ||
+        node.dataAttributes[COMPONENT_REF_ATTR]?.trim() === componentId,
+    );
     const componentSelectors = Array.from(
       new Set(
         linkedNodes.map(
@@ -151,8 +158,7 @@ export default defineAction({
     );
     const legacySelectors = Array.from(
       new Set(
-        liveFiles
-          .flatMap(({ live }) => buildCodeLayerProjection(live.content).nodes)
+        projectedNodes
           .filter(
             (node) =>
               componentNameFor(node) === oldName &&
@@ -185,6 +191,19 @@ export default defineAction({
         files: batches,
         expectedHtmlFileIds: htmlFiles.map((file) => file.id),
         afterFilesPersist: async (tx, updatedAt) => {
+          await tx.execute({
+            sql: "LOCK TABLE component_index IN SHARE ROW EXCLUSIVE MODE",
+            args: [],
+          });
+          if (newIndexId !== oldIndexId) {
+            const destination = await tx.execute({
+              sql: "SELECT id FROM component_index WHERE id = ? AND design_id = ? FOR UPDATE",
+              args: [newIndexId, designId],
+            });
+            if (destination.rows.length > 0) {
+              throw new ComponentRenameConflictError();
+            }
+          }
           const moved = await tx.execute({
             sql: "UPDATE component_index SET id = ?, name = ?, runtime_selectors = ?, updated_at = ? WHERE id = ? AND design_id = ? RETURNING id",
             args: [
@@ -196,31 +215,29 @@ export default defineAction({
               designId,
             ],
           });
-          if (
-            moved.rows.length === 1 &&
-            legacySelectors.length > 0 &&
-            newIndexId !== oldIndexId
-          ) {
-            await tx.execute({
-              sql: `INSERT INTO component_index (
-                id, design_id, source_ref, name, file_path, export_name,
-                props, variants, stories, runtime_selectors, created_at,
-                updated_at, owner_email, org_id, visibility
-              )
-              SELECT ?, design_id, source_ref, ?, file_path, export_name,
-                props, variants, stories, ?, created_at, ?, owner_email,
-                org_id, visibility
-              FROM component_index WHERE id = ? AND design_id = ?`,
-              args: [
-                oldIndexId,
-                oldName,
-                JSON.stringify(legacySelectors),
-                updatedAt,
-                newIndexId,
-                designId,
-              ],
-            });
-          } else if (moved.rows.length !== 1 && legacySelectors.length > 0) {
+          if (moved.rows.length === 1) {
+            if (legacySelectors.length > 0 && newIndexId !== oldIndexId) {
+              await tx.execute({
+                sql: `INSERT INTO component_index (
+                  id, design_id, source_ref, name, file_path, export_name,
+                  props, variants, stories, runtime_selectors, created_at,
+                  updated_at, owner_email, org_id, visibility
+                )
+                SELECT ?, design_id, source_ref, ?, file_path, export_name,
+                  props, variants, stories, ?, created_at, ?, owner_email,
+                  org_id, visibility
+                FROM component_index WHERE id = ? AND design_id = ?`,
+                args: [
+                  oldIndexId,
+                  oldName,
+                  JSON.stringify(legacySelectors),
+                  updatedAt,
+                  newIndexId,
+                  designId,
+                ],
+              });
+            }
+          } else {
             const designOwner = (access.resource as { ownerEmail?: unknown })
               .ownerEmail;
             const ownerEmail =
@@ -232,7 +249,7 @@ export default defineAction({
             await tx.execute({
               sql: `INSERT INTO component_index
                 (id, design_id, name, runtime_selectors, owner_email, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?)`,
+                VALUES (?, ?, ?, ?, ?, ?, ?)`,
               args: [
                 newIndexId,
                 designId,
@@ -241,15 +258,24 @@ export default defineAction({
                 ownerEmail,
                 updatedAt,
                 updatedAt,
-                oldIndexId,
-                designId,
-                oldName,
-                JSON.stringify(legacySelectors),
-                ownerEmail,
-                updatedAt,
-                updatedAt,
               ],
             });
+            if (legacySelectors.length > 0 && newIndexId !== oldIndexId) {
+              await tx.execute({
+                sql: `INSERT INTO component_index
+                  (id, design_id, name, runtime_selectors, owner_email, created_at, updated_at)
+                  VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                args: [
+                  oldIndexId,
+                  designId,
+                  oldName,
+                  JSON.stringify(legacySelectors),
+                  ownerEmail,
+                  updatedAt,
+                  updatedAt,
+                ],
+              });
+            }
           }
         },
       });
