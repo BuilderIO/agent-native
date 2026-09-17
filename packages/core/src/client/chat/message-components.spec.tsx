@@ -1,5 +1,13 @@
 // @vitest-environment happy-dom
 
+import {
+  AssistantRuntimeProvider,
+  ThreadPrimitive,
+  useLocalRuntime,
+  type AssistantRuntime,
+  type ChatModelAdapter,
+} from "@assistant-ui/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -38,8 +46,146 @@ import {
   MISSING_FINAL_RESPONSE_SETTLE_MS,
   resolveAssistantRequestId,
   findMatchingAssistantChatHistoryVersion,
+  AssistantMessage,
 } from "./message-components.js";
 import { runErrorKey } from "./run-recovery.js";
+import { ChatRunningContext } from "./tool-call-display.js";
+
+const idleChatAdapter: ChatModelAdapter = {
+  async *run() {
+    return;
+  },
+};
+
+function runningStatusRepo() {
+  return {
+    messages: [
+      {
+        parentId: null,
+        message: {
+          id: "user-1",
+          role: "user" as const,
+          createdAt: new Date(0),
+          content: [{ type: "text", text: "make the change" }],
+          status: { type: "complete", reason: "stop" },
+          metadata: { custom: {} },
+        },
+      },
+      {
+        parentId: "user-1",
+        message: {
+          id: "assistant-history",
+          role: "assistant" as const,
+          createdAt: new Date(1),
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: "history-tool",
+              toolName: "read-file",
+              argsText: "{}",
+              args: {},
+              result: "done",
+            },
+          ],
+          status: { type: "complete", reason: "stop" },
+          metadata: { custom: { runId: "run-history", turnId: "turn-1" } },
+        },
+      },
+      {
+        parentId: "assistant-history",
+        message: {
+          id: "assistant-live",
+          role: "assistant" as const,
+          createdAt: new Date(2),
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: "live-tool",
+              toolName: "write-file",
+              argsText: "{}",
+              args: {},
+              status: { type: "running" },
+            },
+          ],
+          status: { type: "running" },
+          metadata: { custom: { runId: "run-live", turnId: "turn-2" } },
+        },
+      },
+    ],
+    headId: "assistant-live",
+  };
+}
+
+function RunningStatusHarness({
+  runtimeRef,
+}: {
+  runtimeRef: { current: AssistantRuntime | null };
+}) {
+  const runtime = useLocalRuntime(idleChatAdapter);
+  const queryClient = React.useMemo(() => new QueryClient(), []);
+  runtimeRef.current = runtime;
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AssistantRuntimeProvider runtime={runtime}>
+        <ChatRunningContext.Provider value={true}>
+          <ThreadPrimitive.Root>
+            <ThreadPrimitive.Messages
+              components={{
+                UserMessage: () => null,
+                AssistantMessage,
+              }}
+            />
+          </ThreadPrimitive.Root>
+        </ChatRunningContext.Provider>
+      </AssistantRuntimeProvider>
+    </QueryClientProvider>
+  );
+}
+
+describe("assistant work status rendering", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, json: async () => ({}) })),
+    );
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+  });
+
+  it("marks only the latest of two assistant tool lists as Working", async () => {
+    const runtimeRef: { current: AssistantRuntime | null } = { current: null };
+
+    await act(async () => {
+      root.render(<RunningStatusHarness runtimeRef={runtimeRef} />);
+    });
+    await act(async () => {
+      (
+        runtimeRef.current as unknown as {
+          thread: { import: (data: unknown) => void };
+        }
+      ).thread.import(runningStatusRepo());
+    });
+
+    expect(container.querySelectorAll(".agent-activity-trace")).toHaveLength(2);
+    expect(
+      container.querySelectorAll('[data-agent-activity-running="true"]'),
+    ).toHaveLength(1);
+    expect(container.querySelectorAll('[aria-label="Working"]')).toHaveLength(
+      1,
+    );
+  });
+});
 
 describe("assistant request ID resolution", () => {
   it("prefers the server run ID attached to the message", () => {

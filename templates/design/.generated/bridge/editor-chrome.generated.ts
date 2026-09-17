@@ -2955,10 +2955,16 @@ export const editorChromeBridgeScript: string = `"use strict";
       return elementLooksLikeComponent(el) ? "var(--design-editor-component-contrast-color)" : "var(--design-editor-accent-contrast-color)";
     }
     function collectComputedStyles(cs, paintCs, strokeCs = paintCs) {
+      var backgroundClip = cs.backgroundClip;
+      var webkitBackgroundClip = cs.getPropertyValue("-webkit-background-clip");
+      if (!/(^|,)\\s*text\\s*(,|$)/i.test(backgroundClip) && /(^|,)\\s*text\\s*(,|$)/i.test(webkitBackgroundClip)) {
+        backgroundClip = webkitBackgroundClip;
+      }
       return {
         color: cs.color,
         backgroundColor: cs.backgroundColor,
         backgroundImage: cs.backgroundImage,
+        backgroundClip,
         backgroundPosition: cs.backgroundPosition,
         backgroundRepeat: cs.backgroundRepeat,
         backgroundSize: cs.backgroundSize,

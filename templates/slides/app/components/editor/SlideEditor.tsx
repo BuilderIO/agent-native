@@ -186,6 +186,7 @@ import {
   resolveSlideObjectContainingBlock,
   resolveSlideObjectGroupRoot,
   resolveSlideObjectInsertionContainingBlock,
+  resolveSlideObjectMoveRoots,
   resizeSlideObjectMembers,
   resizeTransformedSlideObject,
   scaleSlideObjectGroupMembers,
@@ -2991,8 +2992,8 @@ export default function SlideEditor({
   useEffect(() => {
     setSelectedImg(null);
     setImageOverlay(null);
-    syncSelectionToAppState(null);
-  }, [slide.id]);
+    syncSelectionToAppState(buildSelectionState("canvas", []));
+  }, [buildSelectionState, slide.id]);
 
   // Content reconciliation can replace the DOM node behind an open overlay.
   useEffect(() => {
@@ -3444,20 +3445,12 @@ export default function SlideEditor({
     if (editingEl || multiSelection.size > 0 || selectedElementSelector) {
       return;
     }
-    if (drawMode || pinMode || textBoxMode || shapeType) {
-      syncSelectionToAppState(buildSelectionState("canvas", []));
-    } else {
-      syncSelectionToAppState(null);
-    }
+    syncSelectionToAppState(buildSelectionState("canvas", []));
   }, [
     buildSelectionState,
-    drawMode,
     editingEl,
     multiSelection.size,
-    pinMode,
     selectedElementSelector,
-    shapeType,
-    textBoxMode,
   ]);
 
   const getPlaceholderTarget = useCallback(
@@ -3628,14 +3621,15 @@ export default function SlideEditor({
     };
   }, [multiSelection, refreshMultiSelectionRects]);
 
-  // Clear multi-selection when slide changes (and clear app state too)
+  // Clear multi-selection when slide changes, but keep the new slide as the
+  // agent's target even when no element is selected.
   useLayoutEffect(() => {
     setMultiSelection(new Set());
     setMultiSelectionRects(new Map());
     setChipAnchorRect(null);
     clearSelectedElement();
-    syncSelectionToAppState(null);
-  }, [clearSelectedElement, slide.id]);
+    syncSelectionToAppState(buildSelectionState("canvas", []));
+  }, [buildSelectionState, clearSelectedElement, slide.id]);
 
   const deleteSelectedElements = useCallback(
     (resolvedSelection?: readonly HTMLElement[]) => {
@@ -6006,12 +6000,7 @@ export default function SlideEditor({
             ) as HTMLElement | null,
         )
         .filter((el): el is HTMLElement => el !== null);
-      const roots = elements.filter(
-        (element) =>
-          !elements.some(
-            (candidate) => candidate !== element && candidate.contains(element),
-          ),
-      );
+      const roots = resolveSlideObjectMoveRoots(elements, ids, slideContent);
       if (roots.length === 0) return;
 
       // Capture the viewport before promotion. A normal-flow element becomes

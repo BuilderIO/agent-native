@@ -12981,10 +12981,18 @@ it(
         position: absolute; left: 40px; top: 40px; width: 120px; height: 60px;
         background: linear-gradient(90deg, red 0%, green 50%, blue 100%);
       }
+      #text-target {
+        position: absolute; left: 220px; top: 40px;
+        background-image: linear-gradient(90deg, red 0%, blue 100%);
+        background-clip: text;
+        -webkit-background-clip: text;
+        color: transparent;
+      }
     </style>
   </head>
   <body>
     <div id="target" data-agent-native-node-id="target"></div>
+    <button id="text-target" data-agent-native-node-id="text-target">Listen now</button>
   </body>
 </html>`);
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
@@ -13060,6 +13068,32 @@ it(
       expect(
         replayMessages.some((message) => message.type === "element-select"),
       ).toBe(false);
+
+      await page.evaluate(() => {
+        window.postMessage(
+          {
+            type: "select-element",
+            selector: "#text-target",
+            selectorCandidates: ["#text-target"],
+          },
+          "*",
+        );
+      });
+      await page.waitForFunction(() =>
+        ((window as any).__bridgeMessages ?? []).some(
+          (message: any) =>
+            message.type === "element-select" &&
+            message.payload?.id === "text-target",
+        ),
+      );
+      const textSelect = (await readBridgeMessages(page)).find(
+        (message) =>
+          message.type === "element-select" &&
+          (message as any).payload?.id === "text-target",
+      ) as
+        | { payload?: { computedStyles?: Record<string, string> } }
+        | undefined;
+      expect(textSelect?.payload?.computedStyles?.backgroundClip).toBe("text");
 
       expect(pageErrors).toEqual([]);
     } finally {
