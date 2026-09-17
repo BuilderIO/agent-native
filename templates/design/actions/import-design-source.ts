@@ -6,11 +6,13 @@ import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js"
 import { saveFigmaPasteHtmlFallback } from "../server/lib/figma-paste-fallback.js";
 import {
   normalizeImportedHtmlDocument,
+  findImportedDesignFileByOperationSource,
   resolveImportDesignId,
   saveImportedDesignFiles,
 } from "../server/lib/import-design-files.js";
+import { MAX_FIG_FRAME_HTML_BYTES } from "../shared/fig-to-frames.js";
 
-const MAX_HTML_IMPORT_BYTES = 2 * 1024 * 1024;
+const MAX_HTML_IMPORT_BYTES = MAX_FIG_FRAME_HTML_BYTES;
 
 function ensureHtmlSize(content: string) {
   if (Buffer.byteLength(content, "utf8") > MAX_HTML_IMPORT_BYTES) {
@@ -42,6 +44,7 @@ export default defineAction({
     frameTitle: z.string().optional(),
     frameWidth: z.number().optional(),
     frameHeight: z.number().optional(),
+    clientImportId: z.string().max(200).optional(),
   }),
   run: async (
     {
@@ -52,6 +55,7 @@ export default defineAction({
       frameTitle,
       frameWidth,
       frameHeight,
+      clientImportId,
     },
     context,
   ) => {
@@ -64,6 +68,26 @@ export default defineAction({
     // keeps every request far below the ~6MB a Netlify function will accept —
     // the cap the server route has to chunk around.
     if (sourceType === "fig-frame") {
+      const operationSource = clientImportId
+        ? `fig-import:${clientImportId}`
+        : undefined;
+      if (operationSource) {
+        const existing = await findImportedDesignFileByOperationSource(
+          resolvedDesignId,
+          operationSource,
+        );
+        if (existing?.placed) {
+          return {
+            designId: resolvedDesignId,
+            files: [existing.file],
+            warnings: [],
+            placedFrames: [],
+            overview: true,
+            urlPath: `/design/${resolvedDesignId}`,
+            stats: { sourceKind: "fig-frame", frameCount: 1 },
+          };
+        }
+      }
       await snapshotDesignBeforeAgentEdit(resolvedDesignId, context);
       const saved = await saveImportedDesignFiles({
         designId: resolvedDesignId,
@@ -76,7 +100,12 @@ export default defineAction({
               content,
               `experimental .fig upload ${originalName ?? "design"}`,
             ),
-            source: { sourceType: "fig-frame", originalName },
+            source: {
+              sourceType: "fig-frame",
+              originalName,
+              ...(operationSource ? { operationSource } : {}),
+            },
+            operationSource,
             preferredFrame: {
               title: frameTitle,
               width: frameWidth,

@@ -19,16 +19,19 @@ vi.mock("../../server/lib/fig-file-decoder.js", () => ({
 vi.mock("../../shared/fig-to-frames.js", () => ({
   assertEmbeddedImageBudget: mocks.assertEmbeddedImageBudget,
   convertDecodedFigToEditableHtml: mocks.convertDecodedFigToEditableHtml,
+  MAX_FIG_FRAME_HTML_BYTES: 2 * 1024 * 1024,
 }));
 
 import {
   FigClientImportError,
   importFigInBrowser,
+  MAX_CLIENT_FIG_BYTES,
   MAX_CLIENT_IMAGE_BYTES,
 } from "./fig-client-import";
 
 const file = {
   name: "large.fig",
+  size: 0,
   arrayBuffer: async () => new ArrayBuffer(0),
 } as unknown as File;
 
@@ -91,6 +94,25 @@ describe("importFigInBrowser", () => {
     expect(result.warnings).toEqual([]);
     expect(result.skippedEmbeddedImageCount).toBe(1);
     expect(mocks.callAction).not.toHaveBeenCalled();
+    expect(mocks.convertDecodedFigToEditableHtml).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ maxFrameHtmlBytes: 2 * 1024 * 1024 }),
+    );
+  });
+
+  it("rejects a file above the browser allocation ceiling before reading it", async () => {
+    const arrayBuffer = vi.fn().mockResolvedValue(new ArrayBuffer(0));
+    const oversizedFile = {
+      name: "too-large.fig",
+      size: MAX_CLIENT_FIG_BYTES + 1,
+      arrayBuffer,
+    } as unknown as File;
+
+    await expect(
+      importFigInBrowser({ designId: "design-1", file: oversizedFile }),
+    ).rejects.toThrow(/512 MB/);
+    expect(arrayBuffer).not.toHaveBeenCalled();
+    expect(mocks.decodeFig).not.toHaveBeenCalled();
   });
 
   it("checks the full embedded-image budget before transport filtering", async () => {

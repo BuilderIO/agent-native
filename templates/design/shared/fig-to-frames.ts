@@ -23,6 +23,8 @@ const MAX_FIG_NODES = 75_000;
 const MAX_FIG_IMAGES = 1_024;
 const MAX_FIG_FRAMES = 200;
 const MAX_FRAME_HTML_BYTES = 4 * 1024 * 1024;
+/** The browser action transport accepts smaller per-frame payloads. */
+export const MAX_FIG_FRAME_HTML_BYTES = 2 * 1024 * 1024;
 const MAX_TOTAL_HTML_BYTES = 24 * 1024 * 1024;
 const MAX_EMBEDDED_IMAGE_BYTES = 64 * 1024 * 1024;
 const IMAGE_UPLOAD_CONCURRENCY = 4;
@@ -31,6 +33,8 @@ const MAX_DURABLE_IMAGE_URL_CHARS = 2_048;
 export interface FigFileImportResult {
   files: ImportedDesignFile[];
   warnings: string[];
+  cleanup?: () => Promise<number>;
+  finalize?: () => Promise<number>;
   stats: {
     sourceKind: "fig-upload";
     format: "kiwi" | "zip";
@@ -59,7 +63,11 @@ export type ImageUploader = (input: {
   ownerEmail: string;
   recordAsset?: boolean;
   stableUrl?: boolean;
-}) => Promise<{ url?: string; cleanup?: () => Promise<boolean> } | null>;
+}) => Promise<{
+  url?: string;
+  cleanup?: () => Promise<boolean>;
+  finalize?: () => Promise<boolean>;
+} | null>;
 
 /** Wraps a frame's HTML into a standalone document. */
 export type HtmlNormalizer = (content: string, sourceLabel: string) => string;
@@ -105,6 +113,7 @@ async function uploadEmbeddedImages(
   omitted: number;
   warnings: string[];
   cleanup: () => Promise<number>;
+  finalize: () => Promise<number>;
 }> {
   assertEmbeddedImageBudget(images);
 
@@ -124,6 +133,7 @@ async function uploadEmbeddedImages(
   let omitted = 0;
   let storageUnavailable = false;
   const uploadCleanups: Array<() => Promise<boolean>> = [];
+  const uploadFinalizers: Array<() => Promise<boolean>> = [];
 
   for (
     let offset = 0;
@@ -147,6 +157,7 @@ async function uploadEmbeddedImages(
             stableUrl: true,
           });
           if (uploaded?.cleanup) uploadCleanups.push(uploaded.cleanup);
+          if (uploaded?.finalize) uploadFinalizers.push(uploaded.finalize);
           if (!uploaded?.url) {
             storageUnavailable = true;
             omitted += 1;
@@ -179,6 +190,7 @@ async function uploadEmbeddedImages(
     omitted,
     warnings: [],
     cleanup: () => cleanupUploadedImages(uploadCleanups),
+    finalize: () => finalizeUploadedImages(uploadFinalizers),
   };
 }
 
@@ -187,6 +199,17 @@ async function cleanupUploadedImages(
 ): Promise<number> {
   const results = await Promise.allSettled(
     cleanups.map((cleanup) => cleanup()),
+  );
+  return results.filter(
+    (result) => result.status === "rejected" || !result.value,
+  ).length;
+}
+
+async function finalizeUploadedImages(
+  finalizers: Array<() => Promise<boolean>>,
+): Promise<number> {
+  const results = await Promise.allSettled(
+    finalizers.map((finalize) => finalize()),
   );
   return results.filter(
     (result) => result.status === "rejected" || !result.value,
@@ -220,8 +243,10 @@ export async function convertDecodedFigToEditableHtml(
     ownerEmail: string;
     uploader: ImageUploader;
     normalizeHtml: HtmlNormalizer;
+    maxFrameHtmlBytes?: number;
   },
 ): Promise<FigFileImportResult> {
+  const maxFrameHtmlBytes = options.maxFrameHtmlBytes ?? MAX_FRAME_HTML_BYTES;
   assertSafeDecodedFigDocument(decoded.document);
   const nodeChanges = nodeChangesFromDocument(
     decoded.document,
@@ -242,7 +267,7 @@ export async function convertDecodedFigToEditableHtml(
     missingImageUrl: "about:blank",
     trackUnresolvedImageRefs: true,
   });
-  validateRenderedFrames(preliminary);
+  validateRenderedFrames(preliminary, maxFrameHtmlBytes);
   const images = await uploadEmbeddedImages(
     decoded.images,
     options.ownerEmail,
@@ -258,7 +283,7 @@ export async function convertDecodedFigToEditableHtml(
             missingImageUrl: "about:blank",
             trackUnresolvedImageRefs: true,
           });
-    validateRenderedFrames(rendered);
+    validateRenderedFrames(rendered, maxFrameHtmlBytes);
 
     let totalHtmlBytes = 0;
     const files = rendered.frames.map((frame) => {
@@ -267,9 +292,9 @@ export async function convertDecodedFigToEditableHtml(
         `experimental .fig upload ${options.originalName}`,
       );
       const htmlBytes = utf8ByteLength(content);
-      if (htmlBytes > MAX_FRAME_HTML_BYTES) {
+      if (htmlBytes > maxFrameHtmlBytes) {
         throw new Error(
-          `.fig frame "${frame.frameName}" is too complex (generated HTML exceeds 4 MB).`,
+          `.fig frame "${frame.frameName}" is too complex (generated HTML exceeds ${Math.round(maxFrameHtmlBytes / 1024 / 1024)} MB).`,
         );
       }
       totalHtmlBytes += htmlBytes;
@@ -302,6 +327,8 @@ export async function convertDecodedFigToEditableHtml(
     return {
       files,
       warnings: images.warnings,
+      cleanup: images.cleanup,
+      finalize: images.finalize,
       stats: {
         sourceKind: "fig-upload",
         format: decoded.format,
@@ -326,6 +353,7 @@ export async function convertDecodedFigToEditableHtml(
 
 function validateRenderedFrames(
   rendered: ReturnType<typeof renderHtmlTemplates>,
+  maxFrameHtmlBytes = MAX_FRAME_HTML_BYTES,
 ): void {
   if (rendered.frames.length === 0) {
     throw new Error(
@@ -338,9 +366,9 @@ function validateRenderedFrames(
   let total = 0;
   for (const frame of rendered.frames) {
     const bytes = utf8ByteLength(frame.html);
-    if (bytes > MAX_FRAME_HTML_BYTES) {
+    if (bytes > maxFrameHtmlBytes) {
       throw new Error(
-        `.fig frame "${frame.frameName}" is too complex (generated HTML exceeds 4 MB).`,
+        `.fig frame "${frame.frameName}" is too complex (generated HTML exceeds ${Math.round(maxFrameHtmlBytes / 1024 / 1024)} MB).`,
       );
     }
     total += bytes;
@@ -358,6 +386,7 @@ export async function importFigFileToEditableHtml(options: {
   ownerEmail: string;
   uploader: ImageUploader;
   normalizeHtml: HtmlNormalizer;
+  maxFrameHtmlBytes?: number;
 }): Promise<FigFileImportResult> {
   const decoded = decodeFig(options.data);
   return convertDecodedFigToEditableHtml(decoded, options);

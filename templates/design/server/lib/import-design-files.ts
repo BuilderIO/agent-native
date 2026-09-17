@@ -4,8 +4,8 @@ import {
   hasCollabState,
   seedFromText,
 } from "@agent-native/core/collab";
-import { assertAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
+import { and, eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import {
@@ -25,6 +25,8 @@ export interface ImportedDesignFile {
   filename: string;
   fileType: "html" | "css" | "jsx" | "asset";
   content: string;
+  /** Stable retry marker for a browser import request. */
+  operationSource?: string;
   source?: Record<string, unknown>;
   preferredFrame?: {
     title?: string;
@@ -48,6 +50,53 @@ export interface SavedImportedDesignFile {
   filename: string;
   fileType: string;
   source?: Record<string, unknown>;
+}
+
+export async function findImportedDesignFileByOperationSource(
+  designId: string,
+  operationSource: string,
+): Promise<{
+  file: SavedImportedDesignFile;
+  placed: boolean;
+} | null> {
+  const access = await resolveAccess("design", designId);
+  if (!access) return null;
+  const db = getDb();
+  const [file] = await db
+    .select()
+    .from(schema.designFiles)
+    .where(
+      and(
+        eq(schema.designFiles.designId, designId),
+        eq(schema.designFiles.contentOperationSource, operationSource),
+      ),
+    )
+    .limit(1);
+  if (!file) return null;
+
+  let metadata: Record<string, unknown> | undefined;
+  try {
+    const parsed = access.resource.data
+      ? JSON.parse(access.resource.data)
+      : null;
+    const screenMetadata = isRecord(parsed) ? parsed.screenMetadata : null;
+    const candidate = isRecord(screenMetadata)
+      ? screenMetadata[file.id]
+      : undefined;
+    metadata = isRecord(candidate) ? candidate : undefined;
+  } catch {
+    metadata = undefined;
+  }
+
+  return {
+    file: {
+      id: file.id,
+      filename: file.filename,
+      fileType: file.fileType,
+      source: metadata,
+    },
+    placed: metadata?.operationSource === operationSource,
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -261,6 +310,7 @@ export async function saveImportedDesignFiles(
         filename,
         fileType: file.fileType,
         content: annotatedContent,
+        contentOperationSource: file.operationSource ?? null,
         createdAt: now,
         updatedAt: now,
       });

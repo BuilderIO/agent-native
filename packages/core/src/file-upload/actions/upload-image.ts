@@ -1,9 +1,14 @@
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
+import {
+  deleteAppState,
+  readAppState,
+  writeAppState,
+} from "../../application-state/index.js";
 import { ssrfSafeFetch } from "../../extensions/url-safety.js";
 import { getRequestUserEmail } from "../../server/request-context.js";
-import { uploadFile } from "../registry.js";
+import { deleteUploadedFile, uploadFile } from "../registry.js";
 
 const MAX_REMOTE_FETCH_BYTES = 25 * 1024 * 1024;
 
@@ -18,6 +23,57 @@ const SUPPORTED_IMAGE_MIME_TYPES = new Set([
   "image/heic",
   "image/heif",
 ]);
+const UPLOAD_RECEIPT_PREFIX = "file-upload-receipt:";
+
+interface UploadReceipt {
+  url: string;
+  id?: string;
+  provider: string;
+  filename: string;
+}
+
+function uploadReceiptKey(idempotencyKey: string): string {
+  return `${UPLOAD_RECEIPT_PREFIX}${idempotencyKey}`;
+}
+
+function parseUploadReceipt(value: Record<string, unknown>): UploadReceipt {
+  if (
+    typeof value.url !== "string" ||
+    typeof value.provider !== "string" ||
+    typeof value.filename !== "string" ||
+    (value.id !== undefined && typeof value.id !== "string")
+  ) {
+    throw new Error("Stored image upload receipt is invalid.");
+  }
+  return {
+    url: value.url,
+    provider: value.provider,
+    filename: value.filename,
+    ...(typeof value.id === "string" ? { id: value.id } : {}),
+  };
+}
+
+async function settleUploadReceipt(
+  idempotencyKey: string,
+  cleanup: "delete" | "release",
+) {
+  const key = uploadReceiptKey(idempotencyKey);
+  const stored = await readAppState(key);
+  if (!stored) return { idempotencyKey, alreadyMissing: true };
+  const receipt = parseUploadReceipt(stored);
+  if (cleanup === "release") {
+    await deleteAppState(key);
+    return { idempotencyKey, released: true };
+  }
+
+  const deleted = await deleteUploadedFile(receipt.provider, {
+    url: receipt.url,
+    id: receipt.id,
+  });
+  if (!deleted) return { idempotencyKey, deleted: false };
+  await deleteAppState(key);
+  return { idempotencyKey, deleted: true };
+}
 
 function extensionFromMime(mimeType: string): string {
   const bare = mimeType.split(";")[0].trim().toLowerCase();
@@ -164,11 +220,23 @@ export default defineAction({
         .describe(
           "Optional filename hint, used by the provider for display and to derive an extension when missing.",
         ),
+      idempotencyKey: z.string().trim().min(1).max(200).optional(),
+      cleanup: z.enum(["delete", "release"]).optional(),
     })
-    .refine((args) => !!args.data || !!args.url, {
-      message: "Either `data` or `url` is required.",
-    }),
+    .refine(
+      (args) =>
+        args.cleanup ? !!args.idempotencyKey : !!args.data || !!args.url,
+      {
+        message:
+          "Either a data/url upload or an idempotencyKey cleanup is required.",
+      },
+    ),
   run: async (args) => {
+    const idempotencyKey = args.idempotencyKey?.trim();
+    if (args.cleanup && idempotencyKey) {
+      return settleUploadReceipt(idempotencyKey, args.cleanup);
+    }
+
     let bytes: Uint8Array;
     let mimeType: string;
 
@@ -187,6 +255,17 @@ export default defineAction({
     }
 
     const filename = (args.filename || defaultFilename(mimeType)).trim();
+    if (idempotencyKey) {
+      const stored = await readAppState(uploadReceiptKey(idempotencyKey));
+      if (stored) {
+        const receipt = parseUploadReceipt(stored);
+        return {
+          url: receipt.url,
+          id: receipt.id,
+          provider: receipt.provider,
+        };
+      }
+    }
     const ownerEmail = getRequestUserEmail() ?? undefined;
 
     const result = await uploadFile({
@@ -202,6 +281,15 @@ export default defineAction({
         configured: false,
         connectPath: "/_agent-native/builder/connect",
       };
+    }
+
+    if (idempotencyKey) {
+      await writeAppState(uploadReceiptKey(idempotencyKey), {
+        url: result.url,
+        ...(result.id ? { id: result.id } : {}),
+        provider: result.provider,
+        filename,
+      });
     }
 
     return {
