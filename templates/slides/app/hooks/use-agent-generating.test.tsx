@@ -149,7 +149,7 @@ describe("useAgentGenerating", () => {
     });
   });
 
-  it("reports an active run that was observed after the editor mounted", () => {
+  it("ignores a run error until the active tab is correlated", () => {
     const { result, rerender } = renderHook(() => useAgentGenerating());
 
     agentChatState.generating = true;
@@ -167,9 +167,7 @@ describe("useAgentGenerating", () => {
       );
     });
 
-    expect(result.current.generating).toBe(false);
-    expect(toastState.error).toHaveBeenCalledWith("Generation failed", {
-      id: "run-1",
-    });
+    expect(result.current.generating).toBe(true);
+    expect(toastState.error).not.toHaveBeenCalled();
   });
 });

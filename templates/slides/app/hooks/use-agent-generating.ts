@@ -90,7 +90,8 @@ export function useAgentGenerating() {
       if (
         !generationActiveRef.current ||
         !eventTabId ||
-        (activeTabRef.current && eventTabId !== activeTabRef.current) ||
+        !activeTabRef.current ||
+        eventTabId !== activeTabRef.current ||
         typeof detail?.message !== "string"
       ) {
         return;
