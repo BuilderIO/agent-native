@@ -8240,10 +8240,14 @@ export default function SlideEditor({
             e.clientY,
           )
         : target;
+      const imageOwner =
+        slideContent && resolvedTarget !== slideContent
+          ? findPersistedImageObject(resolvedTarget, slideContent)
+          : null;
       const imageTarget =
         resolvedTarget.tagName === "IMG"
           ? resolvedTarget
-          : resolvedTarget.querySelector<HTMLElement>("img");
+          : imageOwner?.querySelector<HTMLElement>("img");
       const imagePlaceholder = resolvedTarget.closest<HTMLElement>(
         ".fmd-img-placeholder",
       );

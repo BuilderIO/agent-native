@@ -133,6 +133,12 @@ describe("SlideEditor render-phase safety", () => {
     );
     const doubleClickBody = source.slice(doubleClickStart, doubleClickEnd);
     expect(doubleClickBody).toContain(
+      "findPersistedImageObject(resolvedTarget, slideContent)",
+    );
+    expect(doubleClickBody).toContain(
+      'imageOwner?.querySelector<HTMLElement>("img")',
+    );
+    expect(doubleClickBody).not.toContain(
       'resolvedTarget.querySelector<HTMLElement>("img")',
     );
     expect(doubleClickBody).toContain(
@@ -168,7 +174,12 @@ describe("SlideEditor render-phase safety", () => {
     );
     const doubleClickBody = source.slice(doubleClickStart, doubleClickEnd);
 
-    expect(doubleClickBody).toContain('querySelector<HTMLElement>("img")');
+    expect(doubleClickBody).toContain(
+      "findPersistedImageObject(resolvedTarget, slideContent)",
+    );
+    expect(doubleClickBody).not.toContain(
+      'resolvedTarget.querySelector<HTMLElement>("img")',
+    );
     expect(doubleClickBody).toContain(
       "showImageOverlay(imageTarget ?? imagePlaceholder ?? resolvedTarget);",
     );
