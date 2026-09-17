@@ -55,12 +55,16 @@ let devServer: Server | null = null;
 let bridge: DesignConnectBridge | null = null;
 let manifest: Awaited<ReturnType<typeof prepareDesignConnectManifest>>;
 
-async function listen(server: Server): Promise<number> {
+async function listen(server: Server): Promise<{ host: string; port: number }> {
   return new Promise((resolve, reject) => {
     server.once("error", reject);
     server.listen(0, "127.0.0.1", () => {
       const address = server.address();
-      resolve(typeof address === "object" && address ? address.port : 0);
+      if (typeof address !== "object" || !address) {
+        reject(new Error("The fixture server did not expose a bound address."));
+        return;
+      }
+      resolve({ host: address.address, port: address.port });
     });
   });
 }
@@ -262,14 +266,14 @@ test.beforeAll(async ({}, workerInfo) => {
     response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
     response.end(fs.readFileSync(REACT_FIXTURE, "utf8"));
   });
-  const devPort = await listen(devServer);
+  const devAddress = await listen(devServer);
   const bridgePortServer = http.createServer();
-  const bridgePort = await listen(bridgePortServer);
+  const bridgeAddress = await listen(bridgePortServer);
   await close(bridgePortServer);
   manifest = await prepareDesignConnectManifest({
     root: rootPath,
-    url: "http://127.0.0.1:" + devPort,
-    port: bridgePort,
+    url: "http://" + devAddress.host + ":" + devAddress.port,
+    port: bridgeAddress.port,
   });
 });
 
@@ -562,9 +566,11 @@ test("Design components preserve identity across inline and URL-backed React bou
     await expect(
       urlFrame.locator('[data-agent-native-node-id="card-main"]'),
     ).toHaveAttribute("data-agent-native-source-line", "3");
-    expect(
-      design.files.find((candidate) => candidate.id === screenId)?.content,
-    ).toContain("http://127.0.0.1:");
+    const screenURL = design.files.find(
+      (candidate) => candidate.id === screenId,
+    )?.content;
+    expect(screenURL).toBeTruthy();
+    expect(new URL(screenURL ?? "").port).not.toBe("");
   } finally {
     if (designId) {
       await action(request, "delete-design", { id: designId }).catch(
