@@ -29,6 +29,8 @@ import type { LiveScreenSnapshot } from "@/pages/design-editor/command-types";
 import type { ApplyFileContentUpdateResult } from "@/pages/design-editor/commands/apply-file-content-update";
 import type { ApplyLocalContentUpdateResult } from "@/pages/design-editor/commands/apply-local-content-update";
 import { prepareContentHistoryReplay } from "@/pages/design-editor/commands/prepare-content-history-replay";
+import type { DesignDataOperation } from "@/pages/design-editor/data-operations";
+import { applyDesignDataOperations } from "@/pages/design-editor/data-operations";
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
 import {
   getCanvasFrameGeometry,
@@ -154,7 +156,14 @@ export interface RedoArgs {
   fileDeletionUndoStackRef: RefObject<FileDeletionHistoryEntry[]>;
   fileHistoryMutationPendingRef: RefObject<boolean>;
   files: DesignFile[];
-  focusCreatedScreen: (screenId: string, geometry: FrameGeometry) => void;
+  focusCreatedScreen: (
+    screenId: string,
+    geometry: FrameGeometry,
+    options?: {
+      preserveCamera?: boolean;
+      suppressLineupRecenter?: boolean;
+    },
+  ) => void;
   geometryRedoStackRef: RefObject<GeometryHistoryEntry[]>;
   geometryUndoStackRef: RefObject<GeometryHistoryEntry[]>;
   getFreshActiveContent: () => string;
@@ -299,6 +308,9 @@ export interface RedoArgs {
     html: string,
     options?: { recordHistory?: boolean },
   ) => boolean;
+  updateDesignAsync: ReturnType<
+    typeof useActionMutation<undefined, undefined, "update-design">
+  >["mutateAsync"];
   viewModeRef: RefObject<"single" | "overview">;
   writeFrameGeometrySnapshot: (
     geometryById: CanvasFrameGeometryById,
@@ -391,6 +403,7 @@ export function runRedo({
   t,
   undoManagerRef,
   updateLiveScreenSnapshotContent,
+  updateDesignAsync,
   viewModeRef,
   writeFrameGeometrySnapshot,
   ydoc,
@@ -1180,6 +1193,54 @@ export function runRedo({
               }),
               ...entry.geometry,
             };
+            writeFrameGeometrySnapshot({
+              ...getCanvasFrameGeometry(designDataJsonRef.current),
+              [nextId]: geometry,
+            });
+            const dataOperations: DesignDataOperation[] = [
+              ...(entry.screenMetadata
+                ? [
+                    {
+                      op: "set" as const,
+                      path: ["screenMetadata", nextId] as [string, ...string[]],
+                      value: entry.screenMetadata,
+                    },
+                  ]
+                : []),
+              ...(entry.localhostScreen
+                ? [
+                    {
+                      op: "set" as const,
+                      path: ["localhostScreens", nextId] as [
+                        string,
+                        ...string[],
+                      ],
+                      value: entry.localhostScreen,
+                    },
+                  ]
+                : []),
+            ];
+            if (dataOperations.length > 0) {
+              const nextData = applyDesignDataOperations(
+                designDataJsonRef.current,
+                dataOperations,
+              );
+              designDataJsonRef.current = nextData;
+              queryClient.setQueryData(
+                ["action", "get-design", { id }],
+                (old: any) => {
+                  if (!old || typeof old !== "object") return old;
+                  return { ...old, data: JSON.stringify(nextData) };
+                },
+              );
+              void updateDesignAsync({ id, dataOperations } as any).catch(
+                () => {
+                  void queryClient.invalidateQueries({
+                    queryKey: ["action", "get-design"],
+                  });
+                },
+              );
+            }
             optimisticallyInsertCreatedFile({
               fileId: nextId,
               filename: entry.filename,
@@ -1187,11 +1248,10 @@ export function runRedo({
               content: entry.content,
               result,
             });
-            writeFrameGeometrySnapshot({
-              ...getCanvasFrameGeometry(designDataJsonRef.current),
-              [nextId]: geometry,
+            focusCreatedScreen(nextId, geometry, {
+              preserveCamera: entry.preserveCamera,
+              suppressLineupRecenter: entry.preserveCamera,
             });
-            focusCreatedScreen(nextId, geometry);
           }
           fileHistoryMutationPendingRef.current = false;
           syncUndoRedoState();

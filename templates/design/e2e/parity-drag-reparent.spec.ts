@@ -30,12 +30,14 @@ const SCREEN_ONE = `<!doctype html>
            style="position:absolute;left:40px;top:40px;width:140px;height:90px;background:#3b82f6"></div>
     </main>
     <span data-agent-native-node-id="root-gap-2" data-agent-native-layer-name="RootGap2"
-          style="position:absolute;left:400px;top:680px;width:60px;height:20px"></span>
+          style="position:absolute;left:400px;top:200px;width:60px;height:20px"></span>
     <footer data-agent-native-node-id="footer" data-agent-native-layer-name="Footer"
             style="position:absolute;left:0;top:780px;width:900px;height:180px;background:#1f2937">
       <div data-agent-native-node-id="footer-item" data-agent-native-layer-name="FooterItem"
            style="position:absolute;left:30px;top:30px;width:120px;height:70px;background:#f59e0b"></div>
     </footer>
+    <div data-agent-native-node-id="later-overlay" data-agent-native-layer-name="LaterOverlay"
+         style="position:absolute;left:380px;top:190px;width:220px;height:90px;background:#dc2626;pointer-events:none"></div>
   </body>
 </html>`;
 
@@ -374,6 +376,45 @@ test.describe("drag reparent parity", () => {
         },
       )
       .toBe(true);
+
+    const moved = designFrame(page, screenId).locator(
+      '[data-agent-native-node-id="footer-item"]',
+    );
+    await expect(moved).toBeVisible();
+    const renderedState = await moved.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      const laterOverlay = document.querySelector<HTMLElement>(
+        '[data-agent-native-node-id="later-overlay"]',
+      );
+      const rootGap = document.querySelector<HTMLElement>(
+        '[data-agent-native-node-id="root-gap-2"]',
+      );
+      const overlayRect = laterOverlay?.getBoundingClientRect();
+      return {
+        overlapsLaterOverlay: Boolean(
+          overlayRect &&
+          rect.left < overlayRect.right &&
+          rect.right > overlayRect.left &&
+          rect.top < overlayRect.bottom &&
+          rect.bottom > overlayRect.top,
+        ),
+        paintsAfterDropTarget: Boolean(
+          rootGap &&
+          rootGap.compareDocumentPosition(element) &
+            Node.DOCUMENT_POSITION_FOLLOWING,
+        ),
+        remainsBelowLaterSibling: Boolean(
+          laterOverlay &&
+          element.compareDocumentPosition(laterOverlay) &
+            Node.DOCUMENT_POSITION_FOLLOWING,
+        ),
+      };
+    });
+    expect(renderedState, JSON.stringify(renderedState)).toEqual({
+      overlapsLaterOverlay: true,
+      paintsAfterDropTarget: true,
+      remainsBelowLaterSibling: true,
+    });
   });
 
   test("dragging an element from inside a screen onto the empty board turns it into a board object", async ({

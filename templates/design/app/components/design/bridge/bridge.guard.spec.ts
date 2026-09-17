@@ -9878,6 +9878,68 @@ it(
   },
 );
 
+it(
+  "hit-test bridge keeps the document body as the root fallback without minting an anchor id",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+
+      await page.setContent(`<!doctype html>
+<html><head><meta charset="utf-8"></head>
+<body style="margin:0;min-height:600px;background:#fff"></body></html>`);
+      await page.addScriptTag({ content: hydratedHitTestBridgeScript() });
+
+      const reply = (await page.evaluate(
+        () =>
+          new Promise((resolve) => {
+            const onMsg = (event: MessageEvent) => {
+              if (event.data?.type !== "agent-native:hit-test-result") return;
+              window.removeEventListener("message", onMsg);
+              resolve(event.data);
+            };
+            window.addEventListener("message", onMsg);
+            window.postMessage(
+              {
+                type: "agent-native:hit-test",
+                correlationId: "empty-root",
+                x: 180,
+                y: 240,
+                preview: false,
+              },
+              "*",
+            );
+          }),
+      )) as {
+        anchorNodeId: string;
+        pendingNodeId?: string;
+        placement: string;
+        dropMode: string;
+      };
+
+      expect(reply).toMatchObject({
+        anchorNodeId: "",
+        placement: "inside",
+        dropMode: "flow-insert",
+      });
+      expect(reply.pendingNodeId).toBeUndefined();
+      expect(
+        await page.evaluate(
+          () => document.querySelectorAll("[data-an-pending-node-id]").length,
+        ),
+      ).toBe(0);
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
 // ── hit-test bridge — gap-between-children resolution (finding 6) ─────────
 //
 // Companion to editor-chrome.bridge.ts's B5-4 fix (nearestChildInsertionTarget
