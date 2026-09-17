@@ -52,6 +52,7 @@ vi.mock("./request-auth-context.js", () => ({
 import {
   MAX_FIG_REFERENCE_FILE_BYTES,
   MAX_REFERENCE_FILE_BYTES,
+  MAX_SVG_REFERENCE_FILE_BYTES,
   maxReferenceFileBytes,
   saveUploadedReferenceFile,
   uploadFiles,
@@ -84,8 +85,24 @@ describe("Slides reference upload limits", () => {
     expect(maxReferenceFileBytes("brand.fig")).toBe(
       MAX_FIG_REFERENCE_FILE_BYTES,
     );
+    expect(maxReferenceFileBytes("logo.svg")).toBe(
+      MAX_SVG_REFERENCE_FILE_BYTES,
+    );
     expect(maxReferenceFileBytes("deck.pdf")).toBe(MAX_REFERENCE_FILE_BYTES);
     expect(maxReferenceFileBytes(undefined)).toBe(MAX_REFERENCE_FILE_BYTES);
+  });
+
+  it("rejects oversized SVGs before full-content validation", async () => {
+    await expect(
+      saveUploadedReferenceFile({
+        email: "owner@example.com",
+        originalName: "large.svg",
+        data: Buffer.alloc(MAX_SVG_REFERENCE_FILE_BYTES + 1),
+      }),
+    ).rejects.toThrow("File too large (max 10 MB)");
+
+    expect(mockIsSafeSvg).not.toHaveBeenCalled();
+    expect(mockWriteFile).not.toHaveBeenCalled();
   });
 
   it("accepts only zip or fig-kiwi .fig upload signatures", async () => {

@@ -13,6 +13,7 @@ import {
   MAX_FIG_REFERENCE_FILE_BYTES,
   MAX_REFERENCE_FILE_BYTES,
   MAX_REFERENCE_FILES,
+  MAX_SVG_REFERENCE_FILE_BYTES,
   SLIDES_REFERENCE_FILE_ERROR_LABEL,
   isSlidesReferenceFileExtension,
 } from "../../shared/upload-types.js";
@@ -35,6 +36,7 @@ import {
 export {
   MAX_FIG_REFERENCE_FILE_BYTES,
   MAX_REFERENCE_FILE_BYTES,
+  MAX_SVG_REFERENCE_FILE_BYTES,
 } from "../../shared/upload-types.js";
 const FIG_LOCAL_COPY_SIGNATURE = new Uint8Array([
   0x66, 0x69, 0x67, 0x2d, 0x6b, 0x69, 0x77, 0x69,
@@ -70,6 +72,9 @@ function ascii(data: Uint8Array, start: number, end: number): string {
 export function maxReferenceFileBytes(
   originalName: string | undefined,
 ): number {
+  if (path.extname(originalName ?? "").toLowerCase() === ".svg") {
+    return MAX_SVG_REFERENCE_FILE_BYTES;
+  }
   return path.extname(originalName ?? "").toLowerCase() === ".fig"
     ? MAX_FIG_REFERENCE_FILE_BYTES
     : MAX_REFERENCE_FILE_BYTES;
@@ -163,6 +168,10 @@ export async function saveUploadedReferenceFile(args: {
     throw new Error(
       `Unsupported file type. Allowed: ${SLIDES_REFERENCE_FILE_ERROR_LABEL}.`,
     );
+  }
+  const maxBytes = maxReferenceFileBytes(args.originalName);
+  if (args.data.length > maxBytes) {
+    throw new Error(`File too large (max ${formatMaxFileSize(maxBytes)})`);
   }
   const isDeclaredImage = [".png", ".jpg", ".jpeg", ".gif", ".webp"].includes(
     declaredExt,
