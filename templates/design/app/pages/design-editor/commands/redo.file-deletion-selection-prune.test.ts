@@ -411,6 +411,44 @@ describe("redo — selection history after a file-deletion redo", () => {
     expect(toast.error).not.toHaveBeenCalled();
   });
 
+  it("restores the full selection after redoing a multi-screen create batch", async () => {
+    const refs = sharedRefs();
+    refs.redoOrderRef.current = ["file-created"];
+    const args = commonArgs(refs);
+    args.createFileMutation = {
+      mutateAsync: vi
+        .fn()
+        .mockResolvedValueOnce({ id: "copy-a" })
+        .mockResolvedValueOnce({ id: "copy-b" }),
+    };
+    args.fileCreationRedoStackRef.current = [
+      {
+        filename: "index-copy.html",
+        content: "<html></html>",
+        fileType: "html",
+        historyBatchId: "duplicate-1",
+        geometry: { x: 100, y: 100, width: 640, height: 480 },
+      },
+      {
+        filename: "index-copy-2.html",
+        content: "<html></html>",
+        fileType: "html",
+        historyBatchId: "duplicate-1",
+        geometry: { x: 900, y: 100, width: 640, height: 480 },
+      },
+    ];
+
+    runRedo(args as unknown as Parameters<typeof runRedo>[0]);
+
+    await vi.waitFor(() =>
+      expect(args.focusCreatedScreen).toHaveBeenCalledTimes(2),
+    );
+    expect(args.setOverviewSelectedScreenIds).toHaveBeenCalledWith([
+      "copy-a",
+      "copy-b",
+    ]);
+  });
+
   it("keeps a redo ledger entry when the design id is unavailable", () => {
     const refs = sharedRefs();
     refs.redoOrderRef.current = ["file-created"];

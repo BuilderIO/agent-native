@@ -304,6 +304,7 @@ export interface RedoArgs {
   setRuntimeStructureMoveRequest: Dispatch<
     SetStateAction<(RuntimeStructureMoveRequest & { screenId: string }) | null>
   >;
+  setOverviewSelectedScreenIds: Dispatch<SetStateAction<string[]>>;
   setSelectedElement: Dispatch<SetStateAction<ElementInfo | null>>;
   setSelectedLayerIdsState: Dispatch<SetStateAction<string[]>>;
   suppressContentHistoryRef: RefObject<boolean>;
@@ -402,6 +403,7 @@ export function runRedo({
   setPendingTextRevertRequest,
   setPendingVisualStyleEdits,
   setPendingVisualStyleRevertRequest,
+  setOverviewSelectedScreenIds,
   setRuntimeStructureInsertRequest,
   setRuntimeStructureMoveRequest,
   setSelectedElement,
@@ -1201,6 +1203,7 @@ export function runRedo({
       FileCreationHistoryEntry,
       string | null | undefined
     >();
+    const recreatedFileIds: string[] = [];
     const handleFailure = async (error: unknown) => {
       let errorMessage =
         error instanceof Error
@@ -1406,10 +1409,14 @@ export function runRedo({
         preserveCamera: item.preserveCamera,
         suppressLineupRecenter: item.preserveCamera,
       });
+      recreatedFileIds.push(nextId);
     };
     void (async () => {
       try {
         for (const item of entries) await recreateFile(item);
+        if (entries.length > 1) {
+          setOverviewSelectedScreenIds(recreatedFileIds);
+        }
         fileCreationUndoStackRef.current = fileCreationUndoStackRef.current.map(
           (item) => {
             if (!entries.includes(item) || item.recoveryFileId === undefined)

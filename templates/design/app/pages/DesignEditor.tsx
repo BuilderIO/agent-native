@@ -15341,6 +15341,7 @@ function DesignEditor() {
         setPendingVisualStyleRevertRequest,
         setRuntimeStructureInsertRequest,
         setRuntimeStructureMoveRequest,
+        setOverviewSelectedScreenIds,
         setSelectedElement,
         setSelectedLayerIdsState,
         suppressContentHistoryRef,

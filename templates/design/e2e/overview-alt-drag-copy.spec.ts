@@ -182,6 +182,18 @@ test("alt-dragging a multi-frame selection copies every frame and keeps their sp
     await expect(page.locator("[data-screen-shell]")).toHaveCount(2, {
       timeout: 20_000,
     });
+
+    const redoShortcut =
+      process.platform === "darwin" ? "Meta+Shift+z" : "Control+Shift+z";
+    await page.keyboard.press(redoShortcut);
+    await expect(page.locator("[data-screen-shell]")).toHaveCount(4, {
+      timeout: 20_000,
+    });
+    const selectedCopyRows = page
+      .getByRole("tree", { name: "Layers" })
+      .locator('[role="treeitem"][aria-level="1"][aria-selected="true"]')
+      .filter({ hasText: "copy" });
+    await expect(selectedCopyRows).toHaveCount(2, { timeout: 20_000 });
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }
