@@ -231,7 +231,9 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
   async function renderDelayedTwoScreenMarquee({
     selectedElementScreenId = null,
     selectedLayerSelectorGroupsByScreen,
+    initialActiveTool = "move",
   }: {
+    initialActiveTool?: MultiScreenCanvasTool;
     selectedElementScreenId?: string | null;
     selectedLayerSelectorGroupsByScreen?: Record<string, string[][]>;
   } = {}) {
@@ -242,6 +244,8 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     ];
     const renderCanvas = async (
       nextSelection: {
+        activeTool?: MultiScreenCanvasTool;
+        clearSelectionRequest?: number;
         selectedElementScreenId?: string | null;
         selectedLayerSelectorGroupsByScreen?: Record<string, string[][]>;
       } = {},
@@ -251,7 +255,8 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
           <MultiScreenCanvas
             screens={screens}
             zoom={100}
-            activeTool="move"
+            activeTool={nextSelection.activeTool ?? initialActiveTool}
+            clearSelectionRequest={nextSelection.clearSelectionRequest}
             selectedElementScreenId={nextSelection.selectedElementScreenId}
             selectedLayerSelectorGroupsByScreen={
               nextSelection.selectedLayerSelectorGroupsByScreen
@@ -274,6 +279,7 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
       });
     };
     await renderCanvas({
+      activeTool: initialActiveTool,
       selectedElementScreenId,
       selectedLayerSelectorGroupsByScreen,
     });
@@ -670,6 +676,81 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
           ([, intent]) => intent?.cancelled === true,
         ),
       ).toHaveLength(1);
+    } finally {
+      postMessageSpies.forEach((spy) => spy.mockRestore());
+    }
+  });
+
+  it("drops a released marquee when draft selection changes before its reply", async () => {
+    const {
+      clientPointForCanvas,
+      delayedReplies,
+      onLayerMarqueeSelectionChange,
+      postMessageSpies,
+      renderCanvas,
+      screenB,
+      surface,
+    } = await renderDelayedTwoScreenMarquee({ initialActiveTool: "rect" });
+    const origin = clientPointForCanvas(100, -20);
+    const end = clientPointForCanvas(600, 100);
+
+    await act(async () => {
+      dispatchMouse(surface, "mousedown", 300, 300);
+      dispatchMouse(window, "mouseup", 300, 300);
+    });
+    const draft = container.querySelector<HTMLElement>("[data-draft-id]");
+    expect(draft).not.toBeNull();
+    await renderCanvas({ activeTool: "move" });
+
+    try {
+      await act(async () => {
+        dispatchMouse(surface, "mousedown", origin.clientX, origin.clientY, {
+          shiftKey: true,
+        });
+        dispatchMouse(window, "mousemove", end.clientX, end.clientY, {
+          shiftKey: true,
+        });
+        await nextAnimationFrame();
+        await Promise.resolve();
+        await Promise.resolve();
+        dispatchMouse(window, "mouseup", end.clientX, end.clientY, {
+          shiftKey: true,
+        });
+        await Promise.resolve();
+      });
+      expect(delayedReplies).toHaveLength(1);
+      const cancellationsBeforeDraftChange =
+        onLayerMarqueeSelectionChange.mock.calls.filter(
+          ([, intent]) => intent?.cancelled === true,
+        ).length;
+
+      await renderCanvas({ activeTool: "move", clearSelectionRequest: 1 });
+
+      await act(async () => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            data: {
+              type: "agent-native:selectable-rects-result",
+              correlationId: delayedReplies[0]!.correlationId,
+              payload: delayedReplies[0]!.payload,
+            },
+            source: screenB.contentWindow,
+          }),
+        );
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(
+        onLayerMarqueeSelectionChange.mock.calls.filter(
+          ([, intent]) => intent?.final === true,
+        ),
+      ).toHaveLength(0);
+      expect(
+        onLayerMarqueeSelectionChange.mock.calls.filter(
+          ([, intent]) => intent?.cancelled === true,
+        ),
+      ).toHaveLength(cancellationsBeforeDraftChange + 1);
     } finally {
       postMessageSpies.forEach((spy) => spy.mockRestore());
     }
