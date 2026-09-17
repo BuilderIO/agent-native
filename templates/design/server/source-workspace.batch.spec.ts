@@ -28,6 +28,7 @@ vi.mock("@agent-native/core/sharing", async () => {
 });
 
 import {
+  applyTextToYDoc,
   applyText,
   deleteCollabState,
   getCollabEmitter,
@@ -42,6 +43,7 @@ import { eq, sql } from "drizzle-orm";
 import { sourceContentHash } from "../shared/source-workspace.js";
 import { getDb, schema } from "./db/index.js";
 import {
+  getDesignSourceMutationExec,
   withDesignSourceMutationTransaction,
   withPreparedSourceFileMutation,
   writeInlineSourceFilesBatch,
@@ -191,6 +193,24 @@ afterAll(async () => {
 });
 
 describe("writeInlineSourceFilesBatch", () => {
+  it("rolls back prepared collaboration state with the source transaction", async () => {
+    await expect(
+      withPreparedSourceFileMutation(SOURCE_ID, "agent", (lease) =>
+        withDesignSourceMutationTransaction(DESIGN_ID, async (tx) => {
+          applyTextToYDoc(lease.doc, "content", SOURCE_NEXT, "agent");
+          await lease.persist(getDesignSourceMutationExec(tx), SOURCE_NEXT);
+          throw new Error("rollback source mutation");
+        }),
+      ),
+    ).rejects.toThrow("rollback source mutation");
+
+    expect(await getText(SOURCE_ID)).toBe(SOURCE_BASE);
+    expect(await persistedCollabRows()).toEqual([
+      { doc_id: SOURCE_ID, text_snapshot: SOURCE_BASE, version: 0 },
+      { doc_id: DESTINATION_ID, text_snapshot: DESTINATION_BASE, version: 0 },
+    ]);
+  });
+
   it("serializes design-file insert and delete membership mutations", async () => {
     let releaseInsert!: () => void;
     let inserted!: () => void;

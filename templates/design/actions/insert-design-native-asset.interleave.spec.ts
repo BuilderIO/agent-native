@@ -301,6 +301,21 @@ beforeEach(() => {
 });
 
 describe("insert-design-native-asset / insert-asset race safety (R64/R71)", () => {
+  it("seeds an absent collaboration row for an unchanged source write", async () => {
+    const file = currentFileRef();
+    const result = await writeInlineSourceFile({
+      designId: DESIGN_ID,
+      file,
+      content: file.content,
+    });
+
+    expect(result).toMatchObject({ changed: false });
+    expect(await hasCollabState(FILE_ID)).toBe(true);
+    expect((await readLiveSourceFile(currentFileRef())).content).toBe(
+      file.content,
+    );
+  });
+
   it("a concurrent style edit that lands AFTER insert-design-native-asset reads its base is not silently dropped: the write is rejected instead of corrupting", async () => {
     // Simulate the action's own base read (what it now does internally via
     // readLiveSourceFile before calling insert-design-native-asset.run).

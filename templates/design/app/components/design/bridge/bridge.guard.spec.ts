@@ -13827,13 +13827,13 @@ it(
       const page = await browser.newPage();
       await page.setContent(`<!doctype html><html><body>
         <div id="dense-grid" data-agent-native-node-id="dense-grid" style="display:grid;grid-auto-flow:dense;grid-template-columns:repeat(2, 1fr)"><div>Cell</div></div>
-        <div id="column-grid" data-agent-native-node-id="column-grid" style="display:grid;grid-auto-flow:column"><div>Cell</div></div>
+        <div id="column-grid" data-agent-native-node-id="column-grid" style="display:grid;grid-auto-flow:column"><div id="column-grid-child">Cell</div></div>
       </body></html>`);
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
       await collectBridgeMessages(page);
 
-      const selectInlineStyles = async (selector: string) => {
+      const selectElementPayload = async (selector: string) => {
         await page.evaluate((targetSelector) => {
           (window as any).__bridgeMessages = [];
           window.postMessage(
@@ -13860,11 +13860,14 @@ it(
           | {
               payload?: {
                 inlineStyles?: Record<string, string>;
+                parentLayout?: { gridAutoFlow?: string };
               };
             }
           | undefined;
-        return message?.payload?.inlineStyles;
+        return message?.payload;
       };
+      const selectInlineStyles = async (selector: string) =>
+        (await selectElementPayload(selector))?.inlineStyles;
 
       // The track templates are carried for provenance; grid-auto-flow is
       // written by the same grid edit (gridChangePatch) and needs it for the
@@ -13877,6 +13880,8 @@ it(
       expect((await selectInlineStyles("#column-grid"))?.gridAutoFlow).toBe(
         "column",
       );
+      const childPayload = await selectElementPayload("#column-grid-child");
+      expect(childPayload?.parentLayout?.gridAutoFlow).toBe("column");
     } finally {
       await browser.close();
     }

@@ -37,6 +37,7 @@ export interface ApplyFileContentUpdateArgs {
       refreshPreview?: boolean;
       skipPreview?: boolean;
       forcePreviewFullDocument?: boolean;
+      immediateSave?: boolean;
       persist?: boolean;
       recordHistory?: boolean;
       historyBeforeContent?: string;
@@ -126,6 +127,7 @@ export function runApplyFileContentUpdate(
     refreshPreview?: boolean;
     skipPreview?: boolean;
     forcePreviewFullDocument?: boolean;
+    immediateSave?: boolean;
     persist?: boolean;
     recordHistory?: boolean;
     historyBeforeContent?: string;

@@ -3320,6 +3320,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         alignItems: parentStyles.alignItems,
         justifyContent: parentStyles.justifyContent,
         gap: parentStyles.gap,
+        gridAutoFlow: parentStyles.gridAutoFlow,
         gridTemplateColumns: parentStyles.gridTemplateColumns,
         gridTemplateRows: parentStyles.gridTemplateRows,
         position: parentStyles.position

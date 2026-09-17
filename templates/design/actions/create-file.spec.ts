@@ -158,6 +158,7 @@ function loadOptimisticCreatedFileInsertion(queryClient: QueryClient) {
     "id",
     "queryClient",
     "annotateScreenHtmlForPersist",
+    "historyFilesRef",
     `${callback}\nreturn optimisticallyInsertCreatedFile;`,
   );
   return create(
@@ -165,6 +166,7 @@ function loadOptimisticCreatedFileInsertion(queryClient: QueryClient) {
     "design-1",
     queryClient,
     annotateScreenHtmlForPersist,
+    { current: [] },
   ) as (args: {
     fileId: string;
     filename: string;

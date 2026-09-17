@@ -5,7 +5,6 @@ import {
   hasCollabState,
   type PreparedYDocMutationLease,
 } from "@agent-native/core/collab";
-import { getDbExec } from "@agent-native/core/db";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
@@ -13,7 +12,11 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
+  affectedRowCount,
+  getDesignSourceMutationExec,
+  lockDesignFilesTable,
   readLiveSourceFile,
+  readPreparedSourceText,
   SourceWorkspaceEditConflictError,
   withDesignSourceMutationTransaction,
   withPreparedSourceFileMutation,
@@ -46,17 +49,6 @@ function fileNotFound(id: string): Error & { statusCode?: number } {
   };
   err.statusCode = 404;
   return err;
-}
-
-function rowsAffected(result: unknown): number | undefined {
-  const candidate = result as {
-    rowsAffected?: unknown;
-    rowCount?: unknown;
-    changes?: unknown;
-  } | null;
-  const value =
-    candidate?.rowsAffected ?? candidate?.rowCount ?? candidate?.changes;
-  return typeof value === "number" ? value : undefined;
 }
 
 /**
@@ -317,6 +309,7 @@ export default defineAction({
 
     const runMutation = (lease?: PreparedYDocMutationLease) =>
       withDesignSourceMutationTransaction(file.designId, async (tx) => {
+        await lockDesignFilesTable(tx);
         for (let attempt = 0; attempt < 4; attempt += 1) {
           skippedStaleMirror = false;
           skippedStaleOperation = false;
@@ -342,7 +335,7 @@ export default defineAction({
 
           const persistedContentHash = sourceContentHash(persistedFile.content);
           persistedVersionHash = persistedContentHash;
-          let collabExists = lease !== undefined;
+          let collabExists = lease !== undefined && lease.baseVersion !== null;
           let liveContent: string;
           if (lease) {
             if (lease.baseVersion === null) {
@@ -353,7 +346,7 @@ export default defineAction({
                 "agent",
               );
             }
-            liveContent = lease.doc.getText("content").toString();
+            liveContent = readPreparedSourceText(lease);
           } else if (content !== undefined) {
             collabExists = await hasCollabState(id);
             liveContent = (
@@ -574,11 +567,14 @@ export default defineAction({
               .where(and(eq(schema.designFiles.id, id), contentCasWhere));
           }
 
-          if (requiresContentCas && rowsAffected(updateResult) === 0) {
+          if (requiresContentCas && affectedRowCount(updateResult) === 0) {
             continue;
           }
 
-          if (requiresContentCas && rowsAffected(updateResult) === undefined) {
+          if (
+            requiresContentCas &&
+            affectedRowCount(updateResult) === undefined
+          ) {
             const [confirmed] = await tx
               .select({
                 content: schema.designFiles.content,
@@ -633,7 +629,7 @@ export default defineAction({
               );
             }
             applyTextToYDoc(lease.doc, "content", content, "agent");
-            await lease.persist(getDbExec(), content);
+            await lease.persist(getDesignSourceMutationExec(tx), content);
           }
           await tx
             .update(schema.designs)
@@ -656,8 +652,12 @@ export default defineAction({
       });
 
     try {
-      await (content !== undefined && syncCollab
-        ? withPreparedSourceFileMutation(id, "agent", runMutation)
+      await (content !== undefined
+        ? withPreparedSourceFileMutation(
+            id,
+            syncCollab ? "agent" : undefined,
+            runMutation,
+          )
         : withSourceFileWriteLock(id, runMutation));
     } catch (error) {
       if (error instanceof CollabBaseVersionConflictError) {

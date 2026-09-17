@@ -622,16 +622,6 @@ const messages = {
           "響應式編輯預設會影響此中斷點及更小尺寸。可在中斷點控制旁變更範圍。",
       },
     },
-    screenDeletion: {
-      titleOne: "刪除此畫面？",
-      titleMany: "刪除 {{count}} 個畫面？",
-      descriptionOne:
-        "將刪除「{{filename}}」及其所有響應式變體。編輯器保持開啟時可以復原。",
-      descriptionMany:
-        "將刪除這些畫面及其所有響應式變體。編輯器保持開啟時可以復原。",
-      cancel: "取消",
-      confirm: "刪除",
-    },
     motion: {
       dockLabel: "動態面板",
       collapseDock: "收起動態面板",

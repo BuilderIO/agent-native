@@ -43,6 +43,7 @@ vi.mock("./db/index.js", () => ({
 }));
 
 import {
+  readPreparedSourceText,
   readLiveSourceFile,
   resolveSourceWorkspace,
   SourceWorkspaceEditConflictError,
@@ -96,6 +97,24 @@ describe("resolveSourceWorkspace", () => {
     await expect(readLiveSourceFile(sourceFiles[1])).rejects.toMatchObject({
       statusCode: 409,
     });
+  });
+
+  it("maps malformed prepared collaboration documents to a typed conflict", () => {
+    let rejection: unknown;
+    try {
+      readPreparedSourceText({
+        doc: {
+          getText: () => {
+            throw new Error("malformed Y.Map root");
+          },
+        } as never,
+      });
+    } catch (error) {
+      rejection = error;
+    }
+
+    expect(rejection).toBeInstanceOf(SourceWorkspaceEditConflictError);
+    expect(rejection).toMatchObject({ statusCode: 409 });
   });
 
   it("returns a 404 action error when the design is missing or inaccessible", async () => {

@@ -63,7 +63,7 @@ const _writeLocks = new Map<string, Promise<void>>();
 /**
  * Normalize affected-row metadata from PGlite and hosted Postgres.
  */
-function affectedRowCount(result: unknown): number | undefined {
+export function affectedRowCount(result: unknown): number | undefined {
   const candidate = result as
     | {
         rowsAffected?: unknown;
@@ -82,6 +82,21 @@ function affectedRowCount(result: unknown): number | undefined {
     candidate?.changes ??
     candidate?.meta?.changes;
   return typeof value === "number" ? value : undefined;
+}
+
+/**
+ * Acquire the shared design-file table lock before any file or design row
+ * locks in the design editing mutation boundary.
+ */
+export async function lockDesignFilesTable(tx: unknown): Promise<void> {
+  const execute = (tx as { execute?: unknown }).execute;
+  if (typeof execute !== "function") {
+    throw new Error("Design-file transactions must support SQL table locks.");
+  }
+  await (execute as (query: unknown) => Promise<unknown>).call(
+    tx,
+    sql`LOCK TABLE design_files IN SHARE ROW EXCLUSIVE MODE`,
+  );
 }
 
 // Exported so other write paths touching the same per-file critical section
@@ -149,6 +164,62 @@ type DesignSourceMutationTransaction = Parameters<
   Parameters<ReturnType<typeof getDb>["transaction"]>[0]
 >[0];
 
+function drizzleSqlForDbExec(statement: Parameters<DbExec["execute"]>[0]) {
+  const rawSql = typeof statement === "string" ? statement : statement.sql;
+  const args = typeof statement === "string" ? [] : (statement.args ?? []);
+  const parts = rawSql.split("?");
+  if (parts.length !== args.length + 1) {
+    throw new Error(
+      "A transaction-bound source write received an unreadable SQL statement.",
+    );
+  }
+  return sql.join(
+    parts.flatMap((part, index) => [
+      sql.raw(part),
+      ...(index < args.length ? [sql.param(args[index])] : []),
+    ]),
+  );
+}
+
+function dbExecForDrizzleTransaction(
+  transaction: DesignSourceMutationTransaction,
+): DbExec {
+  return {
+    execute: async (statement) => {
+      const result = await transaction.execute(drizzleSqlForDbExec(statement));
+      const resultRecord = result as {
+        rows?: unknown;
+        rowsAffected?: unknown;
+        affectedRows?: unknown;
+        rowCount?: unknown;
+        count?: unknown;
+        changes?: unknown;
+        meta?: { changes?: unknown };
+      };
+      return {
+        rows: Array.isArray(result)
+          ? result
+          : Array.isArray(resultRecord.rows)
+            ? resultRecord.rows
+            : [],
+        rowsAffected: affectedRowCount(result) ?? 0,
+      };
+    },
+  };
+}
+
+const _designTransactionExecs = new WeakMap<object, DbExec>();
+
+export function getDesignSourceMutationExec(transaction: object): DbExec {
+  const exec = _designTransactionExecs.get(transaction);
+  if (!exec) {
+    throw new Error(
+      "A source mutation attempted collaboration persistence outside its SQL transaction.",
+    );
+  }
+  return exec;
+}
+
 /** Keep design-file membership changes in the same lock domain as indexing. */
 export function withDesignSourceMutationTransaction<T>(
   designId: string,
@@ -158,7 +229,13 @@ export function withDesignSourceMutationTransaction<T>(
     await tx.execute(
       sql`SELECT pg_advisory_xact_lock(hashtextextended(${designSourceMutationLockKey(designId)}, 0::bigint))`,
     );
-    return callback(tx);
+    const transactionExec = dbExecForDrizzleTransaction(tx);
+    _designTransactionExecs.set(tx, transactionExec);
+    try {
+      return await callback(tx);
+    } finally {
+      _designTransactionExecs.delete(tx);
+    }
   });
 }
 
@@ -324,6 +401,22 @@ export class SourceWorkspaceEditConflictError extends Error {
   }
 }
 
+export function readPreparedSourceText(
+  lease: Pick<PreparedYDocMutationLease, "doc">,
+): string {
+  try {
+    const content = lease.doc.getText("content").toString();
+    if (typeof content !== "string") {
+      throw new Error("Prepared collaboration content was not text.");
+    }
+    return content;
+  } catch {
+    throw new SourceWorkspaceEditConflictError(
+      "Could not verify a source file's live version. Re-read the design and retry.",
+    );
+  }
+}
+
 export async function prepareInlineSourceEdit(args: {
   file: SourceWorkspaceFile;
   currentContent?: string;
@@ -397,7 +490,7 @@ export async function writeInlineSourceFile(args: {
       if (!currentFile || currentFile.designId !== args.designId) {
         throw new Error("Source file not found.");
       }
-      let liveContent = lease.doc.getText("content").toString();
+      let liveContent = readPreparedSourceText(lease);
       if (lease.baseVersion === null) {
         liveContent = currentFile.content ?? "";
         applyTextToYDoc(lease.doc, "content", liveContent, "agent");
@@ -522,6 +615,21 @@ export async function writeInlineSourceFile(args: {
       const changed = args.content !== current.content;
       const updatedAt = new Date().toISOString();
       if (!changed && !identityOnly) {
+        if (lease.baseVersion === null) {
+          try {
+            await lease.persist(
+              getDesignSourceMutationExec(tx),
+              current.content,
+            );
+          } catch (error) {
+            if (error instanceof CollabBaseVersionConflictError) {
+              throw new SourceWorkspaceEditConflictError(
+                "Source file changed while the edit was being applied. Re-read the file and retry.",
+              );
+            }
+            throw error;
+          }
+        }
         return {
           versionHash: current.versionHash,
           changed: false,
@@ -552,7 +660,7 @@ export async function writeInlineSourceFile(args: {
       };
       assertCandidateIntegrity(args.content);
 
-      const liveBeforeApply = lease.doc.getText("content").toString();
+      const liveBeforeApply = readPreparedSourceText(lease);
       const expectedLiveHash = identityOnly
         ? liveBaseHash
         : args.expectedVersionHash;
@@ -568,7 +676,7 @@ export async function writeInlineSourceFile(args: {
         applyTextToYDoc(lease.doc, "content", args.content, "agent");
       }
 
-      const authoritativeContent = lease.doc.getText("content").toString();
+      const authoritativeContent = readPreparedSourceText(lease);
       try {
         if (identityOnly && authoritativeContent !== args.content) {
           throw new SourceWorkspaceEditConflictError(
@@ -679,9 +787,10 @@ export async function writeInlineSourceFile(args: {
       }
 
       try {
-        // The active exec is routed through the surrounding Drizzle
-        // transaction, so the collab CAS and SQL mirror commit together.
-        await lease.persist(getDbExec(), authoritativeContent);
+        await lease.persist(
+          getDesignSourceMutationExec(tx),
+          authoritativeContent,
+        );
       } catch (error) {
         if (error instanceof CollabBaseVersionConflictError) {
           throw new SourceWorkspaceEditConflictError(
@@ -959,19 +1068,20 @@ export async function writeInlineSourceFilesBatch(args: {
       if (index >= sortedIds.length) return persistPrepared();
       const item = plannedById.get(sortedIds[index]!)!;
       return withPreparedYDocMutation(item.fileId, "agent", async (lease) => {
-        const text = lease.doc.getText("content");
+        let preparedContent = readPreparedSourceText(lease);
         if (lease.baseVersion === null) {
           applyTextToYDoc(lease.doc, "content", item.liveContent, "agent");
-        } else if (text.toString() !== item.liveContent) {
+          preparedContent = readPreparedSourceText(lease);
+        } else if (preparedContent !== item.liveContent) {
           throw new SourceWorkspaceEditConflictError(
             "A source file's live version changed while the batch was being prepared. Re-read the design and retry.",
           );
         }
-        if (text.toString() !== item.content) {
+        if (preparedContent !== item.content) {
           applyTextToYDoc(lease.doc, "content", item.content, "agent");
           assertDesignHtmlEditIntegrity({
             previousContent: item.liveContent,
-            nextContent: text.toString(),
+            nextContent: readPreparedSourceText(lease),
             fileType: item.currentFile.fileType ?? "html",
             filename: item.currentFile.filename,
           });

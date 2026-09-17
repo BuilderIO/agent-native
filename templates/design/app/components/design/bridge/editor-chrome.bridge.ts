@@ -3605,6 +3605,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           alignItems: parentStyles.alignItems,
           justifyContent: parentStyles.justifyContent,
           gap: parentStyles.gap,
+          gridAutoFlow: parentStyles.gridAutoFlow,
           gridTemplateColumns: parentStyles.gridTemplateColumns,
           gridTemplateRows: parentStyles.gridTemplateRows,
           position: parentStyles.position,

@@ -1,4 +1,5 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
+import { sourceContentHash } from "@shared/source-workspace";
 import type { QueryClient } from "@tanstack/react-query";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
@@ -7,7 +8,11 @@ import type { DesignSaveOutboxEntry } from "@/lib/design-save-outbox";
 import { updateFileResultPersistedContent } from "@/lib/design-save-outbox";
 import type { PatchProofState } from "@/pages/design-editor/command-types";
 import type { FileContentSaveRequest } from "@/pages/design-editor/editor-state";
-import { shouldClearLatestUnloadSave } from "@/pages/design-editor/editor-state";
+import {
+  advanceLatestUnloadSaveBase,
+  prepareFileContentSaveKeepalive,
+  shouldClearLatestUnloadSave,
+} from "@/pages/design-editor/editor-state";
 import {
   classifyDesignSaveFailure,
   designSaveErrorMessage,
@@ -41,6 +46,80 @@ export interface SaveFileContentArgs {
     typeof useActionMutation<undefined, undefined, "update-file">
   >;
   warnChangesWillRetry: () => void;
+}
+
+type FileContentSaveKeepaliveAttempt =
+  | { accepted: true; completion: Promise<unknown> }
+  | { accepted: false; completion: null };
+
+export interface SaveFileContentKeepaliveArgs {
+  acknowledgeOutboxEntry: (entry: DesignSaveOutboxEntry) => Promise<void>;
+  createFileSaveOutboxEntry: (
+    pending: FileContentSaveRequest,
+  ) => DesignSaveOutboxEntry | null;
+  journalOutboxEntry: (entry: DesignSaveOutboxEntry) => Promise<boolean>;
+  latestFileSaveForUnloadRef: RefObject<Record<string, FileContentSaveRequest>>;
+  sendKeepalive: (
+    payload: Record<string, unknown>,
+  ) => FileContentSaveKeepaliveAttempt;
+}
+
+export function runFileContentSaveKeepalive(
+  {
+    acknowledgeOutboxEntry,
+    createFileSaveOutboxEntry,
+    journalOutboxEntry,
+    latestFileSaveForUnloadRef,
+    sendKeepalive,
+  }: SaveFileContentKeepaliveArgs,
+  pending: FileContentSaveRequest,
+) {
+  // Keep the folded oldest-base entry durable while the direct request uses
+  // this edit's own base. If the predecessor never lands, replay must start
+  // from the oldest known version rather than the successor's base.
+  const durableEntry = createFileSaveOutboxEntry(pending);
+  const keepaliveEntry = createFileSaveOutboxEntry(
+    prepareFileContentSaveKeepalive(pending),
+  );
+  if (!durableEntry || !keepaliveEntry) return;
+  const journalPromise = journalOutboxEntry(durableEntry);
+  const attempt = sendKeepalive(keepaliveEntry.payload);
+  if (!attempt.accepted) {
+    void journalPromise.catch(() => {});
+    return;
+  }
+  void attempt.completion
+    .then(async (result: unknown) => {
+      await journalPromise;
+      const persistedContentMatches = updateFileResultPersistedContent(
+        result,
+        pending.content,
+      );
+      if (!persistedContentMatches) return;
+      const resultInfo = result as { versionHash?: string } | undefined;
+      const latest = latestFileSaveForUnloadRef.current[pending.id];
+      if (shouldClearLatestUnloadSave(latest, pending)) {
+        await acknowledgeOutboxEntry(durableEntry);
+        delete latestFileSaveForUnloadRef.current[pending.id];
+        return;
+      }
+      if (
+        advanceLatestUnloadSaveBase(
+          latest,
+          pending,
+          resultInfo?.versionHash ?? sourceContentHash(pending.content),
+        )
+      ) {
+        const advancedOutboxEntry = latest
+          ? createFileSaveOutboxEntry(latest)
+          : null;
+        if (advancedOutboxEntry) {
+          await journalOutboxEntry(advancedOutboxEntry);
+        }
+      }
+      await acknowledgeOutboxEntry(durableEntry);
+    })
+    .catch(() => {});
 }
 
 export function runSaveFileContent(
@@ -120,6 +199,30 @@ export function runSaveFileContent(
           pending.content,
           t("common.genericError"),
         );
+        const latest = latestFileSaveForUnloadRef.current[pending.id];
+        if (
+          persistedContentMatches &&
+          advanceLatestUnloadSaveBase(
+            latest,
+            pending,
+            resultInfo?.versionHash ?? sourceContentHash(pending.content),
+          )
+        ) {
+          const advancedOutboxEntry = latest
+            ? createFileSaveOutboxEntry(latest)
+            : null;
+          if (advancedOutboxEntry)
+            await journalOutboxEntry(advancedOutboxEntry);
+        }
+        if (
+          persistedContentMatches &&
+          pending.identityMigrationSourceContent !== undefined &&
+          latestFileSaveForUnloadRef.current[pending.id] === pending
+        ) {
+          // Identity repair has landed. Retire its raw-base marker so the next
+          // user edit publishes against the canonical bytes it already sees.
+          markPendingLocalFileContent(pending.id, pending.content);
+        }
         if (persistedContentMatches && outboxEntry) {
           await acknowledgeOutboxEntry(outboxEntry);
         } else if (!persistedContentMatches) {
@@ -143,7 +246,6 @@ export function runSaveFileContent(
           shouldClearLatestUnloadSave(
             latestFileSaveForUnloadRef.current[pending.id],
             pending,
-            !persistedContentMatches,
           )
         ) {
           delete latestFileSaveForUnloadRef.current[pending.id];
@@ -180,6 +282,9 @@ export function runSaveFileContent(
         if (failureKind === "conflict") {
           // Roll back our optimistic bytes before the refetch can race ahead.
           rollbackPendingLocalFileContent(pending.id, pending.content);
+          if (latestFileSaveForUnloadRef.current[pending.id] === pending) {
+            delete latestFileSaveForUnloadRef.current[pending.id];
+          }
         }
         void queryClient.invalidateQueries({
           queryKey: ["action", "get-design"],

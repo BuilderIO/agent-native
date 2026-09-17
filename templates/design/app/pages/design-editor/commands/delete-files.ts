@@ -109,6 +109,8 @@ export interface DeleteFilesArgs {
   fileCreationUndoStackRef: RefObject<FileCreationHistoryEntry[]>;
   fileDeletionUndoStackRef: RefObject<FileDeletionHistoryEntry[]>;
   fileHistoryMutationPendingRef: RefObject<boolean>;
+  captureHistoryCheckpoint?: () => Promise<string>;
+  clearPendingHistory?: () => void;
   files: DesignFile[];
   geometryRedoStackRef: RefObject<GeometryHistoryEntry[]>;
   geometryUndoStackRef: RefObject<GeometryHistoryEntry[]>;
@@ -132,7 +134,7 @@ export interface DeleteFilesArgs {
   ) => void;
 }
 
-export function runDeleteFiles(
+export async function runDeleteFiles(
   {
     activeFile,
     canvasFrameGeometryById,
@@ -149,6 +151,8 @@ export function runDeleteFiles(
     fileCreationUndoStackRef,
     fileDeletionUndoStackRef,
     fileHistoryMutationPendingRef,
+    captureHistoryCheckpoint,
+    clearPendingHistory,
     files,
     geometryRedoStackRef,
     geometryUndoStackRef,
@@ -186,8 +190,11 @@ export function runDeleteFiles(
       failedFiles: DesignFile[],
     ) => void;
   },
-) {
+): Promise<void> {
   if (!filesToDelete.length) return;
+  if (options?.recordDeletionHistory && fileHistoryMutationPendingRef.current) {
+    throw new Error(t("common.genericError"));
+  }
   const deleteIds = new Set(filesToDelete.map((file) => file.id));
   const nextActiveFile = files.find((file) => !deleteIds.has(file.id));
   const nextGeometry = cloneCanvasFrameGeometry(canvasFrameGeometryById);
@@ -201,10 +208,24 @@ export function runDeleteFiles(
           })),
         }
       : null;
+  let historyCheckpointId: string | undefined;
   if (deletionHistoryEntry) {
-    clearRedoStacks();
     fileHistoryMutationPendingRef.current = true;
     syncUndoRedoState();
+    if (captureHistoryCheckpoint) {
+      try {
+        historyCheckpointId = await captureHistoryCheckpoint();
+      } catch (error) {
+        fileHistoryMutationPendingRef.current = false;
+        clearPendingHistory?.();
+        syncUndoRedoState();
+        toast.error(
+          error instanceof Error ? error.message : t("common.genericError"),
+        );
+        return;
+      }
+    }
+    clearRedoStacks();
   }
   filesToDelete.forEach((file) => {
     delete nextGeometry[file.id];
@@ -371,61 +392,62 @@ export function runDeleteFiles(
   setSelectedElement(null);
   setSelectedLayerIdsState([]);
 
-  void Promise.allSettled(
+  const results = await Promise.allSettled(
     filesToDelete.map((file) =>
       deleteFileMutation.mutateAsync({
         id: file.id,
         allowLockedLayers: true,
+        ...(historyCheckpointId ? { historyCheckpointId } : {}),
       } as any),
     ),
-  ).then((results) => {
-    const deletedFiles = filesToDelete.filter((_, index) => {
-      const result = results[index];
-      return (
-        result?.status === "fulfilled" &&
-        (result.value as { deleted?: boolean } | undefined)?.deleted !== false
-      );
-    });
-    const deletedIds = new Set(deletedFiles.map((file) => file.id));
-    const failedFiles = filesToDelete.filter(
-      (file) => !deletedIds.has(file.id),
+  );
+  const deletedFiles = filesToDelete.filter((_, index) => {
+    const result = results[index];
+    return (
+      result?.status === "fulfilled" &&
+      (result.value as { deleted?: boolean } | undefined)?.deleted !== false
     );
-
-    if (deletionHistoryEntry && deletedFiles.length > 0) {
-      fileDeletionUndoStackRef.current = [
-        ...fileDeletionUndoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
-        filterFileDeletionHistoryEntry(deletionHistoryEntry, deletedIds),
-      ];
-      historyOrderRef.current = [
-        ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
-        "file-deleted",
-      ];
-    }
-
-    const rejected = results.find(
-      (result): result is PromiseRejectedResult => result.status === "rejected",
-    );
-    if (failedFiles.length > 0) {
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "get-design"],
-      });
-      if (rejected) {
-        toast.error(
-          rejected.reason instanceof Error
-            ? rejected.reason.message
-            : t("common.genericError"),
-        );
-      }
-    }
-
-    if (deletionHistoryEntry) {
-      fileHistoryMutationPendingRef.current = false;
-      for (const fileId of deletedIds)
-        latestClipboardMutationContentRef.current.delete(fileId);
-    }
-    options?.onMutationSettled?.(deletedFiles, failedFiles);
-    syncUndoRedoState();
   });
+  const deletedIds = new Set(deletedFiles.map((file) => file.id));
+  const failedFiles = filesToDelete.filter((file) => !deletedIds.has(file.id));
+
+  if (deletionHistoryEntry && deletedFiles.length > 0) {
+    fileDeletionUndoStackRef.current = [
+      ...fileDeletionUndoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+      filterFileDeletionHistoryEntry(deletionHistoryEntry, deletedIds),
+    ];
+    historyOrderRef.current = [
+      ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+      "file-deleted",
+    ];
+  }
+
+  const rejected = results.find(
+    (result): result is PromiseRejectedResult => result.status === "rejected",
+  );
+  if (failedFiles.length > 0) {
+    void queryClient.invalidateQueries({
+      queryKey: ["action", "get-design"],
+    });
+    if (rejected) {
+      toast.error(
+        rejected.reason instanceof Error
+          ? rejected.reason.message
+          : t("common.genericError"),
+      );
+    }
+    // A partial/failed batch is not a safe boundary for a queued undo/redo.
+    // The surviving user intent must be reissued explicitly after refresh.
+    if (deletionHistoryEntry) clearPendingHistory?.();
+  }
+
+  if (deletionHistoryEntry) {
+    fileHistoryMutationPendingRef.current = false;
+    for (const fileId of deletedIds)
+      latestClipboardMutationContentRef.current.delete(fileId);
+  }
+  options?.onMutationSettled?.(deletedFiles, failedFiles);
+  syncUndoRedoState();
 
   // File-backed screen deletion is not a geometry-only edit. The screen rows
   // are hard-deleted, so suppress MultiScreenCanvas' local frame-history
