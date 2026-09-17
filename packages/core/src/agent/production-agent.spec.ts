@@ -13880,7 +13880,7 @@ describe("claimBackgroundWorkerRunEarly", () => {
       "run-next",
       "thread-next",
       "turn-next",
-      { dispatchMode: "background", continuationOrder: 2 },
+      { dispatchMode: "background" },
     );
     expect(d.calls).toEqual([
       "heartbeat",
