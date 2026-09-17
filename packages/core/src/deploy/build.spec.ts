@@ -2109,6 +2109,9 @@ describe("CLOUDFLARE_WORKER_ESBUILD_EXTERNALS", () => {
     expect(CLOUDFLARE_WORKER_NODE_BUILTIN_STUB_MODULES.module).toContain(
       "createRequire",
     );
+    expect(CLOUDFLARE_WORKER_NODE_BUILTIN_STUB_MODULES.sqlite).toContain(
+      "DatabaseSync",
+    );
   });
 });
 
