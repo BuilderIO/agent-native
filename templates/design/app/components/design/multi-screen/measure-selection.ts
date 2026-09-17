@@ -107,9 +107,11 @@ export function designPreviewWindowsForScreen(
 ): Window[] {
   if (typeof document === "undefined") return [];
   const iframeId =
-    breakpointWidth === undefined
-      ? screenId
-      : getBreakpointIframeId(screenId, breakpointWidth);
+    boardFileId && screenId === boardFileId
+      ? boardFileId
+      : breakpointWidth === undefined
+        ? screenId
+        : getBreakpointIframeId(screenId, breakpointWidth);
   const iframe = findCanvasIframeForScreen(
     document.body,
     iframeId,
