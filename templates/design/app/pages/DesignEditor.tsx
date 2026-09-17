@@ -1825,9 +1825,18 @@ function DesignEditor() {
   const renderedElementInfoRevisionRef = useRef(0);
   const layerSelectionHydrationRevisionRef = useRef(0);
   const rehydrateRenderedElementInfoRef = useRef<(() => void) | null>(null);
+  const renderedInfoRehydratePendingRef = useRef(false);
   const invalidateRenderedElementInfo = useCallback(() => {
     renderedElementInfoByLayerKeyRef.current.clear();
     renderedElementInfoRevisionRef.current += 1;
+    // The preview bridge acknowledges a content morph with its follow-up
+    // element-select message. Rehydrate only from that post-morph boundary;
+    // a microtask here can observe the old iframe DOM and poison the cache.
+    renderedInfoRehydratePendingRef.current = true;
+  }, []);
+  const rehydrateRenderedInfoAfterPreview = useCallback(() => {
+    if (!renderedInfoRehydratePendingRef.current) return;
+    renderedInfoRehydratePendingRef.current = false;
     queueMicrotask(() => rehydrateRenderedElementInfoRef.current?.());
   }, []);
   const commitStylesToSelectedLayersRef = useRef<
@@ -10867,7 +10876,7 @@ function DesignEditor() {
         breakpointWidthPx?: number;
       } = {},
     ) => {
-      const run = () =>
+      const run = () => {
         runScreenElementSelect(
           {
             activeBreakpointWidthStateRef,
@@ -10901,6 +10910,8 @@ function DesignEditor() {
           intent,
           options,
         );
+        rehydrateRenderedInfoAfterPreview();
+      };
       // Only a genuine user pick is a selection-only undo step. The
       // selection command may also persist an infrastructure node id, but
       // that write is recordHistory:false and must not add a second edit step.
@@ -10921,6 +10932,7 @@ function DesignEditor() {
       getScreenContent,
       handleBreakpointBarSelect,
       id,
+      rehydrateRenderedInfoAfterPreview,
       selectedLayerIdsState,
       t,
     ],

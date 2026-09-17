@@ -219,21 +219,31 @@ function renderedPosition(info: ElementInfo, node: CodeLayerNode): string {
 }
 
 function renderedZIndex(info: ElementInfo, node: CodeLayerNode): number {
-  const computed = Number.parseInt(info.computedStyles.zIndex ?? "", 10);
+  const computedValue = info.computedStyles.zIndex?.trim().toLowerCase();
+  if (computedValue === "auto") return 0;
+  const computed = Number.parseInt(computedValue ?? "", 10);
   if (Number.isFinite(computed)) return computed;
   const source = Number.parseInt(node.style["z-index"] ?? "", 10);
   return Number.isFinite(source) ? source : 0;
 }
 
-function hasExplicitZIndex(info: ElementInfo, node: CodeLayerNode): boolean {
-  const computed = info.computedStyles.zIndex?.trim().toLowerCase();
-  if (computed && computed !== "auto") return true;
-  const authored = node.style["z-index"]?.trim().toLowerCase();
-  if (!authored || authored === "auto") return false;
+function zIndexParticipatesInPaint(
+  info: ElementInfo,
+  node: CodeLayerNode,
+): boolean {
   return (
     renderedPosition(info, node) !== "static" ||
     /flex|grid/.test(renderedParentDisplay(info, node))
   );
+}
+
+function hasExplicitZIndex(info: ElementInfo, node: CodeLayerNode): boolean {
+  const computed = info.computedStyles.zIndex?.trim().toLowerCase();
+  if (computed)
+    return computed !== "auto" && zIndexParticipatesInPaint(info, node);
+  const authored = node.style["z-index"]?.trim().toLowerCase();
+  if (!authored || authored === "auto") return false;
+  return zIndexParticipatesInPaint(info, node);
 }
 
 function renderedParentDisplay(info: ElementInfo, node: CodeLayerNode): string {
@@ -280,7 +290,7 @@ function inFlowZIndexContext(
         : Number.isFinite(computed)
           ? computed
           : Number.parseInt(sibling.style["z-index"] ?? "", 10);
-    if (Number.isFinite(declared)) {
+    if (zIndexParticipatesInPaint(info, sibling) && Number.isFinite(declared)) {
       siblingFloor = Math.min(siblingFloor, declared);
       siblingPaintLevels.push(declared);
     }
@@ -593,10 +603,15 @@ export function runChangeSelectedZIndex(
     );
     const flowLayout = isFlowLayoutTarget(info, node);
     const hasReorderableSibling = (siblingOrder?.siblingIds.length ?? 0) > 1;
+    const currentPaintLevel = renderedZIndex(info, node);
+    const hasHigherPaintSibling = context.siblingPaintLevels.some(
+      (level) => level > currentPaintLevel,
+    );
     const reorder =
       !hasResponsiveBounds &&
       hasReorderableSibling &&
       !hasExplicitZIndex(info, node) &&
+      !hasHigherPaintSibling &&
       (position === "absolute" ||
         position === "fixed" ||
         flowLayout ||

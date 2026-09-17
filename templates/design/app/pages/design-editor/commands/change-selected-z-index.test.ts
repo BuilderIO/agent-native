@@ -196,6 +196,48 @@ describe("runChangeSelectedZIndex — a paint-order change must not move anythin
     expect(targetStyles()?.zIndex).toBe("10");
   });
 
+  it("writes above a higher rendered sibling instead of relying on DOM order", () => {
+    const content = `<div data-agent-native-node-id="wrap">
+<div data-agent-native-node-id="a" style="position:absolute"></div>
+<div data-agent-native-node-id="b" style="position:absolute"></div>
+</div>`;
+    const { args, applyLocalContentUpdate, commitVisualStyles, targetStyles } =
+      multiHarness(content, ["a"], {
+        rendered: {
+          a: { computedStyles: { position: "absolute", zIndex: "auto" } },
+          b: { computedStyles: { position: "absolute", zIndex: "9" } },
+        },
+      });
+
+    runChangeSelectedZIndex(args, "front");
+
+    expect(applyLocalContentUpdate).not.toHaveBeenCalled();
+    expect(commitVisualStyles).toHaveBeenCalledOnce();
+    expect(targetStyles()?.zIndex).toBe("10");
+  });
+
+  it("keeps a measured auto z-index in the auto paint bucket", () => {
+    const content = `<div data-agent-native-node-id="wrap">
+<div data-agent-native-node-id="a" style="position:absolute;z-index:999"></div>
+<div data-agent-native-node-id="b" style="position:absolute"></div>
+</div>`;
+    const { args, applyLocalContentUpdate, commitVisualStyles } = multiHarness(
+      content,
+      ["a"],
+      {
+        rendered: {
+          a: { computedStyles: { position: "absolute", zIndex: "auto" } },
+          b: { computedStyles: { position: "absolute", zIndex: "auto" } },
+        },
+      },
+    );
+
+    runChangeSelectedZIndex(args, "front");
+
+    expect(applyLocalContentUpdate).toHaveBeenCalledOnce();
+    expect(commitVisualStyles).not.toHaveBeenCalled();
+  });
+
   it("does not treat an authored sibling z-index as painted when computed style is auto", () => {
     const content = `<div data-agent-native-node-id="wrap">
 <div data-agent-native-node-id="a"></div>
@@ -296,7 +338,7 @@ describe("runChangeSelectedZIndex — send to back must not hide the layer", () 
 describe("runChangeSelectedZIndex — send to back must reach the back", () => {
   it("goes below a sibling that is already negative", () => {
     const content = `<html><body><div data-agent-native-node-id="wrap">
-<div data-agent-native-node-id="a" style="z-index:-2"></div>
+<div data-agent-native-node-id="a" style="position:relative;z-index:-2"></div>
 <div data-agent-native-node-id="b"></div>
 </div></body></html>`;
     const { args, applyLocalContentUpdate } = harness(
