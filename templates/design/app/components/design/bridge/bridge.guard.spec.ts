@@ -424,6 +424,84 @@ describe("editor chrome shared gesture controller", () => {
           top: 242,
           styleChanges: 1,
         });
+
+        // An alt-drag starts through the same shield threshold, but the clone
+        // must travel from the original press rather than from that threshold
+        // event. This is the one-step-short regression that plain dragging
+        // above must continue to reject.
+        const beforeAltDuplicate = await page.evaluate(() => {
+          const target = document.getElementById(
+            "shield-target",
+          ) as HTMLElement;
+          const rect = target.getBoundingClientRect();
+          return { left: rect.left, top: rect.top };
+        });
+        const altStartX = beforeAltDuplicate.left + 80;
+        const altStartY = beforeAltDuplicate.top + 45;
+        await page.evaluate(
+          async ({ startX, startY }) => {
+            const shield = document.querySelector<HTMLElement>(
+              '[data-agent-native-edit-overlay="shield"]',
+            )!;
+            const event = (
+              type: string,
+              clientX: number,
+              clientY: number,
+              buttons: number,
+            ) =>
+              new PointerEvent(type, {
+                bubbles: true,
+                cancelable: true,
+                altKey: true,
+                button: 0,
+                buttons,
+                clientX,
+                clientY,
+                isPrimary: true,
+                pointerId: 17,
+                pointerType: "mouse",
+              });
+            shield.dispatchEvent(event("pointerdown", startX, startY, 1));
+            document.dispatchEvent(
+              event("pointermove", startX + 10, startY, 1),
+            );
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            document.dispatchEvent(
+              event("pointermove", startX + 12, startY + 2, 1),
+            );
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            document.dispatchEvent(
+              event("pointerup", startX + 12, startY + 2, 0),
+            );
+          },
+          { startX: altStartX, startY: altStartY },
+        );
+        await page.waitForTimeout(20);
+        const afterAltDuplicate = await page.evaluate(() => {
+          const nodes = Array.from(
+            document.querySelectorAll<HTMLElement>(
+              "[data-agent-native-node-id]",
+            ),
+          );
+          return nodes.map((node) => {
+            const rect = node.getBoundingClientRect();
+            return {
+              id: node.dataset.agentNativeNodeId,
+              left: rect.left,
+              top: rect.top,
+            };
+          });
+        });
+        const duplicate = afterAltDuplicate.find(
+          (node) => node.id !== "target" && node.id !== "shield-target",
+        );
+        expect(duplicate).toBeDefined();
+        expect(Math.round(duplicate!.left)).toBe(
+          Math.round(beforeAltDuplicate.left + 12),
+        );
+        expect(Math.round(duplicate!.top)).toBe(
+          Math.round(beforeAltDuplicate.top + 2),
+        );
         expect(pageErrors).toEqual([]);
       } finally {
         await browser.close();
@@ -9883,6 +9961,68 @@ it(
         () => document.querySelectorAll("[data-an-pending-node-id]").length,
       );
       expect(stampedCount).toBe(0);
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "hit-test bridge keeps the document body as the root fallback without minting an anchor id",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+
+      await page.setContent(`<!doctype html>
+<html><head><meta charset="utf-8"></head>
+<body style="margin:0;min-height:600px;background:#fff"></body></html>`);
+      await page.addScriptTag({ content: hydratedHitTestBridgeScript() });
+
+      const reply = (await page.evaluate(
+        () =>
+          new Promise((resolve) => {
+            const onMsg = (event: MessageEvent) => {
+              if (event.data?.type !== "agent-native:hit-test-result") return;
+              window.removeEventListener("message", onMsg);
+              resolve(event.data);
+            };
+            window.addEventListener("message", onMsg);
+            window.postMessage(
+              {
+                type: "agent-native:hit-test",
+                correlationId: "empty-root",
+                x: 180,
+                y: 240,
+                preview: false,
+              },
+              "*",
+            );
+          }),
+      )) as {
+        anchorNodeId: string;
+        pendingNodeId?: string;
+        placement: string;
+        dropMode: string;
+      };
+
+      expect(reply).toMatchObject({
+        anchorNodeId: "",
+        placement: "inside",
+        dropMode: "flow-insert",
+      });
+      expect(reply.pendingNodeId).toBeUndefined();
+      expect(
+        await page.evaluate(
+          () => document.querySelectorAll("[data-an-pending-node-id]").length,
+        ),
+      ).toBe(0);
       expect(pageErrors).toEqual([]);
     } finally {
       await browser.close();

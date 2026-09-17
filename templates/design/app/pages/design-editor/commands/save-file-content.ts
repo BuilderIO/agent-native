@@ -26,6 +26,7 @@ export interface SaveFileContentArgs {
   createFileSaveOutboxEntry: (
     pending: FileContentSaveRequest,
   ) => DesignSaveOutboxEntry | null;
+  designId?: string;
   fileSaveChainsRef: RefObject<Record<string, Promise<void>>>;
   journalOutboxEntry: (entry: DesignSaveOutboxEntry) => Promise<boolean>;
   latestFileSaveForUnloadRef: RefObject<Record<string, FileContentSaveRequest>>;
@@ -127,6 +128,7 @@ export function runSaveFileContent(
     acknowledgeOutboxEntry,
     canEditDesignRef,
     createFileSaveOutboxEntry,
+    designId,
     fileSaveChainsRef,
     journalOutboxEntry,
     latestFileSaveForUnloadRef,
@@ -225,6 +227,28 @@ export function runSaveFileContent(
         }
         if (persistedContentMatches && outboxEntry) {
           await acknowledgeOutboxEntry(outboxEntry);
+        }
+        if (persistedContentMatches && designId) {
+          queryClient.setQueryData(
+            ["action", "get-design", { id: designId }],
+            (old: any) => {
+              if (
+                !old ||
+                typeof old !== "object" ||
+                !Array.isArray(old.files)
+              ) {
+                return old;
+              }
+              return {
+                ...old,
+                files: old.files.map((file: { id?: unknown }) =>
+                  file.id === pending.id
+                    ? { ...file, content: pending.content }
+                    : file,
+                ),
+              };
+            },
+          );
         } else if (!persistedContentMatches) {
           // A stale/no-op save result is a source conflict, not a lost
           // connection. Drop the rejected overlay before refetch — leaving

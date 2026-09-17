@@ -442,7 +442,12 @@ export async function enterInteractView(
         .locator("[data-frame-full-view]")
     : page.locator("[data-frame-full-view]").last();
   await expect(fullView).toHaveCount(1);
-  await fullView.click();
+  // The screen card can extend beneath the fixed inspector at narrow canvas
+  // widths; invoke the button without relying on the panel's overlapping
+  // physical hit area.
+  await fullView.evaluate((element) => {
+    (element as HTMLButtonElement).click();
+  });
   // The overview screen shells are the boundary that actually unmounts; the
   // toolbar's own Interact button stays mounted and merely becomes pressed.
   await expect(page.locator("[data-screen-shell]")).toHaveCount(0);

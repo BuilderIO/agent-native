@@ -305,6 +305,33 @@ function textPrimitiveNodeIds(html: string, text: string): string[] {
   return [...ids];
 }
 
+async function authoredTextNodeId(
+  page: Page,
+  html: string,
+  text: string,
+): Promise<string | null> {
+  return page.evaluate(
+    ({ source, wantedText }) => {
+      const doc = new DOMParser().parseFromString(source, "text/html");
+      const candidates = Array.from(
+        doc.querySelectorAll<HTMLElement>(
+          '[data-agent-native-node-id][data-an-primitive="text"]',
+        ),
+      ).filter(
+        (element) =>
+          element.textContent?.trim() === wantedText &&
+          !element.closest("[data-agent-native-group-wrapper]"),
+      );
+      return (
+        candidates[candidates.length - 1]?.getAttribute(
+          "data-agent-native-node-id",
+        ) ?? null
+      );
+    },
+    { source: html, wantedText: text },
+  );
+}
+
 function styleOf(html: string, id: string): string {
   return (
     new RegExp(
@@ -350,6 +377,12 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
   }) => {
     designId = await newDesign(page);
     await openEditorAndExpandLayers(page, designId);
+    await expect
+      .poll(async () => designFiles(page, designId), {
+        timeout: 10_000,
+        message: "the board file must be seeded before creating a Screen",
+      })
+      .toContain("__board__.html");
     const before = await designFiles(page, designId);
 
     const empty = await emptyBoardPoint(page);
@@ -378,7 +411,11 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
         },
       )
       .toBe(before.length + 1);
-    navFilename = after.find((f) => !before.includes(f))!;
+    const newScreenFiles = after.filter(
+      (filename) => filename !== "__board__.html" && !before.includes(filename),
+    );
+    expect(newScreenFiles).toHaveLength(1);
+    navFilename = newScreenFiles[0]!;
     expect(
       navFilename,
       "the new screen file must be identifiable",
@@ -415,20 +452,37 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
       `precondition: must find the new screen's root row by its default ` +
         `name "${defaultName}" (from filename ${navFilename})`,
     ).toHaveCount(1);
-    await rootRow.dblclick({ force: true });
-    const input = rootRow.locator("input");
+    await rootRow.locator("[data-layer-row-button]").dblclick({ force: true });
+    const input = page.getByRole("textbox", {
+      name: "Rename layer",
+      exact: true,
+    });
     await expect(
       input,
       "no inline rename input appeared on the screen root row",
     ).toBeVisible({ timeout: 5_000 });
     await input.fill("Navigation");
     await input.press("Enter");
-    await page.waitForTimeout(800);
-
-    const filesAfterRename = await designFiles(page, designId);
-    const renamedFile = filesAfterRename.find((f) => f === navFilename)
-      ? undefined
-      : filesAfterRename.find((f) => !designFilesBefore.includes(f));
+    let filesAfterRename: string[] = [];
+    await expect
+      .poll(
+        async () => {
+          filesAfterRename = await designFiles(page, designId);
+          return filesAfterRename.some(
+            (filename) =>
+              filename !== navFilename && !designFilesBefore.includes(filename),
+          );
+        },
+        {
+          timeout: 15_000,
+          message: "renaming the Screen root must update its filename",
+        },
+      )
+      .toBe(true);
+    const renamedFile = filesAfterRename.find(
+      (filename) =>
+        filename !== navFilename && !designFilesBefore.includes(filename),
+    );
     expect(
       renamedFile,
       `Figma: renaming a top-level frame updates its name everywhere, ` +
@@ -453,19 +507,22 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
     const navFileId = await fileIdByName(page, designId, navFilename);
     await addTextInScreen(page, navFileId, { x: 700, y: 40 }, "Acme");
 
-    let html = await fileContentByName(page, designId, navFilename);
-    let ids = textPrimitiveNodeIds(html, "Acme");
-    if (ids.length === 0) {
-      // Retry once -- the text-tool commit has shown run-to-run timing
-      // flakiness in this harness independent of the gesture under test.
-      await addTextInScreen(page, navFileId, { x: 700, y: 40 }, "Acme");
-      html = await fileContentByName(page, designId, navFilename);
-      ids = textPrimitiveNodeIds(html, "Acme");
-    }
-    expect(
-      ids.length,
-      "draft-commit-stability: the Text tool did not commit a node in this run",
-    ).toBeGreaterThan(0);
+    let html = "";
+    let ids: string[] = [];
+    await expect
+      .poll(
+        async () => {
+          html = await fileContentByName(page, designId, navFilename);
+          ids = textPrimitiveNodeIds(html, "Acme");
+          return ids.length;
+        },
+        {
+          timeout: 15_000,
+          message:
+            "draft-commit-stability: the Text tool must persist Acme before dragging",
+        },
+      )
+      .toBeGreaterThan(0);
     const wordmarkId = ids[0]!;
 
     // Escape after typing leaves "Text" as the active tool -- switch to
@@ -490,10 +547,10 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
     await page.waitForTimeout(200);
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.down();
-    // Overshoot well past the frame's left edge so a moderate snap
-    // threshold at this zoom level cannot mask a plain "did it move at
-    // all" failure.
-    await page.mouse.move(screenBox.x - 40, box.y + box.height / 2, {
+    // Stop just inside the iframe's left edge. Crossing the iframe boundary
+    // hands the pointer to the overview canvas, which is a different gesture
+    // path; Figma's smart-guide result is the edge-aligned in-frame position.
+    await page.mouse.move(screenBox.x + 12, box.y + box.height / 2, {
       steps: 24,
     });
     await page.waitForTimeout(200);
@@ -586,14 +643,20 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
 
     // Cmd+D once more on the selection (copy2 is selected after its drag).
     await page.keyboard.press(`${MOD}+d`);
-    await page.waitForTimeout(500);
-    html = await fileContentByName(page, designId, navFilename);
-    ids = textPrimitiveNodeIds(html, "Link");
-    expect(
-      ids,
-      `Figma: Cmd+D duplicates in place directly above the source. Expected ` +
-        `4 "Link" texts after Cmd+D, got ${ids.length}.`,
-    ).toHaveLength(4);
+    await expect
+      .poll(
+        async () => {
+          html = await fileContentByName(page, designId, navFilename);
+          ids = textPrimitiveNodeIds(html, "Link");
+          return ids.length;
+        },
+        {
+          timeout: 15_000,
+          message:
+            "Figma: Cmd+D must persist the fourth Link before order is checked",
+        },
+      )
+      .toBe(4);
     const copy3 = ids.find(
       (i) => i !== originalId && i !== copy1 && i !== copy2,
     )!;
@@ -652,20 +715,21 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
 
     // Rename the group to "Links" via the layers panel, per the tutorial.
     const groupRow = layerRow(page, "Group");
-    if ((await groupRow.count()) > 0) {
-      await groupRow.dblclick({ force: true });
-      const input = groupRow.locator("input");
-      if (await input.isVisible().catch(() => false)) {
-        await input.fill("Links");
-        await input.press("Enter");
-        await page.waitForTimeout(500);
-      }
-    }
-    const afterRename = await fileContentByName(page, designId, navFilename);
-    expect(
-      afterRename,
-      'the group must be renamable to "Links" via the layers panel',
-    ).toContain('data-agent-native-layer-name="Links"');
+    await expect(groupRow).toHaveCount(1);
+    await groupRow.dblclick({ force: true });
+    const input = page.getByRole("textbox", {
+      name: "Rename layer",
+      exact: true,
+    });
+    await expect(input).toBeVisible();
+    await input.fill("Links");
+    await input.press("Enter");
+    await expect
+      .poll(() => fileContentByName(page, designId, navFilename), {
+        timeout: 15_000,
+        message: 'the group rename must persist as "Links"',
+      })
+      .toContain('data-agent-native-layer-name="Links"');
   });
 
   test("step 10 [overview, outside any screen + crosses the screen boundary]: Cmd+D on the Navigation screen creates a Footer screen, then a Link text is moved across screens", async ({
@@ -699,7 +763,7 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
         },
       )
       .toBe(before.length + 1);
-    const footerFilename = afterDup.find((f) => !before.includes(f))!;
+    let footerFilename = afterDup.find((f) => !before.includes(f))!;
     expect(
       footerFilename,
       "the duplicated screen file must be identifiable",
@@ -721,22 +785,49 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
     // current default display name, never by tree position (see step 1b).
     const footerDefaultName = prettyScreenName(footerFilename);
     const footerRow = screenRootRow(page, footerDefaultName);
-    if ((await footerRow.count()) > 0) {
-      await footerRow.dblclick({ force: true });
-      const renameInput = footerRow.locator("input");
-      if (await renameInput.isVisible().catch(() => false)) {
-        await renameInput.fill("Footer");
-        await renameInput.press("Enter");
-        await page.waitForTimeout(800);
-      }
-    }
+    await expect(footerRow).toHaveCount(1);
+    await footerRow.dblclick({ force: true });
+    const renameInput = page.getByRole("textbox", {
+      name: "Rename layer",
+      exact: true,
+    });
+    await expect(renameInput).toBeVisible();
+    await renameInput.fill("Footer");
+    await renameInput.press("Enter");
+    let filesAfterFooterRename: string[] = [];
+    await expect
+      .poll(
+        async () => {
+          filesAfterFooterRename = await designFiles(page, designId);
+          return filesAfterFooterRename.includes("Footer.html");
+        },
+        {
+          timeout: 15_000,
+          message: "the duplicated Screen root must persist its Footer rename",
+        },
+      )
+      .toBe(true);
+    footerFilename = "Footer.html";
 
     // Cross-screen move: drag one Link text OUT of Navigation and INTO the
     // new Footer screen (the tutorial's "delete the button instance, keep
     // editing both frames independently" implies the two screens' content
     // diverges after this point -- we exercise the underlying "element
     // crosses a screen boundary" gesture directly).
-    const movingId = linkIdsInFooterCopy[0]!;
+    const movingId = await authoredTextNodeId(page, footerHtmlBefore, "Link");
+    if (!movingId) {
+      throw new Error("the duplicated Footer must contain a top-level Link");
+    }
+
+    // Fit every screen before dragging so the tiny tutorial text layers have a
+    // real hit area. Hide the inspector through the global UI shortcut after
+    // the fit; a selected screen keeps the minimal-UI inspector mounted.
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(250);
+    await page.keyboard.press("Shift+1");
+    await page.waitForTimeout(750);
+    await page.keyboard.press(`${MOD}+\\`);
+    await page.waitForTimeout(300);
 
     // Locate the Footer screen's own iframe by scanning all screen iframes
     // for the one whose content actually contains the moving node id.
@@ -768,27 +859,17 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
       .first()
       .boundingBox();
 
-    // Drop target: the original seeded "Home" screen (index.html) -- it is
-    // guaranteed to contain neither this node id nor the Navigation/Footer
-    // content, unlike Navigation vs its own Footer duplicate which now share
-    // identical wordmark/Link text and can't be told apart by content alone.
-    let homeIframeIndex = -1;
-    for (let i = 0; i < count; i += 1) {
-      if (i === footerIframeIndex) continue;
-      const frame = iframes.nth(i).contentFrame();
-      const hasMovingNode = await frame
-        .locator(`[data-agent-native-node-id="${movingId}"]`)
-        .count()
-        .catch(() => 0);
-      const hasAnyLink = await frame
-        .locator("body")
-        .evaluate((b) => (b.textContent ?? "").includes("Link"))
-        .catch(() => true);
-      if (hasMovingNode === 0 && !hasAnyLink) {
-        homeIframeIndex = i;
-        break;
-      }
-    }
+    // Drop target: resolve the seeded Home iframe by its file id. Content
+    // heuristics are ambiguous once Navigation and Footer share the same text.
+    const homeFileId = await fileIdByName(page, designId, "index.html");
+    const homeIframeIndex = await iframes.evaluateAll(
+      (elements, wantedId) =>
+        elements.findIndex(
+          (element) =>
+            element.getAttribute("data-screen-iframe-id") === wantedId,
+        ),
+      homeFileId,
+    );
     expect(
       homeIframeIndex,
       "must find the Home screen's iframe as the drop target",
@@ -803,9 +884,16 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
       elBox.y + elBox.height / 2,
     );
     await page.mouse.down();
+    // Arm the iframe move gesture before crossing into the host canvas. A
+    // single down-plus-boundary jump is treated as selection by the bridge.
+    await page.mouse.move(
+      elBox.x + elBox.width / 2 + 20,
+      elBox.y + elBox.height / 2,
+      { steps: 5 },
+    );
     await page.mouse.move(
       targetScreenBox.x + targetScreenBox.width / 2,
-      targetScreenBox.y + 40,
+      targetScreenBox.y + targetScreenBox.height / 2,
       { steps: 24 },
     );
     await page.waitForTimeout(150);

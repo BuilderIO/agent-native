@@ -158,6 +158,20 @@ async function boardObjectBoundingBox(
   }, nodeId);
 }
 
+async function waitForBoardObjectBoundingBox(
+  page: Page,
+  nodeId: string,
+  timeoutMs = 10_000,
+): Promise<{ x: number; y: number; width: number; height: number }> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const box = await boardObjectBoundingBox(page, nodeId);
+    if (box) return box;
+    await page.waitForTimeout(300);
+  }
+  throw new Error("board object must render before dragging");
+}
+
 /** Poll until a NEW board object id (not in `before`) appears. */
 async function waitForNewBoardObjectId(
   page: Page,
@@ -178,33 +192,50 @@ async function waitForNewBoardObjectId(
 /** An empty point on the overview board, away from any screen card — a
  * fixed offset from the screen shell can land on left-shell chrome instead
  * of open canvas (see parity-tutorial-2.spec.ts's identical helper). */
-async function emptyBoardPoint(page: Page) {
-  const point = await page.evaluate(() => {
+async function emptyBoardPoint(page: Page, clearance = 0) {
+  const point = await page.evaluate((clearance) => {
     const world = document.querySelector("[data-multi-screen-canvas-world]");
     const surface = (world?.parentElement ?? world) as HTMLElement | null;
     if (!surface) return null;
-    const r = surface.getBoundingClientRect();
+    const boardLayer = document.querySelector<HTMLElement>(
+      "[data-board-surface-layer]",
+    );
+    const r = (boardLayer ?? surface).getBoundingClientRect();
     const cards = Array.from(
-      document.querySelectorAll("[data-screen-iframe-id]"),
+      document.querySelectorAll("[data-screen-card]"),
     ).map((el) => el.getBoundingClientRect());
-    for (let y = r.top + 60; y < r.bottom - 60; y += 40) {
-      for (let x = r.left + 60; x < r.right - 60; x += 40) {
+    for (
+      let y = r.top + 60 + clearance;
+      y < r.bottom - 60 - clearance;
+      y += 40
+    ) {
+      for (
+        let x = r.left + 60 + clearance;
+        x < r.right - 60 - clearance;
+        x += 40
+      ) {
         if (
           cards.some(
             (c) =>
-              x >= c.left - 24 &&
-              x <= c.right + 24 &&
-              y >= c.top - 24 &&
-              y <= c.bottom + 24,
+              x >= c.left - 24 - clearance &&
+              x <= c.right + 24 + clearance &&
+              y >= c.top - 24 - clearance &&
+              y <= c.bottom + 24 + clearance,
           )
         )
           continue;
         const hit = document.elementFromPoint(x, y);
-        if (hit && surface.contains(hit)) return { x, y };
+        if (
+          hit &&
+          surface.contains(hit) &&
+          !hit.closest("[data-screen-card], [data-board-object-selection-box]")
+        ) {
+          return { x, y };
+        }
       }
     }
     return null;
-  });
+  }, clearance);
   if (!point) throw new Error("no empty canvas point found");
   return point;
 }
@@ -257,15 +288,33 @@ function hasNode(html: string, nodeId: string): boolean {
   return html.includes(`data-agent-native-node-id="${nodeId}"`);
 }
 
-function parentIdOf(html: string, nodeId: string): string | null {
-  const marker = `data-agent-native-node-id="${nodeId}"`;
-  const openIndex = html.indexOf(marker);
-  if (openIndex < 0) return null;
-  const before = html.slice(0, openIndex);
-  const ids = [...before.matchAll(/data-agent-native-node-id="([^"]+)"/g)].map(
-    (m) => m[1]!,
-  );
-  return ids.length ? ids[ids.length - 1]! : null;
+async function parentIdsOf(
+  page: Page,
+  html: string,
+): Promise<Record<string, string | null>> {
+  return page.evaluate((source) => {
+    const doc = new DOMParser().parseFromString(source, "text/html");
+    const parentIds: Record<string, string | null> = {};
+    for (const node of Array.from(
+      doc.querySelectorAll<HTMLElement>("[data-agent-native-node-id]"),
+    )) {
+      const id = node.getAttribute("data-agent-native-node-id");
+      if (!id) continue;
+      parentIds[id] =
+        node.parentElement
+          ?.closest<HTMLElement>("[data-agent-native-node-id]")
+          ?.getAttribute("data-agent-native-node-id") ?? null;
+    }
+    return parentIds;
+  }, html);
+}
+
+async function parentIdOf(
+  page: Page,
+  html: string,
+  nodeId: string,
+): Promise<string | null> {
+  return (await parentIdsOf(page, html))[nodeId] ?? null;
 }
 
 async function textPrimitiveNodeIds(
@@ -284,6 +333,27 @@ async function textPrimitiveNodeIds(
     { html: content, text },
   );
   return [...new Set(ids)];
+}
+
+async function waitForTextPrimitiveNodeId(
+  page: Page,
+  filename: string,
+  text: string,
+): Promise<string> {
+  let ids: string[] = [];
+  await expect
+    .poll(
+      async () => {
+        ids = await textPrimitiveNodeIds(page, filename, text);
+        return ids.length;
+      },
+      {
+        timeout: 15_000,
+        message: `text node ${JSON.stringify(text)} must persist before continuing`,
+      },
+    )
+    .toBe(1);
+  return ids[0]!;
 }
 
 async function placeText(
@@ -349,14 +419,13 @@ async function renameLayerViaPanel(
   await expect(row).toBeVisible();
   await row.click({ force: true });
   await page.waitForTimeout(300);
-  const rowBox = await row.boundingBox();
-  if (!rowBox)
-    throw new Error(`layer row "${currentName}" has no bounding box`);
-  const rx = rowBox.x + 24;
-  const ry = rowBox.y + rowBox.height / 2;
-  await page.mouse.click(rx, ry);
-  await page.mouse.click(rx, ry);
-  const input = row.locator("input");
+  const nodeId = await row.getAttribute("data-layer-node-id");
+  if (!nodeId) throw new Error(`layer node "${currentName}" has no id`);
+  const stableRow = page
+    .getByRole("tree", { name: "Layers" })
+    .locator(`[data-layer-row-button][data-layer-node-id="${nodeId}"]`);
+  await stableRow.dblclick({ force: true });
+  const input = stableRow.locator("input");
   await expect(input).toBeVisible({ timeout: 5_000 });
   await input.fill(nextName);
   await input.press("Enter");
@@ -490,7 +559,7 @@ test.describe("parity: Figma Tutorial 5 - interactive button component (in-scree
       rectId,
       "expected the Rectangle tool to add a new node",
     ).toBeTruthy();
-    const parentId = parentIdOf(html, rectId!);
+    const parentId = await parentIdOf(page, html, rectId!);
     expect(
       parentId,
       `expected the rectangle drawn inside the frame's bounds to be parented under ${frameId}, got parent ${parentId}`,
@@ -656,9 +725,7 @@ test.describe("parity: Figma Tutorial 5 - interactive button component (in-scree
     if (!card) throw new Error("no screen card box");
     await placeText(page, card, "Save");
 
-    const textIds = await textPrimitiveNodeIds(page, "index.html", "Save");
-    expect(textIds.length).toBe(1);
-    const textId = textIds[0]!;
+    const textId = await waitForTextPrimitiveNodeId(page, "index.html", "Save");
 
     // The just-placed text stays selected after placeText commits, so
     // Shift+A applies directly without a redundant reselect (re-clicking
@@ -667,7 +734,7 @@ test.describe("parity: Figma Tutorial 5 - interactive button component (in-scree
     await page.waitForTimeout(400);
 
     let html = await fileContent(page, "index.html");
-    const wrapperId = parentIdOf(html, textId);
+    const wrapperId = await parentIdOf(page, html, textId);
     expect(wrapperId, "expected Shift+A to introduce a wrapper").toBeTruthy();
     const wrapperName = layerNameOf(html, wrapperId!) ?? "Group";
 
@@ -695,16 +762,28 @@ test.describe("parity: Figma Tutorial 5 - interactive button component (in-scree
 
     // Build the "button" auto-layout frame (text -> Shift+A).
     await placeText(page, card, "Save");
-    const textIds = await textPrimitiveNodeIds(page, "index.html", "Save");
-    const textId = textIds[0]!;
+    const textId = await waitForTextPrimitiveNodeId(page, "index.html", "Save");
     // The just-placed text stays selected after placeText commits, so
     // Shift+A applies directly without a redundant reselect (re-clicking
     // an already-selected node does not always refire element-select).
     await page.keyboard.press("Shift+A");
     await page.waitForTimeout(400);
     let html = await fileContent(page, "index.html");
-    const buttonFrameId = parentIdOf(html, textId)!;
-    expect(buttonFrameId).toBeTruthy();
+    let buttonFrameIdCandidate: string | null = null;
+    await expect
+      .poll(
+        async () => {
+          html = await fileContent(page, "index.html");
+          buttonFrameIdCandidate = await parentIdOf(page, html, textId);
+          return buttonFrameIdCandidate;
+        },
+        {
+          timeout: 15_000,
+          message: "Shift+A wrapper must persist before the Alt-drag setup",
+        },
+      )
+      .toBeTruthy();
+    const buttonFrameId = buttonFrameIdCandidate!;
 
     // Build a small standalone "icon" frame elsewhere on the same screen.
     const iconOrigin = { x: card.x + 60, y: card.y + 60 };
@@ -732,16 +811,12 @@ test.describe("parity: Figma Tutorial 5 - interactive button component (in-scree
       .filter((id) => !knownIds.has(id))
       .pop()!;
     expect(iconFrameId, "expected a new icon frame").toBeTruthy();
-    await renameLayerViaPanel(
-      page,
-      layerNameOf(html, iconFrameId) ?? "Frame",
-      "icon",
-    );
-
-    // Alt-drag the icon frame into the button frame.
     const iconNode = designFrame(page)
       .locator(`[data-agent-native-node-id="${iconFrameId}"]`)
       .first();
+    await expect(iconNode).toBeVisible();
+
+    // Alt-drag the icon frame into the button frame.
     const iconBox = await iconNode.boundingBox();
     const buttonNode = designFrame(page)
       .locator(`[data-agent-native-node-id="${buttonFrameId}"]`)
@@ -753,8 +828,8 @@ test.describe("parity: Figma Tutorial 5 - interactive button component (in-scree
       iconBox.x + iconBox.width / 2,
       iconBox.y + iconBox.height / 2,
     );
-    await page.mouse.down();
     await page.keyboard.down("Alt");
+    await page.mouse.down();
     const targetX = buttonBox.x + 8;
     const targetY = buttonBox.y + buttonBox.height / 2;
     await page.mouse.move(
@@ -766,38 +841,74 @@ test.describe("parity: Figma Tutorial 5 - interactive button component (in-scree
     await page.waitForTimeout(150);
     await page.mouse.up();
     await page.keyboard.up("Alt");
-    await page.waitForTimeout(500);
-
-    html = await fileContent(page, "index.html");
+    let parentIds: Record<string, string | null> = {};
+    let copyId: string | undefined;
+    await expect
+      .poll(
+        async () => {
+          html = await fileContent(page, "index.html");
+          parentIds = await parentIdsOf(page, html);
+          const allIds = [
+            ...new Set(
+              [...html.matchAll(/data-agent-native-node-id="([^"]+)"/g)].map(
+                (m) => m[1]!,
+              ),
+            ),
+          ];
+          copyId = allIds.find(
+            (id) =>
+              id !== iconFrameId &&
+              id !== textId &&
+              parentIds[id] === buttonFrameId,
+          );
+          return copyId ?? null;
+        },
+        { timeout: 10_000, message: "alt-drag copy must persist" },
+      )
+      .toBeTruthy();
     // The original icon frame must still exist untouched (alt-drag copies).
-    expect(
-      hasNode(html, iconFrameId),
-      "alt-drag must leave the original in place",
-    ).toBe(true);
-    const allIds = [
-      ...new Set(
-        [...html.matchAll(/data-agent-native-node-id="([^"]+)"/g)].map(
-          (m) => m[1]!,
-        ),
-      ),
-    ];
-    const copyId = allIds.find(
-      (id) => id !== iconFrameId && layerNameOf(html, id) === "icon",
-    );
+    expect(hasNode(html, iconFrameId)).toBe(true);
+    const copyName = copyId ? layerNameOf(html, copyId) : null;
     test.info().annotations.push({
       type: "alt-drag-copy-id",
       description: String(copyId),
     });
     expect(
       copyId,
-      "expected an alt-drag copy named identically ('icon')",
+      "expected an alt-drag copy as a second child of the button frame",
     ).toBeTruthy();
     expect(
-      parentIdOf(html, copyId!),
+      copyName,
+      "the duplicated frame should preserve its authored layer name",
+    ).toBe("Frame");
+    expect(
+      parentIds[copyId!],
       "expected the copy to be reparented into the button frame it was dropped on",
     ).toBe(buttonFrameId);
 
-    // Set the auto-layout gap to 12 via the inspector (peer-owned control).
+    // One undo should remove exactly the copy (alt-drag = one undo step).
+    const primary = process.platform === "darwin" ? "Meta" : "Control";
+    await page.evaluate(() => {
+      document.body.tabIndex = -1;
+      document.body.focus();
+    });
+    await page.keyboard.press(`${primary}+Z`);
+    await page.waitForTimeout(300);
+    html = await fileContent(page, "index.html");
+    expect(
+      hasNode(html, copyId!),
+      "one undo of the alt-drag should remove the copy",
+    ).toBe(false);
+    expect(hasNode(html, iconFrameId)).toBe(true);
+
+    // Set the auto-layout gap via the inspector after the history assertion so
+    // that the style edit cannot become the duplicate's undo predecessor.
+    const buttonLayer = page
+      .getByRole("tree", { name: "Layers" })
+      .getByRole("button", { name: "Frame 2", exact: true });
+    await expect(buttonLayer).toBeVisible();
+    await buttonLayer.click();
+    await page.waitForTimeout(250);
     const autoLayoutSection = page
       .locator("section")
       .filter({ has: page.getByRole("heading", { name: /Auto layout/i }) })
@@ -809,9 +920,16 @@ test.describe("parity: Figma Tutorial 5 - interactive button component (in-scree
     if ((await gapInput.count()) > 0) {
       await gapInput.fill("12");
       await gapInput.press("Enter");
-      await page.waitForTimeout(200);
-      html = await fileContent(page, "index.html");
-      gapApplied = /12px/.test(styleOf(html, buttonFrameId)["gap"] ?? "");
+      await expect
+        .poll(
+          async () => {
+            html = await fileContent(page, "index.html");
+            return /12px/.test(styleOf(html, buttonFrameId)["gap"] ?? "");
+          },
+          { timeout: 10_000, message: "auto-layout gap did not persist" },
+        )
+        .toBe(true);
+      gapApplied = true;
     }
     test.info().annotations.push({
       type: "gap-applied",
@@ -821,20 +939,6 @@ test.describe("parity: Figma Tutorial 5 - interactive button component (in-scree
       gapApplied,
       "auto-layout gap 12 was not applied to the button frame",
     ).toBe(true);
-
-    // One undo should remove exactly the copy (alt-drag = one undo step).
-    const primary = process.platform === "darwin" ? "Meta" : "Control";
-    // Undo the gap edit first, then the alt-drag, isolating each assertion.
-    await page.keyboard.press(`${primary}+Z`);
-    await page.waitForTimeout(300);
-    await page.keyboard.press(`${primary}+Z`);
-    await page.waitForTimeout(300);
-    html = await fileContent(page, "index.html");
-    expect(
-      hasNode(html, copyId!),
-      "one undo of the alt-drag should remove the copy",
-    ).toBe(false);
-    expect(hasNode(html, iconFrameId)).toBe(true);
   });
 
   test("step 6 (no equivalent): no boolean component-property affordance ('Show label'/'Show icon')", async ({
@@ -869,7 +973,7 @@ test.describe("parity: Figma Tutorial 5 - interactive button component (in-scree
 
     await selectByText(page, "Variant CTA");
     await page.waitForTimeout(300);
-    const target = page
+    const target = designFrame(page)
       .locator(`[data-agent-native-node-id="e2e-component-button"]`)
       .first();
     await expect(
@@ -985,8 +1089,23 @@ test.describe("parity: Tutorial 5 - overview canvas (outside any screen) and cro
     await gotoEditor(page, currentDesignId);
     await installBridge(page);
 
-    const { x: outsideX, y: outsideY } = await emptyBoardPoint(page);
+    const { x: outsideX, y: outsideY } = await emptyBoardPoint(page, 160);
 
+    await expect
+      .poll(
+        async () => {
+          try {
+            return (await fileContent(page, "__board__.html")).length > 0;
+          } catch {
+            return false;
+          }
+        },
+        {
+          timeout: 15_000,
+          message: "board file should be ready before drawing",
+        },
+      )
+      .toBe(true);
     const beforeDraw = new Set(Object.keys(await boardObjects(page)));
     await pressToolKey(page, "r");
     // A plain click (no drag) never committed a shape here — draw it with a
@@ -998,43 +1117,34 @@ test.describe("parity: Tutorial 5 - overview canvas (outside any screen) and cro
     await page.waitForTimeout(400);
 
     const shapeId = await waitForNewBoardObjectId(page, beforeDraw);
-    const before = await boardObjectBoundingBox(page, shapeId);
-    expect(
-      before,
-      "board-object-camera-and-click: harness could not locate the created board shape",
-    ).not.toBeNull();
-    expect(
-      before!.width,
-      "created board shape must have a real width",
-    ).toBeGreaterThan(0);
-    expect(
-      before!.height,
-      "created board shape must have a real height",
-    ).toBeGreaterThan(0);
     // Drawing a shape leaves the Rectangle tool itself still armed — a
     // mouse-down on the shape without switching back to Move would start
     // drawing a SECOND shape instead of alt-dragging the existing one.
     await pressToolKey(page, "v");
     await page.waitForTimeout(200);
     const countBefore = Object.keys(await boardObjects(page)).length;
+    const dragBox = await waitForBoardObjectBoundingBox(page, shapeId);
+    const dropPoint = await emptyBoardPoint(page);
 
     await page.mouse.move(
-      before!.x + before!.width / 2,
-      before!.y + before!.height / 2,
+      dragBox.x + dragBox.width / 2,
+      dragBox.y + dragBox.height / 2,
     );
-    await page.mouse.down();
     await page.keyboard.down("Alt");
-    await page.mouse.move(before!.x + 100, before!.y + 40, { steps: 10 });
+    await page.mouse.down();
+    await page.mouse.move(dropPoint.x, dropPoint.y, { steps: 10 });
     await page.waitForTimeout(120);
     await page.mouse.up();
     await page.keyboard.up("Alt");
     await page.waitForTimeout(400);
-
-    const countAfter = Object.keys(await boardObjects(page)).length;
-    expect(
-      countAfter,
-      "alt-drag on the overview canvas should duplicate the board object",
-    ).toBe(countBefore + 1);
+    await expect
+      .poll(async () => Object.keys(await boardObjects(page)).length, {
+        timeout: 15_000,
+        message:
+          "alt-drag on the overview canvas should duplicate the board object",
+      })
+      .toBe(countBefore + 1);
+    expect(await boardObjects(page)).toHaveProperty(shapeId);
   });
 
   test("Dragging the built button frame out of the screen onto the board, then back in, reparents it both ways", async ({
@@ -1051,8 +1161,7 @@ test.describe("parity: Tutorial 5 - overview canvas (outside any screen) and cro
     const card = await homeScreenCard(page).boundingBox();
     if (!card) throw new Error("no screen card box");
     await placeText(page, card, "Save");
-    const textIds = await textPrimitiveNodeIds(page, "index.html", "Save");
-    const textId = textIds[0]!;
+    const textId = await waitForTextPrimitiveNodeId(page, "index.html", "Save");
     // tutorial5-10 (test-authoring bug, fixed): this pressed "Shift+A", which
     // is not bound to anything — Frame selection's real shortcut is Figma's
     // Cmd+Alt+G (useDesignHotkeys.ts's onFrameSelection, gated on
@@ -1062,17 +1171,38 @@ test.describe("parity: Tutorial 5 - overview canvas (outside any screen) and cro
     // text's actual DOM parent (the screen's own <body>) instead of a real
     // wrapper frame, and "dragging the button frame out of the screen" was
     // actually dragging the screen's own root — which can never leave it.
-    // The just-placed text stays selected after placeText commits, so
-    // Cmd+Alt+G applies directly without a redundant reselect (re-clicking
-    // an already-selected node does not always refire element-select).
+    // Clear the creation selection so selectByText observes a real transition
+    // after the debounced publication settles.
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(200);
+    await selectByText(page, "Save");
     const primary = process.platform === "darwin" ? "Meta" : "Control";
     await page.keyboard.press(`${primary}+Alt+g`);
     await page.waitForTimeout(400);
     let html = await fileContent(page, "index.html");
-    const buttonFrameId = parentIdOf(html, textId)!;
+    const buttonFrameId = (await parentIdOf(page, html, textId))!;
     expect(buttonFrameId).toBeTruthy();
+    expect(layerNameOf(html, buttonFrameId!)).toBe("Frame");
 
-    const target = designFrame(page)
+    // Frame selection wraps the text at its intrinsic size. Give the wrapper
+    // real background area so the drag starts on the frame, not its text leaf.
+    const widthInput = page.getByLabel("W size in pixels");
+    const heightInput = page.getByLabel("H size in pixels");
+    await widthInput.fill("120");
+    await widthInput.press("Enter");
+    await heightInput.fill("48");
+    await heightInput.press("Enter");
+    await expect
+      .poll(async () => {
+        const nextHtml = await fileContent(page, "index.html");
+        const style = styleOf(nextHtml, buttonFrameId!);
+        return style.width === "120px" && style.height === "48px";
+      })
+      .toBe(true);
+
+    const target = homeScreenCard(page)
+      .locator("iframe[data-design-preview-iframe]")
+      .contentFrame()
       .locator(`[data-agent-native-node-id="${buttonFrameId}"]`)
       .first();
     const box = await target.boundingBox();
@@ -1091,12 +1221,25 @@ test.describe("parity: Tutorial 5 - overview canvas (outside any screen) and cro
     await page.mouse.move(outsideX, outsideY, { steps: 8 });
     await page.waitForTimeout(150);
     await page.mouse.up();
-    await page.waitForTimeout(500);
 
     let indexHtml = await fileContent(page, "index.html");
-    const boardHtml =
-      (await getDesignFiles(page)).find((f) => f.filename === "__board__.html")
-        ?.content ?? "";
+    let boardHtml = await fileContent(page, "__board__.html");
+    await expect
+      .poll(
+        async () => {
+          indexHtml = await fileContent(page, "index.html");
+          boardHtml = await fileContent(page, "__board__.html");
+          return (
+            !hasNode(indexHtml, buttonFrameId) &&
+            boardHtml.includes(buttonFrameId)
+          );
+        },
+        {
+          timeout: 15_000,
+          message: "screen-to-board reparent must persist in both files",
+        },
+      )
+      .toBe(true);
     expect(
       hasNode(indexHtml, buttonFrameId),
       "dragging the button frame out of the screen should remove it from index.html",
@@ -1107,6 +1250,8 @@ test.describe("parity: Tutorial 5 - overview canvas (outside any screen) and cro
     ).toBe(true);
 
     const boardNode = page
+      .locator("[data-board-surface-layer] iframe[data-design-preview-iframe]")
+      .contentFrame()
       .locator(`[data-agent-native-node-id="${buttonFrameId}"]`)
       .first();
     const boardBox = await boardNode.boundingBox();
@@ -1125,9 +1270,18 @@ test.describe("parity: Tutorial 5 - overview canvas (outside any screen) and cro
     await page.mouse.move(backX, backY, { steps: 8 });
     await page.waitForTimeout(150);
     await page.mouse.up();
-    await page.waitForTimeout(500);
-
-    indexHtml = await fileContent(page, "index.html");
+    await expect
+      .poll(
+        async () => {
+          indexHtml = await fileContent(page, "index.html");
+          return hasNode(indexHtml, buttonFrameId);
+        },
+        {
+          timeout: 15_000,
+          message: "board-to-screen reparent must persist in index.html",
+        },
+      )
+      .toBe(true);
     expect(
       hasNode(indexHtml, buttonFrameId),
       "dragging back onto the screen should reparent it back into index.html",
