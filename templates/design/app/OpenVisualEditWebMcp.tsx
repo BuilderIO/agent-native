@@ -265,8 +265,10 @@ export function OpenVisualEditWebMcp() {
             {"Cancel" /* i18n-ignore stable WebMCP approval control */}
           </AlertDialogCancel>
           <AlertDialogAction onClick={() => resolveApproval(true)}>
-            {approval?.confirmLabel ??
-              "Approve" /* i18n-ignore stable WebMCP approval control */}
+            {
+              approval?.confirmLabel ??
+                "Approve" /* i18n-ignore stable WebMCP approval control */
+            }
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

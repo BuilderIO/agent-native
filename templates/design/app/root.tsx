@@ -270,6 +270,7 @@ export default function Root() {
         queryClient={queryClient}
         isPublicPath={isPublicPath}
         sessionBypass={isEmbedAuthActive()}
+        disableWebMcp
         i18n={{ catalog: i18nCatalog, persistPreference: !isPublicPath }}
         toaster={<DesignToaster />}
       >
