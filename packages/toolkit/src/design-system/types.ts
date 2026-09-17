@@ -12,11 +12,7 @@ import type {
 export const DESIGN_SYSTEM_CONTRACT_VERSION = 1 as const;
 
 export type DesignSystemIntent = "primary" | "neutral" | "danger";
-export type DesignSystemEmphasis =
-  | "solid"
-  | "outline"
-  | "ghost"
-  | "ghost-inset";
+export type DesignSystemEmphasis = "solid" | "outline" | "ghost";
 export type DesignSystemSize = "compact" | "default" | "large";
 export type DesignSystemTone =
   | "neutral"
@@ -65,6 +61,8 @@ export interface ActionButtonProps
   children?: ReactNode;
   intent?: DesignSystemIntent;
   emphasis?: DesignSystemEmphasis;
+  /** Requests an inset focus ring when the button uses ghost emphasis. */
+  inset?: boolean;
   size?: DesignSystemSize;
   pending?: boolean;
   disabled?: boolean;

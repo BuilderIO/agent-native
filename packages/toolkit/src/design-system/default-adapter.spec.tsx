@@ -61,7 +61,8 @@ describe("default design system adapter", () => {
   it("preserves inset focus semantics for ActionButtons", () => {
     const button = renderComponent(defaultDesignSystemComponents.ActionButton, {
       children: "Sort",
-      emphasis: "ghost-inset",
+      emphasis: "ghost",
+      inset: true,
     });
 
     expect(button.props.variant).toBe("ghost-inset");

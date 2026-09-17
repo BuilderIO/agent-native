@@ -65,6 +65,7 @@ export function ToolkitProvider({
       children,
       intent,
       emphasis,
+      inset,
       size,
       pending,
       leadingIcon,
@@ -75,7 +76,7 @@ export function ToolkitProvider({
       ...props
     }: ActionButtonProps) {
       const variant =
-        emphasis === "ghost-inset"
+        inset && emphasis === "ghost"
           ? "ghost-inset"
           : emphasis === "ghost"
             ? "ghost"

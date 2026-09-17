@@ -71,8 +71,9 @@ import type {
 function buttonVariant(
   intent: DesignSystemIntent = "neutral",
   emphasis: DesignSystemEmphasis = "solid",
+  inset = false,
 ) {
-  if (emphasis === "ghost-inset") return "ghost-inset" as const;
+  if (inset && emphasis === "ghost") return "ghost-inset" as const;
   if (emphasis === "ghost") return "ghost" as const;
   if (emphasis === "outline") return "outline" as const;
   if (intent === "primary") return "default" as const;
@@ -90,6 +91,7 @@ const DefaultActionButton: DesignSystemComponents["ActionButton"] = ({
   children,
   intent,
   emphasis,
+  inset,
   size,
   pending,
   disabled,
@@ -105,7 +107,7 @@ const DefaultActionButton: DesignSystemComponents["ActionButton"] = ({
     {...props}
     ref={elementRef}
     type={type}
-    variant={buttonVariant(intent, emphasis)}
+    variant={buttonVariant(intent, emphasis, inset)}
     size={buttonSize(size)}
     disabled={disabled || pending}
     onClick={(event) => {
