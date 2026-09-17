@@ -10,6 +10,7 @@ import {
 import { collectAppPageErrors } from "../../lib/app";
 import {
   assertSignedInOnBeta,
+  runMarker,
   signedInContext,
   skipUnlessAuthed,
 } from "../../lib/authed";
@@ -192,22 +193,87 @@ async function openAuthedPage(browser: Browser): Promise<AuthedPage> {
   }
 }
 
-async function createFixture(page: Page): Promise<string> {
+async function createFixture(
+  page: Page,
+  onCreated: (designId: string) => void,
+): Promise<string> {
   const created = await postAction(page, "create-design", {
-    title: `Beta Design interactions ${Date.now()}`,
+    title: runMarker(`Design interactions ${Date.now()}`),
     projectType: "prototype",
   });
   const designId = String(
     created?.id ?? created?.data?.id ?? created?.design?.id ?? "",
   );
   if (!designId) throw new Error("create-design returned no id");
-  await postAction(page, "create-file", {
-    designId,
-    filename: "index.html",
-    content: FIXTURE,
-    fileType: "html",
-  });
+  onCreated(designId);
+  try {
+    await postAction(page, "create-file", {
+      designId,
+      filename: "index.html",
+      content: FIXTURE,
+      fileType: "html",
+    });
+  } catch (error) {
+    try {
+      await postAction(page, "delete-design", { id: designId });
+      onCreated("");
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        `create-file failed for ${designId}; cleanup also failed`,
+      );
+    }
+    throw error;
+  }
   return designId;
+}
+
+async function cleanupTest(options: {
+  context: BrowserContext;
+  page: Page;
+  designId: string;
+  appErrors: string[];
+  primaryFailure: boolean;
+}): Promise<void> {
+  const failures: string[] = [];
+  try {
+    if (options.designId) {
+      await postAction(options.page, "delete-design", { id: options.designId });
+    }
+  } catch (error) {
+    failures.push(
+      `delete-design failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  try {
+    expect(
+      options.appErrors,
+      `${ORIGIN} emitted app-owned page errors`,
+    ).toEqual([]);
+  } catch (error) {
+    failures.push(
+      `app-owned page errors: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  try {
+    await options.context.close();
+  } catch (error) {
+    failures.push(
+      `context.close failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  if (failures.length === 0) return;
+
+  const message = `[beta-e2e] Design test teardown failures:\n${failures.join("\n")}`;
+  console.error(message);
+  if (options.primaryFailure) {
+    test.info().annotations.push({
+      type: "cleanup-failure",
+      description: message,
+    });
+    return;
+  }
+  throw new Error(message);
 }
 
 function frame(page: Page) {
@@ -336,8 +402,11 @@ test.describe("authenticated beta Design interactions", () => {
   }) => {
     const { context, page, appErrors } = await openAuthedPage(browser);
     let designId = "";
+    let primaryFailure = false;
     try {
-      designId = await createFixture(page);
+      designId = await createFixture(page, (id) => {
+        designId = id;
+      });
       await openEditor(page, designId, SHAPE_ID);
       await expandLayers(page);
       await selectLayer(page, SHAPE_NAME);
@@ -449,10 +518,17 @@ test.describe("authenticated beta Design interactions", () => {
       expect(reloadedRowText[0]).toMatch(/Image 1/);
       expect(reloadedRowText[1]).toMatch(/Radial gradient 2/);
       expect(reloadedRowText[2]).toMatch(/Linear gradient 3/);
+    } catch (error) {
+      primaryFailure = true;
+      throw error;
     } finally {
-      if (designId) await postAction(page, "delete-design", { id: designId });
-      expect(appErrors, `${ORIGIN} emitted app-owned page errors`).toEqual([]);
-      await context.close();
+      await cleanupTest({
+        context,
+        page,
+        designId,
+        appErrors,
+        primaryFailure,
+      });
     }
   });
 
@@ -461,8 +537,11 @@ test.describe("authenticated beta Design interactions", () => {
   }) => {
     const { context, page, appErrors } = await openAuthedPage(browser);
     let designId = "";
+    let primaryFailure = false;
     try {
-      designId = await createFixture(page);
+      designId = await createFixture(page, (id) => {
+        designId = id;
+      });
       await openEditor(page, designId, HEADING_ID);
       await expandLayers(page);
       await selectLayer(page, HEADING_NAME);
@@ -560,10 +639,17 @@ test.describe("authenticated beta Design interactions", () => {
         `${FINAL_TEXT_SIZE}px`,
       );
       expect(savedAfterReload[BODY_ID].fontSize).toBe(`${FINAL_TEXT_SIZE}px`);
+    } catch (error) {
+      primaryFailure = true;
+      throw error;
     } finally {
-      if (designId) await postAction(page, "delete-design", { id: designId });
-      expect(appErrors, `${ORIGIN} emitted app-owned page errors`).toEqual([]);
-      await context.close();
+      await cleanupTest({
+        context,
+        page,
+        designId,
+        appErrors,
+        primaryFailure,
+      });
     }
   });
 });
