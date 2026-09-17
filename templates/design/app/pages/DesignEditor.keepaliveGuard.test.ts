@@ -139,8 +139,4 @@ describe("shouldClearLatestUnloadSave", () => {
       ),
     ).toBe(false);
   });
-
-  it("keeps the retry when the server skipped a stale mirror write", () => {
-    expect(shouldClearLatestUnloadSave(completed, completed, true)).toBe(false);
-  });
 });

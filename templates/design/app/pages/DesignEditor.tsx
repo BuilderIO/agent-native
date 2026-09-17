@@ -3843,6 +3843,12 @@ function DesignEditor() {
         toast.error(t("designEditor.toasts.saveConflict"), {
           id: "design-save-conflict:outbox",
         });
+        for (const { entry } of result.rebased) {
+          const content = entry.payload.content;
+          if (typeof content === "string") {
+            rollbackPendingLocalFileContent(entry.resourceId, content);
+          }
+        }
       }
       for (const entry of [
         ...result.saved,
@@ -3877,6 +3883,7 @@ function DesignEditor() {
   }, [
     designSaveActorScope,
     id,
+    rollbackPendingLocalFileContent,
     queryClient,
     t,
     warnChangesWillRetry,

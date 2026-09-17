@@ -1,4 +1,5 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
+import { sourceContentHash } from "@shared/source-workspace";
 import type { QueryClient } from "@tanstack/react-query";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
@@ -7,7 +8,10 @@ import type { DesignSaveOutboxEntry } from "@/lib/design-save-outbox";
 import { updateFileResultPersistedContent } from "@/lib/design-save-outbox";
 import type { PatchProofState } from "@/pages/design-editor/command-types";
 import type { FileContentSaveRequest } from "@/pages/design-editor/editor-state";
-import { shouldClearLatestUnloadSave } from "@/pages/design-editor/editor-state";
+import {
+  advanceLatestUnloadSaveBase,
+  shouldClearLatestUnloadSave,
+} from "@/pages/design-editor/editor-state";
 import {
   classifyDesignSaveFailure,
   designSaveErrorMessage,
@@ -120,6 +124,22 @@ export function runSaveFileContent(
           pending.content,
           t("common.genericError"),
         );
+        const latest = latestFileSaveForUnloadRef.current[pending.id];
+        if (
+          persistedContentMatches &&
+          advanceLatestUnloadSaveBase(
+            latest,
+            pending,
+            resultInfo?.versionHash ?? sourceContentHash(pending.content),
+          )
+        ) {
+          const advancedOutboxEntry = latest
+            ? createFileSaveOutboxEntry(latest)
+            : null;
+          if (advancedOutboxEntry) {
+            void journalOutboxEntry(advancedOutboxEntry);
+          }
+        }
         if (
           persistedContentMatches &&
           pending.identityMigrationSourceContent !== undefined &&
@@ -152,7 +172,6 @@ export function runSaveFileContent(
           shouldClearLatestUnloadSave(
             latestFileSaveForUnloadRef.current[pending.id],
             pending,
-            !persistedContentMatches,
           )
         ) {
           delete latestFileSaveForUnloadRef.current[pending.id];

@@ -8,6 +8,7 @@ import {
   type ApplyFileContentUpdateArgs,
 } from "./commands/apply-file-content-update";
 import {
+  advanceLatestUnloadSaveBase,
   coalescePendingFileContentSave,
   shouldClearLatestUnloadSaveForOutboxEntry,
   type FileContentSaveRequest,
@@ -36,6 +37,36 @@ it("retires only the unload snapshot acknowledged by an outbox replay", () => {
       operationSource: latest.operationSource,
       operationRevision: latest.operationRevision - 1,
     }),
+  ).toBe(false);
+});
+
+it("advances a newer unload snapshot only when it still carries the predecessor base", () => {
+  const completed: FileContentSaveRequest = {
+    id: "screen-a",
+    content: "first",
+    syncCollab: true,
+    operationSource: "tab-a",
+    operationRevision: 1,
+    expectedVersionHash: "base",
+    unloadExpectedVersionHash: "base",
+  };
+  const latest: FileContentSaveRequest = {
+    ...completed,
+    content: "second",
+    operationRevision: 2,
+    expectedVersionHash: "first-hash",
+  };
+
+  expect(advanceLatestUnloadSaveBase(latest, completed, "first-hash")).toBe(
+    true,
+  );
+  expect(latest.unloadExpectedVersionHash).toBe("first-hash");
+  expect(
+    advanceLatestUnloadSaveBase(
+      { ...latest, unloadExpectedVersionHash: "different-base" },
+      completed,
+      "ignored",
+    ),
   ).toBe(false);
 });
 

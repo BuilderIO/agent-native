@@ -631,10 +631,8 @@ type FileContentSaveRequestsById = Readonly<
 export function shouldClearLatestUnloadSave(
   latest: FileContentSaveRequest | undefined,
   completed: FileContentSaveRequest,
-  skippedStaleMirror = false,
 ): boolean {
   return Boolean(
-    !skippedStaleMirror &&
     latest &&
     latest.id === completed.id &&
     latest.content === completed.content &&
@@ -642,6 +640,34 @@ export function shouldClearLatestUnloadSave(
     latest.operationSource === completed.operationSource &&
     latest.operationRevision === completed.operationRevision,
   );
+}
+
+/**
+ * A completed predecessor advances a newer unload replay from its old CAS
+ * base. Mutate the request in place so debounce slots and save chains keep the
+ * same request object, then let the caller re-journal its updated payload.
+ */
+export function advanceLatestUnloadSaveBase(
+  latest: FileContentSaveRequest | undefined,
+  completed: FileContentSaveRequest,
+  persistedVersionHash: string,
+): boolean {
+  const completedBase =
+    completed.unloadExpectedVersionHash ?? completed.expectedVersionHash;
+  const latestBase =
+    latest?.unloadExpectedVersionHash ?? latest?.expectedVersionHash;
+  if (
+    !latest ||
+    latest === completed ||
+    latest.id !== completed.id ||
+    latest.operationSource !== completed.operationSource ||
+    latest.operationRevision <= completed.operationRevision ||
+    latestBase !== completedBase
+  ) {
+    return false;
+  }
+  latest.unloadExpectedVersionHash = persistedVersionHash;
+  return true;
 }
 
 export function shouldClearLatestUnloadSaveForOutboxEntry(
