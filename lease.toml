@@ -1,8 +1,8 @@
 pr = "4896"
 owner_thread = "01a0af79-8b56-7f60-9d07-313cc687031b"
-version = "4"
-expires_at = "2026-09-17T13:32:17Z"
-parent_version = "9493192157f0ca40569d6b7bbfc8d3badb46bb6d"
+version = "5"
+expires_at = "2026-09-17T13:34:51Z"
+parent_version = "92fd40efa1ef8c4a0ea7dea3745902a0e03e0864"
 legacy_heartbeat_version = "absent"
 legacy_retired = true
 state = "active"
