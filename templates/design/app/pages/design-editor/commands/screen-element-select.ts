@@ -9,6 +9,7 @@ import type {
 } from "@/components/design/types";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
 import {
+  canonicalElementInfoForCodeLayerNode,
   canonicalizeElementInfoFromProjection,
   elementInfoFromCodeLayerNode,
   resolveCodeLayerNodeFromElementInfo,
@@ -226,7 +227,7 @@ export function runScreenElementSelect(
           if (node) {
             projection = acceptedProjection;
             canonical = withMeasuredGeometry(
-              elementInfoFromCodeLayerNode(node),
+              canonicalElementInfoForCodeLayerNode(canonical, node, screenId),
               screenId,
             );
           }
@@ -260,7 +261,7 @@ export function runScreenElementSelect(
         if (node) {
           projection = acceptedProjection;
           canonical = withMeasuredGeometry(
-            elementInfoFromCodeLayerNode(node),
+            canonicalElementInfoForCodeLayerNode(canonical, node, screenId),
             screenId,
           );
         }

@@ -608,6 +608,9 @@ describe("Layers selection runtime-info echo", () => {
 
       runScreenElementSelect(setup.commandArgs, SCREEN_ID, info);
 
+      expect(setup.setSelectedElement).toHaveBeenCalledWith(
+        expect.objectContaining({ computedStyles: info.computedStyles }),
+      );
       expect(queueFileContentSave).toHaveBeenCalledOnce();
       const [fileId, savedContent, saveOptions] =
         queueFileContentSave.mock.calls[0]!;

@@ -569,6 +569,7 @@ import {
   elementInfoFromCodeLayerNode,
   findCodeLayerSiblingOrder,
   isCodeLayerNodeRuntimeOnly,
+  preferredCodeLayerSelector,
   remapLegacyCodeLayerNodeId,
   resolveCodeLayerNodeFromBridge,
   resolveCodeLayerNodeFromElementInfo,
@@ -1045,6 +1046,58 @@ const DESIGN_CHROME_RAIL_WIDTH_PX = 64;
 
 function pageHasWebMcpHost(): boolean {
   return hasNativeWebMcpHost();
+}
+
+function readRenderedLayerInfo(owner: {
+  fileId: string;
+  node: CodeLayerNode;
+}): ElementInfo | null {
+  const base = elementInfoFromCodeLayerNode(owner.node);
+  for (const preview of designPreviewWindows()) {
+    try {
+      const element = preview.document.querySelector(
+        preferredCodeLayerSelector(owner.node),
+      );
+      if (!element) continue;
+      const computed = preview.getComputedStyle(element);
+      const parent = element.parentElement;
+      const parentComputed = parent
+        ? preview.getComputedStyle(parent)
+        : undefined;
+      const rect = element.getBoundingClientRect();
+      return {
+        ...base,
+        sourceLayerIdentity: { screenId: owner.fileId, nodeId: owner.node.id },
+        computedStyles: {
+          ...base.computedStyles,
+          position: computed.position,
+          zIndex: computed.zIndex,
+        },
+        boundingRect: {
+          x: rect.x,
+          y: rect.y,
+          width: rect.width,
+          height: rect.height,
+        },
+        ...(parentComputed
+          ? {
+              parentDisplay: parentComputed.display,
+              parentLayout: {
+                ...base.parentLayout,
+                display: parentComputed.display,
+              },
+            }
+          : {}),
+      };
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "SecurityError") {
+        // Cross-origin previews fall through to the bridge measurement below.
+        continue;
+      }
+      throw error;
+    }
+  }
+  return null;
 }
 
 // ── Route wrapper — remounts editor state per design id ──────────────────────
@@ -11347,7 +11400,7 @@ function DesignEditor() {
         preserveSelection?: boolean;
         pendingUndoGestureId?: string;
       } = {},
-    ) =>
+    ) => {
       runCommitVisualStyles(
         {
           activeBreakpointUpperBoundPx,
@@ -11391,7 +11444,9 @@ function DesignEditor() {
         selector,
         styles,
         options,
-      ),
+      );
+      renderedElementInfoByLayerKeyRef.current.clear();
+    },
     [
       activeFile,
       activeBreakpointWidthState,
@@ -21096,8 +21151,47 @@ function DesignEditor() {
         id: string;
         range: boolean;
       },
-    ) =>
-      recordSelectionHistoryAroundChange(() =>
+    ) => {
+      const hydrateRenderedLayerInfo = () => {
+        const cache = (
+          owner: {
+            fileId: string;
+            node: CodeLayerNode;
+          },
+          measured: ElementInfo,
+        ) => {
+          const stableId =
+            owner.node.dataAttributes["data-agent-native-node-id"];
+          renderedElementInfoByLayerKeyRef.current.set(
+            `${owner.fileId}:${owner.node.id}`,
+            measured,
+          );
+          if (stableId) {
+            renderedElementInfoByLayerKeyRef.current.set(
+              `${owner.fileId}:${stableId}`,
+              measured,
+            );
+          }
+        };
+        for (const layerId of ids) {
+          const owner = codeLayerOwnerByNodeId.get(layerId);
+          if (!owner || owner.runtimeOnly) continue;
+          const synchronouslyMeasured = readRenderedLayerInfo(owner);
+          if (synchronouslyMeasured) {
+            cache(owner, synchronouslyMeasured);
+            continue;
+          }
+          void requestSelectionMeasurement({
+            targetWindows: designPreviewWindows,
+            screenId: owner.fileId,
+            selector: preferredCodeLayerSelector(owner.node),
+          }).then((measured) => {
+            if (!measured) return;
+            cache(owner, measured);
+          });
+        }
+      };
+      recordSelectionHistoryAroundChange(() => {
         runLayerSelectionChange(
           {
             applyFileContentUpdate,
@@ -21124,8 +21218,10 @@ function DesignEditor() {
           },
           ids,
           _intent,
-        ),
-      ),
+        );
+        hydrateRenderedLayerInfo();
+      });
+    },
     [
       activeFile?.id,
       activeFileId,
@@ -21138,6 +21234,7 @@ function DesignEditor() {
       getScreenContent,
       overviewSelectedScreenIds,
       recordSelectionHistoryAroundChange,
+      renderedElementInfoByLayerKeyRef,
       selectedElement,
     ],
   );

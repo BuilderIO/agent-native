@@ -102,6 +102,8 @@ interface InFlowZIndexContext {
   parentId?: string;
   /** Lowest paint level among the siblings the layer must get behind. */
   siblingFloor: number;
+  /** Rendered paint levels used to cross the next explicit stacking sibling. */
+  siblingPaintLevels: number[];
   /** Positioning the target would re-resolve these children's left/top. */
   hasPositionedDescendant: boolean;
 }
@@ -164,12 +166,12 @@ function selectorMatchesNode(
   ].some((candidate) => candidate === normalized);
 }
 
-function renderedInfoForNode(
+function measuredRenderedInfoForNode(
   node: CodeLayerNode,
   fileId: string,
   selectedElement: ElementInfo | null,
   renderedElementInfoByLayerKeyRef?: RefObject<Map<string, ElementInfo>>,
-): ElementInfo {
+): ElementInfo | undefined {
   const rendered = renderedElementInfoByLayerKeyRef?.current;
   const stableId = durableNodeId(node);
   const fromMap =
@@ -178,6 +180,7 @@ function renderedInfoForNode(
     rendered?.get(node.id) ??
     rendered?.get(stableId);
   if (fromMap) return fromMap;
+  if (renderedElementInfoByLayerKeyRef) return undefined;
 
   const selectedMatches =
     selectedElement &&
@@ -185,7 +188,23 @@ function renderedInfoForNode(
       selectedElement.sourceId === node.id ||
       selectedElement.sourceId === stableId ||
       selectorMatchesNode(selectedElement.selector, node));
-  return selectedMatches ? selectedElement : elementInfoFromCodeLayerNode(node);
+  return selectedMatches ? selectedElement : undefined;
+}
+
+function renderedInfoForNode(
+  node: CodeLayerNode,
+  fileId: string,
+  selectedElement: ElementInfo | null,
+  renderedElementInfoByLayerKeyRef?: RefObject<Map<string, ElementInfo>>,
+): ElementInfo {
+  return (
+    measuredRenderedInfoForNode(
+      node,
+      fileId,
+      selectedElement,
+      renderedElementInfoByLayerKeyRef,
+    ) ?? elementInfoFromCodeLayerNode(node)
+  );
 }
 
 function renderedPosition(info: ElementInfo, node: CodeLayerNode): string {
@@ -237,6 +256,7 @@ function inFlowZIndexContext(
   // An unpositioned sibling paints at the auto level, so 0 is the floor to beat
   // even when no sibling declares a z-index.
   let siblingFloor = 0;
+  const siblingPaintLevels = [0];
   for (const siblingId of siblingOrder?.siblingIds ?? []) {
     if (siblingId === targetId) continue;
     const sibling = byId.get(siblingId);
@@ -253,6 +273,7 @@ function inFlowZIndexContext(
       : Number.parseInt(sibling.style["z-index"] ?? "", 10);
     if (Number.isFinite(declared)) {
       siblingFloor = Math.min(siblingFloor, declared);
+      siblingPaintLevels.push(declared);
     }
   }
 
@@ -282,6 +303,7 @@ function inFlowZIndexContext(
   return {
     parentId: siblingOrder?.parentId ?? undefined,
     siblingFloor,
+    siblingPaintLevels,
     hasPositionedDescendant,
   };
 }
@@ -333,29 +355,31 @@ function moveIntentsForOrder(
   const intents: MoveNodeEditIntent[] = [];
   for (const targetId of desiredOrder.filter((id) => movingIds.has(id))) {
     const currentIndex = working.indexOf(targetId);
-    const desiredIndex = desiredOrder.indexOf(targetId);
-    if (currentIndex < 0 || currentIndex === desiredIndex) continue;
-    if (desiredIndex === 0) {
-      const anchor = working[0];
-      if (!anchor || anchor === targetId) continue;
-      intents.push({
-        kind: "moveNode",
-        target: { nodeId: targetId },
-        anchor: { nodeId: anchor },
-        placement: "before",
-      });
-    } else {
-      const anchor = desiredOrder[desiredIndex - 1];
-      if (!anchor || anchor === targetId) continue;
-      intents.push({
-        kind: "moveNode",
-        target: { nodeId: targetId },
-        anchor: { nodeId: anchor },
-        placement: "after",
-      });
-    }
+    if (currentIndex < 0) continue;
     working.splice(currentIndex, 1);
-    working.splice(desiredIndex, 0, targetId);
+    const desiredIndex = desiredOrder.indexOf(targetId);
+    const previousDesiredId =
+      desiredIndex > 0 ? desiredOrder[desiredIndex - 1] : undefined;
+    const anchorIndex = previousDesiredId
+      ? working.indexOf(previousDesiredId)
+      : 0;
+    if (anchorIndex < 0) {
+      working.splice(currentIndex, 0, targetId);
+      continue;
+    }
+    const insertionIndex = previousDesiredId ? anchorIndex + 1 : 0;
+    if (currentIndex !== insertionIndex) {
+      const anchor = previousDesiredId ? previousDesiredId : working[0];
+      if (anchor && anchor !== targetId) {
+        intents.push({
+          kind: "moveNode",
+          target: { nodeId: targetId },
+          anchor: { nodeId: anchor },
+          placement: previousDesiredId ? "after" : "before",
+        });
+      }
+    }
+    working.splice(insertionIndex, 0, targetId);
   }
   return intents;
 }
@@ -517,12 +541,13 @@ export function runChangeSelectedZIndex(
     if (!node) return refuse("selection");
     if (node.repeatXFor || owner.node?.repeatXFor)
       return refuse("repeat-anchor");
-    const info = renderedInfoForNode(
+    const info = measuredRenderedInfoForNode(
       node,
       activeFile.id,
       selectedElement,
       renderedElementInfoByLayerKeyRef,
     );
+    if (!info) return refuse("selection");
     const position = renderedPosition(info, node);
     const siblingOrder = findCodeLayerSiblingOrder(
       buildCodeLayerTree(initialProjection),
@@ -578,14 +603,20 @@ export function runChangeSelectedZIndex(
   for (const target of targets) {
     if (target.reorder) continue;
     const current = renderedZIndex(target.info, target.node);
+    const higherSiblingLevel = target.context.siblingPaintLevels
+      .filter((level) => level > current)
+      .sort((a, b) => a - b)[0];
+    const lowerSiblingLevel = target.context.siblingPaintLevels
+      .filter((level) => level < current)
+      .sort((a, b) => b - a)[0];
     const next =
       mode === "front"
-        ? 999
+        ? Math.max(current, ...target.context.siblingPaintLevels) + 1
         : mode === "back"
           ? Math.min(current, target.context.siblingFloor - 1)
           : mode === "forward"
-            ? current + 1
-            : current - 1;
+            ? (higherSiblingLevel ?? current) + 1
+            : (lowerSiblingLevel ?? current) - 1;
     const parentId = target.context.parentId;
     const safeNext = next < 0 && !parentId ? 0 : next;
     if (next < 0 && parentId && !isolatedParents.has(parentId)) {

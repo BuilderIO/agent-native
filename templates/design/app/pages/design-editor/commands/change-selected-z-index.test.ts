@@ -155,7 +155,23 @@ describe("runChangeSelectedZIndex — a paint-order change must not move anythin
     runChangeSelectedZIndex(args, "front");
     expect(applyLocalContentUpdate).not.toHaveBeenCalled();
     expect(commitVisualStyles).toHaveBeenCalledTimes(1);
-    expect(targetStyles()?.zIndex).toBe("999");
+    expect(targetStyles()?.zIndex).toBe("10");
+  });
+
+  it("crosses the next higher explicit stack level when moving forward", () => {
+    const { args, commitVisualStyles, targetStyles } = harness(
+      { computedStyles: { position: "absolute", zIndex: "2" } },
+      "a",
+      `<div data-agent-native-node-id="wrap">
+<div data-agent-native-node-id="a" style="position:absolute;z-index:2"></div>
+<div data-agent-native-node-id="b" style="position:absolute;z-index:9"></div>
+</div>`,
+    );
+
+    runChangeSelectedZIndex(args, "forward");
+
+    expect(commitVisualStyles).toHaveBeenCalledTimes(1);
+    expect(targetStyles()?.zIndex).toBe("10");
   });
 
   it("sends to back below static siblings, not to z-index 0", () => {
@@ -420,6 +436,12 @@ describe("runChangeSelectedZIndex — rendered multi-selection order", () => {
 </div>`;
     const { args, applyLocalContentUpdate } = multiHarness(content, ["first"], {
       selectedElement: { parentDisplay: "flex" },
+      rendered: {
+        first: {
+          computedStyles: { position: "static" },
+          parentDisplay: "flex",
+        },
+      },
     });
 
     runChangeSelectedZIndex(args, "front");
@@ -521,7 +543,10 @@ describe("runChangeSelectedZIndex — rendered multi-selection order", () => {
       ["A", "AB"],
       {
         selectedElement: { computedStyles: { position: "absolute" } },
-        rendered: { AB: { computedStyles: { position: "absolute" } } },
+        rendered: {
+          A: { computedStyles: { position: "static" } },
+          AB: { computedStyles: { position: "absolute" } },
+        },
       },
     );
 
@@ -542,6 +567,20 @@ describe("runChangeSelectedZIndex — rendered multi-selection order", () => {
     runChangeSelectedZIndex(harnessed.args, "front");
     expect(harnessed.rendered.size).toBe(0);
   });
+
+  it("refuses an unmeasured layer-panel selection instead of using authored styles", () => {
+    const harnessed = multiHarness(G8_CONTENT, ["A"]);
+    (
+      harnessed.args as { selectedElement: ElementInfo | null }
+    ).selectedElement = null;
+
+    expect(runChangeSelectedZIndex(harnessed.args, "front")).toEqual({
+      status: "refused",
+      reason: "selection",
+    });
+    expect(harnessed.applyLocalContentUpdate).not.toHaveBeenCalled();
+    expect(harnessed.args.commitVisualStyles).not.toHaveBeenCalled();
+  });
 });
 
 describe("runChangeSelectedZIndex — refusal is atomic and visible", () => {
@@ -550,6 +589,7 @@ describe("runChangeSelectedZIndex — refusal is atomic and visible", () => {
       multiHarness(G8_CONTENT, ["A"], {
         publicationStatus: "rejected",
         selectedElement: { computedStyles: { position: "absolute" } },
+        rendered: { A: { computedStyles: { position: "absolute" } } },
       });
     const result = runChangeSelectedZIndex(args, "forward");
 
@@ -631,7 +671,13 @@ describe("runChangeSelectedZIndex — refusal is atomic and visible", () => {
 <div data-agent-native-node-id="target"><div data-agent-native-node-id="wrapper" style="position:relative"><span data-agent-native-node-id="pin" style="position:absolute"></span></div></div>
 <div data-agent-native-node-id="sibling"></div>
 </div>`;
-    const { args, applyLocalContentUpdate } = multiHarness(content, ["target"]);
+    const { args, applyLocalContentUpdate } = multiHarness(
+      content,
+      ["target"],
+      {
+        rendered: { target: { computedStyles: { position: "static" } } },
+      },
+    );
 
     runChangeSelectedZIndex(args, "forward");
 
