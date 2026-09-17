@@ -151,6 +151,8 @@ const database = {
     "As linhas do banco e propriedades locais foram mantidas.",
   failedToAttachSource: "Falha ao anexar fonte",
   failedToCreateRow: "Falha ao criar linha",
+  pageCreatedCollectionRefreshFailed:
+    "A página foi criada, mas esta coleção não pôde ser atualizada. Recarregue para vê-la.",
   failedToDeleteRow: "Falha ao excluir linha",
   failedToDeleteSelectedRows: "Falha ao excluir linhas selecionadas",
   failedToDuplicateEverySelectedRow:
@@ -437,6 +439,17 @@ const editor = {
   registryBlockUnreadable: "Não foi possível ler a origem salva do bloco.",
   blocksFieldRevisionConflict:
     "Este campo de blocos foi alterado em outro lugar. Sua edição não foi salva; a versão mais recente agora está sendo exibida.",
+  reconcileConflict:
+    "Esta página foi alterada em outro lugar. Suas edições ainda não foram salvas.",
+  reconcileFailed:
+    "Não foi possível combinar as alterações mais recentes. Suas edições ainda não foram salvas.",
+  reconcileSaveFailed:
+    "Não foi possível salvar suas edições. Revise e tente novamente.",
+  reconcileSaving: "Salvando suas edições…",
+  reconcileReview: "Revisar alterações",
+  reconcileReviewStale:
+    "A versão salva foi alterada novamente. Revise o texto mais recente antes de salvar.",
+  reconcileRefresh: "Revisar versão mais recente",
   collabConnectingReadOnly:
     "Conectando o editor ao vivo. Exibindo um instantâneo somente leitura.",
   liveDocumentSaveBeforeSyncFailed:
@@ -795,7 +808,7 @@ const editor = {
     searchNotionPages: "Pesquisar páginas de noção...",
     setUpNotion: "Configurar noção",
     setUpNotionFirst:
-      "Configure primeiro o Notion na barra lateral - clique no ícone do Notion.",
+      "Configure primeiro o Notion - abra Configurações, depois Integrations, e conecte o Notion.",
     setUpNotionToSync: "Configure o Notion para sincronizar este documento.",
     share: "Compartilhar",
     shareableCopyReady: "Cópia compartilhável pronta",
@@ -822,6 +835,21 @@ const rawLiterals = {
     useDiskVersion: "Usar versão do disco",
     keepLocalDraft: "Manter minha versão",
     previewDraftRecovery: "Rascunho de página não salvo",
+    previewDraftCompare: "Escolha qual versão manter",
+    previewDraftYourEdits: "Suas edições",
+    previewDraftSavedVersion: "Versão salva",
+    previewDraftKeepMine: "Manter minha versão",
+    previewDraftUseSaved: "Usar a versão salva",
+    previewDraftSaveSeparately: "Salvar a minha como página separada",
+    previewDraftSavedToHistory: "Suas edições foram salvas no histórico",
+    previewDraftSavedSeparately:
+      "Suas edições foram salvas como página separada",
+    previewDraftOpenSavedPage: "Abrir página",
+    previewDraftMoreOptions: "Mais opções",
+    previewDraftViewFullVersions: "Ver versões completas",
+    previewDraftShowChanges: "Mostrar alterações",
+    previewDraftConflict:
+      "Este rascunho está em conflito com uma versão mais recente da página. Ele não foi restaurado.",
     restorePreviewDraft: "Restaurar rascunho",
     pageSaveBeforeNavigationFailed:
       "Não foi possível salvar as últimas alterações. Tente novamente antes de sair desta página.",
@@ -1044,6 +1072,7 @@ const history = {
   historyCheckpointAfter: "Depois",
   historyCheckpointBefore: "Antes",
   historyCheckpointLegacy: "Salvo",
+  historyCheckpointRecovery: "Rascunho recuperado",
   historyCheckpointLoadError:
     "Não foi possível carregar os pontos de controle.",
   historyDetailLoadError: "Não foi possível carregar este ponto de controle.",
@@ -1121,7 +1150,26 @@ const overrides = {
   root: {
     commandContent: "Conteúdo",
     commandSearchDocuments: "Buscar documentos",
+    searchSince: "Desde {{date}}",
+    searchModifiedSince: "Modificado desde {{date}}",
     commandSearchHeading: "Buscar",
+    searchScope: "Escopo",
+    searchAllWorkspaces: "Todos os espaços",
+    searchFields: "Campos de pesquisa",
+    searchAllText: "Todo o texto",
+    searchTitleOnly: "Somente título",
+    searchType: "Tipo de objeto",
+    searchAllTypes: "Todos os tipos",
+    searchDate: "Data de modificação",
+    searchAnyDate: "Qualquer data",
+    searchPastWeek: "Última semana",
+    searchPastMonth: "Último mês",
+    searchPrevious: "Resultados anteriores",
+    searchNext: "Próximos resultados",
+    searchRetry: "Tentar novamente",
+    searchScopeUnavailable: "O escopo de pesquisa está indisponível.",
+    searchModified: "Modificado em {{date}}",
+    searchSourceUpdated: "Fonte atualizada em {{date}}",
     commandSearchPlaceholder: "Buscar documentos e coleções...",
     commandSearchLoading: "Buscando...",
     commandSearchError: "A busca não está disponível agora.",
@@ -1242,18 +1290,18 @@ const overrides = {
     aiPromptSuggest: "Sugira alterações para este comentário.",
     aiPromptReply: "Responda a este comentário.",
     aiPromptApplyResolve: "Aplique as alterações deste comentário e resolva-o.",
-    aiQueued: "A IA está na fila…",
     aiWorking: "A IA está trabalhando…",
-    aiRefreshing: "A IA está verificando a página mais recente…",
     aiReplied: "A IA respondeu",
     aiSuggestionReady: "Revisar sugestão",
     aiChangesApplied: "Alterações aplicadas",
     aiNeedsReview: "Precisa de revisão",
     aiFailed: "Falha na solicitação de IA",
+    retry: "Tentar novamente",
+    aiQueued: "A IA está na fila…",
+    aiRefreshing: "A IA está verificando a página mais recente…",
     aiCancelled: "Solicitação de IA interrompida",
     aiStop: "Parar",
     aiStopping: "Parando…",
-    retry: "Tentar novamente",
     aiReplyToAi: "Responder à IA",
     aiReplyingToAi: "Respondendo à IA",
     aiOpenConversation: "Abrir conversa com a IA",
@@ -1261,13 +1309,13 @@ const overrides = {
     aiConversationUnavailable: "Esta conversa com a IA não está disponível.",
     aiFollowUpYou: "Você",
     aiFollowUpIncomplete: "Esta resposta terminou antes de ser concluída.",
-    sourceComment: "Comentário de origem",
     aiRequestCouldNotBeConfirmed:
       "Não foi possível confirmar a solicitação de IA",
     aiFollowUpCouldNotBeConfirmed:
       "Não foi possível confirmar o acompanhamento da IA",
     aiRequestStopCouldNotBeConfirmed:
       "Não foi possível interromper a solicitação de IA porque o envio não foi confirmado",
+    sourceComment: "Comentário de origem",
     resolve: "Resolver",
     resolved: "Resolvidos ({{count}})",
     reply: "Responder...",

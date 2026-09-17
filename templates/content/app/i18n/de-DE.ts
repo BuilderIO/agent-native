@@ -152,6 +152,8 @@ const database = {
     "Sammlungszeilen und lokale Eigenschaften wurden beibehalten.",
   failedToAttachSource: "Quelle konnte nicht angehängt werden",
   failedToCreateRow: "Zeile konnte nicht erstellt werden",
+  pageCreatedCollectionRefreshFailed:
+    "Die Seite wurde erstellt, aber diese Sammlung konnte nicht aktualisiert werden. Neu laden, um sie zu sehen.",
   failedToDeleteRow: "Zeile konnte nicht gelöscht werden",
   failedToDeleteSelectedRows:
     "Ausgewählte Zeilen konnten nicht gelöscht werden",
@@ -439,6 +441,17 @@ const editor = {
     "Die gespeicherte Blockquelle kann nicht gelesen werden.",
   blocksFieldRevisionConflict:
     "Dieses Blocks-Feld wurde an anderer Stelle geändert. Deine Bearbeitung wurde nicht gespeichert; jetzt wird die neueste Version angezeigt.",
+  reconcileConflict:
+    "Diese Seite wurde an anderer Stelle geändert. Deine Änderungen sind noch nicht gespeichert.",
+  reconcileFailed:
+    "Die neuesten Änderungen konnten nicht zusammengeführt werden. Deine Änderungen sind noch nicht gespeichert.",
+  reconcileSaveFailed:
+    "Deine Änderungen konnten nicht gespeichert werden. Prüfe sie und versuche es erneut.",
+  reconcileSaving: "Deine Änderungen werden gespeichert…",
+  reconcileReview: "Änderungen prüfen",
+  reconcileReviewStale:
+    "Die gespeicherte Version wurde erneut geändert. Prüfe vor dem Speichern den neuesten Text.",
+  reconcileRefresh: "Neueste Version prüfen",
   collabConnectingReadOnly:
     "Live-Editor wird verbunden. Schreibgeschützte Momentaufnahme wird angezeigt.",
   liveDocumentSaveBeforeSyncFailed:
@@ -800,7 +813,7 @@ const editor = {
     searchNotionPages: "Notion-Seiten durchsuchen...",
     setUpNotion: "Konzept einrichten",
     setUpNotionFirst:
-      "Richten Sie Notion zunächst in der Seitenleiste ein – klicken Sie auf das Notion-Symbol.",
+      "Richten Sie Notion zunächst ein – öffnen Sie die Einstellungen, dann Integrations, und verbinden Sie Notion.",
     setUpNotionToSync:
       "Richten Sie Notion ein, um dieses Dokument zu synchronisieren.",
     share: "Teilen",
@@ -829,6 +842,22 @@ const rawLiterals = {
     useDiskVersion: "Version vom Datenträger verwenden",
     keepLocalDraft: "Meine Version behalten",
     previewDraftRecovery: "Ungespeicherter Seitenentwurf",
+    previewDraftCompare: "Wähle die Version aus, die du behalten möchtest",
+    previewDraftYourEdits: "Deine Änderungen",
+    previewDraftSavedVersion: "Gespeicherte Version",
+    previewDraftKeepMine: "Meine Version behalten",
+    previewDraftUseSaved: "Gespeicherte Version verwenden",
+    previewDraftSaveSeparately: "Meine Version als separate Seite speichern",
+    previewDraftSavedToHistory:
+      "Deine Änderungen wurden im Versionsverlauf gespeichert",
+    previewDraftSavedSeparately:
+      "Deine Änderungen wurden als separate Seite gespeichert",
+    previewDraftOpenSavedPage: "Seite öffnen",
+    previewDraftMoreOptions: "Weitere Optionen",
+    previewDraftViewFullVersions: "Vollständige Versionen anzeigen",
+    previewDraftShowChanges: "Änderungen anzeigen",
+    previewDraftConflict:
+      "Dieser Entwurf steht im Konflikt mit einer neueren Seitenversion. Er wurde nicht wiederhergestellt.",
     restorePreviewDraft: "Entwurf wiederherstellen",
     pageSaveBeforeNavigationFailed:
       "Die letzten Änderungen konnten nicht gespeichert werden. Versuche es erneut, bevor du diese Seite verlässt.",
@@ -1055,6 +1084,7 @@ const history = {
   historyCheckpointAfter: "Danach",
   historyCheckpointBefore: "Davor",
   historyCheckpointLegacy: "Gespeichert",
+  historyCheckpointRecovery: "Wiederhergestellter Entwurf",
   historyCheckpointLoadError: "Prüfpunkte konnten nicht geladen werden.",
   historyDetailLoadError: "Dieser Prüfpunkt konnte nicht geladen werden.",
   historyGroupAgent: "Agentenlauf",
@@ -1129,7 +1159,26 @@ const overrides = {
   root: {
     commandContent: "Inhalt",
     commandSearchDocuments: "Dokumente suchen",
+    searchSince: "Seit {{date}}",
+    searchModifiedSince: "Geändert seit {{date}}",
     commandSearchHeading: "Suchen",
+    searchScope: "Bereich",
+    searchAllWorkspaces: "Alle Bereiche",
+    searchFields: "Suchfelder",
+    searchAllText: "Gesamter Text",
+    searchTitleOnly: "Nur Titel",
+    searchType: "Objekttyp",
+    searchAllTypes: "Alle Typen",
+    searchDate: "Änderungsdatum",
+    searchAnyDate: "Beliebiges Datum",
+    searchPastWeek: "Letzte Woche",
+    searchPastMonth: "Letzter Monat",
+    searchPrevious: "Vorherige Ergebnisse",
+    searchNext: "Nächste Ergebnisse",
+    searchRetry: "Erneut versuchen",
+    searchScopeUnavailable: "Der Suchbereich ist nicht verfügbar.",
+    searchModified: "Geändert {{date}}",
+    searchSourceUpdated: "Quelle aktualisiert {{date}}",
     commandSearchPlaceholder: "Dokumente und Sammlungen suchen...",
     commandSearchLoading: "Suche...",
     commandSearchError: "Die Suche ist derzeit nicht verfügbar.",
@@ -1253,18 +1302,18 @@ const overrides = {
     aiPromptReply: "Antworte auf diesen Kommentar.",
     aiPromptApplyResolve:
       "Wende die Änderungen für diesen Kommentar an und erledige ihn.",
-    aiQueued: "KI wartet…",
     aiWorking: "KI arbeitet…",
-    aiRefreshing: "KI prüft die neueste Seite…",
     aiReplied: "KI hat geantwortet",
     aiSuggestionReady: "Vorschlag prüfen",
     aiChangesApplied: "Änderungen angewendet",
     aiNeedsReview: "Prüfung erforderlich",
     aiFailed: "KI-Anfrage fehlgeschlagen",
+    retry: "Erneut versuchen",
+    aiQueued: "KI wartet…",
+    aiRefreshing: "KI prüft die neueste Seite…",
     aiCancelled: "KI-Anfrage gestoppt",
     aiStop: "Stoppen",
     aiStopping: "Wird gestoppt…",
-    retry: "Erneut versuchen",
     aiReplyToAi: "Der KI antworten",
     aiReplyingToAi: "Antwort an die KI",
     aiOpenConversation: "KI-Unterhaltung öffnen",
@@ -1272,13 +1321,13 @@ const overrides = {
     aiConversationUnavailable: "Diese KI-Unterhaltung ist nicht verfügbar.",
     aiFollowUpYou: "Du",
     aiFollowUpIncomplete: "Diese Antwort wurde vorzeitig beendet.",
-    sourceComment: "Quellkommentar",
     aiRequestCouldNotBeConfirmed:
       "Die KI-Anfrage konnte nicht bestätigt werden",
     aiFollowUpCouldNotBeConfirmed:
       "Die KI-Folgeanfrage konnte nicht bestätigt werden",
     aiRequestStopCouldNotBeConfirmed:
       "Die KI-Anfrage konnte nicht gestoppt werden, da der Versand nicht bestätigt wurde",
+    sourceComment: "Quellkommentar",
     resolve: "Erledigen",
     resolved: "Erledigt ({{count}})",
     reply: "Antworten...",
