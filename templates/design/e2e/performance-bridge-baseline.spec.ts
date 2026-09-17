@@ -50,8 +50,8 @@ async function action(
   return response.json();
 }
 
-function fixtureHtml(screenIndex: number): string {
-  const cards = Array.from({ length: 160 }, (_, index) => {
+function fixtureHtml(screenIndex: number, cardCount = 160): string {
+  const cards = Array.from({ length: cardCount }, (_, index) => {
     const id = `${screenIndex}-${index}`;
     return `<article data-agent-native-node-id="card-${id}" class="card" style="min-height:96px;padding:12px;border:1px solid #d7dce5;border-radius:12px;background:#fff;display:flex;flex-direction:column;gap:8px"><div data-agent-native-node-id="card-head-${id}" style="display:flex;justify-content:space-between;gap:8px"><strong data-agent-native-node-id="card-title-${id}">Card ${index + 1}</strong><span data-agent-native-node-id="card-badge-${id}" class="badge">Ready</span></div><p data-agent-native-node-id="card-copy-${id}" style="margin:0;color:#475569">Nested auto-layout content for performance profiling.</p></article>`;
   }).join("");
@@ -71,7 +71,7 @@ async function createFixture(request: APIRequestContext) {
     const file = await action(request, "create-file", {
       designId,
       filename: index === 0 ? "index.html" : `screen-${index + 1}.html`,
-      content: fixtureHtml(index),
+      content: fixtureHtml(index, index === 0 ? 160 : 12),
       fileType: "html",
     });
     const fileId = file.id ?? file.data?.id;
@@ -276,8 +276,11 @@ async function installReactCommitProbe(page: Page): Promise<void> {
   });
 }
 
-async function installMarqueeProfiler(page: Page): Promise<void> {
-  await page.evaluate(() => {
+async function installMarqueeProfiler(
+  page: Page,
+  delayedFileId: string,
+): Promise<void> {
+  await page.evaluate((targetFileId) => {
     const win = window as typeof window & {
       __designPerformanceProbe?: Record<string, number>;
       __marqueePerformance?: {
@@ -304,7 +307,38 @@ async function installMarqueeProfiler(page: Page): Promise<void> {
       finalSelectionIds: [],
     };
     const delayedBridgeReplies = new WeakSet<object>();
-    let bridgeReplySequence = 0;
+    const delayedSource = document.querySelector<HTMLIFrameElement>(
+      `iframe[data-screen-iframe-id="${CSS.escape(targetFileId)}"]`,
+    )?.contentWindow;
+    if (!delayedSource)
+      throw new Error("delayed marquee iframe is unavailable");
+    const pendingBridgeReplies: Array<{
+      data: object;
+      origin: string;
+      source: MessageEventSource | null;
+    }> = [];
+    let marqueeReleased = false;
+    let releaseScheduled = false;
+    const releasePendingBridgeReplies = () => {
+      if (
+        !marqueeReleased ||
+        releaseScheduled ||
+        pendingBridgeReplies.length === 0
+      ) {
+        return;
+      }
+      releaseScheduled = true;
+      queueMicrotask(() => {
+        releaseScheduled = false;
+        const replies = pendingBridgeReplies.splice(0);
+        replies.forEach(({ data, origin, source }) => {
+          window.dispatchEvent(
+            new MessageEvent("message", { data, origin, source }),
+          );
+        });
+        releasePendingBridgeReplies();
+      });
+    };
     window.addEventListener(
       "message",
       (event) => {
@@ -316,28 +350,27 @@ async function installMarqueeProfiler(page: Page): Promise<void> {
           delayedBridgeReplies.delete(data);
           return;
         }
-        if (bridgeReplySequence++ === 0) return;
-        delayedBridgeReplies.add(data);
+        if (event.source !== delayedSource) return;
         event.stopImmediatePropagation();
-        window.setTimeout(() => {
-          window.dispatchEvent(
-            new MessageEvent("message", {
-              data,
-              origin: event.origin,
-              source: event.source,
-            }),
-          );
-        }, 15000);
+        delayedBridgeReplies.add(data);
+        pendingBridgeReplies.push({
+          data,
+          origin: event.origin,
+          source: event.source,
+        });
+        releasePendingBridgeReplies();
       },
       true,
     );
     window.addEventListener(
       "mouseup",
       () => {
+        marqueeReleased = true;
         const performance = win.__marqueePerformance;
         if (performance && performance.bridgeReplyCountAtMouseup === null) {
           performance.bridgeReplyCountAtMouseup = performance.bridgeReplyCount;
         }
+        releasePendingBridgeReplies();
       },
       true,
     );
@@ -377,7 +410,7 @@ async function installMarqueeProfiler(page: Page): Promise<void> {
             .filter((sourceId): sourceId is string => Boolean(sourceId))
         : [];
     });
-  });
+  }, delayedFileId);
 
   const iframes = await page
     .locator("iframe[data-screen-iframe-id]")
@@ -796,7 +829,7 @@ test("collect selectable rects baseline on nested responsive screens", async ({
   const marqueeSelectionBeforeRows = await page
     .locator('[aria-selected="true"]')
     .evaluateAll((rows) => rows.map((row) => row.textContent?.trim() ?? ""));
-  await installMarqueeProfiler(page);
+  await installMarqueeProfiler(page, fixture.fileIds[1]);
   await performProfiledMarquee(page, fixture.fileIds[0], fixture.fileIds[1]);
   await expect
     .poll(
