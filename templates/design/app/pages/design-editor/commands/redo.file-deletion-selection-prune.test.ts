@@ -299,7 +299,6 @@ describe("redo — selection history after a file-deletion redo", () => {
 
   it("reuses a redo survivor when cleanup fails", async () => {
     const refs = sharedRefs();
-    const createFileMutation = { mutateAsync: vi.fn() };
     const deleteFileMutation = {
       mutateAsync: vi.fn().mockRejectedValue(new Error("cleanup failed")),
     };
