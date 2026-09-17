@@ -51,7 +51,10 @@ export async function importFigInBrowser(
   const { designId, file, onProgress } = options;
   onProgress?.({ phase: "decoding" });
   const bytes = new Uint8Array(await file.arrayBuffer());
-  const decoded = decodeFig(bytes);
+  // The file never crosses the network on this path. Keep the decoder's
+  // decompression, node, image, and generated-HTML budgets, but remove the
+  // server-only raw upload ceiling.
+  const decoded = decodeFig(bytes, { maxFileBytes: null });
 
   let uploaded = 0;
   const total = decoded.images.length;

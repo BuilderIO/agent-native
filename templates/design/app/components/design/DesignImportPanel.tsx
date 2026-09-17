@@ -23,7 +23,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  MAX_FIG_UPLOAD_MB,
+  MAX_FIG_UPLOAD_BYTES,
   uploadDesignFile,
   validateFigUploadFile,
 } from "@/lib/design-file-upload";
@@ -278,19 +278,10 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
     async (file: File | undefined) => {
       if (!file) return;
       setActiveMode("fig-upload");
-      const validationError = validateFigUploadFile(file);
+      const validationError = validateFigUploadFile(file, { maxBytes: null });
       if (validationError === "invalid-extension") {
         toast.error(t("designEditor.import.errors.uploadFailed"), {
           description: t("designEditor.import.errors.invalidFigFile"),
-        });
-        if (figFileInputRef.current) figFileInputRef.current.value = "";
-        return;
-      }
-      if (validationError === "too-large") {
-        toast.error(t("designEditor.import.errors.uploadFailed"), {
-          description: t("designEditor.import.errors.figFileTooLarge", {
-            max: MAX_FIG_UPLOAD_MB,
-          }),
         });
         if (figFileInputRef.current) figFileInputRef.current.value = "";
         return;
@@ -322,6 +313,7 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
               ),
           });
         } catch (localError) {
+          if (file.size > MAX_FIG_UPLOAD_BYTES) throw localError;
           console.warn(
             "[fig-import] in-browser decode failed; falling back to the upload route.",
             localError,
@@ -580,9 +572,7 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
           >
             <div className="space-y-2 p-2">
               <p className="text-[11px] leading-snug text-muted-foreground">
-                {t("designEditor.import.figUploadDescription", {
-                  max: MAX_FIG_UPLOAD_MB,
-                })}
+                {t("designEditor.import.figUploadDescriptionShort")}
               </p>
               <input
                 ref={figFileInputRef}
