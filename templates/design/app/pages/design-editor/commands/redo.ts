@@ -155,6 +155,7 @@ export interface RedoArgs {
   fileHistoryMutationPendingRef: RefObject<boolean>;
   clearPendingHistory?: () => void;
   files: DesignFile[];
+  filesRef?: RefObject<DesignFile[]>;
   focusCreatedScreen: (screenId: string, geometry: FrameGeometry) => void;
   geometryRedoStackRef: RefObject<GeometryHistoryEntry[]>;
   geometryUndoStackRef: RefObject<GeometryHistoryEntry[]>;
@@ -338,6 +339,7 @@ export function runRedo({
   fileHistoryMutationPendingRef,
   clearPendingHistory,
   files,
+  filesRef,
   focusCreatedScreen,
   geometryRedoStackRef,
   geometryUndoStackRef,
@@ -401,8 +403,9 @@ export function runRedo({
     selection: GeometryHistorySelection | undefined,
     replaySources: Record<string, string> = {},
   ) => {
+    const currentFiles = filesRef?.current ?? files;
     const actualSources = Object.fromEntries(
-      files.map((file) => [
+      currentFiles.map((file) => [
         file.id,
         replaySources[file.id] ?? getScreenContent(file.id),
       ]),

@@ -2499,19 +2499,36 @@ function DesignEditor() {
         selection.selectedLayerIds.length === 1
           ? selection.selectedLayerIds[0]
           : undefined;
-      pendingOverviewScreenSelectionRef.current = null;
-      pendingOverviewLayerSelectionRef.current =
-        restoredLayerId &&
-        codeLayerOwnerByNodeIdRef.current.has(restoredLayerId)
+      const restoredScreenSelectionId =
+        selection.overviewSelectedScreenIds.length === 1 &&
+        selection.selectedLayerIds.length === 1 &&
+        selection.overviewSelectedScreenIds[0] === restoredLayerId
           ? restoredLayerId
           : null;
+      pendingOverviewScreenSelectionRef.current = restoredScreenSelectionId;
+      pendingOverviewLayerSelectionRef.current =
+        restoredLayerId &&
+        (codeLayerOwnerByNodeIdRef.current.has(restoredLayerId) ||
+          restoredLayerId === restoredScreenSelectionId)
+          ? restoredLayerId
+          : null;
+      if (pendingOverviewLayerSelectionRef.current) {
+        schedulePendingOverviewLayerSelectionClear(
+          pendingOverviewLayerSelectionRef.current,
+        );
+      } else {
+        clearPendingOverviewLayerSelectionTimer();
+      }
       setOverviewSelectedScreenIds(selection.overviewSelectedScreenIds);
       setSelectedLayerIdsState(selection.selectedLayerIds);
       if (selection.activeFileId) {
         setActiveFileId(selection.activeFileId);
       }
     },
-    [],
+    [
+      clearPendingOverviewLayerSelectionTimer,
+      schedulePendingOverviewLayerSelectionClear,
+    ],
   );
   const syncUndoRedoState = useCallback(() => {
     if (fileHistoryMutationPendingRef.current) {
@@ -3571,6 +3588,7 @@ function DesignEditor() {
   }, [reviewAgentQueueThreadIds, reviewSendingThreadId]);
   const canEditDesignRef = useRef(canEditDesign);
   const rawServerFilesByIdRef = useRef(new Map<string, DesignFile>());
+  const historyFilesRef = useRef<DesignFile[]>([]);
   const pendingLocalFileContentsRef = useRef<
     Map<string, PendingLocalFileContent>
   >(new Map());
@@ -4507,6 +4525,7 @@ function DesignEditor() {
       }),
     [pendingLocalFileContentsSnapshot, serverFiles],
   );
+  historyFilesRef.current = files;
 
   const codeLayerSourceForScreen = useCallback(
     (
@@ -15095,6 +15114,7 @@ function DesignEditor() {
         fileHistoryMutationPendingRef,
         clearPendingHistory: clearPendingHistoryDirections,
         files,
+        filesRef: historyFilesRef,
         geometryRedoStackRef,
         geometryUndoStackRef,
         getFreshActiveContent,
@@ -15109,6 +15129,7 @@ function DesignEditor() {
         localContentRedoStackRef,
         localContentUndoStackRef,
         markPendingLocalFileContent,
+        optimisticallyInsertCreatedFile,
         pendingLiveNonStyleEditsRef,
         pendingLiveNonStyleRedoStackRef,
         pendingLiveNonStyleUndoStackRef,
@@ -15163,6 +15184,7 @@ function DesignEditor() {
       isSynced,
       liveScreenSnapshotsById,
       markPendingLocalFileContent,
+      optimisticallyInsertCreatedFile,
       performDeleteFiles,
       publishAuthoritativeClipboardMutation,
       queryClient,
@@ -15209,6 +15231,7 @@ function DesignEditor() {
         fileHistoryMutationPendingRef,
         clearPendingHistory: clearPendingHistoryDirections,
         files,
+        filesRef: historyFilesRef,
         focusCreatedScreen,
         geometryRedoStackRef,
         geometryUndoStackRef,
