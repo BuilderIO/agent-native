@@ -180,6 +180,7 @@ export default function Index() {
   const { data: templatesData, isLoading: templatesLoading } = useActionQuery(
     "list-design-templates",
     { includePreview: "true" },
+    { enabled: showNewPrompt },
   );
   const createMutation = useActionMutation("create-design");
   const createFromTemplateMutation = useActionMutation(
@@ -199,7 +200,7 @@ export default function Index() {
     designSystems,
     defaultSystem,
     isLoading: designSystemsLoading,
-  } = useDesignSystems();
+  } = useDesignSystems(showNewPrompt);
 
   /**
    * The picker showed a column of near-identical names ("Builder indexed
@@ -776,12 +777,10 @@ export default function Index() {
       setNewDesignDraftRevision((revision) => revision + 1);
       newDesignSystemWasChosenRef.current = false;
       syncSelectedTemplate(null);
-      setNewDesignSystemId(
-        designSystemsLoading ? undefined : resolveDefaultDesignSystemId(),
-      );
+      setNewDesignSystemId(undefined);
       setShowNewPrompt(true);
     },
-    [designSystemsLoading, resolveDefaultDesignSystemId, syncSelectedTemplate],
+    [syncSelectedTemplate],
   );
 
   const handleDelete = useCallback(() => {

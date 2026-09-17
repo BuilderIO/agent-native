@@ -4196,7 +4196,7 @@ function DesignEditor() {
     designSystems,
     defaultSystem,
     isLoading: designSystemsLoading,
-  } = useDesignSystems(isSignedIn);
+  } = useDesignSystems(isSignedIn && showPrompt);
   const {
     preferences: editorPreferences,
     setPreferences: setEditorPreferences,
@@ -4292,12 +4292,12 @@ function DesignEditor() {
       if (open && !canEditDesign) return;
       setShowPrompt(open);
       if (open) {
-        setPromptDesignSystemId(resolvePromptDesignSystemId());
+        setPromptDesignSystemId(design?.designSystemId ?? undefined);
       } else {
         setPromptDesignSystemId(undefined);
       }
     },
-    [canEditDesign, resolvePromptDesignSystemId],
+    [canEditDesign, design?.designSystemId],
   );
 
   const handleTweakPromptOpenChange = useCallback(

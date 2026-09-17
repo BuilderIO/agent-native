@@ -16,7 +16,11 @@ const fileUploadMocks = vi.hoisted(() => ({
 vi.mock("@agent-native/core/file-upload", () => fileUploadMocks);
 
 import { buildCodeLayerProjection } from "../../shared/code-layer.js";
-import { convertDecodedFigToEditableHtml as convertShared } from "../../shared/fig-to-frames.js";
+import {
+  convertDecodedFigToEditableHtml as convertShared,
+  inspectDecodedFig,
+  shouldWarnForFigImport,
+} from "../../shared/fig-to-frames.js";
 import {
   assertSafeDecodedFigDocument,
   decodeFig,
@@ -434,6 +438,72 @@ describe("editable .fig conversion", () => {
     );
 
     expect(result.files).toHaveLength(2);
+  });
+
+  it("summarizes the document and warns before an oversized import", () => {
+    const decoded = {
+      format: "kiwi" as const,
+      document: twoFrameEditableDocument(),
+      images: [],
+      thumbnail: null,
+    };
+
+    const summary = inspectDecodedFig(decoded);
+
+    expect(summary).toMatchObject({
+      pageCount: 1,
+      frameCount: 2,
+      nodeCount: 5,
+      imageCount: 0,
+    });
+    expect(summary.frames.map((frame) => frame.frameName)).toEqual([
+      "Card",
+      "Banner",
+    ]);
+    expect(shouldWarnForFigImport(1024, summary)).toBe(false);
+    expect(shouldWarnForFigImport(10 * 1024 * 1024, summary)).toBe(true);
+  });
+
+  it("renders and uploads only selected frames and their images", async () => {
+    const document = twoFrameEditableDocument();
+    const card = document.nodeChanges[2]! as {
+      fillPaints?: unknown[];
+    };
+    card.fillPaints = [{ type: "IMAGE", image: { hash: "image-a" } }];
+    const banner = document.nodeChanges[4]! as {
+      fillPaints?: unknown[];
+    };
+    banner.fillPaints = [{ type: "IMAGE", image: { hash: "image-b" } }];
+    const uploader = vi.fn().mockResolvedValue({
+      url: "https://assets.example.com/selected.png",
+    });
+
+    const result = await convertShared(
+      {
+        format: "kiwi",
+        document,
+        images: [
+          { hash: "image-a", ext: "png", bytes: Buffer.from([1, 2, 3]) },
+          { hash: "image-b", ext: "png", bytes: Buffer.from([4, 5, 6]) },
+        ],
+        thumbnail: null,
+      },
+      {
+        originalName: "selected.fig",
+        ownerEmail: "example@example.com",
+        normalizeHtml: (content) => content,
+        selection: new Set(["1:3"]),
+        uploader,
+      },
+    );
+
+    expect(result.files).toHaveLength(1);
+    expect(result.files[0]!.preferredFrame?.title).toBe("Card");
+    expect(uploader).toHaveBeenCalledTimes(1);
+    expect(uploader).toHaveBeenCalledWith(
+      expect.objectContaining({ filename: "figma-image-a.png" }),
+    );
+    expect(result.stats.uploadedImageCount).toBe(1);
   });
 
   it("uploads embedded images through file storage and persists only the URL", async () => {

@@ -13,8 +13,11 @@ import {
   type DecodedFigImage,
 } from "../server/lib/fig-file-decoder.js";
 import {
+  collectTopLevelFrames,
+  guidKey,
   imageSizeFromUnknownBytes,
   renderHtmlTemplates,
+  type FigNode,
 } from "../server/lib/fig-file-to-html.js";
 import type { ImportedDesignFile } from "../server/lib/import-design-files.js";
 import { utf8ByteLength } from "./fig-bytes.js";
@@ -44,6 +47,22 @@ export interface FigFileImportResult {
     approximatedNodeCount: number;
     unresolvedImageRefCount: number;
   };
+}
+
+export interface FigImportFrameSummary {
+  id: string;
+  pageName: string;
+  frameName: string;
+  width?: number;
+  height?: number;
+}
+
+export interface FigImportSummary {
+  pageCount: number;
+  frameCount: number;
+  nodeCount: number;
+  imageCount: number;
+  frames: FigImportFrameSummary[];
 }
 
 /**
@@ -92,6 +111,64 @@ function nodeChangesFromDocument(
     throw new Error(".fig document has too many nodes (max 75,000).");
   }
   return nodeChanges;
+}
+
+export function inspectDecodedFig(decoded: DecodedFig): FigImportSummary {
+  assertSafeDecodedFigDocument(decoded.document);
+  const nodeChanges = nodeChangesFromDocument(
+    decoded.document,
+    decoded.decodeError,
+  ) as FigNode[];
+  assertEmbeddedImageBudget(decoded.images);
+
+  const childrenOf = new Map<string, FigNode[]>();
+  for (const node of nodeChanges) {
+    const parentKey = guidKey(node.parentIndex?.guid);
+    if (!parentKey) continue;
+    const children = childrenOf.get(parentKey) ?? [];
+    children.push(node);
+    childrenOf.set(parentKey, children);
+  }
+
+  const documentNode = nodeChanges.find((node) => node.type === "DOCUMENT");
+  const pages = (
+    documentNode ? (childrenOf.get(guidKey(documentNode.guid)) ?? []) : []
+  ).filter((node) => node.type === "CANVAS" && !node.internalOnly);
+  const frames = pages.flatMap((page, pageIndex) =>
+    collectTopLevelFrames(page, childrenOf).map((frame, frameIndex) => ({
+      id: guidKey(frame.guid),
+      pageName: page.name ?? `Page ${pageIndex + 1}`,
+      frameName: frame.name ?? `Frame ${frameIndex + 1}`,
+      width: frame.size?.x,
+      height: frame.size?.y,
+    })),
+  );
+
+  return {
+    pageCount: pages.length,
+    frameCount: frames.length,
+    nodeCount: nodeChanges.length,
+    imageCount: decoded.images.length,
+    frames,
+  };
+}
+
+const LARGE_FIG_WARNING_BYTES = 10 * 1024 * 1024;
+const LARGE_FIG_WARNING_FRAMES = 12;
+const LARGE_FIG_WARNING_NODES = 10_000;
+const LARGE_FIG_WARNING_IMAGES = 64;
+
+export function shouldWarnForFigImport(
+  fileBytes: number,
+  summary: FigImportSummary,
+): boolean {
+  if (summary.frameCount === 0) return false;
+  return (
+    fileBytes >= LARGE_FIG_WARNING_BYTES ||
+    summary.frameCount >= LARGE_FIG_WARNING_FRAMES ||
+    summary.nodeCount >= LARGE_FIG_WARNING_NODES ||
+    summary.imageCount >= LARGE_FIG_WARNING_IMAGES
+  );
 }
 
 async function uploadEmbeddedImages(
@@ -220,6 +297,7 @@ export async function convertDecodedFigToEditableHtml(
     ownerEmail: string;
     uploader: ImageUploader;
     normalizeHtml: HtmlNormalizer;
+    selection?: ReadonlySet<string>;
   },
 ): Promise<FigFileImportResult> {
   assertSafeDecodedFigDocument(decoded.document);
@@ -237,26 +315,37 @@ export async function convertDecodedFigToEditableHtml(
   const worstCaseImageMap = new Map(
     decoded.images.map((image) => [image.hash, worstCaseUrl]),
   );
+  const selection =
+    options.selection && options.selection.size > 0
+      ? new Set(options.selection)
+      : undefined;
   const preliminary = renderHtmlTemplates(decoded.document, {
-    imageMap: worstCaseImageMap,
+    imageMap: selection ? new Map() : worstCaseImageMap,
     missingImageUrl: "about:blank",
     trackUnresolvedImageRefs: true,
+    selection,
   });
   validateRenderedFrames(preliminary);
+  const imagesToUpload = selection
+    ? decoded.images.filter((image) =>
+        preliminary.unresolvedImageRefs?.has(image.hash),
+      )
+    : decoded.images;
   const images = await uploadEmbeddedImages(
-    decoded.images,
+    imagesToUpload,
     options.ownerEmail,
     options.uploader,
   );
   try {
     const rendered =
-      decoded.images.length === 0
+      imagesToUpload.length === 0
         ? preliminary
         : renderHtmlTemplates(decoded.document, {
             imageMap: images.imageMap,
             imageSizes: images.imageSizes,
             missingImageUrl: "about:blank",
             trackUnresolvedImageRefs: true,
+            selection,
           });
     validateRenderedFrames(rendered);
 
