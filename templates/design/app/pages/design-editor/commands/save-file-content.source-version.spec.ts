@@ -96,6 +96,11 @@ describe("runSaveFileContent source version", () => {
       new Error("predecessor did not commit"),
       { status: 409 },
     );
+    const sendKeepalive = vi.fn((payload: Record<string, unknown>) => ({
+      accepted: true as const,
+      completion: Promise.reject(directConflict),
+      payload,
+    }));
 
     runFileContentSaveKeepalive(
       {
@@ -103,10 +108,7 @@ describe("runSaveFileContent source version", () => {
         createFileSaveOutboxEntry,
         journalOutboxEntry,
         latestFileSaveForUnloadRef: { current: { [pending.id]: pending } },
-        sendKeepalive: vi.fn((payload) => ({
-          accepted: true as const,
-          completion: Promise.reject(directConflict),
-        })),
+        sendKeepalive,
       },
       pending,
     );
@@ -121,6 +123,11 @@ describe("runSaveFileContent source version", () => {
         ([request]) => request.unloadExpectedVersionHash,
       ),
     ).toEqual([baseHash, undefined]);
+    expect(sendKeepalive).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedVersionHash: sourceContentHash(predecessorContent),
+      }),
+    );
 
     const invokeAction = vi.fn(async (_actionName, payload) => {
       expect(payload.expectedVersionHash).toBe(baseHash);
