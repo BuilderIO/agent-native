@@ -404,6 +404,7 @@ export function useChatThreads(
       ? new Set([initialActiveThreadRef.current.id])
       : new Set(),
   );
+  const explicitlyOpenedThreadIdsRef = useRef<Set<string>>(new Set());
   const optimisticThreadScopesRef = useRef<Map<string, ChatThreadScope | null>>(
     new Map(),
   );
@@ -714,17 +715,18 @@ export function useChatThreads(
           // session would otherwise look identical to a not-yet-synced
           // optimistic thread (created this session, missing from `loaded`)
           // and get preserved forever instead of disappearing once archived.
-          const optimisticOnly = prev.filter(
+          const locallyRetained = prev.filter(
             (t) =>
-              newlyCreatedRef.current.has(t.id) &&
               !loadedIds.has(t.id) &&
               !t.archivedAt &&
-              (!isolateHistory ||
-                threadCanStayVisibleInHistory(
-                  t.scope,
-                  historyScope,
-                  isolateHistory,
-                )),
+              (explicitlyOpenedThreadIdsRef.current.has(t.id) ||
+                (newlyCreatedRef.current.has(t.id) &&
+                  (!isolateHistory ||
+                    threadCanStayVisibleInHistory(
+                      t.scope,
+                      historyScope,
+                      isolateHistory,
+                    )))),
           );
           // Reconcile each server thread against our local copy. If the local
           // copy has a newer updatedAt or higher messageCount, keep those
@@ -771,7 +773,7 @@ export function useChatThreads(
               ...merged.filter((t) => !existingIds.has(t.id)),
             ]);
           }
-          return [...optimisticOnly, ...merged];
+          return [...locallyRetained, ...merged];
         });
         return visibleLoaded;
       } catch {
@@ -797,6 +799,7 @@ export function useChatThreads(
     setThreads((prev) =>
       prev.filter(
         (thread) =>
+          explicitlyOpenedThreadIdsRef.current.has(thread.id) ||
           !isolateHistory ||
           threadCanStayVisibleInHistory(
             thread.scope,
@@ -1322,6 +1325,33 @@ export function useChatThreads(
     [persistActiveThreadId],
   );
 
+  const openThread = useCallback(
+    async (id: string): Promise<boolean> => {
+      let thread = threadsRef.current.find((candidate) => candidate.id === id);
+      if (!thread) {
+        const loaded = await fetchThreadById(apiUrl, id, null);
+        if (!loaded) return false;
+        thread = loaded;
+        knownThreadScopesRef.current.set(thread.id, thread.scope ?? null);
+        serverConfirmedThreadIdsRef.current.add(thread.id);
+        clearClientDraftThreadMarker(thread.id);
+        newlyCreatedRef.current.delete(thread.id);
+        setThreads((prev) =>
+          prev.some((candidate) => candidate.id === thread!.id)
+            ? prev.map((candidate) =>
+                candidate.id === thread!.id ? thread! : candidate,
+              )
+            : [thread!, ...prev],
+        );
+      }
+      explicitlyOpenedThreadIdsRef.current.add(id);
+      persistActiveThreadId(id);
+      setActiveThreadId(id);
+      return true;
+    },
+    [apiUrl, persistActiveThreadId],
+  );
+
   const removeThread = useCallback(
     async (id: string) => {
       try {
@@ -1709,6 +1739,7 @@ export function useChatThreads(
     activeThreadId,
     isLoading,
     createThread,
+    openThread,
     switchThread,
     deleteThread: removeThread,
     detachThread,

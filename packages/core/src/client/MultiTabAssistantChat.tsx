@@ -1026,6 +1026,7 @@ export function MultiTabAssistantChat({
     activeThreadId,
     isLoading,
     createThread,
+    openThread,
     switchThread: switchThreadState,
     forkThread,
     saveThreadData,
@@ -2363,7 +2364,7 @@ export function MultiTabAssistantChat({
   }, [closeTab, closeAllTabs, addTab]);
 
   useEffect(() => {
-    const handleOpenThread = (event: Event) => {
+    const handleOpenThread = async (event: Event) => {
       const detail = (event as CustomEvent).detail as
         | {
             threadId?: unknown;
@@ -2414,6 +2415,7 @@ export function MultiTabAssistantChat({
         });
         return;
       }
+      if (!(await openThread(threadId))) return;
       mountedTabsRef.current.add(threadId);
       setOpenTabIds((prev) =>
         prev.includes(threadId) ? prev : [...prev, threadId],
@@ -2424,7 +2426,7 @@ export function MultiTabAssistantChat({
     window.addEventListener("agent-chat:open-thread", handleOpenThread);
     return () =>
       window.removeEventListener("agent-chat:open-thread", handleOpenThread);
-  }, [createThread, switchThread, writeThreadUrl]);
+  }, [createThread, openThread, switchThread, writeThreadUrl]);
 
   const clearActiveTab = useCallback(() => {
     const tabIdToClear = activeThreadIdRef.current;

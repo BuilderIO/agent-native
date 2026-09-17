@@ -79,6 +79,7 @@ const threadMocks = vi.hoisted(() => ({
   createThread: vi.fn(
     async (requestedId?: string) => requestedId ?? "thread-2",
   ),
+  openThread: vi.fn(async () => true),
   switchThread: vi.fn(),
   detachThread: vi.fn(),
   forkThread: vi.fn(),
@@ -325,6 +326,8 @@ function resetThreadMocks() {
   threadMocks.createThread.mockImplementation(
     async (requestedId?: string) => requestedId ?? "thread-2",
   );
+  threadMocks.openThread.mockReset();
+  threadMocks.openThread.mockResolvedValue(true);
   threadMocks.isNewThread.mockReset();
   threadMocks.isNewThread.mockReturnValue(false);
   threadMocks.pinThread.mockReset();
@@ -1848,6 +1851,7 @@ describe("MultiTabAssistantChat cold-start delivery (Mode B)", () => {
     });
 
     expect(threadMocks.switchThread).toHaveBeenCalledWith("thread-2");
+    expect(threadMocks.openThread).toHaveBeenCalledWith("thread-2");
   });
 
   it("opens and prefills the requested thread without sending to the previous chat", async () => {
@@ -1883,6 +1887,7 @@ describe("MultiTabAssistantChat cold-start delivery (Mode B)", () => {
     });
 
     expect(threadMocks.switchThread).toHaveBeenCalledWith("background-thread");
+    expect(threadMocks.openThread).toHaveBeenCalledWith("background-thread");
     expect(chatHandleMocks.prefillMessage).toHaveBeenCalledWith(
       "Continue the background run",
     );
