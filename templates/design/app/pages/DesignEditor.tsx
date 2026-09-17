@@ -326,6 +326,7 @@ import {
 import { getBreakpointIframeId } from "@/components/design/multi-screen/iframe-targeting";
 import {
   designPreviewWindows,
+  designPreviewWindowsForScreen,
   requestSelectionMeasurement,
 } from "@/components/design/multi-screen/measure-selection";
 import { getCurrentBoardSelectionWorldBounds } from "@/components/design/multi-screen/overview-layout";
@@ -569,6 +570,7 @@ import {
   elementInfoFromCodeLayerNode,
   findCodeLayerSiblingOrder,
   isCodeLayerNodeRuntimeOnly,
+  preferredCodeLayerSelector,
   remapLegacyCodeLayerNodeId,
   resolveCodeLayerNodeFromBridge,
   resolveCodeLayerNodeFromElementInfo,
@@ -1045,6 +1047,64 @@ const DESIGN_CHROME_RAIL_WIDTH_PX = 64;
 
 function pageHasWebMcpHost(): boolean {
   return hasNativeWebMcpHost();
+}
+
+function readRenderedLayerInfo(
+  owner: {
+    fileId: string;
+    node: CodeLayerNode;
+  },
+  breakpointWidth?: number,
+): ElementInfo | null {
+  const base = elementInfoFromCodeLayerNode(owner.node);
+  for (const preview of designPreviewWindowsForScreen(
+    owner.fileId,
+    breakpointWidth,
+  )) {
+    try {
+      const element = preview.document.querySelector(
+        preferredCodeLayerSelector(owner.node),
+      );
+      if (!element) continue;
+      const computed = preview.getComputedStyle(element);
+      const parent = element.parentElement;
+      const parentComputed = parent
+        ? preview.getComputedStyle(parent)
+        : undefined;
+      const rect = element.getBoundingClientRect();
+      return {
+        ...base,
+        sourceLayerIdentity: { screenId: owner.fileId, nodeId: owner.node.id },
+        computedStyles: {
+          ...base.computedStyles,
+          position: computed.position,
+          zIndex: computed.zIndex,
+        },
+        boundingRect: {
+          x: rect.x,
+          y: rect.y,
+          width: rect.width,
+          height: rect.height,
+        },
+        ...(parentComputed
+          ? {
+              parentDisplay: parentComputed.display,
+              parentLayout: {
+                ...base.parentLayout,
+                display: parentComputed.display,
+              },
+            }
+          : {}),
+      };
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "SecurityError") {
+        // Cross-origin previews fall through to the bridge measurement below.
+        continue;
+      }
+      throw error;
+    }
+  }
+  return null;
 }
 
 // ── Route wrapper — remounts editor state per design id ──────────────────────
@@ -1759,6 +1819,26 @@ function DesignEditor() {
     [],
   );
   const selectedLayerTargetsRef = useRef<SelectedLayerTarget[]>([]);
+  const renderedElementInfoByLayerKeyRef = useRef<Map<string, ElementInfo>>(
+    new Map(),
+  );
+  const renderedElementInfoRevisionRef = useRef(0);
+  const layerSelectionHydrationRevisionRef = useRef(0);
+  const rehydrateRenderedElementInfoRef = useRef<(() => void) | null>(null);
+  const renderedInfoRehydratePendingRef = useRef(false);
+  const invalidateRenderedElementInfo = useCallback(() => {
+    renderedElementInfoByLayerKeyRef.current.clear();
+    renderedElementInfoRevisionRef.current += 1;
+    // The preview bridge acknowledges a content morph with its follow-up
+    // element-select message. Rehydrate only from that post-morph boundary;
+    // a microtask here can observe the old iframe DOM and poison the cache.
+    renderedInfoRehydratePendingRef.current = true;
+  }, []);
+  const rehydrateRenderedInfoAfterPreview = useCallback(() => {
+    if (!renderedInfoRehydratePendingRef.current) return;
+    renderedInfoRehydratePendingRef.current = false;
+    queueMicrotask(() => rehydrateRenderedElementInfoRef.current?.());
+  }, []);
   const commitStylesToSelectedLayersRef = useRef<
     (
       styles: Record<string, string>,
@@ -2148,7 +2228,8 @@ function DesignEditor() {
   const activeBreakpointWidthStateRef = useRef<number | undefined>(undefined);
   useEffect(() => {
     activeBreakpointWidthStateRef.current = activeBreakpointWidthState;
-  }, [activeBreakpointWidthState]);
+    invalidateRenderedElementInfo();
+  }, [activeBreakpointWidthState, invalidateRenderedElementInfo]);
   // Item 9 — dedupe marker for the agent→UI `design-active-breakpoint:<id>`
   // consumption effect below: the `breakpointId` (or the literal "auto") this
   // tab most recently applied, whether it got there via the poll-driven
@@ -4196,7 +4277,7 @@ function DesignEditor() {
     designSystems,
     defaultSystem,
     isLoading: designSystemsLoading,
-  } = useDesignSystems(isSignedIn);
+  } = useDesignSystems(isSignedIn && showPrompt);
   const {
     preferences: editorPreferences,
     setPreferences: setEditorPreferences,
@@ -4284,7 +4365,9 @@ function DesignEditor() {
 
   const selectedPromptDesignSystemId =
     promptDesignSystemId === undefined
-      ? resolvePromptDesignSystemId()
+      ? designSystemsLoading
+        ? undefined
+        : resolvePromptDesignSystemId()
       : promptDesignSystemId;
 
   const handlePromptOpenChange = useCallback(
@@ -4292,12 +4375,12 @@ function DesignEditor() {
       if (open && !canEditDesign) return;
       setShowPrompt(open);
       if (open) {
-        setPromptDesignSystemId(resolvePromptDesignSystemId());
+        setPromptDesignSystemId(design?.designSystemId ?? undefined);
       } else {
         setPromptDesignSystemId(undefined);
       }
     },
-    [canEditDesign, resolvePromptDesignSystemId],
+    [canEditDesign, design?.designSystemId],
   );
 
   const handleTweakPromptOpenChange = useCallback(
@@ -4322,8 +4405,13 @@ function DesignEditor() {
   );
 
   const persistPromptDesignSystem = useCallback(
-    (designSystemId: string | null) => {
-      if (!id || !canEditDesign || design?.designSystemId === designSystemId) {
+    (designSystemId: string | null | undefined) => {
+      if (
+        designSystemId === undefined ||
+        !id ||
+        !canEditDesign ||
+        design?.designSystemId === designSystemId
+      ) {
         return;
       }
       queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
@@ -5623,6 +5711,7 @@ function DesignEditor() {
       // that commit cannot observe the previous frame's scope while React is
       // still scheduling the state update.
       activeBreakpointWidthStateRef.current = widthPx;
+      invalidateRenderedElementInfo();
       setActiveBreakpointWidthState(widthPx);
       if (!id) return;
       const bp = designBreakpoints.find((b) => b.widthPx === widthPx);
@@ -5634,7 +5723,12 @@ function DesignEditor() {
       lastAppliedActiveBreakpointIdRef.current = breakpointId;
       persistActiveBreakpoint(breakpointId, responsiveEditScopeRef.current);
     },
-    [id, designBreakpoints, persistActiveBreakpoint],
+    [
+      id,
+      designBreakpoints,
+      invalidateRenderedElementInfo,
+      persistActiveBreakpoint,
+    ],
   );
   const handleResponsiveEditScopeChange = useCallback(
     (scope: ResponsiveEditScope) => {
@@ -8897,7 +8991,7 @@ function DesignEditor() {
       ) {
         return { status: "refused" as const };
       }
-      return runApplyLocalContentUpdate(
+      const result = runApplyLocalContentUpdate(
         {
           acknowledgeAuthoritativeClipboardMutation,
           activeFile,
@@ -8938,6 +9032,8 @@ function DesignEditor() {
             ),
         },
       );
+      if (result.status === "accepted") invalidateRenderedElementInfo();
+      return result;
     },
     [
       sourceBaseForPublication,
@@ -8959,6 +9055,7 @@ function DesignEditor() {
       syncUndoRedoState,
       t,
       ydoc,
+      invalidateRenderedElementInfo,
     ],
   );
 
@@ -8983,7 +9080,7 @@ function DesignEditor() {
       if (options.persist !== false && !canApplyContentEdit(fileId)) {
         return { status: "refused" as const };
       }
-      return runApplyFileContentUpdate(
+      const result = runApplyFileContentUpdate(
         {
           acknowledgeAuthoritativeClipboardMutation,
           activeFile,
@@ -9017,6 +9114,8 @@ function DesignEditor() {
             ),
         },
       );
+      if (result.status === "accepted") invalidateRenderedElementInfo();
+      return result;
     },
     [
       sourceBaseForPublication,
@@ -9037,6 +9136,7 @@ function DesignEditor() {
       queueFileContentSave,
       recordContentHistoryEntry,
       t,
+      invalidateRenderedElementInfo,
     ],
   );
 
@@ -10783,7 +10883,7 @@ function DesignEditor() {
         breakpointWidthPx?: number;
       } = {},
     ) => {
-      const run = () =>
+      const run = () => {
         runScreenElementSelect(
           {
             activeBreakpointWidthStateRef,
@@ -10797,6 +10897,7 @@ function DesignEditor() {
             id,
             pendingOverviewLayerSelectionRef,
             pendingOverviewScreenSelectionRef,
+            renderedElementInfoByLayerKeyRef,
             selectedLayerIdsState,
             setActiveFileId,
             setActiveTool,
@@ -10816,6 +10917,8 @@ function DesignEditor() {
           intent,
           options,
         );
+        rehydrateRenderedInfoAfterPreview();
+      };
       // Only a genuine user pick is a selection-only undo step. The
       // selection command may also persist an infrastructure node id, but
       // that write is recordHistory:false and must not add a second edit step.
@@ -10836,6 +10939,7 @@ function DesignEditor() {
       getScreenContent,
       handleBreakpointBarSelect,
       id,
+      rehydrateRenderedInfoAfterPreview,
       selectedLayerIdsState,
       t,
     ],
@@ -10867,6 +10971,7 @@ function DesignEditor() {
       setHoveredElement(null);
       setHoveredElementScreenId(null);
       setSelectedLayerIdsState([]);
+      invalidateRenderedElementInfo();
       if (viewModeRef.current === "overview") {
         setOverviewSelectedScreenIds([]);
         if (breakpointWidthPx !== undefined) {
@@ -10878,7 +10983,11 @@ function DesignEditor() {
       setActiveTool(resolveToolAfterSelection);
       setMode("edit");
     },
-    [clearPendingOverviewLayerSelectionTimer, handleBreakpointBarSelect],
+    [
+      clearPendingOverviewLayerSelectionTimer,
+      handleBreakpointBarSelect,
+      invalidateRenderedElementInfo,
+    ],
   );
 
   const handleElementSelect = useCallback(
@@ -11336,7 +11445,7 @@ function DesignEditor() {
         preserveSelection?: boolean;
         pendingUndoGestureId?: string;
       } = {},
-    ) =>
+    ) => {
       runCommitVisualStyles(
         {
           activeBreakpointUpperBoundPx,
@@ -11380,7 +11489,9 @@ function DesignEditor() {
         selector,
         styles,
         options,
-      ),
+      );
+      invalidateRenderedElementInfo();
+    },
     [
       activeFile,
       activeBreakpointWidthState,
@@ -11405,6 +11516,7 @@ function DesignEditor() {
       upsertMotionKeyframesFromStyles,
       ydoc,
       isSynced,
+      invalidateRenderedElementInfo,
     ],
   );
 
@@ -14846,11 +14958,25 @@ function DesignEditor() {
         {
           activeFile,
           applyLinkedComponentEdit,
+          activeBreakpointUpperBoundPx,
+          activeBreakpointWidthStateRef,
           applyLocalContentUpdate,
           canEditDesign,
           codeLayerOwnerByNodeIdRef,
           commitVisualStyles,
           getFreshActiveContent,
+          invalidateRenderedElementInfo,
+          renderedElementInfoByLayerKeyRef,
+          reportRefusal: (reason) =>
+            toast.error(
+              t(
+                reason === "linked-component"
+                  ? "designEditor.componentInstances.linkedEditScopeUnsupported"
+                  : "designEditor.patchProof.selectorMissing",
+              ),
+              { duration: 4000 },
+            ),
+          responsiveEditScopeRef,
           selectedElement,
           selectedLayerIdsState,
           setSelectedElement,
@@ -14859,11 +14985,14 @@ function DesignEditor() {
       ),
     [
       activeFile,
+      activeBreakpointUpperBoundPx,
       applyLinkedComponentEdit,
       applyLocalContentUpdate,
       canEditDesign,
       commitVisualStyles,
       getFreshActiveContent,
+      invalidateRenderedElementInfo,
+      t,
       selectedElement,
       selectedLayerIdsState,
     ],
@@ -21061,6 +21190,98 @@ function DesignEditor() {
     setHoveredElementScreenId(null);
   }, []);
 
+  const hydrateRenderedLayerInfoForIds = useCallback((ids: string[]) => {
+    const hydrationRevision = ++layerSelectionHydrationRevisionRef.current;
+    const renderedRevision = renderedElementInfoRevisionRef.current;
+    const breakpointWidth = activeBreakpointWidthStateRef.current;
+    const ownerByNodeId = codeLayerOwnerByNodeIdRef.current;
+    type RenderedLayerOwner = {
+      fileId: string;
+      node: CodeLayerNode;
+      tree: CodeLayerTreeNode[];
+      runtimeOnly: boolean;
+    };
+    const ownersToMeasure = new Map<string, RenderedLayerOwner>();
+    for (const layerId of ids) {
+      const owner = ownerByNodeId.get(layerId);
+      if (!owner || owner.runtimeOnly) continue;
+      ownersToMeasure.set(layerId, owner);
+      for (const siblingId of findCodeLayerSiblingOrder(owner.tree, layerId)
+        ?.siblingIds ?? []) {
+        const siblingOwner = ownerByNodeId.get(siblingId);
+        if (
+          siblingOwner &&
+          siblingOwner.fileId === owner.fileId &&
+          !siblingOwner.runtimeOnly
+        ) {
+          ownersToMeasure.set(siblingId, siblingOwner);
+        }
+      }
+      const pendingDescendants = [...owner.node.children];
+      while (pendingDescendants.length > 0) {
+        const descendantId = pendingDescendants.pop()!;
+        const descendantOwner = ownerByNodeId.get(descendantId);
+        if (
+          !descendantOwner ||
+          descendantOwner.fileId !== owner.fileId ||
+          descendantOwner.runtimeOnly
+        ) {
+          continue;
+        }
+        ownersToMeasure.set(descendantId, descendantOwner);
+        pendingDescendants.push(...descendantOwner.node.children);
+      }
+    }
+    const cache = (
+      layerId: string,
+      owner: RenderedLayerOwner,
+      measured: ElementInfo,
+    ) => {
+      const currentOwner = codeLayerOwnerByNodeIdRef.current.get(layerId);
+      if (
+        layerSelectionHydrationRevisionRef.current !== hydrationRevision ||
+        renderedElementInfoRevisionRef.current !== renderedRevision ||
+        activeBreakpointWidthStateRef.current !== breakpointWidth ||
+        currentOwner?.fileId !== owner.fileId ||
+        currentOwner?.node.id !== owner.node.id
+      ) {
+        return;
+      }
+      const stableId = owner.node.dataAttributes["data-agent-native-node-id"];
+      renderedElementInfoByLayerKeyRef.current.set(
+        `${owner.fileId}:${owner.node.id}`,
+        measured,
+      );
+      if (stableId) {
+        renderedElementInfoByLayerKeyRef.current.set(
+          `${owner.fileId}:${stableId}`,
+          measured,
+        );
+      }
+    };
+    for (const [layerId, owner] of ownersToMeasure) {
+      const synchronouslyMeasured = readRenderedLayerInfo(
+        owner,
+        breakpointWidth,
+      );
+      if (synchronouslyMeasured) {
+        cache(layerId, owner, synchronouslyMeasured);
+        continue;
+      }
+      void requestSelectionMeasurement({
+        targetWindows: () =>
+          designPreviewWindowsForScreen(owner.fileId, breakpointWidth),
+        screenId: owner.fileId,
+        selector: preferredCodeLayerSelector(owner.node),
+      }).then((measured) => {
+        if (!measured) return;
+        cache(layerId, owner, measured);
+      });
+    }
+  }, []);
+  rehydrateRenderedElementInfoRef.current = () =>
+    hydrateRenderedLayerInfoForIds(selectedLayerIdsStateRef.current);
+
   const handleLayerSelectionChange = useCallback(
     (
       ids: string[],
@@ -21070,9 +21291,9 @@ function DesignEditor() {
         id: string;
         range: boolean;
       },
-    ) =>
-      recordSelectionHistoryAroundChange(() =>
-        runLayerSelectionChange(
+    ) => {
+      recordSelectionHistoryAroundChange(() => {
+        const effectiveIds = runLayerSelectionChange(
           {
             applyFileContentUpdate,
             activeFile,
@@ -21098,8 +21319,11 @@ function DesignEditor() {
           },
           ids,
           _intent,
-        ),
-      ),
+        );
+        hydrateRenderedLayerInfoForIds(effectiveIds);
+        queueMicrotask(() => hydrateRenderedLayerInfoForIds(effectiveIds));
+      });
+    },
     [
       activeFile?.id,
       activeFileId,
@@ -21110,9 +21334,12 @@ function DesignEditor() {
       files,
       focusDesignInspectorForSelection,
       getScreenContent,
+      activeBreakpointWidthStateRef,
       overviewSelectedScreenIds,
       recordSelectionHistoryAroundChange,
       selectedElement,
+      layerSelectionHydrationRevisionRef,
+      hydrateRenderedLayerInfoForIds,
     ],
   );
 
@@ -21136,6 +21363,7 @@ function DesignEditor() {
               lastMarqueeSelectionSignatureRef,
               pendingOverviewLayerSelectionRef,
               pendingOverviewScreenSelectionRef,
+              renderedElementInfoByLayerKeyRef,
               setActiveFileId,
               setActiveTool,
               setCreatedOverviewLayerSelection,
@@ -25331,7 +25559,10 @@ function DesignEditor() {
           });
           handlePromptOpenChange(false);
         }}
-        loading={generating}
+        loading={
+          generating ||
+          (designSystemsLoading && promptDesignSystemId === undefined)
+        }
         anchorRef={promptAnchorRef}
         designSystems={designSystems}
         designSystemsLoading={designSystemsLoading}

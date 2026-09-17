@@ -113,7 +113,7 @@ export async function runImportFigmaClipboardIntoDesign(
         description: remainingWarnings[0],
       });
     }
-    const overviewPath = `/design/${result?.designId ?? id}?view=overview`;
+    const overviewPath = `/design/${result?.designId ?? id}?editorView=overview`;
     const firstImportedFileId = result.files[0]?.id;
     void navigate(
       firstImportedFileId

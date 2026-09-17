@@ -28,6 +28,7 @@ export interface LayerMarqueeSelectionChangeArgs {
   lastMarqueeSelectionSignatureRef: RefObject<string | null>;
   pendingOverviewLayerSelectionRef: RefObject<string | null>;
   pendingOverviewScreenSelectionRef: RefObject<string | null>;
+  renderedElementInfoByLayerKeyRef?: RefObject<Map<string, ElementInfo>>;
   setActiveFileId: Dispatch<SetStateAction<string | null>>;
   setActiveTool: Dispatch<SetStateAction<DesignTool>>;
   setCreatedOverviewLayerSelection: Dispatch<
@@ -50,6 +51,7 @@ export function runLayerMarqueeSelectionChange(
     lastMarqueeSelectionSignatureRef,
     pendingOverviewLayerSelectionRef,
     pendingOverviewScreenSelectionRef,
+    renderedElementInfoByLayerKeyRef,
     setActiveFileId,
     setActiveTool,
     setCreatedOverviewLayerSelection,
@@ -121,6 +123,19 @@ export function runLayerMarqueeSelectionChange(
     );
 
   const hitLayerIds = dedupeStringIds(resolved.map((item) => item.node.id));
+  resolved.forEach((item) => {
+    renderedElementInfoByLayerKeyRef?.current.set(
+      `${item.screenId}:${item.node.id}`,
+      item.elementInfo,
+    );
+    const stableId = item.node.dataAttributes["data-agent-native-node-id"];
+    if (stableId) {
+      renderedElementInfoByLayerKeyRef?.current.set(
+        `${item.screenId}:${stableId}`,
+        item.elementInfo,
+      );
+    }
+  });
   setSelectedLayerIdsState((current) =>
     intent.additive
       ? dedupeStringIds([
