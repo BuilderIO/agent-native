@@ -1038,6 +1038,7 @@ export function MultiTabAssistantChat({
     isLoadingMoreThreads,
     threadsLoadError,
     restoredThreadIdOnListFailure,
+    evictedThreadIds,
     isNewThread,
     pinThread,
     renameThread,
@@ -2212,6 +2213,7 @@ export function MultiTabAssistantChat({
     );
     pendingContextItems.current.delete(tabId);
     newThreadIds.current.delete(tabId);
+    mountedTabsRef.current.delete(tabId);
     threadModelRef.current.delete(tabId);
     // Clean up parent map and sub-agent names
     setParentMap((prev) => {
@@ -2230,6 +2232,14 @@ export function MultiTabAssistantChat({
       return rest;
     });
   }, []);
+
+  useEffect(() => {
+    if (evictedThreadIds.length === 0) return;
+    for (const threadId of evictedThreadIds) cleanupClosedTab(threadId);
+    setOpenTabIds((prev) =>
+      prev.filter((threadId) => !evictedThreadIds.includes(threadId)),
+    );
+  }, [cleanupClosedTab, evictedThreadIds, setOpenTabIds]);
 
   const closeTab = useCallback(
     (tabId: string) => {

@@ -390,6 +390,7 @@ export function useChatThreads(
   const [threadsLoadError, setThreadsLoadError] = useState<string | null>(null);
   const [restoredThreadIdOnListFailure, setRestoredThreadIdOnListFailure] =
     useState<string | null>(null);
+  const [evictedThreadIds, setEvictedThreadIds] = useState<string[]>([]);
   const nextThreadsOffsetRef = useRef(0);
   const latestFetchRequestRef = useRef(0);
   const threadsRef = useRef<ChatThreadSummary[]>(threads);
@@ -739,6 +740,11 @@ export function useChatThreads(
           localStorage.removeItem(activeThreadKey);
           localStorage.removeItem(activeThreadSeenKey);
           setActiveThreadId(null);
+        }
+        if (evictedExplicitIds.size > 0) {
+          setEvictedThreadIds((prev) => [
+            ...new Set([...prev, ...evictedExplicitIds]),
+          ]);
         }
         setThreads((prev) => {
           const loadedIds = new Set(visibleWithExplicit.map((t) => t.id));
@@ -1375,6 +1381,9 @@ export function useChatThreads(
       if (thread === undefined) return "unavailable";
       if (thread === null || thread.archivedAt) {
         explicitlyOpenedThreadIdsRef.current.delete(id);
+        setEvictedThreadIds((prev) =>
+          prev.includes(id) ? prev : [...prev, id],
+        );
         setThreads((prev) => prev.filter((candidate) => candidate.id !== id));
         if (activeThreadIdRef.current === id) {
           localStorage.removeItem(activeThreadKey);
@@ -1388,6 +1397,7 @@ export function useChatThreads(
       clearClientDraftThreadMarker(thread.id);
       newlyCreatedRef.current.delete(thread.id);
       explicitlyOpenedThreadIdsRef.current.add(id);
+      setEvictedThreadIds((prev) => prev.filter((evicted) => evicted !== id));
       setThreads((prev) =>
         prev.some((candidate) => candidate.id === thread.id)
           ? prev.map((candidate) =>
@@ -1807,6 +1817,7 @@ export function useChatThreads(
     isLoadingMoreThreads,
     threadsLoadError,
     restoredThreadIdOnListFailure,
+    evictedThreadIds,
     isNewThread,
   };
 }

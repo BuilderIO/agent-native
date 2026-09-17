@@ -64,7 +64,8 @@ const assistantChatMockState = vi.hoisted(() => ({
 }));
 
 const threadMocks = vi.hoisted(() => ({
-  activeThreadId: "thread-1",
+  activeThreadId: "thread-1" as string | null,
+  evictedThreadIds: [] as string[],
   threads: [
     {
       id: "thread-1",
@@ -311,6 +312,7 @@ function resetThreadMocks() {
   assistantChatMockState.onThreadRestoreNotFound = undefined;
   assistantChatMockState.onSlashCommand = undefined;
   threadMocks.activeThreadId = "thread-1";
+  threadMocks.evictedThreadIds = [];
   threadMocks.threads = [
     {
       id: "thread-1",
@@ -2336,6 +2338,59 @@ describe("MultiTabAssistantChat tab close/open lifecycle", () => {
       closeButtons()[1].click();
     });
     expect(closeButtons()).toHaveLength(1);
+  });
+
+  it("removes a revoked explicit thread from open and mounted tabs", async () => {
+    const storageKey = "revoked-explicit-thread";
+    threadMocks.activeThreadId = "protected-thread";
+    threadMocks.threads = [
+      makeThread("protected-thread"),
+      makeThread("remaining-thread"),
+    ];
+    window.localStorage.setItem(
+      openTabsStorageKey(storageKey),
+      JSON.stringify(["protected-thread", "remaining-thread"]),
+    );
+    let tabs: MultiTabAssistantChatHeaderProps["tabs"] = [];
+
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey={storageKey}
+          renderHeader={(props) => {
+            tabs = props.tabs;
+            return null;
+          }}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(tabs.map((tab) => tab.id)).toContain("protected-thread");
+
+    threadMocks.activeThreadId = null;
+    threadMocks.threads = [makeThread("remaining-thread")];
+    threadMocks.evictedThreadIds = ["protected-thread"];
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey={storageKey}
+          renderHeader={(props) => {
+            tabs = props.tabs;
+            return null;
+          }}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(tabs.map((tab) => tab.id)).not.toContain("protected-thread");
+    expect(
+      JSON.parse(
+        window.localStorage.getItem(openTabsStorageKey(storageKey)) ?? "[]",
+      ),
+    ).not.toContain("protected-thread");
   });
 
   it("migrates legacy open tabs and sub-agent metadata into this browser tab", async () => {
