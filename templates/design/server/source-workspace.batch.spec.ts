@@ -37,11 +37,12 @@ import {
   seedFromText,
 } from "@agent-native/core/collab";
 import { closeDbExec, getDbExec } from "@agent-native/core/db";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 import { sourceContentHash } from "../shared/source-workspace.js";
-import { getDb } from "./db/index.js";
+import { getDb, schema } from "./db/index.js";
 import {
+  withDesignSourceMutationTransaction,
   writeInlineSourceFilesBatch,
   withSourceFileWriteLock,
   type SourceWorkspaceFile,
@@ -190,6 +191,60 @@ afterAll(async () => {
 });
 
 describe("writeInlineSourceFilesBatch", () => {
+  it("serializes design-file insert and delete membership mutations", async () => {
+    let releaseInsert!: () => void;
+    let inserted!: () => void;
+    const insertEntered = new Promise<void>((resolve) => {
+      inserted = resolve;
+    });
+    const insertRelease = new Promise<void>((resolve) => {
+      releaseInsert = resolve;
+    });
+
+    const insertRun = withDesignSourceMutationTransaction(
+      DESIGN_ID,
+      async (tx) => {
+        await tx.insert(schema.designFiles).values({
+          id: "membership-insert",
+          designId: DESIGN_ID,
+          filename: "inserted.html",
+          content: "<main>inserted</main>",
+          fileType: "html",
+          createdAt: BASE_TIME,
+          updatedAt: BASE_TIME,
+        });
+        inserted();
+        await insertRelease;
+      },
+    );
+    await insertEntered;
+
+    let deleteEntered = false;
+    const deleteRun = withDesignSourceMutationTransaction(
+      DESIGN_ID,
+      async (tx) => {
+        deleteEntered = true;
+        await tx
+          .delete(schema.designFiles)
+          .where(eq(schema.designFiles.id, DESTINATION_ID));
+      },
+    );
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(deleteEntered).toBe(false);
+
+    releaseInsert();
+    await Promise.all([insertRun, deleteRun]);
+    expect(await persistedFiles()).toEqual([
+      { id: SOURCE_ID, content: SOURCE_BASE, updated_at: BASE_TIME },
+      {
+        id: "membership-insert",
+        content: "<main>inserted</main>",
+        updated_at: BASE_TIME,
+      },
+    ]);
+  });
+
   it("serializes index-first and rename-first critical sections on one source file", async () => {
     const run = async (fileId: string, first: string, second: string) => {
       const order: string[] = [];
