@@ -39,8 +39,7 @@ vi.mock("../lib/uploaded-reference-storage.js", () => ({
 
 vi.mock("./assets.js", () => ({
   canSaveAsUploadedAsset: () => false,
-  hasExpectedSvgSignature: (...args: unknown[]) =>
-    mockHasExpectedSvgSignature(...args),
+  hasExpectedSvgSignature: mockHasExpectedSvgSignature,
   isSafeSvg: () => mockIsSafeSvg(),
   uploadImageAsset: vi.fn(),
 }));
