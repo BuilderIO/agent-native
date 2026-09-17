@@ -8,7 +8,7 @@ vi.mock("@agent-native/core/mcp-client", () => ({
 
 const { readDbtMcpStatus } = await import("./dbt-mcp-status");
 
-const fullContractNames = [
+const metadataToolNames = [
   "get_all_models",
   "get_all_sources",
   "get_node_details",
@@ -17,8 +17,6 @@ const fullContractNames = [
   "get_lineage",
   "get_model_health",
   "get_model_performance",
-  "execute_sql",
-  "text_to_sql",
 ];
 
 function tool(name: string, serverId = "org-dbt") {
@@ -35,10 +33,12 @@ describe("readDbtMcpStatus", () => {
     listVisibleMcpTools.mockReset();
   });
 
-  it("projects the full official dbt capability contract", async () => {
-    listVisibleMcpTools.mockResolvedValue(
-      fullContractNames.map((name) => tool(name)),
-    );
+  it("projects only the dbt metadata capability contract", async () => {
+    listVisibleMcpTools.mockResolvedValue([
+      ...metadataToolNames.map((name) => tool(name)),
+      tool("execute_sql"),
+      tool("text_to_sql"),
+    ]);
 
     await expect(readDbtMcpStatus()).resolves.toEqual({
       available: true,
@@ -49,16 +49,12 @@ describe("readDbtMcpStatus", () => {
         lineage: true,
         healthAndFreshness: true,
       },
-      sqlTools: {
-        available: true,
-        intentionallyUnused: true,
-      },
-      toolCount: fullContractNames.length,
+      toolCount: metadataToolNames.length,
       setupLink: "/data-sources?source=dbt&returnTo=ask",
     });
   });
 
-  it("reports discovery-only dbt without treating SQL tools as a capability", async () => {
+  it("ignores dbt SQL and unrelated tools", async () => {
     listVisibleMcpTools.mockResolvedValue([
       tool("get_all_models", "dbt-discovery"),
       tool("execute_sql", "dbt-discovery"),
@@ -74,17 +70,16 @@ describe("readDbtMcpStatus", () => {
         lineage: false,
         healthAndFreshness: false,
       },
-      sqlTools: {
-        available: true,
-        intentionallyUnused: true,
-      },
-      toolCount: 2,
+      toolCount: 1,
       setupLink: "/data-sources?source=dbt&returnTo=ask",
     });
   });
 
-  it("reports a successful empty list as disconnected", async () => {
-    listVisibleMcpTools.mockResolvedValue([]);
+  it("reports SQL-only dbt tools as disconnected", async () => {
+    listVisibleMcpTools.mockResolvedValue([
+      tool("execute_sql"),
+      tool("text_to_sql"),
+    ]);
 
     await expect(readDbtMcpStatus()).resolves.toMatchObject({
       available: true,

@@ -101,7 +101,7 @@ describe("DbtMcpDataSourceCard", () => {
               lineage: true,
               healthAndFreshness: true,
             },
-            sqlTools: { available: false, intentionallyUnused: true },
+
             toolCount: 8,
             setupLink: "/data-sources?source=dbt&returnTo=ask",
           }}
@@ -143,7 +143,7 @@ describe("DbtMcpDataSourceCard", () => {
               lineage: false,
               healthAndFreshness: false,
             },
-            sqlTools: { available: false, intentionallyUnused: true },
+
             toolCount: 0,
             setupLink: "/data-sources?source=dbt&returnTo=ask",
           }}
@@ -184,7 +184,7 @@ describe("DbtMcpDataSourceCard", () => {
               lineage: true,
               healthAndFreshness: true,
             },
-            sqlTools: { available: false, intentionallyUnused: true },
+
             toolCount: 8,
             setupLink: "/data-sources?source=dbt&returnTo=ask",
           }}

@@ -107,7 +107,7 @@ describe("MCP integration catalog", () => {
       (integration) => integration.id === "dbt",
     )!;
 
-    for (const query of ["dbt", "lineage", "model health"]) {
+    for (const query of ["dbt", "metadata", "lineage", "model health"]) {
       expect(filterMcpIntegrations(query).map((item) => item.id)).toContain(
         "dbt",
       );
@@ -127,7 +127,7 @@ describe("MCP integration catalog", () => {
     expect(createMcpIntegrationFormDefaults(dbt)).toEqual({
       name: "dbt",
       url: "https://<dbt-host>/api/ai/v1/mcp/",
-      description: "Explore governed dbt metadata, lineage, and model health.",
+      description: "Explore dbt model metadata, sources, lineage, and health.",
       headersText: "",
     });
     expect(supportsMcpIntegrationOrganizationScope(dbt)).toBe(true);

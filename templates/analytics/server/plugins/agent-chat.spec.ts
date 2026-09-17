@@ -276,7 +276,6 @@ describe("Analytics agent Plan mode policy", () => {
         lineage: true,
         healthAndFreshness: true,
       },
-      sqlTools: { available: true, intentionallyUnused: true },
       toolCount: 8,
       setupLink: "/data-sources?source=dbt&returnTo=ask",
     });
@@ -289,13 +288,13 @@ describe("Analytics agent Plan mode policy", () => {
         lineage: false,
         healthAndFreshness: false,
       },
-      sqlTools: { available: false, intentionallyUnused: true },
       toolCount: 0,
       setupLink: "/data-sources?source=dbt&returnTo=ask",
     });
 
-    expect(connected).toContain("discover the exact dynamic dbt tools");
-    expect(connected).toContain("direct SQL only through the bigquery action");
+    expect(connected).toContain("dynamic dbt metadata tools");
+    expect(connected).toContain("never call dbt SQL tools");
+    expect(connected).toContain("separate BigQuery operations");
     expect(unreadable).toContain("status is unreadable");
     expect(unreadable).toContain("Do not infer that dbt is disconnected");
     expect(connected).toContain(
@@ -309,6 +308,7 @@ describe("Analytics agent Plan mode policy", () => {
     for (const skill of [dbtSkill, bigquerySkill]) {
       expect(skill).toMatch(/dbt_dev/);
       expect(skill).toMatch(/dbt_backup/);
+      expect(skill).toMatch(/dbt_cloud_pr_\*/);
       expect(skill).toMatch(/latest end-user request explicitly names/i);
       expect(skill).toMatch(
         /Never infer permission from (?:SQL|agent-generated SQL)/i,
@@ -335,7 +335,7 @@ describe("Analytics agent Plan mode policy", () => {
     expect(dataQueryingSkill).toMatch(/Complex inferred joins/);
   });
 
-  it("documents governed dbt discovery and warehouse query routing", () => {
+  it("documents metadata-only dbt discovery", () => {
     for (const toolName of [
       "get_node_details",
       "get_lineage",
@@ -345,9 +345,10 @@ describe("Analytics agent Plan mode policy", () => {
     ]) {
       expect(dbtSkill).toContain(`\`${toolName}\``);
     }
+    expect(dbtSkill).toContain("This integration is metadata-only");
     expect(dbtSkill).toContain("Never use dbt `execute_sql` or `text_to_sql`");
     expect(dbtSkill).toContain("keep it unknown");
-    expect(dbtSkill).toContain("shared workspace dbt identity");
+    expect(dbtSkill).toContain("dbt Cloud service-token identity");
   });
 
   it("leaves representative read-only Analytics tools available to the shared Plan-mode policy", () => {

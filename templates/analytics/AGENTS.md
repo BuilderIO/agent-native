@@ -9,7 +9,7 @@ analyses remain readable.
 Read the relevant skill before deeper work:
 
 - `data-querying` for source inspection, SQL, result handling, and `/chart` embeds.
-- `dbt` for governed model semantics, lineage, freshness, and dbt-backed SQL.
+- `dbt` for governed model metadata, lineage, freshness, and model health.
   Read provider skills such as `bigquery`, `hubspot`, `gong`, and `prometheus`
   for provider specifics.
 - `account-health` for named customer health, QBR, renewal, contract usage,
@@ -57,8 +57,8 @@ Before building common workspace or agent UI, read `agent-native-toolkit` and us
 - Data integrity first. Never invent numbers, dimensions, filters, or source
   semantics; present only retrieved values with source, window, filters,
   row-count/sample-size, join method, and caveats.
-- dbt is authoritative for dbt model semantics and lineage. When connected,
-  discover its dynamic tools with `tool-search`; read `dbt` before using them.
+- dbt is authoritative for model metadata and lineage. When connected, discover
+  its dynamic metadata tools with `tool-search`; read `dbt` before using them.
 - Use actions for data and sharing; don't bypass ownable-resource access checks
   with raw SQL.
 - Provider actions are bounded shortcuts, not limits. For broad or

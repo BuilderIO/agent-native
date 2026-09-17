@@ -101,10 +101,7 @@ describe("data-source-status", () => {
         lineage: false,
         healthAndFreshness: false,
       },
-      sqlTools: {
-        available: false,
-        intentionallyUnused: true,
-      },
+
       toolCount: 0,
       setupLink: "/data-sources?source=dbt&returnTo=ask",
     });
@@ -172,10 +169,7 @@ describe("data-source-status", () => {
         lineage: false,
         healthAndFreshness: false,
       },
-      sqlTools: {
-        available: false,
-        intentionallyUnused: true,
-      },
+
       toolCount: 0,
       setupLink: "/data-sources?source=dbt&returnTo=ask",
     });

@@ -354,7 +354,7 @@ No dynamic dbt capability was visible in a successful connection check. This is 
     status.capabilities.healthAndFreshness ? "health/freshness" : null,
   ].filter((capability): capability is string => Boolean(capability));
   return `<dbt-routing>
-  dbt is connected with these visible capabilities: ${capabilities.join(", ") || "none classified"}. Read the dbt skill, then discover the exact dynamic dbt tools with tool-search. dbt owns model semantics and lineage; verify physical BigQuery relations with search-bigquery-schema and run direct SQL only through the bigquery action. A visible health/freshness capability does not mean the underlying data is fresh; use the returned status and timestamps.
+  dbt is connected with these visible metadata capabilities: ${capabilities.join(", ") || "none classified"}. Read the dbt skill, then discover the exact dynamic dbt metadata tools with tool-search. Use dbt only for model metadata, lineage, and health/freshness; never call dbt SQL tools. Warehouse schema discovery and querying are separate BigQuery operations. A visible health/freshness capability does not mean the underlying data is fresh; use the returned status and timestamps.
 </dbt-routing>`;
 }
 

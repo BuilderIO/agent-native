@@ -37,10 +37,6 @@ export interface DbtMcpStatus {
     lineage: boolean;
     healthAndFreshness: boolean;
   };
-  sqlTools: {
-    available: boolean;
-    intentionallyUnused: true;
-  };
   toolCount: number;
   setupLink: "/data-sources?source=dbt&returnTo=ask";
 }

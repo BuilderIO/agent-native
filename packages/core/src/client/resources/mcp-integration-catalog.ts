@@ -482,9 +482,9 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     id: "dbt",
     name: "dbt",
     provider: "dbt",
-    description: "Explore governed dbt metadata, lineage, and model health.",
+    description: "Explore dbt model metadata, sources, lineage, and health.",
     descriptionKey: "mcpIntegrations.catalog.dbt.description",
-    useCase: "data models, sources, lineage, and model health",
+    useCase: "metadata for models, sources, lineage, and model health",
     useCaseKey: "mcpIntegrations.catalog.dbt.useCase",
     url: "https://<dbt-host>/api/ai/v1/mcp/",
     authMode: "headers",
@@ -498,7 +498,14 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     headerPlaceholder:
       "Authorization: Token <DBT_SERVICE_TOKEN>\nx-dbt-prod-environment-id: <DBT_PROD_ENVIRONMENT_ID>",
     aliases: ["lineage"],
-    keywords: ["dbt", "lineage", "models", "sources", "model health"],
+    keywords: [
+      "dbt",
+      "metadata",
+      "lineage",
+      "models",
+      "sources",
+      "model health",
+    ],
   },
   {
     id: "gitlab",
