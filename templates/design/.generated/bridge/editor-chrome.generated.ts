@@ -2875,6 +2875,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       "width",
       "height",
       "transform",
+      "scale",
       "display",
       "overflow",
       "lineHeight",
@@ -2942,6 +2943,15 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!el || !liveVisualEditOriginalInlineStyles) return;
       if (liveVisualEditOriginalInlineStyles.has(el)) return;
       liveVisualEditOriginalInlineStyles.set(el, collectInlineStyles(el));
+    }
+    function refreshLiveVisualEditOriginalStyles(el) {
+      if (!el || !liveVisualEditOriginalInlineStyles) return;
+      liveVisualEditOriginalInlineStyles.delete(el);
+      rememberLiveVisualEditOriginalStyles(el);
+    }
+    function releaseLiveVisualEditOriginalStyles(el) {
+      if (!el || !liveVisualEditOriginalInlineStyles) return;
+      liveVisualEditOriginalInlineStyles.delete(el);
     }
     function originalInlineStylesForPatch(el, styles) {
       if (!el || !liveVisualEditOriginalInlineStyles) return {};
@@ -7562,8 +7572,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       height += readPx(cs.paddingTop) + readPx(cs.paddingBottom) + readPx(cs.borderTopWidth) + readPx(cs.borderBottomWidth);
       return { width, height };
     }
-    function radiusLinearTransform(el) {
-      var cs = window.getComputedStyle(el);
+    function radiusLinearTransformForStyle(cs) {
       var transform = { a: 1, b: 0, c: 0, d: 1 };
       if (cs.transform && cs.transform !== "none" && window.DOMMatrixReadOnly) {
         try {
@@ -7573,7 +7582,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           void err;
         }
       }
-      var scaleParts = (cs.scale || "none").trim().split(/\\s+/).map(function(part) {
+      var scaleParts = (cs.scale || cs.getPropertyValue("scale") || "none").trim().split(/\\s+/).map(function(part) {
         return parseFloat(part);
       });
       var scaleX = Number.isFinite(scaleParts[0]) ? scaleParts[0] : 1;
@@ -7588,15 +7597,41 @@ export const editorChromeBridgeScript: string = `"use strict";
         c: -sin * scaleY,
         d: cos * scaleY
       };
-      return {
+      var result = {
         a: transform.a * rotateScale.a + transform.c * rotateScale.b,
         b: transform.b * rotateScale.a + transform.d * rotateScale.b,
         c: transform.a * rotateScale.c + transform.c * rotateScale.d,
         d: transform.b * rotateScale.c + transform.d * rotateScale.d
       };
+      var zoom = parseFloat(cs.zoom || cs.getPropertyValue("zoom"));
+      if (Number.isFinite(zoom) && zoom > 0) {
+        result.a *= zoom;
+        result.b *= zoom;
+        result.c *= zoom;
+        result.d *= zoom;
+      }
+      return result;
+    }
+    function radiusLinearTransform(el) {
+      return radiusLinearTransformForStyle(window.getComputedStyle(el));
+    }
+    function multiplyRadiusLinear(parent, child) {
+      return {
+        a: parent.a * child.a + parent.c * child.b,
+        b: parent.b * child.a + parent.d * child.b,
+        c: parent.a * child.c + parent.c * child.d,
+        d: parent.b * child.c + parent.d * child.d
+      };
+    }
+    function radiusViewportLinearTransform(el) {
+      var total = { a: 1, b: 0, c: 0, d: 1 };
+      for (var current = el; current && current.nodeType === 1; current = current.parentElement) {
+        total = multiplyRadiusLinear(radiusLinearTransform(current), total);
+      }
+      return total;
     }
     function radiusLocalDelta(el, screenDx, screenDy) {
-      var matrix = radiusLinearTransform(el);
+      var matrix = radiusViewportLinearTransform(el);
       var determinant = matrix.a * matrix.d - matrix.b * matrix.c;
       if (!Number.isFinite(determinant) || Math.abs(determinant) < 1e-4) {
         return { x: screenDx, y: screenDy };
@@ -7987,6 +8022,20 @@ export const editorChromeBridgeScript: string = `"use strict";
         return "rotate(" + degrees + "deg)";
       }
       return ((transform && transform !== "none" ? transform + " " : "") + "rotate(" + degrees + "deg)").trim();
+    }
+    function readScalePair(value) {
+      if (!value || value === "none") return { x: 1, y: 1 };
+      var parts = value.trim().split(/\\s+/).map(function(part) {
+        return parseFloat(part);
+      });
+      var x = parts[0];
+      var y = parts.length > 1 ? parts[1] : x;
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+      return { x, y };
+    }
+    function mergeRelativeScale(scale, flipX, flipY) {
+      var pair = readScalePair(scale) || { x: 1, y: 1 };
+      return (flipX ? -pair.x : pair.x) + " " + (flipY ? -pair.y : pair.y);
     }
     function mergeFlipIntoTransform(transform, flipX, flipY) {
       var base = transform && transform !== "none" ? transform : "";
@@ -11938,9 +11987,14 @@ export const editorChromeBridgeScript: string = `"use strict";
       var originalInlineHeight = resizeEl.style.height;
       var originalInlineFontSize = resizeEl.style.fontSize;
       var originalInlineTransform = resizeEl.style.transform;
+      var originalInlineScale = resizeEl.style.scale;
       ensurePositionable(resizeEl);
       var cs = window.getComputedStyle(resizeEl);
-      var flipTransformBase = originalInlineTransform && originalInlineTransform !== "none" ? originalInlineTransform : cs.transform;
+      var hasInlineTransform = !!originalInlineTransform && originalInlineTransform !== "none";
+      var computedScale = cs.scale || cs.getPropertyValue("scale") || "none";
+      var flipTransformBase = hasInlineTransform ? originalInlineTransform : cs.transform;
+      var mirrorScaleBase = originalInlineScale && originalInlineScale !== "none" ? originalInlineScale : computedScale;
+      var mirrorUsesScale = !hasInlineTransform;
       var originW = readPx(cs.width);
       var originH = readPx(cs.height);
       var originFontSize = readPx(resizeEl.style.fontSize || cs.fontSize);
@@ -11993,6 +12047,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var widthTouched = false;
       var heightTouched = false;
       var transformTouched = false;
+      var scaleTouched = false;
       var scaledStyleTargetsCache = null;
       function scaledStyleTargets() {
         if (!scaledStyleTargetsCache) {
@@ -12092,14 +12147,25 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (heightTouched)
           resizeEl.style.height = quantizeToLayoutGrid(rect.height) + "px";
         if (rect.flipX || rect.flipY) {
-          transformTouched = true;
-          resizeEl.style.transform = mergeFlipIntoTransform(
-            flipTransformBase,
-            rect.flipX,
-            rect.flipY
-          );
-        } else if (transformTouched) {
-          resizeEl.style.transform = originalInlineTransform;
+          if (mirrorUsesScale) {
+            scaleTouched = true;
+            resizeEl.style.scale = mergeRelativeScale(
+              mirrorScaleBase,
+              rect.flipX,
+              rect.flipY
+            );
+          } else {
+            transformTouched = true;
+            resizeEl.style.transform = mergeFlipIntoTransform(
+              flipTransformBase,
+              rect.flipX,
+              rect.flipY
+            );
+          }
+        } else {
+          if (transformTouched)
+            resizeEl.style.transform = originalInlineTransform;
+          if (scaleTouched) resizeEl.style.scale = originalInlineScale;
         }
         if (scaleToolEnabled) {
           var kScaleFactor = rect.width / Math.max(1, origin.width);
@@ -12121,6 +12187,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (widthTouched) previewStyles.width = resizeEl.style.width;
         if (heightTouched) previewStyles.height = resizeEl.style.height;
         if (transformTouched) previewStyles.transform = resizeEl.style.transform;
+        if (scaleTouched) previewStyles.scale = resizeEl.style.scale;
         if (scaleToolEnabled && originFontSize > 0 && !svgViewBoxScalesFont) {
           previewStyles.fontSize = resizeEl.style.fontSize;
         }
@@ -12154,25 +12221,29 @@ export const editorChromeBridgeScript: string = `"use strict";
           resizeEl.style.height = originalInlineHeight;
           resizeEl.style.fontSize = originalInlineFontSize;
           resizeEl.style.transform = originalInlineTransform;
+          resizeEl.style.scale = originalInlineScale;
           restoreKScaleStyleTargets(scaledStyleTargetsCache || []);
           selectedEl = resizeEl;
           positionOverlay(selectionOverlay, selectedEl);
           var restoredComputed = window.getComputedStyle(resizeEl);
+          var restoredStyles = {
+            position: restoredComputed.position,
+            left: restoredComputed.left,
+            top: restoredComputed.top,
+            width: restoredComputed.width,
+            height: restoredComputed.height,
+            borderWidth: restoredComputed.borderWidth,
+            fontSize: restoredComputed.fontSize
+          };
+          if (transformTouched)
+            restoredStyles.transform = originalInlineTransform;
+          if (scaleTouched) restoredStyles.scale = originalInlineScale;
           window.parent.postMessage(
             {
               type: "visual-style-change",
               phase: "preview",
               selector: getSelector(resizeEl),
-              styles: {
-                position: restoredComputed.position,
-                left: restoredComputed.left,
-                top: restoredComputed.top,
-                width: restoredComputed.width,
-                height: restoredComputed.height,
-                borderWidth: restoredComputed.borderWidth,
-                fontSize: restoredComputed.fontSize,
-                transform: restoredComputed.transform
-              },
+              styles: restoredStyles,
               payload: getElementInfo(resizeEl)
             },
             "*"
@@ -12194,6 +12265,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (!controllerEnd.committed) {
           cleanupResizeDrag();
           hideTransformBadge();
+          resizeEl.style.position = originalInlinePosition;
+          resizeEl.style.left = originalInlineLeft;
+          resizeEl.style.top = originalInlineTop;
           return;
         }
         cleanupResizeDrag();
@@ -12205,8 +12279,11 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (resizeEl.style.top) styles.top = resizeEl.style.top;
         if (widthTouched) styles.width = resizeEl.style.width;
         if (heightTouched) styles.height = resizeEl.style.height;
-        if (resizeEl.style.transform !== originalInlineTransform) {
+        if (transformTouched && resizeEl.style.transform !== originalInlineTransform) {
           styles.transform = resizeEl.style.transform;
+        }
+        if (scaleTouched && resizeEl.style.scale !== originalInlineScale) {
+          styles.scale = resizeEl.style.scale;
         }
         if (scaleToolEnabled && originFontSize > 0 && !svgViewBoxScalesFont) {
           styles.fontSize = resizeEl.style.fontSize;
@@ -12633,7 +12710,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var radiusEl = selectedEl;
       var cs = window.getComputedStyle(radiusEl);
       var cornerProperty = CORNER_RADIUS_PROPERTY_BY_HANDLE[corner] || "borderTopLeftRadius";
-      rememberLiveVisualEditOriginalStyles(radiusEl);
+      refreshLiveVisualEditOriginalStyles(radiusEl);
       var borderBox = borderBoxDimensions(cs);
       var elWidthPx = borderBox.width;
       var elHeightPx = borderBox.height;
@@ -12689,6 +12766,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           applySelectionHandleHitGeometry(radiusEl);
           refreshOverlays();
         }
+        releaseLiveVisualEditOriginalStyles(radiusEl);
         suppressNextShieldClickBriefly();
         return true;
       }
@@ -12700,7 +12778,23 @@ export const editorChromeBridgeScript: string = `"use strict";
       function onUp() {
         cleanupRadiusDrag();
         if (!radiusEl) return;
-        if (!radiusMoved) return;
+        if (!radiusMoved) {
+          releaseLiveVisualEditOriginalStyles(radiusEl);
+          return;
+        }
+        var finalRadius = resolveCornerRadiusXY(
+          radiusEl.style[cornerProperty] || cs[cornerProperty],
+          elWidthPx,
+          elHeightPx
+        );
+        var radiusChanged = Math.abs(finalRadius.x - originRadius.x) > 0.5 || Math.abs(finalRadius.y - originRadius.y) > 0.5;
+        if (!radiusChanged) {
+          radiusEl.style[cornerProperty] = originalRadiusValue;
+          applySelectionHandleHitGeometry(radiusEl);
+          refreshOverlays();
+          releaseLiveVisualEditOriginalStyles(radiusEl);
+          return;
+        }
         var styles = {};
         styles[cornerProperty] = radiusEl.style[cornerProperty];
         window.parent.postMessage(
@@ -12714,6 +12808,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           "*"
         );
         recordSourceOwnership(radiusEl);
+        releaseLiveVisualEditOriginalStyles(radiusEl);
       }
       document.addEventListener(events.move, onMove, true);
       document.addEventListener(events.up, onUp, true);

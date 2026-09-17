@@ -3025,6 +3025,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     "width",
     "height",
     "transform",
+    "scale",
     "display",
     "overflow",
     "lineHeight",
@@ -3118,6 +3119,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (!el || !liveVisualEditOriginalInlineStyles) return;
     if (liveVisualEditOriginalInlineStyles.has(el)) return;
     liveVisualEditOriginalInlineStyles.set(el, collectInlineStyles(el));
+  }
+
+  function refreshLiveVisualEditOriginalStyles(el: Element | null): void {
+    if (!el || !liveVisualEditOriginalInlineStyles) return;
+    liveVisualEditOriginalInlineStyles.delete(el);
+    rememberLiveVisualEditOriginalStyles(el);
+  }
+
+  function releaseLiveVisualEditOriginalStyles(el: Element | null): void {
+    if (!el || !liveVisualEditOriginalInlineStyles) return;
+    liveVisualEditOriginalInlineStyles.delete(el);
   }
 
   function originalInlineStylesForPatch(
@@ -10134,8 +10146,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return { width: width, height: height };
   }
 
-  function radiusLinearTransform(el) {
-    var cs = window.getComputedStyle(el);
+  function radiusLinearTransformForStyle(cs) {
     var transform = { a: 1, b: 0, c: 0, d: 1 };
     if (cs.transform && cs.transform !== "none" && window.DOMMatrixReadOnly) {
       try {
@@ -10147,7 +10158,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         void err;
       }
     }
-    var scaleParts = (cs.scale || "none")
+    var scaleParts = (cs.scale || cs.getPropertyValue("scale") || "none")
       .trim()
       .split(/\s+/)
       .map(function (part) {
@@ -10165,16 +10176,49 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       c: -sin * scaleY,
       d: cos * scaleY,
     };
-    return {
+    var result = {
       a: transform.a * rotateScale.a + transform.c * rotateScale.b,
       b: transform.b * rotateScale.a + transform.d * rotateScale.b,
       c: transform.a * rotateScale.c + transform.c * rotateScale.d,
       d: transform.b * rotateScale.c + transform.d * rotateScale.d,
     };
+    var zoom = parseFloat(cs.zoom || cs.getPropertyValue("zoom"));
+    if (Number.isFinite(zoom) && zoom > 0) {
+      result.a *= zoom;
+      result.b *= zoom;
+      result.c *= zoom;
+      result.d *= zoom;
+    }
+    return result;
+  }
+
+  function radiusLinearTransform(el) {
+    return radiusLinearTransformForStyle(window.getComputedStyle(el));
+  }
+
+  function multiplyRadiusLinear(parent, child) {
+    return {
+      a: parent.a * child.a + parent.c * child.b,
+      b: parent.b * child.a + parent.d * child.b,
+      c: parent.a * child.c + parent.c * child.d,
+      d: parent.b * child.c + parent.d * child.d,
+    };
+  }
+
+  function radiusViewportLinearTransform(el) {
+    var total = { a: 1, b: 0, c: 0, d: 1 };
+    for (
+      var current = el;
+      current && current.nodeType === 1;
+      current = current.parentElement
+    ) {
+      total = multiplyRadiusLinear(radiusLinearTransform(current), total);
+    }
+    return total;
   }
 
   function radiusLocalDelta(el, screenDx, screenDy) {
-    var matrix = radiusLinearTransform(el);
+    var matrix = radiusViewportLinearTransform(el);
     var determinant = matrix.a * matrix.d - matrix.b * matrix.c;
     if (!Number.isFinite(determinant) || Math.abs(determinant) < 0.0001) {
       return { x: screenDx, y: screenDy };
@@ -10750,6 +10794,25 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // needed by a resize-through-zero. Rewriting a computed matrix loses class
   // authored translate/scale functions and re-reading independent CSS scale
   // makes a non-unit negative scale flip twice.
+  function readScalePair(value) {
+    if (!value || value === "none") return { x: 1, y: 1 };
+    var parts = value
+      .trim()
+      .split(/\s+/)
+      .map(function (part) {
+        return parseFloat(part);
+      });
+    var x = parts[0];
+    var y = parts.length > 1 ? parts[1] : x;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+    return { x: x, y: y };
+  }
+
+  function mergeRelativeScale(scale, flipX, flipY) {
+    var pair = readScalePair(scale) || { x: 1, y: 1 };
+    return (flipX ? -pair.x : pair.x) + " " + (flipY ? -pair.y : pair.y);
+  }
+
   function mergeFlipIntoTransform(transform, flipX, flipY) {
     var base = transform && transform !== "none" ? transform : "";
     var suffix =
@@ -16857,15 +16920,23 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var originalInlineHeight = resizeEl.style.height;
     var originalInlineFontSize = resizeEl.style.fontSize;
     var originalInlineTransform = resizeEl.style.transform;
+    var originalInlineScale = resizeEl.style.scale;
     ensurePositionable(resizeEl);
     var cs = window.getComputedStyle(resizeEl);
-    // Use the authored transform when present. A computed transform is only
-    // needed when a class-authored transform must be combined with a new
-    // mirror; ordinary resizes leave the inline transform untouched.
-    var flipTransformBase =
-      originalInlineTransform && originalInlineTransform !== "none"
-        ? originalInlineTransform
-        : cs.transform;
+    var hasInlineTransform =
+      !!originalInlineTransform && originalInlineTransform !== "none";
+    var computedScale = cs.scale || cs.getPropertyValue("scale") || "none";
+    // A class-authored transform must remain owned by its stylesheet. CSS's
+    // independent scale property gives a separate mirror slot, so only an
+    // explicitly inline transform needs a transform-string edit.
+    var flipTransformBase = hasInlineTransform
+      ? originalInlineTransform
+      : cs.transform;
+    var mirrorScaleBase =
+      originalInlineScale && originalInlineScale !== "none"
+        ? originalInlineScale
+        : computedScale;
+    var mirrorUsesScale = !hasInlineTransform;
     // Bug fix: use COMPUTED width/height (never the raw inline style string)
     // for the resize origin dimensions. Two distinct hazards, one fix:
     //   1. Rotated elements — getBoundingClientRect() returns the inflated
@@ -16954,6 +17025,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var widthTouched = false;
     var heightTouched = false;
     var transformTouched = false;
+    var scaleTouched = false;
     // Captured on the first K-scale tick, not at drag start: the host can arm
     // scale-tool-mode mid-gesture.
     var scaledStyleTargetsCache: ReturnType<
@@ -17095,14 +17167,25 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (heightTouched)
         resizeEl.style.height = quantizeToLayoutGrid(rect.height) + "px";
       if (rect.flipX || rect.flipY) {
-        transformTouched = true;
-        resizeEl.style.transform = mergeFlipIntoTransform(
-          flipTransformBase,
-          rect.flipX,
-          rect.flipY,
-        );
-      } else if (transformTouched) {
-        resizeEl.style.transform = originalInlineTransform;
+        if (mirrorUsesScale) {
+          scaleTouched = true;
+          resizeEl.style.scale = mergeRelativeScale(
+            mirrorScaleBase,
+            rect.flipX,
+            rect.flipY,
+          );
+        } else {
+          transformTouched = true;
+          resizeEl.style.transform = mergeFlipIntoTransform(
+            flipTransformBase,
+            rect.flipX,
+            rect.flipY,
+          );
+        }
+      } else {
+        if (transformTouched)
+          resizeEl.style.transform = originalInlineTransform;
+        if (scaleTouched) resizeEl.style.scale = originalInlineScale;
       }
       if (scaleToolEnabled) {
         // Uniform scale factor: scaleToolEnabled already forces the
@@ -17133,6 +17216,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (widthTouched) previewStyles.width = resizeEl.style.width;
       if (heightTouched) previewStyles.height = resizeEl.style.height;
       if (transformTouched) previewStyles.transform = resizeEl.style.transform;
+      if (scaleTouched) previewStyles.scale = resizeEl.style.scale;
       if (scaleToolEnabled && originFontSize > 0 && !svgViewBoxScalesFont) {
         previewStyles.fontSize = resizeEl.style.fontSize;
       }
@@ -17166,6 +17250,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         resizeEl.style.height = originalInlineHeight;
         resizeEl.style.fontSize = originalInlineFontSize;
         resizeEl.style.transform = originalInlineTransform;
+        resizeEl.style.scale = originalInlineScale;
         restoreKScaleStyleTargets(scaledStyleTargetsCache || []);
         selectedEl = resizeEl;
         positionOverlay(selectionOverlay, selectedEl);
@@ -17173,21 +17258,24 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         // the restored snapshot back so the host Inspector does not keep
         // displaying the last previewed dimensions.
         var restoredComputed = window.getComputedStyle(resizeEl);
+        var restoredStyles: Record<string, string> = {
+          position: restoredComputed.position,
+          left: restoredComputed.left,
+          top: restoredComputed.top,
+          width: restoredComputed.width,
+          height: restoredComputed.height,
+          borderWidth: restoredComputed.borderWidth,
+          fontSize: restoredComputed.fontSize,
+        };
+        if (transformTouched)
+          restoredStyles.transform = originalInlineTransform;
+        if (scaleTouched) restoredStyles.scale = originalInlineScale;
         (window.parent as Window).postMessage(
           {
             type: "visual-style-change",
             phase: "preview",
             selector: getSelector(resizeEl),
-            styles: {
-              position: restoredComputed.position,
-              left: restoredComputed.left,
-              top: restoredComputed.top,
-              width: restoredComputed.width,
-              height: restoredComputed.height,
-              borderWidth: restoredComputed.borderWidth,
-              fontSize: restoredComputed.fontSize,
-              transform: restoredComputed.transform,
-            },
+            styles: restoredStyles,
             payload: getElementInfo(resizeEl),
           },
           "*",
@@ -17209,6 +17297,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (!controllerEnd.committed) {
         cleanupResizeDrag();
         hideTransformBadge();
+        resizeEl.style.position = originalInlinePosition;
+        resizeEl.style.left = originalInlineLeft;
+        resizeEl.style.top = originalInlineTop;
         return;
       }
       cleanupResizeDrag();
@@ -17225,8 +17316,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // `width: 100%` to a fixed px width.
       if (widthTouched) styles.width = resizeEl.style.width;
       if (heightTouched) styles.height = resizeEl.style.height;
-      if (resizeEl.style.transform !== originalInlineTransform) {
+      if (
+        transformTouched &&
+        resizeEl.style.transform !== originalInlineTransform
+      ) {
         styles.transform = resizeEl.style.transform;
+      }
+      if (scaleTouched && resizeEl.style.scale !== originalInlineScale) {
+        styles.scale = resizeEl.style.scale;
       }
       // Only include fontSize when the K-scale tool actually changed it — a
       // normal resize must never introduce this key.
@@ -17718,7 +17815,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // of behaving like a single uniform-radius control.
     var cornerProperty =
       CORNER_RADIUS_PROPERTY_BY_HANDLE[corner] || "borderTopLeftRadius";
-    rememberLiveVisualEditOriginalStyles(radiusEl);
+    refreshLiveVisualEditOriginalStyles(radiusEl);
     var borderBox = borderBoxDimensions(cs);
     var elWidthPx = borderBox.width;
     var elHeightPx = borderBox.height;
@@ -17781,6 +17878,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         applySelectionHandleHitGeometry(radiusEl);
         refreshOverlays();
       }
+      releaseLiveVisualEditOriginalStyles(radiusEl);
       suppressNextShieldClickBriefly();
       return true;
     }
@@ -17792,7 +17890,25 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     function onUp() {
       cleanupRadiusDrag();
       if (!radiusEl) return;
-      if (!radiusMoved) return;
+      if (!radiusMoved) {
+        releaseLiveVisualEditOriginalStyles(radiusEl);
+        return;
+      }
+      var finalRadius = resolveCornerRadiusXY(
+        radiusEl.style[cornerProperty] || cs[cornerProperty],
+        elWidthPx,
+        elHeightPx,
+      );
+      var radiusChanged =
+        Math.abs(finalRadius.x - originRadius.x) > 0.5 ||
+        Math.abs(finalRadius.y - originRadius.y) > 0.5;
+      if (!radiusChanged) {
+        radiusEl.style[cornerProperty] = originalRadiusValue;
+        applySelectionHandleHitGeometry(radiusEl);
+        refreshOverlays();
+        releaseLiveVisualEditOriginalStyles(radiusEl);
+        return;
+      }
       var styles = {};
       styles[cornerProperty] = radiusEl.style[cornerProperty];
       (window.parent as Window).postMessage(
@@ -17806,6 +17922,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         "*",
       );
       recordSourceOwnership(radiusEl);
+      releaseLiveVisualEditOriginalStyles(radiusEl);
     }
     document.addEventListener(events.move, onMove, true);
     document.addEventListener(events.up, onUp, true);

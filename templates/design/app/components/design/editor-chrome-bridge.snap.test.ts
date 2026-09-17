@@ -156,6 +156,9 @@ const { rectBounds, computeMoveSnapOffset } = loadSnapMath();
 const mergeFlipIntoTransform = loadPureBridgeFn<
   (transform: string, flipX: boolean, flipY: boolean) => string
 >("mergeFlipIntoTransform");
+const mergeRelativeScale = loadPureBridgeFn<
+  (scale: string, flipX: boolean, flipY: boolean) => string
+>("mergeRelativeScale", ["readScalePair"]);
 
 // These functions read only their arguments (plus, for dragTargetForPointerDown,
 // the containerScopeAncestor helper it calls), so brace-extracted declarations
@@ -216,6 +219,12 @@ describe("editor-chrome bridge — resize transform preservation", () => {
     expect(
       mergeFlipIntoTransform("matrix(2, 0, 0, 3, 15, 20)", false, true),
     ).toBe("matrix(2, 0, 0, 3, 15, 20) matrix(1, 0, 0, -1, 0, 0)");
+  });
+
+  it("mirrors independent scale without double-applying authored values", () => {
+    expect(mergeRelativeScale("2 3", true, false)).toBe("-2 3");
+    expect(mergeRelativeScale("-2 3", true, false)).toBe("2 3");
+    expect(mergeRelativeScale("none", false, true)).toBe("1 -1");
   });
 });
 
