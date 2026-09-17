@@ -35,7 +35,11 @@ import {
 } from "@/hooks/use-comments";
 import type { MentionMember } from "@/hooks/use-mention-members";
 
-import { AgentAvatar, agentDisplayName } from "./agent-identity";
+import {
+  AgentAvatar,
+  agentDisplayName,
+  compactAgentModelName,
+} from "./agent-identity";
 import { useCommentDraft } from "./comment-drafts";
 import { CommentComposer, type MentionEntry } from "./CommentComposer";
 
@@ -176,12 +180,14 @@ export function CommentEntry({
   currentUserEmail,
   canComment,
   members,
+  reserveThreadActions = false,
 }: {
   comment: Comment;
   documentId: string;
   currentUserEmail?: string;
   canComment: boolean;
   members: MentionMember[];
+  reserveThreadActions?: boolean;
 }) {
   const t = useT();
   const { formatDate } = useFormatters();
@@ -202,7 +208,7 @@ export function CommentEntry({
   const aiSource = getAiCommentSource(comment.submission_source);
   const visibleAuthor =
     aiSource && comment.author_model
-      ? `${agentDisplayName(comment.author_model)} · ${comment.author_model}`
+      ? `${agentDisplayName(comment.author_model)} · ${compactAgentModelName(comment.author_model)}`
       : (comment.author_name ?? comment.author_email.split("@")[0]);
   const canEdit =
     canComment &&
@@ -276,7 +282,10 @@ export function CommentEntry({
           event.stopPropagation();
       }}
     >
-      <div className="flex items-center gap-2 mb-1">
+      <div
+        className={`mb-1 flex items-center gap-2 ${reserveThreadActions ? "pr-16" : ""}`}
+        data-thread-actions-reserved={reserveThreadActions || undefined}
+      >
         {aiSource ? (
           <AgentAvatar model={comment.author_model} />
         ) : (

@@ -230,10 +230,33 @@ it("shows the exact model on an agent-authored comment without crowding the date
     ),
   );
 
-  expect(container.textContent).toContain("GPT · gpt-5-6-sol");
+  expect(container.textContent).toContain("GPT · 5.6 Sol");
   const date = [...container.querySelectorAll("span")].find(
     (node) => node.textContent === "Sep 10",
   );
   expect(date?.className).toContain("shrink-0");
   expect(date?.className).toContain("whitespace-nowrap");
+});
+
+it("reserves stable header space for overlaid thread actions", async () => {
+  await act(async () =>
+    root.render(
+      <CommentDraftProvider
+        documentId="doc-1"
+        currentUserEmail={comment.author_email}
+      >
+        <CommentEntry
+          comment={comment}
+          documentId="doc-1"
+          currentUserEmail={comment.author_email}
+          canComment
+          members={[]}
+          reserveThreadActions
+        />
+      </CommentDraftProvider>,
+    ),
+  );
+
+  const header = container.querySelector("[data-thread-actions-reserved]");
+  expect(header?.className).toContain("pr-16");
 });

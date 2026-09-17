@@ -1410,6 +1410,7 @@ export function CommentsSidebar({
             currentUserEmail={currentUserEmail}
             canComment={canComment}
             members={members}
+            reserveThreadActions={id === thread.comments[0]?.id}
           />
         )}
         threadActions={

@@ -40,6 +40,20 @@ export function agentDisplayName(model: string | null | undefined): string {
   return resolveAgentModelIdentity(model)?.shortName ?? "AI";
 }
 
+export function compactAgentModelName(
+  model: string | null | undefined,
+): string | null {
+  const normalized = model?.trim();
+  if (!normalized) return null;
+  const match = /(?:^|\/)gpt-(\d+)-(\d+)-([a-z0-9-]+)$/i.exec(normalized);
+  if (!match) return normalized;
+  const variant = match[3]
+    .split("-")
+    .map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`)
+    .join(" ");
+  return `${match[1]}.${match[2]} ${variant}`;
+}
+
 export function AgentAvatar({
   model,
   className,
