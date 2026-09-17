@@ -104,9 +104,8 @@ function hasExpectedImageSignature(ext: string, data: Uint8Array): boolean {
       data.subarray(0, Math.min(data.length, 8192)),
     ).toString("utf8");
     const normalized = head.replace(/^\uFEFF/, "").trimStart();
-    return (
-      /^<svg(?:\s|>)/i.test(normalized) ||
-      /^<\?xml\b[\s\S]{0,4096}<svg(?:\s|>)/i.test(normalized)
+    return /^(?:(?:\s|<!--[\s\S]*?-->|<\?xml\b[\s\S]*?\?>))*<svg(?:\s|\/?>)/i.test(
+      normalized,
     );
   }
   return false;
@@ -146,20 +145,22 @@ function decodeXmlReferences(source: string): string {
 }
 
 function decodeCssEscapes(source: string): string {
-  return source.replace(
-    /\\([0-9a-f]{1,6})(?:[ \t\r\n\f])?|\\([^\r\n])/gi,
-    (match, hex: string | undefined, character: string | undefined) => {
-      if (!hex) return character ?? match;
-      const codePoint = Number.parseInt(hex, 16);
-      if (
-        codePoint > 0x10ffff ||
-        (codePoint >= 0xd800 && codePoint <= 0xdfff)
-      ) {
-        return match;
-      }
-      return String.fromCodePoint(codePoint);
-    },
-  );
+  return source
+    .replace(/\\(?:\r\n|[\r\n\f])/g, "")
+    .replace(
+      /\\([0-9a-f]{1,6})(?:[ \t\r\n\f])?|\\([^\r\n])/gi,
+      (match, hex: string | undefined, character: string | undefined) => {
+        if (!hex) return character ?? match;
+        const codePoint = Number.parseInt(hex, 16);
+        if (
+          codePoint > 0x10ffff ||
+          (codePoint >= 0xd800 && codePoint <= 0xdfff)
+        ) {
+          return match;
+        }
+        return String.fromCodePoint(codePoint);
+      },
+    );
 }
 
 export function isSafeSvg(data: Uint8Array): boolean {

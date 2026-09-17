@@ -54,6 +54,14 @@ describe("uploaded asset validation", () => {
         data: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" />'),
       }),
     ).toBe(true);
+    expect(
+      canSaveAsUploadedAsset({
+        originalName: "preamble.svg",
+        data: Buffer.from(
+          '<!-- generated -->\n<svg xmlns="http://www.w3.org/2000/svg" />',
+        ),
+      }),
+    ).toBe(true);
   });
 
   it("rejects SVGs with active content or external references", () => {
@@ -100,6 +108,15 @@ describe("uploaded asset validation", () => {
         originalName: "escaped-css.svg",
         data: Buffer.from(
           "<svg><style>u\\72l(https://example.com/style.css){}</style></svg>",
+        ),
+      }),
+    ).toBe(false);
+    expect(
+      canSaveAsUploadedAsset({
+        originalName: "escaped-newline-css.svg",
+        data: Buffer.from(
+          "<svg><style>url(https://example.com/font\\" +
+            "\n.woff2)</style></svg>",
         ),
       }),
     ).toBe(false);
