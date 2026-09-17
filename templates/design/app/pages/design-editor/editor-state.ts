@@ -644,6 +644,22 @@ export function shouldClearLatestUnloadSave(
   );
 }
 
+export function shouldClearLatestUnloadSaveForOutboxEntry(
+  latest: FileContentSaveRequest | undefined,
+  entry: {
+    resourceId: string;
+    operationSource: string;
+    operationRevision: number;
+  },
+): boolean {
+  return Boolean(
+    latest &&
+    latest.id === entry.resourceId &&
+    latest.operationSource === entry.operationSource &&
+    latest.operationRevision === entry.operationRevision,
+  );
+}
+
 /**
  * Flushes debounce slots through the ordinary serialized mutation path during
  * React cleanup (route/design changes). Real document unload is handled by the

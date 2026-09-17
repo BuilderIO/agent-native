@@ -1049,7 +1049,7 @@ describe("update-file expectedVersionHash guard (server-discipline layer)", () =
     assertWellFormed(finalLive.content);
   });
 
-  it("accepts a newer same-tab replay against the oldest queued base", async () => {
+  it("rejects a newer same-tab replay against the oldest queued base", async () => {
     const initial = await readLiveSourceFile(currentFileRef());
     const first = buildDoc(" data-first");
     const final = buildDoc(" data-first data-final");
@@ -1063,20 +1063,20 @@ describe("update-file expectedVersionHash guard (server-discipline layer)", () =
       expectedVersionHash: initial.versionHash,
     } as never);
 
-    const result = await updateFileAction.run({
-      id: FILE_ID,
-      content: final,
-      syncCollab: true,
-      operationSource: "tab-a",
-      operationRevision: 2,
-      queuedReplay: true,
-      // A pagehide/outbox replay can carry the base from before revision 1.
-      expectedVersionHash: initial.versionHash,
-    } as never);
-
-    expect(result).toMatchObject({ id: FILE_ID, updated: true });
-    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(final);
-    expect((await readLiveSourceFile(currentFileRef())).content).toBe(final);
+    await expect(
+      updateFileAction.run({
+        id: FILE_ID,
+        content: final,
+        syncCollab: true,
+        operationSource: "tab-a",
+        operationRevision: 2,
+        // A stale replay remains subject to the source CAS; the server cannot
+        // trust a caller-controlled flag to authorize a bypass.
+        expectedVersionHash: initial.versionHash,
+      } as never),
+    ).rejects.toThrow(/changed since it was read/);
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(first);
+    expect((await readLiveSourceFile(currentFileRef())).content).toBe(first);
   });
 
   it("rejects a same-tab replay after a later writer moves the mirror and collab text", async () => {
@@ -1106,7 +1106,6 @@ describe("update-file expectedVersionHash guard (server-discipline layer)", () =
         syncCollab: true,
         operationSource: "tab-a",
         operationRevision: 2,
-        queuedReplay: true,
         expectedVersionHash: initial.versionHash,
       } as never),
     ).rejects.toThrow(/changed since it was read/);

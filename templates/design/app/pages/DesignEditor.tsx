@@ -803,6 +803,7 @@ import {
   resolveOptimisticTextDecorationLine,
   resolveServerFiles,
   shouldRetirePendingLocalFileContent,
+  shouldClearLatestUnloadSaveForOutboxEntry,
   shouldSendKeepalive,
   type OptimisticTextDecorationLineEntry,
   type PreviewContentReplaceResult,
@@ -3843,6 +3844,20 @@ function DesignEditor() {
           id: "design-save-conflict:outbox",
         });
       }
+      for (const entry of [
+        ...result.saved,
+        ...result.rebased.map(({ entry }) => entry),
+        ...result.dropped.map(({ entry }) => entry),
+      ]) {
+        if (
+          shouldClearLatestUnloadSaveForOutboxEntry(
+            latestFileSaveForUnloadRef.current[entry.resourceId],
+            entry,
+          )
+        ) {
+          delete latestFileSaveForUnloadRef.current[entry.resourceId];
+        }
+      }
       if (result.saved.length > 0 || result.rebased.length > 0) {
         void queryClient.invalidateQueries({
           queryKey: ["action", "get-design"],
@@ -3922,9 +3937,6 @@ function DesignEditor() {
           operationRevision: pending.operationRevision,
           expectedVersionHash:
             pending.unloadExpectedVersionHash ?? pending.expectedVersionHash,
-          ...(pending.unloadExpectedVersionHash !== undefined
-            ? { queuedReplay: true }
-            : {}),
           ...(pending.identityMigrationSourceContent !== undefined
             ? { identityOnly: true }
             : {}),

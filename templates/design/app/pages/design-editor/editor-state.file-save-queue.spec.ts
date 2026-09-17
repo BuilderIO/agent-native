@@ -9,8 +9,35 @@ import {
 } from "./commands/apply-file-content-update";
 import {
   coalescePendingFileContentSave,
+  shouldClearLatestUnloadSaveForOutboxEntry,
   type FileContentSaveRequest,
 } from "./editor-state";
+
+it("retires only the unload snapshot acknowledged by an outbox replay", () => {
+  const latest: FileContentSaveRequest = {
+    id: "screen-a",
+    content: "<main>latest</main>",
+    syncCollab: true,
+    operationSource: "tab-a",
+    operationRevision: 3,
+    expectedVersionHash: "base",
+  };
+
+  expect(
+    shouldClearLatestUnloadSaveForOutboxEntry(latest, {
+      resourceId: latest.id,
+      operationSource: latest.operationSource,
+      operationRevision: latest.operationRevision,
+    }),
+  ).toBe(true);
+  expect(
+    shouldClearLatestUnloadSaveForOutboxEntry(latest, {
+      resourceId: latest.id,
+      operationSource: latest.operationSource,
+      operationRevision: latest.operationRevision - 1,
+    }),
+  ).toBe(false);
+});
 
 it("supersedes a pending active save with a composed non-active update", () => {
   const base = "<main><p>base</p></main>";

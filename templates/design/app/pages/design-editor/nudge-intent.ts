@@ -426,9 +426,11 @@ function hasRenderedGridPlacement(
 ): boolean {
   return [computedStyles?.gridColumn, computedStyles?.gridRow].some((value) => {
     const normalized = value?.trim().replace(/\s+/g, " ").toLowerCase();
-    return Boolean(
-      normalized && normalized !== "auto" && normalized !== "auto / auto",
-    );
+    if (!normalized) return false;
+    return normalized.split("/").some((line) => {
+      const trimmed = line.trim();
+      return trimmed !== "auto" && !/^span(?:\s|$)/.test(trimmed);
+    });
   });
 }
 
