@@ -217,6 +217,19 @@ describe("openingTagOf / truncateOpeningTag / elementHtmlPreview", () => {
     );
   });
 
+  it("leaves tag-looking text in raw-text elements and comments untouched", () => {
+    const literalTag =
+      '<span style="color: red" data-agent-native-node-id="literal">Text</span>';
+    expect(
+      elementHtmlPreview({
+        html: `<div><script>const value = '${literalTag}';</script><textarea>${literalTag}</textarea><!-- ${literalTag} --><span data-agent-native-layer-name="Real">Real</span></div>`,
+        tagName: "div",
+      }),
+    ).toBe(
+      `<div>\n  <script>const value = '${literalTag}';</script><textarea>${literalTag}</textarea><!-- ${literalTag} --><span>Real</span>\n</div>`,
+    );
+  });
+
   it("builds a fallback opening tag from metadata when there is no HTML", () => {
     expect(
       elementHtmlPreview({
