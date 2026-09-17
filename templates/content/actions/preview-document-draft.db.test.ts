@@ -419,6 +419,13 @@ describe("private preview document drafts", () => {
         updatedAt: now,
       });
 
+    const updateSpy = vi
+      .spyOn(updateDocument, "run")
+      .mockRejectedValueOnce(new Error("worker stopped"));
+    await expect(
+      asUser(OWNER, () => resolveDraft.run(request)),
+    ).rejects.toThrow("worker stopped");
+    updateSpy.mockRestore();
     await expect(
       asUser(OWNER, () => resolveDraft.run(request)),
     ).resolves.toMatchObject({ status: "resolved", choice: "keep_mine" });

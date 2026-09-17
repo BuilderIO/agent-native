@@ -709,9 +709,9 @@ export function useCollabReconcile({
             latestObservedUpdatedAtRef.current &&
             (latestObservedRevisionRef.current ===
               acknowledgedLocalSnapshot.revision ||
-              (acknowledgementRevisionOrder !== undefined &&
-                acknowledgementRevisionOrder !== null &&
-                acknowledgementRevisionOrder >= 0)));
+              acknowledgementRevisionOrder === undefined ||
+              acknowledgementRevisionOrder === null ||
+              acknowledgementRevisionOrder >= 0));
         if (acknowledgementIsNewestAccepted && acknowledgementIsNotSuperseded) {
           acknowledgedLocalSnapshotRef.current = acknowledgedLocalSnapshot;
           const existingRollback = acknowledgementBaseRollbackRef.current;

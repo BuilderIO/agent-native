@@ -126,7 +126,18 @@ export default defineAction({
     const legacyClaimId = `draft-claim-${legacyRecoveryId.slice(
       "recovery-".length,
     )}`;
-    if (legacyClaimId !== claimId) {
+    const [currentClaim] = await db
+      .select({ id: schema.documentVersions.id })
+      .from(schema.documentVersions)
+      .where(
+        and(
+          eq(schema.documentVersions.id, claimId),
+          eq(schema.documentVersions.ownerEmail, userEmail),
+          eq(schema.documentVersions.documentId, claimDocumentId),
+        ),
+      )
+      .limit(1);
+    if (legacyClaimId !== claimId && !currentClaim) {
       const [legacyClaim] = await db
         .select({
           id: schema.documentVersions.id,
