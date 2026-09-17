@@ -170,6 +170,24 @@ export function isSlideCanvasShell(element: HTMLElement): boolean {
   );
 }
 
+/** Rich-text editing may use a nested block that has no canvas identity. */
+export function resolveSlideTextSelectionTarget(
+  element: HTMLElement,
+  root: HTMLElement,
+): HTMLElement {
+  let current: HTMLElement | null = element;
+  while (current && current !== root && root.contains(current)) {
+    if (
+      current.hasAttribute("data-builder-id") &&
+      !isSlideCanvasShell(current)
+    ) {
+      return current;
+    }
+    current = current.parentElement;
+  }
+  return element;
+}
+
 /**
  * A text leaf is a block-level element whose children are text nodes or inline
  * elements. Inline style runs are deliberately not text leaves themselves.

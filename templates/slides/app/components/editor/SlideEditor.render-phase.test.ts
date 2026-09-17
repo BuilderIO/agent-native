@@ -134,7 +134,7 @@ describe("SlideEditor render-phase safety", () => {
     const doubleClickBody = source.slice(doubleClickStart, doubleClickEnd);
     expect(doubleClickBody).toContain("showImageOverlay(target);");
     expect(source).toContain(
-      "const block = findSmartBlock(target, slideContent);",
+      "const block = findSmartBlock(resolvedTarget, slideContent);",
     );
   });
 
