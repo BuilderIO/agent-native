@@ -45,8 +45,16 @@ import {
   reduceAgentEvent,
   settleRunProjection,
   type AgentKitSnapshot,
+  type AgentRunState,
   type AgentThreadState,
 } from "./state.js";
+
+type TerminalRunState = AgentRunState & {
+  status: Extract<
+    AgentRunState["status"],
+    "completed" | "failed" | "cancelled"
+  >;
+};
 
 export interface AgentKitClientOptions {
   transport: AgentTransport;
@@ -917,19 +925,7 @@ export class AgentKitClient implements AgentKitController {
       if (current !== baseline) {
         thread = this.mergeLoadedThread(baseline, current, thread);
       }
-      thread = Object.values(thread.runs).reduce(
-        (currentThread, run) =>
-          this.isTerminalStatus(run.status)
-            ? settleRunProjection(
-                currentThread,
-                run.id,
-                run.status,
-                run.completedAt ?? this.now(),
-                run.activeMessageId,
-              )
-            : currentThread,
-        thread,
-      );
+      thread = this.settleTerminalThread(thread, snapshot);
       this.setThread(threadId, thread);
       this.setConnection("connected");
       for (const runId of thread.activeRunIds) {
@@ -1962,6 +1958,60 @@ export class AgentKitClient implements AgentKitController {
     );
   }
 
+  private settleTerminalThread(
+    thread: AgentThreadState,
+    snapshot?: AgentThreadSnapshot | null,
+  ): AgentThreadState {
+    const runs = Object.values(thread.runs);
+    const terminalRuns = runs.filter((run): run is TerminalRunState =>
+      this.isTerminalStatus(run.status),
+    );
+    const settled = terminalRuns.reduce(
+      (currentThread, run) =>
+        settleRunProjection(
+          currentThread,
+          run.id,
+          run.status,
+          run.completedAt ?? this.now(),
+          run.activeMessageId,
+        ),
+      thread,
+    );
+    if (
+      terminalRuns.length === 0 ||
+      thread.activeRunIds.length > 0 ||
+      runs.some((run) => !this.isTerminalStatus(run.status))
+    ) {
+      return settled;
+    }
+
+    const snapshotHasNoActiveRuns =
+      snapshot?.activeRunIds?.length === 0 ||
+      (snapshot?.activeRunIds === undefined &&
+        snapshot?.runs !== undefined &&
+        snapshot.runs.length > 0 &&
+        snapshot.runs.every((run) => this.isTerminalStatus(run.status)));
+    if (!snapshotHasNoActiveRuns) return settled;
+
+    const terminalStatuses = new Set(terminalRuns.map((run) => run.status));
+    if (terminalStatuses.size !== 1) return settled;
+    const terminalStatus = terminalRuns[0]?.status;
+    if (!terminalStatus) return settled;
+    const settledMessageStatus =
+      terminalStatus === "completed" ? "complete" : "error";
+    // Lifecycle events can age out independently of the message projection.
+    // Once the snapshot proves that no run remains active, any assistant
+    // message still marked streaming is stale rather than in-flight work.
+    return {
+      ...settled,
+      messages: settled.messages.map((message) =>
+        message.role === "assistant" && message.status === "streaming"
+          ? { ...message, status: settledMessageStatus }
+          : message,
+      ),
+    };
+  }
+
   private hydrateThread(
     snapshot: AgentThreadSnapshot,
     runs: AgentThreadState["runs"],
@@ -2066,41 +2116,7 @@ export class AgentKitClient implements AgentKitController {
       artifacts: snapshot.artifacts ?? hydrated.artifacts,
       suggestions: snapshot.suggestions ?? hydrated.suggestions,
     };
-    const terminalRuns = Object.values(mergedRuns).filter((run) =>
-      this.isTerminalStatus(run.status),
-    );
-    const streamingAssistantMessageIds = snapshot.messages
-      .filter(
-        (message) =>
-          message.role === "assistant" && message.status === "streaming",
-      )
-      .map((message) => message.id);
-    // Older snapshot producers do not carry a message-to-run association. A
-    // single terminal run with no active peers is the only unambiguous case
-    // where the authoritative snapshot can supply that missing association.
-    const fallbackActiveMessageId =
-      currentActiveRunIds.length === 0 &&
-      terminalRuns.length === 1 &&
-      streamingAssistantMessageIds.length === 1 &&
-      terminalRuns[0]?.activeMessageId === undefined
-        ? streamingAssistantMessageIds[0]
-        : undefined;
-    return Object.values(mergedRuns).reduce(
-      (thread, run) =>
-        this.isTerminalStatus(run.status)
-          ? settleRunProjection(
-              thread,
-              run.id,
-              run.status,
-              run.completedAt ?? snapshot.updatedAt,
-              run.activeMessageId ??
-                (terminalRuns.length === 1
-                  ? fallbackActiveMessageId
-                  : undefined),
-            )
-          : thread,
-      projected,
-    );
+    return this.settleTerminalThread(projected, snapshot);
   }
 
   private async requireCapability(

@@ -198,6 +198,7 @@ describe("AgentKitClient", () => {
           completedAt: "2026-08-29T00:00:02.000Z",
         },
       ],
+      activeRunIds: [],
     });
     const client = new AgentKitClient({ transport });
 
@@ -205,6 +206,60 @@ describe("AgentKitClient", () => {
 
     expect(thread.messages).toEqual([
       expect.objectContaining({ id: "assistant-complete", status: "complete" }),
+    ]);
+  });
+
+  it("settles a terminal snapshot again after reconciling a streamed message id", async () => {
+    let snapshotReads = 0;
+    const transport = createTransport([]);
+    transport.getThreadSnapshot = async () => {
+      snapshotReads += 1;
+      if (snapshotReads === 1) {
+        return {
+          id: "thread-1",
+          createdAt: "2026-08-29T00:00:00.000Z",
+          updatedAt: "2026-08-29T00:00:01.000Z",
+          messages: [
+            {
+              id: "assistant-transient",
+              role: "assistant",
+              status: "streaming",
+              parts: [{ type: "text", text: "Completed response" }],
+            },
+          ],
+        };
+      }
+      return {
+        id: "thread-1",
+        createdAt: "2026-08-29T00:00:00.000Z",
+        updatedAt: "2026-08-29T00:00:02.000Z",
+        messages: [
+          {
+            id: "assistant-durable",
+            role: "assistant",
+            status: "streaming",
+            parts: [{ type: "text", text: "Completed response" }],
+          },
+        ],
+        runs: [
+          {
+            id: "run-complete",
+            threadId: "thread-1",
+            status: "completed" as const,
+            lastSequence: 4,
+            completedAt: "2026-08-29T00:00:02.000Z",
+          },
+        ],
+        activeRunIds: [],
+      };
+    };
+    const client = new AgentKitClient({ transport });
+
+    await client.loadThread("thread-1");
+    const thread = await client.loadThread("thread-1");
+
+    expect(thread.messages).toEqual([
+      expect.objectContaining({ id: "assistant-durable", status: "complete" }),
     ]);
   });
 
