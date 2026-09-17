@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
+import { sanitizeReviewCommentMetadata } from "../attachments.js";
 import { reviewAuthorNameFromContext } from "../identity.js";
 import { extractReviewMentions, normalizeReviewMentions } from "../mentions.js";
 import { notifyReviewComment } from "../notifications.js";
@@ -77,7 +78,7 @@ export default defineAction({
       ownerEmail: access.ownerEmail ?? actionCtx?.userEmail ?? null,
       orgId: access.orgId ?? actionCtx?.orgId ?? null,
       visibility: normalizeReviewVisibility(access.visibility),
-      metadata: args.metadata,
+      metadata: await sanitizeReviewCommentMetadata(args.metadata),
     });
 
     return { ...comment, notified: await notifyReviewComment(comment) };

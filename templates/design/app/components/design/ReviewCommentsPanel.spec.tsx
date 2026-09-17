@@ -113,6 +113,7 @@ describe("ReviewCommentsPanel capabilities", () => {
       showComposer: false,
       showComposerTargetPicker: false,
       canResolve: false,
+      onReactionError: expect.any(Function),
     });
     expect(mocks.latestPanelProps).not.toHaveProperty("targetId");
     expect(mocks.latestPanelProps?.renderThreadActions).toBeUndefined();

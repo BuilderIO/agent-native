@@ -83,6 +83,11 @@ const messages: AgentChatTranslation = {
   "onboarding.capability.voiceInput.keySummary": "浏览器语音识别或语音转文字",
   "onboarding.capability.voiceInput.why":
     "语音输入会将口述请求转换为文字；始终可以使用键盘输入。",
+  "onboarding.capability.embeddings.label": "嵌入向量",
+  "onboarding.capability.embeddings.keySummary":
+    "Gemini、Cohere 或 Voyage 密钥",
+  "onboarding.capability.embeddings.why":
+    "嵌入向量可以改进语义搜索。没有嵌入向量时，关键词搜索仍然有效。",
   "onboarding.capability.assetsImageGeneration.label": "图像生成",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Builder 积分或图像提供商密钥",

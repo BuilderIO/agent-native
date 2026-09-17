@@ -1609,18 +1609,19 @@ function localPackageTarball(packageDir: string): string {
   );
   const npmCacheDir = path.join(packDir, "npm-cache");
   const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+  // npm prints one notice per packed corpus file; piping that output through
+  // execFileSync's default buffer makes local linking fail as the corpus grows.
   execFileSync(
     npm,
     ["pack", "--ignore-scripts", "--pack-destination", packDir],
     {
       cwd: packageDir,
-      encoding: "utf-8",
       env: {
         ...process.env,
         npm_config_cache: npmCacheDir,
         npm_config_ignore_scripts: "true",
       },
-      stdio: "pipe",
+      stdio: "ignore",
     },
   );
 
@@ -1653,13 +1654,12 @@ function localPackageTarball(packageDir: string): string {
     ["pack", "--ignore-scripts", "--pack-destination", repackDir],
     {
       cwd: path.join(unpackDir, "package"),
-      encoding: "utf-8",
       env: {
         ...process.env,
         npm_config_cache: repackNpmCacheDir,
         npm_config_ignore_scripts: "true",
       },
-      stdio: "pipe",
+      stdio: "ignore",
     },
   );
   const repackedTarballs = fs
@@ -2128,7 +2128,12 @@ function postProcessStandalone(
         pkg.optionalDependencies,
       ].some((deps) => Boolean(deps?.["node-pty"]));
       fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
-    } catch {}
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`Could not finalize ${pkgPath}: ${detail}`, {
+        cause: error,
+      });
+    }
   }
 
   // Write pnpm-workspace.yaml for pnpm v11 compatibility. pnpm v11 no longer

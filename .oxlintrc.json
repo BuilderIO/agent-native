@@ -1,6 +1,20 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "plugins": ["react", "react-hooks", "typescript"],
+  "jsPlugins": ["@shadcn/lint"],
+  "settings": {
+    "shadcn": {
+      "ui": "@/components/ui",
+      "componentImports": [
+        "^@agent-native/toolkit/ui(?:/|$)",
+        "^@agent-native/dispatch/components(?:/|$)",
+        "^@agent-native/code-agents-ui(?:/|$)"
+      ],
+      "mergeFunctions": ["cn"],
+      "variantFunctions": ["cva"],
+      "note": "Use the component's props, variants, and theme tokens. Read .agents/skills/shadcn-ui/SKILL.md before changing UI."
+    }
+  },
   "options": {
     "typeAware": true
   },
@@ -12,6 +26,12 @@
     "react-hooks/exhaustive-deps": "warn",
     "eslint/eqeqeq": ["warn", "smart"],
     "typescript/no-base-to-string": ["warn", { "checkUnknown": false }],
+    "shadcn/no-restyle": "off",
+    "shadcn/no-raw-colors": "off",
+    "shadcn/no-arbitrary-values": "off",
+    "shadcn/no-inline-styles": "off",
+    "shadcn/no-unknown-classes": "off",
+    "shadcn/require-static-classes": "off",
     "eslint/no-unused-vars": [
       "error",
       {
@@ -42,6 +62,17 @@
   ],
   "overrides": [
     {
+      "files": ["templates/*/app/**/*.tsx", "templates/*/desktop/src/**/*.tsx"],
+      "rules": {
+        "shadcn/no-restyle": ["warn", { "allow": ["layout"] }],
+        "shadcn/no-raw-colors": "warn",
+        "shadcn/no-arbitrary-values": "warn",
+        "shadcn/no-inline-styles": "warn",
+        "shadcn/no-unknown-classes": "warn",
+        "shadcn/require-static-classes": "warn"
+      }
+    },
+    {
       "files": ["packages/*/src/**/*.ts", "packages/*/src/**/*.tsx"],
       "rules": {}
     },
@@ -54,6 +85,47 @@
         "templates/*/shared/**/*.ts"
       ],
       "rules": {}
+    },
+    {
+      "files": [
+        "packages/*/src/ui/**/*.ts",
+        "packages/*/src/ui/**/*.tsx",
+        "packages/*/src/components/ui/**/*.ts",
+        "packages/*/src/components/ui/**/*.tsx",
+        "packages/core/src/client/ui/**/*.ts",
+        "packages/core/src/client/ui/**/*.tsx",
+        "packages/core/src/client/components/ui/**/*.ts",
+        "packages/core/src/client/components/ui/**/*.tsx",
+        "packages/docs/app/components/ui/**/*.ts",
+        "packages/docs/app/components/ui/**/*.tsx",
+        "templates/*/app/components/ui/**/*.ts",
+        "templates/*/app/components/ui/**/*.tsx",
+        "templates/*/desktop/src/components/ui/**/*.ts",
+        "templates/*/desktop/src/components/ui/**/*.tsx"
+      ],
+      "rules": {
+        "shadcn/no-restyle": "off",
+        "shadcn/no-arbitrary-values": "off",
+        "shadcn/no-unknown-classes": "off",
+        "shadcn/require-static-classes": "off"
+      }
+    },
+    {
+      "files": [
+        "packages/*/src/ui/**/*.ts",
+        "packages/*/src/ui/**/*.tsx",
+        "packages/*/src/components/ui/**/*.ts",
+        "packages/*/src/components/ui/**/*.tsx",
+        "packages/core/src/client/ui/**/*.ts",
+        "packages/core/src/client/ui/**/*.tsx",
+        "packages/core/src/client/components/ui/**/*.ts",
+        "packages/core/src/client/components/ui/**/*.tsx",
+        "packages/docs/app/components/ui/**/*.ts",
+        "packages/docs/app/components/ui/**/*.tsx"
+      ],
+      "rules": {
+        "shadcn/no-unknown-classes": "off"
+      }
     },
     {
       "files": [

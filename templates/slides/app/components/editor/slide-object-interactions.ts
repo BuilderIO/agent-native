@@ -164,6 +164,37 @@ export function restoreSlideObjectStyle(
   else element.setAttribute("style", style);
 }
 
+export interface SlideObjectDomSnapshot {
+  className: string;
+  style: string | null;
+  objectId: string | null;
+  contentEditable: string | null;
+  editingBlock: string | null;
+}
+
+export function restoreSlideObjectDomSnapshot(
+  element: HTMLElement,
+  snapshot: SlideObjectDomSnapshot,
+): void {
+  element.className = snapshot.className;
+  restoreSlideObjectStyle(element, snapshot.style);
+  if (snapshot.contentEditable === null) {
+    element.removeAttribute("contenteditable");
+  } else {
+    element.setAttribute("contenteditable", snapshot.contentEditable);
+  }
+  if (snapshot.editingBlock === null) {
+    element.removeAttribute("data-editing-block");
+  } else {
+    element.setAttribute("data-editing-block", snapshot.editingBlock);
+  }
+  if (snapshot.objectId === null) {
+    element.removeAttribute("data-slide-object-id");
+  } else {
+    element.setAttribute("data-slide-object-id", snapshot.objectId);
+  }
+}
+
 export function createSlideObjectPlacementGeometry(
   start: { x: number; y: number },
   end: { x: number; y: number },
@@ -1617,6 +1648,90 @@ function normalizeSlideObjectRoots(elements: HTMLElement[]): HTMLElement[] {
         (candidate) => candidate !== element && candidate.contains(element),
       ),
   );
+}
+
+function hasVisibleBorder(element: HTMLElement): boolean {
+  const computed = window.getComputedStyle(element);
+  return [
+    [
+      computed.borderTopStyle,
+      computed.borderTopWidth,
+      element.style.borderTopStyle,
+      element.style.borderTopWidth,
+    ],
+    [
+      computed.borderRightStyle,
+      computed.borderRightWidth,
+      element.style.borderRightStyle,
+      element.style.borderRightWidth,
+    ],
+    [
+      computed.borderBottomStyle,
+      computed.borderBottomWidth,
+      element.style.borderBottomStyle,
+      element.style.borderBottomWidth,
+    ],
+    [
+      computed.borderLeftStyle,
+      computed.borderLeftWidth,
+      element.style.borderLeftStyle,
+      element.style.borderLeftWidth,
+    ],
+  ].some(([computedStyle, computedWidth, inlineStyle, inlineWidth]) => {
+    const useComputed = computedStyle !== "" || computedWidth !== "";
+    const style = useComputed ? computedStyle : inlineStyle;
+    const width = useComputed ? computedWidth : inlineWidth;
+    return (
+      Number.parseFloat(width || "0") > 0 &&
+      style !== "" &&
+      style !== "none" &&
+      style !== "hidden"
+    );
+  });
+}
+
+function hasIndependentlyPositionedDescendant(element: HTMLElement): boolean {
+  return Array.from(element.querySelectorAll<HTMLElement>("*")).some(
+    (descendant) => {
+      const computedPosition = window.getComputedStyle(descendant).position;
+      const position = computedPosition || descendant.style.position;
+      return position === "absolute" || position === "fixed";
+    },
+  );
+}
+
+/** Promote selected leaves to a bordered container when its full content is selected. */
+export function resolveSlideObjectMoveRoots(
+  elements: HTMLElement[],
+  selectedIds: ReadonlySet<string>,
+  boundary?: HTMLElement,
+): HTMLElement[] {
+  const roots = normalizeSlideObjectRoots(elements).map((element) => {
+    let current: HTMLElement | null = element;
+    let promotedRoot: HTMLElement | null = null;
+    while (current && current !== boundary) {
+      const leaves = Array.from(
+        current.querySelectorAll<HTMLElement>("[data-builder-id]"),
+      ).filter((descendant) => !descendant.querySelector("[data-builder-id]"));
+      const computedPosition = window.getComputedStyle(current).position;
+      const position = computedPosition || current.style.position;
+      if (
+        hasVisibleBorder(current) &&
+        (position === "absolute" ||
+          !hasIndependentlyPositionedDescendant(current)) &&
+        leaves.length > 0 &&
+        leaves.every((leaf) => {
+          const id = leaf.getAttribute("data-builder-id");
+          return id !== null && selectedIds.has(id);
+        })
+      ) {
+        promotedRoot = current;
+      }
+      current = current.parentElement;
+    }
+    return promotedRoot ?? element;
+  });
+  return normalizeSlideObjectRoots(roots);
 }
 
 export const SLIDE_OBJECT_GROUP_CLASS = "fmd-slide-group";

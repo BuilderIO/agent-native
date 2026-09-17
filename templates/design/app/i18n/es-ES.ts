@@ -122,6 +122,18 @@ const messages = {
     presentComments: "Comentarios",
     presentCommentMode: "Modo de comentarios",
     closeComments: "Cerrar comentarios",
+    yours: "Tuyos",
+    unread: "No leídos",
+    confirmDeleteTitle: "¿Eliminar comentario?",
+    confirmDeleteDescription:
+      "Esto quitará el comentario del hilo de revisión.",
+    cancelDelete: "Cancelar",
+    markedUnread: "Marcado como no leído",
+    markUnreadFailed: "No se pudo marcar como no leído",
+    attachImage: "Adjuntar imagen",
+    searching: "Buscando…",
+    reactionFailed: "No se pudo actualizar la reacción",
+    moveFailed: "No se pudo mover el comentario",
     status: {
       draft: "Borrador",
       in_review: "En revisión",

@@ -335,12 +335,35 @@ Measure this gate with friction keys `false-done` and
 --pattern <key>` for each before changing it and again later. A climbing count
 requires a mechanical proof or release gate, not more prose.
 
+### Bug-bash reproduction contract
+
+For Design, Slides, Core/framework, and template bashes, the reachable reported
+surface is the contract:
+
+1. **Reproduce before editing.** Use the exact URL/route, app/template,
+   account/workspace/role, build/package, browser/device, fixture, and inputs;
+   record expected/actual, errors, and attached artifacts.
+2. **Sweep siblings and boundaries.** Test a negative control plus empty, wrong,
+   whitespace, case, and permission variants; enumerate every shared fingerprint.
+3. **Repeat on the changed running artifact.** Rerun the flow, refresh/navigate,
+   read UI and persisted state, and cover failure/retry/cancel/async paths.
+   Destructive flows require wrong/partial/exact confirmation and recovery;
+   do not delete unless needed.
+4. **Test release and race layers.** Use deterministic concurrency or 10 runs,
+   a clean scaffold/cache and exact published/candidate package, and the exact
+   beta/production URL. Source, tests, merge, or unchanged live state are not
+   runtime proof.
+5. Record untested layers/variants and use the narrowest evidence-limited
+   disposition. Never release `✅` or call **Fixed**, **Shipped**, or **Live
+   verified** on partial evidence. A post-checkmark repeat reopens the item and
+   needs a fresh failing pre-change reproduction.
+
 ### Reproduction ledger - required for every row
 
 Before **Fixed** or **Shipped**, record each row's exact symptom/surface,
 reproduction command/click/URL/account state, expected and pre/post actuals,
-tested commit/build, sibling fingerprint results, and runtime layer (`local`,
-`source-only`, `built`, `deployed`, `observed-live`).
+tested commit/build, sibling fingerprint results, untested layers, and runtime
+layer (`local`, `source-only`, `built`, `deployed`, `observed-live`).
 
 If the full bar was not exercised, use **Verified locally**, **Built - live
 unverified**, **Deployed - live unverified**, **Not reproducible - attempted**,
@@ -395,29 +418,15 @@ instruction or prompt exception.
 
 ### The bar for saying "Fixed"
 
-You may tell a reporter something is fixed only when all four hold:
-
-1. You can name the reporter's **observed symptom** — the error text, the
-   ignored click, the wrong value — not just a code smell near it.
-2. A reproduction **fails before your change and passes after**, and it
-   exercises the reporter's exact symptom. A test asserting that a prop got
-   threaded through is not a regression test for "double-click schedules two
-   emails." For docs, the clean-scaffold copy-paste path is the reproduction.
-3. The sibling sweep is clean, or the remaining hits are listed and triaged.
-4. The change is in the snapshot that ships, and the runtime layer of the
-   claim is named. **Shipped** requires build/deploy provenance; **Live
-   verified** requires the target URL or runtime to be exercised. If only
-   source or local evidence exists, use a narrower disposition and do not
-   imply beta or production health.
-
-If any of the four is missing, it is not **Fixed**. Say what is true instead,
-or say nothing and keep working. A confident wrong "fixed" costs more than
-silence: the reporter stops watching, and the bug comes back as a new thread.
-
-An upvoted improvement has no symptom to reproduce, so bar 1 becomes: you can
-state the behavior the reporter asked for and the behavior that now exists.
-Bars 2–4 hold unchanged — a new capability still needs a check that fails
-without it. Call it **Shipped**, not Fixed; nothing was broken.
+Say **Fixed** only when all four hold: the reporter's observed symptom is named;
+the exact reproduction fails before and passes after (a prop-threading test is
+not proof of "double-click schedules two emails," and a docs diff is not the
+clean-scaffold copy-paste proof); the sibling sweep is clean or triaged; and
+the change is in the shipping snapshot with its runtime layer named.
+**Shipped** requires build/deploy provenance; **Live verified** requires the
+target runtime. Otherwise use a narrower disposition and never imply beta or
+production health. An upvoted improvement states requested versus actual
+behavior, then holds the same bars and is **Shipped**, not **Fixed**.
 
 ## Phase 3: reply
 

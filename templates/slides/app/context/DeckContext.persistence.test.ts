@@ -1437,6 +1437,59 @@ describe("DeckContext deck creation persistence", () => {
     });
   });
 
+  it("normalizes legacy null notes when the slide rail duplicates a slide", async () => {
+    window.history.pushState({}, "", "/deck/legacy-notes-deck");
+    const legacyDeck = {
+      id: "legacy-notes-deck",
+      title: "Legacy notes deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<h1>One</h1>",
+          notes: null,
+          layout: "title",
+        },
+      ],
+    } as unknown as Deck;
+    const { fetchMock, setAccessibleDeck } = setupFetch();
+    setAccessibleDeck(legacyDeck);
+    const { result } = renderHook(() => useDecks(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const originalSlide = result.current.getDeck(legacyDeck.id)!.slides[0]!;
+    const { id: _slideId, ...originalFields } = originalSlide;
+    vi.useFakeTimers();
+    act(() => {
+      result.current.pasteSlides(legacyDeck.id, originalSlide.id, [
+        originalFields,
+      ]);
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+
+    const patchCall = fetchMock.mock.calls.find(([url, init]) => {
+      return (
+        requestString(url).includes("/_agent-native/actions/patch-deck") &&
+        actionCallBody(init).deckId === legacyDeck.id
+      );
+    });
+    expect(patchCall).toBeTruthy();
+    expect(actionCallBody(patchCall?.[1])).toMatchObject({
+      deckId: legacyDeck.id,
+      operations: [
+        {
+          op: "add-slide",
+          fields: { notes: "" },
+        },
+      ],
+    });
+  });
+
   it("records the first edit after reloading over a pending undo skip", async () => {
     window.history.pushState({}, "", "/deck/shared-deck");
     const { setAccessibleDeck } = setupFetch();

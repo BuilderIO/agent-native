@@ -2874,7 +2874,7 @@ describe("runNitroBuildPipeline", () => {
             fs.mkdirSync(serverDir, { recursive: true });
             fs.writeFileSync(
               path.join(serverDir, "main.mjs"),
-              `const serverManifest = ${JSON.stringify(serverManifest)};`,
+              `const $9 = ${JSON.stringify(serverManifest)};`,
             );
           },
         },

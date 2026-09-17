@@ -1337,6 +1337,7 @@ describe("run store", () => {
       "turn-1",
       "background",
       '{"messages":[]}',
+      expect.any(Number),
     ]);
   });
 
@@ -1472,6 +1473,8 @@ describe("run store", () => {
       /COALESCE\(r\.turn_id, r\.id\) = \?/i.test(c.sql),
     );
     expect(eventsCall?.args).toEqual(["thread-1", "turn-known"]);
+    expect(eventsCall?.sql).toContain("r.continuation_order");
+    expect(eventsCall?.sql).toContain("e.event_at");
   });
 
   it("getCurrentTurnEventsForThread still infers the turn when the caller has none", async () => {

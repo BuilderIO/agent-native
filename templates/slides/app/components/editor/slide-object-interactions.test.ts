@@ -46,6 +46,7 @@ import {
   resolveSlideObjectContainingBlock,
   resolveSlideObjectGroupRoot,
   resolveSlideObjectInsertionContainingBlock,
+  resolveSlideObjectMoveRoots,
   restoreSlideObjectStyle,
   resizeSlideObject,
   resizeSlideObjectMembers,
@@ -1625,6 +1626,94 @@ describe("slide object interactions", () => {
     const pasted = buildPastedSlideObjects(copied, document);
     expect(pasted).toHaveLength(1);
     expect(pasted[0].querySelector("[data-slide-object-id]")).not.toBeNull();
+  });
+
+  it("moves a bordered container when all of its selectable leaves are selected", () => {
+    const slideContent = document.createElement("div");
+    const card = document.createElement("div");
+    card.style.borderTop = "2px solid";
+    const label = document.createElement("div");
+    label.dataset.builderId = "label";
+    const copy = document.createElement("div");
+    copy.dataset.builderId = "copy";
+    card.append(label, copy);
+    slideContent.append(card);
+
+    expect(
+      resolveSlideObjectMoveRoots(
+        [label, copy],
+        new Set(["label", "copy"]),
+        slideContent,
+      ),
+    ).toEqual([card]);
+    expect(
+      resolveSlideObjectMoveRoots([label], new Set(["label"]), slideContent),
+    ).toEqual([label]);
+  });
+
+  it("does not promote a bordered flow card with positioned descendants", () => {
+    const slideContent = document.createElement("div");
+    const card = document.createElement("div");
+    card.style.borderLeft = "2px solid";
+    const label = document.createElement("div");
+    label.dataset.builderId = "label";
+    const positioned = document.createElement("div");
+    positioned.dataset.builderId = "positioned";
+    positioned.style.position = "absolute";
+    card.append(label, positioned);
+    slideContent.append(card);
+
+    expect(
+      resolveSlideObjectMoveRoots(
+        [label, positioned],
+        new Set(["label", "positioned"]),
+        slideContent,
+      ),
+    ).toEqual([label, positioned]);
+  });
+
+  it("promotes the highest fully-selected bordered card", () => {
+    const slideContent = document.createElement("div");
+    const outerCard = document.createElement("div");
+    outerCard.style.borderBottom = "2px solid";
+    const innerCard = document.createElement("div");
+    innerCard.style.borderRight = "2px solid";
+    const label = document.createElement("div");
+    label.dataset.builderId = "label";
+    const copy = document.createElement("div");
+    copy.dataset.builderId = "copy";
+    innerCard.append(label, copy);
+    outerCard.append(innerCard);
+    slideContent.append(outerCard);
+
+    expect(
+      resolveSlideObjectMoveRoots(
+        [label, copy],
+        new Set(["label", "copy"]),
+        slideContent,
+      ),
+    ).toEqual([outerCard]);
+  });
+
+  it("does not promote a bordered flow card with fixed descendants", () => {
+    const slideContent = document.createElement("div");
+    const card = document.createElement("div");
+    card.style.borderTop = "2px solid";
+    const label = document.createElement("div");
+    label.dataset.builderId = "label";
+    const fixed = document.createElement("div");
+    fixed.dataset.builderId = "fixed";
+    fixed.style.position = "fixed";
+    card.append(label, fixed);
+    slideContent.append(card);
+
+    expect(
+      resolveSlideObjectMoveRoots(
+        [label, fixed],
+        new Set(["label", "fixed"]),
+        slideContent,
+      ),
+    ).toEqual([label, fixed]);
   });
 
   it("moves every member by the same delta relative to its own captured start", () => {

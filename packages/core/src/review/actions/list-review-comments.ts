@@ -7,6 +7,7 @@ import {
   resolveUserProfileName,
 } from "../../user-profile/shared.js";
 import { getUserProfiles } from "../../user-profile/store.js";
+import { sanitizeReviewCommentMetadata } from "../attachments.js";
 import {
   redactPublicReviewCommentIdentity,
   redactPublicReviewStatusIdentity,
@@ -27,6 +28,7 @@ const schema = z.object({
   includeResolved: z.boolean().optional(),
   includeDeleted: z.boolean().optional(),
   targetId: z.string().nullable().optional(),
+  newestFirst: z.boolean().optional(),
   limit: z.number().int().positive().max(500).optional(),
 });
 
@@ -50,7 +52,7 @@ export default defineAction({
       userEmail: actionCtx?.userEmail ?? null,
       orgId: actionCtx?.orgId ?? null,
     };
-    const [comments, reviewStatus, summary] = await Promise.all([
+    const [rawComments, reviewStatus, summary] = await Promise.all([
       queryReviewComments({
         resourceType: args.resourceType,
         resourceId: args.resourceId,
@@ -59,6 +61,7 @@ export default defineAction({
         includeResolved: args.includeResolved,
         includeDeleted: args.includeDeleted,
         targetId: args.targetId,
+        newestFirst: args.newestFirst,
         limit: args.limit,
       }),
       getReviewStatus(args.resourceType, args.resourceId, scope, {
@@ -72,6 +75,12 @@ export default defineAction({
         targetId: args.targetId,
       }),
     ]);
+    const comments = await Promise.all(
+      rawComments.map(async (comment) => ({
+        ...comment,
+        metadata: await sanitizeReviewCommentMetadata(comment.metadata),
+      })),
+    );
     const discussion = {
       ...(await getReviewDiscussionStateForComments(
         comments,

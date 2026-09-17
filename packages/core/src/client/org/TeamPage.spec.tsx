@@ -22,7 +22,7 @@ vi.mock("../use-action.js", () => ({
 }));
 
 vi.mock("../i18n.js", () => ({
-  useT: () => (key: string, options?: { count?: number }) => {
+  useT: () => (key: string, options?: { count?: number; name?: string }) => {
     if (key === "org.admin") return "Admin";
     if (key === "org.member") return "Member";
     if (key === "org.members") return "Members";
@@ -36,12 +36,24 @@ vi.mock("../i18n.js", () => ({
     if (key === "org.appPermissions") return "App permissions";
     if (key === "org.loading") return "Loading";
     if (key === "org.newGroup") return "New group";
+    if (key === "org.groups") return "Groups";
+    if (key === "org.groupName") return "Group name";
+    if (key === "org.deleteGroup") return "Delete group?";
+    if (key === "org.deleteGroupAria") {
+      return `Delete group ${options?.name ?? ""}`;
+    }
+    if (key === "org.cancel") return "Cancel";
+    if (key === "org.delete") return "Delete";
     return key;
   },
 }));
 
 import { TooltipProvider } from "../components/ui/tooltip.js";
-import { MemberRow, MembersTableCard } from "./TeamPage.js";
+import {
+  MemberRow,
+  MembersTableCard,
+  WorkspaceGroupsCard,
+} from "./TeamPage.js";
 
 describe("MemberRow organization controls", () => {
   let container: HTMLDivElement;
@@ -314,5 +326,63 @@ describe("MemberRow organization controls", () => {
     act(() => createButton?.click());
 
     expect(onCreateGroup).toHaveBeenCalledWith(["morgan@example.test"]);
+  });
+
+  it("keeps a failed group deletion open with its error visible", () => {
+    mocks.action.mutate.mockImplementation((_input, options) => {
+      options?.onError?.(new Error("Delete failed"));
+    });
+
+    act(() => {
+      root.render(
+        <WorkspaceGroupsCard
+          groups={[
+            {
+              id: "group-1",
+              orgId: "org-1",
+              name: "Rev Ops",
+              memberEmails: [],
+              createdByEmail: "owner@example.test",
+              createdAt: new Date(0).toISOString(),
+              updatedAt: new Date(0).toISOString(),
+            },
+          ]}
+          onNewGroup={vi.fn()}
+          onEditGroup={vi.fn()}
+        />,
+      );
+    });
+
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Delete group Rev Ops"]')
+        ?.click();
+    });
+
+    const input = document.querySelector<HTMLInputElement>(
+      "#workspace-delete-group-name-group-1",
+    );
+    expect(input?.labels?.[0]?.textContent).toBe("Group name");
+    expect(input).not.toBeNull();
+    act(() => {
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      valueSetter?.call(input, "Rev Ops");
+      input?.dispatchEvent(new Event("input", { bubbles: true }));
+      input?.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    act(() => {
+      Array.from(document.querySelectorAll<HTMLButtonElement>("button"))
+        .find((button) => button.textContent?.trim() === "Delete")
+        ?.click();
+    });
+
+    expect(document.body.textContent).toContain("Delete failed");
+    expect(
+      document.querySelector("#workspace-delete-group-name-group-1"),
+    ).not.toBeNull();
   });
 });
