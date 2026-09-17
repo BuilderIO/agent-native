@@ -175,6 +175,39 @@ describe("AgentKitClient", () => {
     ]);
   });
 
+  it("settles the only streaming assistant in a terminal snapshot without events", async () => {
+    const transport = createTransport([]);
+    transport.getThreadSnapshot = async () => ({
+      id: "thread-1",
+      createdAt: "2026-08-29T00:00:00.000Z",
+      updatedAt: "2026-08-29T00:00:02.000Z",
+      messages: [
+        {
+          id: "assistant-complete",
+          role: "assistant",
+          status: "streaming",
+          parts: [{ type: "text", text: "Completed response" }],
+        },
+      ],
+      runs: [
+        {
+          id: "run-complete",
+          threadId: "thread-1",
+          status: "completed" as const,
+          lastSequence: 4,
+          completedAt: "2026-08-29T00:00:02.000Z",
+        },
+      ],
+    });
+    const client = new AgentKitClient({ transport });
+
+    const thread = await client.loadThread("thread-1");
+
+    expect(thread.messages).toEqual([
+      expect.objectContaining({ id: "assistant-complete", status: "complete" }),
+    ]);
+  });
+
   it("resubscribes the same run after a connection continuation", async () => {
     let subscriptionCount = 0;
     const resolveConnectionRequest = vi.fn(async () => undefined);

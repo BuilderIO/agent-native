@@ -2066,6 +2066,25 @@ export class AgentKitClient implements AgentKitController {
       artifacts: snapshot.artifacts ?? hydrated.artifacts,
       suggestions: snapshot.suggestions ?? hydrated.suggestions,
     };
+    const terminalRuns = Object.values(mergedRuns).filter((run) =>
+      this.isTerminalStatus(run.status),
+    );
+    const streamingAssistantMessageIds = snapshot.messages
+      .filter(
+        (message) =>
+          message.role === "assistant" && message.status === "streaming",
+      )
+      .map((message) => message.id);
+    // Older snapshot producers do not carry a message-to-run association. A
+    // single terminal run with no active peers is the only unambiguous case
+    // where the authoritative snapshot can supply that missing association.
+    const fallbackActiveMessageId =
+      currentActiveRunIds.length === 0 &&
+      terminalRuns.length === 1 &&
+      streamingAssistantMessageIds.length === 1 &&
+      terminalRuns[0]?.activeMessageId === undefined
+        ? streamingAssistantMessageIds[0]
+        : undefined;
     return Object.values(mergedRuns).reduce(
       (thread, run) =>
         this.isTerminalStatus(run.status)
@@ -2074,7 +2093,10 @@ export class AgentKitClient implements AgentKitController {
               run.id,
               run.status,
               run.completedAt ?? snapshot.updatedAt,
-              run.activeMessageId,
+              run.activeMessageId ??
+                (terminalRuns.length === 1
+                  ? fallbackActiveMessageId
+                  : undefined),
             )
           : thread,
       projected,
