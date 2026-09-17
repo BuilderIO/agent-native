@@ -38,6 +38,7 @@ import {
   componentNameFor,
   componentNodeIdMatches,
   extractProps,
+  stableComponentNodeId,
   type ComponentInstance,
 } from "../shared/component-model.js";
 import { hasCapability } from "../shared/design-source-capabilities.js";
@@ -86,10 +87,33 @@ export default defineAction({
       .string()
       .optional()
       .describe("Design file id. Defaults to index.html."),
+    runtime: z
+      .object({
+        name: z.string().min(1),
+        nodeId: z.string().min(1),
+        selector: z.string().min(1),
+        props: z.array(
+          z.object({ name: z.string().min(1), value: z.string() }),
+        ),
+        alpineData: z.string().nullable().optional(),
+        componentId: z.string().optional(),
+        componentRef: z.string().optional(),
+        isMain: z.boolean().optional(),
+        sourceLocation: z
+          .object({
+            filePath: z.string().min(1),
+            exportName: z.string().optional(),
+          })
+          .optional(),
+      })
+      .optional()
+      .describe(
+        "Runtime component metadata from a URL-backed preview. This keeps the inspector on the live DOM projection when the SQL file stores only a route URL.",
+      ),
   }),
   readOnly: true,
   http: { method: "GET" },
-  run: async ({ designId, nodeId, fileId }) => {
+  run: async ({ designId, nodeId, fileId, runtime }) => {
     // ── Access check ────────────────────────────────────────────────────────
     const access = await resolveAccess("design", designId);
     if (!access) throw new Error("Design not found");
@@ -113,6 +137,61 @@ export default defineAction({
       : !canEditProps
         ? "Prop write-back requires the bridge applyEdit capability. Preview controls remain available until source write hardening is enabled."
         : undefined;
+
+    // URL-backed files store the route URL in SQL rather than the rendered
+    // DOM. Use the accepted runtime projection for the inspector instead of
+    // pretending that URL is an HTML source document.
+    if (runtime) {
+      const [indexRow] = await db
+        .select()
+        .from(schema.componentIndex)
+        .where(
+          and(
+            eq(schema.componentIndex.designId, designId),
+            eq(schema.componentIndex.name, runtime.name),
+          ),
+        )
+        .limit(1);
+      const persistedProps = parseJson<unknown[]>(indexRow?.props, []);
+      const persistedVariants = parseJson<Record<string, string[]>>(
+        indexRow?.variants,
+        {},
+      );
+      const persistedStories = parseJson<unknown[]>(indexRow?.stories, []);
+      const instance: ComponentInstance = {
+        instanceId: runtime.nodeId,
+        name: runtime.name,
+        props: runtime.props,
+        alpineData: runtime.alpineData ?? undefined,
+        selector: runtime.selector,
+        nodeId: runtime.nodeId,
+        componentId: runtime.componentId,
+        componentRef: runtime.componentRef,
+      };
+      return {
+        designId,
+        nodeId,
+        sourceType,
+        instance,
+        name: runtime.name,
+        isMain:
+          runtime.isMain ??
+          Boolean(runtime.componentId && !runtime.componentRef),
+        canRestore: false,
+        observedProps: runtime.props,
+        persistedProps,
+        persistedVariants,
+        persistedStories,
+        sourceLocation: runtime.sourceLocation,
+        capabilities: {
+          canResolveToFile,
+          hasFullIndex,
+          canEditProps,
+          ctaRequired,
+          ctaMessage,
+        },
+      };
+    }
 
     // ── Fetch design file ────────────────────────────────────────────────────
     const conditions = [
@@ -184,12 +263,12 @@ export default defineAction({
         : undefined;
 
     const instance: ComponentInstance = {
-      instanceId: node.id,
+      instanceId: stableComponentNodeId(node),
       name,
       props: observedProps,
       alpineData,
       selector: node.selector,
-      nodeId,
+      nodeId: stableComponentNodeId(node),
     };
 
     // ── Lookup persisted component_index row ─────────────────────────────────

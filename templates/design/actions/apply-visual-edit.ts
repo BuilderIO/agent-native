@@ -1064,7 +1064,8 @@ export default defineAction({
       if (
         editIntent.kind !== "textContent" &&
         editIntent.kind !== "class" &&
-        editIntent.kind !== "style"
+        editIntent.kind !== "style" &&
+        editIntent.kind !== "attribute"
       ) {
         return {
           result: {

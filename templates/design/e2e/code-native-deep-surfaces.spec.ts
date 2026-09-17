@@ -6,7 +6,7 @@ import {
 } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
-import { FIXTURE_HTML, seedComponentVariantMetadata } from "./global-setup";
+import { FIXTURE_HTML } from "./global-setup";
 import { designFrame, gotoEditor, selectByText } from "./helpers";
 
 test.describe.configure({ mode: "serial" });
@@ -196,7 +196,6 @@ test.beforeAll(async ({ request }, workerInfo) => {
     fileType: "css",
   });
   await postAction(request, "index-components", { designId });
-  await seedComponentVariantMetadata(designId);
 });
 
 test.afterAll(async ({ request }) => {

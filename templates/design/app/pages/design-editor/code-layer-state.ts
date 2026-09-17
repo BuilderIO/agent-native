@@ -499,6 +499,8 @@ export function elementInfoFromCodeLayerNode(node: CodeLayerNode): ElementInfo {
   return {
     tagName: node.tag,
     id: typeof node.attributes.id === "string" ? node.attributes.id : undefined,
+    componentAnnotation:
+      node.dataAttributes["data-agent-native-component"]?.trim() || undefined,
     sourceId: bridgeSourceIdForCodeLayerNode(node),
     provenance: provenanceForCodeLayerNode(node),
     selector: preferredCodeLayerSelector(node),

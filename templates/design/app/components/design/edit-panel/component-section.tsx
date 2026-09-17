@@ -328,6 +328,34 @@ interface ComponentDetailsResult {
   };
 }
 
+export interface ComponentLocalSource {
+  connectionId: string;
+  path: string;
+  line: number;
+  column: number;
+  positionPrecision?: "authored" | "transformed" | "unknown";
+  runtimeMultiplicity?: number;
+  scope?:
+    | "single-instance"
+    | "repeated-render"
+    | "shared-component-definition"
+    | "unknown";
+  expectedValue?: string;
+}
+
+export interface RuntimeComponentDetails {
+  name: string;
+  nodeId: string;
+  selector: string;
+  props: Array<{ name: string; value: string }>;
+  alpineData?: string | null;
+  componentId?: string;
+  componentRef?: string;
+  isMain?: boolean;
+  sourceLocation?: { filePath: string; exportName?: string };
+  local?: ComponentLocalSource;
+}
+
 /** Shape returned by `go-to-main-component`. */
 interface GoToMainComponentResult {
   isMain?: boolean;
@@ -533,6 +561,7 @@ export function ComponentSection({
   onRestoreComponent,
   onComponentPropApplied,
   sourceCapabilities = [],
+  runtime,
 }: {
   designId: string;
   fileId?: string;
@@ -560,10 +589,17 @@ export function ComponentSection({
   ) => void;
   /** Capability names advertised by the current source. */
   sourceCapabilities?: string[];
+  /** Live component metadata used when a URL file stores only its route URL. */
+  runtime?: RuntimeComponentDetails;
 }) {
   const t = useT();
   const queryClient = useQueryClient();
-  const detailsParams = { designId, nodeId, ...(fileId ? { fileId } : {}) };
+  const detailsParams = {
+    designId,
+    nodeId,
+    ...(fileId ? { fileId } : {}),
+    ...(runtime ? { runtime } : {}),
+  };
   const detailsKey = ["action", "get-component-details", detailsParams];
   const latestSourceRef = useRef<{
     content: string;
@@ -661,6 +697,7 @@ export function ComponentSection({
   };
 
   const sourceForMutation = () => {
+    if (runtime?.local) return undefined;
     const latestSource = latestSourceRef.current;
     return latestSource.content
       ? {
@@ -800,32 +837,48 @@ export function ComponentSection({
   const persistPropEdit = (
     edit:
       | { kind: "alpineData"; value: string }
-      | { kind: "attribute"; attribute: string; value: string },
-    optimistic: (prev: ComponentDetailsResult) => ComponentDetailsResult,
+      | {
+          kind: "attribute";
+          attribute: string;
+          value: string;
+          expectedValue?: string;
+        },
   ) => {
-    queryClient.setQueryData<ComponentDetailsResult>(detailsKey, (prev) =>
-      prev ? optimistic(prev) : prev,
-    );
     if (edit.kind === "attribute") {
       postComponentPropPreview(edit.attribute, edit.value);
     }
     const latestSource = latestSourceRef.current;
+    const mutationSource = runtime?.local
+      ? {
+          local: {
+            ...runtime.local,
+            ...(edit.kind === "attribute" && edit.expectedValue !== undefined
+              ? { expectedValue: edit.expectedValue }
+              : {}),
+          },
+        }
+      : latestSource.content
+        ? {
+            currentContent: latestSource.content,
+            ...(latestSource.revision
+              ? { revision: latestSource.revision }
+              : {}),
+          }
+        : undefined;
     applyPropMutation.mutate(
       {
         designId,
         nodeId,
         ...(fileId ? { fileId } : {}),
-        edit,
-        ...(latestSource.content
-          ? {
-              source: {
-                currentContent: latestSource.content,
-                ...(latestSource.revision
-                  ? { revision: latestSource.revision }
-                  : {}),
-              },
-            }
-          : {}),
+        edit:
+          edit.kind === "attribute"
+            ? {
+                kind: "attribute",
+                attribute: edit.attribute,
+                value: edit.value,
+              }
+            : edit,
+        ...(mutationSource ? { source: mutationSource } : {}),
       },
       {
         onSuccess: (result) => {
@@ -933,7 +986,8 @@ export function ComponentSection({
   // Real-app sources keep the deeper source-prop controls gated as-is, so for
   // non-inline sources the controls are read-only here.
   const isInline = sourceType === "inline";
-  const editingEnabled = isInline && capabilities.canEditProps; // gated; real-app stays read-only for now
+  const editingEnabled =
+    (isInline || Boolean(runtime?.local)) && capabilities.canEditProps;
   const alpineData = parseAlpineDataObject(instance?.alpineData);
 
   const rows: PropRow[] = buildComponentPropRows({
@@ -944,8 +998,7 @@ export function ComponentSection({
 
   const hasRows = rows.length > 0;
 
-  // Build the apply-component-prop-edit payload + optimistic cache patch for a
-  // single prop change.
+  // Build the apply-component-prop-edit payload for a single prop change.
   const commitProp = (row: PropRow, nextValue: string) => {
     if (!editingEnabled || nextValue === row.value) return;
 
@@ -977,35 +1030,14 @@ export function ComponentSection({
       }
 
       const nextSerialized = serialized;
-      persistPropEdit(
-        { kind: "alpineData", value: nextSerialized },
-        (prev) => ({
-          ...prev,
-          instance: { ...(prev.instance ?? {}), alpineData: nextSerialized },
-          observedProps: prev.observedProps.map((p) =>
-            p.name === row.name ? { ...p, value: nextValue } : p,
-          ),
-        }),
-      );
+      persistPropEdit({ kind: "alpineData", value: nextSerialized });
     } else {
-      persistPropEdit(
-        {
-          kind: "attribute",
-          attribute: propNameToDataAttribute(row.name),
-          value: nextValue,
-        },
-        (prev) => {
-          const exists = prev.observedProps.some((p) => p.name === row.name);
-          return {
-            ...prev,
-            observedProps: exists
-              ? prev.observedProps.map((p) =>
-                  p.name === row.name ? { ...p, value: nextValue } : p,
-                )
-              : [...prev.observedProps, { name: row.name, value: nextValue }],
-          };
-        },
-      );
+      persistPropEdit({
+        kind: "attribute",
+        attribute: propNameToDataAttribute(row.name),
+        value: nextValue,
+        expectedValue: row.value,
+      });
     }
   };
 

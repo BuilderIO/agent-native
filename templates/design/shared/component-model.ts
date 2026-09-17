@@ -44,6 +44,11 @@ export const COMPONENT_OVERRIDES_ATTR = "data-agent-native-component-overrides";
 /** Prefix for simple prop attributes stamped next to the component root. */
 export const COMPONENT_PROP_PREFIX = "data-agent-native-prop-";
 
+/** Return the identity that survives projection rebuilds and reloads. */
+export function stableComponentNodeId(node: CodeLayerNode): string {
+  return node.dataAttributes["data-agent-native-node-id"]?.trim() || node.id;
+}
+
 // ─── Extracted prop value ─────────────────────────────────────────────────────
 
 export interface ComponentPropValue {
@@ -230,12 +235,12 @@ export function instanceFromNode(
     typeof alpineDataRaw === "string" ? alpineDataRaw : undefined;
 
   return {
-    instanceId: node.id,
+    instanceId: stableComponentNodeId(node),
     name,
     props: extractProps(node),
     alpineData,
     selector: node.selector,
-    nodeId: node.id,
+    nodeId: stableComponentNodeId(node),
     componentIndexId,
     componentId: node.dataAttributes[COMPONENT_ID_ATTR]?.trim() || undefined,
     componentRef: node.dataAttributes[COMPONENT_REF_ATTR]?.trim() || undefined,

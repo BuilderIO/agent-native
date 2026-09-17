@@ -9,15 +9,99 @@ import {
   type DesignConnectBridge,
 } from "@agent-native/core/testing";
 import { expect, test, type APIRequestContext } from "@playwright/test";
+import { build } from "esbuild";
 
 import { e2eBaseURL } from "./base-url";
-import { appPath, cdpScreenshot } from "./helpers";
+import { appPath, cdpScreenshot, selectByText } from "./helpers";
 
 let baseURL = e2eBaseURL();
 let designId = "";
+let connectionId = "";
 let rootPath = "";
+let reactBundlePath = "";
+let reactAppUrl = "";
 let devServer: Server | null = null;
 let bridge: DesignConnectBridge | null = null;
+
+function reactFixtureSource(): string {
+  const source = `import React from "react";
+import { createRoot } from "react-dom/client";
+
+function PrimaryButton({ variant = "primary", children, ...props }) {
+  const buttonRef = (button) => {
+    if (!button) return;
+    Object.defineProperty(button, "__reactFiber$component-parity", {
+      configurable: true,
+      enumerable: true,
+      value: {
+        type: "button",
+        _debugSource: {
+          fileName: "src/Component.jsx",
+          lineNumber: __LINE__,
+          columnNumber: __COLUMN__,
+        },
+        return: {
+          type: PrimaryButton,
+          key: "button-1",
+          _debugSource: {
+            fileName: "src/Component.jsx",
+            lineNumber: __LINE__,
+            columnNumber: __COLUMN__,
+          },
+        },
+      },
+    });
+  };
+  return (
+    <button ref={buttonRef} {...props} data-agent-native-prop-variant={variant}>
+      {children ?? variant}
+    </button>
+  );
+}
+
+function App() {
+  return (
+    <main data-agent-native-node-id="react-root" data-agent-native-layer-name="React App Root">
+      <PrimaryButton
+        data-agent-native-node-id="react-button-1"
+        data-agent-native-layer-name="React Primary Button"
+        style={{ minWidth: "160px", minHeight: "48px" }}
+        variant="primary"
+      />
+    </main>
+  );
+}
+
+const root = document.getElementById("root");
+if (root) createRoot(root).render(<App />);
+`;
+  const anchor = source.indexOf("<PrimaryButton");
+  if (anchor < 0) throw new Error("React fixture source anchor is missing");
+  const line = source.slice(0, anchor).split("\n").length;
+  const previousNewline = source.lastIndexOf("\n", anchor - 1);
+  const column = anchor - previousNewline;
+  return source
+    .split("__LINE__")
+    .join(String(line))
+    .split("__COLUMN__")
+    .join(String(column));
+}
+
+async function bundleReactFixture(): Promise<void> {
+  await build({
+    absWorkingDir: path.resolve(import.meta.dirname, ".."),
+    bundle: true,
+    entryPoints: [path.join(rootPath, "src", "Component.jsx")],
+    format: "iife",
+    logLevel: "silent",
+    nodePaths: [
+      path.resolve(import.meta.dirname, "..", "node_modules"),
+      path.resolve(import.meta.dirname, "..", "..", "node_modules"),
+    ],
+    outfile: reactBundlePath,
+    platform: "browser",
+  });
+}
 
 async function listen(server: Server): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -58,6 +142,7 @@ test.beforeAll(async ({ request }, workerInfo) => {
   baseURL =
     (workerInfo.project.use.baseURL as string | undefined) ?? e2eBaseURL();
   rootPath = fs.mkdtempSync(path.join(os.tmpdir(), "design-code-workbench-"));
+  reactBundlePath = path.join(rootPath, "react-app.js");
   fs.mkdirSync(path.join(rootPath, "src"), { recursive: true });
   fs.writeFileSync(
     path.join(rootPath, "src", "App.tsx"),
@@ -65,7 +150,7 @@ test.beforeAll(async ({ request }, workerInfo) => {
   );
   fs.writeFileSync(
     path.join(rootPath, "src", "Component.jsx"),
-    'export const Component = () => <section className="card">JSX</section>;\n',
+    reactFixtureSource(),
   );
   fs.writeFileSync(
     path.join(rootPath, "src", "Component.vue"),
@@ -82,6 +167,7 @@ test.beforeAll(async ({ request }, workerInfo) => {
   fs.writeFileSync(path.join(rootPath, "Dockerfile"), "FROM scratch\n");
   fs.writeFileSync(path.join(rootPath, ".prettierrc"), '{"semi":true}\n');
   fs.writeFileSync(path.join(rootPath, ".env"), "EXAMPLE_SECRET=blocked\n");
+  await bundleReactFixture();
 
   devServer = http.createServer((req, res) => {
     if (req.url?.startsWith("/visual-edit-dead")) {
@@ -90,10 +176,28 @@ test.beforeAll(async ({ request }, workerInfo) => {
       req.socket.destroy();
       return;
     }
+    const pathname = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
+    if (pathname === "/react") {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end(
+        `<!doctype html><div id="root"></div><script src="${reactAppUrl}/react-app.js"></script>`,
+      );
+      return;
+    }
+    if (pathname === "/react-app.js") {
+      res.writeHead(200, { "content-type": "text/javascript; charset=utf-8" });
+      res.end(fs.readFileSync(reactBundlePath));
+      return;
+    }
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
     res.end("<!doctype html><main><h1>Local workbench fixture</h1></main>");
   });
   const devPort = await listen(devServer);
+  const devAddress = devServer.address();
+  if (!devAddress || typeof devAddress === "string") {
+    throw new Error("React fixture server did not expose a bound address");
+  }
+  reactAppUrl = `http://${devAddress.address}:${devAddress.port}`;
 
   const bridgePortServer = http.createServer();
   const bridgePort = await listen(bridgePortServer);
@@ -115,7 +219,13 @@ test.beforeAll(async ({ request }, workerInfo) => {
     publicReadOnly: false,
   });
   designId = opened.designId;
-  if (!designId || !opened.bridgeToken || !opened.previewToken) {
+  connectionId = opened.connectionId;
+  if (
+    !designId ||
+    !connectionId ||
+    !opened.bridgeToken ||
+    !opened.previewToken
+  ) {
     throw new Error(`open-visual-edit returned incomplete data: ${opened}`);
   }
 
@@ -466,6 +576,218 @@ test("updates only the selected URL screen from the Screen inspector", async ({
     page.getByText("Screen source updated", { exact: true }),
   ).toHaveCount(0);
   await cdpScreenshot(page, testInfo.outputPath("screen-source-static.png"));
+});
+
+test("promotes and edits a URL-backed React component through the live iframe", async ({
+  page,
+  request,
+}, testInfo) => {
+  const opened = await postAction(request, "add-localhost-screens", {
+    connectionId,
+    designId,
+    paths: ["/react"],
+  });
+  const screenId = opened.screens?.[0]?.id;
+  if (!screenId) {
+    throw new Error(`Missing React screen metadata: ${JSON.stringify(opened)}`);
+  }
+
+  const source = fs.readFileSync(
+    path.join(rootPath, "src", "Component.jsx"),
+    "utf8",
+  );
+  const anchor = source.indexOf("<PrimaryButton");
+  if (anchor < 0) throw new Error("React fixture source anchor is missing");
+  const line = source.slice(0, anchor).split("\n").length;
+  const column = anchor - source.lastIndexOf("\n", anchor - 1);
+
+  const grant = await postAction(request, "grant-localhost-write-consent", {
+    connectionId,
+    designId,
+  });
+  expect(grant.rootPath).toBe(rootPath);
+
+  await page.goto(appPath(`/design/${designId}?editorView=overview`), {
+    waitUntil: "domcontentloaded",
+  });
+  await expect(
+    page.getByRole("button", { name: "Move", exact: true }),
+  ).toBeVisible({ timeout: 30_000 });
+
+  const screenRow = page
+    .getByRole("tree", { name: "Layers" })
+    .locator(`[data-layer-row-button][data-layer-node-id="${screenId}"]`);
+  await expect(screenRow).toBeVisible({ timeout: 20_000 });
+  await screenRow.click();
+  await page.evaluate((id) => {
+    document
+      .querySelector<HTMLIFrameElement>(
+        `iframe[data-design-preview-iframe][data-screen-iframe-id="${id}"]`,
+      )
+      ?.contentWindow?.postMessage({ type: "clear-selection" }, "*");
+  }, screenId);
+
+  const iframe = page.locator(
+    `iframe[data-design-preview-iframe][data-screen-iframe-id="${screenId}"]`,
+  );
+  await expect
+    .poll(() => iframe.contentFrame().locator("body").innerHTML())
+    .toContain("primary");
+  const button = iframe
+    .contentFrame()
+    .locator('[data-agent-native-node-id="react-button-1"]');
+  await expect(button).toHaveAttribute(
+    "data-agent-native-layer-name",
+    "React Primary Button",
+  );
+  await expect(button).not.toHaveAttribute("data-agent-native-component");
+  await expect(button).toHaveText("primary");
+
+  const selection: any = await selectByText(page, "primary", { screenId });
+  expect(selection.provenance).toMatchObject({
+    component: "PrimaryButton",
+    framework: "react",
+    method: "debug-source",
+    sourceFile: "src/Component.jsx",
+    line,
+    column,
+  });
+  expect(selection.componentAnnotation).toBeUndefined();
+  expect(selection.runtimeComponent).toMatchObject({
+    name: "PrimaryButton",
+    framework: "react",
+    instanceId: "react-button-1",
+    writeCapability: "authored-jsx-literal",
+    props: [{ name: "variant", value: "primary" }],
+  });
+
+  const createComponent = page.getByRole("button", {
+    name: "Create component",
+    exact: true,
+  });
+  await expect(createComponent).toBeVisible();
+  await createComponent.click();
+  const createForm = page.locator("form").filter({
+    has: page.locator("#create-component-name"),
+  });
+  await expect(createForm).toBeVisible();
+  await createForm.locator("#create-component-name").fill("PrimaryButton");
+  const createResponse = page.waitForResponse(
+    (response) =>
+      response.url().includes("/_agent-native/actions/create-component") &&
+      response.request().method() !== "OPTIONS",
+  );
+  await createForm.getByRole("button", { name: "Create", exact: true }).click();
+  const createHttpResponse = await createResponse;
+  expect(createHttpResponse.ok()).toBe(true);
+  await expect
+    .poll(() =>
+      fs.readFileSync(path.join(rootPath, "src", "Component.jsx"), "utf8"),
+    )
+    .toContain('data-agent-native-component="PrimaryButton"');
+
+  await bundleReactFixture();
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await expect(
+    page.getByRole("button", { name: "Move", exact: true }),
+  ).toBeVisible({ timeout: 30_000 });
+  await expect(
+    page
+      .getByRole("tree", { name: "Layers" })
+      .locator(`[data-layer-row-button][data-layer-node-id="${screenId}"]`),
+  ).toBeVisible({ timeout: 20_000 });
+  await page
+    .getByRole("tree", { name: "Layers" })
+    .locator(`[data-layer-row-button][data-layer-node-id="${screenId}"]`)
+    .click();
+  await page.evaluate((id) => {
+    document
+      .querySelector<HTMLIFrameElement>(
+        `iframe[data-design-preview-iframe][data-screen-iframe-id="${id}"]`,
+      )
+      ?.contentWindow?.postMessage({ type: "clear-selection" }, "*");
+  }, screenId);
+  await expect(
+    page
+      .locator(
+        `iframe[data-design-preview-iframe][data-screen-iframe-id="${screenId}"]`,
+      )
+      .contentFrame()
+      .locator('[data-agent-native-node-id="react-button-1"]'),
+  ).toHaveAttribute("data-agent-native-component", "PrimaryButton");
+
+  const reloadedButton = page
+    .locator(
+      `iframe[data-design-preview-iframe][data-screen-iframe-id="${screenId}"]`,
+    )
+    .contentFrame()
+    .locator('[data-agent-native-node-id="react-button-1"]');
+  await expect(reloadedButton).toHaveText("primary");
+  await page.evaluate((id) => {
+    document
+      .querySelector<HTMLIFrameElement>(
+        `iframe[data-design-preview-iframe][data-screen-iframe-id="${id}"]`,
+      )
+      ?.contentWindow?.postMessage({ type: "clear-selection" }, "*");
+  }, screenId);
+  await selectByText(page, "primary", { screenId });
+  const componentSection = page.getByTestId("component-section");
+  await expect(componentSection).toContainText("PrimaryButton");
+  await expect(componentSection).toContainText("src/Component.jsx");
+  const variantInput = componentSection.locator("input").first();
+  await expect(variantInput).toHaveValue("primary");
+  await variantInput.fill("secondary");
+  const propResponse = page.waitForResponse(
+    (response) =>
+      response
+        .url()
+        .includes("/_agent-native/actions/apply-component-prop-edit") &&
+      response.request().method() !== "OPTIONS",
+  );
+  await variantInput.press("Enter");
+  expect((await propResponse).ok()).toBe(true);
+
+  await expect
+    .poll(() =>
+      fs.readFileSync(path.join(rootPath, "src", "Component.jsx"), "utf8"),
+    )
+    .toContain('variant="secondary"');
+  await bundleReactFixture();
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await expect(
+    page.getByRole("button", { name: "Move", exact: true }),
+  ).toBeVisible({ timeout: 30_000 });
+  await page
+    .getByRole("tree", { name: "Layers" })
+    .locator(`[data-layer-row-button][data-layer-node-id="${screenId}"]`)
+    .click();
+  await page.evaluate((id) => {
+    document
+      .querySelector<HTMLIFrameElement>(
+        `iframe[data-design-preview-iframe][data-screen-iframe-id="${id}"]`,
+      )
+      ?.contentWindow?.postMessage({ type: "clear-selection" }, "*");
+  }, screenId);
+  await expect(
+    page
+      .locator(
+        `iframe[data-design-preview-iframe][data-screen-iframe-id="${screenId}"]`,
+      )
+      .contentFrame()
+      .locator('[data-agent-native-node-id="react-button-1"]'),
+  ).toHaveAttribute("data-agent-native-prop-variant", "secondary");
+  await expect(
+    page
+      .locator(
+        `iframe[data-design-preview-iframe][data-screen-iframe-id="${screenId}"]`,
+      )
+      .contentFrame()
+      .getByText("secondary", { exact: true }),
+  ).toBeVisible();
+  await cdpScreenshot(
+    page,
+    testInfo.outputPath("url-react-component-parity.png"),
+  );
 });
 
 test("keeps a URL screen selected when its static snapshot fails", async ({

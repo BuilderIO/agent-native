@@ -4,8 +4,10 @@ import { buildCodeLayerProjection, buildCodeLayerTree } from "./code-layer";
 import {
   COMPONENT_ID_ATTR,
   COMPONENT_REF_ATTR,
+  instanceFromNode,
   isComponentInstance,
   isComponentInstanceForInstanceActions,
+  stableComponentNodeId,
 } from "./component-model";
 
 // The decoys from the real "Design system demo" screen. Each is an ordinary
@@ -91,5 +93,20 @@ describe("instance-only component operations", () => {
     expect(isComponentInstanceForInstanceActions(node("ref"))).toBe(true);
     expect(isComponentInstanceForInstanceActions(node("legacy"))).toBe(true);
     expect(isComponentInstanceForInstanceActions(node("invalid"))).toBe(false);
+  });
+
+  it("keeps component instance identity stable across projection rebuilds", () => {
+    const html =
+      '<body><button data-agent-native-node-id="cta-1" data-agent-native-component="PrimaryButton">Save</button></body>';
+    const first =
+      buildCodeLayerProjection(html).nodes.find(isComponentInstance);
+    const second = first ? { ...first, id: "projection-new-id" } : undefined;
+    expect(first).toBeDefined();
+    expect(second).toBeDefined();
+    expect(first?.id).not.toBe(second?.id);
+    expect(stableComponentNodeId(first!)).toBe("cta-1");
+    expect(stableComponentNodeId(second!)).toBe("cta-1");
+    expect(instanceFromNode(first!)?.instanceId).toBe("cta-1");
+    expect(instanceFromNode(second!)?.nodeId).toBe("cta-1");
   });
 });

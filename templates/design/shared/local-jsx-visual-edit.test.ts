@@ -82,6 +82,40 @@ describe("planLocalJsxVisualEdit", () => {
     expect(planned.content).toContain('style={{ color: "blue" }}');
   });
 
+  it("adds and replaces literal JSX component props", () => {
+    const content = [
+      "export function App() {",
+      "  return (",
+      '    <Button variant="primary" />',
+      "  );",
+      "}",
+    ].join("\n");
+    const planned = planLocalJsxVisualEdit({
+      content,
+      anchor,
+      intent: { kind: "attribute", name: "variant", value: "secondary" },
+    });
+    expect(planned.result).toMatchObject({ status: "applied", changed: true });
+    expect(planned.content).toContain('<Button variant="secondary" />');
+
+    const annotated = planLocalJsxVisualEdit({
+      content: planned.content,
+      anchor,
+      intent: {
+        kind: "attributes",
+        values: {
+          "data-agent-native-component": "PrimaryButton",
+          "data-agent-native-layer-name": "CTA",
+        },
+      },
+    });
+    expect(annotated.result.status).toBe("applied");
+    expect(annotated.content).toContain(
+      'data-agent-native-component="PrimaryButton"',
+    );
+    expect(annotated.content).toContain('data-agent-native-layer-name="CTA"');
+  });
+
   it("rejects a dynamic value in an otherwise flat style object", () => {
     const content = [
       "export function Card() {",
@@ -132,6 +166,18 @@ describe("planLocalJsxVisualEdit", () => {
         content: dynamicText,
         anchor: { ...anchor, runtimeMultiplicity: 2 },
         intent: { kind: "textContent", value: "New" },
+      }).result.status,
+    ).toBe("needsAgent");
+
+    const dynamicProp = dynamicText.replace(
+      "<h2>",
+      "<Button variant={kind} />",
+    );
+    expect(
+      planLocalJsxVisualEdit({
+        content: dynamicProp,
+        anchor,
+        intent: { kind: "attribute", name: "variant", value: "secondary" },
       }).result.status,
     ).toBe("needsAgent");
   });

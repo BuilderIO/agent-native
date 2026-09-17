@@ -32,7 +32,14 @@ export type LocalJsxLeafIntent =
       from?: string;
       to?: string;
     }
-  | { kind: "style"; property: string; value: string };
+  | { kind: "style"; property: string; value: string }
+  | {
+      kind: "attribute";
+      name: string;
+      value: string;
+      expectedValue?: string;
+    }
+  | { kind: "attributes"; values: Record<string, string> };
 
 export interface LocalJsxVisualEditResult {
   content: string;
@@ -188,6 +195,32 @@ function jsxText(value: string): string {
     .join("&#123;")
     .split("}")
     .join("&#125;");
+}
+
+function jsxAttributeValue(value: string): string {
+  return value
+    .split("&")
+    .join("&amp;")
+    .split('"')
+    .join("&quot;")
+    .split("<")
+    .join("&lt;")
+    .split(">")
+    .join("&gt;");
+}
+
+function decodeJsxAttributeValue(value: string): string {
+  return value
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+}
+
+function jsxAttributeName(name: string): string | null {
+  const normalized = name.trim();
+  return /^[A-Za-z_:][A-Za-z0-9:_.-]*$/.test(normalized) ? normalized : null;
 }
 
 function camelProperty(property: string): string | null {
@@ -350,6 +383,78 @@ export function planLocalJsxVisualEdit(args: {
       tag.end,
       nextOpening,
       "Literal JSX classes updated.",
+    );
+  }
+
+  if (intent.kind === "attribute" || intent.kind === "attributes") {
+    const values =
+      intent.kind === "attribute"
+        ? { [intent.name]: intent.value }
+        : intent.values;
+    const entries = Object.entries(values);
+    if (entries.length === 0) {
+      return fail(
+        content,
+        "unsupported",
+        "At least one JSX attribute is required.",
+      );
+    }
+
+    let nextOpening = opening;
+    for (const [rawName, value] of entries) {
+      const name = jsxAttributeName(rawName);
+      if (!name) {
+        return fail(
+          content,
+          "unsupported",
+          `The JSX attribute name "${rawName}" is not a safe literal identifier.`,
+        );
+      }
+      const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const literal = new RegExp(
+        `(\\s${escapedName}\\s*=\\s*)(["'])(.*?)\\2`,
+        "s",
+      );
+      const literalMatch = literal.exec(nextOpening);
+      const expectedValue =
+        intent.kind === "attribute" && rawName === intent.name
+          ? intent.expectedValue
+          : undefined;
+      if (expectedValue !== undefined) {
+        if (
+          !literalMatch ||
+          decodeJsxAttributeValue(literalMatch[3] ?? "") !== expectedValue
+        ) {
+          return fail(
+            content,
+            "conflict",
+            `The JSX prop "${name}" changed since the selected instance was read. Refresh and retry.`,
+          );
+        }
+      }
+      if (literalMatch) {
+        nextOpening = nextOpening.replace(
+          literal,
+          `$1"${jsxAttributeValue(value)}"`,
+        );
+        continue;
+      }
+      if (new RegExp(`\\s${escapedName}(?:\\s|=|/?>)`).test(nextOpening)) {
+        return fail(
+          content,
+          "needsAgent",
+          `The JSX attribute "${name}" is dynamic or shorthand and requires semantic source inspection.`,
+        );
+      }
+      const insertAt = nextOpening.lastIndexOf(tag.selfClosing ? "/>" : ">");
+      nextOpening = `${nextOpening.slice(0, insertAt)} ${name}="${jsxAttributeValue(value)}"${nextOpening.slice(insertAt)}`;
+    }
+    return replaceRange(
+      content,
+      tag.start,
+      tag.end,
+      nextOpening,
+      "Literal JSX attributes updated.",
     );
   }
 

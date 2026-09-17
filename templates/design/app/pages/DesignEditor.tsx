@@ -111,6 +111,7 @@ import {
 import { linkedComponentRootForNode } from "@shared/component-links";
 import {
   componentNodeIdMatches,
+  extractProps,
   isComponentInstance,
   isComponentInstanceForInstanceActions,
 } from "@shared/component-model";
@@ -162,6 +163,7 @@ import {
 import {
   isRunningAppSourceType,
   normalizeDesignSourceType,
+  sourcePositionPrecision,
 } from "@shared/source-mode";
 import { sourceContentHash } from "@shared/source-workspace";
 import {
@@ -774,6 +776,7 @@ import {
   designSelectionStateKeys,
   isSupersededSelectionEcho,
   reloadRunningAppPreviewFrames,
+  runtimeMultiplicityForElementProvenance,
   withMeasuredGeometry,
 } from "./design-editor/editor-helpers";
 import {
@@ -925,6 +928,7 @@ import {
   formatVisualEditClipboardPrompt,
   getPendingVisualEditCount,
   pendingVisualStyleGestureIdForPhase,
+  projectRelativeSourcePath,
   type PendingLiveLayerStateEdit,
   type PendingLiveNonStyleEdit,
   type PendingLiveNonStyleUndoEntry,
@@ -8218,11 +8222,15 @@ function DesignEditor() {
   // The selected node id, when it already is a recognised component instance —
   // unlocks the contextual Component section at the top of the Design tab.
   const selectedComponentNodeId = useMemo(() => {
-    if (!selectedCodeLayerNode) return undefined;
-    return isComponentInstance(selectedCodeLayerNode)
-      ? bridgeSourceIdForCodeLayerNode(selectedCodeLayerNode)
+    if (selectedCodeLayerNode && isComponentInstance(selectedCodeLayerNode)) {
+      return bridgeSourceIdForCodeLayerNode(selectedCodeLayerNode);
+    }
+    return activeCanvasSourceType === "localhost"
+      ? (selectedElement?.runtimeComponent?.instanceId ??
+          selectedElement?.sourceId ??
+          undefined)
       : undefined;
-  }, [selectedCodeLayerNode]);
+  }, [activeCanvasSourceType, selectedCodeLayerNode, selectedElement]);
   // Keep canonical mains available to the Component section's read/source
   // controls while withholding instance-only actions from those selections.
   const selectedInstanceActionNodeId = useMemo(() => {
@@ -8240,8 +8248,11 @@ function DesignEditor() {
   const acceptedActiveContent = pendingActiveFileEntry
     ? pendingActiveFileEntry.baseContent
     : acceptedActiveFile?.content;
-  const hasSelectedComponent =
-    activeCanvasSourceType === "inline" && Boolean(selectedComponentNodeId);
+  const hasSelectedComponent = Boolean(
+    selectedComponentNodeId &&
+    (activeCanvasSourceType === "inline" ||
+      Boolean(selectedElement?.runtimeComponent)),
+  );
   const acceptedComponentProjection = useMemo(() => {
     if (
       !hasSelectedComponent ||
@@ -8298,6 +8309,13 @@ function DesignEditor() {
   );
   const selectedElementAlreadyComponent = useMemo(() => {
     if (!selectedElement) return false;
+    if (
+      selectedElement.runtimeComponent &&
+      !(selectedCodeLayerNode && isComponentInstance(selectedCodeLayerNode))
+    ) {
+      return false;
+    }
+    if (selectedElement.componentAnnotation?.trim()) return true;
     if (selectedElement.componentName?.trim()) return true;
     return codeLayerNodeLooksLikeComponent(selectedCodeLayerNode);
   }, [selectedCodeLayerNode, selectedElement]);
@@ -8346,6 +8364,49 @@ function DesignEditor() {
     }
     return "Component";
   }, [selectedCodeLayerNode?.layerName, selectedElement?.tagName]);
+
+  const selectedComponentLocalSource = useMemo(() => {
+    if (
+      activeCanvasSourceType !== "localhost" ||
+      selectedElement?.runtimeComponent?.writeCapability !==
+        "authored-jsx-literal"
+    ) {
+      return undefined;
+    }
+    const connectionId =
+      (activeOverviewScreen as { connectionId?: string } | undefined)
+        ?.connectionId ?? "";
+    const provenance = selectedElement.provenance;
+    const sourcePath = projectRelativeSourcePath({
+      sourceFile: provenance?.sourceFile,
+      rootPath: connectionId
+        ? localhostConnectionRootPathByIdRef.current.get(connectionId)
+        : undefined,
+    });
+    if (!connectionId || !sourcePath || !provenance?.line || !provenance.column)
+      return undefined;
+    const runtimeMultiplicity = runtimeMultiplicityForElementProvenance(
+      runtimeLayerSnapshotsById,
+      selectedElement,
+    );
+    return {
+      connectionId,
+      path: sourcePath,
+      line: provenance.line,
+      column: provenance.column,
+      positionPrecision: sourcePositionPrecision(provenance.method),
+      runtimeMultiplicity,
+      scope:
+        runtimeMultiplicity === 1
+          ? ("single-instance" as const)
+          : ("repeated-render" as const),
+    };
+  }, [
+    activeCanvasSourceType,
+    activeOverviewScreen,
+    runtimeLayerSnapshotsById,
+    selectedElement,
+  ]);
 
   // Outer HTML of the selection — backs the inline/Alpine "Inspect code" view.
   const selectedElementOuterHtml = useMemo(() => {
@@ -8570,7 +8631,14 @@ function DesignEditor() {
               }),
           },
         },
-        { nodeId, selector, name },
+        {
+          nodeId,
+          selector,
+          name,
+          ...(selectedComponentLocalSource
+            ? { source: { local: selectedComponentLocalSource } }
+            : {}),
+        },
       )
         .then((outcome) => {
           if (!outcome) return;
@@ -8593,6 +8661,7 @@ function DesignEditor() {
       selectedCanvasSelector,
       activeFileId,
       selectedElementInsideComponent,
+      selectedComponentLocalSource,
       t,
     ],
   );
@@ -20526,6 +20595,88 @@ function DesignEditor() {
       (connection) => connection.id === activeLocalhostConnectionId,
     )?.rootPath ?? undefined;
 
+  const componentRuntime = useMemo(() => {
+    if (
+      activeCanvasSourceType !== "localhost" ||
+      !selectedComponentNodeId ||
+      !selectedCodeLayerNode
+    ) {
+      return undefined;
+    }
+    const runtimeIdentity = selectedElement?.runtimeComponent;
+    const name =
+      selectedCodeLayerNode.dataAttributes[
+        "data-agent-native-component"
+      ]?.trim() ??
+      runtimeIdentity?.name?.trim() ??
+      selectedElement?.provenance?.component?.trim();
+    if (!name) return undefined;
+
+    const provenance = selectedElement?.provenance;
+    const sourceFile = provenance?.sourceFile?.trim();
+    const sourcePath = projectRelativeSourcePath({
+      sourceFile,
+      rootPath: activeLocalhostConnectionRootPath,
+    });
+    const runtimeMultiplicity = runtimeMultiplicityForElementProvenance(
+      runtimeLayerSnapshotsById,
+      selectedElement,
+    );
+    const canWriteAuthoredJsx =
+      runtimeIdentity?.writeCapability === "authored-jsx-literal";
+    const local =
+      canWriteAuthoredJsx &&
+      activeLocalhostConnectionId &&
+      sourcePath &&
+      provenance?.line &&
+      provenance.column
+        ? {
+            connectionId: activeLocalhostConnectionId,
+            path: sourcePath,
+            line: provenance.line,
+            column: provenance.column,
+            positionPrecision: sourcePositionPrecision(provenance.method),
+            runtimeMultiplicity,
+            scope:
+              runtimeMultiplicity === 1
+                ? ("single-instance" as const)
+                : ("repeated-render" as const),
+          }
+        : undefined;
+
+    return {
+      name,
+      nodeId: selectedComponentNodeId,
+      selector:
+        selectedElement?.runtimeSelector ??
+        selectedElement?.selector ??
+        selectedCodeLayerNode.selector,
+      props: runtimeIdentity?.props?.length
+        ? runtimeIdentity.props
+        : extractProps(selectedCodeLayerNode),
+      ...(runtimeIdentity?.componentId
+        ? { componentId: runtimeIdentity.componentId }
+        : {}),
+      sourceLocation: sourceFile
+        ? {
+            filePath: sourcePath ?? sourceFile,
+            ...(provenance?.component
+              ? { exportName: provenance.component }
+              : {}),
+          }
+        : undefined,
+      local,
+    };
+  }, [
+    activeCanvasSourceType,
+    activeLocalhostConnectionId,
+    activeLocalhostConnectionRootPath,
+    runtimeLayerSnapshotsById,
+    selectedCodeLayerNode,
+    selectedComponentNodeId,
+    selectedElement,
+  ]);
+
   /**
    * Request consent to write a local file for the active localhost screen.
    * If no valid grant exists, opens the consent dialog; once granted the
@@ -23546,6 +23697,7 @@ function DesignEditor() {
     fileId: activeFile?.id,
     boardFileId,
     componentNodeId: selectedComponentNodeId,
+    componentRuntime,
     componentInstanceHasLocalOverrides: selectedComponentHasLocalOverrides,
     onResetComponentInstanceOverrides:
       id && activeFile?.id && selectedComponentHasLocalOverrides

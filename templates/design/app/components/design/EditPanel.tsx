@@ -72,7 +72,10 @@ import {
   truncateOpeningTag,
   vscodeDeepLink,
 } from "./edit-panel/code-inspect-helpers";
-import { ComponentSection } from "./edit-panel/component-section";
+import {
+  ComponentSection,
+  type RuntimeComponentDetails,
+} from "./edit-panel/component-section";
 import {
   type DocumentColorSourceFile,
   type SelectionColorValue,
@@ -451,6 +454,8 @@ interface EditPanelProps {
    * and an Edit component action.
    */
   componentNodeId?: string;
+  /** Runtime component metadata for URL-backed React selections. */
+  componentRuntime?: RuntimeComponentDetails;
   /** True when the selected component node has reached the accepted source. */
   componentDetailsReady?: boolean;
   /** True when the selected linked component instance stores local overrides. */
@@ -2426,6 +2431,7 @@ export const EditPanel = memo(function EditPanel({
   reviewCommentsPanelProps,
   reviewCommentsCount = 0,
   componentNodeId,
+  componentRuntime,
   componentDetailsReady = true,
   componentInstanceHasLocalOverrides = false,
   onResetComponentInstanceOverrides,
@@ -3061,6 +3067,7 @@ export const EditPanel = memo(function EditPanel({
                   activeFileUpdatedAt={activeFileUpdatedAt}
                   componentDetailsReady={componentDetailsReady}
                   nodeId={componentNodeId}
+                  runtime={componentRuntime}
                   hasLocalOverrides={componentInstanceHasLocalOverrides}
                   swapPickerRequest={componentSwapPickerRequest}
                   onResetOverrides={
