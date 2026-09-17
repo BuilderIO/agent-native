@@ -981,21 +981,28 @@ describe("comment AI session reconciliation", () => {
   });
 
   it("does not terminalize a pre-dispatch error without a durable run", () => {
-    expect(
-      shouldReconcileCommentAiSnapshot({
-        ...snapshot,
-        status: "errored",
-        terminalReason: "Background agent session acknowledgement timed out",
-      }),
-    ).toBe(false);
-    expect(
-      shouldReconcileCommentAiSnapshot({
-        ...snapshot,
-        status: "errored",
-        runId: "run-1",
-        terminalReason: "provider_error",
-      }),
-    ).toBe(true);
+    for (const status of [
+      "completed",
+      "truncated",
+      "errored",
+      "aborted",
+    ] as const) {
+      expect(
+        shouldReconcileCommentAiSnapshot({
+          ...snapshot,
+          status,
+          terminalReason: "Background agent session acknowledgement timed out",
+        }),
+      ).toBe(false);
+      expect(
+        shouldReconcileCommentAiSnapshot({
+          ...snapshot,
+          status,
+          runId: "run-1",
+          terminalReason: "provider_error",
+        }),
+      ).toBe(true);
+    }
   });
 
   it("does not let a delayed acknowledgement downgrade a terminal turn", () => {

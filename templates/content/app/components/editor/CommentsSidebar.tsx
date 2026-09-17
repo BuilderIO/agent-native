@@ -1692,7 +1692,10 @@ export function CommentsSidebar({
                 <HistoryThreadView
                   key={entry.thread.threadId}
                   thread={entry.thread}
-                  onOpen={() => onActivateThread?.(entry.thread.threadId)}
+                  onOpen={() => {
+                    onActivateThread?.(entry.thread.threadId);
+                    if (canComment) setReplyingThreadId(entry.thread.threadId);
+                  }}
                 />
               );
             })

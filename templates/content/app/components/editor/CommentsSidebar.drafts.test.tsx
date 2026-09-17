@@ -1469,6 +1469,68 @@ it("materializes a draft Reply from history and focuses the durable thread compo
   }
 });
 
+it("opens an unanchored history thread so its recovery actions remain reachable", async () => {
+  const thread = {
+    threadId: "stale-anchor-thread",
+    quotedText: "Text changed by the partial operation",
+    prefix: null,
+    suffix: null,
+    startOffset: null,
+    resolved: false,
+    comments: [
+      {
+        id: "stale-anchor-root",
+        document_id: "document-recovery",
+        thread_id: "stale-anchor-thread",
+        parent_id: null,
+        content: "Recover the unfinished operation",
+        quoted_text: "Text changed by the partial operation",
+        anchor_prefix: null,
+        anchor_suffix: null,
+        anchor_start_offset: null,
+        mentions: [],
+        author_email: "reviewer@example.test",
+        author_name: "Reviewer",
+        resolved: 0,
+        created_at: "2026-09-17T12:00:00.000Z",
+        updated_at: "2026-09-17T12:00:00.000Z",
+        notion_comment_id: null,
+      },
+    ],
+  };
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  function Harness() {
+    const replyDrafts = useCommentReplyDrafts("document-recovery");
+    return (
+      <CommentsSidebar
+        documentId="document-recovery"
+        replyDrafts={replyDrafts}
+        threads={[thread]}
+        presentation="history"
+        canComment
+        forceVisible
+      />
+    );
+  }
+  try {
+    await act(async () => root.render(<Harness />));
+    const historyCard = container.querySelector<HTMLButtonElement>(
+      "button[aria-labelledby]",
+    );
+    await act(async () => historyCard?.click());
+    expect(
+      container.querySelector<HTMLTextAreaElement>(
+        'textarea[placeholder="comments.reply"]',
+      ),
+    ).not.toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
+});
+
 it("keeps decided suggestion history readable and replies only to pending threads", async () => {
   replyMutate.mockClear();
   const operation = {
