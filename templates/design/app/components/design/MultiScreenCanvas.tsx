@@ -1119,6 +1119,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
    *  "cancel" immediately after "end" as cleanup, and that trailing cancel must
    *  not invalidate the commit the release just started. */
   const crossScreenEndSeenRef = useRef(false);
+  const crossScreenHostCommittedRef = useRef(false);
   /** False once this canvas unmounts. Nothing may persist a drop after that.
    *  Mount-scoped on purpose: the message effect's cleanup also runs on every
    *  dependency change, and invalidating there kills live commits. */
@@ -3081,6 +3082,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         });
         return;
       }
+      crossScreenHostCommittedRef.current = true;
 
       if (targetCandidate.id === boardFileId) {
         void runHitTest(targetCandidate, lastBoardPoint, {
@@ -3304,6 +3306,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         // immediately after "end", so clearing must not count.
         crossScreenDropSeqRef.current += 1;
         crossScreenEndSeenRef.current = false;
+        crossScreenHostCommittedRef.current = false;
         crossScreenDragMsgRef.current = {
           selector: msg.selector ?? "",
           sourceId: msg.sourceId,
@@ -7709,7 +7712,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         // clone/preview afterward.
         if (
           crossScreenTargetRef.current === null &&
-          !crossScreenEndSeenRef.current
+          !crossScreenHostCommittedRef.current
         ) {
           dispatchAt(
             selectionOverlay,
