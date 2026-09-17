@@ -1,11 +1,9 @@
 pr = "5230"
-owner_thread = "01a0afa8-0455-75e1-952b-bfb2f310e019"
-version = "2"
-expires_at = "2026-09-17T14:11:24Z"
-parent_version = "84d672086342a4804cb85761eed6dee1db1f4e4a"
+owner_thread = "01a0ac8d-a6ae-7e11-8345-4c149bcd6322"
+version = "3"
+expires_at = "2026-09-17T15:18:33Z"
+parent_version = "d096e58a052e2702d9b7651b887419463aa586af"
 legacy_heartbeat_version = "absent"
 legacy_retired = true
-state = "released"
-released = true
-released_at = "2026-09-17T14:11:24Z"
-release_reason = "heartbeat_already_attached"
+state = "active"
+released = false
