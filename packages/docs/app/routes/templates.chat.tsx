@@ -10,6 +10,7 @@ import { sitePathForLocale } from "../components/docs-locale";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { TemplateHero } from "../components/template-landing";
 import { templates, trackEvent } from "../components/TemplateCard";
+import { AppStatusBadge } from "../components/website-redesign/ds/app-status-badge";
 import { Button } from "../components/website-redesign/ds/button";
 import { CodeBlock } from "../components/website-redesign/ds/code-block";
 import { ContentCard } from "../components/website-redesign/ds/content-card";
@@ -140,9 +141,10 @@ export default function ChatTemplate() {
           eyebrow={
             <span className="inline-flex items-center gap-2 text-[var(--fg)]">
               <LogoMark className="size-6" />
-              <span className="font-sans text-2xl font-bold tracking-tight">
+              <span className="font-sans text-[20px] font-bold tracking-tight">
                 {t("templateLanding.chat.heroEyebrow")}
               </span>
+              <AppStatusBadge appId="chat" />
             </span>
           }
           headingAction={

@@ -2,8 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getDbExec: vi.fn(),
-  resourceGetByPath: vi.fn(),
-  resourcePut: vi.fn(),
+  resourcePutIfAbsent: vi.fn(),
   sharedResourceOwner: vi.fn(),
   currentOrgId: vi.fn(),
   currentOwnerEmail: vi.fn(),
@@ -14,8 +13,7 @@ vi.mock("@agent-native/core/db", () => ({
 }));
 
 vi.mock("@agent-native/core/resources/store", () => ({
-  resourceGetByPath: mocks.resourceGetByPath,
-  resourcePut: mocks.resourcePut,
+  resourcePutIfAbsent: mocks.resourcePutIfAbsent,
   sharedResourceOwner: mocks.sharedResourceOwner,
 }));
 
@@ -34,8 +32,7 @@ describe("connect-external-agent action", () => {
     mocks.currentOrgId.mockReturnValue(null);
     mocks.currentOwnerEmail.mockReturnValue("owner@example.com");
     mocks.sharedResourceOwner.mockReturnValue("shared-owner");
-    mocks.resourceGetByPath.mockResolvedValue(null);
-    mocks.resourcePut.mockResolvedValue({ id: "resource_1" });
+    mocks.resourcePutIfAbsent.mockResolvedValue({ id: "resource_1" });
   });
 
   it("rejects a malformed endpoint URL with a clean validation error instead of an unhandled throw", async () => {
@@ -54,7 +51,7 @@ describe("connect-external-agent action", () => {
 
     expect(isActionContractError(caught)).toBe(true);
     expect((caught as Error).message).toMatch(/valid url/i);
-    expect(mocks.resourcePut).not.toHaveBeenCalled();
+    expect(mocks.resourcePutIfAbsent).not.toHaveBeenCalled();
   });
 
   it("rejects a URL with a disallowed protocol via a clean validation error", async () => {
@@ -79,6 +76,26 @@ describe("connect-external-agent action", () => {
     } as never);
 
     expect(result.status).toBe("created");
-    expect(mocks.resourcePut).toHaveBeenCalled();
+    expect(mocks.resourcePutIfAbsent).toHaveBeenCalled();
+  });
+
+  it("rejects a concurrent duplicate connect as a clean 409, not an overwrite", async () => {
+    // resourcePutIfAbsent returns null when another request already won the
+    // same path; connect-external-agent must surface that as a conflict
+    // instead of silently treating it as success.
+    mocks.resourcePutIfAbsent.mockResolvedValue(null);
+
+    let caught: unknown;
+    try {
+      await action.run({
+        url: "https://agent.example.com",
+        scope: "personal",
+      } as never);
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(isActionContractError(caught)).toBe(true);
+    expect((caught as { statusCode?: number }).statusCode).toBe(409);
   });
 });

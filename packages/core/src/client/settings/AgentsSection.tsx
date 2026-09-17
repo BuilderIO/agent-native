@@ -260,6 +260,7 @@ function HostedAgentFields({
   kind,
   onKindChange,
   credentialOptions,
+  openOnMount = false,
 }: {
   url: string;
   onUrlChange: (value: string) => void;
@@ -270,12 +271,13 @@ function HostedAgentFields({
   kind?: RemoteAgentKind;
   onKindChange: (value?: RemoteAgentKind) => void;
   credentialOptions: NewKeyOption[];
+  openOnMount?: boolean;
 }) {
   const t = useT();
   const [open, setOpen] = useState(() =>
-    Boolean(cardUrl.trim() || auth || kind),
+    Boolean(openOnMount || cardUrl.trim() || auth || kind),
   );
-  const shouldOpen = Boolean(cardUrl.trim() || auth || kind);
+  const shouldOpen = Boolean(openOnMount || cardUrl.trim() || auth || kind);
   useEffect(() => setOpen(shouldOpen), [shouldOpen]);
   const provider: HostedAgentProvider =
     kind?.provider === "anthropic-managed-agents"
@@ -690,6 +692,7 @@ function AgentAddPopover({
   initialName = "",
   initialUrl = "",
   initialDescription = "",
+  initialProvider,
   credentialOptions,
   secretSet,
   syncSecret,
@@ -699,6 +702,7 @@ function AgentAddPopover({
   initialName?: string;
   initialUrl?: string;
   initialDescription?: string;
+  initialProvider?: HostedAgentProvider;
   credentialOptions: NewKeyOption[];
   secretSet: boolean | undefined;
   syncSecret: ReturnType<typeof useSyncA2ASecret>;
@@ -714,11 +718,20 @@ function AgentAddPopover({
 }) {
   const t = useT();
   const [name, setName] = useState(initialName);
-  const [url, setUrl] = useState(initialUrl);
+  const [url, setUrl] = useState(
+    initialUrl ||
+      (initialProvider === "anthropic-managed-agents"
+        ? ANTHROPIC_MANAGED_AGENT_DEFAULT_URL
+        : ""),
+  );
   const [description, setDescription] = useState(initialDescription);
   const [cardUrl, setCardUrl] = useState("");
   const [auth, setAuth] = useState<HostedAgentAuth | undefined>();
-  const [kind, setKind] = useState<RemoteAgentKind | undefined>();
+  const [kind, setKind] = useState<RemoteAgentKind | undefined>(() =>
+    initialProvider === "anthropic-managed-agents"
+      ? emptyAnthropicManagedAgentKind()
+      : undefined,
+  );
   const [check, setCheck] = useState<CheckState>({ status: "idle" });
   const [added, setAdded] = useState<AddedAgentInfo | null>(null);
   const nameRef = useRef<HTMLInputElement>(null);
@@ -1067,6 +1080,7 @@ function AgentAddPopover({
             setCheck({ status: "idle" });
           }}
           credentialOptions={credentialOptions}
+          openOnMount={Boolean(initialProvider)}
         />
         <div className="flex justify-end gap-1 pt-0.5">
           <button
@@ -1212,6 +1226,9 @@ export function AgentsSection() {
     url: string;
     description: string;
   } | null>(null);
+  const [connectProvider, setConnectProvider] = useState<
+    HostedAgentProvider | undefined
+  >();
   const [probeById, setProbeById] = useState<Map<
     string,
     AgentProbeResult
@@ -1266,6 +1283,23 @@ export function AgentsSection() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
+    const provider = params.get("connect");
+    if (provider === "a2a" || provider === "anthropic-managed-agents") {
+      setConnectProvider(provider);
+      setShowAdd(true);
+    } else if (provider === "manual") {
+      setConnectProvider(undefined);
+      setShowAdd(true);
+    }
+    if (provider) {
+      params.delete("connect");
+      const query = params.toString();
+      window.history.replaceState(
+        null,
+        "",
+        `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`,
+      );
+    }
     const url = params.get("f_agentUrl");
     if (!url) return;
     setPrefill({
@@ -1623,6 +1657,7 @@ export function AgentsSection() {
                 initialName={prefill?.name}
                 initialUrl={prefill?.url}
                 initialDescription={prefill?.description}
+                initialProvider={connectProvider}
                 credentialOptions={credentialOptions}
                 secretSet={org?.a2aSecretSet}
                 syncSecret={syncSecret}
@@ -1630,6 +1665,7 @@ export function AgentsSection() {
                 onClose={() => {
                   setShowAdd(false);
                   setPrefill(null);
+                  setConnectProvider(undefined);
                 }}
               />
             )}

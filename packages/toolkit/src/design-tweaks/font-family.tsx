@@ -112,6 +112,20 @@ export interface FontFamilySelectOption {
   label: string;
 }
 
+/**
+ * Alphabetizes by label, keeping "inherit" pinned first since it is a
+ * default/reset choice rather than a font name.
+ */
+export function sortFontFamilyOptions<T extends FontFamilySelectOption>(
+  options: readonly T[],
+): T[] {
+  return [...options].sort((a, b) => {
+    if (a.value === "inherit") return -1;
+    if (b.value === "inherit") return 1;
+    return a.label.localeCompare(b.label);
+  });
+}
+
 export interface VisualFontFamilyPickerProps {
   label: string;
   value: string;

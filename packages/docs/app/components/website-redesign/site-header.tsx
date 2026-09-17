@@ -9,7 +9,6 @@ import {
 import { lazy, Suspense, useEffect, useState } from "react";
 import { Link } from "react-router";
 
-import { getGithubStarCount } from "../../../lib/github-star-count";
 import { sitePathForLocale } from "../docs-locale";
 import { useSearchModal } from "../use-search-modal";
 import { Button } from "./ds/button";
@@ -64,7 +63,14 @@ function GithubStarsButton({ starCount, className }: GithubStarsButtonProps) {
     <Button
       variant="secondary"
       dimBorder
-      className={className}
+      className={[
+        // Keep the cold-cache fallback the same width as the server count so
+        // the one-time client revalidation cannot shift the header.
+        "min-w-[96px]",
+        className,
+      ]
+        .filter(Boolean)
+        .join(" ")}
       href={GITHUB_REPO_URL}
       target="_blank"
       rel="noreferrer"
@@ -114,7 +120,6 @@ interface SiteHeaderProps {
 
 export function SiteHeader({ starCount }: SiteHeaderProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [resolvedStarCount, setResolvedStarCount] = useState(starCount);
   const {
     open: searchOpen,
     setOpen: setSearchOpen,
@@ -123,16 +128,6 @@ export function SiteHeader({ starCount }: SiteHeaderProps) {
   } = useSearchModal();
   const t = useT();
   const { locale } = useLocale();
-
-  useEffect(() => {
-    let mounted = true;
-    void getGithubStarCount().then((count) => {
-      if (mounted && count !== null) setResolvedStarCount(count);
-    });
-    return () => {
-      mounted = false;
-    };
-  }, []);
 
   useEffect(() => {
     if (!mobileOpen) return;
@@ -206,7 +201,7 @@ export function SiteHeader({ starCount }: SiteHeaderProps) {
               all of them, since it is the only nav on small screens. */}
           <div className="hidden items-stretch gap-3 lg:flex">
             <SearchTrigger onClick={openSearch} label={searchLabel} />
-            <GithubStarsButton starCount={resolvedStarCount} />
+            <GithubStarsButton starCount={starCount} />
             <AskAiIconButton />
           </div>
 
@@ -244,7 +239,7 @@ export function SiteHeader({ starCount }: SiteHeaderProps) {
             </NavLink>
           ))}
           <div className="mt-[var(--spacing-2)] flex items-center gap-[var(--spacing-3)]">
-            <GithubStarsButton starCount={resolvedStarCount} className="h-10" />
+            <GithubStarsButton starCount={starCount} className="h-10" />
             <LanguagePicker dimBorder />
             <ThemeIconButton dimBorder />
             <AskAiIconButton />

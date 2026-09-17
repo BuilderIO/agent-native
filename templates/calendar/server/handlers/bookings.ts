@@ -9,6 +9,7 @@ import {
   verifyCaptcha,
 } from "@agent-native/core/server";
 import { getSetting, getUserSetting } from "@agent-native/core/settings";
+import { testUserRegex } from "@agent-native/core/shared";
 import { accessFilter } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import { and, eq, gt, gte, inArray, lt, lte, ne, or, sql } from "drizzle-orm";
@@ -1342,21 +1343,18 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
         return { error: `${field.label} must be a valid email address` };
       }
       if (field.pattern && typeof value === "string" && value) {
-        // Cap input length to mitigate ReDoS on user-defined patterns
-        const safeValue = value.slice(0, 1000);
-        let re: RegExp;
-        // Limit pattern length and reject obviously dangerous constructs
-        if (field.pattern.length > 200) {
+        // Capping the input length does not bound a catastrophically
+        // backtracking pattern: `^([A-Za-z]+\\s?)+$` already runs for hours on a
+        // 58-character value, well inside any cap. The bound has to come from
+        // refusing to evaluate patterns shaped like that at all.
+        const result = testUserRegex(field.pattern, value);
+        if (result.status === "unevaluated") {
           setResponseStatus(event, 400);
-          return { error: `Validation pattern too long for ${field.label}` };
+          return {
+            error: `Invalid validation pattern for ${field.label}: ${result.reason}`,
+          };
         }
-        try {
-          re = new RegExp(field.pattern);
-        } catch {
-          setResponseStatus(event, 400);
-          return { error: `Invalid validation pattern for ${field.label}` };
-        }
-        if (!re.test(safeValue)) {
+        if (result.status === "no-match") {
           setResponseStatus(event, 400);
           return {
             error:

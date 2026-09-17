@@ -167,27 +167,15 @@ export async function saveYDocState(
   });
 }
 
-/** Check if a document has collaborative state. */
+/** Check if a document has non-empty collaborative state. */
 export async function hasCollabState(docId: string): Promise<boolean> {
   await ensureTable();
   const client = getDbExec();
   const { rows } = await client.execute({
-    sql: `SELECT 1 FROM _collab_docs WHERE doc_id = ?`,
+    sql: `SELECT 1 FROM _collab_docs WHERE doc_id = ? AND yjs_state <> ''`,
     args: [docId],
   });
   return rows.length > 0;
-}
-
-/** Load all existing document ids in one query for startup reconciliation. */
-export async function listCollabDocIds(): Promise<Set<string>> {
-  await ensureTable();
-  const client = getDbExec();
-  const { rows } = await client.execute("SELECT doc_id FROM _collab_docs");
-  return new Set(
-    rows.flatMap((row) =>
-      typeof row.doc_id === "string" && row.doc_id ? [row.doc_id] : [],
-    ),
-  );
 }
 
 /** Delete collaborative state for a document. */

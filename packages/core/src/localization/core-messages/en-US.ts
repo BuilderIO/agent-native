@@ -88,6 +88,11 @@ const messages = {
     "Browser speech recognition or speech-to-text",
   "onboarding.capability.voiceInput.why":
     "Voice input turns spoken requests into text; typing always works without it.",
+  "onboarding.capability.embeddings.label": "Embeddings",
+  "onboarding.capability.embeddings.keySummary":
+    "Gemini, Cohere, or Voyage key",
+  "onboarding.capability.embeddings.why":
+    "Embeddings improve semantic search. Keyword search still works without them.",
   "onboarding.capability.assetsImageGeneration.label": "Image generation",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Builder credits or an image provider key",
@@ -179,6 +184,26 @@ const messages = {
   "agents.statusReachable": "Reachable",
   "agents.statusAuthRejected": "Auth rejected",
   "agents.statusNoJsonRpc": "No JSON-RPC",
+  "agents.directoryTab": "Agent directory",
+  "agents.directoryPageHint":
+    "Find an agent backend and connect it to your workspace.",
+  "agents.directorySearch": "Search providers",
+  "agents.directoryProviders": "Providers",
+  "agents.directoryManual": "Add by URL",
+  "agents.directoryA2A": "A2A",
+  "agents.directoryManaged": "Managed API",
+  "agents.directoryFoundry": "Microsoft Foundry",
+  "agents.directoryFoundryHint": "Connect a Foundry agent over A2A.",
+  "agents.directoryGemini": "Gemini Enterprise",
+  "agents.directoryGeminiHint": "Connect a Gemini Enterprise agent over A2A.",
+  "agents.directoryAnthropic": "Anthropic Managed Agents",
+  "agents.directoryAnthropicHint":
+    "Connect sessions and approvals from Anthropic.",
+  "agents.directoryNoMatches": "No providers match your search.",
+  "agents.directoryRegistry": "Global A2A Registry",
+  "agents.directoryRegistryHint":
+    "Browse public Agent Cards, then verify before connecting.",
+  "agents.directoryBrowse": "Browse registry",
   "common.saveFailed": "Save failed",
   "common.saveFailedStatus": "Save failed ({{status}})",
   "common.saving": "Saving...",

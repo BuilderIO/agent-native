@@ -20,6 +20,7 @@ import type {
   GeometryHistorySelection,
 } from "@/pages/design-editor/history";
 import { MAX_DESIGN_UNDO_STACK } from "@/pages/design-editor/history";
+import { selectionHistorySnapshotsEqual } from "@/pages/design-editor/selection-state";
 
 export interface GeometryCommitArgs {
   boardFileId: string | undefined;
@@ -38,6 +39,7 @@ export interface GeometryCommitArgs {
     direction: "commit" | "undo" | "redo",
   ) => void;
   lastGeometryCommitAtRef: RefObject<number>;
+  lastGeometryCommitSourceRef: RefObject<"pointer" | "keyboard" | null>;
   liveFrameGeometryRef: RefObject<CanvasFrameGeometryById>;
   locallyPinnedHeightIdsRef: RefObject<Set<string>>;
   queryClient: QueryClient;
@@ -61,6 +63,7 @@ export function runGeometryCommit(
     id,
     applyLinkedContentChanges,
     lastGeometryCommitAtRef,
+    lastGeometryCommitSourceRef,
     liveFrameGeometryRef,
     locallyPinnedHeightIdsRef,
     queryClient,
@@ -124,6 +127,9 @@ export function runGeometryCommit(
     return false;
   }
   const linkedContentChanges = linkedContentChangesResult ?? [];
+  // Keep the freshness guard on the accepted persisted snapshot, not the
+  // render-time geometry that React may not have committed before Undo.
+  liveFrameGeometryRef.current = afterSnapshot;
   // U9: keyboard nudge (arrow-key auto-repeat) fires one onGeometryCommit
   // per tick, each previously pushing its own undo entry AND its own
   // immediate (non-debounced) server write — a held arrow key could evict
@@ -138,19 +144,27 @@ export function runGeometryCommit(
   // two independent pointer gestures (e.g. two separate drags) that
   // happen to land within the same 800ms window — those are discrete
   // user actions and each must be its own undo step, matching Figma.
-  // MultiScreenCanvas's onGeometryCommit callback (a real pointer drag)
-  // omits `options`, so it defaults to "pointer" and never coalesces;
-  // only handleNudgeSelection's overview branch passes "keyboard".
+  // Pointer gestures and keyboard nudges both use this shared callback, so
+  // track the previous source, history action, and selection as well as the
+  // current ones. A keyboard nudge after a pointer gesture, content action,
+  // or selection change is a separate undo step even inside the window.
   const source = options?.source ?? "pointer";
   const now = Date.now();
+  const selectionAfter = captureCurrentSelection();
   const lastEntry =
     geometryUndoStackRef.current[geometryUndoStackRef.current.length - 1];
   const continuesLastGesture =
     source === "keyboard" &&
+    lastGeometryCommitSourceRef.current === "keyboard" &&
+    historyOrderRef.current[historyOrderRef.current.length - 1] ===
+      "geometry" &&
     lastEntry &&
     now - lastGeometryCommitAtRef.current < 800 &&
+    lastEntry.selectionAfter !== undefined &&
+    selectionHistorySnapshotsEqual(lastEntry.selectionAfter, selectionAfter) &&
     geometrySnapshotsEqual(lastEntry.after, beforeSnapshot);
   lastGeometryCommitAtRef.current = now;
+  lastGeometryCommitSourceRef.current = source;
   // Figma-parity undo/redo selection restore: selectionAfter always
   // reflects the CURRENT selection at this commit tick (so redo restores
   // whatever was selected when the gesture finished), while
@@ -159,7 +173,6 @@ export function runGeometryCommit(
   // otherwise a held arrow key would keep overwriting selectionBefore
   // with the selection at the START of each individual tick instead of
   // the whole gesture's actual starting selection.
-  const selectionAfter = captureCurrentSelection();
   if (continuesLastGesture) {
     geometryUndoStackRef.current = [
       ...geometryUndoStackRef.current.slice(0, -1),

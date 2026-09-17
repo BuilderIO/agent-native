@@ -32,7 +32,7 @@ import {
 } from "./json-to-yjs.js";
 import {
   loadYDocRecord,
-  loadYDocState,
+  loadYDocRecordWithClient,
   loadYDocVersion,
   trySaveYDocState,
   trySaveYDocStateWithClient,
@@ -703,27 +703,52 @@ export async function seedFromText(
   docId: string,
   text: string,
   fieldName: string = DEFAULT_FIELD,
+  client?: DbExec,
 ): Promise<void> {
   return withDocWriteLock(docId, async () => {
-    const existing = await loadYDocState(docId);
-    if (existing && existing.length > 0) return; // Already seeded
+    const existing = client
+      ? await loadYDocRecordWithClient(client, docId)
+      : await loadYDocRecord(docId);
+    if (existing && existing.state.length > 0) return; // Already seeded
+    const expectedVersion = existing ? existing.version : null;
 
     const { doc, state } = initYDocWithText(fieldName, text);
     let saved: boolean;
     try {
-      saved = await trySaveYDocState(docId, state, text, null);
+      saved = client
+        ? await trySaveYDocStateWithClient(
+            client,
+            docId,
+            state,
+            text,
+            expectedVersion,
+          )
+        : await trySaveYDocState(docId, state, text, expectedVersion);
     } catch (error) {
       doc.destroy();
       throw error;
     }
     if (!saved) {
+      releaseDoc(docId);
+      doc.destroy();
+      return;
+    }
+
+    releaseDoc(docId);
+    // A caller-owned transaction may still roll back after this function
+    // returns, so never publish its uncommitted doc into the process cache.
+    if (client) {
       doc.destroy();
       return;
     }
 
     // Cache the doc
     evictIfNeeded();
-    _cache.set(docId, { doc, lastAccess: Date.now(), syncedVersion: 0 });
+    _cache.set(docId, {
+      doc,
+      lastAccess: Date.now(),
+      syncedVersion: existing ? existing.version + 1 : 0,
+    });
   });
 }
 
@@ -807,27 +832,57 @@ export async function seedFromJson(
   json: any,
   fieldName: string = "data",
   type: "map" | "array" = "map",
+  client?: DbExec,
 ): Promise<void> {
   return withDocWriteLock(docId, async () => {
-    const existing = await loadYDocState(docId);
-    if (existing && existing.length > 0) return; // Already seeded
+    const existing = client
+      ? await loadYDocRecordWithClient(client, docId)
+      : await loadYDocRecord(docId);
+    if (existing && existing.state.length > 0) return; // Already seeded
+    const expectedVersion = existing ? existing.version : null;
 
     const { doc, state } = initYDocWithJson(fieldName, json, type);
     let saved: boolean;
     try {
-      saved = await trySaveYDocState(docId, state, JSON.stringify(json), null);
+      saved = client
+        ? await trySaveYDocStateWithClient(
+            client,
+            docId,
+            state,
+            JSON.stringify(json),
+            expectedVersion,
+          )
+        : await trySaveYDocState(
+            docId,
+            state,
+            JSON.stringify(json),
+            expectedVersion,
+          );
     } catch (error) {
       doc.destroy();
       throw error;
     }
     if (!saved) {
+      releaseDoc(docId);
+      doc.destroy();
+      return;
+    }
+
+    releaseDoc(docId);
+    // See seedFromText: a transaction-owned seed becomes cacheable only after
+    // its commit, when the route reads the now-durable state.
+    if (client) {
       doc.destroy();
       return;
     }
 
     // Cache the doc
     evictIfNeeded();
-    _cache.set(docId, { doc, lastAccess: Date.now(), syncedVersion: 0 });
+    _cache.set(docId, {
+      doc,
+      lastAccess: Date.now(),
+      syncedVersion: existing ? existing.version + 1 : 0,
+    });
   });
 }
 

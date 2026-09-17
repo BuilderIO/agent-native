@@ -140,3 +140,122 @@ it.each(seedScenarios)(
     }
   },
 );
+
+it.each([
+  {
+    kind: "text",
+    source: "recovered content",
+    snapshot: "recovered content",
+  },
+  {
+    kind: "JSON",
+    source: { recovered: true },
+    snapshot: JSON.stringify({ recovered: true }),
+  },
+] as const)(
+  "fills an existing empty $kind state row instead of treating it as seeded",
+  async ({ kind, source, snapshot }) => {
+    const pglite = await createTestPglite();
+    const docId = `empty-seed:${kind}`;
+    try {
+      await pglite.exec(`
+      CREATE TABLE _collab_docs (
+        doc_id TEXT PRIMARY KEY,
+        yjs_state TEXT NOT NULL,
+        text_snapshot TEXT NOT NULL DEFAULT '',
+        version INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL DEFAULT NOW()::text
+      )
+    `);
+      await pglite
+        .prepare(
+          "INSERT INTO _collab_docs (doc_id, yjs_state, text_snapshot) VALUES (?, ?, ?)",
+        )
+        .run(docId, "", "");
+      const exec = createPgliteExec(pglite, {
+        armed: false,
+        paused: false,
+        onMissingRead: async () => {},
+      });
+      vi.doMock("../db/client.js", () => ({ getDbExec: () => exec }));
+      vi.doMock("../db/ddl-guard.js", () => ({
+        ensureColumnExists: vi.fn().mockResolvedValue(undefined),
+        ensureTableExists: vi.fn().mockResolvedValue(undefined),
+      }));
+      vi.doMock("./emitter.js", () => ({ emitCollabUpdate: vi.fn() }));
+
+      const manager = await import("./ydoc-manager.js");
+      const cachedEmptyDoc = await manager.getDoc(docId);
+      const destroyEmptyDoc = vi.spyOn(cachedEmptyDoc, "destroy");
+      if (kind === "text") {
+        await manager.seedFromText(docId, source);
+        await expect(manager.getText(docId)).resolves.toBe(source);
+      } else {
+        await manager.seedFromJson(docId, source);
+        await expect(manager.getJson(docId)).resolves.toEqual(source);
+      }
+      expect(destroyEmptyDoc).toHaveBeenCalledOnce();
+
+      const persisted = await pglite
+        .prepare(
+          "SELECT yjs_state, text_snapshot, version FROM _collab_docs WHERE doc_id = ?",
+        )
+        .get(docId);
+      expect(persisted.text_snapshot).toBe(snapshot);
+      expect(persisted.version).toBe(1);
+      expect(persisted.yjs_state).not.toBe("");
+      manager.releaseDoc(docId);
+    } finally {
+      await pglite.close();
+    }
+  },
+);
+
+it("invalidates a cached empty doc after a client-backed seed before a write", async () => {
+  const pglite = await createTestPglite();
+  const docId = "empty-seed:transaction-write";
+  try {
+    await pglite.exec(`
+      CREATE TABLE _collab_docs (
+        doc_id TEXT PRIMARY KEY,
+        yjs_state TEXT NOT NULL,
+        text_snapshot TEXT NOT NULL DEFAULT '',
+        version INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL DEFAULT NOW()::text
+      )
+    `);
+    await pglite
+      .prepare(
+        "INSERT INTO _collab_docs (doc_id, yjs_state, text_snapshot) VALUES (?, ?, ?)",
+      )
+      .run(docId, "", "");
+    const exec = createPgliteExec(pglite, {
+      armed: false,
+      paused: false,
+      onMissingRead: async () => {},
+    });
+    vi.doMock("../db/client.js", () => ({ getDbExec: () => exec }));
+    vi.doMock("../db/ddl-guard.js", () => ({
+      ensureColumnExists: vi.fn().mockResolvedValue(undefined),
+      ensureTableExists: vi.fn().mockResolvedValue(undefined),
+    }));
+    vi.doMock("./emitter.js", () => ({ emitCollabUpdate: vi.fn() }));
+
+    const manager = await import("./ydoc-manager.js");
+    await expect(manager.getText(docId)).resolves.toBe("");
+    const cachedEmptyDoc = await manager.getDoc(docId);
+    const destroyEmptyDoc = vi.spyOn(cachedEmptyDoc, "destroy");
+    await manager.seedFromText(docId, "seeded content", "content", exec);
+    await manager.applyText(docId, "seeded content!", "content");
+
+    expect(destroyEmptyDoc).toHaveBeenCalledOnce();
+    const persisted = await pglite
+      .prepare("SELECT text_snapshot FROM _collab_docs WHERE doc_id = ?")
+      .get(docId);
+    expect(persisted.text_snapshot).toBe("seeded content!");
+    await expect(manager.getText(docId)).resolves.toBe("seeded content!");
+    manager.releaseDoc(docId);
+  } finally {
+    await pglite.close();
+  }
+});

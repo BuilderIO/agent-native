@@ -38,7 +38,13 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-import { InspectorGrid, InspectorGridCell } from "../edit-panel/inspector-grid";
+import {
+  INSPECTOR_GRID_ACTION_PAIR_SPAN,
+  INSPECTOR_GRID_PAIR_GUTTER_SPAN,
+  INSPECTOR_GRID_PAIR_SPAN,
+  InspectorGrid,
+  InspectorGridCell,
+} from "../edit-panel/inspector-grid";
 import type {
   AlignmentHorizontal,
   AlignmentMatrixValue,
@@ -90,6 +96,15 @@ export interface AutoLayoutGridValue {
   rowsMixed?: boolean;
   columnGapMixed?: boolean;
   rowGapMixed?: boolean;
+  /**
+   * Set when the axis is authored outside the inspector — a stylesheet rule,
+   * a class, or an implicit grid track — so only its track COUNT is known,
+   * not its sizing. A count edit while this is set and sizing is still
+   * "custom" is refused (nothing written) rather than committed as a
+   * fabricated fill/hug/fixed template over whatever is really authored.
+   */
+  columnSizingUnknown?: boolean;
+  rowSizingUnknown?: boolean;
 }
 
 /** Round to one decimal place — matches the `precision={1}` ScrubInput fields
@@ -646,7 +661,7 @@ export function AutoLayoutMatrix({
 
         {showChildLayoutControls && !isBlock && activeFlow !== "grid" ? (
           <InspectorGrid className="items-start" layout="pair-flow">
-            <InspectorGridCell span={14}>
+            <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
               <div className="design-sidebar-property-group">
                 <div className="flex items-center justify-between gap-2">
                   <ControlLabel>
@@ -669,7 +684,7 @@ export function AutoLayoutMatrix({
               </div>
             </InspectorGridCell>
 
-            <InspectorGridCell span={14}>
+            <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
               <div className="design-sidebar-property-group">
                 <ControlLabel>{copy.gap}</ControlLabel>
                 <GapField
@@ -765,8 +780,8 @@ export function AutoLayoutMatrix({
               /* Unlinked state: expand to 4 separate T / R / B / L fields */
               <InspectorGrid className="items-center" layout="field-action">
                 <InspectorGridCell span={24}>
-                  <InspectorGrid className="items-center" layout="pair-flow">
-                    <InspectorGridCell span={14}>
+                  <InspectorGrid className="items-center" layout="pair">
+                    <InspectorGridCell span={INSPECTOR_GRID_ACTION_PAIR_SPAN}>
                       <PaddingField
                         icon={IconBorderTop}
                         ariaLabel={copy.paddingTop}
@@ -778,7 +793,11 @@ export function AutoLayoutMatrix({
                         disabled={disabled}
                       />
                     </InspectorGridCell>
-                    <InspectorGridCell span={14}>
+                    <InspectorGridCell
+                      span={INSPECTOR_GRID_PAIR_GUTTER_SPAN}
+                      ariaHidden
+                    />
+                    <InspectorGridCell span={INSPECTOR_GRID_ACTION_PAIR_SPAN}>
                       <PaddingField
                         icon={IconBorderRight}
                         ariaLabel={copy.paddingRight}
@@ -793,7 +812,7 @@ export function AutoLayoutMatrix({
                         disabled={disabled}
                       />
                     </InspectorGridCell>
-                    <InspectorGridCell span={14}>
+                    <InspectorGridCell span={INSPECTOR_GRID_ACTION_PAIR_SPAN}>
                       <PaddingField
                         icon={IconBorderBottom}
                         ariaLabel={copy.paddingBottom}
@@ -808,7 +827,11 @@ export function AutoLayoutMatrix({
                         disabled={disabled}
                       />
                     </InspectorGridCell>
-                    <InspectorGridCell span={14}>
+                    <InspectorGridCell
+                      span={INSPECTOR_GRID_PAIR_GUTTER_SPAN}
+                      ariaHidden
+                    />
+                    <InspectorGridCell span={INSPECTOR_GRID_ACTION_PAIR_SPAN}>
                       <PaddingField
                         icon={IconBorderLeft}
                         ariaLabel={copy.paddingLeft}
@@ -956,7 +979,18 @@ function GridControls({
             columns={value.columns}
             rows={value.rows}
             mixed={Boolean(value.columnsMixed || value.rowsMixed)}
-            disabled={locked}
+            // A custom axis (unknown, or a known non-uniform inline
+            // template) has no count-preserving write to make — see
+            // gridTemplatePatchForChange's "custom" skip — so the combined
+            // matrix is unreachable while either axis is custom or unknown;
+            // the sizing pickers in the popover stay enabled as the
+            // recovery path.
+            disabled={
+              locked ||
+              Boolean(value.columnSizingUnknown || value.rowSizingUnknown) ||
+              value.columnSizing === "custom" ||
+              value.rowSizing === "custom"
+            }
             onChange={(columns, rows, meta) => update({ columns, rows }, meta)}
           />
         </InspectorGridCell>
@@ -1041,6 +1075,7 @@ function GridTrackMatrix({
             <button
               key={`${cellColumn}:${cellRow}`}
               type="button"
+              disabled={disabled}
               aria-label={
                 `${cellColumn} × ${cellRow}` /* i18n-ignore design inspector label */
               }
@@ -1107,8 +1142,8 @@ function GridGapField({
       precision={0}
       disabled={disabled}
       className="min-w-0 gap-0 rounded-md bg-[var(--design-editor-control-bg)]"
-      labelClassName="h-7 w-6 shrink-0 justify-center gap-0 rounded-l-md rounded-r-none text-muted-foreground [&>span]:hidden"
-      inputClassName="h-7 border-0 bg-transparent px-1 !text-[11px] shadow-none focus-visible:ring-0"
+      labelClassName="h-6 w-6 shrink-0 justify-center gap-0 rounded-l-md rounded-r-none text-muted-foreground [&>span]:hidden"
+      inputClassName="h-6 border-0 bg-transparent px-1 !text-[11px] shadow-none focus-visible:ring-0"
     />
   );
 }
@@ -1163,7 +1198,16 @@ function GridAdvancedPopover({
             min={1}
             max={24}
             onChange={(columns, meta) => update({ columns }, meta)}
-            disabled={disabled}
+            // A custom axis — unknown (stylesheet-authored) or a known
+            // non-uniform inline template — has no count-preserving write
+            // to make (see gridTemplatePatchForChange), so the count field
+            // stays disabled either way; the sizing picker below is the
+            // recovery path.
+            disabled={
+              disabled ||
+              Boolean(value.columnSizingUnknown) ||
+              value.columnSizing === "custom"
+            }
           />
           <GridNumberField
             label={"Rows" /* i18n-ignore design inspector label */}
@@ -1172,7 +1216,11 @@ function GridAdvancedPopover({
             min={1}
             max={24}
             onChange={(rows, meta) => update({ rows }, meta)}
-            disabled={disabled}
+            disabled={
+              disabled ||
+              Boolean(value.rowSizingUnknown) ||
+              value.rowSizing === "custom"
+            }
           />
         </div>
         <div className="grid grid-cols-2 gap-1.5">
@@ -1180,7 +1228,15 @@ function GridAdvancedPopover({
             label={"Column sizing" /* i18n-ignore design inspector label */}
             value={value.columnSizing}
             fixedSize={value.columnSize}
-            disabled={disabled}
+            // A mixed multi-selection has no shared count to write a sizing
+            // pick against (see gridTemplatePatchForChange) — the only
+            // recovery is selecting elements individually. A plain
+            // stylesheet-unknown axis (not mixed) stays enabled: picking a
+            // sizing there is exactly how the user resolves it.
+            disabled={
+              disabled ||
+              Boolean(value.columnsMixed && value.columnSizingUnknown)
+            }
             onChange={(columnSizing) => update({ columnSizing })}
             onFixedSizeChange={(columnSize, meta) =>
               update({ columnSize }, meta)
@@ -1190,7 +1246,9 @@ function GridAdvancedPopover({
             label={"Row sizing" /* i18n-ignore design inspector label */}
             value={value.rowSizing}
             fixedSize={value.rowSize}
-            disabled={disabled}
+            disabled={
+              disabled || Boolean(value.rowsMixed && value.rowSizingUnknown)
+            }
             onChange={(rowSizing) => update({ rowSizing })}
             onFixedSizeChange={(rowSize, meta) => update({ rowSize }, meta)}
           />
@@ -1339,7 +1397,7 @@ function CompactAlignmentMatrix({
     <div
       className={cn("space-y-1", disabled && "pointer-events-none opacity-40")}
     >
-      <div className="grid w-fit grid-cols-3 rounded-md bg-[var(--design-editor-control-bg)] p-1">
+      <div className="grid w-full max-w-[92px] grid-cols-3 rounded-md bg-[var(--design-editor-control-bg)] p-1">
         {ALIGNMENT_CELLS.map((cell) => {
           const active =
             !mixed &&
@@ -1359,7 +1417,7 @@ function CompactAlignmentMatrix({
                 })
               }
               className={cn(
-                "flex h-4 w-7 items-center justify-center rounded-[3px] transition-colors",
+                "flex h-4 min-w-0 w-full items-center justify-center rounded-[3px] transition-colors",
                 "hover:bg-[var(--design-editor-control-bg)]",
               )}
             >
@@ -2144,6 +2202,7 @@ function SizingMenuItem({
 }) {
   return (
     <DropdownMenuItem
+      data-design-sizing-menu-item={label}
       disabled={disabled}
       onSelect={onSelect}
       className="gap-2 pl-2 pr-2 text-[12px]"

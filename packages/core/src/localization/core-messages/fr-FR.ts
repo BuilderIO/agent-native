@@ -98,6 +98,10 @@ const messages: AgentChatTranslation = {
     "Reconnaissance vocale du navigateur ou conversion parole-texte",
   "onboarding.capability.voiceInput.why":
     "L’entrée vocale transforme les demandes parlées en texte ; la saisie reste toujours disponible.",
+  "onboarding.capability.embeddings.label": "Représentations vectorielles",
+  "onboarding.capability.embeddings.keySummary": "Clé Gemini, Cohere ou Voyage",
+  "onboarding.capability.embeddings.why":
+    "Les représentations vectorielles améliorent la recherche sémantique. La recherche par mots-clés fonctionne toujours sans elles.",
   "onboarding.capability.assetsImageGeneration.label": "Génération d’images",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Crédits Builder ou clé d’un fournisseur d’images",
@@ -191,6 +195,27 @@ const messages: AgentChatTranslation = {
   "agents.statusReachable": "Accessible",
   "agents.statusAuthRejected": "Authentification refusée",
   "agents.statusNoJsonRpc": "Pas de JSON-RPC",
+  "agents.directoryTab": "Annuaire des agents",
+  "agents.directoryPageHint":
+    "Trouvez un backend d’agent et connectez-le à votre espace de travail.",
+  "agents.directorySearch": "Rechercher des fournisseurs",
+  "agents.directoryProviders": "Fournisseurs",
+  "agents.directoryManual": "Ajouter par URL",
+  "agents.directoryA2A": "A2A",
+  "agents.directoryManaged": "API gérée",
+  "agents.directoryFoundry": "Microsoft Foundry",
+  "agents.directoryFoundryHint": "Connectez un agent Foundry via A2A.",
+  "agents.directoryGemini": "Gemini Enterprise",
+  "agents.directoryGeminiHint": "Connectez un agent Gemini Enterprise via A2A.",
+  "agents.directoryAnthropic": "Agents gérés Anthropic",
+  "agents.directoryAnthropicHint":
+    "Connectez les sessions et approbations Anthropic.",
+  "agents.directoryNoMatches":
+    "Aucun fournisseur ne correspond à votre recherche.",
+  "agents.directoryRegistry": "Registre A2A mondial",
+  "agents.directoryRegistryHint":
+    "Parcourez les cartes d’agents publiques et vérifiez-les avant la connexion.",
+  "agents.directoryBrowse": "Parcourir le registre",
   "common.saveFailed": "Échec de l’enregistrement",
   "common.saveFailedStatus": "Échec de l’enregistrement ({{status}})",
   "common.saving": "Enregistrement...",

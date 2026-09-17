@@ -178,6 +178,55 @@ describe("rendered-source provenance in the iframe bridges", () => {
     }
   });
 
+  it("preserves a legacy layer-name in hit-test metadata", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 600, height: 400 },
+      });
+      const pageErrors: string[] = [];
+      page.on("pageerror", (error) => pageErrors.push(error.message));
+      await page.setContent(
+        '<!doctype html><html><body style="margin:0"><div data-agent-native-node-id="legacy-card" layer-name="Imported card" style="position:absolute;left:100px;top:80px;width:240px;height:160px"></div></body></html>',
+      );
+      await page.evaluate(() => {
+        (window as any).__hitTestResults = [];
+        window.addEventListener("message", (event) => {
+          const data = (event as MessageEvent).data;
+          if (data?.type === "agent-native:hit-test-result") {
+            (window as any).__hitTestResults.push(data);
+          }
+        });
+      });
+      await page.addScriptTag({ content: hitTestBridgeScript });
+      await page.evaluate(() => {
+        window.postMessage(
+          {
+            type: "agent-native:hit-test",
+            correlationId: "legacy-layer-name",
+            x: 150,
+            y: 110,
+          },
+          "*",
+        );
+      });
+      await page.waitForFunction(
+        () => (window as any).__hitTestResults.length === 1,
+      );
+      const result = await page.evaluate(
+        () => (window as any).__hitTestResults[0],
+      );
+
+      expect(result).toMatchObject({
+        anchorNodeId: "legacy-card",
+        layerName: "Imported card",
+      });
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  });
+
   it("preserves line breaks in a unique authored id used for drag provenance", async () => {
     const browser = await chromium.launch({ headless: true });
     try {

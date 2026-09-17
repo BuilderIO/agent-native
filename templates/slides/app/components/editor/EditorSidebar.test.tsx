@@ -12,6 +12,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Slide } from "@/context/DeckContext";
 
 const sortableKeyDown = vi.hoisted(() => vi.fn());
+const sortableState = vi.hoisted(() => ({
+  isDragging: false,
+  transform: null as {
+    x: number;
+    y: number;
+    scaleX: number;
+    scaleY: number;
+  } | null,
+}));
 const scrollIntoView = vi.fn();
 
 vi.mock("@agent-native/core/client/api-path", () => ({
@@ -37,9 +46,9 @@ vi.mock("@dnd-kit/sortable", () => ({
     attributes: {},
     listeners: { onKeyDown: sortableKeyDown },
     setNodeRef: () => {},
-    transform: null,
+    transform: sortableState.transform,
     transition: undefined,
-    isDragging: false,
+    isDragging: sortableState.isDragging,
   }),
   verticalListSortingStrategy: {},
 }));
@@ -77,6 +86,8 @@ import EditorSidebar, {
 afterEach(() => {
   cleanup();
   sortableKeyDown.mockClear();
+  sortableState.isDragging = false;
+  sortableState.transform = null;
   scrollIntoView.mockClear();
 });
 
@@ -164,6 +175,37 @@ describe("EditorSidebar thumbnail scroll cue", () => {
       fireEvent.scroll(thumbnailScrollArea);
     });
     expect(thumbnailPane?.dataset.slidesThumbnailScroll).toBe("top");
+  });
+
+  it("keeps the source thumbnail in place for an Alt-drag preview", () => {
+    sortableState.isDragging = true;
+    sortableState.transform = { x: 48, y: 24, scaleX: 1, scaleY: 1 };
+    const slide: Slide = {
+      id: "slide-1",
+      content: "<div />",
+      notes: "",
+      layout: "content",
+    };
+
+    const { container } = render(
+      <EditorSidebar
+        slides={[slide]}
+        activeSlideId="slide-1"
+        altDragSlideId="slide-1"
+        deckId="deck-1"
+        deckTitle="Test deck"
+        onSelectSlide={() => {}}
+        describeSlideId={null}
+        onCloseDescribe={() => {}}
+        addSlideAgentSubmit={() => {}}
+      />,
+    );
+    const thumbnail = container.querySelector<HTMLButtonElement>(
+      '[data-slide-thumbnail-id="slide-1"]',
+    );
+
+    expect(thumbnail?.parentElement?.style.transform).toBe("");
+    expect(thumbnail?.parentElement?.style.opacity).toBe("1");
   });
 });
 

@@ -894,8 +894,16 @@ export async function mergeCoreSharingActions(
       () => import("../review/actions/resolve-review-thread.js"),
     ],
     [
+      "update-review-comment-anchor",
+      () => import("../review/actions/update-review-comment-anchor.js"),
+    ],
+    [
       "delete-review-comment",
       () => import("../review/actions/delete-review-comment.js"),
+    ],
+    [
+      "update-review-comment",
+      () => import("../review/actions/update-review-comment.js"),
     ],
     [
       "consume-review-feedback",
@@ -920,6 +928,10 @@ export async function mergeCoreSharingActions(
     [
       "set-review-thread-unread",
       () => import("../review/actions/set-review-thread-unread.js"),
+    ],
+    [
+      "set-review-threads-unread",
+      () => import("../review/actions/set-review-threads-unread.js"),
     ],
     [
       "set-review-thread-muted",

@@ -1,7 +1,10 @@
 import { buildCodeLayerProjection } from "@shared/code-layer";
 import { expect, it } from "vitest";
 
-import { prepareCanonicalSourceContent } from "@/pages/design-editor/source-publication";
+import {
+  prepareCanonicalSourceContent,
+  resolveSourceBaseForPublication,
+} from "@/pages/design-editor/source-publication";
 
 it("maps duplicate source IDs to the exact projected nodes after repair", () => {
   const content =
@@ -42,3 +45,26 @@ it.each([
     ).toEqual({ content, changed: false, nodeIdMap: new Map() });
   },
 );
+
+it("keeps an identity migration's raw bytes as the CAS base for a follow-up edit", () => {
+  const raw = "<main><button>Listen now</button></main>";
+  const canonical = prepareCanonicalSourceContent(raw, {
+    fileId: "screen-a",
+    fileType: "html",
+  }).content;
+
+  expect(canonical).not.toBe(raw);
+  expect(
+    resolveSourceBaseForPublication({
+      fileId: "screen-a",
+      fileType: "html",
+      pending: {
+        content: canonical,
+        identityMigrationSourceContent: raw,
+      },
+      collabContent: raw,
+      persistedContent: raw,
+      beforeContent: canonical,
+    }),
+  ).toBe(raw);
+});

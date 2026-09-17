@@ -35,14 +35,19 @@ export function runStartSidebarResize(
   event.currentTarget.setPointerCapture?.(event.pointerId);
   const startX = event.clientX;
   const codePanelOpen = side === "left" && activeLeftPanel === "code";
+  const leftPanelMinWidth = codePanelOpen
+    ? 520
+    : activeLeftPanel === "agent"
+      ? 320
+      : 220;
   const startWidth =
     side === "left"
       ? codePanelOpen
         ? Math.max(leftSidebarWidth, 640)
-        : Math.min(leftSidebarWidth, 420)
+        : Math.max(Math.min(leftSidebarWidth, 420), leftPanelMinWidth)
       : rightSidebarWidth;
   const setWidth = side === "left" ? setLeftSidebarWidth : setRightSidebarWidth;
-  const minWidth = side === "left" ? (codePanelOpen ? 520 : 220) : 240;
+  const minWidth = side === "left" ? leftPanelMinWidth : 240;
   const maxWidth = side === "left" ? (codePanelOpen ? 1100 : 420) : 390;
   const target =
     side === "left"

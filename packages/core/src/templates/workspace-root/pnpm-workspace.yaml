@@ -2,7 +2,25 @@ packages:
   - "packages/*"
   - "apps/*"
 
+minimumReleaseAge: 1440
+minimumReleaseAgeExclude:
+  - "@bacons/apple-targets"
+  - "@agent-native/core"
+  - "@modelcontextprotocol/client"
+  - "@modelcontextprotocol/core"
+  - "@modelcontextprotocol/node"
+  - "@modelcontextprotocol/server"
+  - "dom-to-pptx"
+  - "fast-xml-parser"
+  - "typescript"
+  - "@typescript/typescript6"
+  - "@typescript/typescript-*"
+
 overrides:
+  # @sentry/vite-plugin's range can resolve a newly published bundler tarball
+  # before the registry has made it fetchable. Keep fresh workspaces on the
+  # version already verified by this repository until Sentry is upgraded.
+  "@sentry/bundler-plugins": "10.73.0"
   "@assistant-ui/store": ">=0.2.9 <0.2.14"
   "@assistant-ui/tap": "^0.5.14"
   better-auth: "1.7.4"

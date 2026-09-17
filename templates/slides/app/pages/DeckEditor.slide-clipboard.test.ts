@@ -4,7 +4,6 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-import type { Deck } from "../context/DeckContext";
 import {
   getSlideClipboardStorageKey,
   normalizeSlideClipboard,
@@ -18,7 +17,7 @@ import {
 } from "../lib/slide-clipboard";
 import {
   isSlideClipboardStillArmed,
-  isSourceImportedDeck,
+  constrainSlideDragToVerticalAxis,
   getAltDragPlacement,
   SLIDE_CLIPBOARD_ARM_WINDOW_MS,
   syncSlideContentSnapshots,
@@ -119,9 +118,7 @@ describe("slide thumbnail shortcuts", () => {
     );
     const shortcutBody = deckEditorSource.slice(shortcutStart, shortcutEnd);
 
-    expect(shortcutBody).toContain(
-      "if (!activeSlideId || sourceImportedDeck) return;",
-    );
+    expect(shortcutBody).toContain("if (!activeSlideId) return;");
     expect(shortcutBody).toContain(
       "selectedSlideIds.length > 0 ? selectedSlideIds : [activeSlideId]",
     );
@@ -160,43 +157,6 @@ describe("slide thumbnail shortcuts", () => {
   });
 });
 
-describe("source-imported deck structure", () => {
-  it("recognizes source-preserving import metadata", () => {
-    expect(
-      isSourceImportedDeck({
-        sourceImport: {
-          mode: "source-preserving",
-          format: "pptx",
-          slides: [],
-        },
-      } as unknown as Deck),
-    ).toBe(true);
-  });
-
-  it("does not block an editable source snapshot", () => {
-    expect(
-      isSourceImportedDeck({
-        sourceImport: {
-          mode: "source-preserving",
-          format: "pptx",
-          slides: [],
-          editableSnapshot: true,
-        },
-      } as unknown as Deck),
-    ).toBe(false);
-  });
-
-  it("does not block ordinary or malformed deck metadata", () => {
-    expect(isSourceImportedDeck(null)).toBe(false);
-    expect(isSourceImportedDeck(undefined)).toBe(false);
-    expect(
-      isSourceImportedDeck({
-        sourceImport: { mode: "source-preserving", format: "pptx" },
-      } as unknown as Deck),
-    ).toBe(false);
-  });
-});
-
 describe("alt-drag slide placement", () => {
   const slides = [{ id: "slide-1" }, { id: "slide-2" }, { id: "slide-3" }];
 
@@ -211,6 +171,27 @@ describe("alt-drag slide placement", () => {
     expect(getAltDragPlacement(slides, "slide-1", "slide-3")).toEqual({
       afterSlideId: "slide-3",
     });
+  });
+
+  it("keeps slide drag transforms on the vertical axis", () => {
+    expect(
+      constrainSlideDragToVerticalAxis({
+        x: 48,
+        y: 24,
+        scaleX: 1,
+        scaleY: 1,
+      }),
+    ).toEqual({ x: 0, y: 24, scaleX: 1, scaleY: 1 });
+  });
+
+  it("uses an Alt-only drag overlay for the copied thumbnail", () => {
+    expect(deckEditorSource).toContain('data-slide-drag-overlay="copy"');
+    expect(deckEditorSource).toContain(
+      "altDragSlideId={altDragState?.slideId}",
+    );
+    expect(deckEditorSource).toContain(
+      "modifiers={[verticalSlideDragModifier]}",
+    );
   });
 });
 

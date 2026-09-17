@@ -17,7 +17,7 @@
  * regress relative to uploading the raw recording.
  */
 
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
@@ -93,9 +93,13 @@ export function timelineNormalizationFfmpegArgs(
   ];
 }
 
-function ffmpegCommand(): string {
+export function resolveFfmpegCommand(): string {
   if (process.env.FFMPEG_PATH) return process.env.FFMPEG_PATH;
   return resolveFfmpegStaticPath() ?? "ffmpeg";
+}
+
+function ffmpegCommand(): string {
+  return resolveFfmpegCommand();
 }
 
 function resolveFfmpegStaticPath(): string | null {
@@ -114,7 +118,12 @@ function resolveFfmpegStaticPath(): string | null {
 
 /** Whether a server-side ffmpeg binary is resolvable. */
 export function isFfmpegAvailable(): boolean {
-  return Boolean(process.env.FFMPEG_PATH) || resolveFfmpegStaticPath() !== null;
+  return (
+    spawnSync(resolveFfmpegCommand(), ["-version"], {
+      stdio: "ignore",
+      timeout: 2_000,
+    }).status === 0
+  );
 }
 
 function startsWithMagic(bytes: Uint8Array, magic: number[]): boolean {

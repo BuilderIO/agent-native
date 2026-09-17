@@ -134,6 +134,7 @@ import {
   InspectorActionRail,
   InspectorGrid,
   InspectorGridCell,
+  INSPECTOR_GRID_PAIR_SPAN,
   PanelSection,
   PropInput,
   PropSelect,
@@ -172,6 +173,7 @@ import {
   displayFontFamilyName,
   FONT_FAMILY_OPTIONS,
   resolveFontFamilySelectValue,
+  sortFontFamilyOptions,
 } from "./edit-panel/typography-helpers";
 import { TypographyProperties } from "./edit-panel/typography-properties";
 import {
@@ -1087,7 +1089,7 @@ function CodeInspectPanel({
         >
           <InspectorGrid layout="pair-flow">
             {measurements.map(([label, value]) => (
-              <InspectorGridCell key={label} span={14}>
+              <InspectorGridCell key={label} span={INSPECTOR_GRID_PAIR_SPAN}>
                 <div className="flex h-6 items-center justify-between rounded border border-border/70 bg-[var(--design-editor-control-bg)] px-2 text-[11px]">
                   <span className="text-muted-foreground">{label}</span>
                   <span className="font-mono text-foreground">
@@ -1680,7 +1682,10 @@ function InspectorTabsHeader({
   const t = useT();
 
   return (
-    <div className="h-12 min-w-0 shrink-0 border-b border-border/90 px-2 py-2">
+    <div
+      data-design-inspector-tabs
+      className="h-12 min-w-0 shrink-0 border-b border-border/90 px-2 py-2"
+    >
       <InspectorGrid className="h-full items-center" layout="header-actions">
         <InspectorGridCell span={24}>
           <Tabs
@@ -1688,24 +1693,29 @@ function InspectorTabsHeader({
             onValueChange={(value) => onActiveTabChange(value as InspectorTab)}
             className="min-w-0"
           >
-            <TabsList className="h-7 max-w-full justify-start gap-0.5 overflow-hidden rounded-none bg-transparent p-0">
+            <TabsList
+              data-design-inspector-tabs-list
+              className="h-7 max-w-full justify-start gap-0.5 overflow-hidden rounded-none bg-transparent p-0"
+            >
               {!readOnly ? (
                 <TabsTrigger
                   value="design"
+                  data-design-inspector-tab="design"
                   aria-label={t("navigation.brand")}
-                  className="design-sidebar-section-title h-6 rounded-md px-1.5 text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
+                  className="design-sidebar-section-title h-6 rounded-md px-1.5 py-1 text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
                 >
                   {t("navigation.brand")}
                 </TabsTrigger>
               ) : null}
               <TabsTrigger
                 value="comments"
+                data-design-inspector-tab="comments"
                 aria-label={
                   commentsCount > 0
                     ? t("review.commentsTab", { count: commentsCount })
                     : t("review.comments")
                 }
-                className="design-sidebar-section-title group h-6 min-w-0 rounded-md gap-1 px-1.5 text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
+                className="design-sidebar-section-title group h-6 min-w-0 rounded-md gap-1 px-1.5 py-1 text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
               >
                 <span className="truncate">{t("review.comments")}</span>
                 {commentsCount > 0 ? (
@@ -1722,16 +1732,18 @@ function InspectorTabsHeader({
               {!readOnly && tweaksEnabled ? (
                 <TabsTrigger
                   value="tweaks"
+                  data-design-inspector-tab="tweaks"
                   aria-label={t("designEditor.tweaks")}
-                  className="design-sidebar-section-title h-6 rounded-md px-1.5 text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
+                  className="design-sidebar-section-title h-6 rounded-md px-1.5 py-1 text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
                 >
                   {t("designEditor.tweaks")}
                 </TabsTrigger>
               ) : (
                 <TabsTrigger
                   value="code"
+                  data-design-inspector-tab="code"
                   aria-label={"Code" /* i18n-ignore design inspector tab */}
-                  className="design-sidebar-section-title h-6 rounded-md px-1.5 text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
+                  className="design-sidebar-section-title h-6 rounded-md px-1.5 py-1 text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
                 >
                   {"Code" /* i18n-ignore design inspector tab */}
                 </TabsTrigger>
@@ -1824,22 +1836,24 @@ function PageProperties({
   onCanvasBackgroundChange?: (value: string, meta?: StyleChangeMeta) => void;
 }) {
   const t = useT();
-  const baseFontFamilyOptions = FONT_FAMILY_OPTIONS.map((option) => ({
-    value: option.value,
-    label: t(`editPanel.fontFamilies.${option.key}`),
-  }));
+  const baseFontFamilyOptions = sortFontFamilyOptions(
+    FONT_FAMILY_OPTIONS.map((option) => ({
+      value: option.value,
+      label: t(`editPanel.fontFamilies.${option.key}`),
+    })),
+  );
   const fontFamily = resolveFontFamilySelectValue(styles.fontFamily);
-  const fontFamilyOptions = FONT_FAMILY_OPTIONS.some(
-    (option) => option.value === fontFamily,
-  )
-    ? baseFontFamilyOptions
-    : [
-        {
-          value: fontFamily,
-          label: displayFontFamilyName(styles.fontFamily || fontFamily),
-        },
-        ...baseFontFamilyOptions,
-      ];
+  const fontFamilyOptions = sortFontFamilyOptions(
+    FONT_FAMILY_OPTIONS.some((option) => option.value === fontFamily)
+      ? baseFontFamilyOptions
+      : [
+          {
+            value: fontFamily,
+            label: displayFontFamilyName(styles.fontFamily || fontFamily),
+          },
+          ...baseFontFamilyOptions,
+        ],
+  );
 
   return (
     <div>
