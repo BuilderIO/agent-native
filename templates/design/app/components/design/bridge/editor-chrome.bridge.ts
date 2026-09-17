@@ -15935,15 +15935,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         // host only resends a claim message on a claimed-value CHANGE, so
         // once clobbered it stayed false for the rest of the drag with no
         // further message ever arriving to correct it.
-        currentAutoLayoutTarget =
-          !duplicatedForDrag && !bridgeSpaceKeyPressed
-            ? autoLayoutInsertionTargetForPoint(
-                dragEl,
-                ev.clientX,
-                ev.clientY,
-                groupOthers,
-              )
-            : null;
+        currentAutoLayoutTarget = !bridgeSpaceKeyPressed
+          ? autoLayoutInsertionTargetForPoint(
+              dragEl,
+              ev.clientX,
+              ev.clientY,
+              groupOthers,
+            )
+          : null;
         if (currentAutoLayoutTarget && ev.ctrlKey) {
           currentAutoLayoutTarget = ignoreAutoLayoutForDropTarget(
             currentAutoLayoutTarget,
@@ -16065,6 +16064,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           positionOverlay(selectionOverlay, selectedEl);
           postElementSelect(selectedEl);
           postCrossScreenDrag("cancel");
+        } else if (!isGroupDrag) {
+          // A selection-box press that never crosses the drag threshold still
+          // arms the host's cross-screen listener. Clear that claim on the
+          // click path too, or the next drag inherits a stale board gesture.
+          postCrossScreenDrag("cancel");
         }
         return;
       }
@@ -16101,12 +16105,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         }
         return;
       }
-      if (
-        ev &&
-        !duplicatedForDrag &&
-        !outsideOnDrop &&
-        !bridgeSpaceKeyPressed
-      ) {
+      if (ev && !outsideOnDrop && !bridgeSpaceKeyPressed) {
         var finalAutoLayoutTarget = autoLayoutInsertionTargetForPoint(
           dragEl,
           ev.clientX,
@@ -16141,7 +16140,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         postVisualDuplicateChange(
           originalSelectedEl,
           dragEl,
-          null,
+          currentAutoLayoutTarget,
           duplicatedSourceNodeIdMap,
         );
         postCrossScreenDrag("cancel");

@@ -305,6 +305,33 @@ function textPrimitiveNodeIds(html: string, text: string): string[] {
   return [...ids];
 }
 
+async function authoredTextNodeId(
+  page: Page,
+  html: string,
+  text: string,
+): Promise<string | null> {
+  return page.evaluate(
+    ({ source, wantedText }) => {
+      const doc = new DOMParser().parseFromString(source, "text/html");
+      const candidates = Array.from(
+        doc.querySelectorAll<HTMLElement>(
+          '[data-agent-native-node-id][data-an-primitive="text"]',
+        ),
+      ).filter(
+        (element) =>
+          element.textContent?.trim() === wantedText &&
+          !element.closest("[data-agent-native-group-wrapper]"),
+      );
+      return (
+        candidates[candidates.length - 1]?.getAttribute(
+          "data-agent-native-node-id",
+        ) ?? null
+      );
+    },
+    { source: html, wantedText: text },
+  );
+}
+
 function styleOf(html: string, id: string): string {
   return (
     new RegExp(
@@ -787,7 +814,20 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
     // editing both frames independently" implies the two screens' content
     // diverges after this point -- we exercise the underlying "element
     // crosses a screen boundary" gesture directly).
-    const movingId = linkIdsInFooterCopy[0]!;
+    const movingId = await authoredTextNodeId(page, footerHtmlBefore, "Link");
+    if (!movingId) {
+      throw new Error("the duplicated Footer must contain a top-level Link");
+    }
+
+    // Fit every screen before dragging so the tiny tutorial text layers have a
+    // real hit area. Hide the inspector through the global UI shortcut after
+    // the fit; a selected screen keeps the minimal-UI inspector mounted.
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(250);
+    await page.keyboard.press("Shift+1");
+    await page.waitForTimeout(750);
+    await page.keyboard.press(`${MOD}+\\`);
+    await page.waitForTimeout(300);
 
     // Locate the Footer screen's own iframe by scanning all screen iframes
     // for the one whose content actually contains the moving node id.
@@ -853,7 +893,7 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
     );
     await page.mouse.move(
       targetScreenBox.x + targetScreenBox.width / 2,
-      targetScreenBox.y + 40,
+      targetScreenBox.y + targetScreenBox.height / 2,
       { steps: 24 },
     );
     await page.waitForTimeout(150);

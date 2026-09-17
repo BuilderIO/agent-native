@@ -3964,6 +3964,7 @@ function DesignEditor() {
           acknowledgeOutboxEntry,
           canEditDesignRef,
           createFileSaveOutboxEntry,
+          designId: id,
           fileSaveChainsRef,
           journalOutboxEntry,
           latestFileSaveForUnloadRef,

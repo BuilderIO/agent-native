@@ -11265,7 +11265,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           currentAutoLayoutTarget = null;
           hideInsertionGuide();
         } else {
-          currentAutoLayoutTarget = !duplicatedForDrag && !bridgeSpaceKeyPressed ? autoLayoutInsertionTargetForPoint(
+          currentAutoLayoutTarget = !bridgeSpaceKeyPressed ? autoLayoutInsertionTargetForPoint(
             dragEl,
             ev.clientX,
             ev.clientY,
@@ -11365,6 +11365,8 @@ export const editorChromeBridgeScript: string = `"use strict";
             positionOverlay(selectionOverlay, selectedEl);
             postElementSelect(selectedEl);
             postCrossScreenDrag("cancel");
+          } else if (!isGroupDrag) {
+            postCrossScreenDrag("cancel");
           }
           return;
         }
@@ -11392,7 +11394,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           }
           return;
         }
-        if (ev && !duplicatedForDrag && !outsideOnDrop && !bridgeSpaceKeyPressed) {
+        if (ev && !outsideOnDrop && !bridgeSpaceKeyPressed) {
           var finalAutoLayoutTarget = autoLayoutInsertionTargetForPoint(
             dragEl,
             ev.clientX,
@@ -11422,7 +11424,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           postVisualDuplicateChange(
             originalSelectedEl,
             dragEl,
-            null,
+            currentAutoLayoutTarget,
             duplicatedSourceNodeIdMap
           );
           postCrossScreenDrag("cancel");

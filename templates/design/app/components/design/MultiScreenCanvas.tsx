@@ -7701,13 +7701,37 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           "*",
         );
       };
-      const handleMouseUp = () => {
-        // The bridge's startMove already installed a host-level
-        // cross-screen mouseup listener. Forwarding another mouseup into the
-        // iframe would let both owners finalize one drop, duplicating an
-        // Alt-drag. Let the host commit and cancel only the bridge's transient
-        // clone/preview afterward.
-        cancelMove(performance.timeOrigin + performance.now());
+      const handleMouseUp = (ev: MouseEvent) => {
+        // The board iframe covers the overview surface, so geometry hit
+        // testing can report a stale screen while the rendered card is still
+        // visibly elsewhere. The card under the release owns the drop.
+        const screenCard = surfaceRef.current?.ownerDocument
+          .elementFromPoint(ev.clientX, ev.clientY)
+          ?.closest<HTMLElement>("[data-screen-card]");
+        const droppedOnScreen = Boolean(
+          screenCard
+            ?.closest<HTMLElement>("[data-frame-id]")
+            ?.getAttribute("data-frame-id"),
+        );
+        if (droppedOnScreen) {
+          // The host owns board-to-screen drops. Cancel the iframe gesture
+          // after its cross-screen writer has taken the release.
+          cancelMove(performance.timeOrigin + performance.now());
+        } else {
+          // No screen owns this release, so let the board bridge commit its
+          // ordinary board-to-board move or duplicate.
+          iframe.contentWindow?.postMessage(
+            { type: "agent-native:cross-screen-claim", claimed: false },
+            "*",
+          );
+          dispatchAt(
+            iframeDoc,
+            "mouseup",
+            toIframePoint(ev.clientX, ev.clientY),
+            ev,
+            0,
+          );
+        }
         finishDrag();
       };
       boardElementResizeCancel.current = cancelMove;
@@ -7720,7 +7744,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       boardFileId,
       boardSurfaceRenderGeometry,
       finishDrag,
-      getCanvasPoint,
       installDragListeners,
       readOnly,
     ],
