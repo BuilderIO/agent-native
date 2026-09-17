@@ -6,6 +6,7 @@ import {
 } from "@shared/code-layer";
 import { normalizeScreenHtml } from "@shared/screen-annotation";
 
+import { recordDesignPerformance } from "@/components/design/design-trace";
 import {
   canonicalElementInfoForCodeLayerNode,
   elementInfoFromCodeLayerNode,
@@ -29,6 +30,7 @@ type SourceFile = Pick<
 >;
 
 function projection(content: string, fileId: string) {
+  recordDesignPerformance("buildCodeLayerProjection");
   return buildCodeLayerProjection(content, {
     source: { kind: "design-file", fileId },
   });

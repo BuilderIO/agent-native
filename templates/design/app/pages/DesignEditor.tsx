@@ -241,7 +241,10 @@ import {
   failPendingTextCapture,
   registerPendingTextHostCommit,
 } from "@/components/design/design-canvas/pending-text-capture";
-import { trace } from "@/components/design/design-trace";
+import {
+  recordDesignPerformance,
+  trace,
+} from "@/components/design/design-trace";
 import { DesignCanvas } from "@/components/design/DesignCanvas";
 import { DesignEditorSkeleton } from "@/components/design/DesignEditorSkeleton";
 import {
@@ -2451,8 +2454,9 @@ function DesignEditor() {
   const historySourceReaderRef = useRef<(screenId: string) => string>(() => {
     throw new Error("History source reader is not initialized");
   });
-  const captureCurrentSelection = (): GeometryHistorySelection =>
-    captureHistorySelectionFromOwners(
+  const captureCurrentSelection = (): GeometryHistorySelection => {
+    recordDesignPerformance("captureCurrentSelection");
+    return captureHistorySelectionFromOwners(
       {
         overviewSelectedScreenIds: [...overviewSelectedScreenIdsRef.current],
         selectedLayerIds: [...selectedLayerIdsStateRef.current],
@@ -2461,6 +2465,7 @@ function DesignEditor() {
       codeLayerOwnerByNodeIdRef.current,
       (screenId) => historySourceReaderRef.current(screenId),
     );
+  };
   // Restores a previously captured selection snapshot via the existing
   // setters — DesignEditor owns all of this selection state, so no canvas
   // component needs to change for the restore to reflect on screen (the
@@ -2644,9 +2649,8 @@ function DesignEditor() {
   // wrapping every one of those calls in recordSelectionHistoryAroundChange
   // recorded one undo step per tick instead of Figma's "one drag = one undo
   // step". MultiScreenCanvas.tsx's marquee now tags exactly one call per
-  // gesture `final: true` (the mouseup report); coalesceMarqueeSelectionHistory
-  // remembers the selection from the gesture's FIRST tick and only the final
-  // tick actually pushes a history entry, spanning the whole drag.
+  // gesture `final: true` (the mouseup report); keep only the first and final
+  // snapshots on this path while interim updates stay live and unflushed.
   const marqueeSelectionHistoryBeforeRef =
     useRef<GeometryHistorySelection | null>(null);
   const recordMarqueeSelectionHistoryAroundChange = useCallback(
@@ -2663,7 +2667,19 @@ function DesignEditor() {
         run();
         return;
       }
-      const before = captureCurrentSelection();
+      recordDesignPerformance("marqueeSelectionChange");
+      if (intent.final === true) {
+        recordDesignPerformance("marqueeFinalSelectionChange");
+      }
+      if (intent.final !== true) {
+        if (marqueeSelectionHistoryBeforeRef.current === null) {
+          marqueeSelectionHistoryBeforeRef.current = captureCurrentSelection();
+        }
+        run();
+        return;
+      }
+      const before =
+        marqueeSelectionHistoryBeforeRef.current ?? captureCurrentSelection();
       flushSync(run);
       const after = captureCurrentSelection();
       const entry = coalesceMarqueeSelectionHistory(
@@ -8678,6 +8694,7 @@ function DesignEditor() {
       }
       const cached = cache.get(screenId);
       if (cached && cached.contentRef === content) return cached.projection;
+      recordDesignPerformance("buildCodeLayerProjection");
       const projection = buildCodeLayerProjection(content, {
         source: codeLayerSourceForScreen(screenId),
       });
@@ -21920,14 +21937,16 @@ function DesignEditor() {
     ],
   );
   const renderScreenContent = useCallback<OverviewScreenRenderer>(
-    (screen, metadata, geometry, options) =>
-      renderEditableScreenContent(
+    (screen, metadata, geometry, options) => {
+      recordDesignPerformance("renderScreenContent");
+      return renderEditableScreenContent(
         screen,
         metadata,
         geometry,
         undefined,
         options,
-      ),
+      );
+    },
     [renderEditableScreenContent],
   );
   const renderBreakpointContent = useCallback<OverviewBreakpointRenderer>(

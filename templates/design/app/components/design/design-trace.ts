@@ -4,6 +4,7 @@
 declare global {
   interface Window {
     __DESIGN_TRACE?: boolean;
+    __designPerformanceProbe?: Record<string, number>;
     __designTrace?: {
       dump: () => string;
       clear: () => void;
@@ -11,6 +12,13 @@ declare global {
       entries: () => TraceEntry[];
     };
   }
+}
+
+export function recordDesignPerformance(name: string, amount = 1): void {
+  if (typeof window === "undefined" || import.meta.env?.DEV !== true) return;
+  const probe = window.__designPerformanceProbe;
+  if (!probe) return;
+  probe[name] = (probe[name] ?? 0) + amount;
 }
 
 export type TraceArea =
