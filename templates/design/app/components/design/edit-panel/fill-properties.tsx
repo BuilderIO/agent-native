@@ -156,7 +156,9 @@ export function shouldUseTextFill(
 ): boolean {
   const hasVisibleBackgroundImage = splitCssLayers(
     styles.backgroundImage || "",
-  ).some((layer) => layer.trim().toLowerCase() !== "none");
+  ).some(
+    (layer) => !isMixedValue(layer) && layer.trim().toLowerCase() !== "none",
+  );
   const hasTextBackgroundClip = splitCssLayers(
     styles.backgroundClip || "",
   ).some((clip) => clip.trim().toLowerCase() === "text");

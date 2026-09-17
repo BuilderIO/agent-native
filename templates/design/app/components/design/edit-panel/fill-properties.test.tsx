@@ -311,6 +311,20 @@ describe("FillProperties base row — image layer prop wiring", () => {
     expect(shouldUseTextFill(el, el.computedStyles)).toBe(true);
   });
 
+  it("keeps mixed background paint on the text-fill path", () => {
+    const el = element({
+      tagName: "span",
+      textContent: "Listen now",
+      computedStyles: {
+        color: "Mixed",
+        backgroundImage: "Mixed",
+        backgroundClip: "Mixed",
+      },
+    });
+
+    expect(shouldUseTextFill(el, el.computedStyles)).toBe(true);
+  });
+
   it("offers gradient layers but not image paints for a text fill selection", () => {
     const el = element({
       tagName: "span",
