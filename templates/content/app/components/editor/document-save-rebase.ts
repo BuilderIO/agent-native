@@ -49,7 +49,9 @@ export async function saveDocumentWithRebase({
     return {
       status: "conflict",
       localDraft:
-        current && current.version !== owner!.version ? current.content : draft,
+        current && current.version !== owner!.version
+          ? current.content
+          : candidate,
     };
   };
   const confirmed = (document: Document): RebasedDocumentSaveResult => {

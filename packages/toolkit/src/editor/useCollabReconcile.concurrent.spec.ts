@@ -49,6 +49,7 @@ interface HarnessProps {
   value: string;
   contentUpdatedAt: string;
   contentRevision?: string;
+  compareContentRevisions?: (first: string, second: string) => number | null;
   acknowledgedLocalSnapshot?: {
     value: string;
     revision: string;
@@ -86,6 +87,7 @@ function makeHarness() {
     value,
     contentUpdatedAt,
     contentRevision,
+    compareContentRevisions,
     acknowledgedLocalSnapshot,
     editorOwnedFocus = false,
     isEditorFocused,
@@ -112,6 +114,7 @@ function makeHarness() {
       value,
       contentUpdatedAt,
       contentRevision,
+      compareContentRevisions,
       acknowledgedLocalSnapshot,
       onBaseAwareReconcile: (result) => {
         (captured.reconciled ??= []).push({
@@ -1377,6 +1380,98 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
       {
         status: "conflict",
         content: "Alpha local\n\nBravo\n\nCharlie local",
+      },
+    ]);
+  });
+
+  it("preserves the prior base when an acknowledgement precedes its canonical snapshot", async () => {
+    vi.useFakeTimers();
+    const { captured, Harness } = makeHarness();
+    const initial = {
+      value: "Alpha\n\nBravo\n\nCharlie",
+      contentUpdatedAt: "2024-01-01T00:00:01.000Z",
+      contentRevision: "revision-1",
+    };
+    render(root, Harness, initial);
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+
+    act(() =>
+      captured.editor!.commands.setContent(
+        "Alpha local\n\nBravo\n\nCharlie local",
+      ),
+    );
+    const acknowledgement = {
+      value: "Alpha local\n\nBravo\n\nCharlie",
+      revision: "revision-2",
+      updatedAt: "2024-01-01T00:00:02.000Z",
+      sequence: 1,
+    };
+    render(root, Harness, {
+      ...initial,
+      acknowledgedLocalSnapshot: acknowledgement,
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+
+    render(root, Harness, {
+      value: "Alpha external\n\nBravo server\n\nCharlie",
+      contentUpdatedAt: acknowledgement.updatedAt,
+      contentRevision: "revision-3",
+      acknowledgedLocalSnapshot: acknowledgement,
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+
+    expect(getEditorMarkdown(captured.editor!)).toBe(
+      "Alpha local\n\nBravo\n\nCharlie local",
+    );
+    expect(captured.reconciled).toEqual([
+      {
+        status: "conflict",
+        content: "Alpha local\n\nBravo\n\nCharlie local",
+      },
+    ]);
+  });
+
+  it("ignores a delayed different revision at an accepted timestamp", async () => {
+    vi.useFakeTimers();
+    const { captured, Harness } = makeHarness();
+    render(root, Harness, {
+      value: "Alpha\n\nBravo\n\nCharlie",
+      contentUpdatedAt: "2024-01-01T00:00:01.000Z",
+      contentRevision: "revision-1",
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+
+    act(() =>
+      captured.editor!.commands.setContent("Alpha\n\nBravo\n\nCharlie local"),
+    );
+    render(root, Harness, {
+      value: "Alpha\n\nBravo server\n\nCharlie",
+      contentUpdatedAt: "2024-01-01T00:00:02.000Z",
+      contentRevision: "body:3:sha256:newest",
+      compareContentRevisions: (first, second) =>
+        Number(first.split(":")[1]) - Number(second.split(":")[1]),
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+    expect(getEditorMarkdown(captured.editor!)).toBe(
+      "Alpha\n\nBravo server\n\nCharlie local",
+    );
+
+    render(root, Harness, {
+      value: "Alpha stale\n\nBravo\n\nCharlie",
+      contentUpdatedAt: "2024-01-01T00:00:02.000Z",
+      contentRevision: "body:2:sha256:delayed",
+      compareContentRevisions: (first, second) =>
+        Number(first.split(":")[1]) - Number(second.split(":")[1]),
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+
+    expect(getEditorMarkdown(captured.editor!)).toBe(
+      "Alpha\n\nBravo server\n\nCharlie local",
+    );
+    expect(captured.reconciled).toEqual([
+      {
+        status: "merged",
+        content: "Alpha\n\nBravo server\n\nCharlie local",
       },
     ]);
   });

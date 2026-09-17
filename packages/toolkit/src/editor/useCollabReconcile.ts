@@ -64,6 +64,12 @@ export interface UseCollabReconcileOptions {
   /** Opaque authoritative body revision. Enables base-aware reconciliation. */
   contentRevision?: string | null;
   /**
+   * Orders two revision identities when their timestamps tie. Return a positive
+   * number when the first revision is newer, zero when equivalent, a negative
+   * number when older, or null when this revision format cannot be ordered.
+   */
+  compareContentRevisions?: (first: string, second: string) => number | null;
+  /**
    * A server-confirmed snapshot written by this editor. This is deliberately
    * separate from `registerEmitted`: an emitted value may still fail to save,
    * while an acknowledged revision is safe to adopt as the next merge base.
@@ -263,6 +269,7 @@ export function useCollabReconcile({
   value,
   contentUpdatedAt,
   contentRevision,
+  compareContentRevisions,
   acknowledgedLocalSnapshot,
   collabContentRevision,
   requestCollabSync,
@@ -625,7 +632,33 @@ export function useCollabReconcile({
     const apply = (deferred = false) => {
       if (cancelled || editor.isDestroyed) return;
       if (contentUpdatedAt) {
-        if (
+        const rollback = acknowledgementBaseRollbackRef.current;
+        const conflictsWithAcceptedAcknowledgement =
+          contentRevision &&
+          rollback?.updatedAt === contentUpdatedAt &&
+          rollback.acknowledgementRevision !== contentRevision;
+        if (conflictsWithAcceptedAcknowledgement) {
+          const order = compareContentRevisions?.(
+            contentRevision,
+            rollback.acknowledgementRevision,
+          );
+          if (order !== undefined && order !== null && order <= 0) {
+            return;
+          }
+          // The acknowledgement advanced our base before its SQL snapshot was
+          // observed, but another revision won at the same timestamp. Restore
+          // the common base and treat this first canonical winner as the
+          // authoritative revision for that otherwise unordered timestamp.
+          if (
+            authoritativeBaseRef.current?.revision ===
+            rollback.acknowledgementRevision
+          ) {
+            authoritativeBaseRef.current = rollback.base;
+          }
+          acknowledgementBaseRollbackRef.current = null;
+          latestObservedUpdatedAtRef.current = contentUpdatedAt;
+          latestObservedRevisionRef.current = contentRevision;
+        } else if (
           !latestObservedUpdatedAtRef.current ||
           contentUpdatedAt > latestObservedUpdatedAtRef.current
         ) {
@@ -637,19 +670,20 @@ export function useCollabReconcile({
           contentRevision &&
           latestObservedRevisionRef.current !== contentRevision
         ) {
-          // Equal timestamps do not order revisions. Once two different
-          // revisions share one timestamp, no acknowledgement at that time can
-          // safely replace the authoritative base.
-          const rollback = acknowledgementBaseRollbackRef.current;
-          if (
-            rollback?.updatedAt === contentUpdatedAt &&
-            authoritativeBaseRef.current?.revision ===
-              rollback.acknowledgementRevision
-          ) {
-            authoritativeBaseRef.current = rollback.base;
+          const order = latestObservedRevisionRef.current
+            ? compareContentRevisions?.(
+                contentRevision,
+                latestObservedRevisionRef.current,
+              )
+            : null;
+          if (order !== undefined && order !== null && order <= 0) {
+            return;
           }
-          acknowledgementBaseRollbackRef.current = null;
-          latestObservedRevisionRef.current = null;
+          // Legacy opaque revisions cannot be ordered. Preserve their existing
+          // reconcile behavior; ordered body revisions retain the newest
+          // identity so a delayed snapshot cannot roll it back.
+          latestObservedRevisionRef.current =
+            order !== undefined && order !== null ? contentRevision : null;
         }
       }
       let rejectedMatchingAcknowledgement = false;
@@ -1044,6 +1078,7 @@ export function useCollabReconcile({
   }, [
     contentUpdatedAt,
     contentRevision,
+    compareContentRevisions,
     acknowledgedLocalSnapshot,
     editor,
     ydoc,

@@ -155,6 +155,39 @@ describe("document save ownership after a rejected CAS", () => {
     expect(persist).toHaveBeenCalledTimes(3);
   });
 
+  it("retains the merged candidate when a later retry conflicts", async () => {
+    const localDraft =
+      "Writers inspect changes.\nReaders retain context and annotations.";
+    const peerWinner = {
+      ...winner,
+      content: "Writers review changes.\nReaders retain context.",
+    };
+    const merged =
+      "Writers review changes.\nReaders retain context and annotations.";
+    const laterWinner = {
+      ...peerWinner,
+      content: "Writers publish changes.\nReaders retain context.",
+      updatedAt: "2026-09-09T00:00:03.000Z",
+    };
+    const persist = vi
+      .fn()
+      .mockResolvedValueOnce({ conflict: true, document: peerWinner })
+      .mockResolvedValueOnce({ conflict: true, document: laterWinner });
+
+    await expect(
+      saveDocumentWithRebase({
+        base,
+        content: localDraft,
+        persist,
+        canRetry: () => persist.mock.calls.length < 2,
+      }),
+    ).resolves.toEqual({ status: "conflict", localDraft: merged });
+    expect(persist).toHaveBeenNthCalledWith(2, merged, {
+      content: peerWinner.content,
+      updatedAt: peerWinner.updatedAt,
+    });
+  });
+
   it.each(["unknown-base", "changed-title"])(
     "does not retry with %s",
     async (reason) => {
