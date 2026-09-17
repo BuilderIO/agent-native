@@ -67,6 +67,18 @@ export interface LocalJsxLiteralProp {
   value: string;
 }
 
+function isEscaped(value: string, index: number): boolean {
+  let backslashes = 0;
+  for (
+    let cursor = index - 1;
+    cursor >= 0 && value[cursor] === "\\";
+    cursor--
+  ) {
+    backslashes += 1;
+  }
+  return backslashes % 2 === 1;
+}
+
 function offsetAt(
   content: string,
   line: number,
@@ -124,7 +136,7 @@ function scanOpeningTags(content: string): OpeningTag[] {
     ) {
       const quote = content[start];
       for (start += 1; start < content.length; start += 1) {
-        if (content[start] === quote && content[start - 1] !== "\\") break;
+        if (content[start] === quote && !isEscaped(content, start)) break;
       }
       continue;
     }
@@ -143,7 +155,7 @@ function scanOpeningTags(content: string): OpeningTag[] {
     ) {
       const char = content[index] ?? "";
       if (quote) {
-        if (char === quote && content[index - 1] !== "\\") quote = "";
+        if (char === quote && !isEscaped(content, index)) quote = "";
         continue;
       }
       if (char === '"' || char === "'") {
@@ -251,7 +263,7 @@ export function readLiteralJsxPropsAtAnchor(args: {
     const valueStart = index;
     while (
       index < opening.length &&
-      (opening[index] !== quote || opening[index - 1] === "\\")
+      (opening[index] !== quote || isEscaped(opening, index))
     ) {
       index += 1;
     }
@@ -519,7 +531,7 @@ export function planLocalJsxVisualEdit(args: {
       }
       const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       const literal = new RegExp(
-        `(\\s${escapedName}\\s*=\\s*)(["'])(.*?)\\2`,
+        `(\\s${escapedName}\\s*=\\s*)(["'])((?:\\\\.|(?!\\2)[\\s\\S])*)\\2`,
         "s",
       );
       const literalMatch = literal.exec(nextOpening);

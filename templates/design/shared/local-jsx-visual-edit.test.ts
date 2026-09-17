@@ -187,6 +187,16 @@ describe("planLocalJsxVisualEdit", () => {
         },
       }),
     ).toBeUndefined();
+    const dashedContent = 'const view = <Button aria-pressed="true" />;';
+    expect(
+      readLiteralJsxPropsAtAnchor({
+        content: dashedContent,
+        anchor: {
+          ...sourceAnchor,
+          column: dashedContent.indexOf("<Button") + 1,
+        },
+      }),
+    ).toEqual([{ name: "aria-pressed", value: "true" }]);
     const shorthandContent = "const view = <Button disabled />;";
     expect(
       readLiteralJsxPropsAtAnchor({
@@ -197,6 +207,21 @@ describe("planLocalJsxVisualEdit", () => {
         },
       }),
     ).toBeUndefined();
+  });
+
+  it("replaces a quoted JSX attribute with escaped quotes intact", () => {
+    const content = String.raw`const view = <Button title="She said \"hello\"" />;`;
+    const planned = planLocalJsxVisualEdit({
+      content,
+      anchor: {
+        line: 1,
+        column: content.indexOf("<Button") + 1,
+        positionPrecision: "authored",
+      },
+      intent: { kind: "attribute", name: "title", value: "Updated" },
+    });
+    expect(planned.result.status).toBe("applied");
+    expect(planned.content).toBe('const view = <Button title="Updated" />;');
   });
 
   it("rejects a dynamic value in an otherwise flat style object", () => {

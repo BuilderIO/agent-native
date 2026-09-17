@@ -38,4 +38,45 @@ describe("runtime provenance multiplicity", () => {
       } as ElementInfo),
     ).toBe(1);
   });
+
+  it("counts runtime component invocation sites instead of definition hosts", () => {
+    const snapshots = {
+      "screen-1": {
+        html: `<!doctype html><html><body>
+          <button data-agent-native-node-id="one" data-source-file="src/Component.jsx" data-source-line="8" data-source-column="5" data-component-name="PrimaryButton" data-source-owner-file="src/App.jsx" data-source-owner-line="20" data-source-owner-column="7" data-agent-native-runtime-component-id="runtime-component-one">A</button>
+          <button data-agent-native-node-id="two" data-source-file="src/Component.jsx" data-source-line="8" data-source-column="5" data-component-name="PrimaryButton" data-source-owner-file="src/App.jsx" data-source-owner-line="35" data-source-owner-column="7" data-agent-native-runtime-component-id="runtime-component-one">B</button>
+        </body></html>`,
+        nodeCount: 2,
+      },
+    };
+
+    expect(
+      runtimeMultiplicityForElementProvenance(snapshots, {
+        tagName: "button",
+        classes: [],
+        computedStyles: {},
+        boundingRect: { x: 0, y: 0, width: 0, height: 0 },
+        isFlexChild: false,
+        isFlexContainer: false,
+        provenance: {
+          sourceFile: "src/Component.jsx",
+          line: 8,
+          column: 5,
+          component: "PrimaryButton",
+        },
+        runtimeComponent: {
+          componentId: "runtime-component-one",
+          instanceId: "one",
+          name: "PrimaryButton",
+          framework: "react",
+          sourceFile: "src/App.jsx",
+          line: 20,
+          column: 7,
+          method: "debug-source",
+          props: [],
+          writeCapability: "authored-jsx-literal",
+        },
+      } as ElementInfo),
+    ).toBe(1);
+  });
 });

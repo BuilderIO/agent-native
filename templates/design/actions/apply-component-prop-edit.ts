@@ -76,9 +76,11 @@ import {
   COMPONENT_PROP_PREFIX,
   componentNameFor,
   componentNodeIdMatches,
+  propNameToDataAttribute,
 } from "../shared/component-model.js";
 import {
   planLocalJsxVisualEdit,
+  readLiteralJsxPropsAtAnchor,
   type LocalJsxSourceAnchor,
 } from "../shared/local-jsx-visual-edit.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
@@ -121,6 +123,18 @@ function jsxPropNameForComponentAttribute(attribute: string): string {
   return attribute
     .slice(COMPONENT_PROP_PREFIX.length)
     .replace(/-([a-z])/g, (_, char: string) => char.toUpperCase());
+}
+
+function literalJsxPropNameForComponentAttribute(
+  content: string,
+  anchor: LocalJsxSourceAnchor,
+  attribute: string,
+): string | undefined {
+  const literalProps = readLiteralJsxPropsAtAnchor({ content, anchor });
+  const matches = literalProps?.filter(
+    ({ name }) => propNameToDataAttribute(name) === attribute,
+  );
+  return matches?.length === 1 ? matches[0]!.name : undefined;
 }
 
 interface LinkedComponentSelection {
@@ -1027,18 +1041,23 @@ export default defineAction({
           };
         }
 
+        const jsxPropName =
+          literalJsxPropNameForComponentAttribute(
+            live.content,
+            localSource,
+            edit.attribute,
+          ) ?? jsxPropNameForComponentAttribute(edit.attribute);
         const planned = planLocalJsxVisualEdit({
           content: live.content,
           anchor: localSource,
           intent: {
             kind: "attributes",
             values: {
-              [jsxPropNameForComponentAttribute(edit.attribute)]: edit.value,
+              [jsxPropName]: edit.value,
               [edit.attribute]: edit.value,
             },
             expectedValues: {
-              [jsxPropNameForComponentAttribute(edit.attribute)]:
-                localSource.expectedValue,
+              [jsxPropName]: localSource.expectedValue,
             },
           },
         });
