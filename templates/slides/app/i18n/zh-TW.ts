@@ -175,7 +175,8 @@ const messages = {
     emptyDescription:
       "使用你的品牌顏色、字型和徽標建立設計系統。每個新簡報都會遵循你的視覺識別。",
     tierLimitTitle: "已達到設計系統數量上限",
-    tierLimitDescription: "您已達到目前方案的設計系統數量上限。升級方案以建立更多。",
+    tierLimitDescription:
+      "您已達到目前方案的設計系統數量上限。升級方案以建立更多。",
     tierLimitDescriptionWithCount:
       "您在 {{plan}} 方案中已使用 {{current}}/{{max}} 個設計系統。升級方案以建立更多。",
     tierLimitUpgrade: "升級方案",

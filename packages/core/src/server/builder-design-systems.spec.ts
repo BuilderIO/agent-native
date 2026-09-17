@@ -1057,12 +1057,14 @@ describe("Builder design-system helpers", () => {
       process.env.BUILDER_PUBLIC_KEY = "builder-public";
       process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
         "https://builder.example.test/design-systems/v1";
-      const fetchMock = vi.fn().mockResolvedValue(
-        new Response(
-          JSON.stringify({ plan: "enterprise", current: 42, max: null }),
-          { status: 200 },
-        ),
-      );
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(
+          new Response(
+            JSON.stringify({ plan: "enterprise", current: 42, max: null }),
+            { status: 200 },
+          ),
+        );
       vi.stubGlobal("fetch", fetchMock);
 
       const limit = await fetchBuilderDesignSystemTierLimit();

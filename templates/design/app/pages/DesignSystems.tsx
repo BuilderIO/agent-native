@@ -1,12 +1,12 @@
 import { appApiPath } from "@agent-native/core/client/api-path";
 import {
-  useActionQuery,
-  useActionMutation,
-} from "@agent-native/core/client/hooks";
-import {
   isDesignSystemTierAtMax,
   type DesignSystemTierLimit,
 } from "@agent-native/core/client/design-system-tier-limit";
+import {
+  useActionQuery,
+  useActionMutation,
+} from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { ShareButton } from "@agent-native/core/client/sharing";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
@@ -865,7 +865,9 @@ export default function DesignSystems() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t("designSystems.tierLimitTitle")}</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t("designSystems.tierLimitTitle")}
+            </AlertDialogTitle>
             <AlertDialogDescription>
               {tierLimit?.current != null &&
               tierLimit?.max != null &&

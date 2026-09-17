@@ -1,13 +1,13 @@
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import {
-  useActionQuery,
-  useActionMutation,
-} from "@agent-native/core/client/hooks";
-import {
   isDesignSystemTierAtMax,
   readDesignSystemTierLimitFailure,
   type DesignSystemTierLimit,
 } from "@agent-native/core/client/design-system-tier-limit";
+import {
+  useActionQuery,
+  useActionMutation,
+} from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { openAgentSidebar } from "@agent-native/core/client/navigation";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
@@ -287,9 +287,9 @@ export function DesignSystemSetup({
   const atMax = isDesignSystemTierAtMax(tierLimit);
   const codeIndexingAllowed =
     tierLimit?.status !== "ok" || tierLimit.codeIndexingAllowed;
-  const [tierLimitUpgradeUrl, setTierLimitUpgradeUrl] = useState<
-    string | null
-  >(null);
+  const [tierLimitUpgradeUrl, setTierLimitUpgradeUrl] = useState<string | null>(
+    null,
+  );
 
   useEffect(() => {
     if (existingDs && editingId) {
@@ -1340,6 +1340,21 @@ export function DesignSystemSetup({
           )}
         </ScrollArea>
 
+        {tierLimitUpgradeUrl && (
+          <div className="mx-6 mb-2 flex items-center justify-between gap-3 rounded-md border border-border bg-accent/40 px-3 py-2 text-sm text-foreground/80">
+            <span>{t("designSystems.tierLimitTitle")}</span>
+            <a
+              href={tierLimitUpgradeUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex shrink-0 items-center gap-1.5 font-medium text-primary hover:underline"
+            >
+              <IconExternalLink className="w-3.5 h-3.5" />
+              {t("designSystems.tierLimitUpgrade")}
+            </a>
+          </div>
+        )}
+
         {/* Actions */}
         <div className="flex justify-end gap-3 px-6 pb-6 pt-2 border-t border-border">
           <Button
@@ -1802,9 +1817,7 @@ function TierLimitCapNotice(props: {
         {t("designSystems.tierLimitTitle")}
       </p>
       <p className="text-sm text-muted-foreground">
-        {tierLimit?.current != null &&
-        tierLimit?.max != null &&
-        tierLimit?.plan
+        {tierLimit?.current != null && tierLimit?.max != null && tierLimit?.plan
           ? t("designSystems.tierLimitDescriptionWithCount", {
               current: tierLimit.current,
               max: tierLimit.max,

@@ -59,9 +59,7 @@ describe("Slides DesignSystemSetup tier-limit gating", () => {
       upgradeUrl: "https://builder.io/account/subscription",
     };
 
-    render(
-      <DesignSystemSetup open onClose={() => {}} onComplete={() => {}} />,
-    );
+    render(<DesignSystemSetup open onClose={() => {}} onComplete={() => {}} />);
 
     expect(screen.getByText("designSystems.tierLimitTitle")).toBeTruthy();
     const upgradeLink = screen.getByRole("link", {
@@ -84,9 +82,7 @@ describe("Slides DesignSystemSetup tier-limit gating", () => {
       upgradeUrl: "https://builder.io/account/subscription",
     };
 
-    render(
-      <DesignSystemSetup open onClose={() => {}} onComplete={() => {}} />,
-    );
+    render(<DesignSystemSetup open onClose={() => {}} onComplete={() => {}} />);
 
     const otherSourcesButton = screen.getByText(
       "designSystemSetup.otherSources",
@@ -111,9 +107,7 @@ describe("Slides DesignSystemSetup tier-limit gating", () => {
       upgradeUrl: null,
     };
 
-    render(
-      <DesignSystemSetup open onClose={() => {}} onComplete={() => {}} />,
-    );
+    render(<DesignSystemSetup open onClose={() => {}} onComplete={() => {}} />);
 
     expect(screen.queryByText("designSystems.tierLimitTitle")).toBeNull();
 

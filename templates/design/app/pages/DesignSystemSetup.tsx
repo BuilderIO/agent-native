@@ -1,12 +1,12 @@
 import {
-  useActionMutation,
-  useActionQuery,
-} from "@agent-native/core/client/hooks";
-import {
   isDesignSystemTierAtMax,
   readDesignSystemTierLimitFailure,
   type DesignSystemTierLimit,
 } from "@agent-native/core/client/design-system-tier-limit";
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { openAgentSidebar } from "@agent-native/core/client/navigation";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
@@ -155,9 +155,9 @@ export default function DesignSystemSetup() {
   const [notes, setNotes] = useState("");
   const [customInstructions, setCustomInstructions] = useState("");
   const [validationError, setValidationError] = useState<string | null>(null);
-  const [tierLimitUpgradeUrl, setTierLimitUpgradeUrl] = useState<
-    string | null
-  >(null);
+  const [tierLimitUpgradeUrl, setTierLimitUpgradeUrl] = useState<string | null>(
+    null,
+  );
   const [sourcePanel, setSourcePanel] = useState<"figma" | "other">("other");
   const [otherSource, setOtherSource] = useState<OtherSource | null>(null);
 
@@ -1087,7 +1087,9 @@ export default function DesignSystemSetup() {
                   selected={sourcePanel === "other" && otherSource === "code"}
                   onClick={() => selectOtherSource("code")}
                   locked={!codeIndexingAllowed}
-                  lockedMessage={t("designSystemSetup.codeIndexingEnterpriseOnly")}
+                  lockedMessage={t(
+                    "designSystemSetup.codeIndexingEnterpriseOnly",
+                  )}
                 />
                 <SourceChoice
                   icon={IconFileDescription}

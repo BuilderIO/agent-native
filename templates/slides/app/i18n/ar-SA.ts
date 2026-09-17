@@ -771,7 +771,8 @@ const messages = {
     websitePlaceholder: "example.com أو Nike",
     add: "إضافة",
     githubRepository: "ربط الكود: مستودع GitHub",
-    codeIndexingEnterpriseOnly: "تتطلب فهرسة التعليمات البرمجية والمستودعات خطة Enterprise",
+    codeIndexingEnterpriseOnly:
+      "تتطلب فهرسة التعليمات البرمجية والمستودعات خطة Enterprise",
     githubRef: "الفرع أو الوسم أو الالتزام (اختياري)",
     githubPaths: "الملفات أو المجلدات، مفصولة بفواصل (اختياري)",
     codeFiles: "ربط ملفات الكود",

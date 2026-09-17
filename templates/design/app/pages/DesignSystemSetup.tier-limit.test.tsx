@@ -111,9 +111,7 @@ describe("DesignSystemSetup tier-limit gating", () => {
       container.textContent?.includes("designSystems.tierLimitTitle"),
     ).toBe(true);
     // The full source-selection form must not render alongside the block.
-    expect(
-      container.querySelector('a[href="/design-systems"]'),
-    ).toBeTruthy();
+    expect(container.querySelector('a[href="/design-systems"]')).toBeTruthy();
     expect(
       container.querySelector(
         'a[href="https://builder.io/account/subscription"]',
@@ -136,10 +134,9 @@ describe("DesignSystemSetup tier-limit gating", () => {
       root.render(<DesignSystemSetup />);
     });
 
-    const codeButton = Array.from(
-      container.querySelectorAll("button"),
-    ).find((button) =>
-      button.textContent?.includes("designSystemSetup.sections.code.title"),
+    const codeButton = Array.from(container.querySelectorAll("button")).find(
+      (button) =>
+        button.textContent?.includes("designSystemSetup.sections.code.title"),
     );
     expect(codeButton).toBeTruthy();
     expect(codeButton?.getAttribute("aria-disabled")).toBe("true");
@@ -163,10 +160,9 @@ describe("DesignSystemSetup tier-limit gating", () => {
     expect(
       container.textContent?.includes("designSystems.tierLimitTitle"),
     ).toBe(false);
-    const codeButton = Array.from(
-      container.querySelectorAll("button"),
-    ).find((button) =>
-      button.textContent?.includes("designSystemSetup.sections.code.title"),
+    const codeButton = Array.from(container.querySelectorAll("button")).find(
+      (button) =>
+        button.textContent?.includes("designSystemSetup.sections.code.title"),
     );
     expect(codeButton).toBeTruthy();
     expect(codeButton?.getAttribute("aria-disabled")).toBe("false");

@@ -247,7 +247,9 @@ function designSystemTierLimitFromBody(
       ? body.codeIndexingAllowed
       : typeof body.allowCodeIndexing === "boolean"
         ? body.allowCodeIndexing
-        : !(plan && DESIGN_SYSTEM_CODE_INDEXING_ENTERPRISE_ONLY_PLANS.has(plan));
+        : !(
+            plan && DESIGN_SYSTEM_CODE_INDEXING_ENTERPRISE_ONLY_PLANS.has(plan)
+          );
   const upgradeUrl =
     typeof body.upgradeUrl === "string" && body.upgradeUrl.trim()
       ? body.upgradeUrl.trim()
