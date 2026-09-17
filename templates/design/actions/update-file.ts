@@ -374,14 +374,16 @@ export default defineAction({
           typeof persistedFile.contentOperationRevision === "number";
         // A durable replay may carry the oldest base hash while a prior
         // revision from this same browser tab already landed. The persisted
-        // SQL mirror and live collab text prove that no other writer moved the
-        // document, so the newer full snapshot is a safe continuation.
+        // operation result must still name the current SQL mirror, and the
+        // live collab text must match it; otherwise another writer moved the
+        // document and the normal CAS path must reject the replay.
         const sameClientContinuation =
           hasVersionedContentOperation &&
           sameOperationSource &&
           operationRevision! > persistedFile.contentOperationRevision! &&
           syncCollab !== false &&
           queuedReplay === true &&
+          persistedFile.contentOperationResultHash === persistedContentHash &&
           persistedContentHash === sourceContentHash(liveContent);
 
         // A pagehide keepalive can overtake the older normal fetch for this

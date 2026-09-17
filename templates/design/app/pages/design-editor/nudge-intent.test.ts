@@ -569,6 +569,28 @@ describe("resolveElementNudgeIntent", () => {
     ).toEqual(["b", "a", "c", "d"]);
   });
 
+  it("does not reorder a stylesheet-positioned grid child", () => {
+    const content = `<!doctype html><html><body>
+      <section data-agent-native-node-id="grid" class="grid-source">
+        <div data-agent-native-node-id="a">A</div>
+        <div data-agent-native-node-id="b">B</div>
+      </section>
+    </body></html>`;
+    const intent = resolveElementNudgeIntent({
+      content,
+      selectedElement: {
+        ...elementInfoFor("a", "div", "grid", undefined, {
+          display: "grid",
+          gridTemplateColumns: "100px 100px",
+        }),
+        computedStyles: { gridColumn: "2 / auto", gridRow: "auto" },
+      },
+      direction: "right",
+      largeStep: false,
+    });
+    expect(intent).toEqual({ kind: "none" });
+  });
+
   it("translates a child that opted out of the flow with position: absolute", () => {
     const content = `<!doctype html><html><body>
       <section data-agent-native-node-id="row" style="display:flex">

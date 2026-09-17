@@ -1079,6 +1079,43 @@ describe("update-file expectedVersionHash guard (server-discipline layer)", () =
     expect((await readLiveSourceFile(currentFileRef())).content).toBe(final);
   });
 
+  it("rejects a same-tab replay after a later writer moves the mirror and collab text", async () => {
+    const initial = await readLiveSourceFile(currentFileRef());
+    const first = buildDoc(" data-first");
+    const intervening = buildDoc(" data-intervening");
+    const final = buildDoc(" data-first data-final");
+
+    await updateFileAction.run({
+      id: FILE_ID,
+      content: first,
+      syncCollab: true,
+      operationSource: "tab-a",
+      operationRevision: 1,
+      expectedVersionHash: initial.versionHash,
+    } as never);
+
+    // Simulate a writer that updates both stores through a path that does not
+    // advance the browser operation marker left by revision 1.
+    await applyText(FILE_ID, intervening, "content", "agent");
+    designFilesStore.rows.get(FILE_ID)!.content = intervening;
+
+    await expect(
+      updateFileAction.run({
+        id: FILE_ID,
+        content: final,
+        syncCollab: true,
+        operationSource: "tab-a",
+        operationRevision: 2,
+        queuedReplay: true,
+        expectedVersionHash: initial.versionHash,
+      } as never),
+    ).rejects.toThrow(/changed since it was read/);
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(intervening);
+    expect((await readLiveSourceFile(currentFileRef())).content).toBe(
+      intervening,
+    );
+  });
+
   it("checks the hash against LIVE collab text once collab state exists, not the SQL row", async () => {
     // Seed collab with content that diverges from SQL (a collab write whose
     // SQL mirror hasn't landed yet). The guard must compare against the live

@@ -421,6 +421,17 @@ function isRenderedBlockDisplay(display: string | null | undefined): boolean {
   return display === "block" || display === "list-item";
 }
 
+function hasRenderedGridPlacement(
+  computedStyles: Record<string, string> | undefined,
+): boolean {
+  return [computedStyles?.gridColumn, computedStyles?.gridRow].some((value) => {
+    const normalized = value?.trim().replace(/\s+/g, " ").toLowerCase();
+    return Boolean(
+      normalized && normalized !== "auto" && normalized !== "auto / auto",
+    );
+  });
+}
+
 export interface ResolveElementNudgeIntentArgs {
   content: string;
   source?: CodeLayerSource;
@@ -582,6 +593,12 @@ export function resolveElementNudgeIntent(
     renderedOrder !== undefined &&
     renderedOrder !== "" &&
     renderedOrder !== "0"
+  ) {
+    return { kind: "none" };
+  }
+  if (
+    container.kind === "grid" &&
+    hasRenderedGridPlacement(args.selectedElement.computedStyles)
   ) {
     return { kind: "none" };
   }
