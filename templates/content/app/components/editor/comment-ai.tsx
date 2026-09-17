@@ -317,7 +317,13 @@ export function useCommentAiRequests(
         });
         await refetchRef.current();
       } catch (error) {
-        const snapshot = await handle.status().catch(() => null);
+        let snapshot: Awaited<ReturnType<typeof handle.status>> | undefined;
+        let statusError: unknown;
+        try {
+          snapshot = await handle.status();
+        } catch (caughtStatusError) {
+          statusError = caughtStatusError;
+        }
         if (snapshot && snapshot.status !== "unavailable") {
           setDispatchRecoveryRecord((current) => {
             if (!current[requestId]) return current;
@@ -332,10 +338,14 @@ export function useCommentAiRequests(
           ...current,
           [requestId]: {
             options,
-            error:
+            error: [
               error instanceof Error
                 ? error.message
                 : t("comments.aiRequestCouldNotBeConfirmed"),
+              statusError instanceof Error ? statusError.message : undefined,
+            ]
+              .filter(Boolean)
+              .join(" · "),
           },
         }));
       }
