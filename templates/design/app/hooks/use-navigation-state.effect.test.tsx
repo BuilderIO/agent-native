@@ -2,7 +2,7 @@
 
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, Route, Routes } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const coreClientMocks = vi.hoisted(() => ({
@@ -34,7 +34,13 @@ async function renderProbe(pathname: string, enabled = true) {
   await act(async () => {
     root.render(
       <MemoryRouter initialEntries={[pathname]}>
-        <Probe enabled={enabled} />
+        <Routes>
+          <Route
+            path="/visual-edit/:id"
+            element={<Probe enabled={enabled} />}
+          />
+          <Route path="*" element={<Probe enabled={enabled} />} />
+        </Routes>
       </MemoryRouter>,
     );
   });
@@ -64,6 +70,23 @@ describe("useNavigationState selection cleanup", () => {
     await renderProbe("/design/design-123");
 
     expect(coreClientMocks.setClientAppState).not.toHaveBeenCalled();
+  });
+
+  it("keeps editor selection and navigation state on local visual-edit routes", async () => {
+    await renderProbe("/visual-edit/design-123?view=overview");
+
+    expect(coreClientMocks.setClientAppState).not.toHaveBeenCalled();
+    const config = coreClientMocks.useAgentRouteState.mock.calls.at(-1)?.[0];
+    expect(
+      config.getNavigationState({
+        pathname: "/visual-edit/design-123",
+        search: "?view=overview",
+      }),
+    ).toEqual({
+      view: "editor",
+      designId: "design-123",
+      editorView: "overview",
+    });
   });
 
   it("does not clear selection while route sync is disabled", async () => {

@@ -41,7 +41,7 @@ type WebMcpCall = {
   state?: string;
   ok?: boolean;
   tool?: string;
-  result?: { pendingEditCount?: number; status?: string; prompt?: string };
+  result?: JsonObject;
 };
 
 function requireValue<T>(value: T | null | undefined, message: string): T {
@@ -100,6 +100,14 @@ async function frameNodePageBox(frame: Frame, iframe: Locator, nodeId: string) {
     width: localBox.width * scaleX,
     height: localBox.height * scaleY,
   };
+}
+
+async function cdpScreenshot(page: Page, filePath: string): Promise<void> {
+  const client = await page.context().newCDPSession(page);
+  const { data } = await client.send("Page.captureScreenshot", {
+    format: "png",
+  });
+  await writeFile(filePath, Buffer.from(data, "base64"));
 }
 
 async function liveRelationship(frame: Frame, nodeId: string) {
@@ -180,9 +188,14 @@ async function main() {
     viewport: { width: 1900, height: 1100 },
   });
   const page = await context.newPage();
+  let browserTabId = "";
   let createdDesignId: string | undefined;
+  let connectionId: string | undefined;
   let sourceOriginal: BridgeSnapshot | undefined;
-  let sourceChanged = false;
+  let sourceNeedsRestore = false;
+  let expectedEditedContent: string | undefined;
+  let proofError: unknown;
+  const cleanupErrors: Error[] = [];
 
   const postAction = async (name: string, data: JsonObject) => {
     const response = await page.request.post(
@@ -191,7 +204,7 @@ async function main() {
         data,
         headers: {
           "Content-Type": "application/json",
-          "X-Agent-Native-Browser-Tab": "visual-edit-interaction-runtime-proof",
+          "X-Agent-Native-Browser-Tab": browserTabId,
           "X-Agent-Native-Frontend": "1",
         },
         timeout: 60_000,
@@ -233,22 +246,63 @@ async function main() {
     return { content: result.content, versionHash: result.versionHash };
   };
 
-  const callWebMcp = async (): Promise<WebMcpCall> =>
-    (await page.evaluate(async () => {
-      const helper = (
-        window as typeof window & {
-          __agentNativeWebMcp?: {
-            call: (name: string, args?: JsonObject) => Promise<unknown>;
-          };
-        }
-      ).__agentNativeWebMcp;
-      if (!helper) throw new Error("WebMCP page helper missing.");
-      return helper.call("get-visual-edit-prompt", {});
-    })) as WebMcpCall;
+  const callWebMcp = async (
+    name: string,
+    args: JsonObject = {},
+  ): Promise<WebMcpCall> =>
+    (await page.evaluate(
+      async ({ name, args }: { name: string; args: JsonObject }) => {
+        const helper = (
+          window as typeof window & {
+            __agentNativeWebMcp?: {
+              call: (
+                name: string,
+                args?: JsonObject,
+                options?: { waitMs?: number },
+              ) => Promise<unknown>;
+            };
+          }
+        ).__agentNativeWebMcp;
+        if (!helper) throw new Error("WebMCP page helper missing.");
+        return helper.call(name, args, { waitMs: 20_000 });
+      },
+      { name, args },
+    )) as WebMcpCall;
+
+  const readLocalFile = async (): Promise<BridgeSnapshot> => {
+    const designId = requireValue(
+      createdDesignId,
+      "Cannot read local source before creating the proof design.",
+    );
+    const connection = requireValue(
+      connectionId,
+      "Cannot read local source before opening its bridge connection.",
+    );
+    const call = await callWebMcp("read-local-file", {
+      designId,
+      connectionId: connection,
+      path: sourceFile,
+    });
+    assert(
+      call.state === "done" &&
+        call.ok === true &&
+        call.tool === "read-local-file",
+      `WebMCP read-local-file failed: ${JSON.stringify(call)}`,
+    );
+    assert(
+      typeof call.result?.content === "string" &&
+        typeof call.result?.versionHash === "string",
+      "WebMCP read-local-file returned incomplete source metadata.",
+    );
+    return {
+      content: call.result.content,
+      versionHash: call.result.versionHash,
+    };
+  };
 
   const pendingEdit = async (): Promise<JsonObject> => {
     const call = await waitFor(
-      callWebMcp,
+      () => callWebMcp("get-visual-edit-prompt"),
       (value) =>
         value.state === "done" &&
         value.ok === true &&
@@ -339,7 +393,7 @@ async function main() {
         };
       },
       {
-        source: (await readBridgeFile()).content,
+        source: (await readLocalFile()).content,
         selector: edit.anchorSelector,
       },
     );
@@ -375,6 +429,20 @@ async function main() {
       { headers: { Accept: "application/json" }, timeout: 60_000 },
     );
     assert(signIn.ok(), `Design local-dev sign-in failed: ${signIn.status()}.`);
+    await page.goto(`${designUrl}/`, { waitUntil: "domcontentloaded" });
+    await page.waitForFunction(
+      () => sessionStorage.getItem("agent-native:browser-tab-id") !== null,
+      undefined,
+      { timeout: 10_000 },
+    );
+    const storedBrowserTabId = await page.evaluate(() =>
+      sessionStorage.getItem("agent-native:browser-tab-id"),
+    );
+    assert(
+      typeof storedBrowserTabId === "string" && storedBrowserTabId.length > 0,
+      "Design page did not establish a browser-tab id.",
+    );
+    browserTabId = storedBrowserTabId;
 
     const opened = await postAction("open-visual-edit", {
       title: "URL-backed nested structure proof",
@@ -397,11 +465,17 @@ async function main() {
         },
       ],
       publicReadOnly: false,
-      navigate: false,
+      navigate: true,
     });
     createdDesignId =
       typeof opened.designId === "string" ? opened.designId : undefined;
     assert(createdDesignId, "open-visual-edit returned no design id.");
+    connectionId =
+      typeof opened.connectionId === "string" ? opened.connectionId : undefined;
+    assert(
+      connectionId,
+      "open-visual-edit returned no localhost connection id.",
+    );
     const screen = (Array.isArray(opened.screens) ? opened.screens : []).find(
       (candidate: JsonObject) => candidate.path === targetPath,
     );
@@ -453,6 +527,10 @@ async function main() {
     );
     const sandbox = sandboxAttribute.split(/\s+/);
     assert(
+      sandbox.includes("allow-scripts"),
+      "URL-backed target iframe lacks allow-scripts.",
+    );
+    assert(
       sandbox.includes("allow-same-origin"),
       "URL-backed target iframe lacks allow-same-origin.",
     );
@@ -461,9 +539,58 @@ async function main() {
       "Target iframe unexpectedly uses srcdoc.",
     );
     const targetFrame = await frameForIframe(targetIframe);
-    await targetFrame
-      .locator(`[data-agent-native-node-id="${targetNodeId}"]`)
-      .waitFor({ state: "visible", timeout: 30_000 });
+    try {
+      await targetFrame
+        .locator(`[data-agent-native-node-id="${targetNodeId}"]`)
+        .waitFor({ state: "visible", timeout: 30_000 });
+    } catch (error) {
+      const frameText = await targetFrame
+        .locator("body")
+        .innerText({ timeout: 2_000 })
+        .catch(() => "<unreadable>");
+      throw new Error(
+        `Nested target did not load in ${targetFrame.url()}: ${frameText.slice(0, 500)}`,
+        { cause: error },
+      );
+    }
+
+    const webMcpTools = await page.evaluate(async () => {
+      const helper = (
+        window as typeof window & {
+          __agentNativeWebMcp?: {
+            ready: (options?: { waitMs?: number }) => Promise<unknown>;
+            tools: () => Promise<Array<{ name: string }>>;
+          };
+        }
+      ).__agentNativeWebMcp;
+      if (!helper) throw new Error("WebMCP page helper missing.");
+      const ready = await helper.ready({ waitMs: 10_000 });
+      const tools = await helper.tools();
+      return {
+        ready,
+        names: tools.map((tool) => tool.name).sort(),
+      };
+    });
+    const requiredWebMcpTools = [
+      "get-visual-edit-prompt",
+      "read-local-file",
+      "request-localhost-write-consent",
+      "write-local-file",
+    ];
+    assert(
+      requiredWebMcpTools.every((name) => webMcpTools.names.includes(name)),
+      `Supported visual-edit WebMCP tools are missing: ${JSON.stringify({
+        required: requiredWebMcpTools,
+        available: webMcpTools.names,
+      })}`,
+    );
+    sourceOriginal = await readLocalFile();
+    assert(
+      !sourceOriginal.content.includes(
+        `data-agent-native-node-id="${boardNodeId}"`,
+      ),
+      "Fixture source was not clean before the structure edit.",
+    );
 
     const boardIframe = page.locator(
       "[data-board-surface-layer] iframe[data-design-preview-iframe]",
@@ -478,6 +605,19 @@ async function main() {
       .getByRole("button", { name: "Move", exact: true })
       .first()
       .click();
+
+    const surfaceBox = requireValue(
+      await page.locator("[data-multi-screen-canvas-surface]").boundingBox(),
+      "Visual-edit canvas surface has no page bounding box.",
+    );
+    const boardIframeBox = requireValue(
+      await boardIframe.boundingBox(),
+      "Board iframe has no page bounding box.",
+    );
+    const targetIframeBox = requireValue(
+      await targetIframe.boundingBox(),
+      "Target iframe has no page bounding box.",
+    );
 
     const sourceBox = requireValue(
       await frameNodePageBox(boardFrame, boardIframe, boardNodeId),
@@ -506,6 +646,13 @@ async function main() {
         anchorBox.height +
         (tailBox.y - anchorBox.y - anchorBox.height) * 0.35,
     };
+    assert(
+      sourcePoint.x >= surfaceBox.x &&
+        sourcePoint.x <= surfaceBox.x + surfaceBox.width &&
+        sourcePoint.y >= surfaceBox.y &&
+        sourcePoint.y <= surfaceBox.y + surfaceBox.height,
+      "Composed board coordinate is outside the overview canvas surface.",
+    );
     await page.mouse.move(sourcePoint.x, sourcePoint.y);
     await page.mouse.down();
     await page.mouse.move(gapPoint.x, gapPoint.y, { steps: 28 });
@@ -522,10 +669,7 @@ async function main() {
           JSON.stringify([anchorNodeId, boardNodeId, tailNodeId]),
       "live nested insertion",
     );
-    await page.screenshot({
-      path: `${outputDir}/url-backed-nested-pending.png`,
-      fullPage: true,
-    });
+    await cdpScreenshot(page, `${outputDir}/url-backed-nested-pending.png`);
 
     await page.keyboard.press("ControlOrMeta+z");
     const liveAfterUndo = await waitFor(
@@ -537,7 +681,7 @@ async function main() {
       "live insertion undo",
     );
     const undoneCall = await waitFor(
-      callWebMcp,
+      () => callWebMcp("get-visual-edit-prompt"),
       (value) =>
         value.state === "done" &&
         value.ok === true &&
@@ -573,7 +717,7 @@ async function main() {
       "Redo changed drop mode.",
     );
 
-    sourceOriginal = await readBridgeFile();
+    sourceOriginal = await readLocalFile();
     assert(
       !sourceOriginal.content.includes(
         `data-agent-native-node-id="${boardNodeId}"`,
@@ -586,19 +730,63 @@ async function main() {
       "Target source anchor boundary is not unique.",
     );
     const replace = `        </div>\n        ${redone.insertedHtml}\n        <div\n          data-agent-native-node-id="${tailNodeId}"`;
-    const applied = await bridgePost("/apply-edit", {
+    expectedEditedContent = sourceOriginal.content.replace(search, replace);
+    assert(
+      expectedEditedContent !== sourceOriginal.content,
+      "Source patch did not change the fixture content.",
+    );
+    const consentRequest = await callWebMcp("request-localhost-write-consent", {
+      designId: createdDesignId,
+      connectionId,
+      files: [sourceFile],
+    });
+    assert(
+      consentRequest.state === "done" &&
+        consentRequest.ok === true &&
+        consentRequest.tool === "request-localhost-write-consent" &&
+        consentRequest.result?.surfaced === true,
+      `WebMCP write-consent request failed to surface: ${JSON.stringify(
+        consentRequest,
+      )}`,
+    );
+    const consentDialog = page.getByRole("dialog");
+    await consentDialog.waitFor({ state: "visible", timeout: 10_000 });
+    await consentDialog
+      .getByRole("button", { name: "Allow writes", exact: true })
+      .click();
+    await consentDialog.waitFor({ state: "hidden", timeout: 10_000 });
+
+    sourceNeedsRestore = true;
+    const applied = await callWebMcp("write-local-file", {
+      designId: createdDesignId,
+      connectionId,
       relPath: sourceFile,
-      search,
-      replace,
+      patch: { search, replace },
       expectedVersionHash: sourceOriginal.versionHash,
       requireExpectedVersionHash: true,
     });
     assert(
-      applied.ok === true,
-      "Bridge apply-edit did not acknowledge the write.",
+      applied.state === "done" &&
+        applied.ok === true &&
+        applied.tool === "write-local-file" &&
+        applied.result?.written === true,
+      `WebMCP write-local-file did not acknowledge the write: ${JSON.stringify(
+        applied,
+      )}`,
     );
-    sourceChanged = true;
-    const sourceAfterApply = await readBridgeFile();
+    assert(
+      typeof applied.result?.versionHash === "string",
+      "WebMCP write-local-file returned no resulting version hash.",
+    );
+    const sourceAfterApply = await readLocalFile();
+    assert(
+      sourceAfterApply.content === expectedEditedContent,
+      "WebMCP write-local-file wrote unexpected source content.",
+    );
+    assert(
+      sourceAfterApply.versionHash === applied.result.versionHash,
+      "WebMCP write-local-file returned a stale version hash.",
+    );
     const pendingAfterApply = await pendingEdit();
     assert(
       pendingAfterApply.sourceId === boardNodeId,
@@ -639,14 +827,15 @@ async function main() {
       "Source inserted node has the wrong parent.",
     );
     assert(
+      sourceSemantics.subjectIndex === 1,
+      `Source inserted node has the wrong index: ${sourceSemantics.subjectIndex}`,
+    );
+    assert(
       JSON.stringify(sourceSemantics.targetChildren) ===
         JSON.stringify([anchorNodeId, boardNodeId, tailNodeId]),
       `Source inserted node has the wrong order: ${JSON.stringify(sourceSemantics.targetChildren)}`,
     );
-    await page.screenshot({
-      path: `${outputDir}/url-backed-nested-reloaded.png`,
-      fullPage: true,
-    });
+    await cdpScreenshot(page, `${outputDir}/url-backed-nested-reloaded.png`);
 
     const artifact = {
       targetPath,
@@ -657,6 +846,17 @@ async function main() {
         srcPath: targetUrl.pathname,
         sandbox,
         hasSrcdoc: false,
+      },
+      coordinateProbe: {
+        overviewZoom: 100,
+        surfaceBox,
+        boardIframeBox,
+        targetIframeBox,
+        sourceBox,
+        anchorBox,
+        tailBox,
+        sourcePoint,
+        gapPoint,
       },
       sourceNodeId: boardNodeId,
       targetNodeId,
@@ -669,11 +869,13 @@ async function main() {
       undonePendingEditCount: undoneCall.result?.pendingEditCount ?? null,
       liveAfterReload,
       sourceSemantics,
-      bridgeApply: {
+      supportedWrite: {
+        transport: "page-webmcp",
+        tool: applied.tool,
         ok: applied.ok,
-        method: applied.method,
         usedExpectedVersionHash: sourceOriginal.versionHash,
         resultingVersionHash: sourceAfterApply.versionHash,
+        operation: applied.result.operation,
       },
       screenshots: [
         "url-backed-nested-pending.png",
@@ -686,33 +888,89 @@ async function main() {
       `${JSON.stringify(artifact, null, 2)}\n`,
     );
     console.log(JSON.stringify(artifact, null, 2));
+  } catch (error) {
+    proofError = error;
   } finally {
-    if (sourceChanged && sourceOriginal) {
+    if (sourceNeedsRestore && sourceOriginal) {
       try {
         const current = await readBridgeFile();
-        if (
-          current.content.includes(`data-agent-native-node-id="${boardNodeId}"`)
-        ) {
-          await bridgePost("/apply-edit", {
+        if (current.content === sourceOriginal.content) {
+          sourceNeedsRestore = false;
+        } else {
+          assert(
+            expectedEditedContent !== undefined &&
+              current.content === expectedEditedContent,
+            "Refusing to overwrite a source change made outside this proof.",
+          );
+          const restored = await bridgePost("/apply-edit", {
             relPath: sourceFile,
             content: sourceOriginal.content,
             expectedVersionHash: current.versionHash,
             requireExpectedVersionHash: true,
           });
+          assert(
+            restored.ok === true,
+            "Source fixture cleanup did not acknowledge restoration.",
+          );
+          const restoredSource = await readBridgeFile();
+          assert(
+            restoredSource.content === sourceOriginal.content,
+            "Source fixture cleanup did not restore the original content.",
+          );
+          sourceNeedsRestore = false;
         }
       } catch (error) {
-        console.warn(`source fixture cleanup failed: ${String(error)}`);
+        cleanupErrors.push(
+          new Error(`source fixture cleanup failed: ${String(error)}`),
+        );
+      }
+    }
+    if (createdDesignId && connectionId) {
+      try {
+        await postAction("revoke-localhost-write-consent", {
+          designId: createdDesignId,
+          connectionId,
+        });
+      } catch (error) {
+        cleanupErrors.push(
+          new Error(`write consent cleanup failed: ${String(error)}`),
+        );
       }
     }
     if (createdDesignId) {
       try {
         await postAction("delete-design", { id: createdDesignId });
       } catch (error) {
-        console.warn(`design proof cleanup failed: ${String(error)}`);
+        cleanupErrors.push(
+          new Error(`design proof cleanup failed: ${String(error)}`),
+        );
       }
     }
-    await context.close();
-    await browser.close();
+    try {
+      await context.close();
+    } catch (error) {
+      cleanupErrors.push(
+        new Error(`browser context cleanup failed: ${String(error)}`),
+      );
+    }
+    try {
+      await browser.close();
+    } catch (error) {
+      cleanupErrors.push(new Error(`browser cleanup failed: ${String(error)}`));
+    }
+  }
+  if (proofError && cleanupErrors.length > 0) {
+    throw new AggregateError(
+      [proofError, ...cleanupErrors],
+      "Visual-edit proof and cleanup failed.",
+    );
+  }
+  if (proofError) throw proofError;
+  if (cleanupErrors.length > 0) {
+    throw new AggregateError(
+      cleanupErrors,
+      "Visual-edit proof cleanup failed.",
+    );
   }
 }
 

@@ -232,7 +232,11 @@ export function useNavigationState(enabled = true) {
 
   useEffect(() => {
     if (!enabled) return;
-    if (location.pathname.startsWith("/design/")) return;
+    if (
+      location.pathname.startsWith("/design/") ||
+      location.pathname.startsWith("/visual-edit/")
+    )
+      return;
     for (const key of designSelectionCleanupKeysForTab(browserTabId)) {
       setClientAppState(key, null).catch(() => {});
     }
@@ -244,7 +248,10 @@ export function useNavigationState(enabled = true) {
       const state: NavigationState = { view: "list" };
       const searchParams = new URLSearchParams(search);
 
-      if (pathname.startsWith("/design/")) {
+      if (
+        pathname.startsWith("/design/") ||
+        pathname.startsWith("/visual-edit/")
+      ) {
         state.view = "editor";
         state.designId = params.id;
         const editorView = normalizeEditorView(searchParams.get("view"));

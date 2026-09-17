@@ -46,6 +46,25 @@ describe("board <-> screen-local point conversion", () => {
         frame,
         VIEWPORT,
       );
+      const overviewPoint = canvasToScreenPoint(
+        boardPoint,
+        camera,
+        surfaceOrigin,
+        64,
+      );
+      const boardPointFromOverview = screenToCanvasPoint(
+        overviewPoint,
+        camera,
+        surfaceOrigin,
+        64,
+      );
+      const composedLocalPoint = boardPointToScreenLocalPoint(
+        boardPointFromOverview,
+        frame,
+        VIEWPORT,
+      );
+      expect(composedLocalPoint.x).toBeCloseTo(localPoint.x, 6);
+      expect(composedLocalPoint.y).toBeCloseTo(localPoint.y, 6);
       const roundTrippedLocalPoint = boardPointToScreenLocalPoint(
         boardPoint,
         frame,
