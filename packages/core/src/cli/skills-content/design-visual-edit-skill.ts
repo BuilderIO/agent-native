@@ -238,6 +238,16 @@ separate Postgres-backed databases.
 
 ## Action Flow
 
+When a real Chrome browser is available (e.g. Claude-in-Chrome), skip
+everything below and call the page's own \`open-visual-edit\` WebMCP tool
+directly on the Design app the user already has open (production, beta, or
+local) — same arguments as shown below. It runs as that tab's signed-in user:
+no MCP connector, no OAuth, no dev-session email to guess, and the returned
+\`urlPath\` already has full owner access in that same tab. Ask the user to sign
+in first if the tab isn't authenticated yet. Use the CLI path below only for a
+headless/terminal-only host, or a Design deploy old enough not to expose this
+tool.
+
 Prefer the single \`open-visual-edit\` action. It registers or
 refreshes the localhost bridge connection, mints and stores the bridge token,
 creates or reuses a Design project, places URL-backed screens, stores the active

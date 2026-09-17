@@ -49,6 +49,7 @@ import {
 
 import changelog from "../CHANGELOG.md?raw";
 import { i18nCatalog } from "./i18n";
+import { OpenVisualEditWebMcp } from "./OpenVisualEditWebMcp";
 import { isPublicDesignAppPath } from "./public-routes";
 
 import stylesheet from "./global.css?url";
@@ -248,6 +249,7 @@ function PrivateRootContent() {
   return (
     <>
       {hasSession && <DbSyncSetup />}
+      {hasSession && <OpenVisualEditWebMcp />}
       {hasSession && !isPublicVisualEdit && (
         <DesignCommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen} />
       )}
