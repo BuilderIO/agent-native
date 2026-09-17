@@ -2875,6 +2875,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       "width",
       "height",
       "transform",
+      "scale",
       "display",
       "overflow",
       "lineHeight",
@@ -2904,7 +2905,12 @@ export const editorChromeBridgeScript: string = `"use strict";
       "backgroundImage",
       "backgroundColor",
       "color",
-      "fill"
+      "fill",
+      "borderRadius",
+      "borderTopLeftRadius",
+      "borderTopRightRadius",
+      "borderBottomRightRadius",
+      "borderBottomLeftRadius"
     ];
     function collectInlineStyles(el) {
       var styles = {};
@@ -2937,6 +2943,15 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!el || !liveVisualEditOriginalInlineStyles) return;
       if (liveVisualEditOriginalInlineStyles.has(el)) return;
       liveVisualEditOriginalInlineStyles.set(el, collectInlineStyles(el));
+    }
+    function refreshLiveVisualEditOriginalStyles(el) {
+      if (!el || !liveVisualEditOriginalInlineStyles) return;
+      liveVisualEditOriginalInlineStyles.delete(el);
+      rememberLiveVisualEditOriginalStyles(el);
+    }
+    function releaseLiveVisualEditOriginalStyles(el) {
+      if (!el || !liveVisualEditOriginalInlineStyles) return;
+      liveVisualEditOriginalInlineStyles.delete(el);
     }
     function originalInlineStylesForPatch(el, styles) {
       if (!el || !liveVisualEditOriginalInlineStyles) return {};
@@ -3612,7 +3627,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var handle = document.createElement("span");
       handle.setAttribute("data-agent-native-edit-handle", pos);
       var cursor = pos === "n" || pos === "s" ? "ns-resize" : pos === "e" || pos === "w" ? "ew-resize" : pos === "nw" || pos === "se" ? "nwse-resize" : "nesw-resize";
-      handle.style.cssText = "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:0;pointer-events:auto;cursor:" + cursor + ";";
+      handle.style.cssText = "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:2px;box-shadow:0 1px 2px color-mix(in srgb,var(--design-editor-accent-color) 25%,transparent);pointer-events:auto;cursor:" + cursor + ";";
       if (pos.indexOf("n") !== -1) handle.style.top = "-4px";
       if (pos.indexOf("s") !== -1) handle.style.bottom = "-4px";
       if (pos.indexOf("w") !== -1) handle.style.left = "-4px";
@@ -3625,6 +3640,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         handle.style.top = "50%";
         handle.style.transform = "translateY(-50%)";
       }
+      selectionOverlay.appendChild(handle);
+    });
+    ["nw", "ne", "se", "sw"].forEach(function(pos) {
+      var handle = document.createElement("span");
+      handle.setAttribute("data-agent-native-radius-handle", pos);
+      handle.style.cssText = "position:absolute;z-index:2;width:9px;height:9px;border:1.5px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:999px;box-shadow:0 1px 2px color-mix(in srgb,var(--design-editor-accent-color) 25%,transparent);pointer-events:auto;cursor:pointer;display:none;";
       selectionOverlay.appendChild(handle);
     });
     (function() {
@@ -3717,7 +3738,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     document.body.appendChild(constraintGuideLayer);
     var sizeBadge = document.createElement("div");
     sizeBadge.setAttribute("data-agent-native-edit-overlay", "size-badge");
-    sizeBadge.style.cssText = "position:fixed;z-index:100000;display:none;pointer-events:none;border-radius:3px;background:var(--design-editor-accent-color);color:var(--design-editor-accent-contrast-color);font:10px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;padding:2px 4px;white-space:nowrap;";
+    sizeBadge.style.cssText = "position:fixed;z-index:100000;display:none;pointer-events:none;border-radius:4px;background:var(--design-editor-accent-color);color:var(--design-editor-accent-contrast-color);font:600 11px/1.4 ui-sans-serif,system-ui,-apple-system,sans-serif;padding:2px 6px;white-space:nowrap;box-shadow:0 1px 2px color-mix(in srgb,var(--design-editor-accent-color) 15%,transparent);";
     document.body.appendChild(sizeBadge);
     var insertionGuide = document.createElement("div");
     insertionGuide.setAttribute("data-agent-native-insertion-guide", "");
@@ -5635,6 +5656,21 @@ export const editorChromeBridgeScript: string = `"use strict";
       );
     }
     var lastHandleGeometryTargetEl = null;
+    var RADIUS_UNSUPPORTED_PRIMITIVES = {
+      line: true,
+      arrow: true,
+      ellipse: true,
+      circle: true,
+      polygon: true,
+      star: true,
+      path: true,
+      pen: true
+    };
+    function supportsCornerRadiusHandles(el) {
+      if (!el || el.nodeType !== 1) return false;
+      var kind = (el.getAttribute("data-an-primitive") || el.getAttribute("data-agent-native-primitive") || "").toLowerCase();
+      return !kind || !RADIUS_UNSUPPORTED_PRIMITIVES[kind];
+    }
     function applySelectionHandleHitGeometry(el) {
       var isNewSelectionTarget = el !== lastHandleGeometryTargetEl;
       lastHandleGeometryTargetEl = el || null;
@@ -5671,10 +5707,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       });
       selectionOverlay.querySelectorAll("[data-agent-native-edit-handle]").forEach(function(handle) {
         var pos = handle.getAttribute("data-agent-native-edit-handle") || "";
-        var sizeX = 7 * sx;
-        var sizeY = 7 * sy;
-        var inwardX = clampHandleInwardReach(sizeX - 4 * sx, elWidth);
-        var inwardY = clampHandleInwardReach(sizeY - 4 * sy, elHeight);
+        var sizeX = 7 * line;
+        var sizeY = 7 * line;
+        var inwardX = clampHandleInwardReach(sizeX - 4 * line, elWidth);
+        var inwardY = clampHandleInwardReach(sizeY - 4 * line, elHeight);
         handle.style.width = sizeX + "px";
         handle.style.height = sizeY + "px";
         handle.style.borderWidth = 1 * line + "px";
@@ -5690,6 +5726,30 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (pos.indexOf("e") !== -1) {
           handle.style.right = inwardX - sizeX + "px";
         }
+      });
+      var radiusHandlesSupported = supportsCornerRadiusHandles(el);
+      selectionOverlay.querySelectorAll("[data-agent-native-radius-handle]").forEach(function(handle) {
+        if (readOnly || !!activeTextEditEl || !radiusHandlesSupported || !(elWidth > 0) || !(elHeight > 0)) {
+          handle.style.display = "none";
+          return;
+        }
+        var pos = handle.getAttribute("data-agent-native-radius-handle") || "";
+        var size = 9 * line;
+        var maxInset = Math.min(elWidth, elHeight) / 2 - size;
+        if (maxInset < 4 * line) {
+          handle.style.display = "none";
+          return;
+        }
+        var inset = Math.max(4 * line, Math.min(16 * line, maxInset));
+        handle.style.display = "block";
+        handle.style.width = size + "px";
+        handle.style.height = size + "px";
+        handle.style.borderWidth = 1.5 * line + "px";
+        var offset = inset - size / 2 + "px";
+        if (pos.indexOf("n") !== -1) handle.style.top = offset;
+        if (pos.indexOf("s") !== -1) handle.style.bottom = offset;
+        if (pos.indexOf("w") !== -1) handle.style.left = offset;
+        if (pos.indexOf("e") !== -1) handle.style.right = offset;
       });
       if (isNewSelectionTarget) {
         void selectionOverlay.offsetHeight;
@@ -6687,7 +6747,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function setSelectionOverlayResizeChromeVisible(visible) {
       selectionOverlay.querySelectorAll(
-        "[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]"
+        "[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle],[data-agent-native-radius-handle]"
       ).forEach(function(node) {
         if (!(node instanceof HTMLElement)) return;
         node.style.display = visible ? "" : "none";
@@ -7491,6 +7551,140 @@ export const editorChromeBridgeScript: string = `"use strict";
       var num = parseFloat(value);
       return Number.isFinite(num) ? num : 0;
     }
+    function resolveCornerRadiusComponent(part, axisSize) {
+      if (!part) return 0;
+      if (part.charAt(part.length - 1) === "%") {
+        var pct = parseFloat(part) || 0;
+        return pct / 100 * axisSize;
+      }
+      return readPx(part);
+    }
+    function resolveCornerRadiusXY(value, width, height) {
+      var trimmed = typeof value === "string" ? value.trim() : "";
+      var parts = trimmed.split(/\\s+/);
+      return {
+        x: resolveCornerRadiusComponent(parts[0], width),
+        y: resolveCornerRadiusComponent(
+          parts.length > 1 ? parts[1] : parts[0],
+          height
+        )
+      };
+    }
+    function isDirectCornerRadiusValue(value) {
+      var trimmed = typeof value === "string" ? value.trim() : "";
+      if (!trimmed) return false;
+      var parts = trimmed.split(/\\s+/);
+      return parts.length <= 2 && parts.every(function(part) {
+        return /^[-+]?(?:\\d*\\.\\d+|\\d+\\.?\\d*)(?:px|%)$/i.test(part) || /^[-+]?0(?:\\.0*)?$/.test(part);
+      });
+    }
+    function borderBoxDimensions(cs) {
+      var width = readPx(cs.width);
+      var height = readPx(cs.height);
+      if (cs.boxSizing === "border-box") return { width, height };
+      width += readPx(cs.paddingLeft) + readPx(cs.paddingRight) + readPx(cs.borderLeftWidth) + readPx(cs.borderRightWidth);
+      height += readPx(cs.paddingTop) + readPx(cs.paddingBottom) + readPx(cs.borderTopWidth) + readPx(cs.borderBottomWidth);
+      return { width, height };
+    }
+    function radiusLinearTransformForStyle(cs) {
+      var transform = { a: 1, b: 0, c: 0, d: 1 };
+      if (cs.transform && cs.transform !== "none" && window.DOMMatrixReadOnly) {
+        try {
+          var matrix = new DOMMatrixReadOnly(cs.transform);
+          transform = { a: matrix.a, b: matrix.b, c: matrix.c, d: matrix.d };
+        } catch (err) {
+          void err;
+        }
+      }
+      var scaleParts = (cs.scale || cs.getPropertyValue("scale") || "none").trim().split(/\\s+/).map(function(part) {
+        return parseFloat(part);
+      });
+      var scaleX = Number.isFinite(scaleParts[0]) ? scaleParts[0] : 1;
+      var scaleY = Number.isFinite(scaleParts[1]) ? scaleParts[1] : scaleX;
+      var angle = independentRotation(cs.rotate || "");
+      var radians = angle * Math.PI / 180;
+      var result = composeRadiusLinearTransform(
+        transform,
+        scaleX,
+        scaleY,
+        radians
+      );
+      var zoom = parseFloat(cs.zoom || cs.getPropertyValue("zoom"));
+      if (Number.isFinite(zoom) && zoom > 0) {
+        result.a *= zoom;
+        result.b *= zoom;
+        result.c *= zoom;
+        result.d *= zoom;
+      }
+      return result;
+    }
+    function radiusLinearTransform(el) {
+      return radiusLinearTransformForStyle(window.getComputedStyle(el));
+    }
+    function composeRadiusLinearTransform(transform, scaleX, scaleY, radians) {
+      var cos = Math.cos(radians);
+      var sin = Math.sin(radians);
+      var independent = {
+        a: cos * scaleX,
+        b: sin * scaleY,
+        c: -sin * scaleX,
+        d: cos * scaleY
+      };
+      return {
+        a: independent.a * transform.a + independent.c * transform.b,
+        b: independent.b * transform.a + independent.d * transform.b,
+        c: independent.a * transform.c + independent.c * transform.d,
+        d: independent.b * transform.c + independent.d * transform.d
+      };
+    }
+    function multiplyRadiusLinear(parent, child) {
+      return {
+        a: parent.a * child.a + parent.c * child.b,
+        b: parent.b * child.a + parent.d * child.b,
+        c: parent.a * child.c + parent.c * child.d,
+        d: parent.b * child.c + parent.d * child.d
+      };
+    }
+    function radiusViewportLinearTransform(el) {
+      var total = { a: 1, b: 0, c: 0, d: 1 };
+      for (var current = el; current && current.nodeType === 1; current = current.parentElement) {
+        total = multiplyRadiusLinear(radiusLinearTransform(current), total);
+      }
+      return total;
+    }
+    function radiusLocalDelta(el, screenDx, screenDy) {
+      var matrix = radiusViewportLinearTransform(el);
+      var determinant = matrix.a * matrix.d - matrix.b * matrix.c;
+      if (!Number.isFinite(determinant) || Math.abs(determinant) < 1e-4) {
+        return { x: screenDx, y: screenDy };
+      }
+      return {
+        x: (matrix.d * screenDx - matrix.c * screenDy) / determinant,
+        y: (-matrix.b * screenDx + matrix.a * screenDy) / determinant
+      };
+    }
+    function cornerRadiusMap(cs, width, height) {
+      return {
+        nw: resolveCornerRadiusXY(cs.borderTopLeftRadius, width, height),
+        ne: resolveCornerRadiusXY(cs.borderTopRightRadius, width, height),
+        se: resolveCornerRadiusXY(cs.borderBottomRightRadius, width, height),
+        sw: resolveCornerRadiusXY(cs.borderBottomLeftRadius, width, height)
+      };
+    }
+    function radiusDragMaximums(corner, radii, width, height) {
+      var horizontalNeighbor = corner === "nw" ? radii.ne.x : corner === "ne" ? radii.nw.x : corner === "se" ? radii.sw.x : radii.se.x;
+      var verticalNeighbor = corner === "nw" ? radii.sw.y : corner === "ne" ? radii.se.y : corner === "se" ? radii.ne.y : radii.nw.y;
+      return {
+        x: Math.max(0, Math.min(width / 2, width - horizontalNeighbor)),
+        y: Math.max(0, Math.min(height / 2, height - verticalNeighbor))
+      };
+    }
+    var CORNER_RADIUS_PROPERTY_BY_HANDLE = {
+      nw: "borderTopLeftRadius",
+      ne: "borderTopRightRadius",
+      se: "borderBottomRightRadius",
+      sw: "borderBottomLeftRadius"
+    };
     function readFinitePx(value) {
       if (!value || value === "auto") return null;
       var num = parseFloat(value);
@@ -7850,6 +8044,25 @@ export const editorChromeBridgeScript: string = `"use strict";
         return "rotate(" + degrees + "deg)";
       }
       return ((transform && transform !== "none" ? transform + " " : "") + "rotate(" + degrees + "deg)").trim();
+    }
+    function readScalePair(value) {
+      if (!value || value === "none") return { x: 1, y: 1 };
+      var parts = value.trim().split(/\\s+/).map(function(part) {
+        return parseFloat(part);
+      });
+      var x = parts[0];
+      var y = parts.length > 1 ? parts[1] : x;
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+      return { x, y };
+    }
+    function mergeRelativeScale(scale, flipX, flipY) {
+      var pair = readScalePair(scale) || { x: 1, y: 1 };
+      return (flipX ? -pair.x : pair.x) + " " + (flipY ? -pair.y : pair.y);
+    }
+    function mergeFlipIntoTransform(transform, flipX, flipY) {
+      var base = transform && transform !== "none" ? transform : "";
+      var suffix = (flipX ? " matrix(-1, 0, 0, 1, 0, 0)" : "") + (flipY ? " matrix(1, 0, 0, -1, 0, 0)" : "");
+      return (base + suffix).trim();
     }
     function ensurePositionable(el) {
       var cs = window.getComputedStyle(el);
@@ -11795,8 +12008,16 @@ export const editorChromeBridgeScript: string = `"use strict";
       var originalInlineWidth = resizeEl.style.width;
       var originalInlineHeight = resizeEl.style.height;
       var originalInlineFontSize = resizeEl.style.fontSize;
+      var originalInlineTransform = resizeEl.style.transform;
+      var originalInlineScale = resizeEl.style.scale;
+      refreshLiveVisualEditOriginalStyles(resizeEl);
       ensurePositionable(resizeEl);
       var cs = window.getComputedStyle(resizeEl);
+      var hasInlineTransform = !!originalInlineTransform && originalInlineTransform !== "none";
+      var computedScale = cs.scale || cs.getPropertyValue("scale") || "none";
+      var flipTransformBase = hasInlineTransform ? originalInlineTransform : cs.transform;
+      var mirrorScaleBase = originalInlineScale && originalInlineScale !== "none" ? originalInlineScale : computedScale;
+      var mirrorUsesScale = !hasInlineTransform;
       var originW = readPx(cs.width);
       var originH = readPx(cs.height);
       var originFontSize = readPx(resizeEl.style.fontSize || cs.fontSize);
@@ -11848,6 +12069,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       });
       var widthTouched = false;
       var heightTouched = false;
+      var transformTouched = false;
+      var scaleTouched = false;
       var scaledStyleTargetsCache = null;
       function scaledStyleTargets() {
         if (!scaledStyleTargetsCache) {
@@ -11896,21 +12119,18 @@ export const editorChromeBridgeScript: string = `"use strict";
             else width = height * origin.ratio;
           }
         }
-        var clampedW = Math.max(8, width);
-        var clampedH = Math.max(8, height);
-        if (ev.shiftKey || scaleToolEnabled) {
-          if (clampedW !== width) {
-            clampedH = Math.max(8, clampedW / origin.ratio);
-          } else if (clampedH !== height) {
-            clampedW = Math.max(8, clampedH * origin.ratio);
-          }
-        }
-        width = clampedW;
-        height = clampedH;
-        if (handle.indexOf("w") !== -1)
-          left = origin.left + (origin.width - width);
-        if (handle.indexOf("n") !== -1)
-          top = origin.top + (origin.height - height);
+        var anchorLeft = handle.indexOf("w") !== -1 ? origin.left + origin.width : origin.left;
+        var anchorTop = handle.indexOf("n") !== -1 ? origin.top + origin.height : origin.top;
+        var movingLeft = handle.indexOf("w") !== -1 ? anchorLeft - width : anchorLeft + width;
+        var movingTop = handle.indexOf("n") !== -1 ? anchorTop - height : anchorTop + height;
+        var widthCrossed = width < 0;
+        var heightCrossed = height < 0;
+        var flipX = widthCrossed;
+        var flipY = heightCrossed;
+        left = Math.min(anchorLeft, movingLeft);
+        width = Math.max(1, Math.abs(movingLeft - anchorLeft));
+        top = Math.min(anchorTop, movingTop);
+        height = Math.max(1, Math.abs(movingTop - anchorTop));
         if (ev.altKey) {
           if (handle.indexOf("w") !== -1 || handle.indexOf("e") !== -1)
             left = origin.left - (width - origin.width) / 2;
@@ -11928,7 +12148,9 @@ export const editorChromeBridgeScript: string = `"use strict";
           width,
           height,
           touchesWidth,
-          touchesHeight
+          touchesHeight,
+          flipX,
+          flipY
         };
       }
       function onMove(ev) {
@@ -11947,6 +12169,27 @@ export const editorChromeBridgeScript: string = `"use strict";
           resizeEl.style.width = quantizeToLayoutGrid(rect.width) + "px";
         if (heightTouched)
           resizeEl.style.height = quantizeToLayoutGrid(rect.height) + "px";
+        if (rect.flipX || rect.flipY) {
+          if (mirrorUsesScale) {
+            scaleTouched = true;
+            resizeEl.style.scale = mergeRelativeScale(
+              mirrorScaleBase,
+              rect.flipX,
+              rect.flipY
+            );
+          } else {
+            transformTouched = true;
+            resizeEl.style.transform = mergeFlipIntoTransform(
+              flipTransformBase,
+              rect.flipX,
+              rect.flipY
+            );
+          }
+        } else {
+          if (transformTouched)
+            resizeEl.style.transform = originalInlineTransform;
+          if (scaleTouched) resizeEl.style.scale = originalInlineScale;
+        }
         if (scaleToolEnabled) {
           var kScaleFactor = rect.width / Math.max(1, origin.width);
           if (originFontSize > 0 && !svgViewBoxScalesFont) {
@@ -11966,6 +12209,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         };
         if (widthTouched) previewStyles.width = resizeEl.style.width;
         if (heightTouched) previewStyles.height = resizeEl.style.height;
+        if (transformTouched) previewStyles.transform = resizeEl.style.transform;
+        if (scaleTouched) previewStyles.scale = resizeEl.style.scale;
         if (scaleToolEnabled && originFontSize > 0 && !svgViewBoxScalesFont) {
           previewStyles.fontSize = resizeEl.style.fontSize;
         }
@@ -11998,29 +12243,36 @@ export const editorChromeBridgeScript: string = `"use strict";
           resizeEl.style.width = originalInlineWidth;
           resizeEl.style.height = originalInlineHeight;
           resizeEl.style.fontSize = originalInlineFontSize;
+          resizeEl.style.transform = originalInlineTransform;
+          resizeEl.style.scale = originalInlineScale;
           restoreKScaleStyleTargets(scaledStyleTargetsCache || []);
           selectedEl = resizeEl;
           positionOverlay(selectionOverlay, selectedEl);
           var restoredComputed = window.getComputedStyle(resizeEl);
+          var restoredStyles = {
+            position: restoredComputed.position,
+            left: restoredComputed.left,
+            top: restoredComputed.top,
+            width: restoredComputed.width,
+            height: restoredComputed.height,
+            borderWidth: restoredComputed.borderWidth,
+            fontSize: restoredComputed.fontSize
+          };
+          if (transformTouched)
+            restoredStyles.transform = originalInlineTransform;
+          if (scaleTouched) restoredStyles.scale = originalInlineScale;
           window.parent.postMessage(
             {
               type: "visual-style-change",
               phase: "preview",
               selector: getSelector(resizeEl),
-              styles: {
-                position: restoredComputed.position,
-                left: restoredComputed.left,
-                top: restoredComputed.top,
-                width: restoredComputed.width,
-                height: restoredComputed.height,
-                borderWidth: restoredComputed.borderWidth,
-                fontSize: restoredComputed.fontSize
-              },
+              styles: restoredStyles,
               payload: getElementInfo(resizeEl)
             },
             "*"
           );
         }
+        releaseLiveVisualEditOriginalStyles(resizeEl);
         suppressNextShieldClickBriefly();
         refreshOverlays();
         return true;
@@ -12037,6 +12289,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (!controllerEnd.committed) {
           cleanupResizeDrag();
           hideTransformBadge();
+          resizeEl.style.position = originalInlinePosition;
+          resizeEl.style.left = originalInlineLeft;
+          resizeEl.style.top = originalInlineTop;
+          releaseLiveVisualEditOriginalStyles(resizeEl);
           return;
         }
         cleanupResizeDrag();
@@ -12048,6 +12304,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (resizeEl.style.top) styles.top = resizeEl.style.top;
         if (widthTouched) styles.width = resizeEl.style.width;
         if (heightTouched) styles.height = resizeEl.style.height;
+        if (transformTouched && resizeEl.style.transform !== originalInlineTransform) {
+          styles.transform = resizeEl.style.transform;
+        }
+        if (scaleTouched && resizeEl.style.scale !== originalInlineScale) {
+          styles.scale = resizeEl.style.scale;
+        }
         if (scaleToolEnabled && originFontSize > 0 && !svgViewBoxScalesFont) {
           styles.fontSize = resizeEl.style.fontSize;
         }
@@ -12102,6 +12364,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             recordSourceOwnership(target.el);
           });
         }
+        releaseLiveVisualEditOriginalStyles(resizeEl);
       }
       document.addEventListener(events.move, onMove, true);
       document.addEventListener(events.up, onUp, true);
@@ -12463,6 +12726,122 @@ export const editorChromeBridgeScript: string = `"use strict";
       document.addEventListener("keydown", onRotateKeyDown, true);
       setActiveDragCancel(cancelRotateDrag);
     }
+    function startRadiusDrag(corner, e) {
+      if (readOnly) return;
+      if (!selectedEl) return;
+      if (isLayerInteractionBlocked(selectedEl)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      var events = dragEventNames(e);
+      var radiusEl = selectedEl;
+      var cs = window.getComputedStyle(radiusEl);
+      var cornerProperty = CORNER_RADIUS_PROPERTY_BY_HANDLE[corner] || "borderTopLeftRadius";
+      refreshLiveVisualEditOriginalStyles(radiusEl);
+      var borderBox = borderBoxDimensions(cs);
+      var elWidthPx = borderBox.width;
+      var elHeightPx = borderBox.height;
+      var authoredRadiusValue = radiusEl.style[cornerProperty];
+      var originRadius = resolveCornerRadiusXY(
+        isDirectCornerRadiusValue(authoredRadiusValue) ? authoredRadiusValue : cs[cornerProperty],
+        elWidthPx,
+        elHeightPx
+      );
+      var maxRadius = radiusDragMaximums(
+        corner,
+        cornerRadiusMap(cs, elWidthPx, elHeightPx),
+        elWidthPx,
+        elHeightPx
+      );
+      var maxRadiusX = maxRadius.x;
+      var maxRadiusY = maxRadius.y;
+      var originalRadiusValue = radiusEl.style[cornerProperty];
+      var startX = e.clientX;
+      var startY = e.clientY;
+      var radiusMoved = false;
+      var signX = corner.indexOf("w") !== -1 ? 1 : -1;
+      var signY = corner.indexOf("n") !== -1 ? 1 : -1;
+      function applyRadius(nextX, nextY) {
+        var x = Math.max(0, Math.min(maxRadiusX, Math.round(nextX)));
+        var y = Math.max(0, Math.min(maxRadiusY, Math.round(nextY)));
+        radiusEl.style[cornerProperty] = x === y ? x + "px" : x + "px " + y + "px";
+      }
+      function onMove(ev) {
+        if (!radiusEl) return;
+        var screenDx = ev.clientX - startX;
+        var screenDy = ev.clientY - startY;
+        if (screenDx === 0 && screenDy === 0) return;
+        radiusMoved = true;
+        var local = radiusLocalDelta(radiusEl, screenDx, screenDy);
+        applyRadius(
+          originRadius.x + local.x * signX,
+          originRadius.y + local.y * signY
+        );
+        applySelectionHandleHitGeometry(radiusEl);
+        refreshOverlays();
+      }
+      function cleanupRadiusDrag() {
+        document.removeEventListener(events.move, onMove, true);
+        document.removeEventListener(events.up, onUp, true);
+        document.removeEventListener("keydown", onRadiusKeyDown, true);
+        clearActiveDragCancel(cancelRadiusDrag);
+      }
+      function cancelRadiusDrag() {
+        cleanupRadiusDrag();
+        if (radiusEl && document.documentElement.contains(radiusEl)) {
+          radiusEl.style[cornerProperty] = originalRadiusValue;
+          selectedEl = radiusEl;
+          applySelectionHandleHitGeometry(radiusEl);
+          refreshOverlays();
+        }
+        releaseLiveVisualEditOriginalStyles(radiusEl);
+        suppressNextShieldClickBriefly();
+        return true;
+      }
+      function onRadiusKeyDown(ev) {
+        if (ev.key !== "Escape") return;
+        stopNativeInteraction(ev);
+        cancelRadiusDrag();
+      }
+      function onUp() {
+        cleanupRadiusDrag();
+        if (!radiusEl) return;
+        if (!radiusMoved) {
+          releaseLiveVisualEditOriginalStyles(radiusEl);
+          return;
+        }
+        var finalRadius = resolveCornerRadiusXY(
+          radiusEl.style[cornerProperty] || cs[cornerProperty],
+          elWidthPx,
+          elHeightPx
+        );
+        var radiusChanged = Math.abs(finalRadius.x - originRadius.x) > 0.5 || Math.abs(finalRadius.y - originRadius.y) > 0.5;
+        if (!radiusChanged) {
+          radiusEl.style[cornerProperty] = originalRadiusValue;
+          applySelectionHandleHitGeometry(radiusEl);
+          refreshOverlays();
+          releaseLiveVisualEditOriginalStyles(radiusEl);
+          return;
+        }
+        var styles = {};
+        styles[cornerProperty] = radiusEl.style[cornerProperty];
+        window.parent.postMessage(
+          {
+            type: "visual-style-change",
+            selector: getSelector(radiusEl),
+            styles,
+            originalStyles: originalInlineStylesForPatch(radiusEl, styles),
+            payload: getElementInfo(radiusEl)
+          },
+          "*"
+        );
+        recordSourceOwnership(radiusEl);
+        releaseLiveVisualEditOriginalStyles(radiusEl);
+      }
+      document.addEventListener(events.move, onMove, true);
+      document.addEventListener(events.up, onUp, true);
+      document.addEventListener("keydown", onRadiusKeyDown, true);
+      setActiveDragCancel(cancelRadiusDrag);
+    }
     function clearPendingShieldDrag() {
       if (!pendingShieldDrag) return;
       document.removeEventListener(
@@ -12655,6 +13034,11 @@ export const editorChromeBridgeScript: string = `"use strict";
         var rotateHandle = e.target && e.target.getAttribute && e.target.getAttribute("data-agent-native-rotate-handle");
         if (rotateHandle) {
           startRotate(e);
+          return;
+        }
+        var radiusHandle = e.target && e.target.getAttribute && e.target.getAttribute("data-agent-native-radius-handle");
+        if (radiusHandle) {
+          startRadiusDrag(radiusHandle, e);
           return;
         }
         startMove(e);

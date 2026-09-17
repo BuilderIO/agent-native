@@ -3025,6 +3025,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     "width",
     "height",
     "transform",
+    "scale",
     "display",
     "overflow",
     "lineHeight",
@@ -3055,6 +3056,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     "backgroundColor",
     "color",
     "fill",
+    "borderRadius",
+    "borderTopLeftRadius",
+    "borderTopRightRadius",
+    "borderBottomRightRadius",
+    "borderBottomLeftRadius",
   ];
 
   function collectInlineStyles(el: Element): Record<string, string> {
@@ -3113,6 +3119,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (!el || !liveVisualEditOriginalInlineStyles) return;
     if (liveVisualEditOriginalInlineStyles.has(el)) return;
     liveVisualEditOriginalInlineStyles.set(el, collectInlineStyles(el));
+  }
+
+  function refreshLiveVisualEditOriginalStyles(el: Element | null): void {
+    if (!el || !liveVisualEditOriginalInlineStyles) return;
+    liveVisualEditOriginalInlineStyles.delete(el);
+    rememberLiveVisualEditOriginalStyles(el);
+  }
+
+  function releaseLiveVisualEditOriginalStyles(el: Element | null): void {
+    if (!el || !liveVisualEditOriginalInlineStyles) return;
+    liveVisualEditOriginalInlineStyles.delete(el);
   }
 
   function originalInlineStylesForPatch(
@@ -4071,7 +4088,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             ? "nwse-resize"
             : "nesw-resize";
     handle.style.cssText =
-      "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:0;pointer-events:auto;cursor:" +
+      "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:2px;box-shadow:0 1px 2px color-mix(in srgb,var(--design-editor-accent-color) 25%,transparent);pointer-events:auto;cursor:" +
       cursor +
       ";";
     if (pos.indexOf("n") !== -1) handle.style.top = "-4px";
@@ -4086,6 +4103,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       handle.style.top = "50%";
       handle.style.transform = "translateY(-50%)";
     }
+    selectionOverlay.appendChild(handle);
+  });
+  // Figma-style corner-radius handles: small circles inset from each corner
+  // along its diagonal, draggable to adjust the element's border-radius.
+  // Hidden (display:none) by default; applySelectionHandleHitGeometry shows
+  // and positions them only for elements that support a CSS border-radius.
+  ["nw", "ne", "se", "sw"].forEach(function (pos) {
+    var handle = document.createElement("span");
+    handle.setAttribute("data-agent-native-radius-handle", pos);
+    handle.style.cssText =
+      "position:absolute;z-index:2;width:9px;height:9px;border:1.5px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:999px;box-shadow:0 1px 2px color-mix(in srgb,var(--design-editor-accent-color) 25%,transparent);pointer-events:auto;cursor:pointer;display:none;";
     selectionOverlay.appendChild(handle);
   });
   (function () {
@@ -4228,7 +4256,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   var sizeBadge = document.createElement("div");
   sizeBadge.setAttribute("data-agent-native-edit-overlay", "size-badge");
   sizeBadge.style.cssText =
-    "position:fixed;z-index:100000;display:none;pointer-events:none;border-radius:3px;background:var(--design-editor-accent-color);color:var(--design-editor-accent-contrast-color);font:10px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;padding:2px 4px;white-space:nowrap;";
+    "position:fixed;z-index:100000;display:none;pointer-events:none;border-radius:4px;background:var(--design-editor-accent-color);color:var(--design-editor-accent-contrast-color);font:600 11px/1.4 ui-sans-serif,system-ui,-apple-system,sans-serif;padding:2px 6px;white-space:nowrap;box-shadow:0 1px 2px color-mix(in srgb,var(--design-editor-accent-color) 15%,transparent);";
   document.body.appendChild(sizeBadge);
 
   var insertionGuide = document.createElement("div");
@@ -7432,6 +7460,30 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // transition for that one write — see the CSS rule this toggles above.
   var lastHandleGeometryTargetEl: Element | null = null;
 
+  // Drawn vector primitives (lines, arrows, ellipses, polygons, stars, pen
+  // paths) render their shape via SVG geometry, not a CSS box — a
+  // border-radius on their wrapper has no visible effect, so the
+  // corner-radius drag handles stay hidden for them.
+  var RADIUS_UNSUPPORTED_PRIMITIVES = {
+    line: true,
+    arrow: true,
+    ellipse: true,
+    circle: true,
+    polygon: true,
+    star: true,
+    path: true,
+    pen: true,
+  };
+  function supportsCornerRadiusHandles(el) {
+    if (!el || el.nodeType !== 1) return false;
+    var kind = (
+      el.getAttribute("data-an-primitive") ||
+      el.getAttribute("data-agent-native-primitive") ||
+      ""
+    ).toLowerCase();
+    return !kind || !RADIUS_UNSUPPORTED_PRIMITIVES[kind];
+  }
+
   // Sizes the selection overlay's edge/corner handles for the current chrome
   // scale, clamping each handle's inward reach against the overlaid
   // element's own rect. Called from applyEditorChromeScale (scale changes)
@@ -7497,12 +7549,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       .querySelectorAll("[data-agent-native-edit-handle]")
       .forEach(function (handle) {
         var pos = handle.getAttribute("data-agent-native-edit-handle") || "";
-        var sizeX = 7 * sx;
-        var sizeY = 7 * sy;
-        // sizeY - 4*sy is exact (Sterbenz), so the unclamped offset below
+        // Both axes use the same uniform `line` scale (never sx/sy
+        // individually) so the square handle stays square and centered on
+        // the stroke corner even when the iframe's own X/Y chrome scale
+        // differs — using sx/sy here stretched the square into a rectangle
+        // and threw off the corner offset math whenever scaleX !== scaleY.
+        var sizeX = 7 * line;
+        var sizeY = 7 * line;
+        // sizeY - 4*line is exact (Sterbenz), so the unclamped offset below
         // reproduces the historical -4*scale bit-for-bit.
-        var inwardX = clampHandleInwardReach(sizeX - 4 * sx, elWidth);
-        var inwardY = clampHandleInwardReach(sizeY - 4 * sy, elHeight);
+        var inwardX = clampHandleInwardReach(sizeX - 4 * line, elWidth);
+        var inwardY = clampHandleInwardReach(sizeY - 4 * line, elHeight);
         handle.style.width = sizeX + "px";
         handle.style.height = sizeY + "px";
         handle.style.borderWidth = 1 * line + "px";
@@ -7518,6 +7575,42 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         if (pos.indexOf("e") !== -1) {
           handle.style.right = inwardX - sizeX + "px";
         }
+      });
+
+    // Radius handles: small circles inset along each corner's diagonal,
+    // hidden unless the element supports border-radius and is large enough
+    // to fit them without overlapping the opposite corner.
+    var radiusHandlesSupported = supportsCornerRadiusHandles(el);
+    selectionOverlay
+      .querySelectorAll("[data-agent-native-radius-handle]")
+      .forEach(function (handle) {
+        if (
+          readOnly ||
+          !!activeTextEditEl ||
+          !radiusHandlesSupported ||
+          !(elWidth > 0) ||
+          !(elHeight > 0)
+        ) {
+          handle.style.display = "none";
+          return;
+        }
+        var pos = handle.getAttribute("data-agent-native-radius-handle") || "";
+        var size = 9 * line;
+        var maxInset = Math.min(elWidth, elHeight) / 2 - size;
+        if (maxInset < 4 * line) {
+          handle.style.display = "none";
+          return;
+        }
+        var inset = Math.max(4 * line, Math.min(16 * line, maxInset));
+        handle.style.display = "block";
+        handle.style.width = size + "px";
+        handle.style.height = size + "px";
+        handle.style.borderWidth = 1.5 * line + "px";
+        var offset = inset - size / 2 + "px";
+        if (pos.indexOf("n") !== -1) handle.style.top = offset;
+        if (pos.indexOf("s") !== -1) handle.style.bottom = offset;
+        if (pos.indexOf("w") !== -1) handle.style.left = offset;
+        if (pos.indexOf("e") !== -1) handle.style.right = offset;
       });
 
     if (isNewSelectionTarget) {
@@ -8935,7 +9028,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   function setSelectionOverlayResizeChromeVisible(visible: boolean): void {
     selectionOverlay
       .querySelectorAll(
-        "[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]",
+        "[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle],[data-agent-native-radius-handle]",
       )
       .forEach(function (node) {
         if (!(node instanceof HTMLElement)) return;
@@ -10018,6 +10111,199 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return Number.isFinite(num) ? num : 0;
   }
 
+  function resolveCornerRadiusComponent(part, axisSize) {
+    if (!part) return 0;
+    if (part.charAt(part.length - 1) === "%") {
+      var pct = parseFloat(part) || 0;
+      return (pct / 100) * axisSize;
+    }
+    return readPx(part);
+  }
+
+  // CSS resolves each border-*-radius longhand as a horizontal/vertical pair:
+  // even a single value like `50%` produces an ellipse (not a circle) on a
+  // non-square box, because the horizontal component resolves against width
+  // and the vertical component resolves against height independently — a
+  // 200x100 box with `border-radius: 50%` renders 100px horizontal by 50px
+  // vertical corners, not a uniform 50px radius.
+  function resolveCornerRadiusXY(value, width, height) {
+    var trimmed = typeof value === "string" ? value.trim() : "";
+    var parts = trimmed.split(/\s+/);
+    return {
+      x: resolveCornerRadiusComponent(parts[0], width),
+      y: resolveCornerRadiusComponent(
+        parts.length > 1 ? parts[1] : parts[0],
+        height,
+      ),
+    };
+  }
+
+  function isDirectCornerRadiusValue(value) {
+    var trimmed = typeof value === "string" ? value.trim() : "";
+    if (!trimmed) return false;
+    var parts = trimmed.split(/\s+/);
+    return (
+      parts.length <= 2 &&
+      parts.every(function (part) {
+        return (
+          /^[-+]?(?:\d*\.\d+|\d+\.?\d*)(?:px|%)$/i.test(part) ||
+          /^[-+]?0(?:\.0*)?$/.test(part)
+        );
+      })
+    );
+  }
+
+  function borderBoxDimensions(cs) {
+    var width = readPx(cs.width);
+    var height = readPx(cs.height);
+    if (cs.boxSizing === "border-box") return { width: width, height: height };
+    width +=
+      readPx(cs.paddingLeft) +
+      readPx(cs.paddingRight) +
+      readPx(cs.borderLeftWidth) +
+      readPx(cs.borderRightWidth);
+    height +=
+      readPx(cs.paddingTop) +
+      readPx(cs.paddingBottom) +
+      readPx(cs.borderTopWidth) +
+      readPx(cs.borderBottomWidth);
+    return { width: width, height: height };
+  }
+
+  function radiusLinearTransformForStyle(cs) {
+    var transform = { a: 1, b: 0, c: 0, d: 1 };
+    if (cs.transform && cs.transform !== "none" && window.DOMMatrixReadOnly) {
+      try {
+        var matrix = new DOMMatrixReadOnly(cs.transform);
+        transform = { a: matrix.a, b: matrix.b, c: matrix.c, d: matrix.d };
+      } catch (err) {
+        // Invalid computed transforms have no reliable inverse; keep identity
+        // drag math rather than hiding the parse failure in an empty catch.
+        void err;
+      }
+    }
+    var scaleParts = (cs.scale || cs.getPropertyValue("scale") || "none")
+      .trim()
+      .split(/\s+/)
+      .map(function (part) {
+        return parseFloat(part);
+      });
+    var scaleX = Number.isFinite(scaleParts[0]) ? scaleParts[0] : 1;
+    var scaleY = Number.isFinite(scaleParts[1]) ? scaleParts[1] : scaleX;
+    var angle = independentRotation(cs.rotate || "");
+    var radians = (angle * Math.PI) / 180;
+    var result = composeRadiusLinearTransform(
+      transform,
+      scaleX,
+      scaleY,
+      radians,
+    );
+    var zoom = parseFloat(cs.zoom || cs.getPropertyValue("zoom"));
+    if (Number.isFinite(zoom) && zoom > 0) {
+      result.a *= zoom;
+      result.b *= zoom;
+      result.c *= zoom;
+      result.d *= zoom;
+    }
+    return result;
+  }
+
+  function radiusLinearTransform(el) {
+    return radiusLinearTransformForStyle(window.getComputedStyle(el));
+  }
+
+  function composeRadiusLinearTransform(transform, scaleX, scaleY, radians) {
+    var cos = Math.cos(radians);
+    var sin = Math.sin(radians);
+    // CSS individual scale/rotate are applied after the transform property.
+    // Keep that order so a class-authored rotate plus independent scale maps
+    // viewport deltas through the same matrix the browser paints.
+    var independent = {
+      a: cos * scaleX,
+      b: sin * scaleY,
+      c: -sin * scaleX,
+      d: cos * scaleY,
+    };
+    return {
+      a: independent.a * transform.a + independent.c * transform.b,
+      b: independent.b * transform.a + independent.d * transform.b,
+      c: independent.a * transform.c + independent.c * transform.d,
+      d: independent.b * transform.c + independent.d * transform.d,
+    };
+  }
+
+  function multiplyRadiusLinear(parent, child) {
+    return {
+      a: parent.a * child.a + parent.c * child.b,
+      b: parent.b * child.a + parent.d * child.b,
+      c: parent.a * child.c + parent.c * child.d,
+      d: parent.b * child.c + parent.d * child.d,
+    };
+  }
+
+  function radiusViewportLinearTransform(el) {
+    var total = { a: 1, b: 0, c: 0, d: 1 };
+    for (
+      var current = el;
+      current && current.nodeType === 1;
+      current = current.parentElement
+    ) {
+      total = multiplyRadiusLinear(radiusLinearTransform(current), total);
+    }
+    return total;
+  }
+
+  function radiusLocalDelta(el, screenDx, screenDy) {
+    var matrix = radiusViewportLinearTransform(el);
+    var determinant = matrix.a * matrix.d - matrix.b * matrix.c;
+    if (!Number.isFinite(determinant) || Math.abs(determinant) < 0.0001) {
+      return { x: screenDx, y: screenDy };
+    }
+    return {
+      x: (matrix.d * screenDx - matrix.c * screenDy) / determinant,
+      y: (-matrix.b * screenDx + matrix.a * screenDy) / determinant,
+    };
+  }
+
+  function cornerRadiusMap(cs, width, height) {
+    return {
+      nw: resolveCornerRadiusXY(cs.borderTopLeftRadius, width, height),
+      ne: resolveCornerRadiusXY(cs.borderTopRightRadius, width, height),
+      se: resolveCornerRadiusXY(cs.borderBottomRightRadius, width, height),
+      sw: resolveCornerRadiusXY(cs.borderBottomLeftRadius, width, height),
+    };
+  }
+
+  function radiusDragMaximums(corner, radii, width, height) {
+    var horizontalNeighbor =
+      corner === "nw"
+        ? radii.ne.x
+        : corner === "ne"
+          ? radii.nw.x
+          : corner === "se"
+            ? radii.sw.x
+            : radii.se.x;
+    var verticalNeighbor =
+      corner === "nw"
+        ? radii.sw.y
+        : corner === "ne"
+          ? radii.se.y
+          : corner === "se"
+            ? radii.ne.y
+            : radii.nw.y;
+    return {
+      x: Math.max(0, Math.min(width / 2, width - horizontalNeighbor)),
+      y: Math.max(0, Math.min(height / 2, height - verticalNeighbor)),
+    };
+  }
+
+  var CORNER_RADIUS_PROPERTY_BY_HANDLE = {
+    nw: "borderTopLeftRadius",
+    ne: "borderTopRightRadius",
+    se: "borderBottomRightRadius",
+    sw: "borderBottomLeftRadius",
+  };
+
   function readFinitePx(value) {
     if (!value || value === "auto") return null;
     var num = parseFloat(value);
@@ -10538,6 +10824,37 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       degrees +
       "deg)"
     ).trim();
+  }
+
+  // Keep the authored transform intact and append only the relative mirror
+  // needed by a resize-through-zero. Rewriting a computed matrix loses class
+  // authored translate/scale functions and re-reading independent CSS scale
+  // makes a non-unit negative scale flip twice.
+  function readScalePair(value) {
+    if (!value || value === "none") return { x: 1, y: 1 };
+    var parts = value
+      .trim()
+      .split(/\s+/)
+      .map(function (part) {
+        return parseFloat(part);
+      });
+    var x = parts[0];
+    var y = parts.length > 1 ? parts[1] : x;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+    return { x: x, y: y };
+  }
+
+  function mergeRelativeScale(scale, flipX, flipY) {
+    var pair = readScalePair(scale) || { x: 1, y: 1 };
+    return (flipX ? -pair.x : pair.x) + " " + (flipY ? -pair.y : pair.y);
+  }
+
+  function mergeFlipIntoTransform(transform, flipX, flipY) {
+    var base = transform && transform !== "none" ? transform : "";
+    var suffix =
+      (flipX ? " matrix(-1, 0, 0, 1, 0, 0)" : "") +
+      (flipY ? " matrix(1, 0, 0, -1, 0, 0)" : "");
+    return (base + suffix).trim();
   }
 
   function ensurePositionable(el) {
@@ -16638,8 +16955,25 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var originalInlineWidth = resizeEl.style.width;
     var originalInlineHeight = resizeEl.style.height;
     var originalInlineFontSize = resizeEl.style.fontSize;
+    var originalInlineTransform = resizeEl.style.transform;
+    var originalInlineScale = resizeEl.style.scale;
+    refreshLiveVisualEditOriginalStyles(resizeEl);
     ensurePositionable(resizeEl);
     var cs = window.getComputedStyle(resizeEl);
+    var hasInlineTransform =
+      !!originalInlineTransform && originalInlineTransform !== "none";
+    var computedScale = cs.scale || cs.getPropertyValue("scale") || "none";
+    // A class-authored transform must remain owned by its stylesheet. CSS's
+    // independent scale property gives a separate mirror slot, so only an
+    // explicitly inline transform needs a transform-string edit.
+    var flipTransformBase = hasInlineTransform
+      ? originalInlineTransform
+      : cs.transform;
+    var mirrorScaleBase =
+      originalInlineScale && originalInlineScale !== "none"
+        ? originalInlineScale
+        : computedScale;
+    var mirrorUsesScale = !hasInlineTransform;
     // Bug fix: use COMPUTED width/height (never the raw inline style string)
     // for the resize origin dimensions. Two distinct hazards, one fix:
     //   1. Rotated elements — getBoundingClientRect() returns the inflated
@@ -16727,6 +17061,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // in onUp.
     var widthTouched = false;
     var heightTouched = false;
+    var transformTouched = false;
+    var scaleTouched = false;
     // Captured on the first K-scale tick, not at drag start: the host can arm
     // scale-tool-mode mid-gesture.
     var scaledStyleTargetsCache: ReturnType<
@@ -16786,29 +17122,36 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           else width = height * origin.ratio;
         }
       }
-      // Clamp to minimum size.
-      var clampedW = Math.max(8, width);
-      var clampedH = Math.max(8, height);
-      // After clamping, re-apply the ratio if Shift or scale tool is active so
-      // the clamped dimension doesn't silently break the locked aspect ratio.
-      if (ev.shiftKey || scaleToolEnabled) {
-        if (clampedW !== width) {
-          // Width was clamped; re-derive height from the clamped width.
-          clampedH = Math.max(8, clampedW / origin.ratio);
-        } else if (clampedH !== height) {
-          // Height was clamped; re-derive width from the clamped height.
-          clampedW = Math.max(8, clampedH * origin.ratio);
-        }
-      }
-      width = clampedW;
-      height = clampedH;
-      // Re-anchor the pinned edge for w/n handles after aspect-ratio lock and
-      // clamping so the opposite (e/s) edge stays fixed regardless of whether
-      // the dimension change was driven by raw dx/dy or by the ratio lock.
-      if (handle.indexOf("w") !== -1)
-        left = origin.left + (origin.width - width);
-      if (handle.indexOf("n") !== -1)
-        top = origin.top + (origin.height - height);
+      // Flip-through-zero: dragging a handle past the box's OWN opposite
+      // (anchor) edge must keep resizing continuously instead of clamping to
+      // a floor and getting stuck near-flat (reported: a triangle shrunk to
+      // a hairline sliver and stayed there instead of flipping and growing
+      // from the other side, matching Figma). width/height above are
+      // computed straight from origin, so a negative value unambiguously
+      // means the dragged edge crossed the fixed anchor edge. Re-derive both
+      // edges from that ANCHOR -- never from left/top, which for a
+      // ratio-locked corner drag can be stale against a width/height the
+      // aspect-lock branch just overwrote above -- so the anchor edge stays
+      // exactly fixed and the box keeps growing on the far side of it.
+      var anchorLeft =
+        handle.indexOf("w") !== -1 ? origin.left + origin.width : origin.left;
+      var anchorTop =
+        handle.indexOf("n") !== -1 ? origin.top + origin.height : origin.top;
+      var movingLeft =
+        handle.indexOf("w") !== -1 ? anchorLeft - width : anchorLeft + width;
+      var movingTop =
+        handle.indexOf("n") !== -1 ? anchorTop - height : anchorTop + height;
+      var widthCrossed = width < 0;
+      var heightCrossed = height < 0;
+      // These are relative mirrors for this gesture, not an absolute reading
+      // of the element's existing transform. That keeps class-authored and
+      // independent CSS transforms from being parsed and rewritten.
+      var flipX = widthCrossed;
+      var flipY = heightCrossed;
+      left = Math.min(anchorLeft, movingLeft);
+      width = Math.max(1, Math.abs(movingLeft - anchorLeft));
+      top = Math.min(anchorTop, movingTop);
+      height = Math.max(1, Math.abs(movingTop - anchorTop));
       if (ev.altKey) {
         if (handle.indexOf("w") !== -1 || handle.indexOf("e") !== -1)
           left = origin.left - (width - origin.width) / 2;
@@ -16835,6 +17178,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         height: height,
         touchesWidth: touchesWidth,
         touchesHeight: touchesHeight,
+        flipX: flipX,
+        flipY: flipY,
       };
     }
     function onMove(ev) {
@@ -16858,6 +17203,27 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         resizeEl.style.width = quantizeToLayoutGrid(rect.width) + "px";
       if (heightTouched)
         resizeEl.style.height = quantizeToLayoutGrid(rect.height) + "px";
+      if (rect.flipX || rect.flipY) {
+        if (mirrorUsesScale) {
+          scaleTouched = true;
+          resizeEl.style.scale = mergeRelativeScale(
+            mirrorScaleBase,
+            rect.flipX,
+            rect.flipY,
+          );
+        } else {
+          transformTouched = true;
+          resizeEl.style.transform = mergeFlipIntoTransform(
+            flipTransformBase,
+            rect.flipX,
+            rect.flipY,
+          );
+        }
+      } else {
+        if (transformTouched)
+          resizeEl.style.transform = originalInlineTransform;
+        if (scaleTouched) resizeEl.style.scale = originalInlineScale;
+      }
       if (scaleToolEnabled) {
         // Uniform scale factor: scaleToolEnabled already forces the
         // aspect-ratio lock above (nextRect), so width/origin.width and
@@ -16886,6 +17252,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       };
       if (widthTouched) previewStyles.width = resizeEl.style.width;
       if (heightTouched) previewStyles.height = resizeEl.style.height;
+      if (transformTouched) previewStyles.transform = resizeEl.style.transform;
+      if (scaleTouched) previewStyles.scale = resizeEl.style.scale;
       if (scaleToolEnabled && originFontSize > 0 && !svgViewBoxScalesFont) {
         previewStyles.fontSize = resizeEl.style.fontSize;
       }
@@ -16918,6 +17286,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         resizeEl.style.width = originalInlineWidth;
         resizeEl.style.height = originalInlineHeight;
         resizeEl.style.fontSize = originalInlineFontSize;
+        resizeEl.style.transform = originalInlineTransform;
+        resizeEl.style.scale = originalInlineScale;
         restoreKScaleStyleTargets(scaledStyleTargetsCache || []);
         selectedEl = resizeEl;
         positionOverlay(selectionOverlay, selectedEl);
@@ -16925,25 +17295,30 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         // the restored snapshot back so the host Inspector does not keep
         // displaying the last previewed dimensions.
         var restoredComputed = window.getComputedStyle(resizeEl);
+        var restoredStyles: Record<string, string> = {
+          position: restoredComputed.position,
+          left: restoredComputed.left,
+          top: restoredComputed.top,
+          width: restoredComputed.width,
+          height: restoredComputed.height,
+          borderWidth: restoredComputed.borderWidth,
+          fontSize: restoredComputed.fontSize,
+        };
+        if (transformTouched)
+          restoredStyles.transform = originalInlineTransform;
+        if (scaleTouched) restoredStyles.scale = originalInlineScale;
         (window.parent as Window).postMessage(
           {
             type: "visual-style-change",
             phase: "preview",
             selector: getSelector(resizeEl),
-            styles: {
-              position: restoredComputed.position,
-              left: restoredComputed.left,
-              top: restoredComputed.top,
-              width: restoredComputed.width,
-              height: restoredComputed.height,
-              borderWidth: restoredComputed.borderWidth,
-              fontSize: restoredComputed.fontSize,
-            },
+            styles: restoredStyles,
             payload: getElementInfo(resizeEl),
           },
           "*",
         );
       }
+      releaseLiveVisualEditOriginalStyles(resizeEl);
       suppressNextShieldClickBriefly();
       refreshOverlays();
       return true;
@@ -16960,6 +17335,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (!controllerEnd.committed) {
         cleanupResizeDrag();
         hideTransformBadge();
+        resizeEl.style.position = originalInlinePosition;
+        resizeEl.style.left = originalInlineLeft;
+        resizeEl.style.top = originalInlineTop;
+        releaseLiveVisualEditOriginalStyles(resizeEl);
         return;
       }
       cleanupResizeDrag();
@@ -16976,6 +17355,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // `width: 100%` to a fixed px width.
       if (widthTouched) styles.width = resizeEl.style.width;
       if (heightTouched) styles.height = resizeEl.style.height;
+      if (
+        transformTouched &&
+        resizeEl.style.transform !== originalInlineTransform
+      ) {
+        styles.transform = resizeEl.style.transform;
+      }
+      if (scaleTouched && resizeEl.style.scale !== originalInlineScale) {
+        styles.scale = resizeEl.style.scale;
+      }
       // Only include fontSize when the K-scale tool actually changed it — a
       // normal resize must never introduce this key.
       if (scaleToolEnabled && originFontSize > 0 && !svgViewBoxScalesFont) {
@@ -17035,6 +17423,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           recordSourceOwnership(target.el);
         });
       }
+      releaseLiveVisualEditOriginalStyles(resizeEl);
     }
     document.addEventListener(events.move, onMove, true);
     document.addEventListener(events.up, onUp, true);
@@ -17452,6 +17841,138 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     setActiveDragCancel(cancelRotateDrag);
   }
 
+  function startRadiusDrag(corner, e) {
+    if (readOnly) return;
+    if (!selectedEl) return;
+    if (isLayerInteractionBlocked(selectedEl)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    var events = dragEventNames(e);
+    var radiusEl = selectedEl;
+    var cs = window.getComputedStyle(radiusEl);
+    // Each handle owns exactly one corner — Figma adjusts only the dragged
+    // corner, not all four, so 4 independent handles stay meaningful instead
+    // of behaving like a single uniform-radius control.
+    var cornerProperty =
+      CORNER_RADIUS_PROPERTY_BY_HANDLE[corner] || "borderTopLeftRadius";
+    refreshLiveVisualEditOriginalStyles(radiusEl);
+    var borderBox = borderBoxDimensions(cs);
+    var elWidthPx = borderBox.width;
+    var elHeightPx = borderBox.height;
+    // getComputedStyle returns the COMPUTED value, so a percentage-authored
+    // radius (e.g. `border-radius: 50%` on a circular/pill element) comes
+    // back as a literal "50%" string. readPx's parseFloat would read that as
+    // the number 50 and misinterpret it as 50px, snapping the shape the
+    // instant the drag starts. Resolve it against the box's own dimensions
+    // first, same convention as CSS's own circle/pill radius authoring.
+    var authoredRadiusValue = radiusEl.style[cornerProperty];
+    var originRadius = resolveCornerRadiusXY(
+      isDirectCornerRadiusValue(authoredRadiusValue)
+        ? authoredRadiusValue
+        : cs[cornerProperty],
+      elWidthPx,
+      elHeightPx,
+    );
+    var maxRadius = radiusDragMaximums(
+      corner,
+      cornerRadiusMap(cs, elWidthPx, elHeightPx),
+      elWidthPx,
+      elHeightPx,
+    );
+    var maxRadiusX = maxRadius.x;
+    var maxRadiusY = maxRadius.y;
+    var originalRadiusValue = radiusEl.style[cornerProperty];
+    var startX = e.clientX;
+    var startY = e.clientY;
+    var radiusMoved = false;
+    var signX = corner.indexOf("w") !== -1 ? 1 : -1;
+    var signY = corner.indexOf("n") !== -1 ? 1 : -1;
+    function applyRadius(nextX, nextY) {
+      var x = Math.max(0, Math.min(maxRadiusX, Math.round(nextX)));
+      var y = Math.max(0, Math.min(maxRadiusY, Math.round(nextY)));
+      radiusEl.style[cornerProperty] =
+        x === y ? x + "px" : x + "px " + y + "px";
+    }
+    function onMove(ev) {
+      if (!radiusEl) return;
+      var screenDx = ev.clientX - startX;
+      var screenDy = ev.clientY - startY;
+      if (screenDx === 0 && screenDy === 0) return;
+      radiusMoved = true;
+      var local = radiusLocalDelta(radiusEl, screenDx, screenDy);
+      applyRadius(
+        originRadius.x + local.x * signX,
+        originRadius.y + local.y * signY,
+      );
+      applySelectionHandleHitGeometry(radiusEl);
+      refreshOverlays();
+    }
+    function cleanupRadiusDrag() {
+      document.removeEventListener(events.move, onMove, true);
+      document.removeEventListener(events.up, onUp, true);
+      document.removeEventListener("keydown", onRadiusKeyDown, true);
+      clearActiveDragCancel(cancelRadiusDrag);
+    }
+    function cancelRadiusDrag() {
+      cleanupRadiusDrag();
+      if (radiusEl && document.documentElement.contains(radiusEl)) {
+        radiusEl.style[cornerProperty] = originalRadiusValue;
+        selectedEl = radiusEl;
+        applySelectionHandleHitGeometry(radiusEl);
+        refreshOverlays();
+      }
+      releaseLiveVisualEditOriginalStyles(radiusEl);
+      suppressNextShieldClickBriefly();
+      return true;
+    }
+    function onRadiusKeyDown(ev) {
+      if (ev.key !== "Escape") return;
+      stopNativeInteraction(ev);
+      cancelRadiusDrag();
+    }
+    function onUp() {
+      cleanupRadiusDrag();
+      if (!radiusEl) return;
+      if (!radiusMoved) {
+        releaseLiveVisualEditOriginalStyles(radiusEl);
+        return;
+      }
+      var finalRadius = resolveCornerRadiusXY(
+        radiusEl.style[cornerProperty] || cs[cornerProperty],
+        elWidthPx,
+        elHeightPx,
+      );
+      var radiusChanged =
+        Math.abs(finalRadius.x - originRadius.x) > 0.5 ||
+        Math.abs(finalRadius.y - originRadius.y) > 0.5;
+      if (!radiusChanged) {
+        radiusEl.style[cornerProperty] = originalRadiusValue;
+        applySelectionHandleHitGeometry(radiusEl);
+        refreshOverlays();
+        releaseLiveVisualEditOriginalStyles(radiusEl);
+        return;
+      }
+      var styles = {};
+      styles[cornerProperty] = radiusEl.style[cornerProperty];
+      (window.parent as Window).postMessage(
+        {
+          type: "visual-style-change",
+          selector: getSelector(radiusEl),
+          styles: styles,
+          originalStyles: originalInlineStylesForPatch(radiusEl, styles),
+          payload: getElementInfo(radiusEl),
+        },
+        "*",
+      );
+      recordSourceOwnership(radiusEl);
+      releaseLiveVisualEditOriginalStyles(radiusEl);
+    }
+    document.addEventListener(events.move, onMove, true);
+    document.addEventListener(events.up, onUp, true);
+    document.addEventListener("keydown", onRadiusKeyDown, true);
+    setActiveDragCancel(cancelRadiusDrag);
+  }
+
   function clearPendingShieldDrag() {
     if (!pendingShieldDrag) return;
     document.removeEventListener(
@@ -17783,6 +18304,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         e.target.getAttribute("data-agent-native-rotate-handle");
       if (rotateHandle) {
         startRotate(e);
+        return;
+      }
+      var radiusHandle =
+        e.target &&
+        e.target.getAttribute &&
+        e.target.getAttribute("data-agent-native-radius-handle");
+      if (radiusHandle) {
+        startRadiusDrag(radiusHandle, e);
         return;
       }
       startMove(e);

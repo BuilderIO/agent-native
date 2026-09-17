@@ -153,6 +153,12 @@ function loadSnapMath(): {
 }
 
 const { rectBounds, computeMoveSnapOffset } = loadSnapMath();
+const mergeFlipIntoTransform = loadPureBridgeFn<
+  (transform: string, flipX: boolean, flipY: boolean) => string
+>("mergeFlipIntoTransform");
+const mergeRelativeScale = loadPureBridgeFn<
+  (scale: string, flipX: boolean, flipY: boolean) => string
+>("mergeRelativeScale", ["readScalePair"]);
 
 // These functions read only their arguments (plus, for dragTargetForPointerDown,
 // the containerScopeAncestor helper it calls), so brace-extracted declarations
@@ -190,6 +196,84 @@ const nextStackCandidate =
   loadPureBridgeFn<(keys: string[], current: string | null) => string | null>(
     "nextStackCandidate",
   );
+const resolveCornerRadiusXY = loadPureBridgeFn<
+  (value: string, width: number, height: number) => { x: number; y: number }
+>("resolveCornerRadiusXY", ["readPx", "resolveCornerRadiusComponent"]);
+const isDirectCornerRadiusValue = loadPureBridgeFn<(value: string) => boolean>(
+  "isDirectCornerRadiusValue",
+);
+const composeRadiusLinearTransform = loadPureBridgeFn<
+  (
+    transform: { a: number; b: number; c: number; d: number },
+    scaleX: number,
+    scaleY: number,
+    radians: number,
+  ) => { a: number; b: number; c: number; d: number }
+>("composeRadiusLinearTransform");
+const radiusDragMaximums =
+  loadPureBridgeFn<
+    (
+      corner: string,
+      radii: Record<string, { x: number; y: number }>,
+      width: number,
+      height: number,
+    ) => { x: number; y: number }
+  >("radiusDragMaximums");
+
+describe("editor-chrome bridge — resize transform preservation", () => {
+  it("preserves authored transforms until a relative mirror is required", () => {
+    const authored = "translate(15px, 20px) scale(-2, 3)";
+    expect(mergeFlipIntoTransform(authored, false, false)).toBe(authored);
+    expect(mergeFlipIntoTransform(authored, true, false)).toBe(
+      `${authored} matrix(-1, 0, 0, 1, 0, 0)`,
+    );
+    expect(
+      mergeFlipIntoTransform("matrix(2, 0, 0, 3, 15, 20)", false, true),
+    ).toBe("matrix(2, 0, 0, 3, 15, 20) matrix(1, 0, 0, -1, 0, 0)");
+  });
+
+  it("mirrors independent scale without double-applying authored values", () => {
+    expect(mergeRelativeScale("2 3", true, false)).toBe("-2 3");
+    expect(mergeRelativeScale("-2 3", true, false)).toBe("2 3");
+    expect(mergeRelativeScale("none", false, true)).toBe("1 -1");
+  });
+});
+
+describe("editor-chrome bridge — corner radius math", () => {
+  it("resolves percentage radii against the border box axes", () => {
+    expect(resolveCornerRadiusXY("50%", 200, 100)).toEqual({ x: 100, y: 50 });
+  });
+
+  it("uses computed geometry when the authored radius is tokenized", () => {
+    const authored = "var(--radius)";
+    const computed = "24px";
+    const value = isDirectCornerRadiusValue(authored) ? authored : computed;
+    expect(isDirectCornerRadiusValue(authored)).toBe(false);
+    expect(resolveCornerRadiusXY(value, 200, 100)).toEqual({ x: 24, y: 24 });
+  });
+
+  it("composes independent scale after a transformed element", () => {
+    expect(
+      composeRadiusLinearTransform({ a: 0, b: 1, c: -1, d: 0 }, 2, 3, 0),
+    ).toEqual({ a: 0, b: 3, c: -2, d: 0 });
+  });
+
+  it("leaves room for the adjacent corners before clamping a drag", () => {
+    expect(
+      radiusDragMaximums(
+        "nw",
+        {
+          nw: { x: 10, y: 10 },
+          ne: { x: 140, y: 20 },
+          se: { x: 10, y: 10 },
+          sw: { x: 20, y: 70 },
+        },
+        200,
+        100,
+      ),
+    ).toEqual({ x: 60, y: 30 });
+  });
+});
 
 describe("editor-chrome bridge — dragTargetForPointerDown", () => {
   const selRect = {
