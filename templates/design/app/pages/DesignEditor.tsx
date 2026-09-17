@@ -2658,7 +2658,25 @@ function DesignEditor() {
   // gesture `final: true` (the mouseup report); keep only the first and final
   // snapshots on this path while interim updates stay live and unflushed.
   const recordMarqueeSelectionHistoryAroundChange = useCallback(
-    (run: () => void, intent: { source?: string; final?: boolean }) => {
+    (
+      run: () => void,
+      intent: {
+        source?: string;
+        final?: boolean;
+        cancelled?: boolean;
+        resetHistory?: boolean;
+      },
+    ) => {
+      if (intent.source === "marquee" && intent.cancelled) {
+        marqueeSelectionHistoryBeforeRef.current = null;
+        lastMarqueeSelectionSignatureRef.current = null;
+        run();
+        return;
+      }
+      if (intent.source === "marquee" && intent.resetHistory) {
+        marqueeSelectionHistoryBeforeRef.current = null;
+        lastMarqueeSelectionSignatureRef.current = null;
+      }
       // Only an actual marquee drag spans multiple calls needing
       // coalescing (see coalesceMarqueeSelectionHistory's doc comment); a
       // drill-in/pick click (source: "pointer") reported through this same

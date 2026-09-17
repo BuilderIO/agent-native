@@ -218,6 +218,10 @@ export interface ElementSelectionIntent {
   range?: boolean;
   source?: "pointer" | "keyboard" | "marquee";
   final?: boolean;
+  /** Ends a marquee lifecycle without changing the current selection. */
+  cancelled?: boolean;
+  /** Retires any pending marquee history before the next gesture starts. */
+  resetHistory?: boolean;
   shiftKey?: boolean;
   metaKey?: boolean;
   ctrlKey?: boolean;

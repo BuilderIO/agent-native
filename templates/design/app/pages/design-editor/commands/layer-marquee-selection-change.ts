@@ -63,6 +63,13 @@ export function runLayerMarqueeSelectionChange(
   selection: CanvasLayerMarqueeSelection[],
   intent: ElementSelectionIntent,
 ) {
+  if (intent.cancelled) {
+    pendingOverviewScreenSelectionRef.current = null;
+    pendingOverviewLayerSelectionRef.current = null;
+    lastMarqueeSelectionSignatureRef.current = null;
+    clearPendingOverviewLayerSelectionTimer();
+    return;
+  }
   // PF10: MultiScreenCanvas reports the marquee hit-set on every
   // mousemove tick during a drag, not just on settle (see
   // reportLayerSelection in MultiScreenCanvas.tsx). Bail before any

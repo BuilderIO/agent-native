@@ -178,6 +178,20 @@ const DRAG_THRESHOLD = 3;
 // One postMessage round trip into an iframe. 80ms was tuned on a warm local
 // dev server; a cold hosted screen or a large generated document blows it, and
 // a late reply is dropped as if the screen held nothing selectable.
+
+function serializeMarqueeHostSelection(
+  activeId: string | null | undefined,
+  selectedElementScreenId: string | null | undefined,
+  selectedLayerSelectorGroupsByScreen: Record<string, string[][]>,
+): string {
+  return JSON.stringify([
+    activeId ?? null,
+    selectedElementScreenId ?? null,
+    Object.entries(selectedLayerSelectorGroupsByScreen)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([screenId, groups]) => [screenId, groups]),
+  ]);
+}
 // A drill-in narrows the collect to the pointer's containment chain and answers
 // in ~100ms, but an area query (the marquee) still builds info for every
 // candidate on the screen, which measures near a second on a large generated
@@ -948,7 +962,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   useEffect(() => {
     selectedElementScreenIdRef.current = selectedElementScreenId;
   }, [selectedElementScreenId]);
+  const marqueeHostSelectionRevisionRef = useRef("");
+  marqueeHostSelectionRevisionRef.current = serializeMarqueeHostSelection(
+    activeId,
+    selectedElementScreenId,
+    selectedLayerSelectorGroupsByScreen,
+  );
   const dragState = useRef<DragState | null>(null);
+  const marqueeLifecycleRef = useRef(0);
   const dragCleanup = useRef<(() => void) | null>(null);
   const boardElementResizeCancel = useRef<((pressedAt: number) => void) | null>(
     null,
@@ -4530,6 +4551,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         applyViewToDomRef.current();
         recomputePenPointerForViewChangeRef.current();
       } else if (state.type === "marquee") {
+        marqueeLifecycleRef.current += 1;
+        onLayerMarqueeSelectionChange?.([], {
+          source: "marquee",
+          cancelled: true,
+        });
         updateSelectedIds(() => state.baseSelectedIds);
         updateSelectedDraftIds(() => state.baseSelectedDraftIds);
       } else if (state.type === "pen-node") {
@@ -4573,6 +4599,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     finishDrag,
     getResolvedMetadata,
     scaleScreenContents,
+    onLayerMarqueeSelectionChange,
     updateDraftPrimitives,
     updateFrameGeometry,
     updateSelectedDraftIds,
@@ -4677,6 +4704,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       // finding) — a plain marquee stops at each screen's current container
       // scope's direct children.
       const deepSelect = e.metaKey || e.ctrlKey;
+      const marqueeToken = ++marqueeLifecycleRef.current;
       let latestRect = normalizeRectFromPoints(originCanvas, originCanvas);
       let layerCandidates: CanvasLayerMarqueeCandidate[] = [];
       let lastLayerSelectionSignature: string | null = null;
@@ -4731,7 +4759,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         // after a new marquee has already begun. Type alone is insufficient —
         // both gestures are `marquee`; require this exact gesture object so a
         // stale reply cannot flash/replace the new gesture's layer selection.
-        if (state !== marqueeState) return;
+        if (
+          state !== marqueeState ||
+          marqueeLifecycleRef.current !== marqueeToken
+        )
+          return;
         const selection = layerCandidates
           .filter(
             (candidate) =>
@@ -4806,7 +4838,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             // silence as an empty screen for the rest of the gesture.
             if (!unanswered.has(id)) collectedScreenIds.add(id);
           });
-          if (dragState.current !== marqueeState) return;
+          if (
+            dragState.current !== marqueeState ||
+            marqueeLifecycleRef.current !== marqueeToken
+          )
+            return;
           layerCandidates = [...layerCandidates, ...result.candidates];
           if (!marqueeReleased) reportLayerSelection(latestRect);
         });
@@ -4821,8 +4857,17 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           source: "marquee",
           additive: false,
           shiftKey: false,
+          resetHistory: true,
         });
         lastLayerSelectionSignature = "";
+      } else {
+        onLayerMarqueeSelectionChange?.([], {
+          source: "marquee",
+          additive: true,
+          shiftKey: true,
+          cancelled: true,
+          resetHistory: true,
+        });
       }
       setIsDragging(true);
       // Seed collection with whatever the zero-size origin rect already
@@ -4932,8 +4977,22 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             finishDrag();
           } else {
             const finalRect = latestRect;
+            const releasedSelectionRevision = `${selectedIdsRef.current.join(",")}\u001e${marqueeHostSelectionRevisionRef.current}`;
             void Promise.allSettled(pendingMarqueeCollections).then(() => {
-              if (dragState.current !== marqueeState) return;
+              if (
+                dragState.current !== marqueeState ||
+                marqueeLifecycleRef.current !== marqueeToken
+              )
+                return;
+              const currentSelectionRevision = `${selectedIdsRef.current.join(",")}\u001e${marqueeHostSelectionRevisionRef.current}`;
+              if (currentSelectionRevision !== releasedSelectionRevision) {
+                onLayerMarqueeSelectionChange?.([], {
+                  source: "marquee",
+                  cancelled: true,
+                });
+                finishDrag();
+                return;
+              }
               reportLayerSelection(finalRect, true);
               finishDrag();
             });
