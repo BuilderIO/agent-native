@@ -91,6 +91,30 @@ export function prepareCanonicalSourceContent(
   };
 }
 
+export function resolveSourceBaseForPublication(args: {
+  fileId: string;
+  fileType?: string | null;
+  pending?: {
+    content: string;
+    identityMigrationSourceContent?: string;
+  };
+  collabContent?: string | null;
+  persistedContent?: string | null;
+  beforeContent: string;
+}): string {
+  const raw =
+    args.pending?.identityMigrationSourceContent ??
+    args.pending?.content ??
+    args.collabContent ??
+    args.persistedContent ??
+    args.beforeContent;
+  const canonical = prepareCanonicalSourceContent(raw, {
+    fileId: args.fileId,
+    fileType: args.fileType,
+  }).content;
+  return canonical === args.beforeContent ? raw : args.beforeContent;
+}
+
 /** The same pure acceptance boundary used by writers and multi-file preflight. */
 export function prepareAcceptedSourceContent(
   content: string,

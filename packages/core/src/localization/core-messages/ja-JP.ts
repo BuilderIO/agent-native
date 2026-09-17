@@ -92,6 +92,11 @@ const messages: AgentChatTranslation = {
     "ブラウザーの音声認識または音声文字変換",
   "onboarding.capability.voiceInput.why":
     "音声入力は話したリクエストをテキストに変換します。入力はいつでも使えます。",
+  "onboarding.capability.embeddings.label": "埋め込み",
+  "onboarding.capability.embeddings.keySummary":
+    "Gemini、Cohere、またはVoyageのキー",
+  "onboarding.capability.embeddings.why":
+    "埋め込みは意味検索を改善します。埋め込みがなくてもキーワード検索は使えます。",
   "onboarding.capability.assetsImageGeneration.label": "画像生成",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Builderクレジットまたは画像プロバイダーのキー",

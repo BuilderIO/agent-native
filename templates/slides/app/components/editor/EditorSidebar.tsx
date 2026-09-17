@@ -110,6 +110,8 @@ interface EditorSidebarProps {
     overSlideId: string,
     selectedSlideIds?: string[],
   ) => void;
+  /** Keeps the source thumbnail in place while an Alt/Option drag preview moves. */
+  altDragSlideId?: string | null;
   /** Toggles whether this slide is excluded from Present/Presenter mode. */
   onToggleSkipSlide?: (slideIds: string[], skipped: boolean) => void;
 }
@@ -328,6 +330,7 @@ function SortableSlideThumb({
   onNewSlideAfter,
   onDuplicateSlide,
   onToggleSkipSlide,
+  altDragSlideId,
 }: {
   slide: Slide;
   index: number;
@@ -361,6 +364,7 @@ function SortableSlideThumb({
   onNewSlideAfter?: (slideId: string) => void;
   onDuplicateSlide?: (slideIds: string[]) => void;
   onToggleSkipSlide?: (slideIds: string[], skipped: boolean) => void;
+  altDragSlideId?: string | null;
 }) {
   const t = useT();
   const {
@@ -376,9 +380,13 @@ function SortableSlideThumb({
   });
 
   const style = {
-    transform: CSS.Transform.toString(transform),
+    transform:
+      isDragging && altDragSlideId === slide.id
+        ? undefined
+        : CSS.Transform.toString(transform),
     transition,
-    opacity: isDragging ? 0.5 : 1,
+    opacity:
+      isDragging && altDragSlideId === slide.id ? 1 : isDragging ? 0.5 : 1,
   };
 
   const thumbDims = getAspectRatioDims(aspectRatio);
@@ -656,6 +664,7 @@ export default function EditorSidebar({
   onDuplicateSlide,
   onReorderSlides,
   onToggleSkipSlide,
+  altDragSlideId,
 }: EditorSidebarProps) {
   const t = useT();
   const [describeAnchorEl, setDescribeAnchorEl] =
@@ -990,6 +999,7 @@ export default function EditorSidebar({
                 onDeleteSlide={handleDeleteSlide}
                 onNewSlideAfter={onNewSlideAfter}
                 onDuplicateSlide={onDuplicateSlide}
+                altDragSlideId={altDragSlideId}
                 onToggleSkipSlide={onToggleSkipSlide}
                 onOverflowChange={(info) =>
                   handleSlideOverflowChange(slide, info)

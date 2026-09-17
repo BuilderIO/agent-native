@@ -456,6 +456,24 @@ describe("every primitive kind shares one coordinate space", () => {
       expect(top, `${kind} top`).toBe(80);
     },
   );
+
+  it.each(["polygon", "star"] as const)(
+    "%s opts out of SVG aspect-ratio letterboxing when resized",
+    (kind) => {
+      const html = appendCanvasPrimitiveToHtml(blankScreenHtml("S"), {
+        kind,
+        nodeId: `${kind}-resize-proof`,
+        geometry: { x: 10, y: 20, width: 160, height: 60 },
+      });
+      const svg = new DOMParser()
+        .parseFromString(html ?? "", "text/html")
+        .querySelector<SVGSVGElement>(
+          `[data-agent-native-node-id="${kind}-resize-proof"]`,
+        );
+      expect(svg?.getAttribute("preserveAspectRatio")).toBe("none");
+      expect(svg?.getAttribute("viewBox")).toBe("0 0 160 60");
+    },
+  );
 });
 
 describe("text takes its colour from what it lands on", () => {

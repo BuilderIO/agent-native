@@ -233,6 +233,7 @@ import {
 } from "./agent-teams.js";
 import { getSession, registerAuthPublicPaths } from "./auth.js";
 import { captureError } from "./capture-error.js";
+import { completeText } from "./complete-text.js";
 import {
   getH3App,
   markDefaultPluginProvided,
@@ -715,6 +716,24 @@ export function resolveHostedBuilderHandoff(
   if (canToggle) return {};
   const connectBuilder = browserTools["connect-builder"];
   return connectBuilder ? { "connect-builder": connectBuilder } : {};
+}
+
+/** Setup CTAs that must be callable on the very first request.
+ *
+ *  Both are recovery actions: the agent should answer "connect Builder for me"
+ *  or a failed upload by rendering the inline card, not by spending a turn in
+ *  `tool-search` first. `connect-builder` is registered in every registry that
+ *  receives `browserTools`, local dev included, so naming it only through the
+ *  hosted-only handoff left local dev advertising "Connect Builder.io" in the
+ *  UI while the agent was never told the tool existed. Names the registry does
+ *  not have are dropped by `filterInitialEngineTools`, so listing both here is
+ *  safe for lean registries. */
+export function resolveConnectSetupInitialToolNames(
+  browserTools: Record<string, ActionEntry>,
+): string[] {
+  return ["connect-file-storage", "connect-builder"].filter(
+    (name) => browserTools[name],
+  );
 }
 
 type AgentChatPluginCleanup = () => void | Promise<void>;
@@ -1773,12 +1792,10 @@ export function createAgentChatPlugin(
         ...new Set([
           ...templateInitialToolNames,
           ...corpusToolNames,
-          // Attachment setup is a recovery action, but it must be available on
-          // the first request so a missing provider renders the CTA immediately
+          // Setup CTAs are recovery actions, but they must be available on the
+          // first request so a missing provider renders the card immediately
           // instead of spending another turn in tool-search.
-          ...(browserTools["connect-file-storage"]
-            ? ["connect-file-storage"]
-            : []),
+          ...resolveConnectSetupInitialToolNames(browserTools),
           ...Object.keys(hostedBuilderHandoff),
         ]),
       ];
@@ -3225,7 +3242,7 @@ export function createAgentChatPlugin(
           await updateThreadData(
             threadId,
             JSON.stringify(repo),
-            meta.title || thread.title,
+            thread.title,
             meta.preview || thread.preview,
             repo.messages.length,
           );
@@ -3471,7 +3488,7 @@ export function createAgentChatPlugin(
           await updateThreadData(
             threadId,
             JSON.stringify(repo),
-            meta.title || thread.title,
+            thread.title,
             meta.preview || thread.preview,
             Array.isArray(repo.messages)
               ? repo.messages.length
@@ -5530,7 +5547,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             setResponseStatus(event, 405);
             return { error: "Method not allowed" };
           }
-          const ownerEmail = await getOwnerFromEvent(event);
+          const titleOwnerContext = await resolveOwnerContext(event);
+          if (titleOwnerContext.anonymous) return { title: "" };
+          const ownerEmail = titleOwnerContext.owner;
 
           // Per-user rate limit: 10 calls / 60s. Prevents an authenticated
           // user from spamming the endpoint to exhaust shared Anthropic
@@ -5567,60 +5586,37 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             setResponseStatus(event, 400);
             return { error: "message is required" };
           }
+          const orgId = await getOrgIdFromEvent(event);
           // Strip hidden context and mention markup before title generation.
-          // Fallback titles are often direct truncations, so never let injected
-          // prompt context become a visible tab label.
+          // Never let injected prompt context become a visible tab label.
           const cleanMessage = message
             .replace(/<context\b[^>]*>[\s\S]*?<\/context>\n?/gi, "")
             .replace(/<context\b[^>]*>[\s\S]*$/gi, "")
             .replace(/<\/context>/gi, "")
             .replace(/@\[([^\]|]+)\|[^\]]*\]/g, "@$1")
             .trim();
-          // Mirror the chat-run resolution so BYO-key users have title
-          // generation billed to their own key instead of the platform key.
-          // This request goes straight to Anthropic, so it needs the owner's
-          // Anthropic key specifically — the active engine may be another
-          // provider, whose key must never be sent here. Owners without one
-          // get the truncated title.
-          const { getOwnerApiKeyForEngine } =
-            await import("../agent/production-agent.js");
-          const { apiKey } = await getOwnerApiKeyForEngine(
-            "anthropic",
-            ownerEmail,
-          );
-          if (!apiKey) {
-            // Fallback: truncate the message
-            return { title: cleanMessage.trim().slice(0, 60) };
-          }
           try {
-            const res = await fetch("https://api.anthropic.com/v1/messages", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "x-api-key": apiKey,
-                "anthropic-version": "2023-06-01",
-              },
-              body: JSON.stringify({
-                model: "claude-haiku-4-5-20251001",
-                max_tokens: 30,
-                messages: [
-                  {
-                    role: "user",
-                    content: `Generate a very short title (3-6 words, no quotes) for a chat that starts with this message:\n\n${cleanMessage.slice(0, 500)}`,
-                  },
-                ],
-              }),
-            });
-            if (!res.ok) {
-              return { title: cleanMessage.trim().slice(0, 60) };
-            }
-            const data = (await res.json()) as {
-              content?: Array<{ type: string; text?: string }>;
-            };
-            const text = data.content?.[0]?.text?.trim();
-            return { title: text || cleanMessage.trim().slice(0, 60) };
+            const result = await runWithRequestContext(
+              { userEmail: ownerEmail, orgId },
+              () =>
+                completeText({
+                  appId: options?.appId,
+                  systemPrompt:
+                    "Create a concise chat tab title for the user's request. Return only 3-6 words, with no quotes, punctuation, or explanation.",
+                  input: cleanMessage.slice(0, 500),
+                  maxOutputTokens: 30,
+                  temperature: 0,
+                  timeoutMs: 10_000,
+                }),
+            );
+            const title = result.text
+              .replace(/^["'`]+|["'`]+$/g, "")
+              .replace(/\s+/g, " ")
+              .trim()
+              .slice(0, 80);
+            return { title };
           } catch {
-            return { title: cleanMessage.trim().slice(0, 60) };
+            return { title: "" };
           }
         }),
       );
@@ -6353,7 +6349,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   nextTitle,
                   nextPreview,
                   newMessageCount,
-                  { ignoreConflicts: true },
                 );
                 // Scope updates piggyback on the PUT — the client uses this
                 // path for detach and for claiming a legacy unscoped thread.

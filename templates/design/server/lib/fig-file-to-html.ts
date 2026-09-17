@@ -4483,27 +4483,70 @@ const TOP_LEVEL_RENDERABLE_TYPES = new Set(["FRAME", "SYMBOL", "INSTANCE"]);
  * nodes (and nested sections) to wrap frames; sections are organizational
  * containers, not standalone designs, so we recurse THROUGH them and
  * collect the frames inside. Anything that isn't a SECTION or a
- * renderable type is ignored. Children are returned in document order
- * (depth-first across sections).
+ * renderable type is ignored.
+ *
+ * The traversal itself walks children in `parentIndex.position` order (the
+ * layer stacking/creation order), but that has no necessary relation to how
+ * frames are actually laid out on the canvas — a designer can duplicate or
+ * reorder frames in the layers panel without moving them, or create later
+ * frames to the LEFT of earlier ones. Once collected, the top-level frames
+ * are re-sorted by the minimum X/Y of their transformed canvas bounds (then
+ * the traversal order for exact ties) so multi-frame flows import left-to-right
+ * in the same reading order they have in Figma, instead of in creation/layer
+ * order.
  */
 export function collectTopLevelFrames(
   parent: FigNode,
   childrenOf: Map<string, FigNode[]>,
 ): FigNode[] {
+  type Affine = {
+    m00: number;
+    m01: number;
+    m02: number;
+    m10: number;
+    m11: number;
+    m12: number;
+  };
+  const identity: Affine = {
+    m00: 1,
+    m01: 0,
+    m02: 0,
+    m10: 0,
+    m11: 1,
+    m12: 0,
+  };
+  const multiply = (parentMatrix: Affine, localMatrix: Affine): Affine => ({
+    m00:
+      parentMatrix.m00 * localMatrix.m00 + parentMatrix.m01 * localMatrix.m10,
+    m01:
+      parentMatrix.m00 * localMatrix.m01 + parentMatrix.m01 * localMatrix.m11,
+    m02:
+      parentMatrix.m00 * localMatrix.m02 +
+      parentMatrix.m01 * localMatrix.m12 +
+      parentMatrix.m02,
+    m10:
+      parentMatrix.m10 * localMatrix.m00 + parentMatrix.m11 * localMatrix.m10,
+    m11:
+      parentMatrix.m10 * localMatrix.m01 + parentMatrix.m11 * localMatrix.m11,
+    m12:
+      parentMatrix.m10 * localMatrix.m02 +
+      parentMatrix.m11 * localMatrix.m12 +
+      parentMatrix.m12,
+  });
   const sortChildren = (kids: FigNode[]): FigNode[] =>
     kids.slice().sort((a, b) => {
       const pa = a.parentIndex?.position ?? "";
       const pb = b.parentIndex?.position ?? "";
       return pa < pb ? -1 : pa > pb ? 1 : 0;
     });
-  const out: FigNode[] = [];
+  const out: Array<{ node: FigNode; x: number; y: number }> = [];
   const visitedSections = new Set<string>();
   const stack = sortChildren(childrenOf.get(guidKey(parent.guid)) ?? [])
     .reverse()
-    .map((node) => ({ node, depth: 1 }));
+    .map((node) => ({ node, depth: 1, matrix: identity }));
   let visited = 0;
   while (stack.length > 0) {
-    const { node, depth } = stack.pop()!;
+    const { node, depth, matrix } = stack.pop()!;
     visited += 1;
     if (visited > DEFAULT_MAX_RENDERED_NODES) {
       throw new Error(".fig section traversal exceeded its node budget.");
@@ -4512,6 +4555,7 @@ export function collectTopLevelFrames(
       throw new Error(".fig section tree is nested too deeply.");
     }
     if (!node.type || node.visible === false) continue;
+    const nodeMatrix = multiply(matrix, node.transform ?? identity);
     if (node.type === "SECTION") {
       const key = guidKey(node.guid);
       if (visitedSections.has(key)) {
@@ -4520,13 +4564,37 @@ export function collectTopLevelFrames(
       visitedSections.add(key);
       const children = sortChildren(childrenOf.get(key) ?? []);
       for (let index = children.length - 1; index >= 0; index -= 1) {
-        stack.push({ node: children[index]!, depth: depth + 1 });
+        stack.push({
+          node: children[index]!,
+          depth: depth + 1,
+          matrix: nodeMatrix,
+        });
       }
       continue;
     }
-    if (TOP_LEVEL_RENDERABLE_TYPES.has(node.type)) out.push(node);
+    if (TOP_LEVEL_RENDERABLE_TYPES.has(node.type)) {
+      const width = node.size?.x ?? 0;
+      const height = node.size?.y ?? 0;
+      const bounds = [
+        [0, 0],
+        [width, 0],
+        [0, height],
+        [width, height],
+      ].map(([x, y]) => ({
+        x: nodeMatrix.m00 * x + nodeMatrix.m01 * y + nodeMatrix.m02,
+        y: nodeMatrix.m10 * x + nodeMatrix.m11 * y + nodeMatrix.m12,
+      }));
+      out.push({
+        node,
+        x: Math.min(...bounds.map((point) => point.x)),
+        y: Math.min(...bounds.map((point) => point.y)),
+      });
+    }
   }
-  return out;
+  return out
+    .map((entry, index) => ({ ...entry, index }))
+    .sort((a, b) => a.x - b.x || a.y - b.y || a.index - b.index)
+    .map((entry) => entry.node);
 }
 // Maps a Figma `variableField` (on a node's variableConsumptionMap entry) to
 // the literal FigNode field it overrides. Only layout-affecting numeric fields
