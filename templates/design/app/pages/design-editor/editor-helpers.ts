@@ -43,6 +43,9 @@ export function runtimeMultiplicityForElementProvenance(
     return 1;
   }
   let count = 0;
+  const invocationKeys = hasInvocationProvenance
+    ? new Set<string>()
+    : undefined;
   for (const snapshot of Object.values(snapshots)) {
     const projection = buildCodeLayerProjection(snapshot.html);
     for (const node of projection.nodes) {
@@ -70,11 +73,24 @@ export function runtimeMultiplicityForElementProvenance(
         Number(attrs[columnAttribute]) === column &&
         (!componentName || attrs["data-component-name"] === componentName)
       ) {
-        count += 1;
+        if (invocationKeys) {
+          invocationKeys.add(
+            JSON.stringify([
+              runtimeComponent?.componentId ?? "",
+              attrs[sourceFileAttribute],
+              attrs[lineAttribute],
+              attrs[columnAttribute],
+              attrs["data-source-owner-key"] ?? "",
+              attrs["data-component-name"] ?? "",
+            ]),
+          );
+        } else {
+          count += 1;
+        }
       }
     }
   }
-  return Math.max(1, count);
+  return Math.max(1, invocationKeys?.size ?? count);
 }
 
 export function buildSignInHrefForDesignIntent(
