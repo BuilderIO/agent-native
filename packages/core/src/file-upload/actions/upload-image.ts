@@ -204,6 +204,18 @@ async function deleteReceiptProviderObject(
   );
 }
 
+async function cleanupUnrecordedUpload(
+  receipt: UploadReceipt & { url: string; provider: string },
+): Promise<void> {
+  try {
+    if (await deleteReceiptProviderObject(receipt)) return;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Image upload cleanup failed: ${message}`);
+  }
+  throw new Error("Image upload cleanup failed: the provider kept the object.");
+}
+
 async function settleUploadReceipt(
   idempotencyKey: string,
   cleanup: "delete" | "release",
@@ -661,6 +673,11 @@ export default defineAction({
           provider: result.provider,
           expiresAt: Date.now() + UPLOAD_RECEIPT_STAGED_TTL_MS,
         };
+        const unrecordedReceipt = {
+          ...stagedReceipt,
+          url: result.url,
+          provider: result.provider,
+        };
         const staged = await compareAndSetAppState(
           uploadReceiptKey(idempotencyKey),
           pendingReceipt,
@@ -671,11 +688,7 @@ export default defineAction({
           if (current) {
             const existing = parseUploadReceipt(current);
             if (receiptHasProviderData(existing)) {
-              await deleteReceiptProviderObject({
-                ...stagedReceipt,
-                url: result.url,
-                provider: result.provider,
-              });
+              await cleanupUnrecordedUpload(unrecordedReceipt);
               return {
                 url: existing.url,
                 id: existing.id,
@@ -683,6 +696,7 @@ export default defineAction({
               };
             }
           }
+          await cleanupUnrecordedUpload(unrecordedReceipt);
           throw new Error("Could not record the image upload receipt.");
         }
       }

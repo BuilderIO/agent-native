@@ -247,16 +247,49 @@ describe("saveImportedDesignFiles: node-id annotation", () => {
     expect(result.placedFrames).toEqual([
       expect.objectContaining({
         fileId: "file-1",
-        frame: expect.objectContaining({ z: 43 }),
+        frame: expect.objectContaining({ x: 816, z: 43 }),
       }),
     ]);
     expect(mocks.getDesignData()).toMatchObject({
       canvasFrames: {
         "existing-screen": { z: 7 },
         "concurrent-screen": { z: 42 },
-        "file-1": { z: 43 },
+        "file-1": { x: 816, z: 43 },
       },
     });
+  });
+
+  it("places multiple imported screens side by side in one save", async () => {
+    mocks.setDesignData({});
+    const result = await saveImportedDesignFiles({
+      designId: "design-1",
+      sourceType: "figma-clipboard-rest",
+      files: [
+        {
+          filename: "first.html",
+          fileType: "html",
+          content: "<main>First</main>",
+          preferredFrame: { width: 320, height: 200 },
+        },
+        {
+          filename: "second.html",
+          fileType: "html",
+          content: "<main>Second</main>",
+          preferredFrame: { width: 640, height: 400 },
+        },
+      ],
+    });
+
+    expect(result.placedFrames).toEqual([
+      expect.objectContaining({
+        fileId: "file-1",
+        frame: expect.objectContaining({ x: 0, width: 320 }),
+      }),
+      expect.objectContaining({
+        fileId: "file-2",
+        frame: expect.objectContaining({ x: 416, width: 640 }),
+      }),
+    ]);
   });
 
   it("is idempotent: preserves an existing clean id and only fills the missing one", async () => {

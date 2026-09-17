@@ -130,6 +130,20 @@ function nextImportedFrameZ(currentCanvasFrames: unknown): number {
   return Math.max(currentFrameEntries.length, highestPersistedZ + 1);
 }
 
+function nextImportedFrameX(currentCanvasFrames: unknown): number {
+  const currentFrames = Object.values(
+    parseCanvasFrameGeometryById(currentCanvasFrames),
+  );
+  const right = currentFrames.reduce((maxRight, frame) => {
+    const x = frame.x ?? 0;
+    const width = frame.width ?? 0;
+    return Number.isFinite(x) && Number.isFinite(width)
+      ? Math.max(maxRight, x + width)
+      : maxRight;
+  }, 0);
+  return currentFrames.length > 0 ? right + FRAME_GAP : 0;
+}
+
 function stringFromState(value: unknown, key: string): string | undefined {
   return isRecord(value) && typeof value[key] === "string"
     ? (value[key] as string)
@@ -297,7 +311,6 @@ export async function saveImportedDesignFiles(
         .from(schema.designFiles)
         .where(eq(schema.designFiles.designId, designId));
       const usedFilenames = new Set(existingFiles.map((file) => file.filename));
-      let nextFrameX = 0;
 
       for (let index = 0; index < input.files.length; index += 1) {
         const file = input.files[index]!;
@@ -358,13 +371,14 @@ export async function saveImportedDesignFiles(
         placements.push({
           fileId,
           filename,
-          x: file.preferredFrame?.x ?? nextFrameX,
+          ...(file.preferredFrame?.x !== undefined
+            ? { x: file.preferredFrame.x }
+            : {}),
           y: file.preferredFrame?.y ?? 0,
           width,
           height,
           z: index,
         });
-        nextFrameX += width + FRAME_GAP;
         const source = {
           sourceType: input.sourceType,
           previewState: "static",
@@ -395,10 +409,19 @@ export async function saveImportedDesignFiles(
   await mutateDesignData({
     designId,
     mutate: (current, { updatedAt }) => {
-      placementsForPersistence = placements.map((placement, index) => ({
-        ...placement,
-        z: nextImportedFrameZ(current.canvasFrames) + index,
-      }));
+      let nextFrameX = nextImportedFrameX(current.canvasFrames);
+      placementsForPersistence = placements.map((placement, index) => {
+        const x = placement.x ?? nextFrameX;
+        nextFrameX = Math.max(
+          nextFrameX,
+          x + (placement.width ?? 0) + FRAME_GAP,
+        );
+        return {
+          ...placement,
+          x,
+          z: nextImportedFrameZ(current.canvasFrames) + index,
+        };
+      });
       const previousMetadata = isRecord(current.screenMetadata)
         ? { ...current.screenMetadata }
         : {};

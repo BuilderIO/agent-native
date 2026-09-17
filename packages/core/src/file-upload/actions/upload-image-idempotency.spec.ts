@@ -122,6 +122,45 @@ describe("upload-image idempotency receipts", () => {
     expect(mocks.compareAndSetAppState).toHaveBeenCalledTimes(3);
   });
 
+  it("deletes an unrecorded provider object when receipt staging loses a race", async () => {
+    mocks.compareAndSetAppState
+      .mockReset()
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(false);
+    mocks.readAppState
+      .mockReset()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null);
+    mocks.deleteUploadedFile.mockResolvedValue(true);
+
+    await expect(action.run(uploadArgs)).rejects.toThrow(
+      "Could not record the image upload receipt.",
+    );
+
+    expect(mocks.deleteUploadedFile).toHaveBeenCalledWith("builder", {
+      id: "asset-1",
+      url: "https://cdn.builder.io/asset-1.png",
+    });
+  });
+
+  it("surfaces provider cleanup failure after receipt staging loses a race", async () => {
+    mocks.compareAndSetAppState
+      .mockReset()
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(false);
+    mocks.readAppState
+      .mockReset()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null);
+    mocks.deleteUploadedFile.mockResolvedValue(false);
+
+    await expect(action.run(uploadArgs)).rejects.toThrow(
+      "Image upload cleanup failed",
+    );
+  });
+
   it("marks a receipt committed instead of deleting it during release", async () => {
     mocks.readAppState.mockResolvedValue({
       filename: "figma-image.png",
