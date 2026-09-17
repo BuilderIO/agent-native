@@ -2631,8 +2631,14 @@ function DesignEditor() {
     },
     [clearRedoStacks, restoreSelectionSnapshot, syncUndoRedoState],
   );
+  // A live marquee keeps this start snapshot until its final report. Any
+  // non-marquee selection is a new interaction boundary and must retire it.
+  const marqueeSelectionHistoryBeforeRef =
+    useRef<GeometryHistorySelection | null>(null);
   const recordSelectionHistoryAroundChange = useCallback(
     (run: () => void) => {
+      marqueeSelectionHistoryBeforeRef.current = null;
+      lastMarqueeSelectionSignatureRef.current = null;
       if (viewModeRef.current !== "overview") {
         run();
         return;
@@ -2651,8 +2657,6 @@ function DesignEditor() {
   // step". MultiScreenCanvas.tsx's marquee now tags exactly one call per
   // gesture `final: true` (the mouseup report); keep only the first and final
   // snapshots on this path while interim updates stay live and unflushed.
-  const marqueeSelectionHistoryBeforeRef =
-    useRef<GeometryHistorySelection | null>(null);
   const recordMarqueeSelectionHistoryAroundChange = useCallback(
     (run: () => void, intent: { source?: string; final?: boolean }) => {
       // Only an actual marquee drag spans multiple calls needing
@@ -2664,12 +2668,15 @@ function DesignEditor() {
         return;
       }
       if (viewModeRef.current !== "overview") {
+        marqueeSelectionHistoryBeforeRef.current = null;
+        lastMarqueeSelectionSignatureRef.current = null;
         run();
         return;
       }
       recordDesignPerformance("marqueeSelectionChange");
       if (intent.final !== true) {
         if (marqueeSelectionHistoryBeforeRef.current === null) {
+          lastMarqueeSelectionSignatureRef.current = null;
           marqueeSelectionHistoryBeforeRef.current = captureCurrentSelection();
         }
         run();
@@ -2687,6 +2694,7 @@ function DesignEditor() {
         after,
       );
       if (entry) pushSelectionHistoryEntry(entry.before, entry.after);
+      lastMarqueeSelectionSignatureRef.current = null;
     },
     [pushSelectionHistoryEntry, recordSelectionHistoryAroundChange],
   );
@@ -16048,8 +16056,6 @@ function DesignEditor() {
 
   // ── Editor hotkeys ─────────────────────────────────────────────────────────
   const handleEscapeHotkey = useCallback(() => {
-    marqueeSelectionHistoryBeforeRef.current = null;
-    lastMarqueeSelectionSignatureRef.current = null;
     recordSelectionHistoryAroundChange(() =>
       runEscapeHotkey({
         activeBreakpointWidthStateRef,
