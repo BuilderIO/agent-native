@@ -571,6 +571,8 @@ function resolveSlideCanvasHitTarget(
         element instanceof HTMLElement &&
         element !== emptyTextBox &&
         !emptyTextBox.contains(element) &&
+        element !== slideContent &&
+        !isSlideCanvasShell(element) &&
         slideContent.contains(element),
     );
   return underlying ?? target;
@@ -2967,10 +2969,16 @@ export default function SlideEditor({
         syncSelectionToAppState(null);
         return;
       }
+      const editingElement = editingElRef.current;
+      const slideContent = editingElement ? getSlideContent() : null;
+      const resolvedEditingElement =
+        editingElement && slideContent
+          ? resolveSlideTextSelectionTarget(editingElement, slideContent)
+          : editingElement;
       const inlineTextStyle =
-        editingElRef.current === element
+        editingElement && resolvedEditingElement === element
           ? getInlineTextStyleSnapshotForRange(
-              element,
+              editingElement,
               richTextSelectionRef.current,
             )
           : undefined;
@@ -2980,7 +2988,7 @@ export default function SlideEditor({
         inlineTextStyle,
       );
       const selectedText =
-        editingElRef.current === element
+        editingElement && resolvedEditingElement === element
           ? richTextSelectionRef.current?.toString()
           : undefined;
       const rect = element.getBoundingClientRect();
@@ -3042,6 +3050,7 @@ export default function SlideEditor({
   }, [
     buildSelectionState,
     clearSelectedElement,
+    getSlideContent,
     resolveSelectedElement,
     selectedElementPath,
     selectedElementSlideId,
@@ -8204,12 +8213,26 @@ export default function SlideEditor({
       if (readOnly) return;
 
       const target = e.target as HTMLElement;
+      const slideContent = containerRef.current?.querySelector(
+        ".slide-content",
+      ) as HTMLElement | null;
+      const resolvedTarget = slideContent
+        ? resolveSlideCanvasHitTarget(
+            target,
+            slideContent,
+            e.clientX,
+            e.clientY,
+          )
+        : target;
 
       // For images / placeholders, show overlay
-      if (target.tagName === "IMG" || target.closest(".fmd-img-placeholder")) {
+      if (
+        resolvedTarget.tagName === "IMG" ||
+        resolvedTarget.closest(".fmd-img-placeholder")
+      ) {
         e.preventDefault();
         e.stopPropagation();
-        showImageOverlay(target);
+        showImageOverlay(resolvedTarget);
         return;
       }
 
@@ -8219,16 +8242,7 @@ export default function SlideEditor({
       if (!isHtmlSlide) return;
 
       // Find the nearest smart block (leaf OR group of leaves) and edit it.
-      const slideContent = containerRef.current?.querySelector(
-        ".slide-content",
-      ) as HTMLElement | null;
       if (!slideContent) return;
-      const resolvedTarget = resolveSlideCanvasHitTarget(
-        target,
-        slideContent,
-        e.clientX,
-        e.clientY,
-      );
       stampBuilderIds(slideContent);
       const block = findSmartBlock(resolvedTarget, slideContent);
       if (!block) return;

@@ -132,9 +132,43 @@ describe("SlideEditor render-phase safety", () => {
       doubleClickStart,
     );
     const doubleClickBody = source.slice(doubleClickStart, doubleClickEnd);
-    expect(doubleClickBody).toContain("showImageOverlay(target);");
+    expect(doubleClickBody).toContain("showImageOverlay(resolvedTarget);");
+    expect(doubleClickBody).toContain('resolvedTarget.tagName === "IMG"');
+    expect(doubleClickBody.indexOf("const resolvedTarget")).toBeLessThan(
+      doubleClickBody.indexOf('resolvedTarget.tagName === "IMG"'),
+    );
     expect(source).toContain(
       "const block = findSmartBlock(resolvedTarget, slideContent);",
+    );
+  });
+
+  it("keeps standalone transparent text boxes as canvas hit targets", () => {
+    const helperStart = source.indexOf("function resolveSlideCanvasHitTarget");
+    const helperEnd = source.indexOf(
+      "const PASTED_TEXT_STYLE_PROPERTIES",
+      helperStart,
+    );
+    const helperBody = source.slice(helperStart, helperEnd);
+
+    expect(helperBody).toContain("element !== slideContent");
+    expect(helperBody).toContain("return underlying ?? target;");
+  });
+
+  it("keeps nested rich-text ranges in observer selection snapshots", () => {
+    const effectStart = source.indexOf(
+      "const editingElement = editingElRef.current;",
+    );
+    const effectEnd = source.indexOf(
+      "const positioningLayer = observedElement?.closest(",
+      effectStart,
+    );
+    const effectBody = source.slice(effectStart, effectEnd);
+
+    expect(effectBody).toContain(
+      "resolveSlideTextSelectionTarget(editingElement, slideContent)",
+    );
+    expect(effectBody).toContain(
+      "editingElement && resolvedEditingElement === element",
     );
   });
 
