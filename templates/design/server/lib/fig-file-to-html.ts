@@ -4490,8 +4490,8 @@ const TOP_LEVEL_RENDERABLE_TYPES = new Set(["FRAME", "SYMBOL", "INSTANCE"]);
  * frames are actually laid out on the canvas — a designer can duplicate or
  * reorder frames in the layers panel without moving them, or create later
  * frames to the LEFT of earlier ones. Once collected, the top-level frames
- * are re-sorted by their absolute canvas X (falling back to Y, then the
- * traversal order for exact ties) so multi-frame flows import left-to-right
+ * are re-sorted by the minimum X/Y of their transformed canvas bounds (then
+ * the traversal order for exact ties) so multi-frame flows import left-to-right
  * in the same reading order they have in Figma, instead of in creation/layer
  * order.
  */
@@ -4573,7 +4573,22 @@ export function collectTopLevelFrames(
       continue;
     }
     if (TOP_LEVEL_RENDERABLE_TYPES.has(node.type)) {
-      out.push({ node, x: nodeMatrix.m02, y: nodeMatrix.m12 });
+      const width = node.size?.x ?? 0;
+      const height = node.size?.y ?? 0;
+      const bounds = [
+        [0, 0],
+        [width, 0],
+        [0, height],
+        [width, height],
+      ].map(([x, y]) => ({
+        x: nodeMatrix.m00 * x + nodeMatrix.m01 * y + nodeMatrix.m02,
+        y: nodeMatrix.m10 * x + nodeMatrix.m11 * y + nodeMatrix.m12,
+      }));
+      out.push({
+        node,
+        x: Math.min(...bounds.map((point) => point.x)),
+        y: Math.min(...bounds.map((point) => point.y)),
+      });
     }
   }
   return out

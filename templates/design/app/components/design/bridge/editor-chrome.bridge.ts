@@ -10129,6 +10129,21 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     };
   }
 
+  function isDirectCornerRadiusValue(value) {
+    var trimmed = typeof value === "string" ? value.trim() : "";
+    if (!trimmed) return false;
+    var parts = trimmed.split(/\s+/);
+    return (
+      parts.length <= 2 &&
+      parts.every(function (part) {
+        return (
+          /^[-+]?(?:\d*\.\d+|\d+\.?\d*)(?:px|%)$/i.test(part) ||
+          /^[-+]?0(?:\.0*)?$/.test(part)
+        );
+      })
+    );
+  }
+
   function borderBoxDimensions(cs) {
     var width = readPx(cs.width);
     var height = readPx(cs.height);
@@ -10168,20 +10183,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var scaleY = Number.isFinite(scaleParts[1]) ? scaleParts[1] : scaleX;
     var angle = independentRotation(cs.rotate || "");
     var radians = (angle * Math.PI) / 180;
-    var cos = Math.cos(radians);
-    var sin = Math.sin(radians);
-    var rotateScale = {
-      a: cos * scaleX,
-      b: sin * scaleX,
-      c: -sin * scaleY,
-      d: cos * scaleY,
-    };
-    var result = {
-      a: transform.a * rotateScale.a + transform.c * rotateScale.b,
-      b: transform.b * rotateScale.a + transform.d * rotateScale.b,
-      c: transform.a * rotateScale.c + transform.c * rotateScale.d,
-      d: transform.b * rotateScale.c + transform.d * rotateScale.d,
-    };
+    var result = composeRadiusLinearTransform(
+      transform,
+      scaleX,
+      scaleY,
+      radians,
+    );
     var zoom = parseFloat(cs.zoom || cs.getPropertyValue("zoom"));
     if (Number.isFinite(zoom) && zoom > 0) {
       result.a *= zoom;
@@ -10194,6 +10201,26 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   function radiusLinearTransform(el) {
     return radiusLinearTransformForStyle(window.getComputedStyle(el));
+  }
+
+  function composeRadiusLinearTransform(transform, scaleX, scaleY, radians) {
+    var cos = Math.cos(radians);
+    var sin = Math.sin(radians);
+    // CSS individual scale/rotate are applied after the transform property.
+    // Keep that order so a class-authored rotate plus independent scale maps
+    // viewport deltas through the same matrix the browser paints.
+    var independent = {
+      a: cos * scaleX,
+      b: sin * scaleY,
+      c: -sin * scaleX,
+      d: cos * scaleY,
+    };
+    return {
+      a: independent.a * transform.a + independent.c * transform.b,
+      b: independent.b * transform.a + independent.d * transform.b,
+      c: independent.a * transform.c + independent.c * transform.d,
+      d: independent.b * transform.c + independent.d * transform.d,
+    };
   }
 
   function multiplyRadiusLinear(parent, child) {
@@ -16921,6 +16948,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var originalInlineFontSize = resizeEl.style.fontSize;
     var originalInlineTransform = resizeEl.style.transform;
     var originalInlineScale = resizeEl.style.scale;
+    refreshLiveVisualEditOriginalStyles(resizeEl);
     ensurePositionable(resizeEl);
     var cs = window.getComputedStyle(resizeEl);
     var hasInlineTransform =
@@ -17281,6 +17309,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           "*",
         );
       }
+      releaseLiveVisualEditOriginalStyles(resizeEl);
       suppressNextShieldClickBriefly();
       refreshOverlays();
       return true;
@@ -17300,6 +17329,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         resizeEl.style.position = originalInlinePosition;
         resizeEl.style.left = originalInlineLeft;
         resizeEl.style.top = originalInlineTop;
+        releaseLiveVisualEditOriginalStyles(resizeEl);
         return;
       }
       cleanupResizeDrag();
@@ -17384,6 +17414,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           recordSourceOwnership(target.el);
         });
       }
+      releaseLiveVisualEditOriginalStyles(resizeEl);
     }
     document.addEventListener(events.move, onMove, true);
     document.addEventListener(events.up, onUp, true);
@@ -17825,8 +17856,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // the number 50 and misinterpret it as 50px, snapping the shape the
     // instant the drag starts. Resolve it against the box's own dimensions
     // first, same convention as CSS's own circle/pill radius authoring.
+    var authoredRadiusValue = radiusEl.style[cornerProperty];
     var originRadius = resolveCornerRadiusXY(
-      radiusEl.style[cornerProperty] || cs[cornerProperty],
+      isDirectCornerRadiusValue(authoredRadiusValue)
+        ? authoredRadiusValue
+        : cs[cornerProperty],
       elWidthPx,
       elHeightPx,
     );

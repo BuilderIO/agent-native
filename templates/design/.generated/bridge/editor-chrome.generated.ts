@@ -7564,6 +7564,14 @@ export const editorChromeBridgeScript: string = `"use strict";
         )
       };
     }
+    function isDirectCornerRadiusValue(value) {
+      var trimmed = typeof value === "string" ? value.trim() : "";
+      if (!trimmed) return false;
+      var parts = trimmed.split(/\\s+/);
+      return parts.length <= 2 && parts.every(function(part) {
+        return /^[-+]?(?:\\d*\\.\\d+|\\d+\\.?\\d*)(?:px|%)$/i.test(part) || /^[-+]?0(?:\\.0*)?$/.test(part);
+      });
+    }
     function borderBoxDimensions(cs) {
       var width = readPx(cs.width);
       var height = readPx(cs.height);
@@ -7589,20 +7597,12 @@ export const editorChromeBridgeScript: string = `"use strict";
       var scaleY = Number.isFinite(scaleParts[1]) ? scaleParts[1] : scaleX;
       var angle = independentRotation(cs.rotate || "");
       var radians = angle * Math.PI / 180;
-      var cos = Math.cos(radians);
-      var sin = Math.sin(radians);
-      var rotateScale = {
-        a: cos * scaleX,
-        b: sin * scaleX,
-        c: -sin * scaleY,
-        d: cos * scaleY
-      };
-      var result = {
-        a: transform.a * rotateScale.a + transform.c * rotateScale.b,
-        b: transform.b * rotateScale.a + transform.d * rotateScale.b,
-        c: transform.a * rotateScale.c + transform.c * rotateScale.d,
-        d: transform.b * rotateScale.c + transform.d * rotateScale.d
-      };
+      var result = composeRadiusLinearTransform(
+        transform,
+        scaleX,
+        scaleY,
+        radians
+      );
       var zoom = parseFloat(cs.zoom || cs.getPropertyValue("zoom"));
       if (Number.isFinite(zoom) && zoom > 0) {
         result.a *= zoom;
@@ -7614,6 +7614,22 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function radiusLinearTransform(el) {
       return radiusLinearTransformForStyle(window.getComputedStyle(el));
+    }
+    function composeRadiusLinearTransform(transform, scaleX, scaleY, radians) {
+      var cos = Math.cos(radians);
+      var sin = Math.sin(radians);
+      var independent = {
+        a: cos * scaleX,
+        b: sin * scaleY,
+        c: -sin * scaleX,
+        d: cos * scaleY
+      };
+      return {
+        a: independent.a * transform.a + independent.c * transform.b,
+        b: independent.b * transform.a + independent.d * transform.b,
+        c: independent.a * transform.c + independent.c * transform.d,
+        d: independent.b * transform.c + independent.d * transform.d
+      };
     }
     function multiplyRadiusLinear(parent, child) {
       return {
@@ -11988,6 +12004,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var originalInlineFontSize = resizeEl.style.fontSize;
       var originalInlineTransform = resizeEl.style.transform;
       var originalInlineScale = resizeEl.style.scale;
+      refreshLiveVisualEditOriginalStyles(resizeEl);
       ensurePositionable(resizeEl);
       var cs = window.getComputedStyle(resizeEl);
       var hasInlineTransform = !!originalInlineTransform && originalInlineTransform !== "none";
@@ -12249,6 +12266,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             "*"
           );
         }
+        releaseLiveVisualEditOriginalStyles(resizeEl);
         suppressNextShieldClickBriefly();
         refreshOverlays();
         return true;
@@ -12268,6 +12286,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           resizeEl.style.position = originalInlinePosition;
           resizeEl.style.left = originalInlineLeft;
           resizeEl.style.top = originalInlineTop;
+          releaseLiveVisualEditOriginalStyles(resizeEl);
           return;
         }
         cleanupResizeDrag();
@@ -12339,6 +12358,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             recordSourceOwnership(target.el);
           });
         }
+        releaseLiveVisualEditOriginalStyles(resizeEl);
       }
       document.addEventListener(events.move, onMove, true);
       document.addEventListener(events.up, onUp, true);
@@ -12714,8 +12734,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       var borderBox = borderBoxDimensions(cs);
       var elWidthPx = borderBox.width;
       var elHeightPx = borderBox.height;
+      var authoredRadiusValue = radiusEl.style[cornerProperty];
       var originRadius = resolveCornerRadiusXY(
-        radiusEl.style[cornerProperty] || cs[cornerProperty],
+        isDirectCornerRadiusValue(authoredRadiusValue) ? authoredRadiusValue : cs[cornerProperty],
         elWidthPx,
         elHeightPx
       );

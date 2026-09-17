@@ -198,7 +198,18 @@ const nextStackCandidate =
   );
 const resolveCornerRadiusXY = loadPureBridgeFn<
   (value: string, width: number, height: number) => { x: number; y: number }
->("resolveCornerRadiusXY", ["resolveCornerRadiusComponent"]);
+>("resolveCornerRadiusXY", ["readPx", "resolveCornerRadiusComponent"]);
+const isDirectCornerRadiusValue = loadPureBridgeFn<(value: string) => boolean>(
+  "isDirectCornerRadiusValue",
+);
+const composeRadiusLinearTransform = loadPureBridgeFn<
+  (
+    transform: { a: number; b: number; c: number; d: number },
+    scaleX: number,
+    scaleY: number,
+    radians: number,
+  ) => { a: number; b: number; c: number; d: number }
+>("composeRadiusLinearTransform");
 const radiusDragMaximums =
   loadPureBridgeFn<
     (
@@ -231,6 +242,20 @@ describe("editor-chrome bridge — resize transform preservation", () => {
 describe("editor-chrome bridge — corner radius math", () => {
   it("resolves percentage radii against the border box axes", () => {
     expect(resolveCornerRadiusXY("50%", 200, 100)).toEqual({ x: 100, y: 50 });
+  });
+
+  it("uses computed geometry when the authored radius is tokenized", () => {
+    const authored = "var(--radius)";
+    const computed = "24px";
+    const value = isDirectCornerRadiusValue(authored) ? authored : computed;
+    expect(isDirectCornerRadiusValue(authored)).toBe(false);
+    expect(resolveCornerRadiusXY(value, 200, 100)).toEqual({ x: 24, y: 24 });
+  });
+
+  it("composes independent scale after a transformed element", () => {
+    expect(
+      composeRadiusLinearTransform({ a: 0, b: 1, c: -1, d: 0 }, 2, 3, 0),
+    ).toEqual({ a: 0, b: 3, c: -2, d: 0 });
   });
 
   it("leaves room for the adjacent corners before clamping a drag", () => {

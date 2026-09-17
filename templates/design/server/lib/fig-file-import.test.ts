@@ -473,6 +473,43 @@ describe("editable .fig conversion", () => {
     ).toEqual(["Rotated section frame", "Right frame"]);
   });
 
+  it("sorts transformed frames by their rendered bounds, not just their origin", () => {
+    const guid = (localID: number) => ({ sessionID: 1, localID });
+    const page: FigNode = { guid: guid(1), type: "CANVAS" };
+    const rotatedSection: FigNode = {
+      guid: guid(2),
+      type: "SECTION",
+      transform: {
+        m00: 0,
+        m01: -1,
+        m02: 100,
+        m10: 1,
+        m11: 0,
+        m12: 0,
+      },
+    };
+    const rotatedFrame: FigNode = {
+      guid: guid(3),
+      type: "FRAME",
+      name: "Rotated bounds frame",
+      size: { x: 20, y: 300 },
+    };
+    const rightFrame: FigNode = {
+      guid: guid(4),
+      type: "FRAME",
+      name: "Right frame",
+      size: { x: 20, y: 20 },
+    };
+    const childrenOf = new Map<string, FigNode[]>([
+      ["1:1", [rotatedSection, rightFrame]],
+      ["1:2", [rotatedFrame]],
+    ]);
+
+    expect(
+      collectTopLevelFrames(page, childrenOf).map((frame) => frame.name),
+    ).toEqual(["Rotated bounds frame", "Right frame"]);
+  });
+
   it("imports all frames from the uploaded file", async () => {
     const result = await convertDecodedFigToEditableHtml(
       {

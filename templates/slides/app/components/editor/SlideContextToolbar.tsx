@@ -225,10 +225,10 @@ export function SlideContextToolbar({
   const fontFamily = snapshot
     ? resolveFontFamilySelectValue(snapshot.fontFamily)
     : "sans-serif";
-  const fontFamilyOptions =
+  const fontFamilyOptions = sortFontFamilyOptions(
     !snapshot ||
-    fontFamilyIsMixed ||
-    baseFontFamilyOptions.some((option) => option.value === fontFamily)
+      fontFamilyIsMixed ||
+      baseFontFamilyOptions.some((option) => option.value === fontFamily)
       ? baseFontFamilyOptions
       : [
           {
@@ -236,7 +236,8 @@ export function SlideContextToolbar({
             label: displayFontFamilyName(snapshot.fontFamily || fontFamily),
           },
           ...baseFontFamilyOptions,
-        ];
+        ],
+  );
   // A mixed selection has no single state to reflect, so the toggle reads as
   // off and one click makes the whole selection consistent.
   const isItalic =
