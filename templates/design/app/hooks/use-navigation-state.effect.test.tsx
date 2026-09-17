@@ -90,6 +90,23 @@ describe("useNavigationState selection cleanup", () => {
     });
   });
 
+  it("keeps the Builder shell out of persisted editor navigation state", async () => {
+    await renderProbe("/visual-edit/shell?view=overview");
+
+    expect(coreClientMocks.setClientAppState).toHaveBeenCalledWith(
+      "design-selection:tab-123",
+      null,
+    );
+    const routeStateCalls = coreClientMocks.useAgentRouteState.mock.calls;
+    const config = routeStateCalls[routeStateCalls.length - 1]?.[0];
+    expect(
+      config.getNavigationState({
+        pathname: "/visual-edit/shell",
+        search: "?view=overview",
+      }),
+    ).toEqual({ view: "list" });
+  });
+
   it("does not clear selection while route sync is disabled", async () => {
     await renderProbe("/", false);
 
