@@ -220,7 +220,7 @@ describe("runChangeSelectedZIndex — a paint-order change must not move anythin
 
   it("does not make an inert authored target z-index suppress DOM reorder", () => {
     const content = `<div data-agent-native-node-id="wrap">
-<div data-agent-native-node-id="a" style="z-index:999"><span data-agent-native-node-id="pin" style="position:absolute"></span></div>
+<div data-agent-native-node-id="a" style="z-index:999"><span data-agent-native-node-id="pin"></span></div>
 <div data-agent-native-node-id="b"></div>
 </div>`;
     const { args, applyLocalContentUpdate, commitVisualStyles } = multiHarness(
@@ -229,6 +229,7 @@ describe("runChangeSelectedZIndex — a paint-order change must not move anythin
       {
         rendered: {
           a: { computedStyles: { position: "static", zIndex: "auto" } },
+          pin: { computedStyles: { position: "absolute", zIndex: "auto" } },
         },
       },
     );

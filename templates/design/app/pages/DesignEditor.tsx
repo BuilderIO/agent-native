@@ -21171,83 +21171,95 @@ function DesignEditor() {
     setHoveredElementScreenId(null);
   }, []);
 
-  const hydrateRenderedLayerInfoForIds = useCallback(
-    (ids: string[]) => {
-      const hydrationRevision = ++layerSelectionHydrationRevisionRef.current;
-      const renderedRevision = renderedElementInfoRevisionRef.current;
-      const breakpointWidth = activeBreakpointWidthStateRef.current;
-      type RenderedLayerOwner = {
-        fileId: string;
-        node: CodeLayerNode;
-        tree: CodeLayerTreeNode[];
-        runtimeOnly: boolean;
-      };
-      const ownersToMeasure = new Map<string, RenderedLayerOwner>();
-      for (const layerId of ids) {
-        const owner = codeLayerOwnerByNodeId.get(layerId);
-        if (!owner || owner.runtimeOnly) continue;
-        ownersToMeasure.set(layerId, owner);
-        for (const siblingId of findCodeLayerSiblingOrder(owner.tree, layerId)
-          ?.siblingIds ?? []) {
-          const siblingOwner = codeLayerOwnerByNodeId.get(siblingId);
-          if (
-            siblingOwner &&
-            siblingOwner.fileId === owner.fileId &&
-            !siblingOwner.runtimeOnly
-          ) {
-            ownersToMeasure.set(siblingId, siblingOwner);
-          }
+  const hydrateRenderedLayerInfoForIds = useCallback((ids: string[]) => {
+    const hydrationRevision = ++layerSelectionHydrationRevisionRef.current;
+    const renderedRevision = renderedElementInfoRevisionRef.current;
+    const breakpointWidth = activeBreakpointWidthStateRef.current;
+    const ownerByNodeId = codeLayerOwnerByNodeIdRef.current;
+    type RenderedLayerOwner = {
+      fileId: string;
+      node: CodeLayerNode;
+      tree: CodeLayerTreeNode[];
+      runtimeOnly: boolean;
+    };
+    const ownersToMeasure = new Map<string, RenderedLayerOwner>();
+    for (const layerId of ids) {
+      const owner = ownerByNodeId.get(layerId);
+      if (!owner || owner.runtimeOnly) continue;
+      ownersToMeasure.set(layerId, owner);
+      for (const siblingId of findCodeLayerSiblingOrder(owner.tree, layerId)
+        ?.siblingIds ?? []) {
+        const siblingOwner = ownerByNodeId.get(siblingId);
+        if (
+          siblingOwner &&
+          siblingOwner.fileId === owner.fileId &&
+          !siblingOwner.runtimeOnly
+        ) {
+          ownersToMeasure.set(siblingId, siblingOwner);
         }
       }
-      const cache = (
-        layerId: string,
-        owner: RenderedLayerOwner,
-        measured: ElementInfo,
-      ) => {
-        const currentOwner = codeLayerOwnerByNodeIdRef.current.get(layerId);
+      const pendingDescendants = [...owner.node.children];
+      while (pendingDescendants.length > 0) {
+        const descendantId = pendingDescendants.pop()!;
+        const descendantOwner = ownerByNodeId.get(descendantId);
         if (
-          layerSelectionHydrationRevisionRef.current !== hydrationRevision ||
-          renderedElementInfoRevisionRef.current !== renderedRevision ||
-          activeBreakpointWidthStateRef.current !== breakpointWidth ||
-          currentOwner?.fileId !== owner.fileId ||
-          currentOwner?.node.id !== owner.node.id
+          !descendantOwner ||
+          descendantOwner.fileId !== owner.fileId ||
+          descendantOwner.runtimeOnly
         ) {
-          return;
-        }
-        const stableId = owner.node.dataAttributes["data-agent-native-node-id"];
-        renderedElementInfoByLayerKeyRef.current.set(
-          `${owner.fileId}:${owner.node.id}`,
-          measured,
-        );
-        if (stableId) {
-          renderedElementInfoByLayerKeyRef.current.set(
-            `${owner.fileId}:${stableId}`,
-            measured,
-          );
-        }
-      };
-      for (const [layerId, owner] of ownersToMeasure) {
-        const synchronouslyMeasured = readRenderedLayerInfo(
-          owner,
-          breakpointWidth,
-        );
-        if (synchronouslyMeasured) {
-          cache(layerId, owner, synchronouslyMeasured);
           continue;
         }
-        void requestSelectionMeasurement({
-          targetWindows: () =>
-            designPreviewWindowsForScreen(owner.fileId, breakpointWidth),
-          screenId: owner.fileId,
-          selector: preferredCodeLayerSelector(owner.node),
-        }).then((measured) => {
-          if (!measured) return;
-          cache(layerId, owner, measured);
-        });
+        ownersToMeasure.set(descendantId, descendantOwner);
+        pendingDescendants.push(...descendantOwner.node.children);
       }
-    },
-    [codeLayerOwnerByNodeId],
-  );
+    }
+    const cache = (
+      layerId: string,
+      owner: RenderedLayerOwner,
+      measured: ElementInfo,
+    ) => {
+      const currentOwner = codeLayerOwnerByNodeIdRef.current.get(layerId);
+      if (
+        layerSelectionHydrationRevisionRef.current !== hydrationRevision ||
+        renderedElementInfoRevisionRef.current !== renderedRevision ||
+        activeBreakpointWidthStateRef.current !== breakpointWidth ||
+        currentOwner?.fileId !== owner.fileId ||
+        currentOwner?.node.id !== owner.node.id
+      ) {
+        return;
+      }
+      const stableId = owner.node.dataAttributes["data-agent-native-node-id"];
+      renderedElementInfoByLayerKeyRef.current.set(
+        `${owner.fileId}:${owner.node.id}`,
+        measured,
+      );
+      if (stableId) {
+        renderedElementInfoByLayerKeyRef.current.set(
+          `${owner.fileId}:${stableId}`,
+          measured,
+        );
+      }
+    };
+    for (const [layerId, owner] of ownersToMeasure) {
+      const synchronouslyMeasured = readRenderedLayerInfo(
+        owner,
+        breakpointWidth,
+      );
+      if (synchronouslyMeasured) {
+        cache(layerId, owner, synchronouslyMeasured);
+        continue;
+      }
+      void requestSelectionMeasurement({
+        targetWindows: () =>
+          designPreviewWindowsForScreen(owner.fileId, breakpointWidth),
+        screenId: owner.fileId,
+        selector: preferredCodeLayerSelector(owner.node),
+      }).then((measured) => {
+        if (!measured) return;
+        cache(layerId, owner, measured);
+      });
+    }
+  }, []);
   rehydrateRenderedElementInfoRef.current = () =>
     hydrateRenderedLayerInfoForIds(selectedLayerIdsStateRef.current);
 
@@ -21262,7 +21274,7 @@ function DesignEditor() {
       },
     ) => {
       recordSelectionHistoryAroundChange(() => {
-        runLayerSelectionChange(
+        const effectiveIds = runLayerSelectionChange(
           {
             applyFileContentUpdate,
             activeFile,
@@ -21289,7 +21301,8 @@ function DesignEditor() {
           ids,
           _intent,
         );
-        hydrateRenderedLayerInfoForIds(ids);
+        hydrateRenderedLayerInfoForIds(effectiveIds);
+        queueMicrotask(() => hydrateRenderedLayerInfoForIds(effectiveIds));
       });
     },
     [
