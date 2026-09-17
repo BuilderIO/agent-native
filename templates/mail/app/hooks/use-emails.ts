@@ -2591,17 +2591,19 @@ export function useReportSpam() {
         body: JSON.stringify({ accountEmail, threadId }),
       }),
     onMutate: async ({ threadId }) => {
-      await Promise.all([
-        qc.cancelQueries({ queryKey: ["emails"] }),
-        cancelInboxThreadsQueries(qc),
-      ]);
       // Suppression hides the thread in the legacy list and the journal hides
       // it in the synced inbox, so rollback drops this thread's own entries.
       // Restoring a whole cache snapshot here would revert a concurrent
       // mutation that landed after this one started.
+      // Suppression must be visible before awaiting cancellation so an undo
+      // cannot miss a newer triage mutation that is already in flight.
       const suppressionId = suppressThread(threadId, "spam", {
         onlyIn: "spam",
       });
+      await Promise.all([
+        qc.cancelQueries({ queryKey: ["emails"] }),
+        cancelInboxThreadsQueries(qc),
+      ]);
       const inboxMutationId = removeInboxThreadsOptimistic(
         qc,
         new Set([threadId]),
@@ -2644,13 +2646,13 @@ export function useBlockSender() {
         body: JSON.stringify({ senderEmail, accountEmail }),
       }),
     onMutate: async ({ threadId }) => {
+      const suppressionId = suppressThread(threadId, "block", {
+        onlyIn: "spam",
+      });
       await Promise.all([
         qc.cancelQueries({ queryKey: ["emails"] }),
         cancelInboxThreadsQueries(qc),
       ]);
-      const suppressionId = suppressThread(threadId, "block", {
-        onlyIn: "spam",
-      });
       const inboxMutationId = removeInboxThreadsOptimistic(
         qc,
         new Set([threadId]),
@@ -2694,15 +2696,17 @@ export function useMuteThread() {
       threadId: string;
       accountEmail?: string;
     }) => {
+      // Muting only drops the thread out of the inbox; All Mail and every
+      // label it carries still list it.
+      // Record the claim synchronously; undo of an older removal can run
+      // while query cancellation for this mutation is still pending.
+      const suppressionId = suppressThread(threadId, "mute", {
+        views: ["inbox", "unread"],
+      });
       await Promise.all([
         qc.cancelQueries({ queryKey: ["emails"] }),
         cancelInboxThreadsQueries(qc),
       ]);
-      // Muting only drops the thread out of the inbox; All Mail and every
-      // label it carries still list it.
-      const suppressionId = suppressThread(threadId, "mute", {
-        views: ["inbox", "unread"],
-      });
       const inboxMutationId = removeInboxThreadsOptimistic(
         qc,
         new Set([threadId]),

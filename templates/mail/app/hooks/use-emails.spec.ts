@@ -221,6 +221,25 @@ describe("account-scoped triage mutations", () => {
   });
 });
 
+describe("triage suppression ordering", () => {
+  it("records triage claims before waiting for query cancellation", () => {
+    const source = emailsHookSource();
+    for (const [name, end] of [
+      ["useReportSpam", "export function useBlockSender()"],
+      ["useBlockSender", "export function useMuteThread()"],
+      ["useMuteThread", "// ─── Contacts"],
+    ] as const) {
+      const hook = source.slice(
+        source.indexOf(`export function ${name}()`),
+        source.indexOf(end),
+      );
+      expect(hook.indexOf("suppressThread(")).toBeLessThan(
+        hook.indexOf("await Promise.all"),
+      );
+    }
+  });
+});
+
 describe("useEmails query warming", () => {
   it("shares the infinite-query fetcher with tab prefetches", () => {
     const source = emailsHookSource();
