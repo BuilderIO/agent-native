@@ -74,7 +74,8 @@ vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: mocks.assertAccess,
   resolveAccess: mocks.resolveAccess,
 }));
-vi.mock("drizzle-orm", () => ({
+vi.mock("drizzle-orm", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("drizzle-orm")>()),
   and: mocks.and,
   eq: mocks.eq,
 }));
