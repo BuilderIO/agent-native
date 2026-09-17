@@ -96,9 +96,14 @@ export function RecordingTagsBar({
       }
       return settled ? { id: recordingId, ops: next } : prev;
     });
+    // `overlay` is a dependency as well as `serverKey`: an intention can be
+    // satisfied by a server value that never changed — queue a remove for a
+    // tag that is already absent and nothing about the payload moves — and
+    // without re-running here that entry would sit in the overlay forever,
+    // masking the tag if it later came back from somewhere else.
     // `serverKey` is the value identity; `tags` is a fresh array each render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [serverKey, recordingId]);
+  }, [serverKey, recordingId, overlay]);
 
   const queues = useRef(new Map<string, Promise<unknown>>());
 

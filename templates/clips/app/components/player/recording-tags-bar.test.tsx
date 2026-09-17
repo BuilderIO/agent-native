@@ -290,6 +290,26 @@ describe("RecordingTagsBar", () => {
     await settle();
   });
 
+  it("forgets an intention the server already satisfies, even if its value never changed", async () => {
+    render({ canEdit: true, tags: [] });
+    await emit(["x"]); // add x  — op1
+    await emit([]); //    remove x — op2, queued behind op1
+
+    // op1 fails. The rollback must not fire (x's outstanding intention is now
+    // "remove"), so the overlay keeps {x: remove}.
+    const first = mocks.inflight.splice(0, 1)[0];
+    await act(async () => {
+      first.reject(new Error("nope"));
+      await Promise.allSettled([first.promise]);
+    });
+    // op2 succeeds, but removing an absent tag leaves the server unchanged.
+    await settle();
+
+    // Someone else now adds x. The stale "remove" must not hide it.
+    render({ canEdit: true, tags: ["x"] });
+    expect(shown()).toBe("x");
+  });
+
   it("refuses an over-long tag instead of sending it", async () => {
     render({ canEdit: true, tags: [] });
     await emit(["x".repeat(65)]);

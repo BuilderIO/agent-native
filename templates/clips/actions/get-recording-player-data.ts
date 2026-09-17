@@ -227,8 +227,12 @@ export default defineAction({
       .where(eq(schema.recordingCtas.recordingId, args.recordingId))
       .orderBy(asc(schema.recordingCtas.createdAt));
 
+    // DISTINCT because `recording_tags` carries no unique (recording_id, tag)
+    // constraint: `tag-recording` checks-then-inserts, so two editors adding
+    // the same tag at once can leave duplicate rows. The player should not
+    // render the same tag twice on account of that.
     const tagRows = await db
-      .select({ tag: schema.recordingTags.tag })
+      .selectDistinct({ tag: schema.recordingTags.tag })
       .from(schema.recordingTags)
       .where(eq(schema.recordingTags.recordingId, args.recordingId))
       .orderBy(asc(schema.recordingTags.tag));

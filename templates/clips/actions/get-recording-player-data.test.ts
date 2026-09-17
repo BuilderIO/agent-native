@@ -59,6 +59,9 @@ const mockDb = vi.hoisted(() => ({
     }
     return mockShareQuery;
   }),
+  // The player's tag read is DISTINCT — `recording_tags` carries no unique
+  // (recording_id, tag) constraint, so duplicate rows are possible.
+  selectDistinct: vi.fn(() => mockTagsQuery),
 }));
 const mockCountRecordingViews = vi.hoisted(() =>
   vi.fn(async (_recordingId: string) => 0),
