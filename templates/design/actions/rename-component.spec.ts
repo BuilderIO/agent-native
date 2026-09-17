@@ -4,6 +4,7 @@ import { componentIndexId } from "../shared/component-model.js";
 import {
   renameLinkedComponentHtml,
   ComponentRenameAmbiguousError,
+  ComponentRenameConflictError,
 } from "./rename-component.js";
 
 describe("renameLinkedComponentHtml", () => {
@@ -35,6 +36,13 @@ describe("renameLinkedComponentHtml", () => {
     expect(new ComponentRenameAmbiguousError()).toBeInstanceOf(
       ComponentRenameAmbiguousError,
     );
+  });
+
+  it("exposes a typed name collision error", () => {
+    expect(new ComponentRenameConflictError()).toMatchObject({
+      name: "ComponentRenameConflictError",
+      statusCode: 409,
+    });
   });
 
   it("keeps component index ids deterministic across a rename", () => {

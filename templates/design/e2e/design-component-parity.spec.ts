@@ -536,6 +536,31 @@ test("Design components preserve identity across inline and URL-backed React bou
       name: "RenamedCard",
       instance: { name: "RenamedCard" },
     });
+    const legacyDetails = await readAction(request, "get-component-details", {
+      designId,
+      nodeId: "legacy-copy",
+      fileId: file.id,
+    });
+    expect(legacyDetails).toMatchObject({
+      name: "ReusableCard",
+      instance: { name: "ReusableCard" },
+    });
+
+    const collision = await request.post(
+      baseURL + "/_agent-native/actions/rename-component",
+      {
+        data: {
+          designId,
+          componentId: id,
+          newName: "ReusableCard",
+        },
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+    expect(collision.status()).toBe(409);
+    expect(await source(request, designId)).toContain(
+      'data-agent-native-component="RenamedCard"',
+    );
 
     const refOnlyFile = await action(request, "create-file", {
       designId,

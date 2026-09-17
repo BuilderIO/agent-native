@@ -3,9 +3,12 @@ import {
   agentEnterDocument,
   agentLeaveDocument,
 } from "@agent-native/core/collab";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
+import { getDb, schema } from "../server/db/index.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
   readLiveSourceFile,
@@ -31,6 +34,15 @@ export class ComponentRenameAmbiguousError extends Error {
   ) {
     super(message);
     this.name = "ComponentRenameAmbiguousError";
+  }
+}
+
+export class ComponentRenameConflictError extends Error {
+  readonly statusCode = 409;
+
+  constructor(message = "A component with this name already exists.") {
+    super(message);
+    this.name = "ComponentRenameConflictError";
   }
 }
 
@@ -104,6 +116,55 @@ export default defineAction({
     }
     const oldIndexId = componentIndexId(designId, oldName);
     const newIndexId = componentIndexId(designId, newName);
+    if (newIndexId === oldIndexId && newName !== oldName) {
+      throw new ComponentRenameConflictError(
+        "The new component name conflicts with the existing component identity.",
+      );
+    }
+    if (newIndexId !== oldIndexId) {
+      const [existing] = await getDb()
+        .select({ id: schema.componentIndex.id })
+        .from(schema.componentIndex)
+        .where(
+          and(
+            eq(schema.componentIndex.id, newIndexId),
+            eq(schema.componentIndex.designId, designId),
+          ),
+        )
+        .limit(1);
+      if (existing) throw new ComponentRenameConflictError();
+    }
+    const linkedNodes = liveFiles
+      .flatMap(({ live }) => buildCodeLayerProjection(live.content).nodes)
+      .filter(
+        (node) =>
+          node.dataAttributes[COMPONENT_ID_ATTR]?.trim() === componentId ||
+          node.dataAttributes[COMPONENT_REF_ATTR]?.trim() === componentId,
+      );
+    const componentSelectors = Array.from(
+      new Set(
+        linkedNodes.map(
+          (node) =>
+            `[data-agent-native-node-id="${node.dataAttributes["data-agent-native-node-id"] ?? node.id}"]`,
+        ),
+      ),
+    );
+    const legacySelectors = Array.from(
+      new Set(
+        liveFiles
+          .flatMap(({ live }) => buildCodeLayerProjection(live.content).nodes)
+          .filter(
+            (node) =>
+              componentNameFor(node) === oldName &&
+              !node.dataAttributes[COMPONENT_ID_ATTR]?.trim() &&
+              !node.dataAttributes[COMPONENT_REF_ATTR]?.trim(),
+          )
+          .map(
+            (node) =>
+              `[data-agent-native-node-id="${node.dataAttributes["data-agent-native-node-id"] ?? node.id}"]`,
+          ),
+      ),
+    );
     const batches = liveFiles.map(({ file, live }) => ({
       file: { ...file, content: live.content },
       content: renameLinkedComponentHtml(live.content, componentId, newName)
@@ -124,10 +185,72 @@ export default defineAction({
         files: batches,
         expectedHtmlFileIds: htmlFiles.map((file) => file.id),
         afterFilesPersist: async (tx, updatedAt) => {
-          await tx.execute({
-            sql: "UPDATE component_index SET id = ?, name = ?, updated_at = ? WHERE id = ? AND design_id = ?",
-            args: [newIndexId, newName, updatedAt, oldIndexId, designId],
+          const moved = await tx.execute({
+            sql: "UPDATE component_index SET id = ?, name = ?, runtime_selectors = ?, updated_at = ? WHERE id = ? AND design_id = ? RETURNING id",
+            args: [
+              newIndexId,
+              newName,
+              JSON.stringify(componentSelectors),
+              updatedAt,
+              oldIndexId,
+              designId,
+            ],
           });
+          if (
+            moved.rows.length === 1 &&
+            legacySelectors.length > 0 &&
+            newIndexId !== oldIndexId
+          ) {
+            await tx.execute({
+              sql: `INSERT INTO component_index (
+                id, design_id, source_ref, name, file_path, export_name,
+                props, variants, stories, runtime_selectors, created_at,
+                updated_at, owner_email, org_id, visibility
+              )
+              SELECT ?, design_id, source_ref, ?, file_path, export_name,
+                props, variants, stories, ?, created_at, ?, owner_email,
+                org_id, visibility
+              FROM component_index WHERE id = ? AND design_id = ?`,
+              args: [
+                oldIndexId,
+                oldName,
+                JSON.stringify(legacySelectors),
+                updatedAt,
+                newIndexId,
+                designId,
+              ],
+            });
+          } else if (moved.rows.length !== 1 && legacySelectors.length > 0) {
+            const designOwner = (access.resource as { ownerEmail?: unknown })
+              .ownerEmail;
+            const ownerEmail =
+              getRequestUserEmail() ??
+              (typeof designOwner === "string" && designOwner
+                ? designOwner
+                : null);
+            if (!ownerEmail) throw new Error("no authenticated user");
+            await tx.execute({
+              sql: `INSERT INTO component_index
+                (id, design_id, name, runtime_selectors, owner_email, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?)`,
+              args: [
+                newIndexId,
+                designId,
+                newName,
+                JSON.stringify(componentSelectors),
+                ownerEmail,
+                updatedAt,
+                updatedAt,
+                oldIndexId,
+                designId,
+                oldName,
+                JSON.stringify(legacySelectors),
+                ownerEmail,
+                updatedAt,
+                updatedAt,
+              ],
+            });
+          }
         },
       });
       return {
