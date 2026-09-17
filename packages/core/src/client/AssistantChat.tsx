@@ -5805,14 +5805,11 @@ const AssistantChatInner = forwardRef<
       const effectiveContinuationTurnId =
         continuationTurnId ??
         (actionScope ? generateAgentChatTurnId() : undefined);
-      if (
-        acceptedVisibleSubmit &&
-        !isRunningRef.current &&
-        !engineSetupRequired
-      ) {
+      const liveIsRunning = isRunningRef.current;
+      if (acceptedVisibleSubmit && !liveIsRunning && !engineSetupRequired) {
         resetRetainedTextStreamingState(effectiveContinuationTurnId);
       }
-      if (isRunning && intent === "immediate") {
+      if (liveIsRunning && intent === "immediate") {
         // Explicit interrupt path: abort the active server run, then let the
         // auto-dequeue path append this message once the run is clear. Normal
         // composer sends while running resolve to "queued" before reaching here.
@@ -5842,7 +5839,10 @@ const AssistantChatInner = forwardRef<
           },
         ]);
         stopActiveRunRef.current({ preserveQueuedMessages: true });
-      } else if (engineSetupRequired || (isRunning && intent === "queued")) {
+      } else if (
+        engineSetupRequired ||
+        (liveIsRunning && intent === "queued")
+      ) {
         applyLocalQueuedMessages((prev) => [
           ...prev,
           {
