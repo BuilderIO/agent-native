@@ -120,6 +120,14 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
           }),
         );
       }
+      const skippedEmbeddedImageCount = result?.skippedEmbeddedImageCount;
+      if (skippedEmbeddedImageCount) {
+        fidelityWarnings.push(
+          t("designEditor.import.figUploadImagesSkippedWarning", {
+            count: formatNumber(skippedEmbeddedImageCount),
+          }),
+        );
+      }
       const notification = importResultNotification(result, fallback, {
         fidelityWarnings,
       });

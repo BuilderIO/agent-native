@@ -85,12 +85,6 @@ export async function importFigInBrowser(
           ),
         }
       : decoded;
-  const imageWarnings = oversizedImages.length
-    ? [
-        `${oversizedImages.length} embedded image${oversizedImages.length === 1 ? "" : "s"} over ${MAX_CLIENT_IMAGE_BYTES / 1024 / 1024} MB skipped to keep the browser upload request within its transport limit.`,
-      ]
-    : [];
-
   let remoteMutationStarted = false;
   let uploaded = 0;
   const total = decodedForBrowserImport.images.length;
@@ -130,7 +124,8 @@ export async function importFigInBrowser(
 
   const saved: ImportResult = {
     files: [],
-    warnings: [...converted.warnings, ...imageWarnings],
+    warnings: converted.warnings,
+    skippedEmbeddedImageCount: oversizedImages.length || undefined,
   };
   let index = 0;
   const savedFileIds: string[] = [];

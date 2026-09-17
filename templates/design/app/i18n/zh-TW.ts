@@ -778,7 +778,9 @@ const messages = {
       figUploadDescription:
         "本機匯入，不使用 Figma API 配額。包含內嵌圖片。格式可能隨 Figma 版本變更。上限為 {{max}} MB。",
       figUploadDescriptionShort:
-        "本機匯入 — 不使用 Figma API 配額。包含內嵌圖片。",
+        "本機匯入 — 不使用 Figma API 配額。支援的內嵌圖片會一併匯入。",
+      figUploadImagesSkippedWarning:
+        "為符合瀏覽器上傳限制，已略過 {{count}} 張內嵌圖片。",
       chooseFigFile: "選擇 .fig 檔案",
       figUploadUploading: "上傳中 {{progress}}%",
       figUploadProcessing: "轉換中…",

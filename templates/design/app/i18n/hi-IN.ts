@@ -4,6 +4,11 @@ const messages = {
   ...messagesByLocale["hi-IN"],
   designEditor: {
     ...messagesByLocale["hi-IN"].designEditor,
+    import: {
+      ...messagesByLocale["hi-IN"].designEditor.import,
+      figUploadDescriptionShort:
+        "स्थानीय आयात — Figma API कोटा नहीं। समर्थित एम्बेडेड छवियाँ शामिल की जाती हैं।",
+    },
     componentInstances: {
       ...messagesByLocale["hi-IN"].designEditor.componentInstances,
       restore: "कॉम्पोनेंट पुनर्स्थापित करें",

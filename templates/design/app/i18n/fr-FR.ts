@@ -4,6 +4,11 @@ const messages = {
   ...messagesByLocale["fr-FR"],
   designEditor: {
     ...messagesByLocale["fr-FR"].designEditor,
+    import: {
+      ...messagesByLocale["fr-FR"].designEditor.import,
+      figUploadDescriptionShort:
+        "Importation locale — sans quota de l’API Figma. Les images intégrées compatibles sont incluses.",
+    },
     componentInstances: {
       ...messagesByLocale["fr-FR"].designEditor.componentInstances,
       restore: "Restaurer le composant",

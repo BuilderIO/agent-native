@@ -88,9 +88,8 @@ describe("importFigInBrowser", () => {
     const result = await importFigInBrowser({ designId: "design-1", file });
 
     expect(mocks.convertedInput?.images).toHaveLength(1);
-    expect(result.warnings).toEqual([
-      "1 embedded image over 4 MB skipped to keep the browser upload request within its transport limit.",
-    ]);
+    expect(result.warnings).toEqual([]);
+    expect(result.skippedEmbeddedImageCount).toBe(1);
     expect(mocks.callAction).not.toHaveBeenCalled();
   });
 

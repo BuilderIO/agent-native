@@ -683,7 +683,9 @@ const enUS = {
       figUploadUploading: "Uploading {{progress}}%",
       figUploadProcessing: "Converting…",
       figUploadDescriptionShort:
-        "Local import — no Figma API quota used. Embedded images included.",
+        "Local import — no Figma API quota used. Supported embedded images are included.",
+      figUploadImagesSkippedWarning:
+        "Skipped embedded images ({{count}}) because browser uploads have a per-image limit.",
       figmaPasteBodyUnlimited:
         "Works without a Figma token — geometry, layout, and text import immediately.",
       figmaPasteBodyImages:
