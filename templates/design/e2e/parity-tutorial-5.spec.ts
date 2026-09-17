@@ -703,8 +703,21 @@ test.describe("parity: Figma Tutorial 5 - interactive button component (in-scree
     await page.keyboard.press("Shift+A");
     await page.waitForTimeout(400);
     let html = await fileContent(page, "index.html");
-    const buttonFrameId = parentIdOf(html, textId)!;
-    expect(buttonFrameId).toBeTruthy();
+    let buttonFrameIdCandidate: string | null = null;
+    await expect
+      .poll(
+        async () => {
+          html = await fileContent(page, "index.html");
+          buttonFrameIdCandidate = parentIdOf(html, textId);
+          return buttonFrameIdCandidate;
+        },
+        {
+          timeout: 15_000,
+          message: "Shift+A wrapper must persist before the Alt-drag setup",
+        },
+      )
+      .toBeTruthy();
+    const buttonFrameId = buttonFrameIdCandidate!;
 
     // Build a small standalone "icon" frame elsewhere on the same screen.
     const iconOrigin = { x: card.x + 60, y: card.y + 60 };
@@ -1030,11 +1043,13 @@ test.describe("parity: Tutorial 5 - overview canvas (outside any screen) and cro
     await page.keyboard.up("Alt");
     await page.waitForTimeout(400);
 
-    const countAfter = Object.keys(await boardObjects(page)).length;
-    expect(
-      countAfter,
-      "alt-drag on the overview canvas should duplicate the board object",
-    ).toBe(countBefore + 1);
+    await expect
+      .poll(async () => Object.keys(await boardObjects(page)).length, {
+        timeout: 15_000,
+        message:
+          "alt-drag on the overview canvas should duplicate the board object",
+      })
+      .toBe(countBefore + 1);
   });
 
   test("Dragging the built button frame out of the screen onto the board, then back in, reparents it both ways", async ({
@@ -1094,9 +1109,7 @@ test.describe("parity: Tutorial 5 - overview canvas (outside any screen) and cro
     await page.waitForTimeout(500);
 
     let indexHtml = await fileContent(page, "index.html");
-    const boardHtml =
-      (await getDesignFiles(page)).find((f) => f.filename === "__board__.html")
-        ?.content ?? "";
+    const boardHtml = await fileContent(page, "__board__.html");
     expect(
       hasNode(indexHtml, buttonFrameId),
       "dragging the button frame out of the screen should remove it from index.html",

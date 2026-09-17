@@ -11125,8 +11125,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       var gestureState = memberStates[groupEls.indexOf(gestureEl)] || memberStates[0];
       var originLeft = gestureState.originLeft;
       var originTop = gestureState.originTop;
-      var startX = e.clientX;
-      var startY = e.clientY;
+      var startX = pointerStartParam ? pointerStartParam.clientX : e.clientX;
+      var startY = pointerStartParam ? pointerStartParam.clientY : e.clientY;
       var dragEl = gestureEl;
       var gestureViewport = bridgeGestureViewport();
       var DRAG_THRESHOLD = 3;
@@ -11155,11 +11155,13 @@ export const editorChromeBridgeScript: string = `"use strict";
       bridgeMoveController.pointerDown({
         kind: "move",
         objectIds: [getSelector(gestureEl)],
-        // \`e\` is deliberately the event that actually began the legacy move
-        // lifecycle, not \`pointerStartParam\`: anchoring the controller at the
-        // pointerdown moves the element the extra threshold-crossing distance,
-        // which breaks the cross-screen drop's target resolution.
-        pointer: bridgeGesturePointer(e),
+        // Shield drags begin here after their threshold-crossing event. For an
+        // alt-drag, the clone must include the movement from the original press;
+        // plain shield drags keep their existing threshold-relative baseline so
+        // cross-screen target resolution is unchanged.
+        pointer: bridgeGesturePointer(
+          duplicatedForDrag && pointerStartParam ? { ...e, ...pointerStartParam } : e
+        ),
         viewport: gestureViewport,
         canvas: { width: gestureViewport.width, height: gestureViewport.height }
       });

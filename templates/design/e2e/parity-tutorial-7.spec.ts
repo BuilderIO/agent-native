@@ -97,10 +97,13 @@ async function indexHtml(
   const result = await request
     .get(`${BASE_URL}/_agent-native/actions/get-design?id=${designId}`)
     .then((r) => r.json());
-  return (
-    (result.files ?? []).find((f: any) => f.filename === "index.html")
-      ?.content ?? ""
+  const file = (result.files ?? []).find(
+    (f: any) => f.filename === "index.html",
   );
+  if (typeof file?.content !== "string") {
+    throw new Error("index.html has no content");
+  }
+  return file.content;
 }
 
 function styleOf(html: string, id: string): string {
@@ -289,6 +292,19 @@ test.describe("tutorial 7 — card and container system", () => {
       titleBox.y + titleBox.height / 2,
     );
     await page.waitForTimeout(500);
+    await expect(
+      page.locator('[role="treeitem"][aria-selected="true"]'),
+    ).toHaveCount(1);
+    await expect(
+      page.locator('[role="treeitem"][aria-selected="true"]'),
+    ).toContainText("Project title");
+    const originalSelectionId = await page
+      .locator(
+        '[role="treeitem"][aria-selected="true"] [data-layer-row-button]',
+      )
+      .getAttribute("data-layer-node-id");
+    expect(originalSelectionId).toBeTruthy();
+    const originalHtml = await indexHtml(request, designId);
     await page.keyboard.press(`${MOD}+d`);
 
     let html = "";
@@ -320,6 +336,19 @@ test.describe("tutorial 7 — card and container system", () => {
       copy!.index,
       "duplicate must be inserted directly above (after, in DOM order) the original",
     ).toBeGreaterThan(original.index);
+    await expect(
+      page.locator('[role="treeitem"][aria-selected="true"]'),
+    ).toHaveCount(1);
+    await expect(
+      page.locator('[role="treeitem"][aria-selected="true"]'),
+    ).toContainText("Project title");
+    await expect(
+      page
+        .locator(
+          '[role="treeitem"][aria-selected="true"] [data-layer-row-button]',
+        )
+        .first(),
+    ).not.toHaveAttribute("data-layer-node-id", originalSelectionId!);
 
     await page.keyboard.press(`${MOD}+z`);
     await expect
@@ -330,6 +359,15 @@ test.describe("tutorial 7 — card and container system", () => {
         { timeout: 10_000, message: "one undo did not remove the duplicate" },
       )
       .toBe(1);
+    await expect(indexHtml(request, designId)).resolves.toBe(originalHtml);
+    await expect(
+      page.locator('[role="treeitem"][aria-selected="true"]'),
+    ).toHaveCount(1);
+    await expect(
+      page.locator(
+        '[role="treeitem"][aria-selected="true"] [data-layer-row-button]',
+      ),
+    ).toHaveAttribute("data-layer-node-id", originalSelectionId!);
   });
 
   test("step 2 [in-screen]: alt-drag duplicates the button below the description, copy keeps the name, one undo restores", async ({
@@ -343,6 +381,19 @@ test.describe("tutorial 7 — card and container system", () => {
     if (!before) throw new Error("button not rendered");
     await layerRowButton(page, "View project").click({ force: true });
     await page.waitForTimeout(600);
+    await expect(
+      page.locator('[role="treeitem"][aria-selected="true"]'),
+    ).toHaveCount(1);
+    await expect(
+      page.locator('[role="treeitem"][aria-selected="true"]'),
+    ).toContainText("View project");
+    const originalSelectionId = await page
+      .locator(
+        '[role="treeitem"][aria-selected="true"] [data-layer-row-button]',
+      )
+      .getAttribute("data-layer-node-id");
+    expect(originalSelectionId).toBeTruthy();
+    const originalHtml = await indexHtml(request, designId);
 
     const cx = before.x + before.width / 2;
     const cy = before.y + before.height / 2;
@@ -373,8 +424,22 @@ test.describe("tutorial 7 — card and container system", () => {
     const original = occurrences.find((o) => o.id === "btn")!;
     const copy = occurrences.find((o) => o.id !== "btn")!;
     expect(copy, "could not isolate the copy's occurrence").toBeTruthy();
+    expect(styleNum(styleOf(html, copy.id), "top")).toBeGreaterThan(220);
     // Ground truth: alt-drag copy is inserted directly above the source.
     expect(copy.index).toBeGreaterThan(original.index);
+    await expect(
+      page.locator('[role="treeitem"][aria-selected="true"]'),
+    ).toHaveCount(1);
+    await expect(
+      page.locator('[role="treeitem"][aria-selected="true"]'),
+    ).toContainText("View project");
+    await expect(
+      page
+        .locator(
+          '[role="treeitem"][aria-selected="true"] [data-layer-row-button]',
+        )
+        .first(),
+    ).not.toHaveAttribute("data-layer-node-id", originalSelectionId!);
 
     await page.keyboard.press(`${MOD}+z`);
     await expect
@@ -388,6 +453,15 @@ test.describe("tutorial 7 — card and container system", () => {
         },
       )
       .toBe(1);
+    await expect(indexHtml(request, designId)).resolves.toBe(originalHtml);
+    await expect(
+      page.locator('[role="treeitem"][aria-selected="true"]'),
+    ).toHaveCount(1);
+    await expect(
+      page.locator(
+        '[role="treeitem"][aria-selected="true"] [data-layer-row-button]',
+      ),
+    ).toHaveAttribute("data-layer-node-id", originalSelectionId!);
   });
 
   test("step 3 [overview, outside the screen -> crosses into the screen]: draw a Thumbnail rectangle on the board, rename it, drag it inside the screen", async ({
