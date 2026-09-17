@@ -421,29 +421,6 @@ export async function startCommentAiRequest(args: {
         errorCode: "comment_ai_operation_conflict",
       });
     }
-    if (["needs-review", "failed", "cancelled"].includes(request.status)) {
-      const [reclaimed] = await db
-        .update(schema.commentAiRequests)
-        .set({
-          status: "queued",
-          errorCode: null,
-          error: null,
-          updatedAt: new Date().toISOString(),
-        })
-        .where(
-          and(
-            eq(schema.commentAiRequests.id, request.id),
-            inArray(schema.commentAiRequests.status, [
-              "needs-review",
-              "failed",
-              "cancelled",
-            ]),
-          ),
-        )
-        .returning();
-      request = reclaimed ?? (await loadCommentAiRequest(request.id));
-      dispatch = Boolean(reclaimed);
-    }
   } else {
     const source = await readCommentAiSource(args);
     if (source.root.resolved)

@@ -211,6 +211,32 @@ describe("comment AI operation isolation", () => {
     expect(first.agentThreadId).not.toBe(second.agentThreadId);
   });
 
+  it("does not reclaim a terminal agent turn when the domain operation needs review", async () => {
+    const started = await asUser(() =>
+      commentAi.startCommentAiRequest(startArgs(OP_A, ROOT_A)),
+    );
+    await getDb()
+      .update(schema.commentAiRequests)
+      .set({
+        status: "needs-review",
+        errorCode: "operation_failed",
+        error: "Resolution acknowledgement was not saved",
+      })
+      .where(eq(schema.commentAiRequests.id, OP_A));
+
+    const replay = await asUser(() =>
+      commentAi.startCommentAiRequest(startArgs(OP_A, ROOT_A)),
+    );
+
+    expect(replay).toMatchObject({
+      operationId: OP_A,
+      agentThreadId: started.agentThreadId,
+      agentTurnId: started.agentTurnId,
+      status: "needs-review",
+      dispatch: false,
+    });
+  });
+
   it("reconciles simultaneous starts for one comment into one active operation", async () => {
     const results = await Promise.all(
       [OP_A, OP_B, OP_C].map((id) =>

@@ -303,6 +303,54 @@ describe("comment AI controls", () => {
     );
   });
 
+  it("resumes a partial result on a fresh turn with the same domain action scope", async () => {
+    let controller: CommentAiController;
+    function Probe() {
+      controller = useCommentAiRequests("document-1", { enabled: true });
+      return null;
+    }
+    const partial = request({
+      status: "needs-review",
+      agentThreadId: "agent-thread-1",
+      agentTurnId: "completed-initial-turn",
+      result: { editApplied: true },
+    });
+    api.requests = [partial];
+    api.loadCommentAiConversation.mockResolvedValue([]);
+    vi.spyOn(globalThis.crypto, "randomUUID").mockReturnValue(
+      "fresh-resume-operation",
+    );
+    api.startBackgroundAgentSession.mockReturnValue({
+      operationId: "fresh-resume-operation",
+      threadId: "agent-thread-1",
+      turnId: "fresh-resume-turn",
+      accepted: Promise.resolve({
+        operationId: "fresh-resume-operation",
+        threadId: "agent-thread-1",
+        turnId: "fresh-resume-turn",
+      }),
+      status: vi.fn(),
+    });
+    act(() => root.render(createElement(Probe)));
+
+    await act(async () => controller!.resume(partial));
+
+    expect(api.callAction).not.toHaveBeenCalled();
+    expect(api.startBackgroundAgentSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "comments.retry",
+        operationId: "fresh-resume-operation",
+        threadId: "agent-thread-1",
+        scope: { type: "content-comment-ai", id: "request-1" },
+        actionScope: { kind: "content-comment-ai", requestId: "request-1" },
+        usageLabel: "content:comment-ai-resume",
+      }),
+    );
+    expect(
+      api.startBackgroundAgentSession.mock.calls[0]?.[0].operationId,
+    ).not.toBe(partial.operationId);
+  });
+
   it("prevents duplicate starts and sends localized text with hidden scoped context", async () => {
     const requestId = "00000000-0000-4000-8000-000000000001";
     let controller: CommentAiController;

@@ -139,6 +139,7 @@ export interface CommentAiController {
     requestId?: string;
   }): Promise<void>;
   continue(request: CommentAiRequest, message: string): Promise<void>;
+  resume(request: CommentAiRequest): Promise<void>;
   stop(request: CommentAiRequest): Promise<void>;
   open(request: CommentAiRequest): void;
 }
@@ -569,8 +570,12 @@ export function useCommentAiRequests(
     }
   }, [continuations, monitorContinuation, serverRequests]);
 
-  const continueConversation = useCallback<CommentAiController["continue"]>(
-    async (request, message) => {
+  const dispatchContinuation = useCallback(
+    async (
+      request: CommentAiRequest,
+      message: string,
+      mode: "follow-up" | "resume",
+    ) => {
       if (!request.agentThreadId) {
         throw new Error("This AI conversation is not available yet");
       }
@@ -607,12 +612,17 @@ export function useCommentAiRequests(
             requestId: request.operationId,
           },
           instructions:
-            "Continue this comment AI conversation and answer the follow-up directly. Keep the original intent and action scope. Do not repeat a completed comment action or create a duplicate receipt." +
+            (mode === "resume"
+              ? "Resume this unfinished comment AI operation from its durable action state. Complete only the remaining steps, using the same action scope and idempotent domain operation. Do not repeat a completed edit or create a duplicate receipt."
+              : "Continue this comment AI conversation and answer the follow-up directly. Keep the original intent and action scope. Do not repeat a completed comment action or create a duplicate receipt.") +
             (priorConversation
               ? `\n\nProtected conversation context:\n\n${priorConversation}`
               : ""),
           ...(request.model ? { model: request.model } : {}),
-          usageLabel: "content:comment-ai-follow-up",
+          usageLabel:
+            mode === "resume"
+              ? "content:comment-ai-resume"
+              : "content:comment-ai-follow-up",
         } satisfies BackgroundAgentSessionStartOptions;
         const handle = startBackgroundAgentSession(options);
         continuation = {
@@ -662,6 +672,16 @@ export function useCommentAiRequests(
       }
     },
     [monitorContinuation, updateContinuation],
+  );
+
+  const continueConversation = useCallback<CommentAiController["continue"]>(
+    (request, message) => dispatchContinuation(request, message, "follow-up"),
+    [dispatchContinuation],
+  );
+
+  const resumeConversation = useCallback<CommentAiController["resume"]>(
+    (request) => dispatchContinuation(request, t("comments.retry"), "resume"),
+    [dispatchContinuation, t],
   );
 
   const stop = useCallback<CommentAiController["stop"]>(
@@ -749,6 +769,7 @@ export function useCommentAiRequests(
       transcriptRevision,
       start,
       continue: continueConversation,
+      resume: resumeConversation,
       stop,
       open,
     }),
@@ -760,6 +781,7 @@ export function useCommentAiRequests(
       transcriptRevision,
       start,
       continueConversation,
+      resumeConversation,
       stop,
       open,
     ],
