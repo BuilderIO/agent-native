@@ -199,8 +199,14 @@ export function useDocumentReconcileRecovery({
       const started = generation.current;
       let saveBase: ReconcileSaveBase | undefined = base;
       let draft = initialDraft;
+      let attempts = 0;
       try {
-        while (generation.current === started && !current.current) {
+        while (
+          generation.current === started &&
+          !current.current &&
+          attempts < 3
+        ) {
+          attempts += 1;
           const identity = callbacks.current.getSaveIdentity();
           const persisted = await callbacks.current.save(draft, saveBase);
           if (generation.current !== started || current.current) {
@@ -221,6 +227,9 @@ export function useDocumentReconcileRecovery({
           saveBase = undefined;
         }
         await retainLatest();
+        if (generation.current === started && !current.current) {
+          publish({ reason: "conflict", ...latestDraft(), saving: false });
+        }
         return false;
       } catch {
         if (generation.current === started && !current.current) {

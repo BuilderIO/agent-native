@@ -362,6 +362,83 @@ describe("private preview document drafts", () => {
     ).resolves.toMatchObject({ status: "resolved", choice: "keep_mine" });
   });
 
+  it("does not reuse a legacy claim for a later identical draft", async () => {
+    const documentId = await createDocument();
+    const [before] = await getDb()
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, documentId));
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: { ...payload("Local recovery"), deferredReason: "conflict" },
+      }),
+    );
+    const [currentDraft] = await getDb()
+      .select()
+      .from(schema.documentPreviewDrafts)
+      .where(eq(schema.documentPreviewDrafts.documentId, documentId));
+    const request = {
+      choice: "keep_mine" as const,
+      documentId,
+      expectedDraftVersion: 1,
+      expectedDraftTitle: "Builder row",
+      expectedDraftContent: "Local recovery",
+      expectedDocumentUpdatedAt: before.updatedAt,
+    };
+    const legacyId = await legacyClaimId(request);
+    const now = new Date().toISOString();
+    await getDb()
+      .insert(schema.documentVersions)
+      .values({
+        id: legacyId,
+        ownerEmail: OWNER,
+        documentId,
+        title: request.expectedDraftTitle,
+        content: request.expectedDraftContent,
+        chatContext: JSON.stringify({
+          choice: "keep_mine",
+          status: "resolved",
+          draftId: "an-older-identical-draft",
+          baseDocumentUpdatedAt: null,
+          loadedContentWasEmpty: 0,
+          deferredReason: "conflict",
+          createdAt: now,
+          updatedAt: now,
+        }),
+        actorEmail: OWNER,
+        actorKind: "human",
+        origin: "frontend",
+        groupKind: "operation",
+        groupId: "draft-recovery:old",
+        operation: "claim-preview-draft-keep_mine",
+        checkpointKind: "recovery",
+        createdAt: now,
+        updatedAt: now,
+      });
+
+    await expect(
+      asUser(OWNER, () => resolveDraft.run(request)),
+    ).resolves.toMatchObject({ status: "resolved", choice: "keep_mine" });
+    const claims = await getDb()
+      .select({ id: schema.documentVersions.id })
+      .from(schema.documentVersions)
+      .where(
+        and(
+          eq(schema.documentVersions.documentId, documentId),
+          eq(
+            schema.documentVersions.operation,
+            "claim-preview-draft-keep_mine",
+          ),
+        ),
+      );
+    expect(currentDraft.id).not.toBe("an-older-identical-draft");
+    expect(claims.map(({ id }) => id)).toContain(legacyId);
+    expect(claims).toHaveLength(2);
+  });
+
   it("does not let an older processor resolve a replacement processing token", async () => {
     const documentId = await createDocument();
     const [before] = await getDb()

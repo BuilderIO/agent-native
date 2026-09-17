@@ -165,6 +165,39 @@ describe("document reconcile recovery", () => {
     });
   });
 
+  it("falls back to recovery after three automatic saves race with typing", async () => {
+    const save = vi.fn(async () => true);
+    const retain = vi.fn(async () => undefined);
+    let identity = 0;
+    mount(save, () => String(identity), retain, false);
+    save.mockImplementation(async () => {
+      identity += 1;
+      draft = `typing generation ${identity}`;
+      return true;
+    });
+
+    let result!: boolean;
+    await act(async () => {
+      result = await recovery.resolveAutomatically(
+        { localDraft: draft, localTitle: "Merged title" },
+        base,
+      );
+    });
+
+    expect(result).toBe(false);
+    expect(save).toHaveBeenCalledTimes(3);
+    expect(retain).toHaveBeenCalledWith({
+      localDraft: "typing generation 3",
+      localTitle: "",
+    });
+    expect(recovery.state).toEqual({
+      reason: "conflict",
+      localDraft: "typing generation 3",
+      localTitle: "",
+      saving: false,
+    });
+  });
+
   it("saves text typed during recovery before clearing the banner", async () => {
     const first = deferred();
     const second = deferred();

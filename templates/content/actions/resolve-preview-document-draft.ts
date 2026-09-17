@@ -128,7 +128,10 @@ export default defineAction({
     )}`;
     if (legacyClaimId !== claimId) {
       const [legacyClaim] = await db
-        .select({ id: schema.documentVersions.id })
+        .select({
+          id: schema.documentVersions.id,
+          chatContext: schema.documentVersions.chatContext,
+        })
         .from(schema.documentVersions)
         .where(
           and(
@@ -141,7 +144,37 @@ export default defineAction({
           ),
         )
         .limit(1);
-      if (legacyClaim) {
+      const [matchingDraft] = await db
+        .select({ id: schema.documentPreviewDrafts.id })
+        .from(schema.documentPreviewDrafts)
+        .where(
+          and(
+            eq(schema.documentPreviewDrafts.ownerEmail, userEmail),
+            eq(schema.documentPreviewDrafts.orgId, orgId),
+            eq(schema.documentPreviewDrafts.documentId, args.documentId),
+            eq(schema.documentPreviewDrafts.version, args.expectedDraftVersion),
+            eq(schema.documentPreviewDrafts.title, args.expectedDraftTitle),
+            eq(schema.documentPreviewDrafts.content, args.expectedDraftContent),
+          ),
+        )
+        .limit(1);
+      let legacyPayload: ReturnType<
+        typeof durableClaimPayload.safeParse
+      > | null = null;
+      if (legacyClaim?.chatContext) {
+        try {
+          legacyPayload = durableClaimPayload.safeParse(
+            JSON.parse(legacyClaim.chatContext),
+          );
+        } catch {
+          legacyPayload = null;
+        }
+      }
+      if (
+        legacyClaim &&
+        legacyPayload?.success &&
+        (!matchingDraft || legacyPayload.data.draftId === matchingDraft.id)
+      ) {
         recoveryId = legacyRecoveryId;
         claimId = legacyClaimId;
         claimDocumentId = ownerEmail === userEmail ? args.documentId : claimId;
