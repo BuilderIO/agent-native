@@ -111,34 +111,47 @@ async function previewFrames(
   return frames;
 }
 
+async function previewFrameHost(page: Page): Promise<string> {
+  const src = await page
+    .locator("iframe[data-design-preview-iframe]")
+    .first()
+    .getAttribute("src");
+  return new URL(requireValue(src, "Preview iframe has no source."), page.url())
+    .host;
+}
+
 async function readAuthSnapshot(
   page: Page,
   frameHost = bridgeHost,
 ): Promise<AuthSnapshot> {
   const frames = await previewFrames(page, frameHost);
   const entries = await Promise.all(
-    frames.map(async (frame) => ({
-      route: routeFromBridgeFrameUrl(frame.url()),
-      state: await (async () => {
-        if (await frame.locator("#local-dev-btn").isVisible()) {
-          return "signed-out" as const;
-        }
-        if (
-          frame.url().includes("/home") &&
-          (await frame.getByText("No decks yet", { exact: true }).isVisible())
-        ) {
-          return "app" as const;
-        }
-        if (
-          frame.url().includes("/settings") &&
-          (await frame.getByText("Account", { exact: true }).isVisible())
-        ) {
-          return "app" as const;
-        }
-        return "unknown" as const;
-      })(),
-      text: await frame.locator("body").innerText({ timeout: 10_000 }),
-    })),
+    frames.map(async (frame) => {
+      const route = routeFromBridgeFrameUrl(frame.url());
+      const routePath = route.split("?", 1)[0];
+      return {
+        route,
+        state: await (async () => {
+          if (await frame.locator("#local-dev-btn").isVisible()) {
+            return "signed-out" as const;
+          }
+          if (
+            routePath === "/home" &&
+            (await frame.getByText("No decks yet", { exact: true }).isVisible())
+          ) {
+            return "app" as const;
+          }
+          if (
+            routePath === "/settings" &&
+            (await frame.getByText("Account", { exact: true }).isVisible())
+          ) {
+            return "app" as const;
+          }
+          return "unknown" as const;
+        })(),
+        text: await frame.locator("body").innerText({ timeout: 10_000 }),
+      };
+    }),
   );
   const frameStates = entries.map((entry) => entry.state);
   const routes = entries.map((entry) => entry.route).sort();
@@ -516,6 +529,7 @@ async function main() {
       await context.cookies(),
       designHostname,
     );
+    let authenticatedFrameHost = await previewFrameHost(page);
     let directAuthStatus: number | undefined;
     let childAuthTransport = "preview-token";
     let signedIn = await waitForAuthSnapshot(
@@ -529,15 +543,18 @@ async function main() {
             JSON.stringify(snapshot.routes) ===
               JSON.stringify(["/home", "/home", "/settings"].sort()))),
       "bridge auth state after Design sign-in",
+      authenticatedFrameHost,
     );
     if (signedIn.signedOutFrames === screenPaths.length) {
       childAuthTransport = "button";
-      const signInFrame = await findFrame(page, async (frame) =>
-        frame.locator("#local-dev-btn").isVisible(),
+      const signInFrame = await findFrame(
+        page,
+        async (frame) => frame.locator("#local-dev-btn").isVisible(),
+        authenticatedFrameHost,
       );
       const signInChildWithFetch = async () => {
         const authFrame = requireValue(
-          (await previewFrames(page))[0],
+          (await previewFrames(page, authenticatedFrameHost))[0],
           "No bridge preview frame was available for child sign-in.",
         );
         return authFrame.evaluate(async () => {
@@ -578,6 +595,7 @@ async function main() {
         .locator("iframe[data-design-preview-iframe]")
         .first()
         .waitFor({ state: "attached", timeout: 30_000 });
+      authenticatedFrameHost = await previewFrameHost(page);
       signedIn = await waitForAuthSnapshot(
         page,
         (snapshot) =>
@@ -587,9 +605,16 @@ async function main() {
           JSON.stringify(snapshot.routes) ===
             JSON.stringify(["/home", "/home", "/settings"].sort()),
         "signed-in canvases",
+        authenticatedFrameHost,
       );
     }
-    const signedInPreviewIframes = await readPreviewIframes(page);
+    assert(
+      authenticatedFrameHost === bridgeHost,
+      `Authenticated preview did not use the visual-edit bridge: ${authenticatedFrameHost}`,
+    );
+    const signedInPreviewIframes = await readPreviewIframes(page, {
+      frameHost: authenticatedFrameHost,
+    });
     assertPreviewRouteMapping(signedInPreviewIframes, "Signed-in preview");
     assert(
       JSON.stringify(
@@ -627,8 +652,11 @@ async function main() {
       throw new Error("The Design editor lost a preview frame after sign-in.");
     }
 
-    const homeFrame = await findFrame(page, async (frame) =>
-      frame.getByText("No decks yet", { exact: true }).isVisible(),
+    const homeFrame = await findFrame(
+      page,
+      async (frame) =>
+        frame.getByText("No decks yet", { exact: true }).isVisible(),
+      authenticatedFrameHost,
     );
     const source = homeFrame.getByText("No decks yet", { exact: true }).first();
     const anchor = homeFrame
@@ -693,7 +721,9 @@ async function main() {
 
     const settingsFrame = await findFrame(
       page,
-      async (frame) => new URL(frame.url()).pathname === "/settings",
+      async (frame) =>
+        routeFromBridgeFrameUrl(frame.url()).split("?", 1)[0] === "/settings",
+      authenticatedFrameHost,
     );
     const accountUrl = new URL(settingsFrame.url());
     accountUrl.pathname = "/settings/account";
@@ -736,6 +766,7 @@ async function main() {
       .locator("iframe[data-design-preview-iframe]")
       .first()
       .waitFor({ state: "attached", timeout: 30_000 });
+    authenticatedFrameHost = await previewFrameHost(page);
     const signedOutAfter = await waitForAuthSnapshot(
       page,
       (snapshot) =>
@@ -744,6 +775,7 @@ async function main() {
         JSON.stringify(snapshot.routes) ===
           JSON.stringify(["/sign-in", "/sign-in", "/sign-in"].sort()),
       "signed-out canvases after logout",
+      authenticatedFrameHost,
     );
     const bridgeCookiesAfterChildSignOut = cookiesForHost(
       await context.cookies(),
@@ -764,7 +796,9 @@ async function main() {
         "Signing out of Slides changed the Design session cookies.",
       );
     }
-    const signedOutAfterPreviewIframes = await readPreviewIframes(page);
+    const signedOutAfterPreviewIframes = await readPreviewIframes(page, {
+      frameHost: authenticatedFrameHost,
+    });
     assertPreviewRouteMapping(
       signedOutAfterPreviewIframes,
       "Signed-out-after preview",
