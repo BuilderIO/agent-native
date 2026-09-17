@@ -102,6 +102,20 @@ const messages = {
       saveFailed: "Could not update review status",
     },
   },
+  designSystems: {
+    ...messagesByLocale["en-US"].designSystems,
+    tierLimitTitle: "Design system limit reached",
+    tierLimitDescription:
+      "You've reached the design-system limit for your plan. Upgrade to create another.",
+    tierLimitDescriptionWithCount:
+      "You're using {{current}} of {{max}} design systems on the {{plan}} plan. Upgrade to create another.",
+    tierLimitUpgrade: "Upgrade plan",
+  },
+  designSystemSetup: {
+    ...messagesByLocale["en-US"].designSystemSetup,
+    codeIndexingEnterpriseOnly:
+      "Code and repository indexing requires an Enterprise plan",
+  },
 };
 
 export default messages;

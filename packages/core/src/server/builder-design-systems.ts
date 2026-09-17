@@ -177,6 +177,111 @@ interface UploadStartResponse {
   uploads?: Array<{ idx: number; uploadUrl: string; uploadToken: string }>;
 }
 
+/**
+ * Plan/quota state for the DSI tier cap. `max: null` means unlimited
+ * (Enterprise); `plan`/`current` are `null` only when the underlying
+ * `/tier-limit` call could not be answered (Builder not connected, network
+ * failure) -- callers must treat that as "unknown", not as "under the cap",
+ * so `status` names it explicitly instead of a silently permissive default.
+ */
+export interface BuilderDesignSystemTierLimit {
+  status: "ok" | "unavailable";
+  plan: string | null;
+  current: number | null;
+  max: number | null;
+  atMax: boolean;
+  codeIndexingAllowed: boolean;
+  upgradeUrl: string | null;
+}
+
+interface TierLimitResponseBody {
+  plan?: unknown;
+  current?: unknown;
+  currentCount?: unknown;
+  max?: unknown;
+  maxAllowed?: unknown;
+  atMax?: unknown;
+  codeIndexingAllowed?: unknown;
+  allowCodeIndexing?: unknown;
+  upgradeUrl?: unknown;
+}
+
+// Confirmed product policy (same across Design and Slides, and the
+// builder-internal DSI UI this mirrors): only Enterprise may index
+// code/source-repo sources. The endpoint's own `codeIndexingAllowed` field
+// wins when present; this is the fallback so the client-side gate still
+// matches policy even if that field is ever omitted.
+const DESIGN_SYSTEM_CODE_INDEXING_ENTERPRISE_ONLY_PLANS = new Set([
+  "free",
+  "pro",
+  "team",
+]);
+
+function designSystemTierLimitFromBody(
+  body: TierLimitResponseBody,
+): Omit<BuilderDesignSystemTierLimit, "status"> {
+  const plan =
+    typeof body.plan === "string" && body.plan.trim()
+      ? body.plan.trim().toLowerCase()
+      : null;
+  const current =
+    typeof body.current === "number"
+      ? body.current
+      : typeof body.currentCount === "number"
+        ? body.currentCount
+        : null;
+  const max =
+    typeof body.max === "number"
+      ? body.max
+      : typeof body.maxAllowed === "number"
+        ? body.maxAllowed
+        : null;
+  const atMax =
+    typeof body.atMax === "boolean"
+      ? body.atMax
+      : typeof current === "number" && typeof max === "number"
+        ? current >= max
+        : false;
+  const codeIndexingAllowed =
+    typeof body.codeIndexingAllowed === "boolean"
+      ? body.codeIndexingAllowed
+      : typeof body.allowCodeIndexing === "boolean"
+        ? body.allowCodeIndexing
+        : !(plan && DESIGN_SYSTEM_CODE_INDEXING_ENTERPRISE_ONLY_PLANS.has(plan));
+  const upgradeUrl =
+    typeof body.upgradeUrl === "string" && body.upgradeUrl.trim()
+      ? body.upgradeUrl.trim()
+      : null;
+  return { plan, current, max, atMax, codeIndexingAllowed, upgradeUrl };
+}
+
+function parseTierLimitErrorBody(text: string): TierLimitResponseBody {
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(text) as Record<string, unknown>;
+  } catch (parseError) {
+    return {};
+  }
+  const nested = parsed.error;
+  return (
+    nested && typeof nested === "object" ? nested : parsed
+  ) as TierLimitResponseBody;
+}
+
+function designSystemTierLimitMessage(
+  limit: Omit<BuilderDesignSystemTierLimit, "status">,
+): string {
+  const planLabel = limit.plan ? " for the " + limit.plan + " plan" : "";
+  const maxLabel =
+    typeof limit.max === "number" ? " (max " + limit.max + ")" : "";
+  return (
+    "You have reached your design-system limit" +
+    planLabel +
+    maxLabel +
+    ". Upgrade to create another design system."
+  );
+}
+
 interface IndexResponse {
   designSystemId?: string;
   jobId?: string;
@@ -546,6 +651,57 @@ export async function fetchBuilderDesignSystemRecord(
   };
 }
 
+/**
+ * Reads the DSI tier cap (plan, current design-system count, max allowed)
+ * from Builder's `/design-systems/v1/tier-limit`, the same endpoint
+ * server-side create enforcement queries. Used to gate the "new design
+ * system" entry point and code-indexing options before the user attempts a
+ * create, so the 402 from `indexBuilderDesignSystem` is a backstop rather
+ * than the only signal. Fails open (`status: "unavailable"`, `atMax: false`,
+ * `codeIndexingAllowed: true`) rather than blocking the UI when Builder isn't
+ * reachable -- the create call still enforces the cap server-side.
+ */
+export async function fetchBuilderDesignSystemTierLimit(): Promise<BuilderDesignSystemTierLimit> {
+  try {
+    const response = await requestBuilderDesignSystem(
+      "builder:designsystem:read",
+      (authorization) =>
+        fetchWithTimeout(
+          makeBuilderDesignSystemUrl("tier-limit", authorization),
+          { method: "GET", headers: makeBuilderHeaders(authorization) },
+        ),
+    );
+    if (!response.ok) {
+      return {
+        status: "unavailable",
+        plan: null,
+        current: null,
+        max: null,
+        atMax: false,
+        codeIndexingAllowed: true,
+        upgradeUrl: null,
+      };
+    }
+    const body = (await response.json()) as TierLimitResponseBody;
+    const limit = designSystemTierLimitFromBody(body);
+    return {
+      status: "ok",
+      ...limit,
+      upgradeUrl: limit.upgradeUrl ?? designSystemTierUpgradeUrl(),
+    };
+  } catch {
+    return {
+      status: "unavailable",
+      plan: null,
+      current: null,
+      max: null,
+      atMax: false,
+      codeIndexingAllowed: true,
+      upgradeUrl: null,
+    };
+  }
+}
+
 function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, "");
 }
@@ -814,6 +970,22 @@ async function assertBuilderDesignSystemIndexOk(
 ): Promise<void> {
   if (response.ok) return;
 
+  if (response.status === 402) {
+    const text = await response.text().catch(() => "");
+    const body = parseTierLimitErrorBody(text);
+    const limit = designSystemTierLimitFromBody(body);
+    fail(designSystemTierLimitMessage(limit), {
+      statusCode: 402,
+      errorCode: "design_system_tier_limit_exceeded",
+      details: {
+        plan: limit.plan,
+        current: limit.current,
+        max: limit.max,
+        upgradeUrl: limit.upgradeUrl ?? designSystemTierUpgradeUrl(),
+      },
+    });
+  }
+
   const message = await parseErrorBody(response);
   if (
     response.status === 409 &&
@@ -999,6 +1171,15 @@ export function builderProjectBranchUrl(
   return withBuilderUtmTrackingParams(host + path, {
     campaign: "product",
     content: "design_system_intelligence",
+  });
+}
+
+/** Fallback upgrade link when a 402/tier-limit response carries no `upgradeUrl`. */
+export function designSystemTierUpgradeUrl(): string {
+  const host = trimTrailingSlash(getBuilderAppHost());
+  return withBuilderUtmTrackingParams(`${host}/account/subscription`, {
+    campaign: "product",
+    content: "design_system_tier_limit",
   });
 }
 
