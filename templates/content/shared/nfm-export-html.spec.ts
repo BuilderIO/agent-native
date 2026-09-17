@@ -116,9 +116,12 @@ describe("NFM container export", () => {
 
   it("renders a GFM pipe table with alignment and escaped pipes", () => {
     const html = exportedBody(
-      ["| Command | Notes |", "| :--- | ---: |", "| `a \\| b` | pipes |"].join(
-        "\n",
-      ),
+      [
+        "| Command | Notes |",
+        "| :--- | ---: |",
+        "| `left | right` | pipes |",
+        "| ``multi | pipe`` | more |",
+      ].join("\n"),
     );
 
     const table = readTable(html);
@@ -127,7 +130,31 @@ describe("NFM container export", () => {
       { tag: "th", html: "Notes" },
     ]);
     expect(html).toContain('class="nfm-align-right"');
-    expect(table!.body[0][0].html).toBe("<code>a | b</code>");
+    expect(table!.body[0][0].html).toBe("<code>left | right</code>");
+    expect(table!.body[1][0].html).toBe("<code>multi | pipe</code>");
+  });
+
+  it("requires three-hyphen delimiters and supports one-column tables", () => {
+    const oneColumn = exportedBody(
+      ["| Header |", "| --- |", "| Value |"].join("\n"),
+    );
+    expect(readTable(oneColumn)!.body).toEqual([
+      [{ tag: "td", html: "Value" }],
+    ]);
+
+    const prose = exportedBody("A | B\n- | -\nC | D");
+    expect(readTable(prose)).toBeNull();
+  });
+
+  it("keeps a heading with a pipe after a table out of the table", () => {
+    const html = exportedBody(
+      ["| A | B |", "| --- | --- |", "| 1 | 2 |", "## Next | section"].join(
+        "\n",
+      ),
+    );
+
+    expect(readTable(html)!.body).toHaveLength(1);
+    expect(html).toContain("<h2>Next | section</h2>");
   });
 
   it("marks header rows and header columns with th elements", () => {
@@ -181,6 +208,24 @@ describe("NFM container export", () => {
     expect(html).toContain('<col style="width: 240px" />');
   });
 
+  it("ignores non-numeric authored column widths", () => {
+    const html = exportedBody(
+      [
+        "<table>",
+        "<colgroup>",
+        '<col width="240; color: red"/>',
+        "</colgroup>",
+        "<tr>",
+        "<td>a</td>",
+        "</tr>",
+        "</table>",
+      ].join("\n"),
+    );
+
+    expect(html).toContain("<col />");
+    expect(html).not.toContain("width: 240; color: redpx");
+  });
+
   it("renders callouts, toggles, and columns instead of leaking their tags", () => {
     const html = exportedBody(
       [
@@ -220,6 +265,40 @@ describe("NFM container export", () => {
     );
 
     expect(html).toContain('<details class="nfm-details" open>');
+  });
+
+  it("renders heading toggles with their nested blocks", () => {
+    const html = exportedBody(
+      [
+        '## Release notes {toggle="true"}',
+        "\tIntro",
+        "\t- Detail",
+        "After",
+      ].join("\n"),
+    );
+
+    expect(html).toContain("<h2>Release notes</h2>");
+    expect(html).toContain("<p>Intro</p>");
+    expect(html).toContain("<li>Detail</li>");
+    expect(html).not.toContain('toggle="true"');
+  });
+
+  it("does not close a container on a tag inside a fenced code block", () => {
+    const html = exportedBody(
+      [
+        "<callout>",
+        "\t```md",
+        "\t</callout>",
+        "\t```",
+        "\tAfter the example",
+        "</callout>",
+        "Sibling",
+      ].join("\n"),
+    );
+
+    expect(html).toContain("&lt;/callout&gt;");
+    expect(html).toContain("<p>After the example</p>");
+    expect(html).toContain("<p>Sibling</p>");
   });
 
   it("escapes cell content rather than trusting authored HTML", () => {

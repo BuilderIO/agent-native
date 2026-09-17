@@ -421,6 +421,32 @@ function isEmptyBlockLine(trimmed: string): boolean {
   return /^<empty-block\b[^>]*\/>$/.test(trimmed);
 }
 
+function matchHeadingToggle(
+  line: string,
+): { level: number; source: string } | null {
+  const match = line.match(/^(#{1,6})\s+(.+?)\s+\{([^{}]*)\}\s*$/);
+  if (!match || !/\btoggle\s*=\s*"true"/.test(match[3])) return null;
+  return { level: match[1].length, source: match[2] };
+}
+
+function collectIndentedChildren(
+  lines: string[],
+  start: number,
+  parentIndent: number,
+): { lines: string[]; nextIndex: number } {
+  const children: string[] = [];
+  let index = start;
+  while (index < lines.length) {
+    const line = lines[index];
+    if (line.trim() && leadingIndentWidth(line) <= parentIndent) break;
+    children.push(
+      line.trim() ? stripLeadingIndent(line, parentIndent + 1) : line,
+    );
+    index++;
+  }
+  return { lines: children, nextIndex: index };
+}
+
 const exportRenderers = {
   renderBlocks: (markdown: string) => markdownToHtml(markdown),
   renderInline: (text: string) => inlineMarkdownToHtml(text),
@@ -498,6 +524,22 @@ function markdownToHtml(markdown: string): string {
       blocks.push(
         `<pre><code${language}>${escapeHtml(code.join("\n"))}</code></pre>`,
       );
+      continue;
+    }
+
+    const headingToggle = matchHeadingToggle(trimmed);
+    if (headingToggle) {
+      const children = collectIndentedChildren(
+        lines,
+        index + 1,
+        leadingIndentWidth(line),
+      );
+      const headingHtml = `<h${headingToggle.level}>${inlineMarkdownToHtml(
+        headingToggle.source,
+      )}</h${headingToggle.level}>`;
+      const body = markdownToHtml(children.lines.join("\n"));
+      blocks.push(body ? `${headingHtml}\n\n${body}` : headingHtml);
+      index = children.nextIndex;
       continue;
     }
 

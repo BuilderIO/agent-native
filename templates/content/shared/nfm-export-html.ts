@@ -1,3 +1,5 @@
+import { splitGfmPipeRow } from "./nfm.js";
+
 /**
  * Notion-flavored container blocks rendered to standalone export HTML.
  *
@@ -164,9 +166,21 @@ function findContainerClose(
 ): number | null {
   const closeTag = `</${tag}>`;
   let depth = 0;
+  let fenceLength = 0;
 
   for (let index = start; index < lines.length; index++) {
     const trimmed = lines[index].trim();
+    const fence = trimmed.match(/^(`{3,})(.*)$/);
+    if (fenceLength > 0) {
+      if (fence && !fence[2].trim() && fence[1].length >= fenceLength) {
+        fenceLength = 0;
+      }
+      continue;
+    }
+    if (fence) {
+      fenceLength = fence[1].length;
+      continue;
+    }
     if (trimmed === closeTag) {
       depth--;
       if (depth === 0) return index;
@@ -179,31 +193,9 @@ function findContainerClose(
 }
 
 function splitPipeRow(line: string): string[] | null {
-  const trimmed = line.trim();
-  if (!trimmed.includes("|")) return null;
-
-  let body = trimmed;
-  if (body.startsWith("|")) body = body.slice(1);
-  if (body.endsWith("|") && !body.endsWith("\\|")) body = body.slice(0, -1);
-
-  const cells: string[] = [];
-  let current = "";
-  for (let index = 0; index < body.length; index++) {
-    if (body[index] === "\\" && body[index + 1] === "|") {
-      current += "|";
-      index++;
-      continue;
-    }
-    if (body[index] === "|") {
-      cells.push(current.trim());
-      current = "";
-      continue;
-    }
-    current += body[index];
-  }
-  cells.push(current.trim());
-
-  return cells;
+  return (
+    splitGfmPipeRow(line)?.map((cell) => cell.replace(/\\\|/g, "|")) ?? null
+  );
 }
 
 /**
@@ -214,7 +206,7 @@ function splitPipeRow(line: string): string[] | null {
 function parseAlignmentRow(cells: string[]): Alignment[] | null {
   const alignments: Alignment[] = [];
   for (const cell of cells) {
-    const match = cell.match(/^(:?)-+(:?)$/);
+    const match = cell.match(/^(:?)-{3,}(:?)$/);
     if (!match) return null;
     if (match[1] && match[2]) alignments.push("center");
     else if (match[2]) alignments.push("right");
@@ -229,7 +221,7 @@ function detectPipeTable(
   index: number,
 ): PipeTableDescriptor | null {
   const header = splitPipeRow(lines[index]);
-  if (!header || header.length < 2) return null;
+  if (!header || header.length === 0) return null;
 
   const delimiterCells =
     index + 1 < lines.length ? splitPipeRow(lines[index + 1]) : null;
@@ -241,6 +233,7 @@ function detectPipeTable(
   const rows: string[][] = [];
   let cursor = index + 2;
   while (cursor < lines.length) {
+    if (/^#{1,6}(?:\s|$)/.test(lines[cursor].trim())) break;
     const row = splitPipeRow(lines[cursor]);
     if (!row) break;
     rows.push(row);
@@ -374,11 +367,12 @@ const renderTableContainer: ContainerRenderer = ({
 
   const colgroup = columns.some((column) => column.width)
     ? `<colgroup>${columns
-        .map((column) =>
-          column.width
-            ? `<col style="width: ${renderers.escapeHtml(column.width)}px" />`
-            : "<col />",
-        )
+        .map((column) => {
+          const width = column.width?.trim();
+          return width && /^\d+(?:\.\d+)?$/.test(width)
+            ? `<col style="width: ${width}px" />`
+            : "<col />";
+        })
         .join("")}</colgroup>`
     : "";
 
