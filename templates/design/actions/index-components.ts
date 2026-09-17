@@ -269,6 +269,9 @@ export default defineAction({
             // Write each distinct component name into component_index so that
             // get-component-details can resolve metadata by node id.
             const now = new Date().toISOString();
+            const selectorByNodeId = new Map(
+              instances.map((instance) => [instance.nodeId, instance.selector]),
+            );
             // Derive the owner from the request user, falling back to the design's
             // owner. Never stamp an empty-string owner (an unowned row): require a real
             // owner before writing a new component_index row.
@@ -295,9 +298,11 @@ export default defineAction({
                   designId,
                   def.name,
                   JSON.stringify(
-                    def.instanceNodeIds.map(
-                      (nodeId) => `[data-agent-native-node-id="${nodeId}"]`,
-                    ),
+                    def.instanceNodeIds
+                      .map((nodeId) => selectorByNodeId.get(nodeId))
+                      .filter((selector): selector is string =>
+                        Boolean(selector),
+                      ),
                   ),
                   ownerEmail,
                   now,

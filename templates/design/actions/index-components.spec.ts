@@ -173,7 +173,12 @@ vi.mock("../shared/component-model.js", () => ({
   componentIndexId: (designId: string, name: string) =>
     `ci_${designId}_${name}`,
   detectInstances: () => [
-    { name: "Card", instanceId: "node", selector: "[data-node=node]" },
+    {
+      name: "Card",
+      instanceId: "node",
+      nodeId: "node",
+      selector: "[data-node=node]",
+    },
   ],
 }));
 vi.mock("../shared/design-source-capabilities.js", () => ({
@@ -294,6 +299,47 @@ describe("index-components source ordering", () => {
     expect(harness.projectionInputs).toEqual([
       '<main data-agent-native-component="Card"><span /></main>',
     ]);
+  });
+
+  it("persists authored selectors instead of generated projection ids", async () => {
+    harness.selectResults.push(
+      [{ id: "file-1" }],
+      [
+        {
+          id: "file-1",
+          designId: "design-1",
+          filename: "index.html",
+          content: '<main data-agent-native-component="Card"></main>',
+        },
+      ],
+    );
+    harness.executeResults.push(
+      [
+        {
+          id: "file-1",
+          designId: "design-1",
+          filename: "index.html",
+          content: '<main data-agent-native-component="Card"></main>',
+        },
+      ],
+      [],
+    );
+
+    await action.run({ designId: "design-1", fileId: "file-1" });
+
+    const indexUpsert = harness.tx.execute.mock.calls.find(([query]) =>
+      String((query as { sql?: unknown })?.sql ?? query).includes(
+        "component_index",
+      ),
+    );
+    expect(indexUpsert?.[0]).toEqual(
+      expect.objectContaining({
+        args: expect.arrayContaining([JSON.stringify(["[data-node=node]"])]),
+      }),
+    );
+    expect(JSON.stringify(indexUpsert?.[0])).not.toContain(
+      '[data-agent-native-node-id="node"]',
+    );
   });
 
   it("fails typed when another writer wins lazy collab initialization", async () => {
