@@ -33,7 +33,11 @@ function isTerminal(event: AgentEvent): boolean {
   return (
     event.type === "run.completed" ||
     event.type === "run.failed" ||
-    event.type === "run.cancelled"
+    event.type === "run.cancelled" ||
+    (event.type === "run.status" &&
+      (event.status === "completed" ||
+        event.status === "failed" ||
+        event.status === "cancelled"))
   );
 }
 
@@ -63,17 +67,24 @@ export function instrumentAgentKitAcceptanceTransport<T extends AgentTransport>(
 
   transport.subscribeToRun = async function* (input, context) {
     const prompt = promptByRun.get(input.runId);
+    let injectedSuggestion = false;
+    let sequenceOffset = 0;
     for await (const event of originalSubscribeToRun(input, context)) {
       if (
         prompt !== acceptanceSuggestionSourcePrompt ||
         prompt === undefined ||
         !isTerminal(event) ||
+        injectedSuggestion ||
         (input.afterSequence ?? 0) >= event.sequence
       ) {
-        yield event;
+        yield sequenceOffset
+          ? { ...event, sequence: event.sequence + sequenceOffset }
+          : event;
         continue;
       }
 
+      injectedSuggestion = true;
+      sequenceOffset = 1;
       yield {
         id: `${event.id}-suggestions`,
         threadId: event.threadId,
@@ -89,7 +100,7 @@ export function instrumentAgentKitAcceptanceTransport<T extends AgentTransport>(
           },
         ],
       };
-      yield { ...event, sequence: event.sequence + 1 };
+      yield { ...event, sequence: event.sequence + sequenceOffset };
     }
   };
 
