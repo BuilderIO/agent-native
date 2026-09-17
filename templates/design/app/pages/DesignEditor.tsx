@@ -648,6 +648,7 @@ import { runIframeContextMenu } from "./design-editor/commands/iframe-context-me
 import { runImportFigmaClipboardIntoDesign } from "./design-editor/commands/import-figma-clipboard-into-design";
 import {
   coalesceMarqueeSelectionHistory,
+  runMarqueeSelectionCancellation,
   runLayerMarqueeSelectionChange,
 } from "./design-editor/commands/layer-marquee-selection-change";
 import { runLayerMove } from "./design-editor/commands/layer-move";
@@ -2676,15 +2677,15 @@ function DesignEditor() {
         marqueeSelectionHistoryBeforeRef.current = null;
         marqueeSelectedElementBeforeRef.current = null;
         lastMarqueeSelectionSignatureRef.current = null;
-        if (before && intent.restoreHostSelection === true) {
-          flushSync(() => {
-            restoreSelectionSnapshot(before);
-            setSelectedElement(selectedElementBefore);
-            run();
-          });
-        } else {
-          run();
-        }
+        runMarqueeSelectionCancellation({
+          before,
+          flushSync,
+          restoreHostSelection: intent.restoreHostSelection === true,
+          restoreSelectionSnapshot,
+          run,
+          selectedElementBefore,
+          setSelectedElement,
+        });
         return;
       }
       if (intent.source === "marquee" && intent.resetHistory) {

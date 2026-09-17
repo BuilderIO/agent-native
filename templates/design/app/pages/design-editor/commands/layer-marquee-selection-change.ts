@@ -41,6 +41,34 @@ export interface LayerMarqueeSelectionChangeArgs {
   viewModeRef: RefObject<"single" | "overview">;
 }
 
+export function runMarqueeSelectionCancellation<T>({
+  before,
+  flushSync,
+  restoreHostSelection,
+  restoreSelectionSnapshot,
+  run,
+  selectedElementBefore,
+  setSelectedElement,
+}: {
+  before: T | null;
+  flushSync: (callback: () => void) => void;
+  restoreHostSelection: boolean;
+  restoreSelectionSnapshot: (selection: T) => void;
+  run: () => void;
+  selectedElementBefore: ElementInfo | null;
+  setSelectedElement: (element: ElementInfo | null) => void;
+}) {
+  if (before && restoreHostSelection) {
+    flushSync(() => {
+      restoreSelectionSnapshot(before);
+      setSelectedElement(selectedElementBefore);
+      run();
+    });
+    return;
+  }
+  run();
+}
+
 export function runLayerMarqueeSelectionChange(
   {
     clearPendingOverviewLayerSelectionTimer,
