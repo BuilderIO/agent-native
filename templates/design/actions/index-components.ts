@@ -29,6 +29,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 import {
+  lockPreparedSourceCollaboration,
   readPreparedSourceText,
   SourceWorkspaceEditConflictError,
   designSourceMutationLockKey,
@@ -170,8 +171,8 @@ export default defineAction({
             });
 
             // Lock only the selected source row and the live collab row. The
-            // latter makes the following text_snapshot a stable cross-process
-            // view instead of a best-effort cache read.
+            // latter also validates that the prepared Y.Doc still represents
+            // the durable version that this projection is about to index.
             const lockedFileResult = await tx.execute({
               sql: 'SELECT id, design_id AS "designId", filename, content FROM design_files WHERE id = ? AND design_id = ? FOR UPDATE',
               args: [file.id, designId],
@@ -205,41 +206,18 @@ export default defineAction({
               content: lockedFileRow.content as string | null,
             };
 
-            let collabResult: { rows: any[] };
-            try {
-              collabResult = (await tx.execute({
-                sql: "SELECT yjs_state, text_snapshot FROM _collab_docs WHERE doc_id = ? FOR SHARE",
-                args: [file.id],
-              })) as { rows: any[] };
-            } catch {
-              throw new SourceWorkspaceEditConflictError(
-                "Could not verify a source file's live version. Re-read the design and retry.",
-              );
-            }
-            const collabRow = collabResult.rows[0] as
-              | { yjs_state?: unknown; text_snapshot?: unknown }
-              | undefined;
+            const preparedCollaboration = await lockPreparedSourceCollaboration(
+              tx,
+              file.id,
+              lease,
+            );
             let html = (lockedFile.content as string | null) ?? "";
-            let needsCollabSeed = !collabRow;
-            if (collabRow) {
-              if (
-                typeof collabRow.yjs_state !== "string" ||
-                typeof collabRow.text_snapshot !== "string"
-              ) {
-                throw new SourceWorkspaceEditConflictError(
-                  "Could not verify a source file's live version. Re-read the design and retry.",
-                );
-              }
-              if (collabRow.yjs_state.length === 0) {
-                needsCollabSeed = true;
-              }
-            }
 
             // A missing or empty row is lazy collab state, not permission to
             // index an unprotected SQL fallback. Seed the prepared Y.Doc in
             // this transaction; if another writer wins the insert/CAS, the
             // lease raises a typed conflict and the index write rolls back.
-            if (needsCollabSeed) {
+            if (preparedCollaboration.needsSeed) {
               applyTextToYDoc(lease.doc, "content", html, "agent");
               try {
                 await lease.persist(tx, html);

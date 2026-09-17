@@ -46,6 +46,7 @@ import {
   getDesignSourceMutationExec,
   withDesignSourceMutationTransaction,
   withPreparedSourceFileMutation,
+  writeInlineSourceFile,
   writeInlineSourceFilesBatch,
   type SourceWorkspaceFile,
 } from "./source-workspace.js";
@@ -209,6 +210,64 @@ describe("writeInlineSourceFilesBatch", () => {
       { doc_id: SOURCE_ID, text_snapshot: SOURCE_BASE, version: 0 },
       { doc_id: DESTINATION_ID, text_snapshot: DESTINATION_BASE, version: 0 },
     ]);
+  });
+
+  it("seeds an existing empty collaboration row before a no-op source write", async () => {
+    await execute(
+      "UPDATE _collab_docs SET yjs_state = '', text_snapshot = '' WHERE doc_id = ?",
+      [SOURCE_ID],
+    );
+    releaseDoc(SOURCE_ID);
+
+    await writeInlineSourceFile({
+      designId: DESIGN_ID,
+      file: sourceFile(SOURCE_ID, "source.html", SOURCE_BASE),
+      content: SOURCE_BASE,
+      expectedVersionHash: sourceContentHash(SOURCE_BASE),
+    });
+
+    const rows = await execute(
+      "SELECT yjs_state, text_snapshot, version FROM _collab_docs WHERE doc_id = ?",
+      [SOURCE_ID],
+    );
+    expect(rows.rows).toHaveLength(1);
+    expect(rows.rows[0]).toMatchObject({
+      text_snapshot: SOURCE_BASE,
+      version: 1,
+    });
+    expect((rows.rows[0] as { yjs_state: string }).yjs_state).not.toBe("");
+    expect(await getText(SOURCE_ID)).toBe(SOURCE_BASE);
+  });
+
+  it("seeds an existing empty collaboration row before a batch write", async () => {
+    await execute(
+      "UPDATE _collab_docs SET yjs_state = '', text_snapshot = '' WHERE doc_id = ?",
+      [SOURCE_ID],
+    );
+    releaseDoc(SOURCE_ID);
+
+    await writeInlineSourceFilesBatch({
+      designId: DESIGN_ID,
+      files: [
+        {
+          file: sourceFile(SOURCE_ID, "source.html", SOURCE_BASE),
+          content: SOURCE_BASE,
+          expectedVersionHash: sourceContentHash(SOURCE_BASE),
+        },
+      ],
+    });
+
+    const rows = await execute(
+      "SELECT yjs_state, text_snapshot, version FROM _collab_docs WHERE doc_id = ?",
+      [SOURCE_ID],
+    );
+    expect(rows.rows).toHaveLength(1);
+    expect(rows.rows[0]).toMatchObject({
+      text_snapshot: SOURCE_BASE,
+      version: 1,
+    });
+    expect((rows.rows[0] as { yjs_state: string }).yjs_state).not.toBe("");
+    expect(await getText(SOURCE_ID)).toBe(SOURCE_BASE);
   });
 
   it("serializes design-file insert and delete membership mutations", async () => {
