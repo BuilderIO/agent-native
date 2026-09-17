@@ -158,14 +158,21 @@ describe("useDesignHotkeys — current Figma tool bindings", () => {
     const onCopy = vi.fn();
     const onDuplicate = vi.fn();
     const onBringForward = vi.fn();
-    await withHotkeys({ onCopy, onDuplicate, onBringForward }, () => {
-      dispatchKey("c", { metaKey: true });
-      dispatchKey("d", { metaKey: true });
-      dispatchKey("}", { code: "BracketRight", metaKey: true });
-    });
+    const onSendBackward = vi.fn();
+    await withHotkeys(
+      { onCopy, onDuplicate, onBringForward, onSendBackward },
+      () => {
+        dispatchKey("c", { metaKey: true });
+        dispatchKey("d", { metaKey: true });
+        dispatchKey("}", { code: "BracketRight", metaKey: true });
+        dispatchKey("BracketRight", { code: "BracketRight", metaKey: true });
+        dispatchKey("BracketLeft", { code: "BracketLeft", metaKey: true });
+      },
+    );
     expect(onCopy).toHaveBeenCalledTimes(1);
     expect(onDuplicate).toHaveBeenCalledTimes(1);
-    expect(onBringForward).toHaveBeenCalledTimes(1);
+    expect(onBringForward).toHaveBeenCalledTimes(2);
+    expect(onSendBackward).toHaveBeenCalledTimes(1);
   });
 
   it("opens keyboard shortcuts with literal Ctrl+Shift+?", async () => {

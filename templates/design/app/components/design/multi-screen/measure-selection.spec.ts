@@ -199,4 +199,22 @@ describe("designPreviewWindowsForScreen", () => {
 
     document.body.innerHTML = "";
   });
+
+  it("resolves the board surface iframe when the board has no screen iframe id", () => {
+    document.body.innerHTML = `
+      <iframe data-screen-iframe-id="board-1"></iframe>
+      <div data-board-surface-layer>
+        <iframe data-design-preview-iframe></iframe>
+      </div>
+    `;
+    const boardIframe = document.querySelector<HTMLIFrameElement>(
+      "[data-board-surface-layer] iframe[data-design-preview-iframe]",
+    );
+
+    expect(
+      designPreviewWindowsForScreen("board-1", undefined, "board-1"),
+    ).toEqual([boardIframe?.contentWindow]);
+
+    document.body.innerHTML = "";
+  });
 });

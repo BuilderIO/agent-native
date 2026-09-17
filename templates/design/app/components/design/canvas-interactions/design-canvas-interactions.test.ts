@@ -42,6 +42,13 @@ describe("Design canvas interaction adapter", () => {
       }),
     ).toBe("bring-forward");
     expect(
+      resolveDesignCanvasShortcut({
+        key: "BracketRight",
+        code: "BracketRight",
+        metaKey: true,
+      }),
+    ).toBe("bring-forward");
+    expect(
       resolveDesignCanvasShortcut({ key: "c", metaKey: true, shiftKey: true }),
     ).toBeNull();
   });

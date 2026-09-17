@@ -8847,6 +8847,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var key = e.key;
     var normalized = normalizedHotkeyChar(e);
     var primary = e.metaKey || e.ctrlKey;
+    var isArrangeBracketChord =
+      (e.code === "BracketRight" || e.code === "BracketLeft") &&
+      ((!primary && !e.altKey && !e.shiftKey) ||
+        (primary && !e.shiftKey) ||
+        (e.ctrlKey && !e.metaKey && !e.altKey && e.shiftKey));
+    // KeyboardEvent.key is layout-dependent for bracket keys and some native
+    // automation sends the physical code as the key. Keep the iframe gate in
+    // step with the shared Design shortcut resolver, which already matches on
+    // code for these commands.
+    if (isArrangeBracketChord) return true;
     if (key === "Escape" || key === "Enter") return true;
     // Space arms Figma-style temporary hand-tool panning while the cursor is
     // over the preview iframe. Only forward the plain (no-modifier) chord —

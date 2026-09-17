@@ -2,6 +2,7 @@ import {
   expect,
   test,
   type APIRequestContext,
+  type FrameLocator,
   type Page,
 } from "@playwright/test";
 
@@ -28,6 +29,14 @@ const FIXTURE = `<!doctype html><html><body style="margin:0;padding:20px">
 <div data-agent-native-node-id="first" data-agent-native-layer-name="First" style="width:80px;height:40px;background:red"></div>
 <div data-agent-native-node-id="second" data-agent-native-layer-name="Second" style="width:80px;height:40px;background:blue"></div>
 </div></body></html>`;
+
+const BOARD_SCREEN_FIXTURE = `<!doctype html><html><body style="margin:0;min-height:600px"><main data-agent-native-node-id="screen-root" style="position:relative;min-height:600px"></main></body></html>`;
+const BOARD_FIXTURE = `<!doctype html><html><body style="margin:0;min-height:900px">
+<main data-agent-native-node-id="board-stage" data-agent-native-layer-name="Board stage" style="position:relative;width:900px;height:700px">
+<div data-agent-native-node-id="red" data-agent-native-layer-name="Red" data-an-primitive="rectangle" style="position:absolute;left:220px;top:180px;width:240px;height:200px;background:red"></div>
+<div data-agent-native-node-id="blue" data-agent-native-layer-name="Blue" data-an-primitive="rectangle" style="position:absolute;left:220px;top:180px;width:240px;height:200px;background:blue"></div>
+<div data-agent-native-node-id="green" data-agent-native-layer-name="Green" data-an-primitive="rectangle" style="position:absolute;left:220px;top:180px;width:240px;height:200px;background:green"></div>
+</main></body></html>`;
 
 async function action(
   request: APIRequestContext,
@@ -60,9 +69,70 @@ async function createDesign(request: APIRequestContext): Promise<string> {
   return designId;
 }
 
+async function createBoardDesign(request: APIRequestContext): Promise<string> {
+  const created = await action(request, "create-design", {
+    title: `Board z-order parity ${Date.now()}`,
+    projectType: "prototype",
+  });
+  const designId = created.id ?? created.data?.id ?? created.design?.id;
+  if (!designId) throw new Error("create-design returned no id");
+  const screen = await action(request, "create-file", {
+    designId,
+    filename: "index.html",
+    content: BOARD_SCREEN_FIXTURE,
+    fileType: "html",
+  });
+  const screenId = screen.id ?? screen.data?.id;
+  const secondScreen = await action(request, "create-file", {
+    designId,
+    filename: "second.html",
+    content: BOARD_SCREEN_FIXTURE,
+    fileType: "html",
+  });
+  const secondScreenId = secondScreen.id ?? secondScreen.data?.id;
+  const board = await action(request, "create-file", {
+    designId,
+    filename: "__board__.html",
+    content: BOARD_FIXTURE,
+    fileType: "html",
+  });
+  const boardFileId = board.id ?? board.data?.id;
+  if (!screenId || !secondScreenId || !boardFileId) {
+    throw new Error("board fixture files returned no ids");
+  }
+  await action(request, "update-design", {
+    id: designId,
+    dataOperations: [
+      {
+        op: "set",
+        path: ["screenMetadata", screenId],
+        value: { sourceType: "inline", width: 800, height: 600 },
+      },
+      {
+        op: "set",
+        path: ["canvasFrames", screenId],
+        value: { x: 0, y: 0, width: 800, height: 600, z: 0 },
+      },
+      {
+        op: "set",
+        path: ["screenMetadata", secondScreenId],
+        value: { sourceType: "inline", width: 800, height: 600 },
+      },
+      {
+        op: "set",
+        path: ["canvasFrames", secondScreenId],
+        value: { x: 1200, y: 0, width: 800, height: 600, z: 0 },
+      },
+      { op: "set", path: ["boardFileId"], value: boardFileId },
+    ],
+  });
+  return designId;
+}
+
 async function indexHtml(
   request: APIRequestContext,
   designId: string,
+  filename = "index.html",
 ): Promise<string> {
   const response = await request.get(
     `${e2eBaseURL()}/_agent-native/actions/get-design?id=${encodeURIComponent(designId)}`,
@@ -74,9 +144,9 @@ async function indexHtml(
   }
   const result = await response.json();
   const file = (result.files ?? result.data?.files)?.find(
-    (candidate: { filename: string }) => candidate.filename === "index.html",
+    (candidate: { filename: string }) => candidate.filename === filename,
   );
-  if (!file) throw new Error("index.html was not returned");
+  if (!file) throw new Error(`${filename} was not returned`);
   return file.content;
 }
 
@@ -86,6 +156,34 @@ function layerButton(page: Page, name: string) {
     .locator("[data-layer-row-button]")
     .filter({ has: page.locator(`span[title="${name}"]`) })
     .first();
+}
+
+function boardFrame(page: Page): FrameLocator {
+  return page
+    .locator("[data-board-surface-layer] iframe[data-design-preview-iframe]")
+    .contentFrame();
+}
+
+async function rightClickBoardNode(page: Page, nodeId: string): Promise<void> {
+  const frame = boardFrame(page);
+  const node = frame.locator(`[data-agent-native-node-id="${nodeId}"]`);
+  const point = await node.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+  });
+  await node.evaluate((_element, pt) => {
+    document.dispatchEvent(
+      new MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+        button: 2,
+        buttons: 2,
+        clientX: pt.x,
+        clientY: pt.y,
+      }),
+    );
+  }, point);
+  await expect(page.getByRole("menu").last()).toBeVisible();
 }
 
 async function selectLayer(
@@ -116,6 +214,16 @@ async function topNodeAt(page: Page, parentId: string): Promise<string | null> {
           .find(Boolean) ?? null
       );
     });
+}
+
+async function renderedOrder(page: Page, parentId: string): Promise<string[]> {
+  return designFrame(page)
+    .locator(`[data-agent-native-node-id="${parentId}"]`)
+    .evaluate((parent) =>
+      Array.from(parent.children)
+        .map((el) => el.getAttribute("data-agent-native-node-id"))
+        .filter((id): id is string => Boolean(id)),
+    );
 }
 
 async function pressZ(page: Page, undo = false): Promise<void> {
@@ -202,6 +310,155 @@ test("Figma G9 Bring to Front reorders an auto-layout child and undo restores it
         indexHtml(request, designId).then((html) => childNodeIds(html, "auto")),
       )
       .toEqual(["first", "second"]);
+  } finally {
+    await action(request, "delete-design", { id: designId }).catch(() => {});
+  }
+});
+
+test("Figma arrange keyboard commands use physical brackets and persist across reload", async ({
+  page,
+  request,
+}) => {
+  const designId = await createDesign(request);
+  const initialOrder = ["S", "A", "B", "C", "D"];
+  const cases = [
+    { node: "A", key: "]", expected: ["S", "B", "C", "D", "A"] },
+    {
+      node: "C",
+      key: `${PRIMARY}+BracketRight`,
+      expected: ["S", "A", "B", "D", "C"],
+    },
+    { node: "D", key: "[", expected: ["D", "S", "A", "B", "C"] },
+    {
+      node: "C",
+      key: `${PRIMARY}+BracketLeft`,
+      expected: ["S", "A", "C", "B", "D"],
+    },
+  ] as const;
+  try {
+    await gotoEditor(page, designId);
+    await expandAllLayers(page);
+    await enterDirectMode(page);
+    await installBridge(page);
+
+    for (const [index, testCase] of cases.entries()) {
+      await selectLayer(page, testCase.node);
+      await page.keyboard.press(testCase.key);
+      await expect
+        .poll(() =>
+          indexHtml(request, designId).then((html) =>
+            childNodeIds(html, "stack"),
+          ),
+        )
+        .toEqual(testCase.expected);
+
+      if (index === cases.length - 1) {
+        await page.reload({ waitUntil: "domcontentloaded" });
+        await expect(
+          page.getByRole("button", { name: "Move", exact: true }),
+        ).toBeVisible({ timeout: 30_000 });
+        await enterDirectMode(page);
+        await expect
+          .poll(() => renderedOrder(page, "stack"))
+          .toEqual(testCase.expected);
+      } else {
+        await page.keyboard.press(`${PRIMARY}+z`);
+        await expect
+          .poll(() =>
+            indexHtml(request, designId).then((html) =>
+              childNodeIds(html, "stack"),
+            ),
+          )
+          .toEqual(initialOrder);
+      }
+    }
+  } finally {
+    await action(request, "delete-design", { id: designId }).catch(() => {});
+  }
+});
+
+test("Figma overview board arrange commands measure, persist, and support context menus", async ({
+  page,
+  request,
+}) => {
+  const designId = await createBoardDesign(request);
+  const initialOrder = ["red", "blue", "green"];
+  const cases = [
+    { key: "]", expected: ["red", "green", "blue"] },
+    {
+      key: `${PRIMARY}+BracketRight`,
+      expected: ["red", "green", "blue"],
+    },
+    { key: "[", expected: ["blue", "red", "green"] },
+    {
+      key: `${PRIMARY}+BracketLeft`,
+      expected: ["blue", "red", "green"],
+    },
+  ] as const;
+  try {
+    await gotoEditor(page, designId);
+    await expandAllLayers(page);
+    await enterDirectMode(page);
+    await installBridge(page);
+    await expect(
+      page.locator(
+        "[data-board-surface-layer] iframe[data-design-preview-iframe]",
+      ),
+    ).toBeVisible();
+
+    for (const [index, testCase] of cases.entries()) {
+      await selectLayer(page, "Blue");
+      await page.keyboard.press(testCase.key);
+      await expect
+        .poll(() =>
+          indexHtml(request, designId, "__board__.html").then((html) =>
+            childNodeIds(html, "board-stage"),
+          ),
+        )
+        .toEqual(testCase.expected);
+
+      if (index === cases.length - 1) {
+        await page.reload({ waitUntil: "domcontentloaded" });
+        await expect(
+          page.getByRole("button", { name: "Move", exact: true }),
+        ).toBeVisible({ timeout: 30_000 });
+        await enterDirectMode(page);
+        await expect
+          .poll(() =>
+            boardFrame(page)
+              .locator('[data-agent-native-node-id="board-stage"]')
+              .evaluate((parent) =>
+                Array.from(parent.children)
+                  .map((el) => el.getAttribute("data-agent-native-node-id"))
+                  .filter((id): id is string => Boolean(id)),
+              ),
+          )
+          .toEqual(testCase.expected);
+      } else {
+        await page.keyboard.press(`${PRIMARY}+z`);
+        await expect
+          .poll(() =>
+            indexHtml(request, designId, "__board__.html").then((html) =>
+              childNodeIds(html, "board-stage"),
+            ),
+          )
+          .toEqual(initialOrder);
+      }
+    }
+
+    await rightClickBoardNode(page, "green");
+    await page
+      .getByRole("menu")
+      .last()
+      .getByText("Send to back", { exact: true })
+      .click();
+    await expect
+      .poll(() =>
+        indexHtml(request, designId, "__board__.html").then((html) =>
+          childNodeIds(html, "board-stage"),
+        ),
+      )
+      .toEqual(["green", "blue", "red"]);
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }

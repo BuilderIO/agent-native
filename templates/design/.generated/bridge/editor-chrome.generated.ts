@@ -6632,6 +6632,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       var key = e.key;
       var normalized = normalizedHotkeyChar(e);
       var primary = e.metaKey || e.ctrlKey;
+      var isArrangeBracketChord = (e.code === "BracketRight" || e.code === "BracketLeft") && (!primary && !e.altKey && !e.shiftKey || primary && !e.shiftKey || e.ctrlKey && !e.metaKey && !e.altKey && e.shiftKey);
+      if (isArrangeBracketChord) return true;
       if (key === "Escape" || key === "Enter") return true;
       if (key === " " && e.code === "Space") {
         return !primary && !e.altKey && !e.shiftKey;
