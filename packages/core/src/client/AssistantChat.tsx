@@ -5656,6 +5656,13 @@ const AssistantChatInner = forwardRef<
         ? null
         : ++visibleSubmitSequenceRef.current;
       const runningAtSubmitStart = isRunning;
+      const activeRunAtSubmitStart = getActiveRun();
+      const activeRunIdAtSubmitStart = activeRunMatchesThread(
+        activeRunAtSubmitStart,
+        threadId,
+      )
+        ? (activeRunAtSubmitStart?.runId ?? null)
+        : null;
       const stoppedRunAtSubmitStart = userStoppedRunRef.current;
       if (!preserveReconnectAutoRecoveryBudget) {
         reconnectAutoRecoveryCountRef.current = 0;
@@ -5807,8 +5814,16 @@ const AssistantChatInner = forwardRef<
         continuationTurnId ??
         (actionScope ? generateAgentChatTurnId() : undefined);
       const liveIsRunning = isRunningRef.current;
+      const activeRunNow = getActiveRun();
+      const sameActiveRun =
+        activeRunIdAtSubmitStart !== null &&
+        activeRunMatchesThread(activeRunNow, threadId) &&
+        activeRunNow?.runId === activeRunIdAtSubmitStart;
       const interruptActiveRun =
-        runningAtSubmitStart && liveIsRunning && intent === "immediate";
+        runningAtSubmitStart &&
+        liveIsRunning &&
+        intent === "immediate" &&
+        sameActiveRun;
       const queueForActiveRun =
         liveIsRunning && (intent === "immediate" || intent === "queued");
       if (acceptedVisibleSubmit && !liveIsRunning && !engineSetupRequired) {

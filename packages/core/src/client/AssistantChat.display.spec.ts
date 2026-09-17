@@ -2786,6 +2786,11 @@ describe("chat submit and stop hardening", () => {
       "const liveIsRunning = isRunningRef.current;",
     );
     expect(submitSource).toContain("const runningAtSubmitStart = isRunning;");
+    expect(submitSource).toContain(
+      "const activeRunAtSubmitStart = getActiveRun();",
+    );
+    expect(submitSource).toContain("const activeRunNow = getActiveRun();");
+    expect(submitSource).toContain("const sameActiveRun");
     expect(submitSource).toContain("const interruptActiveRun");
     expect(submitSource).toContain("const queueForActiveRun");
   });
