@@ -560,6 +560,27 @@ export async function writeInlineSourceFile(args: {
         content: liveContent,
         versionHash: sourceContentHash(liveContent),
       };
+      const validatePreparedNoop = async () => {
+        const preparedCollaboration = await lockPreparedSourceCollaboration(
+          getDesignSourceMutationExec(tx),
+          args.file.id,
+          lease,
+        );
+        if (!preparedCollaboration.needsSeed) return;
+        if (!needsCollabSeed) {
+          applyTextToYDoc(lease.doc, "content", current.content, "agent");
+        }
+        try {
+          await lease.persist(getDesignSourceMutationExec(tx), current.content);
+        } catch (error) {
+          if (error instanceof CollabBaseVersionConflictError) {
+            throw new SourceWorkspaceEditConflictError(
+              "Source file changed while the edit was being applied. Re-read the design and retry.",
+            );
+          }
+          throw error;
+        }
+      };
       const identityOnly = args.identityOnly === true;
       let identityOnlyOperationSource: string | undefined;
       let identityOnlyOperationRevision: number | undefined;
@@ -629,6 +650,7 @@ export async function writeInlineSourceFile(args: {
         // Only the full content + operation-lineage proof above earns this
         // idempotent fast path.
         if (exactPersistedOperation) {
+          await validatePreparedNoop();
           return {
             versionHash: candidateHash,
             changed: false,
@@ -676,21 +698,7 @@ export async function writeInlineSourceFile(args: {
       const changed = args.content !== current.content;
       const updatedAt = new Date().toISOString();
       if (!changed && !identityOnly) {
-        if (needsCollabSeed) {
-          try {
-            await lease.persist(
-              getDesignSourceMutationExec(tx),
-              current.content,
-            );
-          } catch (error) {
-            if (error instanceof CollabBaseVersionConflictError) {
-              throw new SourceWorkspaceEditConflictError(
-                "Source file changed while the edit was being applied. Re-read the file and retry.",
-              );
-            }
-            throw error;
-          }
-        }
+        await validatePreparedNoop();
         return {
           versionHash: current.versionHash,
           changed: false,
@@ -1083,6 +1091,11 @@ export async function writeInlineSourceFilesBatch(args: {
             );
           }
           const liveContent = readPreparedSourceText(lease);
+          if (liveContent !== item.liveContent) {
+            throw new SourceWorkspaceEditConflictError(
+              "A source file changed while the batch was being prepared. Re-read the design and retry.",
+            );
+          }
           assertLockedLayersPreserved(liveContent, item.content);
           assertDesignHtmlEditIntegrity({
             previousContent: liveContent,
