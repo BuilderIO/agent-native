@@ -58,6 +58,15 @@ describe("default design system adapter", () => {
     expect(onClick).toHaveBeenCalledOnce();
   });
 
+  it("preserves inset focus semantics for ActionButtons", () => {
+    const button = renderComponent(defaultDesignSystemComponents.ActionButton, {
+      children: "Sort",
+      emphasis: "ghost-inset",
+    });
+
+    expect(button.props.variant).toBe("ghost-inset");
+  });
+
   it("maps visual size and shape props to default styles", () => {
     const iconButton = renderComponent(
       defaultDesignSystemComponents.IconButton,

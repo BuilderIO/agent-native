@@ -146,6 +146,26 @@ describe("design-system contract", () => {
     expect(received).toHaveBeenCalledWith("danger", "outline");
   });
 
+  it("preserves inset focus semantics through a registered ActionButton", () => {
+    const received = vi.fn();
+    const CustomActionButton = (props: ComponentProps<typeof ActionButton>) => {
+      received(props.emphasis);
+      return <button>{props.children}</button>;
+    };
+
+    act(() => {
+      root.render(
+        <ToolkitProvider
+          designSystem={{ components: { ActionButton: CustomActionButton } }}
+        >
+          <Button variant="ghost-inset">Sort</Button>
+        </ToolkitProvider>,
+      );
+    });
+
+    expect(received).toHaveBeenCalledWith("ghost-inset");
+  });
+
   it("uses legacy Button as the lowest-precedence ActionButton adapter", () => {
     const LegacyButton = (props: ComponentProps<"button">) => (
       <button {...props} data-adapter="legacy" />

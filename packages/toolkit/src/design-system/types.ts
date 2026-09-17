@@ -12,7 +12,11 @@ import type {
 export const DESIGN_SYSTEM_CONTRACT_VERSION = 1 as const;
 
 export type DesignSystemIntent = "primary" | "neutral" | "danger";
-export type DesignSystemEmphasis = "solid" | "outline" | "ghost";
+export type DesignSystemEmphasis =
+  | "solid"
+  | "outline"
+  | "ghost"
+  | "ghost-inset";
 export type DesignSystemSize = "compact" | "default" | "large";
 export type DesignSystemTone =
   | "neutral"

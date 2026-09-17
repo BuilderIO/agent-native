@@ -61,12 +61,18 @@ import {
   TooltipTrigger,
 } from "../ui/tooltip.js";
 import { cn } from "../utils.js";
-import type { DesignSystemComponents, MenuItem } from "./types.js";
+import type {
+  DesignSystemComponents,
+  DesignSystemEmphasis,
+  DesignSystemIntent,
+  MenuItem,
+} from "./types.js";
 
 function buttonVariant(
-  intent: "primary" | "neutral" | "danger" = "neutral",
-  emphasis: "solid" | "outline" | "ghost" = "solid",
+  intent: DesignSystemIntent = "neutral",
+  emphasis: DesignSystemEmphasis = "solid",
 ) {
+  if (emphasis === "ghost-inset") return "ghost-inset" as const;
   if (emphasis === "ghost") return "ghost" as const;
   if (emphasis === "outline") return "outline" as const;
   if (intent === "primary") return "default" as const;

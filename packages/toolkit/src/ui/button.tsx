@@ -110,11 +110,11 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         emphasis ??
         (variant === "outline"
           ? "outline"
-          : variant === "ghost" ||
-              variant === "ghost-inset" ||
-              variant === "link"
-            ? "ghost"
-            : "solid");
+          : variant === "ghost-inset"
+            ? "ghost-inset"
+            : variant === "ghost" || variant === "link"
+              ? "ghost"
+              : "solid");
       const semanticSize =
         size === "sm" ? "compact" : size === "lg" ? "large" : "default";
       return (
