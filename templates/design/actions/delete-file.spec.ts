@@ -15,9 +15,14 @@ const mocks = vi.hoisted(() => {
     from: vi.fn(),
     where: vi.fn(),
     limit: vi.fn(),
+    for: vi.fn(),
   };
   txSelectChain.from.mockReturnValue(txSelectChain);
   txSelectChain.where.mockReturnValue(txSelectChain);
+  txSelectChain.for.mockResolvedValue([
+    { id: "file-a", filename: "a.html", fileType: "html" },
+    { id: "file-b", filename: "b.html", fileType: "html" },
+  ]);
 
   const txDeleteChain = { where: vi.fn() };
   const txUpdateChain = { set: vi.fn(), where: vi.fn() };
@@ -74,6 +79,12 @@ vi.mock("../server/db/index.js", () => ({
     designFiles: {
       id: "designFiles.id",
       designId: "designFiles.designId",
+      filename: "designFiles.filename",
+      fileType: "designFiles.fileType",
+    },
+    designVersions: {
+      id: "designVersions.id",
+      designId: "designVersions.designId",
     },
   },
 }));
@@ -88,7 +99,13 @@ describe("delete-file", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.fileSelectChain.limit.mockResolvedValue([
-      { id: "file-b", designId: "design_123" },
+      {
+        id: "file-b",
+        designId: "design_123",
+        filename: "b.html",
+        fileType: "html",
+        content: "<main>Delete</main>",
+      },
     ]);
     mocks.designData = {
       canvasFrames: {
@@ -154,6 +171,8 @@ describe("delete-file", () => {
       {
         id: "file-b",
         designId: "design_123",
+        filename: "b.html",
+        fileType: "html",
         content: '<div data-agent-native-locked="true">Brand</div>',
       },
     ]);
@@ -169,6 +188,8 @@ describe("delete-file", () => {
       {
         id: "file-b",
         designId: "design_123",
+        filename: "b.html",
+        fileType: "html",
         content: '<div data-agent-native-locked="true">Brand</div>',
       },
     ]);
@@ -179,7 +200,7 @@ describe("delete-file", () => {
     });
 
     expect(result).toEqual({ id: "file-b", deleted: true });
-    expect(mocks.db.delete).toHaveBeenCalled();
+    expect(mocks.tx.delete).toHaveBeenCalled();
   });
 
   it("deletes the file and prunes stale board metadata", async () => {
@@ -191,8 +212,8 @@ describe("delete-file", () => {
       "design_123",
       "editor",
     );
-    expect(mocks.db.delete).toHaveBeenCalled();
-    expect(mocks.mutateDesignData).toHaveBeenCalledTimes(2);
+    expect(mocks.tx.delete).toHaveBeenCalled();
+    expect(mocks.mutateDesignData).toHaveBeenCalledTimes(1);
 
     const data = mocks.designData;
     expect(data.keepMe).toBe(true);
@@ -209,5 +230,76 @@ describe("delete-file", () => {
       },
     });
     expect(data.updatedAt).toBe("2026-07-09T00:00:00.000Z");
+  });
+
+  it("keeps the final user screen when the board file is also present", async () => {
+    mocks.fileSelectChain.limit.mockResolvedValue([
+      {
+        id: "file-b",
+        designId: "design_123",
+        filename: "b.html",
+        fileType: "html",
+        content: "<main>Only screen</main>",
+      },
+    ]);
+    mocks.txSelectChain.for.mockResolvedValue([
+      { id: "file-b", filename: "b.html", fileType: "html" },
+      { id: "board", filename: "__board__.html", fileType: "html" },
+    ]);
+
+    await expect(
+      action.run({ id: "file-b", allowLockedLayers: true }),
+    ).rejects.toThrow(/at least one user screen/i);
+    expect(mocks.tx.delete).not.toHaveBeenCalled();
+    expect(mocks.mutateDesignData).not.toHaveBeenCalled();
+  });
+
+  it("serializes concurrent deletes so only one can remove the final screen", async () => {
+    let currentFiles = [
+      { id: "file-a", filename: "a.html", fileType: "html" },
+      { id: "file-b", filename: "b.html", fileType: "html" },
+      { id: "board", filename: "__board__.html", fileType: "html" },
+    ];
+    let requestedFileId = "";
+    mocks.fileSelectChain.where.mockImplementation((condition) => {
+      const idClause = condition.and?.find(
+        (clause: { left?: string }) => clause.left === "designFiles.id",
+      ) as { right?: string } | undefined;
+      requestedFileId = idClause?.right ?? "";
+      return mocks.fileSelectChain;
+    });
+    mocks.fileSelectChain.limit.mockImplementation(async () => {
+      const file = currentFiles.find(({ id }) => id === requestedFileId);
+      return file
+        ? [{ ...file, designId: "design_123", content: "<main />" }]
+        : [];
+    });
+    mocks.txSelectChain.for.mockImplementation(async () => [...currentFiles]);
+    mocks.txDeleteChain.where.mockImplementation(async (condition) => {
+      currentFiles = currentFiles.filter(({ id }) => id !== condition.right);
+    });
+
+    let transactionQueue = Promise.resolve();
+    mocks.db.transaction.mockImplementation((callback) => {
+      const transaction = transactionQueue.then(() => callback(mocks.tx));
+      transactionQueue = transaction.then(
+        () => undefined,
+        () => undefined,
+      );
+      return transaction;
+    });
+
+    const results = await Promise.allSettled([
+      action.run({ id: "file-a", allowLockedLayers: true }),
+      action.run({ id: "file-b", allowLockedLayers: true }),
+    ]);
+
+    expect(results.filter(({ status }) => status === "fulfilled")).toHaveLength(
+      1,
+    );
+    expect(results.filter(({ status }) => status === "rejected")).toHaveLength(
+      1,
+    );
+    expect(currentFiles.filter((file) => file.id !== "board")).toHaveLength(1);
   });
 });

@@ -785,7 +785,6 @@ export async function snapshotDesignBeforeAgentEdit(
             ? `Before editor edit: ${context.actionName}`
             : "Before editor edit",
           chatContext: editorContext,
-          preferStoredFileContent: true,
         },
         access,
       );

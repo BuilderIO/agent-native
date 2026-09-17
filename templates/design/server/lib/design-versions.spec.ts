@@ -395,7 +395,16 @@ describe("createDesignVersionSnapshot", () => {
     );
   });
 
-  it("persists browser checkpoints from stored content and exposes them as editable history", async () => {
+  it("persists browser checkpoints from live collaborative content", async () => {
+    captureMocks.liveSnapshot = {
+      ...captureMocks.liveSnapshot,
+      files: [
+        {
+          ...captureMocks.liveSnapshot.files[0],
+          content: "<main>Latest Yjs edit</main>",
+        },
+      ],
+    };
     const checkpoint = await snapshotDesignBeforeAgentEdit("design-1", {
       caller: "frontend",
       actionName: "update-file",
@@ -405,8 +414,9 @@ describe("createDesignVersionSnapshot", () => {
     expect(captureMocks.buildDesignSnapshot).toHaveBeenCalledWith(
       "design-1",
       expect.any(String),
-      { preferStoredFileContent: true },
+      undefined,
     );
+    expect(captureMocks.revisions[0]?.snapshot).toContain("Latest Yjs edit");
     expect(
       JSON.parse(captureMocks.revisions[0]!.chatContext as string),
     ).toEqual({

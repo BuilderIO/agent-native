@@ -419,6 +419,7 @@ export interface UndoArgs {
   fileDeletionRedoStackRef: RefObject<FileDeletionHistoryEntry[]>;
   fileDeletionUndoStackRef: RefObject<FileDeletionHistoryEntry[]>;
   fileHistoryMutationPendingRef: RefObject<boolean>;
+  clearPendingHistory?: () => void;
   files: DesignFile[];
   geometryRedoStackRef: RefObject<GeometryHistoryEntry[]>;
   geometryUndoStackRef: RefObject<GeometryHistoryEntry[]>;
@@ -554,6 +555,7 @@ export function runUndo({
   fileDeletionRedoStackRef,
   fileDeletionUndoStackRef,
   fileHistoryMutationPendingRef,
+  clearPendingHistory,
   files,
   geometryRedoStackRef,
   geometryUndoStackRef,
@@ -1548,6 +1550,7 @@ export function runUndo({
           setSelectedLayerIdsState(recreatedEntry.files.map((file) => file.id));
         }
       } catch (error) {
+        clearPendingHistory?.();
         const cleanupResults = await Promise.allSettled(
           recreatedIds.map((fileId) =>
             deleteFileMutation.mutateAsync({
