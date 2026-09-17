@@ -17,6 +17,7 @@ import {
   filterPromptActionsToSurface,
   filterRuntimeActionsToSurface,
   resolveProductionCodeExecutionForActionSurface,
+  resolveConnectSetupInitialToolNames,
   resolveHostedBuilderHandoff,
   resolveConfiguredAgentModel,
   resolveInteractiveAgentRunOptions,
@@ -449,6 +450,50 @@ describe("hosted Builder handoff surface", () => {
     );
     expect(leanEntriesBlock).toContain("...workspaceFileActions,");
     expect(leanEntriesBlock).toContain("...hostedBuilderHandoff,");
+  });
+});
+
+// A local `npx` Chat app registers `connect-builder` (it arrives with
+// `browserTools`), but its *name* used to reach the first-request tool list
+// only through `hostedBuilderHandoff`, which is empty whenever the environment
+// can toggle Code mode. So "connect Builder for me" in local dev found no tool
+// on the turn the user asked, while the composer and setup card kept offering
+// "Connect Builder.io" — the reported mismatch between the two surfaces.
+describe("connect setup initial tool names", () => {
+  const setupEntry = {
+    tool: { description: "Render a setup card.", parameters: {} },
+    run: async () => "card",
+  } as unknown as ActionEntry;
+
+  it("advertises each setup CTA the registry actually has", () => {
+    expect(
+      resolveConnectSetupInitialToolNames({
+        "connect-file-storage": setupEntry,
+        "connect-builder": setupEntry,
+      }),
+    ).toEqual(["connect-file-storage", "connect-builder"]);
+    expect(
+      resolveConnectSetupInitialToolNames({
+        "connect-file-storage": setupEntry,
+      }),
+    ).toEqual(["connect-file-storage"]);
+    expect(resolveConnectSetupInitialToolNames({})).toEqual([]);
+  });
+
+  it("names connect-builder on the first request outside hosted registries", () => {
+    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+      encoding: "utf-8",
+    });
+    const initialNamesStart = source.indexOf(
+      "const effectiveInitialToolNames = [",
+    );
+    const initialNamesBlock = source.slice(
+      initialNamesStart,
+      initialNamesStart + 900,
+    );
+    expect(initialNamesBlock).toContain(
+      "...resolveConnectSetupInitialToolNames(browserTools),",
+    );
   });
 });
 

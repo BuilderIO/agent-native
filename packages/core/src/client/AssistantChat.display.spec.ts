@@ -686,6 +686,16 @@ describe("resolveAssistantChatSubmitIntent", () => {
       }),
     ).toBe("immediate");
   });
+
+  it("queues a submit while an earlier submit is still being prepared", () => {
+    expect(
+      resolveAssistantChatSubmitIntent({
+        isRunning: false,
+        isSubmissionInFlight: true,
+        requestedIntent: "immediate",
+      }),
+    ).toBe("queued");
+  });
 });
 
 describe("hoistQueuedMessageToFront", () => {
@@ -1916,7 +1926,7 @@ describe("missing agent engine setup", () => {
     expect(source).toContain("onDismiss={");
     expect(source).toContain("onRetry={");
     expect(source).toMatch(
-      /willQueue=\{\s*engineSetupRequired \|\| isRunning\s*\}/,
+      /willQueue=\{\s*engineSetupRequired \|\|\s*isRunning \|\|/,
     );
     expect(source).toContain("<BuilderSetupCard");
     expect(source).toContain('"agentChat.setup.connectPlaceholder"');
@@ -1956,9 +1966,9 @@ describe("missing agent engine setup", () => {
     const submitSource = source.slice(submitStart, submitEnd);
 
     expect(dequeueSource).toContain("engineSetupRequired");
-    expect(submitSource).toContain(
-      'engineSetupRequired || (isRunning && intent === "queued")',
-    );
+    expect(submitSource).toContain("engineSetupRequired");
+    expect(submitSource).toContain("queueForActiveRun");
+    expect(submitSource).toContain("submissionTailRef");
     expect(submitSource).not.toContain(
       'reportAgentChatSubmitResult(submitMessageId, false, "missing-engine");',
     );
@@ -2870,6 +2880,70 @@ describe("chat submit and stop hardening", () => {
     expect(source).not.toContain("await ensureAgentEngineReadyForSubmit()");
     expect(source).not.toContain("isProviderStatusChecking");
     expect(source).not.toContain("checkingAiConnection");
+  });
+
+  it("clears a retained finished turn before a visible submit becomes optimistic", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const submitStart = source.indexOf("const addToQueue = useCallback");
+    const submitEnd = source.indexOf("const mcpResumeTimerRef", submitStart);
+    const submitSource = source.slice(submitStart, submitEnd);
+    const resetIndex = submitSource.indexOf(
+      "resetRetainedTextStreamingState(effectiveContinuationTurnId);",
+    );
+    const attachmentSerializationIndex = submitSource.indexOf(
+      "serializeQueuedAttachments(attachments)",
+    );
+    const firstQueueBranchIndex = submitSource.indexOf(
+      "if (interruptActiveRun)",
+    );
+    const optimisticIndex = submitSource.indexOf("markOptimisticRunning();");
+
+    expect(submitStart).toBeGreaterThan(-1);
+    expect(submitEnd).toBeGreaterThan(submitStart);
+    expect(submitSource).toContain("if (!hideUserMessage)");
+    expect(resetIndex).toBeGreaterThan(-1);
+    expect(resetIndex).toBeGreaterThan(attachmentSerializationIndex);
+    expect(resetIndex).toBeLessThan(firstQueueBranchIndex);
+    expect(resetIndex).toBeLessThan(optimisticIndex);
+    expect(submitSource).toContain("latestAcceptedVisibleSubmitSequenceRef");
+    expect(submitSource).toContain("isRunningRef.current");
+    expect(submitSource).toContain(
+      "const liveIsRunning = isRunningRef.current;",
+    );
+    expect(submitSource).toContain("const runningAtSubmitStart = isRunning;");
+    expect(submitSource).toContain(
+      "const activeRunAtSubmitStart = getActiveRun();",
+    );
+    expect(submitSource).toContain("const activeRunNow = getActiveRun();");
+    expect(submitSource).toContain("const sameActiveRun");
+    expect(submitSource).toContain("const interruptActiveRun");
+    expect(submitSource).toContain("const queueForActiveRun");
+  });
+
+  it("resets retained text before a queued visible turn starts", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const dequeueStart = source.indexOf("// Auto-dequeue:");
+    const resetIndex = source.indexOf(
+      "resetRetainedTextStreamingState(currentNext.turnId);",
+      dequeueStart,
+    );
+    const promotedBranchIndex = source.indexOf(
+      "if (currentNext.promoted)",
+      resetIndex,
+    );
+    const appendIndex = source.indexOf(
+      "appendThreadMessage({",
+      promotedBranchIndex,
+    );
+
+    expect(dequeueStart).toBeGreaterThan(-1);
+    expect(resetIndex).toBeGreaterThan(dequeueStart);
+    expect(resetIndex).toBeLessThan(promotedBranchIndex);
+    expect(resetIndex).toBeLessThan(appendIndex);
   });
 
   it("never disables the chat composer on an unresolved provider status check", () => {

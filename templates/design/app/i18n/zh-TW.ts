@@ -782,6 +782,16 @@ const messages = {
       chooseFigFile: "選擇 .fig 檔案",
       figUploadUploading: "上傳中 {{progress}}%",
       figUploadProcessing: "轉換中…",
+      figImportWarningTitle: "大型 .fig 匯入",
+      figImportWarningDescription:
+        "此檔案包含 {{frames}} 個畫框和 {{nodes}} 個圖層。全部匯入可能會讓編輯器變慢。請選擇需要的畫框。",
+      figImportFrameCount: "已選取 {{selected}} / {{total}} 個畫框",
+      figImportSelectAll: "全選",
+      figImportClearAll: "全部清除",
+      figImportCancel: "取消",
+      figImportSelected: "匯入已選取的 {{count}} 個",
+      figImportAll: "全部匯入",
+      figImportAnalyzing: "分析中…",
       figmaPasteBodyUnlimited:
         "不需要 Figma 權杖即可使用 — 幾何、版面和文字立即匯入。",
       figmaPasteBodyImages:

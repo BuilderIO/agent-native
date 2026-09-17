@@ -285,7 +285,7 @@ describe("present-design-variants", () => {
       view: "editor",
       designId: "design_123",
       editorView: "overview",
-      path: "/design/design_123?view=overview",
+      path: "/design/design_123?editorView=overview",
     });
     expect(mocks.writeAppStateForCurrentTab).toHaveBeenCalledWith(
       "guided-questions",
@@ -392,7 +392,7 @@ describe("present-design-variants", () => {
       designId: "design_123",
       variantSetId: "variant-set-1",
       count: 3,
-      path: "/design/design_123?view=overview",
+      path: "/design/design_123?editorView=overview",
       screens: expect.arrayContaining([
         expect.objectContaining({
           id: "file-a",
@@ -828,7 +828,7 @@ describe("present-design-variants", () => {
         result: { designId: "design_123" },
       }),
     ).toEqual({
-      url: "/_agent-native/open?app=design&view=editor&designId=design_123&to=%2Fdesign%2Fdesign_123%3Fview%3Doverview",
+      url: "/_agent-native/open?app=design&view=editor&designId=design_123&to=%2Fdesign%2Fdesign_123%3FeditorView%3Doverview",
       label: "Open screen overview",
       view: "editor",
     });

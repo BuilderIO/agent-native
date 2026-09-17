@@ -718,6 +718,24 @@ export function resolveHostedBuilderHandoff(
   return connectBuilder ? { "connect-builder": connectBuilder } : {};
 }
 
+/** Setup CTAs that must be callable on the very first request.
+ *
+ *  Both are recovery actions: the agent should answer "connect Builder for me"
+ *  or a failed upload by rendering the inline card, not by spending a turn in
+ *  `tool-search` first. `connect-builder` is registered in every registry that
+ *  receives `browserTools`, local dev included, so naming it only through the
+ *  hosted-only handoff left local dev advertising "Connect Builder.io" in the
+ *  UI while the agent was never told the tool existed. Names the registry does
+ *  not have are dropped by `filterInitialEngineTools`, so listing both here is
+ *  safe for lean registries. */
+export function resolveConnectSetupInitialToolNames(
+  browserTools: Record<string, ActionEntry>,
+): string[] {
+  return ["connect-file-storage", "connect-builder"].filter(
+    (name) => browserTools[name],
+  );
+}
+
 type AgentChatPluginCleanup = () => void | Promise<void>;
 
 function createAgentChatPluginLifecycle() {
@@ -1774,12 +1792,10 @@ export function createAgentChatPlugin(
         ...new Set([
           ...templateInitialToolNames,
           ...corpusToolNames,
-          // Attachment setup is a recovery action, but it must be available on
-          // the first request so a missing provider renders the CTA immediately
+          // Setup CTAs are recovery actions, but they must be available on the
+          // first request so a missing provider renders the card immediately
           // instead of spending another turn in tool-search.
-          ...(browserTools["connect-file-storage"]
-            ? ["connect-file-storage"]
-            : []),
+          ...resolveConnectSetupInitialToolNames(browserTools),
           ...Object.keys(hostedBuilderHandoff),
         ]),
       ];
@@ -3093,11 +3109,15 @@ export function createAgentChatPlugin(
       // have to open the (single-process) local database itself while this
       // server is already holding it open. Gated internally on deploy
       // environment, loopback, and a per-process token — see dev-action-bridge.ts.
-      const { mountDevActionForwardRoute } =
+      const { mountDevActionForwardRoute, mountDevDbQueryForwardRoute } =
         await import("./dev-action-bridge.js");
       mountDevActionForwardRoute(nitroApp, httpActions, {
         appId: options?.appId,
       });
+      // `db-query` isn't a registered action, so the route above always 404s
+      // it — this is the dedicated forward target `pnpm action db-query`
+      // uses instead (see dev-query-proxy.ts).
+      mountDevDbQueryForwardRoute(nitroApp);
       mountWebMcpActionRoutes(nitroApp, httpActions, {
         getOwnerFromEvent,
         getOwnerContextFromEvent: resolveOwnerContext,
@@ -6333,7 +6353,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   nextTitle,
                   nextPreview,
                   newMessageCount,
-                  { ignoreConflicts: true },
                 );
                 // Scope updates piggyback on the PUT — the client uses this
                 // path for detach and for claiming a legacy unscoped thread.

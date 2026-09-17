@@ -217,6 +217,7 @@ export type VisualStyleProperty =
   | "grid-auto-rows"
   | "box-sizing"
   | "aspect-ratio"
+  | "isolation"
   | "z-index";
 
 export interface StyleToken {
@@ -932,6 +933,7 @@ const STYLE_PROPERTIES = [
   "grid-auto-rows",
   "box-sizing",
   "aspect-ratio",
+  "isolation",
   "z-index",
 ] as const satisfies readonly VisualStyleProperty[];
 

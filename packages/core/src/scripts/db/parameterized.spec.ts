@@ -66,6 +66,32 @@ describe("db scripts parameterized SQL", () => {
     expect(unsafe).toHaveBeenCalledWith("SELECT $1 AS name", ["ada"]);
   });
 
+  it("resolves the same database URL locally as the dev-server forward check, not getDatabaseUrl", async () => {
+    vi.stubEnv("AGENT_USER_EMAIL", "params+qa@test.com");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "pglite:./data/pglite-unpooled");
+    const unsafe = vi.fn(async () => []);
+    const begin = vi.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
+      fn({ unsafe }),
+    );
+    const end = vi.fn(async () => {});
+    const capturedUrls: string[] = [];
+    vi.doMock("./postgres-client.js", () => ({
+      createPostgresScriptClient: async (url: string) => {
+        capturedUrls.push(url);
+        return { begin, end, unsafe };
+      },
+    }));
+
+    const { default: dbQuery } = await import("./query.js");
+    await dbQuery(["--sql", "SELECT 1"]);
+
+    // getRuntimeDatabaseUrl resolves DATABASE_URL_UNPOOLED; getDatabaseUrl
+    // ignores it entirely — running against the latter here would mean the
+    // same command reads a different database once a dev server (which
+    // hashes getRuntimeDatabaseUrl) is running to forward to.
+    expect(capturedUrls).toEqual(["pglite:./data/pglite-unpooled"]);
+  });
+
   it("passes db-exec bind args through to PostgreSQL", async () => {
     vi.stubEnv("AGENT_USER_EMAIL", "params+qa@test.com");
     const unsafe = vi.fn(async (sql: string) => {
