@@ -1216,6 +1216,7 @@ interface AgentNativeServerActionManifest {
 export function createAgentNativeServerActionWebMcpRegistration(options?: {
   document?: Document;
   fetch?: typeof fetch;
+  excludeActionNames?: readonly string[];
 }): AgentNativeWebMcpRegistration {
   const fetchImpl =
     options?.fetch ?? ((...args: Parameters<typeof fetch>) => fetch(...args));
@@ -1254,41 +1255,44 @@ export function createAgentNativeServerActionWebMcpRegistration(options?: {
       if (!Array.isArray(manifest)) {
         throw new Error("WebMCP action manifest must be an array");
       }
-      return manifest.map((action) => ({
-        name: action.name,
-        title: agentNativeToolTitle(action.name, action.title),
-        description: action.description,
-        ...(action.inputSchema ? { schema: action.inputSchema } : {}),
-        ...(action.readOnly ? { readOnly: true } : {}),
-        run: async (args, runtime) => {
-          const result = await fetchImpl(
-            agentNativePath(
-              `/_agent-native/webmcp/actions/${encodeURIComponent(action.name)}`,
-            ),
-            {
-              method: "POST",
-              credentials: "same-origin",
-              headers: {
-                Accept: "application/json",
-                "Content-Type": "application/json",
-                "X-Agent-Native-Browser-Tab": getBrowserTabId(),
+      const excludedActionNames = new Set(options?.excludeActionNames ?? []);
+      return manifest
+        .filter((action) => !excludedActionNames.has(action.name))
+        .map((action) => ({
+          name: action.name,
+          title: agentNativeToolTitle(action.name, action.title),
+          description: action.description,
+          ...(action.inputSchema ? { schema: action.inputSchema } : {}),
+          ...(action.readOnly ? { readOnly: true } : {}),
+          run: async (args, runtime) => {
+            const result = await fetchImpl(
+              agentNativePath(
+                `/_agent-native/webmcp/actions/${encodeURIComponent(action.name)}`,
+              ),
+              {
+                method: "POST",
+                credentials: "same-origin",
+                headers: {
+                  Accept: "application/json",
+                  "Content-Type": "application/json",
+                  "X-Agent-Native-Browser-Tab": getBrowserTabId(),
+                },
+                body: JSON.stringify(args),
+                ...(runtime.signal ? { signal: runtime.signal } : {}),
               },
-              body: JSON.stringify(args),
-              ...(runtime.signal ? { signal: runtime.signal } : {}),
-            },
-          );
-          const body = await result.json();
-          if (!result.ok) {
-            throw new Error(
-              isRecord(body) && typeof body.error === "string"
-                ? body.error
-                : `WebMCP action failed (${result.status})`,
             );
-          }
-          if (!action.readOnly) await runtime.refresh();
-          return body;
-        },
-      }));
+            const body = await result.json();
+            if (!result.ok) {
+              throw new Error(
+                isRecord(body) && typeof body.error === "string"
+                  ? body.error
+                  : `WebMCP action failed (${result.status})`,
+              );
+            }
+            if (!action.readOnly) await runtime.refresh();
+            return body;
+          },
+        }));
     },
   });
 }

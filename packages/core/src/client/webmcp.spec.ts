@@ -537,6 +537,43 @@ describe("automatic server action WebMCP registration", () => {
     });
   });
 
+  it("omits only explicitly excluded server actions", async () => {
+    const modelContext = {
+      registerTool: vi.fn(async () => {}),
+      getTools: vi.fn(async () => []),
+      executeTool: vi.fn(async () => ""),
+    };
+    const registration = createAgentNativeServerActionWebMcpRegistration({
+      document: documentWithModelContext(modelContext),
+      excludeActionNames: ["open-visual-edit"],
+      fetch: vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify([
+              {
+                name: "open-visual-edit",
+                description: "Open visual edit",
+                inputSchema: { type: "object" },
+              },
+              {
+                name: "list-designs",
+                description: "List designs",
+                inputSchema: { type: "object" },
+              },
+            ]),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+      ),
+    });
+
+    await registration.start();
+
+    expect(modelContext.registerTool).toHaveBeenCalledTimes(1);
+    expect(modelContext.registerTool.mock.calls[0]?.[0]).toMatchObject({
+      name: "list-designs",
+    });
+  });
+
   it("accepts framework-scale catalogs and long backend descriptions", async () => {
     const modelContext = {
       registerTool: vi.fn(async () => {}),

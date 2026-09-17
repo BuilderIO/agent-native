@@ -77,6 +77,7 @@ export const links: LinksFunction = () => [
 
 const THEME_INIT_SCRIPT = getThemeInitScript();
 const LOCALE_INIT_SCRIPT = getLocaleInitScript();
+const DESIGN_WEBMCP_EXCLUDED_ACTIONS = ["open-visual-edit"] as const;
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
@@ -270,7 +271,7 @@ export default function Root() {
         queryClient={queryClient}
         isPublicPath={isPublicPath}
         sessionBypass={isEmbedAuthActive()}
-        disableWebMcp
+        webMcpExcludeActionNames={DESIGN_WEBMCP_EXCLUDED_ACTIONS}
         i18n={{ catalog: i18nCatalog, persistPreference: !isPublicPath }}
         toaster={<DesignToaster />}
       >
