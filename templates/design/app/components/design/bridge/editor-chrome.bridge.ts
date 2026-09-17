@@ -2974,6 +2974,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   function collectPortableComputedStyles(
     el: Element | null,
     cache?: Map<Element, Record<string, string> | null>,
+    computedStyle?: CSSStyleDeclaration,
   ): Record<string, string> | null {
     if (!el) return {};
     if (cache?.has(el)) return cache.get(el) || null;
@@ -2981,7 +2982,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       cache?.set(el, null);
       return null;
     };
-    var cs = window.getComputedStyle(el);
+    var cs = computedStyle || window.getComputedStyle(el);
     var defaults = portableStyleTagDefaults(el);
     if (!defaults) return cacheFailure();
     var hostStyle = (el as HTMLElement).style;
@@ -3051,6 +3052,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   function collectPortableStyleSnapshot(
     root: Element | null,
     cache?: Map<Element, Record<string, string> | null>,
+    rootComputedStyle?: CSSStyleDeclaration,
   ) {
     if (!root || isDocumentRootElement(root)) return undefined;
     var maxNodes = 5000;
@@ -3084,7 +3086,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         probeFailed = true;
         return;
       }
-      var styles = collectPortableComputedStyles(node, cache);
+      // The root is also represented by getElementInfo's live computedStyles.
+      // Refresh it instead of reusing an ancestor's value; descendants remain
+      // cached because their values only appear in this portable snapshot.
+      var styles = collectPortableComputedStyles(
+        node,
+        node === root ? undefined : cache,
+        node === root ? rootComputedStyle : undefined,
+      );
       if (styles === null) {
         probeFailed = true;
         return;
@@ -3773,6 +3782,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var portableStyleSnapshot = collectPortableStyleSnapshot(
       el,
       portableComputedStylesCache,
+      cs,
     );
     return {
       tagName: el.tagName.toLowerCase(),

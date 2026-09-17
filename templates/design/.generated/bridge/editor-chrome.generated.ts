@@ -2835,14 +2835,14 @@ export const editorChromeBridgeScript: string = `"use strict";
       width: true,
       height: true
     };
-    function collectPortableComputedStyles(el, cache) {
+    function collectPortableComputedStyles(el, cache, computedStyle) {
       if (!el) return {};
       if (cache?.has(el)) return cache.get(el) || null;
       var cacheFailure = function() {
         cache?.set(el, null);
         return null;
       };
-      var cs = window.getComputedStyle(el);
+      var cs = computedStyle || window.getComputedStyle(el);
       var defaults = portableStyleTagDefaults(el);
       if (!defaults) return cacheFailure();
       var hostStyle = el.style;
@@ -2889,7 +2889,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       cache?.set(el, styles);
       return styles;
     }
-    function collectPortableStyleSnapshot(root, cache) {
+    function collectPortableStyleSnapshot(root, cache, rootComputedStyle) {
       if (!root || isDocumentRootElement(root)) return void 0;
       var maxNodes = 5e3;
       var descendants = Array.prototype.slice.call(root.querySelectorAll("*"));
@@ -2920,7 +2920,11 @@ export const editorChromeBridgeScript: string = `"use strict";
           probeFailed = true;
           return;
         }
-        var styles = collectPortableComputedStyles(node, cache);
+        var styles = collectPortableComputedStyles(
+          node,
+          node === root ? void 0 : cache,
+          node === root ? rootComputedStyle : void 0
+        );
         if (styles === null) {
           probeFailed = true;
           return;
@@ -3443,7 +3447,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       );
       var portableStyleSnapshot = collectPortableStyleSnapshot(
         el,
-        portableComputedStylesCache
+        portableComputedStylesCache,
+        cs
       );
       return {
         tagName: el.tagName.toLowerCase(),

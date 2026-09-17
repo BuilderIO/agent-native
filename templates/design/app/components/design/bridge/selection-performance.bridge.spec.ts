@@ -488,6 +488,90 @@ describe("selectable-rects collect is bounded by the point it was asked about", 
 });
 
 describe("large concurrent selectable-rects requests", () => {
+  it("keeps animated selected roots aligned after a mid-request mutation", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 600, height: 300 },
+      });
+      await page.setContent(`<!doctype html><html><head><style>
+        @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+        #parent { position: relative; width: 500px; height: 220px; }
+        #transition-child, #animation-child {
+          position: absolute; width: 180px; height: 80px;
+        }
+        #transition-child {
+          left: 20px; top: 20px; opacity: 1;
+          transition: opacity 1s linear;
+        }
+        #animation-child {
+          left: 20px; top: 120px;
+          animation: fade 1s linear paused;
+          animation-fill-mode: both;
+        }
+      </style></head><body style="margin:0">
+        <div id="parent" data-agent-native-node-id="parent">
+          <div id="transition-child" data-agent-native-node-id="transition-child"></div>
+          <div id="animation-child" data-agent-native-node-id="animation-child"></div>
+        </div>
+      </body></html>`);
+      await page.evaluate(() => {
+        const transitionChild =
+          document.querySelector<HTMLElement>("#transition-child");
+        const animationChild =
+          document.querySelector<HTMLElement>("#animation-child");
+        if (!transitionChild || !animationChild) {
+          throw new Error("animation fixture did not attach");
+        }
+        const animation = animationChild.getAnimations()[0];
+        if (!animation) throw new Error("animation fixture did not animate");
+        animation.currentTime = 0;
+
+        const rectReads = new Map<HTMLElement, number>([
+          [transitionChild, 0],
+          [animationChild, 0],
+        ]);
+        for (const child of [transitionChild, animationChild]) {
+          const readRect = child.getBoundingClientRect.bind(child);
+          child.getBoundingClientRect = () => {
+            const rect = readRect();
+            const reads = (rectReads.get(child) ?? 0) + 1;
+            rectReads.set(child, reads);
+            if (reads !== 2) return rect;
+            if (child === transitionChild) {
+              child.style.opacity = "0";
+              const transition = child.getAnimations()[0];
+              if (!transition) throw new Error("transition did not start");
+              transition.currentTime = 500;
+            } else {
+              animation.play();
+              animation.currentTime = 500;
+            }
+            return rect;
+          };
+        }
+      });
+      await page.addScriptTag({ content: hydratedBridge() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+      const payload = await collectSelectableRects(page, { deep: true });
+      for (const sourceId of ["transition-child", "animation-child"]) {
+        const info = payload.find(
+          (candidate) => candidate.sourceId === sourceId,
+        );
+        expect(info).toBeDefined();
+        const portableOpacity =
+          info?.portableStyleSnapshot?.nodes?.[0]?.styles?.opacity;
+        expect(portableOpacity).toBe(info?.computedStyles?.opacity);
+        expect(portableOpacity).not.toBe(
+          sourceId === "transition-child" ? "1" : "0",
+        );
+      }
+    } finally {
+      await browser.close();
+    }
+  }, 60_000);
+
   it("preserves payload shape while caching portable styles per request", async () => {
     const browser = await chromium.launch({ headless: true });
     try {
