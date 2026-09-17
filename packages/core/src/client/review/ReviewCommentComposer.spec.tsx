@@ -194,6 +194,7 @@ describe("ReviewCommentComposer actions", () => {
     });
     Object.defineProperty(composingEvent, "isComposing", { value: true });
     act(() => composingTextarea!.dispatchEvent(composingEvent));
+    expect(composingEvent.defaultPrevented).toBe(false);
     expect(composingTextarea!.value).toBe("");
     expect(onChange).not.toHaveBeenCalled();
 
@@ -204,6 +205,7 @@ describe("ReviewCommentComposer actions", () => {
     });
     Object.defineProperty(legacyComposingEvent, "keyCode", { value: 229 });
     act(() => composingTextarea!.dispatchEvent(legacyComposingEvent));
+    expect(legacyComposingEvent.defaultPrevented).toBe(false);
     expect(composingTextarea!.value).toBe("");
 
     act(() => {
@@ -228,6 +230,50 @@ describe("ReviewCommentComposer actions", () => {
     act(() => textarea!.dispatchEvent(emailEvent));
     expect(emailEvent.defaultPrevented).toBe(false);
     expect(onChange).not.toHaveBeenCalled();
+
+    act(() => {
+      root.render(
+        <ReviewCommentComposer
+          value={"cafe\u0301"}
+          onChange={onChange}
+          onSubmit={() => {}}
+          showCommentTools
+          mentionOptions={[mention]}
+        />,
+      );
+    });
+    const combiningMarkTextarea =
+      container.querySelector<HTMLTextAreaElement>("textarea");
+    combiningMarkTextarea!.setSelectionRange(5, 5);
+    const combiningMarkEvent = new KeyboardEvent("keydown", {
+      key: "@",
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => combiningMarkTextarea!.dispatchEvent(combiningMarkEvent));
+    expect(combiningMarkEvent.defaultPrevented).toBe(false);
+
+    act(() => {
+      root.render(
+        <ReviewCommentComposer
+          value="𝒜"
+          onChange={onChange}
+          onSubmit={() => {}}
+          showCommentTools
+          mentionOptions={[mention]}
+        />,
+      );
+    });
+    const astralLetterTextarea =
+      container.querySelector<HTMLTextAreaElement>("textarea");
+    astralLetterTextarea!.setSelectionRange(2, 2);
+    const astralLetterEvent = new KeyboardEvent("keydown", {
+      key: "@",
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => astralLetterTextarea!.dispatchEvent(astralLetterEvent));
+    expect(astralLetterEvent.defaultPrevented).toBe(false);
 
     act(() => {
       root.render(

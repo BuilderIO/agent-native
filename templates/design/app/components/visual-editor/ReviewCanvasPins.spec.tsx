@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   callAction: vi.fn().mockResolvedValue({ cancelled: true }),
   setClientAppState: vi.fn().mockResolvedValue(undefined),
   sendToAgent: vi.fn().mockResolvedValue({ delivered: true }),
+  useRealComposer: false,
   uploadImage: vi.fn().mockResolvedValue({
     src: "https://cdn.example.com/review.png",
   }),
@@ -75,146 +76,164 @@ vi.mock("@agent-native/core/client/uploads", () => ({
 }));
 
 vi.mock("@agent-native/core/client/org", () => ({
-  useOrgMembers: () => ({ data: { members: [] } }),
+  useOrgMembers: () => ({
+    data: {
+      members: mocks.useRealComposer
+        ? [{ email: "alice@example.com", name: "Alice" }]
+        : [],
+    },
+  }),
 }));
 
-vi.mock("@agent-native/core/client/review", () => ({
-  buildReviewThreads: (comments: ReviewComment[]) =>
-    comments.map((root) => ({ root, replies: [] })),
-  ReviewCommentComposer: (props: {
-    value: string;
-    onChange: (value: string) => void;
-    onSubmit: (target: "human" | "agent") => void;
-    mentions?: readonly ReviewMention[];
-    onMentionsChange?: (mentions: ReviewMention[]) => void;
-    showCommentAction?: boolean;
-    showAgentAction?: boolean;
-    showCommentTools?: boolean;
-    commentToolsEnd?: React.ReactNode;
-    commentLabel?: string;
-    contextLabel?: string;
-    agentAction?: React.ReactNode;
-    autoFocus?: boolean;
-    disabled?: boolean;
-    onEscape?: () => void;
-    submitOnEnter?: boolean;
-    enterSubmitTarget?: "human" | "agent";
-    textareaProps?: TextareaHTMLAttributes<HTMLTextAreaElement>;
-  }) => {
-    const submit = (target: "human" | "agent") => {
-      if (!props.value.trim() || props.disabled) return;
-      props.onSubmit(target);
-    };
-    return (
-      <div>
-        {props.contextLabel ? <span>{props.contextLabel}</span> : null}
-        <textarea
-          {...props.textareaProps}
-          data-review-test-textarea
-          autoFocus={props.autoFocus}
-          disabled={props.disabled}
-          value={props.value}
-          onChange={(event) => props.onChange(event.currentTarget.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Escape") {
-              props.onEscape?.();
-              return;
-            }
-            if (
-              props.submitOnEnter &&
-              event.key === "Enter" &&
-              !event.shiftKey
-            ) {
-              event.preventDefault();
-              submit(props.enterSubmitTarget ?? "human");
-            }
-          }}
-        />
-        {props.showCommentTools || props.commentToolsEnd ? (
-          <div data-review-comment-tools>
-            {props.showCommentTools ? (
-              <>
-                <button type="button" aria-label="review.addEmoji" />
-                <button type="button" aria-label="review.mention" />
-                <button
-                  type="button"
-                  data-review-test-mention
-                  onClick={() => {
-                    props.onChange("@Alice");
-                    props.onMentionsChange?.([
-                      { label: "Alice", email: "alice@example.com" },
-                    ]);
-                  }}
-                />
-              </>
-            ) : null}
-            {props.commentToolsEnd ? (
-              <div data-review-comment-tools-end>{props.commentToolsEnd}</div>
-            ) : null}
-          </div>
-        ) : null}
+vi.mock("@agent-native/core/client/review", async () => {
+  const actual = await vi.importActual<
+    typeof import("@agent-native/core/client/review")
+  >("@agent-native/core/client/review");
+
+  return {
+    ...actual,
+    buildReviewThreads: (comments: ReviewComment[]) =>
+      comments.map((root) => ({ root, replies: [] })),
+    ReviewCommentComposer: (
+      props: Parameters<typeof actual.ReviewCommentComposer>[0],
+    ) =>
+      mocks.useRealComposer ? (
+        <actual.ReviewCommentComposer {...props} />
+      ) : (
+        <MockReviewCommentComposer {...props} />
+      ),
+    useCreateReviewComment: () => ({
+      mutate: mocks.createMutate,
+      isPending: false,
+    }),
+    useDeleteReviewComment: () => ({
+      mutate: vi.fn(),
+      isPending: false,
+    }),
+    useReplyReviewComment: () => ({
+      mutate: mocks.replyMutate,
+      isPending: false,
+    }),
+    useReactToReviewComment: () => ({
+      mutate: mocks.reactMutate,
+      isPending: false,
+      variables: undefined,
+    }),
+    useResolveReviewThread: () => ({
+      mutate: mocks.resolveMutate,
+      isPending: false,
+    }),
+    useSetReviewThreadUnread: () => ({
+      mutate: mocks.unreadMutate,
+      isPending: false,
+    }),
+    useUpdateReviewComment: () => ({
+      mutate: mocks.updateMutate,
+      isPending: false,
+    }),
+    useReviewComments: () => ({
+      data: { comments: reviewComments, discussion: mocks.discussion },
+    }),
+  };
+});
+
+function MockReviewCommentComposer(props: {
+  value: string;
+  onChange: (value: string) => void;
+  onSubmit: (target: "human" | "agent") => void;
+  mentions?: readonly ReviewMention[];
+  onMentionsChange?: (mentions: ReviewMention[]) => void;
+  showCommentAction?: boolean;
+  showAgentAction?: boolean;
+  showCommentTools?: boolean;
+  commentToolsEnd?: React.ReactNode;
+  commentLabel?: string;
+  contextLabel?: string;
+  agentAction?: React.ReactNode;
+  autoFocus?: boolean;
+  disabled?: boolean;
+  onEscape?: () => void;
+  submitOnEnter?: boolean;
+  enterSubmitTarget?: "human" | "agent";
+  textareaProps?: TextareaHTMLAttributes<HTMLTextAreaElement>;
+}) {
+  const submit = (target: "human" | "agent") => {
+    if (!props.value.trim() || props.disabled) return;
+    props.onSubmit(target);
+  };
+  return (
+    <div>
+      {props.contextLabel ? <span>{props.contextLabel}</span> : null}
+      <textarea
+        {...props.textareaProps}
+        data-review-test-textarea
+        autoFocus={props.autoFocus}
+        disabled={props.disabled}
+        value={props.value}
+        onChange={(event) => props.onChange(event.currentTarget.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            props.onEscape?.();
+            return;
+          }
+          if (props.submitOnEnter && event.key === "Enter" && !event.shiftKey) {
+            event.preventDefault();
+            submit(props.enterSubmitTarget ?? "human");
+          }
+        }}
+      />
+      {props.showCommentTools || props.commentToolsEnd ? (
+        <div data-review-comment-tools>
+          {props.showCommentTools ? (
+            <>
+              <button type="button" aria-label="review.addEmoji" />
+              <button type="button" aria-label="review.mention" />
+              <button
+                type="button"
+                data-review-test-mention
+                onClick={() => {
+                  props.onChange("@Alice");
+                  props.onMentionsChange?.([
+                    { label: "Alice", email: "alice@example.com" },
+                  ]);
+                }}
+              />
+            </>
+          ) : null}
+          {props.commentToolsEnd ? (
+            <div data-review-comment-tools-end>{props.commentToolsEnd}</div>
+          ) : null}
+        </div>
+      ) : null}
+      <button
+        type="button"
+        data-review-test-type
+        onClick={() => props.onChange("Make the background darker")}
+      />
+      <button
+        type="button"
+        data-review-test-question
+        onClick={() => props.onChange("What is this section for?")}
+      />
+      {props.showCommentAction !== false ? (
         <button
           type="button"
-          data-review-test-type
-          onClick={() => props.onChange("Make the background darker")}
-        />
-        <button
-          type="button"
-          data-review-test-question
-          onClick={() => props.onChange("What is this section for?")}
-        />
-        {props.showCommentAction !== false ? (
-          <button
-            type="button"
-            data-review-test-submit
-            aria-label={props.commentLabel}
-            disabled={!props.value.trim() || props.disabled}
-            onClick={() => submit("human")}
-          >
-            {props.commentLabel}
-          </button>
-        ) : null}
-        {props.showAgentAction
-          ? (props.agentAction ?? (
-              <button type="button" data-review-test-agent-action />
-            ))
-          : null}
-      </div>
-    );
-  },
-  useCreateReviewComment: () => ({
-    mutate: mocks.createMutate,
-    isPending: false,
-  }),
-  useDeleteReviewComment: () => ({
-    mutate: vi.fn(),
-    isPending: false,
-  }),
-  useReplyReviewComment: () => ({
-    mutate: mocks.replyMutate,
-    isPending: false,
-  }),
-  useReactToReviewComment: () => ({
-    mutate: mocks.reactMutate,
-    isPending: false,
-    variables: undefined,
-  }),
-  useResolveReviewThread: () => ({
-    mutate: mocks.resolveMutate,
-    isPending: false,
-  }),
-  useSetReviewThreadUnread: () => ({
-    mutate: mocks.unreadMutate,
-    isPending: false,
-  }),
-  useUpdateReviewComment: () => ({
-    mutate: mocks.updateMutate,
-    isPending: false,
-  }),
-  useReviewComments: () => ({
-    data: { comments: reviewComments, discussion: mocks.discussion },
-  }),
-}));
+          data-review-test-submit
+          aria-label={props.commentLabel}
+          disabled={!props.value.trim() || props.disabled}
+          onClick={() => submit("human")}
+        >
+          {props.commentLabel}
+        </button>
+      ) : null}
+      {props.showAgentAction
+        ? (props.agentAction ?? (
+            <button type="button" data-review-test-agent-action />
+          ))
+        : null}
+    </div>
+  );
+}
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, values?: { count?: number }) =>
@@ -245,6 +264,7 @@ describe("ReviewCanvasPins persisted thread popover", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.stubGlobal("ResizeObserver", ResizeObserverMock);
+    mocks.useRealComposer = false;
     mocks.createMutate.mockReset();
     mocks.replyMutate.mockReset();
     mocks.reactMutate.mockReset();
@@ -1338,6 +1358,44 @@ describe("ReviewCanvasPins persisted thread popover", () => {
   });
 
   it("persists selected mentions through draft and reply submissions", async () => {
+    mocks.useRealComposer = true;
+    const setTextareaValue = async (
+      textarea: HTMLTextAreaElement,
+      value: string,
+    ) => {
+      await act(async () => {
+        const setter = Object.getOwnPropertyDescriptor(
+          HTMLTextAreaElement.prototype,
+          "value",
+        )?.set;
+        setter?.call(textarea, value);
+        textarea.setSelectionRange(value.length, value.length);
+        textarea.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    };
+    const selectAlice = async (
+      textarea: HTMLTextAreaElement,
+      prefix: string,
+    ) => {
+      await setTextareaValue(textarea, prefix);
+      await act(async () => {
+        textarea.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "@",
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      });
+      await setTextareaValue(textarea, `${prefix}@Ali`);
+      const alice = Array.from(
+        document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+      ).find((item) => item.textContent?.includes("Alice"));
+      expect(alice).toBeTruthy();
+      await act(async () => alice?.click());
+      expect(textarea.value).toBe(`${prefix}@Alice`);
+    };
+
     await act(async () => {
       root.render(
         <ReviewCanvasPins
@@ -1363,23 +1421,19 @@ describe("ReviewCanvasPins persisted thread popover", () => {
           }),
         );
     });
+    const draftTextarea = document.querySelector<HTMLTextAreaElement>(
+      "[data-review-popover] textarea",
+    );
+    expect(draftTextarea).not.toBeNull();
+    await selectAlice(draftTextarea!, "Draft ");
     await act(async () => {
-      document
-        .querySelector<HTMLButtonElement>("[data-review-test-type]")
-        ?.click();
-    });
-    await act(async () => {
-      document
-        .querySelector<HTMLButtonElement>("[data-review-test-mention]")
-        ?.click();
-    });
-    await act(async () => {
-      document
-        .querySelector<HTMLButtonElement>("[data-review-test-submit]")
+      draftTextarea
+        ?.closest("form")
+        ?.querySelector<HTMLButtonElement>('button[type="submit"]')
         ?.click();
     });
     expect(mocks.createMutate.mock.calls[0]?.[0]).toMatchObject({
-      body: "@Alice",
+      body: "Draft @Alice",
       mentions: [{ label: "Alice", email: "alice@example.com" }],
     });
 
@@ -1401,18 +1455,19 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     await act(async () => {
       document.querySelector<HTMLButtonElement>("[data-review-pin]")?.click();
     });
+    const replyTextarea = document.querySelector<HTMLTextAreaElement>(
+      "[data-review-reply-input]",
+    );
+    expect(replyTextarea).not.toBeNull();
+    await selectAlice(replyTextarea!, "Reply ");
     await act(async () => {
-      document
-        .querySelector<HTMLButtonElement>("[data-review-test-mention]")
-        ?.click();
-    });
-    await act(async () => {
-      document
-        .querySelector<HTMLButtonElement>('button[aria-label="review.reply"]')
+      replyTextarea
+        ?.closest("form")
+        ?.querySelector<HTMLButtonElement>('button[type="submit"]')
         ?.click();
     });
     expect(mocks.replyMutate.mock.calls[0]?.[0]).toMatchObject({
-      body: "@Alice",
+      body: "Reply @Alice",
       mentions: [{ label: "Alice", email: "alice@example.com" }],
     });
   });

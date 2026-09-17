@@ -285,7 +285,7 @@ export function ReviewCommentComposer({
           }
           const triggerIndex =
             event.currentTarget.selectionStart ?? value.length;
-          const previousCharacter = value[triggerIndex - 1];
+          const previousCharacter = [...value.slice(0, triggerIndex)].pop();
           const isComposing = event.nativeEvent.isComposing;
           const isImeKey = event.nativeEvent.keyCode === 229;
           if (
@@ -296,7 +296,7 @@ export function ReviewCommentComposer({
             !event.metaKey &&
             !event.ctrlKey &&
             !event.altKey &&
-            !/[\p{L}\p{N}_]/u.test(previousCharacter ?? "")
+            !/[\p{L}\p{M}\p{N}_]/u.test(previousCharacter ?? "")
           ) {
             const selectionEnd =
               event.currentTarget.selectionEnd ?? triggerIndex;
