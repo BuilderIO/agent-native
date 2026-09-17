@@ -8,6 +8,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
+import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
 import {
   mergeCanvasFramePlacements,
   nextFreeCanvasRowY,
@@ -55,26 +56,6 @@ export default defineAction({
     await assertAccess("design", designId, "editor");
     await snapshotDesignBeforeAgentEdit(designId, context);
 
-    const db = getDb();
-
-    // Guard against duplicate (designId, filename) — edit-design uses .limit(1)
-    // which is non-deterministic when multiple rows match the same key.
-    const [existing] = await db
-      .select({ id: schema.designFiles.id })
-      .from(schema.designFiles)
-      .where(
-        and(
-          eq(schema.designFiles.designId, designId),
-          eq(schema.designFiles.filename, filename),
-        ),
-      )
-      .limit(1);
-    if (existing) {
-      throw new Error(
-        `File "${filename}" already exists in design ${designId} — use edit-design to modify it`,
-      );
-    }
-
     const id = nanoid();
     const now = new Date().toISOString();
 
@@ -92,24 +73,45 @@ export default defineAction({
       filename,
     });
 
-    await db.insert(schema.designFiles).values({
-      id,
-      designId,
-      filename,
-      fileType: fileType ?? "html",
-      content: annotatedContent,
-      createdAt: now,
-      updatedAt: now,
+    await withDesignSourceMutationTransaction(designId, async (tx) => {
+      // Guard against duplicate (designId, filename) inside the same
+      // transaction as the insert; the unique index remains the final guard.
+      const [existing] = await tx
+        .select({ id: schema.designFiles.id })
+        .from(schema.designFiles)
+        .where(
+          and(
+            eq(schema.designFiles.designId, designId),
+            eq(schema.designFiles.filename, filename),
+          ),
+        )
+        .limit(1);
+      if (existing) {
+        throw new Error(
+          `File "${filename}" already exists in design ${designId} — use edit-design to modify it`,
+        );
+      }
+
+      await tx.insert(schema.designFiles).values({
+        id,
+        designId,
+        filename,
+        fileType: fileType ?? "html",
+        content: annotatedContent,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      await tx
+        .update(schema.designs)
+        .set({ updatedAt: now })
+        .where(eq(schema.designs.id, designId));
     });
 
     // Seed collab state for the new file
     await seedFromText(id, annotatedContent);
 
-    // Update the design's updatedAt timestamp
-    await db
-      .update(schema.designs)
-      .set({ updatedAt: now })
-      .where(eq(schema.designs.id, designId));
+    const db = getDb();
 
     const resolvedFileType = fileType ?? "html";
     const renderable =

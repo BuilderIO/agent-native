@@ -60,6 +60,16 @@ const mocks = vi.hoisted(() => {
   updateChain.where.mockResolvedValue(undefined);
   const update = vi.fn(() => updateChain);
 
+  const tx = {
+    select: vi.fn(() => {
+      whereCondition = undefined;
+      return selectChain;
+    }),
+    insert,
+    update,
+    execute: vi.fn().mockResolvedValue({ rows: [] }),
+  };
+
   const db = {
     select: vi.fn(() => {
       whereCondition = undefined;
@@ -67,6 +77,7 @@ const mocks = vi.hoisted(() => {
     }),
     insert,
     update,
+    transaction: vi.fn(async (callback) => callback(tx)),
   };
 
   let designData: Record<string, unknown> = {};

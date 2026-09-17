@@ -34,6 +34,7 @@ import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js"
 import {
   readLiveSourceFile,
   SourceWorkspaceEditConflictError,
+  withDesignSourceMutationTransaction,
   writeInlineSourceFile,
   type SourceWorkspaceFile,
 } from "../server/source-workspace.js";
@@ -910,10 +911,19 @@ const generateDesignAction = defineAction({
             // html -> jsx), matching the original update behavior.
             const nextFileType = file.fileType ?? "html";
             if (nextFileType !== (existing.fileType ?? "html")) {
-              await db
-                .update(schema.designFiles)
-                .set({ fileType: nextFileType, updatedAt: now })
-                .where(eq(schema.designFiles.id, existing.id));
+              await withDesignSourceMutationTransaction(
+                existing.designId,
+                (tx) =>
+                  tx
+                    .update(schema.designFiles)
+                    .set({ fileType: nextFileType, updatedAt: now })
+                    .where(
+                      and(
+                        eq(schema.designFiles.id, existing.id),
+                        eq(schema.designFiles.designId, existing.designId),
+                      ),
+                    ),
+              );
             }
           } finally {
             agentLeaveDocument(existing.id);
@@ -956,18 +966,20 @@ const generateDesignAction = defineAction({
       } else {
         // Create new file
         const fileId = nanoid();
-        await db.insert(schema.designFiles).values({
-          id: fileId,
-          designId,
-          filename: file.filename,
-          fileType: file.fileType ?? "html",
-          content: file.content,
-          contentOperationSource: null,
-          contentOperationRevision: null,
-          contentOperationResultHash: null,
-          createdAt: now,
-          updatedAt: now,
-        });
+        await withDesignSourceMutationTransaction(designId, (tx) =>
+          tx.insert(schema.designFiles).values({
+            id: fileId,
+            designId,
+            filename: file.filename,
+            fileType: file.fileType ?? "html",
+            content: file.content,
+            contentOperationSource: null,
+            contentOperationRevision: null,
+            contentOperationResultHash: null,
+            createdAt: now,
+            updatedAt: now,
+          }),
+        );
 
         // Publish agent presence for the new file before seeding.
         agentEnterDocument(fileId);

@@ -11,7 +11,7 @@ import {
 } from "@agent-native/core/collab";
 import { getDbExec, type DbExec } from "@agent-native/core/db";
 import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import { isBoardFile } from "../shared/board-file.js";
 import { ensureCodeLayerNodeIdsInHtml } from "../shared/code-layer.js";
@@ -134,6 +134,23 @@ export async function lockDesignSourceMutation(
   await tx.execute({
     sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
     args: [designSourceMutationLockKey(designId)],
+  });
+}
+
+type DesignSourceMutationTransaction = Parameters<
+  Parameters<ReturnType<typeof getDb>["transaction"]>[0]
+>[0];
+
+/** Keep design-file membership changes in the same lock domain as indexing. */
+export function withDesignSourceMutationTransaction<T>(
+  designId: string,
+  callback: (tx: DesignSourceMutationTransaction) => Promise<T>,
+): Promise<T> {
+  return getDb().transaction(async (tx) => {
+    await tx.execute(
+      sql`SELECT pg_advisory_xact_lock(hashtextextended(${designSourceMutationLockKey(designId)}, 0::bigint))`,
+    );
+    return callback(tx);
   });
 }
 

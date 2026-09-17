@@ -104,7 +104,9 @@ const mocks = vi.hoisted(() => {
 
   const tx = {
     select,
+    insert,
     update,
+    execute: vi.fn().mockResolvedValue({ rows: [] }),
   };
 
   const transaction = vi.fn(async (fn: (tx: typeof tx) => Promise<void>) => {

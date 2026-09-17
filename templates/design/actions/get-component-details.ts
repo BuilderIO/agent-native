@@ -41,6 +41,7 @@ import {
   instanceFromNode,
 } from "../shared/component-model.js";
 import { hasCapability } from "../shared/design-source-capabilities.js";
+import { isStandaloneHttpUrl } from "../shared/html-content.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
 
 export function canRestoreComponentMain(
@@ -62,6 +63,16 @@ function parseJson<T>(raw: string | null | undefined, fallback: T): T {
     return JSON.parse(raw) as T;
   } catch {
     return fallback;
+  }
+}
+
+export class ComponentDetailsUnsupportedError extends Error {
+  readonly statusCode = 422;
+  readonly code = "UNSUPPORTED_SOURCE";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "ComponentDetailsUnsupportedError";
   }
 }
 
@@ -141,6 +152,12 @@ export default defineAction({
       .limit(1);
 
     if (!file) throw new Error("Design HTML file not found.");
+
+    if (isStandaloneHttpUrl(file.content ?? "")) {
+      throw new ComponentDetailsUnsupportedError(
+        `Component details for URL-backed screen "${file.filename}" require a live browser projection. Use get-code-layer-projection from the connected preview; this action cannot infer component identity from the stored route URL.`,
+      );
+    }
 
     // Use the durable SQL source for component prop reads. A connected editor
     // can briefly hold an older Yjs text snapshot while server-side prop writes

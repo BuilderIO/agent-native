@@ -4,6 +4,20 @@ const mocks = vi.hoisted(() => ({
   assertAccess: vi.fn(),
   getDb: vi.fn(),
   resolveAccess: vi.fn(),
+  schema: {
+    designs: { id: "designs.id" },
+    designShares: "designShares",
+    designFiles: {
+      id: "designFiles.id",
+      designId: "designFiles.designId",
+      filename: "designFiles.filename",
+      content: "designFiles.content",
+    },
+    componentIndex: {
+      designId: "componentIndex.designId",
+      name: "componentIndex.name",
+    },
+  },
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
@@ -11,7 +25,14 @@ vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: mocks.assertAccess,
   resolveAccess: mocks.resolveAccess,
 }));
-vi.mock("../server/db/index.js", () => ({ getDb: mocks.getDb, schema: {} }));
+vi.mock("drizzle-orm", () => ({
+  and: vi.fn((...conditions) => conditions),
+  eq: vi.fn((left, right) => ({ left, right })),
+}));
+vi.mock("../server/db/index.js", () => ({
+  getDb: mocks.getDb,
+  schema: mocks.schema,
+}));
 vi.mock("../shared/source-mode.js", () => ({
   designSourceTypeFromData: () => "fusion",
 }));
@@ -45,6 +66,45 @@ describe("get-component-details", () => {
       "editor",
     );
     expect(mocks.getDb).not.toHaveBeenCalled();
+  });
+
+  it("reports URL-backed details as typed unsupported instead of parsing the route as HTML", async () => {
+    mocks.assertAccess.mockResolvedValue(undefined);
+    const fileSelect = {
+      from: vi.fn(),
+      innerJoin: vi.fn(),
+      where: vi.fn(),
+      limit: vi.fn(),
+    };
+    fileSelect.from.mockReturnValue(fileSelect);
+    fileSelect.innerJoin.mockReturnValue(fileSelect);
+    fileSelect.where.mockReturnValue(fileSelect);
+    fileSelect.limit.mockResolvedValue([
+      {
+        id: "file-url",
+        designId: "design_1",
+        filename: "react-screen.html",
+        content: "http://localhost:3000/products/card",
+      },
+    ]);
+    mocks.getDb.mockReturnValue({
+      select: vi.fn(() => fileSelect),
+    });
+
+    await expect(
+      action.run(
+        {
+          designId: "design_1",
+          nodeId: "card-main",
+          fileId: "file-url",
+        } as never,
+        {} as never,
+      ),
+    ).rejects.toMatchObject({
+      name: "ComponentDetailsUnsupportedError",
+      code: "UNSUPPORTED_SOURCE",
+      statusCode: 422,
+    });
   });
 
   it("exposes restore only for an instance with a matching valid archive pointer", () => {

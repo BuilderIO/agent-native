@@ -49,6 +49,7 @@ const mocks = vi.hoisted(() => {
     select: () => typeof designSelectChain | typeof filesSelectChain;
     insert: typeof insert;
     update: typeof update;
+    execute: ReturnType<typeof vi.fn>;
   }
 
   let selectCallCount = 0;
@@ -59,6 +60,7 @@ const mocks = vi.hoisted(() => {
     }),
     insert,
     update,
+    execute: vi.fn().mockResolvedValue({ rows: [] }),
   };
 
   const db = {

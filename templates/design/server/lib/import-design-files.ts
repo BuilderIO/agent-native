@@ -5,7 +5,7 @@ import {
   seedFromText,
 } from "@agent-native/core/collab";
 import { assertAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import {
@@ -15,6 +15,7 @@ import {
 } from "../../shared/canvas-frames.js";
 import { annotateScreenHtmlForPersist } from "../../shared/screen-annotation.js";
 import { getDb, schema } from "../db/index.js";
+import { designSourceMutationLockKey } from "../source-workspace.js";
 import { mutateDesignData } from "./design-data-mutation.js";
 
 const DEFAULT_FRAME_WIDTH = 1440;
@@ -229,6 +230,9 @@ export async function saveImportedDesignFiles(
   });
 
   await db.transaction(async (tx) => {
+    await tx.execute(
+      sql`SELECT pg_advisory_xact_lock(hashtextextended(${designSourceMutationLockKey(designId)}, 0::bigint))`,
+    );
     const [design] = await tx
       .select()
       .from(schema.designs)
