@@ -105,7 +105,7 @@ async function callWithOneRetry<T>(
 export async function importFigInBrowser(
   options: FigClientImportOptions,
 ): Promise<ImportResult> {
-  const { designId, file, onProgress } = options;
+  const { designId, file, onProgress, selection } = options;
   if (file.size > MAX_CLIENT_FIG_BYTES) {
     throw new Error(
       `.fig file is too large for browser import (max ${MAX_CLIENT_FIG_BYTES / 1024 / 1024} MB).`,
@@ -147,6 +147,7 @@ export async function importFigInBrowser(
       // The action wraps the document; nothing to do here.
       normalizeHtml: (content: string) => content,
       maxFrameHtmlBytes: MAX_FIG_FRAME_HTML_BYTES,
+      selection,
       uploader: async ({ data, filename, mimeType }) => {
         remoteMutationStarted = true;
         const idempotencyKey = `${importId}:${filename}`;

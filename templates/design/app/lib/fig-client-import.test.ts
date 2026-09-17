@@ -129,6 +129,18 @@ describe("importFigInBrowser", () => {
     expect(mocks.convertDecodedFigToEditableHtml).not.toHaveBeenCalled();
   });
 
+  it("passes the preview frame selection to browser conversion", async () => {
+    mocks.convertDecodedFigToEditableHtml.mockResolvedValue(converted());
+    const selection = new Set(["frame-1"]);
+
+    await importFigInBrowser({ designId: "design-1", file, selection });
+
+    expect(mocks.convertDecodedFigToEditableHtml).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ selection }),
+    );
+  });
+
   it("cleans saved frames and marks the error before fallback can retry", async () => {
     mocks.convertDecodedFigToEditableHtml.mockResolvedValue(
       converted([
