@@ -679,6 +679,26 @@ test("Design components preserve identity across inline and URL-backed React bou
     await expect(
       urlFrame.locator('[data-agent-native-node-id="card-main"]'),
     ).toHaveAttribute("data-agent-native-source-line", "3");
+    const urlDetails = await readAction(request, "get-component-details", {
+      designId,
+      nodeId: "card-main",
+      fileId: screenId!,
+    });
+    expect(urlDetails).toMatchObject({
+      sourceType: "localhost",
+      name: "ReusableCard",
+      instance: {
+        name: "ReusableCard",
+        instanceId: "card-main",
+        nodeId: "card-main",
+      },
+      sourceLocation: {
+        filePath: "src/App.tsx",
+        line: 3,
+        column: 1,
+        componentName: "ReusableCard",
+      },
+    });
     const urlCard = urlFrame.locator('[data-agent-native-node-id="card-main"]');
     const urlCardInstanceId = await urlCard.getAttribute(
       "data-agent-native-node-id",

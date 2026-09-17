@@ -245,6 +245,59 @@ describe("writeInlineSourceFilesBatch", () => {
     ]);
   });
 
+  it("keeps a content snapshot inside the design mutation lock", async () => {
+    let releaseFirst!: () => void;
+    let snapshotTaken!: () => void;
+    const firstRelease = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const firstSnapshot = new Promise<void>((resolve) => {
+      snapshotTaken = resolve;
+    });
+
+    const firstRun = withDesignSourceMutationTransaction(
+      DESIGN_ID,
+      async (tx) => {
+        const [captured] = await tx
+          .select({ content: schema.designFiles.content })
+          .from(schema.designFiles)
+          .where(eq(schema.designFiles.id, SOURCE_ID))
+          .limit(1);
+        expect(captured?.content).toBe(SOURCE_BASE);
+        snapshotTaken();
+        await firstRelease;
+        await tx
+          .update(schema.designFiles)
+          .set({ content: SOURCE_NEXT })
+          .where(eq(schema.designFiles.id, SOURCE_ID));
+      },
+    );
+    await firstSnapshot;
+
+    let secondEntered = false;
+    const secondRun = withDesignSourceMutationTransaction(
+      DESIGN_ID,
+      async (tx) => {
+        secondEntered = true;
+        await tx
+          .update(schema.designFiles)
+          .set({ content: DESTINATION_NEXT })
+          .where(eq(schema.designFiles.id, SOURCE_ID));
+      },
+    );
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(secondEntered).toBe(false);
+
+    releaseFirst();
+    await Promise.all([firstRun, secondRun]);
+    const [winner] = await execute(
+      "SELECT content FROM design_files WHERE id = ?",
+      [SOURCE_ID],
+    ).then((result) => result.rows);
+    expect(winner).toEqual({ content: DESTINATION_NEXT });
+  });
+
   it("serializes index-first and rename-first critical sections on one source file", async () => {
     const run = async (fileId: string, first: string, second: string) => {
       const order: string[] = [];
