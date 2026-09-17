@@ -1957,7 +1957,7 @@ describe("missing agent engine setup", () => {
 
     expect(dequeueSource).toContain("engineSetupRequired");
     expect(submitSource).toContain("engineSetupRequired");
-    expect(submitSource).toContain('liveIsRunning && intent === "queued"');
+    expect(submitSource).toContain("queueForActiveRun");
     expect(submitSource).not.toContain(
       'reportAgentChatSubmitResult(submitMessageId, false, "missing-engine");',
     );
@@ -2769,7 +2769,7 @@ describe("chat submit and stop hardening", () => {
       "serializeQueuedAttachments(attachments)",
     );
     const firstQueueBranchIndex = submitSource.indexOf(
-      'if (liveIsRunning && intent === "immediate")',
+      "if (interruptActiveRun)",
     );
     const optimisticIndex = submitSource.indexOf("markOptimisticRunning();");
 
@@ -2785,7 +2785,9 @@ describe("chat submit and stop hardening", () => {
     expect(submitSource).toContain(
       "const liveIsRunning = isRunningRef.current;",
     );
-    expect(submitSource).toContain('liveIsRunning && intent === "queued"');
+    expect(submitSource).toContain("const runningAtSubmitStart = isRunning;");
+    expect(submitSource).toContain("const interruptActiveRun");
+    expect(submitSource).toContain("const queueForActiveRun");
   });
 
   it("resets retained text before a queued visible turn starts", () => {

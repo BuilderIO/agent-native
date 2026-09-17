@@ -5655,6 +5655,7 @@ const AssistantChatInner = forwardRef<
       const visibleSubmitSequence = hideUserMessage
         ? null
         : ++visibleSubmitSequenceRef.current;
+      const runningAtSubmitStart = isRunning;
       const stoppedRunAtSubmitStart = userStoppedRunRef.current;
       if (!preserveReconnectAutoRecoveryBudget) {
         reconnectAutoRecoveryCountRef.current = 0;
@@ -5806,10 +5807,14 @@ const AssistantChatInner = forwardRef<
         continuationTurnId ??
         (actionScope ? generateAgentChatTurnId() : undefined);
       const liveIsRunning = isRunningRef.current;
+      const interruptActiveRun =
+        runningAtSubmitStart && liveIsRunning && intent === "immediate";
+      const queueForActiveRun =
+        liveIsRunning && (intent === "immediate" || intent === "queued");
       if (acceptedVisibleSubmit && !liveIsRunning && !engineSetupRequired) {
         resetRetainedTextStreamingState(effectiveContinuationTurnId);
       }
-      if (liveIsRunning && intent === "immediate") {
+      if (interruptActiveRun) {
         // Explicit interrupt path: abort the active server run, then let the
         // auto-dequeue path append this message once the run is clear. Normal
         // composer sends while running resolve to "queued" before reaching here.
@@ -5839,10 +5844,7 @@ const AssistantChatInner = forwardRef<
           },
         ]);
         stopActiveRunRef.current({ preserveQueuedMessages: true });
-      } else if (
-        engineSetupRequired ||
-        (liveIsRunning && intent === "queued")
-      ) {
+      } else if (engineSetupRequired || queueForActiveRun) {
         applyLocalQueuedMessages((prev) => [
           ...prev,
           {
