@@ -190,6 +190,7 @@ export function ReviewCommentComposer({
   const mentionMenu =
     mentionOptions.length > 0 ? (
       <DropdownMenu
+        modal={false}
         open={mentionMenuOpen}
         onOpenChange={(open) => {
           setMentionMenuOpen(open);
@@ -201,25 +202,31 @@ export function ReviewCommentComposer({
         }}
       >
         <DropdownMenuTrigger asChild>
-          {showCommentTools ? (
-            <Button
-              type="button"
-              size="icon"
-              variant="ghost"
-              className="size-8 text-muted-foreground"
-              disabled={disabled}
-              aria-label={mentionLabel}
-              onClick={() => {
-                resetMention();
-              }}
-            >
-              <IconAt className="size-4" />
-            </Button>
-          ) : (
-            <span aria-hidden="true" className="sr-only" />
-          )}
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className={cn(
+              "size-8 text-muted-foreground",
+              !showCommentTools && "sr-only",
+            )}
+            disabled={disabled}
+            aria-hidden={!showCommentTools}
+            aria-label={mentionLabel}
+            tabIndex={showCommentTools ? undefined : -1}
+            onClick={() => {
+              resetMention();
+            }}
+          >
+            <IconAt className="size-4" />
+          </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="w-60 p-1">
+        <DropdownMenuContent
+          align="start"
+          aria-label={mentionLabel}
+          className="w-60 p-1"
+          onFocusOutside={(event) => event.preventDefault()}
+        >
           <Input
             autoFocus
             value={mentionSearch}
@@ -387,13 +394,22 @@ export function ReviewCommentComposer({
       />
       {showCommentTools ||
       commentToolsEnd ||
+      mentionMenuOpen ||
       showCommentAction ||
       showAgentAction ? (
         <div className="mt-2 flex flex-col items-stretch justify-end gap-2 @2xs/review:flex-row @2xs/review:items-center">
-          {showCommentTools || commentToolsEnd ? (
+          {showCommentTools ||
+          commentToolsEnd ||
+          mentionMenuOpen ||
+          mentionOptions.length > 0 ? (
             <div
-              data-review-comment-tools
-              className="flex min-w-0 items-center gap-0.5 @2xs/review:me-auto"
+              data-review-comment-tools={
+                showCommentTools || commentToolsEnd ? "" : undefined
+              }
+              className={cn(
+                "flex min-w-0 items-center gap-0.5 @2xs/review:me-auto",
+                !showCommentTools && !commentToolsEnd && "contents",
+              )}
             >
               {showCommentTools ? (
                 <DropdownMenu>
@@ -474,9 +490,6 @@ export function ReviewCommentComposer({
           ) : null}
         </div>
       ) : null}
-      {!showCommentTools && !commentToolsEnd && mentionMenuOpen
-        ? mentionMenu
-        : null}
     </form>
   );
 }

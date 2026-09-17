@@ -3,6 +3,8 @@ import { expect, test } from "@playwright/test";
 import { E2E_MENTION_EMAIL } from "./global-setup";
 import { createFixtureDesign, designFrame, gotoEditor } from "./helpers";
 
+test.use({ viewport: { width: 1440, height: 1000 } });
+
 test("comments toolbar opens an anchored composer", async ({
   page,
 }, testInfo) => {
@@ -57,6 +59,9 @@ test("comments toolbar opens an anchored composer", async ({
   });
   await expect(commentButton).toBeDisabled();
   await composer.fill("Browser parity check ");
+  await expect(
+    page.getByRole("button", { name: "Mention someone", exact: true }),
+  ).toBeVisible();
   await composer.press("@");
   const mentionMenu = page.getByRole("menu", { name: "Mention someone" });
   await expect(mentionMenu).toBeVisible();
