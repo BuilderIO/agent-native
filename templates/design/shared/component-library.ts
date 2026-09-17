@@ -22,7 +22,12 @@ import {
   buildCodeLayerProjection,
   type CodeLayerSource,
 } from "./code-layer.js";
-import { componentNameFor, isComponentInstance } from "./component-model.js";
+import {
+  COMPONENT_ID_ATTR,
+  COMPONENT_REF_ATTR,
+  componentNameFor,
+  isComponentInstance,
+} from "./component-model.js";
 
 export interface ComponentLibraryFile {
   id: string;
@@ -34,6 +39,10 @@ export interface ComponentLibraryFile {
 export interface ComponentLibraryEntry {
   /** Component name from `data-agent-native-component`. */
   name: string;
+  /** Opaque id on a canonical component root, when present. */
+  componentId?: string;
+  /** Opaque id referenced by a linked component instance, when present. */
+  componentRef?: string;
   fileId: string;
   filename: string;
   /** `data-agent-native-node-id` (or fallback) of the instance root. */
@@ -85,6 +94,10 @@ export function scanComponentLibrary(
 
       entries.push({
         name,
+        componentId:
+          node.dataAttributes[COMPONENT_ID_ATTR]?.trim() || undefined,
+        componentRef:
+          node.dataAttributes[COMPONENT_REF_ATTR]?.trim() || undefined,
         fileId: file.id,
         filename: file.filename,
         nodeId,
