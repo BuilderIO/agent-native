@@ -1056,7 +1056,7 @@ const MCP_LINK_HOSTS: Record<string, string[]> = {
   sentry: ["sentry.io", "sentry.dev"],
   gong: ["gong.io"],
   grafana: ["grafana.com", "grafana.net"],
-  dbt: ["getdbt.com"],
+  dbt: ["getdbt.com", "dbt.com"],
   "builder-cms": ["builder.io"],
   notion: ["notion.so", "notion.site"],
   granola: ["granola.ai"],

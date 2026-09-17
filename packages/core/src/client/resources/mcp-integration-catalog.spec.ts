@@ -338,6 +338,9 @@ describe("MCP integration catalog", () => {
       )?.id,
     ).toBe("notion");
     expect(
+      findMcpIntegrationForText("https://acct.us1.dbt.com/api/ai/v1/mcp/")?.id,
+    ).toBe("dbt");
+    expect(
       findMcpIntegrationForText("Canva link: https://canva.com/design/abc")?.id,
     ).toBe("canva");
     expect(
