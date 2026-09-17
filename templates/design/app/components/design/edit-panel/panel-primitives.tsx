@@ -769,8 +769,11 @@ export function PanelSection({
   );
 
   return (
-    <section className="design-sidebar-section shrink-0">
-      <div className="px-2">
+    <section
+      data-design-inspector-section
+      className="design-sidebar-section shrink-0"
+    >
+      <div data-design-inspector-section-header className="px-2">
         <InspectorGrid
           className="min-h-[var(--design-section-height)] items-center"
           layout={actions ? "header-actions" : "columns"}
@@ -786,7 +789,10 @@ export function PanelSection({
         </InspectorGrid>
       </div>
       {hasContent ? (
-        <div className="design-sidebar-control-text design-sidebar-section-content">
+        <div
+          data-design-inspector-section-content
+          className="design-sidebar-control-text design-sidebar-section-content"
+        >
           {children}
         </div>
       ) : null}

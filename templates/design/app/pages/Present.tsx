@@ -5,17 +5,26 @@ import {
 } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  buildReviewThreads,
   ReviewStatusBadge,
   useReviewComments,
+  type ReviewThread,
 } from "@agent-native/core/client/review";
 import { buildSignInReturnHref } from "@agent-native/core/client/ui";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import { readDesignReviewSummary } from "@shared/review-summary";
 import { IconMessageCircle } from "@tabler/icons-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useParams, useNavigate } from "react-router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Link,
+  useLocation,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router";
 
 import { appendHitTestResponder } from "@/components/design/design-canvas/hit-test";
+import { reviewThreadIdFromHash } from "@/components/design/review-link";
 import { ReviewCommentsPanel } from "@/components/design/ReviewCommentsPanel";
 import { QueryErrorState } from "@/components/QueryErrorState";
 import { Button } from "@/components/ui/button";
@@ -27,7 +36,10 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ReviewCanvasPins } from "@/components/visual-editor/ReviewCanvasPins";
+import {
+  ReviewCanvasPins,
+  type ReviewFocusRequest,
+} from "@/components/visual-editor/ReviewCanvasPins";
 
 import { withLocalRuntimes } from "../components/design/design-canvas/local-runtime";
 import {
@@ -52,11 +64,17 @@ interface DesignData {
 export default function Present() {
   const t = useT();
   const { id } = useParams<{ id: string }>();
+  const location = useLocation();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { session } = useSession();
   const [currentPage, setCurrentPage] = useState(0);
   const [commentMode, setCommentMode] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
+  const [reviewFocusRequest, setReviewFocusRequest] =
+    useState<ReviewFocusRequest | null>(null);
+  const reviewFocusNonceRef = useRef(0);
+  const reviewLinkCommentIdRef = useRef<string | null>(null);
 
   const {
     data: design,
@@ -85,8 +103,8 @@ export default function Present() {
     {
       resourceType: "design",
       resourceId: id ?? "",
-      targetId: activeFile?.id ?? undefined,
-      includeResolved: false,
+      includeResolved: true,
+      newestFirst: true,
       limit: 500,
     },
     { enabled: Boolean(id) },
@@ -125,6 +143,56 @@ export default function Present() {
       ? undefined
       : { returnTo: window.location.pathname },
   );
+
+  const handleReviewThreadSelect = useCallback(
+    (thread: ReviewThread) => {
+      const targetIndex = files.findIndex(
+        (file) => file.id === thread.root.targetId,
+      );
+      if (targetIndex >= 0) setCurrentPage(targetIndex);
+      setCommentsOpen(false);
+      setCommentMode(true);
+      reviewFocusNonceRef.current += 1;
+      setReviewFocusRequest({
+        nonce: reviewFocusNonceRef.current,
+        anchor: thread.root.anchor,
+        targetId: thread.root.targetId ?? undefined,
+        threadId: thread.root.threadId,
+      });
+    },
+    [files],
+  );
+
+  useEffect(() => {
+    const commentId =
+      reviewThreadIdFromHash(location.hash) ?? searchParams.get("comment");
+    const comments = reviewQuery.data?.comments ?? [];
+    if (
+      !commentId ||
+      reviewLinkCommentIdRef.current === commentId ||
+      !comments.length ||
+      !design ||
+      !files.length
+    ) {
+      return;
+    }
+    const thread = buildReviewThreads(comments).find(
+      (candidate) =>
+        candidate.root.id === commentId ||
+        candidate.root.threadId === commentId ||
+        candidate.replies.some((reply) => reply.id === commentId),
+    );
+    if (!thread) return;
+    reviewLinkCommentIdRef.current = commentId;
+    handleReviewThreadSelect(thread);
+  }, [
+    design,
+    files.length,
+    handleReviewThreadSelect,
+    reviewQuery.data?.comments,
+    location.hash,
+    searchParams,
+  ]);
 
   // Keyboard navigation
   const handleKeyDown = useCallback(
@@ -217,6 +285,8 @@ export default function Present() {
           targetId={activeFile.id}
           canPost={canPost}
           canResolve={canResolve}
+          currentUserEmail={session?.email}
+          focusRequest={reviewFocusRequest}
         />
       </div>
 
@@ -258,12 +328,15 @@ export default function Present() {
             designId={id}
             canComment={canPost}
             canResolve={canResolve}
+            currentTargetId={activeFile?.id ?? null}
+            currentUserEmail={session?.email}
             canDeleteComment={(comment) =>
               canResolve ||
               ("canDelete" in comment && comment.canDelete === true) ||
               comment.authorEmail === session?.email
             }
             signInHref={signInHref}
+            onSelectThread={handleReviewThreadSelect}
             className="min-h-0 flex-1"
           />
           {canPost ? (

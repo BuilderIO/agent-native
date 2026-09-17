@@ -7,6 +7,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReviewComment } from "../../review/types.js";
 
 const mutate = vi.hoisted(() => vi.fn());
+const discussion = vi.hoisted(() => ({
+  reactions: {},
+  threadPreferences: {} as Record<string, { unread: boolean }>,
+  canReact: false,
+}));
 const reviewComments = vi.hoisted(() => vi.fn());
 const writeClipboardText = vi.hoisted(() => vi.fn());
 const rootComment = vi.hoisted(
@@ -84,11 +89,14 @@ vi.mock("./use-review.js", () => ({
   }),
   useUpdateReviewComment: () => ({ mutate, isPending: false }),
   useResolveReviewThread: () => ({ mutate, isPending: false }),
+  useReactToReviewComment: () => ({ mutate, isPending: false }),
 }));
 
+import {
+  isTrustedReviewAttachmentUrl,
+  ReviewThreadPanel,
+} from "./ReviewThreadPanel.js";
 vi.mock("../clipboard.js", () => ({ writeClipboardText }));
-
-import { ReviewThreadPanel } from "./ReviewThreadPanel.js";
 
 function setTextareaValue(textarea: HTMLTextAreaElement, value: string) {
   const setter = Object.getOwnPropertyDescriptor(
@@ -112,6 +120,7 @@ describe("ReviewThreadPanel sidebar layout", () => {
       data: {
         comments: [rootComment],
         reviewStatus: { status: "draft" },
+        discussion,
       },
       isLoading: false,
     }));
@@ -133,10 +142,51 @@ describe("ReviewThreadPanel sidebar layout", () => {
     comment.status = "open";
     comment.metadata = null;
     delete comment.resolutionNote;
+    discussion.threadPreferences = {};
     mutate.mockReset();
     reviewComments.mockReset();
     writeClipboardText.mockReset();
     vi.unstubAllGlobals();
+  });
+
+  it("fails closed for untrusted persisted attachment URLs", () => {
+    expect(
+      isTrustedReviewAttachmentUrl(
+        `${window.location.origin}/uploads/image.png`,
+      ),
+    ).toBe(true);
+    expect(
+      isTrustedReviewAttachmentUrl("https://cdn.builder.io/image.png"),
+    ).toBe(true);
+    expect(isTrustedReviewAttachmentUrl("https://tracker.example/pixel")).toBe(
+      false,
+    );
+    expect(isTrustedReviewAttachmentUrl("javascript:alert(1)")).toBe(false);
+  });
+
+  it("renders all five trusted persisted image attachments", () => {
+    rootComment.metadata = {
+      attachments: Array.from({ length: 6 }, (_, index) => ({
+        url: `${window.location.origin}/uploads/review-${index + 1}.png`,
+        name: `Review ${index + 1}`,
+        contentType: "image/png",
+      })),
+    };
+
+    act(() => {
+      root.render(
+        <ReviewThreadPanel
+          resourceType="design"
+          resourceId="design-1"
+          showHeader={false}
+          showComposer={false}
+        />,
+      );
+    });
+
+    expect(
+      container.querySelectorAll("[data-review-comment-attachments] img"),
+    ).toHaveLength(5);
   });
 
   it("uses the localized agent label without displaying the acting human as author", () => {
@@ -153,6 +203,27 @@ describe("ReviewThreadPanel sidebar layout", () => {
     });
     expect(container.textContent).toContain("KI");
     expect(container.textContent).not.toContain("reviewer@example.com");
+  });
+
+  it("shows persisted unread state and filters to unread threads", () => {
+    discussion.threadPreferences["thread-1"] = { unread: true };
+
+    act(() => {
+      root.render(
+        <ReviewThreadPanel
+          resourceType="design"
+          resourceId="design-1"
+          unreadOnly
+          unreadLabel="Unread feedback"
+          showComposer={false}
+        />,
+      );
+    });
+
+    expect(
+      container.querySelector('[data-review-thread-unread="true"]'),
+    ).not.toBeNull();
+    expect(container.textContent).toContain("Unread feedback");
   });
 
   it("uses a flat container and progressively discloses reply and narrow actions", () => {

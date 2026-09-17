@@ -1,6 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { resetGithubStarCountCacheForTests } from "../../lib/github-star-count";
+const { getGithubStarCount, resetGithubStarCountCacheForTests } = vi.hoisted(
+  () => ({
+    getGithubStarCount: vi.fn().mockResolvedValue(4647),
+    resetGithubStarCountCacheForTests: vi.fn(),
+  }),
+);
+
+vi.mock("../../server/lib/github-star-count.server", () => ({
+  getGithubStarCount,
+  resetGithubStarCountCacheForTests,
+}));
+
 import { loader as rootLoader, resolveLayoutLocale } from "../root";
 import { loader as localizedDocLoader } from "../routes/docs.$locale.$slug";
 import { loader as defaultDocLoader } from "../routes/docs.$slug";
@@ -267,34 +278,22 @@ describe("localized docs fallback", () => {
   });
 
   it("hydrates route locale messages from the server for prefixed docs paths", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(JSON.stringify({ stargazers_count: 4647 }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }),
-      ),
-    );
-
     const data = await rootLoader(
       loaderArgs({}, "https://docs.test/zh-CN/docs/internationalization"),
     );
 
     expect(data.locale).toBe("zh-CN");
     expect(data.preference.locale).toBe("zh-CN");
+    expect(data.starCount).toBe(4647);
     expect(data.messages).toMatchObject({
       header: expect.objectContaining({ docs: expect.any(String) }),
     });
   });
 
-  it("does not fetch GitHub while rendering the SSR root data", async () => {
-    const fetchMock = vi.fn(() => new Promise<Response>(() => {}));
-    vi.stubGlobal("fetch", fetchMock);
-
+  it("loads the GitHub star count as part of SSR root data", async () => {
     const data = await rootLoader(loaderArgs({}, "https://docs.test/apps"));
 
-    expect(data.starCount).toBeNull();
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(data.starCount).toBe(4647);
+    expect(getGithubStarCount).toHaveBeenCalled();
   });
 });

@@ -7,6 +7,9 @@ describe("reviewThreadIdFromHash", () => {
     expect(reviewThreadIdFromHash("#comment=thread%2F1&view=overview")).toBe(
       "thread/1",
     );
+    expect(reviewThreadIdFromHash("#review-thread=legacy-thread")).toBe(
+      "legacy-thread",
+    );
     expect(reviewThreadIdFromHash("#selection=node-1")).toBeNull();
   });
 });

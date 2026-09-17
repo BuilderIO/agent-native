@@ -112,6 +112,10 @@ import {
   resolveStableContentSizeSample,
   type ContentSizeSample,
 } from "./design-canvas/content-size-report";
+import {
+  getDesignCanvasIframeSandbox,
+  useBrowserOrigin,
+} from "./design-canvas/external-preview";
 import { appendHitTestResponder } from "./design-canvas/hit-test";
 import { withLocalRuntimes } from "./design-canvas/local-runtime";
 import { roundGeo, trace, type TraceArea } from "./design-trace";
@@ -641,6 +645,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const panRef = useRef(pan);
   const [canvasZoom, setCanvasZoom] = useState(zoom);
   const zoomRef = useRef(zoom);
+  const previousControlledZoomRef = useRef(zoom);
+  const controlledZoomRevisionRef = useRef(0);
+  if (previousControlledZoomRef.current !== zoom) {
+    previousControlledZoomRef.current = zoom;
+    controlledZoomRevisionRef.current += 1;
+  }
   const lastReportedZoomRef = useRef(zoom);
   const lineupRecenterCameraRef = useRef({
     x: panRef.current.x,
@@ -1195,6 +1205,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   // lineup fit so a stale controlled prop cannot undo a pending command on an
   // unrelated screen/selection render.
   const lastCameraCommandZoomRef = useRef<number | null>(null);
+  const lastCameraCommandControlledZoomRef = useRef<number | null>(null);
+  const pendingCameraCommandZoomRevisionRef = useRef<{
+    nonce: number;
+    revision: number;
+  } | null>(null);
   const pendingChromeSettleRef = useRef(false);
   const chromeSettleTimerRef = useRef<number | null>(null);
   const [chromeSettling, setChromeSettling] = useState(false);
@@ -1756,8 +1771,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     // buttons, keyboard shortcuts) that never touched zoomRef/panRef.
     const previousZoom = zoomRef.current;
     const pendingCameraZoom = lastCameraCommandZoomRef.current;
+    const pendingCameraControlledZoom =
+      lastCameraCommandControlledZoomRef.current;
     if (pendingCameraZoom !== null && zoom === pendingCameraZoom) {
       lastCameraCommandZoomRef.current = null;
+      lastCameraCommandControlledZoomRef.current = null;
       if (zoom === previousZoom) return;
       // The command already applied the matching pan imperatively. Reconcile
       // the controlled zoom without applying a second anchor compensation.
@@ -1770,13 +1788,17 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     if (
       pendingCameraZoom !== null &&
       cameraCommand &&
-      lastCameraCommandNonceRef.current === cameraCommand.nonce
+      lastCameraCommandNonceRef.current === cameraCommand.nonce &&
+      zoom === pendingCameraControlledZoom
     ) {
       // The command owns the camera until its zoom reaches the controlled
       // prop. An unrelated render must not replay that stale prop.
       return;
     }
-    if (pendingCameraZoom !== null) lastCameraCommandZoomRef.current = null;
+    if (pendingCameraZoom !== null) {
+      lastCameraCommandZoomRef.current = null;
+      lastCameraCommandControlledZoomRef.current = null;
+    }
     if (zoom === previousZoom) return;
     // External zoom changes otherwise anchor at world origin (0,0) since
     // only canvasZoom is updated here — content visibly jumps diagonally
@@ -8315,8 +8337,20 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   // settled wheel/pinch gesture uses — one `applyViewToDom` + one
   // `scheduleViewCommit`, not a fresh render-per-frame loop.
   useEffect(() => {
-    if (!cameraCommand) return;
+    if (!cameraCommand) {
+      pendingCameraCommandZoomRevisionRef.current = null;
+      return;
+    }
     if (lastCameraCommandNonceRef.current === cameraCommand.nonce) return;
+
+    const pendingCommandRevision =
+      pendingCameraCommandZoomRevisionRef.current?.nonce === cameraCommand.nonce
+        ? pendingCameraCommandZoomRevisionRef.current.revision
+        : controlledZoomRevisionRef.current;
+    pendingCameraCommandZoomRevisionRef.current = {
+      nonce: cameraCommand.nonce,
+      revision: pendingCommandRevision,
+    };
 
     let cancelled = false;
     let retryFrame: number | null = null;
@@ -8333,6 +8367,16 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       }
       const rect = surfaceRef.current?.getBoundingClientRect();
       if (!rect || rect.width <= 0 || rect.height <= 0) return false;
+      // If the user changed the controlled zoom while this command waited for
+      // the overview surface to become measurable, that newer action owns the
+      // camera. Acknowledge the stale fit without applying it or scheduling a
+      // delayed commit that could overwrite the user's zoom.
+      if (controlledZoomRevisionRef.current !== pendingCommandRevision) {
+        lastCameraCommandNonceRef.current = cameraCommand.nonce;
+        pendingCameraCommandZoomRevisionRef.current = null;
+        resizeObserver?.disconnect();
+        return true;
+      }
       // Fit against the width actually free of the left/right chrome
       // overlays (see chromeInsetLeft/Right's doc), then shift the result
       // right by chromeInsetLeft — getCameraForBounds centers within
@@ -8360,6 +8404,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       camera.x += chromeInsetLeft;
       zoomRef.current = camera.zoom;
       lastCameraCommandZoomRef.current = camera.zoom;
+      lastCameraCommandControlledZoomRef.current = zoom;
       panRef.current = { x: camera.x, y: camera.y };
       applyViewToDom();
       scheduleViewCommit();
@@ -8368,6 +8413,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       // command during the brief zero-size overview remount caused by active
       // screen URL synchronization.
       lastCameraCommandNonceRef.current = cameraCommand.nonce;
+      pendingCameraCommandZoomRevisionRef.current = null;
       resizeObserver?.disconnect();
       return true;
     };
@@ -10275,7 +10321,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       creationPreview.geometry.width > 0 &&
       creationPreview.geometry.height > 0 ? (
         <span
-          className="pointer-events-none absolute z-40 -translate-x-1/2 translate-y-1 rounded bg-[var(--design-editor-accent-color)] px-1.5 py-0.5 text-[10px] font-medium leading-none text-[var(--design-editor-accent-contrast-color)] shadow-sm"
+          className="pointer-events-none absolute z-40 -translate-x-1/2 translate-y-1 rounded-full bg-[var(--design-editor-accent-color)] px-2 py-1 text-[11px] font-semibold leading-none text-[var(--design-editor-accent-contrast-color)] shadow-sm"
           style={{
             left:
               pan.x +
@@ -11495,8 +11541,10 @@ const Screen = memo(function Screen({
   onEditBreakpoint,
 }: ScreenProps) {
   const t = useT();
+  const browserOrigin = useBrowserOrigin();
   const display = screenDisplayName(screen, metadata);
   const previewUrl = metadata.previewUrl ?? getPreviewUrl(screen.content);
+  const externalPreviewPendingOrigin = Boolean(previewUrl && !browserOrigin);
   const previewViewport = getScreenPreviewViewport(metadata, geometry);
   const suppressNextClick = useRef(false);
   // Overview viewport culling (PF22): mounting only. Unmounting a culled screen
@@ -11915,7 +11963,8 @@ const Screen = memo(function Screen({
               </div>
             ))
           ) : (
-            (screenContent ?? (
+            (screenContent ??
+            (externalPreviewPendingOrigin ? null : (
               <iframe
                 {...{
                   [SESSION_REPLAY_IFRAME_ATTRIBUTE]: previewUrl
@@ -11925,7 +11974,12 @@ const Screen = memo(function Screen({
                 data-screen-iframe-id={screen.id}
                 src={previewUrl}
                 srcDoc={previewUrl ? undefined : srcdocWithHitTest}
-                sandbox="allow-scripts"
+                sandbox={getDesignCanvasIframeSandbox({
+                  externalPreview: Boolean(previewUrl),
+                  readOnly: true,
+                  previewUrl,
+                  parentOrigin: browserOrigin ?? undefined,
+                })}
                 // Visible includes the generous overscan band, so eager load
                 // here prewarms the document before it crosses the raw
                 // viewport edge. Warm hidden iframes are already loaded.
@@ -11950,7 +12004,7 @@ const Screen = memo(function Screen({
                 }}
                 title={screen.filename}
               />
-            ))
+            )))
           )}
           {layoutGridBoardSize > 0 ? (
             <span
@@ -12303,6 +12357,8 @@ function BreakpointPreviewRow({
   canEdit?: boolean;
 }) {
   const t = useT();
+  const browserOrigin = useBrowserOrigin();
+  const externalPreviewPendingOrigin = Boolean(previewUrl && !browserOrigin);
   const frameActionLabel = t("designEditor.modes.interact");
   const primaryWidthPx = metadata.width ?? primaryGeometry.width;
   const breakpointWidths = visibleBreakpointWidths(
@@ -12689,7 +12745,7 @@ function BreakpointPreviewRow({
                   </div>
                 ) : editableContent ? (
                   editableContent
-                ) : (
+                ) : externalPreviewPendingOrigin ? null : (
                   <iframe
                     // Distinct id per breakpoint sub-frame — the primary iframe
                     // above uses the bare screen id, so without a suffix here
@@ -12711,7 +12767,12 @@ function BreakpointPreviewRow({
                     }}
                     src={previewUrl}
                     srcDoc={previewUrl ? undefined : srcdocWithHitTest}
-                    sandbox="allow-scripts"
+                    sandbox={getDesignCanvasIframeSandbox({
+                      externalPreview: Boolean(previewUrl),
+                      readOnly: true,
+                      previewUrl,
+                      parentOrigin: browserOrigin ?? undefined,
+                    })}
                     onLoad={() => {
                       getBootStartCallback?.(
                         screen.id,

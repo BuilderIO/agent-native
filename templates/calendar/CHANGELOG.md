@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Calendar are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-16
+
+### Fixed
+
+- Booking link time-zone arrows now scroll to earlier and later times.
+
 ## 2026-09-15
 
 ### Improved

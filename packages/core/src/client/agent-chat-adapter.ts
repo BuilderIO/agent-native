@@ -2422,7 +2422,7 @@ export function createAgentChatAdapter(
       const streamOwnershipToken = createRunStreamToken(`adapter:${turnId}`);
       const takeRunStreamOwnership = () => {
         if (threadId && runId) {
-          preemptRunStream(threadId, runId, streamOwnershipToken);
+          preemptRunStream(threadId, runId, streamOwnershipToken, turnId);
         }
       };
       let terminalChatUiStopped = false;
@@ -2439,7 +2439,7 @@ export function createAgentChatAdapter(
       };
       const settleTerminalChatRun = () => {
         if (threadId && runId) {
-          releaseRunStream(threadId, runId, streamOwnershipToken);
+          releaseRunStream(threadId, runId, streamOwnershipToken, turnId);
         }
         if (!ownsActiveRunState()) return;
         if (threadId && runId) {
@@ -2450,6 +2450,8 @@ export function createAgentChatAdapter(
         publishTerminalChatUiStopped();
       };
       const seenRunSeqs = new Map<string, number>();
+      const seenEventSeqsByRun = new Map<string, Set<number>>();
+      const seenEventIds = new Set<string>();
       const preparingActionStatesByRun = new Map<
         string,
         PreparingActionState
@@ -2705,6 +2707,14 @@ export function createAgentChatAdapter(
         }
       };
 
+      const seenEventSeqsForRun = (id: string): Set<number> => {
+        const existing = seenEventSeqsByRun.get(id);
+        if (existing) return existing;
+        const seen = new Set<number>();
+        seenEventSeqsByRun.set(id, seen);
+        return seen;
+      };
+
       const canAttachRun = (candidateRunId: string, candidateTurnId: string) =>
         attemptedRunIds.includes(candidateRunId) ||
         (candidateTurnId.length > 0 && candidateTurnId === turnId);
@@ -2729,6 +2739,14 @@ export function createAgentChatAdapter(
         markTerminalResults: true,
         durableBackgroundRun:
           currentRunDispatchMode?.startsWith("background") === true,
+        ...(runId
+          ? {
+              runId,
+              turnId,
+              seenEventSeqs: seenEventSeqsForRun(runId),
+              seenEventIds,
+            }
+          : {}),
         ...(runId
           ? { preparingActionState: preparingActionStateForRun(runId) }
           : {}),
@@ -3128,6 +3146,7 @@ export function createAgentChatAdapter(
           if (isUserInitiatedTerminalReason(rawTerminalReason)) {
             settleInterruptedToolCalls(content, undefined, {
               includeActivity: true,
+              userStopped: true,
             });
             settleTerminalChatRun();
             yield {

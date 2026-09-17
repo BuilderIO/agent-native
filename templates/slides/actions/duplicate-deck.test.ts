@@ -54,7 +54,7 @@ describe("duplicate-deck", () => {
     });
   });
 
-  it("makes a source-preserving deck copy editable without losing provenance", async () => {
+  it("preserves source provenance on a copied deck", async () => {
     await action.run({
       deckId: "deck-source",
       newId: "deck-copy",
@@ -65,7 +65,6 @@ describe("duplicate-deck", () => {
       mocks.insertValues.mock.calls[0]?.[0].data as string,
     );
     expect(insertedData.sourceImport).toMatchObject({
-      editableSnapshot: true,
       slideIds: ["slide-copy"],
       slides: [{ id: "slide-copy" }],
     });

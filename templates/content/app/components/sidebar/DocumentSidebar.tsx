@@ -2340,6 +2340,7 @@ export function DocumentSidebar({
       <div className="agent-layout-left-drawer flex h-full w-14 flex-col items-center border-e border-border bg-sidebar transition-[width] duration-200 ease-out">
         <AppSidebarHeader
           brandName="Content"
+          appId="content"
           brandHref="/home"
           collapsed
           onBrandClick={onToggleCollapsed}
@@ -2394,6 +2395,7 @@ export function DocumentSidebar({
       {/* Header */}
       <AppSidebarHeader
         brandName="Content"
+        appId="content"
         brandHref="/home"
         collapsed={false}
         onBrandClick={onToggleCollapsed}

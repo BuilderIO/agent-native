@@ -1,3 +1,4 @@
+import { analyzeRegexSource } from "../shared/bounded-regex.js";
 import { wrapDiagnosticSnippet } from "../shared/diagnostic-snippet.js";
 import {
   applyTargetedReplace,
@@ -443,6 +444,14 @@ function applyRegexReplace(
   edit: Extract<ExtensionContentEdit, { op: "regex-replace" }>,
 ): { content: string; summary: string } {
   const flags = normalizeRegexFlags(edit.flags, edit.all);
+  const verdict = analyzeRegexSource(edit.pattern, flags, {
+    inputBounded: false,
+  });
+  if (!verdict.safe) {
+    throw new ExtensionContentEditError(
+      `regex-replace pattern cannot be run safely: ${verdict.reason}. Rewrite it without overlapping repetition, or use a literal find edit instead.`,
+    );
+  }
   const regex = new RegExp(edit.pattern, flags);
   const countRegex = new RegExp(edit.pattern, ensureGlobal(flags));
   const matches = Array.from(content.matchAll(countRegex)).length;

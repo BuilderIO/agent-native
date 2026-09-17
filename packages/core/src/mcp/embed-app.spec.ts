@@ -51,8 +51,11 @@ describe("embedApp", () => {
     expect(html).toContain("return { error: text.trim() };");
     expect(html).toContain("record.embedTargetPath");
     expect(html).toContain("record.deepLinkUrl");
-    expect(html.indexOf("structuredOpenLinkUrl")).toBeLessThan(
-      html.indexOf("record.url"),
+    expect(html).toContain(
+      "metaUrl,\n        record.embedTargetPath,\n        record.deepLinkUrl,\n        record.deepLink,\n        structuredOpenLinkUrl,",
+    );
+    expect(html).not.toContain(
+      "record.embedTargetPath,\n        record.deepLinkUrl,\n        record.deepLink,\n        metaUrl,",
     );
     expect(html).toContain("let launchUrl = openStartUrl || openUrl");
     expect(html).not.toContain("launchUrl = openUrl;");
@@ -215,6 +218,71 @@ describe("embedApp", () => {
     expect(resource.csp?.baseUriDomains).toEqual([
       MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
     ]);
+  });
+
+  it("prefers canonical metadata when legacy open-link fields conflict", () => {
+    const resource = embedApp({ title: "Dashboard" });
+    const html =
+      typeof resource.html === "function"
+        ? resource.html({ actionName: "open_app", appId: "analytics" })
+        : resource.html;
+    const openLinkSource = html.match(
+      /(function openLinkFrom\(params, data\) \{[\s\S]*?\n    \})\n\n    function embedStartUrlFrom/,
+    )?.[1];
+    expect(openLinkSource).toBeDefined();
+
+    const openLinkFrom = new Function(
+      "toolResultMeta",
+      "openLinkWebUrlFrom",
+      "firstNonEmbedStartUrl",
+      "isEmbedStartUrl",
+      `${openLinkSource}; return openLinkFrom;`,
+    )(
+      (params: unknown) => {
+        if (!params || typeof params !== "object" || Array.isArray(params)) {
+          return {};
+        }
+        const meta = (params as { _meta?: unknown })._meta;
+        return meta && typeof meta === "object" && !Array.isArray(meta)
+          ? meta
+          : {};
+      },
+      (value: unknown) => {
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+          return "";
+        }
+        const webUrl = (value as { webUrl?: unknown }).webUrl;
+        return typeof webUrl === "string" ? webUrl : "";
+      },
+      (values: unknown[]) =>
+        values.find(
+          (value) =>
+            typeof value === "string" &&
+            value.length > 0 &&
+            !value.includes("/_agent-native/embed/start"),
+        ) ?? "",
+      (value: string) => value.includes("/_agent-native/embed/start"),
+    ) as (params: unknown, data: unknown) => string;
+
+    expect(
+      openLinkFrom(
+        {
+          _meta: {
+            "agent-native/openLink": {
+              webUrl: "https://canonical.example/target",
+            },
+          },
+        },
+        {
+          embedTargetPath: "https://legacy.example/embed-target",
+          deepLinkUrl: "https://legacy.example/deep-link-url",
+          deepLink: "https://legacy.example/deep-link",
+          openLink: { webUrl: "https://legacy.example/structured" },
+          openUrl: "https://legacy.example/open-url",
+          url: "https://legacy.example/url",
+        },
+      ),
+    ).toBe("https://canonical.example/target");
   });
 
   it("leaves dev runtime module URLs untokenized in transplanted app documents", () => {

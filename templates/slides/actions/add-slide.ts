@@ -427,6 +427,9 @@ export default defineAction({
 
       const now = nextDeckRevision(row.updatedAt);
       deck.slides = slides;
+      const sourceImportCleared =
+        deck.sourceImport !== undefined && deck.sourceImport !== null;
+      if (sourceImportCleared) delete deck.sourceImport;
       deck.updatedAt = now;
       const currentTitle =
         typeof row.title === "string" && row.title.trim()
@@ -527,6 +530,7 @@ export default defineAction({
         contextMode,
         contextPackId: recordedPackId,
         reuseLabels: slideReuseLabels,
+        ...(sourceImportCleared ? { sourceImportCleared: true } : {}),
         layoutFit: {
           status: "pending" as const,
           slideId: newSlideId,

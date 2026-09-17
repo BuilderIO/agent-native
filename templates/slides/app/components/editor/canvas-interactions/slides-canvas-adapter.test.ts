@@ -212,6 +212,19 @@ describe("Slides canvas interaction adapter", () => {
     ).toBe("edit-text");
   });
 
+  it("lets Alt-drag duplicate from the body of a text layer", () => {
+    expect(
+      resolveSlidesCanvasPointerIntent({
+        hasSelectedObject: true,
+        targetWithinSelectedObject: true,
+        targetContainsSelectedObject: false,
+        pointerWithinMoveBand: false,
+        targetIsEditableText: true,
+        duplicateModifierActive: true,
+      }),
+    ).toBe("move-object-body");
+  });
+
   it("uses the object under the pointer when no prior selection exists", () => {
     const image = document.createElement("img");
     const wrapper = document.createElement("div");

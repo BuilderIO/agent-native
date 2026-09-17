@@ -51,6 +51,31 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.182.0
+
+### Minor Changes
+
+- 0b6c132: Add an Agent directory for connecting hosted and A2A agent backends.
+
+### Patch Changes
+
+- 9e54751: Add a shared per-app status map (`getAppStatus`) and drive the sidebar header
+  badge from it, so an app moves from Alpha to Beta by flipping one entry.
+- 04d0b20: Add the `alg` and `crv` columns Better Auth 1.7 writes on every minted JWKS key, to both the Drizzle auth schema and the framework release migrations. Without them the Drizzle adapter rejected the key mint that runs on the first `/get-session`, so an app on core 0.180.0 with no signing key yet failed every session check. The framework health report now checks the two columns as well.
+- 421910f: Return deterministic client errors for disabled Creative Context and preserve the singular app-role setter for existing integrations.
+- 116c315: Keep embedded Design editor agent chat aligned with the shared sidebar and use concise OpenAI model labels.
+- Release all public npm packages with a patch version bump.
+- edd959b: Open OAuth popups on an inert same-origin HTTP page so embedded browsers can apply their normal popup security policy before the provider redirect.
+- 280a620: Persist the auto-generated local development auth secret in `<app>/.agent-native/dev-auth-secret` (mode 0600, created exclusively, reused across restarts, never written into env files) so local sign-in sessions and the auto-created dev account survive dev-server restarts, and make the workspace dev gateway print its root directory, the real per-app URLs, and an explicit notice when its requested port is already in use.
+- 8f24597: Keep review comment actions and attachments in one compact composer row.
+- Updated dependencies [901376b]
+- Updated dependencies [b35949b]
+- Updated dependencies [116c315]
+- Updated dependencies
+  - @agent-native/agentkit@0.2.3
+  - @agent-native/toolkit@0.20.3
+  - @agent-native/recap-cli@0.5.33
+
 ## 0.181.0
 
 ### Minor Changes
@@ -2912,12 +2937,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 ### Patch Changes
 
 - 0860ba4: Keep the Vite "dev server is restarting" page polling until Nitro answers instead of stopping after five 1-second reloads during a multi-minute first boot.
-
-## 0.163.3
-
-### Patch Changes
-
-- e059442: Keep collaboration auto-seeding correct for mapped document ids without issuing one database read per source row, and carry the configured deployment lane into server telemetry.
-- e059442: Harden the local self-hosting Docker quickstart and document PostgreSQL volume upgrades.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

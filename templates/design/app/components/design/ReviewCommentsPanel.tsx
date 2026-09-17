@@ -74,6 +74,7 @@ export function ReviewCommentsPanel({
   const [search, setSearch] = useState("");
   const [showResolved, setShowResolved] = useState(false);
   const [onlyMine, setOnlyMine] = useState(false);
+  const [onlyUnread, setOnlyUnread] = useState(false);
   const [onlyCurrentPage, setOnlyCurrentPage] = useState(false);
   const [sortBy, setSortBy] = useState<ReviewThreadSort>("date");
   const setUnread = useSetReviewThreadUnread();
@@ -83,6 +84,7 @@ export function ReviewCommentsPanel({
     resourceType: "design",
     resourceId: designId,
     includeResolved: true,
+    newestFirst: true,
     limit: 500,
   });
   const { data: organizationMembers } = useOrgMembers();
@@ -300,6 +302,13 @@ export function ReviewCommentsPanel({
               {t("review.onlyYours")}
             </DropdownMenuCheckboxItem>
             <DropdownMenuCheckboxItem
+              checked={onlyUnread}
+              onCheckedChange={setOnlyUnread}
+              disabled={!canSetThreadPreferences}
+            >
+              {t("review.unread")}
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuCheckboxItem
               checked={onlyCurrentPage}
               onCheckedChange={setOnlyCurrentPage}
               disabled={!hasCurrentTarget}
@@ -340,6 +349,9 @@ export function ReviewCommentsPanel({
           resolvedLabel={t("review.resolved")}
           reviewerLabel={t("review.reviewer")}
           includeResolved={showResolved}
+          newestFirst
+          limit={500}
+          unreadOnly={onlyUnread}
           showHeader={false}
           variant="plain"
           className="design-sidebar-comments"
@@ -350,6 +362,7 @@ export function ReviewCommentsPanel({
           threadFilter={threadFilter}
           threadSort={threadSort}
           showReactions
+          onReactionError={() => toast.error(t("common.genericError"))}
           onCopyThreadLink={copyThreadLink}
           onSetThreadUnread={
             canSetThreadPreferences ? setThreadUnread : undefined

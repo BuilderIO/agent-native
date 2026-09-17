@@ -61,6 +61,7 @@ vi.mock("./run-store.js", () => ({
   getRunAbortState: vi.fn(() => Promise.resolve({ aborted: false })),
   getRunEventsSince: vi.fn(() => Promise.resolve([])),
   getCurrentTurnEventsForThread: vi.fn(() => Promise.resolve([])),
+  getCurrentTurnRunEventsForThread: vi.fn(() => Promise.resolve([])),
   getRunById: vi.fn(() => Promise.resolve(null)),
   isContinuationTerminalReason: (reason: unknown) =>
     reason === "auto_continue" ||
@@ -214,7 +215,7 @@ import {
   getRunById,
   getRunByThread,
   getRunEventsSince,
-  getCurrentTurnEventsForThread,
+  getCurrentTurnRunEventsForThread,
   markRunAborted,
   markTurnAborted,
   updateRunStatus,
@@ -1159,7 +1160,9 @@ describe("run manager soft timeout", () => {
       if (result.done) break;
       chunks.push(decoder.decode(result.value));
     }
-    expect(chunks.join("")).toContain('data: {"type":"done","seq":0}');
+    expect(chunks.join("")).toContain(
+      'data: {"type":"done","seq":0,"eventId":"run-explicit-abort:0"}',
+    );
 
     await vi.waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
     expect(markRunAborted).toHaveBeenCalledWith("run-explicit-abort", "user");
@@ -1232,11 +1235,23 @@ describe("run manager soft timeout", () => {
   });
 
   it("replays every chunk of a completed logical turn as one stream", async () => {
-    vi.mocked(getCurrentTurnEventsForThread).mockResolvedValueOnce([
-      { type: "text", text: "first chunk" },
-      { type: "auto_continue", reason: "run_timeout" },
-      { type: "text", text: "second chunk" },
-      { type: "done" },
+    vi.mocked(getCurrentTurnRunEventsForThread).mockResolvedValueOnce([
+      {
+        runId: "run-turn-1",
+        seq: 0,
+        event: { type: "text", text: "first chunk" },
+      },
+      {
+        runId: "run-turn-1",
+        seq: 1,
+        event: { type: "auto_continue", reason: "run_timeout" },
+      },
+      {
+        runId: "run-turn-2",
+        seq: 0,
+        event: { type: "text", text: "second chunk" },
+      },
+      { runId: "run-turn-2", seq: 1, event: { type: "done" } },
     ]);
 
     const stream = await replayCompletedTurn("thread-turn", "turn-1");
@@ -1251,14 +1266,16 @@ describe("run manager soft timeout", () => {
 
     const output = chunks.join("");
     expect(output).toContain(
-      'data: {"type":"text","text":"first chunk","seq":0}',
+      'data: {"type":"text","text":"first chunk","seq":0,"eventId":"run-turn-1:0"}',
     );
     expect(output).toContain(
-      'data: {"type":"text","text":"second chunk","seq":1}',
+      'data: {"type":"text","text":"second chunk","seq":1,"eventId":"run-turn-2:0"}',
     );
-    expect(output).toContain('data: {"type":"done","seq":2}');
+    expect(output).toContain(
+      'data: {"type":"done","seq":2,"eventId":"run-turn-2:1"}',
+    );
     expect(output).not.toContain("auto_continue");
-    expect(getCurrentTurnEventsForThread).toHaveBeenCalledWith(
+    expect(getCurrentTurnRunEventsForThread).toHaveBeenCalledWith(
       "thread-turn",
       "turn-1",
     );
@@ -3011,10 +3028,53 @@ describe("run manager soft timeout", () => {
     const output = chunks.join("");
     expect(getRunEventsSince).toHaveBeenCalledTimes(2);
     expect(output).toContain(
-      'data: {"type":"text","text":"recovered","seq":0}',
+      'data: {"type":"text","text":"recovered","seq":0,"eventId":"run-sql-retry:0"}',
     );
-    expect(output).toContain('data: {"type":"done","seq":1}');
+    expect(output).toContain(
+      'data: {"type":"done","seq":1,"eventId":"run-sql-retry:1"}',
+    );
     expect(output).not.toContain("run_subscription_poll_failed");
+  });
+
+  it("keeps the exact SQL cursor after a recoverable poll failure", async () => {
+    vi.mocked(getRunEventsSince)
+      .mockClear()
+      .mockRejectedValueOnce(new Error("transient pool timeout"))
+      .mockResolvedValueOnce([
+        {
+          seq: 4,
+          eventData: JSON.stringify({ type: "text", text: "cursor-safe" }),
+        },
+        { seq: 5, eventData: JSON.stringify({ type: "done" }) },
+      ]);
+
+    const stream = subscribeToRun("run-sql-cursor-safe", 4);
+    const reader = stream!.getReader();
+    const decoder = new TextDecoder();
+
+    await vi.waitFor(() => expect(getRunEventsSince).toHaveBeenCalledTimes(1));
+    await vi.advanceTimersByTimeAsync(SQL_SUBSCRIPTION_RETRY_BASE_MS);
+
+    const chunks: string[] = [];
+    for (let i = 0; i < 2; i++) {
+      const next = await reader.read();
+      if (next.done) break;
+      chunks.push(decoder.decode(next.value));
+    }
+
+    expect(getRunEventsSince).toHaveBeenNthCalledWith(
+      1,
+      "run-sql-cursor-safe",
+      4,
+    );
+    expect(getRunEventsSince).toHaveBeenNthCalledWith(
+      2,
+      "run-sql-cursor-safe",
+      4,
+    );
+    expect(chunks.join("")).toContain(
+      '"text":"cursor-safe","seq":4,"eventId":"run-sql-cursor-safe:4"',
+    );
   });
 
   it("fails a SQL subscription loudly after bounded consecutive polling failures", async () => {
@@ -3057,6 +3117,24 @@ describe("run manager soft timeout", () => {
         '"errorCode":"run_subscription_poll_failed"',
       );
       expect(chunks.join("")).toContain('"recoverable":true');
+      const failure = chunks
+        .join("")
+        .split("data: ")
+        .map((chunk) => chunk.split("\n", 1)[0])
+        .map((chunk) => {
+          try {
+            return JSON.parse(chunk) as Record<string, unknown>;
+          } catch {
+            return null;
+          }
+        })
+        .find((event) => event?.errorCode === "run_subscription_poll_failed");
+      expect(failure).toEqual(
+        expect.not.objectContaining({ seq: expect.anything() }),
+      );
+      expect(failure).toEqual(
+        expect.not.objectContaining({ eventId: expect.anything() }),
+      );
       expect(capture).toHaveBeenCalledWith(
         expect.any(Error),
         expect.objectContaining({
@@ -3101,7 +3179,9 @@ describe("run manager soft timeout", () => {
       chunks.push(decoder.decode(next.value));
     }
 
-    expect(chunks.join("")).toContain('data: {"type":"done","seq":0}');
+    expect(chunks.join("")).toContain(
+      'data: {"type":"done","seq":0,"eventId":"run-sql-aborted:0"}',
+    );
     expect(getRunEventsSince).toHaveBeenCalledWith("run-sql-aborted", 0);
   });
 
@@ -3128,7 +3208,9 @@ describe("run manager soft timeout", () => {
       chunks.push(decoder.decode(next.value));
     }
 
-    expect(chunks.join("")).toContain('data: {"type":"done","seq":0}');
+    expect(chunks.join("")).toContain(
+      'data: {"type":"done","seq":0,"eventId":"run-sql-completed:0"}',
+    );
   });
 
   it("preserves continuation boundaries for completed SQL runs", async () => {
@@ -3158,7 +3240,7 @@ describe("run manager soft timeout", () => {
 
     const output = chunks.join("");
     expect(output).toContain(
-      'data: {"type":"auto_continue","reason":"stream_ended","seq":0}',
+      'data: {"type":"auto_continue","reason":"stream_ended","seq":0,"eventId":"run-sql-continuation:0"}',
     );
     expect(output).not.toContain('"type":"done"');
   });
@@ -3190,7 +3272,7 @@ describe("run manager soft timeout", () => {
     // A false `done` here tells the client the agent stopped while the chained
     // successor run is still working ("stopped without sending a final message").
     expect(chunks.join("")).toContain(
-      'data: {"type":"auto_continue","reason":"run_timeout","seq":0}',
+      'data: {"type":"auto_continue","reason":"run_timeout","seq":0,"eventId":"run-sql-chunk:0"}',
     );
     expect(chunks.join("")).not.toContain('"type":"done"');
   });
@@ -3220,7 +3302,7 @@ describe("run manager soft timeout", () => {
     }
 
     expect(chunks.join("")).toContain(
-      'data: {"type":"auto_continue","reason":"no_progress","seq":0}',
+      'data: {"type":"auto_continue","reason":"no_progress","seq":0,"eventId":"run-sql-aborted:0"}',
     );
     expect(chunks.join("")).not.toContain('"type":"done"');
   });
@@ -3253,7 +3335,7 @@ describe("run manager soft timeout", () => {
     }
 
     expect(chunks.join("")).toContain(
-      'data: {"type":"auto_continue","reason":"run_timeout","seq":12}',
+      'data: {"type":"auto_continue","reason":"run_timeout","seq":12,"eventId":"run-sql-aborted-real:12"}',
     );
   });
 
@@ -3298,7 +3380,9 @@ describe("run manager soft timeout", () => {
     }
     await pump;
     expect(closed).toBe(true);
-    expect(chunks.join("")).toContain('data: {"type":"done","seq":0}');
+    expect(chunks.join("")).toContain(
+      'data: {"type":"done","seq":0,"eventId":"run-memory-terminal-race:0"}',
+    );
   });
 
   it("re-emits an in-memory terminal event when the cursor is past it", async () => {
@@ -3325,7 +3409,9 @@ describe("run manager soft timeout", () => {
       chunks.push(decoder.decode(next.value));
     }
 
-    expect(chunks.join("")).toContain('data: {"type":"done","seq":0}');
+    expect(chunks.join("")).toContain(
+      'data: {"type":"done","seq":0,"eventId":"run-memory-past-cursor:0"}',
+    );
   });
 
   it("retries instead of reporting a missing row when the terminal lookup fails", async () => {
@@ -3467,7 +3553,9 @@ describe("run manager soft timeout", () => {
       chunks.push(decoder.decode(next.value));
     }
 
-    expect(chunks.join("")).toContain('data: {"type":"done","seq":5}');
+    expect(chunks.join("")).toContain(
+      'data: {"type":"done","seq":5,"eventId":"run-sql-missing-row-with-event:5"}',
+    );
   });
 
   it("emits a terminal event for an unrecognized non-running status", async () => {
@@ -3529,7 +3617,7 @@ describe("run manager soft timeout", () => {
     }
 
     expect(chunks.join("")).toContain(
-      'data: {"type":"auto_continue","reason":"no_progress","seq":7}',
+      'data: {"type":"auto_continue","reason":"no_progress","seq":7,"eventId":"run-sql-past-cursor:7"}',
     );
   });
 

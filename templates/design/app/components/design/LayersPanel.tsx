@@ -1572,17 +1572,21 @@ function LayersPanelImpl(
                 : { height: `${screenSectionHeight}px` }),
             }}
           >
-            <div className="flex h-[var(--design-section-height)] items-center justify-between px-2">
+            <div
+              data-layers-panel-header="screens"
+              className="flex h-[var(--design-section-height)] items-center justify-between px-2"
+            >
               <h2 className="truncate text-[11px] font-semibold text-foreground">
                 {labels.screens}
               </h2>
               <div className="flex items-center gap-0.5 text-muted-foreground">
                 <IconTooltipButton
                   label={labels.addScreen}
+                  dataAction="add-screen"
                   disabled={!onAddScreen}
                   onClick={onAddScreen}
                 >
-                  <IconPlus className="size-[var(--design-icon-size)]" />
+                  <IconPlus className="!size-[var(--design-icon-size)]" />
                 </IconTooltipButton>
               </div>
             </div>
@@ -1615,6 +1619,7 @@ function LayersPanelImpl(
                     <button
                       key={screen.id}
                       type="button"
+                      data-screen-row
                       ref={(element) => {
                         if (element)
                           screenRowRefs.current.set(screen.id, element);
@@ -1668,7 +1673,10 @@ function LayersPanelImpl(
           </div>
         ) : null}
 
-        <div className="flex h-[var(--design-section-height)] shrink-0 items-center justify-between px-2">
+        <div
+          data-layers-panel-header="layers"
+          className="flex h-[var(--design-section-height)] shrink-0 items-center justify-between px-2"
+        >
           <div className="min-w-0">
             <h2 className="truncate text-[11px] font-semibold text-foreground">
               {labels.title}
@@ -1677,18 +1685,26 @@ function LayersPanelImpl(
           <div className="flex items-center gap-0.5 text-muted-foreground">
             <IconTooltipButton
               label={labels.searchPlaceholder}
+              dataAction="search"
               onClick={focusSearch}
             >
-              <IconSearch className="size-4" strokeWidth={1.8} />
+              <IconSearch
+                className="!size-[var(--design-icon-size)]"
+                strokeWidth={1.8}
+              />
             </IconTooltipButton>
             <button
               type="button"
+              data-layers-panel-action="collapse"
               className="flex size-5 items-center justify-center rounded-sm text-muted-foreground hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground disabled:pointer-events-none disabled:opacity-35"
               aria-label={labels.collapse}
               disabled={collapsedIds.length === expandedIds.length}
               onClick={collapseLayers}
             >
-              <IconListTree className="size-5" strokeWidth={1.5} />
+              <IconListTree
+                className="!size-[var(--design-icon-size)]"
+                strokeWidth={1.5}
+              />
             </button>
           </div>
         </div>
@@ -2460,6 +2476,9 @@ const LayerRow = memo(function LayerRow({
                     type="button"
                     variant="ghost"
                     size="icon"
+                    data-layer-row-chevron={
+                      isExpanded ? "expanded" : "collapsed"
+                    }
                     className="size-5 shrink-0 rounded-sm p-0 text-muted-foreground hover:bg-transparent hover:text-foreground"
                     aria-label={isExpanded ? labels.collapse : labels.expand}
                     onClick={(event) => {
@@ -2503,6 +2522,7 @@ const LayerRow = memo(function LayerRow({
               onKeyDown={handleKeyDown}
             >
               <span
+                data-layer-row-icon
                 className={cn(
                   "flex size-[var(--design-icon-size)] shrink-0 items-center justify-center text-muted-foreground",
                   isComponentLayer
@@ -2923,11 +2943,13 @@ const LayerRow = memo(function LayerRow({
 
 function IconTooltipButton({
   label,
+  dataAction,
   onClick,
   disabled,
   children,
 }: {
   label: string;
+  dataAction?: string;
   onClick?: () => void;
   disabled?: boolean;
   children: ReactNode;
@@ -2940,6 +2962,7 @@ function IconTooltipButton({
             type="button"
             variant="ghost"
             size="icon"
+            data-layers-panel-action={dataAction}
             className="size-5 rounded-sm p-0 text-muted-foreground hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground"
             aria-label={label}
             disabled={disabled}

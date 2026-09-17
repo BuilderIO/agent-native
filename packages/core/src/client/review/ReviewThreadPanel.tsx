@@ -64,6 +64,12 @@ import {
 } from "./use-review.js";
 
 const DEFAULT_REACTION_CHOICES = ["👍", "❤️", "🎉", "👀"] as const;
+const MAX_REVIEW_IMAGE_ATTACHMENTS = 5;
+
+interface ReviewCommentAttachment {
+  url: string;
+  name: string;
+}
 
 export interface ReviewThread {
   root: ReviewComment;
@@ -84,6 +90,12 @@ export interface ReviewThreadPanelProps {
   resourceType: string;
   resourceId: string;
   targetId?: string | null;
+  /** Select the newest active threads before restoring each thread's chronology. */
+  newestFirst?: boolean;
+  /** Maximum number of comments/threads returned by the review query. */
+  limit?: number;
+  /** Filter the rendered list to threads marked unread for the current user. */
+  unreadOnly?: boolean;
   /** Persist new comments against this target while targetId continues to filter the list. */
   composerTargetId?: string | null;
   /** Optional element/point anchor attached to new comments from the composer. */
@@ -115,6 +127,7 @@ export interface ReviewThreadPanelProps {
   moreActionsLabel?: string;
   resolvedLabel?: string;
   reviewerLabel?: string;
+  unreadLabel?: string;
   agentLabel?: string;
   onSelectThread?: (thread: ReviewThread) => void;
   onCommentCreated?: (comment: ReviewComment) => void;
@@ -174,6 +187,9 @@ export function ReviewThreadPanel({
   resourceType,
   resourceId,
   targetId,
+  newestFirst,
+  limit,
+  unreadOnly = false,
   composerTargetId,
   composerAnchor,
   composerMetadata,
@@ -200,6 +216,7 @@ export function ReviewThreadPanel({
   moreActionsLabel = "More actions",
   resolvedLabel = "Resolved",
   reviewerLabel = "Reviewer",
+  unreadLabel = "Unread",
   agentLabel,
   onSelectThread,
   onCommentCreated,
@@ -275,6 +292,8 @@ export function ReviewThreadPanel({
     resourceId,
     targetId,
     includeResolved: includeResolved && commentFilter !== "open",
+    newestFirst,
+    limit,
   });
   const createComment = useCreateReviewComment();
   const replyComment = useReplyReviewComment();
@@ -288,13 +307,17 @@ export function ReviewThreadPanel({
     return threadSort ? filtered.sort(threadSort) : filtered;
   }, [comments.data?.comments, threadFilter, threadSort]);
 
-  const visibleThreads = useMemo(
-    () =>
+  const visibleThreads = useMemo(() => {
+    const statusFiltered =
       commentFilter === "all"
         ? threads
-        : threads.filter((thread) => thread.root.status === commentFilter),
-    [commentFilter, threads],
-  );
+        : threads.filter((thread) => thread.root.status === commentFilter);
+    if (!unreadOnly) return statusFiltered;
+    const preferences = comments.data?.discussion?.threadPreferences ?? {};
+    return statusFiltered.filter(
+      (thread) => preferences[thread.root.threadId]?.unread === true,
+    );
+  }, [commentFilter, comments.data?.discussion, threads, unreadOnly]);
 
   const handleReaction = (
     comment: ReviewComment,
@@ -565,8 +588,10 @@ export function ReviewThreadPanel({
                   key={thread.root.threadId}
                   className={cn(
                     "group/thread px-3 py-3 transition-colors",
+                    threadUnread && "bg-primary/[0.03]",
                     onSelectThread && "cursor-pointer hover:bg-muted/30",
                   )}
+                  data-review-thread-unread={threadUnread ? "true" : undefined}
                   onClick={() => onSelectThread?.(thread)}
                 >
                   {editCandidate?.id === thread.root.id ? (
@@ -612,6 +637,8 @@ export function ReviewThreadPanel({
                       resolvedLabel={resolvedLabel}
                       reviewerLabel={reviewerLabel}
                       agentLabel={agentLabel}
+                      unread={threadUnread}
+                      unreadLabel={unreadLabel}
                       formatDate={formatDate}
                       reactions={
                         comments.data?.discussion?.reactions[thread.root.id]
@@ -633,6 +660,8 @@ export function ReviewThreadPanel({
                           resolvedLabel={resolvedLabel}
                           reviewerLabel={reviewerLabel}
                           agentLabel={agentLabel}
+                          unread={false}
+                          unreadLabel={unreadLabel}
                           formatDate={formatDate}
                           reactions={
                             comments.data?.discussion?.reactions[reply.id]
@@ -983,6 +1012,8 @@ function CommentBubble({
   resolvedLabel,
   reviewerLabel,
   agentLabel,
+  unread = false,
+  unreadLabel = "Unread",
   formatDate,
   reactions = [],
   canReact = false,
@@ -996,6 +1027,8 @@ function CommentBubble({
   resolvedLabel: string;
   reviewerLabel: string;
   agentLabel?: string;
+  unread?: boolean;
+  unreadLabel?: string;
   formatDate: ReturnType<typeof useFormatters>["formatDate"];
   reactions?: ReviewCommentReaction[];
   canReact?: boolean;
@@ -1033,6 +1066,15 @@ function CommentBubble({
           >
             {formatCommentDate(comment.createdAt, formatDate)}
           </time>
+          {unread ? (
+            <>
+              <span
+                aria-hidden="true"
+                className="size-1.5 shrink-0 rounded-full bg-primary"
+              />
+              <span className="sr-only">{unreadLabel}</span>
+            </>
+          ) : null}
           {comment.status === "resolved" ? (
             <span className="hidden shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground @xs/review:inline-flex">
               {resolvedLabel}
@@ -1041,7 +1083,7 @@ function CommentBubble({
         </div>
         {!bodyIsResolutionNote ? (
           <InlineMarkdown
-            content={comment.body}
+            content={displayReviewCommentBody(comment.body)}
             className={cn(
               "mt-1 text-foreground",
               compact ? "text-xs leading-5" : "text-sm leading-5",
@@ -1055,11 +1097,12 @@ function CommentBubble({
           >
             <IconCircleCheck className="mt-0.5 size-3.5 shrink-0" />
             <InlineMarkdown
-              content={resolutionNote}
+              content={displayReviewCommentBody(resolutionNote)}
               className="min-w-0 text-xs leading-4"
             />
           </div>
         ) : null}
+        <ReviewCommentAttachmentStrip comment={comment} compact={compact} />
         {showReactions ? (
           <div className="mt-2 flex flex-wrap items-center gap-1">
             {reactions.map((item) => (
@@ -1117,6 +1160,100 @@ function CommentBubble({
       </div>
     </div>
   );
+}
+
+function ReviewCommentAttachmentStrip({
+  comment,
+  compact,
+}: {
+  comment: ReviewComment;
+  compact: boolean;
+}) {
+  const attachments = reviewCommentAttachments(comment);
+  if (!attachments.length) return null;
+  return (
+    <div
+      className={cn(
+        "mt-2 flex flex-wrap gap-1.5",
+        compact ? "max-w-56" : "max-w-64",
+      )}
+      data-review-comment-attachments
+    >
+      {attachments.map((attachment) => (
+        <a
+          key={attachment.url}
+          href={attachment.url}
+          target="_blank"
+          rel="noreferrer"
+          className="block size-16 overflow-hidden rounded-md border border-border bg-muted"
+        >
+          <img
+            src={attachment.url}
+            alt={attachment.name}
+            loading="lazy"
+            className="size-full object-cover"
+          />
+        </a>
+      ))}
+    </div>
+  );
+}
+
+function reviewCommentAttachments(
+  comment: ReviewComment,
+): ReviewCommentAttachment[] {
+  const raw = comment.metadata?.attachments;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .flatMap((value) => {
+      if (!value || typeof value !== "object") return [];
+      const attachment = value as Record<string, unknown>;
+      const url = typeof attachment.url === "string" ? attachment.url : "";
+      const contentType =
+        typeof attachment.contentType === "string"
+          ? attachment.contentType
+          : undefined;
+      if (
+        !url ||
+        (contentType && !contentType.startsWith("image/")) ||
+        !isTrustedReviewAttachmentUrl(url)
+      ) {
+        return [];
+      }
+      return [
+        {
+          url,
+          name:
+            typeof attachment.name === "string" && attachment.name.trim()
+              ? attachment.name
+              : "image",
+        },
+      ];
+    })
+    .slice(0, MAX_REVIEW_IMAGE_ATTACHMENTS);
+}
+
+export function isTrustedReviewAttachmentUrl(value: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(
+      value,
+      typeof window === "undefined"
+        ? "http://localhost"
+        : window.location.origin,
+    );
+    // coercion-ok: an unparseable attachment URL is untrusted, not absent.
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
+  if (typeof window !== "undefined" && parsed.origin === window.location.origin)
+    return true;
+  return parsed.protocol === "https:" && parsed.hostname === "cdn.builder.io";
+}
+
+function displayReviewCommentBody(body: string): string {
+  return body.replace(/@\[([^\]]+)\]\(mailto:[^)]+\)/g, "@$1");
 }
 
 function capabilityAllowsThread(

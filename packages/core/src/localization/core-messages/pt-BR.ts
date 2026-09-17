@@ -95,6 +95,11 @@ const messages: AgentChatTranslation = {
     "Reconhecimento de voz do navegador ou conversão de fala em texto",
   "onboarding.capability.voiceInput.why":
     "A entrada de voz transforma solicitações faladas em texto; digitar sempre funciona.",
+  "onboarding.capability.embeddings.label": "Vetores semânticos",
+  "onboarding.capability.embeddings.keySummary":
+    "Chave do Gemini, Cohere ou Voyage",
+  "onboarding.capability.embeddings.why":
+    "Vetores semânticos melhoram a busca semântica. A busca por palavras-chave continua funcionando sem eles.",
   "onboarding.capability.assetsImageGeneration.label": "Geração de imagens",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Créditos Builder ou chave de provedor de imagens",
@@ -189,6 +194,26 @@ const messages: AgentChatTranslation = {
   "agents.statusReachable": "Acessível",
   "agents.statusAuthRejected": "Autenticação rejeitada",
   "agents.statusNoJsonRpc": "Sem JSON-RPC",
+  "agents.directoryTab": "Diretório de agentes",
+  "agents.directoryPageHint":
+    "Encontre um backend de agente e conecte-o ao seu workspace.",
+  "agents.directorySearch": "Pesquisar provedores",
+  "agents.directoryProviders": "Provedores",
+  "agents.directoryManual": "Adicionar por URL",
+  "agents.directoryA2A": "A2A",
+  "agents.directoryManaged": "API gerenciada",
+  "agents.directoryFoundry": "Microsoft Foundry",
+  "agents.directoryFoundryHint": "Conecte um agente do Foundry via A2A.",
+  "agents.directoryGemini": "Gemini Enterprise",
+  "agents.directoryGeminiHint":
+    "Conecte um agente do Gemini Enterprise via A2A.",
+  "agents.directoryAnthropic": "Agentes gerenciados da Anthropic",
+  "agents.directoryAnthropicHint": "Conecte sessões e aprovações da Anthropic.",
+  "agents.directoryNoMatches": "Nenhum provedor corresponde à sua pesquisa.",
+  "agents.directoryRegistry": "Registro global de A2A",
+  "agents.directoryRegistryHint":
+    "Explore Agent Cards públicas e verifique-as antes de conectar.",
+  "agents.directoryBrowse": "Explorar registro",
   "common.saveFailed": "Falha ao salvar",
   "common.saveFailedStatus": "Falha ao salvar ({{status}})",
   "common.saving": "Salvando...",

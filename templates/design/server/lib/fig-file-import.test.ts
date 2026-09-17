@@ -26,7 +26,11 @@ import {
   convertDecodedFigToEditableHtml,
   importFigFileToEditableHtml,
 } from "./fig-file-import.js";
-import { renderHtmlTemplates } from "./fig-file-to-html.js";
+import {
+  collectTopLevelFrames,
+  renderHtmlTemplates,
+  type FigNode,
+} from "./fig-file-to-html.js";
 
 function kiwiContainer(chunks: Buffer[], version = 124): Buffer {
   const header = Buffer.alloc(12);
@@ -418,6 +422,94 @@ describe("editable .fig conversion", () => {
     expect(rendered.frames[0]!.html).toContain("left: 10px; top: 20px");
   });
 
+  it("sorts section frames by their full accumulated affine transform", () => {
+    const guid = (localID: number) => ({ sessionID: 1, localID });
+    const transform = (
+      m00: number,
+      m01: number,
+      m02: number,
+      m10: number,
+      m11: number,
+      m12: number,
+    ) => ({
+      m00,
+      m01,
+      m02,
+      m10,
+      m11,
+      m12,
+    });
+    const page: FigNode = { guid: guid(1), type: "CANVAS" };
+    const rotatedSection: FigNode = {
+      guid: guid(2),
+      type: "SECTION",
+      transform: transform(0, -1, 100, 1, 0, 0),
+    };
+    const rotatedFrame: FigNode = {
+      guid: guid(3),
+      type: "FRAME",
+      name: "Rotated section frame",
+      transform: transform(1, 0, 0, 0, 1, 200),
+    };
+    const rightSection: FigNode = {
+      guid: guid(4),
+      type: "SECTION",
+      transform: transform(1, 0, -50, 0, 1, 0),
+    };
+    const rightFrame: FigNode = {
+      guid: guid(5),
+      type: "FRAME",
+      name: "Right frame",
+      transform: transform(1, 0, 0, 0, 1, 0),
+    };
+    const childrenOf = new Map<string, FigNode[]>([
+      ["1:1", [rotatedSection, rightSection]],
+      ["1:2", [rotatedFrame]],
+      ["1:4", [rightFrame]],
+    ]);
+
+    expect(
+      collectTopLevelFrames(page, childrenOf).map((frame) => frame.name),
+    ).toEqual(["Rotated section frame", "Right frame"]);
+  });
+
+  it("sorts transformed frames by their rendered bounds, not just their origin", () => {
+    const guid = (localID: number) => ({ sessionID: 1, localID });
+    const page: FigNode = { guid: guid(1), type: "CANVAS" };
+    const rotatedSection: FigNode = {
+      guid: guid(2),
+      type: "SECTION",
+      transform: {
+        m00: 0,
+        m01: -1,
+        m02: 100,
+        m10: 1,
+        m11: 0,
+        m12: 0,
+      },
+    };
+    const rotatedFrame: FigNode = {
+      guid: guid(3),
+      type: "FRAME",
+      name: "Rotated bounds frame",
+      size: { x: 20, y: 300 },
+    };
+    const rightFrame: FigNode = {
+      guid: guid(4),
+      type: "FRAME",
+      name: "Right frame",
+      size: { x: 20, y: 20 },
+    };
+    const childrenOf = new Map<string, FigNode[]>([
+      ["1:1", [rotatedSection, rightFrame]],
+      ["1:2", [rotatedFrame]],
+    ]);
+
+    expect(
+      collectTopLevelFrames(page, childrenOf).map((frame) => frame.name),
+    ).toEqual(["Rotated bounds frame", "Right frame"]);
+  });
+
   it("imports all frames from the uploaded file", async () => {
     const result = await convertDecodedFigToEditableHtml(
       {
@@ -434,6 +526,57 @@ describe("editable .fig conversion", () => {
     );
 
     expect(result.files).toHaveLength(2);
+  });
+
+  it("imports multi-frame flows in left-to-right canvas order, not layer/creation order", async () => {
+    // A designer can reorder or duplicate frames in the layers panel without
+    // moving them on the canvas, so `parentIndex.position` (creation/z order)
+    // can point the opposite way from where the frames actually sit. Three
+    // frames laid out left-to-right on the canvas (x: 0, 400, 800) but stored
+    // with their layer order reversed (rightmost frame has the earliest
+    // `position`) must still import in canvas order: Left, Middle, Right.
+    const document = editableDocument();
+    const frame = (
+      localID: number,
+      position: string,
+      name: string,
+      x: number,
+    ) => ({
+      guid: { sessionID: 1, localID },
+      parentIndex: { guid: { sessionID: 1, localID: 2 }, position },
+      type: "FRAME" as const,
+      name,
+      size: { x: 320, y: 200 },
+      transform: { m00: 1, m01: 0, m02: x, m10: 0, m11: 1, m12: 0 },
+      fillPaints: [{ type: "SOLID", color: { r: 1, g: 1, b: 1, a: 1 } }],
+    });
+    document.nodeChanges = [
+      document.nodeChanges[0]!,
+      document.nodeChanges[1]!,
+      frame(10, "a", "Right", 800),
+      frame(11, "b", "Middle", 400),
+      frame(12, "c", "Left", 0),
+    ];
+
+    const result = await convertDecodedFigToEditableHtml(
+      {
+        format: "kiwi",
+        document,
+        images: [],
+        thumbnail: null,
+      },
+      {
+        originalName: "reordered-frames.fig",
+        ownerEmail: "example@example.com",
+        uploader: vi.fn(),
+      },
+    );
+
+    expect(result.files.map((file) => file.preferredFrame?.title)).toEqual([
+      "Left",
+      "Middle",
+      "Right",
+    ]);
   });
 
   it("uploads embedded images through file storage and persists only the URL", async () => {

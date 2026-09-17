@@ -1,4 +1,5 @@
 import { isAllowedUploadMimeType } from "@agent-native/core/server";
+import { testUserRegex } from "@agent-native/core/shared";
 
 import type { FormField, FormFileValue } from "../../shared/types.js";
 import {
@@ -84,12 +85,16 @@ function isAbsentSubmissionValue(value: unknown): boolean {
 function validatePattern(field: FormField, value: string): string | null {
   const pattern = field.validation?.pattern;
   if (!pattern) return null;
-  try {
-    if (!new RegExp(pattern).test(value)) {
-      return field.validation?.message || `${fieldLabel(field)} is invalid`;
-    }
-  } catch {
-    return `${fieldLabel(field)} has an invalid validation pattern`;
+  // Forms authored before the authoring gate landed can still hold a pattern
+  // that backtracks exponentially, and this runs inside the submit handler -
+  // evaluating one would peg the event loop for every other request too.
+  // Refuse the submission rather than silently accepting an unenforced rule.
+  const result = testUserRegex(pattern, value);
+  if (result.status === "unevaluated") {
+    return `${fieldLabel(field)} has a validation pattern that cannot be checked safely: ${result.reason}`;
+  }
+  if (result.status === "no-match") {
+    return field.validation?.message || `${fieldLabel(field)} is invalid`;
   }
   return null;
 }
