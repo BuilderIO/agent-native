@@ -202,22 +202,32 @@ export function OpenVisualEditWebMcp() {
     if (!pending) return;
     pendingApprovalRef.current = null;
     setPendingApproval(null);
+    if (pending.signal) {
+      pending.signal.removeEventListener("abort", pending.abortHandler);
+    }
     pending.resolve(approved);
   }, []);
   const requestApproval = useCallback(
-    (request: AgentNativeWebMcpApprovalRequest) => {
+    (request: AgentNativeWebMcpApprovalRequest, signal?: AbortSignal) => {
+      if (signal?.aborted) return Promise.resolve(false);
       if (pendingApprovalRef.current) {
         // Reject overlapping calls instead of replacing the request shown in
         // the dialog with a different request's resolver.
         return Promise.resolve(false);
       }
       return new Promise<boolean>((resolve) => {
-        const pending = { request, resolve };
+        const abortHandler = () => {
+          if (pendingApprovalRef.current?.abortHandler === abortHandler) {
+            resolveApproval(false);
+          }
+        };
+        const pending = { request, resolve, signal, abortHandler };
+        signal?.addEventListener("abort", abortHandler, { once: true });
         pendingApprovalRef.current = pending;
         setPendingApproval(pending);
       });
     },
-    [],
+    [resolveApproval],
   );
 
   useEffect(() => {
@@ -277,4 +287,6 @@ export function OpenVisualEditWebMcp() {
 interface PendingApproval {
   request: AgentNativeWebMcpApprovalRequest;
   resolve: (approved: boolean) => void;
+  signal?: AbortSignal;
+  abortHandler: () => void;
 }

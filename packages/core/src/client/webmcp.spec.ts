@@ -831,6 +831,46 @@ describe("WebMCP registration", () => {
     expect(modelContext.registerTool).not.toHaveBeenCalled();
   });
 
+  it("does not run an approved action after its WebMCP signal aborts", async () => {
+    const registrations: Array<{ tool: Record<string, any> }> = [];
+    const modelContext = {
+      registerTool: vi.fn(async (tool) => {
+        registrations.push({ tool });
+      }),
+      getTools: vi.fn(async () => []),
+      executeTool: vi.fn(async () => ""),
+    };
+    const run = vi.fn(async () => ({ ok: true }));
+    const approve = vi.fn(async () => {
+      controller.abort();
+      return true;
+    });
+    const controller = new AbortController();
+    const registration = createAgentNativeWebMcpRegistration({
+      document: documentWithModelContext(modelContext),
+      actions: [
+        {
+          name: "open-order",
+          description: "Open an order",
+          requiresApproval: true,
+          run,
+        },
+      ],
+      approve,
+    });
+
+    await registration.start();
+    await expect(
+      registrations[0]?.tool.execute({}, { signal: controller.signal }),
+    ).rejects.toThrow('WebMCP action "open-order" was aborted');
+    expect(approve).toHaveBeenCalledWith(
+      expect.objectContaining({ args: {} }),
+      controller.signal,
+    );
+    expect(run).not.toHaveBeenCalled();
+    registration.stop();
+  });
+
   it("does not register actions resolved after stop", async () => {
     const modelContext = {
       registerTool: vi.fn(async () => {}),

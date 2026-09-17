@@ -1188,6 +1188,7 @@ export interface AgentNativeWebMcpRegistrationOptions {
   commands?: AgentNativeHostCommandHandlers;
   approve?: (
     request: AgentNativeWebMcpApprovalRequest,
+    signal?: AbortSignal,
   ) => boolean | Promise<boolean>;
   maxInputChars?: number;
   maxResultChars?: number;
@@ -1540,7 +1541,7 @@ export function createAgentNativeWebMcpRegistration(
               } satisfies AgentNativeWebMcpApprovalRequest;
               if (requiresApproval) {
                 const approved = options.approve
-                  ? await options.approve(request)
+                  ? await options.approve(request, executionOptions?.signal)
                   : await (
                       options.commands?.requestApproval ??
                       options.commands?.["request-approval"]
@@ -1571,6 +1572,9 @@ export function createAgentNativeWebMcpRegistration(
                   throw new Error(
                     `WebMCP action "${action.name}" was not approved`,
                   );
+                }
+                if (executionOptions?.signal?.aborted) {
+                  throw new Error(`WebMCP action "${action.name}" was aborted`);
                 }
               }
               const result = await action.run(
