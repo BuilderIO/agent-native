@@ -185,6 +185,7 @@ export function isSafeSvg(data: Uint8Array): boolean {
     /\b(?:javascript|vbscript)\s*:/i,
     /\b(?:expression|behavior|-moz-binding)\s*\(/i,
     /@import\b/i,
+    /\b(?:-webkit-)?image-set\s*\(/i,
   ];
   if (forbidden.some((pattern) => pattern.test(normalizedSource))) return false;
 

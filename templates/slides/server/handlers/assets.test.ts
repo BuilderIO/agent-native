@@ -122,6 +122,14 @@ describe("uploaded asset validation", () => {
     ).toBe(false);
     expect(
       canSaveAsUploadedAsset({
+        originalName: "image-set-css.svg",
+        data: Buffer.from(
+          '<svg><style>rect{fill:image-set("https://example.com/pixel" 1x)}</style><rect /></svg>',
+        ),
+      }),
+    ).toBe(false);
+    expect(
+      canSaveAsUploadedAsset({
         originalName: "commented-css.svg",
         data: Buffer.from(
           '<svg><style>@im/**/port "https://example.com/style.css";</style></svg>',
