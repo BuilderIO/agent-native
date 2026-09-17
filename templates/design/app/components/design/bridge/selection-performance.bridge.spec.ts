@@ -635,6 +635,107 @@ describe("large concurrent selectable-rects requests", () => {
     }
   }, 60_000);
 
+  async function collectAncestorMutationCase(
+    mode: "animation" | "transition",
+  ): Promise<{
+    child: string;
+    leaf: string;
+    state: string | undefined;
+    portableLeaf: string | undefined;
+  }> {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 600, height: 300 },
+      });
+      const childRule =
+        mode === "animation"
+          ? "color: rgb(255, 0, 0); animation: tint 1s linear paused; animation-fill-mode: both;"
+          : "color: rgb(255, 0, 0); transition: color 1s linear;";
+      await page.setContent(`<!doctype html><html><head><style>
+        @keyframes tint { from { color: rgb(255, 0, 0); } to { color: rgb(0, 0, 255); } }
+        #parent { position: relative; width: 500px; height: 220px; }
+        #child { position: absolute; left: 20px; top: 20px; width: 180px; height: 80px; ${childRule} }
+        #leaf { width: 90px; height: 40px; }
+      </style></head><body style="margin:0">
+        <div id="parent" data-agent-native-node-id="parent">
+          <div id="child" data-agent-native-node-id="child">
+            <div id="leaf" data-agent-native-node-id="leaf"></div>
+          </div>
+        </div>
+      </body></html>`);
+      await page.evaluate((mutationMode) => {
+        const child = document.querySelector<HTMLElement>("#child");
+        if (!child)
+          throw new Error("ancestor animation fixture did not attach");
+        const initialAnimation =
+          mutationMode === "animation" ? child.getAnimations()[0] : undefined;
+        if (mutationMode === "animation" && !initialAnimation) {
+          throw new Error("ancestor animation did not attach");
+        }
+        if (initialAnimation) initialAnimation.currentTime = 0;
+        let reads = 0;
+        const nativeRect = child.getBoundingClientRect.bind(child);
+        child.getBoundingClientRect = () => {
+          const rect = nativeRect();
+          reads += 1;
+          if (reads !== 2) return rect;
+          if (mutationMode === "animation") {
+            initialAnimation!.play();
+            initialAnimation!.currentTime = 500;
+            initialAnimation!.playbackRate = 0;
+          } else {
+            child.style.color = "rgb(0, 0, 255)";
+            const transition = child.getAnimations()[0];
+            if (!transition)
+              throw new Error("ancestor transition did not attach");
+            transition.currentTime = 500;
+            transition.playbackRate = 0;
+          }
+          return rect;
+        };
+      }, mode);
+      await page.addScriptTag({ content: hydratedBridge() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+      const payload = await collectSelectableRects(page, { deep: true });
+      const live = await page.evaluate(() => ({
+        child: getComputedStyle(document.querySelector<HTMLElement>("#child")!)
+          .color,
+        leaf: getComputedStyle(document.querySelector<HTMLElement>("#leaf")!)
+          .color,
+        state: document.querySelector<HTMLElement>("#child")!.getAnimations()[0]
+          ?.playState,
+      }));
+      const childInfo = payload.find((info) => info.sourceId === "child");
+      expect(childInfo).toBeDefined();
+      const portableLeaf = childInfo?.portableStyleSnapshot?.nodes?.find(
+        (node) => node.sourceId === "leaf",
+      )?.styles?.color;
+      expect(live.child).toBe("rgb(128, 0, 128)");
+      expect(live.leaf).toBe("rgb(128, 0, 128)");
+      expect(live.state).toBe("running");
+      return {
+        child: live.child,
+        leaf: live.leaf,
+        state: live.state,
+        portableLeaf,
+      };
+    } finally {
+      await browser.close();
+    }
+  }
+
+  it("refreshes a descendant when an ancestor animation changes an inherited style", async () => {
+    const result = await collectAncestorMutationCase("animation");
+    expect(result.portableLeaf).toBe(result.leaf);
+  }, 60_000);
+
+  it("refreshes a descendant when an ancestor transition changes an inherited style", async () => {
+    const result = await collectAncestorMutationCase("transition");
+    expect(result.portableLeaf).toBe(result.leaf);
+  }, 60_000);
+
   it("preserves payload shape while caching portable styles per request", async () => {
     const browser = await chromium.launch({ headless: true });
     try {

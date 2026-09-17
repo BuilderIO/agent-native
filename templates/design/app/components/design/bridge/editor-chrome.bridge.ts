@@ -2971,11 +2971,31 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     height: true,
   };
 
-  function canReusePortableComputedStyles(el: Element): boolean {
+  function portableStyleAnimationParent(
+    el: Element,
+  ): Element | null | undefined {
+    try {
+      if (el.parentElement) return el.parentElement;
+      var getRootNode = (el as Element & { getRootNode?: () => Node })
+        .getRootNode;
+      if (typeof getRootNode !== "function") return null;
+      var root = getRootNode.call(el) as Document | ShadowRoot;
+      var host = (root as ShadowRoot).host;
+      return host instanceof Element ? host : null;
+    } catch (_error) {
+      dndLog("style:animation-parent-read-failed", { tag: el.tagName });
+      return undefined;
+    }
+  }
+
+  function canReadPortableAnimationState(el: Element): boolean {
     var animatedElement = el as Element & {
       getAnimations?: () => Array<{ playState?: string }>;
     };
-    if (typeof animatedElement.getAnimations !== "function") return true;
+    if (typeof animatedElement.getAnimations !== "function") {
+      dndLog("style:animation-state-unreadable", { tag: el.tagName });
+      return false;
+    }
     try {
       var animations = animatedElement.getAnimations();
       if (!Array.isArray(animations)) {
@@ -2995,6 +3015,20 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       dndLog("style:animation-state-read-failed", { tag: el.tagName });
       return false;
     }
+  }
+
+  function canReusePortableComputedStyles(el: Element): boolean {
+    // Computed inherited values can change while only an ancestor is
+    // animated. Recheck the whole style parent chain on every cache lookup;
+    // caching this answer would make a mid-request animation invisible.
+    var current: Element | null = el;
+    while (current) {
+      if (!canReadPortableAnimationState(current)) return false;
+      var parent = portableStyleAnimationParent(current);
+      if (parent === undefined) return false;
+      current = parent;
+    }
+    return true;
   }
 
   function collectPortableComputedStyles(
@@ -3114,8 +3148,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         return;
       }
       // The root is also represented by getElementInfo's live computedStyles.
-      // Refresh it instead of reusing an ancestor's value; descendants remain
-      // cached because their values only appear in this portable snapshot.
+      // Refresh it instead of reusing an ancestor's value. Descendants use the
+      // request cache only when their style-parent animation state is quiescent.
       var styles = collectPortableComputedStyles(
         node,
         node === root ? undefined : cache,

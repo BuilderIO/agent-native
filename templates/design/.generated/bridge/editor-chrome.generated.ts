@@ -2835,9 +2835,25 @@ export const editorChromeBridgeScript: string = `"use strict";
       width: true,
       height: true
     };
-    function canReusePortableComputedStyles(el) {
+    function portableStyleAnimationParent(el) {
+      try {
+        if (el.parentElement) return el.parentElement;
+        var getRootNode = el.getRootNode;
+        if (typeof getRootNode !== "function") return null;
+        var root = getRootNode.call(el);
+        var host = root.host;
+        return host instanceof Element ? host : null;
+      } catch (_error) {
+        dndLog("style:animation-parent-read-failed", { tag: el.tagName });
+        return void 0;
+      }
+    }
+    function canReadPortableAnimationState(el) {
       var animatedElement = el;
-      if (typeof animatedElement.getAnimations !== "function") return true;
+      if (typeof animatedElement.getAnimations !== "function") {
+        dndLog("style:animation-state-unreadable", { tag: el.tagName });
+        return false;
+      }
       try {
         var animations = animatedElement.getAnimations();
         if (!Array.isArray(animations)) {
@@ -2857,6 +2873,16 @@ export const editorChromeBridgeScript: string = `"use strict";
         dndLog("style:animation-state-read-failed", { tag: el.tagName });
         return false;
       }
+    }
+    function canReusePortableComputedStyles(el) {
+      var current = el;
+      while (current) {
+        if (!canReadPortableAnimationState(current)) return false;
+        var parent = portableStyleAnimationParent(current);
+        if (parent === void 0) return false;
+        current = parent;
+      }
+      return true;
     }
     function collectPortableComputedStyles(el, cache, computedStyle) {
       if (!el) return {};
