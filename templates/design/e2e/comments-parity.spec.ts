@@ -1,10 +1,16 @@
 import { expect, test } from "@playwright/test";
 
 import { E2E_MENTION_EMAIL } from "./global-setup";
-import { gotoEditor, readSeedDesignId } from "./helpers";
+import { createFixtureDesign, gotoEditor } from "./helpers";
 
-test("comments toolbar opens an anchored composer", async ({ page }) => {
-  await gotoEditor(page, await readSeedDesignId());
+test("comments toolbar opens an anchored composer", async ({
+  page,
+}, testInfo) => {
+  const designId = await createFixtureDesign(
+    page,
+    `E2E Comment Parity ${testInfo.workerIndex}-${testInfo.repeatEachIndex}`,
+  );
+  await gotoEditor(page, designId);
 
   await page.getByRole("tab", { name: "Comments", exact: true }).click();
   await expect(page.locator("[data-review-comments-panel]")).toBeVisible();
