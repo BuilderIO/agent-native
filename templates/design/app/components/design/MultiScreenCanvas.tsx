@@ -1739,7 +1739,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   // ("Maximum update depth exceeded" → the editor appears to refresh). Track
   // the last prop-driven selection and only report genuine, local (user-driven)
   // divergences from it.
-  const propSyncedSelectionRef = useRef<string[] | null>(null);
+  const propSyncedSelectionRef = useRef<string[] | null>(
+    selectedScreenIds ? selectedIds : null,
+  );
   const isEchoOfPropSelection = useCallback(
     (ids: string[]) =>
       propSyncedSelectionRef.current !== null &&
@@ -6672,6 +6674,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         const shouldDuplicate = moved && ev.altKey;
 
         if (onDuplicate && shouldDuplicate) {
+          suppressNextPick.current = true;
           const dropCanvasPosition = canvasPointFromClient(
             ev.clientX,
             ev.clientY,
@@ -7680,16 +7683,23 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         );
       };
 
+      let bridgeDragStarted = false;
+      const startBridgeDrag = (source: MouseEvent) => {
+        if (bridgeDragStarted) return;
+        bridgeDragStarted = true;
+        dispatchAt(
+          selectionOverlay,
+          "mousedown",
+          toIframePoint(e.clientX, e.clientY),
+          source,
+          1,
+        );
+      };
+
       setIsDragging(true);
-      dispatchAt(
-        selectionOverlay,
-        "mousedown",
-        toIframePoint(e.clientX, e.clientY),
-        e,
-        1,
-      );
 
       const handleMouseMove = (ev: MouseEvent) => {
+        startBridgeDrag(ev);
         dispatchAt(
           iframeDoc,
           "mousemove",
@@ -7699,12 +7709,17 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         );
       };
       const cancelMove = (pressedAt: number) => {
+        if (!bridgeDragStarted) return;
         iframe.contentWindow?.postMessage(
           { type: "agent-native:cancel-active-drag", pressedAt },
           "*",
         );
       };
       const handleMouseUp = (ev: MouseEvent) => {
+        if (!bridgeDragStarted) {
+          finishDrag();
+          return;
+        }
         // The bridge's startMove already installed a host-level
         // cross-screen mouseup listener. Forwarding another mouseup into the
         // iframe would let both owners finalize one drop, duplicating an

@@ -2982,6 +2982,7 @@ function DesignEditor() {
   // so continuous zoom/drag ticks coalesce into one history.replaceState
   // instead of one per tick. See that effect's doc comment.
   const urlSyncTimerRef = useRef<number | null>(null);
+  const urlSyncScreenIdRef = useRef<string | null>(null);
   // U9: last handleGeometryCommit timestamp, used to detect a rapid burst of
   // commits (keyboard nudge auto-repeat) so they coalesce into one undo entry
   // and one debounced server write instead of one of each per tick.
@@ -18935,6 +18936,11 @@ function DesignEditor() {
       tool: activeTool,
       mode,
     });
+    const nextScreenId = activeFileId ?? activeFile?.id ?? null;
+    const screenChanged =
+      urlSyncScreenIdRef.current !== null &&
+      nextScreenId !== urlSyncScreenIdRef.current;
+    urlSyncScreenIdRef.current = nextScreenId;
     if (nextSearch === location.search) return;
     // Item 11 (URL sync): `zoom` is a dependency here, and zoom changes
     // continuously (every wheel/pinch tick, not just on gesture-end) — every
@@ -18948,6 +18954,18 @@ function DesignEditor() {
     // churn during continuous zoom/drag.
     if (urlSyncTimerRef.current !== null) {
       window.clearTimeout(urlSyncTimerRef.current);
+      urlSyncTimerRef.current = null;
+    }
+    if (screenChanged) {
+      void navigate(
+        {
+          pathname: location.pathname,
+          search: nextSearch,
+          hash: location.hash,
+        },
+        { replace: true, preventScrollReset: true },
+      );
+      return;
     }
     urlSyncTimerRef.current = window.setTimeout(() => {
       urlSyncTimerRef.current = null;
