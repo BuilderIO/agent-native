@@ -172,6 +172,10 @@ vi.mock("@agent-native/core/sharing", () => ({
   accessFilter: vi.fn().mockReturnValue(undefined),
 }));
 
+vi.mock("../server/lib/design-versions.js", () => ({
+  snapshotDesignBeforeAgentEdit: vi.fn().mockResolvedValue(null),
+}));
+
 // ---------------------------------------------------------------------------
 // Minimal fake Drizzle app-DB layer: one `design_files` table backing store,
 // supporting exactly the query shapes writeInlineSourceFile/
@@ -1047,6 +1051,72 @@ describe("update-file expectedVersionHash guard (server-discipline layer)", () =
     const finalLive = await readLiveSourceFile(currentFileRef());
     expect(finalLive.content).toBe(next);
     assertWellFormed(finalLive.content);
+  });
+
+  it("rejects a newer same-tab replay against the oldest queued base", async () => {
+    const initial = await readLiveSourceFile(currentFileRef());
+    const first = buildDoc(" data-first");
+    const final = buildDoc(" data-first data-final");
+
+    await updateFileAction.run({
+      id: FILE_ID,
+      content: first,
+      syncCollab: true,
+      operationSource: "tab-a",
+      operationRevision: 1,
+      expectedVersionHash: initial.versionHash,
+    } as never);
+
+    await expect(
+      updateFileAction.run({
+        id: FILE_ID,
+        content: final,
+        syncCollab: true,
+        operationSource: "tab-a",
+        operationRevision: 2,
+        // A stale replay remains subject to the source CAS; the server cannot
+        // trust a caller-controlled flag to authorize a bypass.
+        expectedVersionHash: initial.versionHash,
+      } as never),
+    ).rejects.toThrow(/changed since it was read/);
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(first);
+    expect((await readLiveSourceFile(currentFileRef())).content).toBe(first);
+  });
+
+  it("rejects a same-tab replay after a later writer moves the mirror and collab text", async () => {
+    const initial = await readLiveSourceFile(currentFileRef());
+    const first = buildDoc(" data-first");
+    const intervening = buildDoc(" data-intervening");
+    const final = buildDoc(" data-first data-final");
+
+    await updateFileAction.run({
+      id: FILE_ID,
+      content: first,
+      syncCollab: true,
+      operationSource: "tab-a",
+      operationRevision: 1,
+      expectedVersionHash: initial.versionHash,
+    } as never);
+
+    // Simulate a writer that updates both stores through a path that does not
+    // advance the browser operation marker left by revision 1.
+    await applyText(FILE_ID, intervening, "content", "agent");
+    designFilesStore.rows.get(FILE_ID)!.content = intervening;
+
+    await expect(
+      updateFileAction.run({
+        id: FILE_ID,
+        content: final,
+        syncCollab: true,
+        operationSource: "tab-a",
+        operationRevision: 2,
+        expectedVersionHash: initial.versionHash,
+      } as never),
+    ).rejects.toThrow(/changed since it was read/);
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(intervening);
+    expect((await readLiveSourceFile(currentFileRef())).content).toBe(
+      intervening,
+    );
   });
 
   it("checks the hash against LIVE collab text once collab state exists, not the SQL row", async () => {

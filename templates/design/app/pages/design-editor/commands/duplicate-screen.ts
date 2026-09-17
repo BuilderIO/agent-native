@@ -266,10 +266,11 @@ export function runDuplicateScreen(
           );
           try {
             await updateDesignAsync({ id, dataOperations } as any);
-          } catch {
-            void queryClient.invalidateQueries({
+          } catch (error) {
+            await queryClient.invalidateQueries({
               queryKey: ["action", "get-design"],
             });
+            throw error;
           }
         }
         optimisticallyInsertCreatedFile({

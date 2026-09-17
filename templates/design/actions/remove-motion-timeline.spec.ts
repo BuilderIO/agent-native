@@ -95,6 +95,8 @@ const mocks = vi.hoisted(() => {
     }),
     update: vi.fn(() => updateChain),
     delete: vi.fn(() => deleteChain),
+    execute: vi.fn().mockResolvedValue({ rows: [] }),
+    transaction: vi.fn(async (callback) => callback(db)),
   };
 
   // Shared with the @agent-native/core/collab mock below: writeInlineSourceFile

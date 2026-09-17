@@ -3964,6 +3964,16 @@ function createAuthGuardFn(
     ) {
       return;
     }
+    // `pnpm action db-query` forwarding target (dev-action-bridge.ts) — same
+    // reasoning as the dev/action bypass above, for the dedicated db-query
+    // route.
+    if (
+      p === "/_agent-native/dev/db-query" &&
+      resolveDeployEnvironment() !== "production" &&
+      isLoopbackRequest(event)
+    ) {
+      return;
+    }
     if (
       p === "/_agent-native/ping" ||
       p === "/_agent-native/health" ||

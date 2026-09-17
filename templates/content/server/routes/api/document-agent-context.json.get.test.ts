@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockGetDocumentContextPath = vi.hoisted(() => vi.fn());
 const mockGetQuery = vi.hoisted(() => vi.fn());
+const mockGetRequestURL = vi.hoisted(() => vi.fn());
 const { document } = vi.hoisted(() => ({
   document: {
     id: "child-page",
@@ -31,6 +32,7 @@ vi.mock("drizzle-orm", () => ({
 vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
   getQuery: (...args: unknown[]) => mockGetQuery(...args),
+  getRequestURL: (...args: unknown[]) => mockGetRequestURL(...args),
   setResponseHeader: vi.fn(),
   setResponseStatus: vi.fn(),
 }));
@@ -40,12 +42,22 @@ vi.mock("../../../shared/agent-readable.js", () => ({
   buildContentPublicDocumentUrl: (id: string) => `/p/${id}`,
   buildContentDocumentMcpGuidance: (
     id: string,
-    options: { basePath?: string },
+    options: { basePath?: string; origin?: string },
   ) => ({
     preferredTransport: "mcp",
-    mcpUrl: `${options.basePath}/mcp`,
-    mcpConnectUrl: `${options.basePath}/mcp/connect`,
+    mcpUrl: `${options.origin}${options.basePath}/mcp`,
+    mcpConnectUrl: `${options.origin}${options.basePath}/mcp/connect`,
     readAction: { name: "get-document", arguments: { id } },
+    whenToolUnavailable: {
+      action: "tell-user-to-connect",
+      connectionUrl: `${options.origin}${options.basePath}/mcp/connect`,
+      message: `Connect at ${options.origin}${options.basePath}/mcp/connect`,
+    },
+    prohibitedFallbacks: [
+      "ask-user-to-paste-document",
+      "ask-user-to-make-document-public",
+      "ask-user-to-change-sharing",
+    ],
     instructions: "Use authenticated Content MCP.",
   }),
 }));
@@ -80,6 +92,9 @@ describe("GET /api/document-agent-context.json", () => {
     vi.resetAllMocks();
     document.visibility = "public";
     mockGetQuery.mockReturnValue({ id: document.id });
+    mockGetRequestURL.mockReturnValue(
+      new URL("https://content.example.test/api/document-agent-context.json"),
+    );
     mockGetDocumentContextPath.mockResolvedValue([
       {
         id: "parent-page",
@@ -116,9 +131,13 @@ describe("GET /api/document-agent-context.json", () => {
       resourceType: "document",
       resourceId: document.id,
       preferredTransport: "mcp",
-      mcpUrl: "/content/mcp",
-      mcpConnectUrl: "/content/mcp/connect",
+      mcpUrl: "https://content.example.test/content/mcp",
+      mcpConnectUrl: "https://content.example.test/content/mcp/connect",
       readAction: { name: "get-document", arguments: { id: document.id } },
+      whenToolUnavailable: {
+        action: "tell-user-to-connect",
+        connectionUrl: "https://content.example.test/content/mcp/connect",
+      },
     });
   });
 

@@ -537,6 +537,43 @@ describe("automatic server action WebMCP registration", () => {
     });
   });
 
+  it("omits only explicitly excluded server actions", async () => {
+    const modelContext = {
+      registerTool: vi.fn(async () => {}),
+      getTools: vi.fn(async () => []),
+      executeTool: vi.fn(async () => ""),
+    };
+    const registration = createAgentNativeServerActionWebMcpRegistration({
+      document: documentWithModelContext(modelContext),
+      excludeActionNames: ["open-visual-edit"],
+      fetch: vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify([
+              {
+                name: "open-visual-edit",
+                description: "Open visual edit",
+                inputSchema: { type: "object" },
+              },
+              {
+                name: "list-designs",
+                description: "List designs",
+                inputSchema: { type: "object" },
+              },
+            ]),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+      ),
+    });
+
+    await registration.start();
+
+    expect(modelContext.registerTool).toHaveBeenCalledTimes(1);
+    expect(modelContext.registerTool.mock.calls[0]?.[0]).toMatchObject({
+      name: "list-designs",
+    });
+  });
+
   it("accepts framework-scale catalogs and long backend descriptions", async () => {
     const modelContext = {
       registerTool: vi.fn(async () => {}),
@@ -807,6 +844,39 @@ describe("WebMCP registration", () => {
     expect(registrations[0].options.signal.aborted).toBe(true);
   });
 
+  it("rejects stale tool descriptors after their registration stops", async () => {
+    const registrations: Array<{ tool: Record<string, any> }> = [];
+    const modelContext = {
+      registerTool: vi.fn(async (tool) => {
+        registrations.push({ tool });
+      }),
+      getTools: vi.fn(async () => []),
+      executeTool: vi.fn(async () => ""),
+    };
+    const run = vi.fn(async () => ({ ok: true }));
+    const registration = createAgentNativeWebMcpRegistration({
+      document: documentWithModelContext(modelContext),
+      actions: [
+        {
+          name: "open-order",
+          description: "Open an order",
+          run,
+        },
+      ],
+    });
+
+    await registration.start();
+    registration.stop();
+
+    await expect(
+      registrations[0]?.tool.execute(
+        {},
+        { signal: new AbortController().signal },
+      ),
+    ).rejects.toThrow('WebMCP action "open-order" was unregistered');
+    expect(run).not.toHaveBeenCalled();
+  });
+
   it("requires an approval handler before exposing sensitive actions", async () => {
     const modelContext = {
       registerTool: vi.fn(async () => {}),
@@ -829,6 +899,46 @@ describe("WebMCP registration", () => {
       'WebMCP action "delete-order" requires an approval handler',
     );
     expect(modelContext.registerTool).not.toHaveBeenCalled();
+  });
+
+  it("does not run an approved action after its WebMCP signal aborts", async () => {
+    const registrations: Array<{ tool: Record<string, any> }> = [];
+    const modelContext = {
+      registerTool: vi.fn(async (tool) => {
+        registrations.push({ tool });
+      }),
+      getTools: vi.fn(async () => []),
+      executeTool: vi.fn(async () => ""),
+    };
+    const run = vi.fn(async () => ({ ok: true }));
+    const approve = vi.fn(async () => {
+      controller.abort();
+      return true;
+    });
+    const controller = new AbortController();
+    const registration = createAgentNativeWebMcpRegistration({
+      document: documentWithModelContext(modelContext),
+      actions: [
+        {
+          name: "open-order",
+          description: "Open an order",
+          requiresApproval: true,
+          run,
+        },
+      ],
+      approve,
+    });
+
+    await registration.start();
+    await expect(
+      registrations[0]?.tool.execute({}, { signal: controller.signal }),
+    ).rejects.toThrow('WebMCP action "open-order" was aborted');
+    expect(approve).toHaveBeenCalledWith(
+      expect.objectContaining({ args: {} }),
+      controller.signal,
+    );
+    expect(run).not.toHaveBeenCalled();
+    registration.stop();
   });
 
   it("does not register actions resolved after stop", async () => {

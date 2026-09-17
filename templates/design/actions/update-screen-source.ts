@@ -10,7 +10,7 @@ import {
 } from "../server/lib/design-data-mutation.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
-  localhostBridgeRequestError,
+  fetchLocalhostSnapshot,
   resolveLocalhostConnectionScope,
 } from "../server/lib/localhost-connection.js";
 import {
@@ -111,47 +111,6 @@ export function screenSourceMetadataForStatic(
     delete next[key];
   }
   return next;
-}
-
-async function fetchFallbackSnapshot(args: {
-  bridgeUrl: string;
-  previewToken: string | null;
-  url: string;
-}): Promise<string> {
-  if (!args.previewToken) {
-    throw new Error(
-      "This URL-backed screen has no preview token. Reload the frame or reconnect the localhost app before switching it to static HTML.",
-    );
-  }
-  const endpoint = new URL("/snapshot", args.bridgeUrl);
-  endpoint.searchParams.set("url", args.url);
-  let response: Response;
-  try {
-    response = await fetch(endpoint, {
-      headers: {
-        accept: "application/json",
-        "x-design-preview-token": args.previewToken,
-      },
-    });
-  } catch (error) {
-    throw new Error(
-      `Could not reach the localhost bridge for snapshot (${error instanceof Error ? error.message : String(error)}).`,
-    );
-  }
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => response.statusText);
-    throw localhostBridgeRequestError("snapshot", response.status, errorText);
-  }
-  let payload: { html?: unknown } | null;
-  try {
-    payload = (await response.json()) as { html?: unknown } | null;
-  } catch {
-    throw new Error("The localhost bridge returned invalid snapshot JSON.");
-  }
-  if (!payload || typeof payload.html !== "string") {
-    throw new Error("The localhost bridge returned no HTML snapshot.");
-  }
-  return payload.html;
 }
 
 export default defineAction({
@@ -348,7 +307,7 @@ export default defineAction({
         }
         const rawSnapshot =
           snapshotHtml ??
-          (await fetchFallbackSnapshot({
+          (await fetchLocalhostSnapshot({
             bridgeUrl: connection.bridgeUrl,
             previewToken: connection.previewToken,
             url: currentUrl,

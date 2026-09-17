@@ -81,6 +81,7 @@ import {
   resolveFixedResizeDimension,
   resolveFontFamilyFieldValue,
   resolveLineHeightFieldValue,
+  sortFontFamilyOptions,
   textTruncationLineCount,
   textTruncationStyleChanges,
   TEXT_CASE_OPTIONS,
@@ -392,13 +393,13 @@ export function TypographyProperties({
 }) {
   const t = useT();
   const styles = element.computedStyles;
-  const baseFontFamilyOptions = [
+  const baseFontFamilyOptions = sortFontFamilyOptions([
     ...FONT_FAMILY_OPTIONS.map((option) => ({
       value: option.value,
       label: t(`editPanel.fontFamilies.${option.key}`),
     })),
     LATO_FONT_FAMILY_OPTION,
-  ];
+  ]);
   // Mixed-selection guards: a multi-selection with differing values injects
   // the MIXED_VALUE sentinel string into these computedStyles fields (see
   // mixedElementFromSelection/sameOrMixed). Parsing that sentinel with
@@ -479,18 +480,20 @@ export function TypographyProperties({
   // instead of a normal, clickable option that could commit the literal
   // string "Mixed" as a font-family value.
   const fontFamily = resolveFontFamilyFieldValue(styles.fontFamily);
-  const fontFamilyOptions = fontFamilyIsMixed
-    ? baseFontFamilyOptions
-    : FONT_FAMILY_OPTIONS.some((option) => option.value === fontFamily) ||
-        displayFontFamilyName(fontFamily).toLowerCase() === "lato"
+  const fontFamilyOptions = sortFontFamilyOptions(
+    fontFamilyIsMixed
       ? baseFontFamilyOptions
-      : [
-          {
-            value: fontFamily,
-            label: displayFontFamilyName(styles.fontFamily || fontFamily),
-          },
-          ...baseFontFamilyOptions,
-        ];
+      : FONT_FAMILY_OPTIONS.some((option) => option.value === fontFamily) ||
+          displayFontFamilyName(fontFamily).toLowerCase() === "lato"
+        ? baseFontFamilyOptions
+        : [
+            {
+              value: fontFamily,
+              label: displayFontFamilyName(styles.fontFamily || fontFamily),
+            },
+            ...baseFontFamilyOptions,
+          ],
+  );
   const baseFontWeightOptions = FONT_WEIGHT_OPTIONS.map((option) => ({
     value: option.value,
     label: t(`editPanel.fontWeights.${option.key}`),

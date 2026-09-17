@@ -43,6 +43,13 @@ export interface DesignSnapshot {
   resolvedCssVars: Record<string, string>;
 }
 
+export interface BuildDesignSnapshotOptions {
+  /** Read the persisted SQL rows even when a live collaboration document exists. */
+  preferStoredFileContent?: boolean;
+}
+
+type SnapshotDatabase = Pick<ReturnType<typeof getDb>, "select">;
+
 function parseDesignData(data?: string | null): Record<string, unknown> {
   if (!data) return {};
   try {
@@ -62,8 +69,10 @@ function parseDesignData(data?: string | null): Record<string, unknown> {
 export async function buildDesignSnapshot(
   designId: string,
   designData?: string | null,
+  options: BuildDesignSnapshotOptions = {},
+  database?: SnapshotDatabase,
 ): Promise<DesignSnapshot> {
-  const db = getDb();
+  const db = database ?? getDb();
 
   const rows = await db
     .select()
@@ -76,23 +85,26 @@ export async function buildDesignSnapshot(
     let source: "collab" | "stored" = "stored";
     // Prefer live collab text when an editing session exists for this file so
     // an external agent sees in-flight edits, not the last persisted snapshot.
-    try {
-      if (await hasCollabState(f.id)) {
-        const live = await getText(f.id, "content");
-        if (
-          typeof live === "string" &&
-          shouldUseLiveFileContent({
-            liveContent: live,
-            storedContent: f.content,
-            fileType: f.fileType,
-          })
-        ) {
-          content = live;
-          source = "collab";
+    if (!options.preferStoredFileContent) {
+      try {
+        if (await hasCollabState(f.id)) {
+          const live = await getText(f.id, "content");
+          if (
+            typeof live === "string" &&
+            shouldUseLiveFileContent({
+              liveContent: live,
+              storedContent: f.content,
+              fileType: f.fileType,
+            })
+          ) {
+            content = live;
+            source = "collab";
+          }
         }
+      } catch {
+        // coercion-ok: live collaboration is optional; stored content remains explicitly tagged.
+        // Collab read is best-effort; fall back to stored content.
       }
-    } catch {
-      // Collab read is best-effort; fall back to stored content.
     }
     files.push({
       id: f.id,

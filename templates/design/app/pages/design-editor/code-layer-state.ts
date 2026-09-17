@@ -499,6 +499,8 @@ export function elementInfoFromCodeLayerNode(node: CodeLayerNode): ElementInfo {
   return {
     tagName: node.tag,
     id: typeof node.attributes.id === "string" ? node.attributes.id : undefined,
+    componentAnnotation:
+      node.dataAttributes["data-agent-native-component"]?.trim() || undefined,
     sourceId: bridgeSourceIdForCodeLayerNode(node),
     provenance: provenanceForCodeLayerNode(node),
     selector: preferredCodeLayerSelector(node),
@@ -1096,6 +1098,7 @@ export function canonicalizeElementInfoFromProjection(
   },
   info: ElementInfo,
   ownerScreenId?: string,
+  resolvedNode?: CodeLayerNode | null,
 ): ElementInfo {
   if (
     info.sourceLayerIdentity?.screenId &&
@@ -1104,7 +1107,10 @@ export function canonicalizeElementInfoFromProjection(
   ) {
     return info;
   }
-  const node = resolveCodeLayerNodeFromElementInfo(projection, info);
+  const node =
+    resolvedNode === undefined
+      ? resolveCodeLayerNodeFromElementInfo(projection, info)
+      : resolvedNode;
   if (node)
     return canonicalElementInfoForCodeLayerNode(info, node, ownerScreenId);
   return ownerScreenId && info.sourceLayerIdentity

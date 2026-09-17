@@ -41,6 +41,8 @@ type ScrubInputIcon = (props: {
 export interface ScrubInputChangeMeta {
   source: "commit" | "keyboard" | "scrub";
   expression?: string;
+  /** True when Alt/Option was held for this edit or scrub gesture. */
+  altKey?: boolean;
   /**
    * Gesture-lifecycle signal for downstream consumers that want to throttle
    * expensive work during a drag and only do the expensive commit once.
@@ -185,6 +187,7 @@ export function VisualScrubInput({
     pointerId: -1,
     drag: startScrubDrag(0),
     startedFromInput: false,
+    altKey: false,
   });
   const dragStartValueRef = useRef(value);
   const dragStartTextRef = useRef(
@@ -399,7 +402,7 @@ export function VisualScrubInput({
       // Cmd (metaKey) mirrors Shift for ×10 — editor convention on macOS.
       const baseStep = getScrubStepFromEvent(event, step);
       const cmdMultiplier = event.metaKey && !event.shiftKey ? 10 : 1;
-      nudge(direction * baseStep * cmdMultiplier);
+      nudge(direction * baseStep * cmdMultiplier, event.altKey);
       return;
     }
 
@@ -428,7 +431,7 @@ export function VisualScrubInput({
   };
 
   /** One step of `delta`, shared by arrow keys and the optional +/- buttons. */
-  const nudge = (delta: number) => {
+  const nudge = (delta: number, altKey = false) => {
     // Mixed selection: the `value` prop is only a placeholder (typically 0)
     // — there's no single current value to step from, and there's no
     // typed draft either (mixed keeps the draft as the literal "Mixed"
@@ -447,6 +450,7 @@ export function VisualScrubInput({
         source: "keyboard",
         phase: "commit",
         relativeDelta: delta,
+        ...(altKey ? { altKey: true } : {}),
       });
       return;
     }
@@ -460,6 +464,7 @@ export function VisualScrubInput({
     setNextValue(base + delta, {
       source: "keyboard",
       phase: "commit",
+      ...(altKey ? { altKey: true } : {}),
     });
   };
 
@@ -471,6 +476,7 @@ export function VisualScrubInput({
       pointerId: event.pointerId,
       drag: startScrubDrag(event.clientX),
       startedFromInput,
+      altKey: event.altKey,
     };
     dragStartValueRef.current = value;
     dragStartTextRef.current = textValue ?? formatScrubValue(value, options);
@@ -540,6 +546,7 @@ export function VisualScrubInput({
     lastScrubValueRef.current = setNextValue(roundScrubDragValue(next, unit), {
       source: "scrub",
       phase: "preview",
+      ...(dragRef.current.altKey ? { altKey: true } : {}),
     });
   };
 
@@ -579,6 +586,7 @@ export function VisualScrubInput({
       onChange(lastScrubValueRef.current, {
         source: "scrub",
         phase: "commit",
+        ...(dragRef.current.altKey ? { altKey: true } : {}),
       });
     }
     // If the pointer was released without dragging (a plain click), focus the
@@ -619,8 +627,14 @@ export function VisualScrubInput({
       onTextCommit(restoredText, meta);
       onTextCommit(restoredText, { ...meta, phase: "cancel" });
     } else {
-      onChange(restoredValue, { source: "scrub", phase: "preview" });
-      onChange(restoredValue, { source: "scrub", phase: "cancel" });
+      onChange(restoredValue, {
+        source: "scrub",
+        phase: "preview",
+      });
+      onChange(restoredValue, {
+        source: "scrub",
+        phase: "cancel",
+      });
     }
   };
 

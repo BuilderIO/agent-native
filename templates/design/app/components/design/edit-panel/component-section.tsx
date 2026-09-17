@@ -60,6 +60,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
+import type { LocalhostWriteConsentPayload } from "../LocalhostWriteConsentDialog";
 import { findCanvasIframeForScreen } from "../multi-screen/iframe-targeting";
 import {
   canRebuildAlpineDataLosslessly,
@@ -73,6 +74,15 @@ import {
   InspectorGrid,
   InspectorGridCell,
 } from "./inspector-grid";
+
+function isLocalhostWriteConsentError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.name === "LocalWriteConsentRequiredError" ||
+      error.name === "WriteConsentRequiredError" ||
+      /write-consent grant|grant expired/i.test(error.message))
+  );
+}
 
 // ─── Make it real — inline upgrade card (§3, §6.6) ──────────────────────────
 
@@ -311,6 +321,7 @@ interface ComponentDetailsResult {
   isMain?: boolean;
   canRestore?: boolean;
   observedProps: Array<{ name: string; value: string }>;
+  literalProps?: Array<{ name: string; value: string }>;
   persistedVariants: Record<string, string[]>;
   sourceLocation?: { filePath: string; exportName?: string } | null;
   /** Component instance shape, including the Alpine `x-data` expression. */
@@ -326,6 +337,37 @@ interface ComponentDetailsResult {
     ctaRequired: boolean;
     ctaMessage?: string;
   };
+}
+
+export interface ComponentLocalSource {
+  connectionId: string;
+  path: string;
+  line: number;
+  column: number;
+  positionPrecision?: "authored" | "transformed" | "unknown";
+  runtimeMultiplicity?: number;
+  scope?:
+    | "single-instance"
+    | "repeated-render"
+    | "shared-component-definition"
+    | "unknown";
+  expectedVersionHash?: string;
+  expectedValue?: string;
+  propStamps?: Array<{ name: string; value: string }>;
+}
+
+export interface RuntimeComponentDetails {
+  name: string;
+  nodeId: string;
+  selector: string;
+  props: Array<{ name: string; value: string }>;
+  literalProps?: Array<{ name: string; value: string }>;
+  alpineData?: string | null;
+  componentId?: string;
+  componentRef?: string;
+  isMain?: boolean;
+  sourceLocation?: { filePath: string; exportName?: string };
+  local?: ComponentLocalSource;
 }
 
 /** Shape returned by `go-to-main-component`. */
@@ -368,6 +410,7 @@ interface DetachComponentInstanceResult {
 export type PropRow = {
   name: string;
   value: string;
+  literalValue?: string;
   /** Variant/enum options when the prop is a known group. */
   options?: string[];
   /** Persist surface for this prop. */
@@ -421,9 +464,18 @@ export function buildComponentPropRows(data: {
   instance?: { alpineData?: string | null } | null;
   observedProps: Array<{ name: string; value: string }>;
   persistedVariants: Record<string, string[]>;
+  literalProps?: Array<{ name: string; value: string }>;
 }): PropRow[] {
-  const { observedProps, persistedVariants, instance } = data;
+  const {
+    observedProps,
+    persistedVariants,
+    instance,
+    literalProps = [],
+  } = data;
   const alpineData = parseAlpineDataObject(instance?.alpineData);
+  const literalValues = new Map(
+    literalProps.map(({ name, value }) => [name, value]),
+  );
 
   const rows: PropRow[] = [];
   const seen = new Set<string>();
@@ -447,13 +499,29 @@ export function buildComponentPropRows(data: {
     rows.push({
       name: prop.name,
       value: prop.value,
+      ...(literalValues.has(prop.name)
+        ? { literalValue: literalValues.get(prop.name) }
+        : {}),
       options: persistedVariants[prop.name],
       surface: "attribute",
     });
     seen.add(prop.name);
   }
 
-  // 3) persistedVariant groups with no observed value yet (default to first).
+  // 3) Verified literal invocation props that are not reflected in the host DOM.
+  for (const prop of literalProps) {
+    if (seen.has(prop.name)) continue;
+    rows.push({
+      name: prop.name,
+      value: prop.value,
+      literalValue: prop.value,
+      options: persistedVariants[prop.name],
+      surface: "attribute",
+    });
+    seen.add(prop.name);
+  }
+
+  // 4) persistedVariant groups with no observed value yet (default to first).
   // Surface is always "attribute" here, NOT "alpineData" even when this
   // instance's x-data happens to be non-empty for other keys: x-data blocks
   // for a real component instance are written with every prop the component
@@ -470,7 +538,10 @@ export function buildComponentPropRows(data: {
     if (seen.has(group)) continue;
     rows.push({
       name: group,
-      value: options[0] ?? "",
+      value: literalValues.get(group) ?? options[0] ?? "",
+      ...(literalValues.has(group)
+        ? { literalValue: literalValues.get(group) }
+        : {}),
       options,
       surface: "attribute",
     });
@@ -533,6 +604,8 @@ export function ComponentSection({
   onRestoreComponent,
   onComponentPropApplied,
   sourceCapabilities = [],
+  runtime,
+  requestLocalhostWrite,
 }: {
   designId: string;
   fileId?: string;
@@ -560,10 +633,40 @@ export function ComponentSection({
   ) => void;
   /** Capability names advertised by the current source. */
   sourceCapabilities?: string[];
+  /** Live component metadata used when a URL file stores only its route URL. */
+  runtime?: RuntimeComponentDetails;
+  /** Request the existing localhost write-consent dialog before source writes. */
+  requestLocalhostWrite?: (opts: {
+    files: string[];
+    onGranted: LocalhostWriteConsentPayload["onGranted"];
+    onCancel?: () => void;
+  }) => void;
 }) {
   const t = useT();
   const queryClient = useQueryClient();
-  const detailsParams = { designId, nodeId, ...(fileId ? { fileId } : {}) };
+  const [runtimePropOverride, setRuntimePropOverride] = useState<Array<{
+    name: string;
+    value: string;
+  }> | null>(null);
+  const effectiveRuntime = runtime
+    ? {
+        ...runtime,
+        props: runtimePropOverride ?? runtime.props,
+      }
+    : undefined;
+  const propPreviewStateRef = useRef(
+    new Map<string, { generation: number; authoritativeValue: string }>(),
+  );
+  useEffect(() => {
+    setRuntimePropOverride(null);
+    propPreviewStateRef.current.clear();
+  }, [nodeId, runtime?.nodeId, runtime?.props]);
+  const detailsParams = {
+    designId,
+    nodeId,
+    ...(fileId ? { fileId } : {}),
+    ...(effectiveRuntime ? { runtime: effectiveRuntime } : {}),
+  };
   const detailsKey = ["action", "get-component-details", detailsParams];
   const latestSourceRef = useRef<{
     content: string;
@@ -661,6 +764,7 @@ export function ComponentSection({
   };
 
   const sourceForMutation = () => {
+    if (effectiveRuntime?.local) return undefined;
     const latestSource = latestSourceRef.current;
     return latestSource.content
       ? {
@@ -794,55 +898,160 @@ export function ComponentSection({
     ],
   );
 
+  const updateLocalSourceCache = (content: unknown, versionHash: unknown) => {
+    if (
+      !effectiveRuntime?.local ||
+      (typeof content !== "string" && typeof versionHash !== "string")
+    )
+      return;
+    queryClient.setQueryData(
+      [
+        "action",
+        "read-local-file",
+        {
+          designId,
+          connectionId: effectiveRuntime.local.connectionId,
+          path: effectiveRuntime.local.path,
+        },
+      ],
+      (previous: { content?: string; versionHash?: string } | undefined) => ({
+        ...previous,
+        ...(typeof content === "string" ? { content } : {}),
+        ...(typeof versionHash === "string" ? { versionHash } : {}),
+      }),
+    );
+  };
+
+  const updateRuntimeProp = (propName: string | undefined, value: string) => {
+    if (!effectiveRuntime || !propName) return;
+    setRuntimePropOverride((previous) => {
+      const props = previous ?? effectiveRuntime.props;
+      const index = props.findIndex((prop) => prop.name === propName);
+      if (index === -1) return [...props, { name: propName, value }];
+      return props.map((prop, propIndex) =>
+        propIndex === index ? { ...prop, value } : prop,
+      );
+    });
+  };
+
   // Persist a single prop change through apply-component-prop-edit. Attribute
   // props also preview immediately in the iframe so the selected component
   // changes without waiting for the write/refetch round-trip.
   const persistPropEdit = (
     edit:
       | { kind: "alpineData"; value: string }
-      | { kind: "attribute"; attribute: string; value: string },
-    optimistic: (prev: ComponentDetailsResult) => ComponentDetailsResult,
+      | {
+          kind: "attribute";
+          attribute: string;
+          value: string;
+          expectedValue?: string;
+          previewValue?: string;
+          propName?: string;
+        },
   ) => {
-    queryClient.setQueryData<ComponentDetailsResult>(detailsKey, (prev) =>
-      prev ? optimistic(prev) : prev,
-    );
+    const previousPreviewValue =
+      edit.kind === "attribute"
+        ? (edit.previewValue ?? edit.expectedValue ?? "")
+        : undefined;
+    const previewGeneration =
+      edit.kind === "attribute"
+        ? (propPreviewStateRef.current.get(edit.attribute)?.generation ?? 0) + 1
+        : undefined;
+    if (edit.kind === "attribute") {
+      const previous = propPreviewStateRef.current.get(edit.attribute);
+      propPreviewStateRef.current.set(edit.attribute, {
+        generation: previewGeneration!,
+        authoritativeValue:
+          previous?.authoritativeValue ?? previousPreviewValue!,
+      });
+    }
+    const rollbackPreview = () => {
+      if (edit.kind !== "attribute") return;
+      const current = propPreviewStateRef.current.get(edit.attribute);
+      if (!current || current.generation !== previewGeneration) return;
+      postComponentPropPreview(edit.attribute, current.authoritativeValue);
+    };
     if (edit.kind === "attribute") {
       postComponentPropPreview(edit.attribute, edit.value);
     }
     const latestSource = latestSourceRef.current;
-    applyPropMutation.mutate(
-      {
-        designId,
-        nodeId,
-        ...(fileId ? { fileId } : {}),
-        edit,
-        ...(latestSource.content
+    const mutationSource = effectiveRuntime?.local
+      ? {
+          local: {
+            ...effectiveRuntime.local,
+            ...(edit.kind === "attribute" && edit.expectedValue !== undefined
+              ? { expectedValue: edit.expectedValue }
+              : {}),
+          },
+        }
+      : latestSource.content
+        ? {
+            currentContent: latestSource.content,
+            ...(latestSource.revision
+              ? { revision: latestSource.revision }
+              : {}),
+          }
+        : undefined;
+    const payload = {
+      designId,
+      nodeId,
+      ...(fileId ? { fileId } : {}),
+      edit:
+        edit.kind === "attribute"
           ? {
-              source: {
-                currentContent: latestSource.content,
-                ...(latestSource.revision
-                  ? { revision: latestSource.revision }
-                  : {}),
-              },
+              kind: "attribute" as const,
+              attribute: edit.attribute,
+              value: edit.value,
             }
-          : {}),
-      },
-      {
+          : edit,
+      ...(mutationSource ? { source: mutationSource } : {}),
+    };
+    const submit = (retriedAfterConsent = false) => {
+      applyPropMutation.mutate(payload, {
         onSuccess: (result) => {
           const response = result as {
             content?: unknown;
             fileId?: unknown;
             updatedAt?: unknown;
             conflict?: unknown;
+            ctaRequired?: unknown;
+            persisted?: unknown;
             error?: unknown;
+            source?: {
+              connectionId?: unknown;
+              path?: unknown;
+              versionHash?: unknown;
+            };
+            result?: { status?: unknown; message?: unknown };
           };
-          if (response.conflict) {
+          const resultStatus = response.result?.status;
+          updateLocalSourceCache(
+            response.content,
+            response.source?.versionHash,
+          );
+          if (
+            response.conflict ||
+            response.ctaRequired ||
+            response.persisted === false ||
+            (typeof resultStatus === "string" && resultStatus !== "applied")
+          ) {
+            rollbackPreview();
             toast.error(
               typeof response.error === "string"
                 ? response.error
-                : "This file changed since this component prop edit was prepared. Refresh and try again.",
+                : t("designEditor.toasts.componentCreateFailed"),
             );
             return;
+          }
+          if (edit.kind === "attribute") {
+            const current = propPreviewStateRef.current.get(edit.attribute);
+            if (current) {
+              propPreviewStateRef.current.set(edit.attribute, {
+                ...current,
+                authoritativeValue: edit.value,
+              });
+            }
+            updateRuntimeProp(edit.propName, edit.value);
           }
           if (
             typeof response.fileId === "string" &&
@@ -863,14 +1072,36 @@ export function ComponentSection({
             );
           }
         },
+        onError: (error: unknown) => {
+          if (
+            !retriedAfterConsent &&
+            effectiveRuntime?.local &&
+            requestLocalhostWrite &&
+            isLocalhostWriteConsentError(error)
+          ) {
+            requestLocalhostWrite({
+              files: [effectiveRuntime.local.path],
+              onGranted: () => submit(true),
+              onCancel: rollbackPreview,
+            });
+            return;
+          }
+          rollbackPreview();
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : t("designEditor.toasts.componentCreateFailed"),
+          );
+        },
         onSettled: () => {
           void queryClient.invalidateQueries({
             queryKey: ["action", "get-design"],
           });
           void queryClient.invalidateQueries({ queryKey: detailsKey });
         },
-      },
-    );
+      });
+    };
+    submit();
   };
 
   useEffect(() => {
@@ -933,19 +1164,20 @@ export function ComponentSection({
   // Real-app sources keep the deeper source-prop controls gated as-is, so for
   // non-inline sources the controls are read-only here.
   const isInline = sourceType === "inline";
-  const editingEnabled = isInline && capabilities.canEditProps; // gated; real-app stays read-only for now
+  const editingEnabled =
+    (isInline || Boolean(effectiveRuntime?.local)) && capabilities.canEditProps;
   const alpineData = parseAlpineDataObject(instance?.alpineData);
 
   const rows: PropRow[] = buildComponentPropRows({
     instance,
     observedProps,
     persistedVariants,
+    literalProps: data.literalProps ?? effectiveRuntime?.literalProps,
   });
 
   const hasRows = rows.length > 0;
 
-  // Build the apply-component-prop-edit payload + optimistic cache patch for a
-  // single prop change.
+  // Build the apply-component-prop-edit payload for a single prop change.
   const commitProp = (row: PropRow, nextValue: string) => {
     if (!editingEnabled || nextValue === row.value) return;
 
@@ -977,35 +1209,16 @@ export function ComponentSection({
       }
 
       const nextSerialized = serialized;
-      persistPropEdit(
-        { kind: "alpineData", value: nextSerialized },
-        (prev) => ({
-          ...prev,
-          instance: { ...(prev.instance ?? {}), alpineData: nextSerialized },
-          observedProps: prev.observedProps.map((p) =>
-            p.name === row.name ? { ...p, value: nextValue } : p,
-          ),
-        }),
-      );
+      persistPropEdit({ kind: "alpineData", value: nextSerialized });
     } else {
-      persistPropEdit(
-        {
-          kind: "attribute",
-          attribute: propNameToDataAttribute(row.name),
-          value: nextValue,
-        },
-        (prev) => {
-          const exists = prev.observedProps.some((p) => p.name === row.name);
-          return {
-            ...prev,
-            observedProps: exists
-              ? prev.observedProps.map((p) =>
-                  p.name === row.name ? { ...p, value: nextValue } : p,
-                )
-              : [...prev.observedProps, { name: row.name, value: nextValue }],
-          };
-        },
-      );
+      persistPropEdit({
+        kind: "attribute",
+        attribute: propNameToDataAttribute(row.name),
+        value: nextValue,
+        expectedValue: row.literalValue,
+        previewValue: row.value,
+        propName: row.name,
+      });
     }
   };
 

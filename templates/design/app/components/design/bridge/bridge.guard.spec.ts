@@ -6415,6 +6415,96 @@ it(
   },
 );
 
+it(
+  "editor chrome bridge maps radius drags through rotated and independently scaled ancestors",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      .rotated-parent {
+        position: absolute;
+        left: 440px;
+        top: 100px;
+        width: 360px;
+        height: 360px;
+        transform-origin: 0 0;
+        transform: rotate(90deg);
+        scale: 2 3;
+      }
+      #target {
+        position: absolute;
+        left: 20px;
+        top: 20px;
+        width: 100px;
+        height: 60px;
+        border-top-left-radius: 20px;
+        background: #6366f1;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="rotated-parent" data-agent-native-node-id="parent">
+      <div id="target" data-agent-native-node-id="target"></div>
+    </div>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+      await selectElementDirect(page, "#target");
+
+      const handle = page.locator('[data-agent-native-radius-handle="nw"]');
+      await page.waitForFunction(() => {
+        const handle = document.querySelector<HTMLElement>(
+          '[data-agent-native-radius-handle="nw"]',
+        );
+        return handle && window.getComputedStyle(handle).display === "block";
+      });
+      const handleBox = await handle.boundingBox();
+      if (!handleBox) throw new Error("nw radius handle not visible");
+
+      await page.mouse.move(
+        handleBox.x + handleBox.width / 2,
+        handleBox.y + handleBox.height / 2,
+      );
+      await page.mouse.down();
+      await page.mouse.move(
+        handleBox.x + handleBox.width / 2 + 12,
+        handleBox.y + handleBox.height / 2,
+        { steps: 4 },
+      );
+      await page.mouse.up();
+      const radius = await page.evaluate(
+        () =>
+          document.querySelector<HTMLElement>("#target")!.style
+            .borderTopLeftRadius,
+      );
+      const messages = await readBridgeMessages(page);
+      const styleChange = messages.find(
+        (message) => message.type === "visual-style-change",
+      );
+      expect(radius).toBe("20px 14px");
+      expect(styleChange).toMatchObject({
+        styles: { borderTopLeftRadius: "20px 14px" },
+      });
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
 // ── Nest-on-drop into plain rectangles (Figma "drop into a frame" parity) ───
 //
 // Product decision: dragging a rectangle onto another rectangle, or text onto
@@ -13877,13 +13967,13 @@ it(
       const page = await browser.newPage();
       await page.setContent(`<!doctype html><html><body>
         <div id="dense-grid" data-agent-native-node-id="dense-grid" style="display:grid;grid-auto-flow:dense;grid-template-columns:repeat(2, 1fr)"><div>Cell</div></div>
-        <div id="column-grid" data-agent-native-node-id="column-grid" style="display:grid;grid-auto-flow:column"><div>Cell</div></div>
+        <div id="column-grid" data-agent-native-node-id="column-grid" style="display:grid;grid-auto-flow:column"><div id="column-grid-child">Cell</div></div>
       </body></html>`);
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
       await collectBridgeMessages(page);
 
-      const selectInlineStyles = async (selector: string) => {
+      const selectElementPayload = async (selector: string) => {
         await page.evaluate((targetSelector) => {
           (window as any).__bridgeMessages = [];
           window.postMessage(
@@ -13910,11 +14000,14 @@ it(
           | {
               payload?: {
                 inlineStyles?: Record<string, string>;
+                parentLayout?: { gridAutoFlow?: string };
               };
             }
           | undefined;
-        return message?.payload?.inlineStyles;
+        return message?.payload;
       };
+      const selectInlineStyles = async (selector: string) =>
+        (await selectElementPayload(selector))?.inlineStyles;
 
       // The track templates are carried for provenance; grid-auto-flow is
       // written by the same grid edit (gridChangePatch) and needs it for the
@@ -13927,6 +14020,8 @@ it(
       expect((await selectInlineStyles("#column-grid"))?.gridAutoFlow).toBe(
         "column",
       );
+      const childPayload = await selectElementPayload("#column-grid-child");
+      expect(childPayload?.parentLayout?.gridAutoFlow).toBe("column");
     } finally {
       await browser.close();
     }

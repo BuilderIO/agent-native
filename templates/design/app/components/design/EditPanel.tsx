@@ -72,7 +72,10 @@ import {
   truncateOpeningTag,
   vscodeDeepLink,
 } from "./edit-panel/code-inspect-helpers";
-import { ComponentSection } from "./edit-panel/component-section";
+import {
+  ComponentSection,
+  type RuntimeComponentDetails,
+} from "./edit-panel/component-section";
 import {
   type DocumentColorSourceFile,
   type SelectionColorValue,
@@ -173,6 +176,7 @@ import {
   displayFontFamilyName,
   FONT_FAMILY_OPTIONS,
   resolveFontFamilySelectValue,
+  sortFontFamilyOptions,
 } from "./edit-panel/typography-helpers";
 import { TypographyProperties } from "./edit-panel/typography-properties";
 import {
@@ -187,6 +191,7 @@ import {
 } from "./inspector";
 import { IconText } from "./inspector/design-icons";
 import { type GlslShaderPanelContext } from "./inspector/GlslShaderPanel";
+import type { LocalhostWriteConsentPayload } from "./LocalhostWriteConsentDialog";
 import { getActiveScreenIframeId } from "./multi-screen/iframe-targeting";
 import type { ScreenHeightMode } from "./multi-screen/screen-height";
 import {
@@ -451,6 +456,14 @@ interface EditPanelProps {
    * and an Edit component action.
    */
   componentNodeId?: string;
+  /** Runtime component metadata for URL-backed React selections. */
+  componentRuntime?: RuntimeComponentDetails;
+  /** Request the existing localhost write-consent dialog before source writes. */
+  requestLocalhostWrite?: (opts: {
+    files: string[];
+    onGranted: LocalhostWriteConsentPayload["onGranted"];
+    onCancel?: () => void;
+  }) => void;
   /** True when the selected component node has reached the accepted source. */
   componentDetailsReady?: boolean;
   /** True when the selected linked component instance stores local overrides. */
@@ -1835,22 +1848,24 @@ function PageProperties({
   onCanvasBackgroundChange?: (value: string, meta?: StyleChangeMeta) => void;
 }) {
   const t = useT();
-  const baseFontFamilyOptions = FONT_FAMILY_OPTIONS.map((option) => ({
-    value: option.value,
-    label: t(`editPanel.fontFamilies.${option.key}`),
-  }));
+  const baseFontFamilyOptions = sortFontFamilyOptions(
+    FONT_FAMILY_OPTIONS.map((option) => ({
+      value: option.value,
+      label: t(`editPanel.fontFamilies.${option.key}`),
+    })),
+  );
   const fontFamily = resolveFontFamilySelectValue(styles.fontFamily);
-  const fontFamilyOptions = FONT_FAMILY_OPTIONS.some(
-    (option) => option.value === fontFamily,
-  )
-    ? baseFontFamilyOptions
-    : [
-        {
-          value: fontFamily,
-          label: displayFontFamilyName(styles.fontFamily || fontFamily),
-        },
-        ...baseFontFamilyOptions,
-      ];
+  const fontFamilyOptions = sortFontFamilyOptions(
+    FONT_FAMILY_OPTIONS.some((option) => option.value === fontFamily)
+      ? baseFontFamilyOptions
+      : [
+          {
+            value: fontFamily,
+            label: displayFontFamilyName(styles.fontFamily || fontFamily),
+          },
+          ...baseFontFamilyOptions,
+        ],
+  );
 
   return (
     <div>
@@ -2426,6 +2441,8 @@ export const EditPanel = memo(function EditPanel({
   reviewCommentsPanelProps,
   reviewCommentsCount = 0,
   componentNodeId,
+  componentRuntime,
+  requestLocalhostWrite,
   componentDetailsReady = true,
   componentInstanceHasLocalOverrides = false,
   onResetComponentInstanceOverrides,
@@ -3061,6 +3078,8 @@ export const EditPanel = memo(function EditPanel({
                   activeFileUpdatedAt={activeFileUpdatedAt}
                   componentDetailsReady={componentDetailsReady}
                   nodeId={componentNodeId}
+                  runtime={componentRuntime}
+                  requestLocalhostWrite={requestLocalhostWrite}
                   hasLocalOverrides={componentInstanceHasLocalOverrides}
                   swapPickerRequest={componentSwapPickerRequest}
                   onResetOverrides={

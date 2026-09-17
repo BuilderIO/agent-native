@@ -1,9 +1,14 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { SettingsGroup, SettingsRow } from "@agent-native/core/client/settings";
-import { IconAlertCircle, IconX } from "@tabler/icons-react";
+import { IconAlertCircle, IconChevronDown, IconX } from "@tabler/icons-react";
 import { type ReactNode, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
@@ -66,8 +71,10 @@ export function FactoryAutomationFields({
   showLimits = true,
   showEnabled = true,
   showGuardrails = true,
+  showSkillAlignment = true,
   showPrompt = true,
   guardrails,
+  skillAlignment,
   disabled = false,
 }: {
   form: FactoryAutomationFormState;
@@ -86,8 +93,10 @@ export function FactoryAutomationFields({
   showLimits?: boolean;
   showEnabled?: boolean;
   showGuardrails?: boolean;
+  showSkillAlignment?: boolean;
   showPrompt?: boolean;
   guardrails?: string;
+  skillAlignment?: string | null;
   disabled?: boolean;
 }) {
   const t = useT();
@@ -111,7 +120,8 @@ export function FactoryAutomationFields({
       showEnabled ||
       Boolean(modelControl));
   const showInstructions =
-    Boolean(form.source) && (showGuardrails || showPrompt);
+    Boolean(form.source) &&
+    (showGuardrails || showSkillAlignment || showPrompt);
   const missingBanner =
     form.source === "slack"
       ? {
@@ -596,29 +606,34 @@ export function FactoryAutomationFields({
           description={t("factoryRoute.automationCardPromptDescription")}
         >
           {showGuardrails ? (
-            <SettingsRow
-              label={t("factoryRoute.automationGuardrails")}
-              description={t("factoryRoute.automationGuardrailsDescription")}
-            >
-              <div className="grid gap-2">
-                <p className="text-xs text-muted-foreground">
-                  {t("factoryRoute.automationGuardrailsSummary", {
-                    inbox: form.inboxLimit,
-                    work: form.workLimit,
-                  })}
-                </p>
-                <pre className="whitespace-pre-wrap text-xs text-muted-foreground">
+            <Collapsible defaultOpen={false}>
+              <CollapsibleTrigger className="group flex w-full items-center justify-between gap-3 rounded-md px-1 py-2 text-left text-sm font-medium hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                <span>{t("factoryRoute.automationGuardrails")}</span>
+                <IconChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform duration-200 ease-[var(--ease-collapse)] group-data-[state=open]:rotate-180 motion-reduce:transition-none" />
+              </CollapsibleTrigger>
+              <CollapsibleContent className="pb-2">
+                <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-md bg-muted/30 p-3 text-xs text-muted-foreground">
                   {guardrails ||
                     t("factoryRoute.automationGuardrailsPlaceholder")}
                 </pre>
-              </div>
-            </SettingsRow>
+              </CollapsibleContent>
+            </Collapsible>
+          ) : null}
+          {showSkillAlignment && skillAlignment ? (
+            <Collapsible defaultOpen={false}>
+              <CollapsibleTrigger className="group flex w-full items-center justify-between gap-3 rounded-md px-1 py-2 text-left text-sm font-medium hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                <span>{t("factoryRoute.automationSkillAlignment")}</span>
+                <IconChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform duration-200 ease-[var(--ease-collapse)] group-data-[state=open]:rotate-180 motion-reduce:transition-none" />
+              </CollapsibleTrigger>
+              <CollapsibleContent className="pb-2">
+                <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-md bg-muted/30 p-3 text-xs text-muted-foreground">
+                  {skillAlignment}
+                </pre>
+              </CollapsibleContent>
+            </Collapsible>
           ) : null}
           {showPrompt ? (
-            <SettingsRow
-              label={t("factoryRoute.automationPrompt")}
-              description={t("factoryRoute.automationPromptDescription")}
-            >
+            <SettingsRow label={t("factoryRoute.automationPrompt")}>
               <Textarea
                 id="factory-automation-prompt"
                 value={form.prompt}
@@ -626,7 +641,7 @@ export function FactoryAutomationFields({
                   onChange({ ...form, prompt: event.target.value })
                 }
                 placeholder={t("factoryRoute.automationPromptPlaceholder")}
-                rows={10}
+                rows={20}
                 disabled={disabled}
               />
             </SettingsRow>

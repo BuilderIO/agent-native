@@ -45,7 +45,7 @@ interface PlaceholderTarget {
 export function imageFileLooksSupported(file: File): boolean {
   return (
     file.type.startsWith("image/") ||
-    /\.(?:png|jpe?g|gif|webp|avif|ico)$/i.test(file.name)
+    /\.(?:png|jpe?g|gif|webp|avif|ico|svg)$/i.test(file.name)
   );
 }
 
