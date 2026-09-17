@@ -19,9 +19,8 @@ import {
 
 /**
  * Safe browser-visible subset of the `open-visual-edit` action result.
- * `embedStartUrl` and bridge credentials are intentionally omitted: they are
- * capabilities meant for a headless CLI caller, while this tool already runs
- * with the browser's own real session.
+ * `embedStartUrl` and bridge credentials are intentionally omitted: the page
+ * action reuses an already-running bridge and never starts one in the browser.
  */
 export interface OpenVisualEditWebMcpResult {
   designId: string;
@@ -43,13 +42,11 @@ export interface OpenVisualEditWebMcpInput {
   title?: string;
   description?: string;
   devServerUrl: string;
-  bridgeUrl?: string;
+  bridgeUrl: string;
   rootPath?: string;
   name?: string;
   routeManifest?: unknown;
   capabilities?: unknown;
-  bridgeToken?: string;
-  previewToken?: string;
   routes?: unknown[];
   paths?: string[];
   viewports?: unknown[];
@@ -68,7 +65,7 @@ export function createOpenVisualEditWebMcpActions() {
       name: "open-visual-edit",
       title: "Open visual edit", // i18n-ignore stable WebMCP tool title
       description: // i18n-ignore stable WebMCP tool description
-        "Open or refresh a running localhost app in Design overview mode, using this browser tab's own signed-in session (no separate account login or MCP connector needed). Registers the local bridge, creates or reuses a design, places URL-backed screens, and navigates this session to the canvas. Same arguments as the open-visual-edit CLI action.",
+        "Open or refresh a running localhost app in Design overview mode, using this browser tab's own signed-in session. Requires an already-running local bridge; no separate account login or hosted MCP connector is needed. Creates or reuses a design, places URL-backed screens, and navigates this session to the canvas.",
       requiresApproval: {
         title: "Open visual edit?", // i18n-ignore stable WebMCP approval title
         description: // i18n-ignore stable WebMCP approval description
@@ -102,7 +99,7 @@ export function createOpenVisualEditWebMcpActions() {
           bridgeUrl: {
             type: "string",
             description:
-              "Local bridge URL printed by agent-native design connect.",
+              "URL of the already-running local bridge printed by agent-native design connect.",
           },
           rootPath: {
             type: "string",
@@ -117,12 +114,6 @@ export function createOpenVisualEditWebMcpActions() {
             description: "Route manifest from the local Design bridge.",
           },
           capabilities: { type: "array", items: { type: "object" } },
-          bridgeToken: {
-            type: "string",
-            description:
-              "Optional bridge token to store on the connection. Omit it and the server mints one for the local bridge.",
-          },
-          previewToken: { type: "string" },
           routes: {
             type: "array",
             items: { type: "object" },
@@ -156,13 +147,15 @@ export function createOpenVisualEditWebMcpActions() {
               "For newly created loopback localhost designs, make the design public viewer-access too. Defaults to true.",
           },
         },
-        required: ["devServerUrl"],
+        required: ["devServerUrl", "bridgeUrl"],
         additionalProperties: false,
       },
-      run: async (input) => {
-        const result = await callAction("open-visual-edit", input);
-        // The browser session already authorizes this call. Do not expose the
-        // bridge credentials that the headless CLI needs to start a process.
+      run: async (input, runtime) => {
+        const result = await callAction("open-visual-edit", input, {
+          signal: runtime.signal,
+        });
+        // The browser session authorizes this call, but cannot safely start a
+        // local process. Do not expose the bridge credentials needed by CLI.
         const {
           designId,
           connectionId,
@@ -212,13 +205,18 @@ export function OpenVisualEditWebMcp() {
     pending.resolve(approved);
   }, []);
   const requestApproval = useCallback(
-    (request: AgentNativeWebMcpApprovalRequest) =>
-      new Promise<boolean>((resolve) => {
-        pendingApprovalRef.current?.resolve(false);
+    (request: AgentNativeWebMcpApprovalRequest) => {
+      if (pendingApprovalRef.current) {
+        // Reject overlapping calls instead of replacing the request shown in
+        // the dialog with a different request's resolver.
+        return Promise.resolve(false);
+      }
+      return new Promise<boolean>((resolve) => {
         const pending = { request, resolve };
         pendingApprovalRef.current = pending;
         setPendingApproval(pending);
-      }),
+      });
+    },
     [],
   );
 
