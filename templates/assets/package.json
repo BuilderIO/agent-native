@@ -25,7 +25,7 @@
     "isbot": "^5",
     "nanoid": "^5.1.9",
     "p-limit": "^7.3.0",
-    "sharp": "^0.34.5",
+    "sharp": "^0.35.4",
     "zod": "^4.3.6"
   },
   "devDependencies": {
