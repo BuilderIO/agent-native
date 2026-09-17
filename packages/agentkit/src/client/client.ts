@@ -206,9 +206,23 @@ function mergeQueuedMessageOverride(
 
 function mergeRuntimeRecordMap<T>(
   loaded: Record<string, T>,
-  runtime: Record<string, T>,
+  baseline: Record<string, T>,
+  current: Record<string, T>,
 ): Record<string, T> {
-  return Object.keys(runtime).length === 0 ? loaded : { ...loaded, ...runtime };
+  if (current === baseline) return loaded;
+  const merged = { ...loaded };
+  for (const id of Object.keys(baseline)) {
+    if (!Object.prototype.hasOwnProperty.call(current, id)) delete merged[id];
+  }
+  for (const [id, record] of Object.entries(current)) {
+    if (
+      !Object.prototype.hasOwnProperty.call(baseline, id) ||
+      baseline[id] !== record
+    ) {
+      merged[id] = record;
+    }
+  }
+  return merged;
 }
 
 export interface AgentThreadLease {
@@ -804,122 +818,14 @@ export class AgentKitClient implements AgentKitController {
         };
       }
       if (preserveRuntimeProjection && snapshot) {
-        const reconciliation = this.reconcileMessages(
-          baseline.messages,
-          thread.messages,
-        );
-        const runtimeProjection = this.remapThreadMessageReferences(
-          baseline,
-          reconciliation.idRemap,
-        );
-        const authoritative = {
-          thread: thread.thread,
-          messages: reconciliation.messages,
+        const current = this.getThread(threadId);
+        thread = this.mergeLoadedThread(baseline, current, thread);
+        if (queuedOverrideMessages) {
           // Queue mutations are already optimistic and independently durable.
           // A completed-run snapshot can lag the accepted steer/remove write,
           // so it must not resurrect work the client has already promoted.
-          queuedMessages:
-            queuedOverrideMessages ??
-            (baseline.queuedMessages.length > 0
-              ? baseline.queuedMessages
-              : thread.queuedMessages),
-        };
-        const merged = this.mergeLoadedThread(
-          baseline,
-          runtimeProjection,
-          thread,
-        );
-        // The baseline is already live state when a refresh races a stream;
-        // overlay its non-empty projections even without a concurrent write,
-        // or a stale snapshot can hide work the chat has already rendered.
-        const runtimeRuns = this.mergeRuns(merged.runs, runtimeProjection.runs);
-        thread = {
-          ...merged,
-          ...authoritative,
-          runs: runtimeRuns,
-          activeRunIds: Array.from(
-            new Set([
-              ...merged.activeRunIds,
-              ...runtimeProjection.activeRunIds,
-            ]),
-          ).filter(
-            (runId) =>
-              !this.isTerminalStatus(runtimeRuns[runId]?.status ?? "running"),
-          ),
-          events: this.mergeEvents(merged.events, runtimeProjection.events),
-          agents: mergeRuntimeRecordMap(
-            merged.agents,
-            runtimeProjection.agents,
-          ),
-          agentInteractions:
-            runtimeProjection.agentInteractions.length > 0
-              ? this.mergeItemsById(
-                  merged.agentInteractions,
-                  runtimeProjection.agentInteractions,
-                )
-              : merged.agentInteractions,
-          activities: mergeRuntimeRecordMap(
-            merged.activities,
-            runtimeProjection.activities,
-          ),
-          tasks: mergeRuntimeRecordMap(merged.tasks, runtimeProjection.tasks),
-          taskGroups: mergeRuntimeRecordMap(
-            merged.taskGroups,
-            runtimeProjection.taskGroups,
-          ),
-          tools: mergeRuntimeRecordMap(merged.tools, runtimeProjection.tools),
-          approvals: mergeRuntimeRecordMap(
-            merged.approvals,
-            runtimeProjection.approvals,
-          ),
-          approvalRunIds: mergeRuntimeRecordMap(
-            merged.approvalRunIds,
-            runtimeProjection.approvalRunIds,
-          ),
-          connectionRequests: mergeRuntimeRecordMap(
-            merged.connectionRequests,
-            runtimeProjection.connectionRequests,
-          ),
-          connectionRequestRunIds: mergeRuntimeRecordMap(
-            merged.connectionRequestRunIds,
-            runtimeProjection.connectionRequestRunIds,
-          ),
-          artifacts:
-            runtimeProjection.artifacts.length > 0
-              ? this.mergeItemsById(
-                  merged.artifacts,
-                  runtimeProjection.artifacts,
-                )
-              : merged.artifacts,
-          widgets: mergeRuntimeRecordMap(
-            merged.widgets,
-            runtimeProjection.widgets,
-          ),
-          widgetMessageIds: mergeRuntimeRecordMap(
-            merged.widgetMessageIds,
-            runtimeProjection.widgetMessageIds,
-          ),
-          annotations: mergeRuntimeRecordMap(
-            merged.annotations,
-            runtimeProjection.annotations,
-          ),
-          annotationMessageIds: mergeRuntimeRecordMap(
-            merged.annotationMessageIds,
-            runtimeProjection.annotationMessageIds,
-          ),
-          suggestions:
-            runtimeProjection.suggestions.length > 0
-              ? runtimeProjection.suggestions
-              : merged.suggestions,
-          actions: mergeRuntimeRecordMap(
-            merged.actions,
-            runtimeProjection.actions,
-          ),
-          uploads: mergeRuntimeRecordMap(
-            merged.uploads,
-            runtimeProjection.uploads,
-          ),
-        };
+          thread = { ...thread, queuedMessages: queuedOverrideMessages };
+        }
       }
       const current = this.getThread(threadId);
       if (current !== baseline) {
@@ -1978,7 +1884,6 @@ export class AgentKitClient implements AgentKitController {
       thread,
     );
     if (
-      terminalRuns.length === 0 ||
       thread.activeRunIds.length > 0 ||
       runs.some((run) => !this.isTerminalStatus(run.status))
     ) {
@@ -1993,12 +1898,14 @@ export class AgentKitClient implements AgentKitController {
         snapshot.runs.every((run) => this.isTerminalStatus(run.status)));
     if (!snapshotHasNoActiveRuns) return settled;
 
-    const terminalStatuses = new Set(terminalRuns.map((run) => run.status));
-    if (terminalStatuses.size !== 1) return settled;
-    const terminalStatus = terminalRuns[0]?.status;
-    if (!terminalStatus) return settled;
+    // A snapshot can outlive the event association for its assistant message.
+    // If any known run failed or was cancelled, settle an unassociated message
+    // as an error rather than presenting a partial response as successful.
     const settledMessageStatus =
-      terminalStatus === "completed" ? "complete" : "error";
+      terminalRuns.length > 0 &&
+      terminalRuns.every((run) => run.status === "completed")
+        ? "complete"
+        : "error";
     // Lifecycle events can age out independently of the message projection.
     // Once the snapshot proves that no run remains active, any assistant
     // message still marked streaming is stale rather than in-flight work.
@@ -2167,19 +2074,71 @@ export class AgentKitClient implements AgentKitController {
     loaded: AgentThreadState,
   ): AgentThreadState {
     const messagesChanged = current.messages !== baseline.messages;
-    const reconciliation = messagesChanged
-      ? this.reconcileMessages(current.messages, loaded.messages)
-      : undefined;
-    // Keep the live projection as the winner for identities already accepted
-    // by the stream. Only durable-only messages fill gaps; a stale snapshot
-    // must not replace a newer partial response or move it to the end.
+    const reconciliation =
+      loaded.messages.length > 0
+        ? this.reconcileMessages(current.messages, loaded.messages)
+        : undefined;
+    const hasMessageIdRemap = (reconciliation?.idRemap.size ?? 0) > 0;
+    // Keep the live projection as the winner only for identities accepted by
+    // a concurrent stream. A content match still needs the durable identity
+    // when the stream finished before this refresh established its baseline.
     const live = reconciliation
       ? this.remapThreadMessageReferences(current, reconciliation.idRemap)
       : current;
-    const runs =
-      current.runs === baseline.runs
-        ? loaded.runs
-        : this.mergeRuns(loaded.runs, live.runs);
+    const loadedSnapshot = loaded.thread as AgentThreadSnapshot | undefined;
+    const snapshotIncludes = (key: keyof AgentThreadSnapshot) =>
+      loadedSnapshot !== undefined &&
+      Object.prototype.hasOwnProperty.call(loadedSnapshot, key);
+    const snapshotIncludesRuntimeProjection = (
+      key: keyof AgentThreadSnapshot,
+    ) => snapshotIncludes(key) || snapshotIncludes("events");
+    const mergeRecordProjection = <T>(
+      loadedProjection: Record<string, T>,
+      baselineProjection: Record<string, T>,
+      currentProjection: Record<string, T>,
+      snapshotKey: keyof AgentThreadSnapshot,
+    ) =>
+      currentProjection === baselineProjection &&
+      !snapshotIncludesRuntimeProjection(snapshotKey)
+        ? currentProjection
+        : mergeRuntimeRecordMap(
+            loadedProjection,
+            baselineProjection,
+            currentProjection,
+          );
+    const mergeListProjection = <T extends { id: string }>(
+      loadedProjection: T[],
+      baselineProjection: T[],
+      currentProjection: T[],
+      snapshotKey: keyof AgentThreadSnapshot,
+    ) => {
+      if (
+        currentProjection === baselineProjection &&
+        !snapshotIncludesRuntimeProjection(snapshotKey)
+      ) {
+        return currentProjection;
+      }
+      if (currentProjection === baselineProjection) return loadedProjection;
+
+      const baselineById = new Map(
+        baselineProjection.map((item) => [item.id, item]),
+      );
+      const currentById = new Map(
+        currentProjection.map((item) => [item.id, item]),
+      );
+      const removedIds = new Set(
+        [...baselineById.keys()].filter((id) => !currentById.has(id)),
+      );
+      const changedItems = currentProjection.filter((item) => {
+        const baselineItem = baselineById.get(item.id);
+        return baselineItem === undefined || baselineItem !== item;
+      });
+      return this.mergeItemsById(
+        loadedProjection.filter((item) => !removedIds.has(item.id)),
+        changedItems,
+      );
+    };
+    const runs = this.mergeRuns(loaded.runs, live.runs);
     const activeRunIds = Array.from(
       new Set([...loaded.activeRunIds, ...live.activeRunIds]),
     ).filter(
@@ -2189,10 +2148,16 @@ export class AgentKitClient implements AgentKitController {
       ...loaded,
       thread:
         current.thread === baseline.thread ? loaded.thread : current.thread,
-      messages: messagesChanged ? reconciliation!.messages : loaded.messages,
+      messages:
+        messagesChanged || hasMessageIdRemap
+          ? reconciliation!.messages
+          : loaded.messages.length > 0 || current.messages.length === 0
+            ? loaded.messages
+            : current.messages,
       queuedMessages:
-        current.queuedMessages === baseline.queuedMessages
-          ? loaded.queuedMessages
+        current.queuedMessages === baseline.queuedMessages &&
+        !snapshotIncludes("queuedMessages")
+          ? current.queuedMessages
           : this.mergeQueuedMessages(
               baseline.queuedMessages,
               loaded.queuedMessages,
@@ -2200,91 +2165,120 @@ export class AgentKitClient implements AgentKitController {
             ),
       runs,
       activeRunIds,
-      events:
-        current.events === baseline.events
-          ? loaded.events
-          : this.mergeEvents(loaded.events, live.events),
-      agents:
-        current.agents === baseline.agents
-          ? loaded.agents
-          : { ...loaded.agents, ...live.agents },
-      agentInteractions:
-        current.agentInteractions === baseline.agentInteractions
-          ? loaded.agentInteractions
-          : this.mergeItemsById(
-              loaded.agentInteractions,
-              live.agentInteractions,
-            ),
-      activities:
-        current.activities === baseline.activities
-          ? loaded.activities
-          : { ...loaded.activities, ...live.activities },
-      tasks:
-        current.tasks === baseline.tasks
-          ? loaded.tasks
-          : { ...loaded.tasks, ...live.tasks },
-      taskGroups:
-        current.taskGroups === baseline.taskGroups
-          ? loaded.taskGroups
-          : { ...loaded.taskGroups, ...live.taskGroups },
-      tools:
-        current.tools === baseline.tools
-          ? loaded.tools
-          : { ...loaded.tools, ...live.tools },
-      approvals:
-        current.approvals === baseline.approvals
-          ? loaded.approvals
-          : live.approvals,
-      approvalRunIds:
-        current.approvalRunIds === baseline.approvalRunIds
-          ? loaded.approvalRunIds
-          : live.approvalRunIds,
-      connectionRequests:
-        current.connectionRequests === baseline.connectionRequests
-          ? loaded.connectionRequests
-          : { ...loaded.connectionRequests, ...live.connectionRequests },
-      connectionRequestRunIds:
-        current.connectionRequestRunIds === baseline.connectionRequestRunIds
-          ? loaded.connectionRequestRunIds
-          : {
-              ...loaded.connectionRequestRunIds,
-              ...live.connectionRequestRunIds,
-            },
-      artifacts:
-        current.artifacts === baseline.artifacts
-          ? loaded.artifacts
-          : this.mergeItemsById(loaded.artifacts, live.artifacts),
-      widgets:
-        current.widgets === baseline.widgets
-          ? loaded.widgets
-          : { ...loaded.widgets, ...live.widgets },
-      widgetMessageIds:
-        current.widgetMessageIds === baseline.widgetMessageIds
-          ? loaded.widgetMessageIds
-          : { ...loaded.widgetMessageIds, ...live.widgetMessageIds },
-      annotations:
-        current.annotations === baseline.annotations
-          ? loaded.annotations
-          : { ...loaded.annotations, ...live.annotations },
-      annotationMessageIds:
-        current.annotationMessageIds === baseline.annotationMessageIds
-          ? loaded.annotationMessageIds
-          : {
-              ...loaded.annotationMessageIds,
-              ...live.annotationMessageIds,
-            },
-      suggestions:
-        current.suggestions === baseline.suggestions
+      events: reconciliation
+        ? this.mergeEvents(loaded.events, live.events)
+        : current.events === baseline.events && !snapshotIncludes("events")
+          ? live.events
+          : current.events === baseline.events
+            ? loaded.events
+            : this.mergeEvents(loaded.events, live.events),
+      agents: mergeRecordProjection(
+        loaded.agents,
+        baseline.agents,
+        live.agents,
+        "agents",
+      ),
+      agentInteractions: mergeListProjection(
+        loaded.agentInteractions,
+        baseline.agentInteractions,
+        live.agentInteractions,
+        "interactions",
+      ),
+      activities: mergeRecordProjection(
+        loaded.activities,
+        baseline.activities,
+        live.activities,
+        "activities",
+      ),
+      tasks: mergeRecordProjection(
+        loaded.tasks,
+        baseline.tasks,
+        live.tasks,
+        "tasks",
+      ),
+      taskGroups: mergeRecordProjection(
+        loaded.taskGroups,
+        baseline.taskGroups,
+        live.taskGroups,
+        "taskGroups",
+      ),
+      tools: mergeRecordProjection(
+        loaded.tools,
+        baseline.tools,
+        live.tools,
+        "toolCalls",
+      ),
+      approvals: mergeRecordProjection(
+        loaded.approvals,
+        baseline.approvals,
+        live.approvals,
+        "approvals",
+      ),
+      approvalRunIds: mergeRecordProjection(
+        loaded.approvalRunIds,
+        baseline.approvalRunIds,
+        live.approvalRunIds,
+        "approvals",
+      ),
+      connectionRequests: mergeRecordProjection(
+        loaded.connectionRequests,
+        baseline.connectionRequests,
+        live.connectionRequests,
+        "connectionRequests",
+      ),
+      connectionRequestRunIds: mergeRecordProjection(
+        loaded.connectionRequestRunIds,
+        baseline.connectionRequestRunIds,
+        live.connectionRequestRunIds,
+        "connectionRequests",
+      ),
+      artifacts: mergeListProjection(
+        loaded.artifacts,
+        baseline.artifacts,
+        live.artifacts,
+        "artifacts",
+      ),
+      widgets: mergeRecordProjection(
+        loaded.widgets,
+        baseline.widgets,
+        live.widgets,
+        "widgets",
+      ),
+      widgetMessageIds: mergeRecordProjection(
+        loaded.widgetMessageIds,
+        baseline.widgetMessageIds,
+        live.widgetMessageIds,
+        "widgets",
+      ),
+      annotations: mergeRecordProjection(
+        loaded.annotations,
+        baseline.annotations,
+        live.annotations,
+        "annotations",
+      ),
+      annotationMessageIds: mergeRecordProjection(
+        loaded.annotationMessageIds,
+        baseline.annotationMessageIds,
+        live.annotationMessageIds,
+        "annotations",
+      ),
+      suggestions: snapshotIncludesRuntimeProjection("suggestions")
+        ? current.suggestions === baseline.suggestions
           ? loaded.suggestions
-          : live.suggestions,
-      actions:
-        current.actions === baseline.actions
-          ? loaded.actions
-          : { ...loaded.actions, ...live.actions },
-      uploads:
-        current.uploads === baseline.uploads
-          ? loaded.uploads
-          : { ...loaded.uploads, ...live.uploads },
+          : live.suggestions
+        : current.suggestions,
+      actions: mergeRecordProjection(
+        loaded.actions,
+        baseline.actions,
+        live.actions,
+        "events",
+      ),
+      uploads: mergeRecordProjection(
+        loaded.uploads,
+        baseline.uploads,
+        live.uploads,
+        "events",
+      ),
     };
   }
 

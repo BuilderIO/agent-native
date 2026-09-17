@@ -1392,89 +1392,12 @@ export function createAgentKitProtocolAdapter(
     if (terminalStatus && run.terminalAppendDepth === 0) {
       run.terminalAppendDepth = 1;
       try {
+        appendTerminalFollowups(run, event, terminalStatus);
         append(run, event);
       } finally {
         run.terminalAppendDepth = 0;
       }
       return;
-    }
-    if (terminalStatus && run.activeMessageId && !run.activeMessageCompleted) {
-      append(run, {
-        type: "message.completed",
-        occurredAt: event.occurredAt ?? now(),
-        metadata: event.metadata,
-        message: {
-          id: run.activeMessageId,
-          role: "assistant",
-          status: terminalStatus === "completed" ? "complete" : "error",
-          parts: [],
-        },
-      });
-    }
-    const terminalActivityStatus = terminalStatus;
-    const terminalToolStatus = terminalActivityStatus;
-    if (terminalToolStatus && run.activeTools.size > 0) {
-      const terminalError =
-        terminalToolStatus === "failed" &&
-        event.error &&
-        typeof event.error === "object"
-          ? (event.error as AgentError)
-          : undefined;
-      for (const tool of [...run.activeTools.values()]) {
-        append(run, {
-          type: "tool.updated",
-          occurredAt: event.occurredAt ?? now(),
-          metadata: event.metadata,
-          toolCall: {
-            ...tool,
-            status: terminalToolStatus,
-            ...(terminalError ? { error: terminalError } : {}),
-          },
-        });
-      }
-    }
-    if (terminalToolStatus && run.actions.size > 0) {
-      const actionStatus =
-        terminalToolStatus === "completed"
-          ? "completed"
-          : terminalToolStatus === "cancelled"
-            ? "cancelled"
-            : "failed";
-      const actionError =
-        actionStatus === "failed"
-          ? {
-              code: "run_terminated",
-              message: "The run ended before the action reported a result.",
-            }
-          : undefined;
-      for (const invocation of [...run.actions.values()]) {
-        append(run, {
-          type:
-            actionStatus === "completed" ? "action.completed" : "action.failed",
-          occurredAt: event.occurredAt ?? now(),
-          metadata: event.metadata,
-          result: {
-            invocationId: invocation.id,
-            status: actionStatus,
-            ...(actionError ? { error: actionError } : {}),
-          },
-        });
-      }
-    }
-    if (terminalActivityStatus && run.activeActivities.size > 0) {
-      const completedAt = event.occurredAt ?? now();
-      for (const activity of [...run.activeActivities.values()]) {
-        append(run, {
-          type: "activity.completed",
-          occurredAt: completedAt,
-          metadata: event.metadata,
-          activity: {
-            ...activity,
-            status: terminalActivityStatus,
-            completedAt,
-          },
-        });
-      }
     }
     const { occurredAt: eventTime, ...payload } = event;
     const sequence = run.sequence + 1;
@@ -1566,6 +1489,91 @@ export function createAgentKitProtocolAdapter(
     }
     for (const listener of run.listeners) listener();
     if (becameTerminal) pruneRetainedRuns(run.terminalAtMs);
+  }
+
+  function appendTerminalFollowups(
+    run: ProtocolRun,
+    event: ProtocolEventInput,
+    terminalStatus: "completed" | "failed" | "cancelled",
+  ): void {
+    if (run.activeMessageId && !run.activeMessageCompleted) {
+      append(run, {
+        type: "message.completed",
+        occurredAt: event.occurredAt ?? now(),
+        metadata: event.metadata,
+        message: {
+          id: run.activeMessageId,
+          role: "assistant",
+          status: terminalStatus === "completed" ? "complete" : "error",
+          parts: [],
+        },
+      });
+    }
+    const terminalActivityStatus = terminalStatus;
+    const terminalToolStatus = terminalActivityStatus;
+    if (terminalToolStatus && run.activeTools.size > 0) {
+      const terminalError =
+        terminalToolStatus === "failed" &&
+        event.error &&
+        typeof event.error === "object"
+          ? (event.error as AgentError)
+          : undefined;
+      for (const tool of [...run.activeTools.values()]) {
+        append(run, {
+          type: "tool.updated",
+          occurredAt: event.occurredAt ?? now(),
+          metadata: event.metadata,
+          toolCall: {
+            ...tool,
+            status: terminalToolStatus,
+            ...(terminalError ? { error: terminalError } : {}),
+          },
+        });
+      }
+    }
+    if (terminalToolStatus && run.actions.size > 0) {
+      const actionStatus =
+        terminalToolStatus === "completed"
+          ? "completed"
+          : terminalToolStatus === "cancelled"
+            ? "cancelled"
+            : "failed";
+      const actionError =
+        actionStatus === "failed"
+          ? {
+              code: "run_terminated",
+              message: "The run ended before the action reported a result.",
+            }
+          : undefined;
+      for (const invocation of [...run.actions.values()]) {
+        append(run, {
+          type:
+            actionStatus === "completed" ? "action.completed" : "action.failed",
+          occurredAt: event.occurredAt ?? now(),
+          metadata: event.metadata,
+          result: {
+            invocationId: invocation.id,
+            status: actionStatus,
+            ...(actionError ? { error: actionError } : {}),
+          },
+        });
+      }
+    }
+    if (terminalActivityStatus && run.activeActivities.size > 0) {
+      const completedAt = event.occurredAt ?? now();
+      for (const activity of [...run.activeActivities.values()]) {
+        append(run, {
+          type: "activity.completed",
+          occurredAt: completedAt,
+          metadata: event.metadata,
+          activity: {
+            ...activity,
+            status: terminalActivityStatus,
+            completedAt,
+          },
+        });
+      }
+    }
   }
 
   function runtimeEventToProtocolEvents(

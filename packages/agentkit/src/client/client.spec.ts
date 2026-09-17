@@ -209,6 +209,114 @@ describe("AgentKitClient", () => {
     ]);
   });
 
+  it("settles unassociated streaming messages conservatively for mixed terminals", async () => {
+    const transport = createTransport([]);
+    transport.getThreadSnapshot = async () => ({
+      id: "thread-1",
+      createdAt: "2026-08-29T00:00:00.000Z",
+      updatedAt: "2026-08-29T00:00:02.000Z",
+      messages: [
+        {
+          id: "assistant-partial",
+          role: "assistant",
+          status: "streaming",
+          parts: [{ type: "text", text: "Partial response" }],
+        },
+      ],
+      runs: [
+        {
+          id: "run-complete",
+          threadId: "thread-1",
+          status: "completed" as const,
+          lastSequence: 4,
+        },
+        {
+          id: "run-failed",
+          threadId: "thread-1",
+          status: "failed" as const,
+          lastSequence: 4,
+        },
+      ],
+      activeRunIds: [],
+    });
+    const client = new AgentKitClient({ transport });
+
+    const thread = await client.loadThread("thread-1");
+
+    expect(thread.messages).toEqual([
+      expect.objectContaining({ id: "assistant-partial", status: "error" }),
+    ]);
+  });
+
+  it("uses durable message updates when a refresh has no live message changes", async () => {
+    let snapshotReads = 0;
+    const transport = createTransport([]);
+    transport.getThreadSnapshot = async () => {
+      snapshotReads += 1;
+      return {
+        id: "thread-1",
+        createdAt: "2026-08-29T00:00:00.000Z",
+        updatedAt: `2026-08-29T00:00:0${snapshotReads}.000Z`,
+        messages: [
+          {
+            id: "assistant-1",
+            role: "assistant",
+            status: snapshotReads === 1 ? "streaming" : "complete",
+            parts: [
+              {
+                type: "text",
+                text: snapshotReads === 1 ? "Partial" : "Complete response",
+              },
+            ],
+          },
+        ],
+      };
+    };
+    const client = new AgentKitClient({ transport });
+
+    await client.loadThread("thread-1");
+    const thread = await client.loadThread("thread-1");
+
+    expect(thread.messages).toEqual([
+      expect.objectContaining({
+        id: "assistant-1",
+        status: "complete",
+        parts: [{ type: "text", text: "Complete response" }],
+      }),
+    ]);
+  });
+
+  it("lets a refresh remove a resolved runtime projection", async () => {
+    let snapshotReads = 0;
+    const transport = createTransport([]);
+    transport.getThreadSnapshot = async () => {
+      snapshotReads += 1;
+      return {
+        id: "thread-1",
+        createdAt: "2026-08-29T00:00:00.000Z",
+        updatedAt: "2026-08-29T00:00:00.000Z",
+        messages: [],
+        toolCalls:
+          snapshotReads === 1
+            ? [
+                {
+                  id: "tool-1",
+                  name: "Search",
+                  status: "completed" as const,
+                },
+              ]
+            : [],
+      };
+    };
+    const client = new AgentKitClient({ transport });
+
+    await client.loadThread("thread-1");
+    expect(client.getThread("thread-1").tools["tool-1"]).toBeDefined();
+    await client.loadThread("thread-1");
+
+    expect(client.getThread("thread-1").tools).toEqual({});
+  });
+
   it("settles a terminal snapshot again after reconciling a streamed message id", async () => {
     let snapshotReads = 0;
     const transport = createTransport([]);
@@ -1078,6 +1186,41 @@ describe("AgentKitClient", () => {
     await client.loadThread("thread-1");
 
     expect(client.getThread("thread-1").queuedMessages).toEqual([laterQueued]);
+  });
+
+  it("keeps durable queue additions when the local queue did not change", async () => {
+    const queued: AgentQueuedMessage = {
+      id: "queued-1",
+      threadId: "thread-1",
+      text: "Follow up",
+      createdAt: "2026-08-29T00:00:00.000Z",
+    };
+    const laterQueued: AgentQueuedMessage = {
+      ...queued,
+      id: "queued-2",
+      text: "Then announce it",
+    };
+    let snapshotReads = 0;
+    const transport = createTransport([]);
+    transport.getThreadSnapshot = async () => {
+      snapshotReads += 1;
+      return {
+        id: "thread-1",
+        createdAt: queued.createdAt,
+        updatedAt: queued.createdAt,
+        messages: [],
+        queuedMessages: snapshotReads === 1 ? [queued] : [queued, laterQueued],
+      };
+    };
+    const client = new AgentKitClient({ transport });
+
+    await client.loadThread("thread-1");
+    await client.loadThread("thread-1");
+
+    expect(client.getThread("thread-1").queuedMessages).toEqual([
+      queued,
+      laterQueued,
+    ]);
   });
 
   it("does not resurrect a removal after a briefly current snapshot", async () => {

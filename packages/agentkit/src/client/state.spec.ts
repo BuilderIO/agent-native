@@ -239,6 +239,69 @@ describe("AgentKit lifecycle projections", () => {
     ]);
   });
 
+  it("preserves a failed synthetic completion status while retaining deltas", () => {
+    const reduced = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "message.created",
+        message: {
+          id: "assistant-1",
+          role: "assistant",
+          status: "streaming",
+          parts: [],
+        },
+      }),
+      event(3, {
+        type: "message.delta",
+        messageId: "assistant-1",
+        text: "Partial response",
+      }),
+      event(4, {
+        type: "message.completed",
+        message: {
+          id: "assistant-1",
+          role: "assistant",
+          status: "error",
+          parts: [],
+        },
+      }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+
+    expect(reduced.messages).toEqual([
+      expect.objectContaining({
+        status: "error",
+        parts: [{ type: "text", text: "Partial response" }],
+      }),
+    ]);
+  });
+
+  it("ignores late tool deltas after a tool reaches a terminal status", () => {
+    const reduced = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "tool.updated",
+        toolCall: {
+          id: "tool-1",
+          name: "Search",
+          status: "completed",
+          output: "final result",
+        },
+      }),
+      event(3, {
+        type: "tool.delta",
+        toolCallId: "tool-1",
+        inputTextDelta: "late input",
+        outputTextDelta: "late output",
+      }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+
+    expect(reduced.tools["tool-1"]).toMatchObject({
+      status: "completed",
+      output: "final result",
+    });
+    expect(reduced.tools["tool-1"]?.input).toBeUndefined();
+  });
+
   it("does not reopen settled tool, activity, task, or action projections", () => {
     const reduced = [
       event(1, { type: "run.started" }),

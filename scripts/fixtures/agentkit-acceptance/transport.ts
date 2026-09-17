@@ -50,6 +50,7 @@ export function instrumentAgentKitAcceptanceTransport<T extends AgentTransport>(
   transport: T,
 ): T {
   const promptByRun = new Map<string, string>();
+  const suggestionSequenceByRun = new Map<string, number>();
   const originalStartRun = transport.startRun.bind(transport);
   const originalSubscribeToRun = transport.subscribeToRun.bind(transport);
   let rejectSteerOnce = true;
@@ -67,9 +68,20 @@ export function instrumentAgentKitAcceptanceTransport<T extends AgentTransport>(
 
   transport.subscribeToRun = async function* (input, context) {
     const prompt = promptByRun.get(input.runId);
-    let injectedSuggestion = false;
-    let sequenceOffset = 0;
-    for await (const event of originalSubscribeToRun(input, context)) {
+    const afterSequence = input.afterSequence ?? 0;
+    const suggestionSequence = suggestionSequenceByRun.get(input.runId);
+    const suggestionAccepted =
+      suggestionSequence !== undefined && afterSequence >= suggestionSequence;
+    const sourceAfterSequence = suggestionAccepted
+      ? afterSequence - 1
+      : input.afterSequence;
+    let injectedSuggestion = suggestionAccepted;
+    let sequenceOffset = suggestionAccepted ? 1 : 0;
+    const sourceInput =
+      sourceAfterSequence === input.afterSequence
+        ? input
+        : { ...input, afterSequence: sourceAfterSequence };
+    for await (const event of originalSubscribeToRun(sourceInput, context)) {
       if (
         prompt !== acceptanceSuggestionSourcePrompt ||
         prompt === undefined ||
@@ -85,6 +97,7 @@ export function instrumentAgentKitAcceptanceTransport<T extends AgentTransport>(
 
       injectedSuggestion = true;
       sequenceOffset = 1;
+      suggestionSequenceByRun.set(input.runId, event.sequence);
       yield {
         id: `${event.id}-suggestions`,
         threadId: event.threadId,

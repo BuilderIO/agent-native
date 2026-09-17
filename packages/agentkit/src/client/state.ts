@@ -610,7 +610,7 @@ export function reduceAgentEvent(
             ...current,
             ...event.message,
             parts: current.parts,
-            status: "complete",
+            status: event.message.status ?? "complete",
           }),
         };
       }
@@ -669,6 +669,7 @@ export function reduceAgentEvent(
           status: "running",
           runId: event.runId,
         } satisfies AgentToolCall);
+      if (isTerminalItemStatus(current.status)) return next;
       const input =
         event.inputTextDelta === undefined
           ? current.input

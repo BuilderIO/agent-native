@@ -754,6 +754,53 @@ describe("createAgentKitProtocolAdapter", () => {
     ).resolves.toMatchObject({ activeMessageId: "assistant-terminal" });
   });
 
+  it("marks an active message as failed at an error terminal boundary", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "message-start",
+        message: {
+          id: "assistant-failed",
+          role: "assistant",
+          content: [],
+        },
+      };
+      yield {
+        type: "message-delta",
+        messageId: "assistant-failed",
+        delta: { type: "text", text: "Partial response" },
+      };
+      yield { type: "done", reason: "error" };
+    }
+
+    const transport = createAgentKitProtocolAdapter(createRuntime(events));
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Finish the response")],
+    });
+    const result = await drain(
+      transport.subscribeToRun({ threadId: "thread-1", runId }),
+    );
+    const completion = result.find(
+      (event) =>
+        event.type === "message.completed" &&
+        event.message.id === "assistant-failed",
+    );
+
+    expect(completion).toMatchObject({
+      type: "message.completed",
+      message: {
+        id: "assistant-failed",
+        status: "error",
+        parts: [],
+      },
+    });
+    expect(result.findIndex((event) => event === completion)).toBeLessThan(
+      result.findIndex(
+        (event) => event.type === "run.status" && event.status === "failed",
+      ),
+    );
+  });
+
   it("forwards provider-neutral run options into the Core turn", async () => {
     let receivedInput: unknown;
     async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
