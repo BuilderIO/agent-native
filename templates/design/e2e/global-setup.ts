@@ -82,7 +82,7 @@ export const FIXTURE_HTML = `<!doctype html>
         <div style="padding:8px;border:1px solid #3f3f46;border-radius:10px">
           <div style="padding:8px;border:1px solid #52525b;border-radius:8px">
             <div style="padding:8px;border:1px solid #71717a;border-radius:6px">
-              <button style="padding:10px 18px;border-radius:8px;border:0;background:#f59e0b;color:#111827;font-size:14px">Deep Layer Button</button>
+              <button data-agent-native-node-id="e2e-deep-layer-button" data-agent-native-layer-name="Deep Layer Button" style="padding:10px 18px;border-radius:8px;border:0;background:#f59e0b;color:#111827;font-size:14px">Deep Layer Button</button>
             </div>
           </div>
         </div>

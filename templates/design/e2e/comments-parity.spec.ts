@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 import { E2E_MENTION_EMAIL } from "./global-setup";
-import { createFixtureDesign, gotoEditor } from "./helpers";
+import { createFixtureDesign, designFrame, gotoEditor } from "./helpers";
 
 test("comments toolbar opens an anchored composer", async ({
   page,
@@ -25,13 +25,23 @@ test("comments toolbar opens an anchored composer", async ({
   );
   await expect(clickPlane).toHaveCount(1);
   await expect(clickPlane).toBeVisible();
-  const box = await clickPlane.boundingBox();
-  if (!box) throw new Error("comment click plane has no layout box");
+  const canvasBox = await clickPlane.boundingBox();
+  if (!canvasBox) throw new Error("comment click plane has no layout box");
+  const nestedNode = designFrame(page).locator(
+    '[data-agent-native-node-id="e2e-deep-layer-button"]',
+  );
+  await expect(nestedNode).toBeVisible();
+  const nestedNodeId = await nestedNode.getAttribute(
+    "data-agent-native-node-id",
+  );
+  if (!nestedNodeId) throw new Error("nested comment target has no node id");
+  const nestedBox = await nestedNode.boundingBox();
+  if (!nestedBox) throw new Error("nested comment target has no layout box");
   await clickPlane.click({
     force: true,
     position: {
-      x: Math.min(120, box.width / 2),
-      y: Math.min(120, box.height / 2),
+      x: nestedBox.x + nestedBox.width / 2 - canvasBox.x,
+      y: nestedBox.y + nestedBox.height / 2 - canvasBox.y,
     },
   });
 
@@ -103,9 +113,24 @@ test("comments toolbar opens an anchored composer", async ({
     `create-review-comment returned ${created.status()}`,
   ).toBe(true);
   const createdComment = (await created.json()) as {
+    id?: string;
+    threadId?: string;
+    anchor?: {
+      nodeId?: string;
+      relativePoint?: { xPct?: number; yPct?: number };
+    };
     body?: string;
     mentions?: Array<{ email?: string; id?: string | null; label?: string }>;
   };
+  expect(createdComment.id).toEqual(expect.any(String));
+  expect(createdComment.threadId).toEqual(expect.any(String));
+  expect(createdComment.anchor).toMatchObject({
+    nodeId: expect.any(String),
+    relativePoint: {
+      xPct: expect.any(Number),
+      yPct: expect.any(Number),
+    },
+  });
   expect(createdComment.body).toBe("Browser parity check @alice+e2e");
   expect(createdComment.mentions).toEqual([
     { label: "alice+e2e", email: E2E_MENTION_EMAIL, id: null },
@@ -117,11 +142,156 @@ test("comments toolbar opens an anchored composer", async ({
     page.getByRole("tab", { name: "Comments", exact: true }),
   ).toBeVisible();
   await page.getByRole("tab", { name: "Comments", exact: true }).click();
-  await expect(page.locator("[data-review-pin]").last()).toBeVisible();
-  await page.locator("[data-review-pin]").last().click();
+  const persistedPin = page.locator("[data-review-pin]").last();
+  await expect(persistedPin).toBeVisible();
+  await persistedPin.click();
+  const threadPopover = page
+    .locator("[data-review-popover]")
+    .filter({ hasText: "Browser parity check @alice+e2e" })
+    .last();
+  await expect(threadPopover).toBeVisible();
   await expect(
     page
       .locator("[data-review-comments-panel] article")
       .getByText("Browser parity check @alice+e2e", { exact: true }),
+  ).toBeVisible();
+
+  const replyInput = page.locator("textarea[data-review-reply-input]:visible");
+  await expect(replyInput).toHaveCount(1);
+  await expect(replyInput).toBeVisible();
+  await replyInput.fill("Browser parity reply");
+  const replyResponse = page.waitForResponse(
+    (response) =>
+      response.url().includes("/_agent-native/actions/reply-review-comment") &&
+      response.request().method() === "POST",
+  );
+  await replyInput.press("Enter");
+  const replied = await replyResponse;
+  expect(
+    replied.ok(),
+    `reply-review-comment returned ${replied.status()}`,
+  ).toBe(true);
+  const reply = (await replied.json()) as {
+    id?: string;
+    threadId?: string;
+    parentCommentId?: string | null;
+    body?: string;
+  };
+  expect(reply).toMatchObject({
+    id: expect.any(String),
+    threadId: createdComment.threadId,
+    parentCommentId: createdComment.id,
+    body: "Browser parity reply",
+  });
+  await expect(
+    threadPopover.getByText("Browser parity reply", { exact: true }),
+  ).toBeVisible();
+
+  const resolveResponse = page.waitForResponse(
+    (response) =>
+      response.url().includes("/_agent-native/actions/resolve-review-thread") &&
+      response.request().method() === "POST",
+  );
+  await threadPopover
+    .getByRole("button", { name: "Resolve", exact: true })
+    .click();
+  const resolved = await resolveResponse;
+  expect(
+    resolved.ok(),
+    `resolve-review-thread returned ${resolved.status()}`,
+  ).toBe(true);
+  expect((await resolved.json()) as { status?: string }).toMatchObject({
+    status: "resolved",
+  });
+  await expect(threadPopover).toBeHidden();
+  await page.locator("[data-review-pin]").last().click();
+  const resolvedPopover = page
+    .locator("[data-review-popover]")
+    .filter({ hasText: "Browser parity check @alice+e2e" })
+    .last();
+  await expect(
+    resolvedPopover.getByRole("button", { name: "Reopen", exact: true }),
+  ).toBeVisible();
+
+  const reopenResponse = page.waitForResponse(
+    (response) =>
+      response.url().includes("/_agent-native/actions/resolve-review-thread") &&
+      response.request().method() === "POST",
+  );
+  const commentsRefresh = page.waitForResponse(
+    (response) =>
+      response.url().includes("/_agent-native/actions/list-review-comments") &&
+      response.request().method() === "GET" &&
+      response.ok(),
+  );
+  await resolvedPopover
+    .getByRole("button", { name: "Reopen", exact: true })
+    .click();
+  const reopened = await reopenResponse;
+  expect(
+    reopened.ok(),
+    `resolve-review-thread reopen returned ${reopened.status()}`,
+  ).toBe(true);
+  expect((await reopened.json()) as { status?: string }).toMatchObject({
+    status: "open",
+  });
+  await expect(resolvedPopover).toBeHidden();
+  await page.locator("[data-review-pin]").last().click();
+  const reopenedPopover = page
+    .locator("[data-review-popover]")
+    .filter({ hasText: "Browser parity check @alice+e2e" })
+    .last();
+  await expect(
+    reopenedPopover.getByRole("button", { name: "Resolve", exact: true }),
+  ).toBeVisible();
+  const refreshedResponse = await commentsRefresh;
+  const refreshed = (await refreshedResponse.json()) as {
+    comments?: Array<{
+      id?: string;
+      threadId?: string;
+      parentCommentId?: string | null;
+      status?: string;
+      anchor?: { nodeId?: string; relativePoint?: unknown };
+      body?: string;
+    }>;
+  };
+  const refreshedComments = refreshed.comments ?? [];
+  const refreshedRoot = refreshedComments.find(
+    (comment) => comment.id === createdComment.id,
+  );
+  const refreshedReply = refreshedComments.find(
+    (comment) => comment.id === reply.id,
+  );
+  expect(refreshedRoot).toMatchObject({
+    id: createdComment.id,
+    threadId: createdComment.threadId,
+    parentCommentId: null,
+    status: "open",
+    anchor: {
+      nodeId: expect.any(String),
+      relativePoint: expect.anything(),
+    },
+  });
+  expect(refreshedReply).toMatchObject({
+    id: reply.id,
+    threadId: createdComment.threadId,
+    parentCommentId: createdComment.id,
+    body: "Browser parity reply",
+  });
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await expect(
+    page.getByRole("tab", { name: "Comments", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("tab", { name: "Comments", exact: true }).click();
+  await page.locator("[data-review-pin]").last().click();
+  const reloadedPopover = page
+    .locator("[data-review-popover]")
+    .filter({ hasText: "Browser parity check @alice+e2e" })
+    .last();
+  await expect(
+    reloadedPopover.getByText("Browser parity reply", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    reloadedPopover.getByRole("button", { name: "Resolve", exact: true }),
   ).toBeVisible();
 });
