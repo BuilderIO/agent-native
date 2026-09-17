@@ -1224,6 +1224,10 @@ const overrides = {
     aiFollowUpYou: "나",
     aiFollowUpIncomplete: "이 답변은 완료되기 전에 종료되었습니다.",
     sourceComment: "원본 댓글",
+    aiRequestCouldNotBeConfirmed: "AI 요청을 확인할 수 없습니다",
+    aiFollowUpCouldNotBeConfirmed: "AI 후속 요청을 확인할 수 없습니다",
+    aiRequestStopCouldNotBeConfirmed:
+      "전송이 확인되지 않아 AI 요청을 중지할 수 없습니다",
     resolve: "해결",
     resolved: "해결됨({{count}})",
     reply: "답글...",

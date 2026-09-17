@@ -1214,6 +1214,10 @@ const overrides = {
     aiFollowUpYou: "आप",
     aiFollowUpIncomplete: "यह जवाब पूरा होने से पहले समाप्त हो गया।",
     sourceComment: "स्रोत टिप्पणी",
+    aiRequestCouldNotBeConfirmed: "AI अनुरोध की पुष्टि नहीं हो सकी",
+    aiFollowUpCouldNotBeConfirmed: "AI फ़ॉलो-अप की पुष्टि नहीं हो सकी",
+    aiRequestStopCouldNotBeConfirmed:
+      "AI अनुरोध को रोका नहीं जा सका क्योंकि भेजे जाने की पुष्टि नहीं हुई",
     resolve: "हल करें",
     resolved: "हल की गई ({{count}})",
     reply: "जवाब दें...",

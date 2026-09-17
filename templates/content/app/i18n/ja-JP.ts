@@ -1239,6 +1239,10 @@ const overrides = {
     aiFollowUpYou: "あなた",
     aiFollowUpIncomplete: "この返信は完了前に終了しました。",
     sourceComment: "元のコメント",
+    aiRequestCouldNotBeConfirmed: "AI リクエストを確認できませんでした",
+    aiFollowUpCouldNotBeConfirmed: "AI のフォローアップを確認できませんでした",
+    aiRequestStopCouldNotBeConfirmed:
+      "送信を確認できなかったため、AI リクエストを停止できませんでした",
     resolve: "解決",
     resolved: "解決済み（{{count}}）",
     reply: "返信...",

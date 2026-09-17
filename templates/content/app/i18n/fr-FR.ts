@@ -1272,6 +1272,10 @@ const overrides = {
     aiFollowUpYou: "Vous",
     aiFollowUpIncomplete: "Cette réponse s’est arrêtée avant la fin.",
     sourceComment: "Commentaire source",
+    aiRequestCouldNotBeConfirmed: "La demande d’IA n’a pas pu être confirmée",
+    aiFollowUpCouldNotBeConfirmed: "Le suivi de l’IA n’a pas pu être confirmé",
+    aiRequestStopCouldNotBeConfirmed:
+      "La demande d’IA n’a pas pu être arrêtée, car l’envoi n’a pas été confirmé",
     resolve: "Résoudre",
     resolved: "Résolus ({{count}})",
     reply: "Répondre...",

@@ -1328,6 +1328,10 @@ const enUS = {
     aiFollowUpYou: "You",
     aiFollowUpIncomplete: "This response ended before it finished.",
     sourceComment: "Source comment",
+    aiRequestCouldNotBeConfirmed: "The AI request could not be confirmed",
+    aiFollowUpCouldNotBeConfirmed: "The AI follow-up could not be confirmed",
+    aiRequestStopCouldNotBeConfirmed:
+      "The AI request could not be stopped because dispatch was not confirmed",
     resolve: "Resolve",
     resolved: "Resolved ({{count}})",
     unanchored: "Highlight unavailable",

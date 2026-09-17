@@ -1518,6 +1518,10 @@ const overrides = {
     aiFollowUpYou: "Tú",
     aiFollowUpIncomplete: "Esta respuesta terminó antes de completarse.",
     sourceComment: "Comentario de origen",
+    aiRequestCouldNotBeConfirmed: "No se pudo confirmar la solicitud de IA",
+    aiFollowUpCouldNotBeConfirmed: "No se pudo confirmar el seguimiento de IA",
+    aiRequestStopCouldNotBeConfirmed:
+      "No se pudo detener la solicitud de IA porque no se confirmó el envío",
     resolve: "Resolver",
     resolved: "Resueltos ({{count}})",
     reply: "Responder...",

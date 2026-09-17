@@ -1223,6 +1223,10 @@ const overrides = {
     aiFollowUpYou: "أنت",
     aiFollowUpIncomplete: "انتهى هذا الرد قبل اكتماله.",
     sourceComment: "التعليق المصدر",
+    aiRequestCouldNotBeConfirmed: "تعذر تأكيد طلب الذكاء الاصطناعي",
+    aiFollowUpCouldNotBeConfirmed: "تعذر تأكيد متابعة الذكاء الاصطناعي",
+    aiRequestStopCouldNotBeConfirmed:
+      "تعذر إيقاف طلب الذكاء الاصطناعي لعدم تأكيد الإرسال",
     resolve: "حل",
     resolved: "تم حلها ({{count}})",
     reply: "رد...",

@@ -1273,6 +1273,12 @@ const overrides = {
     aiFollowUpYou: "Du",
     aiFollowUpIncomplete: "Diese Antwort wurde vorzeitig beendet.",
     sourceComment: "Quellkommentar",
+    aiRequestCouldNotBeConfirmed:
+      "Die KI-Anfrage konnte nicht bestätigt werden",
+    aiFollowUpCouldNotBeConfirmed:
+      "Die KI-Folgeanfrage konnte nicht bestätigt werden",
+    aiRequestStopCouldNotBeConfirmed:
+      "Die KI-Anfrage konnte nicht gestoppt werden, da der Versand nicht bestätigt wurde",
     resolve: "Erledigen",
     resolved: "Erledigt ({{count}})",
     reply: "Antworten...",

@@ -333,7 +333,7 @@ export function useCommentAiRequests(
             error:
               error instanceof Error
                 ? error.message
-                : "The AI request could not be confirmed",
+                : t("comments.aiRequestCouldNotBeConfirmed"),
           },
         }));
       }
@@ -482,7 +482,7 @@ export function useCommentAiRequests(
                 error:
                   error instanceof Error
                     ? error.message
-                    : "The AI follow-up could not be confirmed",
+                    : t("comments.aiFollowUpCouldNotBeConfirmed"),
               });
             }
           }
@@ -707,7 +707,7 @@ export function useCommentAiRequests(
               error:
                 error instanceof Error
                   ? error.message
-                  : "The AI request could not be stopped because dispatch was not confirmed",
+                  : t("comments.aiRequestStopCouldNotBeConfirmed"),
             },
           }));
         }
