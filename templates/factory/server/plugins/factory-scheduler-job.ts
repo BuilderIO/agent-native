@@ -684,7 +684,12 @@ export async function ensureFactoryAutomations(
         await deleteFactoryAutomationVersionRow({
           id: insertedRepairVersion.id,
           orgId,
-        }).catch(() => {});
+        }).catch((cleanupError) => {
+          console.error(
+            `[factory-scheduler-job] failed to remove orphaned predecessor version ${insertedRepairVersion.id} after a failed repair write:`,
+            cleanupError,
+          );
+        });
       }
       if (writeError) {
         console.warn(

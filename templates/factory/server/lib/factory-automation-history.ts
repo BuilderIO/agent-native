@@ -424,7 +424,12 @@ export async function restoreFactoryAutomationVersion(input: {
     await deleteFactoryAutomationVersionRow({
       id: insertedVersion.id,
       orgId: input.orgId,
-    }).catch(() => {});
+    }).catch((cleanupError) => {
+      console.error(
+        `[factory-automation-history] failed to remove orphaned predecessor version ${insertedVersion.id} after a failed restore write:`,
+        cleanupError,
+      );
+    });
   }
   if (writeError) throw writeError;
   if (!updated) {

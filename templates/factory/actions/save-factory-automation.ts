@@ -340,7 +340,12 @@ export default defineAction({
       await deleteFactoryAutomationVersionRow({
         id: insertedVersion.id,
         orgId,
-      }).catch(() => {});
+      }).catch((cleanupError) => {
+        console.error(
+          `[save-factory-automation] failed to remove orphaned predecessor version ${insertedVersion.id} after a failed save write:`,
+          cleanupError,
+        );
+      });
     }
     if (writeError) throw writeError;
     if (!updated) {
