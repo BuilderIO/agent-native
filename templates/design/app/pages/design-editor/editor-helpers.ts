@@ -21,26 +21,76 @@ export function runtimeMultiplicityForElementProvenance(
   info: ElementInfo | null | undefined,
 ): number {
   const provenance = info?.provenance;
-  if (!provenance?.sourceFile || !provenance.line || !provenance.column) {
+  const runtimeComponent = info?.runtimeComponent;
+  const hasInvocationProvenance = Boolean(
+    runtimeComponent?.sourceFile &&
+    runtimeComponent.line &&
+    runtimeComponent.column,
+  );
+  const sourceFile = hasInvocationProvenance
+    ? runtimeComponent?.sourceFile
+    : provenance?.sourceFile;
+  const line = hasInvocationProvenance
+    ? runtimeComponent?.line
+    : provenance?.line;
+  const column = hasInvocationProvenance
+    ? runtimeComponent?.column
+    : provenance?.column;
+  const componentName = hasInvocationProvenance
+    ? runtimeComponent?.name
+    : provenance?.component;
+  if (!sourceFile || !line || !column) {
     return 1;
   }
   let count = 0;
+  const invocationKeys = hasInvocationProvenance
+    ? new Set<string>()
+    : undefined;
   for (const snapshot of Object.values(snapshots)) {
     const projection = buildCodeLayerProjection(snapshot.html);
     for (const node of projection.nodes) {
       const attrs = node.dataAttributes;
       if (
-        attrs["data-source-file"] === provenance.sourceFile &&
-        Number(attrs["data-source-line"]) === provenance.line &&
-        Number(attrs["data-source-column"]) === provenance.column &&
-        (!provenance.component ||
-          attrs["data-component-name"] === provenance.component)
+        hasInvocationProvenance &&
+        runtimeComponent?.componentId &&
+        attrs["data-agent-native-runtime-component-id"] !==
+          runtimeComponent.componentId
       ) {
-        count += 1;
+        continue;
+      }
+      const sourceFileAttribute = hasInvocationProvenance
+        ? "data-source-owner-file"
+        : "data-source-file";
+      const lineAttribute = hasInvocationProvenance
+        ? "data-source-owner-line"
+        : "data-source-line";
+      const columnAttribute = hasInvocationProvenance
+        ? "data-source-owner-column"
+        : "data-source-column";
+      if (
+        attrs[sourceFileAttribute] === sourceFile &&
+        Number(attrs[lineAttribute]) === line &&
+        Number(attrs[columnAttribute]) === column &&
+        (!componentName || attrs["data-component-name"] === componentName)
+      ) {
+        if (invocationKeys) {
+          invocationKeys.add(
+            JSON.stringify([
+              runtimeComponent?.componentId ?? "",
+              attrs[sourceFileAttribute],
+              attrs[lineAttribute],
+              attrs[columnAttribute],
+              attrs["data-source-owner-key"] ?? "",
+              attrs["data-component-name"] ?? "",
+            ]),
+          );
+        } else {
+          count += 1;
+        }
       }
     }
   }
-  return Math.max(1, count);
+  return Math.max(1, invocationKeys?.size ?? count);
 }
 
 export function buildSignInHrefForDesignIntent(

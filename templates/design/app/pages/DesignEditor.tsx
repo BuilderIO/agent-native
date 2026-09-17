@@ -111,8 +111,10 @@ import {
 import { linkedComponentRootForNode } from "@shared/component-links";
 import {
   componentNodeIdMatches,
+  extractProps,
   isComponentInstance,
   isComponentInstanceForInstanceActions,
+  propNameToDataAttribute,
 } from "@shared/component-model";
 import { getOverviewScreenFileIds } from "@shared/design-files";
 import { DESIGN_REVIEW_PANEL } from "@shared/design-flags";
@@ -126,6 +128,7 @@ import { assertDesignHtmlEditIntegrity } from "@shared/html-integrity";
 import type { InteractionState } from "@shared/interaction-states";
 import { DESIGN_TWEAKS } from "@shared/labs";
 import type { LayoutGrid } from "@shared/layout-grid";
+import { readLiteralJsxPropsAtAnchor } from "@shared/local-jsx-visual-edit";
 import { countLockedLayersAcrossFiles } from "@shared/locked-layers";
 import type { MotionAnimationClip, MotionEase } from "@shared/motion-timeline";
 import {
@@ -162,6 +165,7 @@ import {
 import {
   isRunningAppSourceType,
   normalizeDesignSourceType,
+  sourcePositionPrecision,
 } from "@shared/source-mode";
 import { sourceContentHash } from "@shared/source-workspace";
 import {
@@ -781,6 +785,7 @@ import {
   designSelectionStateKeys,
   isSupersededSelectionEcho,
   reloadRunningAppPreviewFrames,
+  runtimeMultiplicityForElementProvenance,
   withMeasuredGeometry,
 } from "./design-editor/editor-helpers";
 import {
@@ -933,6 +938,7 @@ import {
   formatVisualEditClipboardPrompt,
   getPendingVisualEditCount,
   pendingVisualStyleGestureIdForPhase,
+  projectRelativeSourcePath,
   type PendingLiveLayerStateEdit,
   type PendingLiveNonStyleEdit,
   type PendingLiveNonStyleUndoEntry,
@@ -1055,6 +1061,21 @@ function pageHasWebMcpHost(): boolean {
   return hasNativeWebMcpHost();
 }
 
+type RequestLocalhostWrite = (opts: {
+  files: string[];
+  onGranted: LocalhostWriteConsentPayload["onGranted"];
+  onCancel?: () => void;
+}) => void;
+
+function isLocalhostWriteConsentError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.name === "LocalWriteConsentRequiredError" ||
+      error.name === "WriteConsentRequiredError" ||
+      /write-consent grant|grant expired/i.test(error.message))
+  );
+}
+
 function readRenderedLayerInfo(
   owner: {
     fileId: string;
@@ -1137,6 +1158,7 @@ function DesignEditor() {
   const isSignedIn = Boolean(session?.email);
   const sessionResolved = !sessionLoading;
   const designSaveActorScope = session?.userId ?? "anonymous";
+  const requestLocalhostWriteRef = useRef<RequestLocalhostWrite | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
   // Long overview sessions (pan/zoom/select/undo across many screens) build
@@ -8481,11 +8503,15 @@ function DesignEditor() {
   // The selected node id, when it already is a recognised component instance —
   // unlocks the contextual Component section at the top of the Design tab.
   const selectedComponentNodeId = useMemo(() => {
-    if (!selectedCodeLayerNode) return undefined;
-    return isComponentInstance(selectedCodeLayerNode)
-      ? bridgeSourceIdForCodeLayerNode(selectedCodeLayerNode)
+    if (selectedCodeLayerNode && isComponentInstance(selectedCodeLayerNode)) {
+      return bridgeSourceIdForCodeLayerNode(selectedCodeLayerNode);
+    }
+    return activeCanvasSourceType === "localhost"
+      ? (selectedElement?.runtimeComponent?.instanceId ??
+          selectedElement?.sourceId ??
+          undefined)
       : undefined;
-  }, [selectedCodeLayerNode]);
+  }, [activeCanvasSourceType, selectedCodeLayerNode, selectedElement]);
   // Keep canonical mains available to the Component section's read/source
   // controls while withholding instance-only actions from those selections.
   const selectedInstanceActionNodeId = useMemo(() => {
@@ -8503,8 +8529,11 @@ function DesignEditor() {
   const acceptedActiveContent = pendingActiveFileEntry
     ? pendingActiveFileEntry.baseContent
     : acceptedActiveFile?.content;
-  const hasSelectedComponent =
-    activeCanvasSourceType === "inline" && Boolean(selectedComponentNodeId);
+  const hasSelectedComponent = Boolean(
+    selectedComponentNodeId &&
+    (activeCanvasSourceType === "inline" ||
+      Boolean(selectedElement?.runtimeComponent)),
+  );
   const acceptedComponentProjection = useMemo(() => {
     if (
       !hasSelectedComponent ||
@@ -8561,6 +8590,13 @@ function DesignEditor() {
   );
   const selectedElementAlreadyComponent = useMemo(() => {
     if (!selectedElement) return false;
+    if (
+      selectedElement.runtimeComponent &&
+      !(selectedCodeLayerNode && isComponentInstance(selectedCodeLayerNode))
+    ) {
+      return false;
+    }
+    if (selectedElement.componentAnnotation?.trim()) return true;
     if (selectedElement.componentName?.trim()) return true;
     return codeLayerNodeLooksLikeComponent(selectedCodeLayerNode);
   }, [selectedCodeLayerNode, selectedElement]);
@@ -8609,6 +8645,110 @@ function DesignEditor() {
     }
     return "Component";
   }, [selectedCodeLayerNode?.layerName, selectedElement?.tagName]);
+
+  const selectedComponentLocalSourceAnchor = useMemo(() => {
+    if (
+      activeCanvasSourceType !== "localhost" ||
+      selectedElement?.runtimeComponent?.writeCapability !==
+        "authored-jsx-literal"
+    ) {
+      return undefined;
+    }
+    const connectionId =
+      (activeOverviewScreen as { connectionId?: string } | undefined)
+        ?.connectionId ?? "";
+    const runtimeComponent = selectedElement.runtimeComponent;
+    const sourcePath = projectRelativeSourcePath({
+      sourceFile: runtimeComponent.sourceFile,
+      rootPath: connectionId
+        ? localhostConnectionRootPathByIdRef.current.get(connectionId)
+        : undefined,
+    });
+    if (
+      !connectionId ||
+      !sourcePath ||
+      !runtimeComponent.line ||
+      !runtimeComponent.column
+    )
+      return undefined;
+    const runtimeMultiplicity = runtimeMultiplicityForElementProvenance(
+      runtimeLayerSnapshotsById,
+      selectedElement,
+    );
+    return {
+      connectionId,
+      path: sourcePath,
+      line: runtimeComponent.line,
+      column: runtimeComponent.column,
+      positionPrecision: sourcePositionPrecision(runtimeComponent.method),
+      runtimeMultiplicity,
+      scope:
+        runtimeMultiplicity === 1
+          ? ("single-instance" as const)
+          : ("repeated-render" as const),
+    };
+  }, [
+    activeCanvasSourceType,
+    activeOverviewScreen,
+    runtimeLayerSnapshotsById,
+    selectedElement,
+  ]);
+
+  const { data: selectedComponentSource } = useActionQuery<{
+    versionHash?: string;
+    content?: string;
+  }>(
+    "read-local-file",
+    {
+      designId: id ?? "",
+      connectionId: selectedComponentLocalSourceAnchor?.connectionId ?? "",
+      path: selectedComponentLocalSourceAnchor?.path ?? "",
+    },
+    {
+      enabled: Boolean(id && selectedComponentLocalSourceAnchor),
+      refetchOnMount: "always",
+    },
+  );
+
+  const selectedComponentLiteralProps = useMemo(() => {
+    if (
+      !selectedComponentLocalSourceAnchor ||
+      typeof selectedComponentSource?.content !== "string"
+    ) {
+      return undefined;
+    }
+    const literalProps = readLiteralJsxPropsAtAnchor({
+      content: selectedComponentSource.content,
+      anchor: selectedComponentLocalSourceAnchor,
+    });
+    return literalProps?.filter(
+      ({ name }) =>
+        !name.startsWith("data-agent-native-") &&
+        name !== "style" &&
+        name !== "className",
+    );
+  }, [selectedComponentLocalSourceAnchor, selectedComponentSource?.content]);
+
+  const selectedComponentLocalSource = useMemo(() => {
+    if (!selectedComponentLocalSourceAnchor) return undefined;
+    const expectedVersionHash = selectedComponentSource?.versionHash;
+    if (!expectedVersionHash) return undefined;
+    const propStamps = (selectedComponentLiteralProps ?? []).map(
+      ({ name, value }) => ({
+        name: propNameToDataAttribute(name),
+        value,
+      }),
+    );
+    return {
+      ...selectedComponentLocalSourceAnchor,
+      expectedVersionHash,
+      ...(propStamps.length > 0 ? { propStamps } : {}),
+    };
+  }, [
+    selectedComponentLocalSourceAnchor,
+    selectedComponentSource?.versionHash,
+    selectedComponentLiteralProps,
+  ]);
 
   // Outer HTML of the selection — backs the inline/Alpine "Inspect code" view.
   const selectedElementOuterHtml = useMemo(() => {
@@ -8810,45 +8950,95 @@ function DesignEditor() {
         selectedElementInsideComponent
       )
         return;
+      if (
+        activeCanvasSourceType === "localhost" &&
+        selectedElement.runtimeComponent?.writeCapability ===
+          "authored-jsx-literal" &&
+        !selectedComponentLocalSource
+      ) {
+        toast.error(t("designEditor.toasts.componentCreateFailed"));
+        return;
+      }
       const current = linkedComponentMutationQueueRef.current;
       if (current?.designId !== id) return;
       const nodeId = selectedElementLayerId ?? undefined;
       const selector = selectedCanvasSelector ?? selectedElement.selector;
-      void runCreateComponent(
-        {
-          canEditDesign,
-          designId: id,
-          fileId: activeFileId,
-          selectionBefore: captureCurrentSelection(),
-          createComponent: (request) =>
-            callAction<CreateComponentActionResult>(
-              "create-component",
-              request,
-            ),
-          mutationTransaction: {
-            enqueue: (request) =>
-              current.queue.enqueueSourceMutation({
-                ...request,
-                validate: createComponentActionChange,
-              }),
+      const run = (retriedAfterConsent = false) =>
+        runCreateComponent(
+          {
+            canEditDesign,
+            designId: id,
+            fileId: activeFileId,
+            selectionBefore: captureCurrentSelection(),
+            createComponent: (request) =>
+              callAction<CreateComponentActionResult>(
+                "create-component",
+                request,
+              ),
+            mutationTransaction: {
+              enqueue: (request) =>
+                current.queue.enqueueSourceMutation({
+                  ...request,
+                  validate: createComponentActionChange,
+                }),
+            },
           },
-        },
-        { nodeId, selector, name },
-      )
-        .then((outcome) => {
-          if (!outcome) return;
-          if (!outcome.historyRecorded) {
+          {
+            nodeId,
+            selector,
+            name,
+            ...(selectedComponentLocalSource
+              ? { source: { local: selectedComponentLocalSource } }
+              : {}),
+          },
+        )
+          .then((outcome) => {
+            if (!outcome) return;
+            const source = outcome.result.source;
+            if (source) {
+              queryClient.setQueryData(
+                [
+                  "action",
+                  "read-local-file",
+                  {
+                    designId: id,
+                    connectionId: source.connectionId,
+                    path: source.path,
+                  },
+                ],
+                (previous: { versionHash?: string } | undefined) => ({
+                  ...previous,
+                  versionHash: source.versionHash,
+                }),
+              );
+            }
+            if (!outcome.historyRecorded) {
+              toast.error(t("designEditor.toasts.componentCreateFailed"));
+              return;
+            }
+            if (outcome.hostSync === "accepted") {
+              toast.success(t("designEditor.toasts.componentCreated"));
+            }
+          })
+          .catch((error: unknown) => {
+            if (
+              !retriedAfterConsent &&
+              selectedComponentLocalSource &&
+              isLocalhostWriteConsentError(error)
+            ) {
+              requestLocalhostWriteRef.current?.({
+                files: [selectedComponentLocalSource.path],
+                onGranted: () => run(true),
+              });
+              return;
+            }
             toast.error(t("designEditor.toasts.componentCreateFailed"));
-            return;
-          }
-          if (outcome.hostSync === "accepted") {
-            toast.success(t("designEditor.toasts.componentCreated"));
-          }
-        })
-        .catch(() => {});
+          });
+      void run();
     },
     [
       canEditDesign,
+      activeCanvasSourceType,
       captureCurrentSelection,
       id,
       selectedElement,
@@ -8856,6 +9046,8 @@ function DesignEditor() {
       selectedCanvasSelector,
       activeFileId,
       selectedElementInsideComponent,
+      selectedComponentLocalSource,
+      queryClient,
       t,
     ],
   );
@@ -13484,9 +13676,11 @@ function DesignEditor() {
         lastDuplicateTransformRef,
         overviewSelectedScreenIds,
         remapMotionTracksForClone,
+        runtimeStructureInsertRevisionRef,
         selectedCanvasSelector,
         selectedElement,
         selectedLayerIdsState,
+        setRuntimeStructureInsertRequest,
         setOverviewSelectedScreenIds,
         setSelectedElement,
         setSelectedLayerIdsState,
@@ -13508,6 +13702,7 @@ function DesignEditor() {
       handleDuplicateScreen,
       overviewSelectedScreenIds,
       remapMotionTracksForClone,
+      runtimeStructureInsertRevisionRef,
       selectedCanvasSelector,
       selectedElement,
       t,
@@ -20847,6 +21042,71 @@ function DesignEditor() {
       (connection) => connection.id === activeLocalhostConnectionId,
     )?.rootPath ?? undefined;
 
+  const componentRuntime = useMemo(() => {
+    if (
+      activeCanvasSourceType !== "localhost" ||
+      !selectedComponentNodeId ||
+      !selectedCodeLayerNode
+    ) {
+      return undefined;
+    }
+    const runtimeIdentity = selectedElement?.runtimeComponent;
+    const name =
+      selectedCodeLayerNode.dataAttributes[
+        "data-agent-native-component"
+      ]?.trim() ??
+      runtimeIdentity?.name?.trim() ??
+      selectedElement?.provenance?.component?.trim();
+    if (!name) return undefined;
+
+    const runtimeSource = selectedElement?.runtimeComponent;
+    const sourceFile = runtimeSource?.sourceFile?.trim();
+    const canWriteAuthoredJsx =
+      runtimeIdentity?.writeCapability === "authored-jsx-literal";
+    const local = canWriteAuthoredJsx
+      ? selectedComponentLocalSource
+      : undefined;
+
+    return {
+      name,
+      nodeId: selectedComponentNodeId,
+      selector:
+        selectedElement?.runtimeSelector ??
+        selectedElement?.selector ??
+        selectedCodeLayerNode.selector,
+      props: runtimeIdentity?.props?.length
+        ? runtimeIdentity.props
+        : extractProps(selectedCodeLayerNode),
+      ...(selectedComponentLiteralProps
+        ? { literalProps: selectedComponentLiteralProps }
+        : {}),
+      ...(runtimeIdentity?.componentId
+        ? { componentId: runtimeIdentity.componentId }
+        : {}),
+      sourceLocation: sourceFile
+        ? {
+            filePath:
+              selectedComponentLocalSource?.path ??
+              projectRelativeSourcePath({
+                sourceFile,
+                rootPath: activeLocalhostConnectionRootPath,
+              }) ??
+              sourceFile,
+            ...(runtimeSource?.name ? { exportName: runtimeSource.name } : {}),
+          }
+        : undefined,
+      local,
+    };
+  }, [
+    activeCanvasSourceType,
+    activeLocalhostConnectionRootPath,
+    selectedCodeLayerNode,
+    selectedComponentNodeId,
+    selectedElement,
+    selectedComponentLiteralProps,
+    selectedComponentLocalSource,
+  ]);
+
   /**
    * Request consent to write a local file for the active localhost screen.
    * If no valid grant exists, opens the consent dialog; once granted the
@@ -20899,9 +21159,7 @@ function DesignEditor() {
       id,
     ],
   );
-  // requestLocalhostWrite is consumed via the component instance or by
-  // connected inspector components; not all render paths call it directly.
-  void requestLocalhostWrite;
+  requestLocalhostWriteRef.current = requestLocalhostWrite;
 
   // Localhost workspace roots for the code workbench: one per distinct
   // connection referenced by this design's localhost-backed screens.
@@ -23984,6 +24242,8 @@ function DesignEditor() {
     fileId: activeFile?.id,
     boardFileId,
     componentNodeId: selectedComponentNodeId,
+    componentRuntime,
+    requestLocalhostWrite,
     componentInstanceHasLocalOverrides: selectedComponentHasLocalOverrides,
     onResetComponentInstanceOverrides:
       id && activeFile?.id && selectedComponentHasLocalOverrides
@@ -24379,7 +24639,7 @@ function DesignEditor() {
             row rather than a second floating control. Not needed for the
             floating (minimal-UI) bar: minimal UI hides this rail entirely. */}
         {responsiveInteractActive && !minimalUi ? (
-          <div className="pointer-events-none absolute right-0 top-0 z-[80] flex h-12 items-center pr-3">
+          <div className="pointer-events-none absolute right-0 top-0 z-[80] flex h-12 items-center bg-[var(--design-editor-panel-bg)] pl-1 pr-3">
             <ResponsiveInteractExitButton
               onClose={handleExitResponsiveInteract}
               className="pointer-events-auto"

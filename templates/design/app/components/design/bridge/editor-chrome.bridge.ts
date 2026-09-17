@@ -991,20 +991,29 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   ];
 
   function reactFiberOf(el: Element): any {
-    var keys = Object.keys(el);
+    var keys = Object.getOwnPropertyNames(el);
+    var fallback = null;
     for (var i = 0; i < keys.length; i += 1) {
       for (var j = 0; j < REACT_FIBER_KEY_PREFIXES.length; j += 1) {
         if (keys[i]!.indexOf(REACT_FIBER_KEY_PREFIXES[j]!) === 0) {
-          return (el as unknown as Record<string, any>)[keys[i]!];
+          var fiber = (el as unknown as Record<string, any>)[keys[i]!];
+          if (!fallback) fallback = fiber;
+          if (fiber && fiber._debugSource) return fiber;
         }
       }
     }
-    return null;
+    return fallback;
   }
 
   function reactDebugProvenance(el: Element): FrameworkDebugProvenance {
     var cached = reactDebugProvenanceCache?.get(el);
-    if (cached !== undefined) return cached;
+    if (
+      cached !== undefined &&
+      (cached.method === "debug-source" ||
+        cached.method === "debug-stack-remapped")
+    ) {
+      return cached;
+    }
     // Deliberately no climb to an ancestor's fiber: this runs over every node
     // in the runtime snapshot, and borrowing a parent's location would stamp a
     // non-React node with a source line that is not its own.
@@ -1674,10 +1683,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         cloneNode.setAttribute("data-an-runtime-layer-remove", "true");
         continue;
       }
-      cloneNode.setAttribute(
-        "data-agent-native-node-id",
-        ensureRuntimeLayerNodeId(sourceNode),
-      );
+      var runtimeNodeId = ensureRuntimeLayerNodeId(sourceNode);
+      cloneNode.setAttribute("data-agent-native-node-id", runtimeNodeId);
       inlineSnapshotComputedStyle(sourceNode, cloneNode);
       var provenance = elementDebugProvenance(sourceNode);
       if (provenance.sourceFile) {
@@ -1699,6 +1706,25 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         }
         if (provenance.component) {
           cloneNode.setAttribute("data-component-name", provenance.component);
+        }
+        var runtimeComponent = runtimeComponentIdentityForElement(
+          sourceNode,
+          provenance,
+          runtimeNodeId,
+        );
+        if (runtimeComponent) {
+          cloneNode.setAttribute(
+            "data-agent-native-runtime-component-id",
+            runtimeComponent.componentId,
+          );
+          cloneNode.setAttribute(
+            "data-agent-native-runtime-instance-id",
+            runtimeComponent.instanceId,
+          );
+          cloneNode.setAttribute(
+            "data-agent-native-runtime-component-capability",
+            runtimeComponent.writeCapability,
+          );
         }
         if (provenance.ownerSourceFile) {
           cloneNode.setAttribute(
@@ -2537,6 +2563,82 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (explicit) return explicit;
     if (!elementLooksLikeComponent(el) || !el || !el.getAttribute) return "";
     return layerNameForElement(el);
+  }
+
+  function runtimeComponentPropsForElement(
+    el: Element,
+  ): Array<{ name: string; value: string }> {
+    var props: Array<{ name: string; value: string }> = [];
+    if (!el.attributes) return props;
+    for (var index = 0; index < el.attributes.length; index += 1) {
+      var attribute = el.attributes[index];
+      if (!attribute || attribute.name.indexOf("data-agent-native-prop-") !== 0)
+        continue;
+      var rawName = attribute.name.slice("data-agent-native-prop-".length);
+      if (!rawName) continue;
+      props.push({
+        name: rawName.replace(/-([a-z])/g, function (_match, letter) {
+          return String(letter).toUpperCase();
+        }),
+        value: attribute.value,
+      });
+    }
+    return props;
+  }
+
+  /** Runtime identity is separate from the persisted component annotation. */
+  function runtimeComponentIdentityForElement(
+    el: Element,
+    provenance: FrameworkDebugProvenance,
+    instanceId: string,
+  ): any {
+    var name = provenance.component && provenance.component.trim();
+    var definitionSourceFile =
+      provenance.sourceFile && provenance.sourceFile.trim();
+    var invocationSourceFile =
+      provenance.ownerSourceFile && provenance.ownerSourceFile.trim();
+    var invocationLine = provenance.ownerLine;
+    var invocationColumn = provenance.ownerColumn;
+    var invocationMethod = provenance.ownerMethod;
+    if (
+      !name ||
+      !definitionSourceFile ||
+      !provenance.framework ||
+      provenance.framework === "html" ||
+      !instanceId
+    ) {
+      return undefined;
+    }
+    var boundary = [
+      provenance.framework,
+      definitionSourceFile,
+      provenance.line || "",
+      provenance.column || "",
+      name,
+    ].join("|");
+    var writable =
+      provenance.framework === "react" &&
+      invocationSourceFile !== undefined &&
+      invocationMethod !== undefined &&
+      invocationMethod !== "debug-stack" &&
+      Number.isFinite(invocationLine) &&
+      Number.isFinite(invocationColumn);
+    return {
+      componentId: "runtime-component-" + runtimeLayerHash(boundary),
+      instanceId: instanceId,
+      name: name,
+      framework: provenance.framework,
+      sourceFile: invocationSourceFile,
+      line: invocationLine,
+      column: invocationColumn,
+      method: invocationMethod,
+      ownerKey: provenance.ownerKey,
+      props: runtimeComponentPropsForElement(el),
+      writeCapability: writable ? "authored-jsx-literal" : "unsupported",
+      reason: writable
+        ? undefined
+        : "The runtime did not expose a verified authored component invocation location.",
+    };
   }
 
   function isAutoLayoutDisplay(display: string | undefined): boolean {
@@ -3650,10 +3752,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // site; framework runtime metadata fills the React owner call site. The
     // shared resolver crosses ShadowRoot.host for Vue, Svelte, and attributes.
     var provenance: FrameworkDebugProvenance = elementDebugProvenance(el);
+    var runtimeComponent = runtimeComponentIdentityForElement(
+      el,
+      provenance,
+      sourceId || runtimeSourceId || pendingNodeId || getSelector(el),
+    );
     var portableStyleSnapshot = collectPortableStyleSnapshot(el);
     return {
       tagName: el.tagName.toLowerCase(),
       componentName: componentName || undefined,
+      componentAnnotation: explicitComponentNameForElement(el) || undefined,
+      runtimeComponent: runtimeComponent,
       id: el.id || undefined,
       sourceId: sourceId,
       runtimeSelector: runtimeSelector || undefined,
@@ -21177,6 +21286,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         "aria-label",
         "class",
         "data-agent-native-component",
+        "data-agent-native-runtime-component-capability",
+        "data-agent-native-runtime-component-id",
+        "data-agent-native-runtime-instance-id",
         "data-agent-native-layer-name",
         "data-layer-name",
         "layer-name",

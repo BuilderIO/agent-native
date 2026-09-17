@@ -132,7 +132,7 @@ vi.mock("@/components/ui/popover", () => ({
   PopoverTrigger: ({ children }: { children?: ReactNode }) => children,
 }));
 
-import { ComponentSection } from "./component-section";
+import { buildComponentPropRows, ComponentSection } from "./component-section";
 
 async function mount(): Promise<{
   container: HTMLDivElement;
@@ -153,6 +153,24 @@ describe("ComponentSection source readiness", () => {
     mocks.triggerVariantCommit = false;
     detailsData.isMain = false;
     detailsData.canRestore = false;
+  });
+
+  it("keeps runtime defaults separate from verified literal JSX values", () => {
+    expect(
+      buildComponentPropRows({
+        observedProps: [{ name: "variant", value: "primary" }],
+        persistedVariants: { variant: ["primary", "secondary"] },
+      }),
+    ).toMatchObject([{ name: "variant", value: "primary" }]);
+    expect(
+      buildComponentPropRows({
+        observedProps: [{ name: "variant", value: "primary" }],
+        persistedVariants: { variant: ["primary", "secondary"] },
+        literalProps: [{ name: "variant", value: "primary" }],
+      }),
+    ).toMatchObject([
+      { name: "variant", value: "primary", literalValue: "primary" },
+    ]);
   });
 
   it("shows instance operations only for instances", async () => {

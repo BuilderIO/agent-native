@@ -1447,19 +1447,24 @@ export const editorChromeBridgeScript: string = `"use strict";
       "__reactInternalFiber$"
     ];
     function reactFiberOf(el) {
-      var keys = Object.keys(el);
+      var keys = Object.getOwnPropertyNames(el);
+      var fallback = null;
       for (var i = 0; i < keys.length; i += 1) {
         for (var j = 0; j < REACT_FIBER_KEY_PREFIXES.length; j += 1) {
           if (keys[i].indexOf(REACT_FIBER_KEY_PREFIXES[j]) === 0) {
-            return el[keys[i]];
+            var fiber = el[keys[i]];
+            if (!fallback) fallback = fiber;
+            if (fiber && fiber._debugSource) return fiber;
           }
         }
       }
-      return null;
+      return fallback;
     }
     function reactDebugProvenance(el) {
       var cached = reactDebugProvenanceCache?.get(el);
-      if (cached !== void 0) return cached;
+      if (cached !== void 0 && (cached.method === "debug-source" || cached.method === "debug-stack-remapped")) {
+        return cached;
+      }
       var leafFiber = reactFiberOf(el);
       if (!leafFiber) return { unavailableReason: "not-framework" };
       var elementLocation = fiberDebugLocation(leafFiber);
@@ -1935,10 +1940,8 @@ export const editorChromeBridgeScript: string = `"use strict";
           cloneNode.setAttribute("data-an-runtime-layer-remove", "true");
           continue;
         }
-        cloneNode.setAttribute(
-          "data-agent-native-node-id",
-          ensureRuntimeLayerNodeId(sourceNode)
-        );
+        var runtimeNodeId = ensureRuntimeLayerNodeId(sourceNode);
+        cloneNode.setAttribute("data-agent-native-node-id", runtimeNodeId);
         inlineSnapshotComputedStyle(sourceNode, cloneNode);
         var provenance = elementDebugProvenance(sourceNode);
         if (provenance.sourceFile) {
@@ -1958,6 +1961,25 @@ export const editorChromeBridgeScript: string = `"use strict";
           }
           if (provenance.component) {
             cloneNode.setAttribute("data-component-name", provenance.component);
+          }
+          var runtimeComponent = runtimeComponentIdentityForElement(
+            sourceNode,
+            provenance,
+            runtimeNodeId
+          );
+          if (runtimeComponent) {
+            cloneNode.setAttribute(
+              "data-agent-native-runtime-component-id",
+              runtimeComponent.componentId
+            );
+            cloneNode.setAttribute(
+              "data-agent-native-runtime-instance-id",
+              runtimeComponent.instanceId
+            );
+            cloneNode.setAttribute(
+              "data-agent-native-runtime-component-capability",
+              runtimeComponent.writeCapability
+            );
           }
           if (provenance.ownerSourceFile) {
             cloneNode.setAttribute(
@@ -2504,6 +2526,57 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (explicit) return explicit;
       if (!elementLooksLikeComponent(el) || !el || !el.getAttribute) return "";
       return layerNameForElement(el);
+    }
+    function runtimeComponentPropsForElement(el) {
+      var props = [];
+      if (!el.attributes) return props;
+      for (var index = 0; index < el.attributes.length; index += 1) {
+        var attribute = el.attributes[index];
+        if (!attribute || attribute.name.indexOf("data-agent-native-prop-") !== 0)
+          continue;
+        var rawName = attribute.name.slice("data-agent-native-prop-".length);
+        if (!rawName) continue;
+        props.push({
+          name: rawName.replace(/-([a-z])/g, function(_match, letter) {
+            return String(letter).toUpperCase();
+          }),
+          value: attribute.value
+        });
+      }
+      return props;
+    }
+    function runtimeComponentIdentityForElement(el, provenance, instanceId) {
+      var name = provenance.component && provenance.component.trim();
+      var definitionSourceFile = provenance.sourceFile && provenance.sourceFile.trim();
+      var invocationSourceFile = provenance.ownerSourceFile && provenance.ownerSourceFile.trim();
+      var invocationLine = provenance.ownerLine;
+      var invocationColumn = provenance.ownerColumn;
+      var invocationMethod = provenance.ownerMethod;
+      if (!name || !definitionSourceFile || !provenance.framework || provenance.framework === "html" || !instanceId) {
+        return void 0;
+      }
+      var boundary = [
+        provenance.framework,
+        definitionSourceFile,
+        provenance.line || "",
+        provenance.column || "",
+        name
+      ].join("|");
+      var writable = provenance.framework === "react" && invocationSourceFile !== void 0 && invocationMethod !== void 0 && invocationMethod !== "debug-stack" && Number.isFinite(invocationLine) && Number.isFinite(invocationColumn);
+      return {
+        componentId: "runtime-component-" + runtimeLayerHash(boundary),
+        instanceId,
+        name,
+        framework: provenance.framework,
+        sourceFile: invocationSourceFile,
+        line: invocationLine,
+        column: invocationColumn,
+        method: invocationMethod,
+        ownerKey: provenance.ownerKey,
+        props: runtimeComponentPropsForElement(el),
+        writeCapability: writable ? "authored-jsx-literal" : "unsupported",
+        reason: writable ? void 0 : "The runtime did not expose a verified authored component invocation location."
+      };
     }
     function isAutoLayoutDisplay(display) {
       return display === "flex" || display === "inline-flex" || display === "grid" || display === "inline-grid";
@@ -3357,10 +3430,17 @@ export const editorChromeBridgeScript: string = `"use strict";
         });
       }
       var provenance = elementDebugProvenance(el);
+      var runtimeComponent = runtimeComponentIdentityForElement(
+        el,
+        provenance,
+        sourceId || runtimeSourceId || pendingNodeId || getSelector(el)
+      );
       var portableStyleSnapshot = collectPortableStyleSnapshot(el);
       return {
         tagName: el.tagName.toLowerCase(),
         componentName: componentName || void 0,
+        componentAnnotation: explicitComponentNameForElement(el) || void 0,
+        runtimeComponent,
         id: el.id || void 0,
         sourceId,
         runtimeSelector: runtimeSelector || void 0,
@@ -14969,6 +15049,9 @@ export const editorChromeBridgeScript: string = `"use strict";
           "aria-label",
           "class",
           "data-agent-native-component",
+          "data-agent-native-runtime-component-capability",
+          "data-agent-native-runtime-component-id",
+          "data-agent-native-runtime-instance-id",
           "data-agent-native-layer-name",
           "data-layer-name",
           "layer-name",
