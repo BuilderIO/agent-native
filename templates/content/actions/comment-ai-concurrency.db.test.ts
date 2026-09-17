@@ -390,6 +390,42 @@ describe("comment AI durable action binding", () => {
     ).rejects.toMatchObject({ errorCode: "comment_ai_turn_conflict" });
   });
 
+  it("rejects an initial operation tuple without its requested turn even after binding", async () => {
+    const agentThreadId = `agent-thread-${crypto.randomUUID()}`;
+    await asUser(() =>
+      commentAi.startCommentAiRequest({
+        ...startArgs(OP_A, ROOT_A),
+        agentThreadId,
+      }),
+    );
+    await bindTurn(OP_A);
+
+    await expect(
+      asUser(() =>
+        commentAi.resolveCommentAiActionSurface({
+          ownerEmail: OWNER,
+          threadId: agentThreadId,
+          queuedMessageId: OP_A,
+          actionScope: { kind: "content-comment-ai", requestId: OP_A },
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "comment_ai_binding_missing" });
+  });
+
+  it("rejects a malformed explicit comment action scope before fallback", async () => {
+    await expect(
+      asUser(() =>
+        commentAi.resolveCommentAiActionSurface({
+          ownerEmail: OWNER,
+          actionScope: {
+            kind: "content-comment-ai",
+            requestId: "not-a-request-id",
+          },
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "comment_ai_binding_missing" });
+  });
+
   it("reapplies stored intent on a later full-chat send without action scope", async () => {
     const agentThreadId = `agent-thread-${crypto.randomUUID()}`;
     await createThread(OWNER, {

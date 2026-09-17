@@ -541,6 +541,16 @@ export async function resolveCommentAiActionSurface(
   const parsedActionScope = commentAiActionScopeSchema.safeParse(
     details.actionScope,
   );
+  const declaresCommentAiScope =
+    typeof details.actionScope === "object" &&
+    details.actionScope !== null &&
+    details.actionScope.kind === "content-comment-ai";
+  if (declaresCommentAiScope && !parsedActionScope.success) {
+    fail("This comment operation scope is invalid", {
+      statusCode: 409,
+      errorCode: "comment_ai_binding_missing",
+    });
+  }
   let requestId = parsedActionScope.success
     ? parsedActionScope.data.requestId
     : null;
@@ -598,7 +608,13 @@ export async function resolveCommentAiActionSurface(
       errorCode: "comment_ai_thread_conflict",
     });
   }
-  if (details.queuedMessageId === request.id && details.requestedTurnId) {
+  if (details.queuedMessageId === request.id) {
+    if (!details.requestedTurnId) {
+      fail("This comment operation is missing its initial agent turn binding", {
+        statusCode: 409,
+        errorCode: "comment_ai_binding_missing",
+      });
+    }
     await getDb().transaction(async (tx) => {
       const [locked] = await tx
         .select()
