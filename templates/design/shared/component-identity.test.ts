@@ -4,6 +4,7 @@ import { buildCodeLayerProjection, buildCodeLayerTree } from "./code-layer";
 import {
   COMPONENT_ID_ATTR,
   COMPONENT_REF_ATTR,
+  instanceFromNode,
   isComponentInstance,
   isComponentInstanceForInstanceActions,
 } from "./component-model";
@@ -68,6 +69,20 @@ describe("component identity is the annotation, not a guess at the class name", 
     expect(
       buildCodeLayerProjection(html).nodes.filter(isComponentInstance),
     ).toHaveLength(1);
+  });
+
+  it("persists the authored node id instead of the projection id", () => {
+    const node = buildCodeLayerProjection(
+      '<body><div data-agent-native-node-id="stable-card" data-agent-native-component="Card">x</div></body>',
+    ).nodes.find(
+      (candidate) => candidate.dataAttributes["data-agent-native-component"],
+    );
+
+    expect(node).toBeDefined();
+    expect(instanceFromNode(node!)).toMatchObject({
+      instanceId: "stable-card",
+      nodeId: "stable-card",
+    });
   });
 });
 

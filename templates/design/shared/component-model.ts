@@ -232,14 +232,16 @@ export function instanceFromNode(
   const alpineDataRaw = node.attributes["x-data"];
   const alpineData =
     typeof alpineDataRaw === "string" ? alpineDataRaw : undefined;
+  const stableNodeId =
+    node.dataAttributes["data-agent-native-node-id"]?.trim() || node.id;
 
   return {
-    instanceId: node.id,
+    instanceId: stableNodeId,
     name,
     props: extractProps(node),
     alpineData,
     selector: node.selector,
-    nodeId: node.id,
+    nodeId: stableNodeId,
     componentIndexId,
     componentId: node.dataAttributes[COMPONENT_ID_ATTR]?.trim() || undefined,
     componentRef: node.dataAttributes[COMPONENT_REF_ATTR]?.trim() || undefined,

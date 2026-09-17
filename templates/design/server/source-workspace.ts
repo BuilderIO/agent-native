@@ -122,6 +122,21 @@ export async function withSourceFileWriteLock<T>(
   }
 }
 
+/** Serialize cross-process mutations that reconcile a design's source/index. */
+export function designSourceMutationLockKey(designId: string): string {
+  return `agent-native:design-source:${designId}`;
+}
+
+export async function lockDesignSourceMutation(
+  tx: DbExec,
+  designId: string,
+): Promise<void> {
+  await tx.execute({
+    sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
+    args: [designSourceMutationLockKey(designId)],
+  });
+}
+
 export interface SourceWorkspaceContext {
   designId: string;
   sourceType: DesignSourceType;
@@ -875,13 +890,9 @@ export async function writeInlineSourceFilesBatch(args: {
 
       await transaction(async (tx) => {
         if (args.expectedHtmlFileIds !== undefined) {
-          // ponytail: table-wide lock; use per-design advisory locks across membership writers if contention grows.
-          await tx.execute({
-            sql: "LOCK TABLE design_files IN SHARE ROW EXCLUSIVE MODE",
-            args: [],
-          });
+          await lockDesignSourceMutation(tx, args.designId);
           const currentHtmlFiles = await tx.execute({
-            sql: "SELECT id FROM design_files WHERE design_id = ? AND LOWER(file_type) = 'html' ORDER BY id",
+            sql: "SELECT id FROM design_files WHERE design_id = ? AND LOWER(file_type) = 'html' ORDER BY id FOR UPDATE",
             args: [args.designId],
           });
           const currentHtmlFileIds = currentHtmlFiles.rows.map((row) => {

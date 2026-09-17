@@ -11,6 +11,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const harness = vi.hoisted(() => {
   const events: string[] = [];
   const selectResults: unknown[][] = [];
+  const executeResults: unknown[][] = [];
+  const projectionInputs: string[] = [];
   const schema = {
     componentIndex: { id: "componentIndex.id" },
     designFiles: {
@@ -25,11 +27,13 @@ const harness = vi.hoisted(() => {
   const makeQuery = (result: unknown[]) => {
     const query = {
       from: vi.fn(),
+      for: vi.fn(),
       innerJoin: vi.fn(),
       where: vi.fn(),
       limit: vi.fn().mockResolvedValue(result),
     };
     query.from.mockReturnValue(query);
+    query.for.mockReturnValue(query);
     query.innerJoin.mockReturnValue(query);
     query.where.mockReturnValue(query);
     return query;
@@ -38,12 +42,26 @@ const harness = vi.hoisted(() => {
     select: vi.fn(() => makeQuery(selectResults.shift() ?? [])),
   };
   const tx: Record<string, any> = {
-    select: vi.fn(() => makeQuery(selectResults.shift() ?? [])),
-    execute: vi.fn(async () => {
+    select: vi.fn(() => {
+      events.push("design-file-lock");
+      return makeQuery(selectResults.shift() ?? []);
+    }),
+    execute: vi.fn(async (query: unknown) => {
+      const sql =
+        typeof query === "string"
+          ? query
+          : String((query as { sql?: unknown })?.sql ?? "");
       events.push(
-        events.includes("design-lock") ? "index-lock" : "design-lock",
+        sql.includes("pg_advisory_xact_lock")
+          ? "design-lock"
+          : sql.includes("_collab_docs")
+            ? "collab-lock"
+            : sql.includes("component_index")
+              ? "index-upsert"
+              : "execute",
       );
-      return { rows: [] };
+      if (sql.includes("pg_advisory_xact_lock")) return { rows: [] };
+      return { rows: executeResults.shift() ?? [] };
     }),
     insert: vi.fn(() => ({ values: vi.fn().mockResolvedValue(undefined) })),
     update: vi.fn(() => ({
@@ -57,8 +75,8 @@ const harness = vi.hoisted(() => {
   return {
     db,
     events,
-    getText: vi.fn(),
-    hasCollabState: vi.fn(),
+    executeResults,
+    projectionInputs,
     schema,
     selectResults,
     tx,
@@ -68,6 +86,19 @@ const harness = vi.hoisted(() => {
         return run();
       },
     ),
+    withPreparedYDocMutation: vi.fn(
+      async (
+        _id: string,
+        _source: string | undefined,
+        run: () => Promise<unknown>,
+      ) => {
+        events.push("prepared-lock");
+        return run();
+      },
+    ),
+    designSourceMutationLockKey: vi.fn(
+      (designId: string) => `agent-native:design-source:${designId}`,
+    ),
   };
 });
 
@@ -75,8 +106,7 @@ vi.mock("@agent-native/core/action", () => ({
   defineAction: (config: unknown) => config,
 }));
 vi.mock("@agent-native/core/collab", () => ({
-  getText: harness.getText,
-  hasCollabState: harness.hasCollabState,
+  withPreparedYDocMutation: harness.withPreparedYDocMutation,
 }));
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: () => "user@example.com",
@@ -103,13 +133,17 @@ vi.mock("../server/source-workspace.js", () => ({
   SourceWorkspaceEditConflictError: class SourceWorkspaceEditConflictError extends Error {
     readonly statusCode = 409;
   },
+  designSourceMutationLockKey: harness.designSourceMutationLockKey,
   withSourceFileWriteLock: harness.withSourceFileWriteLock,
 }));
 vi.mock("../shared/capability-resolver.js", () => ({
   resolveSourceCapabilities: () => ({}),
 }));
 vi.mock("../shared/code-layer.js", () => ({
-  buildCodeLayerProjection: () => ({ nodes: [{ id: "node" }] }),
+  buildCodeLayerProjection: (html: string) => {
+    harness.projectionInputs.push(html);
+    return { nodes: [{ id: "node" }] };
+  },
 }));
 vi.mock("../shared/component-model.js", () => ({
   buildDefinitions: () => [{ name: "Card", instanceNodeIds: ["node"] }],
@@ -143,19 +177,16 @@ describe("index-components source ordering", () => {
   beforeEach(() => {
     harness.events.length = 0;
     harness.selectResults.length = 0;
+    harness.executeResults.length = 0;
+    harness.projectionInputs.length = 0;
     harness.db.transaction.mockClear();
-    harness.getText.mockReset();
-    harness.hasCollabState.mockResolvedValue(true);
+    harness.withPreparedYDocMutation.mockClear();
     harness.tx.execute.mockClear();
     harness.tx.insert.mockClear();
     harness.tx.update.mockClear();
-    harness.getText.mockImplementation(async () => {
-      harness.events.push("get-text");
-      return '<main data-agent-native-component="Card"></main>';
-    });
   });
 
-  it("takes the source lock before SQL locks and live collab reads", async () => {
+  it("takes the source lock before the protected live read", async () => {
     harness.selectResults.push(
       [{ id: "file-1" }],
       [
@@ -174,21 +205,61 @@ describe("index-components source ordering", () => {
           content: "<main></main>",
         },
       ],
-      [],
     );
 
     await action.run({ designId: "design-1", fileId: "file-1" });
 
     expect(harness.events).toEqual([
       "source-lock",
-      "get-text",
+      "prepared-lock",
       "transaction",
       "design-lock",
-      "index-lock",
+      "design-file-lock",
+      "collab-lock",
+      "index-upsert",
+    ]);
+    expect(
+      harness.tx.execute.mock.calls.map(([query]: [unknown]) =>
+        String((query as { sql?: unknown })?.sql ?? query),
+      ),
+    ).not.toContainEqual(expect.stringContaining("LOCK TABLE"));
+  });
+
+  it("uses the locked live snapshot instead of a stale preflight", async () => {
+    harness.selectResults.push(
+      [{ id: "file-1" }],
+      [
+        {
+          id: "file-1",
+          designId: "design-1",
+          filename: "index.html",
+          content: "<main></main>",
+        },
+      ],
+      [
+        {
+          id: "file-1",
+          designId: "design-1",
+          filename: "index.html",
+          content: "<main></main>",
+        },
+      ],
+    );
+    harness.executeResults.push([
+      {
+        yjs_state: "state-v2",
+        text_snapshot:
+          '<main data-agent-native-component="Card"><span /></main>',
+      },
+    ]);
+
+    await action.run({ designId: "design-1", fileId: "file-1" });
+    expect(harness.projectionInputs).toEqual([
+      '<main data-agent-native-component="Card"><span /></main>',
     ]);
   });
 
-  it("fails typed when live collab content cannot be verified", async () => {
+  it("fails typed when the locked live snapshot cannot be verified", async () => {
     harness.selectResults.push(
       [{ id: "file-1" }],
       [
@@ -199,12 +270,21 @@ describe("index-components source ordering", () => {
           content: '<main data-agent-native-component="Card"></main>',
         },
       ],
+      [
+        {
+          id: "file-1",
+          designId: "design-1",
+          filename: "index.html",
+          content: '<main data-agent-native-component="Card"></main>',
+        },
+      ],
     );
-    harness.getText.mockRejectedValue(new Error("collab unavailable"));
+    harness.executeResults.push([{ yjs_state: "state", text_snapshot: null }]);
 
     await expect(
       action.run({ designId: "design-1", fileId: "file-1" }),
     ).rejects.toMatchObject({ statusCode: 409 });
-    expect(harness.tx.insert).not.toHaveBeenCalled();
+    expect(harness.tx.execute).toHaveBeenCalledTimes(2);
+    expect(harness.events).not.toContain("index-upsert");
   });
 });

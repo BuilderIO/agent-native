@@ -16,7 +16,7 @@
  */
 
 import { defineAction } from "@agent-native/core/action";
-import { getText, hasCollabState } from "@agent-native/core/collab";
+import { withPreparedYDocMutation } from "@agent-native/core/collab";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, eq, sql } from "drizzle-orm";
@@ -26,6 +26,7 @@ import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 import {
   SourceWorkspaceEditConflictError,
+  designSourceMutationLockKey,
   withSourceFileWriteLock,
 } from "../server/source-workspace.js";
 import { resolveSourceCapabilities } from "../shared/capability-resolver.js";
@@ -40,34 +41,6 @@ import {
 } from "../shared/component-model.js";
 import { hasCapability } from "../shared/design-source-capabilities.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-async function liveContent(
-  fileId: string,
-  storedContent: string,
-): Promise<string> {
-  let hasState: boolean;
-  try {
-    hasState = await hasCollabState(fileId);
-  } catch {
-    throw new SourceWorkspaceEditConflictError(
-      "Could not verify a source file's live version. Re-read the design and retry.",
-    );
-  }
-  if (!hasState) return storedContent;
-  try {
-    const live = await getText(fileId, "content");
-    if (typeof live === "string") return live;
-  } catch {
-    throw new SourceWorkspaceEditConflictError(
-      "Could not verify a source file's live version. Re-read the design and retry.",
-    );
-  }
-  throw new SourceWorkspaceEditConflictError(
-    "Could not verify a source file's live version. Re-read the design and retry.",
-  );
-}
 
 // ─── Action ───────────────────────────────────────────────────────────────────
 
@@ -149,154 +122,184 @@ export default defineAction({
       .limit(1);
     if (!candidate) throw new Error("Design HTML file not found.");
 
-    const result = await withSourceFileWriteLock(candidate.id, async () => {
-      const [file] = await db
-        .select({
-          id: schema.designFiles.id,
-          designId: schema.designFiles.designId,
-          filename: schema.designFiles.filename,
-          content: schema.designFiles.content,
-        })
-        .from(schema.designFiles)
-        .innerJoin(
-          schema.designs,
-          eq(schema.designFiles.designId, schema.designs.id),
-        )
-        .where(and(...conditions))
-        .limit(1);
-
-      if (!file) throw new Error("Design HTML file not found.");
-      const html = await liveContent(file.id, file.content ?? "");
-
-      return db.transaction(async (tx) => {
-        await (
-          tx as unknown as {
-            execute: (query: unknown) => Promise<unknown>;
-          }
-        ).execute(sql`LOCK TABLE design_files IN SHARE ROW EXCLUSIVE MODE`);
-        await (
-          tx as unknown as {
-            execute: (query: unknown) => Promise<unknown>;
-          }
-        ).execute(sql`LOCK TABLE component_index IN SHARE ROW EXCLUSIVE MODE`);
-
-        // Re-read after the live snapshot so a concurrent SQL write fails
-        // closed instead of indexing a stale source.
-        const [lockedFile] = await tx
-          .select({
-            id: schema.designFiles.id,
-            designId: schema.designFiles.designId,
-            filename: schema.designFiles.filename,
-            content: schema.designFiles.content,
-          })
-          .from(schema.designFiles)
-          .innerJoin(
-            schema.designs,
-            eq(schema.designFiles.designId, schema.designs.id),
-          )
-          .where(and(...conditions))
-          .limit(1);
-
-        if (!lockedFile || lockedFile.content !== file.content) {
-          throw new SourceWorkspaceEditConflictError(
-            "The source file changed while its live version was being read. Re-read the design and retry.",
-          );
-        }
-
-        // ── Projection + detection ─────────────────────────────────────────────
-        const codeLayerSource: CodeLayerSource = {
-          kind: "design-file",
-          designId: lockedFile.designId,
-          fileId: lockedFile.id,
-          filename: lockedFile.filename,
-        };
-
-        const projection = buildCodeLayerProjection(html, {
-          source: codeLayerSource,
-        });
-
-        const instances = detectInstances(projection.nodes);
-        const definitions = buildDefinitions(instances);
-
-        // ── Persist discovered components ──────────────────────────────────────
-        // Write each distinct component name into component_index so that
-        // get-component-details can resolve metadata by node id.
-        const now = new Date().toISOString();
-        // Derive the owner from the request user, falling back to the design's
-        // owner. Never stamp an empty-string owner (an unowned row): require a real
-        // owner before writing a new component_index row.
-        const designOwner = (access.resource as { ownerEmail?: unknown })
-          .ownerEmail;
-        const ownerEmail =
-          getRequestUserEmail() ??
-          (typeof designOwner === "string" && designOwner ? designOwner : null);
-        if (!ownerEmail) throw new Error("no authenticated user");
-
-        for (const def of definitions) {
-          const id = componentIndexId(designId, def.name);
-          const existing = await tx
-            .select({ id: schema.componentIndex.id })
-            .from(schema.componentIndex)
-            .where(eq(schema.componentIndex.id, id))
+    let preparedCallbackEntered = false;
+    let result;
+    try {
+      result = await withSourceFileWriteLock(candidate.id, () =>
+        // Holding the core document lock across the SQL snapshot prevents a
+        // local Yjs writer from changing the document between the row locks and
+        // the component projection. Cross-process writers are stopped by the
+        // transaction-scoped _collab_docs row lock below.
+        withPreparedYDocMutation(candidate.id, undefined, async () => {
+          preparedCallbackEntered = true;
+          const [file] = await db
+            .select({
+              id: schema.designFiles.id,
+              designId: schema.designFiles.designId,
+              filename: schema.designFiles.filename,
+              content: schema.designFiles.content,
+            })
+            .from(schema.designFiles)
+            .innerJoin(
+              schema.designs,
+              eq(schema.designFiles.designId, schema.designs.id),
+            )
+            .where(and(...conditions))
             .limit(1);
 
-          if (existing.length === 0) {
-            await tx.insert(schema.componentIndex).values({
-              id,
-              designId,
-              name: def.name,
-              runtimeSelectors: JSON.stringify(
-                def.instanceNodeIds.map(
-                  (nodeId) => `[data-agent-native-node-id="${nodeId}"]`,
+          if (!file) throw new Error("Design HTML file not found.");
+
+          return db.transaction(async (tx) => {
+            await tx.execute(
+              sql`SELECT pg_advisory_xact_lock(hashtextextended(${designSourceMutationLockKey(designId)}, 0::bigint))`,
+            );
+
+            // Lock only the selected source row and the live collab row. The
+            // latter makes the following text_snapshot a stable cross-process
+            // view instead of a best-effort cache read.
+            const [lockedFile] = await tx
+              .select({
+                id: schema.designFiles.id,
+                designId: schema.designFiles.designId,
+                filename: schema.designFiles.filename,
+                content: schema.designFiles.content,
+              })
+              .from(schema.designFiles)
+              .where(
+                and(
+                  eq(schema.designFiles.id, file.id),
+                  eq(schema.designFiles.designId, designId),
                 ),
-              ),
-              ownerEmail,
-              createdAt: now,
-              updatedAt: now,
+              )
+              .for("update")
+              .limit(1);
+
+            if (!lockedFile || lockedFile.content !== file.content) {
+              throw new SourceWorkspaceEditConflictError(
+                "The source file changed while its live version was being read. Re-read the design and retry.",
+              );
+            }
+
+            let collabResult: { rows: any[] };
+            try {
+              collabResult = (await tx.execute(
+                sql`SELECT yjs_state, text_snapshot FROM _collab_docs WHERE doc_id = ${file.id} FOR SHARE`,
+              )) as { rows: any[] };
+            } catch {
+              throw new SourceWorkspaceEditConflictError(
+                "Could not verify a source file's live version. Re-read the design and retry.",
+              );
+            }
+            const collabRow = collabResult.rows[0] as
+              | { yjs_state?: unknown; text_snapshot?: unknown }
+              | undefined;
+            let html = lockedFile.content ?? "";
+            if (collabRow) {
+              if (
+                typeof collabRow.yjs_state !== "string" ||
+                typeof collabRow.text_snapshot !== "string"
+              ) {
+                throw new SourceWorkspaceEditConflictError(
+                  "Could not verify a source file's live version. Re-read the design and retry.",
+                );
+              }
+              if (collabRow.yjs_state.length > 0) {
+                html = collabRow.text_snapshot;
+              }
+            }
+
+            const codeLayerSource: CodeLayerSource = {
+              kind: "design-file",
+              designId: lockedFile.designId,
+              fileId: lockedFile.id,
+              filename: lockedFile.filename,
+            };
+            const projection = buildCodeLayerProjection(html, {
+              source: codeLayerSource,
             });
-          } else {
-            await tx
-              .update(schema.componentIndex)
-              .set({
-                runtimeSelectors: JSON.stringify(
+            const instances = detectInstances(projection.nodes);
+            const definitions = buildDefinitions(instances);
+
+            // ── Persist discovered components ────────────────────────────────────
+            // Write each distinct component name into component_index so that
+            // get-component-details can resolve metadata by node id.
+            const now = new Date().toISOString();
+            // Derive the owner from the request user, falling back to the design's
+            // owner. Never stamp an empty-string owner (an unowned row): require a real
+            // owner before writing a new component_index row.
+            const designOwner = (access.resource as { ownerEmail?: unknown })
+              .ownerEmail;
+            const ownerEmail =
+              getRequestUserEmail() ??
+              (typeof designOwner === "string" && designOwner
+                ? designOwner
+                : null);
+            if (!ownerEmail) throw new Error("no authenticated user");
+
+            for (const def of definitions) {
+              const id = componentIndexId(designId, def.name);
+              await tx.execute(sql`
+              INSERT INTO component_index
+                (id, design_id, name, runtime_selectors, owner_email, created_at, updated_at)
+              VALUES (
+                ${id},
+                ${designId},
+                ${def.name},
+                ${JSON.stringify(
                   def.instanceNodeIds.map(
                     (nodeId) => `[data-agent-native-node-id="${nodeId}"]`,
                   ),
-                ),
-                updatedAt: now,
-              })
-              .where(eq(schema.componentIndex.id, id));
-          }
-        }
+                )},
+                ${ownerEmail},
+                ${now},
+                ${now}
+              )
+              ON CONFLICT (id) DO UPDATE SET
+                runtime_selectors = excluded.runtime_selectors,
+                updated_at = excluded.updated_at
+            `);
+            }
 
-        // Annotate instances with their component_index id.
-        const indexMap = new Map(
-          definitions.map((def) => [
-            def.name,
-            componentIndexId(designId, def.name),
-          ]),
+            // Annotate instances with their component_index id.
+            const indexMap = new Map(
+              definitions.map((def) => [
+                def.name,
+                componentIndexId(designId, def.name),
+              ]),
+            );
+            const annotatedInstances = instances.map((inst) => ({
+              ...inst,
+              componentIndexId: indexMap.get(inst.name),
+            }));
+
+            return {
+              designId,
+              sourceType,
+              ctaRequired: false,
+              hasFullIndex,
+              components: definitions,
+              instances: annotatedInstances,
+              totalComponents: definitions.length,
+              totalInstances: instances.length,
+              note:
+                sourceType === "inline"
+                  ? "Showing annotated Alpine components from data-agent-native-component attributes. Connect Builder (free tier available) for full TS prop types and cva variants."
+                  : undefined,
+            };
+          });
+        }),
+      );
+    } catch (error) {
+      if (
+        !preparedCallbackEntered &&
+        !(error instanceof SourceWorkspaceEditConflictError)
+      ) {
+        throw new SourceWorkspaceEditConflictError(
+          "Could not verify a source file's live version. Re-read the design and retry.",
         );
-        const annotatedInstances = instances.map((inst) => ({
-          ...inst,
-          componentIndexId: indexMap.get(inst.name),
-        }));
-
-        return {
-          designId,
-          sourceType,
-          ctaRequired: false,
-          hasFullIndex,
-          components: definitions,
-          instances: annotatedInstances,
-          totalComponents: definitions.length,
-          totalInstances: instances.length,
-          note:
-            sourceType === "inline"
-              ? "Showing annotated Alpine components from data-agent-native-component attributes. Connect Builder (free tier available) for full TS prop types and cva variants."
-              : undefined,
-        };
-      });
-    });
+      }
+      throw error;
+    }
 
     return result;
   },

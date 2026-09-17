@@ -11,6 +11,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
+  lockDesignSourceMutation,
   readLiveSourceFile,
   resolveSourceWorkspace,
   writeInlineSourceFilesBatch,
@@ -194,10 +195,7 @@ export default defineAction({
         files: batches,
         expectedHtmlFileIds: htmlFiles.map((file) => file.id),
         afterFilesPersist: async (tx, updatedAt) => {
-          await tx.execute({
-            sql: "LOCK TABLE component_index IN SHARE ROW EXCLUSIVE MODE",
-            args: [],
-          });
+          await lockDesignSourceMutation(tx, designId);
           if (newIndexId !== oldIndexId) {
             const destination = await tx.execute({
               sql: "SELECT id FROM component_index WHERE id = ? AND design_id = ? FOR UPDATE",
