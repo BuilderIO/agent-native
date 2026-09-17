@@ -10,6 +10,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 
 import {
   acknowledgeCommentAiContinuation,
+  boundedContinuationContext,
   commentAiRequestsRefetchInterval,
   shouldReconcileCommentAiSnapshot,
   shouldIgnoreContinuationAcceptanceError,
@@ -902,5 +903,36 @@ describe("comment AI session reconciliation", () => {
     expect(
       shouldIgnoreContinuationAcceptanceError(queued["request-1"], "turn-1"),
     ).toBe(false);
+  });
+});
+
+describe("comment AI continuation context", () => {
+  it("preserves a bounded original anchor and the newest fact with explicit truncation", () => {
+    const context = boundedContinuationContext([
+      {
+        turnId: "initial",
+        userText: `Original protected context ${"old ".repeat(4_000)}`,
+        assistantText: "Initial response",
+        status: "complete",
+      },
+      ...Array.from({ length: 8 }, (_, index) => ({
+        turnId: `middle-${index}`,
+        userText: `Middle question ${index} ${"detail ".repeat(300)}`,
+        assistantText: `Middle answer ${index}`,
+        status: "complete" as const,
+      })),
+      {
+        turnId: "latest",
+        userText: "How does that affect the launch?",
+        assistantText: "The latest launch fact is ORCHID-742.",
+        status: "complete",
+      },
+    ]);
+
+    expect(context.length).toBeLessThanOrEqual(12_000);
+    expect(context).toContain("Original protected context");
+    expect(context).toContain("[Turn truncated]");
+    expect(context).toContain("[Earlier conversation omitted]");
+    expect(context).toContain("The latest launch fact is ORCHID-742.");
   });
 });

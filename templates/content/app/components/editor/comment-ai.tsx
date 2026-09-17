@@ -52,22 +52,60 @@ const ACTIVE_STATUSES = new Set<CommentAiRequest["status"]>([
 const ACTIVE_REQUEST_REFETCH_INTERVAL_MS = 1_500;
 const CONTINUATION_CONTEXT_TURN_LIMIT = 8;
 const CONTINUATION_CONTEXT_CHARACTER_LIMIT = 12_000;
+const CONTINUATION_ANCHOR_CHARACTER_LIMIT = 4_000;
+const CONTINUATION_OMISSION_MARKER = "[Earlier conversation omitted]";
+const CONTINUATION_TRUNCATION_MARKER = "[Turn truncated]";
 
-function boundedContinuationContext(
+export function boundedContinuationContext(
   turns: Awaited<ReturnType<typeof loadCommentAiConversation>>,
 ) {
-  const selectedTurns =
-    turns.length <= CONTINUATION_CONTEXT_TURN_LIMIT
-      ? turns
-      : [turns[0]!, ...turns.slice(-(CONTINUATION_CONTEXT_TURN_LIMIT - 1))];
-  const transcript = selectedTurns
+  const turnText = (turn: (typeof turns)[number]) =>
+    [
+      turn.userText ? `User: ${turn.userText}` : null,
+      turn.assistantText ? `Assistant: ${turn.assistantText}` : null,
+    ]
+      .filter((line): line is string => Boolean(line))
+      .join("\n\n");
+  const rawAnchor = turns[0] ? turnText(turns[0]) : "";
+  const anchor =
+    rawAnchor.length > CONTINUATION_ANCHOR_CHARACTER_LIMIT
+      ? `${rawAnchor.slice(
+          0,
+          CONTINUATION_ANCHOR_CHARACTER_LIMIT -
+            CONTINUATION_TRUNCATION_MARKER.length -
+            1,
+        )}\n${CONTINUATION_TRUNCATION_MARKER}`
+      : rawAnchor;
+  const recentTranscript = turns
+    .slice(-(CONTINUATION_CONTEXT_TURN_LIMIT - 1))
+    .filter((turn) => turn !== turns[0])
     .flatMap((turn) => [
       turn.userText ? `User: ${turn.userText}` : null,
       turn.assistantText ? `Assistant: ${turn.assistantText}` : null,
     ])
     .filter((line): line is string => Boolean(line))
     .join("\n\n");
-  return transcript.slice(0, CONTINUATION_CONTEXT_CHARACTER_LIMIT);
+  if (!recentTranscript) return anchor;
+
+  const separator = "\n\n";
+  const omission =
+    turns.length > CONTINUATION_CONTEXT_TURN_LIMIT
+      ? `${CONTINUATION_OMISSION_MARKER}${separator}`
+      : "";
+  const recentBudget = Math.max(
+    CONTINUATION_TRUNCATION_MARKER.length + 1,
+    CONTINUATION_CONTEXT_CHARACTER_LIMIT -
+      anchor.length -
+      separator.length -
+      omission.length,
+  );
+  const recent =
+    recentTranscript.length > recentBudget
+      ? `${CONTINUATION_TRUNCATION_MARKER}\n${recentTranscript.slice(
+          -(recentBudget - CONTINUATION_TRUNCATION_MARKER.length - 1),
+        )}`
+      : recentTranscript;
+  return `${anchor}${separator}${omission}${recent}`;
 }
 
 export interface CommentAiContinuationState {
@@ -550,6 +588,8 @@ export function useCommentAiRequests(
       const operationId = globalThis.crypto.randomUUID();
       let continuation: CommentAiContinuationState | null = null;
       try {
+        // Background sessions submit an empty model history. Rehydrate a
+        // bounded transcript from this request's protected thread instead.
         const priorConversation = boundedContinuationContext(
           await loadCommentAiConversation({
             operationId: request.operationId,
