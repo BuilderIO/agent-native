@@ -535,6 +535,10 @@
   // getNodeId itself (a pending id is not a stable id until persisted).
   function getOrMintPendingNodeId(el: Element | null): string {
     if (!el || !el.getAttribute || !el.setAttribute) return "";
+    // The document body is the root fallback for an empty-screen drop, not a
+    // durable layer anchor. Minting a pending id here makes the host treat the
+    // root as an unresolved authored node and refuse the otherwise valid drop.
+    if (el === document.body || el === document.documentElement) return "";
     // Defensive guard: resolveHitTarget's anchor-candidate gates (see
     // isTemplateCloneElement call sites there) already keep template clones
     // out of `result.anchor`, so this should never fire in practice — but a
