@@ -58,7 +58,7 @@ import {
   EMPTY_LABELS,
   useMoveEmail,
   MoveEmailPartialFailure,
-  unsuppressThread,
+  releaseSuppression,
   type AccountError,
 } from "@/hooks/use-emails";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
@@ -732,8 +732,12 @@ export function EmailList({
       for (const id of emailIds) onArchived?.(id);
 
       const undo = () => {
+        const getSuppressionId =
+          targets.length > 1
+            ? bulkArchiveEmails.getSuppressionId
+            : archiveEmail.getSuppressionId;
         for (const key of threadKeys) {
-          unsuppressThread(key);
+          releaseSuppression(key, getSuppressionId(key));
         }
         queryClient.setQueriesData<InfiniteEmails>(
           { queryKey: ["emails"] },
@@ -851,8 +855,12 @@ export function EmailList({
       }
 
       const undo = () => {
+        const getSuppressionId =
+          targets.length > 1
+            ? bulkTrashEmails.getSuppressionId
+            : trashEmail.getSuppressionId;
         for (const key of threadKeys) {
-          unsuppressThread(key);
+          releaseSuppression(key, getSuppressionId(key));
         }
         queryClient.setQueriesData<InfiniteEmails>(
           { queryKey: ["emails"] },
@@ -1533,7 +1541,7 @@ export function EmailList({
       onArchived?.(id);
 
       const undo = () => {
-        unsuppressThread(tid);
+        releaseSuppression(tid, archiveEmail.getSuppressionId(tid));
         queryClient.setQueriesData<InfiniteEmails>(
           { queryKey: ["emails"] },
           (old) => {

@@ -68,7 +68,7 @@ import {
   useSettings,
   useUpdateSettings,
   useEmailTracking,
-  unsuppressThread,
+  releaseSuppression,
 } from "@/hooks/use-emails";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -710,7 +710,10 @@ export function EmailThread({
     for (const t of targets) onArchived?.(t.id);
 
     const undo = () => {
-      for (const key of threadKeys) unsuppressThread(key);
+      for (const target of targets) {
+        const key = target.threadId || target.id;
+        releaseSuppression(key, archiveEmail.getSuppressionId(key));
+      }
       for (const t of targets)
         unarchiveEmail.mutate({
           id: t.id,
@@ -773,7 +776,10 @@ export function EmailThread({
     if (targets.length === 0) return;
 
     const undo = () => {
-      for (const key of threadKeys) unsuppressThread(key);
+      for (const target of targets) {
+        const key = target.threadId || target.id;
+        releaseSuppression(key, trashEmail.getSuppressionId(key));
+      }
       for (const t of targets)
         untrashEmail.mutate({
           id: t.id,

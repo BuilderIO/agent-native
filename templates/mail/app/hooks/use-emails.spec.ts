@@ -16,7 +16,6 @@ import {
   releaseSuppression,
   rollbackReadMutation,
   suppressThread,
-  unsuppressThread,
 } from "./use-emails";
 
 function makeEmail(id: string, threadId: string): EmailMessage {
@@ -48,17 +47,62 @@ function threadCacheSource(): string {
   );
 }
 
+function removalComponentSource(name: "EmailList" | "EmailThread"): string {
+  return readFileSync(
+    new URL(`../components/email/${name}.tsx`, import.meta.url),
+    "utf8",
+  );
+}
+
+describe("removal undo claim ownership", () => {
+  it("releases only the claim created by the matching mutation hook", () => {
+    const hookSource = emailsHookSource();
+    const listSource = removalComponentSource("EmailList");
+    const threadSource = removalComponentSource("EmailThread");
+
+    expect(hookSource).not.toContain("export function unsuppressThread");
+    for (const name of [
+      "useArchiveEmail",
+      "useTrashEmail",
+      "useBulkArchiveEmails",
+      "useBulkTrashEmails",
+      "useMoveEmail",
+    ]) {
+      const start = hookSource.indexOf(`export function ${name}()`);
+      const end = hookSource.indexOf("export function", start + 1);
+      const hook = hookSource.slice(start, end === -1 ? undefined : end);
+
+      expect(hook).toContain("claims.current.set");
+      expect(hook).toContain("return { ...mutation, getSuppressionId }");
+      expect(hook.indexOf("claims.current.set")).toBeLessThan(
+        hook.indexOf("await Promise.all"),
+      );
+    }
+    for (const source of [listSource, threadSource]) {
+      expect(source).not.toContain("unsuppressThread");
+      expect(source).toContain("releaseSuppression");
+      expect(source).toContain("getSuppressionId");
+    }
+  });
+});
+
 describe("filterSuppressedThreads", () => {
+  const archivedSuppressionIds: number[] = [];
+
   afterEach(() => {
-    unsuppressThread("thread-archived");
+    for (const id of archivedSuppressionIds)
+      releaseSuppression("thread-archived", id);
+    archivedSuppressionIds.length = 0;
     consumeExternalEmailRefresh();
     vi.useRealTimers();
   });
 
   it("keeps an archived thread hidden from stale inbox refetches", () => {
-    suppressThread("thread-archived", "archive", {
-      views: ["inbox", "unread"],
-    });
+    archivedSuppressionIds.push(
+      suppressThread("thread-archived", "archive", {
+        views: ["inbox", "unread"],
+      }),
+    );
 
     const visible = filterSuppressedThreads(
       [
@@ -72,9 +116,11 @@ describe("filterSuppressedThreads", () => {
   });
 
   it("allows an archived thread in the archive destination view", () => {
-    suppressThread("thread-archived", "archive", {
-      views: ["inbox", "unread"],
-    });
+    archivedSuppressionIds.push(
+      suppressThread("thread-archived", "archive", {
+        views: ["inbox", "unread"],
+      }),
+    );
     const row = () => [makeEmail("msg-archived", "thread-archived")];
 
     expect(filterSuppressedThreads(row(), "archive")).toHaveLength(1);
@@ -579,7 +625,7 @@ describe("inbox-thread cache rollback on mutation error", () => {
     const moved = suppressThread("thread-moved", "move", {
       views: ["inbox", "unread"],
     });
-    suppressThread("thread-archived-later", "archive", {
+    const archivedLater = suppressThread("thread-archived-later", "archive", {
       views: ["inbox", "unread"],
     });
 
@@ -596,7 +642,7 @@ describe("inbox-thread cache rollback on mutation error", () => {
     );
 
     expect(visible.map((email) => email.id)).toEqual(["msg-moved"]);
-    unsuppressThread("thread-archived-later");
+    releaseSuppression("thread-archived-later", archivedLater);
   });
 
   it("keeps the same thread hidden when an overlapping mutation rolls back", () => {
@@ -605,7 +651,9 @@ describe("inbox-thread cache rollback on mutation error", () => {
     const moved = suppressThread("thread-both", "move", {
       views: ["inbox", "unread"],
     });
-    suppressThread("thread-both", "archive", { views: ["inbox", "unread"] });
+    const archived = suppressThread("thread-both", "archive", {
+      views: ["inbox", "unread"],
+    });
 
     releaseSuppression("thread-both", moved);
 
@@ -613,19 +661,38 @@ describe("inbox-thread cache rollback on mutation error", () => {
       filterSuppressedThreads([makeEmail("msg-both", "thread-both")], "inbox"),
     ).toEqual([]);
 
-    unsuppressThread("thread-both");
+    releaseSuppression("thread-both", archived);
     expect(
       filterSuppressedThreads([makeEmail("msg-both", "thread-both")], "inbox"),
     ).toHaveLength(1);
   });
 
+  it("keeps a newer mute claim when undo releases the earlier archive claim", () => {
+    const archived = suppressThread("thread-archive-mute", "archive", {
+      views: ["inbox", "unread"],
+    });
+    const muted = suppressThread("thread-archive-mute", "mute", {
+      views: ["inbox", "unread"],
+    });
+    const row = [makeEmail("msg-archive-mute", "thread-archive-mute")];
+
+    releaseSuppression("thread-archive-mute", archived);
+
+    expect(filterSuppressedThreads(row, "inbox")).toEqual([]);
+
+    releaseSuppression("thread-archive-mute", muted);
+    expect(filterSuppressedThreads(row, "inbox")).toHaveLength(1);
+  });
+
   it("lets the newest claim decide where an overlapping thread stays visible", () => {
     // Archive then trash the same thread: Trash is its final location, so the
     // older archive claim must not keep hiding it there.
-    suppressThread("thread-relocated", "archive", {
+    const archived = suppressThread("thread-relocated", "archive", {
       views: ["inbox", "unread"],
     });
-    suppressThread("thread-relocated", "trash", { onlyIn: "trash" });
+    const trashed = suppressThread("thread-relocated", "trash", {
+      onlyIn: "trash",
+    });
     const row = () => [makeEmail("msg-relocated", "thread-relocated")];
 
     expect(filterSuppressedThreads(row(), "trash")).toHaveLength(1);
@@ -634,7 +701,8 @@ describe("inbox-thread cache rollback on mutation error", () => {
     expect(filterSuppressedThreads(row(), "all")).toEqual([]);
     expect(filterSuppressedThreads(row(), "all", "Projects")).toEqual([]);
 
-    unsuppressThread("thread-relocated");
+    releaseSuppression("thread-relocated", archived);
+    releaseSuppression("thread-relocated", trashed);
   });
 
   it("keeps a moved thread in the labels it still carries", () => {
@@ -673,7 +741,7 @@ describe("inbox-thread cache rollback on mutation error", () => {
   it("hides an archived thread only in the label the archive removed", () => {
     // Archiving from a label view passes removeLabel, so that label stops
     // listing the thread while every other label it carries keeps it.
-    suppressThread("thread-filed-away", "archive", {
+    const archived = suppressThread("thread-filed-away", "archive", {
       views: ["inbox", "unread"],
       label: "Marketing",
     });
@@ -685,7 +753,7 @@ describe("inbox-thread cache rollback on mutation error", () => {
     expect(filterSuppressedThreads(row(), "archive")).toHaveLength(1);
     expect(filterSuppressedThreads(row(), "inbox")).toEqual([]);
 
-    unsuppressThread("thread-filed-away");
+    releaseSuppression("thread-filed-away", archived);
   });
 
   it("rolls spam, block, and mute back per thread instead of by snapshot", () => {

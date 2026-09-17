@@ -102,11 +102,15 @@ vi.mock("@/hooks/use-account-filter", () => ({
 }));
 
 vi.mock("@/hooks/use-emails", () => {
-  const mutation = () => ({ mutate: vi.fn(), mutateAsync: vi.fn() });
+  const mutation = () => ({
+    mutate: vi.fn(),
+    mutateAsync: vi.fn(),
+    getSuppressionId: vi.fn(),
+  });
   return {
     EMPTY_LABELS: [],
     MoveEmailPartialFailure: class MoveEmailPartialFailure extends Error {},
-    unsuppressThread: vi.fn(),
+    releaseSuppression: vi.fn(),
     useEmails: () => ({ data: [] }),
     useLabels: () => ({ data: [] }),
     useMarkRead: mutation,
@@ -114,7 +118,11 @@ vi.mock("@/hooks/use-emails", () => {
     useToggleStar: mutation,
     useArchiveEmail: mutation,
     useUnarchiveEmail: mutation,
-    useTrashEmail: () => ({ mutate: mocks.trash, mutateAsync: vi.fn() }),
+    useTrashEmail: () => ({
+      mutate: mocks.trash,
+      mutateAsync: vi.fn(),
+      getSuppressionId: vi.fn(),
+    }),
     useUntrashEmail: mutation,
     useBulkArchiveEmails: mutation,
     useBulkTrashEmails: mutation,
