@@ -26,6 +26,8 @@ const buttonVariants = cva(
         secondary:
           "bg-secondary text-secondary-foreground hover:bg-secondary/80",
         ghost: "hover:bg-accent hover:text-accent-foreground",
+        "ghost-inset":
+          "text-muted-foreground hover:bg-accent/40 hover:text-foreground focus-visible:ring-inset focus-visible:ring-offset-0",
         link: "text-primary underline-offset-4 hover:underline",
       },
       size: {
@@ -108,7 +110,9 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         emphasis ??
         (variant === "outline"
           ? "outline"
-          : variant === "ghost" || variant === "link"
+          : variant === "ghost" ||
+              variant === "ghost-inset" ||
+              variant === "link"
             ? "ghost"
             : "solid");
       const semanticSize =
