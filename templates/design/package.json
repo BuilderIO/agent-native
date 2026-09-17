@@ -55,7 +55,7 @@
     "pdf-parse": "^2.4.5",
     "playwright": "^1.63.0",
     "postcss": "^8.5.28",
-    "prettier": "^3.9.4",
+    "prettier": "^3.9.6",
     "yjs": "catalog:",
     "zod": "^4.3.6"
   },
