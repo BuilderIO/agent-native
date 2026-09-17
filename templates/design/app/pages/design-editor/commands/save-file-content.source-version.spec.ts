@@ -3,13 +3,19 @@ import type { QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { describe, expect, it, vi } from "vitest";
 
-import type { DesignSaveOutboxEntry } from "@/lib/design-save-outbox";
+import {
+  createDesignSaveOutboxEntry,
+  drainDesignSaveOutbox,
+  type DesignSaveOutboxEntry,
+  type DesignSaveOutboxStorage,
+} from "@/lib/design-save-outbox";
 import {
   coalescePendingFileContentSave,
   type FileContentSaveRequest,
 } from "@/pages/design-editor/editor-state";
 
 import {
+  runFileContentSaveKeepalive,
   runSaveFileContent,
   type SaveFileContentArgs,
 } from "./save-file-content";
@@ -25,6 +31,117 @@ function deferred<T>() {
 }
 
 describe("runSaveFileContent source version", () => {
+  it("replays from the oldest base when a successor keepalive races a missing predecessor", async () => {
+    const baseContent = "<main>original</main>";
+    const predecessorContent = "<main>predecessor</main>";
+    const successorContent = "<main>successor</main>";
+    const baseHash = sourceContentHash(baseContent);
+    const pending: FileContentSaveRequest = {
+      id: "screen-keepalive-race",
+      content: successorContent,
+      syncCollab: true,
+      operationSource: "tab-a",
+      operationRevision: 2,
+      expectedVersionHash: sourceContentHash(predecessorContent),
+      unloadExpectedVersionHash: baseHash,
+    };
+    const entries = new Map<string, DesignSaveOutboxEntry>();
+    const storage: DesignSaveOutboxStorage = {
+      putLatest: async (entry) => {
+        entries.set(entry.key, structuredClone(entry));
+      },
+      deleteIfRevision: async (entry) => {
+        const current = entries.get(entry.key);
+        if (
+          current?.operationSource !== entry.operationSource ||
+          current.operationRevision !== entry.operationRevision
+        ) {
+          return false;
+        }
+        entries.delete(entry.key);
+        return true;
+      },
+      list: async () => [...entries.values()],
+      pruneOlderThan: async () => 0,
+    };
+    const journalOutboxEntry = vi.fn(async (entry: DesignSaveOutboxEntry) => {
+      await storage.putLatest(entry);
+      return true;
+    });
+    const createFileSaveOutboxEntry = vi.fn((request: FileContentSaveRequest) =>
+      createDesignSaveOutboxEntry({
+        designId: "design-1",
+        actorScope: "user-1",
+        actionName: "update-file",
+        resourceId: request.id,
+        operationSource: request.operationSource,
+        operationRevision: request.operationRevision,
+        payload: {
+          id: request.id,
+          content: request.content,
+          syncCollab: request.syncCollab,
+          operationSource: request.operationSource,
+          operationRevision: request.operationRevision,
+          expectedVersionHash:
+            request.unloadExpectedVersionHash ?? request.expectedVersionHash,
+        },
+      }),
+    );
+    const acknowledgeOutboxEntry = vi.fn(
+      async (entry: DesignSaveOutboxEntry) => {
+        await storage.deleteIfRevision(entry);
+      },
+    );
+    const directConflict = Object.assign(
+      new Error("predecessor did not commit"),
+      { status: 409 },
+    );
+
+    runFileContentSaveKeepalive(
+      {
+        acknowledgeOutboxEntry,
+        createFileSaveOutboxEntry,
+        journalOutboxEntry,
+        latestFileSaveForUnloadRef: { current: { [pending.id]: pending } },
+        sendKeepalive: vi.fn((payload) => ({
+          accepted: true as const,
+          completion: Promise.reject(directConflict),
+        })),
+      },
+      pending,
+    );
+
+    expect(journalOutboxEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({ expectedVersionHash: baseHash }),
+      }),
+    );
+    expect(
+      createFileSaveOutboxEntry.mock.calls.map(
+        ([request]) => request.unloadExpectedVersionHash,
+      ),
+    ).toEqual([baseHash, undefined]);
+
+    const invokeAction = vi.fn(async (_actionName, payload) => {
+      expect(payload.expectedVersionHash).toBe(baseHash);
+      return {
+        updated: true,
+        versionHash: sourceContentHash(successorContent),
+      };
+    });
+    const result = await drainDesignSaveOutbox({
+      designId: "design-1",
+      actorScope: "user-1",
+      invokeAction,
+      storage,
+    });
+
+    expect(result.failed).toEqual([]);
+    expect(result.saved).toHaveLength(1);
+    expect(acknowledgeOutboxEntry).not.toHaveBeenCalled();
+    expect(entries.size).toBe(0);
+  });
+
   it("keeps each dependent queued hash while an earlier save is in flight", async () => {
     const originalSourceHash = "hash-of-original-source";
     const firstPending: FileContentSaveRequest = {

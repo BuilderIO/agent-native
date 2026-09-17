@@ -10,6 +10,7 @@ import type { PatchProofState } from "@/pages/design-editor/command-types";
 import type { FileContentSaveRequest } from "@/pages/design-editor/editor-state";
 import {
   advanceLatestUnloadSaveBase,
+  prepareFileContentSaveKeepalive,
   shouldClearLatestUnloadSave,
 } from "@/pages/design-editor/editor-state";
 import {
@@ -45,6 +46,80 @@ export interface SaveFileContentArgs {
     typeof useActionMutation<undefined, undefined, "update-file">
   >;
   warnChangesWillRetry: () => void;
+}
+
+type FileContentSaveKeepaliveAttempt =
+  | { accepted: true; completion: Promise<unknown> }
+  | { accepted: false; completion: null };
+
+export interface SaveFileContentKeepaliveArgs {
+  acknowledgeOutboxEntry: (entry: DesignSaveOutboxEntry) => Promise<void>;
+  createFileSaveOutboxEntry: (
+    pending: FileContentSaveRequest,
+  ) => DesignSaveOutboxEntry | null;
+  journalOutboxEntry: (entry: DesignSaveOutboxEntry) => Promise<boolean>;
+  latestFileSaveForUnloadRef: RefObject<Record<string, FileContentSaveRequest>>;
+  sendKeepalive: (
+    payload: Record<string, unknown>,
+  ) => FileContentSaveKeepaliveAttempt;
+}
+
+export function runFileContentSaveKeepalive(
+  {
+    acknowledgeOutboxEntry,
+    createFileSaveOutboxEntry,
+    journalOutboxEntry,
+    latestFileSaveForUnloadRef,
+    sendKeepalive,
+  }: SaveFileContentKeepaliveArgs,
+  pending: FileContentSaveRequest,
+) {
+  // Keep the folded oldest-base entry durable while the direct request uses
+  // this edit's own base. If the predecessor never lands, replay must start
+  // from the oldest known version rather than the successor's base.
+  const durableEntry = createFileSaveOutboxEntry(pending);
+  const keepaliveEntry = createFileSaveOutboxEntry(
+    prepareFileContentSaveKeepalive(pending),
+  );
+  if (!durableEntry || !keepaliveEntry) return;
+  const journalPromise = journalOutboxEntry(durableEntry);
+  const attempt = sendKeepalive(keepaliveEntry.payload);
+  if (!attempt.accepted) {
+    void journalPromise.catch(() => {});
+    return;
+  }
+  void attempt.completion
+    .then(async (result: unknown) => {
+      await journalPromise;
+      const persistedContentMatches = updateFileResultPersistedContent(
+        result,
+        pending.content,
+      );
+      if (!persistedContentMatches) return;
+      const resultInfo = result as { versionHash?: string } | undefined;
+      const latest = latestFileSaveForUnloadRef.current[pending.id];
+      if (shouldClearLatestUnloadSave(latest, pending)) {
+        await acknowledgeOutboxEntry(durableEntry);
+        delete latestFileSaveForUnloadRef.current[pending.id];
+        return;
+      }
+      if (
+        advanceLatestUnloadSaveBase(
+          latest,
+          pending,
+          resultInfo?.versionHash ?? sourceContentHash(pending.content),
+        )
+      ) {
+        const advancedOutboxEntry = latest
+          ? createFileSaveOutboxEntry(latest)
+          : null;
+        if (advancedOutboxEntry) {
+          await journalOutboxEntry(advancedOutboxEntry);
+        }
+      }
+      await acknowledgeOutboxEntry(durableEntry);
+    })
+    .catch(() => {});
 }
 
 export function runSaveFileContent(

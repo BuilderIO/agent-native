@@ -487,7 +487,6 @@ import {
   discardDesignSaveOutboxEntry,
   drainDesignSaveOutbox,
   journalDesignSaveOutboxEntry,
-  updateFileResultPersistedContent,
   type DesignSaveOutboxEntry,
 } from "@/lib/design-save-outbox";
 import { isDesignSystemUsableForGeneration } from "@/lib/design-system-data";
@@ -684,7 +683,10 @@ import { runRecordPendingLiveTextEdit } from "./design-editor/commands/record-pe
 import { runRecordPendingVisualStyleEdit } from "./design-editor/commands/record-pending-visual-style-edit";
 import { runRedo } from "./design-editor/commands/redo";
 import { runRenderPngBlob } from "./design-editor/commands/render-png-blob";
-import { runSaveFileContent } from "./design-editor/commands/save-file-content";
+import {
+  runFileContentSaveKeepalive,
+  runSaveFileContent,
+} from "./design-editor/commands/save-file-content";
 import { runScreenElementSelect } from "./design-editor/commands/screen-element-select";
 import { runScreenTextContentChange } from "./design-editor/commands/screen-text-content-change";
 import { runScreenVisualDuplicateChange } from "./design-editor/commands/screen-visual-duplicate-change";
@@ -784,7 +786,6 @@ import {
   TAB_ID,
 } from "./design-editor/editor-session";
 import {
-  advanceLatestUnloadSaveBase,
   coalescePendingFileContentSave,
   createPendingLocalFileContent,
   type FileContentSaveRequest,
@@ -800,14 +801,12 @@ import {
   getPersistedContentHostSyncOptions,
   isStandaloneHttpUrl,
   previewContentReplaceNeedsRenderFallback,
-  prepareFileContentSaveKeepalive,
   removeUndoRedoOrderKind,
   restorePendingFileContent,
   resolveLocalhostSourceWriteContent,
   resolveOptimisticTextDecorationLine,
   resolveServerFiles,
   shouldRetirePendingLocalFileContent,
-  shouldClearLatestUnloadSave,
   shouldClearLatestUnloadSaveForOutboxEntry,
   shouldSendKeepalive,
   type OptimisticTextDecorationLineEntry,
@@ -4234,59 +4233,17 @@ function DesignEditor() {
       // Keep pagehide mirrors behind the same source-version guard as normal saves.
       const collabLive = pending.syncCollab === false;
       if (!shouldSendKeepalive(true, collabLive)) return;
-      // The durable outbox folds successors onto the oldest unacknowledged
-      // base, but a pagehide request may race that predecessor. Keep this
-      // direct request on its own base so it either follows the predecessor or
-      // remains replayable after the predecessor lands.
-      const keepalivePending = prepareFileContentSaveKeepalive(pending);
-      const entry = createFileSaveOutboxEntry(keepalivePending);
-      if (!entry) return;
-      const journalPromise = journalOutboxEntry(entry);
-      const attempt = tryCallActionKeepalive(
-        "update-file",
-        entry.payload as any,
+      runFileContentSaveKeepalive(
+        {
+          acknowledgeOutboxEntry,
+          createFileSaveOutboxEntry,
+          journalOutboxEntry,
+          latestFileSaveForUnloadRef,
+          sendKeepalive: (payload) =>
+            tryCallActionKeepalive("update-file", payload as any),
+        },
+        pending,
       );
-      if (!attempt.accepted) {
-        void journalPromise.catch(() => {});
-        return;
-      }
-      void attempt.completion
-        .then(async (result: unknown) => {
-          await journalPromise;
-          const persistedContentMatches = updateFileResultPersistedContent(
-            result,
-            pending.content,
-          );
-          if (!persistedContentMatches) {
-            return;
-          }
-          const resultInfo = result as { versionHash?: string } | undefined;
-          const latest = latestFileSaveForUnloadRef.current[pending.id];
-          if (shouldClearLatestUnloadSave(latest, pending)) {
-            await acknowledgeOutboxEntry(entry);
-            delete latestFileSaveForUnloadRef.current[pending.id];
-            return;
-          }
-          if (
-            advanceLatestUnloadSaveBase(
-              latest,
-              pending,
-              resultInfo?.versionHash ?? sourceContentHash(pending.content),
-            )
-          ) {
-            const advancedOutboxEntry = latest
-              ? createFileSaveOutboxEntry(latest)
-              : null;
-            if (advancedOutboxEntry) {
-              await journalOutboxEntry(advancedOutboxEntry);
-            }
-          }
-          await acknowledgeOutboxEntry(entry);
-        })
-        // Pagehide/navigation can intentionally abort this request. The
-        // journaled operation remains available for replay, and there is no
-        // useful visible surface for a toast while the page is leaving.
-        .catch(() => {});
     },
     [acknowledgeOutboxEntry, createFileSaveOutboxEntry, journalOutboxEntry],
   );
