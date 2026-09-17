@@ -127,6 +127,20 @@ describe("runChangeSelectedZIndex — a paint-order change must not move anythin
     expect(commitVisualStyles).toHaveBeenCalled();
   });
 
+  it("falls back to z-index for a positioned layer with no reorderable sibling", () => {
+    const singleChildContent = `<div data-agent-native-node-id="wrap">
+<div data-agent-native-node-id="a" style="position:absolute"></div>
+</div>`;
+    const { args, applyLocalContentUpdate, commitVisualStyles } = harness(
+      { computedStyles: { position: "absolute" } },
+      "a",
+      singleChildContent,
+    );
+    runChangeSelectedZIndex(args, "front");
+    expect(applyLocalContentUpdate).not.toHaveBeenCalled();
+    expect(commitVisualStyles).toHaveBeenCalledTimes(1);
+  });
+
   it("sends to back below static siblings, not to z-index 0", () => {
     const { args, applyLocalContentUpdate } = harness({
       computedStyles: { position: "static", zIndex: "auto" },
@@ -343,6 +357,7 @@ function multiHarness(
     applyLocalContentUpdate,
     currentContent: () => currentContent,
     reportRefusal,
+    rendered,
   };
 }
 
@@ -452,6 +467,37 @@ describe("runChangeSelectedZIndex — rendered multi-selection order", () => {
     expect(next).toMatch(/isolation:\s*isolate/);
     expect(next).toMatch(/max-width:\s*640px/);
     expect(next).toMatch(/min-width:\s*480px/);
+  });
+  it("does not use a substring selector to classify another selected layer", () => {
+    const content = `<div data-agent-native-node-id="screen">
+<div data-agent-native-node-id="A"></div>
+<div data-agent-native-node-id="AB" style="position:absolute"></div>
+</div>`;
+    const { args, applyLocalContentUpdate } = multiHarness(
+      content,
+      ["A", "AB"],
+      {
+        selectedElement: { computedStyles: { position: "absolute" } },
+        rendered: { AB: { computedStyles: { position: "absolute" } } },
+      },
+    );
+
+    expect(runChangeSelectedZIndex(args, "front")).toEqual({
+      status: "applied",
+    });
+    expect(applyLocalContentUpdate).toHaveBeenCalledOnce();
+    expect(applyLocalContentUpdate.mock.calls[0]![0]).toMatch(
+      /data-agent-native-node-id="A"[^>]*z-index/,
+    );
+  });
+
+  it("clears rendered metadata after an accepted structural edit", () => {
+    const harnessed = multiHarness(G8_CONTENT, ["A"], {
+      rendered: { A: { computedStyles: { position: "absolute" } } },
+    });
+    expect(harnessed.rendered.size).toBe(1);
+    runChangeSelectedZIndex(harnessed.args, "front");
+    expect(harnessed.rendered.size).toBe(0);
   });
 });
 

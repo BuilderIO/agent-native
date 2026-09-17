@@ -2151,6 +2151,7 @@ function DesignEditor() {
   const activeBreakpointWidthStateRef = useRef<number | undefined>(undefined);
   useEffect(() => {
     activeBreakpointWidthStateRef.current = activeBreakpointWidthState;
+    renderedElementInfoByLayerKeyRef.current.clear();
   }, [activeBreakpointWidthState]);
   // Item 9 — dedupe marker for the agent→UI `design-active-breakpoint:<id>`
   // consumption effect below: the `breakpointId` (or the literal "auto") this
@@ -5626,6 +5627,7 @@ function DesignEditor() {
       // that commit cannot observe the previous frame's scope while React is
       // still scheduling the state update.
       activeBreakpointWidthStateRef.current = widthPx;
+      renderedElementInfoByLayerKeyRef.current.clear();
       setActiveBreakpointWidthState(widthPx);
       if (!id) return;
       const bp = designBreakpoints.find((b) => b.widthPx === widthPx);

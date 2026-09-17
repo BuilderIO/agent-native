@@ -146,6 +146,23 @@ function nodeForId(
   );
 }
 
+function selectorMatchesNode(
+  selector: string | undefined,
+  node: CodeLayerNode,
+): boolean {
+  const normalized = selector?.trim();
+  if (!normalized) return false;
+  return [
+    preferredCodeLayerSelector(node),
+    node.selector,
+    node.path,
+    `[data-agent-native-node-id="${node.id}"]`,
+    `[data-code-layer-id="${node.id}"]`,
+    `[data-layer-id="${node.id}"]`,
+    ...node.selectors,
+  ].some((candidate) => candidate === normalized);
+}
+
 function renderedInfoForNode(
   node: CodeLayerNode,
   fileId: string,
@@ -166,8 +183,7 @@ function renderedInfoForNode(
     (selectedElement.sourceLayerIdentity?.nodeId === node.id ||
       selectedElement.sourceId === node.id ||
       selectedElement.sourceId === stableId ||
-      selectedElement.selector === preferredCodeLayerSelector(node) ||
-      selectedElement.selector?.includes(node.id));
+      selectorMatchesNode(selectedElement.selector, node));
   return selectedMatches ? selectedElement : elementInfoFromCodeLayerNode(node);
 }
 
@@ -398,8 +414,7 @@ function selectedElementMatchesNode(
     (selectedElement.sourceLayerIdentity?.nodeId === node.id ||
       selectedElement.sourceId === node.id ||
       selectedElement.sourceId === durableNodeId(node) ||
-      selectedElement.selector === preferredCodeLayerSelector(node) ||
-      selectedElement.selector?.includes(node.id)),
+      selectorMatchesNode(selectedElement.selector, node)),
   );
 }
 
@@ -407,7 +422,11 @@ function legacyStyleFallback(
   args: ChangeSelectedZIndexArgs,
   mode: ChangeSelectedZIndexMode,
 ): ChangeSelectedZIndexResult {
-  const { commitVisualStyles, selectedElement } = args;
+  const {
+    commitVisualStyles,
+    renderedElementInfoByLayerKeyRef,
+    selectedElement,
+  } = args;
   if (!selectedElement?.selector) return { status: "unchanged" };
   const current = Number.parseInt(
     selectedElement.computedStyles.zIndex || "",
@@ -433,6 +452,7 @@ function legacyStyleFallback(
     },
     { elementInfo: selectedElement },
   );
+  renderedElementInfoByLayerKeyRef?.current.clear();
   return { status: "applied" };
 }
 
@@ -502,11 +522,13 @@ export function runChangeSelectedZIndex(
       renderedElementInfoByLayerKeyRef,
     );
     const flowLayout = isFlowLayoutTarget(info, node);
+    const hasReorderableSibling = (siblingOrder?.siblingIds.length ?? 0) > 1;
     const reorder =
-      position === "absolute" ||
-      position === "fixed" ||
-      flowLayout ||
-      (position === "static" && context.hasPositionedDescendant);
+      hasReorderableSibling &&
+      (position === "absolute" ||
+        position === "fixed" ||
+        flowLayout ||
+        (position === "static" && context.hasPositionedDescendant));
     targets.push({ context, info, node, position, reorder, siblingOrder });
   }
 
@@ -606,6 +628,7 @@ export function runChangeSelectedZIndex(
         ),
         { elementInfo: targets[0]!.info },
       );
+      renderedElementInfoByLayerKeyRef?.current.clear();
       return { status: "applied" };
     }
     return refuse("linked-component");
@@ -632,6 +655,7 @@ export function runChangeSelectedZIndex(
         ),
         { elementInfo: target.info },
       );
+      renderedElementInfoByLayerKeyRef?.current.clear();
       return { status: "applied" };
     }
   }
@@ -662,7 +686,10 @@ export function runChangeSelectedZIndex(
       intents,
       applyLinkedComponentEdit,
     });
-  if (linkedStructure) return { status: "queued" };
+  if (linkedStructure) {
+    renderedElementInfoByLayerKeyRef?.current.clear();
+    return { status: "queued" };
+  }
   if (linkedRoots.size > 0 && intents.length > 0)
     return refuse("linked-component");
 
@@ -698,6 +725,7 @@ export function runChangeSelectedZIndex(
     forcePreviewFullDocument: true,
   });
   if (publication.status !== "accepted") return refuse("publication");
+  renderedElementInfoByLayerKeyRef?.current.clear();
 
   const primaryId = selectedLayerIdsState[selectedLayerIdsState.length - 1]!;
   const originalPrimary = nodeForId(
