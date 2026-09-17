@@ -140,6 +140,21 @@ describe("planLocalJsxVisualEdit", () => {
     expect(withRuntimeAnnotation.content).toContain(
       'variant="secondary" data-agent-native-prop-variant="secondary"',
     );
+
+    const literalDollarValue = "$& $1 $` $'";
+    const withLiteralDollarValue = planLocalJsxVisualEdit({
+      content,
+      anchor,
+      intent: {
+        kind: "attribute",
+        name: "variant",
+        value: literalDollarValue,
+      },
+    });
+    expect(withLiteralDollarValue.result.status).toBe("applied");
+    expect(withLiteralDollarValue.content).toContain(
+      '<Button variant="$&amp; $1 $` $\'" />',
+    );
   });
 
   it("reads only quoted invocation props and ignores defaulted runtime values", () => {
@@ -169,6 +184,16 @@ describe("planLocalJsxVisualEdit", () => {
         anchor: {
           ...sourceAnchor,
           column: dynamicContent.indexOf("<Button") + 1,
+        },
+      }),
+    ).toBeUndefined();
+    const shorthandContent = "const view = <Button disabled />;";
+    expect(
+      readLiteralJsxPropsAtAnchor({
+        content: shorthandContent,
+        anchor: {
+          ...sourceAnchor,
+          column: shorthandContent.indexOf("<Button") + 1,
         },
       }),
     ).toBeUndefined();

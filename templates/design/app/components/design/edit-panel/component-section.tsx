@@ -898,8 +898,12 @@ export function ComponentSection({
     ],
   );
 
-  const updateLocalSourceVersion = (versionHash: unknown) => {
-    if (!effectiveRuntime?.local || typeof versionHash !== "string") return;
+  const updateLocalSourceCache = (content: unknown, versionHash: unknown) => {
+    if (
+      !effectiveRuntime?.local ||
+      (typeof content !== "string" && typeof versionHash !== "string")
+    )
+      return;
     queryClient.setQueryData(
       [
         "action",
@@ -910,9 +914,10 @@ export function ComponentSection({
           path: effectiveRuntime.local.path,
         },
       ],
-      (previous: { versionHash?: string } | undefined) => ({
+      (previous: { content?: string; versionHash?: string } | undefined) => ({
         ...previous,
-        versionHash,
+        ...(typeof content === "string" ? { content } : {}),
+        ...(typeof versionHash === "string" ? { versionHash } : {}),
       }),
     );
   };
@@ -1020,7 +1025,10 @@ export function ComponentSection({
             result?: { status?: unknown; message?: unknown };
           };
           const resultStatus = response.result?.status;
-          updateLocalSourceVersion(response.source?.versionHash);
+          updateLocalSourceCache(
+            response.content,
+            response.source?.versionHash,
+          );
           if (
             response.conflict ||
             response.ctaRequired ||

@@ -774,6 +774,33 @@ test("promotes and edits a URL-backed React component through the live iframe", 
       fs.readFileSync(path.join(rootPath, "src", "Component.jsx"), "utf8"),
     )
     .toContain('variant="secondary"');
+  await expect
+    .poll(() =>
+      fs.readFileSync(path.join(rootPath, "src", "Component.jsx"), "utf8"),
+    )
+    .toContain('data-agent-native-prop-variant="secondary"');
+
+  await expect(variantInput).toHaveValue("secondary");
+  await variantInput.fill("tertiary");
+  const secondPropResponse = page.waitForResponse(
+    (response) =>
+      response
+        .url()
+        .includes("/_agent-native/actions/apply-component-prop-edit") &&
+      response.request().method() !== "OPTIONS",
+  );
+  await variantInput.press("Enter");
+  expect((await secondPropResponse).ok()).toBe(true);
+  await expect
+    .poll(() =>
+      fs.readFileSync(path.join(rootPath, "src", "Component.jsx"), "utf8"),
+    )
+    .toContain('variant="tertiary"');
+  await expect
+    .poll(() =>
+      fs.readFileSync(path.join(rootPath, "src", "Component.jsx"), "utf8"),
+    )
+    .toContain('data-agent-native-prop-variant="tertiary"');
   await bundleReactFixture();
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(
@@ -797,14 +824,14 @@ test("promotes and edits a URL-backed React component through the live iframe", 
       )
       .contentFrame()
       .locator('[data-agent-native-node-id="react-button-1"]'),
-  ).toHaveAttribute("data-agent-native-prop-variant", "secondary");
+  ).toHaveAttribute("data-agent-native-prop-variant", "tertiary");
   await expect(
     page
       .locator(
         `iframe[data-design-preview-iframe][data-screen-iframe-id="${screenId}"]`,
       )
       .contentFrame()
-      .getByText("secondary", { exact: true }),
+      .getByText("tertiary", { exact: true }),
   ).toBeVisible();
   await cdpScreenshot(
     page,

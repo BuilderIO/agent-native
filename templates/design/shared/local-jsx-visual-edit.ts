@@ -171,9 +171,8 @@ function scanOpeningTags(content: string): OpeningTag[] {
 
 /**
  * Read quoted component props from the authored opening tag at a verified
- * source anchor. Dynamic and shorthand attributes are skipped because their
- * values are not proven literals; spreads fail closed because they can shadow
- * every prop.
+ * source anchor. Dynamic and shorthand attributes make the full literal prop
+ * set uncertain, so this reader fails closed; spreads can shadow every prop.
  */
 export function readLiteralJsxPropsAtAnchor(args: {
   content: string;
@@ -229,8 +228,7 @@ export function readLiteralJsxPropsAtAnchor(args: {
     index += name.length;
     while (/\s/.test(opening[index] ?? "")) index += 1;
     if (opening[index] !== "=") {
-      sawUnsupported = true;
-      continue;
+      return undefined;
     }
     index += 1;
     while (/\s/.test(opening[index] ?? "")) index += 1;
@@ -546,7 +544,7 @@ export function planLocalJsxVisualEdit(args: {
       if (literalMatch) {
         nextOpening = nextOpening.replace(
           literal,
-          `$1"${jsxAttributeValue(value)}"`,
+          (_match, prefix: string) => `${prefix}"${jsxAttributeValue(value)}"`,
         );
         continue;
       }
