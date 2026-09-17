@@ -125,6 +125,7 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
+  accessFilter: vi.fn(() => undefined),
   assertAccess: state.assertAccess,
 }));
 

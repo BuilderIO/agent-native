@@ -16,7 +16,7 @@ import {
   type PrivateBlobHandle,
 } from "@agent-native/core/private-blob";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { assertAccess } from "@agent-native/core/sharing";
+import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
@@ -519,7 +519,12 @@ async function captureDesignVersion(
     const [currentDesign] = await database
       .select()
       .from(schema.designs)
-      .where(eq(schema.designs.id, designId))
+      .where(
+        and(
+          eq(schema.designs.id, designId),
+          accessFilter(schema.designs, schema.designShares),
+        ),
+      )
       .limit(1);
     if (!currentDesign) {
       throw new Error(`Design "${designId}" not found.`);

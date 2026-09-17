@@ -56,6 +56,7 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
+  accessFilter: vi.fn(() => undefined),
   assertAccess: captureMocks.assertAccess,
 }));
 
@@ -84,6 +85,7 @@ vi.mock("../db/index.js", () => {
       createdAt: { name: "createdAt" },
     },
     designFiles: {},
+    designShares: {},
     designs: {},
   };
   const queryResult = (rows: unknown[]) => {
