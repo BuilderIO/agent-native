@@ -1162,9 +1162,8 @@ export function runRedo({
   // U12: redo a screen create/duplicate by recreating the file with the
   // same filename/content/fileType and restoring its recorded geometry.
   // This is async (createFileMutation), unlike every other redo path here,
-  // so it optimistically reports success immediately (mirrors
-  // handleAddScreen's own optimistic cache write) and surfaces a toast on
-  // failure instead of rolling the redo stacks back.
+  // so the history stacks move optimistically while the mutation runs and
+  // restore the redo entry if creation or its metadata commit fails.
   const redoFileCreation = () => {
     if (!canUseOverviewHistory) return false;
     const entry = fileCreationRedoStackRef.current.pop();
@@ -1180,6 +1179,77 @@ export function runRedo({
     ];
     fileHistoryMutationPendingRef.current = true;
     syncUndoRedoState();
+    const restoreFailedRedo = (error: unknown) => {
+      if (
+        fileCreationUndoStackRef.current[
+          fileCreationUndoStackRef.current.length - 1
+        ] === entry
+      ) {
+        fileCreationUndoStackRef.current =
+          fileCreationUndoStackRef.current.slice(0, -1);
+      }
+      historyOrderRef.current = removeRecentUndoRedoOrderKinds(
+        historyOrderRef.current,
+        "file-created",
+        1,
+      );
+      fileCreationRedoStackRef.current = [
+        ...fileCreationRedoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+        entry,
+      ];
+      redoOrderRef.current = [
+        ...redoOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+        "file-created",
+      ];
+      clearPendingHistory?.();
+      fileHistoryMutationPendingRef.current = false;
+      syncUndoRedoState();
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("designEditor.toasts.screenDuplicateError"),
+      );
+    };
+    const reconcileFailedRedo = async (
+      error: unknown,
+      nextId?: string,
+      result?: Record<string, unknown>,
+    ) => {
+      if (nextId) {
+        try {
+          await performDeleteFiles(
+            [
+              {
+                id: nextId,
+                filename: entry.filename,
+                fileType: entry.fileType,
+                content: entry.content,
+                createdAt:
+                  typeof result?.createdAt === "string" ? result.createdAt : "",
+                updatedAt:
+                  typeof result?.updatedAt === "string" ? result.updatedAt : "",
+              },
+            ],
+            {
+              preserveHistory: true,
+              skipFileCreationRedoPrune: true,
+            },
+          );
+        } catch (cleanupError) {
+          trace("history", "redo-file-cleanup-failed", {
+            id,
+            error:
+              cleanupError instanceof Error
+                ? cleanupError.message
+                : String(cleanupError),
+          });
+        }
+        await queryClient.invalidateQueries({
+          queryKey: ["action", "get-design"],
+        });
+      }
+      restoreFailedRedo(error);
+    };
     createFileMutation.mutate(
       {
         designId: id,
@@ -1198,11 +1268,12 @@ export function runRedo({
               }),
               ...entry.geometry,
             };
-            writeFrameGeometrySnapshot({
-              ...getCanvasFrameGeometry(designDataJsonRef.current),
-              [nextId]: geometry,
-            });
             const dataOperations: DesignDataOperation[] = [
+              {
+                op: "set",
+                path: ["canvasFrames", nextId],
+                value: geometry,
+              },
               ...(entry.screenMetadata
                 ? [
                     {
@@ -1241,12 +1312,12 @@ export function runRedo({
               try {
                 await updateDesignAsync({ id, dataOperations } as any);
               } catch (error) {
-                // The optimistic data may not have reached the server. Let
-                // the final refetch restore the authoritative design state.
-                trace("history", "redo-file-metadata-failed", {
+                trace("history", "redo-file-data-failed", {
                   id,
                   error: error instanceof Error ? error.message : String(error),
                 });
+                await reconcileFailedRedo(error, nextId, result);
+                return;
               }
             }
             optimisticallyInsertCreatedFile({
@@ -1268,40 +1339,7 @@ export function runRedo({
           });
         },
         onError: (error: unknown) => {
-          // The optimistic history move happened before the request. Put the
-          // entry back exactly where it came from so a failed redo remains
-          // retryable and does not leave a phantom undo operation behind.
-          if (
-            fileCreationUndoStackRef.current[
-              fileCreationUndoStackRef.current.length - 1
-            ] === entry
-          ) {
-            fileCreationUndoStackRef.current =
-              fileCreationUndoStackRef.current.slice(0, -1);
-          }
-          historyOrderRef.current = removeRecentUndoRedoOrderKinds(
-            historyOrderRef.current,
-            "file-created",
-            1,
-          );
-          fileCreationRedoStackRef.current = [
-            ...fileCreationRedoStackRef.current.slice(
-              -(MAX_DESIGN_UNDO_STACK - 1),
-            ),
-            entry,
-          ];
-          redoOrderRef.current = [
-            ...redoOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
-            "file-created",
-          ];
-          clearPendingHistory?.();
-          fileHistoryMutationPendingRef.current = false;
-          syncUndoRedoState();
-          toast.error(
-            error instanceof Error
-              ? error.message
-              : t("designEditor.toasts.screenDuplicateError"),
-          );
+          restoreFailedRedo(error);
         },
       },
     );
