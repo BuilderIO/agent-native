@@ -187,6 +187,70 @@ export function ReviewCommentComposer({
     onMentionsChange?.(nextMentions);
     resetMention();
   };
+  const mentionMenu =
+    mentionOptions.length > 0 ? (
+      <DropdownMenu
+        open={mentionMenuOpen}
+        onOpenChange={(open) => {
+          setMentionMenuOpen(open);
+          if (!open) {
+            setMentionSearch("");
+            setMentionTriggerIndex(null);
+            mentionTokenEndRef.current = null;
+          }
+        }}
+      >
+        <DropdownMenuTrigger asChild>
+          {showCommentTools ? (
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              className="size-8 text-muted-foreground"
+              disabled={disabled}
+              aria-label={mentionLabel}
+              onClick={() => {
+                resetMention();
+              }}
+            >
+              <IconAt className="size-4" />
+            </Button>
+          ) : (
+            <span aria-hidden="true" className="sr-only" />
+          )}
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-60 p-1">
+          <Input
+            autoFocus
+            value={mentionSearch}
+            onChange={(event) => setMentionSearch(event.currentTarget.value)}
+            placeholder={mentionLabel}
+            aria-label={mentionLabel}
+            className="mb-1 h-8 text-xs"
+            onKeyDown={(event) => event.stopPropagation()}
+          />
+          {filteredMentionOptions.length > 0 ? (
+            filteredMentionOptions.map((mention) => (
+              <DropdownMenuItem
+                key={`${mention.email ?? mention.id ?? mention.label}`}
+                onSelect={() => insertMention(mention)}
+              >
+                <span className="truncate">{mention.label}</span>
+                {mention.email ? (
+                  <span className="ms-auto truncate text-xs text-muted-foreground">
+                    {mention.email}
+                  </span>
+                ) : null}
+              </DropdownMenuItem>
+            ))
+          ) : (
+            <div className="px-2 py-1.5 text-xs text-muted-foreground">
+              {noMentionsLabel}
+            </div>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    ) : null;
   const submit = (resolutionTarget: ReviewResolutionTarget) => {
     if (!canSubmit) return;
     onSubmit(resolutionTarget);
@@ -323,56 +387,16 @@ export function ReviewCommentComposer({
       />
       {showCommentTools ||
       commentToolsEnd ||
-      mentionMenuOpen ||
       showCommentAction ||
       showAgentAction ? (
         <div className="mt-2 flex flex-col items-stretch justify-end gap-2 @2xs/review:flex-row @2xs/review:items-center">
-          {showCommentTools || commentToolsEnd || mentionMenuOpen ? (
+          {showCommentTools || commentToolsEnd ? (
             <div
               data-review-comment-tools
               className="flex min-w-0 items-center gap-0.5 @2xs/review:me-auto"
             >
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="ghost"
-                    className="size-8 text-muted-foreground"
-                    disabled={disabled}
-                    aria-label={emojiLabel}
-                  >
-                    <IconMoodSmile className="size-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  align="start"
-                  className="flex w-auto gap-0.5 p-1"
-                >
-                  {emojiChoices.map((emoji) => (
-                    <DropdownMenuItem
-                      key={emoji}
-                      className="size-8 justify-center p-0 text-base"
-                      onSelect={() => appendText(emoji)}
-                    >
-                      <span aria-hidden="true">{emoji}</span>
-                      <span className="sr-only">{emoji}</span>
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-              {mentionOptions.length > 0 ? (
-                <DropdownMenu
-                  open={mentionMenuOpen}
-                  onOpenChange={(open) => {
-                    setMentionMenuOpen(open);
-                    if (!open) {
-                      setMentionSearch("");
-                      setMentionTriggerIndex(null);
-                      mentionTokenEndRef.current = null;
-                    }
-                  }}
-                >
+              {showCommentTools ? (
+                <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
                       type="button"
@@ -380,48 +404,29 @@ export function ReviewCommentComposer({
                       variant="ghost"
                       className="size-8 text-muted-foreground"
                       disabled={disabled}
-                      aria-label={mentionLabel}
-                      onClick={() => {
-                        resetMention();
-                      }}
+                      aria-label={emojiLabel}
                     >
-                      <IconAt className="size-4" />
+                      <IconMoodSmile className="size-4" />
                     </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start" className="w-60 p-1">
-                    <Input
-                      autoFocus
-                      value={mentionSearch}
-                      onChange={(event) =>
-                        setMentionSearch(event.currentTarget.value)
-                      }
-                      placeholder={mentionLabel}
-                      aria-label={mentionLabel}
-                      className="mb-1 h-8 text-xs"
-                      onKeyDown={(event) => event.stopPropagation()}
-                    />
-                    {filteredMentionOptions.length > 0 ? (
-                      filteredMentionOptions.map((mention) => (
-                        <DropdownMenuItem
-                          key={`${mention.email ?? mention.id ?? mention.label}`}
-                          onSelect={() => insertMention(mention)}
-                        >
-                          <span className="truncate">{mention.label}</span>
-                          {mention.email ? (
-                            <span className="ms-auto truncate text-xs text-muted-foreground">
-                              {mention.email}
-                            </span>
-                          ) : null}
-                        </DropdownMenuItem>
-                      ))
-                    ) : (
-                      <div className="px-2 py-1.5 text-xs text-muted-foreground">
-                        {noMentionsLabel}
-                      </div>
-                    )}
+                  <DropdownMenuContent
+                    align="start"
+                    className="flex w-auto gap-0.5 p-1"
+                  >
+                    {emojiChoices.map((emoji) => (
+                      <DropdownMenuItem
+                        key={emoji}
+                        className="size-8 justify-center p-0 text-base"
+                        onSelect={() => appendText(emoji)}
+                      >
+                        <span aria-hidden="true">{emoji}</span>
+                        <span className="sr-only">{emoji}</span>
+                      </DropdownMenuItem>
+                    ))}
                   </DropdownMenuContent>
                 </DropdownMenu>
               ) : null}
+              {mentionMenu}
               {commentToolsEnd ? (
                 <div data-review-comment-tools-end className="shrink-0">
                   {commentToolsEnd}
@@ -469,6 +474,9 @@ export function ReviewCommentComposer({
           ) : null}
         </div>
       ) : null}
+      {!showCommentTools && !commentToolsEnd && mentionMenuOpen
+        ? mentionMenu
+        : null}
     </form>
   );
 }

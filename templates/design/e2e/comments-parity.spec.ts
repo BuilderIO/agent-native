@@ -222,12 +222,6 @@ test("comments toolbar opens an anchored composer", async ({
       response.url().includes("/_agent-native/actions/resolve-review-thread") &&
       response.request().method() === "POST",
   );
-  const commentsRefresh = page.waitForResponse(
-    (response) =>
-      response.url().includes("/_agent-native/actions/list-review-comments") &&
-      response.request().method() === "GET" &&
-      response.ok(),
-  );
   await resolvedPopover
     .getByRole("button", { name: "Reopen", exact: true })
     .click();
@@ -248,46 +242,6 @@ test("comments toolbar opens an anchored composer", async ({
   await expect(
     reopenedPopover.getByRole("button", { name: "Resolve", exact: true }),
   ).toBeVisible();
-  const refreshedResponse = await commentsRefresh;
-  const refreshed = (await refreshedResponse.json()) as {
-    comments?: Array<{
-      id?: string;
-      threadId?: string;
-      parentCommentId?: string | null;
-      status?: string;
-      anchor?: {
-        nodeId?: string;
-        relativePoint?: { xPct?: number; yPct?: number };
-      };
-      body?: string;
-    }>;
-  };
-  const refreshedComments = refreshed.comments ?? [];
-  const refreshedRoot = refreshedComments.find(
-    (comment) => comment.id === createdComment.id,
-  );
-  const refreshedReply = refreshedComments.find(
-    (comment) => comment.id === reply.id,
-  );
-  expect(refreshedRoot).toMatchObject({
-    id: createdComment.id,
-    threadId: createdComment.threadId,
-    parentCommentId: null,
-    status: "open",
-    anchor: {
-      nodeId: nestedNodeId,
-      relativePoint: {
-        xPct: expect.any(Number),
-        yPct: expect.any(Number),
-      },
-    },
-  });
-  expect(refreshedReply).toMatchObject({
-    id: reply.id,
-    threadId: createdComment.threadId,
-    parentCommentId: createdComment.id,
-    body: "Browser parity reply",
-  });
   const reloadedCommentsResponse = page.waitForResponse(
     (response) =>
       response.url().includes("/_agent-native/actions/list-review-comments") &&

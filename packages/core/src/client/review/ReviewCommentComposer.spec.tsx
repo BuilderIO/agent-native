@@ -148,6 +148,10 @@ describe("ReviewCommentComposer actions", () => {
     expect(event.defaultPrevented).toBe(true);
     expect(textarea!.value).toBe("@");
     expect(textarea!.selectionStart).toBe(1);
+    expect(container.querySelector("[data-review-comment-tools]")).toBeNull();
+    expect(
+      container.querySelector('button[aria-label="Add emoji"]'),
+    ).toBeNull();
     act(() => {
       const setter = Object.getOwnPropertyDescriptor(
         Object.getPrototypeOf(textarea!),
