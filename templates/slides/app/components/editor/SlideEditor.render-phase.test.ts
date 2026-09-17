@@ -132,10 +132,14 @@ describe("SlideEditor render-phase safety", () => {
       doubleClickStart,
     );
     const doubleClickBody = source.slice(doubleClickStart, doubleClickEnd);
-    expect(doubleClickBody).toContain("showImageOverlay(resolvedTarget);");
-    expect(doubleClickBody).toContain('resolvedTarget.tagName === "IMG"');
+    expect(doubleClickBody).toContain(
+      'resolvedTarget.querySelector<HTMLElement>("img")',
+    );
+    expect(doubleClickBody).toContain(
+      "showImageOverlay(imageTarget ?? imagePlaceholder ?? resolvedTarget);",
+    );
     expect(doubleClickBody.indexOf("const resolvedTarget")).toBeLessThan(
-      doubleClickBody.indexOf('resolvedTarget.tagName === "IMG"'),
+      doubleClickBody.indexOf("const imageTarget"),
     );
     expect(source).toContain(
       "const block = findSmartBlock(resolvedTarget, slideContent);",
@@ -154,6 +158,20 @@ describe("SlideEditor render-phase safety", () => {
     expect(helperBody).toContain("candidate = candidate.parentElement;");
     expect(helperBody).toContain("element !== slideContent");
     expect(helperBody).toContain("return underlying ?? target;");
+  });
+
+  it("preserves wrapped images for double-click overlays", () => {
+    const doubleClickStart = source.indexOf("const handleSlideDoubleClick");
+    const doubleClickEnd = source.indexOf(
+      "const slideElementSelected =",
+      doubleClickStart,
+    );
+    const doubleClickBody = source.slice(doubleClickStart, doubleClickEnd);
+
+    expect(doubleClickBody).toContain('querySelector<HTMLElement>("img")');
+    expect(doubleClickBody).toContain(
+      "showImageOverlay(imageTarget ?? imagePlaceholder ?? resolvedTarget);",
+    );
   });
 
   it("keeps nested rich-text ranges in observer selection snapshots", () => {

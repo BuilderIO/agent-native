@@ -8240,15 +8240,19 @@ export default function SlideEditor({
             e.clientY,
           )
         : target;
+      const imageTarget =
+        resolvedTarget.tagName === "IMG"
+          ? resolvedTarget
+          : resolvedTarget.querySelector<HTMLElement>("img");
+      const imagePlaceholder = resolvedTarget.closest<HTMLElement>(
+        ".fmd-img-placeholder",
+      );
 
       // For images / placeholders, show overlay
-      if (
-        resolvedTarget.tagName === "IMG" ||
-        resolvedTarget.closest(".fmd-img-placeholder")
-      ) {
+      if (imageTarget || imagePlaceholder) {
         e.preventDefault();
         e.stopPropagation();
-        showImageOverlay(resolvedTarget);
+        showImageOverlay(imageTarget ?? imagePlaceholder ?? resolvedTarget);
         return;
       }
 
