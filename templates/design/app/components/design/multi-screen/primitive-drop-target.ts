@@ -673,6 +673,7 @@ export function getPrimitiveDropTargetForPoint(
     // instead of making a target look valid and then disappearing on commit.
     if (
       draggedBoardRect &&
+      draggedScreenId === topScreen.screen.id &&
       (draggedBoardRect.width > boardRect.width + 1 ||
         draggedBoardRect.height > boardRect.height + 1)
     ) {

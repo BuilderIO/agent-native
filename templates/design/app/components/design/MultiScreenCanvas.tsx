@@ -1907,7 +1907,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     zoom,
   ]);
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     const selectableIds = new Set(selectableScreens.map((screen) => screen.id));
     // B5-9: see resolveFrameGeometrySync's doc comment — this used to notify
     // the parent (onGeometryChange -> queueFrameGeometrySave) with a brand
