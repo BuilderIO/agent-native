@@ -257,6 +257,52 @@ describe("comment AI controls", () => {
     expect(onRetry).toHaveBeenCalledOnce();
   });
 
+  it("keeps exact recovery available after a partial apply or uncertain continuation", async () => {
+    const onRetry = vi.fn().mockResolvedValue(undefined);
+    const renderStatus = async (
+      statusRequest: CommentAiRequest,
+      continuation?: Parameters<
+        typeof CommentAiRequestStatus
+      >[0]["continuation"],
+    ) => {
+      await act(async () => {
+        root.render(
+          createElement(CommentAiRequestStatus, {
+            request: statusRequest,
+            continuation,
+            onRetry,
+            onReply: vi.fn(),
+            onStop: vi.fn().mockResolvedValue(undefined),
+            onOpen: vi.fn(),
+          }),
+        );
+      });
+      expect(
+        [...document.querySelectorAll<HTMLButtonElement>("button")].some(
+          (button) => button.textContent === "comments.retry",
+        ),
+      ).toBe(true);
+    };
+
+    await renderStatus(
+      request({
+        status: "needs-review",
+        result: { editApplied: true },
+      }),
+    );
+    await renderStatus(
+      request({ status: "resolved", result: { editApplied: true } }),
+      {
+        operationId: "continuation-1",
+        threadId: "agent-thread-1",
+        turnId: "continuation-turn-1",
+        status: "unavailable",
+        message: "Continue",
+        error: "Delivery was not confirmed",
+      },
+    );
+  });
+
   it("prevents duplicate starts and sends localized text with hidden scoped context", async () => {
     const requestId = "00000000-0000-4000-8000-000000000001";
     let controller: CommentAiController;

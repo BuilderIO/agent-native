@@ -915,9 +915,7 @@ export function CommentAiRequestStatus({
     : request.status === "replied" ||
       request.status === "suggested" ||
       request.status === "resolved";
-  const canRetry =
-    !request.result?.editApplied &&
-    (request.status === "failed" || request.status === "needs-review");
+  const canRetry = failed;
   return (
     <div
       className="grid gap-1.5 border-t border-border px-3 py-2"
