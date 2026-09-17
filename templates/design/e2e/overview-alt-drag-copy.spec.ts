@@ -177,6 +177,11 @@ test("alt-dragging a multi-frame selection copies every frame and keeps their sp
       sourceLefts[1]! - sourceLefts[0]!,
       0,
     );
+
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect(page.locator("[data-screen-shell]")).toHaveCount(2, {
+      timeout: 20_000,
+    });
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }

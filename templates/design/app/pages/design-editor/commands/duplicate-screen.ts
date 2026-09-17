@@ -16,6 +16,7 @@ import {
 } from "@/pages/design-editor/canvas-primitive-insert";
 import {
   createdFileIdFromResult,
+  isPersistedFilePresent,
   reconcileCreatedFile,
 } from "@/pages/design-editor/commands/file-creation-recovery";
 import type { DesignDataOperation } from "@/pages/design-editor/data-operations";
@@ -73,6 +74,43 @@ export function getDuplicateScreenGeometry(
   return { ...sourceGeometry, x, y: sourceGeometry.y, z: z + 1 };
 }
 
+function duplicateGeometriesOverlap(
+  left: FrameGeometry,
+  right: FrameGeometry,
+): boolean {
+  const sameRow =
+    left.y < right.y + right.height && right.y < left.y + left.height;
+  return (
+    sameRow &&
+    left.x < right.x + right.width + DUPLICATE_SCREEN_GAP &&
+    right.x < left.x + left.width + DUPLICATE_SCREEN_GAP
+  );
+}
+
+function reserveDuplicateGeometry(
+  filename: string,
+  candidate: FrameGeometry,
+  pendingGeometries: ReadonlyMap<string, FrameGeometry>,
+): FrameGeometry {
+  let reserved = { ...candidate };
+  for (const [pendingFilename, pendingGeometry] of pendingGeometries) {
+    if (
+      pendingFilename !== filename &&
+      duplicateGeometriesOverlap(reserved, pendingGeometry)
+    ) {
+      reserved.x =
+        pendingGeometry.x + pendingGeometry.width + DUPLICATE_SCREEN_GAP;
+    }
+  }
+  const pendingZ = [...pendingGeometries.values()].map(
+    (geometry) => geometry.z ?? 0,
+  );
+  if (pendingZ.length > 0) {
+    reserved.z = Math.max(reserved.z ?? 0, ...pendingZ) + 1;
+  }
+  return reserved;
+}
+
 export interface DuplicateScreenArgs {
   canEditDesign: boolean;
   createFileAsync: ReturnType<
@@ -102,7 +140,9 @@ export interface DuplicateScreenArgs {
     result?: Record<string, unknown> | null;
   }) => void;
   overviewScreens: OverviewScreen[];
+  pendingDuplicateGeometriesRef: RefObject<Map<string, FrameGeometry>>;
   pendingDuplicateFilenamesRef: RefObject<Set<string>>;
+  duplicateInFlightRef: RefObject<Set<string>>;
   queryClient: QueryClient;
   recordFileCreationHistoryEntry: (entry: FileCreationHistoryEntry) => void;
   t: (key: string, options?: Record<string, unknown>) => string;
@@ -132,7 +172,9 @@ export function runDuplicateScreen(
     liveFrameGeometryRef,
     optimisticallyInsertCreatedFile,
     overviewScreens,
+    pendingDuplicateGeometriesRef,
     pendingDuplicateFilenamesRef,
+    duplicateInFlightRef,
     queryClient,
     recordFileCreationHistoryEntry,
     t,
@@ -143,11 +185,12 @@ export function runDuplicateScreen(
   request?: {
     canvasPosition?: { x: number; y: number };
     preserveCamera?: boolean;
+    historyBatchId?: string;
   },
 ) {
-  if (!id || !canEditDesign) return;
+  if (!id || !canEditDesign) return Promise.resolve(undefined);
   const source = files.find((file) => file.id === screenId);
-  if (!source) return;
+  if (!source) return Promise.resolve(undefined);
   const pendingFilenames = pendingDuplicateFilenamesRef.current;
   const recoveries = duplicateRecoveryRef.current;
   for (const pendingFilename of pendingFilenames) {
@@ -178,6 +221,10 @@ export function runDuplicateScreen(
     );
   const recoveredFileId = recoveryEntry?.[1].fileId;
   if (!recoveryEntry) pendingFilenames.add(filename);
+  if (duplicateInFlightRef.current.has(filename)) {
+    return Promise.resolve(undefined);
+  }
+  duplicateInFlightRef.current.add(filename);
   const content =
     recoveryState?.content ?? reassignDuplicatedNodeIds(source.content);
   const fileType =
@@ -205,7 +252,7 @@ export function runDuplicateScreen(
     sourceGeometry,
     occupiedGeometries,
   );
-  const createdGeometry: FrameGeometry =
+  const requestedGeometry: FrameGeometry =
     recoveryState?.geometry ??
     (request?.canvasPosition
       ? {
@@ -215,6 +262,14 @@ export function runDuplicateScreen(
           z: adjacentGeometry.z,
         }
       : adjacentGeometry);
+  const createdGeometry = recoveryState?.geometry
+    ? recoveryState.geometry
+    : reserveDuplicateGeometry(
+        filename,
+        requestedGeometry,
+        pendingDuplicateGeometriesRef.current,
+      );
+  pendingDuplicateGeometriesRef.current.set(filename, createdGeometry);
   // Carry screen dimensions/height mode for every duplicate so the new frame
   // uses the same overview scale. Runtime metadata also keeps localhost/fusion
   // duplicates URL-backed. The carry must be path-addressed or it replaces a
@@ -266,15 +321,55 @@ export function runDuplicateScreen(
   // the first mutation, so only the newest call's onSuccess ever runs.
   let createdFileId: string | undefined;
   const canCleanupCreatedFile = recoveredFileId === undefined;
-  const createPromise = recoveryEntry
-    ? Promise.resolve(recoveredFileId ? { id: recoveredFileId } : {})
-    : createFileAsync({
-        designId: id,
-        filename,
-        content,
-        fileType,
-      } as any);
-  void createPromise
+  const createFile = () =>
+    createFileAsync({
+      designId: id,
+      filename,
+      content,
+      fileType,
+    } as any);
+  const callCreateFile = () => {
+    try {
+      return Promise.resolve(createFile());
+    } catch (error) {
+      return Promise.reject(error);
+    }
+  };
+  const createPromise = !recoveryEntry
+    ? callCreateFile()
+    : Promise.resolve().then(() => {
+        if (!recoveredFileId) {
+          return reconcileCreatedFile({
+            queryClient,
+            designId: id,
+            filename,
+            content,
+            fileType,
+            files,
+          }).then((reconciled) =>
+            reconciled ? { id: reconciled.id } : callCreateFile(),
+          );
+        }
+        return isPersistedFilePresent({
+          queryClient,
+          designId: id,
+          fileId: recoveredFileId,
+        }).then((present) => {
+          if (present === true) return { id: recoveredFileId };
+          if (present === false) {
+            recoveries.set(filename, {
+              sourceScreenId: screenId,
+              ...recoveryState,
+              fileId: undefined,
+            });
+            return callCreateFile();
+          }
+          throw new Error(
+            `Unable to verify recovered file "${filename}" before retrying`,
+          );
+        });
+      });
+  const operation = createPromise
     .then(async (rawResult: any) => {
       let result = rawResult;
       let nextId = createdFileIdFromResult(result);
@@ -291,6 +386,8 @@ export function runDuplicateScreen(
           queryClient,
           designId: id,
           filename,
+          content,
+          fileType,
           files,
         });
         if (reconciled) {
@@ -360,46 +457,77 @@ export function runDuplicateScreen(
         fileType,
         geometry: createdGeometry,
         preserveCamera: request?.preserveCamera,
+        historyBatchId: request?.historyBatchId,
         screenMetadata,
         localhostScreen,
       });
       recoveries.delete(filename);
+      pendingFilenames.delete(filename);
+      pendingDuplicateGeometriesRef.current.delete(filename);
       toast.success(t("designEditor.toasts.screenDuplicated"));
+      return nextId;
     })
     .catch(async (error: unknown) => {
       let errorMessage =
         error instanceof Error
           ? error.message
           : t("designEditor.toasts.screenDuplicateError");
-      const survivingFileId = createdFileId ?? recoveredFileId;
+      let survivingFileId = createdFileId ?? recoveredFileId;
       if (createdFileId && canCleanupCreatedFile) {
-        let cleanupFailed = false;
         try {
           await deleteFileAsync({
             id: createdFileId,
             allowLockedLayers: true,
           } as any);
+          recoveries.delete(filename);
+          pendingFilenames.delete(filename);
+          pendingDuplicateGeometriesRef.current.delete(filename);
         } catch (cleanupError) {
           const cleanupMessage =
             cleanupError instanceof Error
               ? cleanupError.message
               : t("designEditor.toasts.screenDuplicateError");
           errorMessage = `${errorMessage}; cleanup failed: ${cleanupMessage}`;
-          cleanupFailed = true;
+          const present = await isPersistedFilePresent({
+            queryClient,
+            designId: id,
+            fileId: createdFileId,
+          });
+          if (present === true) {
+            recoveries.set(filename, {
+              sourceScreenId: screenId,
+              fileId: createdFileId,
+              content,
+              fileType,
+              geometry: createdGeometry,
+              screenMetadata,
+              localhostScreen,
+            });
+          } else {
+            survivingFileId = undefined;
+            recoveries.set(filename, {
+              sourceScreenId: screenId,
+              content,
+              fileType,
+              geometry: createdGeometry,
+              screenMetadata,
+              localhostScreen,
+            });
+          }
         }
-        if (cleanupFailed) {
+      } else if (recoveredFileId) {
+        const present = await isPersistedFilePresent({
+          queryClient,
+          designId: id,
+          fileId: recoveredFileId,
+        });
+        if (present !== true) {
+          survivingFileId = undefined;
           recoveries.set(filename, {
             sourceScreenId: screenId,
-            fileId: createdFileId,
-            content,
-            fileType,
-            geometry: createdGeometry,
-            screenMetadata,
-            localhostScreen,
+            ...recoveryState,
+            fileId: undefined,
           });
-        } else {
-          recoveries.delete(filename);
-          pendingFilenames.delete(filename);
         }
       }
       if (survivingFileId) {
@@ -412,10 +540,16 @@ export function runDuplicateScreen(
         });
       } else if (!recoveries.has(filename)) {
         pendingFilenames.delete(filename);
+        pendingDuplicateGeometriesRef.current.delete(filename);
       }
       await queryClient.invalidateQueries({
         queryKey: ["action", "get-design"],
       });
       toast.error(errorMessage);
+      return undefined;
+    })
+    .finally(() => {
+      duplicateInFlightRef.current.delete(filename);
     });
+  return operation;
 }

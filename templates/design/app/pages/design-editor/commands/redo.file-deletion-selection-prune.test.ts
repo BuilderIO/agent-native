@@ -299,6 +299,7 @@ describe("redo — selection history after a file-deletion redo", () => {
 
   it("reuses a redo survivor when cleanup fails", async () => {
     const refs = sharedRefs();
+    let rowPresent = false;
     const deleteFileMutation = {
       mutateAsync: vi.fn().mockRejectedValue(new Error("cleanup failed")),
     };
@@ -309,10 +310,31 @@ describe("redo — selection history after a file-deletion redo", () => {
     refs.redoOrderRef.current = ["file-created"];
     const args = commonArgs(refs);
     args.createFileMutation = {
-      mutateAsync: vi.fn().mockResolvedValue({ id: "copy-1" }),
+      mutateAsync: vi.fn().mockImplementation(async () => {
+        rowPresent = true;
+        return { id: "copy-1" };
+      }),
     };
     args.deleteFileMutation = deleteFileMutation;
     args.updateDesignAsync = updateDesignAsync;
+    args.queryClient = {
+      getQueryData: vi.fn(() =>
+        rowPresent
+          ? {
+              files: [
+                {
+                  id: "copy-1",
+                  filename: "index-copy.html",
+                  fileType: "html",
+                  content: "<html></html>",
+                },
+              ],
+            }
+          : { files: [] },
+      ),
+      invalidateQueries: vi.fn(),
+      setQueryData: vi.fn(),
+    };
     args.fileCreationRedoStackRef.current = [
       {
         filename: "index-copy.html",
@@ -349,6 +371,7 @@ describe("redo — selection history after a file-deletion redo", () => {
   it("reconciles a committed create response without an id", async () => {
     const refs = sharedRefs();
     refs.redoOrderRef.current = ["file-created"];
+    let cached: unknown;
     const persistedFile = {
       id: "copy-1",
       filename: "index-copy.html",
@@ -357,10 +380,13 @@ describe("redo — selection history after a file-deletion redo", () => {
     };
     const args = commonArgs(refs);
     args.createFileMutation = {
-      mutateAsync: vi.fn().mockResolvedValue({}),
+      mutateAsync: vi.fn().mockImplementation(async () => {
+        cached = { files: [persistedFile] };
+        return {};
+      }),
     };
     args.queryClient = {
-      getQueryData: vi.fn().mockReturnValue({ files: [persistedFile] }),
+      getQueryData: vi.fn(() => cached),
       invalidateQueries: vi.fn(),
       setQueryData: vi.fn(),
     };

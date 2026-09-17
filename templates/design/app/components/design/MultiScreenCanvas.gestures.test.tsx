@@ -7,7 +7,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { findCanvasIframeForScreen } from "./multi-screen/iframe-targeting";
 import { SURFACE_PADDING } from "./multi-screen/overview-layout";
-import type { MultiScreenCanvasTool } from "./multi-screen/types";
+import type {
+  DuplicateRequest,
+  MultiScreenCanvasTool,
+} from "./multi-screen/types";
 import { MultiScreenCanvas } from "./MultiScreenCanvas";
 
 (
@@ -739,6 +742,73 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     expect(onDuplicate.mock.calls[0]![0]).toBe("screen-a");
   });
 
+  it("duplicates a multi-selection on Cmd+D as one selected batch", async () => {
+    const duplicateResolvers: Array<() => void> = [];
+    const onDuplicate = vi.fn(
+      (id: string, _request: DuplicateRequest) =>
+        new Promise<string>((resolve) => {
+          duplicateResolvers.push(() => resolve(`duplicate-${id}`));
+        }),
+    );
+    const onSelectionChange = vi.fn();
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[
+            {
+              id: "screen-a",
+              filename: "screen-a.html",
+              content: "<!doctype html><html><body></body></html>",
+            },
+            {
+              id: "screen-b",
+              filename: "screen-b.html",
+              content: "<!doctype html><html><body></body></html>",
+            },
+          ]}
+          zoom={100}
+          activeTool="move"
+          selectedScreenIds={["screen-a", "screen-b"]}
+          geometryById={{
+            "screen-a": { x: 0, y: 0, width: 320, height: 640 },
+            "screen-b": { x: 420, y: 0, width: 320, height: 640 },
+          }}
+          onDuplicate={onDuplicate}
+          onSelectionChange={onSelectionChange}
+          onPick={() => {}}
+        />,
+      );
+    });
+
+    await act(async () => {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "d",
+          metaKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+
+    expect(onDuplicate).toHaveBeenCalledTimes(2);
+    expect(
+      new Set(
+        onDuplicate.mock.calls.map(([, request]) => request.historyBatchId),
+      ).size,
+    ).toBe(1);
+
+    await act(async () => {
+      duplicateResolvers.forEach((resolve) => resolve());
+      await Promise.resolve();
+    });
+
+    expect(onSelectionChange).toHaveBeenLastCalledWith([
+      "duplicate-screen-a",
+      "duplicate-screen-b",
+    ]);
+  });
+
   it("copies a selected frame on alt-drag from its selection outline instead of moving it", async () => {
     const onDuplicate = vi.fn();
     await act(async () => {
@@ -791,7 +861,14 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
   });
 
   it("copies every frame in a multi-selection on alt-drag, keeping their relative layout", async () => {
-    const onDuplicate = vi.fn();
+    const duplicateResolvers: Array<(id: string) => void> = [];
+    const onDuplicate = vi.fn(
+      (id: string, _request: DuplicateRequest) =>
+        new Promise<string>((resolve) => {
+          duplicateResolvers.push(() => resolve(`duplicate-${id}`));
+        }),
+    );
+    const onSelectionChange = vi.fn();
     await act(async () => {
       root.render(
         <MultiScreenCanvas
@@ -815,6 +892,7 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
             "screen-b": { x: 420, y: 100, width: 320, height: 640 },
           }}
           onDuplicate={onDuplicate}
+          onSelectionChange={onSelectionChange}
           onPick={() => {}}
         />,
       );
@@ -850,6 +928,15 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     expect(placedA.x).toBeGreaterThan(0);
     expect(placedB.x - placedA.x).toBeCloseTo(420);
     expect(placedB.y - placedA.y).toBeCloseTo(100);
+
+    await act(async () => {
+      duplicateResolvers.forEach((resolve) => resolve("done"));
+      await Promise.resolve();
+    });
+    expect(onSelectionChange).toHaveBeenLastCalledWith([
+      "duplicate-screen-a",
+      "duplicate-screen-b",
+    ]);
   });
 
   it("keeps pending review discoverable in constant-size frame chrome", async () => {

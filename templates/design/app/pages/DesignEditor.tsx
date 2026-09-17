@@ -2422,7 +2422,11 @@ function DesignEditor() {
   // filename/content/fileType via createFileMutation.
   const fileCreationUndoStackRef = useRef<FileCreationHistoryEntry[]>([]);
   const fileCreationRedoStackRef = useRef<FileCreationHistoryEntry[]>([]);
+  const pendingDuplicateGeometriesRef = useRef<Map<string, FrameGeometry>>(
+    new Map(),
+  );
   const pendingDuplicateFilenamesRef = useRef<Set<string>>(new Set());
+  const duplicateInFlightRef = useRef<Set<string>>(new Set());
   const duplicateRecoveryRef = useRef<
     Map<string, DuplicateScreenRecoveryEntry>
   >(new Map());
@@ -2931,7 +2935,9 @@ function DesignEditor() {
     geometryRedoStackRef.current = [];
     fileCreationUndoStackRef.current = [];
     fileCreationRedoStackRef.current = [];
+    pendingDuplicateGeometriesRef.current.clear();
     pendingDuplicateFilenamesRef.current.clear();
+    duplicateInFlightRef.current.clear();
     duplicateRecoveryRef.current.clear();
     fileDeletionUndoStackRef.current = [];
     fileDeletionRedoStackRef.current = [];
@@ -2950,15 +2956,24 @@ function DesignEditor() {
   // new action.
   const recordFileCreationHistoryEntry = useCallback(
     (entry: FileCreationHistoryEntry) => {
+      const previous =
+        fileCreationUndoStackRef.current[
+          fileCreationUndoStackRef.current.length - 1
+        ];
+      const continuesBatch =
+        !!entry.historyBatchId &&
+        previous?.historyBatchId === entry.historyBatchId;
       fileCreationUndoStackRef.current = [
         ...fileCreationUndoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
         entry,
       ];
-      clearRedoStacks();
-      historyOrderRef.current = [
-        ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
-        "file-created",
-      ];
+      if (!continuesBatch) {
+        clearRedoStacks();
+        historyOrderRef.current = [
+          ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+          "file-created",
+        ];
+      }
       syncUndoRedoState();
     },
     [clearRedoStacks, syncUndoRedoState],
@@ -6230,6 +6245,7 @@ function DesignEditor() {
       request?: {
         canvasPosition?: { x: number; y: number };
         preserveCamera?: boolean;
+        historyBatchId?: string;
       },
     ) =>
       runDuplicateScreen(
@@ -6245,7 +6261,9 @@ function DesignEditor() {
           liveFrameGeometryRef,
           optimisticallyInsertCreatedFile,
           overviewScreens,
+          pendingDuplicateGeometriesRef,
           pendingDuplicateFilenamesRef,
+          duplicateInFlightRef,
           queryClient,
           recordFileCreationHistoryEntry,
           t,

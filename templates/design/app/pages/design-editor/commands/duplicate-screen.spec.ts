@@ -44,7 +44,9 @@ function duplicateArgs(
     },
     optimisticallyInsertCreatedFile: vi.fn(),
     overviewScreens: [],
+    pendingDuplicateGeometriesRef: { current: new Map() },
     pendingDuplicateFilenamesRef: { current: new Set() },
+    duplicateInFlightRef: { current: new Set() },
     queryClient: {
       getQueryData: vi.fn().mockReturnValue(undefined),
       invalidateQueries: vi.fn(),
@@ -127,8 +129,23 @@ describe("runDuplicateScreen", () => {
   });
 
   it("treats a create response without an id as a failed duplicate", async () => {
+    const createFileAsync = vi.fn().mockResolvedValue({});
     const args = duplicateArgs({
-      createFileAsync: vi.fn().mockResolvedValue({}),
+      createFileAsync,
+      queryClient: {
+        getQueryData: vi.fn().mockReturnValue({
+          files: [
+            {
+              id: "stale-copy",
+              filename: "index-copy.html",
+              fileType: "html",
+              content: "<main>unrelated</main>",
+            },
+          ],
+        }),
+        invalidateQueries: vi.fn(),
+        setQueryData: vi.fn(),
+      } as unknown as DuplicateScreenArgs["queryClient"],
     });
 
     runDuplicateScreen(args, "source");
@@ -141,6 +158,98 @@ describe("runDuplicateScreen", () => {
     expect(toast.success).not.toHaveBeenCalled();
     expect(args.optimisticallyInsertCreatedFile).not.toHaveBeenCalled();
     expect(args.focusCreatedScreen).not.toHaveBeenCalled();
+
+    runDuplicateScreen(args, "source");
+    await vi.waitFor(() => expect(createFileAsync).toHaveBeenCalledTimes(2));
+  });
+
+  it("does not retain a recovery id when cleanup rejected after deleting the row", async () => {
+    const createFileAsync = vi
+      .fn()
+      .mockResolvedValueOnce({ id: "copy-1" })
+      .mockResolvedValueOnce({ id: "copy-2" });
+    const args = duplicateArgs({
+      createFileAsync,
+      deleteFileAsync: vi
+        .fn()
+        .mockRejectedValue(new Error("metadata prune failed")),
+      updateDesignAsync: vi
+        .fn()
+        .mockRejectedValueOnce(new Error("metadata failed"))
+        .mockResolvedValueOnce({}),
+      queryClient: {
+        getQueryData: vi.fn().mockReturnValue({ files: [] }),
+        invalidateQueries: vi.fn(),
+        setQueryData: vi.fn(),
+      } as unknown as DuplicateScreenArgs["queryClient"],
+    });
+
+    runDuplicateScreen(args, "source");
+    await vi.waitFor(() => expect(createFileAsync).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() =>
+      expect(args.duplicateRecoveryRef.current.get("index-copy.html")).toEqual(
+        expect.not.objectContaining({ fileId: "copy-1" }),
+      ),
+    );
+
+    runDuplicateScreen(args, "source");
+    await vi.waitFor(() =>
+      expect(args.focusCreatedScreen).toHaveBeenCalledWith(
+        "copy-2",
+        expect.any(Object),
+        expect.any(Object),
+      ),
+    );
+    expect(createFileAsync).toHaveBeenCalledTimes(2);
+  });
+
+  it("coalesces concurrent retries of one recovery entry", async () => {
+    let resolveUpdate: (() => void) | undefined;
+    const args = duplicateArgs({
+      createFileAsync: vi.fn(),
+      updateDesignAsync: vi.fn(
+        () =>
+          new Promise<{ id: string; updated: boolean; changed: boolean }>(
+            (resolve) => {
+              resolveUpdate = () =>
+                resolve({ id: "design-1", updated: true, changed: true });
+            },
+          ),
+      ) as unknown as DuplicateScreenArgs["updateDesignAsync"],
+      queryClient: {
+        getQueryData: vi.fn().mockReturnValue({
+          files: [
+            {
+              id: "copy-1",
+              filename: "index-copy.html",
+              fileType: "html",
+              content: "<main></main>",
+            },
+          ],
+        }),
+        invalidateQueries: vi.fn(),
+        setQueryData: vi.fn(),
+      } as unknown as DuplicateScreenArgs["queryClient"],
+    });
+    args.duplicateRecoveryRef.current.set("index-copy.html", {
+      sourceScreenId: "source",
+      fileId: "copy-1",
+      content: "<main></main>",
+      fileType: "html",
+      geometry: { x: 696, y: 0, width: 640, height: 480 },
+    });
+
+    const first = runDuplicateScreen(args, "source");
+    const second = runDuplicateScreen(args, "source");
+    expect(args.createFileAsync).not.toHaveBeenCalled();
+    await vi.waitFor(() =>
+      expect(args.updateDesignAsync).toHaveBeenCalledTimes(1),
+    );
+    resolveUpdate?.();
+    await first;
+    await second;
+    expect(args.focusCreatedScreen).toHaveBeenCalledTimes(1);
+    expect(args.recordFileCreationHistoryEntry).toHaveBeenCalledTimes(1);
   });
 
   it("reuses a created row when cleanup fails", async () => {
@@ -160,12 +269,27 @@ describe("runDuplicateScreen", () => {
       .fn()
       .mockRejectedValueOnce(new Error("metadata failed"))
       .mockResolvedValueOnce({});
+    const queryClient = {
+      getQueryData: vi.fn().mockReturnValue({
+        files: [
+          {
+            id: "copy-1",
+            filename: "index-copy.html",
+            fileType: "html",
+            content: source.content,
+          },
+        ],
+      }),
+      invalidateQueries: vi.fn(),
+      setQueryData: vi.fn(),
+    };
     const args = duplicateArgs({
       createFileAsync:
         createFileAsync as DuplicateScreenArgs["createFileAsync"],
       deleteFileAsync:
         deleteFileAsync as DuplicateScreenArgs["deleteFileAsync"],
       files: [source],
+      queryClient: queryClient as unknown as DuplicateScreenArgs["queryClient"],
       updateDesignAsync:
         updateDesignAsync as DuplicateScreenArgs["updateDesignAsync"],
     });
@@ -207,25 +331,34 @@ describe("runDuplicateScreen", () => {
   });
 
   it("reconciles a delayed persisted row without creating a second copy", async () => {
-    const persistedFile = {
-      id: "copy-1",
-      filename: "index-copy.html",
-      fileType: "html",
-      content: "<main data-persisted></main>",
-      createdAt: "",
-      updatedAt: "",
-    };
     let cached: unknown;
     let invalidationCount = 0;
+    let requestedContent = "";
     const queryClient = {
       getQueryData: vi.fn(() => cached),
       invalidateQueries: vi.fn().mockImplementation(async () => {
         invalidationCount += 1;
-        if (invalidationCount === 2) cached = { files: [persistedFile] };
+        if (invalidationCount === 2) {
+          cached = {
+            files: [
+              {
+                id: "copy-1",
+                filename: "index-copy.html",
+                fileType: "html",
+                content: requestedContent,
+              },
+            ],
+          };
+        }
       }),
       setQueryData: vi.fn(),
     };
-    const createFileAsync = vi.fn().mockResolvedValue({});
+    const createFileAsync = vi
+      .fn()
+      .mockImplementation(async ({ content }: { content: string }) => {
+        requestedContent = content;
+        return {};
+      });
     const args = duplicateArgs({
       createFileAsync:
         createFileAsync as DuplicateScreenArgs["createFileAsync"],
@@ -284,5 +417,12 @@ describe("runDuplicateScreen", () => {
     await vi.waitFor(() =>
       expect(args.recordFileCreationHistoryEntry).toHaveBeenCalledTimes(2),
     );
+    const geometries = (args.writeFrameGeometrySnapshot as any).mock.calls.map(
+      ([geometry]: [Record<string, { x: number }>]) =>
+        Object.values(geometry)
+          .filter((value) => value.x !== 0)
+          .slice(-1)[0],
+    );
+    expect(geometries[1]!.x).toBeGreaterThan(geometries[0]!.x);
   });
 });

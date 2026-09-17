@@ -30,6 +30,7 @@ import type { ApplyFileContentUpdateResult } from "@/pages/design-editor/command
 import type { ApplyLocalContentUpdateResult } from "@/pages/design-editor/commands/apply-local-content-update";
 import {
   createdFileIdFromResult,
+  isPersistedFilePresent,
   reconcileCreatedFile,
 } from "@/pages/design-editor/commands/file-creation-recovery";
 import { prepareContentHistoryReplay } from "@/pages/design-editor/commands/prepare-content-history-replay";
@@ -1168,16 +1169,25 @@ export function runRedo({
   // keep history pending until both the file and its metadata persist.
   const redoFileCreation = () => {
     if (!canUseOverviewHistory) return false;
-    const entry =
-      fileCreationRedoStackRef.current[
-        fileCreationRedoStackRef.current.length - 1
-      ];
+    const redoStack = fileCreationRedoStackRef.current;
+    const entry = redoStack[redoStack.length - 1];
     if (!entry) return false;
     if (!id) return false;
-    fileCreationRedoStackRef.current.pop();
+    let batchStart = redoStack.length - 1;
+    while (
+      batchStart > 0 &&
+      entry.historyBatchId &&
+      redoStack[batchStart - 1]?.historyBatchId === entry.historyBatchId
+    ) {
+      batchStart -= 1;
+    }
+    const entries = redoStack.slice(batchStart);
+    redoStack.splice(batchStart, entries.length);
     fileCreationUndoStackRef.current = [
-      ...fileCreationUndoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
-      entry,
+      ...fileCreationUndoStackRef.current.slice(
+        -(MAX_DESIGN_UNDO_STACK - entries.length),
+      ),
+      ...entries,
     ];
     historyOrderRef.current = [
       ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
@@ -1185,17 +1195,24 @@ export function runRedo({
     ];
     fileHistoryMutationPendingRef.current = true;
     syncUndoRedoState();
-    const recoveryFileId = entry.recoveryFileId;
-    let retryRecoveryFileId = recoveryFileId;
-    let createdFileId: string | undefined;
+    const attemptedEntries = new Set<FileCreationHistoryEntry>();
+    const createdFileIds = new Map<FileCreationHistoryEntry, string>();
+    const retryRecoveryFileIds = new Map<
+      FileCreationHistoryEntry,
+      string | null | undefined
+    >();
     const handleFailure = async (error: unknown) => {
       let errorMessage =
         error instanceof Error
           ? error.message
           : t("designEditor.toasts.screenDuplicateError");
-      const survivingFileId = createdFileId ?? recoveryFileId;
-      if (createdFileId) {
-        let cleanupFailed = false;
+      const rollbackFileIds = new Set(
+        entries.flatMap((item) =>
+          item.recoveryFileId ? [item.recoveryFileId] : [],
+        ),
+      );
+      for (const [item, createdFileId] of createdFileIds) {
+        rollbackFileIds.add(createdFileId);
         try {
           await deleteFileMutation.mutateAsync({
             id: createdFileId,
@@ -1207,46 +1224,56 @@ export function runRedo({
               ? cleanupError.message
               : t("designEditor.toasts.screenDuplicateError");
           errorMessage = `${errorMessage}; cleanup failed: ${cleanupMessage}`;
-          cleanupFailed = true;
-          retryRecoveryFileId = createdFileId;
-        }
-        if (!cleanupFailed) {
-          retryRecoveryFileId =
-            recoveryFileId === null ? undefined : recoveryFileId;
+          const present = await isPersistedFilePresent({
+            queryClient,
+            designId: id,
+            fileId: createdFileId,
+          });
+          retryRecoveryFileIds.set(
+            item,
+            present === true ? createdFileId : null,
+          );
+          if (present !== true) rollbackFileIds.delete(createdFileId);
         }
       }
-      if (survivingFileId) {
+      for (const rollbackFileId of rollbackFileIds) {
         const nextGeometry = {
           ...getCanvasFrameGeometry(designDataJsonRef.current),
         };
-        delete nextGeometry[survivingFileId];
+        delete nextGeometry[rollbackFileId];
         writeFrameGeometrySnapshot(nextGeometry, {
           replacePendingGeometrySave: true,
         });
       }
-      // The optimistic history move happened before the request. Put the
-      // entry back exactly where it came from so a failed redo remains
-      // retryable and does not leave a phantom undo operation behind.
-      if (
-        fileCreationUndoStackRef.current[
-          fileCreationUndoStackRef.current.length - 1
-        ] === entry
-      ) {
-        fileCreationUndoStackRef.current =
-          fileCreationUndoStackRef.current.slice(0, -1);
+      for (const item of attemptedEntries) {
+        if (
+          !retryRecoveryFileIds.has(item) &&
+          item.recoveryFileId === undefined
+        ) {
+          retryRecoveryFileIds.set(item, null);
+        }
       }
+      fileCreationUndoStackRef.current =
+        fileCreationUndoStackRef.current.filter(
+          (item) => !entries.includes(item),
+        );
       historyOrderRef.current = removeRecentUndoRedoOrderKinds(
         historyOrderRef.current,
         "file-created",
         1,
       );
-      const retryEntry =
-        retryRecoveryFileId === entry.recoveryFileId
-          ? entry
-          : { ...entry, recoveryFileId: retryRecoveryFileId };
+      const retryEntries = entries.map((item) => {
+        if (!retryRecoveryFileIds.has(item)) return item;
+        const recoveryFileId = retryRecoveryFileIds.get(item);
+        return recoveryFileId === item.recoveryFileId
+          ? item
+          : { ...item, recoveryFileId };
+      });
       fileCreationRedoStackRef.current = [
-        ...fileCreationRedoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
-        retryEntry,
+        ...fileCreationRedoStackRef.current.slice(
+          -(MAX_DESIGN_UNDO_STACK - retryEntries.length),
+        ),
+        ...retryEntries,
       ];
       redoOrderRef.current = [
         ...redoOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
@@ -1259,114 +1286,148 @@ export function runRedo({
       });
       toast.error(errorMessage);
     };
-    const createPromise =
-      recoveryFileId !== undefined
-        ? Promise.resolve(recoveryFileId ? { id: recoveryFileId } : {})
-        : createFileMutation.mutateAsync({
-            designId: id,
-            filename: entry.filename,
-            content: entry.content,
-            fileType: entry.fileType,
-          } as any);
-    void createPromise
-      .then(async (rawResult: any) => {
-        let result = rawResult;
-        let nextId = createdFileIdFromResult(result);
-        if (!nextId) {
-          retryRecoveryFileId = null;
-          const reconciled = await reconcileCreatedFile({
-            queryClient,
-            designId: id,
-            filename: entry.filename,
-            files,
-          });
-          if (reconciled) {
-            result = reconciled;
-            nextId = reconciled.id;
-          }
-        }
-        if (!nextId) {
+    const createFile = (item: FileCreationHistoryEntry) =>
+      createFileMutation.mutateAsync({
+        designId: id,
+        filename: item.filename,
+        content: item.content,
+        fileType: item.fileType,
+      } as any);
+    const recreateFile = async (item: FileCreationHistoryEntry) => {
+      attemptedEntries.add(item);
+      const recoveryFileId = item.recoveryFileId;
+      let rawResult: unknown;
+      let reusedRecovery = false;
+      if (recoveryFileId !== undefined && recoveryFileId !== null) {
+        const present = await isPersistedFilePresent({
+          queryClient,
+          designId: id,
+          fileId: recoveryFileId,
+        });
+        if (present === true) {
+          rawResult = { id: recoveryFileId };
+          reusedRecovery = true;
+        } else if (present === false) {
+          retryRecoveryFileIds.set(item, undefined);
+          rawResult = await createFile(item);
+        } else {
           throw new Error(
-            `Failed to recreate "${entry.filename}": create-file returned no id and no persisted file could be reconciled`,
+            `Unable to verify recovered file "${item.filename}" before retrying`,
           );
         }
-        if (recoveryFileId === undefined || recoveryFileId === null) {
-          createdFileId = nextId;
+      } else {
+        const reconciled = await reconcileCreatedFile({
+          queryClient,
+          designId: id,
+          filename: item.filename,
+          content: item.content,
+          fileType: item.fileType as DesignFile["fileType"],
+          files,
+        });
+        rawResult = reconciled ?? (await createFile(item));
+      }
+      let result = rawResult;
+      let nextId = createdFileIdFromResult(result);
+      if (!nextId) {
+        retryRecoveryFileIds.set(item, null);
+        const reconciled = await reconcileCreatedFile({
+          queryClient,
+          designId: id,
+          filename: item.filename,
+          content: item.content,
+          fileType: item.fileType as DesignFile["fileType"],
+          files,
+        });
+        if (reconciled) {
+          result = reconciled;
+          nextId = reconciled.id;
         }
-        const geometry = {
-          ...getInitialFrameGeometry(overviewScreens.length, {
-            width: 1280,
-            height: 2560,
-          }),
-          ...entry.geometry,
-        };
-        writeFrameGeometrySnapshot({
-          ...getCanvasFrameGeometry(designDataJsonRef.current),
-          [nextId]: geometry,
-        });
-        const dataOperations: DesignDataOperation[] = [
-          ...(entry.screenMetadata
-            ? [
-                {
-                  op: "set" as const,
-                  path: ["screenMetadata", nextId] as [string, ...string[]],
-                  value: entry.screenMetadata,
-                },
-              ]
-            : []),
-          ...(entry.localhostScreen
-            ? [
-                {
-                  op: "set" as const,
-                  path: ["localhostScreens", nextId] as [string, ...string[]],
-                  value: entry.localhostScreen,
-                },
-              ]
-            : []),
-        ];
-        if (dataOperations.length > 0) {
-          const nextData = applyDesignDataOperations(
-            designDataJsonRef.current,
-            dataOperations,
-          );
-          designDataJsonRef.current = nextData;
-          queryClient.setQueryData(
-            ["action", "get-design", { id }],
-            (old: any) => {
-              if (!old || typeof old !== "object") return old;
-              return { ...old, data: JSON.stringify(nextData) };
-            },
-          );
-          await updateDesignAsync({ id, dataOperations } as any);
-        }
-        optimisticallyInsertCreatedFile({
-          fileId: nextId,
-          filename: entry.filename,
-          fileType: entry.fileType,
-          content: entry.content,
-          result,
-        });
-        focusCreatedScreen(nextId, geometry, {
-          preserveCamera: entry.preserveCamera,
-          suppressLineupRecenter: entry.preserveCamera,
-        });
-        if (entry.recoveryFileId !== undefined) {
-          const undoIndex = fileCreationUndoStackRef.current.length - 1;
-          if (fileCreationUndoStackRef.current[undoIndex] === entry) {
-            const committedEntry = { ...entry };
+      }
+      if (!nextId) {
+        throw new Error(
+          `Failed to recreate "${item.filename}": create-file returned no id and no persisted file could be reconciled`,
+        );
+      }
+      if (!reusedRecovery) createdFileIds.set(item, nextId);
+      const geometry = {
+        ...getInitialFrameGeometry(overviewScreens.length, {
+          width: 1280,
+          height: 2560,
+        }),
+        ...item.geometry,
+      };
+      writeFrameGeometrySnapshot({
+        ...getCanvasFrameGeometry(designDataJsonRef.current),
+        [nextId]: geometry,
+      });
+      const dataOperations: DesignDataOperation[] = [
+        ...(item.screenMetadata
+          ? [
+              {
+                op: "set" as const,
+                path: ["screenMetadata", nextId] as [string, ...string[]],
+                value: item.screenMetadata,
+              },
+            ]
+          : []),
+        ...(item.localhostScreen
+          ? [
+              {
+                op: "set" as const,
+                path: ["localhostScreens", nextId] as [string, ...string[]],
+                value: item.localhostScreen,
+              },
+            ]
+          : []),
+      ];
+      if (dataOperations.length > 0) {
+        const nextData = applyDesignDataOperations(
+          designDataJsonRef.current,
+          dataOperations,
+        );
+        designDataJsonRef.current = nextData;
+        queryClient.setQueryData(
+          ["action", "get-design", { id }],
+          (old: any) => {
+            if (!old || typeof old !== "object") return old;
+            return { ...old, data: JSON.stringify(nextData) };
+          },
+        );
+        await updateDesignAsync({ id, dataOperations } as any);
+      }
+      optimisticallyInsertCreatedFile({
+        fileId: nextId,
+        filename: item.filename,
+        fileType: item.fileType,
+        content: item.content,
+        result: result as Record<string, unknown> | null | undefined,
+      });
+      focusCreatedScreen(nextId, geometry, {
+        preserveCamera: item.preserveCamera,
+        suppressLineupRecenter: item.preserveCamera,
+      });
+    };
+    void (async () => {
+      try {
+        for (const item of entries) await recreateFile(item);
+        fileCreationUndoStackRef.current = fileCreationUndoStackRef.current.map(
+          (item) => {
+            if (!entries.includes(item) || item.recoveryFileId === undefined)
+              return item;
+            const committedEntry = { ...item };
             delete committedEntry.recoveryFileId;
-            fileCreationUndoStackRef.current[undoIndex] = committedEntry;
-          }
-        }
+            return committedEntry;
+          },
+        );
         fileHistoryMutationPendingRef.current = false;
         syncUndoRedoState();
         void queryClient.invalidateQueries({
           queryKey: ["action", "get-design"],
         });
-      })
-      .catch((error: unknown) => {
-        void handleFailure(error);
-      });
+      } catch (error) {
+        await handleFailure(error);
+      }
+    })();
     return true;
   };
   const redoFileDeletion = () => {

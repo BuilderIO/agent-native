@@ -158,6 +158,7 @@ export interface DuplicateRequest {
   canvasOffset?: { x: number; y: number };
   dropCanvasPosition?: { x: number; y: number };
   preserveCamera?: boolean;
+  historyBatchId?: string;
 }
 
 export interface ScreenContentRenderOptions {
@@ -232,7 +233,10 @@ export interface MultiScreenCanvasProps {
    *  chrome transparent and clip root corner radii to the rendered surface. */
   screenRootComputedStylesById?: Record<string, Record<string, string>>;
   getScreenMetadata?: (screen: ScreenFile) => ScreenMetadata | undefined;
-  onDuplicate?: (id: string, request: DuplicateRequest) => void;
+  onDuplicate?: (
+    id: string,
+    request: DuplicateRequest,
+  ) => void | Promise<string | undefined>;
   geometryById?: Record<string, Partial<FrameGeometry> | undefined>;
   geometryOverridesById?: Record<string, FrameGeometry | undefined>;
   onGeometryChange?: (geometryById: FrameGeometryById) => void;

@@ -959,6 +959,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     null,
   );
   const duplicateCleanup = useRef<(() => void) | null>(null);
+  const duplicateBatchSequenceRef = useRef(0);
   // Armed by a duplicate commit (alt-drag drop or Cmd+D) so the
   // lineup-recenter effect keeps the camera still when the
   // deliberately-placed clone(s) land in `screens` — see
@@ -1643,6 +1644,20 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       });
     },
     [],
+  );
+
+  const selectCompletedDuplicates = useCallback(
+    (results: Array<void | Promise<string | undefined>>) => {
+      void Promise.all(results).then((ids) => {
+        const duplicateIds = ids.filter(
+          (id): id is string => typeof id === "string" && id.length > 0,
+        );
+        if (duplicateIds.length > 0) {
+          updateSelectedIds(() => duplicateIds);
+        }
+      });
+    },
+    [updateSelectedIds],
   );
 
   const updateDraftPrimitives = useCallback(
@@ -6691,16 +6706,18 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             fromCount: screensRef.current.length,
             addedCount: targets.length,
           };
-          targets.forEach((target) => {
+          const historyBatchId = `duplicate-${++duplicateBatchSequenceRef.current}`;
+          const duplicateResults = targets.map((target) => {
             const canvasPosition = {
               x: target.geometry.x + delta.x,
               y: target.geometry.y + delta.y,
             };
-            onDuplicate(target.screen.id, {
+            return onDuplicate(target.screen.id, {
               mode: "alt-drag",
               screen: target.screen,
               canvasPosition,
               preserveCamera: true,
+              historyBatchId,
               canvasOffset: {
                 x: dropCanvasPosition.x - canvasPosition.x,
                 y: dropCanvasPosition.y - canvasPosition.y,
@@ -6708,6 +6725,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               dropCanvasPosition,
             });
           });
+          selectCompletedDuplicates(duplicateResults);
         } else if (!moved) {
           onPick(id);
         }
@@ -6731,6 +6749,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       lockedScreenIdSet,
       onDuplicate,
       onPick,
+      selectCompletedDuplicates,
     ],
   );
 
@@ -9116,14 +9135,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
   // Cmd+D / Ctrl+D: duplicate every selected frame (not just the first) with
   // a visible offset so each copy doesn't land exactly on top of its
-  // original (Figma-style behaviour). `onDuplicate` is fire-and-forget
-  // (`(id, request) => void`) and the actual new file id is only known
-  // asynchronously by the caller (DesignEditor's createFileMutation
-  // onSuccess), so this component has no id to add to its own selection
-  // state. Known limitation: after a multi-duplicate, selection isn't
-  // reprogrammed to the new copies (the caller instead makes its own last
-  // duplicate the active file) — promoting the duplicates to the new
-  // selection would require `onDuplicate` to return/callback the created id.
+  // original (Figma-style behaviour). The callback resolves with each new
+  // file id, allowing the whole duplicate gesture to become one selection.
   useEffect(() => {
     if (!onDuplicate) return;
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -9157,6 +9170,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       // previous duplicate), mirroring how a multi-select alt-drag would
       // offset each frame independently.
       let dispatched = 0;
+      const duplicateResults: Array<void | Promise<string | undefined>> = [];
+      const historyBatchId = `duplicate-${++duplicateBatchSequenceRef.current}`;
       for (const targetId of frameIds) {
         const screen = screens.find((s) => s.id === targetId);
         if (!screen) continue;
@@ -9168,13 +9183,16 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           x: sourceGeometry.x + sourceGeometry.width + SCREEN_GAP,
           y: sourceGeometry.y,
         };
-        onDuplicate(targetId, {
-          mode: "alt-click",
-          screen,
-          canvasPosition,
-          preserveCamera: true,
-          dropCanvasPosition: canvasPosition,
-        });
+        duplicateResults.push(
+          onDuplicate(targetId, {
+            mode: "alt-click",
+            screen,
+            canvasPosition,
+            preserveCamera: true,
+            historyBatchId,
+            dropCanvasPosition: canvasPosition,
+          }),
+        );
         dispatched += 1;
       }
       if (dispatched > 0) {
@@ -9186,6 +9204,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           fromCount: screensRef.current.length,
           addedCount: dispatched,
         };
+        selectCompletedDuplicates(duplicateResults);
       }
     };
 
@@ -9193,7 +9212,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     return () => {
       window.removeEventListener("keydown", handleKeyDown, true);
     };
-  }, [onDuplicate, readOnly, screens]);
+  }, [onDuplicate, readOnly, screens, selectCompletedDuplicates]);
 
   // Releasing Alt should clear the alt-hover measurement immediately even if
   // the mouse never moves again (e.g. the user just lifts the Alt key while
