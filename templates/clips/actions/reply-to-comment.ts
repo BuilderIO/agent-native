@@ -20,7 +20,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyRecordingComment } from "../server/lib/activity-notifications.js";
 import { resolveCommentMentions } from "../server/lib/comment-mentions.js";
-import { isRecordingExpired } from "../server/lib/recording-page-access.js";
+import { isRecordingExpiredForViewer } from "../server/lib/recording-page-access.js";
 import { nanoid } from "../server/lib/recordings.js";
 
 const mentionSchema = z.object({
@@ -61,7 +61,10 @@ export default defineAction({
       "viewer",
     );
     if (
-      isRecordingExpired((access.resource as { expiresAt?: string }).expiresAt)
+      isRecordingExpiredForViewer({
+        expiresAt: (access.resource as { expiresAt?: string }).expiresAt,
+        viewerIsOwner: access.role === "owner",
+      })
     ) {
       throw new ForbiddenError("Recording has expired");
     }

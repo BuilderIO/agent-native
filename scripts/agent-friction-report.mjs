@@ -101,6 +101,17 @@ const CREDENTIAL_REGEX_CASES = [
   [false, "Mismatched pairs can be intentional on a host."],
 ];
 
+const DESIGN_FEEDBACK_SCOPE_RE =
+  /\b(?:design|visual|ui|ux)\b[^.!?\n]{0,80}\b(?:out of scope|not in scope|skip\w*|ignor\w*|rule|gate|blocked)\b|\b(?:out of scope|not in scope|skip\w*|ignor\w*|rule|gate|blocked)\b[^.!?\n]{0,80}\b(?:design|visual|ui|ux)\b/i;
+
+const DESIGN_FEEDBACK_REGEX_CASES = [
+  [true, "Remove that design rule. I want you fixing design things."],
+  [true, "Why are these visual issues out of scope?"],
+  [true, "Don't ignore the UI polish feedback."],
+  [false, "Fix the Design gradient fill bug."],
+  [false, "The design needs a little more contrast."],
+];
+
 const SHIPPING_CHURN_REGEX_CASES = [
   [true, "don't merge main 100 times unless there is a clear conflict."],
   [true, "Stop merging main unless there is a real conflict."],
@@ -143,18 +154,34 @@ if (process.argv.includes("--self-test")) {
         CREDENTIAL_NAMESPACE_RE.test(message) !== expected,
     ),
   );
+  failures.push(
+    ...DESIGN_FEEDBACK_REGEX_CASES.filter(
+      ([expected, message]) =>
+        DESIGN_FEEDBACK_SCOPE_RE.test(message) !== expected,
+    ),
+  );
   if (failures.length > 0) {
     console.error("Feedback regex self-test failed:", failures);
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
 }
 
 const PATTERNS = [
+  {
+    // Added 2026-09-02 after the Design E2E suite surfaced 63 failures that had
+    // rotted for weeks: the suite ran post-merge only, so no fix ever had to
+    // prove itself against a test that failed first.
+    key: "no-failing-test-first",
+    label: "Had to ask for a failing test before the fix",
+    fixedBy:
+      "guard:e2e-quarantine + templates/design/.agents/skills/design-editor-architecture (2026-09-02)",
+    re: /\b(write|add).{0,24}(failing|red) test|test.{0,16}fail(s|ed)? first|where'?s the (failing )?test|no test for (this|that) (fix|bug)|prove it fails\b/i,
+  },
   {
     // Added 2026-08-27 after the PR queue exposed routine main merges and
     // generic ship commits as a measurable source of CI churn.
@@ -168,6 +195,15 @@ const PATTERNS = [
     label: "Unrequested branch creation / movement",
     fixedBy: ".agents/skills/new-branch (activation guard, 2026-07-28)",
     re: /\b(did you (make|create).*(new )?branch|don'?t (make|create).*branch|never.*(make|create).*branch|why.*new branch)\b/i,
+  },
+  {
+    // Added 2026-09-11 after a user correction made clear the feedback scope
+    // rule was treating concrete Design/UX feedback as out of scope.
+    key: "design-feedback-scope",
+    label: "Had to ask to act on design feedback",
+    fixedBy:
+      ".agents/skills/review-latest-feedback (design/UX scope, 2026-09-11)",
+    re: DESIGN_FEEDBACK_SCOPE_RE,
   },
   {
     key: "false-done",
@@ -315,6 +351,14 @@ const PATTERNS = [
     label: "Agent acted on other agents' threads or work uninvited",
     fixedBy: ".agents/skills/reporting-progress (2026-08-12)",
     re: /\b(other (chats?|threads?|agents?)|pause (their|other)|don'?t (tell|message) (other|the other)|didn'?t ask you to (touch|message))\b/i,
+  },
+  {
+    key: "agent-tool-misuse",
+    label:
+      "Had to tell an agent which tool to call, or to author content itself instead of delegating to ask_app / the in-app agent",
+    fixedBy:
+      "external-agents skill + initialToolNames→MCP instructions (2026-09-05)",
+    re: /\b(?:use|call) (?:the )?(?:right |correct |named )?tool\b|\bwrong tool\b|\bdon['’]t (?:use|call) ask_app\b|\b(?:write|author) (?:it|the (?:content|copy|text|deck|slide|design)) yourself\b|\bdon['’]t delegate (?:this|that|authoring)\b|\bstop waiting (?:on|for) the (?:in-app agent|app['’]s agent)\b/i,
   },
   // Measured for the first time on 2026-08-12, after three prose rewrites of the
   // same rule (c497c859fa, 061896a301, 44ac2c4acf) shipped with no key at all.

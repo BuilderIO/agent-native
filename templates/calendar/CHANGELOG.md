@@ -3,10 +3,126 @@
 All notable user-facing changes to Agent-Native Calendar are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
-## 2026-09-01
+## 2026-09-16
+
+### Fixed
+
+- Booking links reject unsafe validation rules without freezing the booking page
+- Booking link time-zone arrows now scroll to earlier and later times.
+
+## 2026-09-15
 
 ### Improved
 
+- Account menus are now shorter, with workspace apps and agent management available in Settings.
+- Calendar mirrors Notion Calendar's customizable day ranges and view settings
+
+### Fixed
+
+- Calendar shortcut help renders each command row without duplicate React keys
+- Calendar treats already-deleted Google events as absent during cleanup.
+
+## 2026-09-14
+
+### Security
+
+- Calendar requests only the permissions needed for Calendar and account identity
+
+## 2026-09-13
+
+### Improved
+
+- Calendar sidebar overflow is easier to discover with visible scroll controls and edge cues.
+
+### Fixed
+
+- Event mutations stay scoped to the selected calendar when provider IDs collide.
+- Reset event detail drafts when switching between same-ID calendar sources
+
+## 2026-09-12
+
+### Fixed
+
+- Deleting a recurring event no longer hides matching events from other calendars.
+- Fixed calendar shortcuts and event interactions for more reliable location suggestions, drag confirmations, and recurring-event deletion.
+- Prevent optimistic calendar updates and rollback from crossing accounts when provider event IDs collide.
+- Primary Google recurring RSVP and deletion actions now update account-scoped cached occurrences.
+- Selected events stay bound to the correct calendar when event IDs collide.
+- Week navigation now opens on the configured first day of the destination week.
+
+## 2026-09-10
+
+### Fixed
+
+- Calendar keeps shared and overlaid events read-only instead of reporting a false deletion
+
+## 2026-09-09
+
+### Improved
+
+- Calendar's command menu surfaces the right actions for booking links and settings
+- Calendar can color Google events by meeting type again
+- Connected account avatars use a slimmer border.
+
+## 2026-09-08
+
+### Improved
+
+- Login pages use the same mouse-reactive wave background as the docs and booking experiences.
+
+### Fixed
+
+- Calendar overlay status now queries a valid one-day range
+- Calendar shows proposed-time actions for Google event invitations
+- Provider-supplied full-day meetings stay in the compact top bar.
+
+## 2026-09-05
+
+### Improved
+
+- Calendar booking pages show the docs hero wave background
+
+## 2026-09-04
+
+### Added
+
+- Booking link hosts now show whether their real working hours are applied, with a one-click request to fix it when they aren't
+
+### Improved
+
+- Generated booking-link OG images now use the shared branded background.
+
+### Fixed
+
+- Calendar controls now add the right source, shared events use their calendar colors, and color changes appear immediately.
+- Calendar sidebar remains toggleable while agent chat is open.
+- Read-only calendar events keep their date and time controls disabled
+
+## 2026-09-03
+
+### Improved
+
+- Calendar makes all-day event creation discoverable from the visible all-day row
+- Shared Google calendars now appear automatically with instant visibility controls and local display colors.
+- Calendar now supports reliable batch event updates and booking cancellations.
+- The agent now asks for your approval before it deletes events in bulk, emails your guests about a cancellation or change, or moves an event to another calendar.
+
+## 2026-09-02
+
+### Improved
+
+- Creating an event with guests now uses Save while still sending invitations
+- Updated the booking-link OG preview image with the new monochrome logo and dark background.
+
+## 2026-09-01
+
+### Added
+
+- Calendars shared with your connected Google accounts can now appear alongside your primary calendars.
+
+### Improved
+
+- Calendar keeps the learn-more link clear of the language control on every screen size.
 - Signed-in coworkers now see their own calendar conflicts and booking details are prefilled.
 
 ## 2026-08-31
@@ -210,6 +326,12 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 - Secondary controls and dashboard surfaces now use quieter borderless styling.
 - Sidebar utility controls now follow a consistent footer order.
 
+## 2026-07-23
+
+### Improved
+
+- Booking links now derive an overlay-listed host's time zone from their general calendar settings when they haven't set explicit working hours
+
 ## 2026-07-22
 
 ### Improved
@@ -219,6 +341,12 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 ### Fixed
 
 - Calendar views now render, navigate, and create events in the timezone selected in Calendar settings.
+
+## 2026-07-21
+
+### Added
+
+- Group booking links can now enforce a peer's real working hours and time zone when they're in your calendar overlay, with an optional multi-time-zone grid on the public booking page.
 
 ## 2026-07-20
 

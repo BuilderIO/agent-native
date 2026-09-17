@@ -1,6 +1,6 @@
 # Documents — Agent Guide
 
-Documents is an agent-native editor for docs, comments, media blocks, databases,
+Documents is an agent-native editor for docs, comments, media blocks, collections,
 sharing, and Notion-connected content; the agent and the UI share the same
 actions and application state.
 
@@ -8,10 +8,10 @@ actions and application state.
 
 Read the relevant skill before deeper work:
 
-- `content` — Markdown/MDX authoring, local folder sources, databases, intake
+- `content` — Markdown/MDX authoring, local folder sources, collections, intake
   forms, and Slack/A2A artifact replies.
 - `document-editing` — document and comment actions, screen context and IDs,
-  common tasks, the data model, and the databases reference.
+  suggestions, common tasks, the data model, and the collections reference.
 - `notion-integration` — connected Notion workflows and the raw Notion provider
   API path.
 - `creative-context` — cross-app source reuse, pinned packs, provenance, and
@@ -19,14 +19,15 @@ Read the relevant skill before deeper work:
 
 ## Core Rules
 
+- UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
 - Use actions for documents, blocks, comments, media, sharing, navigation, and
   Notion integration. Do not mutate document rows directly unless a skill says to
   and access checks are preserved. Never use `curl`, raw HTTP requests, or
   `db-exec` with raw SQL for document operations.
-- The editor uses live Yjs collaboration — raw SQL writes to `documents` won't
-  appear in an open editor. Always use `edit-document` or `update-document`,
-  and prefer `edit-document` for small changes (it sends only the changed
-  text and syncs live via CRDT instead of regenerating the whole document).
+- Call these actions directly; `ask_app` only delegates to Content's agent.
+- The live Yjs editor requires actions for body writes. External agents use
+  revisioned `edit-document`, with `initializeContent` only for an empty body.
+  Browser full rewrites use `update-document`.
 - Preserve user-authored content. Prefer targeted edits over wholesale rewrites
   unless requested.
 - `create-document`, `update-document`, and `delete-document` already signal
@@ -75,27 +76,26 @@ Read the relevant skill before deeper work:
 | `search-documents` | Title and content search with snippets |
 | `get-document` | One document with full content |
 | `pull-document` | Flush live collab state, then read (external edits) |
+| `get-blocks-field-word-count` | Count one exact Blocks field; omit `propertyId` for the primary Content body |
 | `create-document` | Create a page, optionally under a parent |
-| `resolve-content-landing` | Restore the caller's last authorized page or ensure their private Personal welcome page |
-| `edit-document` | Find/replace edit — preferred for small changes |
-| `update-document` | Full rewrite of title, content, or description |
+| `resolve-content-landing` | Restore the caller's last authorized page |
+| `edit-document` | Revisioned find/replace, or initialize an empty body |
+| `update-document` | Metadata or browser-owned full rewrite |
 | `delete-document` | Move a page and its children to Trash |
-| `list-content-database-blocks` | List stable blocks and revisions in one exact database row/property |
+| `list-content-database-blocks` | List stable blocks and revisions in one exact collection row/property |
 | `mutate-content-database-block` | Insert, update, upsert, delete, or reorder one supported stable block |
-| `migrate-content-database-rows` | Validate, atomically apply, verify, roll back, or finalize one bounded whole-database row migration |
+| `migrate-content-database-rows` | Validate/apply/verify; terminal phases use `manage-content-database-migration` |
 
 Every action carries its own schema, and the rest of the app-specific surface
-(comments, sharing, databases, Notion, local file sources such as
+(comments, sharing, collections, Notion, local file sources such as
 `remove-local-file-source`) is registered too — use `tool-search` instead of
 scanning a table here.
 
-Sidebar ordering has two deliberately different meanings. Reordering Pinned or
-workspace roots moves the exact database membership identified by both
-`databaseId` and `itemId`; it never reparents or moves the referenced document.
-Files sidebar Custom order is a per-user database-view preference written with
-`update-content-database-personal-view`, so it must not change shared Files
-membership positions. Ordinary unconstrained database row reordering remains a
-shared database mutation through `move-database-item`.
+Sidebar ordering has two meanings. Reordering Pinned or workspace roots moves
+the exact `databaseId` + `itemId` membership, never the document. Files Custom
+order is a per-user view preference written with
+`update-content-database-personal-view`; shared row ordering still uses
+`move-database-item`.
 
 ## Source Changes
 

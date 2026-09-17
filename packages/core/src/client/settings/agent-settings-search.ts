@@ -1,5 +1,6 @@
-import { MCP_SETTINGS_MESSAGES } from "../../localization/mcp-settings-messages.js";
+import { mcpSettingsMessagesForLocale } from "../../localization/mcp-settings-messages.js";
 import type { LocaleCode } from "../../localization/shared.js";
+import { SIGN_OUT_SEARCH_TERMS } from "../sign-out.js";
 import type { SettingsSearchEntry } from "./SettingsTabsPage.js";
 
 export type SettingsSectionId =
@@ -75,9 +76,7 @@ export const AGENT_SETTINGS_SECTIONS: readonly SettingsSectionId[] = [
 
 export const INTEGRATION_SETTINGS_SECTIONS: readonly SettingsSectionId[] = [
   "integrations",
-  "secrets",
   "email",
-  "browser",
 ];
 
 export const WORKSPACE_SETTINGS_SECTIONS: readonly SettingsSectionId[] = [
@@ -94,8 +93,10 @@ const SETTINGS_SECTION_SEARCH_META: Record<
 > = {
   account: {
     label: "Account",
-    keywords:
+    keywords: [
       "profile photo avatar identity signed in email name timezone time zone schedule scheduling clock",
+      ...SIGN_OUT_SEARCH_TERMS,
+    ].join(" "),
   },
   llm: {
     label: "LLM",
@@ -132,7 +133,7 @@ const SETTINGS_SECTION_SEARCH_META: Record<
   },
   database: {
     label: "Database",
-    keywords: "postgres sqlite neon supabase turso storage sql pglite",
+    keywords: "postgres neon supabase storage sql pglite",
   },
   uploads: {
     label: "File uploads",
@@ -193,7 +194,7 @@ export interface AgentSettingsSearchTab {
 export function getAgentSettingsSearchTabs(
   locale: LocaleCode = "en-US",
 ): AgentSettingsSearchTab[] {
-  const mcpMessages = MCP_SETTINGS_MESSAGES[locale];
+  const mcpMessages = mcpSettingsMessagesForLocale(locale);
   return [
     {
       id: "agent",
@@ -207,7 +208,23 @@ export function getAgentSettingsSearchTabs(
       label: "Integrations",
       keywords:
         "integrations agent integrations connections secrets email browser tools",
-      searchEntries: buildSectionSearchEntries(INTEGRATION_SETTINGS_SECTIONS),
+      searchEntries: [
+        ...buildSectionSearchEntries(INTEGRATION_SETTINGS_SECTIONS),
+        {
+          id: "section:browser",
+          label: "Browser Automation",
+          keywords: "browser automation playwright chrome headless builder",
+          hash: "browser",
+          description: "Comes with Builder.io",
+        },
+      ],
+    },
+    {
+      id: "keys",
+      label: "API keys",
+      keywords:
+        "api keys secrets credentials tokens environment variables openai anthropic github vault",
+      searchEntries: buildSectionSearchEntries(["secrets"]),
     },
     {
       id: "mcp",

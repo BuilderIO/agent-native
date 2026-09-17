@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   getAuthUrl: vi.fn(),
   getSession: vi.fn(),
   isElectron: vi.fn(),
+  logOAuthStateDecodeFailure: vi.fn(),
   oauthCallbackResponse: vi.fn(),
   oauthDesktopExchangePage: vi.fn(),
   oauthErrorPage: vi.fn(),
@@ -27,6 +28,7 @@ const mocks = vi.hoisted(() => ({
   setDesktopExchange: vi.fn(),
   setDesktopExchangeError: vi.fn(),
   setResponseStatus: vi.fn(),
+  wrapNetlifyPreviewGoogleOAuthState: vi.fn(),
 }));
 
 vi.mock("h3", () => ({
@@ -49,6 +51,7 @@ vi.mock("@agent-native/core/server", () => ({
   getAppUrl: mocks.getAppUrl,
   getSession: mocks.getSession,
   isElectron: mocks.isElectron,
+  logOAuthStateDecodeFailure: mocks.logOAuthStateDecodeFailure,
   oauthCallbackResponse: mocks.oauthCallbackResponse,
   oauthDesktopExchangePage: mocks.oauthDesktopExchangePage,
   oauthErrorPage: mocks.oauthErrorPage,
@@ -92,6 +95,7 @@ vi.mock("@agent-native/core/server", () => ({
   safeReturnPath: mocks.safeReturnPath,
   setDesktopExchange: mocks.setDesktopExchange,
   setDesktopExchangeError: mocks.setDesktopExchangeError,
+  wrapNetlifyPreviewGoogleOAuthState: mocks.wrapNetlifyPreviewGoogleOAuthState,
 }));
 
 vi.mock("@agent-native/core/oauth-tokens", () => ({
@@ -147,6 +151,9 @@ describe("Calendar Google auth-url handler", () => {
       (_context: unknown, callback: () => unknown) => callback(),
     );
     mocks.encodeOAuthState.mockReturnValue("encoded-state");
+    mocks.wrapNetlifyPreviewGoogleOAuthState.mockImplementation(
+      (_event: unknown, state: string) => state,
+    );
     mocks.registerDesktopExchange.mockResolvedValue("v".repeat(43));
     mocks.prepareDesktopOAuthBrowserBinding.mockReturnValue("b".repeat(43));
     mocks.matchesDesktopOAuthBrowserBinding.mockReturnValue(true);
@@ -248,7 +255,10 @@ describe("Calendar Google auth-url handler", () => {
     expect(mocks.resolveOAuthRedirectUri).toHaveBeenCalledWith(
       expect.anything(),
       "/_agent-native/google/callback",
-      { allowRootCallback: true },
+      {
+        allowRootCallback: true,
+        useNetlifyPreviewGoogleOAuthRelay: true,
+      },
     );
     expect(result).toEqual({
       url: "https://accounts.google.com/o/oauth2/v2/auth?scope=calendar&state=encoded-state",
@@ -266,7 +276,10 @@ describe("Calendar Google auth-url handler", () => {
     expect(mocks.resolveOAuthRedirectUri).toHaveBeenCalledWith(
       expect.anything(),
       "/_agent-native/google/callback",
-      { allowRootCallback: true },
+      {
+        allowRootCallback: true,
+        useNetlifyPreviewGoogleOAuthRelay: true,
+      },
     );
   });
 
@@ -276,6 +289,7 @@ describe("Calendar Google auth-url handler", () => {
       state: "encoded-state",
     });
     mocks.decodeOAuthState.mockReturnValue({
+      ok: true,
       redirectUri:
         "https://calendar.agent-native.com/_agent-native/google/callback",
       owner: "owner@example.com",
@@ -336,6 +350,7 @@ describe("Calendar Google auth-url handler", () => {
     });
     mocks.getSession.mockResolvedValue(null);
     mocks.decodeOAuthState.mockReturnValue({
+      ok: true,
       redirectUri:
         "https://calendar.agent-native.com/_agent-native/google/add-account/callback",
       owner: "owner@example.com",
@@ -388,6 +403,7 @@ describe("Calendar Google auth-url handler", () => {
     const event = createEvent({ code: "google-code", state: "encoded-state" });
     mocks.getSession.mockResolvedValue(null);
     mocks.decodeOAuthState.mockReturnValue({
+      ok: true,
       redirectUri:
         "https://calendar.agent-native.com/_agent-native/google/add-account/callback",
       owner: "second-login@example.com",
@@ -417,6 +433,7 @@ describe("Calendar Google auth-url handler", () => {
     });
     mocks.getSession.mockResolvedValue(null);
     mocks.decodeOAuthState.mockReturnValue({
+      ok: true,
       redirectUri:
         "https://calendar.agent-native.com/_agent-native/google/callback",
       owner: "owner@example.com",
@@ -451,6 +468,7 @@ describe("Calendar Google auth-url handler", () => {
   it("passes the canonical new-user result into Google signup tracking", async () => {
     const event = createEvent({ code: "google-code", state: "encoded-state" });
     mocks.decodeOAuthState.mockReturnValue({
+      ok: true,
       redirectUri:
         "https://calendar.agent-native.com/_agent-native/google/callback",
     });

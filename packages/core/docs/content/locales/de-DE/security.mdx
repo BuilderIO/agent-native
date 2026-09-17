@@ -78,6 +78,8 @@ Die Framework-Architektur verhindert häufige Schwachstellen, wenn Sie die Stand
 | Geheime Enthüllung | `.env` gitignored; Anmeldeinformationen und Tresor im Ruhezustand verschlüsselt (AES-256-GCM) |
 | SSRF               | `ssrfSafeFetch` blockiert interne Ziele/Metadatenziele + Umleitungs-Neubindung                |
 
+Das Framework erstellt den Anfragekontext aus der Sitzung und erzwingt Eigentum mit `accessFilter()` und `assertAccess()` bei Anwendungslese- und -schreibvorgängen. Agent-SQL erhält temporäre, nach Identität und Organisation gefilterte Ansichten. RLS ist noch nicht aktiviert, daher müssen rohe Anwendungsabfragen diese Helfer weiterhin verwenden.
+
 ## Eingabevalidierung {#input-validation}
 
 Verwenden Sie `defineAction` mit einem Zod `schema:` für jede Aktion. Das Framework validiert die Eingabe automatisch, bevor Ihr Code ausgeführt wird:
@@ -236,13 +238,13 @@ Das Framework erstellt temporäre SQL-Ansichten, die Abfragen automatisch filter
 
 ```sql
 CREATE TEMPORARY VIEW "notes" AS
-  SELECT * FROM main."notes"
+  SELECT * FROM public."notes"
   WHERE "owner_email" = 'alice@example.com';
 ```
 
 Bei INSERT-Anweisungen wird `owner_email` automatisch eingefügt, wenn die Spalte noch nicht vorhanden ist.
 
-Die Tools `db-query`/`db-exec` lehnen schemaqualifizierte Tabellenverweise (`public.<table>`, `main.<table>`) ab – ein qualifizierter Name wird in die Basistabelle aufgelöst und würde die obige temporäre Ansicht umgehen. Agenten verwenden bloße Tabellennamen; Der Geltungsbereich wird automatisch angewendet.
+Die Tools `db-query`/`db-exec` lehnen schemaqualifizierte Tabellenverweise (`public.<table>`) ab – ein qualifizierter Name wird in die Basistabelle aufgelöst und würde die obige temporäre Ansicht umgehen. Agenten verwenden bloße Tabellennamen; Der Geltungsbereich wird automatisch angewendet.
 
 ### Pro-Organisation-Scoping (`org_id`)
 

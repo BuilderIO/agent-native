@@ -1,27 +1,28 @@
-import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-let sqlite: Database.Database;
+import { createTestPglite } from "../a2a/test-pglite.js";
+
+let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 
 const rawClient = {
   execute: vi.fn(async (input: string | { sql: string; args?: unknown[] }) => {
     if (typeof input === "string") {
-      sqlite.exec(input);
+      await pglite.exec(input);
       return { rows: [], rowsAffected: 0 };
     }
-    const stmt = sqlite.prepare(input.sql);
+    const stmt = await pglite.prepare(input.sql);
     const args = (input.args ?? []) as unknown[];
-    if (/^\s*select/i.test(input.sql)) {
-      return { rows: stmt.all(...args), rowsAffected: 0 };
+    if (/^\s*(select|with)\b/i.test(input.sql)) {
+      return { rows: await stmt.all(...args), rowsAffected: 0 };
     }
-    const info = stmt.run(...args);
+    const info = await stmt.run(...args);
     return { rows: [], rowsAffected: info.changes };
   }),
 };
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => rawClient,
-  isPostgres: () => false,
+  isProductionServerlessFunctionRuntime: () => false,
 }));
 
 const {
@@ -34,21 +35,170 @@ const {
   resolveReviewThread,
   sendReviewThreadToAgent,
   upsertReviewStatus,
+  setReviewCommentReaction,
+  setReviewThreadPreference,
+  setReviewThreadUnreadPreferences,
+  getReviewDiscussionStateForComments,
+  filterUnmutedReviewThreadRecipients,
 } = await import("./store.js");
 
 beforeEach(async () => {
-  sqlite = new Database(":memory:");
+  pglite = await createTestPglite();
   rawClient.execute.mockClear();
   __resetReviewInitForTests();
   await ensureReviewTables();
 });
 
-afterEach(() => {
-  sqlite.close();
+afterEach(async () => {
+  await pglite.close();
   vi.clearAllMocks();
 });
 
 describe("review store", () => {
+  it("reads reactions without exposing actors and isolates personal thread preferences", async () => {
+    const comment = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "discussion",
+      body: "Review",
+      ownerEmail: "owner@example.com",
+    });
+    await setReviewCommentReaction({
+      commentId: comment.id,
+      actorEmail: "alice@example.com",
+      reaction: "👍",
+      active: true,
+    });
+    await setReviewCommentReaction({
+      commentId: comment.id,
+      actorEmail: "bob@example.com",
+      reaction: "👍",
+      active: true,
+    });
+    await setReviewCommentReaction({
+      commentId: comment.id,
+      actorEmail: "alice@example.com",
+      reaction: "👍",
+      active: true,
+    });
+    await Promise.all([
+      setReviewThreadPreference({
+        threadId: comment.threadId,
+        userEmail: "alice@example.com",
+        muted: true,
+      }),
+      setReviewThreadPreference({
+        threadId: comment.threadId,
+        userEmail: "alice@example.com",
+        unread: true,
+      }),
+    ]);
+    const alice = await getReviewDiscussionStateForComments(
+      [comment],
+      "alice@example.com",
+    );
+    expect(alice.reactions[comment.id]).toEqual([
+      { reaction: "👍", count: 2, reactedByMe: true },
+    ]);
+    expect(alice.threadPreferences[comment.threadId]).toEqual({
+      muted: true,
+      unread: true,
+    });
+    const bob = await getReviewDiscussionStateForComments(
+      [comment],
+      "bob@example.com",
+    );
+    expect(bob.threadPreferences[comment.threadId]).toEqual({
+      muted: false,
+      unread: false,
+    });
+    const anonymous = await getReviewDiscussionStateForComments(
+      [comment],
+      null,
+    );
+    expect(anonymous.reactions[comment.id]).toEqual([
+      { reaction: "👍", count: 2, reactedByMe: false },
+    ]);
+    expect(JSON.stringify(anonymous)).not.toContain("@example.com");
+    expect(
+      await filterUnmutedReviewThreadRecipients(comment.threadId, [
+        "alice@example.com",
+        "bob@example.com",
+      ]),
+    ).toEqual(["bob@example.com"]);
+    await setReviewThreadPreference({
+      threadId: comment.threadId,
+      userEmail: "alice@example.com",
+      muted: false,
+    });
+    expect(
+      (
+        await getReviewDiscussionStateForComments(
+          [comment],
+          "alice@example.com",
+        )
+      ).threadPreferences[comment.threadId],
+    ).toEqual({ muted: false, unread: true });
+    await setReviewCommentReaction({
+      commentId: comment.id,
+      actorEmail: "alice@example.com",
+      reaction: "👍",
+      active: false,
+    });
+    expect(
+      (
+        await getReviewDiscussionStateForComments(
+          [comment],
+          "alice@example.com",
+        )
+      ).reactions[comment.id],
+    ).toEqual([{ reaction: "👍", count: 1, reactedByMe: false }]);
+    expect(
+      await getReviewDiscussionStateForComments([], "alice@example.com"),
+    ).toEqual({ reactions: {}, threadPreferences: {} });
+  });
+
+  it("writes multiple unread preferences with one bulk insert", async () => {
+    const first = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "bulk",
+      body: "First",
+      ownerEmail: "owner@example.com",
+    });
+    const second = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "bulk",
+      body: "Second",
+      ownerEmail: "owner@example.com",
+    });
+    await setReviewThreadPreference({
+      threadId: first.threadId,
+      userEmail: "alice@example.com",
+      muted: true,
+    });
+    rawClient.execute.mockClear();
+
+    const preferences = await setReviewThreadUnreadPreferences({
+      threadIds: [first.threadId, second.threadId],
+      userEmail: "alice@example.com",
+      unread: false,
+      resource: { resourceType: "doc", resourceId: "bulk" },
+    });
+
+    expect(
+      rawClient.execute.mock.calls.filter(
+        ([input]) =>
+          typeof input !== "string" &&
+          input.sql.includes("INSERT INTO agent_review_thread_preferences"),
+      ),
+    ).toHaveLength(1);
+    expect(preferences).toEqual(
+      expect.arrayContaining([
+        { threadId: first.threadId, muted: true, unread: false },
+        { threadId: second.threadId, muted: false, unread: false },
+      ]),
+    );
+  });
+
   it("stores threaded comments with anchors, mentions, and metadata", async () => {
     const root = await insertReviewComment({
       resourceType: "plan",
@@ -89,6 +239,101 @@ describe("review store", () => {
     expect(comments[1].parentCommentId).toBe(root.id);
   });
 
+  it("keeps legacy replies when filtering comments by the root target", async () => {
+    const currentRoot = await insertReviewComment({
+      resourceType: "plan",
+      resourceId: "p1",
+      targetId: "section-1",
+      body: "Current section",
+      ownerEmail: "alice@example.com",
+    });
+    await insertReviewComment({
+      resourceType: "plan",
+      resourceId: "p1",
+      threadId: currentRoot.threadId,
+      parentCommentId: currentRoot.id,
+      body: "Legacy reply",
+      ownerEmail: "alice@example.com",
+    });
+    await insertReviewComment({
+      resourceType: "plan",
+      resourceId: "p1",
+      threadId: currentRoot.threadId,
+      parentCommentId: currentRoot.id,
+      targetId: "section-1",
+      body: "Inherited target reply",
+      ownerEmail: "alice@example.com",
+    });
+    await insertReviewComment({
+      resourceType: "plan",
+      resourceId: "p1",
+      targetId: "section-2",
+      body: "Other section",
+      ownerEmail: "alice@example.com",
+    });
+
+    const comments = await queryReviewComments({
+      resourceType: "plan",
+      resourceId: "p1",
+      scope: { userEmail: "alice@example.com" },
+      targetId: "section-1",
+    });
+
+    expect(comments.map((comment) => comment.body)).toEqual([
+      "Current section",
+      "Legacy reply",
+      "Inherited target reply",
+    ]);
+  });
+
+  it("limits newest-first results by thread activity while retaining each root", async () => {
+    const olderRoot = await insertReviewComment({
+      resourceType: "design",
+      resourceId: "d1",
+      body: "Older thread",
+      ownerEmail: "alice@example.com",
+    });
+    const newerRoot = await insertReviewComment({
+      resourceType: "design",
+      resourceId: "d1",
+      body: "Newer thread",
+      ownerEmail: "alice@example.com",
+    });
+    const newerReply = await insertReviewComment({
+      resourceType: "design",
+      resourceId: "d1",
+      threadId: olderRoot.threadId,
+      parentCommentId: olderRoot.id,
+      body: "Latest activity is a reply on the older thread",
+      ownerEmail: "alice@example.com",
+    });
+    await rawClient.execute({
+      sql: "UPDATE agent_review_comments SET created_at = ? WHERE id = ?",
+      args: ["2020-01-01T00:00:00.000Z", olderRoot.id],
+    });
+    await rawClient.execute({
+      sql: "UPDATE agent_review_comments SET created_at = ? WHERE id = ?",
+      args: ["2025-01-01T00:00:00.000Z", newerRoot.id],
+    });
+    await rawClient.execute({
+      sql: "UPDATE agent_review_comments SET created_at = ? WHERE id = ?",
+      args: ["2030-01-01T00:00:00.000Z", newerReply.id],
+    });
+
+    const comments = await queryReviewComments({
+      resourceType: "design",
+      resourceId: "d1",
+      scope: { userEmail: "alice@example.com" },
+      newestFirst: true,
+      limit: 1,
+    });
+
+    expect(comments.map((comment) => comment.id)).toEqual([
+      olderRoot.id,
+      newerReply.id,
+    ]);
+  });
+
   it("resolves threads and hides resolved comments by default", async () => {
     const root = await insertReviewComment({
       resourceType: "doc",
@@ -116,6 +361,26 @@ describe("review store", () => {
     expect(all).toHaveLength(1);
     expect(all[0].status).toBe("resolved");
     expect(all[0].resolvedBy).toBe("alice@example.com");
+
+    await expect(
+      resolveReviewThread(
+        root.threadId,
+        "alice@example.com",
+        { resourceType: "doc", resourceId: "d1" },
+        undefined,
+        "open",
+      ),
+    ).resolves.toBeGreaterThan(0);
+    const reopened = await queryReviewComments({
+      resourceType: "doc",
+      resourceId: "d1",
+      scope: { userEmail: "alice@example.com" },
+    });
+    expect(reopened[0]).toMatchObject({
+      status: "open",
+      resolvedBy: null,
+      resolvedAt: null,
+    });
   });
 
   it("returns zero when resolving a missing thread", async () => {

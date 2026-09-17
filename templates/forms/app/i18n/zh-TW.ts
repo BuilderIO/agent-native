@@ -306,13 +306,8 @@ const messages = {
     sharePublicly: "公開分享",
     sharePubliclyDescription: "要公開分享內容，請連線雲端資料庫。",
     providerDescriptions: {
-      turso: "邊緣 SQLite",
       neon: "無伺服器 Postgres",
       supabase: "開放原始碼 Firebase 替代方案",
-      d1: "邊緣 SQLite",
-    },
-    providerNames: {
-      d1: "Cloudflare D1",
     },
     setupSteps: "設定步驟",
     authToken: "認證權杖",
@@ -332,6 +327,9 @@ const messages = {
     responseSubmitted: "回覆已提交",
     noFields: "此表單還沒有欄位。",
     failedSubmit: "提交表單失敗",
+    uncheckablePattern:
+      "此表單中「{label}」的規則無法檢核。請聯絡表單擁有者修正。",
+    patternTooLong: "欄位「{label}」的值過長，無法使用此表單規則檢核。",
   },
   responseInsights: {
     unavailable: "洞察不可用",
@@ -377,6 +375,13 @@ const messages = {
     page: "Page",
     source: "來源",
     sortBy: "依 {{label}} 排序",
+    communityReview: "審核",
+    communityPublish: "發布到網站",
+    communityPublishing: "正在發布...",
+    communityPublished: "已發布",
+    communityView: "查看網站",
+    communityNeedsCheck: "重試前請檢查 Builder",
+    communityPromotionFailed: "無法發布此提交。",
   },
 };
 

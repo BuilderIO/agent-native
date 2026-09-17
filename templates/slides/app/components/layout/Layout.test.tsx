@@ -1,15 +1,38 @@
 // @vitest-environment happy-dom
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, useNavigate } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { useDecksMock } = vi.hoisted(() => ({ useDecksMock: vi.fn() }));
+const { agentSidebarMock, useDecksMock, creativeContextLabEnabled } =
+  vi.hoisted(() => ({
+    agentSidebarMock: vi.fn(),
+    useDecksMock: vi.fn(),
+    creativeContextLabEnabled: { value: false },
+  }));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
-  AgentSidebar: ({ children }: { children: ReactNode }) => (
-    <div data-testid="agent-sidebar">{children}</div>
-  ),
+  AgentSidebar: ({
+    children,
+    ...props
+  }: {
+    children: ReactNode;
+    composerSlot?: ReactNode;
+    [key: string]: unknown;
+  }) => {
+    agentSidebarMock(props);
+    return (
+      <div data-testid="agent-sidebar">
+        {props.composerSlot}
+        {children}
+      </div>
+    );
+  },
+  focusAgentChat: vi.fn(),
+  isAgentChatHomeHandoffActive: vi.fn(() => false),
+  navigateWithAgentChatViewTransition: vi.fn(),
+  useAgentChatHomeHandoff: vi.fn(() => false),
+  useAgentChatHomeHandoffLinks: vi.fn(),
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
@@ -18,7 +41,10 @@ vi.mock("@agent-native/core/client/org", () => ({
   InvitationBanner: () => <div data-testid="invitation-banner" />,
 }));
 vi.mock("@agent-native/creative-context/client", () => ({
-  CreativeContextComposerChip: () => null,
+  CreativeContextComposerChip: () => (
+    <div data-testid="creative-context-composer-chip" />
+  ),
+  useCreativeContextLab: () => creativeContextLabEnabled.value,
 }));
 vi.mock("@agent-native/toolkit/app-shell", () => ({
   HeaderActionsProvider: ({ children }: { children: ReactNode }) => children,
@@ -34,6 +60,10 @@ vi.mock("@/hooks/use-sidebar-collapsed", () => ({
   useSidebarCollapsed: () => ({ collapsed: false, setCollapsed: vi.fn() }),
 }));
 vi.mock("@/lib/slide-agent-context", () => ({
+  buildSlidesAgentContext: () => ({
+    context: "",
+    contextVersion: "test",
+  }),
   hasCurrentSlideSelection: () => false,
   readPublishedSlidesSelection: () => null,
   SLIDES_SELECTION_CHANGED_EVENT: "slides-selection-changed",
@@ -46,7 +76,7 @@ vi.mock("../editor/GoogleDriveConnectionCta", () => ({
   GoogleDriveConnectionCta: () => null,
 }));
 vi.mock("./AgentWorkIndicator", () => ({
-  AgentWorkIndicator: () => null,
+  AgentWorkIndicator: () => <div data-testid="agent-work-indicator" />,
 }));
 vi.mock("./Header", () => ({ Header: () => <div data-testid="header" /> }));
 vi.mock("./Sidebar", () => ({
@@ -63,13 +93,101 @@ function renderLayout(path: string) {
       <Layout>
         <div data-testid="page-content">Content</div>
       </Layout>
+      <NavigateAway />
     </MemoryRouter>,
+  );
+}
+
+function NavigateAway() {
+  const navigate = useNavigate();
+  return (
+    <button type="button" onClick={() => navigate("/")}>
+      Navigate away
+    </button>
   );
 }
 
 describe("Slides Layout", () => {
   beforeEach(() => {
+    agentSidebarMock.mockClear();
     useDecksMock.mockReturnValue({ decks: [], loading: false });
+    creativeContextLabEnabled.value = false;
+  });
+
+  it("hides the Creative Context composer chip until its lab is enabled", () => {
+    const offRender = renderLayout("/");
+    expect(screen.queryByTestId("creative-context-composer-chip")).toBeNull();
+    offRender.unmount();
+
+    creativeContextLabEnabled.value = true;
+    renderLayout("/");
+    expect(screen.getByTestId("creative-context-composer-chip")).toBeTruthy();
+  });
+
+  it("enables agent-panel auto-open only during a run", () => {
+    renderLayout("/");
+
+    expect(agentSidebarMock).toHaveBeenCalledWith(
+      expect.objectContaining({ openOnChatRunning: false }),
+    );
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: true, tabId: "chat-a" },
+        }),
+      );
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: true, tabId: "chat-b" },
+        }),
+      );
+    });
+    expect(agentSidebarMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ openOnChatRunning: true }),
+    );
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: false, tabId: "chat-a" },
+        }),
+      );
+    });
+    expect(agentSidebarMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ openOnChatRunning: true }),
+    );
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: false, tabId: "chat-b" },
+        }),
+      );
+    });
+    expect(agentSidebarMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ openOnChatRunning: false }),
+    );
+  });
+
+  it("clears running tabs when leaving full-page chat", () => {
+    renderLayout("/chat");
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: true, tabId: "chat-a" },
+        }),
+      );
+    });
+
+    act(() => {
+      screen.getByRole("button", { name: "Navigate away" }).click();
+    });
+
+    expect(agentSidebarMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ openOnChatRunning: false }),
+    );
   });
 
   it("keeps the app shell visible on the empty root route", () => {
@@ -78,6 +196,7 @@ describe("Slides Layout", () => {
     expect(screen.getByTestId("app-sidebar")).toBeTruthy();
     expect(screen.getByTestId("header")).toBeTruthy();
     expect(screen.getByTestId("invitation-banner")).toBeTruthy();
+    expect(screen.getByTestId("agent-work-indicator")).toBeTruthy();
     expect(
       screen.getByRole("button", { name: "sidebar.openNavigation" }),
     ).toBeTruthy();
@@ -92,6 +211,15 @@ describe("Slides Layout", () => {
     expect(
       screen.queryByRole("button", { name: "sidebar.openNavigation" }),
     ).toBeNull();
+    expect(screen.getByTestId("page-content")).toBeTruthy();
+  });
+
+  it("renders full-page chat without the sidebar wrapper", () => {
+    renderLayout("/chat");
+
+    expect(screen.queryByTestId("agent-sidebar")).toBeNull();
+    expect(screen.queryByTestId("agent-work-indicator")).toBeNull();
+    expect(screen.getByTestId("app-sidebar")).toBeTruthy();
     expect(screen.getByTestId("page-content")).toBeTruthy();
   });
 });

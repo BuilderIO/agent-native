@@ -1,4 +1,4 @@
-// Duplicate detection against a real libsql (SQLite) database with the app's own
+// Duplicate detection against a real PGlite database with the app's own
 // migrations applied. The whole point of this module is that it reads the sparse
 // sub-field columns the attribute writer populates, so the queries — not a
 // mocked builder — are the thing under test.
@@ -19,7 +19,7 @@ import {
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `crm-dedupe-test-${process.pid}-${Date.now()}.sqlite`,
+  `crm-dedupe-test-${process.pid}-${Date.now()}.pglite`,
 );
 
 const OWNER = "owner@example.test";
@@ -149,7 +149,7 @@ async function find(recordIds: string[], minConfidence?: number) {
 }
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -200,9 +200,7 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(() => {
-  for (const suffix of ["", "-shm", "-wal"]) {
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
-  }
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 describe("normalizeCrmDisplayName", () => {

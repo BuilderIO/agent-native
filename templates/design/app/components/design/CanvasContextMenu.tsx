@@ -376,7 +376,7 @@ export interface CanvasContextMenuProps {
 
 const DEFAULT_LABELS: CanvasContextMenuLabels = {
   selectLayer: "Select layer",
-  reprompt: "Regenerate…",
+  reprompt: "Edit with AI…",
   pasteHere: "Paste here",
   selectAll: "Select all",
   zoomToFit: "Zoom to fit",
@@ -468,7 +468,7 @@ const DEFAULT_SHORTCUT_BINDINGS: Record<
   rotateClockwise: "",
   flipHorizontal: "shift+h",
   flipVertical: "shift+v",
-  toggleUi: "shift+\\",
+  toggleUi: "$mod+\\",
   toggleComments: "shift+c",
 };
 
@@ -510,10 +510,10 @@ const MENU_CONTENT_CLASS =
   "w-52 min-w-[200px] rounded-[6px] border border-[var(--design-editor-control-border)] bg-[var(--design-editor-panel-bg)] py-[3px] px-[3px] text-[12px] text-foreground shadow-[0_4px_16px_rgba(0,0,0,0.16),0_0_0_0.5px_rgba(0,0,0,0.08)] outline-none data-[state=open]:!animate-none data-[state=closed]:!animate-none";
 // design row height ~28px, full-width highlight on hover, no icon gap waste
 const MENU_ITEM_CLASS =
-  "flex h-7 cursor-default select-none items-center rounded-[4px] px-2 py-0 text-[12px] leading-none gap-0 focus:bg-[var(--design-editor-selection-color)] focus:text-white data-[disabled]:pointer-events-none data-[disabled]:opacity-35";
+  "flex h-7 cursor-default select-none items-center rounded-[4px] px-2 py-0 text-[12px] leading-none gap-0 focus:bg-[var(--design-editor-layer-hover-color)] focus:text-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-35";
 // Submenu trigger mirrors item styles + chevron sizing
 const MENU_SUB_TRIGGER_CLASS =
-  "flex h-7 cursor-default select-none items-center rounded-[4px] px-2 py-0 text-[12px] leading-none focus:bg-[var(--design-editor-selection-color)] focus:text-white data-[state=open]:bg-[var(--design-editor-selection-color)] data-[state=open]:text-white [&>svg:last-child]:ms-auto [&>svg:last-child]:size-3 [&>svg:last-child]:opacity-50";
+  "flex h-7 cursor-default select-none items-center rounded-[4px] px-2 py-0 text-[12px] leading-none focus:bg-[var(--design-editor-layer-hover-color)] focus:text-foreground data-[state=open]:bg-[var(--design-editor-layer-hover-color)] data-[state=open]:text-foreground [&>svg:last-child]:ms-auto [&>svg:last-child]:size-3 [&>svg:last-child]:opacity-50";
 // Separator: 1px, full-width flush, design-editor muted line
 const MENU_SEPARATOR_CLASS =
   "mx-0 my-[3px] h-px bg-[var(--design-editor-control-border)] opacity-80";
@@ -639,6 +639,7 @@ export const CanvasContextMenu = forwardRef<
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLDivElement>(null);
   const imperativePointRef = useRef<CanvasContextMenuPoint | null>(null);
+  const preventContextMenuFocusRestoreRef = useRef(false);
 
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
@@ -800,7 +801,14 @@ export const CanvasContextMenu = forwardRef<
           {children}
         </div>
       </ContextMenuTrigger>
-      <ContextMenuContent className={cn(MENU_CONTENT_CLASS, contentClassName)}>
+      <ContextMenuContent
+        className={cn(MENU_CONTENT_CLASS, contentClassName)}
+        onCloseAutoFocus={(event) => {
+          if (!preventContextMenuFocusRestoreRef.current) return;
+          event.preventDefault();
+          preventContextMenuFocusRestoreRef.current = false;
+        }}
+      >
         {layerCandidates.length > 0 && onSelectLayer ? (
           <>
             <ContextMenuGroup>
@@ -843,6 +851,7 @@ export const CanvasContextMenu = forwardRef<
                         key={`reprompt:${candidate.key}`}
                         candidate={candidate}
                         onSelect={(event) => {
+                          preventContextMenuFocusRestoreRef.current = true;
                           onRepromptLayer(candidate, {
                             action: "reprompt",
                             point,
@@ -865,8 +874,9 @@ export const CanvasContextMenu = forwardRef<
                   }
                   label={labels.reprompt}
                   onSelect={(event) => {
+                    preventContextMenuFocusRestoreRef.current = true;
                     const candidate = layerCandidates[0];
-                    if (!onReprompt && onRepromptLayer && candidate) {
+                    if (onRepromptLayer && candidate) {
                       onRepromptLayer(candidate, {
                         action: "reprompt",
                         point,

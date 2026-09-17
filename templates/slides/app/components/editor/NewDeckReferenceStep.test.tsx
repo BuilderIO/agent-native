@@ -27,6 +27,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
         "home.continue": "Continue",
         "home.continueToGenerate": "Continue to generate",
         "home.noMatchingDecks": "No matching decks found.",
+        "home.addDesignSystem": "Add design system",
       }[key] ?? key
     );
   },
@@ -36,6 +37,24 @@ vi.mock("./GoogleDriveConnectionCta", () => ({
   GoogleDriveConnectionCta: () => (
     <div data-testid="google-drive-connection-cta" />
   ),
+}));
+
+vi.mock("@/components/design-system/DesignSystemSetup", () => ({
+  DesignSystemSetup: ({
+    open,
+    onComplete,
+  }: {
+    open: boolean;
+    onClose: () => void;
+    onComplete: () => void;
+  }) =>
+    open ? (
+      <div data-testid="design-system-setup-dialog">
+        <button type="button" onClick={onComplete}>
+          Finish setup
+        </button>
+      </div>
+    ) : null,
 }));
 
 import {
@@ -56,6 +75,8 @@ function renderStep(
         value: string;
       }) => Promise<ImportedReference | null>
     >();
+  const onOpenChange = vi.fn();
+  const onDesignSystemsChanged = vi.fn();
 
   render(
     <NewDeckReferenceStep
@@ -68,7 +89,8 @@ function renderStep(
       onImport={onImport}
       onImportSource={onImportSource}
       onSkip={vi.fn()}
-      onOpenChange={vi.fn()}
+      onOpenChange={onOpenChange}
+      onDesignSystemsChanged={onDesignSystemsChanged}
       title="New presentation"
       designSystemLabel="Design system"
       referenceDeckLabel="Reference deck"
@@ -80,7 +102,13 @@ function renderStep(
     />,
   );
 
-  return { onSelect, onImport, onImportSource };
+  return {
+    onSelect,
+    onImport,
+    onImportSource,
+    onOpenChange,
+    onDesignSystemsChanged,
+  };
 }
 
 describe("<NewDeckReferenceStep>", () => {
@@ -91,6 +119,7 @@ describe("<NewDeckReferenceStep>", () => {
       id: "deck-pptx",
       title: "Reference PPT",
       source: "pptx",
+      referenceFilePaths: ["/uploads/reference.pptx"],
     };
     const { onSelect, onImport } = renderStep();
     onImport.mockResolvedValue(imported);
@@ -127,6 +156,7 @@ describe("<NewDeckReferenceStep>", () => {
       designSystemId: null,
       referenceDeckId: "deck-pptx",
       referenceSource: null,
+      referenceFilePaths: ["/uploads/reference.pptx"],
     });
   });
 
@@ -157,6 +187,42 @@ describe("<NewDeckReferenceStep>", () => {
     expect(
       screen.getByRole("combobox", { name: "Reference deck" }).textContent,
     ).toContain("Reference PDF");
+  });
+
+  it("only labels the selected file option while importing", async () => {
+    let resolveImport!: (reference: ImportedReference) => void;
+    const { onImport } = renderStep({ importing: true });
+    onImport.mockReturnValue(
+      new Promise((resolve) => {
+        resolveImport = resolve;
+      }),
+    );
+
+    await act(async () => {
+      fireEvent.change(document.querySelector('input[accept=".pdf"]')!, {
+        target: {
+          files: [
+            new File(["pdf"], "reference.pdf", { type: "application/pdf" }),
+          ],
+        },
+      });
+      await Promise.resolve();
+    });
+
+    expect(
+      document.querySelector('label[aria-label="PDF - Importing..."]')
+        ?.textContent,
+    ).toContain("Importing...");
+    expect(
+      document.querySelector('label[aria-label="PPT"]')?.textContent,
+    ).toContain("PPT");
+    expect(
+      document.querySelector('label[aria-label="DOCX"]')?.textContent,
+    ).toContain("DOCX");
+
+    await act(async () => {
+      resolveImport({ id: "deck-pdf", title: "Reference PDF", source: "pdf" });
+    });
   });
 
   it("confirms a DOCX import as the selected reference deck", async () => {
@@ -346,5 +412,95 @@ describe("<NewDeckReferenceStep>", () => {
     renderStep({ promptSummary: "Some prompt" });
 
     expect(screen.queryByText("Attached")).toBeNull();
+  });
+
+  it("opens design system creation inline instead of navigating away", () => {
+    const { onOpenChange, onDesignSystemsChanged } = renderStep({
+      designSystems: [],
+    });
+
+    // Regression: this used to be a plain `<a target="_blank" href="/design-systems">`,
+    // which opened a full-page route in a new tab. Since that route is itself
+    // gated by first-run onboarding, the new tab showed onboarding from the
+    // beginning instead of the design-systems page. Asserting there is no
+    // anchor here, and that the step's own open/close state never fires,
+    // guards against that pattern coming back for this or any other
+    // create-affordance reused inside an onboarding step.
+    expect(
+      screen.queryByRole("link", { name: "Add design system" }),
+    ).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Add design system" }));
+
+    expect(screen.getByTestId("design-system-setup-dialog")).not.toBeNull();
+    expect(onOpenChange).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Finish setup" }));
+
+    expect(screen.queryByTestId("design-system-setup-dialog")).toBeNull();
+    expect(onDesignSystemsChanged).toHaveBeenCalledTimes(1);
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
+  it("shows the placeholder until the reference deck is touched", () => {
+    renderStep({
+      decks: [
+        {
+          id: "deck-1",
+          title: "Some deck",
+          createdAt: "2026-08-01T00:00:00.000Z",
+          updatedAt: "2026-08-01T00:00:00.000Z",
+          slides: [],
+        },
+      ],
+    });
+
+    expect(
+      screen.getByRole("combobox", { name: "Reference deck" }).textContent,
+    ).toBe("Match the style of an existing deck");
+  });
+
+  it("shows None instead of the placeholder after explicitly selecting None", () => {
+    renderStep({
+      decks: [
+        {
+          id: "deck-1",
+          title: "Some deck",
+          createdAt: "2026-08-01T00:00:00.000Z",
+          updatedAt: "2026-08-01T00:00:00.000Z",
+          slides: [],
+        },
+      ],
+    });
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Reference deck" }));
+    fireEvent.click(screen.getByRole("option", { name: "None" }));
+
+    const trigger = screen.getByRole("combobox", { name: "Reference deck" });
+    expect(trigger.textContent).toBe("None");
+    expect(trigger.textContent).not.toContain(
+      "Match the style of an existing deck",
+    );
+  });
+
+  it("shows the deck name in the trigger after selecting a deck", () => {
+    renderStep({
+      decks: [
+        {
+          id: "deck-1",
+          title: "Some deck",
+          createdAt: "2026-08-01T00:00:00.000Z",
+          updatedAt: "2026-08-01T00:00:00.000Z",
+          slides: [],
+        },
+      ],
+    });
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Reference deck" }));
+    fireEvent.click(screen.getByRole("option", { name: "Some deck" }));
+
+    expect(
+      screen.getByRole("combobox", { name: "Reference deck" }).textContent,
+    ).toBe("Some deck");
   });
 });

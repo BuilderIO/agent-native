@@ -6,14 +6,25 @@ import {
 } from "node:crypto";
 
 import type { H3Event } from "h3";
-import { getHeader, getRequestIP } from "h3";
+import {
+  getHeader,
+  getRequestIP,
+  setResponseHeader,
+  setResponseStatus,
+} from "h3";
 
+import { ActionContractError } from "../action.js";
 import { getSetting } from "../settings/store.js";
 import { applyBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
 import {
   getAuthSecret,
   resolveSignupTrackingIdentity,
 } from "./better-auth-instance.js";
+import {
+  resolveBuilderRequestAuthorization,
+  type BuilderRequestAuthorization,
+} from "./builder-api-auth.js";
+import type { BuilderOAuthPermissionScope } from "./builder-oauth.js";
 import { readDeployCredentialEnv } from "./credential-provider.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 import {
@@ -23,10 +34,12 @@ import {
   isAllowedOAuthRedirectUri,
   isConfiguredAppOrigin,
 } from "./google-oauth.js";
+import { isLoopbackOrigin } from "./origin-allowlist.js";
 import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
 
 const DEFAULT_BUILDER_APP_HOST = "https://builder.io";
 const DEFAULT_BUILDER_API_HOST = "https://api.builder.io";
+const DEFAULT_BUILDER_TEMPLATE_ID = "agent-native-starter";
 const BUILDER_API_REQUEST_TIMEOUT_MS = 30_000;
 const BUILDER_BROWSER_HOST = "agent-native-browser";
 const BUILDER_BROWSER_CLIENT_ID = "Agent-Native Browser";
@@ -618,7 +631,7 @@ export const BUILDER_CONNECT_ATTEMPT_PARAM = "_an_connect_attempt";
 
 const BUILDER_CONNECT_STATE_COOKIE_MAX_ENTRIES = 4;
 
-function parseBuilderConnectStateCookie(
+export function parseBuilderConnectStateCookie(
   value: string | null | undefined,
 ): string[] | null {
   if (!value) return [];
@@ -651,17 +664,38 @@ export function removeBuilderConnectStateCookie(
     .join(",");
 }
 
+export interface BuilderConnectCallbackStateResolution {
+  state: string | null;
+  /**
+   * Set when the cookie itself is why this attempt cannot resolve a state.
+   * Nothing else prunes it on failure, so an unusable cookie would make every
+   * later retry unresolvable too — and the restart the error message asks for
+   * is what appends the next state and keeps the trap armed.
+   */
+  resetStateCookie: boolean;
+}
+
 export function resolveBuilderConnectCallbackState(
   queryState: string | null,
   cookieState: string | null | undefined,
-): string | null {
+): BuilderConnectCallbackStateResolution {
   const cookieStates = parseBuilderConnectStateCookie(cookieState);
-  if (cookieState && !cookieStates) return null;
-  if (queryState !== null) {
-    if (cookieStates?.length && !cookieStates.includes(queryState)) return null;
-    return queryState;
+  if (cookieState && !cookieStates) {
+    return { state: null, resetStateCookie: true };
   }
-  return cookieStates?.length === 1 ? cookieStates[0] : null;
+  if (queryState !== null) {
+    // A callback that names a state the cookie does not hold belongs to
+    // another flow; the states in the cookie are still live for their own
+    // callbacks, so fail this attempt without touching them.
+    if (cookieStates?.length && !cookieStates.includes(queryState)) {
+      return { state: null, resetStateCookie: false };
+    }
+    return { state: queryState, resetStateCookie: false };
+  }
+  if (cookieStates?.length === 1) {
+    return { state: cookieStates[0], resetStateCookie: false };
+  }
+  return { state: null, resetStateCookie: (cookieStates?.length ?? 0) > 1 };
 }
 
 const BUILDER_STATE_TTL_MS = 10 * 60 * 1000;
@@ -741,6 +775,15 @@ function applyBuilderConnectTrackingParams(
   if (template) params.set(BUILDER_AGENT_NATIVE_TEMPLATE_PARAM, template);
 }
 
+export function withBuilderConnectTrackingParams(
+  url: string,
+  tracking: BuilderConnectTrackingParams,
+): string {
+  const parsed = new URL(url);
+  applyBuilderConnectTrackingParams(parsed.searchParams, tracking);
+  return parsed.toString();
+}
+
 export interface BuilderBrowserStatus {
   configured: boolean;
   builderEnabled: boolean;
@@ -756,6 +799,8 @@ export interface BuilderBrowserStatus {
    */
   envManaged: boolean;
   credentialSource?: "user" | "org" | "workspace" | "env";
+  /** True only when the current request may revoke the effective grant. */
+  canDisconnect?: boolean;
   /**
    * The currently effective Builder credential was rejected by Builder's API.
    * This is durable status about the credential pair, not a failure of an
@@ -1429,9 +1474,27 @@ function getBuilderConnectCallbackOrigin(event: H3Event): string | null {
   if (isRejectedDirectBuilderCloudHost(requestHost, headerHost)) {
     return getConfiguredBuilderFallbackOrigin(event);
   }
-  return isBuilderCloudRequestHost(headerHost)
-    ? getBuilderBrowserOriginForEvent(event)
-    : getOrigin(event, { useForwardedHost: false });
+  if (isBuilderCloudRequestHost(headerHost)) {
+    return getBuilderBrowserOriginForEvent(event);
+  }
+  const configuredOrigin = getOrigin(event, { useForwardedHost: false });
+  if (!isLoopbackOrigin(configuredOrigin)) return configuredOrigin;
+  // Workspace deploys resolve the configured origin to the workspace gateway,
+  // which is a loopback address. Loopback resolves on the visitor's machine,
+  // so when the request itself arrived on a Builder-hosted preview host the
+  // callback would never reach the server holding this flow's pending row and
+  // the user sees "No active Builder connect flow found". Keep the callback on
+  // the preview origin the connect popup was opened on. A genuinely loopback
+  // request keeps the loopback callback: there the browser and the server do
+  // share a machine.
+  if (
+    !isLoopbackBuilderRequestHost(headerHost) &&
+    isTrustedBuilderRequestHost(headerHost)
+  ) {
+    const previewOrigin = getBuilderBrowserOriginForEvent(event);
+    if (previewOrigin && !isLoopbackOrigin(previewOrigin)) return previewOrigin;
+  }
+  return configuredOrigin;
 }
 
 function isRejectedDirectBuilderCloudHost(
@@ -1561,6 +1624,7 @@ export function getBuilderBrowserStatus(origin: string): BuilderBrowserStatus {
     branchProjectId: branchProjectId || undefined,
     envManaged,
     credentialSource: envManaged ? "env" : undefined,
+    canDisconnect: false,
     appHost: getBuilderAppHost(),
     apiHost: getBuilderApiHost(),
     connectUrl: origin ? getBuilderBrowserConnectUrl(origin) : "",
@@ -2025,9 +2089,71 @@ export function createBuilderBrowserCallbackErrorPage(
 </html>`;
 }
 
+/**
+ * Status to report when a Builder upstream dependency (account provisioning,
+ * the preview relay, the waitlist form) fails.
+ *
+ * Deliberately not 502/504: Cloudflare replaces an origin gateway status with
+ * its own "Bad gateway" page, so the body never reaches the client. For a
+ * popup that costs the human-readable reason and the BroadcastChannel handoff
+ * that stops the opener's polling loop; for a JSON route it costs the error
+ * payload the caller parses.
+ */
+export const BUILDER_UPSTREAM_FAILURE_STATUS = 503;
+
+const CDN_REPLACED_GATEWAY_STATUSES = new Set([502, 504]);
+
+export function cdnSafeOriginStatus(status: number): number {
+  return CDN_REPLACED_GATEWAY_STATUSES.has(status)
+    ? BUILDER_UPSTREAM_FAILURE_STATUS
+    : status;
+}
+
+/**
+ * The only supported way to emit a Builder connect/callback popup error page.
+ * Centralised so a call site cannot pick a status the CDN will swallow.
+ */
+export function sendBuilderPopupErrorPage(
+  event: H3Event,
+  status: number,
+  message: string,
+  opts: Parameters<typeof createBuilderBrowserCallbackErrorPage>[1] = {},
+): string {
+  setResponseStatus(event, cdnSafeOriginStatus(status));
+  setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
+  return createBuilderBrowserCallbackErrorPage(message, opts);
+}
+
+export interface BuilderAgentUploadAttachment {
+  type: "upload";
+  contentType:
+    | "image/webp"
+    | "image/png"
+    | "image/jpeg"
+    | "image/gif"
+    | "application/pdf"
+    | "application/json"
+    | "text/plain";
+  name: string;
+  dataUrl: string;
+  text?: string;
+  size: number;
+  id: string;
+}
+
+export interface BuilderAgentUrlAttachment {
+  type: "url";
+  value: string;
+}
+
+export type BuilderAgentAttachment =
+  | BuilderAgentUploadAttachment
+  | BuilderAgentUrlAttachment;
+
 export interface RunBuilderAgentArgs {
   prompt: string;
   context?: string;
+  attachments?: BuilderAgentAttachment[];
   projectId?: string;
   branchName?: string;
   userEmail?: string;
@@ -2035,6 +2161,76 @@ export interface RunBuilderAgentArgs {
 }
 
 export const BUILDER_AGENT_CONTEXT_MAX_CHARS = 32_000;
+
+const BUILDER_AGENT_UPLOAD_CONTENT_TYPES = new Set<
+  BuilderAgentUploadAttachment["contentType"]
+>([
+  "image/webp",
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "application/pdf",
+  "application/json",
+  "text/plain",
+]);
+
+export function normalizeBuilderAgentAttachments(
+  attachments: BuilderAgentAttachment[] | undefined,
+): BuilderAgentAttachment[] | undefined {
+  if (!attachments || attachments.length === 0) return undefined;
+
+  const normalized = attachments.map((attachment) => {
+    if (attachment.type === "url") {
+      let url: URL;
+      try {
+        url = new URL(attachment.value);
+      } catch {
+        throw new Error("Builder attachment URL is malformed");
+      }
+      if (url.protocol !== "https:" && url.protocol !== "http:") {
+        throw new Error("Builder attachment URL must use http or https");
+      }
+      return attachment;
+    }
+
+    if (!BUILDER_AGENT_UPLOAD_CONTENT_TYPES.has(attachment.contentType)) {
+      throw new Error(
+        `Unsupported Builder attachment content type: ${attachment.contentType}`,
+      );
+    }
+    if (!attachment.name.trim() || !attachment.id.trim()) {
+      throw new Error("Builder upload attachments require a name and id");
+    }
+    if (!Number.isInteger(attachment.size) || attachment.size < 0) {
+      throw new Error("Builder attachment size must be a non-negative integer");
+    }
+    if (
+      attachment.contentType === "text/plain" ||
+      attachment.contentType === "application/json"
+    ) {
+      if (attachment.text === undefined || attachment.dataUrl !== "") {
+        throw new Error(
+          "Text and JSON Builder attachments require text and an empty dataUrl",
+        );
+      }
+      if (Buffer.byteLength(attachment.text, "utf8") !== attachment.size) {
+        throw new Error(
+          "Builder attachment size does not match its text content",
+        );
+      }
+    } else if (
+      !attachment.dataUrl.startsWith(`data:${attachment.contentType};base64,`)
+    ) {
+      throw new Error(
+        "Image and PDF Builder attachments require a matching base64 dataUrl",
+      );
+    }
+
+    return attachment;
+  });
+
+  return normalized;
+}
 
 export function normalizeBuilderAgentContext(
   value: unknown,
@@ -2076,7 +2272,7 @@ export interface BuilderProjectLookupArgs {
 export interface BuilderProjectResult {
   projectId: string;
   name: string;
-  repoUrl: string;
+  repoUrl?: string;
   browserUrl: string;
   created: boolean;
 }
@@ -2142,8 +2338,8 @@ function builderProjectBrowserUrl(projectId: string): string {
 
 function builderProjectFromRecord(
   value: unknown,
-  fallbackRepoUrl: string | null,
   created: boolean,
+  fallbackRepoUrl?: string,
 ): BuilderProjectResult | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
@@ -2158,28 +2354,34 @@ function builderProjectFromRecord(
     typeof record.repoUrl === "string" && record.repoUrl.trim()
       ? record.repoUrl.trim()
       : fallbackRepoUrl;
-  if (!repoUrl) return null;
   return {
     projectId: normalizeBuilderProjectString(projectId, "project id"),
     name: normalizeBuilderProjectString(name, "project name"),
-    repoUrl: normalizeBuilderRepoUrl(repoUrl),
+    ...(repoUrl ? { repoUrl } : {}),
     browserUrl: builderProjectBrowserUrl(projectId),
     created,
   };
 }
 
-async function resolveBuilderApiCredentials() {
-  const { resolveBuilderCredentials } =
-    await import("./credential-provider.js");
-  const creds = await resolveBuilderCredentials();
-  if (!creds.privateKey || !creds.publicKey) {
-    throw new Error("Builder keys are not configured");
+async function resolveBuilderApiAuthorization(
+  requiredScope: BuilderOAuthPermissionScope,
+): Promise<BuilderRequestAuthorization> {
+  const authorization = await resolveBuilderRequestAuthorization({
+    requiredScope,
+  });
+  if (!authorization) {
+    throw new ActionContractError(
+      "Builder.io is not connected. Connect Builder.io in Settings.",
+      { errorCode: "builder_not_connected", statusCode: 400 },
+    );
   }
-  return {
-    ...creds,
-    privateKey: creds.privateKey,
-    publicKey: creds.publicKey,
-  };
+  if (authorization.source === "legacy" && !authorization.legacyPublicKey) {
+    throw new ActionContractError(
+      "Builder legacy credentials require BUILDER_PUBLIC_KEY for this request.",
+      { errorCode: "builder_legacy_public_key_required", statusCode: 400 },
+    );
+  }
+  return authorization;
 }
 
 async function fetchBuilderApi(
@@ -2384,6 +2586,22 @@ export async function provisionBuilderAccount(input: {
   return parseBuilderAccountProvisioningResponse(parsed);
 }
 
+/**
+ * A 401 from Builder means the stored credential was rejected upstream, which
+ * no amount of retrying fixes - the user has to reconnect. Callers classify on
+ * `errorCode`, so it is raised with the same code the local authorization check
+ * uses. 403 is deliberately excluded: Builder also returns it for a Space
+ * membership problem, where telling the user to reconnect would be wrong.
+ */
+function builderApiFailure(status: number, message: string): Error {
+  return status === 401
+    ? new ActionContractError(message, {
+        errorCode: "builder_not_connected",
+        statusCode: 400,
+      })
+    : new Error(message);
+}
+
 function builderApiErrorMessage(
   parsed: Record<string, unknown>,
   fallback: string,
@@ -2397,46 +2615,46 @@ function builderApiErrorMessage(
   return fallback;
 }
 
-/**
- * Find an existing Builder project connected to a repository. Dispatch uses
- * this before provisioning so a first app request cannot create a duplicate
- * workspace project when the project id has not been saved yet.
- */
+/** @deprecated Repository-backed Builder projects are retained for compatibility. */
 export async function findBuilderProjectForRepo(
   args: BuilderProjectLookupArgs,
 ): Promise<BuilderProjectResult | null> {
   const repoUrl = normalizeBuilderRepoUrl(args.repoUrl);
-  const creds = await resolveBuilderApiCredentials();
+  const authorization = await resolveBuilderApiAuthorization(
+    "builder:projects:read",
+  );
   const url = new URL("/projects", getBuilderApiHost());
-  url.searchParams.set("apiKey", creds.publicKey);
+  if (authorization.legacyPublicKey)
+    url.searchParams.set("apiKey", authorization.legacyPublicKey);
   url.searchParams.set("includeHidden", "true");
 
   const response = await fetchBuilderApi(
     url,
     {
       method: "GET",
-      headers: { Authorization: `Bearer ${creds.privateKey}` },
+      headers: { Authorization: authorization.authorization },
     },
     "project lookup",
   );
   const parsed = await readBuilderApiObject(response, "project lookup");
   if (!response.ok) {
-    throw new Error(
+    throw builderApiFailure(
+      response.status,
       builderApiErrorMessage(
         parsed,
         `Builder project lookup failed (${response.status})`,
       ),
     );
   }
-
   if (!Array.isArray(parsed.projects)) {
     throw new Error("Builder project lookup returned no projects list");
   }
+
   const comparableRepoUrl = comparableBuilderRepoUrl(repoUrl);
   for (const project of parsed.projects) {
-    const normalized = builderProjectFromRecord(project, null, false);
+    const normalized = builderProjectFromRecord(project, false);
     if (
-      normalized &&
+      normalized?.repoUrl &&
       comparableBuilderRepoUrl(normalized.repoUrl) === comparableRepoUrl
     ) {
       return normalized;
@@ -2445,31 +2663,41 @@ export async function findBuilderProjectForRepo(
   return null;
 }
 
-/**
- * Create a Builder project connected to a repository through the public
- * projects API. This is the server-side bridge used by Dispatch; online
- * Claude and ChatGPT hosts do not need a separate Builder CMS MCP connector.
- */
+/** Creates from the default template; repoUrl remains for deprecated helpers. */
 export async function createBuilderProject(args: {
   name: string;
-  repoUrl: string;
+  templateId?: string;
+  repoUrl?: string;
 }): Promise<BuilderProjectResult> {
   const name = normalizeBuilderProjectString(args.name, "project name");
-  const repoUrl = normalizeBuilderRepoUrl(args.repoUrl);
-  const creds = await resolveBuilderApiCredentials();
+  const repoUrl = args.repoUrl
+    ? normalizeBuilderRepoUrl(args.repoUrl)
+    : undefined;
+  const templateId = repoUrl
+    ? undefined
+    : normalizeBuilderProjectString(
+        args.templateId ?? DEFAULT_BUILDER_TEMPLATE_ID,
+        "template id",
+      );
+  const authorization = await resolveBuilderApiAuthorization(
+    "builder:projects:write",
+  );
   const url = new URL("/projects/create", getBuilderApiHost());
-  url.searchParams.set("apiKey", creds.publicKey);
+  if (authorization.legacyPublicKey)
+    url.searchParams.set("apiKey", authorization.legacyPublicKey);
 
   const response = await fetchBuilderApi(
     url,
     {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${creds.privateKey}`,
+        Authorization: authorization.authorization,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        source: { kind: "repo", repoUrl },
+        source: repoUrl
+          ? { kind: "repo", repoUrl }
+          : { kind: "template", templateId },
         name,
       }),
     },
@@ -2477,7 +2705,8 @@ export async function createBuilderProject(args: {
   );
   const parsed = await readBuilderApiObject(response, "project creation");
   if (!response.ok) {
-    throw new Error(
+    throw builderApiFailure(
+      response.status,
       builderApiErrorMessage(
         parsed,
         `Builder project creation failed (${response.status})`,
@@ -2485,18 +2714,14 @@ export async function createBuilderProject(args: {
     );
   }
 
-  const project = builderProjectFromRecord(parsed.project, repoUrl, true);
+  const project = builderProjectFromRecord(parsed.project, true, repoUrl);
   if (!project) {
     throw new Error("Builder project creation returned no project id");
   }
   return project;
 }
 
-/**
- * Reuse a connected Builder project or create it once when Dispatch is first
- * used for a workspace. The lookup and create calls intentionally stay in
- * this shared server helper so all callers use the same authenticated path.
- */
+/** @deprecated Repository-backed Builder projects are retained for compatibility. */
 export async function ensureBuilderProject(args: {
   name: string;
   repoUrl: string;
@@ -2535,12 +2760,8 @@ function normalizeBuilderBranchUrl(value: unknown): string {
 export async function runBuilderAgent(
   args: RunBuilderAgentArgs,
 ): Promise<RunBuilderAgentResult> {
-  const { resolveBuilderCredentials } =
-    await import("./credential-provider.js");
-  const creds = await resolveBuilderCredentials();
-  if (!creds.privateKey || !creds.publicKey) {
-    throw new Error("Builder keys are not configured");
-  }
+  const authorization =
+    await resolveBuilderApiAuthorization("builder:agents:run");
   if (!args.prompt || !args.prompt.trim()) {
     throw new Error("prompt is required");
   }
@@ -2557,35 +2778,40 @@ export async function runBuilderAgent(
   // against Space membership, so fall back to the credential's user id when
   // there is no session email or the email is not a member.
   const requestedEmail = args.userEmail?.trim() || undefined;
-  const fallbackUserId = args.userId || creds.userId || undefined;
+  const fallbackUserId = args.userId || authorization.userId || undefined;
   const builderUserEmail = requestedEmail;
   const builderUserId = requestedEmail ? undefined : fallbackUserId;
   if (!builderUserEmail && !builderUserId) {
     throw new Error("userEmail or userId is required");
   }
   const userPrompt = buildBuilderAgentUserPrompt(args.prompt, args.context);
+  const attachments = normalizeBuilderAgentAttachments(args.attachments);
 
   const url = new URL("/agents/run", getBuilderApiHost());
-  url.searchParams.set("apiKey", creds.publicKey);
+  if (authorization.legacyPublicKey)
+    url.searchParams.set("apiKey", authorization.legacyPublicKey);
 
   const postRun = async (actor: { userEmail?: string; userId?: string }) => {
     const body: Record<string, unknown> = {
-      userMessage: { userPrompt },
+      userMessage: {
+        userPrompt,
+        ...(attachments ? { attachments } : {}),
+      },
       projectId,
     };
     if (args.branchName) body.branchName = args.branchName;
     if (actor.userEmail) body.userEmail = actor.userEmail;
     if (actor.userId) body.userId = actor.userId;
-
+    const serializedBody = JSON.stringify(body);
     const response = await fetchBuilderApi(
       url,
       {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${creds.privateKey}`,
+          Authorization: authorization.authorization,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(body),
+        body: serializedBody,
       },
       "agent run",
     );
@@ -2618,7 +2844,7 @@ export async function runBuilderAgent(
       typeof parsed.error === "string"
         ? parsed.error
         : `Builder agent run failed (${response.status})`;
-    throw new Error(msg);
+    throw builderApiFailure(response.status, msg);
   }
 
   return {
@@ -2638,12 +2864,9 @@ export async function runBuilderAgent(
 export async function requestBuilderBrowserConnection(
   args: BrowserConnectionArgs,
 ): Promise<Record<string, unknown>> {
-  const { resolveBuilderCredentials } =
-    await import("./credential-provider.js");
-  const creds = await resolveBuilderCredentials();
-  if (!creds.privateKey || !creds.publicKey) {
-    throw new Error("Builder browser access is not configured");
-  }
+  const authorization = await resolveBuilderApiAuthorization(
+    "builder:browser:connect",
+  );
 
   const sessionId = args.sessionId?.trim();
   if (!sessionId) {
@@ -2651,9 +2874,11 @@ export async function requestBuilderBrowserConnection(
   }
 
   const url = new URL("/codegen/get-browser-connection", getBuilderApiHost());
-  url.searchParams.set("apiKey", creds.publicKey);
-  if (creds.userId) {
-    url.searchParams.set("userId", creds.userId);
+  if (authorization.legacyPublicKey) {
+    url.searchParams.set("apiKey", authorization.legacyPublicKey);
+  }
+  if (authorization.userId) {
+    url.searchParams.set("userId", authorization.userId);
   }
 
   const response = await fetchBuilderApi(
@@ -2661,7 +2886,7 @@ export async function requestBuilderBrowserConnection(
     {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${creds.privateKey}`,
+        Authorization: authorization.authorization,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -2685,7 +2910,7 @@ export async function requestBuilderBrowserConnection(
       typeof body.error === "string"
         ? body.error
         : `Builder browser request failed (${response.status})`;
-    throw new Error(error);
+    throw builderApiFailure(response.status, error);
   }
 
   return body;

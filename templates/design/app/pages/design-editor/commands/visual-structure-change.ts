@@ -1,5 +1,6 @@
 import { stripBoardSurfaceOffsetFromCoord } from "@shared/board-file";
 import { applyVisualEdit, buildCodeLayerProjection } from "@shared/code-layer";
+import { isRunningAppSourceType } from "@shared/source-mode";
 import type { Dispatch, SetStateAction } from "react";
 import { toast } from "sonner";
 
@@ -15,15 +16,27 @@ import {
 } from "@/pages/design-editor/code-layer-state";
 import {
   isAbsoluteCodeLayerNode,
+  rawAbsoluteContainerOffsetFromDrop,
   removeAbsolutePositioningFromNodeInHtml,
   setAbsolutePositioningForNodeInHtml,
   setFlowPositioningOverrideForNodeInHtml,
 } from "@/pages/design-editor/html-layer-positioning";
 import type { DesignFile } from "@/pages/design-editor/types";
 
+import type { ApplyLocalContentUpdateResult } from "./apply-local-content-update";
+import {
+  resolveLinkedComponentStructureTarget,
+  type ApplyLinkedComponentEdit,
+} from "./linked-component-structure";
+import {
+  mapAcceptedSelectionNode,
+  projectAcceptedSource,
+} from "./selection-publication";
+
 export interface VisualStructureChangeArgs {
   activeCanvasSourceType: "inline" | "localhost" | "fusion";
   activeFile: DesignFile;
+  applyLinkedComponentEdit?: ApplyLinkedComponentEdit;
   applyLocalContentUpdate: (
     nextContent: string,
     options?: {
@@ -37,7 +50,7 @@ export interface VisualStructureChangeArgs {
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
     },
-  ) => void;
+  ) => ApplyLocalContentUpdateResult;
   canEditDesign: boolean;
   getFreshActiveContent: () => string;
   recordPendingLiveStructureEdit: (
@@ -59,6 +72,8 @@ export interface VisualStructureChangeArgs {
       replaced?: true;
       replacementSelector?: string;
       replacementSourceId?: string;
+      replacementElementInfo?: ElementInfo;
+      replacementSnapshotHtml?: string;
       removed?: true;
     },
   ) => void;
@@ -78,6 +93,7 @@ export function runVisualStructureChange(
     setSelectedElement,
     setSelectedLayerIdsState,
     t,
+    applyLinkedComponentEdit,
   }: VisualStructureChangeArgs,
   selector: string,
   anchorSelector: string,
@@ -98,6 +114,8 @@ export function runVisualStructureChange(
     replaced?: true;
     replacementSelector?: string;
     replacementSourceId?: string;
+    replacementElementInfo?: ElementInfo;
+    replacementSnapshotHtml?: string;
   },
 ) {
   dndHostLog("persist:begin", {
@@ -109,7 +127,7 @@ export function runVisualStructureChange(
   });
   if (!canEditDesign) return false;
   if (!activeFile) return false;
-  if (activeCanvasSourceType === "localhost") {
+  if (isRunningAppSourceType(activeCanvasSourceType)) {
     recordPendingLiveStructureEdit(
       activeFile.id,
       selector,
@@ -121,7 +139,8 @@ export function runVisualStructureChange(
     return "pending";
   }
   const baseContent = getFreshActiveContent();
-  const projection = buildCodeLayerProjection(baseContent);
+  const source = { kind: "design-file" as const, fileId: activeFile.id };
+  const projection = buildCodeLayerProjection(baseContent, { source });
   const resolveBridgeNode = (targetSelector: string, sourceId?: string) =>
     resolveCodeLayerNodeFromBridge(projection, targetSelector, sourceId);
   const targetInfo = elementInfo
@@ -135,23 +154,53 @@ export function runVisualStructureChange(
     ? resolveCodeLayerNodeFromElementInfo(projection, targetInfo)
     : resolveBridgeNode(selector, details?.sourceId);
   const anchorNode = resolveBridgeNode(anchorSelector, details?.anchorSourceId);
-  const patch = applyVisualEdit(baseContent, {
-    kind: "moveNode",
-    // Keep the bridge's stable source id on the fallback: resolving by
-    // selector alone fails for stamped nodes, and the resolver tries
-    // nodeId first before falling back to the selector anyway.
+  const moveIntent = {
+    kind: "moveNode" as const,
     target: targetNode
-      ? { nodeId: targetNode.id }
+      ? {
+          nodeId: targetNode.id,
+        }
       : details?.sourceId
         ? { nodeId: details.sourceId, selector }
         : { selector },
     anchor: anchorNode
-      ? { nodeId: anchorNode.id }
+      ? {
+          nodeId: anchorNode.id,
+        }
       : details?.anchorSourceId
         ? { nodeId: details.anchorSourceId, selector: anchorSelector }
         : { selector: anchorSelector },
     placement,
-  });
+  };
+  const linkedMoveIntent =
+    targetNode?.dataAttributes["data-agent-native-node-id"] &&
+    anchorNode?.dataAttributes["data-agent-native-node-id"]
+      ? {
+          kind: "moveNode" as const,
+          target: {
+            nodeId: targetNode.dataAttributes["data-agent-native-node-id"],
+          },
+          anchor: {
+            nodeId: anchorNode.dataAttributes["data-agent-native-node-id"],
+          },
+          placement,
+        }
+      : null;
+  const linkedComponentTarget =
+    applyLinkedComponentEdit && linkedMoveIntent
+      ? resolveLinkedComponentStructureTarget({
+          content: baseContent,
+          source,
+          intents: [linkedMoveIntent],
+        })
+      : null;
+  const patch = applyVisualEdit(
+    baseContent,
+    linkedComponentTarget ? linkedMoveIntent! : moveIntent,
+    linkedComponentTarget
+      ? { source, allowMainComponentStructure: true }
+      : { source },
+  );
   dndHostLog("persist:rewrite", {
     status: patch.result.status,
     message: patch.result.message,
@@ -161,6 +210,7 @@ export function runVisualStructureChange(
       codeLayerPatchMessage(
         patch.result.message,
         t("designEditor.toasts.layerMoveFailed"),
+        t,
       ),
       { duration: 4000 },
     );
@@ -175,28 +225,25 @@ export function runVisualStructureChange(
           (node) => node.id === patch.result.after?.nodeId,
         )?.dataAttributes["data-agent-native-node-id"]
       : undefined);
-  // Absolute-container drops persist sourceRect − anchorRect (both
-  // measured in-iframe by the bridge AFTER its optimistic DOM move). On
-  // the BOARD surface, top-level elements carry the content-offset
-  // translate (+65536 — see embeddedContentOffsetStyle in
-  // DesignCanvas.tsx) while nested ones do not, and the bridge's
-  // rect-space delta math doesn't model that translate — the measured
-  // offset for a board nest comes out exactly one surface offset
-  // (65536px) away from the true parent-relative value and, persisted
-  // verbatim, parks the nested child off-world. Strip that fingerprint
-  // before persisting (a no-op for screens and for sane offsets), and
-  // when it fired, ALSO refresh the preview: the bridge's optimistic
-  // in-iframe placement was off by the same 65536, so the iframe must be
-  // re-rendered from the corrected content instead of being trusted.
-  const rawAbsoluteContainerOffset =
-    details?.dropMode === "absolute-container" &&
-    details.sourceRect &&
-    details.anchorRect
-      ? {
-          x: details.sourceRect.x - details.anchorRect.x,
-          y: details.sourceRect.y - details.anchorRect.y,
-        }
-      : null;
+  // Absolute-container inside drops persist sourceRect − anchorRect.
+  // Sibling un-nests use the bridge's rebased inline left/top instead —
+  // the anchor is the old parent, not the new containing block. On the
+  // BOARD surface, top-level elements carry the content-offset translate
+  // (+65536 — see embeddedContentOffsetStyle in DesignCanvas.tsx) while
+  // nested ones do not, and rect-space delta math doesn't model that
+  // translate. Strip that fingerprint before persisting (a no-op for
+  // screens and for sane offsets), and when it fired, ALSO refresh the
+  // preview: the bridge's optimistic in-iframe placement was off by the
+  // same 65536, so the iframe must be re-rendered from the corrected
+  // content instead of being trusted.
+  const rawAbsoluteContainerOffset = rawAbsoluteContainerOffsetFromDrop({
+    dropMode: details?.dropMode,
+    placement,
+    sourceRect: details?.sourceRect,
+    anchorRect: details?.anchorRect,
+    inlineStyles: elementInfo?.inlineStyles,
+    anchorSelector,
+  });
   const absoluteContainerOffset = rawAbsoluteContainerOffset
     ? {
         x: stripBoardSurfaceOffsetFromCoord(rawAbsoluteContainerOffset.x),
@@ -231,8 +278,8 @@ export function runVisualStructureChange(
               movedNodeAttrId,
             )
           : patch.content;
-  const nextProjection = buildCodeLayerProjection(nextContent);
-  const movedNode =
+  const nextProjection = buildCodeLayerProjection(nextContent, { source });
+  const movedNodeCandidate =
     (movedNodeAttrId
       ? nextProjection.nodes.find(
           (node) =>
@@ -252,11 +299,33 @@ export function runVisualStructureChange(
         elementInfo?.sourceId ??
         (targetNode ? bridgeSourceIdForCodeLayerNode(targetNode) : undefined),
     );
-  applyLocalContentUpdate(
+  if (linkedComponentTarget && applyLinkedComponentEdit) {
+    applyLinkedComponentEdit(
+      linkedComponentTarget.fileId,
+      linkedComponentTarget.nodeId,
+      nextContent === patch.content
+        ? { kind: "structure", intents: [linkedMoveIntent!] }
+        : {
+            kind: "structure",
+            before: baseContent,
+            after: nextContent,
+            ...(movedNodeAttrId ? { selectionNodeIds: [movedNodeAttrId] } : {}),
+          },
+    );
+    return true;
+  }
+  const publication = applyLocalContentUpdate(
     nextContent,
     absoluteOffsetWasPoisoned
       ? { forcePreviewFullDocument: true }
       : { skipPreview: true },
+  );
+  if (publication.status !== "accepted") return false;
+  const acceptedProjection = projectAcceptedSource(publication, source);
+  const movedNode = mapAcceptedSelectionNode(
+    publication,
+    acceptedProjection,
+    movedNodeCandidate,
   );
   if (movedNode) setSelectedLayerIdsState([movedNode.id]);
   if (elementInfo) {

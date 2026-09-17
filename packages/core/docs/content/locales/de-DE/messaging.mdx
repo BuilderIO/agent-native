@@ -11,7 +11,7 @@ Verbinden Sie Ihren Agenten mit Slack, Microsoft Teams, Discord-Interaktionen, E
 >
 > Teams benötigt `MICROSOFT_TEAMS_APP_ID`, `MICROSOFT_TEAMS_APP_PASSWORD` und `MICROSOFT_TEAMS_ALLOWED_TENANT_IDS`. Discord benötigt `DISCORD_APPLICATION_ID` und `DISCORD_PUBLIC_KEY`. Telegram benötigt zusätzlich `TELEGRAM_WEBHOOK_SECRET`, WhatsApp zusätzlich `WHATSAPP_APP_SECRET`.
 
-> **Verwenden Sie die Dispatch-Vorlage?** All dies ist für Sie unter **Einstellungen → Nachrichten** eingerichtet. Klicken Sie, um jede Plattform zu verbinden – Sie müssen den Rest dieser Seite nicht lesen, es sei denn, Sie passen Ihre eigene Vorlage an oder erstellen sie. Siehe [Dispatch](/docs/dispatch) oder [Dispatch template reference](/docs/template-dispatch).
+> **Verwenden Sie die Dispatch-Vorlage?** All dies ist für Sie unter **Verwaltung → Nachrichten** eingerichtet. Klicken Sie, um jede Plattform zu verbinden – Sie müssen den Rest dieser Seite nicht lesen, es sei denn, Sie passen Ihre eigene Vorlage an oder erstellen sie. Siehe [Dispatch](/docs/dispatch) oder [Dispatch template reference](/docs/template-dispatch).
 
 ## Was Sie tun können {#what-you-can-do}
 
@@ -136,7 +136,7 @@ und `link_shared`-Ereignisse an den Clips-Unfurl-Handler.
 ### Verwaltetes Add to Slack
 
 Verwaltetes OAuth ist die empfohlene Einrichtung. Wählen Sie unter
-**Einstellungen → Messaging** die Option **Agent manifest**, laden Sie die
+**Verwaltung → Messaging** die Option **Agent manifest**, laden Sie die
 hostspezifische Datei `agent-native-slack-manifest.json` herunter und importieren
 Sie sie in Slack unter **App Manifest**. Das Manifest aktiviert die aktuelle
 `agent_view`-Oberfläche und einen beschreibbaren **Messages**-Tab für DMs.
@@ -176,7 +176,7 @@ Interactivity Request URL auf
 Abonnieren Sie `app_home_opened`, `app_context_changed`, `app_mention`,
 `message.im`.
 Konfigurieren Sie `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`
-und `SLACK_SIGNING_SECRET`; klicken Sie dann unter **Einstellungen → Messaging**
+und `SLACK_SIGNING_SECRET`; klicken Sie dann unter **Verwaltung → Messaging**
 auf **Add to Slack**. Jede Installation besitzt einen verschlüsselten Token und
 team-, app-, kanal- und threadbezogene Konversationsschlüssel.
 
@@ -500,7 +500,7 @@ Warum das schön ist:
 
 - **Ein Agent, ein Posteingang.** Alle Ihre Kanäle (Slack, E-Mail, Telegram, WhatsApp) fließen in Dispatch ein. Sie richten Integrationen nur einmal ein.
 - **Dispatch-Delegierte.** Fragen Sie „Anmeldungen der letzten Woche zusammenfassen“ – Dispatch ruft den Analyseagenten an. Fragen Sie „Antwort an Alice verfassen“ – Dispatch ruft den E-Mail-Agenten an.
-- **Klicks, nicht config.** Die Dispatch-Seite **Einstellungen → Nachrichten** verfügt über Verbindungsschaltflächen für jede Plattform mit integrierten env-var-Feldern.
+- **Klicks, nicht config.** Die Dispatch-Seite **Verwaltung → Nachrichten** verfügt über Verbindungsschaltflächen für jede Plattform mit integrierten env-var-Feldern.
 
 Wenn Sie keinen Orchestrator benötigen, kann jede einzelne Vorlage Messaging direkt mithilfe der Umgebungsvariablen auf dieser Seite verknüpfen.
 

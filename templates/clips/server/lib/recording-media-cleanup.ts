@@ -1,4 +1,7 @@
-import { resolveBuilderCredentials } from "@agent-native/core/server";
+import {
+  BUILDER_ASSETS_WRITE_SCOPE,
+  resolveBuilderRequestAuthorization,
+} from "@agent-native/core/server";
 
 import { deleteS3ObjectByUrl } from "./s3-upload-provider.js";
 
@@ -47,17 +50,26 @@ async function deleteBuilderAssetByUrl(url: string): Promise<boolean> {
   const assetUrl = builderAssetUrl(url);
   if (!assetUrl) return false;
 
-  const credentials = await resolveBuilderCredentials();
-  if (!credentials.privateKey || !credentials.publicKey) return false;
+  const authorization = await resolveBuilderRequestAuthorization({
+    requiredScope: BUILDER_ASSETS_WRITE_SCOPE,
+  });
+  if (
+    !authorization ||
+    (authorization.source === "legacy" && !authorization.legacyPublicKey)
+  ) {
+    return false;
+  }
 
   const deleteUrl = new URL("/api/v1/assets/by-url", "https://cdn.builder.io");
   deleteUrl.searchParams.set("url", assetUrl);
-  deleteUrl.searchParams.set("apiKey", credentials.publicKey);
+  if (authorization.legacyPublicKey) {
+    deleteUrl.searchParams.set("apiKey", authorization.legacyPublicKey);
+  }
 
   const res = await fetch(deleteUrl.toString(), {
     method: "DELETE",
     headers: {
-      Authorization: `Bearer ${credentials.privateKey}`,
+      Authorization: authorization.authorization,
     },
   });
 

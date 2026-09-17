@@ -278,6 +278,30 @@ Other framework-level baseline events:
 
 For new lifecycle events, call `track()` server-side when the server is the source of truth, and `trackEvent()` client-side only for browser interactions.
 
+### Lifecycle taxonomy
+
+Lifecycle event names use lowercase `snake_case`; lifecycle properties use the
+same convention. The shared dimensions are `app_name`, `template_name`,
+`user_id`, `user_email`, `workspace_id`, `session_id`, `output_id`,
+`output_type`, `source`, and `referrer`. App/template values are canonical ids
+without the `agent-native-` prefix. Identity is also stored in the event's
+top-level user/session columns for joins.
+
+The canonical lifecycle events are `app_entered`, `core_action_started`,
+`core_action_completed`, `core_action_failed`, `output_viewed`,
+`output_shared`, `cta_clicked`, `return_usage`, and `cross_app_used`. The
+framework also emits `action_started`, `action_completed`, and
+`action_failed` for mutating `defineAction()` calls so UI, agent, MCP, A2A,
+automation, and CLI activity share one action-level trail. Read-only actions
+and high-frequency refresh, polling, navigation, and application-state actions
+are excluded.
+
+App entry is emitted once per app and browser session. Tracking is action-level
+only: it does not install mouse, pointer, scroll, keypress, or DOM autocapture.
+Existing legacy events remain available and emit their canonical lifecycle
+counterpart where the meaning is unambiguous, so downstream dashboards can
+migrate without losing historical names.
+
 ## Provider Interface
 
 ```ts

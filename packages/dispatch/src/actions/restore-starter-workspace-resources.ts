@@ -1,11 +1,13 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
+import { authorizeDispatchAdmin } from "../server/lib/app-roles.js";
 import { restoreStarterWorkspaceResources } from "../server/lib/workspace-resources-store.js";
 
 export default defineAction({
   description:
     "Restore missing starter global workspace resources such as company, brand, messaging, guardrails, and company voice. Existing resources are left unchanged.",
+  authorize: authorizeDispatchAdmin,
   schema: z.object({
     paths: z
       .array(z.string())

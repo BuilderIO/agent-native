@@ -1,13 +1,21 @@
 import {
   useLoaderData,
+  useLocation,
   useParams,
   type ClientLoaderFunctionArgs,
   type LoaderFunctionArgs,
 } from "react-router";
 
+import {
+  gettingStartedIntro,
+  GettingStartedCloudContent,
+  gettingStartedTabFromSearch,
+  GettingStartedTabs,
+} from "../components/blocks/getting-started-paths";
 import DocContent from "../components/DocContent";
 import DocDraftBanner from "../components/DocDraftBanner";
 import {
+  hasLocalizedDoc,
   loadDocRespectingDraftVisibility,
   preloadDocBlocksForDoc,
   type DocEntry,
@@ -15,9 +23,11 @@ import {
 import {
   DEFAULT_DOCS_LOCALE,
   docsLocaleFromSegment,
+  docsPathForSlug,
 } from "../components/docs-locale";
 import { docsMarkdownPathForDoc } from "../components/docs-seo";
 import DocsLayout from "../components/DocsLayout";
+import DocTranslationBanner from "../components/DocTranslationBanner";
 import { withDefaultSocialImage, withDocsSocialImage } from "../seo";
 
 const GETTING_STARTED_SLUG = "getting-started";
@@ -64,14 +74,18 @@ export const meta = ({
 
 export default function DocsIndex() {
   const currentDoc = useLoaderData<typeof loader>();
+  const location = useLocation();
   const params = useParams();
   const locale = routeLocale(params);
+  const isCloud = gettingStartedTabFromSearch(location.search) === "cloud";
 
-  const toc = currentDoc.headings.map((h) => ({
-    id: h.id,
-    label: h.label,
-    level: h.level,
-  }));
+  const toc = isCloud
+    ? []
+    : currentDoc.headings.map((h) => ({
+        id: h.id,
+        label: h.label,
+        level: h.level,
+      }));
 
   return (
     <DocsLayout
@@ -79,7 +93,26 @@ export default function DocsIndex() {
       markdownUrl={docsMarkdownPathForDoc(currentDoc.slug, locale) ?? undefined}
     >
       {currentDoc.draft && <DocDraftBanner />}
-      <DocContent markdown={currentDoc.body} locale={locale} />
+      {isCloud ? (
+        <>
+          <DocContent
+            markdown={gettingStartedIntro(currentDoc.body)}
+            locale={locale}
+          />
+          <div className="docs-block">
+            <GettingStartedTabs activeTab="cloud" />
+          </div>
+          <GettingStartedCloudContent />
+        </>
+      ) : (
+        <DocContent markdown={currentDoc.body} locale={locale} />
+      )}
+      {locale !== DEFAULT_DOCS_LOCALE &&
+        hasLocalizedDoc(locale, currentDoc.slug) && (
+          <DocTranslationBanner
+            originalHref={docsPathForSlug(currentDoc.slug, DEFAULT_DOCS_LOCALE)}
+          />
+        )}
     </DocsLayout>
   );
 }

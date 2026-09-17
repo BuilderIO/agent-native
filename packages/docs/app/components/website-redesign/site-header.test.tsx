@@ -11,8 +11,8 @@ vi.mock("../SearchModal", () => ({
   SearchModal: ({ open }: { open: boolean }) =>
     open ? <div data-testid="search-modal" /> : null,
 }));
-
 import { docsI18nCatalog } from "../../i18n";
+import { SnackbarProvider } from "./ds/snackbar";
 import { SiteHeader } from "./site-header";
 
 function LocationProbe() {
@@ -41,7 +41,7 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-function renderHeader() {
+function renderHeader(starCount: number | null = 1234) {
   return render(
     <MemoryRouter>
       <AgentNativeI18nProvider
@@ -50,7 +50,9 @@ function renderHeader() {
         initialPreference="en-US"
         persistPreference={false}
       >
-        <SiteHeader starCount={1234} />
+        <SnackbarProvider>
+          <SiteHeader starCount={starCount} />
+        </SnackbarProvider>
         <LocationProbe />
       </AgentNativeI18nProvider>
     </MemoryRouter>,
@@ -58,6 +60,20 @@ function renderHeader() {
 }
 
 describe("SiteHeader search", () => {
+  it("renders the server-provided GitHub star count", () => {
+    renderHeader(4647);
+    expect(
+      screen.getAllByRole("link", { name: "GitHub — 4.6k stars" }),
+    ).toHaveLength(1);
+  });
+
+  it("reserves the GitHub button width without a server count", () => {
+    renderHeader(null);
+    expect(screen.getByRole("link", { name: "GitHub" }).className).toContain(
+      "min-w-[96px]",
+    );
+  });
+
   it("does not mount the search modal until it is asked for", () => {
     renderHeader();
 

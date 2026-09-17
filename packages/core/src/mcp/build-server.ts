@@ -18,6 +18,7 @@
  * — it can be bundled into the serverless function alongside `mountMCP`.
  */
 
+import "../authorization/check-action.js";
 import type {
   CallToolResult,
   InputRequiredResult,
@@ -55,6 +56,10 @@ import {
   runWithRequestContext,
 } from "../server/request-context.js";
 import {
+  agentNativeMcpInstructions,
+  agentNativeToolTitle,
+} from "../shared/agent-mcp-metadata.js";
+import {
   isAgentNativeOpenDeepLink,
   withCollapsedAgentSidebarParam,
 } from "../shared/agent-sidebar-url.js";
@@ -82,8 +87,10 @@ import type { ExternalAgentPolicy } from "./external-agent-policy.js";
 import {
   MCP_OAUTH_SCOPES,
   hasMcpOAuthScope,
+  parseMcpOAuthOrgIdClaim,
   verifyMcpOAuthAccessToken,
 } from "./oauth-token.js";
+import { mcpToolInputSchema } from "./tool-input-schema.js";
 
 const PRESERVE_MCP_OBJECT_RESULT = Symbol("preserveMcpObjectResult");
 
@@ -107,6 +114,15 @@ export interface MCPConfig {
   appId?: string;
   /** App description */
   description: string;
+  /** Additional host-facing guidance included in the MCP initialize response. */
+  instructions?: string;
+  /**
+   * Key tools to name in the MCP instructions so an external caller sees the
+   * app's short list up front instead of discovering it via `tool-search`.
+   * Defaults to the app's own `initialToolNames`; override to curate a
+   * different subset for external callers. See `mcp.keyToolNames`.
+   */
+  keyToolNames?: readonly string[];
   /** Optional canonical website URL for hosts that surface MCP app details. */
   websiteUrl?: string;
   /** Optional app icons for MCP hosts that render server branding. */
@@ -201,7 +217,8 @@ export interface MCPConfig {
  */
 export interface MCPCallerIdentity {
   userEmail: string | undefined;
-  orgId?: string | undefined;
+  /** Omitted means no recorded scope; null means explicit Personal scope. */
+  orgId?: string | null;
   orgDomain: string | undefined;
   /** Present only for standard remote MCP OAuth access tokens. */
   oauthScopes?: string[];
@@ -1172,7 +1189,7 @@ function safeUiSegment(value: string | undefined, fallback: string): string {
 
 // ChatGPT and Claude cache MCP App resource HTML by `ui://` URI. Bump this
 // when the shared shell changes in a way that must invalidate host caches.
-const MCP_APP_RESOURCE_SHELL_VERSION = "shell-v64";
+const MCP_APP_RESOURCE_SHELL_VERSION = "shell-v65";
 
 function legacyDefaultMcpAppUri(config: MCPConfig, actionName: string): string {
   const app = safeUiSegment(config.appId ?? config.name, "agent-native");
@@ -1584,7 +1601,7 @@ function isSuccessOnlyResult(value: Record<string, unknown>): boolean {
   });
 }
 
-function conciseToolResultText(
+export function conciseToolResultText(
   name: string,
   result: unknown,
   options?: { preserveObjectResult?: boolean },
@@ -1603,26 +1620,34 @@ function conciseToolResultText(
       const text = JSON.stringify(purged);
       return text === undefined ? `${name} completed.` : truncateToolText(text);
     }
+    const link = record.url ?? record.webUrl ?? record.urlPath ?? record.path;
+    const next =
+      typeof record.nextRequiredAction === "string" &&
+      record.nextRequiredAction.trim()
+        ? ` Next: ${record.nextRequiredAction.trim()}`
+        : "";
+    const tail = `${typeof link === "string" && link.trim() ? ` ${truncateToolText(link.trim(), 500)}` : ""}${next}`;
     const message = record.message ?? record.summary;
     if (typeof message === "string" && message.trim()) {
-      return truncateToolText(message.trim());
+      // Truncate the message alone so a long message cannot swallow the deep
+      // link and `Next:` marker external callers rely on.
+      return `${truncateToolText(message.trim())}${tail}`;
     }
     const id = record.id ?? record.planId ?? record.commentId;
     const title = record.title ?? record.name;
     if (typeof title === "string" && title.trim()) {
       const titleText = title.trim();
       return typeof id === "string" && id.trim()
-        ? `${titleText} (${id.trim()}) is ready.`
-        : `${titleText} is ready.`;
+        ? `${titleText} (${id.trim()}) is ready.${tail}`
+        : `${titleText} is ready.${tail}`;
     }
     if (typeof id === "string" && id.trim()) {
-      return `${name} completed for ${id.trim()}.`;
+      return `${name} completed for ${id.trim()}.${tail}`;
     }
-    const link = record.url ?? record.webUrl ?? record.path;
     if (typeof link === "string" && link.trim()) {
-      return `${name} completed: ${truncateToolText(link.trim(), 500)}`;
+      return `${name} completed:${tail}`;
     }
-    if (isSuccessOnlyResult(record)) return `${name} completed.`;
+    if (isSuccessOnlyResult(record)) return `${name} completed.${next}`;
   }
   const text = JSON.stringify(purged);
   return text === undefined ? `${name} completed.` : truncateToolText(text);
@@ -1850,7 +1875,18 @@ export async function createMCPServerForRequest(
     Object.values(advertisedActions).some((entry) =>
       Boolean(entry.mcpApp?.resource),
     );
+  // Only name tools this surface actually serves: a connector-catalog tier
+  // (or any other narrowing above) can leave app-level keyToolNames — e.g.
+  // Slides' view-screen/navigate — unserved, and advertising them anyway
+  // would send the agent looking for tools that don't exist here.
+  const servedKeyToolNames = config.keyToolNames?.filter(
+    (name) => name in advertisedActions,
+  );
   const server = new Server(mcpServerInfo(config, requestMeta), {
+    instructions: agentNativeMcpInstructions(
+      config.instructions,
+      servedKeyToolNames,
+    ),
     capabilities: {
       tools: {},
       ...(supportsMcpApps
@@ -1906,6 +1942,9 @@ export async function createMCPServerForRequest(
       {
         userEmail: effectiveIdentity?.userEmail,
         orgId,
+        ...(effectiveIdentity?.orgId === null
+          ? { orgScope: "personal" as const }
+          : {}),
         ...(requestMeta?.origin ? { requestOrigin: requestMeta.origin } : {}),
         ...(mcpRequestId ? { mcpRequestId } : {}),
       },
@@ -1970,6 +2009,7 @@ export async function createMCPServerForRequest(
               await entry.needsApproval(args, {
                 userEmail: getRequestUserEmail(),
                 orgId: getRequestOrgId() ?? null,
+                appId: config.appId,
                 caller: "mcp",
                 actionName: name,
               }),
@@ -2065,7 +2105,9 @@ export async function createMCPServerForRequest(
                 : {}),
             };
             const baseDescription = entry.tool.description ?? name;
+            const title = agentNativeToolTitle(name, entry.tool.title);
             const annotations: Record<string, unknown> = {
+              title,
               readOnlyHint: entry.readOnly === true,
               destructiveHint:
                 entry.publicAgent?.isConsequential === true ||
@@ -2078,10 +2120,7 @@ export async function createMCPServerForRequest(
               description: hasLink
                 ? `${baseDescription} After calling, surface the returned "Open in … →" link to the user.`
                 : baseDescription,
-              inputSchema: entry.tool.parameters ?? {
-                type: "object" as const,
-                properties: {},
-              },
+              inputSchema: mcpToolInputSchema(name, entry.tool.parameters),
               ...(Object.keys(toolMeta).length > 0 ? { _meta: toolMeta } : {}),
               annotations,
             } as Tool;
@@ -2286,6 +2325,7 @@ export async function createMCPServerForRequest(
             {
               userEmail: getRequestUserEmail(),
               orgId: getRequestOrgId() ?? null,
+              appId: config.appId,
               caller: "mcp",
               actionName: name,
             },
@@ -2349,8 +2389,9 @@ export async function createMCPServerForRequest(
             Array.isArray(toolVisibility) &&
             toolVisibility.length > 0 &&
             toolVisibility.every((v) => v === "app");
-          const readOnlyStructuredResult =
-            entry.readOnly === true &&
+          const structuredResult =
+            (entry.readOnly === true ||
+              entry.mcpApp?.structuredContent === true) &&
             rawResultForClient &&
             typeof rawResultForClient === "object"
               ? Array.isArray(rawResultForClient)
@@ -2364,11 +2405,8 @@ export async function createMCPServerForRequest(
                 typeof rawResult === "object" &&
                 !Array.isArray(rawResult)
               ? (rawResult as Record<string, unknown>)
-              : readOnlyStructuredResult
-                ? mcpAppStructuredContent(
-                    readOnlyStructuredResult,
-                    responseMeta,
-                  )
+              : structuredResult
+                ? mcpAppStructuredContent(structuredResult, responseMeta)
                 : undefined;
           const text = mcpAppResource
             ? conciseMcpAppToolText(name, resultForClient, structuredContent!)
@@ -2748,17 +2786,47 @@ async function isConnectTokenAllowed(
   return true;
 }
 
+type ConnectTokenOrgResolution =
+  | { status: "claimed"; orgId: string | null }
+  | { status: "found"; orgId: string | null }
+  | { status: "missing" }
+  | { status: "unavailable" };
+
+async function resolveConnectTokenOrgId(
+  jti: string | undefined,
+  claimedOrgId: string | null | undefined,
+): Promise<ConnectTokenOrgResolution> {
+  if (claimedOrgId !== undefined) {
+    return { status: "claimed", orgId: claimedOrgId };
+  }
+  if (!jti) return { status: "missing" };
+  const { lookupConnectTokenOrg } = await import("./connect-store.js");
+  return lookupConnectTokenOrg(jti);
+}
+
+function orgIdFromConnectTokenResolution(
+  resolution: ConnectTokenOrgResolution,
+): string | null | undefined {
+  if (resolution.status === "claimed") return resolution.orgId;
+  if (resolution.status === "found") {
+    return resolution.orgId;
+  }
+  return undefined;
+}
+
 /**
  * Verify the inbound auth header. Returns:
  *   - { authed: true, identity } when verified — `identity` is derived from
- *     the JWT (`sub` / `org_domain`) for JWT auth, or from the
+ *     the JWT (`sub` / `org_domain`) for JWT auth, with stored org scope for
+ *     legacy connect tokens; or from the
  *     `AGENT_NATIVE_OWNER_EMAIL` env / `X-Agent-Native-Owner-Email` header
  *     for static-token auth (the `agent-native mcp install` flow). `identity`
  *     is undefined only for true dev-open with no owner hint.
  *   - { authed: false } on rejection.
  *
  * When A2A_SECRET is set we extract the JWT's `sub` (caller email) and
- * `org_domain` claims so the MCP endpoint can wrap tool runs in
+ * `org_domain` claims, with a stored-org fallback for legacy connect tokens,
+ * so the MCP endpoint can wrap tool runs in
  * `runWithRequestContext({ userEmail, orgId })`. Without that wrap, the
  * MCP endpoint loses tenant identity and downstream `accessFilter` /
  * `resolveCredential` calls fall back to platform-wide defaults.
@@ -2810,11 +2878,21 @@ export async function verifyAuth(
       ) {
         return { authed: false };
       }
+      const orgResolution = await resolveConnectTokenOrgId(
+        oauthIdentity.clientId === MCP_CONNECT_OAUTH_CLIENT_ID
+          ? oauthIdentity.jti
+          : undefined,
+        oauthIdentity.orgId,
+      );
+      if (orgResolution.status === "unavailable") {
+        return { authed: false };
+      }
+      const orgId = orgIdFromConnectTokenResolution(orgResolution);
       return {
         authed: true,
         identity: {
           userEmail: oauthIdentity.userEmail,
-          ...(oauthIdentity.orgId ? { orgId: oauthIdentity.orgId } : {}),
+          ...(orgId !== undefined ? { orgId } : {}),
           orgDomain: oauthIdentity.orgDomain,
           oauthScopes: oauthIdentity.scopes,
           oauthClientId: oauthIdentity.clientId,
@@ -2865,6 +2943,19 @@ export async function verifyAuth(
       }
     }
 
+    const orgIdClaim = parseMcpOAuthOrgIdClaim(payload);
+    if (!orgIdClaim) return { authed: false };
+    const orgResolution = await resolveConnectTokenOrgId(
+      tokenScope === MCP_CONNECT_SCOPE
+        ? (payload.jti as string | undefined)
+        : undefined,
+      orgIdClaim.orgId,
+    );
+    if (orgResolution.status === "unavailable") {
+      return { authed: false };
+    }
+    const orgId = orgIdFromConnectTokenResolution(orgResolution);
+
     return {
       authed: true,
       identity: {
@@ -2872,10 +2963,9 @@ export async function verifyAuth(
         // Org SERVICE tokens (connect-minted, synthetic `svc-*@service.<org>`
         // subject) carry the org id directly as an `org_id` claim so the
         // resolved identity is org-scoped even when the org has no domain
-        // mapping. Personal/delegation JWTs don't set the claim — unchanged.
-        ...(typeof payload.org_id === "string" && payload.org_id
-          ? { orgId: payload.org_id as string }
-          : {}),
+        // mapping. Legacy connect JWTs use their stored org scope when that
+        // claim is absent; ordinary personal/delegation JWTs are unchanged.
+        ...(orgId !== undefined ? { orgId } : {}),
         orgDomain:
           typeof payload.org_domain === "string"
             ? (payload.org_domain as string)
@@ -2949,7 +3039,7 @@ export async function resolveOrgIdFromDomain(
 export async function resolveMcpIdentityOrgId(
   identity: MCPCallerIdentity | undefined,
 ): Promise<string | undefined> {
-  if (identity?.orgId) return identity.orgId;
+  if (identity?.orgId !== undefined) return identity.orgId ?? undefined;
 
   const orgIdFromDomain = await resolveOrgIdFromDomain(identity?.orgDomain);
   if (orgIdFromDomain) return orgIdFromDomain;

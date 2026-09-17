@@ -5,9 +5,85 @@ import {
   COMPACT_CROSS_SCREEN_GHOST_PX,
   captureCrossScreenSourceHtmlSnapshot,
   getCrossScreenGhostStyle,
+  isPointerInsideSourceIframe,
   validateCrossScreenSourceHtmlSnapshot,
 } from "./cross-screen-drop";
 import { SURFACE_PADDING } from "./overview-layout";
+
+describe("isPointerInsideSourceIframe", () => {
+  it("treats a pointer past the iframe's own reported viewport as OUTSIDE", () => {
+    // 1480 is past viewportW (1600) is impossible by construction, so use a
+    // pointer that has genuinely left the iframe's own internal viewport —
+    // the one boundary that is always in iframeX/iframeY's own space.
+    expect(
+      isPointerInsideSourceIframe({
+        iframeX: 1650,
+        iframeY: 100,
+        viewportW: 1600,
+        viewportH: 900,
+        frameWidth: 1280,
+        frameHeight: 900,
+      }),
+    ).toBe(false);
+  });
+
+  it("stays inside for a pointer within the real frame", () => {
+    expect(
+      isPointerInsideSourceIframe({
+        iframeX: 1000,
+        iframeY: 100,
+        viewportW: 1600,
+        viewportH: 900,
+        frameWidth: 1280,
+        frameHeight: 900,
+      }),
+    ).toBe(true);
+  });
+
+  it("falls back to the bridge-reported viewport when no rendered geometry is known yet", () => {
+    expect(
+      isPointerInsideSourceIframe({
+        iframeX: 1480,
+        iframeY: 100,
+        viewportW: 1600,
+        viewportH: 900,
+      }),
+    ).toBe(true);
+  });
+
+  // HIGH-severity review finding: iframeX/iframeY are always reported in the
+  // iframe's own unscaled viewport (viewportW/viewportH), but frameWidth/
+  // frameHeight are the rendered board-space card size, which a scaled-down
+  // overview card (zoom 0.5: a 1280-wide screen rendered as a 640-wide card)
+  // shrinks independently of that viewport. An ordinary drag still well
+  // inside the artboard's real content must not be misread as having left
+  // the smaller rendered card.
+  it("does not classify a pointer near the content's real edge as outside a 0.5x-scaled card", () => {
+    expect(
+      isPointerInsideSourceIframe({
+        iframeX: 1200,
+        iframeY: 100,
+        viewportW: 1280,
+        viewportH: 2560,
+        frameWidth: 640,
+        frameHeight: 1280,
+      }),
+    ).toBe(true);
+  });
+
+  it("still classifies a pointer past the content's real edge as outside a 0.5x-scaled card", () => {
+    expect(
+      isPointerInsideSourceIframe({
+        iframeX: 1300,
+        iframeY: 100,
+        viewportW: 1280,
+        viewportH: 2560,
+        frameWidth: 640,
+        frameHeight: 1280,
+      }),
+    ).toBe(false);
+  });
+});
 
 describe("cross-screen source HTML snapshots", () => {
   it("captures the complete board root subtree from the host-verified document", () => {

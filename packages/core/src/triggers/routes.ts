@@ -26,9 +26,10 @@ import {
   isValidCron,
 } from "../jobs/cron.js";
 import {
-  buildJobResourceContent,
   parseJobResource,
+  patchJobFrontmatterFields,
   type JobFrontmatter,
+  type JobFrontmatterPatch,
 } from "../jobs/frontmatter.js";
 import { getOrgContext } from "../org/context.js";
 import {
@@ -215,7 +216,10 @@ async function currentUserCanUpdateAutomation(
 
   try {
     const { rows } = await getDbExec().execute({
-      sql: `SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
+      sql: `SELECT role FROM org_members
+            WHERE org_id = ? AND LOWER(email) = ?
+              AND federation_removal_pending_at IS NULL
+            LIMIT 1`,
       args: [orgId, userEmail.toLowerCase()],
     });
     const role = String((rows[0] as any)?.role ?? "").toLowerCase();
@@ -360,6 +364,7 @@ export async function setAutomationEnabledForOwner(
   }
 
   parsed.meta.enabled = input.enabled;
+  const fields: JobFrontmatterPatch = { enabled: input.enabled };
   if (
     parsed.meta.enabled &&
     meta.triggerType === "schedule" &&
@@ -371,9 +376,10 @@ export async function setAutomationEnabledForOwner(
       undefined,
       meta.timezone,
     ).toISOString();
+    fields.nextRun = parsed.meta.nextRun;
   }
 
-  const updatedContent = buildJobResourceContent(parsed.meta, parsed.body);
+  const updatedContent = patchJobFrontmatterFields(resource.content, fields);
   await resourcePut(resource.owner, resource.path, updatedContent);
   await refreshEventSubscriptions();
 

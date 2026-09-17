@@ -40,6 +40,7 @@ import {
 import { findWorkspaceRoot } from "../scripts/utils.js";
 import {
   DEFAULT_WORKSPACE_APP_AUDIENCE,
+  normalizeWorkspaceAppHomePath,
   normalizeWorkspaceAppAudience,
   normalizeWorkspaceAppPathList,
   workspaceAppAudienceFromPackageJson,
@@ -48,6 +49,10 @@ import {
   type WorkspaceAppAudience,
 } from "../shared/workspace-app-audience.js";
 import { DISPATCH_WORKSPACE_ROOT_REDIRECTS } from "../shared/workspace-app-id.js";
+import {
+  inferWorkspaceAppRootHomePath,
+  readConfiguredWorkspaceAppHomePath,
+} from "../workspace-app-config.js";
 import {
   assertEmittedBackgroundFunctionOnDisk,
   isRecurringJobsDeployEnabled,
@@ -110,6 +115,7 @@ interface WorkspaceAppManifestEntry {
   name: string;
   description: string;
   path: string;
+  homePath: string;
   url?: string;
   isDispatch: boolean;
   audience: WorkspaceAppAudience;
@@ -120,6 +126,7 @@ interface WorkspaceAppManifestEntry {
 interface WorkspaceAppManifestOverride {
   id: string;
   url?: string;
+  homePath?: string;
   audience?: WorkspaceAppAudience;
   publicPaths?: string[];
   protectedPaths?: string[];
@@ -166,7 +173,7 @@ export async function runWorkspaceDeploy(
     );
   }
   assertNoReservedWorkspaceAppIds(apps);
-  const workspaceApps = readWorkspaceAppManifest(workspaceRoot, apps);
+  const workspaceApps = await readWorkspaceAppManifest(workspaceRoot, apps);
 
   const preset = resolvePreset(opts.preset, rawArgs);
   assertWorkspaceDeployProductionEnv({ buildOnly, preset });
@@ -402,10 +409,14 @@ function copyVercelAppBuildIntoWorkspace(
     // Nitro's Vercel preset already nests assets under baseURL. The shared
     // deploy build also mirrors client assets under baseURL for other Nitro
     // presets, so mounted apps can contain a duplicate /<app>/<app> copy.
-    fs.rmSync(path.join(staticDest, app, app), {
-      recursive: true,
-      force: true,
-    });
+    // An app named "assets" collides with Vite's real default assets
+    // directory, so that path cannot be distinguished from the duplicate.
+    if (app !== "assets") {
+      fs.rmSync(path.join(staticDest, app, app), {
+        recursive: true,
+        force: true,
+      });
+    }
   }
 
   const functionSrc = path.join(src, "functions", "__server.func");
@@ -436,7 +447,16 @@ function writeCloudflareRoutingManifest(distDir: string, apps: string[]): void {
   // _routes.json tells Cloudflare which paths are dynamic (Functions) vs
   // static. Mark both /<app> and /<app>/* as include so every app's worker
   // handles its root and subtree.
-  const include = apps.flatMap((a) => [`/${a}`, `/${a}/*`]).concat(["/"]);
+  const include = [
+    ...apps.flatMap((a) => [`/${a}`, `/${a}/*`]),
+    ...apps.flatMap((app) =>
+      workspaceOAuthDiscoveryRoutes(app).flatMap(({ path, descendants }) => [
+        path,
+        ...(descendants ? [`${path}/*`] : []),
+      ]),
+    ),
+    "/",
+  ];
   if (apps.includes("dispatch")) {
     include.push("/_agent-native/*");
     include.push("/.well-known/*");
@@ -465,6 +485,16 @@ function writeCloudflareRoutingManifest(distDir: string, apps: string[]): void {
     .map(
       (a) =>
         `  if (pathname === "/${a}" || pathname === "/${a}.data" || pathname.startsWith("/${a}/")) return ${moduleIdent(a)}.fetch(requestForMountedApp(request, "/${a}"), env, ctx);`,
+    )
+    .join("\n");
+  const workspaceOAuthRoutes = apps
+    .flatMap((app) =>
+      workspaceOAuthDiscoveryRoutes(app).map(({ path, descendants }) => {
+        const matches = descendants
+          ? `pathname === ${JSON.stringify(path)} || pathname.startsWith(${JSON.stringify(`${path}/`)})`
+          : `pathname === ${JSON.stringify(path)}`;
+        return `    if (${matches}) return ${moduleIdent(app)}.fetch(request, env, ctx);`;
+      }),
     )
     .join("\n");
   const dispatchRootFrameworkRoutes = apps.includes("dispatch")
@@ -504,6 +534,7 @@ function requestForMountedApp(request, basePath) {
 export default {
   async fetch(request, env, ctx) {
     const { pathname, search } = new URL(request.url);
+${workspaceOAuthRoutes}
 ${dispatchRootFrameworkRoutes}${dispatchRootFaviconRoute}${dispatchRootAliasRoutes}${dispatchRootDynamicAliasRoutes}${dispatchMountedRootRedirect}${dispatch}
     if (pathname === "/") {
       return Response.redirect(new URL("${cloudflareRootRedirectPath(apps)}", request.url).toString(), 302);
@@ -519,11 +550,38 @@ function cloudflareRootRedirectPath(apps: string[]): string {
   return apps.includes("dispatch") ? "/dispatch/overview" : `/${apps[0]}/`;
 }
 
+function workspaceOAuthDiscoveryRoutes(
+  app: string,
+): Array<{ path: string; descendants: boolean }> {
+  return [
+    {
+      path: `/.well-known/oauth-authorization-server/${app}`,
+      descendants: false,
+    },
+    {
+      path: `/.well-known/openid-configuration/${app}`,
+      descendants: false,
+    },
+    {
+      path: `/.well-known/oauth-protected-resource/${app}`,
+      descendants: true,
+    },
+  ];
+}
+
 function writeNetlifyRedirects(distDir: string, apps: string[]): void {
   const lines: string[] = [
     "# Generated by agent-native deploy --preset netlify",
     "# Static app assets are stored under a safe namespace; dynamic app routes are handled by function route config.",
   ];
+
+  for (const app of apps) {
+    for (const { path, descendants } of workspaceOAuthDiscoveryRoutes(app)) {
+      const target = `/.netlify/functions/${app}-server 200`;
+      lines.push(`${path} ${target}`);
+      if (descendants) lines.push(`${path}/* ${target}`);
+    }
+  }
 
   if (apps.includes("dispatch")) {
     lines.push("/_agent-native/* /.netlify/functions/dispatch-server 200");
@@ -580,6 +638,17 @@ function writeVercelBuildConfig(outputDir: string, apps: string[]): void {
     ...vercelImmutableAssetHeaderRoutes(outputDir, apps),
     { handle: "filesystem" },
   ];
+
+  routes.push(
+    ...apps.flatMap((app) =>
+      workspaceOAuthDiscoveryRoutes(app).flatMap(({ path, descendants }) => [
+        { src: vercelRouteSrc(path), dest: `/${app}-server` },
+        ...(descendants
+          ? [{ src: `${vercelRouteSrc(path)}/(.*)`, dest: `/${app}-server` }]
+          : []),
+      ]),
+    ),
+  );
 
   if (apps.includes("dispatch")) {
     routes.push(
@@ -657,7 +726,7 @@ function netlifyAssetRedirectsFor(app: string, distDir: string): string[] {
   const to = `/${NETLIFY_WORKSPACE_STATIC_DIR}/${app}`;
   return [
     `${from}/assets/* ${to}/assets/:splat 200`,
-    ...netlifyPublicRootAssetPaths(
+    ...netlifyPublicAssetPaths(
       app,
       path.join(distDir, NETLIFY_WORKSPACE_STATIC_DIR, app),
     ).map((assetPath) => {
@@ -726,15 +795,12 @@ function copyNetlifyFunctionIntoWorkspace(
   // this emits nothing and the single-function deploy is unchanged.
   const integrationDurableDispatch =
     app === "dispatch" && isIntegrationDurableDispatchConfigured();
+  const durableChat = isDurableBackgroundWorkspaceDeployEnabled();
   const recurringJobs = isRecurringJobsDeployEnabled();
-  if (
-    isDurableBackgroundWorkspaceDeployEnabled() ||
-    integrationDurableDispatch ||
-    recurringJobs
-  ) {
+  if (durableChat || integrationDurableDispatch || recurringJobs) {
     emitNetlifyBackgroundFunction(workspaceRoot, app, src, workspaceApps);
   }
-  if (recurringJobs) {
+  if (recurringJobs || durableChat) {
     emitNetlifyRecurringJobsFunction(workspaceRoot, app);
   }
   if (integrationDurableDispatch) {
@@ -1164,7 +1230,17 @@ function patchNetlifyFunctionEntry(
   const pathConfig =
     app === "dispatch"
       ? ["/_agent-native/*", "/.well-known/*", `${basePath}/*`]
-      : [basePath, `${basePath}.data`, `${basePath}/*`];
+      : [
+          basePath,
+          `${basePath}.data`,
+          `${basePath}/*`,
+          ...workspaceOAuthDiscoveryRoutes(app).flatMap(
+            ({ path, descendants }) => [
+              path,
+              ...(descendants ? [`${path}/*`] : []),
+            ],
+          ),
+        ];
   const normalizeBasePathHelper =
     app === "dispatch"
       ? ""
@@ -1332,22 +1408,34 @@ function netlifyFunctionExcludedPaths(
   return [
     "/.netlify/*",
     `/${app}/assets/*`,
-    ...netlifyPublicRootAssetPaths(app, staticDir),
+    ...netlifyPublicAssetPaths(app, staticDir),
   ];
 }
 
-function netlifyPublicRootAssetPaths(app: string, staticDir: string): string[] {
+function netlifyPublicAssetPaths(app: string, staticDir: string): string[] {
   if (!fs.existsSync(staticDir)) return [];
-  return fs
-    .readdirSync(staticDir, { withFileTypes: true })
-    .filter((entry) => entry.isFile())
-    .map((entry) => entry.name)
-    .filter((name) => {
-      const ext = path.extname(name).slice(1).toLowerCase();
-      return NETLIFY_PUBLIC_ASSET_EXTENSIONS.has(ext);
-    })
+  const assetPaths: string[] = [];
+  const visit = (directory: string, relativeDirectory: string): void => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const relativePath = path.join(relativeDirectory, entry.name);
+      if (entry.isDirectory()) {
+        if (!relativeDirectory && entry.name === "assets") continue;
+        visit(path.join(directory, entry.name), relativePath);
+        continue;
+      }
+      const ext = path.extname(entry.name).slice(1).toLowerCase();
+      if (NETLIFY_PUBLIC_ASSET_EXTENSIONS.has(ext)) {
+        assetPaths.push(relativePath);
+      }
+    }
+  };
+  visit(staticDir, "");
+  return assetPaths
     .sort()
-    .map((name) => `/${app}/${encodeURI(name)}`);
+    .map(
+      (assetPath) =>
+        `/${app}/${encodeURI(assetPath.split(path.sep).join("/"))}`,
+    );
 }
 
 function netlifyFunctionsDir(workspaceRoot: string): string {
@@ -1432,51 +1520,58 @@ function writeWorkspaceAppManifests(
   }
 }
 
-function readWorkspaceAppManifest(
+async function readWorkspaceAppManifest(
   workspaceRoot: string,
   apps: string[],
-): WorkspaceAppManifestEntry[] {
+): Promise<WorkspaceAppManifestEntry[]> {
   const explicitApps = readExistingWorkspaceAppManifest(workspaceRoot);
+  const entries: WorkspaceAppManifestEntry[] = [];
 
-  return apps
-    .map((app) => {
-      const appDir = path.join(workspaceRoot, "apps", app);
-      const pkg = readPackageJson(path.join(appDir, "package.json"));
-      const appPath = `/${app}`;
-      const explicit = explicitApps.get(app);
-      const url =
-        normalizeWorkspaceAppUrl(explicit?.url) ?? workspaceAppUrl(appPath);
-      const audience =
-        workspaceAppAudienceFromPackageJson(pkg) ??
-        explicit?.audience ??
-        DEFAULT_WORKSPACE_APP_AUDIENCE;
-      const packageRouteAccess = workspaceAppRouteAccessFromPackageJson(pkg);
-      // Prefer the package.json value whenever the field was set — including
-      // an explicit empty array, which is how a per-app package.json signals
-      // "clear any previously-published manifest override." Falling back on
-      // length > 0 would silently keep the explicit override even after the
-      // app owner blanked their list.
-      const publicPaths =
-        packageRouteAccess.publicPaths ?? explicit?.publicPaths ?? [];
-      const protectedPaths =
-        packageRouteAccess.protectedPaths ?? explicit?.protectedPaths ?? [];
-      return {
-        id: app,
-        name: pkg?.displayName || titleCase(app),
-        description: pkg?.description || "",
-        path: appPath,
-        ...(url ? { url } : {}),
-        isDispatch: app === "dispatch",
-        audience,
-        publicPaths,
-        protectedPaths,
-      };
-    })
-    .sort((a, b) => {
-      if (a.id === "dispatch") return -1;
-      if (b.id === "dispatch") return 1;
-      return a.name.localeCompare(b.name);
+  for (const app of apps) {
+    const appDir = path.join(workspaceRoot, "apps", app);
+    const pkg = readPackageJson(path.join(appDir, "package.json"));
+    const appPath = `/${app}`;
+    const explicit = explicitApps.get(app);
+    const configuredHomePath = await readConfiguredWorkspaceAppHomePath(appDir);
+    const url =
+      normalizeWorkspaceAppUrl(explicit?.url) ?? workspaceAppUrl(appPath);
+    const audience =
+      workspaceAppAudienceFromPackageJson(pkg) ??
+      explicit?.audience ??
+      DEFAULT_WORKSPACE_APP_AUDIENCE;
+    const packageRouteAccess = workspaceAppRouteAccessFromPackageJson(pkg);
+    // Prefer the package.json value whenever the field was set — including
+    // an explicit empty array, which is how a per-app package.json signals
+    // "clear any previously-published manifest override." Falling back on
+    // length > 0 would silently keep the explicit override even after the
+    // app owner blanked their list.
+    const publicPaths =
+      packageRouteAccess.publicPaths ?? explicit?.publicPaths ?? [];
+    const protectedPaths =
+      packageRouteAccess.protectedPaths ?? explicit?.protectedPaths ?? [];
+    entries.push({
+      id: app,
+      name: pkg?.displayName || titleCase(app),
+      description: pkg?.description || "",
+      path: appPath,
+      homePath: normalizeWorkspaceAppHomePath(
+        explicit?.homePath ??
+          configuredHomePath ??
+          inferWorkspaceAppRootHomePath(appDir),
+      ),
+      ...(url ? { url } : {}),
+      isDispatch: app === "dispatch",
+      audience,
+      publicPaths,
+      protectedPaths,
     });
+  }
+
+  return entries.sort((a, b) => {
+    if (a.id === "dispatch") return -1;
+    if (b.id === "dispatch") return 1;
+    return a.name.localeCompare(b.name);
+  });
 }
 
 function readExistingWorkspaceAppManifest(
@@ -1533,6 +1628,10 @@ function parseWorkspaceAppsManifest(
       const id = typeof e.id === "string" ? e.id.trim() : "";
       if (!id) return null;
       const url = normalizeWorkspaceAppUrl(e.url);
+      const hasHomePath = Object.prototype.hasOwnProperty.call(e, "homePath");
+      const homePath = hasHomePath
+        ? normalizeWorkspaceAppHomePath(e.homePath)
+        : undefined;
       const audience =
         e.audience === undefined
           ? undefined
@@ -1542,6 +1641,7 @@ function parseWorkspaceAppsManifest(
       return {
         id,
         ...(url ? { url } : {}),
+        ...(homePath ? { homePath } : {}),
         ...(audience ? { audience } : {}),
         ...(publicPaths.length > 0 ? { publicPaths } : {}),
         ...(protectedPaths.length > 0 ? { protectedPaths } : {}),

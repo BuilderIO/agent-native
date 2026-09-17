@@ -39,7 +39,6 @@ function fromB64(s: string): Uint8Array {
 }
 
 vi.mock("../db/client.js", () => ({
-  isPostgres: () => false,
   getDbExec: () => ({
     execute: async (query: string | { sql: string; args?: unknown[] }) => {
       const sql = typeof query === "string" ? query : query.sql;
@@ -82,7 +81,7 @@ vi.mock("../db/client.js", () => ({
         });
         return { rows: [], rowsAffected: 1 };
       }
-      if (/^\s*INSERT (OR IGNORE )?INTO _collab_docs/i.test(sql)) {
+      if (/^\s*INSERT INTO _collab_docs/i.test(sql)) {
         const docId = String(args[0]);
         if (store.rows.has(docId)) return { rows: [], rowsAffected: 0 };
         store.rows.set(docId, {
@@ -99,6 +98,11 @@ vi.mock("../db/client.js", () => ({
       throw new Error(`Unexpected SQL: ${sql}`);
     },
   }),
+}));
+
+vi.mock("../db/ddl-guard.js", () => ({
+  ensureColumnExists: vi.fn().mockResolvedValue(undefined),
+  ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("./emitter.js", () => ({
@@ -485,7 +489,7 @@ describe("ydoc-manager seedFromText guard", () => {
     docA.getText("content").insert(0, "user typed this");
     await manager.applyUpdate(docId, Y.encodeStateAsUpdate(docA), "tabA");
 
-    // A late autoSeed pass (startup race) tries to seed the original markdown.
+    // A second lazy seed attempt tries to seed the original markdown.
     await manager.seedFromText(docId, "stale original markdown", "content");
 
     // The user's live content must NOT be clobbered by the seed.

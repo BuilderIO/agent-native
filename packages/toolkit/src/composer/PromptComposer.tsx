@@ -86,7 +86,13 @@ export interface PromptComposerProps {
     options: PromptComposerSubmitOptions,
   ) => void | Promise<void>;
   placeholder?: string;
+  /** Accessible name forwarded to the rich text editor. */
+  ariaLabel?: string;
   disabled?: boolean;
+  /** Prevent submission while preserving editor focus and draft entry. */
+  submitting?: boolean;
+  /** Present the primary action as queueing instead of immediate send. */
+  willQueue?: boolean;
   /** Called when a host-gated composer is clicked while it is disabled. */
   onDisabledClick?: () => void;
   /** Override the generic document attachment cap for a multipart host. */
@@ -129,6 +135,10 @@ export interface PromptComposerProps {
   initialTextKey?: string | number;
   /** Optional host-owned control rendered directly after the "+" button. */
   modeControl?: ReactNode;
+  /** Current agent execution mode shown in the shared composer toolbar. */
+  execMode?: "build" | "plan";
+  /** Called when the user switches between acting and read-only planning. */
+  onExecModeChange?: (mode: "build" | "plan") => void;
   /** Explicit host-owned toolbar slot rendered directly after the "+" button. */
   toolbarSlot?: ReactNode;
   /** Custom attachment button to render instead of the default "+" affordance. */
@@ -242,8 +252,14 @@ class RasterImageAttachmentAdapter extends SimpleImageAttachmentAdapter {
 
 function isInlineableTextFile(file: File): boolean {
   if (file.type.startsWith("text/")) return true;
-  if (file.type === "application/json") return true;
-  return /\.(txt|md|markdown|csv|json|yaml|yml|html?|css|xml)$/i.test(
+  if (
+    file.type === "application/json" ||
+    file.type === "application/x-yaml" ||
+    file.type === "message/rfc822"
+  ) {
+    return true;
+  }
+  return /\.(txt|md|markdown|csv|json|yaml|yml|html?|css|xml|eml)$/i.test(
     file.name,
   );
 }
@@ -504,7 +520,10 @@ function PromptAttachmentStrip() {
 function PromptComposerInner({
   onSubmit,
   placeholder,
+  ariaLabel,
   disabled,
+  submitting,
+  willQueue = false,
   onDisabledClick,
   maxDocumentAttachmentBytes,
   documentAttachmentLimitLabel,
@@ -526,6 +545,8 @@ function PromptComposerInner({
   initialText,
   initialTextKey,
   modeControl,
+  execMode,
+  onExecModeChange,
   toolbarSlot,
   attachButton,
   actionButton,
@@ -637,9 +658,27 @@ function PromptComposerInner({
       window.dispatchEvent(new Event("agent-engine:configured-changed"));
     }
   }, []);
+  const useInlineMissingKeySetup = layoutVariant === "compact";
+  const gateComposer = shouldGateComposerForMissingEngine({
+    state: agentEngineConfigured.state,
+    hasSetupComponent: Boolean(
+      useInlineMissingKeySetup ? BuilderSetupContent : BuilderSetupCard,
+    ),
+  });
+  const ensureEngineReadyBeforeSubmit = useCallback(async () => {
+    if (agentEngineConfigured.state !== "unknown") return true;
+    const state = await modelsAdapter.fetchAgentEngineConfiguredState?.(true, {
+      timeoutMs: 5_000,
+    });
+    if (state === "missing") {
+      bounceMissingKeySetup();
+      return false;
+    }
+    return true;
+  }, [agentEngineConfigured.state, bounceMissingKeySetup, modelsAdapter]);
 
   useEffect(() => {
-    if (!autoFocus) return;
+    if (!autoFocus || gateComposer) return;
     const id = window.setTimeout(() => {
       const target =
         typeof handleRef === "object" && handleRef && "current" in handleRef
@@ -648,7 +687,7 @@ function PromptComposerInner({
       target?.focus();
     }, 50);
     return () => window.clearTimeout(id);
-  }, [autoFocus, handleRef]);
+  }, [autoFocus, gateComposer, handleRef]);
 
   const handleSubmit = useCallback(
     async (
@@ -677,14 +716,6 @@ function PromptComposerInner({
     },
     [composerEffort, composerEngine, composerModel, onSubmit],
   );
-  const useInlineMissingKeySetup = layoutVariant === "compact";
-  const gateComposer = shouldGateComposerForMissingEngine({
-    state: agentEngineConfigured.state,
-    hasSetupComponent: Boolean(
-      useInlineMissingKeySetup ? BuilderSetupContent : BuilderSetupCard,
-    ),
-  });
-
   return (
     <>
       {missingApiKey && !useInlineMissingKeySetup && BuilderSetupCard ? (
@@ -726,8 +757,11 @@ function PromptComposerInner({
       >
         <PromptAttachmentStrip />
         <TiptapComposer
+          ariaLabel={ariaLabel}
           focusRef={handleRef}
           disabled={disabled || gateComposer}
+          submitting={submitting}
+          willQueue={willQueue}
           maxDocumentAttachmentBytes={maxDocumentAttachmentBytes}
           documentAttachmentLimitLabel={documentAttachmentLimitLabel}
           placeholder={
@@ -740,6 +774,7 @@ function PromptComposerInner({
           initialText={initialText}
           initialTextKey={initialTextKey}
           onSubmit={handleSubmit}
+          onBeforeSubmit={ensureEngineReadyBeforeSubmit}
           clearOnSubmit={!preserveDraftOnSubmit}
           plusMenuMode={
             plusMenuMode ?? (attachmentsEnabled ? "upload-only" : "hidden")
@@ -748,6 +783,8 @@ function PromptComposerInner({
           extensionTools={extensionTools}
           attachButton={attachButton}
           modeControl={modeControl}
+          execMode={execMode}
+          onExecModeChange={onExecModeChange}
           toolbarSlot={toolbarSlot}
           actionButton={actionButton}
           extraActionButton={extraActionButton}

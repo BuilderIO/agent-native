@@ -13,6 +13,7 @@ import { createHash } from "node:crypto";
 import { setDefaultResultOrder } from "node:dns";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
 const GOOGLE_AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth";
@@ -56,11 +57,13 @@ const SAFE_MANAGED_CONNECTIONS = new Set([
   "not_applicable",
   "unknown",
 ]);
+const SAFE_REDIRECT_URI_STATUSES = new Set([
+  "registered",
+  "mismatched",
+  "unknown",
+]);
 
 setDefaultResultOrder("ipv4first");
-
-const sleep = (milliseconds: number) =>
-  new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 export type GoogleRedirectProbeState =
   | "registered"
@@ -80,6 +83,11 @@ export type GoogleHealthStatus =
   | "absent"
   | "not_applicable";
 
+export type GoogleRedirectUriHealthStatus =
+  | "registered"
+  | "mismatched"
+  | "unknown";
+
 export type GoogleHealthResult = {
   status: GoogleHealthStatus;
   reason: string | null;
@@ -90,6 +98,9 @@ export type GoogleHealthResult = {
   credentialMode: "managed" | "user" | null;
   managedConnection: "required" | "not_applicable" | "unknown" | null;
   callbackPaths: string[] | null;
+  redirectUriStatus: GoogleRedirectUriHealthStatus | null;
+  redirectUri: string | null;
+  redirectUriInvalid: boolean;
 };
 
 export function isInconclusiveGoogleHealthStatus(
@@ -103,13 +114,14 @@ export function isInconclusiveGoogleHealthStatus(
 export function googleRedirectProbeExitCode(input: {
   expected: number;
   unregistered: number;
+  healthMismatches: number;
   unknown: number;
   unprobeable: number;
   invalidCredentials: number;
   skippedRequired: number;
   allowNoCoverage?: boolean;
 }): number {
-  if (input.unregistered > 0) return 1;
+  if (input.unregistered > 0 || input.healthMismatches > 0) return 1;
   if (
     input.unknown > 0 ||
     input.unprobeable > 0 ||
@@ -135,7 +147,15 @@ type Options = {
 
 type GoogleHealthClient = "managed" | "sign_in";
 
-type Target = { lane: string; host: string };
+const GOOGLE_CANONICAL_HOST_ALIASES = new Map([
+  ["starter.agent-native.com", "chat.agent-native.com"],
+]);
+
+export function googleCanonicalHost(host: string): string {
+  return GOOGLE_CANONICAL_HOST_ALIASES.get(host) ?? host;
+}
+
+type Target = { lane: string; host: string; googleHost: string };
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -183,6 +203,9 @@ function emptyHealth(
     credentialMode: null,
     managedConnection: null,
     callbackPaths: null,
+    redirectUriStatus: null,
+    redirectUri: null,
+    redirectUriInvalid: false,
   };
 }
 
@@ -519,6 +542,21 @@ function advertisedCallbackPaths(value: unknown): string[] | null {
   return paths.length === value.length ? [...new Set(paths)] : null;
 }
 
+function advertisedRedirectUri(value: unknown): string | null {
+  if (typeof value !== "string" || !URL.canParse(value)) return null;
+  const url = new URL(value);
+  if (
+    url.protocol !== "https:" ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash
+  ) {
+    return null;
+  }
+  return `${url.origin}${url.pathname}`;
+}
+
 /** Parse the public health contract without trusting arbitrary response text. */
 export function classifyGoogleHealthResponse(
   response: Response,
@@ -554,10 +592,12 @@ export function classifyGoogleHealthResponse(
   ) {
     return emptyHealth("unknown", "health response had an unknown status");
   }
-  if (
-    !(response.status >= 200 && response.status < 300) &&
-    !(response.status === 503 && rawStatus === "invalid")
-  ) {
+  const rawRedirectUriStatus = body.redirectUriStatus;
+  const expected503 =
+    response.status === 503 &&
+    (rawStatus === "invalid" ||
+      (rawStatus === "valid" && rawRedirectUriStatus === "mismatched"));
+  if (!(response.status >= 200 && response.status < 300) && !expected503) {
     return emptyHealth(
       "unknown",
       `health endpoint returned HTTP ${response.status}`,
@@ -567,6 +607,11 @@ export function classifyGoogleHealthResponse(
     typeof body.clientId === "string" && body.clientId.trim()
       ? body.clientId
       : null;
+  const redirectUri = advertisedRedirectUri(body.redirectUri);
+  const redirectUriInvalid =
+    body.redirectUri !== undefined &&
+    body.redirectUri !== null &&
+    redirectUri === null;
   if (rawStatus === "valid" && !clientId) {
     return emptyHealth(
       "unknown",
@@ -597,6 +642,13 @@ export function classifyGoogleHealthResponse(
         ? (body.managedConnection as "required" | "not_applicable" | "unknown")
         : null,
     callbackPaths: advertisedCallbackPaths(body.callbackPaths),
+    redirectUriStatus:
+      typeof rawRedirectUriStatus === "string" &&
+      SAFE_REDIRECT_URI_STATUSES.has(rawRedirectUriStatus)
+        ? (rawRedirectUriStatus as GoogleRedirectUriHealthStatus)
+        : null,
+    redirectUri,
+    redirectUriInvalid,
   };
 }
 
@@ -732,15 +784,52 @@ export function healthContractDisagreement(
   return null;
 }
 
+export function googleHealthRedirectUriMismatch(
+  health: GoogleHealthResult,
+  host: string,
+  client: GoogleHealthClient = "sign_in",
+): string | null {
+  if (client === "managed" && health.managedConnection !== "required") {
+    return null;
+  }
+  if (health.status !== "valid") return null;
+  const expectedRedirectUri = `https://${host}${health.callbackPaths?.[0] ?? CALLBACK_PATHS.root}`;
+  if (health.redirectUriInvalid) {
+    return "health endpoint advertises an invalid callback URI";
+  }
+  if (
+    health.redirectUri !== null &&
+    health.redirectUri !== expectedRedirectUri
+  ) {
+    return `health endpoint advertises ${health.redirectUri}, expected ${expectedRedirectUri}`;
+  }
+  if (health.redirectUriStatus === "mismatched") {
+    return `health endpoint reports an unregistered callback for ${expectedRedirectUri}`;
+  }
+  return null;
+}
+
 function allManifestHosts(manifest: Manifest): Set<string> {
   return new Set(Object.values(manifest).flat());
 }
 
 function selectedTargets(manifest: Manifest, options: Options): Target[] {
-  if (options.host) return [{ lane: "explicit", host: options.host }];
+  if (options.host) {
+    return [
+      {
+        lane: "explicit",
+        host: options.host,
+        googleHost: googleCanonicalHost(options.host),
+      },
+    ];
+  }
   return Object.entries(manifest).flatMap(([lane, hosts]) =>
     options.env === "all" || options.env === lane
-      ? hosts.map((host) => ({ lane, host }))
+      ? hosts.map((host) => ({
+          lane,
+          host,
+          googleHost: googleCanonicalHost(host),
+        }))
       : [],
   );
 }
@@ -844,7 +933,7 @@ async function run(argv: string[]): Promise<number> {
             : (health.callbackPaths ?? []);
         return health.status === "valid" && health.clientId
           ? mapWithLimit(callbackPaths, 3, async (callbackPath) => {
-              const redirectUri = `https://${target.host}${callbackPath}`;
+              const redirectUri = `https://${target.googleHost}${callbackPath}`;
               return {
                 client,
                 callbackPath,
@@ -859,7 +948,7 @@ async function run(argv: string[]): Promise<number> {
           : [];
       };
       const [managedResults, signInResults] = await Promise.all([
-        managedHealthIsLegacy
+        managedHealthIsLegacy || managedHealth.managedConnection !== "required"
           ? Promise.resolve([])
           : probeHealth("managed", managedHealth),
         probeHealth("sign_in", signInHealth),
@@ -874,6 +963,7 @@ async function run(argv: string[]): Promise<number> {
   );
 
   let unregistered = 0;
+  let healthMismatches = 0;
   let unknown = 0;
   let unprobeable = 0;
   let invalidCredentials = 0;
@@ -889,6 +979,11 @@ async function run(argv: string[]): Promise<number> {
         health.mismatchedPairs ? "mismatched-pairs" : "",
         health.credentialSource ? `source=${health.credentialSource}` : "",
         health.managedConnection ? `managed=${health.managedConnection}` : "",
+        health.redirectUriStatus
+          ? `redirect_uri_status=${health.redirectUriStatus}`
+          : "",
+        health.redirectUriInvalid ? "invalid_redirect_uri" : "",
+        health.redirectUri ? `redirect_uri=${health.redirectUri}` : "",
       ]
         .filter(Boolean)
         .join(" ");
@@ -942,6 +1037,17 @@ async function run(argv: string[]): Promise<number> {
           `UNKNOWN\t${row.host}\t${client}\thealth\t${health.reason ?? health.status}`,
         );
       }
+      const redirectUriMismatch = googleHealthRedirectUriMismatch(
+        health,
+        row.googleHost,
+        client,
+      );
+      if (redirectUriMismatch) {
+        healthMismatches += 1;
+        console.log(
+          `FAIL\t${row.host}\t${client}\thealth\t${redirectUriMismatch}`,
+        );
+      }
       if (health.clientId && health.callbackPaths === null) {
         unknown += 1;
         console.log(
@@ -973,11 +1079,12 @@ async function run(argv: string[]): Promise<number> {
   }
 
   console.log(
-    `\nSummary: hosts=${rows.length} paths=${options.paths?.length ?? "auto"} sign_in_hosts=${signInHosts} managed_hosts=${managedHosts} expected=${expected} verified=${verified} unregistered=${unregistered} unknown=${unknown} unprobeable=${unprobeable} invalid_credentials=${invalidCredentials} skipped_required=${skippedRequired.length}`,
+    `\nSummary: hosts=${rows.length} paths=${options.paths?.length ?? "auto"} sign_in_hosts=${signInHosts} managed_hosts=${managedHosts} expected=${expected} verified=${verified} unregistered=${unregistered} health_mismatches=${healthMismatches} unknown=${unknown} unprobeable=${unprobeable} invalid_credentials=${invalidCredentials} skipped_required=${skippedRequired.length}`,
   );
   return googleRedirectProbeExitCode({
     expected,
     unregistered,
+    healthMismatches,
     unknown,
     unprobeable,
     invalidCredentials,

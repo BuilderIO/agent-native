@@ -385,6 +385,16 @@ export function calendarListEvents(
   );
 }
 
+export function calendarListCalendars(
+  accessToken: string,
+  params: { maxResults?: number; pageToken?: string } = {},
+) {
+  return googleFetch(
+    `${CALENDAR_BASE}/users/me/calendarList${qs(params)}`,
+    accessToken,
+  );
+}
+
 export function calendarGetCalendar(accessToken: string, calendarId: string) {
   return googleFetch(
     `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}`,

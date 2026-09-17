@@ -336,7 +336,7 @@ agents.example.com {
 - `BETTER_AUTH_URL` को उस ऐप path के public URL पर सेट करें। OAuth callback
   URLs को वही public URL उपयोग करना चाहिए।
 - Production data के लिए container filesystem पर भरोसा न करें। `DATABASE_URL`
-  के लिए Postgres (या कोई अन्य persistent SQL backend) उपयोग करें।
+  के लिए PostgreSQL उपयोग करें।
 - अगर Cloudflare VPS के आगे TLS terminate करता है, तो Cloudflare को सामान्य
   `X-Forwarded-Proto` / `X-Forwarded-Host` headers भेजने और public host को
   proxy container पर route करने के लिए configure करें।

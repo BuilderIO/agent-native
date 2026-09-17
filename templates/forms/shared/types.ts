@@ -117,6 +117,19 @@ export interface FormSettings {
   allowedOrigins?: string[];
 }
 
+export const FORM_SETTINGS_KEYS = [
+  "submitText",
+  "successMessage",
+  "redirectUrl",
+  "completionMode",
+  "completionRefreshSeconds",
+  "showProgressBar",
+  "emailOnNewResponses",
+  "anonymous",
+  "integrations",
+  "allowedOrigins",
+] as const;
+
 /**
  * The subset of {@link FormSettings} that is safe to expose to anonymous
  * respondents of a published form. This is an explicit ALLOWLIST: only the
@@ -165,6 +178,15 @@ export function getFormCompletionRefreshSeconds(value: unknown): number {
 export function assertValidFormCompletionSettings(
   settings: FormSettings,
 ): void {
+  const unknownKeys = Object.keys(settings).filter(
+    (key) => !(FORM_SETTINGS_KEYS as readonly string[]).includes(key),
+  );
+  if (unknownKeys.length > 0) {
+    throw new Error(
+      `Unknown form setting(s): ${unknownKeys.join(", ")}. Valid settings: ${FORM_SETTINGS_KEYS.join(", ")}`,
+    );
+  }
+
   if (settings.completionMode !== undefined) {
     switch (settings.completionMode) {
       case "message":
@@ -254,6 +276,14 @@ export interface FormResponse {
    * unknown or anonymous mode suppresses response metadata.
    */
   clientSurface?: string | null;
+  communityPromotion?: {
+    status: "publishing" | "published" | "failed" | "unknown";
+    builderContentId?: string | null;
+    communitySlug?: string | null;
+    error?: string | null;
+    promotedAt?: string | null;
+    promotedBy?: string | null;
+  } | null;
 }
 
 // ---------------------------------------------------------------------------

@@ -109,7 +109,7 @@ beforeEach(() => {
 });
 
 describe("Builder hosted user OAuth", () => {
-  it("uses the exact fixed Builder contract and least-privilege scopes", () => {
+  it("uses the exact fixed Builder contract and requests every Builder scope up front", () => {
     expect({
       issuer: BUILDER_OAUTH_ISSUER,
       resource: BUILDER_OAUTH_RESOURCE,
@@ -117,13 +117,18 @@ describe("Builder hosted user OAuth", () => {
     }).toEqual({
       issuer: "https://mcp.builder.io",
       resource: "https://api.builder.io",
-      // Uploads need the asset scope: Builder's /api/v1/upload/* endpoints
-      // enforce it, so without it a connected user cannot store a file.
-      scopes: ["builder:ai:invoke", "builder:assets:write"],
+      scopes: [
+        "builder:ai:invoke",
+        "builder:agents:run",
+        "builder:browser:connect",
+        "builder:assets:write",
+        "builder:projects:read",
+        "builder:projects:write",
+        "builder:designsystem:read",
+        "builder:designsystem:write",
+      ],
     });
-    expect(BUILDER_OAUTH_SCOPES.join(" ")).not.toMatch(
-      /offline_access|project|design|browser|agent/,
-    );
+    expect(BUILDER_OAUTH_SCOPES.join(" ")).not.toContain("offline_access");
   });
 
   it("starts public PKCE authorization with Builder's fixed resource and scope", async () => {

@@ -249,6 +249,7 @@ import {
   type PlanAccessStatusResponse,
   type PublishVisualPlanResult,
 } from "@/hooks/use-plans";
+import { sendToPlanCreationAgentChat } from "@/lib/agent-chat";
 import {
   assessPlanPrompt,
   isProbablyImportedPlan,
@@ -1028,11 +1029,7 @@ function CommentAvatar({
     size === "pin" ? "size-7" : size === "md" ? "size-8" : "size-7";
   return (
     <Avatar
-      className={cn(
-        sizeClass,
-        "border-2 border-background shadow-sm ring-1 ring-border/60",
-        className,
-      )}
+      className={cn(sizeClass, "border border-background shadow-sm", className)}
       title={author.email ? `${author.name} (${author.email})` : author.name}
     >
       {author.avatarUrl && (
@@ -3791,6 +3788,11 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   };
 
   const runPlanExportAction = (action: () => Promise<void>) => {
+    trackEvent("plan_reader_action_started", {
+      app_name: "plan",
+      template_name: "plan",
+      surface: localPlanMode ? "local_reader" : "reader",
+    });
     preservePlanReaderScroll(() => {
       void action().catch((error) => {
         toast.error(
@@ -3826,6 +3828,11 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   }, [canCommentPlan]);
 
   const selectReviewMode = (mode: CanvasMarkupMode) => {
+    trackEvent("plan_review_mode_selected", {
+      app_name: "plan",
+      template_name: "plan",
+      mode,
+    });
     preservePlanReaderScroll(() => {
       if (mode !== "comment") {
         closeInlineComment();
@@ -3876,7 +3883,10 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   const handleNativeReaderScroll = () => {
     documentStateRef.current = readNativeDocumentState();
     setNativeSelectionComment(null);
-    scheduleNativeMarkerUpdate();
+    if (commentMarkersVisible || pendingAnnotation || activeAnnotation) {
+      // Ordinary reading must not invalidate the document tree on every wheel frame.
+      scheduleNativeMarkerUpdate();
+    }
   };
 
   const readNativeSelectionComment =
@@ -5279,6 +5289,10 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                           {canEditPlanContent ? (
                             <DropdownMenuItem
                               onClick={() => {
+                                trackEvent("plan_history_opened", {
+                                  app_name: "plan",
+                                  template_name: "plan",
+                                });
                                 preservePlanReaderScroll(() => {
                                   closeInlineComment();
                                   setHistoryOpen(true);
@@ -7674,7 +7688,14 @@ function PlansOverview({
           <div className="flex flex-wrap items-center gap-3">
             <Tabs
               value={filter}
-              onValueChange={(v) => setFilter(v as OverviewFilter)}
+              onValueChange={(v) => {
+                trackEvent("plan_filter_changed", {
+                  app_name: "plan",
+                  template_name: "plan",
+                  filter: v,
+                });
+                setFilter(v as OverviewFilter);
+              }}
             >
               <TabsList>
                 <TabsTrigger value="all">
@@ -8463,7 +8484,7 @@ function CreatePlanDialog({
       toast.message(t("plansPage.create.describeFirst"));
       return;
     }
-    sendToAgentChat({
+    sendToPlanCreationAgentChat({
       type: "content",
       submit: true,
       message: buildCreatePlanAgentMessage({ prompt, source, planKind, t }),

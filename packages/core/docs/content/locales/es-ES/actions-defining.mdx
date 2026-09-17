@@ -124,6 +124,28 @@ El framework descubre automáticamente cada archivo en `actions/` y lo monta al 
             "Hereda `agentTool`. Ponlo en false para ocultarla de los agentes externos por MCP y A2A, o en true para declarar su pertenencia al catálogo curado. Consulta Acceso y autorización.",
         },
         {
+          name: "endsTurn",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            "Ponlo en true cuando una llamada exitosa entrega el control al usuario (formulario de pregunta, diálogo de admisión); hazla la primera o única llamada del turno. Oculta de MCP, WebMCP y A2A a menos que mcpTool: true — un llamador externo no puede recibir una respuesta dentro de la app. Consulta Agentes externos.",
+        },
+        {
+          name: "link",
+          type: "(result) => { url, label }",
+          optional: true,
+          description:
+            "Constructor de enlace profundo puro y síncrono, leído por los hosts MCP y la app de escritorio. Consulta Otras superficies.",
+        },
+        {
+          name: "mcpApp",
+          type: "object",
+          optional: true,
+          description:
+            "Incrusta la ruta real de la app en línea en los hosts MCP-App. Consulta Otras superficies.",
+        },
+        {
           name: "deferLoading",
           type: "boolean",
           optional: true,
@@ -194,6 +216,8 @@ El framework descubre automáticamente cada archivo en `actions/` y lo monta al 
 
 El esquema cumple dos funciones. Se convierte en JSON Schema para la definición de herramienta de la API de Claude, y valida la entrada en tiempo de ejecución antes de que se dispare `run()`. La entrada inválida nunca llega a tu manejador.
 
+Indica los valores enum y los valores por defecto en `.describe()`, mantén idéntico el nombre del id principal en toda una familia de herramientas (`id`, no una mezcla de `id`/`deckId`), y haz que la descripción de una línea baste para llamar la herramienta desde un catálogo compacto — la skill `actions` que se incluye en cada app trae la checklist.
+
 ## Validar el valor de retorno {#output-schema}
 
 `schema` valida las _entradas_. Para validar también lo que **devuelve** una acción, pasa un `outputSchema` (cualquier esquema compatible con Standard Schema: Zod, Valibot, ArkType, la misma superficie que `schema`). El framework valida la entrada antes de `run()` y valida el resultado después de que `run()` se resuelva.
@@ -222,6 +246,10 @@ export default defineAction({
 | `"fallback"` | Devuelve el valor `outputFallback` proporcionado en lugar del resultado inválido.                                         |
 
 Cuando `run()` tiene éxito, el framework devuelve el valor validado, así que cualquier valor por defecto o coerción de `outputSchema` surte efecto, igual que ocurre con la entrada. Cuando no pasas un `outputSchema`, el valor de retorno queda sin cambios.
+
+## Contratos de resultado {#result-contracts}
+
+Un resultado de creación o actualización lo lee algo más que quien lo llama. Devuelve `id` (para que `link` pueda construir un enlace profundo a la vista de edición), un `message` de una línea y — cuando la operación es un paso de un flujo que el agente debe seguir impulsando — `nextRequiredAction` con el nombre de la siguiente herramienta. Nunca lo redactes como si esperara al usuario: los llamadores MCP/WebMCP/A2A no pueden recibir una respuesta dentro de la app. El bucle del agente conserva `nextRequiredAction` en los prompts de continuación incluso cuando un resultado grande se trunca, y los llamadores MCP lo ven como `Next: …`.
 
 ## Configuración HTTP {#http}
 
@@ -365,7 +393,7 @@ Quien llama desde el agente no ve el estado. El agente ejecuta `run()` en proces
 Cada acción que el agente puede ver ocupa una plaza en la lista de herramientas del modelo, y una lista larga y solapada le dificulta al modelo elegir la herramienta correcta. Diseña la superficie de acciones como una API que mantienes, no como una acción por cada botón de la UI:
 
 - Prefiere **una única acción `update` de estilo CRUD** que reciba un parche de campos opcionales, en lugar de muchas acciones por campo como `update-name`, `update-order` y `update-color`. El invocador solo envía los campos que cambiaron.
-- Antes de añadir una nueva acción de lectura para cada consulta o filtro, considera primero una opción más general: el [trío de API de proveedor](/docs/template-dispatch-vault-integrations#provider-api) (`provider-api-catalog`, `provider-api-docs` y `provider-api-request`) para datos de proveedores, o la herramienta de desarrollo `db-query` para datos de la app.
+- Antes de añadir una nueva acción de lectura para cada consulta o filtro, considera primero una opción más general: el [trío de API de proveedor](/docs/template-dispatch-developers#calling-a-provider-directly) (`provider-api-catalog`, `provider-api-docs` y `provider-api-request`) para datos de proveedores, o la herramienta de desarrollo `db-query` para datos de la app.
 - Marca las acciones solo de UI o programáticas como [`agentTool: false`](/docs/actions-access-control#agent-tool). Siguen siendo invocables desde el frontend o por HTTP, sin ocupar una plaza en la lista de herramientas del modelo.
 - Marca con `deferLoading: false` el puñado de acciones a las que el agente recurre constantemente. Esos son los esquemas que se envían en la primera petición al modelo; todo lo demás se carga bajo demanda mediante `tool-search` cuando el agente lo necesita. En cuanto una acción se excluye así, todas las no marcadas quedan diferidas, así que marca todo el conjunto inicial de una vez en lugar de una acción cada vez. Esto trata de lo que cuesta el primer turno, no del acceso: una acción diferida es invocable en cuanto `tool-search` la devuelve. Es la forma por acción del array `initialToolNames` del plugin, y una app puede usar cualquiera de las dos.
 - Elimina u oculta las acciones que la UI ya no usa, en lugar de dejarlas expuestas al modelo.

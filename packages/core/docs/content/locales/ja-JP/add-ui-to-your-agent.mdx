@@ -1,0 +1,49 @@
+---
+title: "Microsoft Foundry、Gemini、Anthropic、OpenAI エージェントに UI を追加する"
+description: "A2A またはマネージドエージェント API でホスト型バックエンドを Agent-Native ワークスペースに接続します。"
+search: "エージェント UI 追加 Foundry Gemini Anthropic OpenAI A2A ディレクトリ"
+---
+
+# エージェントに UI を追加する
+
+Agent-Native は既存エージェントにチャット、承認、ワークフロー状態、権限を扱うワークスペースを提供します。推論、ツール、コンテキスト、長時間実行はプロバイダー側に残ります。
+
+このページでは **Microsoft Foundry、Gemini Enterprise、Anthropic Managed Agents、OpenAI に UI を追加**する方法を説明します。
+
+## 接続を選ぶ {#choose-a-connection-path}
+
+| バックエンド             | Agent-Native の接続         | 設定                                  |
+| ------------------------ | --------------------------- | ------------------------------------- |
+| Microsoft Foundry        | A2A 1.0                     | Agent Card URL と Entra シークレット  |
+| Gemini Enterprise        | A2A                         | Agent Card URL と Google シークレット |
+| Anthropic Managed Agents | Managed Agents API          | エージェント ID、環境 ID、Vault キー  |
+| OpenAI Agents API        | カスタム A2A エンドポイント | Agent Card URL とプロバイダー認証情報 |
+| 任意の A2A エージェント  | A2A                         | Agent Card URL と任意の認証情報       |
+
+**Settings → Agent → Agent directory** を開きます。Connect ボタンは既存の **Connected agents** フォームを開きます。シークレットはワークスペースの Vault に保存されます。
+
+## Microsoft Foundry {#microsoft-foundry}
+
+A2A v1.0 の Agent Card URL を入力して Entra 認証情報を選びます。サービス間接続では `https://ai.azure.com/.default` と **Foundry Agent Consumer** ロールを使います。
+
+## Gemini Enterprise {#gemini-enterprise}
+
+カスタム A2A カード URL を入力し、Vault の bearer シークレットを選びます。保存前にカードと JSON-RPC を検証します。
+
+## Anthropic Managed Agents {#anthropic-managed-agents}
+
+**Anthropic Managed Agents** を選び、エージェント ID、環境 ID、API キーを入力します。セッションと承認は Anthropic に残り、Agent-Native のチャットに表示されます。
+
+## カスタム A2A {#custom-a2a}
+
+内部またはセルフホストのエージェントには **Add by URL** を使います。A2A 0.3 と 1.0 のカードを検証し、失敗を明確なステータスで表示します。
+
+ストリーミングが利用できない場合、接続は `message/send` を使用します。
+
+## レジストリ {#registries}
+
+[Global A2A Registry](https://www.a2a-registry.org) を参照できます。追加前にカード、ホスト、認証を確認してください。
+
+## UI レイヤー {#ui-layer}
+
+[A2A](/docs/a2a-protocol) は委譲タスクを運び、Agent-Native ワークスペースがユーザー状態を管理します。[Connected agents](/docs/agent-mentions#mentioning-agents) と [External agents](/docs/external-agents) を参照してください。

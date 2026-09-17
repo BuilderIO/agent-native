@@ -1,6 +1,6 @@
 // Read-side action contracts. The record/read-through cases stay mocked — they
 // are about which adapter is consulted — while the list, navigation, and
-// view-screen cases run against a real libsql database with the app's own
+// view-screen cases run against a real PGlite database with the app's own
 // migrations, because what they protect (the resolved ownership scope bounding
 // the returned rows, a saved view's grouping, a query-string flag) cannot be
 // observed through a stubbed query builder.
@@ -78,7 +78,7 @@ import viewScreen from "./view-screen.js";
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `crm-read-actions-test-${process.pid}-${Date.now()}.sqlite`,
+  `crm-read-actions-test-${process.pid}-${Date.now()}.pglite`,
 );
 
 const OWNER = "owner@example.test";
@@ -121,7 +121,7 @@ let getDb: () => any;
 let schema: typeof import("../server/db/schema.js");
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = await import("../server/db/schema.js");
@@ -198,9 +198,7 @@ beforeAll(async () => {
 }, 120_000);
 
 afterAll(() => {
-  for (const suffix of ["", "-shm", "-wal"]) {
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
-  }
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 describe("CRM read actions", () => {

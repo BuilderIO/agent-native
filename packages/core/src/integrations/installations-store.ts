@@ -9,13 +9,7 @@
 
 import { createHash, randomUUID } from "node:crypto";
 
-import {
-  getDbExec,
-  intType,
-  isPostgres,
-  isUniqueViolation,
-  retryOnDdlRace,
-} from "../db/client.js";
+import { getDbExec, isUniqueViolation, retryOnDdlRace } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import type { SecretScope } from "../secrets/register.js";
 import {
@@ -125,7 +119,7 @@ export interface IntegrationInstallationUpdate {
 }
 
 function createSql(): string {
-  const integer = intType();
+  const integer = "BIGINT";
   return `CREATE TABLE IF NOT EXISTS ${TABLE} (
     id TEXT PRIMARY KEY,
     platform TEXT NOT NULL,
@@ -180,7 +174,7 @@ export async function ensureTable(): Promise<void> {
     _initPromise = (async () => {
       const client = getDbExec();
       const ddl = createSql();
-      if (isPostgres()) {
+      {
         await ensureTableExists(TABLE, ddl);
         for (const [name, sql] of INDEXES) {
           await ensureIndexExists(name, sql);

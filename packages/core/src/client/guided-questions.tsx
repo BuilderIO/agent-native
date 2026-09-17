@@ -101,7 +101,7 @@ const EXPLORE_OPTION: GuidedQuestionOption = {
   description: "Show me a few distinct directions before committing.",
 };
 const DECIDE_OPTION: GuidedQuestionOption = {
-  label: "Decide for me",
+  label: "Let the agent decide",
   value: "__decide__",
   description: "Use your judgment and keep moving.",
 };
@@ -418,6 +418,33 @@ function optionKey(option: GuidedQuestionOption): string {
   return `${option.value.toLowerCase()}::${option.label.toLowerCase()}`;
 }
 
+function recommendedFirst<T extends { recommended?: boolean }>(
+  options: readonly T[],
+): T[] {
+  if (!options.some((option) => option.recommended)) return [...options];
+  return [
+    ...options.filter((option) => option.recommended),
+    ...options.filter((option) => !option.recommended),
+  ];
+}
+
+function defaultGuidedAnswers(
+  questions: readonly GuidedQuestion[],
+): GuidedQuestionAnswers {
+  const answers: GuidedQuestionAnswers = {};
+  for (const question of questions) {
+    if (question.type !== "text-options" && question.type !== "color-options")
+      continue;
+    const recommended = (question.options ?? question.choices ?? [])
+      .filter((option) => option.recommended)
+      .map((option) => option.value);
+    const first = recommended[0];
+    if (!first) continue;
+    answers[question.id] = question.multiSelect ? recommended : first;
+  }
+  return answers;
+}
+
 /** Stable content hash so poll refreshes do not reset in-progress answers. */
 export function guidedQuestionsFingerprint(
   questions: GuidedQuestion[],
@@ -451,7 +478,7 @@ export function guidedQuestionsFingerprint(
 }
 
 function withDefaultOptions(question: GuidedQuestion): GuidedQuestionOption[] {
-  const base = question.options ?? question.choices ?? [];
+  const base = recommendedFirst(question.options ?? question.choices ?? []);
   const seen = new Set(base.map(optionKey));
   const result = [...base];
   const maybePush = (option: GuidedQuestionOption, enabled: boolean) => {
@@ -495,14 +522,18 @@ export function GuidedQuestionFlow({
   submitLabel = "Continue",
   className,
 }: GuidedQuestionFlowProps) {
-  const [answers, setAnswers] = useState<GuidedQuestionAnswers>({});
+  const [answers, setAnswers] = useState<GuidedQuestionAnswers>(() =>
+    defaultGuidedAnswers(questions),
+  );
   const questionsFingerprint = useMemo(
     () => guidedQuestionsFingerprint(questions),
     [questions],
   );
 
   useEffect(() => {
-    setAnswers({});
+    setAnswers(defaultGuidedAnswers(questions));
+    // The fingerprint owns reset identity so polling does not erase answers.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [questionsFingerprint]);
 
   const setAnswer = useCallback((id: string, value: unknown) => {
@@ -826,7 +857,10 @@ function ColorOptions({
   value: unknown;
   onChange: (value: unknown) => void;
 }) {
-  const options = question.options ?? question.choices ?? [];
+  const options = useMemo(
+    () => recommendedFirst(question.options ?? question.choices ?? []),
+    [question],
+  );
   const multiSelect = question.multiSelect === true;
   const selectedValues = Array.isArray(value) ? value : [];
   const isSelected = (optionValue: string) =>
@@ -1028,6 +1062,19 @@ export interface UseGuidedQuestionFlowOptions {
     formattedAnswers: string;
   }) => string;
   buildSkipContext?: () => string;
+  /**
+   * Host delivery boundary for submitted answers. Omit to use the shared
+   * browser chat bridge; AgentKit hosts can route the visible answer through
+   * their controller without maintaining a second conversation runtime.
+   */
+  onSubmitMessage?: (input: {
+    answers: GuidedQuestionAnswers;
+    formattedAnswers: string;
+    message: string;
+    context: string;
+  }) => void;
+  /** Host delivery boundary for the optional skip action. */
+  onSkipMessage?: (input: { message: string; context: string }) => void;
 }
 
 /**
@@ -1052,9 +1099,11 @@ export function useGuidedQuestionFlow({
   queryKey = ["show-questions"],
   refetchInterval = false,
   submitMessage = "Here are my answers — go ahead.",
-  skipMessage = "Skip the questions — decide for me.",
+  skipMessage = "Skip the questions — let the agent decide.",
   buildSubmitContext,
   buildSkipContext,
+  onSubmitMessage,
+  onSkipMessage,
 }: UseGuidedQuestionFlowOptions = {}) {
   const queryClient = useQueryClient();
   const [payload, setPayload] = useState<GuidedQuestionPayload | null>(null);
@@ -1183,14 +1232,23 @@ export function useGuidedQuestionFlow({
       ]
         .filter(Boolean)
         .join("\n\n");
-      sendToAgentChat({
-        message: resolvedSubmitMessage,
-        context,
-        submit: true,
-      });
+      if (onSubmitMessage) {
+        onSubmitMessage({
+          answers,
+          formattedAnswers,
+          message: resolvedSubmitMessage,
+          context,
+        });
+      } else {
+        sendToAgentChat({
+          message: resolvedSubmitMessage,
+          context,
+          submit: true,
+        });
+      }
       clear();
     },
-    [buildSubmitContext, clear, visiblePayload, submitMessage],
+    [buildSubmitContext, clear, onSubmitMessage, visiblePayload, submitMessage],
   );
 
   const handleSkip = useCallback(() => {
@@ -1200,17 +1258,19 @@ export function useGuidedQuestionFlow({
       clear();
       return;
     }
-    sendToAgentChat({
-      message: visiblePayload?.skipMessage ?? skipMessage,
-      // Skipping a variant set asks for another one — the replacement needs the
-      // same context the first set was built from.
-      context: [buildSkipContext?.(), visiblePayload?.submitContext]
-        .filter(Boolean)
-        .join("\n\n"),
-      submit: true,
-    });
+    const message = visiblePayload?.skipMessage ?? skipMessage;
+    // Skipping a variant set asks for another one — the replacement needs the
+    // same context the first set was built from.
+    const context = [buildSkipContext?.(), visiblePayload?.submitContext]
+      .filter(Boolean)
+      .join("\n\n");
+    if (onSkipMessage) {
+      onSkipMessage({ message, context });
+    } else {
+      sendToAgentChat({ message, context, submit: true });
+    }
     clear();
-  }, [buildSkipContext, clear, visiblePayload, skipMessage]);
+  }, [buildSkipContext, clear, onSkipMessage, visiblePayload, skipMessage]);
 
   return {
     payload: visiblePayload,

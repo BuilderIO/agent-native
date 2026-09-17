@@ -10,7 +10,10 @@ import {
 import { useState } from "react";
 import { Link } from "react-router";
 
-import { BuilderWaitlistContent } from "./BuilderWaitlistPopover";
+import {
+  BUILDER_BUILD_ONLINE_SUPPORTED,
+  BuilderWaitlistContent,
+} from "./BuilderWaitlistPopover";
 import { sitePathForLocale } from "./docs-locale";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 
@@ -147,12 +150,11 @@ export function CustomizeTemplatePopover({
               >
                 <IconWorld size={16} aria-hidden="true" />
                 {t("templatesPage.customizeOnline")}
-                {/* Caps come from CSS, not the string: an all-caps label
-                    becomes the accessible name and screen readers spell it out
-                    letter by letter. */}
-                <span className="ml-auto shrink-0 rounded border border-[var(--docs-border)] px-1.5 py-0.5 font-[family-name:var(--font-mono)] text-[10px] font-semibold uppercase tracking-[0.04em] text-[var(--fg-secondary)]">
-                  {t("templatesPage.customizeOnlineBadge")}
-                </span>
+                {!BUILDER_BUILD_ONLINE_SUPPORTED ? (
+                  <span className="ml-auto shrink-0 rounded border border-[var(--docs-border)] px-1.5 py-0.5 font-[family-name:var(--font-mono)] text-[10px] font-semibold uppercase tracking-[0.04em] text-[var(--fg-secondary)]">
+                    {t("templatesPage.customizeOnlineBadge")}
+                  </span>
+                ) : null}
               </button>
               <button
                 type="button"

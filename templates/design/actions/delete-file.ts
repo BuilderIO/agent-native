@@ -6,6 +6,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
+import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
 import { countLockedLayers } from "../shared/locked-layers.js";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -127,7 +128,36 @@ export default defineAction({
     // prune once more after deletion to close the small window where another
     // editor could have refreshed metadata for the still-existing file.
     await pruneMetadata();
-    await db.delete(schema.designFiles).where(eq(schema.designFiles.id, id));
+    let deleted = false;
+    await withDesignSourceMutationTransaction(file.designId, async (tx) => {
+      const [current] = await tx
+        .select({ content: schema.designFiles.content })
+        .from(schema.designFiles)
+        .where(
+          and(
+            eq(schema.designFiles.id, id),
+            eq(schema.designFiles.designId, file.designId),
+          ),
+        )
+        .for("update")
+        .limit(1);
+      if (!current) return;
+      if (!allowLockedLayers && countLockedLayers(current.content) > 0) {
+        throw new Error(
+          "This screen contains locked layers. Unlock them before deleting the screen, or pass allowLockedLayers when the user asked for the whole screen to go.",
+        );
+      }
+      await tx
+        .delete(schema.designFiles)
+        .where(
+          and(
+            eq(schema.designFiles.id, id),
+            eq(schema.designFiles.designId, file.designId),
+          ),
+        );
+      deleted = true;
+    });
+    if (!deleted) return { id, deleted: false, alreadyMissing: true };
     await pruneMetadata();
 
     return { id, deleted: true };

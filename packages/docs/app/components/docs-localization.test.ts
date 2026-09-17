@@ -1,5 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const { getGithubStarCount, resetGithubStarCountCacheForTests } = vi.hoisted(
+  () => ({
+    getGithubStarCount: vi.fn().mockResolvedValue(4647),
+    resetGithubStarCountCacheForTests: vi.fn(),
+  }),
+);
+
+vi.mock("../../server/lib/github-star-count.server", () => ({
+  getGithubStarCount,
+  resetGithubStarCountCacheForTests,
+}));
+
 import { loader as rootLoader, resolveLayoutLocale } from "../root";
 import { loader as localizedDocLoader } from "../routes/docs.$locale.$slug";
 import { loader as defaultDocLoader } from "../routes/docs.$slug";
@@ -25,6 +37,7 @@ function loaderArgs(
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  resetGithubStarCountCacheForTests();
 });
 
 describe("localized docs fallback", () => {
@@ -157,6 +170,37 @@ describe("localized docs fallback", () => {
     },
   );
 
+  it("redirects the retired Frames page to Agent Surfaces", async () => {
+    let response: Response | undefined;
+    try {
+      await defaultDocLoader(loaderArgs({ slug: "frames" }));
+    } catch (error) {
+      response = error as Response;
+    }
+
+    expect(response?.status).toBe(301);
+    expect(response?.headers.get("Location")).toBe("/docs/agent-surfaces/");
+  });
+
+  it("preserves the locale when redirecting the retired Frames page", async () => {
+    let response: Response | undefined;
+    try {
+      await localizedDocLoader(
+        loaderArgs(
+          { locale: "fr-FR", slug: "frames" },
+          "https://docs.test/fr-FR/docs/frames",
+        ),
+      );
+    } catch (error) {
+      response = error as Response;
+    }
+
+    expect(response?.status).toBe(301);
+    expect(response?.headers.get("Location")).toBe(
+      "/fr-fr/docs/agent-surfaces/",
+    );
+  });
+
   it.each([
     "/fr-FR/docs/workspace",
     "/docs/fr-FR/workspace",
@@ -240,8 +284,16 @@ describe("localized docs fallback", () => {
 
     expect(data.locale).toBe("zh-CN");
     expect(data.preference.locale).toBe("zh-CN");
+    expect(data.starCount).toBe(4647);
     expect(data.messages).toMatchObject({
       header: expect.objectContaining({ docs: expect.any(String) }),
     });
+  });
+
+  it("loads the GitHub star count as part of SSR root data", async () => {
+    const data = await rootLoader(loaderArgs({}, "https://docs.test/apps"));
+
+    expect(data.starCount).toBe(4647);
+    expect(getGithubStarCount).toHaveBeenCalled();
   });
 });

@@ -1,9 +1,27 @@
 import { describe, expect, it } from "vitest";
 
 // @ts-expect-error — plain .mjs script, no type declarations
-import { parsePorcelain, selectStageablePaths } from "./ship-push.mjs";
+import {
+  assertFreeDisk,
+  freeDiskBytes,
+  isExcludedPath,
+  parsePorcelain,
+  selectStageablePaths,
+} from "./ship-push.mjs";
 
 const z = (...entries: string[]) => entries.join("\0") + "\0";
+
+describe("free disk preflight", () => {
+  it("returns the filesystem's available bytes", () => {
+    expect(freeDiskBytes(process.cwd())).toBeGreaterThan(0);
+  });
+
+  it("fails loudly below the required floor", () => {
+    expect(() =>
+      assertFreeDisk(process.cwd(), Number.MAX_SAFE_INTEGER),
+    ).toThrow(/free on .* need at least/i);
+  });
+});
 
 describe("parsePorcelain", () => {
   it("keeps a leading dot that trimming the status column would eat", () => {
@@ -53,6 +71,24 @@ describe("selectStageablePaths", () => {
     expect(selectStageablePaths(["gone.ts", "a.ts"], onDisk("a.ts"))).toEqual([
       "a.ts",
     ]);
+  });
+});
+
+describe("isExcludedPath", () => {
+  it("excludes root bridge/data directories without suppressing app source", () => {
+    expect(isExcludedPath("bridge/notes.ts")).toBe(true);
+    expect(isExcludedPath("data/session.json")).toBe(true);
+    expect(
+      isExcludedPath("templates/design/app/components/design/bridge/editor.ts"),
+    ).toBe(false);
+    expect(
+      isExcludedPath("templates/design/.generated/bridge/editor.generated.ts"),
+    ).toBe(false);
+  });
+
+  it("excludes learnings.md at any path", () => {
+    expect(isExcludedPath("learnings.md")).toBe(true);
+    expect(isExcludedPath("templates/design/learnings.md")).toBe(true);
   });
 });
 

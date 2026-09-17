@@ -14,11 +14,13 @@ import {
   createCreativeContextAgentTab,
 } from "@agent-native/creative-context/client";
 import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
+import { CONTENT_LABS } from "@shared/labs";
 import { useMemo } from "react";
 import { toast } from "sonner";
 
 import { Switch } from "@/components/ui/switch";
 import { useContentPrefs } from "@/hooks/use-content-prefs";
+import { useCreativeContextLab } from "@/hooks/use-creative-context-lab";
 import { messagesByLocale } from "@/i18n-data";
 
 import changelog from "../../CHANGELOG.md?raw";
@@ -29,11 +31,32 @@ export function meta() {
 
 export default function SettingsRoute() {
   const t = useT();
+  const creativeContextEnabled = useCreativeContextLab();
+  const agentAdditionalTabFactories = useMemo(
+    () => (creativeContextEnabled ? [createCreativeContextAgentTab] : []),
+    [creativeContextEnabled],
+  );
   const agentSettingsTabs = useAgentSettingsTabs({
-    agentAdditionalTabFactories: [createCreativeContextAgentTab],
+    agentAdditionalTabFactories,
   });
   useSetPageTitle(t("settings.title"));
   const { prefs, loading: prefsLoading, save: savePrefs } = useContentPrefs();
+
+  const labs = useMemo(
+    () =>
+      CONTENT_LABS.map((lab) => ({
+        ...lab,
+        displayName: t("settings.labCreativeContext", {
+          defaultValue: lab.displayName ?? "Creative Context",
+        }),
+        description: t("settings.labCreativeContextDescription", {
+          defaultValue:
+            lab.description ??
+            "Connect and reuse governed reference context in Content.",
+        }),
+      })),
+    [t],
+  );
 
   const generalSearchEntries = useMemo<SettingsSearchEntry[]>(
     () => [
@@ -59,6 +82,13 @@ export default function SettingsRoute() {
         account={<AccountSettingsCard />}
         teamLabel={t("team.pageTitle")}
         extraTabs={agentSettingsTabs}
+        labs={labs}
+        labsIntro={t("settings.labsIntro", {
+          defaultValue: "Preview experimental features before they ship.",
+        })}
+        labsLabel={t("settings.labs", {
+          defaultValue: "Labs",
+        })}
         generalSearchEntries={generalSearchEntries}
         general={
           <main className="mx-auto w-full max-w-2xl space-y-6">
@@ -66,7 +96,7 @@ export default function SettingsRoute() {
               {t("settings.description")}
             </p>
 
-            <CreativeContextSettingsLink />
+            {creativeContextEnabled ? <CreativeContextSettingsLink /> : null}
 
             <SettingsGroup>
               <SettingsRow

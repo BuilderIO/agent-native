@@ -89,4 +89,18 @@ describe("keyboard shortcuts catalog", () => {
     expect(formatShortcutLabel("alt+a", false)).toBe("Alt+A");
     expect(formatShortcutLabel("", true)).toBe("");
   });
+
+  it("advertises Cmd/Ctrl+\\ for toggling the Design chrome", () => {
+    expect(
+      DESIGN_SHORTCUTS.find((shortcut) => shortcut.id === "toggle-ui")
+        ?.bindings,
+    ).toEqual(["$mod+\\"]);
+  });
+
+  it("advertises Cmd/Ctrl+Shift+\\ for minimal Design chrome", () => {
+    expect(
+      DESIGN_SHORTCUTS.find((shortcut) => shortcut.id === "toggle-minimal-ui")
+        ?.bindings,
+    ).toEqual(["$mod+shift+\\"]);
+  });
 });

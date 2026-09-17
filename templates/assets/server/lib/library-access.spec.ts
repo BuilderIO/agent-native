@@ -54,6 +54,8 @@ import {
   canReadRun,
   canReadSession,
   deleteDraftAssetIfUnchanged,
+  DRAFT_ROLE,
+  draftProvenanceAccess,
   draftReadFilter,
   resolveDraftReadScope,
   runReadFilter,
@@ -113,6 +115,17 @@ describe("library-access", () => {
       undefined,
       { skipResourceBody: true },
     );
+  });
+
+  it("declares draft provenance as draft work, so a viewer can record it", async () => {
+    // Recording where a candidate came from is part of drafting it. Letting
+    // this fall back to the `editor` default is what made a viewer's
+    // generation die after the kit gate had already let it through.
+    expect(draftProvenanceAccess("lib-1")).toEqual({
+      resourceType: "asset-library",
+      resourceId: "lib-1",
+      recordMinRole: DRAFT_ROLE,
+    });
   });
 
   it("refuses a viewer's approval with a remedy the agent can classify", async () => {

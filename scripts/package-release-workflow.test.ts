@@ -14,6 +14,10 @@ type Workflow = Record<string, unknown>;
 const workflow = parse(
   readFileSync(".github/workflows/auto-publish.yml", "utf8"),
 ) as Workflow;
+const publisherSource = readFileSync(
+  "scripts/changeset-publish-sequential.ts",
+  "utf8",
+);
 const trigger = workflow.on as Workflow;
 const dispatch = trigger.workflow_dispatch as Workflow;
 const inputs = dispatch.inputs as Workflow;
@@ -107,11 +111,15 @@ describe("npm package release workflow", () => {
   it("keeps the release changeset package list aligned with the publisher", () => {
     const source = readFileSync("scripts/create-release-changeset.ts", "utf8");
     assert.match(source, /NPM_PUBLISH_PACKAGE_NAMES/);
-    assert.equal(NPM_PUBLISH_PACKAGE_NAMES.length, 8);
+    assert.equal(NPM_PUBLISH_PACKAGE_NAMES.length, 9);
   });
 
   it("allows npm propagation to settle before failing a publish", () => {
-    assert.equal(DEFAULT_NPM_AVAILABILITY_TIMEOUT_MS, 15 * 60_000);
+    assert.equal(DEFAULT_NPM_AVAILABILITY_TIMEOUT_MS, 30 * 60_000);
+    assert.match(
+      publisherSource,
+      /packagesNeedingTags\.map\(\(pkg\) => waitForPackageAvailability\(pkg\)\)/,
+    );
   });
 
   it("consumes concurrent public changesets after stable publication", () => {
@@ -183,5 +191,119 @@ describe("npm package release workflow", () => {
     assert(changesetsIndex < consumeIndex);
     assert(consumeIndex < restoreIndex);
     assert(changesetsIndex < restoreIndex);
+  });
+
+  describe("dev snapshot publishing", () => {
+    const devSnapshot = jobs["publish-dev-snapshot"] as Workflow;
+
+    it("exposes an optional devTag dispatch input, empty by default", () => {
+      assert.deepEqual(inputs.devTag, {
+        description:
+          "Dev snapshot: publish a testable version from this branch under npm dist-tag dev-<value> (leave empty for a normal stable dispatch)",
+        required: false,
+        type: "string",
+        default: "",
+      });
+    });
+
+    it("only runs on a manual dispatch with a non-empty devTag", () => {
+      assert(devSnapshot);
+      assert.match(
+        String(devSnapshot.if),
+        /github\.event_name == 'workflow_dispatch'/,
+      );
+      assert.match(String(devSnapshot.if), /inputs\.devTag != ''/);
+      assert.doesNotMatch(String(devSnapshot.if), /needs\.verify-stable-merge/);
+      assert.equal(devSnapshot.needs, undefined);
+    });
+
+    it("is not gated to main and does not depend on verify-stable-merge", () => {
+      assert.equal(workflow.on, trigger);
+      // The job itself carries no branch restriction — it runs from
+      // whatever branch dispatched the workflow.
+      assert.doesNotMatch(JSON.stringify(devSnapshot), /branches/);
+    });
+
+    it("validates the tag and synthesizes a changeset before versioning", () => {
+      const steps = devSnapshot.steps as Workflow[];
+      const prepare = steps.find(
+        (step) => step.name === "Validate dev tag and prepare a changeset",
+      );
+      assert(prepare);
+      assert.match(String(prepare.run), /prepare-dev-snapshot\.ts/);
+
+      const version = steps.find(
+        (step) => step.name === "Create dev snapshot versions",
+      );
+      assert(version);
+      assert.match(
+        String(version.run),
+        /changeset version --snapshot "\$DEV_TAG"/,
+      );
+
+      const prepareIndex = steps.indexOf(prepare);
+      const versionIndex = steps.indexOf(version);
+      assert(prepareIndex < versionIndex);
+    });
+
+    it("publishes under a dev-prefixed dist-tag via the sequential publisher", () => {
+      const steps = devSnapshot.steps as Workflow[];
+      const publish = steps.find(
+        (step) => step.name === "Publish dev snapshot packages sequentially",
+      );
+      assert(publish);
+      assert.equal(publish.id, "publish");
+      assert.equal(
+        (publish.env as Workflow).AGENT_NATIVE_NPM_DIST_TAG,
+        "dev-${{ inputs.devTag }}",
+      );
+      assert.equal(publish.run, "node scripts/changeset-publish-sequential.ts");
+      assert.doesNotMatch(
+        String((publish.env as Workflow).AGENT_NATIVE_NPM_DIST_TAG),
+        /^(latest|nightly)$/,
+      );
+    });
+
+    it("reuses the npm-publish environment for OIDC trusted publishing", () => {
+      assert.equal(devSnapshot.environment, "npm-publish");
+      assert.deepEqual(devSnapshot.permissions, {
+        contents: "read",
+        "id-token": "write",
+      });
+    });
+
+    it("summarizes using the publish step's actual output, not a directory scan", () => {
+      const steps = devSnapshot.steps as Workflow[];
+      const summary = steps.find(
+        (step) => step.name === "Summarize dev snapshot publish",
+      );
+      assert(summary);
+      assert.equal(
+        (summary.env as Workflow).PUBLISHED_PACKAGES,
+        "${{ steps.publish.outputs.published-packages }}",
+      );
+      assert.doesNotMatch(
+        String(summary.run),
+        /readdir|ls packages|find packages/,
+      );
+    });
+
+    it("has its own concurrency lane keyed by branch and tag", () => {
+      const group = String((workflow.concurrency as Workflow).group);
+      assert.match(group, /inputs\.devTag/);
+      assert.match(group, /format\('dev-\{0\}', inputs\.devTag\)/);
+      assert.match(group, /stable-preparation/);
+      assert.match(group, /stable-publication/);
+    });
+
+    it("gates the stable release job off when devTag is set", () => {
+      const release = jobs.release as Workflow;
+      assert.match(String(release.if), /!inputs\.devTag/);
+    });
+
+    it("excludes dev snapshot dispatches from downstream notification", () => {
+      const notify = jobs["notify-downstream"] as Workflow;
+      assert.match(String(notify.if), /!inputs\.devTag/);
+    });
   });
 });

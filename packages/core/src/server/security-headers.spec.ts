@@ -129,7 +129,7 @@ describe("createSecurityHeadersMiddleware", () => {
     expect(res.headers.get("Content-Security-Policy-Report-Only")).toBeNull();
   });
 
-  it("allows iframe navigations to satisfy cross-origin isolated parents", async () => {
+  it("allows ordinary iframe navigations without isolating their subresources", async () => {
     const app = createApp();
     app.use(createSecurityHeadersMiddleware());
 
@@ -153,9 +153,7 @@ describe("createSecurityHeadersMiddleware", () => {
     expect(res.headers.get("Cross-Origin-Resource-Policy")).toBe(
       "cross-origin",
     );
-    expect(res.headers.get("Cross-Origin-Embedder-Policy")).toBe(
-      "require-corp",
-    );
+    expect(res.headers.get("Cross-Origin-Embedder-Policy")).toBeNull();
   });
 
   it("keeps a same-origin Referer on embed responses", async () => {

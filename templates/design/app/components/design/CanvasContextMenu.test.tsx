@@ -4,6 +4,12 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
 
+const contextMenuMock = vi.hoisted(() => ({
+  onCloseAutoFocus: undefined as
+    | ((event: { preventDefault: () => void }) => void)
+    | undefined,
+}));
+
 vi.mock("@/lib/utils", () => ({
   cn: (...values: unknown[]) => values.filter(Boolean).join(" "),
 }));
@@ -16,33 +22,55 @@ vi.mock("@/components/ui/context-menu", () => {
     children?: React.ReactNode;
     className?: string;
   }) => <div className={className}>{children}</div>;
+  const Content = ({
+    children,
+    className,
+    onCloseAutoFocus,
+  }: {
+    children?: React.ReactNode;
+    className?: string;
+    onCloseAutoFocus?: (event: { preventDefault: () => void }) => void;
+  }) => {
+    contextMenuMock.onCloseAutoFocus = onCloseAutoFocus;
+    return <div className={className}>{children}</div>;
+  };
   const Item = ({
     children,
+    className,
     disabled,
     onSelect,
   }: {
     children?: React.ReactNode;
+    className?: string;
     disabled?: boolean;
     onSelect?: (event: Event) => void;
   }) => (
     <button
       type="button"
+      className={className}
       disabled={disabled}
       onClick={(event) => onSelect?.(event.nativeEvent)}
     >
       {children}
     </button>
   );
+  const SubTrigger = ({
+    children,
+    className,
+  }: {
+    children?: React.ReactNode;
+    className?: string;
+  }) => <button className={className}>{children}</button>;
   return {
     ContextMenu: Container,
-    ContextMenuContent: Container,
+    ContextMenuContent: Content,
     ContextMenuGroup: Container,
     ContextMenuItem: Item,
     ContextMenuSeparator: () => <hr />,
     ContextMenuShortcut: Container,
     ContextMenuSub: Container,
     ContextMenuSubContent: Container,
-    ContextMenuSubTrigger: Container,
+    ContextMenuSubTrigger: SubTrigger,
     ContextMenuTrigger: Container,
   };
 });
@@ -187,7 +215,7 @@ describe("CanvasContextMenu Select layer", () => {
   });
 });
 
-describe("CanvasContextMenu regenerate", () => {
+describe("CanvasContextMenu edit with AI", () => {
   const candidate = {
     key: "hero",
     label: "Hero",
@@ -212,10 +240,13 @@ describe("CanvasContextMenu regenerate", () => {
       onReprompt,
     });
 
-    await act(async () => view.findButton("Regenerate")?.click());
+    await act(async () => view.findButton("Edit with AI")?.click());
     expect(onReprompt).toHaveBeenCalledWith(
       expect.objectContaining({ action: "reprompt", selectedCount: 1 }),
     );
+    const closeEvent = { preventDefault: vi.fn() };
+    contextMenuMock.onCloseAutoFocus?.(closeEvent);
+    expect(closeEvent.preventDefault).toHaveBeenCalledTimes(1);
     await view.cleanup();
   });
 
@@ -243,6 +274,57 @@ describe("CanvasContextMenu regenerate", () => {
       expect.objectContaining({ action: "reprompt" }),
     );
     await view.cleanup();
+  });
+
+  it("reprompts the exact candidate when the hit stack has one layer", async () => {
+    const onReprompt = vi.fn();
+    const onRepromptLayer = vi.fn();
+    const view = await renderContextMenu({
+      selectedCount: 1,
+      layerCandidates: [candidate],
+      canReprompt: true,
+      onReprompt,
+      onRepromptLayer,
+    });
+
+    await act(async () => view.findButton("Edit with AI")?.click());
+    expect(onRepromptLayer).toHaveBeenCalledWith(
+      candidate,
+      expect.objectContaining({ action: "reprompt" }),
+    );
+    expect(onReprompt).not.toHaveBeenCalled();
+    await view.cleanup();
+  });
+
+  it("uses the theme-aware layer hover token for items and submenu triggers", async () => {
+    const directView = await renderContextMenu({
+      selectedCount: 1,
+      layerCandidates: [candidate],
+      canReprompt: true,
+      onRepromptLayer: vi.fn(),
+    });
+    const directItem = directView.findButton("Edit with AI");
+    expect(directItem?.className).toContain(
+      "focus:bg-[var(--design-editor-layer-hover-color)]",
+    );
+    expect(directItem?.className).not.toContain("focus:bg-accent");
+    await directView.cleanup();
+
+    const stackedView = await renderContextMenu({
+      selectedCount: 1,
+      layerCandidates: [candidate, { ...candidate, key: "parent" }],
+      canReprompt: true,
+      onRepromptLayer: vi.fn(),
+    });
+    const submenuTrigger = stackedView.findButton("Edit with AI");
+    expect(submenuTrigger?.className).toContain(
+      "focus:bg-[var(--design-editor-layer-hover-color)]",
+    );
+    expect(submenuTrigger?.className).toContain(
+      "data-[state=open]:bg-[var(--design-editor-layer-hover-color)]",
+    );
+    expect(submenuTrigger?.className).not.toContain("focus:bg-accent");
+    await stackedView.cleanup();
   });
 });
 

@@ -26,7 +26,7 @@ import {
 import { ScrubInput } from "../inspector";
 import type { DesignPaintType } from "../inspector/DesignColorPicker";
 import type { ElementInfo } from "../types";
-import { isTextElement } from "./element-classification";
+import { isTextElement, isVectorShapeElement } from "./element-classification";
 import { commitStylePatch, FieldTrailer } from "./field-primitives";
 import { SectionIconButton } from "./inspector-controls";
 import {
@@ -54,6 +54,8 @@ import {
   strokeShowPatch,
   textStrokeAddPatch,
   textStrokeIsVisible,
+  vectorStrokeExists,
+  vectorStrokeIsVisible,
 } from "./position-helpers";
 import { isMixedValue } from "./selection-helpers";
 import type {
@@ -387,6 +389,18 @@ export function StrokeProperties({
       />
     );
   }
+  // A drawn vector's stroke is the shape's SVG paint, never a border on its
+  // wrapping box — routing it here keeps the border/outline logic below from
+  // painting the selection bounds instead of the shape.
+  if (isVectorShapeElement(element)) {
+    return (
+      <VectorStrokeProperties
+        element={element}
+        onStyleChange={onStyleChange}
+        onStylesChange={onStylesChange}
+      />
+    );
+  }
   // Visible requires: real width, style not "none" (legacy hide path), and
   // color not zero-alpha (current hide path — see strokeHiddenByColor).
   const borderVisible =
@@ -404,11 +418,16 @@ export function StrokeProperties({
     styles.outlineColor,
     styles.outlineOffset,
   ].some(isMixedValue);
-  // Render the row whenever a stroke has been configured (non-zero width),
-  // even when its style is "none" (hidden). This mirrors Figma's behavior where
-  // hidden stroke rows remain present so the user can re-show them via the eye icon.
-  const borderExists = cssLengthNumber(styles.borderWidth) > 0;
-  const outlineExists = cssLengthNumber(styles.outlineWidth) > 0;
+  // Width alone is not evidence of a stroke: a stylesheet can leave
+  // `outline-width` non-zero with `outline-style: none`, which paints nothing
+  // and whose `outline-color` resolves to currentColor — surfacing a phantom
+  // row wearing the element's text colour. A stroke hidden through the eye
+  // icon zeroes its colour alpha and keeps width/style, so its row still shows.
+  const borderExists = strokeIsVisible(styles.borderWidth, styles.borderStyle);
+  const outlineExists = strokeIsVisible(
+    styles.outlineWidth,
+    styles.outlineStyle,
+  );
   // Same empty-wrapper hazard as EffectsProperties: border and outline are
   // separate top-level sibling conditionals, so when neither exists (and the
   // mixed-value hint isn't showing either) JSX would still hand PanelSection
@@ -733,6 +752,222 @@ function TextStrokeProperties({
                   const nextWidth = `${Math.max(0, roundToOneDecimal(value))}px`;
                   onStyleChange("-webkit-text-stroke-width", nextWidth, meta);
                 }}
+                unit="px"
+                min={0}
+                precision={1}
+                className="w-full gap-0"
+                labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] !text-[11px] [&>span]:hidden"
+                inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
+              />
+            </InspectorGridCell>
+          </InspectorGrid>
+        </div>
+      ) : null}
+    </PanelSection>
+  );
+}
+
+/**
+ * Figma-parity "Stroke" for a drawn vector: the shape's own SVG `stroke`, not
+ * a box border. `vectorPaintChild` (code-layer) and `vectorPaintTarget`
+ * (bridge) land these writes on the `<path>`, not on the `<svg>` bounding box.
+ */
+function VectorStrokeProperties({
+  element,
+  onStyleChange,
+  onStylesChange,
+}: {
+  element: ElementInfo;
+  onStyleChange: StyleChangeHandler;
+  onStylesChange?: StylesChangeHandler;
+}) {
+  const t = useT();
+  const styles = element.computedStyles;
+  const stroke = styles.stroke || "none";
+  const width = styles.strokeWidth || "0px";
+  const isMixed = [styles.stroke, styles.strokeWidth].some(isMixedValue);
+  const strokeExists = vectorStrokeExists(stroke);
+  const visible = vectorStrokeIsVisible(stroke, width);
+  const canAlignStroke =
+    element.vectorStrokeCanAlign ??
+    styles["--an-vector-stroke-can-align"] === "true";
+  const positionOptions = STROKE_POSITION_OPTIONS.map((option) => ({
+    value: option.value,
+    label: t(`editPanel.labels.${option.key}`),
+  }));
+  const position: StrokePosition = STROKE_POSITION_OPTIONS.some(
+    (option) => option.value === styles["--an-vector-stroke-position"],
+  )
+    ? (styles["--an-vector-stroke-position"] as StrokePosition)
+    : "center";
+
+  return (
+    <PanelSection
+      title={t("editPanel.sections.stroke")}
+      actions={
+        <SectionIconButton
+          label={t("editPanel.labels.addStroke")}
+          onClick={() => {
+            commitStylePatch(
+              {
+                stroke: cssColorOrFallback(stroke, DEFAULT_STROKE_COLOR),
+                strokeWidth: cssLengthNumber(width) > 0 ? width : "1px",
+              },
+              onStyleChange,
+              onStylesChange,
+            );
+          }}
+        >
+          <IconPlus className="size-3.5" />
+        </SectionIconButton>
+      }
+    >
+      {isMixed ? (
+        <p className="px-1.5 py-2 !text-[11px] text-muted-foreground">
+          {
+            "Click + to replace mixed content" /* i18n-ignore figma mixed stroke hint */
+          }
+        </p>
+      ) : strokeExists ? (
+        <div className="space-y-2">
+          <InspectorPaintRow>
+            <InspectorGridCell span={20}>
+              <ColorInput
+                label=""
+                value={cssColorOrFallback(stroke, DEFAULT_STROKE_COLOR)}
+                onChange={(value, meta) => onStyleChange("stroke", value, meta)}
+                supportedPaintTypes={SOLID_ONLY_PAINT_TYPES}
+              />
+            </InspectorGridCell>
+            <InspectorGridCell span={4} className="flex justify-center">
+              <SectionIconButton
+                label={
+                  visible
+                    ? t("editPanel.labels.hideLayer")
+                    : t("editPanel.labels.showLayer")
+                }
+                onClick={() => {
+                  const parsed = parseCssColor(stroke);
+                  if (visible) {
+                    onStyleChange(
+                      "stroke",
+                      parsed
+                        ? rgbaToCss(withColorOpacity(parsed, 0))
+                        : "transparent",
+                    );
+                    return;
+                  }
+                  commitStylePatch(
+                    {
+                      stroke: parsed
+                        ? rgbaToCss(withColorOpacity(parsed, 100))
+                        : DEFAULT_STROKE_COLOR,
+                      strokeWidth: cssLengthNumber(width) > 0 ? width : "1px",
+                    },
+                    onStyleChange,
+                    onStylesChange,
+                  );
+                }}
+              >
+                {visible ? (
+                  <IconEye className="size-3.5" />
+                ) : (
+                  <IconEyeOff className="size-3.5" />
+                )}
+              </SectionIconButton>
+            </InspectorGridCell>
+            <InspectorGridCell span={4} className="flex justify-center">
+              <SectionIconButton
+                label={t("editPanel.labels.removeLayer")}
+                onClick={() => onStyleChange("stroke", "none")}
+              >
+                <IconMinus className="size-3.5" />
+              </SectionIconButton>
+            </InspectorGridCell>
+          </InspectorPaintRow>
+          <InspectorGrid className="items-center" layout="stroke-details">
+            <InspectorGridCell span={INSPECTOR_GRID_STROKE_POSITION_SPAN}>
+              {canAlignStroke ? (
+                <SubsectionLabel>
+                  {t("editPanel.labels.position")}
+                </SubsectionLabel>
+              ) : null}
+            </InspectorGridCell>
+            <InspectorGridCell
+              span={INSPECTOR_GRID_STROKE_GUTTER_SPAN}
+              ariaHidden
+            />
+            <InspectorGridCell span={INSPECTOR_GRID_STROKE_WEIGHT_SPAN}>
+              <SubsectionLabel>{t("editPanel.labels.weight")}</SubsectionLabel>
+            </InspectorGridCell>
+          </InspectorGrid>
+          <InspectorGrid className="items-center" layout="stroke-details">
+            <InspectorGridCell span={INSPECTOR_GRID_STROKE_POSITION_SPAN}>
+              {canAlignStroke ? (
+                <Select
+                  value={position}
+                  onValueChange={(next) => {
+                    if (!STROKE_POSITION_OPTIONS.some((o) => o.value === next))
+                      return;
+                    const patch = {
+                      stroke: cssColorOrFallback(stroke, DEFAULT_STROKE_COLOR),
+                      strokeWidth: width === "0px" ? "1px" : width,
+                      strokeOpacity: styles.strokeOpacity,
+                      strokeDasharray: styles.strokeDasharray,
+                      strokeDashoffset: styles.strokeDashoffset,
+                      strokeLinecap: styles.strokeLinecap,
+                      strokeLinejoin: styles.strokeLinejoin,
+                      strokeMiterlimit: styles.strokeMiterlimit,
+                      opacity: styles.vectorOpacity,
+                      transform: styles.vectorTransform,
+                      transformOrigin: styles.vectorTransformOrigin,
+                      transformBox: styles.vectorTransformBox,
+                      "--an-vector-stroke-position": next,
+                    };
+                    if (onStylesChange) onStylesChange(patch);
+                    else
+                      Object.entries(patch).forEach(([property, value]) =>
+                        onStyleChange(property, value),
+                      );
+                  }}
+                >
+                  <SelectTrigger
+                    aria-label={t("editPanel.labels.position")}
+                    className="h-6 w-full rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {positionOptions.map((option) => (
+                      <SelectItem
+                        key={option.value}
+                        value={option.value}
+                        className="!text-[11px]"
+                      >
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : null}
+            </InspectorGridCell>
+            <InspectorGridCell
+              span={INSPECTOR_GRID_STROKE_GUTTER_SPAN}
+              ariaHidden
+            />
+            <InspectorGridCell span={INSPECTOR_GRID_STROKE_WEIGHT_SPAN}>
+              <ScrubInput
+                label={t("editPanel.labels.weight")}
+                ariaLabel={t("editPanel.labels.weight")}
+                icon={IconBorderStyle}
+                value={cssLengthNumber(width)}
+                onChange={(value, meta) =>
+                  onStyleChange(
+                    "strokeWidth",
+                    `${Math.max(0, roundToOneDecimal(value))}px`,
+                    meta,
+                  )
+                }
                 unit="px"
                 min={0}
                 precision={1}

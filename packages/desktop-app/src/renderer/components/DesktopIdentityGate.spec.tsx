@@ -70,7 +70,9 @@ describe("DesktopIdentityGate", () => {
 
     expect(container.textContent).toContain("Sign in with Google");
     expect(container.textContent).toContain("Welcome");
-    expect(container.textContent).toContain("Create an account or sign in");
+    expect(container.textContent).toContain(
+      "Continue to sign in or create your account",
+    );
     expect(
       container.querySelector(".desktop-identity-gate__app-name"),
     ).toBeNull();
@@ -83,7 +85,9 @@ describe("DesktopIdentityGate", () => {
     expect(container.textContent).toContain(
       "By signing up, you accept our Terms and Privacy Policy.",
     );
-    expect(container.textContent).not.toContain("Continue");
+    expect(
+      container.querySelector(".desktop-identity-gate__submit"),
+    ).toBeNull();
     expect(
       container.querySelector('input[placeholder="you@example.com"]'),
     ).not.toBeNull();
@@ -100,7 +104,9 @@ describe("DesktopIdentityGate", () => {
       setter?.call(email, "owner@example.com");
       email.dispatchEvent(new Event("input", { bubbles: true }));
     });
-    expect(container.textContent).toContain("Continue");
+    expect(
+      container.querySelector(".desktop-identity-gate__submit")?.textContent,
+    ).toBe("Continue with email");
 
     await act(async () => {
       container
@@ -130,7 +136,9 @@ describe("DesktopIdentityGate", () => {
       setter?.call(email, "owner@example.com");
       email.dispatchEvent(new Event("input", { bubbles: true }));
     });
-    expect(container.textContent).toContain("Continue");
+    expect(
+      container.querySelector(".desktop-identity-gate__submit")?.textContent,
+    ).toBe("Continue with email");
 
     await act(async () => {
       container
@@ -194,10 +202,10 @@ describe("DesktopIdentityGate", () => {
     expect(container.querySelector("form")).toBeNull();
   });
 
-  it("does not wedge the shell on a transient identity failure", () => {
+  it("keeps identity recovery at the shell on a child sync failure", () => {
     renderGate("failed");
-    expect(container.textContent).toBe("");
-    expect(container.querySelector(".desktop-identity-gate")).toBeNull();
+    expect(container.textContent).toContain("Welcome");
+    expect(container.querySelector("form")).not.toBeNull();
   });
 
   it("renders nothing after the broker has fanned out app sessions", () => {

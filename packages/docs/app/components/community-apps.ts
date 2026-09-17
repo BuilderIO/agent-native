@@ -24,12 +24,19 @@ export const communityApps: CommunityApp[] = [
       "/community/nomad/nomad-03.jpg",
       "/community/nomad/nomad-05.jpg",
     ],
-    sourceUrl: "https://github.com/BuilderIO/agent-native/pull/2454",
-    sourceLabel: "Draft PR #2454",
+    demoUrl: "https://nomad.galite.ai",
+    repositoryUrl: "https://github.com/paprikaf/nomad",
     status: "new",
   },
 ];
 
 export function findCommunityApp(slug: string | undefined) {
   return communityApps.find((app) => app.slug === slug);
+}
+
+export function findCommunityAppInCatalog(
+  apps: CommunityApp[],
+  slug: string | undefined,
+) {
+  return apps.find((app) => app.slug === slug);
 }

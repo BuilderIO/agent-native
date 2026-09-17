@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   getDesignBottomToolbarMode,
   resolveModeChangeView,
+  resolveSpaceForwardTransition,
   resolveToolAfterSelection,
   shouldAskOnNewDesignArrival,
   shouldRevealLayersOnFirstCreate,
@@ -200,5 +201,52 @@ describe("shouldRevealLayersOnFirstCreate", () => {
         alreadyRevealed: false,
       }),
     ).toBe(false);
+  });
+});
+
+describe("resolveSpaceForwardTransition", () => {
+  // Figma parity (unique-paths): Space held mid-drag is forwarded into the
+  // preview iframes so the bridge keeps the dragged node's parent. The
+  // release path is the one that regressed — the drag is already over by the
+  // time Space comes up, so a keyup that re-checks "is a drag running" never
+  // sends held:false and the NEXT drag starts with reparenting still
+  // suppressed.
+  it("arms and forwards held:true when Space lands during a drag", () => {
+    expect(resolveSpaceForwardTransition("keydown", false, true)).toEqual({
+      armed: true,
+      broadcast: true,
+    });
+  });
+
+  it("leaves Space to the hand tool when no drag is running", () => {
+    expect(resolveSpaceForwardTransition("keydown", false, false)).toEqual({
+      armed: false,
+      broadcast: null,
+    });
+  });
+
+  it("forwards held:false on keyup even though mouseup already ended the drag", () => {
+    expect(resolveSpaceForwardTransition("keyup", true, false)).toEqual({
+      armed: false,
+      broadcast: false,
+    });
+  });
+
+  it("forwards held:false on blur mid-hold", () => {
+    expect(resolveSpaceForwardTransition("blur", true, false)).toEqual({
+      armed: false,
+      broadcast: false,
+    });
+  });
+
+  it("does not forward a release it never armed", () => {
+    expect(resolveSpaceForwardTransition("keyup", false, true)).toEqual({
+      armed: false,
+      broadcast: null,
+    });
+    expect(resolveSpaceForwardTransition("blur", false, false)).toEqual({
+      armed: false,
+      broadcast: null,
+    });
   });
 });

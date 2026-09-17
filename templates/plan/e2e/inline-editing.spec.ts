@@ -236,7 +236,7 @@ test.describe("single-document rich-text editing + autosave", () => {
   // Deterministic API-level proof of the autosave contract, independent of the
   // editor's per-keystroke timing. This is the EXACT request the single-doc editor
   // fires on every change (op: replace-blocks). A single, non-overlapping save MUST
-  // return 200 — proving the write itself is sound (it is NOT the old better-sqlite3
+  // return 200 — proving the write itself is sound (it is NOT the old PGlite
   // async-transaction 500; that path now runs sequentially with a leading
   // optimistic-lock UPDATE).
   test("autosave save (replace-blocks patch) returns 200, not 500", async ({

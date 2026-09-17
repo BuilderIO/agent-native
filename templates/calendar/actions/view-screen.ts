@@ -7,9 +7,11 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { rowToBookingLink } from "../server/lib/booking-link-utils.js";
 import { readCalendarSettings } from "../server/lib/calendar-settings.js";
+import { listGoogleCalendars } from "../server/lib/google-calendar.js";
 import type { CalendarEvent, CalendarEventDraft } from "../shared/api.js";
 import {
   CALENDAR_VIEW_PREFERENCES_KEY,
+  isEventVisibleForDeclinedPreference,
   normalizeCalendarViewPreferences,
 } from "../shared/calendar-view-preferences.js";
 import { getWeekStartsOn } from "../shared/calendar-week.js";
@@ -33,6 +35,7 @@ async function fetchEventsForRange(
   from: string,
   to: string,
   timezone: string,
+  calendarSourceKeys?: string[],
 ): Promise<{
   events: CalendarEvent[];
   errors: Array<{ email: string; error: string }>;
@@ -40,7 +43,10 @@ async function fetchEventsForRange(
   range: { from: string; to: string; timezone: string; defaulted: boolean };
 }> {
   try {
-    return await listCalendarEvents({ from, to }, { timezone });
+    return await listCalendarEvents(
+      { from, to, calendarSourceKeys },
+      { timezone },
+    );
   } catch (error: any) {
     return {
       events: [],
@@ -66,7 +72,7 @@ export default defineAction({
     "See what the user is currently looking at on screen. Returns the current view, date range, and visible events. Always call this first before taking any action.",
   schema: z.object({}),
   http: false,
-  run: async () => {
+  run: async (_args, ctx) => {
     const navigation = await readAppState("navigation");
     const visualPreferences = normalizeCalendarViewPreferences(
       (await readAppState(CALENDAR_VIEW_PREFERENCES_KEY)) as any,
@@ -95,16 +101,52 @@ export default defineAction({
         viewDay,
         timezone,
         getWeekStartsOn(settings.weekStart),
+        visualPreferences.numberOfDays,
       );
+
+      const calendarSourceResult = await listGoogleCalendars(email);
+      const calendarSources = calendarSourceResult.calendars;
+      const visibleCalendarSources = calendarSources.filter(
+        (source) =>
+          source.accessRole !== "freeBusyReader" &&
+          (source.primary ||
+            (visualPreferences.googleCalendarVisibility[source.canonicalKey] ??
+              source.selected)),
+      );
+
+      screen.googleCalendars = calendarSources.map((source) => ({
+        sourceKey: source.sourceKey,
+        accountEmail: source.accountEmail,
+        calendarId: source.calendarId,
+        name: source.name,
+        color: source.color,
+        visible:
+          source.primary ||
+          (visualPreferences.googleCalendarVisibility[source.canonicalKey] ??
+            source.selected),
+        primary: source.primary,
+        accessRole: source.accessRole,
+        readOnly: source.readOnly || !source.primary,
+      }));
+      if (calendarSourceResult.errors.length > 0) {
+        screen.googleCalendarErrors = calendarSourceResult.errors;
+      }
 
       const eventResult = await fetchEventsForRange(
         range.from,
         range.to,
         timezone,
+        visibleCalendarSources.map((source) => source.sourceKey),
       );
       const { events } = eventResult;
+      const visibleEvents = events.filter((event) =>
+        isEventVisibleForDeclinedPreference(
+          event.responseStatus,
+          visualPreferences.showDeclinedEvents,
+        ),
+      );
 
-      const compact = events.slice(0, 50).map((e: CalendarEvent) => {
+      const compact = visibleEvents.slice(0, 50).map((e: CalendarEvent) => {
         return {
           id: e.id,
           title: e.title,
@@ -112,6 +154,12 @@ export default defineAction({
           end: e.end,
           source: e.source,
           accountEmail: e.accountEmail || undefined,
+          calendarSourceKey: e.calendarSourceKey || undefined,
+          calendarId: e.calendarId || undefined,
+          calendarName: e.calendarName || undefined,
+          calendarAccessRole: e.calendarAccessRole || undefined,
+          calendarPrimary: e.calendarPrimary,
+          calendarReadOnly: e.calendarReadOnly,
           location: e.location || undefined,
           allDay: e.allDay || undefined,
           recurrence: e.recurrence || undefined,
@@ -145,7 +193,7 @@ export default defineAction({
       }
 
       if (nav?.eventId) {
-        const match = events.find((e: any) => e.id === nav.eventId);
+        const match = visibleEvents.find((e: any) => e.id === nav.eventId);
         if (match) screen.selectedEvent = match;
       }
 

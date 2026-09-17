@@ -887,7 +887,7 @@ The result should be a reusable agent profile, not a one-off task response.`,
           )}
 
           {view === "skill" && (
-            <div className="p-3">
+            <div className="relative p-3">
               <label className="mb-1 block text-[11px] font-semibold text-foreground">
                 Create Skill
               </label>
@@ -962,7 +962,7 @@ The result should be a reusable agent profile, not a one-off task response.`,
           )}
 
           {view === "job" && (
-            <div className="p-3">
+            <div className="relative p-3">
               <label className="mb-1 block text-[11px] font-semibold text-foreground">
                 Schedule Task
               </label>
@@ -1021,7 +1021,7 @@ The result should be a reusable agent profile, not a one-off task response.`,
           )}
 
           {view === "agent-prompt" && (
-            <div className="p-3">
+            <div className="relative p-3">
               <label className="mb-1 block text-[11px] font-semibold text-foreground">
                 Create Agent From Prompt
               </label>
@@ -1288,7 +1288,9 @@ export function ResourcesPanel({
     includeAgentScratch: showAgentScratch,
   });
   const workspaceTreeQuery = useResourceTree("workspace");
-  const mcpServersQuery = useMcpServers();
+  // Agent rail resources view: the panel mode persists, so this can mount
+  // before first paint even though the tree is not visible yet.
+  const mcpServersQuery = useMcpServers({ defer: true });
   const builtinCapabilitiesQuery = useBuiltinCapabilities();
   const createMcpServer = useCreateMcpServer();
   const deleteMcpServer = useDeleteMcpServer();

@@ -1,4 +1,5 @@
 import { getAppConfig, resolveAppHomePath } from "../app-config/index.js";
+import { safeJsonForHtml } from "../shared/agent-readable-resource.js";
 import { normalizeAppBasePath } from "./app-base-path.js";
 
 function workspaceAppMountPathsFromJson(
@@ -90,7 +91,7 @@ export function getAppOriginClientConfigScript(): string | null {
   return [
     "<script data-agent-native-app-origin-config>",
     "window.__AGENT_NATIVE_CONFIG__=Object.assign({},window.__AGENT_NATIVE_CONFIG__,",
-    JSON.stringify(config),
+    safeJsonForHtml(config),
     ");",
     "</script>",
   ].join("");

@@ -37,17 +37,23 @@ export {
   ACTION_KEEPALIVE_BODY_BUDGET_BYTES,
   actionErrorMessage,
   callAction,
+  callActionWithRetry,
   tryCallActionKeepalive,
   useActionQuery,
   useActionMutation,
   type ActionRegistry,
   type ClientActionCallOptions,
   type ClientActionMethod,
+  type RetriedActionCallOptions,
   type KeepaliveActionCallRejectionReason,
   type KeepaliveActionCallResult,
 } from "../use-action.js";
 export { createAgentNativeQueryClient } from "../create-query-client.js";
-export { AppProviders, type AppProvidersProps } from "../app-providers.js";
+export {
+  AgentNativeWebMcpActionRegistration,
+  AppProviders,
+  type AppProvidersProps,
+} from "../app-providers.js";
 export {
   APP_CHAT_SIDEBAR_STATE_EVENT,
   APP_CHAT_SIDEBAR_STATE_MESSAGE,
@@ -80,3 +86,4 @@ export {
   type UsePollLoopOptions,
   type UsePollLoopHandle,
 } from "../use-poll-loop.js";
+export { useAfterPaint, scheduleAfterPaint } from "../use-after-paint.js";

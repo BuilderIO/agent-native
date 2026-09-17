@@ -61,4 +61,11 @@ export const AGENT_RUN_MIGRATIONS: MigrationEntry[] = [
       ALTER TABLE agent_run_events ADD COLUMN IF NOT EXISTS event_at INTEGER
     `,
   },
+  {
+    version: 3,
+    name: "agent-run-continuation-order",
+    sql: `
+      ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS continuation_order BIGINT
+    `,
+  },
 ];

@@ -5,9 +5,12 @@ const emitChatThreadChangeMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: executeMock }),
-  getDialect: () => "sqlite",
-  intType: () => "INTEGER",
-  isPostgres: () => false,
+}));
+
+vi.mock("../db/ddl-guard.js", () => ({
+  ensureColumnExists: vi.fn().mockResolvedValue(undefined),
+  ensureIndexExists: vi.fn().mockResolvedValue(undefined),
+  ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("./emitter.js", () => ({
@@ -296,6 +299,20 @@ describe("chat thread store", () => {
     ]);
     expect(row!.message_count).toBe(2);
     expect(emitChatThreadChangeMock).toHaveBeenCalledWith("thread-1");
+  });
+
+  it("preserves a title committed while message persistence was stale", async () => {
+    row!.title = "Generated chat title";
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify({ messages: [userMessage, assistantMessage] }),
+      "",
+      "Done.",
+      2,
+    );
+
+    expect(row!.title).toBe("Generated chat title");
   });
 
   it("throws after exhausted thread-data conflicts by default", async () => {

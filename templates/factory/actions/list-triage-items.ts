@@ -8,10 +8,19 @@ import { DEFAULT_FACTORY_ID } from "../server/factory-graph/store.js";
 import { readCallingFactoryAutomation } from "../server/lib/factory-automation-caller.js";
 import { authorMatchesFilter } from "../server/lib/factory-automation-config.js";
 import {
+  readFactoryPollCursor,
+  writeFactoryPollCursor,
+} from "../server/lib/factory-poll-cursors.js";
+import { factoryRepositoryFromSources } from "../server/lib/factory-repository-scope.js";
+import {
+  factoryAutomationLeafName,
   factoryIdSchema,
   orgFactoryDecisionFilter,
   orgFactoryItemFilter,
+  readTriageConfigRow,
 } from "../server/lib/factory-scope.js";
+
+const FACTORY_PR_BABYSIT_AUTOMATION = "factory-pr-babysit";
 import {
   decodeInboxCursor,
   encodeInboxCursor,
@@ -21,11 +30,19 @@ import {
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
 import { recordFactoryAudit } from "../server/triage/audit.js";
+import { isTerminalBabysitMetadata } from "../server/triage/babysit-pr-terminal.js";
+import {
+  nextBabysitQueueCursor,
+  parseBabysitQueueCursor,
+  serializeBabysitQueueCursor,
+  sortBabysitQueueRows,
+} from "../server/triage/babysit-queue.js";
 import {
   triageItemStatusSchema,
   triageRiskSchema,
   triageSourceSchema,
 } from "../server/triage/contracts.js";
+import { deriveInboxPresentation } from "../server/triage/inbox-presentation.js";
 import {
   triageItemAuthor,
   triageItemAuthorId,
@@ -76,65 +93,160 @@ export default defineAction({
     const fetchLimit =
       context?.caller === "automation" &&
       calling &&
-      calling.config.source === "github" &&
-      calling.config.authorIds.length > 0
+      (calling.config.source === "github" || calling.config.source === "slack")
         ? Math.min(100, Math.max(effectiveLimit * 10, effectiveLimit))
         : effectiveLimit;
     const parsedCursor = cursor ? decodeInboxCursor(cursor) : null;
     const updatedAfterBound = parseUpdatedAfter(updatedAfter);
     const db = getDb();
-    const reviewStatuses =
-      source === "github"
-        ? ["pr_observed"]
-        : source === "slack"
-          ? ["received", "automation_started", "evidence_ready"]
-          : ["received"];
-    const rows = await db
-      .select()
-      .from(triageItems)
-      .where(
-        and(
-          orgFactoryItemFilter(orgId, factoryId),
-          needsReview
-            ? inArray(triageItems.status, reviewStatuses)
-            : status
-              ? eq(triageItems.status, status)
-              : undefined,
-          source ? eq(triageItems.source, source) : undefined,
-          risk ? eq(triageItems.risk, risk) : undefined,
-          updatedAfterBound
-            ? gte(triageItems.updatedAt, updatedAfterBound)
-            : undefined,
-          parsedCursor
-            ? or(
-                lt(triageItems.updatedAt, parsedCursor.updatedAt),
-                and(
-                  eq(triageItems.updatedAt, parsedCursor.updatedAt),
-                  lt(triageItems.id, parsedCursor.id),
-                ),
-              )
-            : undefined,
-        ),
-      )
-      .orderBy(desc(triageItems.updatedAt), desc(triageItems.id))
-      .limit(fetchLimit + 1);
-    let page = rows.slice(0, fetchLimit);
-    if (
+    const usesBabysitFairQueue =
       context?.caller === "automation" &&
-      calling &&
-      calling.config.source === "github"
-    ) {
-      page = page.filter((item) =>
-        authorMatchesFilter(
-          triageItemAuthorId(item.metadataJson),
-          calling.config.authorMode,
-          calling.config.authorIds,
-        ),
+      calling?.name !== undefined &&
+      factoryAutomationLeafName(calling.name) ===
+        FACTORY_PR_BABYSIT_AUTOMATION &&
+      needsReview &&
+      source === "github";
+    let babysitQueueCursor = null;
+    let babysitRepositoryKey: string | null = null;
+    if (usesBabysitFairQueue) {
+      const config = await readTriageConfigRow(db, orgId, factoryId);
+      babysitRepositoryKey = factoryRepositoryFromSources(
+        calling?.config.repository,
+        config?.repository,
       );
+      if (babysitRepositoryKey) {
+        const storedCursor = await readFactoryPollCursor(
+          db,
+          orgId,
+          factoryId,
+          "pr-babysit",
+          babysitRepositoryKey,
+        );
+        babysitQueueCursor = parseBabysitQueueCursor(
+          storedCursor?.babysitQueueCursor,
+        );
+      }
     }
-    const hasMore = rows.length > fetchLimit || page.length > effectiveLimit;
-    page = page.slice(0, effectiveLimit);
-    const last = page[page.length - 1];
+    const reviewStatuses = source === "github" ? ["pr_observed"] : ["received"];
+    const filterReviewPage =
+      (context?.caller === "automation" &&
+        calling &&
+        (calling.config.source === "github" ||
+          calling.config.source === "slack")) ||
+      (needsReview && (source === "github" || source === "slack"));
+    const maxScanPages = filterReviewPage ? 10 : 1;
+    const eligible: Array<(typeof triageItems)["$inferSelect"]> = [];
+    let scanCursor = parsedCursor;
+    let lastExamined: (typeof triageItems)["$inferSelect"] | undefined;
+    let lastKept: (typeof triageItems)["$inferSelect"] | undefined;
+    let moreRaw = false;
+    let filledPage = false;
+    for (let pageIndex = 0; pageIndex < maxScanPages; pageIndex += 1) {
+      const rows = await db
+        .select()
+        .from(triageItems)
+        .where(
+          and(
+            orgFactoryItemFilter(orgId, factoryId),
+            needsReview
+              ? inArray(triageItems.status, reviewStatuses)
+              : status
+                ? eq(triageItems.status, status)
+                : undefined,
+            source ? eq(triageItems.source, source) : undefined,
+            risk ? eq(triageItems.risk, risk) : undefined,
+            updatedAfterBound
+              ? gte(triageItems.updatedAt, updatedAfterBound)
+              : undefined,
+            scanCursor
+              ? or(
+                  lt(triageItems.updatedAt, scanCursor.updatedAt),
+                  and(
+                    eq(triageItems.updatedAt, scanCursor.updatedAt),
+                    lt(triageItems.id, scanCursor.id),
+                  ),
+                )
+              : undefined,
+          ),
+        )
+        .orderBy(desc(triageItems.updatedAt), desc(triageItems.id))
+        .limit(fetchLimit + 1);
+      moreRaw = rows.length > fetchLimit;
+      const batch = rows.slice(0, fetchLimit);
+      if (batch.length === 0) break;
+      for (const item of batch) {
+        lastExamined = item;
+        // Kept even though poll-github-sources now filters at ingest: rows
+        // stored before that change still carry excluded authors, and this is
+        // the only thing keeping them out of an automation's work list.
+        if (
+          context?.caller === "automation" &&
+          calling &&
+          calling.config.source === "github" &&
+          !authorMatchesFilter(
+            triageItemAuthorId(item.metadataJson),
+            calling.config.authorMode,
+            calling.config.authorIds,
+          )
+        ) {
+          continue;
+        }
+        if (
+          needsReview &&
+          isTerminalBabysitMetadata(item.metadataJson, item.status)
+        ) {
+          continue;
+        }
+        if (
+          needsReview &&
+          deriveInboxPresentation({
+            source: item.source,
+            status: item.status,
+            metadataJson: item.metadataJson,
+          }).leavesReviewWindow
+        ) {
+          continue;
+        }
+        eligible.push(item);
+        lastKept = item;
+        if (!usesBabysitFairQueue && eligible.length === effectiveLimit) {
+          filledPage = true;
+          break;
+        }
+      }
+      if (filledPage && !usesBabysitFairQueue) {
+        if (lastKept) {
+          moreRaw = moreRaw || batch.indexOf(lastKept) < batch.length - 1;
+        }
+        break;
+      }
+      if (!moreRaw) break;
+      if (lastExamined) {
+        scanCursor = { updatedAt: lastExamined.updatedAt, id: lastExamined.id };
+      }
+    }
+    const fairSorted = usesBabysitFairQueue
+      ? sortBabysitQueueRows(eligible, babysitQueueCursor)
+      : eligible;
+    const page = fairSorted.slice(0, effectiveLimit);
+    if (usesBabysitFairQueue) {
+      moreRaw = fairSorted.length > effectiveLimit;
+    }
+    if (usesBabysitFairQueue && babysitRepositoryKey) {
+      const nextCursor = nextBabysitQueueCursor(page);
+      if (nextCursor) {
+        await writeFactoryPollCursor(db, {
+          orgId,
+          factoryId,
+          source: "pr-babysit",
+          destinationKey: babysitRepositoryKey,
+          ownerEmail: userEmail,
+          babysitQueueCursor: serializeBabysitQueueCursor(nextCursor),
+        });
+      }
+    }
+    const hasMore = moreRaw;
+    const cursorRow = filledPage && lastKept ? lastKept : lastExamined;
 
     const pageIds = page.map((item) => item.id);
     const decisions =
@@ -159,6 +271,11 @@ export default defineAction({
 
     const listedItems = page.map((item) => {
       const latestDecision = latestByItem.get(item.id);
+      const inboxPresentation = deriveInboxPresentation({
+        source: item.source,
+        status: item.status,
+        metadataJson: item.metadataJson,
+      });
       return {
         id: item.id,
         itemId: item.id,
@@ -178,6 +295,7 @@ export default defineAction({
         createdAt: item.createdAt,
         updatedAt: item.updatedAt,
         userLabels: readStoredUserLabels(item.metadataJson),
+        inboxPresentation,
         reason: latestDecision?.reason ?? null,
         decisionSummary: latestDecision?.reason ?? null,
         latestDecision: latestDecision
@@ -227,8 +345,11 @@ export default defineAction({
       items: listedItems,
       hasMore,
       nextCursor:
-        hasMore && last
-          ? encodeInboxCursor({ updatedAt: last.updatedAt, id: last.id })
+        hasMore && cursorRow
+          ? encodeInboxCursor({
+              updatedAt: cursorRow.updatedAt,
+              id: cursorRow.id,
+            })
           : null,
     };
   },

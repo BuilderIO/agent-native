@@ -7,7 +7,13 @@
  * stay inside the embedded app so its own AgentSidebar can receive them.
  */
 
-import type { AgentChatAttachment, MentionItemMedia } from "../agent/types.js";
+import {
+  normalizeAgentActionScope,
+  tryNormalizeAgentActionScope,
+  type AgentActionScope,
+  type AgentChatAttachment,
+  type MentionItemMedia,
+} from "../agent/types.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import { trackEvent } from "./analytics.js";
 import { agentNativePath } from "./api-path.js";
@@ -29,6 +35,8 @@ import {
 } from "./frame.js";
 import { sendMcpAppHostMessage } from "./mcp-app-host.js";
 
+export { appendAgentChatContextToMessage } from "../shared/agent-chat-context.js";
+
 export type AgentChatRequestMode = "act" | "plan";
 
 export interface AgentChatMessage {
@@ -36,6 +44,8 @@ export interface AgentChatMessage {
   message: string;
   /** Hidden context appended to the message (not shown in chat UI) */
   context?: string;
+  /** App-defined scope requested for the actions exposed to this turn. */
+  actionScope?: AgentActionScope;
   /** true = auto-submit, false = prefill only, omit = use project setting */
   submit?: boolean;
   /** Optional project slug for structured context */
@@ -157,6 +167,8 @@ export interface AgentChatContextState {
 export interface AgentChatOpenThreadRequest {
   threadId: string;
   newThread?: boolean;
+  /** Draft to place in this exact thread after it becomes active. */
+  prefill?: string;
   /**
    * Open only while this thread is still active (or no thread is active).
    * This lets transient surfaces restore their own chat without stealing a
@@ -658,15 +670,6 @@ export function formatAgentChatContextItemsForPrompt(
     .join("\n\n");
 }
 
-export function appendAgentChatContextToMessage(
-  message: string,
-  context: string,
-): string {
-  const trimmedContext = context.trim();
-  if (!trimmedContext) return message;
-  return `${message}\n\n<context>\n${trimmedContext}\n</context>`;
-}
-
 function normalizeStringArray(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) return undefined;
   const normalized = value
@@ -907,6 +910,7 @@ export function requestAgentChatThreadOpen(
     bufferOpenRequest("agent-chat:open-thread", {
       ...detail,
       threadId: detail.threadId.trim(),
+      ...(detail.prefill?.trim() ? { prefill: detail.prefill } : {}),
     }),
   );
 }
@@ -967,6 +971,7 @@ export interface ParsedSubmitChat {
   /** Visible prompt text (non-empty). */
   message: string;
   context?: string;
+  actionScope?: AgentActionScope;
   /** Submit (true) or prefill only (false); defaults to true. */
   submit: boolean;
   openSidebar?: boolean;
@@ -1056,9 +1061,18 @@ export function parseSubmitChatMessage(
   );
   const images =
     imageSources.length > 0 ? [...new Set(imageSources)] : undefined;
+  const hasActionScope = Object.prototype.hasOwnProperty.call(
+    raw,
+    "actionScope",
+  );
+  const actionScope = hasActionScope
+    ? tryNormalizeAgentActionScope(raw.actionScope)
+    : undefined;
+  if (hasActionScope && !actionScope) return null;
   return {
     message,
     context: typeof raw.context === "string" ? raw.context : undefined,
+    ...(actionScope ? { actionScope } : {}),
     submit: raw.submit !== false,
     openSidebar:
       typeof raw.openSidebar === "boolean" ? raw.openSidebar : undefined,
@@ -1116,6 +1130,10 @@ function readStoredAgentChatRequestMode(): AgentChatRequestMode | undefined {
  */
 export function sendToAgentChat(opts: AgentChatMessage): string {
   const tabId = opts.tabId ?? generateTabId();
+  const actionScope =
+    opts.actionScope === undefined
+      ? undefined
+      : normalizeAgentActionScope(opts.actionScope);
   const isCodeRequest = opts.type === "code" || opts.requiresCode === true;
   const localChatTarget = opts.chatTarget === "local";
   const requestMode =
@@ -1146,6 +1164,7 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
     type: AGENT_CHAT_MESSAGE_TYPE,
     data: {
       ...opts,
+      ...(actionScope ? { actionScope } : {}),
       tabId,
       submitMessageId,
       ...(requestMode ? { mode: requestMode, requestMode } : {}),
@@ -1161,7 +1180,7 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
     // label. Use the normal wrapper transport when either needs to reach the
     // chat thread — a label silently downgraded to `chat` is exactly the run
     // the caller named it to be able to find.
-    if (opts.attachments?.length || opts.usageLabel) {
+    if (opts.attachments?.length || opts.usageLabel || actionScope) {
       window.parent.postMessage(
         payload,
         getFramePostMessageTargetOrigin() || "*",

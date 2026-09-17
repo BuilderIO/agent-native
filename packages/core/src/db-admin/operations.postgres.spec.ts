@@ -1,17 +1,10 @@
 /**
  * Postgres-dialect verification for the DB-admin introspection path.
  *
- * The main `operations.spec.ts` runs against a real local SQLite file. We have
- * no local Postgres in CI/dev, so this file mocks `../db/client.js` to report
- * the Postgres dialect and return canned `information_schema` / `pg_*` rows.
- * That verifies the dialect-specific branch end-to-end — that introspection
- * issues the Postgres queries (NOT `sqlite_master`/`PRAGMA`) and parses their
- * results (columns, nullability, PK, FK, indexes, serial autoIncrement)
- * correctly — without needing a live Postgres.
- *
- * A live Postgres run (the full suite against a real `DATABASE_URL`) is the
- * stronger check and remains the open item; this closes the query-shape +
- * parsing risk, which is where the SQLite vs Postgres code actually diverges.
+ * This file mocks `../db/client.js` to return canned `information_schema` /
+ * `pg_*` rows. That verifies the Postgres introspection queries and parsing
+ * (columns, nullability, PK, FK, indexes, serial autoIncrement) without
+ * needing a live Postgres instance.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -91,8 +84,6 @@ vi.mock("../db/client.js", () => {
 
   return {
     getDbExec: () => ({ execute }),
-    getDialect: () => "postgres",
-    isPostgres: () => true,
   };
 });
 
@@ -102,10 +93,9 @@ beforeEach(() => {
   executed = [];
 });
 
-describe("db-admin operations — Postgres dialect (mocked)", () => {
-  it("listTables uses information_schema (never sqlite_master/PRAGMA) and parses tables + views", async () => {
-    const { dialect, tables } = await listTables();
-    expect(dialect).toBe("postgres");
+describe("db-admin operations - Postgres (mocked)", () => {
+  it("listTables uses information_schema and parses tables + views", async () => {
+    const { tables } = await listTables();
     expect(tables).toEqual([
       { name: "orders", type: "table", rowCount: 5 },
       { name: "order_summary", type: "view", rowCount: null },
@@ -113,7 +103,6 @@ describe("db-admin operations — Postgres dialect (mocked)", () => {
     expect(executed.some((s) => /information_schema\.tables/.test(s))).toBe(
       true,
     );
-    expect(executed.some((s) => /sqlite_master|PRAGMA/.test(s))).toBe(false);
   });
 
   it("getTableSchema parses columns/PK/FK/indexes + serial autoIncrement from information_schema/pg_*", async () => {
@@ -144,6 +133,5 @@ describe("db-admin operations — Postgres dialect (mocked)", () => {
     expect(executed.some((s) => /information_schema\.columns/.test(s))).toBe(
       true,
     );
-    expect(executed.some((s) => /PRAGMA/.test(s))).toBe(false);
   });
 });

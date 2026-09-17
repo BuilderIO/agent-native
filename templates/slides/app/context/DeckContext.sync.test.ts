@@ -13,6 +13,15 @@ const requestString = (value: unknown) =>
         : (JSON.stringify(value) ?? "");
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const orgQueryState = vi.hoisted(() => ({
+  data: undefined as unknown,
+  isLoading: false,
+}));
+
+vi.mock("@agent-native/core/client/org", () => ({
+  useOrg: () => orgQueryState,
+}));
+
 import { DeckProvider, useDecks, type Deck } from "./DeckContext";
 
 class MockEventSource {
@@ -61,8 +70,8 @@ function wrapper({ children }: { children: ReactNode }) {
 function setupFetch() {
   let serverDecks: Deck[] = [];
   let resolveCreate: (response: Response) => void = () => {};
-  let holdList: ((decks: Deck[]) => void) | null = null;
-  let pendingListResolve: ((response: Response) => void) | null = null;
+  let heldListRequestBudget = 0;
+  const pendingListResolves: Array<(response: Response) => void> = [];
 
   const listResponse = (decks: Deck[]) =>
     new Response(JSON.stringify({ count: decks.length, decks }), {
@@ -78,9 +87,10 @@ function setupFetch() {
           : url.url;
 
     if (href.includes("/_agent-native/actions/list-decks")) {
-      if (holdList) {
+      if (heldListRequestBudget > 0) {
+        heldListRequestBudget -= 1;
         return new Promise<Response>((resolve) => {
-          pendingListResolve = resolve;
+          pendingListResolves.push(resolve);
         });
       }
       return Promise.resolve(listResponse(serverDecks));
@@ -114,14 +124,12 @@ function setupFetch() {
     resolveCreate: (response: Response) => resolveCreate(response),
     /** Make the next list-decks request hang until `releaseList` is called. */
     holdNextList: () => {
-      holdList = () => {};
+      heldListRequestBudget += 1;
     },
-    listRequestPending: () => pendingListResolve !== null,
+    listRequestPending: () => pendingListResolves.length > 0,
+    pendingListCount: () => pendingListResolves.length,
     releaseList: (decks: Deck[]) => {
-      const resolve = pendingListResolve;
-      pendingListResolve = null;
-      holdList = null;
-      resolve?.(listResponse(decks));
+      pendingListResolves.shift()?.(listResponse(decks));
     },
   };
 }
@@ -138,6 +146,29 @@ function deckCallCount(fetchMock: ReturnType<typeof setupFetch>["fetchMock"]) {
   ).length;
 }
 
+/**
+ * happy-dom reports a `visible` document and offers no way to background it.
+ * Backgrounded is the state an external agent always drives the editor in, so
+ * the poll's behavior there has to be assertable.
+ */
+let restoreVisibility: (() => void) | null = null;
+function hideDocument() {
+  const original = Object.getOwnPropertyDescriptor(
+    Document.prototype,
+    "visibilityState",
+  );
+  Object.defineProperty(document, "visibilityState", {
+    configurable: true,
+    get: () => "hidden",
+  });
+  restoreVisibility = () => {
+    delete (document as unknown as Record<string, unknown>).visibilityState;
+    if (original && !("visibilityState" in document)) {
+      Object.defineProperty(Document.prototype, "visibilityState", original);
+    }
+  };
+}
+
 async function lastEventSource(): Promise<MockEventSource> {
   await waitFor(() => expect(MockEventSource.lastInstance).not.toBeNull());
   return MockEventSource.lastInstance!;
@@ -146,6 +177,8 @@ async function lastEventSource(): Promise<MockEventSource> {
 describe("DeckContext optimistic create", () => {
   beforeEach(() => {
     _resetSyncTransportRegistryForTests();
+    orgQueryState.data = undefined;
+    orgQueryState.isLoading = false;
     vi.stubGlobal("EventSource", MockEventSource);
     vi.stubGlobal("BroadcastChannel", undefined);
     vi.spyOn(console, "error").mockImplementation(() => {});
@@ -154,6 +187,8 @@ describe("DeckContext optimistic create", () => {
 
   afterEach(() => {
     cleanup();
+    orgQueryState.data = undefined;
+    orgQueryState.isLoading = false;
     _resetSyncTransportRegistryForTests();
     vi.useRealTimers();
     vi.restoreAllMocks();
@@ -209,9 +244,8 @@ describe("DeckContext optimistic create", () => {
     const { result } = renderHook(() => useDecks(), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    // Baseline reloads (mount, route change, org switch) replace `decks`
-    // wholesale rather than diffing, so they need the same protection as the
-    // poll path — otherwise a create racing the reload is silently erased.
+    // Baseline reloads replace `decks` wholesale, so they need the same
+    // protection as the poll path when the active organization is unchanged.
     api.holdNextList();
     let reload: Promise<void> = Promise.resolve();
     act(() => {
@@ -237,6 +271,69 @@ describe("DeckContext optimistic create", () => {
     expect(result.current.getDeck(deckId)?.title).toBe("Reload Race Deck");
     expect(result.current.decks).toHaveLength(1);
   });
+
+  it("clears previous-organization decks before loading the next organization", async () => {
+    window.history.pushState({}, "", "/");
+    orgQueryState.data = { orgId: "org-a" };
+    const api = setupFetch();
+    const { result, rerender } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    let previousDeckId = "";
+    act(() => {
+      previousDeckId = result.current.createDeck("Previous Org Deck").id;
+    });
+    api.setServerDecks([result.current.getDeck(previousDeckId)!]);
+    await act(async () => {
+      api.resolveCreate(new Response("", { status: 200 }));
+      await Promise.resolve();
+    });
+    const previousOrgDeck = result.current.getDeck(previousDeckId)!;
+    window.history.pushState({}, "", `/deck/${previousDeckId}`);
+
+    const currentOrgDeck: Deck = {
+      id: "current-org-deck",
+      title: "Current Org Deck",
+      createdAt: "2026-09-14T00:00:00.000Z",
+      updatedAt: "2026-09-14T00:00:00.000Z",
+      slides: [],
+    };
+    api.holdNextList();
+    let previousOrgReload: Promise<void> = Promise.resolve();
+    act(() => {
+      previousOrgReload = result.current.reloadDecks();
+    });
+    await waitFor(() => expect(api.pendingListCount()).toBe(1));
+
+    api.holdNextList();
+    api.setServerDecks([currentOrgDeck]);
+    act(() => {
+      orgQueryState.data = { orgId: "org-b" };
+      rerender();
+    });
+
+    await waitFor(() => expect(api.pendingListCount()).toBe(2));
+    expect(result.current.decks).toEqual([]);
+    expect(window.location.pathname).toBe("/home");
+
+    await act(async () => {
+      api.releaseList([previousOrgDeck]);
+      await previousOrgReload;
+    });
+    expect(result.current.loading).toBe(true);
+    expect(result.current.decks).toEqual([]);
+
+    await act(async () => {
+      api.releaseList([currentOrgDeck]);
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.decks.map((deck) => deck.id)).toEqual([
+      currentOrgDeck.id,
+    ]);
+    expect(result.current.getDeck(previousDeckId)).toBeUndefined();
+  });
 });
 
 describe("DeckContext fallback polling", () => {
@@ -252,6 +349,11 @@ describe("DeckContext fallback polling", () => {
   });
 
   afterEach(() => {
+    // Unmount before restoring timers: a provider left mounted keeps its poll
+    // loop running and inflates the request counts a later test asserts on.
+    cleanup();
+    restoreVisibility?.();
+    restoreVisibility = null;
     _resetSyncTransportRegistryForTests();
     vi.useRealTimers();
     vi.restoreAllMocks();
@@ -327,5 +429,184 @@ describe("DeckContext fallback polling", () => {
     });
 
     expect(deckCallCount(api.fetchMock) - deckBefore).toBeGreaterThanOrEqual(2);
+  });
+
+  it("keeps reconciling the open deck while the tab is hidden", async () => {
+    // An external agent (MCP / WebMCP / CDP) writes into a tab nobody is
+    // looking at. Skipping the poll while hidden left an agent's add-slide
+    // unseen for 33s on beta — the write had landed, the editor never asked.
+    const deck: Deck = {
+      id: "open-deck",
+      title: "Open Deck",
+      createdAt: "2026-07-25T00:00:00.000Z",
+      updatedAt: "2026-07-25T00:00:00.000Z",
+      slides: [],
+    };
+    window.history.pushState({}, "", "/deck/open-deck");
+    const api = setupFetch();
+    api.setServerDecks([deck]);
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    hideDocument();
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    const deckBefore = deckCallCount(api.fetchMock);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+
+    expect(deckCallCount(api.fetchMock) - deckBefore).toBeGreaterThanOrEqual(2);
+  });
+
+  it("reads the deck back when a page-local WebMCP write announces itself", async () => {
+    // The WebMCP bridge dispatches `agentNative:refresh-data` after every
+    // mutating page-local call. On beta an add-slide called through
+    // `window.__agentNativeWebMcp` in a hidden tab returned ok and the new
+    // slide was still missing 152s later: the writing tab was waiting out the
+    // 60s SSE fallback interval and nothing here listened for the write.
+    const deck: Deck = {
+      id: "open-deck",
+      title: "Open Deck",
+      createdAt: "2026-07-25T00:00:00.000Z",
+      updatedAt: "2026-07-25T00:00:00.000Z",
+      slides: [],
+    };
+    window.history.pushState({}, "", "/deck/open-deck");
+    const api = setupFetch();
+    api.setServerDecks([deck]);
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const source = await lastEventSource();
+    act(() => {
+      source.simulateOpen();
+    });
+    hideDocument();
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    const deckBefore = deckCallCount(api.fetchMock);
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("agentNative:refresh-data"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(deckCallCount(api.fetchMock)).toBeGreaterThan(deckBefore);
+  });
+
+  it("adopts the agent-added slide's own content, not a sibling's", async () => {
+    // beta.slides: an external agent called add-slide through
+    // `window.__agentNativeWebMcp` in a hidden tab. The refetch fired and the
+    // sidebar gained a second thumbnail, but slide 2 rendered slide 1's body
+    // — a wrong slide, not a slow one.
+    const deck: Deck = {
+      id: "open-deck",
+      title: "Open Deck",
+      createdAt: "2026-07-25T00:00:00.000Z",
+      updatedAt: "2026-07-25T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: '<div class="fmd-slide">Final check</div>',
+          notes: "",
+          layout: "content",
+        },
+      ],
+    };
+    window.history.pushState({}, "", "/deck/open-deck");
+    const api = setupFetch();
+    api.setServerDecks([deck]);
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const source = await lastEventSource();
+    act(() => {
+      source.simulateOpen();
+    });
+    hideDocument();
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+
+    api.setServerDecks([
+      {
+        ...deck,
+        updatedAt: "2026-07-25T00:01:00.000Z",
+        slides: [
+          deck.slides[0]!,
+          {
+            id: "slide-2",
+            content: '<div class="fmd-slide">Hidden tab slide ZQX</div>',
+            notes: "",
+            layout: "content",
+          },
+        ],
+      },
+    ]);
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("agentNative:refresh-data"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    await waitFor(() =>
+      expect(result.current.getDeck("open-deck")?.slides).toHaveLength(2),
+    );
+    const slides = result.current.getDeck("open-deck")!.slides;
+    expect(slides[1]!.id).toBe("slide-2");
+    expect(slides[1]!.content).toContain("Hidden tab slide ZQX");
+    expect(slides[0]!.content).toContain("Final check");
+  });
+
+  it("stops polling a hidden tab that has no deck open", async () => {
+    window.history.pushState({}, "", "/");
+    const api = setupFetch();
+    api.setServerDecks([]);
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    hideDocument();
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    const listBefore = listCallCount(api.fetchMock);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+
+    expect(listCallCount(api.fetchMock)).toBe(listBefore);
+  });
+
+  it("still reads once on an announced write in a hidden tab with no deck open", async () => {
+    window.history.pushState({}, "", "/");
+    const api = setupFetch();
+    api.setServerDecks([]);
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    hideDocument();
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    const listBefore = listCallCount(api.fetchMock);
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("agentNative:refresh-data"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    const listAfterWrite = listCallCount(api.fetchMock);
+    expect(listAfterWrite).toBeGreaterThan(listBefore);
+
+    // One read, not a resumed poll loop: the idle gate is skipped for the
+    // announced write only.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(listCallCount(api.fetchMock)).toBe(listAfterWrite);
   });
 });

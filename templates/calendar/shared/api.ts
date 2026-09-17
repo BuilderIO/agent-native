@@ -19,6 +19,17 @@ export interface CalendarEvent {
   /** Absolute Google Calendar web URL for Google events */
   htmlLink?: string;
   accountEmail?: string;
+  /** Provenance for a discovered Google calendar source. */
+  calendarSourceKey?: string;
+  /** Opaque stable identity for the provider calendar across account paths. */
+  canonicalKey?: string;
+  calendarId?: string;
+  calendarName?: string;
+  /** Provider color inherited from the event's calendar. */
+  calendarColor?: string;
+  calendarAccessRole?: GoogleCalendarSource["accessRole"];
+  calendarPrimary?: boolean;
+  calendarReadOnly?: boolean;
   /** Set when this event belongs to an overlaid person's calendar */
   overlayEmail?: string;
   /** Client-only marker for overlaid calendar ownership */
@@ -274,6 +285,50 @@ export interface BookingHost {
 }
 
 /**
+ * Whether one booking-link host's real working hours are being applied.
+ *
+ * Deliberately omits the server helper's `isOverlaidByOwner`: every row the
+ * action returns is overlaid by the owner by construction, so shipping the
+ * flag would only invite a redundant client-side check.
+ *
+ * There is no row for a manual raw-email host. Those are never in the owner's
+ * overlay list, and reporting on arbitrary addresses would make the action an
+ * probing oracle — the editor derives that state locally instead.
+ */
+export interface HostOverlayStatusResult {
+  email: string;
+  reciprocal: boolean;
+  hasWorkingHours: boolean;
+  timezone?: string;
+  displayName?: string;
+  /** ISO timestamp of the last overlay-access request sent to this host. */
+  requestSentAt?: string;
+}
+
+/**
+ * Whether an overlaid peer has added the owner back. Carries no
+ * `hasWorkingHours` field on purpose — this read never evaluates the peer's
+ * schedule, and an absent field cannot be mistaken for an evaluated `false`.
+ */
+export interface OverlayReciprocityResult {
+  email: string;
+  reciprocal: boolean;
+  displayName?: string;
+}
+
+export interface SendOverlayRequestResult {
+  email: string;
+  /**
+   * `null` means nothing was sent and nothing was recorded. It must stay
+   * distinguishable from a real timestamp — defaulting it to "now" would
+   * report a send that never happened.
+   */
+  requestSentAt: string | null;
+  emailSent: boolean;
+  skippedReason?: "email-not-configured" | "send-in-progress";
+}
+
+/**
  * A required co-host as shown to anonymous visitors of the public booking
  * page: a display label derived from their email/displayName, never the raw
  * address, plus their time zone when eligible for hard-filtering.
@@ -357,6 +412,30 @@ export interface GoogleAuthStatus {
     expiresAt?: string;
     photoUrl?: string;
     shared?: boolean;
+  }>;
+}
+
+export interface GoogleCalendarSource {
+  /** Opaque selected account-backed fetch path. */
+  sourceKey: string;
+  /** Opaque stable identity for this provider calendar across account paths. */
+  canonicalKey: string;
+  /** Deterministically selected connected account path used for provider reads. */
+  accountEmail: string;
+  calendarId: string;
+  name: string;
+  color?: string;
+  selected: boolean;
+  primary: boolean;
+  accessRole: "freeBusyReader" | "reader" | "writer" | "owner";
+  /** Sources without event detail access are discoverable but cannot be read. */
+  readOnly: boolean;
+  /** Every connected-account path that can reach this canonical source. */
+  sourcePaths?: Array<{
+    sourceKey: string;
+    accountEmail: string;
+    accessRole: "freeBusyReader" | "reader" | "writer" | "owner";
+    primary: boolean;
   }>;
 }
 

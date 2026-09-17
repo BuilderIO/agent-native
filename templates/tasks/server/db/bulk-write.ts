@@ -13,7 +13,7 @@ export function caseById<T>(idColumn: Column, entries: CaseEntry<T>[]): SQL<T> {
 /**
  * An entry costs three bind parameters (id and value in the CASE, id again in
  * the IN list). Reorder and field cleanup rewrite every row an owner has, which
- * `BULK_ID_LIMIT` does not cap, so the work is chunked to stay under SQLite's
+ * `BULK_ID_LIMIT` does not cap, so the work is chunked to stay under the
  * 999-parameter default.
  */
 export const BULK_WRITE_CHUNK_SIZE = 200;

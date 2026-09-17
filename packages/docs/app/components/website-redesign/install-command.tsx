@@ -1,41 +1,10 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { useT } from "@agent-native/core/client/i18n";
 
+import { copyText } from "./ds/clipboard";
 import { useSnackbar } from "./ds/snackbar";
 
 const INSTALL_COMMAND = "npx @agent-native/core@latest create my-app";
-
-// navigator.clipboard is missing or rejects in an iframe that wasn't granted
-// clipboard-write (the preview host is one), so fall back to the legacy
-// selection-based copy instead of silently doing nothing there.
-async function copyText(text: string): Promise<boolean> {
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text);
-      return true;
-    }
-  } catch {
-    // coercion-ok: permission/availability failure, retried via execCommand
-  }
-
-  const field = document.createElement("textarea");
-  field.value = text;
-  field.setAttribute("readonly", "");
-  field.style.position = "fixed";
-  field.style.top = "0";
-  field.style.opacity = "0";
-  document.body.appendChild(field);
-  field.select();
-  field.setSelectionRange(0, text.length);
-  try {
-    return document.execCommand("copy");
-  } catch {
-    // coercion-ok: false is the copy-failed signal the caller already branches on
-    return false;
-  } finally {
-    field.remove();
-  }
-}
 
 // Two stacked background layers on a real 1px border: the fill layer is
 // clipped to padding-box and the gradient layer to border-box, so the gradient

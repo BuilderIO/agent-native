@@ -1,11 +1,8 @@
-import { useLocale, useT } from "@agent-native/core/client/i18n";
-import { IconArrowUpRight } from "@tabler/icons-react";
-import { Link } from "react-router";
+import { useT } from "@agent-native/core/client/i18n";
 
 import { CustomizeTemplatePopover } from "../CustomizeTemplatePopover";
-import { sitePathForLocale } from "../docs-locale";
+import { firstPartyAppUrl } from "../deployment-links";
 import { applyFirstTouchAttributionToLink } from "../marketing-attribution";
-import { TemplateDocsLink } from "../template-docs";
 import { trackEvent, type Template } from "../TemplateCard";
 
 export type TemplateLandingCtaTemplate = Pick<
@@ -23,12 +20,11 @@ export function TemplateLandingActions({
   template,
 }: TemplateLandingActionsProps) {
   const t = useT();
-  const { locale } = useLocale();
 
   return (
     <>
       <a
-        href={template.demoUrl}
+        href={firstPartyAppUrl(template.demoUrl)}
         target="_blank"
         rel="noopener noreferrer"
         className="primary-button"
@@ -46,22 +42,6 @@ export function TemplateLandingActions({
         template={template}
         location="template_detail"
       />
-      <TemplateDocsLink
-        template={template}
-        location={location}
-        className="secondary-button"
-      >
-        {t("common.readDocs")}
-        <IconArrowUpRight aria-hidden="true" className="size-4" />
-      </TemplateDocsLink>
-      <Link
-        data-an-prefetch="viewport"
-        to={sitePathForLocale("/apps", locale)}
-        className="secondary-button"
-      >
-        {t("common.viewAllApps")}
-        <IconArrowUpRight aria-hidden="true" className="size-4" />
-      </Link>
     </>
   );
 }

@@ -1,31 +1,37 @@
-import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 
+import { createTestPglite } from "../a2a/test-pglite.js";
 import {
   OAUTH_TOKEN_MIGRATIONS,
   OAUTH_TOKEN_MIGRATIONS_TABLE,
 } from "./migrations.js";
 
 describe("OAuth token migrations", () => {
-  it("adds the current token columns and backfills existing owners and revisions", () => {
-    const db = new Database(":memory:");
+  it("adds the current token columns and backfills existing owners and revisions", async () => {
+    const db = await createTestPglite();
 
     for (const migration of OAUTH_TOKEN_MIGRATIONS) {
       if (typeof migration.sql !== "string") {
         throw new Error(`Expected ${migration.name} to use shared SQL`);
       }
       const sql = migration.sql;
-      db.exec(sql.replace(/ADD COLUMN IF NOT EXISTS/gi, "ADD COLUMN").trim());
+      await db.exec(
+        sql.replace(/ADD COLUMN IF NOT EXISTS/gi, "ADD COLUMN").trim(),
+      );
       if (migration.name === "oauth-tokens-display-name-column") {
-        db.prepare(
-          "INSERT INTO oauth_tokens (provider, account_id, tokens, updated_at) VALUES (?, ?, ?, ?)",
-        ).run("google", "person@example.com", "{}", 1);
+        await db
+          .prepare(
+            "INSERT INTO oauth_tokens (provider, account_id, tokens, updated_at) VALUES (?, ?, ?, ?)",
+          )
+          .run("google", "person@example.com", "{}", 1);
       }
     }
 
-    const columns = db
-      .prepare("PRAGMA table_info(oauth_tokens)")
-      .all() as Array<{ name: string }>;
+    const columns = (await db
+      .prepare(
+        "SELECT column_name AS name FROM information_schema.columns WHERE table_name = 'oauth_tokens'",
+      )
+      .all()) as Array<{ name: string }>;
     expect(columns.map((column) => column.name)).toEqual([
       "provider",
       "account_id",
@@ -36,7 +42,7 @@ describe("OAuth token migrations", () => {
       "revision",
     ]);
     expect(
-      db
+      await db
         .prepare(
           "SELECT owner, revision FROM oauth_tokens WHERE provider = ? AND account_id = ?",
         )
@@ -44,6 +50,6 @@ describe("OAuth token migrations", () => {
     ).toEqual({ owner: "person@example.com", revision: 1 });
     expect(OAUTH_TOKEN_MIGRATIONS_TABLE).toBe("_oauth_token_migrations");
 
-    db.close();
+    await db.close();
   });
 });

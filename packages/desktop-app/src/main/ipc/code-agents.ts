@@ -111,6 +111,7 @@ export interface CodeAgentsIpcDeps {
   controlCodeAgentRun: (input: unknown) => Promise<CodeAgentControlResult>;
   getCodeAgentHostMetadata: () => CodeAgentHostMetadata;
   getBundledChromeExtensionPath: () => string;
+  prepareBrowserSetup: () => Promise<void>;
   getCodeAgentProviderSettings: () => CodeAgentProviderSettings;
   updateCodeAgentProviderSettings: (
     input: unknown,
@@ -133,7 +134,7 @@ export interface CodeAgentsIpcDeps {
   getRemoteConnectorStatus: () => CodeAgentRemoteConnectorStatus;
   setRemoteConnectorEnabled: (
     enabled: boolean,
-  ) => CodeAgentRemoteConnectorControlResult;
+  ) => Promise<CodeAgentRemoteConnectorControlResult>;
   pairRemoteCodeAgentConnector: (
     input: unknown,
   ) => Promise<CodeAgentRemoteConnectorPairResult>;
@@ -178,6 +179,7 @@ export function registerCodeAgentsIpc(deps: CodeAgentsIpcDeps): void {
     controlCodeAgentRun,
     getCodeAgentHostMetadata,
     getBundledChromeExtensionPath,
+    prepareBrowserSetup,
     getCodeAgentProviderSettings,
     updateCodeAgentProviderSettings,
     connectDesktopBuilderProvider,
@@ -444,6 +446,7 @@ export function registerCodeAgentsIpc(deps: CodeAgentsIpcDeps): void {
         openExternal: (url) => shell.openExternal(url),
         extensionPath: getBundledChromeExtensionPath,
         pathExists: fs.existsSync,
+        prepareBrowserSetup,
         revealExtensionFolder: async (extensionPath) => {
           const openError = await shell.openPath(extensionPath);
           if (openError) throw new Error(openError);
@@ -559,7 +562,7 @@ export function registerCodeAgentsIpc(deps: CodeAgentsIpcDeps): void {
     (
       _event: IpcMainInvokeEvent,
       enabled: unknown,
-    ): CodeAgentRemoteConnectorControlResult =>
+    ): Promise<CodeAgentRemoteConnectorControlResult> =>
       setRemoteConnectorEnabled(Boolean(enabled)),
   );
 

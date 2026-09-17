@@ -9,7 +9,7 @@
  * failure — so `list-fusion-edits` reflects the outcome without another call.
  */
 
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import { sendFusionBranchMessage } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
@@ -59,7 +59,8 @@ export default defineAction({
     "queue-fusion-edit has accumulated one or more edits the user wants " +
     "applied now. Marks sent edits with a shared batchId, or marks them " +
     "'error' if the send failed. Returns sentCount=0 with a message if there " +
-    "were no pending edits to send.",
+    "were no pending edits to send. A dispatch failure is returned as an " +
+    "action error after the rows are marked error.",
   schema: z.object({
     designId: z.string().describe("Design project ID backed by a fusion app."),
     editIds: z
@@ -72,15 +73,18 @@ export default defineAction({
   }),
   run: async ({ designId, editIds }, ctx) => {
     if (!(await isFeatureFlagEnabled(FULL_APP_BUILDING, ctx))) {
-      throw new Error("Full app building is not enabled");
+      fail("Full app building is not enabled", {
+        errorCode: "full_app_building_disabled",
+      });
     }
 
     const access = await assertAccess("design", designId, "editor");
     const design = access.resource as typeof schema.designs.$inferSelect;
     const fusionApp = readFusionApp(design.data);
     if (!fusionApp) {
-      throw new Error(
+      fail(
         "This design has no fusion app linkage. Call create-fusion-app first.",
+        { errorCode: "fusion_app_linkage_required" },
       );
     }
 
@@ -136,10 +140,10 @@ export default defineAction({
           updatedAt: now,
         })
         .where(inArray(schema.designFusionEdits.id, ids));
-      return {
-        sentCount: 0,
-        error: result.error ?? "Failed to send edits to the app agent",
-      };
+      fail(result.error ?? "Failed to send edits to the app agent", {
+        errorCode: "fusion_edit_dispatch_failed",
+        statusCode: 502,
+      });
     }
 
     const batchId = nanoid();

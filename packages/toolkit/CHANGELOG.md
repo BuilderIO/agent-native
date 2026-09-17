@@ -1,5 +1,203 @@
 # @agent-native/toolkit
 
+## 0.20.4
+
+### Patch Changes
+
+- 5ede9f7: Keep editor recovery bases stable and combine non-overlapping concurrent edits before asking the user to recover a draft.
+  Keep optional Node SQLite cache code from breaking Cloudflare Pages bundles.
+- Release all public npm packages with a patch version bump.
+- ffafd84: Keep tall dialog content inside the viewport with internal vertical scrolling.
+- 424d0cd: Add `sortFontFamilyOptions` to alphabetize font family picker options (keeping "Inherit" pinned first), and use it in the Design and Slides typography font pickers.
+
+## 0.20.3
+
+### Patch Changes
+
+- 901376b: Keep composer controls balanced, keep popovers within the viewport, and prevent first-run prompts from racing model authentication.
+- b35949b: Distinguish acknowledged editor saves from external revisions during concurrent document reconciliation.
+- 116c315: Keep embedded Design editor agent chat aligned with the shared sidebar and use concise OpenAI model labels.
+- Release all public npm packages with a patch version bump.
+
+## 0.20.2
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- c9cb7de: Remove retired Macros app references from dispatch and toolkit surfaces.
+
+## 0.20.1
+
+### Patch Changes
+
+- 9f08f5d: Fix "Connect Builder.io" doing nothing when it is clicked before the first Builder status read lands. `BuilderConnectPopover` rendered an ordinary enabled-looking trigger for the whole duration of that read, then discarded any click that arrived during it — on a cold serverless instance that window is seconds long, which is exactly when a brand-new signup reaches the Connect AI step. The trigger now holds the intent, marks itself `aria-busy`, and opens the provisioning consent choice as soon as the capability resolves. It never replays the intent into `flow.start()`, because that reaches `window.open` and browsers only permit it inside the click that asked for it; when the resolved capability has no consent choice to show, the intent is released and the now-resolved trigger answers the next click synchronously.
+
+  `useBuilderConnectFlow` also exposes `statusReadSettledCount`, which increments whenever a status read settles regardless of outcome. `statusResolved` alone cannot bound a caller waiting on a read: a second failure leaves it `false` with no observable change, so a queued click keyed on it would wait forever. `retry()` now returns whether a read actually started, so a caller cannot wait on a disabled flow that will never read. The composer runtime adapter contract (`ComposerBuilderConnectFlow`) declares `retry` alongside it, so a non-core runtime can supply it and get the same behavior in `TiptapComposer`.
+
+- cd40555: Give the sidebar chat rail's "more chats" control a disclosure chevron that
+  flips with its state instead of the `IconDots` glyph the chat rows above it
+  already use for their overflow menus. Hosts are free to pass the same label for
+  both disclosure states — Brain, Assets, Factory, Plan, and Dispatch all pass a
+  plain "Chats" — so the glyph was the only part of the control that could report
+  state, and it never moved. Pressing it did expand the rail, but the button
+  looked like a menu trigger that had silently failed.
+- 1f43d89: Let apps opt into persistent sidebar scroll controls and edge cues.
+- 25dc407: Unmount dismissed tooltips immediately so an exiting tooltip cannot consume Escape before the overlay beneath it handles the key.
+- e32e1d5: Show on filter and sort triggers when the list they control is narrowed, via the new `FilterTriggerIndicator` primitive.
+- Release all public npm packages with a patch version bump.
+- 657bba1: Reserve a minimum gap between a menu item's label and its shortcut hint in `ContextMenuShortcut`, `DropdownMenuShortcut`, and `MenubarShortcut`. Previously the shortcut relied solely on an auto margin to push itself to the right edge, which collapses to zero when the menu's width is sized to fit its own widest row (e.g. "Send backward ⌘↓" in the Slides layer-order context menu), crowding the label and shortcut together.
+- 25dc407: Improve visual numeric fields with parentheses, powers, opt-in per-target mixed-value math, and Option-drag scrubbing. Keep shared fields focused after Enter by default, with opt-in canvas focus return for Design inspector fields. Add optional text-value commits for unit-aware fields and an opt-in searchable font-family picker.
+- 6ba23d3: Show a tooltip on every icon in the collapsed app sidebar rail. Sidebar link components now forward refs and unknown props, so the tooltip triggers around nav links, nav groups, and the brand mark actually attach, and the compact org switcher uses the shared tooltip instead of a native `title`.
+
+## 0.20.0
+
+### Minor Changes
+
+- 210c7d0: Introduce AgentKit as one public package with subpath exports for the protocol,
+  headless client, HTTP transport, transport conformance, and React runtime
+  (`@agent-native/agentkit`, `/protocol`, `/http`, `/conformance`, `/react`, and
+  `/react/*`), where the root and `/http` entries stay React-free; a
+  versioned, provider-neutral protocol; validated messages, runs, capabilities,
+  approvals, activities, smart objects, uploads, actions, participants, tasks,
+  custom content, and durable thread snapshots; and typed compatibility,
+  cancellation, and error semantics. Add the headless client, resumable HTTP and
+  SSE adapters, executable transport conformance, and composable React provider,
+  hooks, slots, registries, semantic UI, safe streamed Markdown, run recovery,
+  host-aware copy confirmation, capability-gated feedback and forking with
+  visible mutation state, and durable queued-message promotion.
+  Add typed, replay-safe contextual connection requests with host-controlled
+  setup, retry, decline, and resumable-run handling.
+  Choice prompts now offer a focused custom response by default, preserve that
+  answer separately from predefined option ids across transports, and let hosts
+  disable the affordance for deliberately constrained workflows.
+  Completed activity groups now collapse to a duration-aware “Worked for…” row
+  while preserving their expandable action history.
+  Execution segments now settle at the first visible assistant output rather than
+  the terminal run event, so response streaming time is not counted as working
+  time and hidden reasoning does not prematurely end the work phase.
+  Active execution segments now expose a duration-aware “Working for…” spine and
+  cluster consecutive equivalent default tool activity without discarding trace
+  detail or overriding host renderers.
+  The entire chat frame now owns transcript scrolling while the inner transcript
+  retains its constrained reading measure, so wheel input works from either gutter.
+  Activity traces now share a protocol-level semantic taxonomy, render distinct
+  icons for searches, reads, edits, commands, checks, MCP calls, connections,
+  navigation, delegation, and approvals, and give the run-level work spine its own
+  identity instead of presenting every operation as a generic tool.
+  Run startup now becomes active before the first streamed event arrives, keeping
+  rapid follow-ups in the durable queue instead of launching overlapping runs.
+  Transcript following ignores queue-only state churn, follows queue-driven
+  viewport resizing, distinguishes programmatic scrolls from deliberate history
+  navigation, and avoids redundant scroll writes during sustained streamed
+  output.
+  Chat shells can now preserve accepted AgentKit runs across thread navigation,
+  observe typed per-thread lifecycle state in surrounding chrome, show background
+  activity in rails, and surface a newly submitted conversation before durable
+  history catches up.
+  Host chrome now distinguishes active execution from the pre-response working
+  phase, so progress indicators settle when visible assistant output begins while
+  queueing and cancellation remain active through the terminal event.
+  Core and AgentKit now share one animation-frame-paced streaming primitive with
+  adaptive backlog draining, incremental grapheme segmentation, reduced-motion
+  support, background-tab catch-up, and stable memoized Markdown blocks, avoiding
+  chunk dumps and whole-response reparsing during long answers.
+- 210c7d0: Add shared composer and clipboard primitives for a composable PromptBar, agent-authored next
+  actions, a recessed message queue, contextual tool and slash discovery, voice
+  controls, compact assistant actions, stable focus, accessible multiline input,
+  and semantic elevation that remains correct across light and dark surfaces.
+
+### Patch Changes
+
+- 743039f: Clear a submitted prompt composer's persisted localStorage draft even when the host closes or unmounts the composer before the submit promise resolves, so an abandoned draft no longer resurfaces on the next mount. Also guard against a late-resolving submit from an unmounted composer clearing a newer draft that a fresh instance persisted under the same scope in the meantime.
+- bd3e96e: Show a connection label instead of an unavailable model in the composer.
+- b83d472: Clarify the difference between live voice chat and message dictation.
+- 875f793: Fix three reported Content defects at their shared boundaries.
+
+  `findConnectedMcpServersForProvider()` (new, from `@agent-native/core/mcp-client`)
+  resolves the remote MCP servers a user or org has saved for one catalog
+  provider, so an app-level status action can stop answering "not connected" for a
+  provider that Settings shows connected. Any app that keeps its own provider
+  credential registry alongside the MCP catalog had the same latent conflation.
+  The provider host table moved to `@agent-native/core/shared/mcp-provider-hosts`
+  so a server path can match provider URLs without importing the inlined logo data
+  from the client catalog.
+
+  `TaskListPasteNormalization` (new, from `@agent-native/toolkit/editor`) rewrites
+  foreign checkbox-list HTML into the canonical `data-type="taskList"` shape
+  before the schema parses it, so pasting a checklist from Notion or GitHub keeps
+  its checkboxes instead of degrading to plain bullets. It is registered
+  automatically whenever the shared editor factory's `tasks` feature is on.
+
+  The shared block drag handle no longer opens its menu in the top-left corner of
+  the window. `getBoundingClientRect()` answers an all-zero rect rather than null
+  for a hidden, detached, or unlaid-out element, so the previous null-check never
+  fired for the case that actually happens and the zero rect clamped the menu to
+  the viewport padding. The menu now walks grip, block, and editor candidates and
+  declines to open when none of them is laid out.
+
+- 97564cd: Add reusable AppSidebar in toolkit and core, support top-left configurable alpha badges, and update app layouts to match the new sidebar design.
+- 64e6346: Keep collaborative editors from briefly reverting edits received from another editor while SQL catches up, or indefinitely postponing accepted external content during presence updates.
+
+  Advance the edit baseline when peer-delivered content already matches an accepted snapshot, preventing false conflicts on subsequent edits.
+
+  Preserve subsequent local edits when an accepted replacement arrives through live sync before its saved revision, without treating identical shared changes as conflicts.
+
+  Receive collab-backed canonical revisions through fresh Yjs sync receipts instead of inserting the same accepted text again from SQL. Preserve local edits and the confirmed merge base across delayed or failed delivery.
+
+- 64e6346: Keep local rich-text changes from being rolled back while a controlled editor toolbar returns focus to the document.
+- a30a54d: Undo and redo hotkeys now work right after committing a value in a numeric scrub field, which keeps focus after Enter.
+- 587297c: Use GPT-Live as the default realtime voice transport with delegated app tools.
+- Release all public npm packages with a patch version bump.
+- 7a9238c: Support `.eml` chat attachments and present upload errors in a compact, dismissible banner.
+- ccad889: Add an `unstyled` mode to `SharedRichEditor` so hosts can edit text in place without the shared prose typography or wrapper box.
+
+## 0.19.7
+
+### Patch Changes
+
+- 35eb1e6: Align dropdown submenu trigger icon spacing with menu items (`gap-2`).
+- 4676e71: Show popular OpenRouter models in the chat picker and preserve custom selections.
+- Release all public npm packages with a patch version bump.
+
+## 0.19.6
+
+### Patch Changes
+
+- e8b291e: Use the shared mouse-reactive wave animation as the branded auth background across all templates.
+- 4915b82: Style Tiptap collaboration carets and labels so remote presence indicators stay compact and non-disruptive.
+- Release all public npm packages with a patch version bump.
+- 3bde94f: Reduce avatar border and presence-ring weight across shared app surfaces.
+
+## 0.19.5
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 58d9dc3: Allow callers to keep the AI presence avatar display-only.
+
+## 0.19.4
+
+### Patch Changes
+
+- e29fee8: Add a shared hook for browser-persisted sidebar collapse preferences.
+- cef8c06: Route Clips' shadcn UI primitives through the shared Toolkit while preserving its intentional line-tab variant.
+- Release all public npm packages with a patch version bump.
+- 73c36ce: Preserve non-overlapping local edits when a newer authoritative rich-document revision arrives, and report overlapping changes without replacing the local draft.
+
+## 0.19.3
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 760d108: Add an opt-in DataGrid edge affordance that reveals horizontally scrollable content without replacing the native scroll surface.
+
+## 0.19.2
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 0566ce9: Expose resolved composer model selections so hosts can preserve them during attachment and recovery flows.
+
 ## 0.19.1
 
 ### Patch Changes
@@ -513,7 +711,7 @@
 
 ### Patch Changes
 
-- f0da2e0: Harden custom design system color gamut handling, semantic default-adapter behavior, sharing controller reuse, and build-time theme cascade ordering. Add complete MUI and Ant Design Chat examples that exercise the public conformance contract, and route normalized settings, sharing, sidebar, and agent-panel chrome through the registered semantic adapters.
+- f0da2e0: Harden custom design system color gamut handling, semantic default-adapter behavior, sharing controller reuse, and build-time theme cascade ordering. Add public conformance coverage and route normalized settings, sharing, sidebar, and agent-panel chrome through the registered semantic adapters.
 - f0da2e0: Preserve normalized core control icon sizing and semantic button styling while keeping settings defaults and sharing overlays consistent.
 - f0da2e0: Serialize realtime voice responses and recover from overlapping response requests without ending the voice session.
 - f0da2e0: Make the Dispatch chat composer recover from unavailable AI status checks and keep its Add menu clickable.

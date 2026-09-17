@@ -2,8 +2,10 @@ import {
   decodeOAuthState,
   encodeOAuthState,
   getAppUrl,
+  getOrigin,
   getSession,
   isElectron,
+  logOAuthStateDecodeFailure,
   oauthCallbackResponse,
   oauthErrorPage,
   resolveOAuthRedirectUri,
@@ -26,10 +28,16 @@ import {
   exchangeGoogleDocsCode,
   getGoogleDocsAuthUrl,
   getGooglePickerConfig,
+  getGoogleOAuthClientId,
   hasGoogleDriveExportScope,
+  hasGoogleDriveUploadScope,
   isGoogleDocsOAuthConfigured,
   listGoogleDocsAccounts,
 } from "../lib/google-docs-oauth.js";
+import {
+  resolveGoogleSlidesExportAvailability,
+  type GoogleSlidesExportAvailability,
+} from "../lib/google-slides-export-availability.js";
 import { withSlidesRequestContext } from "./request-auth-context.js";
 const OAUTH_STATE_APP_ID = process.env.APP_NAME || "slides";
 
@@ -115,6 +123,16 @@ export const handleGoogleDocsCallback = defineEventHandler(
         query.state as string | undefined,
         getAppUrl(event, "/_agent-native/google-docs/callback"),
       );
+      if (!state.ok) {
+        logOAuthStateDecodeFailure(event, state.reason, "google");
+        return oauthErrorPage(
+          formatGoogleOAuthError(
+            new Error(
+              "Your sign-in link expired or is invalid. Please try again.",
+            ),
+          ),
+        );
+      }
       desktop = state.desktop ?? false;
       flowId = state.flowId;
 
@@ -160,6 +178,30 @@ export const handleGoogleDocsCallback = defineEventHandler(
   },
 );
 
+async function googleSlidesExportField(
+  event: H3Event,
+  owner: string,
+  configured: boolean,
+  hasUploadCapableAccount: boolean,
+): Promise<{ googleSlidesExport?: GoogleSlidesExportAvailability }> {
+  try {
+    return {
+      googleSlidesExport: await resolveGoogleSlidesExportAvailability({
+        configured,
+        clientId: configured ? await getGoogleOAuthClientId(owner) : null,
+        origin: getOrigin(event),
+        hasUploadCapableAccount,
+      }),
+    };
+  } catch (error) {
+    console.warn(
+      "[slides] could not determine Google Slides export availability:",
+      formatGoogleOAuthError(error),
+    );
+    return {};
+  }
+}
+
 export const getGoogleDocsStatus = defineEventHandler(
   async (event: H3Event) => {
     const owner = await requireSessionEmail(event);
@@ -192,8 +234,22 @@ export const getGoogleDocsStatus = defineEventHandler(
           }
         }
         const picker = await getGooglePickerConfig(owner);
+        const configured = await isGoogleDocsOAuthConfigured(owner);
         return {
-          configured: await isGoogleDocsOAuthConfigured(owner),
+          configured,
+          // Omitted rather than defaulted when it cannot be computed: this
+          // endpoint also drives Picker and import, and a verdict of
+          // "available" that nobody actually checked is the failure this gate
+          // exists to prevent. Absent means no verdict; the client keeps the
+          // export enabled and says nothing about it.
+          ...(await googleSlidesExportField(
+            event,
+            owner,
+            configured,
+            accounts.some((account) =>
+              hasGoogleDriveUploadScope(account.scope),
+            ),
+          )),
           connected: accounts.length > 0,
           googleSlidesUrlImportReady: accounts.some((account) =>
             hasGoogleDriveExportScope(account.scope),

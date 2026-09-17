@@ -335,12 +335,9 @@ const messages = {
     sharePubliclyDescription:
       "Para compartilhar conteúdo publicamente, conecte um banco de dados em nuvem.",
     providerDescriptions: {
-      turso: "SQLite na borda",
       neon: "Postgres sem servidor",
       supabase: "Alternativa open source ao Firebase",
-      d1: "SQLite na borda",
     },
-    providerNames: { d1: "Cloudflare D1" },
     setupSteps: "Etapas de configuração",
     authToken: "Token de autenticação",
     connectedReloading: "Conectado com sucesso. Recarregando...",
@@ -361,6 +358,10 @@ const messages = {
     responseSubmitted: "Resposta enviada",
     noFields: "Este formulário ainda não tem campos.",
     failedSubmit: "Falha ao enviar o formulário",
+    uncheckablePattern:
+      "A regra deste formulário para {label} não pode ser verificada. Peça ao proprietário do formulário para corrigi-la.",
+    patternTooLong:
+      "O valor de {label} é longo demais para ser verificado pela regra deste formulário.",
   },
   responseInsights: {
     unavailable: "Insights indisponíveis",
@@ -411,6 +412,13 @@ const messages = {
     page: "Page",
     source: "Fonte",
     sortBy: "Sort by {{label}}",
+    communityReview: "Revisar",
+    communityPublish: "Publicar no site",
+    communityPublishing: "Publicando...",
+    communityPublished: "Publicado",
+    communityView: "Ver no site",
+    communityNeedsCheck: "Verifique o Builder antes de tentar novamente",
+    communityPromotionFailed: "Não foi possível publicar este envio.",
   },
 };
 

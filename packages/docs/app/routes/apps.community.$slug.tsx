@@ -7,11 +7,12 @@ import {
   IconExternalLink,
 } from "@tabler/icons-react";
 import { useRef, useState, type ReactNode } from "react";
-import { Link, useParams, type LoaderFunctionArgs } from "react-router";
+import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
 
+import { loadCommunityAppCatalog } from "../../server/lib/community-apps.server";
 import { BuilderImage } from "../components/builder-image";
 import {
-  findCommunityApp,
+  findCommunityAppInCatalog,
   type CommunityApp,
 } from "../components/community-apps";
 import { sitePathForLocale } from "../components/docs-locale";
@@ -24,15 +25,23 @@ import { trackEvent } from "../components/TemplateCard";
 import enUS from "../i18n/en-US";
 import { withDefaultSocialImage, withTemplateSocialImage } from "../seo";
 
-export function loader({ params }: LoaderFunctionArgs) {
-  if (!findCommunityApp(params.slug)) {
+export async function loader({ params }: LoaderFunctionArgs) {
+  const catalog = await loadCommunityAppCatalog();
+  const app = findCommunityAppInCatalog(catalog.apps, params.slug);
+  if (!app) {
     throw new Response("Not Found", { status: 404 });
   }
-  return null;
+  return app;
 }
 
-export const meta = ({ params }: { params: { slug?: string } }) => {
-  const app = findCommunityApp(params.slug);
+export const meta = ({
+  data,
+  loaderData,
+}: {
+  data?: CommunityApp;
+  loaderData?: CommunityApp;
+}) => {
+  const app = data ?? loaderData;
   if (!app) {
     return withDefaultSocialImage([
       { title: enUS.templateDetail.notFoundMetaTitle },
@@ -177,10 +186,9 @@ function CommunityActionLink({
 }
 
 export default function CommunityAppPage() {
-  const { slug } = useParams();
   const { locale } = useLocale();
   const t = useT();
-  const app = findCommunityApp(slug);
+  const app = useLoaderData<typeof loader>();
 
   if (!app) {
     return (

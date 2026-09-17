@@ -121,6 +121,7 @@ describe("open-visual-edit", () => {
       rootPath: "/tmp/app",
       bridgeToken: "stored-write-token",
       previewToken: "stored-preview-token",
+      routes: [],
     });
     mocks.addLocalhostScreensRun.mockResolvedValue({
       screenCount: 1,
@@ -192,6 +193,35 @@ describe("open-visual-edit", () => {
     expect(mocks.connectLocalhostRun).toHaveBeenCalledWith(
       expect.objectContaining({
         id: "localhost_existing",
+      }),
+    );
+  });
+
+  it("preserves secondary localhost route identity in the connection manifest", async () => {
+    await action.run({
+      designId: "design_1",
+      devServerUrl: "http://localhost:5173",
+      routes: [
+        {
+          connectionId: "localhost_secondary",
+          path: "/settings",
+          url: "http://127.0.0.2:5173/settings",
+        },
+      ],
+      navigate: false,
+    });
+
+    expect(mocks.connectLocalhostRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        routeManifest: expect.objectContaining({
+          routes: [
+            expect.objectContaining({
+              connectionId: "localhost_secondary",
+              path: "/settings",
+              url: "http://127.0.0.2:5173/settings",
+            }),
+          ],
+        }),
       }),
     );
   });
@@ -268,6 +298,15 @@ describe("open-visual-edit", () => {
   });
 
   it("falls back to the manifest routes when viewports are requested without paths", async () => {
+    mocks.connectLocalhostRun.mockResolvedValueOnce({
+      id: "localhost_canonical",
+      bridgeUrl: "http://127.0.0.1:7331",
+      rootPath: "/tmp/app",
+      bridgeToken: "stored-write-token",
+      previewToken: "stored-preview-token",
+      routes: [{ id: "route-home", path: "/", title: "Home" }],
+    });
+
     await action.run({
       designId: "design_1",
       connectionId: "localhost_existing",
@@ -283,7 +322,113 @@ describe("open-visual-edit", () => {
     });
 
     expect(mocks.addLocalhostScreensRun.mock.calls[0]![0].routes).toEqual([
-      expect.objectContaining({ path: "/", width: 390, height: 844 }),
+      expect.objectContaining({
+        routeId: "route-home",
+        path: "/",
+        width: 390,
+        height: 844,
+      }),
+    ]);
+  });
+
+  it("expands normalized connection routes across viewports", async () => {
+    mocks.connectLocalhostRun.mockResolvedValueOnce({
+      id: "localhost_canonical",
+      bridgeUrl: "http://127.0.0.1:7331",
+      rootPath: "/tmp/app",
+      bridgeToken: "stored-write-token",
+      previewToken: "stored-preview-token",
+      routes: [
+        {
+          id: "normalized-secondary-settings",
+          connectionId: "localhost_secondary",
+          path: "/settings",
+          url: "http://localhost:5173/settings",
+          title: "Secondary settings",
+          sourceKind: "manual",
+        },
+      ],
+    });
+
+    await action.run({
+      designId: "design_1",
+      connectionId: "localhost_existing",
+      devServerUrl: "http://localhost:5173",
+      routeManifest: {
+        version: 1,
+        sourceType: "localhost",
+        devServerUrl: "http://localhost:5173",
+        routes: [
+          {
+            connectionId: "localhost_secondary",
+            path: "/settings",
+            url: "http://localhost:5173/settings",
+          },
+        ],
+      },
+      viewports: ["mobile"],
+      navigate: false,
+    });
+
+    expect(mocks.addLocalhostScreensRun.mock.calls[0]![0].routes).toEqual([
+      expect.objectContaining({
+        routeId: "normalized-secondary-settings",
+        connectionId: "localhost_secondary",
+        path: "/settings",
+        width: 390,
+        height: 844,
+      }),
+    ]);
+  });
+
+  it("preserves secondary route identity when expanding manifest routes across viewports", async () => {
+    mocks.connectLocalhostRun.mockResolvedValueOnce({
+      id: "localhost_canonical",
+      bridgeUrl: "http://127.0.0.1:7331",
+      rootPath: "/tmp/app",
+      bridgeToken: "stored-write-token",
+      previewToken: "stored-preview-token",
+      routes: [
+        {
+          id: "secondary-settings",
+          connectionId: "localhost_secondary",
+          path: "/settings",
+          url: "http://127.0.0.2:5173/settings",
+          title: "Secondary settings",
+        },
+      ],
+    });
+
+    await action.run({
+      designId: "design_1",
+      connectionId: "localhost_existing",
+      devServerUrl: "http://localhost:5173",
+      routeManifest: {
+        version: 1,
+        sourceType: "localhost",
+        devServerUrl: "http://localhost:5173",
+        routes: [
+          {
+            id: "secondary-settings",
+            connectionId: "localhost_secondary",
+            path: "/settings",
+            url: "http://127.0.0.2:5173/settings",
+            title: "Secondary settings",
+          },
+        ],
+      },
+      viewports: ["mobile"],
+      navigate: false,
+    });
+
+    expect(mocks.addLocalhostScreensRun.mock.calls[0]![0].routes).toEqual([
+      expect.objectContaining({
+        connectionId: "localhost_secondary",
+        path: "/settings",
+        url: "http://127.0.0.2:5173/settings",
+        width: 390,
+        height: 844,
+      }),
     ]);
   });
 
@@ -330,13 +475,13 @@ describe("open-visual-edit", () => {
     expect(mocks.createEmbedSessionTicket).toHaveBeenCalledWith({
       ownerEmail: "owner@example.com",
       orgId: "org_1",
-      targetPath: "/visual-edit/design_1?editorView=overview",
+      targetPath: "/visual-edit/design_1?editorView=overview&embedChrome=1",
       scope: "capability:visual-edit:design:design_1",
       ttlSeconds: 300,
     });
 
     expect(result.openUrl).toBe(
-      "agent-native://open/visual-edit/design_1?editorView=overview",
+      "agent-native://open/visual-edit/design_1?editorView=overview&embedChrome=1",
     );
     expect(result.embedStartUrl).toBe(
       "/_agent-native/embed/start?ticket=visual-edit-example-ticket",
@@ -346,7 +491,7 @@ describe("open-visual-edit", () => {
     expect(result.openUrl).not.toContain("ticket");
     expect(result.openUrl).not.toContain("_session");
     expect(action.link!({ args: {}, result }).url).toBe(
-      "agent-native://open/visual-edit/design_1?editorView=overview",
+      "agent-native://open/visual-edit/design_1?editorView=overview&embedChrome=1",
     );
   });
 
@@ -382,12 +527,13 @@ describe("open-visual-edit", () => {
         /^workspace\+[a-f0-9]{24}@local\.visual-edit\.agent-native\.invalid$/,
       ),
       orgId: undefined,
-      targetPath: "/visual-edit/design_created?editorView=overview",
+      targetPath:
+        "/visual-edit/design_created?editorView=overview&embedChrome=1",
       scope: "capability:visual-edit:design:design_created",
       ttlSeconds: 300,
     });
     expect(result.openUrl).toBe(
-      "agent-native://open/visual-edit/design_created?editorView=overview",
+      "agent-native://open/visual-edit/design_created?editorView=overview&embedChrome=1",
     );
     expect(result.embedStartUrl).toBe(
       "/_agent-native/embed/start?ticket=visual-edit-example-ticket",
@@ -478,7 +624,7 @@ describe("open-visual-edit", () => {
 
     expect(mocks.createEmbedSessionTicket).not.toHaveBeenCalled();
     expect(result.openUrl).toBe(
-      "agent-native://open/visual-edit/design_1?editorView=overview",
+      "agent-native://open/visual-edit/design_1?editorView=overview&embedChrome=1",
     );
     expect(result).not.toHaveProperty("embedStartUrl");
   });

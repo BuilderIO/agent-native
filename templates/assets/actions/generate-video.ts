@@ -1,8 +1,10 @@
 import { defineAction } from "@agent-native/core/action";
+import type { ActionRunContext } from "@agent-native/core/action";
 import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
+import { track } from "@agent-native/core/tracking";
 import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
@@ -27,6 +29,7 @@ import {
 import { completeVideoGenerationRun } from "../server/lib/video-runs.js";
 import {
   IMAGE_CATEGORIES,
+  normalizeCallerAppId,
   VIDEO_ASPECT_RATIOS,
   VIDEO_MODELS,
   VIDEO_RESOLUTIONS,
@@ -75,7 +78,7 @@ export default defineAction({
     callerAppId: z.string().optional(),
     waitForCompletion: z.coerce.boolean().default(false),
   }),
-  run: async (input) => {
+  run: async (input, context?: ActionRunContext) => {
     const libraryId = input.libraryId;
     if (!libraryId) {
       throw new Error(
@@ -86,6 +89,7 @@ export default defineAction({
       ...input,
       libraryId,
     };
+    const callerAppId = normalizeCallerAppId(args.callerAppId);
     const draftAccess = await assertCanDraft(args.libraryId);
     // Inputs answer to the same author rule as reads: another drafter's
     // candidate must not reach the provider as a source or a reference.
@@ -229,7 +233,7 @@ export default defineAction({
       referenceAssetIds: stringifyJson(referenceAssetIds),
       status: "pending",
       source: args.source,
-      callerAppId: args.callerAppId ?? null,
+      callerAppId: callerAppId ?? null,
       ownerEmail,
       orgId,
       metadata: stringifyJson(baseMetadata),
@@ -277,7 +281,7 @@ export default defineAction({
       createdAt: now,
       completedAt: null,
       source: args.source,
-      callerAppId: args.callerAppId ?? null,
+      callerAppId: callerAppId ?? null,
       ownerEmail,
       orgId,
     };
@@ -286,10 +290,36 @@ export default defineAction({
       .set({ status: "processing", metadata: run.metadata })
       .where(eq(schema.assetGenerationRuns.id, runId));
 
+    track(
+      "generation_started",
+      {
+        app_name: "assets",
+        template_name: "assets",
+        output_id: runId,
+        output_type: "asset",
+        media_type: "video",
+        source_app: callerAppId,
+      },
+      context,
+    );
+
     if (args.waitForCompletion) {
       const completed = await completeVideoGenerationRun(run);
-      if (completed.status === "completed") {
+      if (completed.status === "completed" && completed.completionClaimed) {
         const asset = serializeAsset(completed.asset);
+        track(
+          "media_generated",
+          {
+            app_name: "assets",
+            template_name: "assets",
+            output_id: completed.asset.id,
+            output_type: "asset",
+            media_type: "video",
+            library_id: args.libraryId,
+            source_app: callerAppId,
+          },
+          context,
+        );
         return {
           run: serializeGenerationRun(completed.run),
           asset,

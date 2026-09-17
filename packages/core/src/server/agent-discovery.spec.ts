@@ -1,15 +1,23 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TEMPLATES } from "../cli/templates-meta.js";
 import {
+  agentHandleNumberVariant,
   BUILTIN_AGENTS_FOR_SEEDING,
   discoverAgents,
   discoverOrgDirectoryAgents,
+  findAgent,
   findWorkspaceDispatchAgent,
   getBuiltinAgents,
+  loadWorkspaceAppsManifest,
   normalizeAgentId,
   shouldIncludeRemoteAgentManifest,
 } from "./agent-discovery.js";
+import { resolveAppRuntimeUrl } from "./app-url.js";
 import { runWithRequestContext } from "./request-context.js";
 
 const resourceListMock = vi.hoisted(() => vi.fn());
@@ -30,7 +38,9 @@ const DISCOVERY_ENV_KEYS = [
   "URL",
   "DEPLOY_URL",
   "VERCEL",
+  "VERCEL_ENV",
   "VERCEL_URL",
+  "VERCEL_BRANCH_URL",
   "VERCEL_PROJECT_PRODUCTION_URL",
   "NETLIFY",
   "NETLIFY_LOCAL",
@@ -456,7 +466,65 @@ describe("agent discovery", () => {
     });
   });
 
-  it("resolves the trusted Dispatch callback only from the workspace manifest", () => {
+  it.each([
+    ["VERCEL_URL", "workspace-preview.vercel.app"],
+    ["VERCEL_BRANCH_URL", "workspace-branch.vercel.app"],
+  ] as const)(
+    "derives sibling workspace app URLs from the Vercel %s when no workspace origin is configured",
+    async (key, host) => {
+      process.env.VERCEL_ENV = "preview";
+      process.env[key] = host;
+      process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
+        apps: [
+          {
+            id: "dispatch",
+            name: "Dispatch",
+            path: "/dispatch",
+            isDispatch: true,
+          },
+          {
+            id: "starter",
+            name: "Starter",
+            path: "/starter",
+          },
+        ],
+      });
+
+      const agents = await discoverAgents("dispatch");
+
+      expect(agents.find((agent) => agent.id === "starter")?.url).toBe(
+        `https://${host}/starter`,
+      );
+    },
+  );
+
+  it("prefers the current Vercel preview over the canonical app URL", () => {
+    process.env.VERCEL_ENV = "preview";
+    process.env.VERCEL_URL = "workspace-preview.vercel.app";
+    process.env.APP_URL = "https://workspace.example.com";
+
+    expect(resolveAppRuntimeUrl()).toBe("https://workspace-preview.vercel.app");
+  });
+
+  it("derives production sibling workspace app URLs from the Vercel project URL", async () => {
+    process.env.VERCEL_ENV = "production";
+    process.env.VERCEL_PROJECT_PRODUCTION_URL = "workspace.example.com";
+    process.env.VERCEL_URL = "workspace-deployment.vercel.app";
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
+      apps: [
+        { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+        { id: "starter", name: "Starter", path: "/starter" },
+      ],
+    });
+
+    const agents = await discoverAgents("dispatch");
+
+    expect(agents.find((agent) => agent.id === "starter")?.url).toBe(
+      "https://workspace.example.com/starter",
+    );
+  });
+
+  it("resolves the trusted Dispatch callback only from the workspace manifest", async () => {
     process.env.APP_URL = "https://workspace.example.test";
     process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
       apps: [
@@ -475,7 +543,7 @@ describe("agent discovery", () => {
       ],
     });
 
-    expect(findWorkspaceDispatchAgent()).toMatchObject({
+    expect(await findWorkspaceDispatchAgent()).toMatchObject({
       id: "control-plane",
       name: "Workspace Dispatch",
       url: "https://workspace.example.test/dispatch",
@@ -491,7 +559,7 @@ describe("agent discovery", () => {
         },
       ],
     });
-    expect(findWorkspaceDispatchAgent()).toBeUndefined();
+    expect(await findWorkspaceDispatchAgent()).toBeUndefined();
   });
 
   it("uses explicit workspace manifest URLs without falling back to built-ins", async () => {
@@ -738,7 +806,9 @@ describe("agent discovery", () => {
       })),
     );
 
-    const result = await discoverOrgDirectoryAgents("dispatch");
+    const result = await runWithRequestContext({ orgId: "org-123" }, () =>
+      discoverOrgDirectoryAgents("dispatch"),
+    );
 
     expect(result.status).toBe("available");
     if (result.status === "available") {
@@ -750,6 +820,11 @@ describe("agent discovery", () => {
       );
     }
     expect(resourceListContentByOwnersAndPrefixesMock).toHaveBeenCalledTimes(1);
+    expect(resourceListContentByOwnersAndPrefixesMock).toHaveBeenCalledWith(
+      ["__shared__", "__organization__:org-123"],
+      expect.any(Array),
+      { orgId: "org-123" },
+    );
     expect(resourceGetMock).not.toHaveBeenCalled();
   });
 
@@ -939,6 +1014,48 @@ describe("agent discovery", () => {
     });
   });
 
+  it("skips filesystem apps with unreadable route trees in best-effort discovery", async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-discovery-workspace-"),
+    );
+    const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(workspaceRoot);
+    try {
+      fs.writeFileSync(
+        path.join(workspaceRoot, "package.json"),
+        JSON.stringify({
+          name: "test-workspace",
+          "agent-native": { workspaceCore: "workspace-core" },
+        }),
+      );
+      for (const app of ["dispatch", "healthy", "broken"]) {
+        const appDir = path.join(workspaceRoot, "apps", app);
+        fs.mkdirSync(appDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(appDir, "package.json"),
+          JSON.stringify({ name: app, displayName: app }),
+        );
+      }
+      const brokenRoutes = path.join(
+        workspaceRoot,
+        "apps",
+        "broken",
+        "app",
+        "routes",
+      );
+      fs.mkdirSync(path.dirname(brokenRoutes), { recursive: true });
+      fs.writeFileSync(brokenRoutes, "not a directory");
+
+      await expect(loadWorkspaceAppsManifest()).resolves.toEqual([
+        expect.objectContaining({ id: "dispatch" }),
+        expect.objectContaining({ id: "healthy" }),
+      ]);
+      await expect(loadWorkspaceAppsManifest(true)).rejects.toThrow();
+    } finally {
+      cwdSpy.mockRestore();
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
   it("starts remote manifests and workspace metadata concurrently", async () => {
     process.env.APP_URL = "https://workspace.example.test";
     process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
@@ -968,6 +1085,70 @@ describe("agent discovery", () => {
     resolveMetadata(null);
 
     await expect(pending).resolves.toMatchObject({ status: "available" });
+  });
+
+  describe("singular/plural handle resolution", () => {
+    it("resolves the Plan app when a caller asks for 'plans'", async () => {
+      // The Plan app labels itself "Plans" in its own sidebar, nav state, and
+      // skills, so the model naturally delegates to agent="plans".
+      await expect(findAgent("plans", "brain")).resolves.toMatchObject({
+        id: "plan",
+      });
+    });
+
+    it("resolves every built-in agent from its other grammatical number", async () => {
+      const unresolved: string[] = [];
+      for (const agent of getBuiltinAgents()) {
+        const variant = agentHandleNumberVariant(agent.id);
+        if (!variant) continue;
+        if ((await findAgent(variant))?.id !== agent.id) {
+          unresolved.push(`${variant} -> ${agent.id}`);
+        }
+      }
+      expect(unresolved).toEqual([]);
+    });
+
+    it("leaves a genuinely unknown handle unresolved", async () => {
+      await expect(findAgent("nosuchapp", "brain")).resolves.toBeUndefined();
+    });
+
+    it("refuses to guess when two agents differ only by a trailing s", async () => {
+      resourceListMock.mockResolvedValue([
+        { id: "r-report", path: "remote-agents/report.json" },
+        { id: "r-reports", path: "remote-agents/reports.json" },
+      ]);
+      resourceGetMock.mockImplementation(async (id: string) =>
+        id === "r-report"
+          ? {
+              content: JSON.stringify({
+                id: "report",
+                name: "Report",
+                url: "https://report.example.com",
+              }),
+            }
+          : {
+              content: JSON.stringify({
+                id: "reports",
+                name: "Reports",
+                url: "https://reports.example.com",
+              }),
+            },
+      );
+
+      // "report" matches exactly; only the ambiguous variant lookup is refused.
+      await expect(findAgent("report")).resolves.toMatchObject({
+        id: "report",
+      });
+      await expect(findAgent("reportss")).resolves.toBeUndefined();
+    });
+
+    it("produces no variant for handles where the swap is meaningless", () => {
+      expect(agentHandleNumberVariant("")).toBeNull();
+      expect(agentHandleNumberVariant("  ")).toBeNull();
+      expect(agentHandleNumberVariant("access")).toBeNull();
+      expect(agentHandleNumberVariant("plan")).toBe("plans");
+      expect(agentHandleNumberVariant("Forms")).toBe("form");
+    });
   });
 });
 

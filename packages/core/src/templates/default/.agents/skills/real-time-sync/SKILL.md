@@ -132,8 +132,9 @@ When the agent writes to application-state via script helpers (`writeAppState`, 
 ### Template setup
 
 ```ts
-// app/lib/tab-id.ts
-export const TAB_ID = `tab-${Math.random().toString(36).slice(2, 8)}`;
+// app/lib/tab-id.ts — already scaffolded, do not redefine
+import { getBrowserTabId } from "@agent-native/core/client/hooks";
+export const TAB_ID = getBrowserTabId();
 
 // app/root.tsx
 import { TAB_ID } from "@/lib/tab-id";
@@ -143,6 +144,8 @@ useDbSync({
   ignoreSource: TAB_ID,
 });
 ```
+
+`getBrowserTabId()` is the id the server resolves tab-scoped `application_state` and WebMCP calls against — see `context-awareness`.
 
 The `use-navigation-state.ts` hook sends the same `TAB_ID` in the `X-Request-Source` header when writing navigation state, so the tab that wrote the state does not refetch it.
 
@@ -166,7 +169,7 @@ This avoids duplicate `/api/*` JSON CRUD routes and makes agent-created records 
 
 The framework emits a change event with `source: "action"` whenever any non-read-only action runs to completion — whether called via HTTP (`/_agent-native/actions/:name`) or as an agent tool call. Read-only actions (`http: { method: "GET" }` or explicit `readOnly: true`) are skipped.
 
-This means UIs don't need the agent to remember to call `refresh-screen` after every mutation. A listener like this (used in the `macros` template) will refresh after any mutating agent call:
+This means UIs don't need the agent to remember to call `refresh-screen` after every mutation. A listener like this will refresh after any mutating agent call:
 
 ```ts
 useDbSync({

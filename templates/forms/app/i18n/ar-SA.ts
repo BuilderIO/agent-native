@@ -331,12 +331,9 @@ const messages = {
     sharePublicly: "مشاركة علنية",
     sharePubliclyDescription: "لمشاركة المحتوى علنًا، صِل قاعدة بيانات سحابية.",
     providerDescriptions: {
-      turso: "SQLite على الحافة",
       neon: "Postgres بلا خوادم",
       supabase: "بديل مفتوح المصدر لـ Firebase",
-      d1: "SQLite على الحافة",
     },
-    providerNames: { d1: "Cloudflare D1" },
     setupSteps: "خطوات الإعداد",
     authToken: "رمز المصادقة",
     connectedReloading: "تم الاتصال بنجاح. جارٍ إعادة التحميل...",
@@ -356,6 +353,10 @@ const messages = {
     responseSubmitted: "تم إرسال الرد",
     noFields: "لا يحتوي هذا النموذج على حقول بعد.",
     failedSubmit: "فشل إرسال النموذج",
+    uncheckablePattern:
+      "تعذّر التحقق من قاعدة هذا النموذج الخاصة بـ {label}. يرجى الطلب من مالك النموذج إصلاحها.",
+    patternTooLong:
+      "قيمة {label} طويلة جدًا بحيث يتعذر التحقق منها باستخدام قاعدة هذا النموذج.",
   },
   responseInsights: {
     unavailable: "الرؤى غير متاحة",
@@ -402,6 +403,13 @@ const messages = {
     page: "Page",
     source: "المصدر",
     sortBy: "Sort by {{label}}",
+    communityReview: "مراجعة",
+    communityPublish: "نشر على الموقع",
+    communityPublishing: "جارٍ النشر...",
+    communityPublished: "تم النشر",
+    communityView: "عرض على الموقع",
+    communityNeedsCheck: "تحقق من Builder قبل إعادة المحاولة",
+    communityPromotionFailed: "تعذر نشر هذا الإرسال.",
   },
 };
 

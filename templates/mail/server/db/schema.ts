@@ -1,4 +1,4 @@
-import { table, text, integer } from "@agent-native/core/db/schema";
+import { table, text, integer, index } from "@agent-native/core/db/schema";
 
 /**
  * Short-lived, owner-scoped continuation state for the external Mail
@@ -87,6 +87,86 @@ export const snippets = table("snippets", {
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 });
+
+/**
+ * Per-account Gmail sync watermark for the inbox store. One row per
+ * `${ownerEmail}:${accountEmail}`. `historyId` null means the account hasn't
+ * completed its first full sync yet; the `full_sync_*` columns track a
+ * resumable full-sync page walk.
+ */
+export const mailSyncAccounts = table(
+  "mail_sync_accounts",
+  {
+    id: text("id").primaryKey(), // `${owner}:${account}` lowercased
+    ownerEmail: text("owner_email").notNull(),
+    accountEmail: text("account_email").notNull(),
+    historyId: text("history_id"),
+    fullSyncPageToken: text("full_sync_page_token"),
+    fullSyncHistoryId: text("full_sync_history_id"),
+    fullSyncStartedAt: integer("full_sync_started_at"),
+    status: text("status", {
+      enum: ["idle", "syncing", "error", "needs_reauth"],
+    })
+      .notNull()
+      .default("idle"),
+    lastError: text("last_error"),
+    lastSyncedAt: integer("last_synced_at"),
+    syncClaimId: text("sync_claim_id"),
+    syncClaimedAt: integer("sync_claimed_at"),
+    // Compact cached labels.list result: [{id,name,type,color?,messagesTotal?,
+    // messagesUnread?,threadsTotal?,threadsUnread?}]
+    labelsJson: text("labels_json"),
+    labelsUpdatedAt: integer("labels_updated_at"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [index("mail_sync_accounts_owner_idx").on(t.ownerEmail)],
+);
+
+/**
+ * SQL mirror of each connected account's INBOX threads, kept fresh by
+ * `server/lib/inbox-sync.ts`. Metadata only — no bodies, no HTML.
+ */
+export const mailInboxThreads = table(
+  "mail_inbox_threads",
+  {
+    id: text("id").primaryKey(), // `${owner}:${account}:${threadId}` lowercased owner/account
+    ownerEmail: text("owner_email").notNull(),
+    accountEmail: text("account_email").notNull(),
+    threadId: text("thread_id").notNull(),
+    historyId: text("history_id"),
+    inInbox: integer("in_inbox").notNull(),
+    isUnread: integer("is_unread"),
+    isStarred: integer("is_starred"),
+    isImportant: integer("is_important"),
+    isAutomated: integer("is_automated"),
+    latestDate: integer("latest_date").notNull(),
+    latestMessageId: text("latest_message_id"),
+    subject: text("subject"),
+    snippet: text("snippet"),
+    fromName: text("from_name"),
+    fromEmail: text("from_email"),
+    toJson: text("to_json"), // JSON [{name,email}] of the classified message
+    labelIdsJson: text("label_ids_json").notNull(), // JSON string[] union across non-draft messages
+    messageIdsJson: text("message_ids_json").notNull(), // JSON string[] all message ids
+    messageCount: integer("message_count"),
+    unreadCount: integer("unread_count"),
+    hasAttachments: integer("has_attachments"),
+    syncedAt: integer("synced_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [
+    index("mail_inbox_threads_owner_inbox_date_idx").on(
+      t.ownerEmail,
+      t.inInbox,
+      t.latestDate,
+    ),
+    index("mail_inbox_threads_owner_account_idx").on(
+      t.ownerEmail,
+      t.accountEmail,
+    ),
+  ],
+);
 
 export const queuedEmailDrafts = table("queued_email_drafts", {
   id: text("id").primaryKey(),

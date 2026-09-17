@@ -89,7 +89,7 @@ export default defineAction({
         updatedAt: now,
       });
 
-    notifyClients(id);
+    await notifyClients(id);
     return deck;
   },
 });

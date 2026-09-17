@@ -6,10 +6,13 @@ import {
 } from "@agent-native/core/client/composer";
 import { callAction, useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import type { FirstRunOnboardingExtensionProps } from "@agent-native/core/client/onboarding";
+import {
+  isOnboardingPreviewQuery,
+  type FirstRunOnboardingExtensionProps,
+} from "@agent-native/core/client/onboarding";
 import { IconArrowLeft } from "@tabler/icons-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router";
+import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import {
@@ -32,6 +35,7 @@ import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { useDesignSystems } from "@/hooks/use-design-systems";
 import { useWorkspaceDefaults } from "@/hooks/use-workspace-defaults";
 import { startDeckGeneration } from "@/lib/create-deck-generation";
+import { isDesignSystemSelectable } from "@/lib/design-system-selection";
 import { IMPORT_ACTION_TIMEOUT_MS } from "@/lib/import-uploaded-deck";
 import {
   forgetRecentReference,
@@ -54,17 +58,32 @@ export function FirstDeckOnboardingFlow({
   onSkip,
 }: FirstRunOnboardingExtensionProps) {
   const t = useT();
+  const location = useLocation();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { session } = useSession();
   const { decks, createDeck, ensureDeckPersisted, deleteDeck, reloadDecks } =
     useDecks();
-  const { designSystems } = useDesignSystems();
+  const { designSystems, refetch: refetchDesignSystems } = useDesignSystems();
   const { designSystem: workspaceDesignSystem } = useWorkspaceDefaults();
   const { submit: agentSubmit } = useAgentGenerating();
-  const [step, setStep] = useState<FirstDeckStep>("prompt");
+  const [step, setStep] = useState<FirstDeckStep>(() =>
+    isOnboardingPreviewQuery(location.search) &&
+    searchParams.get("step") === "references"
+      ? "references"
+      : "prompt",
+  );
+  useEffect(() => {
+    if (!isOnboardingPreviewQuery(location.search)) return;
+    setStep(
+      new URLSearchParams(location.search).get("step") === "references"
+        ? "references"
+        : "prompt",
+    );
+  }, [location.search]);
   const [prompt, setPrompt] = useState("");
   const [promptFiles, setPromptFiles] = useState<UploadedFile[]>([]);
+  const [referenceFilePaths, setReferenceFilePaths] = useState<string[]>([]);
   const [promptAttachments, setPromptAttachments] = useState<
     PromptChatAttachment[]
   >([]);
@@ -78,18 +97,29 @@ export function FirstDeckOnboardingFlow({
     [],
   );
   const promptSourceFilesRef = useRef<File[]>([]);
+  const activePromptFilesRef = useRef<File[]>([]);
   const generationInFlightRef = useRef(false);
 
   const initialPrompt = searchParams.get("initialPrompt")?.trim() ?? "";
   const workspaceDesignSystemId =
-    workspaceDesignSystem && !workspaceDesignSystem.unavailable
+    workspaceDesignSystem &&
+    workspaceDesignSystem.status === "available" &&
+    designSystems.some(
+      (designSystem) =>
+        designSystem.id === workspaceDesignSystem.id &&
+        isDesignSystemSelectable(designSystem),
+    )
       ? workspaceDesignSystem.id
       : null;
   const lastUsedDesignSystemId =
     recentReferences.find(
       (reference) =>
         reference.kind === "design-system" &&
-        designSystems.some((designSystem) => designSystem.id === reference.id),
+        designSystems.some(
+          (designSystem) =>
+            designSystem.id === reference.id &&
+            isDesignSystemSelectable(designSystem),
+        ),
     )?.id ?? null;
   const lastUsedReferenceDeckId =
     recentReferences.find(
@@ -171,6 +201,7 @@ export function FirstDeckOnboardingFlow({
         const uploaded = await uploadFiles(files);
         retainFiles(files);
         promptSourceFilesRef.current = files;
+        setReferenceFilePaths([]);
         setPrompt(text);
         const chatAttachments = await createPromptChatAttachments(
           options?.attachments,
@@ -204,8 +235,16 @@ export function FirstDeckOnboardingFlow({
   const handlePromptAttachmentsChange = useCallback(
     (files: File[]) => {
       if (files.length === 0 && promptSourceFilesRef.current.length > 0) return;
+      activePromptFilesRef.current = files;
       syncFiles(files);
-      void uploadFiles(files).catch((error) => {
+      const uploadBatch = files;
+      void uploadFiles(uploadBatch).catch((error) => {
+        if (
+          !uploadBatch.some((file) =>
+            activePromptFilesRef.current.includes(file),
+          )
+        )
+          return;
         toast.error(t("raw.uploadFailed"), {
           description:
             error instanceof Error
@@ -235,6 +274,12 @@ export function FirstDeckOnboardingFlow({
       files: UploadedFile[],
       selection: NewDeckReferenceSelection = {},
     ) => {
+      const generationReferenceFilePaths = [
+        ...new Set([
+          ...referenceFilePaths,
+          ...(selection.referenceFilePaths ?? []),
+        ]),
+      ];
       const sourceFiles = promptSourceFilesRef.current;
       const clearSourceFiles = () => {
         if (promptSourceFilesRef.current === sourceFiles) {
@@ -249,7 +294,12 @@ export function FirstDeckOnboardingFlow({
           files,
           attachments: promptAttachments,
           modelSelection: promptModelSelection,
-          referenceSelection: selection,
+          referenceSelection: {
+            ...selection,
+            ...(generationReferenceFilePaths.length > 0
+              ? { referenceFilePaths: generationReferenceFilePaths }
+              : {}),
+          },
           selectedDesignSystemId: initialDesignSystemId,
           selectedReferenceDeckId: initialReferenceDeckId,
           designSystems,
@@ -315,6 +365,7 @@ export function FirstDeckOnboardingFlow({
       prompt,
       promptAttachments,
       promptModelSelection,
+      referenceFilePaths,
       session,
       t,
       initialReferenceDeckId,
@@ -365,7 +416,12 @@ export function FirstDeckOnboardingFlow({
         const docxReference = uploaded.find((file) =>
           file.originalName.toLowerCase().endsWith(".docx"),
         );
+        const referenceFilePaths = uploaded
+          .filter((file) => /\.(pdf|pptx|docx)$/i.test(file.originalName))
+          .map((file) => file.path);
         let importedReference: ImportedReference | null = null;
+        // The target generation context must retain the source handle; the
+        // imported reference deck stores rendered slides, not the original file.
         let generationFiles = uploaded;
         if (pptxReference) {
           const imported = (await callAction(
@@ -394,8 +450,9 @@ export function FirstDeckOnboardingFlow({
                 ? imported.title
                 : t("home.importedReferenceDeck"),
             source: "pptx",
+            referenceFilePaths,
+            importedFilePath: pptxReference.path,
           };
-          generationFiles = uploaded.filter((file) => file !== pptxReference);
         } else if (pdfReference || docxReference) {
           const documentReference = pdfReference ?? docxReference;
           const documentFormat = pdfReference ? "pdf" : "docx";
@@ -452,14 +509,20 @@ export function FirstDeckOnboardingFlow({
                   ? imported.title
                   : t("home.importedReferenceDeck"),
               source: documentFormat,
+              referenceFilePaths,
+              importedFilePath: documentReference.path,
             };
-            generationFiles = uploaded.filter(
-              (file) => file !== documentReference,
-            );
           } catch (error) {
             deleteDeck(referenceDeck.id);
             throw error;
           }
+        }
+        const importedReferenceFilePaths =
+          importedReference?.referenceFilePaths ?? [];
+        if (importedReferenceFilePaths.length > 0) {
+          setReferenceFilePaths((current) => [
+            ...new Set([...current, ...importedReferenceFilePaths]),
+          ]);
         }
         setPromptFiles((current) => [...current, ...generationFiles]);
         if (importedReference) {
@@ -544,6 +607,7 @@ export function FirstDeckOnboardingFlow({
   const handleFirstDeckSkip = useCallback(() => {
     discardFiles(promptSourceFilesRef.current);
     promptSourceFilesRef.current = [];
+    setReferenceFilePaths([]);
     onSkip();
   }, [discardFiles, onSkip]);
 
@@ -555,6 +619,7 @@ export function FirstDeckOnboardingFlow({
         designSystems={designSystems}
         defaultDesignSystemId={initialDesignSystemId}
         defaultReferenceDeckId={initialReferenceDeckId}
+        onDesignSystemsChanged={() => void refetchDesignSystems()}
         onSelect={handleReferenceSelect}
         onImport={handleReferenceImport}
         onImportSource={handleReferenceSourceImport}
@@ -563,6 +628,7 @@ export function FirstDeckOnboardingFlow({
           if (!open && !generationInFlightRef.current) {
             discardFiles(promptSourceFilesRef.current);
             promptSourceFilesRef.current = [];
+            setReferenceFilePaths([]);
             setStep("prompt");
           }
         }}

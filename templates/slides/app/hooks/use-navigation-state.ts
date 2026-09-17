@@ -81,8 +81,8 @@ export function useNavigationState() {
     void write("navigation");
   }, [location.pathname, location.search]);
 
-  // Listen for navigate commands from agent. Prefer the one-shot command for
-  // this browser tab; fall back to the legacy global command for CLI actions.
+  // Listen for one-shot navigate commands from this browser tab. A global
+  // command would let a different tab consume or apply another tab's intent.
   const { data: navCommand } = useQuery<{
     key: string;
     command: NavigationState;
@@ -104,10 +104,7 @@ export function useNavigationState() {
         }
       };
 
-      return (
-        (await read(appStateKeyForBrowserTab("navigate", TAB_ID))) ??
-        (await read("navigate"))
-      );
+      return read(appStateKeyForBrowserTab("navigate", TAB_ID));
     },
   });
 

@@ -73,7 +73,10 @@ describe("DesignCanvas spacing overlay bridge", () => {
   });
 
   it("updates mirrored padding drag affordances when Alt changes", () => {
-    expect(source).toContain("function updateSpacingDragMirrorState");
+    expect(source).toContain("function updateSpacingDragState");
+    expect(source).toContain(
+      "updateSpacingDragState(!!ev.altKey, !!ev.shiftKey)",
+    );
     expect(source).toContain(
       'document.addEventListener("keydown", onKey, true)',
     );
@@ -92,10 +95,11 @@ describe("DesignCanvas spacing overlay bridge", () => {
   });
 
   it("clicks children inside a selected parent while drags still move the parent", () => {
-    expect(source).toContain("var clickTarget = hitTarget");
+    expect(source).toContain("containerFirstSelectionTarget(hit)");
     expect(source).toMatch(
-      /selectTarget\(\s*clickTarget \|\| dragTarget\s*,\s*ev\s*\)/,
+      /selectTarget\(\s*primaryClickTarget \|\| dragTarget\s*,\s*ev\s*,\s*true\s*\)/,
     );
+    expect(source).not.toContain("selectTextChild");
     expect(source).toMatch(/selectTarget\(\s*dragTarget\s*,\s*ev\s*\)/);
   });
 });
@@ -116,7 +120,7 @@ describe("DesignCanvas text editing bridge", () => {
 
   it("treats Escape as an unfocus/commit gesture for inline text", () => {
     expect(source).toMatch(
-      /if \(ev\.key === "Escape"\) \{\s*ev\.preventDefault\(\);\s*finish\(true\);\s*target\.blur\(\);\s*return;\s*\}/,
+      /if \(\s*ev\.key === "Escape" \|\|\s*\(ev\.key === "Enter" && metaOrCtrl && !ev\.altKey && !ev\.shiftKey\)\s*\) \{\s*ev\.preventDefault\(\);\s*ev\.stopPropagation\(\);\s*finish\(true\);\s*target\.blur\(\);\s*return;\s*\}/,
     );
   });
 

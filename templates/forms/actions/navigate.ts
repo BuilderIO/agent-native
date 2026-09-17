@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { z } from "zod";
 
 import {
@@ -55,16 +55,22 @@ export default defineAction({
         : undefined);
 
     if (!view && !formId && !tab) {
-      throw new Error("At least --view, --formId, or --tab is required.");
+      fail("At least --view, --formId, or --tab is required.", {
+        errorCode: "navigate_target_required",
+      });
     }
     if (tab && resolvedView !== "form") {
-      throw new Error("--tab can only be used with --view form.");
+      fail("--tab can only be used with --view form.", {
+        errorCode: "invalid_navigate_tab",
+      });
     }
     if (
       (resolvedView === "form" || resolvedView === "responses") &&
       !resolvedFormId
     ) {
-      throw new Error(`${resolvedView} navigation requires a formId.`);
+      fail(`${resolvedView} navigation requires a formId.`, {
+        errorCode: "form_id_required",
+      });
     }
 
     const path = formsRoutePath({
@@ -73,7 +79,9 @@ export default defineAction({
       tab,
     });
     if (!path) {
-      throw new Error(`Unsupported navigation target: ${resolvedView}.`);
+      fail(`Unsupported navigation target: ${resolvedView}.`, {
+        errorCode: "unsupported_navigate_target",
+      });
     }
 
     const nav: Record<string, string> = {};

@@ -10,7 +10,6 @@ export {
 
 export type {
   DbAdminColumn,
-  DbAdminDialect,
   DbAdminFilter,
   DbAdminFilterOp,
   DbAdminForeignKey,

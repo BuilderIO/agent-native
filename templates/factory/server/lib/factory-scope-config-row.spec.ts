@@ -4,7 +4,10 @@ import {
   assertUniqueSlackChannelForFactory,
   assignCreatedByIfMissing,
   builderSlackUserIdSchema,
+  factoryAutomationJobPrefix,
+  factoryAutomationJobPrefixes,
   factoryAutomationLeafName,
+  factoryAutomationRunHistoryKey,
   factoryConfigRowId,
   readAutomationFactoryId,
   requireExistingFactory,
@@ -84,6 +87,16 @@ describe("readAutomationFactoryId", () => {
     ).toBe("enzo-test-factory-3");
   });
 
+  it("uses the nested folder for a custom-named job", () => {
+    expect(
+      readAutomationFactoryId(
+        {},
+        "---\nenabled: true\n---\n",
+        "jobs/factories/demo-factory/my-slack-watch.md",
+      ),
+    ).toBe("demo-factory");
+  });
+
   it("keeps frontmatter fallback for legacy flat paths", () => {
     expect(
       readAutomationFactoryId(
@@ -92,6 +105,34 @@ describe("readAutomationFactoryId", () => {
         "jobs/factory-slack-feedback.md",
       ),
     ).toBe("support-triage");
+  });
+});
+
+describe("factoryAutomationJobPrefix", () => {
+  it("scopes cleanup to the nested Factory job folder", () => {
+    expect(factoryAutomationJobPrefix("enzo-test-factory-3")).toBe(
+      "jobs/factories/enzo-test-factory-3/",
+    );
+  });
+
+  it("lists nested factories by folder and default jobs by factory- prefix", () => {
+    expect(factoryAutomationJobPrefixes("demo-factory")).toEqual([
+      "jobs/factories/demo-factory/",
+    ]);
+    expect(factoryAutomationJobPrefixes("product-feedback")).toEqual([
+      "jobs/factory-",
+      "jobs/factories/product-feedback/",
+    ]);
+  });
+});
+
+describe("factoryAutomationRunHistoryKey", () => {
+  it("matches the nested automation name used by run history", () => {
+    expect(
+      factoryAutomationRunHistoryKey(
+        "jobs/factories/enzo-test-factory-3/factory-slack-feedback.md",
+      ),
+    ).toBe("factories/enzo-test-factory-3/factory-slack-feedback");
   });
 });
 

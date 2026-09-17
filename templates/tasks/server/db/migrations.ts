@@ -81,11 +81,9 @@ const legacyTasksMigrations = [
       CREATE INDEX IF NOT EXISTS idx_custom_field_values_owner_field
         ON custom_field_values (owner_email, field_id)`,
   },
-  // v8: the portable boolean helpers map to BOOLEAN on Postgres, while the
-  // historical INTEGER columns above were adapted to BIGINT. Preserve 0/1
-  // values while aligning the live Postgres schema with Drizzle's baseline.
-  // SQLite keeps its INTEGER boolean representation and records this
-  // dialect-gated entry without running SQL.
+  // v8: the boolean helpers map to BOOLEAN on Postgres, while the historical
+  // INTEGER columns above were adapted to BIGINT. Preserve 0/1 values while
+  // aligning the live Postgres schema with Drizzle's baseline.
   {
     version: 8,
     sql: {
@@ -102,9 +100,7 @@ ALTER TABLE tasks ALTER COLUMN promoted_to_task SET DEFAULT true`,
 export const runTasksMigrations = runMigrations(
   async () => [
     ...legacyTasksMigrations,
-    ...(await loadDrizzleMigrations(new URL("./migrations", import.meta.url), {
-      dialect: "postgresql",
-    })),
+    ...(await loadDrizzleMigrations(new URL("./migrations", import.meta.url))),
   ],
   { table: "tasks_migrations" },
 );

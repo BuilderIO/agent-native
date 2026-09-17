@@ -28,7 +28,7 @@ import {
   getServerAppBasePath,
   queryString,
 } from "../lib/public-agent-context.js";
-import { isRecordingExpired } from "../lib/recording-page-access.js";
+import { isRecordingExpiredForViewer } from "../lib/recording-page-access.js";
 
 const ssrHandler = createH3SSRHandler(
   () => import("virtual:react-router/server-build"),
@@ -45,7 +45,7 @@ function stripAppBasePath(pathname: string): string {
 
 function clipIdFromPath(pathname: string): string | null {
   const match = stripAppBasePath(pathname).match(
-    /^\/(?:share|r|embed)\/([^/]+)\/?$/,
+    /^\/(?:share|embed)\/([^/]+)\/?$/,
   );
   if (!match?.[1]) return null;
   try {
@@ -96,18 +96,22 @@ async function buildClipAgentDiscovery(event: H3Event): Promise<{
     .where(eq(schema.recordings.id, recordingId))
     .limit(1);
 
+  // SSR is an impersonal cache shell. Owner-specific expiry and discovery are
+  // resolved by the authenticated public-recording payload after hydration.
   if (
     !recording ||
     recording.archivedAt ||
     recording.trashedAt ||
-    isRecordingExpired(recording.expiresAt)
+    isRecordingExpiredForViewer({
+      expiresAt: recording.expiresAt,
+      viewerIsOwner: false,
+    })
   ) {
     return null;
   }
 
   const query = getQuery(event);
-  const suppliedToken =
-    queryString(query[CLIPS_AGENT_ACCESS_PARAM]) || queryString(query.t);
+  const suppliedToken = queryString(query[CLIPS_AGENT_ACCESS_PARAM]);
   const tokenGrantsAgentAccess = suppliedToken
     ? verifyScopedAgentAccessToken(suppliedToken, {
         resourceKind: CLIP_AGENT_ACCESS_TOKEN_PREFIX,

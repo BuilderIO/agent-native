@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
@@ -8,6 +8,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import {
   createDeckVersionSnapshot,
+  deckVersionChangeGroupFromAction,
   deckVersionChatContextFromAction,
 } from "../server/lib/deck-versions.js";
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
@@ -16,6 +17,7 @@ import {
   deckRevisionWhere,
   nextDeckRevision,
 } from "./_deck-write.js";
+import { isAgentPatchCaller } from "./patch-deck.js";
 
 export default defineAction({
   description:
@@ -33,8 +35,24 @@ export default defineAction({
       .from(schema.decks)
       .where(eq(schema.decks.id, deckId))
       .limit(1);
-    if (!rows.length) throw new Error(`Deck not found: ${deckId}`);
+    // Reachable only in the narrow window where access resolved and the row
+    // was deleted before this select. A wrong deck id never gets here:
+    // assertAccess throws Forbidden first, on purpose, so a non-member
+    // cannot probe a deck id for existence. Do not delete this as dead.
+    if (!rows.length)
+      fail(`Deck not found: ${deckId}`, {
+        errorCode: "deck_not_found",
+        statusCode: 404,
+      });
     const data = JSON.parse(rows[0].data);
+    if (data.aspectRatio === aspectRatio) {
+      if (isAgentPatchCaller(ctx?.caller)) {
+        throw new Error(
+          "Nothing was written: the requested aspect ratio is already set. Re-read with get-deck before retrying.",
+        );
+      }
+      return { id: deckId, aspectRatio, applied: false };
+    }
     data.aspectRatio = aspectRatio;
     const now = nextDeckRevision(rows[0].updatedAt);
     data.updatedAt = now;
@@ -58,7 +76,12 @@ export default defineAction({
         .where(deckRevisionWhere(schema.decks, deckId, rows[0].updatedAt));
       assertDeckWriteApplied(updateResult, deckId, "aspect ratio change");
     });
-    notifyClients(deckId);
+    const agentChangeId = deckVersionChangeGroupFromAction(ctx);
+    if (agentChangeId) {
+      await notifyClients(deckId, { agentChangeId });
+    } else {
+      await notifyClients(deckId);
+    }
     await writeAppState("refresh-signal", {
       ts: now,
       source: "update-deck-aspect-ratio",

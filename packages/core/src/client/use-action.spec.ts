@@ -5,10 +5,16 @@ const analyticsMocks = vi.hoisted(() => ({
 }));
 vi.mock("./analytics.js", () => analyticsMocks);
 
+const sessionMocks = vi.hoisted(() => ({
+  recheckSessionAfterUnauthorized: vi.fn(),
+}));
+vi.mock("./use-session.js", () => sessionMocks);
+
 import {
   ACTION_KEEPALIVE_BODY_BUDGET_BYTES,
   actionErrorMessage,
   callAction,
+  callActionWithRetry,
   defaultActionQueryRetry,
   defaultActionQueryRetryDelay,
   serializeActionQueryParams,
@@ -226,6 +232,49 @@ describe("callAction", () => {
     );
   });
 
+  it("re-resolves the session when an action is refused as unauthenticated", async () => {
+    // 401 means the server stopped recognising this browser. Without telling
+    // the session gate, the shell stays mounted on its last "authenticated"
+    // read and this failure surfaces as a generic load error instead of a
+    // redirect to sign-in - the screen reported after the logout race.
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          jsonResponse({ error: "Unauthorized" }, { status: 401 }),
+        ),
+    );
+
+    await expect(
+      callAction("list-designs", {}, { method: "GET" }),
+    ).rejects.toMatchObject({ status: 401 });
+
+    expect(sessionMocks.recheckSessionAfterUnauthorized).toHaveBeenCalledTimes(
+      1,
+    );
+  });
+
+  it("leaves the session alone when an action is refused as forbidden", async () => {
+    // 403 is an authenticated caller being refused one thing. Re-reading the
+    // session here would be noise, and treating it as signed-out would sign a
+    // working session out.
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          jsonResponse({ error: "Forbidden" }, { status: 403 }),
+        ),
+    );
+
+    await expect(
+      callAction("list-designs", {}, { method: "GET" }),
+    ).rejects.toMatchObject({ status: 403 });
+
+    expect(sessionMocks.recheckSessionAfterUnauthorized).not.toHaveBeenCalled();
+  });
+
   it("calls mutating actions through the framework action transport", async () => {
     const fetchMock = vi
       .fn()
@@ -253,6 +302,9 @@ describe("callAction", () => {
     expect(fetchMock.mock.calls[0]?.[1]?.headers).not.toHaveProperty(
       "X-Request-Source",
     );
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
+      "X-Agent-Native-Browser-Tab": expect.any(String),
+    });
   });
 
   it("sends the browser session id so actions share the agent run's session", async () => {
@@ -304,6 +356,9 @@ describe("callAction", () => {
     expect(fetchMock.mock.calls[0]?.[1]?.headers).not.toHaveProperty(
       "X-Request-Source",
     );
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
+      "X-Agent-Native-Browser-Tab": expect.any(String),
+    });
   });
 
   it("times out hung requests with a typed, non-retryable error", async () => {
@@ -515,6 +570,114 @@ describe("callAction", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("callActionWithRetry", () => {
+  it("spends the transient budget on a gateway failure instead of surfacing it", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("", { status: 503 }))
+      .mockResolvedValueOnce(jsonResponse({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    vi.useFakeTimers();
+    try {
+      const promise = callActionWithRetry("list-things", {}, { method: "GET" });
+      await vi.advanceTimersByTimeAsync(600);
+      await expect(promise).resolves.toEqual({ ok: true });
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("surfaces a deterministic refusal on the first attempt", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ error: "Nope" }, { status: 404 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      callActionWithRetry("read-thing", {}, { method: "GET" }),
+    ).rejects.toMatchObject({ status: 404 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses a write method instead of risking a duplicated mutation", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      callActionWithRetry("send-thing", {}, {
+        method: "POST",
+      } as Parameters<typeof callActionWithRetry>[2]),
+    ).rejects.toThrow(/refuses POST/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("sends GET even when the caller passes no method", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await callActionWithRetry("read-thing");
+
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: "GET" });
+  });
+
+  it("stops the backoff as soon as the caller aborts", async () => {
+    const controller = new AbortController();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response("", { status: 503 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    vi.useFakeTimers();
+    try {
+      const promise = callActionWithRetry(
+        "read-thing",
+        {},
+        { method: "GET", signal: controller.signal },
+      );
+      const assertion = expect(promise).rejects.toMatchObject({ status: 503 });
+
+      // Flush only microtasks: the first 503 lands and the 500ms backoff is
+      // armed, but no timer has fired.
+      for (let tick = 0; tick < 10; tick++) {
+        await vi.advanceTimersByTimeAsync(0);
+      }
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      // Settling this without advancing the backoff timer is the whole point:
+      // an uncancellable delay leaves the call pending for the full 500ms and
+      // then spends another attempt on a dead signal.
+      controller.abort();
+      await assertion;
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not retry an aborted call", async () => {
+    const controller = new AbortController();
+    const fetchMock = vi.fn(() => {
+      controller.abort();
+      const error = new Error("The operation was aborted.");
+      error.name = "AbortError";
+      return Promise.reject(error);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      callActionWithRetry(
+        "read-thing",
+        {},
+        { method: "GET", signal: controller.signal },
+      ),
+    ).rejects.toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
 

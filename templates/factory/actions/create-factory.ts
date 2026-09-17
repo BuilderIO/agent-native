@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
+import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
 import { buildDeepLink } from "@agent-native/core/server";
 import { z } from "zod";
 
@@ -21,7 +22,7 @@ import { stableId } from "../server/triage/ids.js";
 
 export default defineAction({
   description:
-    "Create a new Factory with a name and optional description. Automations start empty; add them from the Automations tab with create-factory-automation.",
+    "Create a named empty Factory the same way /new-factory does. Opens that factory's Inbox. Reply with the factory name and that automations start empty. Do not list graph nodes, stages, or graph versions unless the user asked about the map. Add jobs later with create-factory-automation.",
   schema: z.object({
     name: z.string().trim().min(1).max(120),
     description: z.string().trim().max(500).optional(),
@@ -32,6 +33,7 @@ export default defineAction({
       app: "factory",
       view: "factory",
       params: { factoryId: result.factoryId },
+      to: `/factory?factoryId=${encodeURIComponent(result.factoryId)}`,
     }),
     label: `Open ${result.name} in Factory`,
   }),
@@ -91,6 +93,18 @@ export default defineAction({
     }
     if (!factoryId) {
       throw new Error("Could not allocate a unique factory id.");
+    }
+
+    if (
+      context?.caller === "tool" ||
+      context?.caller === "mcp" ||
+      context?.caller === "a2a"
+    ) {
+      await writeAppStateForCurrentTab("navigate", {
+        view: "factory",
+        path: `/factory?factoryId=${encodeURIComponent(factoryId)}`,
+        _writeId: `${Date.now()}-create-factory`,
+      });
     }
 
     return {

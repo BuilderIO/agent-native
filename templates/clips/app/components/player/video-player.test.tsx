@@ -162,6 +162,152 @@ describe("VideoPlayer playback", () => {
     expect(onPause).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps a paused clip paused when its playback speed changes", () => {
+    const video = getVideo();
+    const playSpy = vi.spyOn(video, "play");
+
+    act(() => {
+      getPlayerSurface().click();
+    });
+    expect(video.paused).toBe(false);
+
+    act(() => {
+      handleRef.current?.pause();
+      handleRef.current?.setSpeed(1.5);
+      vi.advanceTimersByTime(20);
+    });
+
+    expect(video.playbackRate).toBe(1.5);
+    expect(video.paused).toBe(true);
+    expect(playSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops picture-in-picture playback when the player unmounts", () => {
+    const video = getVideo();
+    const exitPictureInPicture = vi.fn().mockResolvedValue(undefined);
+    const pipElementDescriptor = Object.getOwnPropertyDescriptor(
+      document,
+      "pictureInPictureElement",
+    );
+    const exitPipDescriptor = Object.getOwnPropertyDescriptor(
+      document,
+      "exitPictureInPicture",
+    );
+
+    Object.defineProperty(document, "pictureInPictureElement", {
+      configurable: true,
+      value: video,
+    });
+    Object.defineProperty(document, "exitPictureInPicture", {
+      configurable: true,
+      value: exitPictureInPicture,
+    });
+
+    try {
+      act(() => {
+        getPlayerSurface().click();
+      });
+      expect(video.paused).toBe(false);
+
+      act(() => {
+        root.render(null);
+      });
+
+      expect(video.paused).toBe(true);
+      expect(exitPictureInPicture).toHaveBeenCalledOnce();
+    } finally {
+      if (pipElementDescriptor) {
+        Object.defineProperty(
+          document,
+          "pictureInPictureElement",
+          pipElementDescriptor,
+        );
+      } else {
+        Reflect.deleteProperty(document, "pictureInPictureElement");
+      }
+      if (exitPipDescriptor) {
+        Object.defineProperty(
+          document,
+          "exitPictureInPicture",
+          exitPipDescriptor,
+        );
+      } else {
+        Reflect.deleteProperty(document, "exitPictureInPicture");
+      }
+    }
+  });
+
+  it("shows buffering while autoplay starts instead of a second play button", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <VideoPlayer
+            ref={(instance) => {
+              handleRef.current = instance;
+            }}
+            recordingId="recording-1"
+            videoUrl="https://cdn.example.com/slack-clip.webm"
+            durationMs={10_000}
+            autoPlay
+            persistPlaybackPosition={false}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    const video = getVideo();
+    expect(video.autoplay).toBe(true);
+    expect(container.textContent).toContain("Buffering");
+    expect(
+      container.querySelector('button[aria-label="videoPlayer.playClip"]'),
+    ).toBeNull();
+
+    act(() => {
+      video.dispatchEvent(new Event("playing"));
+    });
+
+    expect(container.textContent).not.toContain("Buffering");
+    expect(
+      container.querySelector('button[aria-label="videoPlayer.playClip"]'),
+    ).toBeNull();
+  });
+
+  it("restores click-to-play when autoplay is blocked", async () => {
+    const playSpy = vi
+      .spyOn(HTMLMediaElement.prototype, "play")
+      .mockRejectedValue(
+        new DOMException("Autoplay blocked", "NotAllowedError"),
+      );
+
+    try {
+      await act(async () => {
+        root.render(
+          <TooltipProvider>
+            <VideoPlayer
+              ref={(instance) => {
+                handleRef.current = instance;
+              }}
+              recordingId="recording-1"
+              videoUrl="https://cdn.example.com/slack-clip.webm"
+              durationMs={10_000}
+              autoPlay
+              persistPlaybackPosition={false}
+            />
+          </TooltipProvider>,
+        );
+        await Promise.resolve();
+      });
+
+      expect(playSpy).toHaveBeenCalled();
+      expect(container.textContent).not.toContain("Buffering");
+      expect(
+        container.querySelector('button[aria-label="videoPlayer.playClip"]'),
+      ).not.toBeNull();
+    } finally {
+      playSpy.mockRestore();
+    }
+  });
+
   it("keeps the center play control actionable before media readiness events fire", () => {
     const video = getVideo();
     const centerPlay = container.querySelector<HTMLButtonElement>(
@@ -525,6 +671,32 @@ describe("VideoPlayer playback", () => {
     });
 
     expect(handleRef.current?.getCurrentOriginalMs()).toBe(6_000);
+  });
+
+  it("reports imperative native seeks to the parent playback clock", () => {
+    const onTimeUpdate = vi.fn();
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <VideoPlayer
+            ref={(instance) => {
+              handleRef.current = instance;
+            }}
+            recordingId="recording-1"
+            videoUrl="https://cdn.example.com/clip.webm"
+            durationMs={10_000}
+            onTimeUpdate={onTimeUpdate}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      handleRef.current?.seek(4_000);
+    });
+
+    expect(onTimeUpdate).toHaveBeenCalledWith(4_000, 10_000);
   });
 
   it("reads the latest Loom position from the imperative handle", () => {

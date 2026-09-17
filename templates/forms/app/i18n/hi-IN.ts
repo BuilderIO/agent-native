@@ -324,12 +324,9 @@ const messages = {
     sharePubliclyDescription:
       "सामग्री को सार्वजनिक रूप से साझा करने के लिए क्लाउड डेटाबेस कनेक्ट करें।",
     providerDescriptions: {
-      turso: "एज पर SQLite",
       neon: "सर्वरलेस Postgres",
       supabase: "Firebase का ओपन सोर्स विकल्प",
-      d1: "एज पर SQLite",
     },
-    providerNames: { d1: "Cloudflare D1" },
     setupSteps: "सेटअप चरण",
     authToken: "प्रमाणीकरण टोकन",
     connectedReloading: "सफलतापूर्वक कनेक्ट हुआ। फिर से लोड हो रहा है...",
@@ -350,6 +347,10 @@ const messages = {
     responseSubmitted: "जवाब सबमिट हुआ",
     noFields: "इस फॉर्म में अभी कोई फ़ील्ड नहीं है।",
     failedSubmit: "फॉर्म सबमिट करने में विफल",
+    uncheckablePattern:
+      "इस फ़ॉर्म में {label} का नियम जाँचा नहीं जा सकता। कृपया फ़ॉर्म स्वामी से इसे ठीक करने को कहें।",
+    patternTooLong:
+      "{label} का मान बहुत लंबा है, इसलिए इस फ़ॉर्म के नियम से जाँचा नहीं जा सकता।",
   },
   responseInsights: {
     unavailable: "इनसाइट उपलब्ध नहीं",
@@ -395,6 +396,13 @@ const messages = {
     page: "Page",
     source: "स्रोत",
     sortBy: "Sort by {{label}}",
+    communityReview: "समीक्षा",
+    communityPublish: "साइट पर प्रकाशित करें",
+    communityPublishing: "प्रकाशित हो रहा है...",
+    communityPublished: "प्रकाशित",
+    communityView: "साइट पर देखें",
+    communityNeedsCheck: "पुनः प्रयास करने से पहले Builder जाँचें",
+    communityPromotionFailed: "इस सबमिशन को प्रकाशित नहीं किया जा सका।",
   },
 };
 

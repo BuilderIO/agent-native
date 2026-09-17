@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as callerAuth from "../a2a/caller-auth.js";
 import * as a2aClient from "../a2a/client.js";
+import { toAbsoluteOpenUrl } from "../server/deep-link.js";
 import * as embedSession from "../server/embed-session.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { verifyAuth } from "./build-server.js";
@@ -171,7 +172,7 @@ describe("open_app — same-app / standalone keeps a relative deep link", () => 
     expect(result.embed).toBe(true);
   });
 
-  it("uses a direct app route for embedded view links", async () => {
+  it("deep-links embedded view links instead of guessing /<view>", async () => {
     const tools = getBuiltinCrossAppTools(baseConfig());
     const result: any = await tools.open_app.run({
       app: "mail",
@@ -179,11 +180,36 @@ describe("open_app — same-app / standalone keeps a relative deep link", () => 
       params: { threadId: "abc" },
       embed: true,
     });
-    expect(result.url).toBe("/inbox?threadId=abc");
+    expect(result.url).toBe(
+      "/_agent-native/open?app=mail&view=inbox&threadId=abc&agentSidebar=closed",
+    );
     expect(result.embedStartUrl).toBeUndefined();
     expect(result.deepLinkUrl).toBeUndefined();
     expect(result.embed).toBe(true);
   });
+
+  // An app whose `view` name is not also a route (design routes `editor` at
+  // `/design/:id`) used to get `/editor` here: the embed iframe rendered a 404
+  // and so did the host's "Open in new tab" fallback, leaving the user with no
+  // way to reach their work.
+  it.each([
+    ["design", "editor"],
+    ["slides", "editor"],
+    ["content", "editor"],
+    ["brain", "capture"],
+    ["analytics", "adhoc"],
+  ])(
+    "never fabricates an origin-relative route for %s view %s",
+    async (app, view) => {
+      const tools = getBuiltinCrossAppTools(baseConfig({ appId: app }));
+      for (const embed of [true, false]) {
+        const result: any = await tools.open_app.run({ app, view, embed });
+        expect(result.url).not.toBe(`/${view}`);
+        expect(result.url.split("?")[0]).toBe("/_agent-native/open");
+        expect(result.url).toContain(`view=${view}`);
+      }
+    },
+  );
 
   it("mints a same-app embed start URL for authenticated MCP app callers", async () => {
     const createTicket = vi
@@ -209,18 +235,20 @@ describe("open_app — same-app / standalone keeps a relative deep link", () => 
         }),
     );
 
-    expect(result.url).toBe("/inbox?threadId=abc");
+    const targetPath =
+      "/_agent-native/open?app=mail&view=inbox&threadId=abc&agentSidebar=closed&__an_mcp_chat_bridge=1";
+    expect(result.url).toBe(
+      "/_agent-native/open?app=mail&view=inbox&threadId=abc&agentSidebar=closed",
+    );
     expect(result.embedStartUrl).toBe(
       "https://mail.example.com/_agent-native/embed/start?ticket=ticket-123",
     );
-    expect(result.embedTargetPath).toBe(
-      "/inbox?threadId=abc&__an_mcp_chat_bridge=1",
-    );
+    expect(result.embedTargetPath).toBe(targetPath);
     expect(result.embedExpiresAt).toBe(123456);
     expect(createTicket).toHaveBeenCalledWith({
       ownerEmail: "owner@example.com",
       orgId: "org-123",
-      targetPath: "/inbox?threadId=abc&__an_mcp_chat_bridge=1",
+      targetPath,
       scope: "minimal",
     });
   });
@@ -245,7 +273,9 @@ describe("open_app — same-app / standalone keeps a relative deep link", () => 
       params: { threadId: "abc" },
       embed: "true",
     });
-    expect(result.url).toBe("/inbox?threadId=abc");
+    expect(result.url).toBe(
+      "/_agent-native/open?app=mail&view=inbox&threadId=abc&agentSidebar=closed",
+    );
     expect(result.embed).toBe(true);
   });
 
@@ -275,7 +305,9 @@ describe("open_app — same-app / standalone keeps a relative deep link", () => 
         }),
     );
 
-    expect(result.url).toBe("/inbox?threadId=abc");
+    expect(result.url).toBe(
+      "/_agent-native/open?app=mail&view=inbox&threadId=abc&agentSidebar=closed",
+    );
     expect(result.embed).toBe(true);
     expect(result.embedStartUrl).toBe(
       "https://mail.example.com/_agent-native/embed/start?ticket=ticket-params",
@@ -283,7 +315,8 @@ describe("open_app — same-app / standalone keeps a relative deep link", () => 
     expect(createTicket).toHaveBeenCalledWith({
       ownerEmail: "owner@example.com",
       orgId: "org-123",
-      targetPath: "/inbox?threadId=abc&__an_mcp_chat_bridge=1",
+      targetPath:
+        "/_agent-native/open?app=mail&view=inbox&threadId=abc&agentSidebar=closed&__an_mcp_chat_bridge=1",
       scope: "minimal",
     });
   });
@@ -299,6 +332,37 @@ describe("open_app — same-app / standalone keeps a relative deep link", () => 
     });
     expect(result.url).toBe("/mail/extensions/ext_123?tab=settings");
     expect(result.embed).toBe(true);
+  });
+
+  // Deep links stay base-relative on purpose: `toAbsoluteOpenUrl` owns the
+  // base prefix for the browser-facing `openLink.webUrl` the host uses as its
+  // out-of-frame escape hatch, and `normalizeEmbedTargetPath` stores embed
+  // targets base-relative (it strips the base when one is present). Prefixing
+  // here too would be redundant, but a *missing* prefix downstream would 404
+  // the escape hatch again, so pin both ends.
+  it("keeps bare-view deep links base-relative while the open link carries the base path", async () => {
+    process.env.APP_BASE_PATH = "/mail";
+    const deepLink =
+      "/_agent-native/open?app=mail&view=inbox&threadId=abc&agentSidebar=closed";
+    const tools = getBuiltinCrossAppTools(baseConfig());
+
+    const result: any = await tools.open_app.run({
+      app: "mail",
+      view: "inbox",
+      params: { threadId: "abc" },
+      embed: true,
+    });
+
+    expect(result.url).toBe(deepLink);
+    expect(toAbsoluteOpenUrl(result.url, "https://mail.example.com")).toBe(
+      `https://mail.example.com/mail${deepLink}`,
+    );
+    expect(
+      embedSession.normalizeEmbedTargetPath(
+        result.url,
+        "https://mail.example.com",
+      ),
+    ).toBe(deepLink);
   });
 
   it("defaults to the app's home page when neither view nor path is given", async () => {
@@ -369,10 +433,13 @@ describe("list_apps — reports the live request origin for the current app", ()
 });
 
 describe("ask_app — honest routing metadata", () => {
-  it("describes ask_app as the default path for agent work", () => {
+  it("describes direct tools as preferred and ask_app as the fallback", () => {
     const tools = getBuiltinCrossAppTools(baseConfig({ appId: "mail" }));
     expect(tools.ask_app.tool.description).toMatch(
-      /Use this first for natural-language investigation, diagnosis, multi-step work, and changes/i,
+      /Prefer host page WebMCP or cataloged direct action tools for known, bounded current-app work/i,
+    );
+    expect(tools.ask_app.tool.description).toMatch(
+      /when direct tools are unavailable or the task needs the app agent's interpretation/i,
     );
     expect(tools.ask_app.tool.description).toMatch(
       /full skills, instructions, tools, and context/i,
@@ -397,6 +464,7 @@ describe("ask_app — honest routing metadata", () => {
     expect(result.routedVia).toBe("local");
     expect(result.app).toBe("mail");
     expect(result.response).toBe("local-answer");
+    expect(result.verification).toBe("unverified");
     expect(result.note).toBeUndefined();
   });
 
@@ -550,6 +618,7 @@ describe("ask_app — honest routing metadata", () => {
       taskId: "task-1",
       status: "completed",
       response: "local answer",
+      verification: "unverified",
     });
   });
 
@@ -596,6 +665,7 @@ describe("ask_app — honest routing metadata", () => {
       taskId: "task-1",
       status: "completed",
       response: "local answer after retry",
+      verification: "unverified",
     });
   });
 
@@ -954,6 +1024,7 @@ describe("ask_app — bounded deadline & retry behavior for the hosted A2A poll 
       taskId: "task-transient",
       status: "completed",
       response: "The report is ready.",
+      verification: "unverified",
     });
     expect(getTaskSpy).toHaveBeenCalledTimes(2);
   });
@@ -1046,6 +1117,7 @@ describe("ask_app — in-process inline fallback when no app origin is derivable
       taskId: result.taskId,
       status: "completed",
       response: "slow answer",
+      verification: "unverified",
     });
   });
 });
@@ -1139,6 +1211,7 @@ describe("ask_app — org-directory routing", () => {
     expect(result.routedVia).toBe("a2a");
     expect(result.app).toBe("calendar");
     expect(result.response).toBe("calendar-says-hi");
+    expect(result.verification).toBe("unverified");
     expect(result.note).toBeUndefined();
   });
 
@@ -1270,6 +1343,7 @@ describe("ask_app — org-directory routing", () => {
       taskId: "content-task-1",
       status: "completed",
       response: "content answer",
+      verification: "unverified",
     });
     await runWithRequestContext(
       { userEmail: "caller@acme.com", orgId: "org-1" },

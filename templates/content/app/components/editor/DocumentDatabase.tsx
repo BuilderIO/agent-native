@@ -8,12 +8,14 @@ export * from "./database/DatabaseView";
 interface DocumentDatabaseProps {
   document: Document;
   canEdit: boolean;
+  viewId?: string | null;
   onExportContextChange?: (context: DatabaseExportContext | null) => void;
 }
 
 export function DocumentDatabase({
   document,
   canEdit,
+  viewId,
   onExportContextChange,
 }: DocumentDatabaseProps) {
   const databaseId = document.database?.id;
@@ -24,6 +26,7 @@ export function DocumentDatabase({
       databaseId={databaseId}
       databaseDocumentId={document.id}
       canEdit={canEdit}
+      viewId={viewId}
       onExportContextChange={onExportContextChange}
     />
   );

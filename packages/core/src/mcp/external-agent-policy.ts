@@ -9,8 +9,10 @@ export interface ExternalAgentPolicy {
   /** Automatically advertise authenticated GET/read-only public-agent actions. */
   authenticatedReads?: "off" | "auto";
   /**
-   * Keep writes behind `ask_app` by default. `allowlisted` preserves explicit
-   * connectorCatalog write exposure for apps that intentionally need it.
+   * Keep writes behind `ask_app` for the external connector surface. Page-local
+   * WebMCP actions on an authenticated app surface are a separate direct path.
+   * `allowlisted` preserves explicit connectorCatalog write exposure for apps
+   * that intentionally need it.
    */
   writes?: "ask_app_only" | "allowlisted";
   /** Explicit action names to remove from the derived connector surface. */

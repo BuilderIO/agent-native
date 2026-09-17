@@ -150,6 +150,7 @@ vi.mock("drizzle-orm", () => ({
   not: (value: unknown) => ({ kind: "not", value }),
   notInArray: (column: unknown, values: unknown) =>
     mockNotInArray(column, values),
+  sql: vi.fn(),
 }));
 
 vi.mock("../server/db/index.js", () => ({
@@ -217,8 +218,8 @@ describe("view-screen library view on a cold start", () => {
   it("excludes meeting recordings database-side rather than materializing ids", async () => {
     // The other direction: an earlier revision awaited the meeting rows into a
     // plain string[] and bound every id as a query parameter. That grows with
-    // the whole meetings table and can hit SQLite variable / Postgres parameter
-    // limits, so the value must stay a query-builder chain.
+    // the whole meetings table and can hit PostgreSQL parameter limits, so the
+    // value must stay a query-builder chain.
     await action.run({});
 
     const [, values] = mockNotInArray.mock.calls[0]!;

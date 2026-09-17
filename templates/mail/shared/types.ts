@@ -93,6 +93,10 @@ export type ComposeState = {
   attachments?: ComposeAttachment[];
   /** ID of the persistent draft email (for updating existing drafts) */
   savedDraftId?: string;
+  /** Backend that owns savedDraftId, so deletion remains unambiguous after disconnects. */
+  savedDraftBackend?: "gmail" | "local";
+  /** Connected account that owns a Gmail savedDraftId. */
+  savedDraftAccountEmail?: string;
   /** Which connected account to send from (for multi-inbox reply) */
   accountEmail?: string;
   /** When true, render inline in the thread view instead of the popout composer */
@@ -127,10 +131,14 @@ export type UserSettings = {
   avatar?: string;
   signature?: string;
   writingStyle?: string;
+  /** Show local common-phrase completions while composing on desktop. */
+  autocompleteEnabled?: boolean;
   theme: "light" | "dark" | "system";
   density: "compact" | "comfortable" | "spacious";
   previewPane: "right" | "bottom" | "off";
   sendAndArchive: boolean;
+  /** Show the whole inbox instead of splitting it into pinned triage tabs. */
+  combineInbox: boolean;
   undoSendDelay: number;
   pinnedLabels?: string[];
   savedFilters?: SavedMailFilter[];

@@ -4,6 +4,11 @@ import { and, asc, eq, gte, inArray } from "drizzle-orm";
 
 import { getDb, schema } from "../../server/db/index.js";
 import { queueBuilderMediaCompression } from "../../server/lib/builder-media-compression.js";
+import {
+  ensureRecordingThumbnail,
+  isRetryableRecordingThumbnailStatus,
+} from "../../server/lib/ensure-recording-thumbnail.js";
+import { dispatchPostFinalizeJob } from "../../server/lib/post-finalize-dispatch.js";
 import { ownerEmailMatches } from "../../server/lib/recordings.js";
 import { transactionalEmailStore } from "../../server/lib/transactional-email-store.js";
 import {
@@ -150,7 +155,11 @@ export async function runLoomImportJob({
 
   let media: Awaited<ReturnType<typeof downloadLoomVideo>> | null = null;
   try {
-    media = await downloadLoomVideo({ loomId, shareUrl });
+    media = await downloadLoomVideo({
+      loomId,
+      shareUrl,
+      expectedDurationMs: recording.durationMs,
+    });
     console.log("[loom-import] download complete", {
       recordingId,
       bytes: media.sizeBytes,
@@ -159,10 +168,13 @@ export async function runLoomImportJob({
   } catch (err) {
     // Loom's public player can work even when the viewer's role cannot export MP4.
     if (err instanceof LoomVideoUnavailableError) {
-      console.warn("[loom-import] MP4 unavailable; keeping Loom embed", {
-        recordingId,
-        loomId,
-      });
+      console.warn(
+        "[loom-import] MP4 unavailable or could not be verified; keeping Loom embed",
+        {
+          recordingId,
+          loomId,
+        },
+      );
     } else {
       return failLoomImport(
         recordingId,
@@ -227,6 +239,40 @@ export async function runLoomImportJob({
       return { status: "failed", failureReason };
     }
     console.log("[loom-import] recording ready", { recordingId });
+
+    if (media && upload) {
+      const thumbnail = await ensureRecordingThumbnail({
+        recordingId,
+        ownerEmail,
+        mediaBytes: media.bytes,
+        mimeType: media.mimeType,
+        replaceNonEditorThumbnail: true,
+      }).catch((err) => {
+        console.warn("[clips] Loom thumbnail generation skipped", {
+          recordingId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return null;
+      });
+      if (thumbnail?.status === "skipped-frame-extraction") {
+        console.warn("[clips] Loom thumbnail frame extraction skipped", {
+          recordingId,
+          detail: thumbnail.detail,
+        });
+      }
+      if (!thumbnail || isRetryableRecordingThumbnailStatus(thumbnail.status)) {
+        await dispatchPostFinalizeJob({
+          recordingId,
+          kind: "thumbnail",
+          requireAccepted: true,
+        }).catch((err) => {
+          console.warn("[clips] Loom thumbnail retry queue failed", {
+            recordingId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+      }
+    }
 
     if (media && upload) {
       void queueBuilderMediaCompression({

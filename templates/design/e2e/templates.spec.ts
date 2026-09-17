@@ -5,6 +5,7 @@ import {
   type Page,
 } from "@playwright/test";
 
+import { e2eBaseURL } from "./base-url";
 import { appPath } from "./helpers";
 
 async function postAction(
@@ -12,7 +13,7 @@ async function postAction(
   name: string,
   input: Record<string, unknown>,
 ) {
-  const baseUrl = process.env.E2E_BASE_URL ?? "http://127.0.0.1:9333";
+  const baseUrl = e2eBaseURL();
   const response = await request.post(
     `${baseUrl.replace(/\/$/, "")}/_agent-native/actions/${name}`,
     { data: input },
@@ -30,7 +31,7 @@ async function getAction(
   name: string,
   input: Record<string, unknown>,
 ) {
-  const baseUrl = process.env.E2E_BASE_URL ?? "http://127.0.0.1:9333";
+  const baseUrl = e2eBaseURL();
   const params = new URLSearchParams(
     Object.entries(input).map(([key, value]) => [key, String(value)]),
   );
@@ -208,9 +209,7 @@ test("built-in template preserves its dimensions and locks and can be saved agai
     savedTemplateId = savedPayload.id ?? savedPayload.data?.id;
     expect(savedTemplateId).toBeTruthy();
     await expect(
-      page
-        .getByText("Template saved with 2 locked layer(s)", { exact: true })
-        .first(),
+      page.getByText("Template saved to library", { exact: true }).first(),
     ).toBeVisible();
 
     await page.goto(appPath(`/templates?templateId=${savedTemplateId}`), {
@@ -241,6 +240,21 @@ test("built-in template preserves its dimensions and locks and can be saved agai
   }
 });
 
+/**
+ * New Design opens the prompt popover first; skipping it is what creates the
+ * empty shell and lands in the editor. The starting-point row and its design
+ * system picker live in the agent rail, which arrival no longer opens.
+ */
+async function startEmptyDesignFromHome(page: Page): Promise<string> {
+  await page.getByRole("button", { name: "New Design", exact: true }).click();
+  await page.getByRole("button", { name: "Skip prompt", exact: true }).click();
+  await page.waitForURL(/\/design\/[^/?#]+(?:[?#].*)?$/, { timeout: 30_000 });
+  const designId = page.url().match(/\/design\/([^/?#]+)/)?.[1];
+  if (!designId) throw new Error(`no design id in ${page.url()}`);
+  await page.getByRole("button", { name: "Agent", exact: true }).click();
+  return designId;
+}
+
 test("New Design starts an empty design and fills it from a template in the rail", async ({
   page,
   request,
@@ -267,15 +281,7 @@ test("New Design starts an empty design and fills it from a template in the rail
 
     await page.goto(appPath("/"), { waitUntil: "domcontentloaded" });
     await page.waitForLoadState("load");
-    await page.getByRole("button", { name: "New Design", exact: true }).click();
-
-    // The button now creates the design and lands in the editor; the starting
-    // point is chosen there, next to the drawing tools.
-    await page.waitForURL(/\/design\/[^/?#]+(?:[?#].*)?$/, {
-      timeout: 30_000,
-    });
-    createdDesignId = page.url().match(/\/design\/([^/?#]+)/)?.[1];
-    expect(createdDesignId).toBeTruthy();
+    createdDesignId = await startEmptyDesignFromHome(page);
 
     const designSystemPicker = page.locator("[data-design-system-picker]");
     await expect(designSystemPicker).toBeVisible({ timeout: 30_000 });
@@ -330,6 +336,75 @@ test("New Design starts an empty design and fills it from a template in the rail
         { timeout: 30_000 },
       )
       .toContain("social-square.html");
+
+    // Filling the design retires the starting-point row, not the design system
+    // every later generation still reads.
+    await expect(page.locator("[data-design-first-run]")).toBeHidden({
+      timeout: 30_000,
+    });
+    await expect(designSystemPicker).toBeVisible();
+    await expect(designSystemPicker).toContainText(selectedSystemTitle);
+  } finally {
+    if (createdDesignId) {
+      await postAction(request, "delete-design", { id: createdDesignId }).catch(
+        () => {},
+      );
+    }
+    for (const id of designSystemIds.reverse()) {
+      await postAction(request, "delete-design-system", { id }).catch(() => {});
+    }
+  }
+});
+
+test("choosing No design system clears the design instead of snapping back", async ({
+  page,
+  request,
+}) => {
+  test.setTimeout(120_000);
+  let createdDesignId: string | undefined;
+  const designSystemIds: string[] = [];
+  const suffix = Date.now();
+  const systemTitle = `E2E clearable system ${suffix}`;
+
+  try {
+    for (const title of [`E2E default system ${suffix}`, systemTitle]) {
+      const system = await postAction(request, "create-design-system", {
+        title,
+        data: JSON.stringify({ colors: { primary: "#3366ff" } }),
+      });
+      const systemId = system.id ?? system.data?.id;
+      expect(systemId).toBeTruthy();
+      designSystemIds.push(systemId);
+    }
+
+    await page.goto(appPath("/"), { waitUntil: "domcontentloaded" });
+    await page.waitForLoadState("load");
+    createdDesignId = await startEmptyDesignFromHome(page);
+
+    const trigger = page
+      .locator("[data-design-system-picker]")
+      .getByRole("combobox");
+    await expect(trigger).toBeVisible({ timeout: 30_000 });
+    await trigger.click();
+    await page.getByRole("option", { name: systemTitle, exact: true }).click();
+    await expect(trigger).toContainText(systemTitle);
+
+    await trigger.click();
+    await page
+      .getByRole("option", { name: "No design system", exact: true })
+      .click();
+    // Clearing used to read as "nothing chosen yet", which re-resolved the
+    // default system on the very next render.
+    await expect(trigger).toContainText("No design system");
+    await expect
+      .poll(
+        async () =>
+          (await getAction(request, "get-design", { id: createdDesignId! }))
+            .designSystemId ?? null,
+        { timeout: 20_000 },
+      )
+      .toBeNull();
+    await expect(trigger).toContainText("No design system");
   } finally {
     if (createdDesignId) {
       await postAction(request, "delete-design", { id: createdDesignId }).catch(

@@ -101,3 +101,89 @@ assert on the source string. Moving code breaks them with a confusing failure.
 Re-point the path and the marker in the same commit that moves the code. Prefer
 asserting against the command module (`commandSource("undo.ts")`) over the
 editor file.
+
+## Prove the gesture, not just the outcome
+
+A gesture test can pass without the gesture. `Shift+drag locks movement to one
+axis` asserted only that `top` was unchanged — true of a drag that moves
+nothing — and would have kept passing if dragging broke entirely.
+
+Audit by mutation, not by reading. Neuter the gesture in the shared helper and
+re-run: every test whose name promises it must fail. You need more than one
+mutation, because removing the travel (`{ steps: N }`) leaves a click, and a
+click still creates a default-sized primitive — `frame-screen-nesting` passed
+8/8 that way and failed 6/8 once `mouse.down()` was removed instead. Prefer the
+mutation that removes the precondition over one that corrupts it: committing a
+*wrong* inspector value hid a hole that committing *nothing* exposed in one run.
+
+Two traps make a "clean" result meaningless. Mutating one helper audits nothing
+that builds its own gesture — inline `mouse.move`, `locator.dragTo()`, keyboard
+nudges, and the synthetic events `dragInsideScreen`/`pressPrimaryShortcut`
+dispatch inside `page.evaluate` each need their own. And a literal-matching
+mutator silently skips variable call sites (`press(undoShortcut)`) and reports
+them passing. Map the mutation back to the enclosing tests before concluding.
+
+Five hole shapes, each of which passed with the gesture removed:
+
+- **Only the property that stays still** — assert the one that must change.
+- **Only survival** (exists / not hidden / in viewport) — capture position
+  first and require it to change.
+- **Two runs compared only to each other** — they agree when both are equally
+  wrong. Anchor one side to the value actually requested.
+- **`indexOf`'s `-1` used as a position** — a *deleted* element reads as
+  "correctly ordered". Check both indexes are `> -1` first.
+- **A read that coerces its own failure into the asserted value** —
+  `.catch(() => [])` before "the list is empty", or `.catch(() => false)`
+  before `.toBe(false)`. Let the read throw, or prove the thing exists.
+  `guard:e2e-harness` fails on new ones.
+
+A negative-only test ("Escape cancels the move") cannot distinguish any of this
+alone; it is sound only while a positive test for the same gesture sits beside
+it, and deleting that partner silently guts both.
+
+## Prove the bug before you fix it
+
+Drag, drop, reparent, undo, and duplicate are the behaviors this editor keeps
+re-breaking, and they are the ones a reader cannot verify by eye. So a fix to
+any of them lands as two things: a test that **fails on the current code for
+the reason you claim**, then the change that turns it green. Run the test
+before the fix and paste the failure; a test written after the fix only proves
+the code does what it does.
+
+**Prove it at the fastest layer that can express the bug.** The E2E suite is
+post-merge only, so a bug proven *only* there cannot fail anyone's pull
+request — it will rot the way 63 of these specs already did. Reach for the
+browser last:
+
+1. A pure function — `tool-state.ts`, `code-layer.ts`, `shared/`, a module
+   under `commands/`. These run in PR CI with ~500 other vitest files, in
+   seconds. Most drag/undo defects are decidable here once the geometry or
+   placement decision is extracted from the gesture.
+2. A component test, when it needs React state but not a real iframe.
+3. E2E, only when the bug genuinely needs the bridge, a real pointer, or a
+   cross-document boundary.
+
+If a bug is only reproducible in E2E, that is worth saying out loud in the PR:
+it means the regression net for it is a post-merge run nobody is blocked by.
+
+Most of what looks like a bug here is not. Sweeping this suite turned up tests
+asserting an `"Add layer"` label no component renders, a Stroke section that
+never had layer rows, a `data-smart-selection` attribute nobody built, a port
+(`9340`) nothing serves, and a Frame tool that grew a Frame/Screen split. So
+before changing product code, establish which side is wrong:
+
+- **Does the control exist?** `grep` the label and the i18n key. A label that
+  lives only in `i18n-data.ts` is rendered nowhere.
+- **Does the gate allow it?** Read the condition, not the intent —
+  `frameToolDraws === "screen"`, `canRenderAuthenticatedShare`,
+  `responsiveInteractActive`. A test that skips the gate is the broken one.
+- **Is the assertion self-consistent?** Two specs asserted opposite rectangle
+  drop behavior. No code change satisfies both; that needs a contract decision.
+
+When the bug is real and you are not fixing it now, `test.fixme` it with the
+symptom in a comment directly above — the observed value, not a guess.
+`guard:e2e-quarantine` fails on a parked test with no reason and on the count
+growing past its ceiling, so silencing a test to get green is a visible choice
+rather than a quiet one.
+
+`pnpm guards` runs that check. Lower the ceiling whenever you fix one.

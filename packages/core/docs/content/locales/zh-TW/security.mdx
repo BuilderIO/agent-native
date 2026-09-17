@@ -78,6 +78,8 @@ Agent-Native 應用程式預設設計為安全的。此框架提供多層自動�
 | 秘密曝光 | `.env` gitignored;靜態加密的憑證和保管庫 (AES-256-GCM)       |
 | SSRF     | `ssrfSafeFetch` 阻止內部/中繼資料目標 + 重新導向重新綁定     |
 
+框架會從工作階段建立要求內容，並在應用程式讀寫時透過 `accessFilter()` 與 `assertAccess()` 強制執行擁有權。代理程式 SQL 會取得依目前身分與組織篩選的暫時檢視。RLS 尚未啟用，因此應用程式的直接查詢仍必須使用這些輔助程式。
+
 ## 輸入驗證 {#input-validation}
 
 將 `defineAction` 與 Zod `schema:` 一起用於每個操作。此框架會在程式碼執行之前自動驗證輸入：
@@ -236,13 +238,13 @@ export const notes = table("notes", {
 
 ```sql
 CREATE TEMPORARY VIEW "notes" AS
-  SELECT * FROM main."notes"
+  SELECT * FROM public."notes"
   WHERE "owner_email" = 'alice@example.com';
 ```
 
 當該列尚不存在時，INSERT 語句會自動注入 `owner_email`。
 
-`db-query` / `db-exec` 工具拒絕模式限定的表引用（`public.<table>`、`main.<table>`）——限定名稱解析為基表，並會繞過上面的臨時檢視。代理使用裸表名稱；範圍會自動應用。
+`db-query` / `db-exec` 工具拒絕模式限定的表引用（`public.<table>`）——限定名稱解析為基表，並會繞過上面的臨時檢視。代理使用裸表名稱；範圍會自動應用。
 
 ### 每個組織範圍界定 (`org_id`)
 

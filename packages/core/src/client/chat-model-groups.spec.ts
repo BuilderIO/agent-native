@@ -294,6 +294,50 @@ describe("buildChatModelGroups", () => {
     ]);
   });
 
+  it("keeps custom current models visible alongside curated OpenRouter models", () => {
+    const groups = buildChatModelGroups({
+      currentEngineName: "ai-sdk:openrouter",
+      currentModel: "deepseek/custom-model",
+      engines: [
+        {
+          name: "ai-sdk:openrouter",
+          label: "OpenRouter",
+          supportedModels: ["openai/gpt-6-astra"],
+          preserveCustomModels: true,
+          requiredEnvVars: ["OPENROUTER_API_KEY"],
+          configured: true,
+        },
+      ],
+    });
+
+    expect(groups[0]?.models).toEqual([
+      "deepseek/custom-model",
+      "openai/gpt-6-astra",
+    ]);
+  });
+
+  it("keeps a custom current BYOK model visible alongside its catalog", () => {
+    const groups = buildChatModelGroups({
+      currentEngineName: "anthropic",
+      currentModel: "claude-next-preview",
+      engines: [
+        {
+          name: "anthropic",
+          label: "Claude",
+          supportedModels: ["claude-sonnet-5"],
+          acceptsCustomModels: true,
+          requiredEnvVars: ["ANTHROPIC_API_KEY"],
+          configured: true,
+        },
+      ],
+    });
+
+    expect(groups[0]?.models).toEqual([
+      "claude-sonnet-5",
+      "claude-next-preview",
+    ]);
+  });
+
   it("trusts the server's readiness over the env-key list", () => {
     const groups = buildChatModelGroups({
       currentEngineName: "builder",

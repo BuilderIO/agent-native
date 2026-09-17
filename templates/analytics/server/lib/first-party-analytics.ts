@@ -1,6 +1,6 @@
-import { getDbExec, isPostgres } from "@agent-native/core/db";
+import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
-import { and, eq, isNull, lt, or } from "drizzle-orm";
+import { and, eq, isNull, lt, or, sql } from "drizzle-orm";
 
 import { FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
 import { getDb, schema } from "../db/index.js";
@@ -15,12 +15,17 @@ import {
   getFirstPartyAnalyticsBackend,
   getFirstPartyAnalyticsTable,
   insertFirstPartyAnalyticsRows,
+  insertFirstPartyAnalyticsRowsWithResults,
   queryFirstPartyAnalyticsInBigQuery,
 } from "./first-party-analytics-backend.js";
 import {
   firstPartyCacheKey,
   withFirstPartyCache,
 } from "./first-party-analytics-cache.js";
+import {
+  firstPartyAnalyticsDeliveryFallbackKey,
+  isFirstPartyAnalyticsDeliveryQueueMissingError,
+} from "./first-party-analytics-delivery.js";
 import {
   classifyFirstPartyAnalyticsQuery,
   queryOutcomeFromError,
@@ -108,6 +113,119 @@ function randomHex(bytes: number): string {
 
 function id(prefix: string): string {
   return `${prefix}_${randomHex(12)}`;
+}
+
+async function persistBigQueryRowsWithMigrationFallback(
+  db: any,
+  rows: Array<{
+    id: string;
+    ownerEmail: string;
+    orgId: string | null;
+    [key: string]: unknown;
+  }>,
+  table: string | null,
+  scope: AnalyticsScope,
+  receivedAt: string,
+): Promise<void> {
+  try {
+    await db.transaction(async (tx: any) => {
+      await tx.insert(schema.analyticsEvents).values(rows);
+      await tx.insert(schema.analyticsBigQueryDeliveryQueue).values(
+        rows.map((row) => ({
+          eventId: row.id,
+          ownerEmail: row.ownerEmail,
+          orgId: row.orgId,
+          tableRef: table,
+          nextAttemptAt: receivedAt,
+          createdAt: receivedAt,
+          updatedAt: receivedAt,
+        })),
+      );
+    });
+  } catch (error) {
+    if (!isFirstPartyAnalyticsDeliveryQueueMissingError(error)) throw error;
+
+    console.error(
+      "[first-party-analytics] Delivery queue migration is pending; retaining event in Postgres and attempting direct BigQuery delivery:",
+      error,
+    );
+    await db.transaction(async (tx: any) => {
+      await tx.insert(schema.analyticsEvents).values(rows);
+      const marker = JSON.stringify({
+        deliveryState: "pending",
+        ownerEmail: scope.userEmail,
+        orgId: scope.orgId,
+        tableRef: table,
+        receivedAt,
+      });
+      for (const row of rows) {
+        await tx.execute(
+          sql`INSERT INTO settings (key, value, updated_at)
+              VALUES (${firstPartyAnalyticsDeliveryFallbackKey(row.id)}, ${marker}, ${Date.now()})
+              ON CONFLICT (key) DO NOTHING`,
+        );
+      }
+    });
+    try {
+      const result = await runWithRequestContext(
+        {
+          userEmail: scope.userEmail,
+          orgId: scope.orgId ?? undefined,
+        },
+        () => insertFirstPartyAnalyticsRowsWithResults(rows, table),
+      );
+      const acceptedIds = new Set(result.acceptedIds);
+      const rejectedIds = new Set(result.rejectedIds);
+      const rowIds = new Set(rows.map((row) => row.id));
+      if (
+        acceptedIds.size + rejectedIds.size !== rows.length ||
+        [...acceptedIds, ...rejectedIds].some((id) => !rowIds.has(id)) ||
+        [...acceptedIds].some((id) => rejectedIds.has(id)) ||
+        rows.some((row) => !acceptedIds.has(row.id) && !rejectedIds.has(row.id))
+      ) {
+        throw new Error(
+          "BigQuery fallback delivery returned an incomplete row result",
+        );
+      }
+      if (acceptedIds.size) {
+        const deliveredAt = new Date().toISOString();
+        await db.transaction(async (tx: any) => {
+          for (const row of rows) {
+            if (!acceptedIds.has(row.id)) continue;
+            const deliveredMarker = JSON.stringify({
+              deliveryState: "delivered",
+              deliveredAt,
+              ownerEmail: scope.userEmail,
+              orgId: scope.orgId,
+              tableRef: table,
+              receivedAt,
+            });
+            const updated = await tx.execute(
+              sql`UPDATE settings
+                     SET value = ${deliveredMarker}, updated_at = ${Date.now()}
+                   WHERE key = ${firstPartyAnalyticsDeliveryFallbackKey(row.id)}`,
+            );
+            if (Number(updated.rowsAffected) !== 1) {
+              throw new Error(
+                `BigQuery fallback marker for ${row.id} was not updated`,
+              );
+            }
+          }
+        });
+      }
+      if (rejectedIds.size) {
+        console.error(
+          "[first-party-analytics] BigQuery fallback rejected rows; retaining markers for retry:",
+          result.error ?? `BigQuery rejected ${rejectedIds.size} event row(s)`,
+        );
+      }
+    } catch (deliveryError) {
+      console.error(
+        "[first-party-analytics] BigQuery fallback delivery failed; Postgres event retained:",
+        deliveryError,
+      );
+    }
+  }
 }
 
 export function generateAnalyticsPublicKey(): string {
@@ -372,6 +490,7 @@ export function resolveAnalyticsEventDimensions({
   hostname: string | null;
 }): { app: string | null; template: string | null } {
   const app =
+    asString(properties.app_name) ||
     asString(properties.app) ||
     asString((properties as any).agent_native_app) ||
     asString((properties as any).agentNativeApp) ||
@@ -380,6 +499,7 @@ export function resolveAnalyticsEventDimensions({
     asString((context as any).agentNativeApp) ||
     (hostname ? hostname.split(".")[0] : null);
   const template =
+    asString(properties.template_name) ||
     asString(properties.template) ||
     asString((properties as any).templateId) ||
     asString((properties as any).agent_native_template) ||
@@ -517,7 +637,10 @@ export async function recordAnalyticsEvents(
       asString((properties as any).signedIn) ||
       asString((context as any).signed_in) ||
       asString((context as any).signedIn);
-    const userId = event.userId ?? asString((properties as any).userId);
+    const userId =
+      event.userId ??
+      asString((properties as any).user_id) ??
+      asString((properties as any).userId);
     const anonymousId =
       event.anonymousId ??
       asString((properties as any).anonymousId) ??
@@ -525,7 +648,9 @@ export async function recordAnalyticsEvents(
     const userKey = userId || anonymousId;
     const timestamp = normalizeAnalyticsTimestamp(event.timestamp, receivedAt);
     const sessionId =
-      event.sessionId ?? asString((properties as any).sessionId);
+      event.sessionId ??
+      asString((properties as any).session_id) ??
+      asString((properties as any).sessionId);
     const signedIn = isMarketingWebsiteSessionEvent({
       eventName: event.event,
       hostname,
@@ -582,8 +707,7 @@ export async function recordAnalyticsEvents(
     orgId: key.orgId ?? null,
   });
 
-  let bigQueryInsertError: unknown = null;
-  if (rows.length && (backend.sink === "dual" || backend.sink === "bigquery")) {
+  if (rows.length && backend.sink === "dual") {
     try {
       await runWithRequestContext(
         {
@@ -593,46 +717,49 @@ export async function recordAnalyticsEvents(
         () => insertFirstPartyAnalyticsRows(rows, backend.table),
       );
     } catch (error) {
-      if (backend.sink === "bigquery") {
-        // Keep SQL-only exception issues, public-key metadata, and session
-        // replay links durable even when the warehouse is temporarily down.
-        // The request still fails below so callers do not mistake a warehouse
-        // outage for a successful BigQuery write.
-        bigQueryInsertError = error;
-      }
       // Dual-write mode keeps Postgres as the recoverable source until the
       // backfill has completed. A BigQuery outage must not lose live events.
-      if (backend.sink === "dual") {
-        console.error(
-          "[first-party-analytics] BigQuery dual-write failed; retaining Postgres event:",
-          error,
-        );
-      }
+      console.error(
+        "[first-party-analytics] BigQuery dual-write failed; retaining Postgres event:",
+        error,
+      );
     }
   }
 
-  let postgresInsertError: unknown = null;
-  if (rows.length && backend.sink !== "bigquery") {
+  let persistenceError: unknown = null;
+  if (rows.length) {
     try {
-      await db.transaction(async (tx: any) => {
-        if (backend.sink === "postgres" || backend.sink === "dual") {
-          await reserveFirstPartyPostgresEventVolume(
-            tx,
-            {
-              ownerEmail: key.ownerEmail,
-              orgId: key.orgId ?? null,
-              receivedAt,
-            },
-            rows.length,
-          );
-        }
-        await tx.insert(schema.analyticsEvents).values(rows);
-        await upsertFirstPartyAnalyticsRollups(rows, tx);
-      });
+      if (backend.sink === "bigquery") {
+        // BigQuery-mode events stay in SQL until the scheduled worker confirms
+        // delivery. This is the recoverable boundary after warehouse cutover.
+        await persistBigQueryRowsWithMigrationFallback(
+          db,
+          rows,
+          backend.table,
+          { userEmail: key.ownerEmail, orgId: key.orgId ?? null },
+          receivedAt,
+        );
+      } else {
+        await db.transaction(async (tx: any) => {
+          if (backend.sink === "postgres" || backend.sink === "dual") {
+            await reserveFirstPartyPostgresEventVolume(
+              tx,
+              {
+                ownerEmail: key.ownerEmail,
+                orgId: key.orgId ?? null,
+                receivedAt,
+              },
+              rows.length,
+            );
+          }
+          await tx.insert(schema.analyticsEvents).values(rows);
+          await upsertFirstPartyAnalyticsRollups(rows, tx);
+        });
+      }
     } catch (error) {
       // Preserve SQL-only exception issues and public-key metadata below even
       // when a Postgres volume reservation or insert rejects the batch.
-      postgresInsertError = error;
+      persistenceError = error;
     }
   }
   if (rows.length) {
@@ -658,8 +785,7 @@ export async function recordAnalyticsEvents(
     }
   }
 
-  if (bigQueryInsertError) throw bigQueryInsertError;
-  if (postgresInsertError) throw postgresInsertError;
+  if (persistenceError) throw persistenceError;
 
   return { accepted: rows.length, keyId: key.id };
 }
@@ -945,7 +1071,7 @@ export function validateFirstPartyAnalyticsSql(sql: string): void {
     throw new Error("Only a single SELECT statement is allowed");
   }
   if (
-    /\b(insert|update|delete|drop|alter|truncate|create|replace|pragma|attach|detach|vacuum|grant|revoke)\b/i.test(
+    /\b(insert|update|delete|drop|alter|truncate|create|replace|grant|revoke)\b/i.test(
       stripped,
     )
   ) {
@@ -1000,6 +1126,7 @@ function scopedTableSource(
   tableName: string,
   scope: AnalyticsScope,
   today: string,
+  parameterOffset: number,
 ): {
   sql: string;
   args: Array<string | null>;
@@ -1008,10 +1135,10 @@ function scopedTableSource(
     const tenantKeys = scope.orgId
       ? [`org:${scope.orgId}`, `user:${scope.userEmail}`]
       : [`user:${scope.userEmail}`];
-    const branches = tenantKeys.map(
-      () =>
-        `SELECT * FROM ${tableName} WHERE tenant_key = ? AND event_date <= ?`,
-    );
+    const branches = tenantKeys.map((_, index) => {
+      const tenantKeyParameter = parameterOffset + index * 2 + 1;
+      return `SELECT * FROM ${tableName} WHERE tenant_key = $${tenantKeyParameter} AND event_date <= $${tenantKeyParameter + 1}`;
+    });
     return {
       // Rollups have a tenant_key/event_date index. Keep the org and personal
       // fallback branches separate so rollup reads stay indexable as well.
@@ -1020,28 +1147,29 @@ function scopedTableSource(
     };
   }
 
-  const freshness = freshnessClause(tableName);
   const ownerEmail = scope.userEmail.trim().toLowerCase();
   if (scope.orgId) {
+    const orgParameter = parameterOffset + 1;
+    const ownerParameter = parameterOffset + 3;
     return {
       // Keep the org and personal fallback as separate branches so Postgres can
       // use each branch's composite tenant/date indexes instead of scanning one
       // broad org index for an OR predicate.
-      sql: `(SELECT * FROM ${tableName} WHERE org_id = ? AND ${freshness} UNION ALL SELECT * FROM ${tableName} WHERE org_id IS NULL AND owner_email = ? AND ${freshness})`,
+      sql: `(SELECT * FROM ${tableName} WHERE org_id = $${orgParameter} AND ${freshnessClause(tableName, orgParameter + 1)} UNION ALL SELECT * FROM ${tableName} WHERE org_id IS NULL AND owner_email = $${ownerParameter} AND ${freshnessClause(tableName, ownerParameter + 1)})`,
       args: [scope.orgId, today, ownerEmail, today],
     };
   }
   return {
-    sql: `(SELECT * FROM ${tableName} WHERE org_id IS NULL AND owner_email = ? AND ${freshness})`,
+    sql: `(SELECT * FROM ${tableName} WHERE org_id IS NULL AND owner_email = $${parameterOffset + 1} AND ${freshnessClause(tableName, parameterOffset + 2)})`,
     args: [ownerEmail, today],
   };
 }
 
-function freshnessClause(tableName: string): string {
+function freshnessClause(tableName: string, parameter: number): string {
   if (tableName === "analytics_events") {
-    return "(COALESCE(NULLIF(event_date, ''), substr(timestamp, 1, 10)) <= ?)";
+    return `(COALESCE(NULLIF(event_date, ''), substr(timestamp, 1, 10)) <= $${parameter})`;
   }
-  return "(substr(started_at, 1, 10) <= ?)";
+  return `(substr(started_at, 1, 10) <= $${parameter})`;
 }
 
 export function scopedAnalyticsSql(
@@ -1066,136 +1194,17 @@ export function scopedAnalyticsSql(
         !RESERVED_ALIAS_WORDS.has(normalizedAlias)
           ? aliasPart
           : ` AS ${normalizedTable}`;
-      const scopedSource = scopedTableSource(normalizedTable, scope, today);
+      const scopedSource = scopedTableSource(
+        normalizedTable,
+        scope,
+        today,
+        args.length,
+      );
       args.push(...scopedSource.args);
       return `${keyword} ${scopedSource.sql}${usableAlias}`;
     },
   );
   return { sql: rewritten, args };
-}
-
-/**
- * Dashboard panel SQL (seeded and agent/user-authored) is written against
- * PostgreSQL date/JSON syntax — `to_char`/`INTERVAL`/`::date`/`::jsonb ->>` —
- * because that's the dialect this app runs against in production. A local
- * SQLite dev database doesn't understand any of that and throws a syntax
- * error before a row is ever read. Rather than hand-rewrite every seeded
- * panel's SQL (this app also lets the agent/UI author new first-party SQL
- * panels through this exact same execution path), translate the handful of
- * Postgres-only shapes this query surface actually produces into SQLite
- * equivalents right here at the execution boundary. PostgreSQL SQL is never
- * touched: this only runs when the active database is not Postgres.
- */
-export function toSqliteCompatibleFirstPartySql(sql: string): string {
-  let out = sql;
-
-  // properties::jsonb ->> 'key'  ->  json_extract(properties, '$."key"')
-  // (a quoted JSON path member tolerates keys like "$ai_model" that start
-  // with a character SQLite's unquoted path syntax can't lead with).
-  out = out.replace(
-    /([A-Za-z_][A-Za-z0-9_.]*)::jsonb\s*->>\s*'([^']*)'/g,
-    (_match, column: string, key: string) =>
-      `json_extract(${column}, '$."${key}"')`,
-  );
-
-  // Postgres chr(N) -> SQLite char(N).
-  out = out.replace(/\bchr\(/g, "char(");
-
-  // Any other Postgres type cast (::date, ::float, ::timestamptz, ...) is a
-  // no-op on SQLite's dynamically-typed columns.
-  out = out.replace(/::[A-Za-z_][A-Za-z0-9_]*/g, "");
-
-  // to_char(date_trunc('week', X), 'YYYY-MM-DD') -> Monday of X's week.
-  // ('weekday 0' finds the next Sunday, '-6 days' steps back to that week's
-  // Monday, matching Postgres's ISO week truncation.)
-  out = out.replace(
-    /to_char\(\s*date_trunc\(\s*'week'\s*,\s*([^()]+?)\s*\)\s*,\s*'YYYY-MM-DD'\s*\)/g,
-    (_match, expr: string) => `date(${expr}, 'weekday 0', '-6 days')`,
-  );
-
-  // <dateish-expr> (+|-) INTERVAL 'N days'  ->  the same day count applied
-  // through SQLite's julian-day arithmetic, immediately reformatted back to
-  // 'YYYY-MM-DD' text. Re-wrapping right away (instead of leaving a bare
-  // julian-day number) matters: this expression sometimes appears outside
-  // any to_char() call, compared directly against a text date column, and
-  // SQLite treats any numeric value as less than any text value — a bare
-  // number here would make that comparison silently always-true.
-  out = out.replace(
-    /([A-Za-z_][A-Za-z0-9_.]*|CURRENT_DATE)\s*(\+|-)\s*INTERVAL\s*'(\d+)\s*days?'/g,
-    (_match, base: string, op: string, days: string) => {
-      const juliandayBase = base === "CURRENT_DATE" ? "'now'" : base;
-      return `date(julianday(${juliandayBase}) ${op} ${days})`;
-    },
-  );
-
-  // <dateish-expr ending in "date"> (+|-) <identifier>  (no INTERVAL
-  // keyword) — e.g. `bounds.start_date + offsets.n` in a generated date
-  // series. Scoped to identifiers ending in "date" so unrelated integer
-  // arithmetic (e.g. building the offsets themselves) is left alone.
-  out = out.replace(
-    /([A-Za-z_][A-Za-z0-9_.]*date)\s*(\+|-)\s*([A-Za-z_][A-Za-z0-9_.]*)/g,
-    (_match, base: string, op: string, rhs: string) =>
-      `date(julianday(${base}) ${op} ${rhs})`,
-  );
-
-  // Every surviving to_char(expr, 'YYYY-MM-DD') now wraps an expr that
-  // already evaluates to 'YYYY-MM-DD' text (a bare CURRENT_DATE, or one of
-  // the date(...) forms produced above) — unwrap the call instead of
-  // re-wrapping it. A regex can't balance the arbitrarily nested parens
-  // `date(julianday(...) ...)` can produce, so walk the string instead.
-  out = unwrapPostgresToChar(out);
-
-  return out;
-}
-
-/**
- * Finds each top-level `to_char(expr, 'YYYY-MM-DD')` call and replaces it
- * with `expr` alone. Balances parens by hand rather than by regex so nested
- * calls (`date(julianday(...) - 7)`) unwrap correctly regardless of depth.
- */
-function unwrapPostgresToChar(sql: string): string {
-  const marker = "to_char(";
-  let out = "";
-  let i = 0;
-  while (i < sql.length) {
-    const idx = sql.indexOf(marker, i);
-    if (idx === -1) {
-      out += sql.slice(i);
-      break;
-    }
-    out += sql.slice(i, idx);
-    const openParen = idx + marker.length - 1;
-    let depth = 0;
-    let closeParen = openParen;
-    for (; closeParen < sql.length; closeParen++) {
-      if (sql[closeParen] === "(") depth++;
-      else if (sql[closeParen] === ")") {
-        depth--;
-        if (depth === 0) break;
-      }
-    }
-    const inner = sql.slice(openParen + 1, closeParen);
-    let innerDepth = 0;
-    let topLevelCommaIdx = -1;
-    for (let k = 0; k < inner.length; k++) {
-      if (inner[k] === "(") innerDepth++;
-      else if (inner[k] === ")") innerDepth--;
-      else if (inner[k] === "," && innerDepth === 0) topLevelCommaIdx = k;
-    }
-    const expr =
-      topLevelCommaIdx === -1 ? inner : inner.slice(0, topLevelCommaIdx);
-    const format =
-      topLevelCommaIdx === -1 ? "" : inner.slice(topLevelCommaIdx + 1).trim();
-    if (format === "'YYYY-MM-DD'") {
-      out += expr.trim();
-    } else {
-      // Not the to_char(expr, 'YYYY-MM-DD') shape this app's SQL uses;
-      // leave it untouched rather than guess at unfamiliar formats.
-      out += sql.slice(idx, closeParen + 1);
-    }
-    i = closeParen + 1;
-  }
-  return out;
 }
 
 function valueType(value: unknown): string {
@@ -1216,11 +1225,6 @@ function inferSchema(rows: Record<string, unknown>[]): {
   }));
 }
 
-/**
- * Which store this query actually runs against under a given sink. Save-time
- * validation and the read path both route through here: a panel validated for
- * one store and executed against the other is the whole bug class.
- */
 function firstPartyAnalyticsQueryTarget(
   sql: string,
   sink: FirstPartyAnalyticsSink,
@@ -1239,11 +1243,6 @@ function firstPartyAnalyticsQueryTarget(
   return usesSessionRecordings ? "sql-store" : "bigquery";
 }
 
-/**
- * Save-time counterpart to `queryFirstPartyAnalytics`. `sink` is a mutable
- * per-scope setting, so generic PostgreSQL validation alone accepts panels the
- * live backend cannot execute.
- */
 export async function validateFirstPartyAnalyticsSqlForScope(
   sql: string,
   scope: AnalyticsScope,
@@ -1267,13 +1266,8 @@ export async function queryFirstPartyAnalytics(
     return queryFirstPartyAnalyticsInBigQuery(scoped.sql, scoped.args, table);
   }
   const scoped = scopedAnalyticsSql(sql, scope);
-  // Dashboard SQL is authored against Postgres date/JSON syntax; translate
-  // it for a non-Postgres sql-store (local SQLite dev) at the last possible
-  // moment so Postgres itself never sees a rewritten query.
-  const dialectSql = isPostgres()
-    ? scoped.sql
-    : toSqliteCompatibleFirstPartySql(scoped.sql);
-  const wrappedSql = `SELECT * FROM (${dialectSql}) AS first_party_analytics_query LIMIT ${MAX_QUERY_ROWS}`;
+  const scopedSql = scoped.sql;
+  const wrappedSql = `SELECT * FROM (${scopedSql}) AS first_party_analytics_query LIMIT ${MAX_QUERY_ROWS}`;
   const timeoutMs = Math.max(
     1,
     options.timeoutMs ?? FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS,

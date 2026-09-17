@@ -4,11 +4,13 @@ const mockViewerRows = vi.hoisted(() => vi.fn());
 const mockEventRows = vi.hoisted(() => vi.fn());
 const mockViewLogRows = vi.hoisted(() => vi.fn());
 const mockRecordingRows = vi.hoisted(() => vi.fn());
+const mockReactionRows = vi.hoisted(() => vi.fn());
 const mockCountAgentViews = vi.hoisted(() => vi.fn());
 const mockListAgentViewers = vi.hoisted(() => vi.fn());
 const tables = vi.hoisted(() => ({
   recordingViewers: { recordingId: "recordingViewers.recordingId" },
   recordingViews: { recordingId: "recordingViews.recordingId" },
+  recordingReactions: { recordingId: "recordingReactions.recordingId" },
   recordingEvents: { recordingId: "recordingEvents.recordingId" },
   recordings: { id: "recordings.id", durationMs: "recordings.durationMs" },
 }));
@@ -23,6 +25,7 @@ const mockDb = vi.hoisted(() => ({
       where: vi.fn(() => {
         if (table === tables.recordingViewers) return mockViewerRows();
         if (table === tables.recordingViews) return mockViewLogRows();
+        if (table === tables.recordingReactions) return mockReactionRows();
         if (table === tables.recordingEvents) return mockEventRows();
         return builder;
       }),
@@ -44,6 +47,7 @@ vi.mock("@agent-native/core/sharing", () => ({
 vi.mock("drizzle-orm", () => ({
   count: vi.fn(() => ({ kind: "count" })),
   eq: vi.fn((column: unknown, value: unknown) => ({ column, value })),
+  sql: vi.fn(),
 }));
 
 vi.mock("../server/db/index.js", () => ({
@@ -87,6 +91,7 @@ describe("get-recording-insights", () => {
     mockEventRows.mockResolvedValue([]);
     mockViewLogRows.mockResolvedValue([{ value: 1 }]);
     mockRecordingRows.mockResolvedValue([{ durationMs: 10_000 }]);
+    mockReactionRows.mockResolvedValue([{ value: 0 }]);
     mockCountAgentViews.mockResolvedValue(0);
     mockListAgentViewers.mockResolvedValue([]);
   });
@@ -106,6 +111,16 @@ describe("get-recording-insights", () => {
     expect(result.views).toBe(2);
     expect(result.agentViews).toBe(5);
     expect(result.agentViewers).toHaveLength(2);
+  });
+
+  it("reports the recording reaction count alongside engagement metrics", async () => {
+    mockReactionRows.mockResolvedValue([{ value: 4 }]);
+
+    const result = await getRecordingInsights.run({
+      recordingId: "recording-1",
+    });
+
+    expect(result.reactions).toBe(4);
   });
 
   it("keeps completion metrics within the percentage range", async () => {
@@ -164,6 +179,59 @@ describe("get-recording-insights", () => {
       uniqueViewers: 1,
       completionRate: 84,
     });
+  });
+
+  it("reports no completion sample for a clip only agents have read", async () => {
+    mockViewerRows.mockResolvedValue([]);
+    mockViewLogRows.mockResolvedValue([{ value: 0 }]);
+    mockCountAgentViews.mockResolvedValue(8);
+    mockListAgentViewers.mockResolvedValue([
+      {
+        agentLabel: null,
+        userAgent: "unknown-agent/1.0",
+        views: 8,
+        lastSeenAt: "2026-09-15T00:00:00Z",
+      },
+    ]);
+
+    const result = await getRecordingInsights.run({
+      recordingId: "recording-1",
+    });
+
+    expect(result.agentViews).toBe(8);
+    expect(result.completionRate).toBeNull();
+    expect(result.ctaConversionRate).toBeNull();
+  });
+
+  it("reports a real zero only when counted viewers watched nothing", async () => {
+    mockViewerRows.mockResolvedValue([
+      { ...countedViewer("viewer-1", "a@example.com"), completedPct: 0 },
+    ]);
+    mockViewLogRows.mockResolvedValue([{ value: 1 }]);
+
+    const result = await getRecordingInsights.run({
+      recordingId: "recording-1",
+    });
+
+    expect(result.completionRate).toBe(0);
+    expect(result.ctaConversionRate).toBe(0);
+  });
+
+  it("keeps completion unknown when only uncounted preview rows exist", async () => {
+    mockViewerRows.mockResolvedValue([
+      {
+        ...countedViewer("viewer-1", "a@example.com"),
+        completedPct: 3,
+        countedView: false,
+      },
+    ]);
+    mockViewLogRows.mockResolvedValue([{ value: 0 }]);
+
+    const result = await getRecordingInsights.run({
+      recordingId: "recording-1",
+    });
+
+    expect(result.completionRate).toBeNull();
   });
 
   it("falls back to counted viewers when the view log is empty", async () => {

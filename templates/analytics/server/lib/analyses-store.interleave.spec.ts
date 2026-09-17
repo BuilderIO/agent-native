@@ -79,7 +79,7 @@ const state = vi.hoisted(() => ({
   // One-shot flag: the next fenced UPDATE attempt against `analyses`
   // simulates a concurrent writer (e.g. save-analysis re-running with fresh
   // results) landing in between the caller's read and write, then reports
-  // zero affected rows — exactly what a real `WHERE id = ? AND updated_at = ?`
+  // zero affected rows - exactly what a real `WHERE id = $1 AND updated_at = $2`
   // reports when someone else already moved `updated_at`.
   loseNextCas: false,
   // When true, every fenced UPDATE attempt loses the race forever, to prove

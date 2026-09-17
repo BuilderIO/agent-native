@@ -54,7 +54,7 @@ const templateDir = path.join(repoRoot, "templates", "chat");
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "an-sign-in-matrix-"));
 const appPort = Number(process.env.SIGN_IN_MATRIX_SMOKE_PORT || 9351);
 const embedPort = Number(process.env.SIGN_IN_MATRIX_EMBED_PORT || 9353);
-const qaEmail = "qa-sign-in-matrix@example.test";
+const qaEmail = "qa-sign-in-matrix+autoz@example.test";
 const qaPassword = "local-dev-account";
 const SIGN_IN_ENTRY_PATH = "/sign-in";
 const SIGN_IN_LEGACY_ENTRY_PATH = "/_agent-native/sign-in";
@@ -98,8 +98,8 @@ function cleanGeneratedFiles(): void {
   });
 }
 
-function appEnv(appUrl: string, basePath: string, dbPath: string) {
-  const databaseUrl = `file:${dbPath}`;
+function appEnv(appUrl: string, basePath: string, dataDir: string) {
+  const databaseUrl = `pglite:${dataDir}`;
   return {
     ...process.env,
     APP_NAME: "chat",
@@ -118,7 +118,6 @@ function appEnv(appUrl: string, basePath: string, dbPath: string) {
     AUTH_MAGIC_LINK: "0",
     BETTER_AUTH_SECRET: "sign-in-matrix-smoke-secret",
     DATABASE_URL: databaseUrl,
-    DATABASE_AUTH_TOKEN: "",
     VITE_APP_BASE_PATH: basePath,
     APP_BASE_PATH: basePath,
     NETLIFY: "",
@@ -157,7 +156,10 @@ async function waitForReady(appUrl: string, logs: string[]): Promise<void> {
 async function startApp(basePath: string): Promise<RunningApp> {
   const origin = `http://127.0.0.1:${appPort}`;
   const appUrl = `${origin}${basePath}`;
-  const dbPath = path.join(tmpRoot, `chat${basePath.replace(/\//g, "-")}.db`);
+  const dataDir = path.join(
+    tmpRoot,
+    `chat${basePath.replace(/\//g, "-")}-pglite`,
+  );
   const logs: string[] = [];
   const viteReload: ViteReloadTracker = { lastReloadAt: 0 };
   cleanGeneratedFiles();
@@ -170,7 +172,7 @@ async function startApp(basePath: string): Promise<RunningApp> {
     ["--host", "127.0.0.1", "--port", String(appPort), "--strictPort"],
     {
       cwd: templateDir,
-      env: appEnv(appUrl, basePath, dbPath),
+      env: appEnv(appUrl, basePath, dataDir),
       stdio: ["ignore", "pipe", "pipe"],
       // Vite starts Nitro as a child. Own the whole tree so the next base-path
       // deployment cannot accidentally talk to a surviving prior server.
@@ -193,21 +195,35 @@ async function startApp(basePath: string): Promise<RunningApp> {
     logs.push(`\n[chat] exited code=${code} signal=${signal}\n`);
   });
 
-  await waitForReady(appUrl, logs);
-  // Prove the server answering is THIS deploy. A leftover process from the
-  // previous base path answers `ping` perfectly well, and every assertion
-  // below would then re-test the surface that already passed.
-  const doc = await (await fetch(`${appUrl}${SIGN_IN_ENTRY_PATH}`)).text();
-  const authData = doc.match(
-    /<script type="application\/json" id="agent-native-auth-data">([\s\S]*?)<\/script>/,
-  );
-  assert.ok(
-    authData &&
-      (JSON.parse(authData[1]!) as { appBasePath?: string }).appBasePath ===
-        basePath,
-    `the server on ${appUrl} is not serving base path ${JSON.stringify(basePath)}`,
-  );
-  return { origin, basePath, appUrl, child, logs, viteReload };
+  const running = { origin, basePath, appUrl, child, logs, viteReload };
+  try {
+    await waitForReady(appUrl, logs);
+    // Prove the server answering is THIS deploy. A leftover process from the
+    // previous base path answers `ping` perfectly well, and every assertion
+    // below would then re-test the surface that already passed.
+    const doc = await (await fetch(`${appUrl}${SIGN_IN_ENTRY_PATH}`)).text();
+    const authData = doc.match(
+      /<script type="application\/json" id="agent-native-auth-data">([\s\S]*?)<\/script>/,
+    );
+    assert.ok(
+      authData &&
+        (JSON.parse(authData[1]!) as { appBasePath?: string }).appBasePath ===
+          basePath,
+      `the server on ${appUrl} is not serving base path ${JSON.stringify(basePath)}`,
+    );
+    return running;
+  } catch (error) {
+    try {
+      await stopApp(running);
+    } catch (cleanupError) {
+      throw new Error(
+        `${error instanceof Error ? error.message : String(error)}\n` +
+          `Failed to clean up the generated chat process: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
+        { cause: error },
+      );
+    }
+    throw error;
+  }
 }
 
 /** Wait until Vite's cold dependency optimization can no longer reload the page. */

@@ -334,12 +334,9 @@ const messages = {
     sharePubliclyDescription:
       "Um Inhalte öffentlich zu teilen, verbinden Sie eine Cloud-Datenbank.",
     providerDescriptions: {
-      turso: "SQLite am Edge",
       neon: "Serverloses Postgres",
       supabase: "Open-Source-Alternative zu Firebase",
-      d1: "SQLite am Edge",
     },
-    providerNames: { d1: "Cloudflare D1" },
     setupSteps: "Einrichtungsschritte",
     authToken: "Authentifizierungstoken",
     connectedReloading: "Erfolgreich verbunden. Wird neu geladen...",
@@ -360,6 +357,10 @@ const messages = {
     responseSubmitted: "Antwort gesendet",
     noFields: "Dieses Formular hat noch keine Felder.",
     failedSubmit: "Formular konnte nicht gesendet werden",
+    uncheckablePattern:
+      "Die Regel dieses Formulars für {label} kann nicht geprüft werden. Bitten Sie den Formularbesitzer, sie zu korrigieren.",
+    patternTooLong:
+      "Der Wert für {label} ist zu lang, um mit der Regel dieses Formulars geprüft zu werden.",
   },
   responseInsights: {
     unavailable: "Insights nicht verfügbar",
@@ -410,6 +411,14 @@ const messages = {
     page: "Page",
     source: "Quelle",
     sortBy: "Sort by {{label}}",
+    communityReview: "Prüfen",
+    communityPublish: "Auf der Website veröffentlichen",
+    communityPublishing: "Wird veröffentlicht...",
+    communityPublished: "Veröffentlicht",
+    communityView: "Auf der Website ansehen",
+    communityNeedsCheck: "Builder vor dem erneuten Versuch prüfen",
+    communityPromotionFailed:
+      "Diese Einreichung konnte nicht veröffentlicht werden.",
   },
 };
 

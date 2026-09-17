@@ -19,7 +19,6 @@ import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { extractGoogleDocUrls } from "@shared/google-docs";
 import {
   IconAlertTriangle,
-  IconFilter,
   IconPlus,
   IconRefresh,
   IconSearch,
@@ -31,6 +30,7 @@ import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import DeckCard from "@/components/deck/DeckCard";
+import { DeckFilterMenu } from "@/components/deck/DeckFilterMenu";
 import { DeckEditorSkeleton } from "@/components/editor/DeckEditorSkeleton";
 import {
   NewDeckReferenceStep,
@@ -56,19 +56,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import {
   describeDeckPersistenceFailure,
   type Deck,
@@ -80,6 +68,7 @@ import { useWorkspaceDefaults } from "@/hooks/use-workspace-defaults";
 import { createDeckAgentMessage } from "@/lib/agent-visible-message";
 import { savePromptToComposerDraft } from "@/lib/composer-draft";
 import {
+  describeUploadedFilesForAgent,
   getUploadedImageAgentOptions,
   isSourceImprovementRequest,
   persistDeckGenerationContext,
@@ -92,7 +81,9 @@ import {
   writeStoredDeckFilter,
   type DeckFilter,
 } from "@/lib/deck-filter";
+import { deckListViewState } from "@/lib/deck-list-loading";
 import { sortDecksByRecency } from "@/lib/deck-sorting";
+import { isDesignSystemSelectable } from "@/lib/design-system-selection";
 import {
   IMPORT_ACTION_TIMEOUT_MS,
   importUploadedDeckIntoDeck,
@@ -104,6 +95,7 @@ import {
   rememberRecentReference,
   type RecentReference,
 } from "@/lib/recent-references";
+import { hydrateReferenceDocuments } from "@/lib/reference-document-hydration";
 import { TAB_ID } from "@/lib/tab-id";
 
 const NEW_DECK_DRAFT_SCOPE = "slides-new-deck";
@@ -130,9 +122,21 @@ const RETRY_REASONING_EFFORTS = new Set([
 
 /** Router-state payload for recovering the new-deck prompt after a failed
  *  generation kickoff forces a navigate away from and back to this route. */
+/**
+ * A reference deck built from an upload, paired with the source file it came
+ * from. Kept together so a retry skips re-reading that file only while the
+ * same reference deck is still selected.
+ */
+interface ImportedReferenceSource {
+  deckId: string;
+  filePath: string;
+}
+
 interface DeckGenerationRetryState {
   retryPrompt?: string;
   retryFiles?: UploadedFile[];
+  retryReferenceFilePaths?: string[];
+  retryImportedReference?: ImportedReferenceSource;
   retryContext?: string;
   retryAttachments?: ReadonlyArray<PromptChatAttachment>;
   modelSelection?: DeckModelSelection;
@@ -316,42 +320,6 @@ async function loadReferenceDeckGenerationContext(
   ].join("\n");
 }
 
-function describeUploadedFilesForAgent(
-  files: UploadedFile[],
-  deckId: string,
-  importedSourceDeck: ImportedSourceDeck | null = null,
-): string {
-  if (files.length === 0) return "";
-  const fileList = files
-    .map(
-      (f) =>
-        `- ${f.originalName} (${f.type}, ${(f.size / 1024).toFixed(1)}KB) at path: ${f.path}${f.url ? `; embeddable URL: ${f.url}` : ""}`,
-    )
-    .join("\n");
-  return [
-    "",
-    importedSourceDeck
-      ? `The user uploaded ${files.length} file(s). The ${importedSourceDeck.file.originalName} source deck has already been imported into target deck ${deckId} with ${importedSourceDeck.slideCount} source slide(s); do not import it again.`
-      : `The user attached ${files.length} file(s) as reference material for this new deck. Attachments are context for the agent by default; do not import or append their slides to target deck ${deckId} merely because they were attached.`,
-    fileList,
-    "",
-    "File handling rules:",
-    importedSourceDeck
-      ? "- The imported source deck is canonical. Preserve its slide count, order, IDs, factual copy, notes, imagery, charts, tables, diagrams, and freeform objects while improving styling. For a deck-wide restyle, use one patch-deck call with requireAllSourceSlides=true; use update-slide only for a targeted one-slide edit. Do not rebuild it with add-slide."
-      : `- PDF, PPTX, and DOCX files: call \`import-file --filePath "<path>" --format auto\` (without \`importIntoDeck\`) when you need their text or structure. Use the returned material as reference while creating new slides with \`add-slide\`.`,
-    importedSourceDeck
-      ? "- For a PDF source, keep the layers the import produced — positioned text boxes and images, or the page image where a page carried nothing else — and add restrained design-system chrome around them without obscuring source content. Never replace an imported slide with a retyped approximation of its text."
-      : "- Do not pass `importIntoDeck: true` for an attached file unless the user explicitly asks to import or preserve the source pages in the current deck. An attached reference is not an instruction to replace or seed the deck.",
-    "- Text-like files: use the uploaded-text-file blocks already included in the prompt; do not call import-file for them.",
-    '- Image files with an embeddable URL are mandatory assets: if the user specified where to use one (e.g. "on the first and last slide"), embed it there with `<img src="...">` exactly as requested. Do not omit a requested image and continue silently — if it truly cannot be placed, say why in your final chat response.',
-    '- Image files without a URL are sent as inline visual/reference assets for this run when available; on a follow-up, call `import-file --filePath "<path>" --format image` to reopen a persisted private raster before visual editing, and call `upload-image` if a durable embeddable URL is needed.',
-    "- When converting an attached image into a deck, inspect the complete visual source before adding slides. If it contains distinct source frames, represent them in order; do not repeatedly place the source image itself, stop after an arbitrary subset, or infer a fixed frame count.",
-    importedSourceDeck
-      ? "- Before your final response, verify the same source slide IDs and count with get-deck after the restyle. If source fidelity is partial or images were skipped, report the exact warning instead of claiming success."
-      : "- Before your final response, verify every uploaded file above was either used as reference or placed as explicitly requested. If any file's content or requested placement is missing from the deck, say so explicitly instead of reporting success.",
-  ].join("\n");
-}
-
 export default function Index() {
   const t = useT();
   const {
@@ -365,7 +333,7 @@ export default function Index() {
     loadError,
     reloadDecks,
   } = useDecks();
-  const { designSystems } = useDesignSystems();
+  const { designSystems, refetch: refetchDesignSystems } = useDesignSystems();
   const {
     referenceDeck: workspaceReferenceDeck,
     designSystem: workspaceDesignSystem,
@@ -387,6 +355,10 @@ export default function Index() {
   const [newDeckRetryFiles, setNewDeckRetryFiles] = useState<UploadedFile[]>(
     [],
   );
+  const [newDeckRetryReferenceFilePaths, setNewDeckRetryReferenceFilePaths] =
+    useState<string[]>([]);
+  const [newDeckRetryImportedReference, setNewDeckRetryImportedReference] =
+    useState<ImportedReferenceSource | undefined>();
   const [newDeckRetryContext, setNewDeckRetryContext] = useState<
     string | undefined
   >();
@@ -402,6 +374,8 @@ export default function Index() {
   const [pendingDeck, setPendingDeck] = useState<{
     prompt: string;
     files: UploadedFile[];
+    referenceFilePaths: string[];
+    importedReference?: ImportedReferenceSource;
     context?: string;
     attachments: ReadonlyArray<PromptChatAttachment>;
     modelSelection?: DeckModelSelection;
@@ -441,14 +415,24 @@ export default function Index() {
   // Keep anchorRef.current in sync so PromptPopover can read it
   anchorRef.current = anchorElRef.current;
   const workspaceDesignSystemId =
-    workspaceDesignSystem && !workspaceDesignSystem.unavailable
+    workspaceDesignSystem &&
+    workspaceDesignSystem.status === "available" &&
+    designSystems.some(
+      (designSystem) =>
+        designSystem.id === workspaceDesignSystem.id &&
+        isDesignSystemSelectable(designSystem),
+    )
       ? workspaceDesignSystem.id
       : null;
   const lastUsedDesignSystemId =
     recentReferences.find(
       (reference) =>
         reference.kind === "design-system" &&
-        designSystems.some((designSystem) => designSystem.id === reference.id),
+        designSystems.some(
+          (designSystem) =>
+            designSystem.id === reference.id &&
+            isDesignSystemSelectable(designSystem),
+        ),
     )?.id ?? null;
   const lastUsedReferenceDeckId =
     recentReferences.find(
@@ -596,6 +580,8 @@ export default function Index() {
         if (options.clearInitialPrompt !== false) {
           setNewDeckInitialPrompt(null);
           setNewDeckRetryFiles([]);
+          setNewDeckRetryReferenceFilePaths([]);
+          setNewDeckRetryImportedReference(undefined);
           setNewDeckRetryContext(undefined);
           setNewDeckRetryPrompt(undefined);
           setNewDeckRetryAttachments([]);
@@ -628,6 +614,8 @@ export default function Index() {
       setNewDeckRetryContext(options.context);
       setNewDeckRetryPrompt(prompt);
       setNewDeckRetryFiles([]);
+      setNewDeckRetryReferenceFilePaths([]);
+      setNewDeckRetryImportedReference(undefined);
       setNewDeckRetryAttachments(options.attachments ?? []);
       setNewDeckRetryModelSelection(options.modelSelection);
       setSignInPromptHadFiles(Boolean(options.hadFiles));
@@ -722,6 +710,8 @@ export default function Index() {
       setNewDeckInitialPrompt({ text: state.retryPrompt, key: Date.now() });
     }
     setNewDeckRetryFiles(state.retryFiles ?? []);
+    setNewDeckRetryReferenceFilePaths(state.retryReferenceFilePaths ?? []);
+    setNewDeckRetryImportedReference(state.retryImportedReference);
     setNewDeckRetryContext(state.retryContext);
     setNewDeckRetryPrompt(state.retryPrompt);
     setNewDeckRetryAttachments(state.retryAttachments ?? []);
@@ -807,6 +797,21 @@ export default function Index() {
         : selectedReferenceDeckId && selectedReferenceDeckId !== "none"
           ? selectedReferenceDeckId
           : null;
+    const referenceFilePaths = new Set(
+      referenceSelection.referenceFilePaths ?? [],
+    );
+    const importedReferenceFilePath =
+      referenceSelection.importedReferenceFilePath;
+    const importedReferenceSource: ImportedReferenceSource | undefined =
+      referenceSelection.referenceDeckId && importedReferenceFilePath
+        ? {
+            deckId: referenceSelection.referenceDeckId,
+            filePath: importedReferenceFilePath,
+          }
+        : undefined;
+    const filesForSourceImprovement = filesForGeneration.filter(
+      (file) => !referenceFilePaths.has(file.path),
+    );
     const selectedDesignSystem = designSystemId
       ? designSystems.find((ds) => ds.id === designSystemId)
       : undefined;
@@ -851,6 +856,8 @@ export default function Index() {
       setNewDeckRetryContext(additionalContext || undefined);
       setNewDeckRetryPrompt(prompt);
       setNewDeckRetryFiles(filesForGeneration);
+      setNewDeckRetryReferenceFilePaths([...referenceFilePaths]);
+      setNewDeckRetryImportedReference(importedReferenceSource);
       setNewDeckRetryAttachments(attachmentsForGeneration);
       setNewDeckRetryModelSelection(modelSelection);
       deleteDeck(deckId);
@@ -864,6 +871,8 @@ export default function Index() {
           state: {
             retryPrompt: prompt,
             retryFiles: filesForGeneration,
+            retryReferenceFilePaths: [...referenceFilePaths],
+            retryImportedReference: importedReferenceSource,
             retryContext: additionalContext || undefined,
             retryAttachments: attachmentsForGeneration,
             modelSelection,
@@ -885,10 +894,10 @@ export default function Index() {
     }
 
     let importedSourceDeck: ImportedSourceDeck | null = null;
-    if (isSourceImprovementRequest(prompt, filesForGeneration)) {
+    if (isSourceImprovementRequest(prompt, filesForSourceImprovement)) {
       try {
         importedSourceDeck = await importUploadedDeckIntoDeck(
-          filesForGeneration,
+          filesForSourceImprovement,
           deckId,
         );
       } catch (error) {
@@ -901,9 +910,43 @@ export default function Index() {
       }
     }
 
+    // Only the document that actually became the reference deck is already
+    // represented; the import controls accept several files but import one, so
+    // excluding all of `referenceFilePaths` would drop the rest entirely while
+    // telling the agent every attachment had been read.
+    const referenceHydration = await hydrateReferenceDocuments(
+      filesForGeneration,
+      {
+        excludePaths: [
+          ...(importedReferenceFilePath ? [importedReferenceFilePath] : []),
+          ...(importedSourceDeck ? [importedSourceDeck.file.path] : []),
+        ],
+      },
+    );
+    if (referenceHydration.status === "unreadable") {
+      recoverFromGenerationSetupFailure(referenceHydration.message);
+      return;
+    }
+    const referenceDocumentContext =
+      referenceHydration.status === "hydrated"
+        ? referenceHydration.context
+        : "";
+    // An attached document reference never sets `referenceDeckId`, so without
+    // this the no-design-system branch below prescribed the same generic
+    // fallback look a reference-less prompt gets — which is how a styled PDF
+    // produced a deck indistinguishable from one generated with no reference.
+    // Keyed on a measured design, not merely a successful read: a DOCX, or a
+    // PDF whose digest could not be built, would otherwise suppress both the
+    // workspace default and the fallback and leave no styling guidance at all.
+    const hasHydratedReferenceDesign =
+      referenceHydration.status === "hydrated" &&
+      referenceHydration.measuredDesignCount > 0;
+
     clearPendingPromptForRetry();
     setNewDeckInitialPrompt(null);
     setNewDeckRetryFiles([]);
+    setNewDeckRetryReferenceFilePaths([]);
+    setNewDeckRetryImportedReference(undefined);
     setNewDeckRetryContext(undefined);
     setNewDeckRetryPrompt(undefined);
     setNewDeckRetryAttachments([]);
@@ -952,8 +995,14 @@ export default function Index() {
           "",
           "Design system selection:",
           "- No design system was selected in the picker.",
-          "- Before generating a bare or on-brand deck, call `get-workspace-defaults`. If it returns a usable design system, patch this deck with that designSystemId, call `get-design-system`, and follow its exact tokens, assets, and custom instructions.",
-          "- If no workspace default exists, report the missing configuration instead of inventing a generic Builder-like palette.",
+          ...(referenceDeckId || hasHydratedReferenceDesign
+            ? [
+                "- A reference deck or attached reference document is selected above. Follow its measured visual language — type scale, weights, colors, alignment, margins, page proportions — as the styling source of truth. Do not call `get-workspace-defaults`, apply a workspace default design system, or substitute a generic look.",
+              ]
+            : [
+                "- Before generating a bare or on-brand deck, call `get-workspace-defaults`. If it returns a usable design system, patch this deck with that designSystemId, call `get-design-system`, and follow its exact tokens, assets, and custom instructions.",
+                "- If no workspace default exists, establish one deliberate deck-level visual contract before the first slide: choose a background family, readable text and surface roles, one accent, a type pairing, spacing, radius, and image treatment that fit the subject. Record those choices as semantic --deck-* values on every fmd-slide wrapper and reuse them exactly; never alternate light and dark canvases, swap fonts, or invent a new palette per slide.",
+              ]),
         ].join("\n");
     const referenceSource = referenceSelection.referenceSource;
     const referenceSourceContext = referenceSource
@@ -975,29 +1024,29 @@ export default function Index() {
           `- The target deck already contains ${importedSourceDeck.slideCount} imported source slides. Treat those slides as the user's complete source, not as inspiration for a new deck.`,
           "- Keep the exact source slide count, order, IDs, factual meaning, notes, images, charts, tables, diagrams, and freeform objects unless the user explicitly asks to change one of them.",
           "- Read get-deck once before editing to obtain every existing slide ID and source HTML, load the linked design system with get-design-system, then make a deck-wide restyle with one patch-deck call using requireAllSourceSlides=true and one patch-slide operation with fields.content for every source slide ID. The ordered source manifest is sourceImport.slideIds. Do not split a full-deck restyle into arbitrary batches or fall back to one-by-one update-slide calls; use update-slide only for a targeted one-slide edit. Keep every original image source and enough original factual copy for each slide; for PDF slides, use restrained design-system chrome around the page without obscuring it.",
-          "- Do not call add-slide, delete slides, reorder slides, or replace source images with generic cards. Do not claim success until get-deck verifies the same slide IDs and count after the edits.",
-          '- After the patch succeeds, verify with get-deck using compact: "true" so only slide IDs, count, and previews are returned. Do not claim success until sourceCoverage.complete is true and its expectedSlideIds and actualSlideIds match in order. Do not report an initial or partial pass, and do not leave any source slides for a later run.',
+          "- For this restyle, keep the source slide structure and do not replace source images with generic cards. If the user explicitly asks to add, delete, or reorder slides, use the corresponding operation normally; it clears source-import provenance, so verify the edited slide count and order instead of waiting for sourceCoverage.",
+          '- After a source-preserving patch that leaves sourceImport present, verify with get-deck using compact: "true" so only slide IDs, count, and previews are returned. Do not claim success until sourceCoverage.complete is true and its expectedSlideIds and actualSlideIds match in order. If structural operations cleared sourceImport, verify the resulting slide count and order instead and do not require sourceCoverage.complete. Do not report an initial or partial pass, and do not leave any source slides for a later run.',
           "- If get-deck reports partial source fidelity or skipped images, stop and report the exact warning instead of claiming a reliable restyle.",
         ].join("\n")
       : "";
     const sourceModeInstructions = importedSourceDeck
       ? [
           "The request is an in-place visual improvement of an imported source deck. Make a coherent style pass across every existing slide while preserving all source content and media.",
-          "Do not use the new-deck add-slide workflow for this source-preserving request. Finish every source slide in this run; if patch-deck rejects incomplete coverage, continue with the returned missing IDs instead of reporting success with a partial deck.",
-          "The ordered source manifest and its full slide count are hard completion gates. Do not declare success, switch to unrelated content, or start a different deck brief until every source slide ID has been patched and get-deck compact=true reports sourceCoverage.complete=true with the expected and actual IDs matching in order.",
+          "Do not use the new-deck add-slide workflow for this source-preserving restyle. Finish every source slide in this run; if the user explicitly requests structural changes, use the normal slide operations and verify the resulting deck instead of treating source coverage as a limit.",
+          "While sourceImport is present, the ordered source manifest and its full slide count are hard completion gates: do not declare success, switch to unrelated content, or start a different deck brief until every source slide ID has been patched and get-deck compact=true reports sourceCoverage.complete=true with the expected and actual IDs matching in order. After structural edits clear sourceImport, verify the resulting slide count and order instead.",
         ].join("\n")
       : [
           "This is a new deck. Keep it empty until generation begins; attached reference files must not seed it with imported slides.",
-          "Start a `manage-progress` run so progress appears in the app header. Add the first slide as soon as it is ready, then continue one slide at a time so the editor visibly fills in.",
+          "Start a `manage-progress` run so progress appears in the app header. First make a compact outline and deck-level visual contract in working context, then add slides with `add-slide` one at a time so every generated slide preserves its per-slide Creative Context provenance.",
           "After reading any requested or attached reference material, but before adding the first slide, choose a concise, specific deck title from the user's request and source material. Never use the deck id, run id, file id, or another opaque alphanumeric token as the title. Call `patch-deck` with `deckId: \"" +
             deckId +
             '\"` and `operations: [{ "op": "patch-deck-fields", "fields": { "title": "<generated title>" } }]`. Include only `title` in `fields`; omit all other optional fields. Never leave a generated deck named "Untitled Deck" or another placeholder, and do not reuse the uploaded filename or a generic label like "Untitled scene" when the content can describe the deck better.',
           "If the user asks for a standalone visual, diagram, hero, one-pager, poster, or a couple of visuals, create only the requested one/few polished visual slides. Do not pad the result into a full presentation.",
-          "If the request is for a presentation or deck and does not explicitly ask for one slide, infer a coherent multi-slide outline from the scope and keep adding slides until that outline is complete. Do not stop after the first slide just because the prompt has few explicit instructions.",
-          "Add slides ONE AT A TIME using the `add-slide` action with --deckId=" +
+          "If the request is for a presentation or deck and does not explicitly ask for one slide, infer a coherent multi-slide outline from the scope and keep adding slides until that outline is complete. Do not stop after the first slide just because the prompt has few explicit instructions. Vary composition and information hierarchy while keeping the visual contract fixed across the deck.",
+          "Add every generated slide ONE AT A TIME using the `add-slide` action with --deckId=" +
             deckId +
-            ". Wait for each `add-slide` result before calling it again; do not batch or parallelize slide writes.",
-          "Use create-deck and add-slide for this already-created deck. Do not call the legacy generate-slides-ai action: it returns Markdown drafts rather than persisted rendered slide HTML. Treat each successful add-slide result as confirmation to continue with the next planned slide.",
+            "; wait for each result. After the first slide, call `get-deck` with its returned slideId and compact=false, inspect the full HTML for the semantic --deck-* declarations, canvas, type, spacing, and composition, and reuse that visual contract before continuing. Do not use `patch-deck` to append generated slides because `add-slide` records per-slide Creative Context provenance; use `patch-deck` for deck fields, existing-slide edits, ordering, or source-preserving work. Never issue parallel writes to the same deck.",
+          "Use create-deck and add-slide/patch-deck for this already-created deck. Do not call the legacy generate-slides-ai action: it returns Markdown drafts rather than persisted rendered slide HTML. Treat each successful write and compact readback as confirmation to continue with the next planned slides.",
         ].join("\n");
 
     const context = [
@@ -1007,20 +1056,23 @@ export default function Index() {
       "The visible user message above contains the user's request and/or pasted source material for the deck. Treat pasted memo content as source material even if the user did not explicitly say they are pasting it.",
       googleDocContext,
       fileContext,
+      referenceDocumentContext,
       referenceDeckContext,
       designSystemContext,
       referenceSourceContext,
       WEBSITE_STYLE_REFERENCE_DIRECTIVE,
       sourceDeckContext,
       "",
-      "Before generating, if the request or selected references leave a meaningful choice unresolved, use the `ask-question` tool to ask one concise, prompt-specific question in the inline guided-question flow. Generate the question wording and 2 to 4 options from the user's request and selected references, like Claude's design-question flow; do not use a fixed generic questionnaire. Ask only a choice that materially affects the deck, such as audience, tone, structure, or length. If the prompt already makes the choice clear, do not ask it again. Wait for the user's answer or skip before adding slides.",
+      "Before generating, if the request or selected references leave a meaningful choice unresolved, use the `ask-question` tool to ask one concise, prompt-specific question in the inline guided-question flow. Generate the question wording and 2 to 4 options from the user's request and selected references; do not use a fixed generic questionnaire. Ask only a choice that materially affects the deck, such as audience, tone, structure, or length. If the prompt already makes the choice clear, do not ask it again. Wait for the user's answer or skip before adding slides.",
       sourceModeInstructions,
-      "If the user asked for a specific slide count, keep going sequentially until that count is reached unless a tool error blocks you. If no explicit count was given (including when the guided slide-count question was skipped), infer the count from the distinct topics/sections implied by the request — one slide per section plus a title and closing slide — and add slides for every section before considering the deck done. Do not stop at an arbitrary round number (e.g. 10) if sections remain uncovered, and never call `generate-slides-ai` for this flow; it is a legacy single-shot helper capped at 10 slides.",
+      "If the user asked for a specific slide count, keep going until that count is reached unless a tool error blocks you. Add each generated slide through sequential add-slide calls, preserving the established deck contract and using a targeted get-deck read with slideId and compact=false after the first slide to verify it. If no explicit count was given (including when the guided slide-count question was skipped), infer the count from the distinct topics/sections implied by the request — one slide per section plus a title and closing slide — and add slides for every section before considering the deck done. Do not stop at an arbitrary round number (e.g. 10) if sections remain uncovered, and never call `generate-slides-ai` for this flow; it is a legacy single-shot helper capped at 10 slides.",
       "The original brief and uploaded/reference handles are persisted on the deck as generationContext. On every continuation or follow-up, call get-deck first and treat that context as the canonical brief. Continue the original slide sequence from the current slide count; do not replace it with a fresh topic inferred only from the follow-up message.",
       "An explicit theme or brand instruction in the original brief overrides the background, palette, and styling of an uploaded/reference image or source page. Preserve source content and imagery, but do not copy a white wireframe background when the requested theme is dark.",
-      "Do not report completion until the persisted generationContext targetSlideCount is reached, or, for source-preserving mode, get-deck compact=true reports sourceCoverage.complete=true for the ordered source manifest. If the current deck is short, finish the missing requested slides before adding unrelated content.",
-      "Every slide is rendered into a fixed native canvas (default 16:9 is 960x540 CSS pixels, with 740x380px available inside standard 80px 110px padding). Keep the main content within that fit budget; split dense source material across more slides instead of packing it tightly. Never use zoom, transform: scale(), clipping, or scroll overflow to hide content overflow, and keep body text at least 16px.",
-      "When no reference deck or hydrated design system is available, use a restrained, content-first visual language. Do not invent colorful cards, boxes, or decorative rectangles behind or over text; add a colored shape only when it has a clear semantic role and leaves the text unobscured. Prefer typography, spacing, alignment, and one restrained accent.",
+      "Do not report completion until the persisted generationContext targetSlideCount is reached, or, when sourceCoverage is present for source-preserving mode, get-deck compact=true reports it complete for the ordered source manifest. If the current deck is short, finish the missing requested slides before adding unrelated content.",
+      "Every slide is rendered into a fixed native canvas (default 16:9 is 960x540 CSS pixels, with 800x412px available inside standard 64px 80px padding). Keep the main content within that fit budget; split dense source material across more slides instead of packing it tightly. Never use zoom, transform: scale(), clipping, or scroll overflow to hide content overflow, and keep body text at least 16px.",
+      hasHydratedReferenceDesign
+        ? "The attached reference document's measured visual language above is the styling source of truth for this deck. Match its type scale, weights, colors, alignment, and margins instead of a generic light-card layout — a deck built from a style reference must not be indistinguishable from one built without it."
+        : "When no reference deck or hydrated design system is available, choose a subject-appropriate editorial direction and lock it before authoring: one canvas/background family, text and surface roles, type pairing, spacing scale, radius, and accent treatment. Express the contract with semantic --deck-* values on every fmd-slide wrapper. Keep the canvas and type system consistent across slides; vary layout, rhythm, and meaningful visual structure instead of adding colorful cards, decorative rectangles, gradient text, or filler bullets.",
       "Each slide's --content must be full HTML. Slide HTML templates are in your AGENTS.md.",
       "Do NOT use create-deck (the deck already exists). Do NOT call db-schema, the resources tool, or search-files.",
     ].join("\n");
@@ -1126,9 +1178,16 @@ export default function Index() {
       const retryContext =
         attachments.context ??
         (prompt === newDeckRetryPrompt ? newDeckRetryContext : undefined);
+      const retryReferenceFilePaths =
+        newDeckRetryFiles.length > 0 ? newDeckRetryReferenceFilePaths : [];
       setPendingDeck({
         prompt,
         files,
+        referenceFilePaths: retryReferenceFilePaths,
+        importedReference:
+          retryReferenceFilePaths.length > 0
+            ? newDeckRetryImportedReference
+            : undefined,
         context: retryContext,
         attachments: [
           ...(prompt === newDeckRetryPrompt ? newDeckRetryAttachments : []),
@@ -1143,6 +1202,8 @@ export default function Index() {
           : newDeckRetryModelSelection,
       });
       setNewDeckRetryPrompt(undefined);
+      setNewDeckRetryReferenceFilePaths([]);
+      setNewDeckRetryImportedReference(undefined);
       setNewDeckRetryContext(undefined);
       setNewDeckRetryAttachments([]);
       setNewDeckRetryModelSelection(undefined);
@@ -1150,7 +1211,10 @@ export default function Index() {
       return "retain" as const;
     },
     [
+      newDeckRetryFiles,
       newDeckRetryAttachments,
+      newDeckRetryReferenceFilePaths,
+      newDeckRetryImportedReference,
       newDeckRetryContext,
       newDeckRetryModelSelection,
       newDeckRetryPrompt,
@@ -1162,10 +1226,17 @@ export default function Index() {
     settlePendingDeckAttachments("discard");
     setNewDeckPromptOpen(false, { clearInitialPrompt: false });
     setNewDeckRetryPrompt(undefined);
+    setNewDeckRetryReferenceFilePaths([]);
+    setNewDeckRetryImportedReference(undefined);
     setNewDeckRetryContext(undefined);
     setNewDeckRetryAttachments([]);
     setNewDeckRetryModelSelection(undefined);
-    setPendingDeck({ prompt: "", files: [], attachments: [] });
+    setPendingDeck({
+      prompt: "",
+      files: [],
+      referenceFilePaths: [],
+      attachments: [],
+    });
     setShowNewDeckReferenceStep(true);
   }, [setNewDeckPromptOpen, settlePendingDeckAttachments]);
 
@@ -1307,10 +1378,41 @@ export default function Index() {
           forgetReference("deck");
         }
       }
+      const referenceFilePaths = [
+        ...new Set([
+          ...(pending.referenceFilePaths ?? []),
+          ...(selection.referenceFilePaths ?? []),
+        ]),
+      ];
+      // A retry re-enters this step with the reference deck from the failed
+      // attempt already in the list rather than freshly imported, so the
+      // selection no longer says which upload it was built from. Without this
+      // the retry re-reads that file, duplicating it alongside the reference
+      // deck and turning any read hiccup into a second hard stop.
+      const carriedImportedReference = pending.importedReference;
+      const carriedDeckSelected =
+        carriedImportedReference !== undefined &&
+        selection.referenceDeckId === carriedImportedReference.deckId;
+      // The reference deck can be deleted between the failed attempt and the
+      // retry. Its id then loads nothing while still reading as a reference,
+      // and its source would stay excluded — leaving the run with neither.
+      const carriedDeckMissing =
+        carriedDeckSelected &&
+        !decks.some((deck) => deck.id === carriedImportedReference.deckId);
+      const importedReferenceFilePath =
+        selection.importedReferenceFilePath ??
+        (carriedDeckSelected && !carriedDeckMissing
+          ? carriedImportedReference.filePath
+          : undefined);
       const generation = runPendingDeckGeneration(
         pending.prompt,
         pending.files,
-        selection,
+        {
+          ...selection,
+          ...(referenceFilePaths.length > 0 ? { referenceFilePaths } : {}),
+          ...(importedReferenceFilePath ? { importedReferenceFilePath } : {}),
+          ...(carriedDeckMissing ? { referenceDeckId: null } : {}),
+        },
         pending.context,
         pending.attachments,
         pending.modelSelection,
@@ -1319,7 +1421,13 @@ export default function Index() {
       setPendingDeck(null);
       await generation;
     },
-    [forgetReference, pendingDeck, rememberReference, runPendingDeckGeneration],
+    [
+      decks,
+      forgetReference,
+      pendingDeck,
+      rememberReference,
+      runPendingDeckGeneration,
+    ],
   );
 
   const handleReferenceImport = useCallback(
@@ -1338,7 +1446,12 @@ export default function Index() {
         const docxReference = uploaded.find((file) =>
           file.originalName.toLowerCase().endsWith(".docx"),
         );
+        const referenceFilePaths = uploaded
+          .filter((file) => /\.(pdf|pptx|docx)$/i.test(file.originalName))
+          .map((file) => file.path);
         let importedReference: ImportedReference | null = null;
+        // The target generation context must retain the source handle; the
+        // imported reference deck stores rendered slides, not the original file.
         let generationFiles = uploaded;
         if (pptxReference) {
           const imported = (await callAction(
@@ -1367,8 +1480,9 @@ export default function Index() {
                 ? imported.title
                 : t("home.importedReferenceDeck"),
             source: "pptx",
+            referenceFilePaths,
+            importedFilePath: pptxReference.path,
           };
-          generationFiles = uploaded.filter((file) => file !== pptxReference);
         } else if (pdfReference || docxReference) {
           const documentReference = pdfReference ?? docxReference;
           const documentFormat = pdfReference ? "pdf" : "docx";
@@ -1425,10 +1539,9 @@ export default function Index() {
                   ? imported.title
                   : t("home.importedReferenceDeck"),
               source: documentFormat,
+              referenceFilePaths,
+              importedFilePath: documentReference.path,
             };
-            generationFiles = uploaded.filter(
-              (file) => file !== documentReference,
-            );
           } catch (error) {
             deleteDeck(referenceDeck.id);
             throw error;
@@ -1436,7 +1549,16 @@ export default function Index() {
         }
         setPendingDeck((current) =>
           current
-            ? { ...current, files: [...current.files, ...generationFiles] }
+            ? {
+                ...current,
+                files: [...current.files, ...generationFiles],
+                referenceFilePaths: [
+                  ...new Set([
+                    ...current.referenceFilePaths,
+                    ...(importedReference?.referenceFilePaths ?? []),
+                  ]),
+                ],
+              }
             : current,
         );
         if (importedReference) {
@@ -1531,6 +1653,9 @@ export default function Index() {
       {
         designSystemId: null,
         referenceDeckId: null,
+        ...(pending.referenceFilePaths.length > 0
+          ? { referenceFilePaths: pending.referenceFilePaths }
+          : {}),
       },
       pending.context,
       pending.attachments,
@@ -1685,6 +1810,12 @@ export default function Index() {
     ),
   );
 
+  const viewState = deckListViewState({
+    loading,
+    loadError,
+    deckCount: decks.length,
+  });
+
   if (isStartingNewDeck) {
     return (
       <div
@@ -1698,7 +1829,7 @@ export default function Index() {
 
   return (
     <main className="min-w-0 flex-1 overflow-y-auto px-4 pb-6 pt-0 sm:px-6 sm:pb-10">
-      {loading ? (
+      {viewState === "loading" ? (
         <>
           <div className="mb-4 flex items-center justify-end">
             <div className="skeleton-shimmer h-3 w-16 rounded bg-muted" />
@@ -1717,7 +1848,7 @@ export default function Index() {
             </div>
           </div>
         </>
-      ) : loadError ? (
+      ) : viewState === "error" ? (
         <div className="flex min-h-[360px] items-center justify-center">
           <div className="flex max-w-sm flex-col items-center gap-3 text-center">
             <IconAlertTriangle className="size-7 text-destructive/70" />
@@ -1737,7 +1868,7 @@ export default function Index() {
             </Button>
           </div>
         </div>
-      ) : decks.length === 0 ? (
+      ) : viewState === "empty" ? (
         <EmptyState onCreateDeck={openNewDeck} />
       ) : (
         <>
@@ -1898,6 +2029,7 @@ export default function Index() {
         decks={decks}
         defaultDesignSystemId={initialDesignSystemId}
         defaultReferenceDeckId={initialReferenceDeckId}
+        onDesignSystemsChanged={() => void refetchDesignSystems()}
         onSelect={handleReferenceSelect}
         onImport={handleReferenceImport}
         onImportSource={handleReferenceSourceImport}
@@ -1939,59 +2071,6 @@ export default function Index() {
         </AlertDialogContent>
       </AlertDialog>
     </main>
-  );
-}
-
-function DeckFilterMenu({
-  value,
-  onChange,
-}: {
-  value: DeckFilter;
-  onChange: (value: DeckFilter) => void;
-}) {
-  const t = useT();
-  return (
-    <DropdownMenu>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              aria-label={
-                value === "mine"
-                  ? t("home.showMineDecks")
-                  : t("home.showAllDecks")
-              }
-              className="size-9 shrink-0 p-0"
-            >
-              <IconFilter className="size-3.5" aria-hidden="true" />
-            </Button>
-          </DropdownMenuTrigger>
-        </TooltipTrigger>
-        <TooltipContent>
-          {value === "mine" ? t("home.showMineDecks") : t("home.showAllDecks")}
-        </TooltipContent>
-      </Tooltip>
-      <DropdownMenuContent align="start">
-        <DropdownMenuRadioGroup
-          value={value}
-          onValueChange={(nextValue) => {
-            if (nextValue === "mine" || nextValue === "all") {
-              onChange(nextValue);
-            }
-          }}
-        >
-          <DropdownMenuRadioItem value="mine">
-            {t("home.mine")}
-          </DropdownMenuRadioItem>
-          <DropdownMenuRadioItem value="all">
-            {t("home.all")}
-          </DropdownMenuRadioItem>
-        </DropdownMenuRadioGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
   );
 }
 

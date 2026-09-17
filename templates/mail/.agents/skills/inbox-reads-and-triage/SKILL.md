@@ -1,13 +1,34 @@
 ---
 name: inbox-reads-and-triage
 description: >-
-  Listing and searching mail with coverage-aware inventory envelopes, refreshing
-  the UI after mutations, and bulk unread cleanup. Use when reading, searching,
-  counting, archiving, starring, moving, or marking mail read, or when reporting
-  how much of an inbox was covered.
+  Reading the inbox tab bar and rows, listing/searching mail with
+  coverage-aware inventory envelopes, refreshing the UI after mutations, and
+  bulk unread cleanup. Use when reading, searching, counting, archiving,
+  starring, moving, or marking mail read, or when reporting how much of an
+  inbox was covered.
 ---
 
 # Inbox Reads and Triage
+
+## Reading the inbox
+
+`list-inbox-threads` is the inbox view itself: it returns the tab bar
+(Important, pinned labels, saved filters, Other — or one combined Inbox tab
+when the user has "combine inbox" on), each tab's total/unread counts, and
+the active tab's rows, all computed from one partition over the synced inbox
+store. A tab's badge can never disagree with the rows it returns, and the
+read never waits on a live Gmail call. `tab` accepts any id from the returned
+`tabs` list; an unrecognized or omitted id falls back to the first tab. Use
+`list-emails`/`search-emails` for every other view (Sent, Archive, Trash, All
+Mail) or an ad hoc query — not for the inbox.
+
+Membership is Superhuman-style, not Gmail's own IMPORTANT label: a thread
+shows in every pinned-label/saved-filter tab whose query it matches (a thread
+can appear in more than one). A thread matching no custom tab falls to
+Important, unless its latest message classifies as automated (bulk senders,
+`List-Unsubscribe`, notification-style `from:`), in which case it falls to
+Other. If the inbox looks stale despite this, call `resync-inbox` to force an
+immediate Gmail resync instead of polling `list-inbox-threads` in a loop.
 
 ## Coverage-aware inventory reads
 
@@ -45,9 +66,11 @@ relying on ambient screen text.
 ## Moving the UI
 
 `navigate` accepts `view` (`inbox`, `starred`, `sent`, `drafts`, `scheduled`,
-`archive`, `trash`, `draft-queue`, `settings`), plus `threadId`,
-`settingsSection` (`drafting`, `automations`, `gmail-filters`, `aliases`,
-  `ai-filter`, `tracking`, `slack`, `team`), `queuedDraftId`, or `composeDraftId`.
+`archive`, `trash`, `draft-queue`, `settings`), plus `tab` (an inbox tab id
+from `list-inbox-threads`; `label`/`filter` are accepted aliases),
+`threadId`, `settingsSection` (`drafting`, `automations`, `gmail-filters`,
+`aliases`, `ai-filter`, `tracking`, `slack`, `team`), `queuedDraftId`, or
+`composeDraftId`.
 
 ## Related Skills
 

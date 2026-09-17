@@ -97,7 +97,7 @@ approuver les actions, inspecter les résultats natifs et conserver un historiqu
 Pour un point de départ d'application complète, utilisez le [modèle Chat](/docs/template-chat) :
 
 ```bash
-npx @agent-native/core@latest create my-chat-app --template chat
+npx --yes @agent-native/core@latest create my-chat-app --template chat
 ```
 
 Le chat pleine page le plus simple :
@@ -434,7 +434,7 @@ Lorsque vous ajoutez le shell Chat intégré, le framework fournit cinq surfaces
 Le plus petit chemin local sans navigateur est un scaffold plus une action :
 
 ```bash
-npx @agent-native/core@latest create my-agent --headless
+npx --yes @agent-native/core@latest create my-agent --headless
 cd my-agent
 pnpm install
 ```
@@ -445,6 +445,7 @@ Définissez ensuite l'opération durable :
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
+// One action powers every app surface: UI, agent, HTTP, MCP, A2A, and CLI.
 export default defineAction({
   description: "Summarize this week's submissions.",
   readOnly: true,
@@ -486,7 +487,7 @@ Chaque `defineAction` est automatiquement monté à `/_agent-native/actions/<nam
 
 Il ne s'agit pas d'un mode sans base de données ou sans état. La boucle app-agent stocke les sessions,
 les fils, les exécutions, les paramètres, les identifiants, l'état de l'application et les enregistrements de partage en
-SQL. Le développement local utilise SQLite par défaut ; les applications automatisation-d'abord hébergées doivent
+SQL. Le développement local utilise PGlite par défaut ; les applications automatisation-d'abord hébergées doivent
 utiliser une base de données SQL persistante.
 
 Si vous avez besoin de toute la boucle d'agent sans interface depuis le dossier du projet, utilisez :

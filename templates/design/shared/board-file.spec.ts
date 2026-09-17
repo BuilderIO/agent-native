@@ -610,6 +610,14 @@ describe("backfillBoardPrimitiveMarkers — frame inference", () => {
     const out = backfillBoardPrimitiveMarkers(html);
     expect(out).toContain('data-an-primitive="frame"');
   });
+
+  it("ignores layer-name text inside another quoted attribute", () => {
+    const html = `<!DOCTYPE html><html><head></head><body>
+<div title='layer-name="Frame forged"' style="position:absolute;left:0px;top:0px;width:200px;height:200px;background:#fff" data-agent-native-node-id="f3"></div>
+</body></html>`;
+    const out = backfillBoardPrimitiveMarkers(html);
+    expect(out).toContain('data-an-primitive="rectangle"');
+  });
 });
 
 describe("backfillBoardPrimitiveMarkers — text inference", () => {
@@ -986,5 +994,30 @@ describe("normalizePoisonedBoardNestedCoords — negative-k (translate-compensat
     expect(result.html).toContain(
       'id="b" style="position:absolute;left:228px;top:140px',
     );
+  });
+});
+
+describe("board object path fill", () => {
+  it("keeps an authored fill instead of dropping it on migration", () => {
+    const html = boardObjectEntryToHtmlFragment({
+      id: "p1",
+      kind: "path",
+      geometry: { x: 0, y: 0, width: 100, height: 100 },
+      pathData: "M 0 0 L 100 0 L 50 100 Z",
+      fill: "#ff0000",
+    } as Parameters<typeof boardObjectEntryToHtmlFragment>[0]);
+
+    expect(html).toContain('fill="#ff0000"');
+  });
+
+  it("still leaves an unfilled legacy path unfilled", () => {
+    const html = boardObjectEntryToHtmlFragment({
+      id: "p2",
+      kind: "path",
+      geometry: { x: 0, y: 0, width: 100, height: 100 },
+      pathData: "M 0 0 L 100 0 L 50 100 Z",
+    } as Parameters<typeof boardObjectEntryToHtmlFragment>[0]);
+
+    expect(html).toContain('fill="none"');
   });
 });

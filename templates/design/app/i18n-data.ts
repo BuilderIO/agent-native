@@ -1,4 +1,4 @@
-import { type LocaleCode } from "@agent-native/core/client/i18n";
+import { type BuiltinLocaleCode as LocaleCode } from "@agent-native/core/client/i18n";
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 import { breakpointBarOverrides } from "./i18n-breakpoints";
@@ -41,6 +41,11 @@ const enUS = {
     languageTitle: "Language",
     languageDescription: "Choose the interface language for Design.",
     languageLabel: "Interface language",
+    labs: "Labs",
+    labsIntro:
+      "These are new, unstable features and may have bugs. We value your feedback.",
+    labTweaks: "Design tweaks",
+    labTweaksDescription: "Try AI-powered design tweaks.",
   },
   pages: {
     presentEmpty: "No content to present",
@@ -85,6 +90,7 @@ const enUS = {
   },
   editPanel: {
     colorInputLabel: "color",
+    repeatAffectsAll: "Affects all {{count}} copies",
     properties: "Properties",
     pageHelpTitle: "Click any element on the canvas",
     pageHelpDescription:
@@ -306,6 +312,14 @@ const enUS = {
       right: "Right",
       justify: "Justify",
     },
+    positionAligns: {
+      left: "Align left",
+      centerHorizontal: "Align horizontal centers",
+      right: "Align right",
+      top: "Align top",
+      centerVertical: "Align vertical centers",
+      bottom: "Align bottom",
+    },
     textDecorations: {
       underline: "Underline",
       strikethrough: "Strikethrough",
@@ -321,6 +335,9 @@ const enUS = {
       detailsTab: "Details",
       decorationLabel: "Decoration",
       caseLabel: "Case",
+      truncateText: "Truncate text",
+      maxLines: "Max lines",
+      restoreError: "Could not restore the original text layout.",
     },
     flexDirections: {
       row: "Row",
@@ -365,6 +382,15 @@ const enUS = {
       absolute: "Absolute",
       fixed: "Fixed",
       sticky: "Sticky",
+    },
+    screenSource: {
+      title: "Source",
+      url: "URL",
+      urlLabel: "Screen URL",
+      urlPlaceholder: "/plans or http://localhost:5173/plans",
+      update: "Update",
+      chooseLocalApp: "Choose local app",
+      remove: "Remove screen",
     },
     borderStyleOptions: {
       none: "None",
@@ -420,6 +446,7 @@ const enUS = {
     componentInstances: {
       selectLayer: "Select layer",
       goToMain: "Go to main component",
+      restore: "Restore component",
       swap: "Swap instance",
       detach: "Detach instance",
       searchComponents: "Search components…",
@@ -434,6 +461,14 @@ const enUS = {
       swappedFor: 'Swapped for "{{name}}".',
       openPanelNudge: "Use the Swap instance picker in the Component panel.",
       openPanelFailed: "Could not open the component panel.",
+      linkedStructureUnsupported:
+        "Changing linked component layer structure is not supported yet.",
+      linkedEditScopeUnsupported:
+        "Linked component edits are available only at the base breakpoint and default interaction state.",
+      linkedEditSourceUnsupported:
+        "Linked component edits aren't available for this source mode yet.",
+      linkedEditTargetsUnavailable:
+        "This linked edit couldn't be resolved for every selected layer. No changes were made.",
     },
     makeItRealCard: {
       open: "Open",
@@ -647,12 +682,27 @@ const enUS = {
       chooseFigFile: "Choose .fig file",
       figUploadUploading: "Uploading {{progress}}%",
       figUploadProcessing: "Converting…",
+      figImportWarningTitle: "Large .fig import",
+      figImportWarningDescription:
+        "This file contains {{frames}} frames and {{nodes}} layers. Importing everything may slow the editor. Choose the frames you need.",
+      figImportFrameCount: "{{selected}} of {{total}} frames selected",
+      figImportSelectAll: "Select all",
+      figImportClearAll: "Clear all",
+      figImportCancel: "Cancel",
+      figImportSelected: "Import {{count}} selected",
+      figImportAll: "Import all",
+      figImportAnalyzing: "Analyzing…",
       figUploadDescriptionShort:
-        "Local import — no Figma API quota used. Embedded images included.",
+        "Local import — no Figma API quota used. Supported embedded images are included.",
+      figUploadImagesSkippedWarning:
+        "Skipped embedded images ({{count}}) because browser uploads have a per-image limit.",
       figmaPasteBodyUnlimited:
         "Works without a Figma token — geometry, layout, and text import immediately.",
       figmaPasteBodyImages:
         "Image fills may be missing without a token. Upload the .fig file to include embedded images.",
+      quotaCooldownTitle: "Design paused this import",
+      quotaCooldownBody:
+        "Design is pacing its own Figma requests after hitting a quota limit. This resets automatically.",
       rateLimitTitle: "Figma paused this import",
       rateLimitLowSeat:
         "Your seat type (Viewer/Collab) has a limited Figma API quota for file imports — up to 6 requests per month per the official Figma docs.",
@@ -714,7 +764,7 @@ const enUS = {
     templateSnapshotSummary:
       "{{screens}} screen(s) · {{locks}} locked layer(s) will be preserved",
     saveTemplate: "Save template",
-    templateSaved: "Template saved with {{count}} locked layer(s)",
+    templateSaved: "Template saved to library",
     templateSaveFailed: "Could not save this template",
     clickToRename: "Click to rename",
     collaborators: "Collaborators",
@@ -835,6 +885,7 @@ const enUS = {
         ellipse: "Ellipse",
         line: "Line",
         arrow: "Arrow",
+        booleanSubtract: "Subtract",
         selectAll: "Select all",
         selectParent: "Select parent",
         enterSelection: "Enter selection",
@@ -1044,12 +1095,12 @@ const enUS = {
       modeAuto: "Auto",
       modePreview: "Preview change",
       modeAsk: "Ask agent",
-      modeRegenerate: "Regenerate",
+      modeRegenerate: "Edit with AI", // i18n-copy-ignore: localized node-rewrite CTA overrides live in app/i18n/*.ts and are updated with this source string
       agentModeOptions: "Choose agent behavior",
       pendingReview: "Review changes · {{count}}",
       pendingReviewMenu: "Changes ready to review",
       reviewCandidate: "Review change",
-      regenerate: "Regenerate…",
+      regenerate: "Edit with AI…",
       sending: "Regenerating…",
       sent: "Regeneration request sent",
       sendFailed: "Could not send the regeneration request",
@@ -1123,9 +1174,14 @@ const enUS = {
       designStateLiveScreen:
         "Design states can't preview on a live screen — its content is the running app, not a document.",
       layerMoveFailed: "Could not move that layer",
+      groupFillApplyFailed:
+        "Could not apply this fill to every layer in the group.",
       layerMoveRedirected:
         "Moved next to its original spot — the exact drop target isn't editable",
       duplicateElementFailed: "Could not duplicate that element",
+      repeatListNotEditable: "Couldn't update this repeated list",
+      repeatRowPickOnCanvas:
+        "Double-click a row on the canvas to edit its text",
       eyedropperUnsupported: "Eyedropper isn't supported in this browser",
       saveCopyError: "Could not save a copy of this design",
       auditRunFailed: "Unable to run design audit",
@@ -1140,15 +1196,23 @@ const enUS = {
       saveConflict:
         "This screen changed elsewhere. Your last edit was not saved.",
       autoLayoutScreensUnsupported: "Add auto layout doesn't apply to screens",
+      booleanSubtractUnsupported:
+        "Select adjacent rectangles or ellipses with solid fills to subtract them.",
+      booleanSubtractFailed: "Could not subtract those layers.",
       reactSourceAnchorsLoading:
         "Can't locate this layer in the source. Try again once the app finishes loading, or ask the agent to make the change.",
       reactSourceAnchorsUnavailable:
         "This app doesn't expose source locations to the editor, so this layer can't be traced back to a line. Ask the agent to make the change.",
+      screenSourceUpdated: "Screen source updated",
+      screenSourceUpdateFailed: "Could not update screen source",
+      vectorEditUnsupported:
+        "Vector editing isn't available for this shape or transform.",
     },
   },
   layersPanel: {
     title: "Layers",
     screens: "Screens",
+    resizeScreens: "Resize screens section",
     allScreens: "All screens",
     thumbnail: "Thumbnail",
     addScreen: "Add screen",
@@ -1180,6 +1244,8 @@ const enUS = {
     frameSelection: "Frame selection",
     flipHorizontal: "Flip horizontal",
     flipVertical: "Flip vertical",
+    booleanOperations: "Boolean operations",
+    subtract: "Subtract",
     dragGhostCount: "{{count}} layers",
   },
   designCanvas: {
@@ -1412,6 +1478,8 @@ const enUS = {
     untitledDesign: "Untitled Design",
     createFirstDesign: "Create your first design",
     pickStartingPoint: "Pick a starting point or write your own prompt.",
+    searchNoResultsTitle: "No designs match your search",
+    searchNoResultsDescription: "Try a different search.",
     starterSaas: "SaaS landing page",
     starterDashboard: "Dashboard",
     starterPricing: "Pricing page",
@@ -1572,6 +1640,8 @@ const enUS = {
         "Use a full GitHub repository URL, like https://github.com/org/repo.",
       githubIndex:
         "Could not start GitHub indexing. Check your Builder connection and repository access.",
+      nameConflict:
+        "A design system with this name already exists. Choose a different name and try again.",
       chooseDesignMd: "Please choose a Markdown (.md or .mdx) file.",
       readDesignMd: "Could not read that Markdown file.",
       designMdTooLarge: "The Markdown file must be 2 MB or smaller.",
@@ -1798,6 +1868,7 @@ const designLocaleOverrides = {
     },
     editPanel: {
       colorInputLabel: "颜色",
+      repeatAffectsAll: "影响全部 {{count}} 个副本",
       properties: "特性",
       pageHelpTitle: "单击画布上的任意元素",
       pageHelpDescription:
@@ -1868,6 +1939,14 @@ const designLocaleOverrides = {
         right: "正确的",
         justify: "证明合法",
       },
+      positionAligns: {
+        left: "左对齐",
+        centerHorizontal: "水平居中对齐",
+        right: "右对齐",
+        top: "顶部对齐",
+        centerVertical: "垂直居中对齐",
+        bottom: "底部对齐",
+      },
       textDecorations: {
         underline: "下划线",
         strikethrough: "删除线",
@@ -1883,6 +1962,9 @@ const designLocaleOverrides = {
         detailsTab: "详细信息",
         decorationLabel: "装饰",
         caseLabel: "大小写",
+        truncateText: "截断文本",
+        maxLines: "最大行数",
+        restoreError: "无法恢复原始文本布局。",
       },
       flexDirections: {
         row: "排",
@@ -2064,6 +2146,7 @@ const designLocaleOverrides = {
           "使用完整的 GitHub 存储库 URL，例如 https://github.com/org/repo。",
         githubIndex:
           "无法启动 GitHub 索引。请检查 Builder 连接和仓库访问权限。",
+        nameConflict: "已存在同名设计系统。请更改名称后重试。",
         chooseDesignMd: "请选择 Markdown（.md 或 .mdx）文件。",
         readDesignMd: "无法读取该 Markdown 文件。",
         designMdTooLarge: "Markdown 文件必须不超过 2 MB。",
@@ -2227,6 +2310,7 @@ const designLocaleOverrides = {
     },
     editPanel: {
       colorInputLabel: "color",
+      repeatAffectsAll: "Afecta a las {{count}} copias",
       properties: "Propiedades",
       pageHelpTitle: "Haga clic en cualquier elemento del lienzo.",
       pageHelpDescription:
@@ -2297,6 +2381,14 @@ const designLocaleOverrides = {
         right: "Bien",
         justify: "Justificar",
       },
+      positionAligns: {
+        left: "Alinear a la izquierda",
+        centerHorizontal: "Centrar horizontalmente",
+        right: "Alinear a la derecha",
+        top: "Alinear arriba",
+        centerVertical: "Centrar verticalmente",
+        bottom: "Alinear abajo",
+      },
       textDecorations: {
         underline: "Subrayado",
         strikethrough: "Tachado",
@@ -2312,6 +2404,9 @@ const designLocaleOverrides = {
         detailsTab: "Detalles",
         decorationLabel: "Decoración",
         caseLabel: "Mayúsculas y minúsculas",
+        truncateText: "Recortar texto",
+        maxLines: "Máximo de líneas",
+        restoreError: "No se pudo restaurar el diseño original del texto.",
       },
       flexDirections: {
         row: "Fila",
@@ -2508,6 +2603,8 @@ const designLocaleOverrides = {
           "Utilice un repositorio GitHub completo URL, como https://github.com/org/repo.",
         githubIndex:
           "No se pudo iniciar la indexación de GitHub. Comprueba la conexión de Builder y el acceso al repositorio.",
+        nameConflict:
+          "Ya existe un sistema de diseño con este nombre. Elige otro nombre e inténtalo de nuevo.",
         chooseDesignMd: "Elija un archivo Markdown (.md o .mdx).",
         readDesignMd: "No se pudo leer ese archivo Markdown.",
         designMdTooLarge:
@@ -2682,6 +2779,7 @@ const designLocaleOverrides = {
     },
     editPanel: {
       colorInputLabel: "couleur",
+      repeatAffectsAll: "Affecte les {{count}} copies",
       properties: "Propriétés",
       pageHelpTitle: "Cliquez sur n'importe quel élément du canevas",
       pageHelpDescription:
@@ -2752,6 +2850,14 @@ const designLocaleOverrides = {
         right: "Droite",
         justify: "Justifier",
       },
+      positionAligns: {
+        left: "Aligner à gauche",
+        centerHorizontal: "Centrer horizontalement",
+        right: "Aligner à droite",
+        top: "Aligner en haut",
+        centerVertical: "Centrer verticalement",
+        bottom: "Aligner en bas",
+      },
       textDecorations: {
         underline: "Souligné",
         strikethrough: "Barré",
@@ -2767,6 +2873,10 @@ const designLocaleOverrides = {
         detailsTab: "Détails",
         decorationLabel: "Décoration",
         caseLabel: "Casse",
+        truncateText: "Tronquer le texte",
+        maxLines: "Nombre maximal de lignes",
+        restoreError:
+          "Impossible de restaurer la mise en page d’origine du texte.",
       },
       flexDirections: {
         row: "Rangée",
@@ -2968,6 +3078,8 @@ const designLocaleOverrides = {
           "Utilisez un référentiel GitHub complet URL, comme https://github.com/org/repo.",
         githubIndex:
           "Impossible de démarrer l’indexation GitHub. Vérifiez la connexion à Builder et l’accès au dépôt.",
+        nameConflict:
+          "Un système de design porte déjà ce nom. Choisissez un autre nom, puis réessayez.",
         chooseDesignMd: "Veuillez choisir un fichier Markdown (.md ou .mdx).",
         readDesignMd: "Impossible de lire ce fichier Markdown.",
         designMdTooLarge: "Le fichier Markdown doit faire 2 Mo ou moins.",
@@ -3141,6 +3253,7 @@ const designLocaleOverrides = {
     },
     editPanel: {
       colorInputLabel: "Farbe",
+      repeatAffectsAll: "Betrifft alle {{count}} Kopien",
       properties: "Eigenschaften",
       pageHelpTitle: "Klicken Sie auf ein beliebiges Element auf der Leinwand",
       pageHelpDescription:
@@ -3211,6 +3324,14 @@ const designLocaleOverrides = {
         right: "Rechts",
         justify: "Rechtfertigen",
       },
+      positionAligns: {
+        left: "Links ausrichten",
+        centerHorizontal: "Horizontal zentrieren",
+        right: "Rechts ausrichten",
+        top: "Oben ausrichten",
+        centerVertical: "Vertikal zentrieren",
+        bottom: "Unten ausrichten",
+      },
       textDecorations: {
         underline: "Unterstrichen",
         strikethrough: "Durchgestrichen",
@@ -3226,6 +3347,10 @@ const designLocaleOverrides = {
         detailsTab: "Details",
         decorationLabel: "Dekoration",
         caseLabel: "Groß-/Kleinschreibung",
+        truncateText: "Text kürzen",
+        maxLines: "Maximale Zeilen",
+        restoreError:
+          "Das ursprüngliche Textlayout konnte nicht wiederhergestellt werden.",
       },
       flexDirections: {
         row: "Reihe",
@@ -3428,6 +3553,8 @@ const designLocaleOverrides = {
           "Verwenden Sie ein vollständiges GitHub-Repository URL, wie https://github.com/org/repo.",
         githubIndex:
           "GitHub-Indizierung konnte nicht gestartet werden. Prüfe die Builder-Verbindung und den Repository-Zugriff.",
+        nameConflict:
+          "Ein Designsystem mit diesem Namen existiert bereits. Wähle einen anderen Namen und versuche es erneut.",
         chooseDesignMd: "Wählen Sie eine Markdown-Datei (.md oder .mdx) aus.",
         readDesignMd: "Diese Markdown-Datei konnte nicht gelesen werden.",
         designMdTooLarge: "Die Markdown-Datei darf höchstens 2 MB groß sein.",
@@ -3600,6 +3727,7 @@ const designLocaleOverrides = {
     },
     editPanel: {
       colorInputLabel: "色",
+      repeatAffectsAll: "{{count}} 件すべてのコピーに適用されます",
       properties: "プロパティ",
       pageHelpTitle: "キャンバス上の任意の要素をクリックします",
       pageHelpDescription:
@@ -3670,6 +3798,14 @@ const designLocaleOverrides = {
         right: "右",
         justify: "正当化する",
       },
+      positionAligns: {
+        left: "左揃え",
+        centerHorizontal: "左右中央揃え",
+        right: "右揃え",
+        top: "上揃え",
+        centerVertical: "上下中央揃え",
+        bottom: "下揃え",
+      },
       textDecorations: {
         underline: "下線",
         strikethrough: "取り消し線",
@@ -3685,6 +3821,9 @@ const designLocaleOverrides = {
         detailsTab: "詳細",
         decorationLabel: "装飾",
         caseLabel: "大文字/小文字",
+        truncateText: "テキストを省略",
+        maxLines: "最大行数",
+        restoreError: "元のテキストレイアウトを復元できませんでした。",
       },
       flexDirections: {
         row: "行",
@@ -3884,6 +4023,8 @@ const designLocaleOverrides = {
           "https://github.com/org/repo など、完全な GitHub リポジトリ URL を使用します。",
         githubIndex:
           "GitHub のインデックス作成を開始できませんでした。Builder の接続とリポジトリへのアクセスを確認してください。",
+        nameConflict:
+          "この名前のデザインシステムは既に存在します。別の名前に変更して再試行してください。",
         chooseDesignMd:
           "Markdown（.md または .mdx）ファイルを選択してください。",
         readDesignMd: "その Markdown ファイルを読み込めませんでした。",
@@ -4054,6 +4195,7 @@ const designLocaleOverrides = {
     },
     editPanel: {
       colorInputLabel: "색상",
+      repeatAffectsAll: "{{count}}개 사본 모두에 적용됩니다",
       properties: "속성",
       pageHelpTitle: "캔버스의 아무 요소나 클릭하세요.",
       pageHelpDescription:
@@ -4124,6 +4266,14 @@ const designLocaleOverrides = {
         right: "오른쪽",
         justify: "신이 옳다고 하다",
       },
+      positionAligns: {
+        left: "왼쪽 정렬",
+        centerHorizontal: "가로 가운데 정렬",
+        right: "오른쪽 정렬",
+        top: "위쪽 정렬",
+        centerVertical: "세로 가운데 정렬",
+        bottom: "아래쪽 정렬",
+      },
       textDecorations: {
         underline: "밑줄",
         strikethrough: "취소선",
@@ -4139,6 +4289,9 @@ const designLocaleOverrides = {
         detailsTab: "세부 정보",
         decorationLabel: "장식",
         caseLabel: "대소문자",
+        truncateText: "텍스트 자르기",
+        maxLines: "최대 줄 수",
+        restoreError: "원래 텍스트 레이아웃을 복원할 수 없습니다.",
       },
       flexDirections: {
         row: "열",
@@ -4333,6 +4486,8 @@ const designLocaleOverrides = {
           "https://github.com/org/repo와 같은 전체 GitHub 저장소 URL를 사용하세요.",
         githubIndex:
           "GitHub 인덱싱을 시작할 수 없습니다. Builder 연결과 저장소 접근 권한을 확인하세요.",
+        nameConflict:
+          "이 이름의 디자인 시스템이 이미 있습니다. 다른 이름으로 변경한 뒤 다시 시도하세요.",
         chooseDesignMd: "Markdown(.md 또는 .mdx) 파일을 선택하세요.",
         readDesignMd: "해당 Markdown 파일을 읽을 수 없습니다.",
         designMdTooLarge: "Markdown 파일은 2MB 이하여야 합니다.",
@@ -4500,6 +4655,7 @@ const designLocaleOverrides = {
     },
     editPanel: {
       colorInputLabel: "cor",
+      repeatAffectsAll: "Afeta todas as {{count}} cópias",
       properties: "Propriedades",
       pageHelpTitle: "Clique em qualquer elemento na tela",
       pageHelpDescription:
@@ -4570,6 +4726,14 @@ const designLocaleOverrides = {
         right: "Certo",
         justify: "Justificar",
       },
+      positionAligns: {
+        left: "Alinhar à esquerda",
+        centerHorizontal: "Centralizar horizontalmente",
+        right: "Alinhar à direita",
+        top: "Alinhar acima",
+        centerVertical: "Centralizar verticalmente",
+        bottom: "Alinhar abaixo",
+      },
       textDecorations: {
         underline: "Sublinhado",
         strikethrough: "Tachado",
@@ -4585,6 +4749,9 @@ const designLocaleOverrides = {
         detailsTab: "Detalhes",
         decorationLabel: "Decoração",
         caseLabel: "Maiúsculas e minúsculas",
+        truncateText: "Truncar texto",
+        maxLines: "Máximo de linhas",
+        restoreError: "Não foi possível restaurar o layout original do texto.",
       },
       flexDirections: {
         row: "Linha",
@@ -4782,6 +4949,8 @@ const designLocaleOverrides = {
           "Use um repositório GitHub completo URL, como https://github.com/org/repo.",
         githubIndex:
           "Não foi possível iniciar a indexação do GitHub. Verifique a conexão do Builder e o acesso ao repositório.",
+        nameConflict:
+          "Já existe um sistema de design com esse nome. Escolha outro nome e tente novamente.",
         chooseDesignMd: "Escolha um arquivo Markdown (.md ou .mdx).",
         readDesignMd: "Não foi possível ler esse arquivo Markdown.",
         designMdTooLarge: "O arquivo Markdown deve ter no máximo 2 MB.",
@@ -4954,6 +5123,7 @@ const designLocaleOverrides = {
     },
     editPanel: {
       colorInputLabel: "रंग",
+      repeatAffectsAll: "सभी {{count}} प्रतियों पर लागू होता है",
       properties: "गुण",
       pageHelpTitle: "कैनवास पर किसी भी तत्व पर क्लिक करें",
       pageHelpDescription:
@@ -5024,6 +5194,14 @@ const designLocaleOverrides = {
         right: "सही",
         justify: "औचित्य",
       },
+      positionAligns: {
+        left: "बाएँ संरेखित करें",
+        centerHorizontal: "क्षैतिज रूप से मध्य में संरेखित करें",
+        right: "दाएँ संरेखित करें",
+        top: "ऊपर संरेखित करें",
+        centerVertical: "लंबवत रूप से मध्य में संरेखित करें",
+        bottom: "नीचे संरेखित करें",
+      },
       textDecorations: {
         underline: "रेखांकित",
         strikethrough: "स्ट्राइकथ्रू",
@@ -5039,6 +5217,9 @@ const designLocaleOverrides = {
         detailsTab: "विवरण",
         decorationLabel: "सजावट",
         caseLabel: "बड़े/छोटे अक्षर",
+        truncateText: "पाठ छोटा करें",
+        maxLines: "अधिकतम पंक्तियाँ",
+        restoreError: "पाठ का मूल लेआउट पुनर्स्थापित नहीं हो सका।",
       },
       flexDirections: {
         row: "पंक्ति",
@@ -5229,6 +5410,8 @@ const designLocaleOverrides = {
           "https://github.com/org/repo जैसे पूर्ण GitHub रिपॉजिटरी URL का उपयोग करें।",
         githubIndex:
           "GitHub इंडेक्सिंग शुरू नहीं हो सकी। Builder कनेक्शन और रिपॉजिटरी एक्सेस जाँचें।",
+        nameConflict:
+          "इस नाम का डिज़ाइन सिस्टम पहले से मौजूद है। कोई दूसरा नाम चुनकर फिर कोशिश करें।",
         chooseDesignMd: "कृपया Markdown (.md या .mdx) फ़ाइल चुनें।",
         readDesignMd: "वह Markdown फ़ाइल पढ़ी नहीं जा सकी।",
         designMdTooLarge: "Markdown फ़ाइल 2 MB या उससे छोटी होनी चाहिए।",
@@ -5396,6 +5579,7 @@ const designLocaleOverrides = {
     },
     editPanel: {
       colorInputLabel: "لون",
+      repeatAffectsAll: "يؤثر على جميع النسخ ({{count}})",
       properties: "ملكيات",
       pageHelpTitle: "انقر فوق أي عنصر على اللوحة القماشية",
       pageHelpDescription:
@@ -5466,6 +5650,14 @@ const designLocaleOverrides = {
         right: "يمين",
         justify: "يبرر",
       },
+      positionAligns: {
+        left: "محاذاة إلى اليسار",
+        centerHorizontal: "توسيط أفقي",
+        right: "محاذاة إلى اليمين",
+        top: "محاذاة إلى الأعلى",
+        centerVertical: "توسيط رأسي",
+        bottom: "محاذاة إلى الأسفل",
+      },
       textDecorations: {
         underline: "تسطير",
         strikethrough: "يتوسطه خط",
@@ -5481,6 +5673,9 @@ const designLocaleOverrides = {
         detailsTab: "التفاصيل",
         decorationLabel: "زخرفة",
         caseLabel: "حالة الأحرف",
+        truncateText: "اقتطاع النص",
+        maxLines: "الحد الأقصى للأسطر",
+        restoreError: "تعذرت استعادة تخطيط النص الأصلي.",
       },
       flexDirections: {
         row: "صف",
@@ -5671,6 +5866,8 @@ const designLocaleOverrides = {
           "استخدم مستودع GitHub الكامل URL، مثل https://github.com/org/repo.",
         githubIndex:
           "تعذر بدء فهرسة GitHub. تحقق من اتصال Builder ومن صلاحية الوصول إلى المستودع.",
+        nameConflict:
+          "يوجد بالفعل نظام تصميم بهذا الاسم. اختر اسمًا آخر ثم أعد المحاولة.",
         chooseDesignMd: "يرجى اختيار ملف Markdown (.md أو .mdx).",
         readDesignMd: "تعذر قراءة ملف Markdown هذا.",
         designMdTooLarge: "يجب ألا يتجاوز حجم ملف Markdown ‏2 ميغابايت.",
@@ -5959,6 +6156,8 @@ const designRawLiteralOverrides = {
       untitledDesign: "无标题Design",
       createFirstDesign: "创建您的第一个设计",
       pickStartingPoint: "选择一个起点或编写您自己的提示。",
+      searchNoResultsTitle: "没有符合此搜索条件的设计",
+      searchNoResultsDescription: "请尝试其他搜索。",
       starterSaas: "SaaS 登陆页面",
       starterDashboard: "仪表板",
       starterPricing: "定价页面",
@@ -6124,6 +6323,8 @@ const designRawLiteralOverrides = {
       createFirstDesign: "Crea tu primer diseño",
       pickStartingPoint:
         "Elija un punto de partida o escriba su propio mensaje.",
+      searchNoResultsTitle: "Ningún diseño coincide con esta búsqueda",
+      searchNoResultsDescription: "Prueba con otra búsqueda.",
       starterSaas: "Página de inicio de SaaS",
       starterDashboard: "Panel",
       starterPricing: "Página de precios",
@@ -6289,6 +6490,8 @@ const designRawLiteralOverrides = {
       createFirstDesign: "Créez votre premier design",
       pickStartingPoint:
         "Choisissez un point de départ ou rédigez votre propre invite.",
+      searchNoResultsTitle: "Aucun design ne correspond à cette recherche",
+      searchNoResultsDescription: "Essayez une autre recherche.",
       starterSaas: "Page de destination SaaS",
       starterDashboard: "Tableau de bord",
       starterPricing: "Page de tarification",
@@ -6455,6 +6658,8 @@ const designRawLiteralOverrides = {
       createFirstDesign: "Erstellen Sie Ihr erstes Design",
       pickStartingPoint:
         "Wählen Sie einen Ausgangspunkt oder schreiben Sie Ihre eigene Aufforderung.",
+      searchNoResultsTitle: "Keine Designs entsprechen dieser Suche",
+      searchNoResultsDescription: "Versuche es mit einer anderen Suche.",
       starterSaas: "SaaS-Landingpage",
       starterDashboard: "Dashboard",
       starterPricing: "Preisseite",
@@ -6616,6 +6821,8 @@ const designRawLiteralOverrides = {
       untitledDesign: "無題 Design",
       createFirstDesign: "最初のデザインを作成する",
       pickStartingPoint: "開始点を選択するか、独自のプロンプトを作成します。",
+      searchNoResultsTitle: "この検索に一致するデザインはありません",
+      searchNoResultsDescription: "別の検索をお試しください。",
       starterSaas: "SaaS ランディング ページ",
       starterDashboard: "ダッシュボード",
       starterPricing: "価格ページ",
@@ -6776,6 +6983,8 @@ const designRawLiteralOverrides = {
       untitledDesign: "제목 없음 Design",
       createFirstDesign: "첫 번째 디자인 만들기",
       pickStartingPoint: "시작점을 선택하거나 자신만의 프롬프트를 작성하세요.",
+      searchNoResultsTitle: "이 검색과 일치하는 디자인이 없습니다",
+      searchNoResultsDescription: "다른 검색어를 입력해 보세요.",
       starterSaas: "SaaS 랜딩 페이지",
       starterDashboard: "대시보드",
       starterPricing: "가격 페이지",
@@ -6941,6 +7150,8 @@ const designRawLiteralOverrides = {
       createFirstDesign: "Crie seu primeiro design",
       pickStartingPoint:
         "Escolha um ponto de partida ou escreva seu próprio prompt.",
+      searchNoResultsTitle: "Nenhum design corresponde a esta busca",
+      searchNoResultsDescription: "Tente outra busca.",
       starterSaas: "Página de destino SaaS",
       starterDashboard: "Painel",
       starterPricing: "Página de preços",
@@ -7101,6 +7312,8 @@ const designRawLiteralOverrides = {
       untitledDesign: "शीर्षक रहित Design",
       createFirstDesign: "अपना पहला डिज़ाइन बनाएं",
       pickStartingPoint: "एक प्रारंभिक बिंदु चुनें या अपना स्वयं का संकेत लिखें।",
+      searchNoResultsTitle: "इस खोज से मेल खाने वाला कोई डिज़ाइन नहीं है",
+      searchNoResultsDescription: "कोई दूसरी खोज आज़माएँ।",
       starterSaas: "सास लैंडिंग पृष्ठ",
       starterDashboard: "डैशबोर्ड",
       starterPricing: "मूल्य निर्धारण पृष्ठ",
@@ -7261,6 +7474,8 @@ const designRawLiteralOverrides = {
       untitledDesign: "بدون عنوان Design",
       createFirstDesign: "قم بإنشاء تصميمك الأول",
       pickStartingPoint: "اختر نقطة بداية أو اكتب مطالبتك الخاصة.",
+      searchNoResultsTitle: "لا توجد تصميمات تطابق هذا البحث",
+      searchNoResultsDescription: "جرّب بحثًا مختلفًا.",
       starterSaas: "الصفحة المقصودة SaaS",
       starterDashboard: "لوحة المعلومات",
       starterPricing: "صفحة التسعير",
@@ -10107,8 +10322,11 @@ const designCanvasFeatureOverrides = {
         propsPasted: "属性已粘贴",
         primitiveInsertFailed: "无法将该图层添加到画面",
         layerMoveFailed: "无法移动该图层",
+        groupFillApplyFailed: "无法将此填充应用到组中的所有图层。",
         layerMoveRedirected: "已移动到原位置附近——精确的放置目标不可编辑",
         duplicateElementFailed: "无法复制该元素",
+        repeatListNotEditable: "无法更新此重复列表",
+        repeatRowPickOnCanvas: "在画布上双击某一行以编辑其文本",
         eyedropperUnsupported: "此浏览器不支持取色器",
       },
     },
@@ -10212,9 +10430,14 @@ const designCanvasFeatureOverrides = {
         propsPasted: "Propiedades pegadas",
         primitiveInsertFailed: "No se pudo añadir esa capa a la pantalla",
         layerMoveFailed: "No se pudo mover esa capa",
+        groupFillApplyFailed:
+          "No se pudo aplicar este relleno a todas las capas del grupo.",
         layerMoveRedirected:
           "Se movió cerca de su lugar original — el destino exacto no es editable",
         duplicateElementFailed: "No se pudo duplicar ese elemento",
+        repeatListNotEditable: "No se pudo actualizar esta lista repetida",
+        repeatRowPickOnCanvas:
+          "Haz doble clic en una fila del lienzo para editar su texto",
         eyedropperUnsupported:
           "El cuentagotas no es compatible con este navegador",
       },
@@ -10321,9 +10544,15 @@ const designCanvasFeatureOverrides = {
         propsPasted: "Propriétés collées",
         primitiveInsertFailed: "Impossible d’ajouter ce calque à l’écran",
         layerMoveFailed: "Impossible de déplacer ce calque",
+        groupFillApplyFailed:
+          "Impossible d’appliquer ce remplissage à tous les calques du groupe.",
         layerMoveRedirected:
           "Déplacé à proximité de son emplacement d’origine — la cible exacte n’est pas modifiable",
         duplicateElementFailed: "Impossible de dupliquer cet élément",
+        repeatListNotEditable:
+          "Impossible de mettre à jour cette liste répétée",
+        repeatRowPickOnCanvas:
+          "Double-cliquez sur une ligne du canevas pour modifier son texte",
         eyedropperUnsupported:
           "La pipette n'est pas prise en charge par ce navigateur",
       },
@@ -10430,9 +10659,15 @@ const designCanvasFeatureOverrides = {
         primitiveInsertFailed:
           "Diese Ebene konnte nicht zur Ansicht hinzugefügt werden",
         layerMoveFailed: "Diese Ebene konnte nicht verschoben werden",
+        groupFillApplyFailed:
+          "Diese Füllung konnte nicht auf alle Ebenen der Gruppe angewendet werden.",
         layerMoveRedirected:
           "In die Nähe der ursprünglichen Stelle verschoben — das genaue Ziel ist nicht bearbeitbar",
         duplicateElementFailed: "Dieses Element konnte nicht dupliziert werden",
+        repeatListNotEditable:
+          "Diese wiederholte Liste konnte nicht aktualisiert werden",
+        repeatRowPickOnCanvas:
+          "Doppelklicke auf eine Zeile auf der Leinwand, um ihren Text zu bearbeiten",
         eyedropperUnsupported:
           "Die Pipette wird von diesem Browser nicht unterstützt",
       },
@@ -10536,9 +10771,14 @@ const designCanvasFeatureOverrides = {
         propsPasted: "プロパティを貼り付けました",
         primitiveInsertFailed: "そのレイヤーを画面に追加できませんでした",
         layerMoveFailed: "そのレイヤーを移動できませんでした",
+        groupFillApplyFailed:
+          "この塗りをグループ内のすべてのレイヤーに適用できませんでした。",
         layerMoveRedirected:
           "元の位置の近くに移動しました — 正確なドロップ先は編集できません",
         duplicateElementFailed: "その要素を複製できませんでした",
+        repeatListNotEditable: "この繰り返しリストを更新できませんでした",
+        repeatRowPickOnCanvas:
+          "キャンバス上の行をダブルクリックしてテキストを編集してください",
         eyedropperUnsupported: "このブラウザではスポイトツールを使用できません",
       },
     },
@@ -10641,9 +10881,14 @@ const designCanvasFeatureOverrides = {
         propsPasted: "속성이 붙여넣어짐",
         primitiveInsertFailed: "해당 레이어를 화면에 추가할 수 없습니다",
         layerMoveFailed: "해당 레이어를 이동할 수 없습니다",
+        groupFillApplyFailed:
+          "그룹의 모든 레이어에 이 채우기를 적용할 수 없습니다.",
         layerMoveRedirected:
           "원래 위치 근처로 이동되었습니다 — 정확한 놓기 대상은 편집할 수 없습니다",
         duplicateElementFailed: "해당 요소를 복제할 수 없습니다",
+        repeatListNotEditable: "이 반복 목록을 업데이트할 수 없습니다",
+        repeatRowPickOnCanvas:
+          "캔버스에서 행을 두 번 클릭해 텍스트를 편집하세요",
         eyedropperUnsupported: "이 브라우저에서는 스포이드를 지원하지 않습니다",
       },
     },
@@ -10747,9 +10992,14 @@ const designCanvasFeatureOverrides = {
         propsPasted: "Propriedades coladas",
         primitiveInsertFailed: "Não foi possível adicionar essa camada à tela",
         layerMoveFailed: "Não foi possível mover essa camada",
+        groupFillApplyFailed:
+          "Não foi possível aplicar este preenchimento a todas as camadas do grupo.",
         layerMoveRedirected:
           "Movido para perto do local original — o destino exato não é editável",
         duplicateElementFailed: "Não foi possível duplicar esse elemento",
+        repeatListNotEditable: "Não foi possível atualizar esta lista repetida",
+        repeatRowPickOnCanvas:
+          "Clique duas vezes em uma linha na tela para editar o texto",
         eyedropperUnsupported:
           "O conta-gotas não é compatível com este navegador",
       },
@@ -10853,9 +11103,13 @@ const designCanvasFeatureOverrides = {
         propsPasted: "गुण चिपकाए गए",
         primitiveInsertFailed: "उस परत को स्क्रीन में नहीं जोड़ा जा सका",
         layerMoveFailed: "उस परत को स्थानांतरित नहीं किया जा सका",
+        groupFillApplyFailed: "यह भराव समूह की सभी परतों पर लागू नहीं किया जा सका।",
         layerMoveRedirected:
           "मूल स्थान के पास ले जाया गया — सटीक ड्रॉप लक्ष्य संपादन योग्य नहीं है",
         duplicateElementFailed: "उस तत्व की प्रतिलिपि नहीं बनाई जा सकी",
+        repeatListNotEditable: "यह दोहराई गई सूची अपडेट नहीं हो सकी",
+        repeatRowPickOnCanvas:
+          "टेक्स्ट बदलने के लिए कैनवास पर किसी पंक्ति पर डबल-क्लिक करें",
         eyedropperUnsupported: "इस ब्राउज़र में आई-ड्रॉपर समर्थित नहीं है",
       },
     },
@@ -10958,9 +11212,13 @@ const designCanvasFeatureOverrides = {
         propsPasted: "تم لصق الخصائص",
         primitiveInsertFailed: "تعذرت إضافة تلك الطبقة إلى الشاشة",
         layerMoveFailed: "تعذر نقل تلك الطبقة",
+        groupFillApplyFailed:
+          "تعذر تطبيق هذا التعبئة على جميع الطبقات في المجموعة.",
         layerMoveRedirected:
           "تم النقل بالقرب من الموضع الأصلي — الهدف الدقيق للإفلات غير قابل للتحرير",
         duplicateElementFailed: "تعذّر تكرار هذا العنصر",
+        repeatListNotEditable: "لم يتمكن من تحديث هذه القائمة المتكررة",
+        repeatRowPickOnCanvas: "انقر نقرًا مزدوجًا على صف في اللوحة لتعديل نصه",
         eyedropperUnsupported: "أداة القطارة غير مدعومة في هذا المتصفح",
       },
     },
@@ -12620,6 +12878,16 @@ const designImportOverrides = {
         chooseFigFile: "選擇 .fig 檔案",
         figUploadUploading: "上傳中 {{progress}}%",
         figUploadProcessing: "轉換中…",
+        figImportWarningTitle: "大型 .fig 匯入",
+        figImportWarningDescription:
+          "此檔案包含 {{frames}} 個畫框和 {{nodes}} 個圖層。全部匯入可能會讓編輯器變慢。請選擇需要的畫框。",
+        figImportFrameCount: "已選取 {{selected}} / {{total}} 個畫框",
+        figImportSelectAll: "全選",
+        figImportClearAll: "全部清除",
+        figImportCancel: "取消",
+        figImportSelected: "匯入已選取的 {{count}} 個",
+        figImportAll: "全部匯入",
+        figImportAnalyzing: "分析中…",
         htmlTitle: "匯入 HTML",
         htmlDescription:
           "貼上或上傳獨立 HTML。Design 會將其儲存為新螢幕，不會注入到此編輯器 UI。",
@@ -12657,6 +12925,9 @@ const designImportOverrides = {
   "zh-CN": {
     designEditor: {
       import: {
+        quotaCooldownTitle: "Design 已暂停此导入",
+        quotaCooldownBody:
+          "达到配额上限后，Design 正在限制自身的 Figma 请求速率。配额将自动重置。",
         title: "导入",
         description: "将 Figma 剪贴板 HTML 或独立 HTML 导入为 Design 屏幕。",
         figmaPasteTitle: "从 Figma 粘贴",
@@ -12687,6 +12958,16 @@ const designImportOverrides = {
         chooseFigFile: "选择 .fig 文件",
         figUploadUploading: "正在上传 {{progress}}%",
         figUploadProcessing: "正在转换…",
+        figImportWarningTitle: "大型 .fig 导入",
+        figImportWarningDescription:
+          "此文件包含 {{frames}} 个画框和 {{nodes}} 个图层。全部导入可能会让编辑器变慢。请选择需要的画框。",
+        figImportFrameCount: "已选择 {{selected}} / {{total}} 个画框",
+        figImportSelectAll: "全选",
+        figImportClearAll: "全部清除",
+        figImportCancel: "取消",
+        figImportSelected: "导入已选择的 {{count}} 个",
+        figImportAll: "全部导入",
+        figImportAnalyzing: "正在分析…",
         htmlTitle: "导入 HTML",
         htmlDescription:
           "粘贴或上传独立 HTML。Design 会将其保存为新屏幕，不会注入到此编辑器界面。",
@@ -12724,6 +13005,9 @@ const designImportOverrides = {
   "es-ES": {
     designEditor: {
       import: {
+        quotaCooldownTitle: "Design ha pausado esta importación",
+        quotaCooldownBody:
+          "Design está regulando sus propias solicitudes a Figma tras alcanzar un límite de cuota. Se restablece automáticamente.",
         title: "Importar",
         description:
           "Trae HTML del portapapeles de Figma o HTML independiente como pantallas de Design.",
@@ -12757,6 +13041,16 @@ const designImportOverrides = {
         chooseFigFile: "Elegir archivo .fig",
         figUploadUploading: "Subiendo {{progress}}%",
         figUploadProcessing: "Convirtiendo…",
+        figImportWarningTitle: "Importación .fig grande",
+        figImportWarningDescription:
+          "Este archivo contiene {{frames}} marcos y {{nodes}} capas. Importarlo todo puede ralentizar el editor. Elige los marcos que necesitas.",
+        figImportFrameCount: "{{selected}} de {{total}} marcos seleccionados",
+        figImportSelectAll: "Seleccionar todo",
+        figImportClearAll: "Borrar todo",
+        figImportCancel: "Cancelar",
+        figImportSelected: "Importar {{count}} seleccionados",
+        figImportAll: "Importar todo",
+        figImportAnalyzing: "Analizando…",
         htmlTitle: "Importar HTML",
         htmlDescription:
           "Pega o sube HTML independiente. Design lo guarda como una pantalla nueva sin inyectarlo en esta interfaz.",
@@ -12796,6 +13090,9 @@ const designImportOverrides = {
   "fr-FR": {
     designEditor: {
       import: {
+        quotaCooldownTitle: "Design a mis cet import en pause",
+        quotaCooldownBody:
+          "Design limite ses propres requêtes Figma après avoir atteint un quota. La réinitialisation est automatique.",
         title: "Importer",
         description:
           "Importez le HTML du presse-papiers Figma ou du HTML autonome comme écrans Design.",
@@ -12829,6 +13126,16 @@ const designImportOverrides = {
         chooseFigFile: "Choisir un fichier .fig",
         figUploadUploading: "Téléversement {{progress}} %",
         figUploadProcessing: "Conversion…",
+        figImportWarningTitle: "Importation .fig volumineuse",
+        figImportWarningDescription:
+          "Ce fichier contient {{frames}} cadres et {{nodes}} calques. Tout importer peut ralentir l’éditeur. Choisissez les cadres nécessaires.",
+        figImportFrameCount: "{{selected}} cadres sur {{total}} sélectionnés",
+        figImportSelectAll: "Tout sélectionner",
+        figImportClearAll: "Tout effacer",
+        figImportCancel: "Annuler",
+        figImportSelected: "Importer {{count}} sélectionnés",
+        figImportAll: "Tout importer",
+        figImportAnalyzing: "Analyse…",
         htmlTitle: "Importer HTML",
         htmlDescription:
           "Collez ou téléversez du HTML autonome. Design l’enregistre comme nouvel écran sans l’injecter dans cette interface.",
@@ -12868,6 +13175,9 @@ const designImportOverrides = {
   "de-DE": {
     designEditor: {
       import: {
+        quotaCooldownTitle: "Design hat diesen Import angehalten",
+        quotaCooldownBody:
+          "Design drosselt seine eigenen Figma-Anfragen, nachdem ein Kontingentlimit erreicht wurde. Das wird automatisch zurückgesetzt.",
         title: "Import",
         description:
           "Bringe Figma-Zwischenablage-HTML oder eigenständiges HTML als Design-Bildschirme hinein.",
@@ -12901,6 +13211,16 @@ const designImportOverrides = {
         chooseFigFile: ".fig-Datei wählen",
         figUploadUploading: "Wird hochgeladen: {{progress}} %",
         figUploadProcessing: "Wird konvertiert…",
+        figImportWarningTitle: "Großer .fig-Import",
+        figImportWarningDescription:
+          "Diese Datei enthält {{frames}} Frames und {{nodes}} Ebenen. Alles zu importieren kann den Editor verlangsamen. Wähle die benötigten Frames aus.",
+        figImportFrameCount: "{{selected}} von {{total}} Frames ausgewählt",
+        figImportSelectAll: "Alle auswählen",
+        figImportClearAll: "Alle löschen",
+        figImportCancel: "Abbrechen",
+        figImportSelected: "{{count}} ausgewählte importieren",
+        figImportAll: "Alle importieren",
+        figImportAnalyzing: "Wird analysiert…",
         htmlTitle: "HTML importieren",
         htmlDescription:
           "Füge eigenständiges HTML ein oder lade es hoch. Design speichert es als neuen Bildschirm, ohne es in diese Editor-UI einzufügen.",
@@ -12939,6 +13259,9 @@ const designImportOverrides = {
   "ja-JP": {
     designEditor: {
       import: {
+        quotaCooldownTitle: "Design がこのインポートを一時停止しました",
+        quotaCooldownBody:
+          "クォータの上限に達したため、Design が Figma へのリクエストを調整しています。自動的にリセットされます。",
         title: "インポート",
         description:
           "Figma のクリップボード HTML または単体 HTML を Design の画面として取り込みます。",
@@ -12972,6 +13295,16 @@ const designImportOverrides = {
         chooseFigFile: ".fig ファイルを選択",
         figUploadUploading: "アップロード中 {{progress}}%",
         figUploadProcessing: "変換中…",
+        figImportWarningTitle: "大規模な .fig のインポート",
+        figImportWarningDescription:
+          "このファイルには {{frames}} 個のフレームと {{nodes}} 個のレイヤーがあります。すべてをインポートするとエディターが遅くなる可能性があります。必要なフレームを選択してください。",
+        figImportFrameCount: "{{total}} 個中 {{selected}} 個のフレームを選択",
+        figImportSelectAll: "すべて選択",
+        figImportClearAll: "すべて解除",
+        figImportCancel: "キャンセル",
+        figImportSelected: "選択した {{count}} 個をインポート",
+        figImportAll: "すべてインポート",
+        figImportAnalyzing: "分析中…",
         htmlTitle: "HTML をインポート",
         htmlDescription:
           "単体 HTML を貼り付けるかアップロードします。Design はこのエディター UI に注入せず、新しい画面として保存します。",
@@ -13011,6 +13344,9 @@ const designImportOverrides = {
   "ko-KR": {
     designEditor: {
       import: {
+        quotaCooldownTitle: "Design이 이 가져오기를 일시 중지했습니다",
+        quotaCooldownBody:
+          "할당량 한도에 도달해 Design이 자체 Figma 요청 속도를 조절하고 있습니다. 자동으로 초기화됩니다.",
         title: "가져오기",
         description:
           "Figma 클립보드 HTML 또는 독립 HTML을 Design 화면으로 가져옵니다.",
@@ -13043,6 +13379,16 @@ const designImportOverrides = {
         chooseFigFile: ".fig 파일 선택",
         figUploadUploading: "업로드 중 {{progress}}%",
         figUploadProcessing: "변환 중…",
+        figImportWarningTitle: "대용량 .fig 가져오기",
+        figImportWarningDescription:
+          "이 파일에는 프레임 {{frames}}개와 레이어 {{nodes}}개가 있습니다. 모두 가져오면 편집기가 느려질 수 있습니다. 필요한 프레임을 선택하세요.",
+        figImportFrameCount: "{{total}}개 중 {{selected}}개 프레임 선택",
+        figImportSelectAll: "모두 선택",
+        figImportClearAll: "모두 지우기",
+        figImportCancel: "취소",
+        figImportSelected: "선택한 {{count}}개 가져오기",
+        figImportAll: "모두 가져오기",
+        figImportAnalyzing: "분석 중…",
         htmlTitle: "HTML 가져오기",
         htmlDescription:
           "독립 HTML을 붙여넣거나 업로드하세요. Design은 이를 새 화면으로 저장하며 이 편집기 UI에 삽입하지 않습니다.",
@@ -13082,6 +13428,9 @@ const designImportOverrides = {
   "pt-BR": {
     designEditor: {
       import: {
+        quotaCooldownTitle: "O Design pausou esta importação",
+        quotaCooldownBody:
+          "O Design está limitando suas próprias solicitações ao Figma após atingir um limite de cota. A redefinição é automática.",
         title: "Importar",
         description:
           "Traga HTML da área de transferência do Figma ou HTML independente como telas do Design.",
@@ -13116,6 +13465,16 @@ const designImportOverrides = {
         chooseFigFile: "Escolher arquivo .fig",
         figUploadUploading: "Enviando {{progress}}%",
         figUploadProcessing: "Convertendo…",
+        figImportWarningTitle: "Importação de .fig grande",
+        figImportWarningDescription:
+          "Este arquivo contém {{frames}} quadros e {{nodes}} camadas. Importar tudo pode deixar o editor lento. Escolha os quadros necessários.",
+        figImportFrameCount: "{{selected}} de {{total}} quadros selecionados",
+        figImportSelectAll: "Selecionar tudo",
+        figImportClearAll: "Limpar tudo",
+        figImportCancel: "Cancelar",
+        figImportSelected: "Importar {{count}} selecionados",
+        figImportAll: "Importar tudo",
+        figImportAnalyzing: "Analisando…",
         htmlTitle: "Importar HTML",
         htmlDescription:
           "Cole ou envie HTML independente. O Design salva como uma nova tela sem injetar nesta interface.",
@@ -13155,6 +13514,9 @@ const designImportOverrides = {
   "hi-IN": {
     designEditor: {
       import: {
+        quotaCooldownTitle: "Design ने यह आयात रोक दिया",
+        quotaCooldownBody:
+          "कोटा सीमा तक पहुँचने के बाद Design अपने Figma अनुरोधों को नियंत्रित कर रहा है। यह स्वतः रीसेट हो जाता है।",
         title: "आयात",
         description:
           "Figma clipboard HTML या standalone HTML को Design screens के रूप में लाएँ।",
@@ -13188,6 +13550,16 @@ const designImportOverrides = {
         chooseFigFile: ".fig file चुनें",
         figUploadUploading: "अपलोड हो रहा है {{progress}}%",
         figUploadProcessing: "बदला जा रहा है…",
+        figImportWarningTitle: "बड़ा .fig आयात",
+        figImportWarningDescription:
+          "इस फ़ाइल में {{frames}} फ़्रेम और {{nodes}} लेयर हैं। सब कुछ आयात करने से एडिटर धीमा हो सकता है। ज़रूरी फ़्रेम चुनें।",
+        figImportFrameCount: "{{total}} में से {{selected}} फ़्रेम चुने गए",
+        figImportSelectAll: "सभी चुनें",
+        figImportClearAll: "सभी हटाएँ",
+        figImportCancel: "रद्द करें",
+        figImportSelected: "{{count}} चुने हुए आयात करें",
+        figImportAll: "सभी आयात करें",
+        figImportAnalyzing: "विश्लेषण हो रहा है…",
         htmlTitle: "HTML आयात करें",
         htmlDescription:
           "Standalone HTML paste या upload करें। Design इसे नए screen के रूप में save करता है, editor UI में inject नहीं करता।",
@@ -13227,6 +13599,9 @@ const designImportOverrides = {
   "ar-SA": {
     designEditor: {
       import: {
+        quotaCooldownTitle: "أوقف Design هذا الاستيراد مؤقتًا",
+        quotaCooldownBody:
+          "يقوم Design بتنظيم طلبات Figma الخاصة به بعد الوصول إلى حد الحصة. تُعاد التهيئة تلقائيًا.",
         title: "استيراد",
         description: "استورد HTML حافظة Figma أو HTML مستقلا كشاشات Design.",
         figmaPasteTitle: "لصق من Figma",
@@ -13259,6 +13634,16 @@ const designImportOverrides = {
         chooseFigFile: "اختر ملف .fig",
         figUploadUploading: "جار الرفع {{progress}}%",
         figUploadProcessing: "جار التحويل…",
+        figImportWarningTitle: "استيراد .fig كبير",
+        figImportWarningDescription:
+          "يحتوي هذا الملف على {{frames}} إطارًا و{{nodes}} طبقة. قد يؤدي استيراد كل شيء إلى إبطاء المحرر. اختر الإطارات التي تحتاجها.",
+        figImportFrameCount: "تم تحديد {{selected}} من أصل {{total}} إطارًا",
+        figImportSelectAll: "تحديد الكل",
+        figImportClearAll: "مسح الكل",
+        figImportCancel: "إلغاء",
+        figImportSelected: "استيراد {{count}} المحددة",
+        figImportAll: "استيراد الكل",
+        figImportAnalyzing: "جار التحليل…",
         htmlTitle: "استيراد HTML",
         htmlDescription:
           "الصق أو ارفع HTML مستقلا. يحفظه Design كشاشة جديدة دون حقنه في واجهة المحرر.",
@@ -14054,13 +14439,20 @@ const designAlignmentOverrides = {
     designEditor: {
       toasts: {
         autoLayoutScreensUnsupported: "自动布局不适用于屏幕",
+        booleanSubtractUnsupported:
+          "请选择相邻且使用纯色填充的矩形或椭圆以执行减去操作。",
+        booleanSubtractFailed: "无法减去所选图层。",
+        vectorEditUnsupported: "此形状或变换目前无法进行向量编辑。",
       },
     },
     layersPanel: {
+      resizeScreens: "调整屏幕区域大小",
       pasteToReplace: "粘贴替换",
       frameSelection: "创建画框",
       flipHorizontal: "水平翻转",
       flipVertical: "垂直翻转",
+      booleanOperations: "布尔运算",
+      subtract: "减去",
     },
   },
   "es-ES": {
@@ -14068,13 +14460,21 @@ const designAlignmentOverrides = {
       toasts: {
         autoLayoutScreensUnsupported:
           "Agregar diseño automático no se aplica a las pantallas",
+        booleanSubtractUnsupported:
+          "Selecciona rectángulos o elipses adyacentes con rellenos sólidos para restarlos.",
+        booleanSubtractFailed: "No se pudieron restar esas capas.",
+        vectorEditUnsupported:
+          "La edición vectorial no está disponible para esta forma o transformación.",
       },
     },
     layersPanel: {
+      resizeScreens: "Cambiar el tamaño de la sección de pantallas",
       pasteToReplace: "Pegar para reemplazar",
       frameSelection: "Enmarcar selección",
       flipHorizontal: "Voltear horizontalmente",
       flipVertical: "Voltear verticalmente",
+      booleanOperations: "Operaciones booleanas",
+      subtract: "Restar",
     },
   },
   "fr-FR": {
@@ -14082,13 +14482,21 @@ const designAlignmentOverrides = {
       toasts: {
         autoLayoutScreensUnsupported:
           "Ajouter une disposition automatique ne s'applique pas aux écrans",
+        booleanSubtractUnsupported:
+          "Sélectionnez des rectangles ou des ellipses adjacents avec un remplissage uni pour les soustraire.",
+        booleanSubtractFailed: "Impossible de soustraire ces calques.",
+        vectorEditUnsupported:
+          "L’édition vectorielle n’est pas disponible pour cette forme ou transformation.",
       },
     },
     layersPanel: {
+      resizeScreens: "Redimensionner la section des écrans",
       pasteToReplace: "Coller pour remplacer",
       frameSelection: "Encadrer la sélection",
       flipHorizontal: "Retourner horizontalement",
       flipVertical: "Retourner verticalement",
+      booleanOperations: "Opérations booléennes",
+      subtract: "Soustraire",
     },
   },
   "de-DE": {
@@ -14096,13 +14504,21 @@ const designAlignmentOverrides = {
       toasts: {
         autoLayoutScreensUnsupported:
           "Auto-Layout hinzufügen gilt nicht für Bildschirme",
+        booleanSubtractUnsupported:
+          "Wähle benachbarte Rechtecke oder Ellipsen mit einfarbiger Füllung aus, um sie zu subtrahieren.",
+        booleanSubtractFailed: "Diese Ebenen konnten nicht subtrahiert werden.",
+        vectorEditUnsupported:
+          "Vektorbearbeitung ist für diese Form oder Transformation nicht verfügbar.",
       },
     },
     layersPanel: {
+      resizeScreens: "Größe des Bildschirmbereichs ändern",
       pasteToReplace: "Einfügen zum Ersetzen",
       frameSelection: "Auswahl rahmen",
       flipHorizontal: "Horizontal spiegeln",
       flipVertical: "Vertikal spiegeln",
+      booleanOperations: "Boolesche Operationen",
+      subtract: "Subtrahieren",
     },
   },
   "ja-JP": {
@@ -14110,13 +14526,21 @@ const designAlignmentOverrides = {
       toasts: {
         autoLayoutScreensUnsupported:
           "オートレイアウトの追加は画面には適用されません",
+        booleanSubtractUnsupported:
+          "減算するには、隣接する単色塗りの長方形または楕円を選択してください。",
+        booleanSubtractFailed: "選択したレイヤーを減算できませんでした。",
+        vectorEditUnsupported:
+          "この形状または変形はベクター編集に対応していません。",
       },
     },
     layersPanel: {
+      resizeScreens: "画面セクションのサイズを変更",
       pasteToReplace: "置き換えて貼り付け",
       frameSelection: "選択範囲をフレーム化",
       flipHorizontal: "水平方向に反転",
       flipVertical: "垂直方向に反転",
+      booleanOperations: "ブール演算",
+      subtract: "減算",
     },
   },
   "ko-KR": {
@@ -14124,13 +14548,21 @@ const designAlignmentOverrides = {
       toasts: {
         autoLayoutScreensUnsupported:
           "오토 레이아웃 추가는 화면에 적용되지 않습니다",
+        booleanSubtractUnsupported:
+          "빼기 작업을 하려면 단색으로 채워진 인접한 사각형이나 타원을 선택하세요.",
+        booleanSubtractFailed: "선택한 레이어를 빼지 못했습니다.",
+        vectorEditUnsupported:
+          "이 도형이나 변형은 벡터 편집을 지원하지 않습니다.",
       },
     },
     layersPanel: {
+      resizeScreens: "화면 섹션 크기 조정",
       pasteToReplace: "교체하여 붙여넣기",
       frameSelection: "선택 영역 프레임화",
       flipHorizontal: "수평 뒤집기",
       flipVertical: "수직 뒤집기",
+      booleanOperations: "불리언 연산",
+      subtract: "빼기",
     },
   },
   "pt-BR": {
@@ -14138,26 +14570,42 @@ const designAlignmentOverrides = {
       toasts: {
         autoLayoutScreensUnsupported:
           "Adicionar layout automático não se aplica a telas",
+        booleanSubtractUnsupported:
+          "Selecione retângulos ou elipses adjacentes com preenchimento sólido para subtraí-los.",
+        booleanSubtractFailed: "Não foi possível subtrair essas camadas.",
+        vectorEditUnsupported:
+          "A edição vetorial não está disponível para esta forma ou transformação.",
       },
     },
     layersPanel: {
+      resizeScreens: "Redimensionar seção de telas",
       pasteToReplace: "Colar para substituir",
       frameSelection: "Enquadrar seleção",
       flipHorizontal: "Inverter horizontalmente",
       flipVertical: "Inverter verticalmente",
+      booleanOperations: "Operações booleanas",
+      subtract: "Subtrair",
     },
   },
   "hi-IN": {
     designEditor: {
       toasts: {
         autoLayoutScreensUnsupported: "ऑटो लेआउट जोड़ें स्क्रीन पर लागू नहीं होता",
+        booleanSubtractUnsupported:
+          "घटाने के लिए पास-पास रखे ठोस रंग वाले आयत या दीर्घवृत्त चुनें।",
+        booleanSubtractFailed: "चुनी गई परतों को घटाया नहीं जा सका।",
+        vectorEditUnsupported:
+          "इस आकार या रूपांतरण के लिए वेक्टर संपादन उपलब्ध नहीं है।",
       },
     },
     layersPanel: {
+      resizeScreens: "स्क्रीन अनुभाग का आकार बदलें",
       pasteToReplace: "बदलने के लिए पेस्ट करें",
       frameSelection: "चयन को फ़्रेम करें",
       flipHorizontal: "क्षैतिज रूप से फ़्लिप करें",
       flipVertical: "लंबवत रूप से फ़्लिप करें",
+      booleanOperations: "बूलियन ऑपरेशन",
+      subtract: "घटाएँ",
     },
   },
   "ar-SA": {
@@ -14165,13 +14613,20 @@ const designAlignmentOverrides = {
       toasts: {
         autoLayoutScreensUnsupported:
           "إضافة التخطيط التلقائي لا تنطبق على الشاشات",
+        booleanSubtractUnsupported:
+          "اختر مستطيلات أو أشكالًا بيضاوية متجاورة ذات تعبئة بلون ثابت لطرحها.",
+        booleanSubtractFailed: "تعذر طرح هذه الطبقات.",
+        vectorEditUnsupported: "تحرير المتجهات غير متاح لهذا الشكل أو التحويل.",
       },
     },
     layersPanel: {
+      resizeScreens: "تغيير حجم قسم الشاشات",
       pasteToReplace: "لصق للاستبدال",
       frameSelection: "تأطير التحديد",
       flipHorizontal: "قلب أفقيًا",
       flipVertical: "قلب رأسيًا",
+      booleanOperations: "العمليات المنطقية",
+      subtract: "طرح",
     },
   },
 } satisfies Record<Exclude<LocaleCode, "en-US" | "zh-TW">, PartialMessages>;
@@ -15072,6 +15527,182 @@ const designMotionAndBreakpointOverrides = {
   },
 } satisfies Record<Exclude<LocaleCode, "en-US" | "zh-TW">, PartialMessages>;
 
+const designScreenSourceOverrides = {
+  "zh-CN": {
+    editPanel: {
+      screenSource: {
+        title: "来源",
+        url: "URL",
+        urlLabel: "屏幕 URL",
+        urlPlaceholder: "/plans 或 http://localhost:5173/plans",
+        update: "更新",
+        chooseLocalApp: "选择本地应用",
+        remove: "移除屏幕",
+      },
+    },
+    designEditor: {
+      toasts: {
+        screenSourceUpdated: "屏幕来源已更新",
+        screenSourceUpdateFailed: "无法更新屏幕来源",
+      },
+    },
+  },
+  "es-ES": {
+    editPanel: {
+      screenSource: {
+        title: "Origen",
+        url: "URL",
+        urlLabel: "URL de pantalla",
+        urlPlaceholder: "/plans o http://localhost:5173/plans",
+        update: "Actualizar",
+        chooseLocalApp: "Elegir app local",
+        remove: "Eliminar pantalla",
+      },
+    },
+    designEditor: {
+      toasts: {
+        screenSourceUpdated: "Fuente de pantalla actualizada",
+        screenSourceUpdateFailed: "No se pudo actualizar la fuente de pantalla",
+      },
+    },
+  },
+  "fr-FR": {
+    editPanel: {
+      screenSource: {
+        title: "Source",
+        url: "URL",
+        urlLabel: "URL de l’écran",
+        urlPlaceholder: "/plans ou http://localhost:5173/plans",
+        update: "Mettre à jour",
+        chooseLocalApp: "Choisir une app locale",
+        remove: "Supprimer l’écran",
+      },
+    },
+    designEditor: {
+      toasts: {
+        screenSourceUpdated: "Source de l’écran mise à jour",
+        screenSourceUpdateFailed:
+          "Impossible de mettre à jour la source de l’écran",
+      },
+    },
+  },
+  "de-DE": {
+    editPanel: {
+      screenSource: {
+        title: "Quelle",
+        url: "URL",
+        urlLabel: "Screen-URL",
+        urlPlaceholder: "/plans oder http://localhost:5173/plans",
+        update: "Aktualisieren",
+        chooseLocalApp: "Lokale App auswählen",
+        remove: "Screen entfernen",
+      },
+    },
+    designEditor: {
+      toasts: {
+        screenSourceUpdated: "Screen-Quelle aktualisiert",
+        screenSourceUpdateFailed:
+          "Screen-Quelle konnte nicht aktualisiert werden",
+      },
+    },
+  },
+  "ja-JP": {
+    editPanel: {
+      screenSource: {
+        title: "ソース",
+        url: "URL",
+        urlLabel: "画面 URL",
+        urlPlaceholder: "/plans または http://localhost:5173/plans",
+        update: "更新",
+        chooseLocalApp: "ローカルアプリを選択",
+        remove: "画面を削除",
+      },
+    },
+    designEditor: {
+      toasts: {
+        screenSourceUpdated: "画面ソースを更新しました",
+        screenSourceUpdateFailed: "画面ソースを更新できませんでした",
+      },
+    },
+  },
+  "ko-KR": {
+    editPanel: {
+      screenSource: {
+        title: "소스",
+        url: "URL",
+        urlLabel: "화면 URL",
+        urlPlaceholder: "/plans 또는 http://localhost:5173/plans",
+        update: "업데이트",
+        chooseLocalApp: "로컬 앱 선택",
+        remove: "화면 삭제",
+      },
+    },
+    designEditor: {
+      toasts: {
+        screenSourceUpdated: "화면 소스가 업데이트됨",
+        screenSourceUpdateFailed: "화면 소스를 업데이트할 수 없습니다",
+      },
+    },
+  },
+  "pt-BR": {
+    editPanel: {
+      screenSource: {
+        title: "Fonte",
+        url: "URL",
+        urlLabel: "URL da tela",
+        urlPlaceholder: "/plans ou http://localhost:5173/plans",
+        update: "Atualizar",
+        chooseLocalApp: "Escolher app local",
+        remove: "Remover tela",
+      },
+    },
+    designEditor: {
+      toasts: {
+        screenSourceUpdated: "Fonte da tela atualizada",
+        screenSourceUpdateFailed: "Não foi possível atualizar a fonte da tela",
+      },
+    },
+  },
+  "hi-IN": {
+    editPanel: {
+      screenSource: {
+        title: "स्रोत",
+        url: "URL",
+        urlLabel: "स्क्रीन URL",
+        urlPlaceholder: "/plans या http://localhost:5173/plans",
+        update: "अपडेट करें",
+        chooseLocalApp: "लोकल ऐप चुनें",
+        remove: "स्क्रीन हटाएं",
+      },
+    },
+    designEditor: {
+      toasts: {
+        screenSourceUpdated: "स्क्रीन स्रोत अपडेट किया गया",
+        screenSourceUpdateFailed: "स्क्रीन स्रोत अपडेट नहीं किया जा सका",
+      },
+    },
+  },
+  "ar-SA": {
+    editPanel: {
+      screenSource: {
+        title: "المصدر",
+        url: "URL",
+        urlLabel: "عنوان URL للشاشة",
+        urlPlaceholder: "/plans أو http://localhost:5173/plans",
+        update: "تحديث",
+        chooseLocalApp: "اختر تطبيقًا محليًا",
+        remove: "إزالة الشاشة",
+      },
+    },
+    designEditor: {
+      toasts: {
+        screenSourceUpdated: "تم تحديث مصدر الشاشة",
+        screenSourceUpdateFailed: "تعذر تحديث مصدر الشاشة",
+      },
+    },
+  },
+} satisfies Record<Exclude<LocaleCode, "en-US" | "zh-TW">, PartialMessages>;
+
 // Runtime-layer identity, prompt/comment feedback, and localhost bridge copy.
 // zh-TW lives in app/i18n/zh-TW.ts with the rest of that locale's catalog.
 const designRuntimeIdentityAndBridgeOverrides = {
@@ -15412,6 +16043,12 @@ const designComponentInstanceOverrides = {
         swappedFor: "已交换为“{{name}}”。",
         openPanelNudge: "请使用“组件”面板中的“交换实例”选择器。",
         openPanelFailed: "无法打开组件面板。",
+        linkedStructureUnsupported: "目前尚不支持更改链接组件的图层结构。",
+        linkedEditScopeUnsupported:
+          "链接组件编辑目前仅支持基础断点和默认交互状态。",
+        linkedEditSourceUnsupported: "此来源模式目前不支持链接组件编辑。",
+        linkedEditTargetsUnavailable:
+          "无法为每个选中图层解析此链接编辑。未进行任何更改。",
       },
     },
   },
@@ -15437,6 +16074,14 @@ const designComponentInstanceOverrides = {
         openPanelNudge:
           "Usa el selector Intercambiar instancia del panel Componente.",
         openPanelFailed: "No se pudo abrir el panel Componente.",
+        linkedStructureUnsupported:
+          "Aún no se admite cambiar la estructura de capas de los componentes vinculados.",
+        linkedEditScopeUnsupported:
+          "Los cambios en componentes vinculados solo están disponibles en el punto de interrupción base y el estado de interacción predeterminado.",
+        linkedEditSourceUnsupported:
+          "Este modo de origen aún no admite cambios en componentes vinculados.",
+        linkedEditTargetsUnavailable:
+          "No se pudo resolver este cambio vinculado para todas las capas seleccionadas. No se realizaron cambios.",
       },
     },
   },
@@ -15462,6 +16107,14 @@ const designComponentInstanceOverrides = {
         openPanelNudge:
           "Utilisez le sélecteur Permuter l’instance dans le panneau Composant.",
         openPanelFailed: "Impossible d’ouvrir le panneau Composant.",
+        linkedStructureUnsupported:
+          "La modification de la structure des calques des composants liés n’est pas encore prise en charge.",
+        linkedEditScopeUnsupported:
+          "Les modifications des composants liés sont disponibles uniquement au point d’arrêt de base et dans l’état d’interaction par défaut.",
+        linkedEditSourceUnsupported:
+          "Ce mode source ne prend pas encore en charge les modifications des composants liés.",
+        linkedEditTargetsUnavailable:
+          "Impossible de résoudre cette modification liée pour tous les calques sélectionnés. Aucune modification n’a été effectuée.",
       },
     },
   },
@@ -15486,6 +16139,14 @@ const designComponentInstanceOverrides = {
         openPanelNudge:
           "Verwende die Auswahl „Instanz austauschen“ im Komponentenbereich.",
         openPanelFailed: "Der Komponentenbereich konnte nicht geöffnet werden.",
+        linkedStructureUnsupported:
+          "Das Ändern der Ebenenstruktur verknüpfter Komponenten wird noch nicht unterstützt.",
+        linkedEditScopeUnsupported:
+          "Verknüpfte Komponenten können nur am Basis-Breakpoint und im Standard-Interaktionszustand bearbeitet werden.",
+        linkedEditSourceUnsupported:
+          "Dieser Quellmodus unterstützt Änderungen an verknüpften Komponenten noch nicht.",
+        linkedEditTargetsUnavailable:
+          "Diese Änderung konnte nicht für alle ausgewählten Ebenen aufgelöst werden. Es wurden keine Änderungen vorgenommen.",
       },
     },
   },
@@ -15511,6 +16172,14 @@ const designComponentInstanceOverrides = {
         openPanelNudge:
           "コンポーネントパネルの「インスタンスを入れ替え」を使用してください。",
         openPanelFailed: "コンポーネントパネルを開けませんでした。",
+        linkedStructureUnsupported:
+          "リンクされたコンポーネントのレイヤー構造の変更はまだサポートされていません。",
+        linkedEditScopeUnsupported:
+          "リンクされたコンポーネントの編集は、ベースのブレークポイントと既定のインタラクション状態でのみ使用できます。",
+        linkedEditSourceUnsupported:
+          "このソースモードでは、リンクされたコンポーネントの編集はまだ利用できません。",
+        linkedEditTargetsUnavailable:
+          "選択したすべてのレイヤーでリンクされた編集を解決できませんでした。変更は行われていません。",
       },
     },
   },
@@ -15533,6 +16202,14 @@ const designComponentInstanceOverrides = {
         swappedFor: '"{{name}}"(으)로 교체했습니다.',
         openPanelNudge: "컴포넌트 패널의 인스턴스 교체 선택기를 사용하세요.",
         openPanelFailed: "컴포넌트 패널을 열 수 없습니다.",
+        linkedStructureUnsupported:
+          "연결된 컴포넌트의 레이어 구조 변경은 아직 지원되지 않습니다.",
+        linkedEditScopeUnsupported:
+          "연결된 컴포넌트 편집은 기본 중단점과 기본 상호작용 상태에서만 사용할 수 있습니다.",
+        linkedEditSourceUnsupported:
+          "이 소스 모드에서는 연결된 컴포넌트 편집을 아직 사용할 수 없습니다.",
+        linkedEditTargetsUnavailable:
+          "선택한 모든 레이어에서 연결된 편집을 확인할 수 없습니다. 변경 사항은 적용되지 않았습니다.",
       },
     },
   },
@@ -15557,6 +16234,14 @@ const designComponentInstanceOverrides = {
         swappedFor: 'Trocada por "{{name}}".',
         openPanelNudge: "Use o seletor Trocar instância no painel Componente.",
         openPanelFailed: "Não foi possível abrir o painel Componente.",
+        linkedStructureUnsupported:
+          "Ainda não é possível alterar a estrutura das camadas de componentes vinculados.",
+        linkedEditScopeUnsupported:
+          "Edições de componentes vinculados só estão disponíveis no breakpoint base e no estado de interação padrão.",
+        linkedEditSourceUnsupported:
+          "Este modo de origem ainda não permite edições de componentes vinculados.",
+        linkedEditTargetsUnavailable:
+          "Não foi possível resolver esta edição vinculada para todas as camadas selecionadas. Nenhuma alteração foi feita.",
       },
     },
   },
@@ -15579,6 +16264,14 @@ const designComponentInstanceOverrides = {
         swappedFor: '"{{name}}" से बदल दिया गया।',
         openPanelNudge: "कॉम्पोनेंट पैनल में इंस्टेंस बदलें चयनकर्ता का उपयोग करें।",
         openPanelFailed: "कॉम्पोनेंट पैनल नहीं खोला जा सका।",
+        linkedStructureUnsupported:
+          "लिंक किए गए कॉम्पोनेंट की लेयर संरचना बदलना अभी समर्थित नहीं है।",
+        linkedEditScopeUnsupported:
+          "लिंक किए गए कॉम्पोनेंट संपादन केवल बेस ब्रेकपॉइंट और डिफ़ॉल्ट इंटरैक्शन स्थिति में उपलब्ध हैं।",
+        linkedEditSourceUnsupported:
+          "इस सोर्स मोड में लिंक किए गए कॉम्पोनेंट संपादन अभी उपलब्ध नहीं हैं।",
+        linkedEditTargetsUnavailable:
+          "चुनी गई सभी लेयरों के लिए यह लिंक किया गया संपादन हल नहीं हो सका। कोई बदलाव नहीं किया गया।",
       },
     },
   },
@@ -15601,6 +16294,14 @@ const designComponentInstanceOverrides = {
         swappedFor: 'تم التبديل إلى "{{name}}".',
         openPanelNudge: "استخدم منتقي تبديل النسخة في لوحة المكوّن.",
         openPanelFailed: "تعذر فتح لوحة المكوّن.",
+        linkedStructureUnsupported:
+          "تغيير بنية طبقات المكوّنات المرتبطة غير مدعوم حتى الآن.",
+        linkedEditScopeUnsupported:
+          "تعديلات المكوّنات المرتبطة متاحة فقط عند نقطة التوقف الأساسية وفي حالة التفاعل الافتراضية.",
+        linkedEditSourceUnsupported:
+          "وضع المصدر هذا لا يدعم تعديلات المكوّنات المرتبطة بعد.",
+        linkedEditTargetsUnavailable:
+          "تعذر حل هذا التعديل المرتبط لكل الطبقات المحددة. لم يتم إجراء أي تغييرات.",
       },
     },
   },
@@ -15993,6 +16694,7 @@ export const messagesByLocale = {
       breakpointBarOverrides["zh-CN"],
       responsiveInteractOverrides["zh-CN"],
       motionDockOverrides["zh-CN"],
+      designScreenSourceOverrides["zh-CN"],
       designRuntimeIdentityAndBridgeOverrides["zh-CN"],
       designComponentInstanceOverrides["zh-CN"],
       designComponentSourceOverrides["zh-CN"],
@@ -16025,6 +16727,10 @@ export const messagesByLocale = {
           languageTitle: "语言",
           languageDescription: "选择 Design 的界面语言。",
           languageLabel: "界面语言",
+          labs: "Labs",
+          labsIntro: "这些是全新的不稳定功能，可能存在错误。我们重视你的反馈。",
+          labTweaks: "设计微调",
+          labTweaksDescription: "试用 AI 设计微调功能。",
         },
         designEditor: {
           toasts: {
@@ -16073,6 +16779,7 @@ export const messagesByLocale = {
       breakpointBarOverrides["es-ES"],
       responsiveInteractOverrides["es-ES"],
       motionDockOverrides["es-ES"],
+      designScreenSourceOverrides["es-ES"],
       designRuntimeIdentityAndBridgeOverrides["es-ES"],
       designComponentInstanceOverrides["es-ES"],
       designComponentSourceOverrides["es-ES"],
@@ -16104,6 +16811,11 @@ export const messagesByLocale = {
           languageTitle: "Idioma",
           languageDescription: "Elige el idioma de la interfaz de Design.",
           languageLabel: "Idioma de la interfaz",
+          labs: "Labs",
+          labsIntro:
+            "Estas funciones son nuevas e inestables, y pueden tener errores. Valoramos tus comentarios.",
+          labTweaks: "Ajustes de diseño",
+          labTweaksDescription: "Prueba los ajustes de diseño con IA.",
         },
         designEditor: {
           toasts: {
@@ -16155,6 +16867,7 @@ export const messagesByLocale = {
       breakpointBarOverrides["fr-FR"],
       responsiveInteractOverrides["fr-FR"],
       motionDockOverrides["fr-FR"],
+      designScreenSourceOverrides["fr-FR"],
       designRuntimeIdentityAndBridgeOverrides["fr-FR"],
       designComponentInstanceOverrides["fr-FR"],
       designComponentSourceOverrides["fr-FR"],
@@ -16186,6 +16899,11 @@ export const messagesByLocale = {
           languageTitle: "Langue",
           languageDescription: "Choisissez la langue de l'interface de Design.",
           languageLabel: "Langue de l'interface",
+          labs: "Labs",
+          labsIntro:
+            "Ces fonctionnalités sont nouvelles et instables, et peuvent contenir des bugs. Vos retours comptent pour nous.",
+          labTweaks: "Ajustements de design",
+          labTweaksDescription: "Essayez les ajustements de design avec l’IA.",
         },
         designEditor: {
           toasts: {
@@ -16237,6 +16955,7 @@ export const messagesByLocale = {
       breakpointBarOverrides["de-DE"],
       responsiveInteractOverrides["de-DE"],
       motionDockOverrides["de-DE"],
+      designScreenSourceOverrides["de-DE"],
       designRuntimeIdentityAndBridgeOverrides["de-DE"],
       designComponentInstanceOverrides["de-DE"],
       designComponentSourceOverrides["de-DE"],
@@ -16268,6 +16987,11 @@ export const messagesByLocale = {
           languageTitle: "Sprache",
           languageDescription: "Wähle die Oberflächensprache für Design.",
           languageLabel: "Oberflächensprache",
+          labs: "Labs",
+          labsIntro:
+            "Diese neuen, instabilen Funktionen können Fehler enthalten. Wir freuen uns über dein Feedback.",
+          labTweaks: "Design-Anpassungen",
+          labTweaksDescription: "Teste KI-gestützte Design-Anpassungen.",
         },
         designEditor: {
           toasts: {
@@ -16319,6 +17043,7 @@ export const messagesByLocale = {
       breakpointBarOverrides["ja-JP"],
       responsiveInteractOverrides["ja-JP"],
       motionDockOverrides["ja-JP"],
+      designScreenSourceOverrides["ja-JP"],
       designRuntimeIdentityAndBridgeOverrides["ja-JP"],
       designComponentInstanceOverrides["ja-JP"],
       designComponentSourceOverrides["ja-JP"],
@@ -16350,6 +17075,11 @@ export const messagesByLocale = {
           languageTitle: "言語",
           languageDescription: "Design のインターフェース言語を選択します。",
           languageLabel: "インターフェース言語",
+          labs: "Labs",
+          labsIntro:
+            "これらは新しく不安定な機能で、バグがある可能性があります。フィードバックを大切にしています。",
+          labTweaks: "デザインの調整",
+          labTweaksDescription: "AI によるデザイン調整をお試しください。",
         },
         designEditor: {
           toasts: {
@@ -16402,6 +17132,7 @@ export const messagesByLocale = {
       breakpointBarOverrides["ko-KR"],
       responsiveInteractOverrides["ko-KR"],
       motionDockOverrides["ko-KR"],
+      designScreenSourceOverrides["ko-KR"],
       designRuntimeIdentityAndBridgeOverrides["ko-KR"],
       designComponentInstanceOverrides["ko-KR"],
       designComponentSourceOverrides["ko-KR"],
@@ -16433,6 +17164,11 @@ export const messagesByLocale = {
           languageTitle: "언어",
           languageDescription: "Design의 인터페이스 언어를 선택하세요.",
           languageLabel: "인터페이스 언어",
+          labs: "Labs",
+          labsIntro:
+            "이 기능은 새롭고 불안정하며 버그가 있을 수 있습니다. 여러분의 피드백을 소중히 여깁니다.",
+          labTweaks: "디자인 트윅",
+          labTweaksDescription: "AI 기반 디자인 트윅을 사용해 보세요.",
         },
         designEditor: {
           toasts: {
@@ -16483,6 +17219,7 @@ export const messagesByLocale = {
       breakpointBarOverrides["pt-BR"],
       responsiveInteractOverrides["pt-BR"],
       motionDockOverrides["pt-BR"],
+      designScreenSourceOverrides["pt-BR"],
       designRuntimeIdentityAndBridgeOverrides["pt-BR"],
       designComponentInstanceOverrides["pt-BR"],
       designComponentSourceOverrides["pt-BR"],
@@ -16514,6 +17251,11 @@ export const messagesByLocale = {
           languageTitle: "Idioma",
           languageDescription: "Escolha o idioma da interface do Design.",
           languageLabel: "Idioma da interface",
+          labs: "Labs",
+          labsIntro:
+            "Estes recursos são novos e instáveis e podem apresentar bugs. Valorizamos seu feedback.",
+          labTweaks: "Ajustes de design",
+          labTweaksDescription: "Experimente ajustes de design com IA.",
         },
         designEditor: {
           toasts: {
@@ -16565,6 +17307,7 @@ export const messagesByLocale = {
       breakpointBarOverrides["hi-IN"],
       responsiveInteractOverrides["hi-IN"],
       motionDockOverrides["hi-IN"],
+      designScreenSourceOverrides["hi-IN"],
       designRuntimeIdentityAndBridgeOverrides["hi-IN"],
       designComponentInstanceOverrides["hi-IN"],
       designComponentSourceOverrides["hi-IN"],
@@ -16596,6 +17339,11 @@ export const messagesByLocale = {
           languageTitle: "भाषा",
           languageDescription: "Design की interface भाषा चुनें।",
           languageLabel: "इंटरफ़ेस भाषा",
+          labs: "Labs",
+          labsIntro:
+            "ये नई, अस्थिर सुविधाएँ हैं और इनमें बग हो सकते हैं। हम आपकी प्रतिक्रिया को महत्व देते हैं।",
+          labTweaks: "डिज़ाइन ट्वीक",
+          labTweaksDescription: "AI-संचालित डिज़ाइन ट्वीक आज़माएँ।",
         },
         designEditor: {
           toasts: {
@@ -16647,6 +17395,7 @@ export const messagesByLocale = {
       breakpointBarOverrides["ar-SA"],
       responsiveInteractOverrides["ar-SA"],
       motionDockOverrides["ar-SA"],
+      designScreenSourceOverrides["ar-SA"],
       designRuntimeIdentityAndBridgeOverrides["ar-SA"],
       designComponentInstanceOverrides["ar-SA"],
       designComponentSourceOverrides["ar-SA"],
@@ -16678,6 +17427,11 @@ export const messagesByLocale = {
           languageTitle: "اللغة",
           languageDescription: "اختر لغة واجهة Design.",
           languageLabel: "لغة الواجهة",
+          labs: "Labs",
+          labsIntro:
+            "هذه ميزات جديدة وغير مستقرة وقد تحتوي على أخطاء. نحن نقدر ملاحظاتك.",
+          labTweaks: "تعديلات التصميم",
+          labTweaksDescription: "جرّب تعديلات التصميم المدعومة بالذكاء الاصطناعي.",
         },
         designEditor: {
           toasts: {

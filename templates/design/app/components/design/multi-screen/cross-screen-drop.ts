@@ -14,6 +14,42 @@ import type {
   Point,
 } from "./types";
 
+/**
+ * Whether a cross-screen drag's pointer is still inside the SOURCE screen's
+ * own visible frame. `iframeX`/`iframeY`/`viewportW`/`viewportH` are all
+ * reported by the bridge from the iframe's own `window.innerWidth`/
+ * `innerHeight` — the iframe's internal layout viewport, which stays at the
+ * screen's natural content size no matter how small the host paints it.
+ * `frameWidth`/`frameHeight` are the rendered board-space card dimensions
+ * (`renderedFrameGeometryRef`), which shrink independently of that viewport
+ * whenever the card is scaled to fit its content (an overview card narrower
+ * than its device width is the common case — see `getScreenPreviewViewport`).
+ * Comparing the raw pointer to the card size directly treats two different
+ * units as one: a pointer still well inside a 1280-wide screen reads as past
+ * a 320-wide rendered card. Convert the pointer through the same
+ * content-to-card ratio `screenLocalPointToBoardPoint` already uses for this
+ * exact pair of inputs before comparing; fall back to the bridge-reported
+ * viewport only when no rendered geometry is known yet (ratio of 1).
+ */
+export function isPointerInsideSourceIframe(args: {
+  iframeX: number;
+  iframeY: number;
+  viewportW: number;
+  viewportH: number;
+  frameWidth?: number;
+  frameHeight?: number;
+}): boolean {
+  const width = args.frameWidth ?? args.viewportW;
+  const height = args.frameHeight ?? args.viewportH;
+  const scaleX =
+    args.frameWidth !== undefined ? width / Math.max(1, args.viewportW) : 1;
+  const scaleY =
+    args.frameHeight !== undefined ? height / Math.max(1, args.viewportH) : 1;
+  const x = args.iframeX * scaleX;
+  const y = args.iframeY * scaleY;
+  return x >= 0 && y >= 0 && x <= width && y <= height;
+}
+
 export function isFinitePoint(value: unknown): value is Point {
   if (!value || typeof value !== "object") return false;
   const point = value as Record<string, unknown>;

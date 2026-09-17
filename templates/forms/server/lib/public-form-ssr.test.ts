@@ -104,7 +104,7 @@ describe("public form SSR", () => {
       '<meta property="og:description" content="Tell us what you need.">',
     );
     expect(html).toContain(
-      "/api/forms/og/customer-intake-123/og.png?v=2026-07-14T12%3A00%3A00.000Z",
+      "/api/forms/og/customer-intake-123/og.png?v=2026-07-14T12%3A00%3A00.000Z-background-v1",
     );
   });
 
@@ -311,6 +311,49 @@ describe("public form SSR", () => {
     expect(html).toContain('body.append("file", file, file.name);');
     expect(html).toContain("uploadFiles(filesByField)");
     expect(html).toContain('btn.textContent = "Uploading...";');
+  });
+
+  it("ships localized copy for validation rules the browser cannot check", async () => {
+    mockGetDb.mockReturnValue(
+      createDbWithRows([
+        {
+          id: "form-unsafe-pattern-123",
+          slug: "unsafe-pattern",
+          title: "Unsafe pattern",
+          description: null,
+          ownerEmail: "owner@example.test",
+          updatedAt: "2026-07-23T12:00:00.000Z",
+          fields: JSON.stringify([
+            {
+              id: "name",
+              type: "text",
+              label: "Name",
+              required: true,
+              validation: { pattern: "^([A-Za-z]+\\s?)+$" },
+            },
+          ]),
+          settings: "{}",
+          status: "published",
+          deletedAt: null,
+        },
+      ]),
+    );
+
+    const { html } = await renderPublicFormHtml(
+      "https://forms.example.test/f/unsafe-pattern",
+    );
+
+    expect(html).toContain("function localizedUncheckablePattern(label)");
+    expect(html).toContain("function localizedTooLongPattern(label)");
+    expect(html).toContain("navigator.languages");
+    expect(html).toContain("此表单中“{label}”的规则无法校验");
+    expect(html).toContain("字段“{label}”的值过长");
+    expect(html).toContain("if (key === locale)");
+    expect(html).toContain("return localizedUncheckablePattern(f.label)");
+    expect(html).toContain("return localizedTooLongPattern(f.label)");
+    expect(html).not.toContain(
+      'f.label + " has a validation rule that cannot be checked',
+    );
   });
 
   it.each([

@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { resolveAccess } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -35,7 +36,7 @@ export default defineAction({
       .describe("SVG viewport height in pixels"),
   }),
   readOnly: true,
-  run: async ({ id, width, height }) => {
+  run: async ({ id, width, height }, ctx) => {
     const access = await resolveAccess("design", id);
     if (!access) throw new Error(`Design not found: ${id}`);
 
@@ -57,6 +58,19 @@ export default defineAction({
     });
     const filename = exportFilename(row.title, "svg");
     const saveResult = await trySaveExportFile(filename, svg);
+
+    track(
+      "design_exported",
+      {
+        app_name: "design",
+        template_name: "design",
+        output_id: id,
+        output_type: "design",
+        export_format: "svg",
+        file_count: exportFiles.length,
+      },
+      ctx,
+    );
 
     return { svg, filename, ...saveResult, fileCount: exportFiles.length };
   },

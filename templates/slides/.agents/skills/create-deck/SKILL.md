@@ -18,12 +18,19 @@ Context, reference deck, or source material that the app already provides.
    from presentation structure. Respect `contextMode: "off"`.
 2. Unless the user named a reference deck or design system, call
    `get-workspace-defaults` and use what it returns. See "Workspace Defaults".
-3. Plan the slides (deck title, title slide, section dividers, content slides).
+3. Plan the slides and write a compact deck brief: audience, thesis, one message
+   per slide, visual direction, and the deck-level theme contract.
 4. Call `create-deck --title "..." --slides '[]'` with a concise, specific
-   title derived from the user's request and source material. Never use
-   `Untitled Deck` or another placeholder title for a generated deck.
-5. Navigate to the new deck.
-6. Call `add-slide` once per slide in slide order, waiting for each result.
+   title derived from the user's request and source material. The action opens
+   the new empty deck through application state. Never use `Untitled Deck` or
+   another placeholder title for a generated deck.
+5. If the connected browser does not consume the navigation command, call
+   `navigate` with the new deck id.
+6. Add every generated slide with `add-slide` in slide order, waiting for each
+   result so each slide preserves its per-slide Creative Context provenance.
+   After the first slide, read it back with `get-deck` using its returned
+   `slideId` and `compact=false` to verify the visual contract before
+   continuing.
 
 When speaker notes are requested, put presenter-only text in each slide's
 `notes` field on `create-deck` or `add-slide`; keep it out of the slide HTML.
@@ -50,10 +57,19 @@ narrative thesis, one-sentence visual direction, active design-system tokens,
 reference-deck composition pattern, image treatment, and known fit risks. The
 linked Agent-Native design system controls tokens, typography, spacing, imagery,
 and slide chrome. Impeccable-inspired advice about hierarchy, subtraction,
-contrast, and polish is a review lens, not a competing theme. If the request is
-open-ended and no approved direction exists, ask one targeted guided question
-or present a bounded choice before writing; do not silently pick a new brand
-language.
+contrast, rhythm, and polish is a review lens, not a competing theme. If the
+request is open-ended and no approved direction exists, ask one targeted guided
+question or present a bounded choice before writing; do not silently pick a new
+brand language.
+
+Before the first slide, lock a deck-level visual contract: background family,
+text and surface roles, accent treatment, heading/body type pairing, spacing
+scale, radius, and image treatment. With a linked system, derive the contract
+from its hydrated tokens. Without one, choose a subject-appropriate direction
+and repeat the same semantic `--deck-*` values on every slide wrapper. Vary
+composition and information hierarchy, not the canvas, font system, or palette.
+Alternating light and dark slides are a theme failure unless the user explicitly
+asks for that structure.
 
 When the source is a transcript or meeting notes, extract the audience's
 terminology, goals, objections, decisions, owners, dates, metrics, and open
@@ -71,9 +87,11 @@ has already been authored; that would fabricate influence. With an empty
 library, omit them. With Library mode Off, omit them and create normally.
    before adding the next slide
 
-Do not create multiple slides in parallel for the same deck. Do not spawn
-sub-agents to write into the same deck at the same time. Sub-agents may research
-or draft slide copy, but one writer should call `add-slide` sequentially so the
+Do not create multiple independent writes in parallel for the same deck. Do not
+spawn sub-agents to write into the same deck at the same time. Every newly
+generated slide must use `add-slide`; reserve `patch-deck` for deck fields,
+existing-slide edits, ordering, or source-preserving work. Sub-agents may
+research or draft slide copy, but one writer owns every deck mutation so the
 editor stays stable and the user can watch progress.
 
 ## Reference Decks
@@ -106,6 +124,28 @@ Decks the user has starred are their intended reference decks. `list-decks`
 reports `starred` so you can offer them when the user asks for something "like
 our usual deck".
 
+## Attached Reference Documents
+
+A PDF, PPTX, or DOCX attached to a new-deck prompt is read before your run
+starts. Its extracted content and, for a PDF, its measured visual language —
+page proportions, painted backgrounds, the ranked type scale with families,
+sizes, weights and colors, median text margins, paragraph alignment — arrive as
+an `## Attached Reference Documents` block.
+
+That block is the reference. Do not call `import-file` for a file listed there,
+and never generate as if the attachment were missing: if the file could not be
+read, the run would have been stopped before it reached you, so a file you can
+see in that block was read successfully.
+
+When the user attached the file as a visual or style reference, match the
+measured type scale, weights, colors, alignment, and margins. A deck generated
+from a style reference must not come out looking like one generated without it.
+Structure and wording still come from the user's request, not from the
+reference's own page order.
+
+The fallback visual language in this skill applies only when no reference
+document, reference deck, or design system is present.
+
 ## Workspace Defaults
 
 A workspace admin can flag one deck and one design system as the workspace
@@ -136,7 +176,9 @@ the URL alone.
 pnpm action create-deck --title "My Deck" --slides '[]'
 ```
 
-Then navigate:
+`create-deck` also writes the navigation command. If the connected browser did
+not consume it, navigate explicitly:
+
 ```bash
 pnpm action navigate --deckId=<id from create-deck output>
 ```
@@ -153,22 +195,23 @@ pnpm action add-slide --deckId=<id> --layout content --content "..."
 Every slide's `content` must use this exact outer div:
 
 ```html
-<div class="fmd-slide" style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: flex-start; font-family: var(--ds-body-font, sans-serif);">
+<div class="fmd-slide" style="--deck-bg: var(--ds-bg, Canvas); --deck-ink: var(--ds-text, CanvasText); --deck-muted: var(--ds-text-muted, GrayText); --deck-accent: var(--ds-accent, currentColor); --deck-surface: var(--ds-surface, transparent); --deck-heading-font: var(--ds-heading-font, sans-serif); --deck-body-font: var(--ds-body-font, sans-serif); --deck-radius: var(--ds-radius, 0px); background: var(--deck-bg); color: var(--deck-ink); padding: 64px 80px; display: flex; flex-direction: column; justify-content: flex-start; font-family: var(--deck-body-font);">
   <!-- slide content here -->
 </div>
 ```
 
-The literal values in the examples below are fallback values for a deck with no
-linked system. When a system is linked, use its hydrated values or the renderer
-variables (`--ds-accent`, `--ds-bg`, `--ds-text`, `--ds-text-muted`,
-`--ds-heading-font`, `--ds-body-font`, `--ds-radius`) instead of copying
-Poppins, cyan, white, black, or a stock radius into new markup.
+When a system is linked, use its hydrated values or the renderer variables
+(`--ds-accent`, `--ds-bg`, `--ds-text`, `--ds-text-muted`, `--ds-heading-font`,
+`--ds-body-font`, `--ds-radius`) through the semantic `--deck-*` contract
+instead of copying values into individual elements. With no linked system,
+choose the contract once from the subject and repeat it exactly; do not import
+a stock presentation palette, font, or component language.
 
 ## Fit budget
 
 The canvas is fixed at its aspect-ratio dimensions. With the standard 16:9
-canvas (960x540) and `padding: 80px 110px`, the usable content area is only
-740x380px. Treat that as a hard budget for the main flow: use at most two title
+canvas (960x540) and `padding: 64px 80px`, the usable content area is only
+800x412px. Treat that as a hard budget for the main flow: use at most two title
 lines, three short bullets or cards, and two or three short items per column.
 Split dense source material across slides instead of shrinking it into a dense
 stack. Keep body text at or above 16px. Never hide overflow with zoom,
@@ -176,13 +219,15 @@ stack. Keep body text at or above 16px. Never hide overflow with zoom,
 may reduce the slide's explicit padding, and that padding must remain intact
 when the saved HTML is rendered.
 
-Background is pure black (`bg-[#000000]`) — set by the renderer, not the slide HTML.
-
-When no reference deck or hydrated design system is available, use a restrained,
-content-first visual language. Do not invent colorful cards, boxes, or
-decorative rectangles behind or over text. Add a colored shape only when it has
-a clear semantic role and leaves the text unobscured; prefer typography,
-spacing, alignment, and one restrained accent.
+When no reference deck or hydrated design system is available, derive the
+fallback direction from the subject instead of using a fixed palette. Lock one
+background family, readable text/surface roles, type pairing, spacing scale,
+radius, and accent treatment as semantic `--deck-*` values, then repeat them on
+every wrapper. Build an intentional composition beyond a text dump: use a title
+block, two-column split, metric treatment, rule, callout, visual placeholder,
+or simple diagram where it fits the message. Keep the canvas stable across the
+deck, use accents only for hierarchy or meaning, and do not add decorative
+cards, gradients, fake logos, or shapes without a semantic role.
 
 ## Bounded visual QA
 
@@ -196,175 +241,59 @@ was rendered and compared.
 
 ## Ready-to-Use Templates
 
-Copy and fill in the bracketed values. Use `\` to escape quotes inside the JSON string.
-
----
+Copy and fill in the bracketed values. Each example includes the complete
+semantic wrapper contract. If no design system is linked, replace the
+`--ds-*` fallbacks with the one subject-appropriate contract chosen for this
+deck before copying the wrapper to another slide.
 
 ### Title Slide
 
 ```html
-<div class="fmd-slide" style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; font-family: 'Poppins', sans-serif;">
-  <div style="font-size: 16px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: #00E5FF; margin-bottom: 24px;">[LABEL OR DATE]</div>
-  <h1 style="font-size: 64px; font-weight: 900; color: #fff; line-height: 1.1; letter-spacing: -2px; margin: 0 0 24px 0;">[TITLE]</h1>
-  <p style="font-size: 22px; color: rgba(255,255,255,0.55); margin: 0;">[SUBTITLE OR PRESENTER]</p>
+<div class="fmd-slide" style="--deck-bg: var(--ds-bg, Canvas); --deck-ink: var(--ds-text, CanvasText); --deck-muted: var(--ds-text-muted, GrayText); --deck-accent: var(--ds-accent, currentColor); --deck-surface: var(--ds-surface, transparent); --deck-heading-font: var(--ds-heading-font, sans-serif); --deck-body-font: var(--ds-body-font, sans-serif); --deck-radius: var(--ds-radius, 0px); background: var(--deck-bg); color: var(--deck-ink); padding: 64px 80px; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; gap: 18px; font-family: var(--deck-body-font);">
+  <div style="font-size: 14px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--deck-accent, var(--ds-accent, currentColor));">[LABEL OR DATE]</div>
+  <h1 style="font-size: 56px; font-weight: 750; color: var(--deck-ink, var(--ds-text, currentColor)); font-family: var(--deck-heading-font, var(--ds-heading-font, var(--deck-body-font, sans-serif))); line-height: 1.05; letter-spacing: -0.04em; margin: 0; max-width: 760px;">[TITLE]</h1>
+  <p style="font-size: 20px; color: var(--deck-muted, var(--ds-text-muted, currentColor)); margin: 4px 0 0;">[SUBTITLE OR PRESENTER]</p>
 </div>
 ```
 
----
-
-### Section Divider
+### Content or Two-Column Slide
 
 ```html
-<div class="fmd-slide" style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; font-family: 'Poppins', sans-serif;">
-  <div style="font-size: 16px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: #00E5FF; margin-bottom: 20px;">[SECTION NUMBER, e.g. 01]</div>
-  <h2 style="font-size: 72px; font-weight: 900; color: #fff; line-height: 1.05; letter-spacing: -2px; margin: 0;">[SECTION TITLE]</h2>
-</div>
-```
-
----
-
-### Content Slide (bullets)
-
-```html
-<div class="fmd-slide" style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: flex-start; font-family: 'Poppins', sans-serif;">
-  <div style="font-size: 14px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: #00E5FF; margin-bottom: 16px;">[SECTION LABEL]</div>
-  <h2 style="font-size: 40px; font-weight: 900; color: #fff; line-height: 1.15; letter-spacing: -1px; margin: 0 0 48px 0;">[SLIDE HEADING]</h2>
-  <div style="display: flex; flex-direction: column; gap: 20px;">
-    <div style="display: flex; align-items: flex-start; gap: 16px;">
-      <span style="font-size: 8px; color: #fff; margin-top: 8px; flex-shrink: 0;">&#x25CF;</span>
-      <span style="font-size: 22px; color: rgba(255,255,255,0.85); line-height: 1.5;">[BULLET TEXT]</span>
+<div class="fmd-slide" style="--deck-bg: var(--ds-bg, Canvas); --deck-ink: var(--ds-text, CanvasText); --deck-muted: var(--ds-text-muted, GrayText); --deck-accent: var(--ds-accent, currentColor); --deck-surface: var(--ds-surface, transparent); --deck-heading-font: var(--ds-heading-font, sans-serif); --deck-body-font: var(--ds-body-font, sans-serif); --deck-radius: var(--ds-radius, 0px); background: var(--deck-bg); color: var(--deck-ink); padding: 64px 80px; display: flex; flex-direction: column; justify-content: flex-start; gap: 18px; font-family: var(--deck-body-font);">
+  <div style="font-size: 13px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--deck-accent, var(--ds-accent, currentColor));">[SECTION LABEL]</div>
+  <h2 style="font-size: 34px; font-weight: 750; color: var(--deck-ink, var(--ds-text, currentColor)); font-family: var(--deck-heading-font, var(--ds-heading-font, var(--deck-body-font, sans-serif))); line-height: 1.12; letter-spacing: -0.03em; margin: 0 0 18px;">[SLIDE HEADING]</h2>
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start;">
+    <div style="display: flex; flex-direction: column; gap: 14px;">
+      <div style="border-left: 3px solid var(--deck-accent, var(--ds-accent, currentColor)); padding: 12px 16px; background: var(--deck-surface, var(--ds-surface, transparent)); border-radius: var(--deck-radius, var(--ds-radius, 0px)); font-size: 18px; line-height: 1.4;">[KEY POINT]</div>
+      <div style="border-left: 3px solid var(--deck-accent, var(--ds-accent, currentColor)); padding: 12px 16px; background: var(--deck-surface, var(--ds-surface, transparent)); border-radius: var(--deck-radius, var(--ds-radius, 0px)); font-size: 18px; line-height: 1.4;">[KEY POINT]</div>
     </div>
-    <div style="display: flex; align-items: flex-start; gap: 16px;">
-      <span style="font-size: 8px; color: #fff; margin-top: 8px; flex-shrink: 0;">&#x25CF;</span>
-      <span style="font-size: 22px; color: rgba(255,255,255,0.85); line-height: 1.5;">[BULLET TEXT]</span>
-    </div>
-    <div style="display: flex; align-items: flex-start; gap: 16px;">
-      <span style="font-size: 8px; color: #fff; margin-top: 8px; flex-shrink: 0;">&#x25CF;</span>
-      <span style="font-size: 22px; color: rgba(255,255,255,0.85); line-height: 1.5;">[BULLET TEXT]</span>
-    </div>
+    <div class="fmd-img-placeholder" style="min-height: 220px; border-radius: var(--deck-radius, var(--ds-radius, 0px));">[VISUAL OR IMAGE DESCRIPTION]</div>
   </div>
 </div>
 ```
 
----
-
-### Two-Column Slide (text left, image/visual right)
-
-```html
-<div class="fmd-slide" style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: flex-start; font-family: 'Poppins', sans-serif;">
-  <div style="font-size: 14px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: #00E5FF; margin-bottom: 16px;">[SECTION LABEL]</div>
-  <h2 style="font-size: 40px; font-weight: 900; color: #fff; line-height: 1.15; letter-spacing: -1px; margin: 0 0 40px 0;">[HEADING]</h2>
-  <div style="display: flex; gap: 60px; flex: 1;">
-    <div style="flex: 1; display: flex; flex-direction: column; gap: 20px;">
-      <div style="display: flex; align-items: flex-start; gap: 16px;">
-        <span style="font-size: 8px; color: #fff; margin-top: 8px; flex-shrink: 0;">&#x25CF;</span>
-        <span style="font-size: 20px; color: rgba(255,255,255,0.85); line-height: 1.5;">[BULLET]</span>
-      </div>
-      <div style="display: flex; align-items: flex-start; gap: 16px;">
-        <span style="font-size: 8px; color: #fff; margin-top: 8px; flex-shrink: 0;">&#x25CF;</span>
-        <span style="font-size: 20px; color: rgba(255,255,255,0.85); line-height: 1.5;">[BULLET]</span>
-      </div>
-    </div>
-    <div class="fmd-img-placeholder" style="flex: 1; border-radius: 12px; min-height: 300px;">[IMAGE DESCRIPTION]</div>
-  </div>
-</div>
-```
-
----
-
-### Statement / Quote Slide
-
-```html
-<div class="fmd-slide" style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; font-family: 'Poppins', sans-serif;">
-  <div style="width: 60px; height: 4px; background: #00E5FF; margin-bottom: 40px;"></div>
-  <p style="font-size: 48px; font-weight: 800; color: #fff; line-height: 1.2; letter-spacing: -1px; margin: 0 0 32px 0;">&ldquo;[STATEMENT OR QUOTE]&rdquo;</p>
-  <p style="font-size: 18px; color: rgba(255,255,255,0.45); margin: 0;">[SOURCE OR ATTRIBUTION]</p>
-</div>
-```
-
----
-
-### Metrics / Stats Slide
-
-```html
-<div class="fmd-slide" style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: flex-start; font-family: 'Poppins', sans-serif;">
-  <div style="font-size: 14px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: #00E5FF; margin-bottom: 16px;">[SECTION LABEL]</div>
-  <h2 style="font-size: 40px; font-weight: 900; color: #fff; line-height: 1.15; letter-spacing: -1px; margin: 0 0 60px 0;">[HEADING]</h2>
-  <div style="display: flex; gap: 60px;">
-    <div style="flex: 1;">
-      <div style="font-size: 72px; font-weight: 900; color: #00E5FF; letter-spacing: -2px; line-height: 1;">[METRIC]</div>
-      <div style="font-size: 18px; color: rgba(255,255,255,0.55); margin-top: 12px;">[LABEL]</div>
-    </div>
-    <div style="flex: 1;">
-      <div style="font-size: 72px; font-weight: 900; color: #00E5FF; letter-spacing: -2px; line-height: 1;">[METRIC]</div>
-      <div style="font-size: 18px; color: rgba(255,255,255,0.55); margin-top: 12px;">[LABEL]</div>
-    </div>
-    <div style="flex: 1;">
-      <div style="font-size: 72px; font-weight: 900; color: #00E5FF; letter-spacing: -2px; line-height: 1;">[METRIC]</div>
-      <div style="font-size: 18px; color: rgba(255,255,255,0.55); margin-top: 12px;">[LABEL]</div>
-    </div>
-  </div>
-</div>
-```
-
----
-
-### Closing / CTA Slide
-
-```html
-<div class="fmd-slide" style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; font-family: 'Poppins', sans-serif;">
-  <div style="font-size: 16px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: #00E5FF; margin-bottom: 24px;">[LABEL, e.g. GET STARTED]</div>
-  <h2 style="font-size: 64px; font-weight: 900; color: #fff; line-height: 1.1; letter-spacing: -2px; margin: 0 0 32px 0;">[CLOSING STATEMENT]</h2>
-  <p style="font-size: 22px; color: rgba(255,255,255,0.55); margin: 0;">[CONTACT OR NEXT STEP]</p>
-</div>
-```
+Use the same wrapper and tokens for section, statement, metrics, and closing
+slides, changing only the composition. An image placeholder, metric row,
+short rule, or callout should support the message, not fill empty space.
 
 ## Image Placeholders
 
-When a slide needs a visual, use this div — it renders as a styled placeholder and can later be replaced with a generated image:
+When a slide needs a visual, use this div. It renders as a styled placeholder
+and can later be replaced with a generated image:
 
 ```html
-<div class="fmd-img-placeholder" style="width: 100%; height: 300px; border-radius: 12px;">[Description of what image should show]</div>
-```
-
-## Bold Terms with Description
-
-For definition-style bullets:
-
-```html
-<div style="display: flex; align-items: flex-start; gap: 16px;">
-  <span style="font-size: 8px; color: #fff; margin-top: 8px; flex-shrink: 0;">&#x25CF;</span>
-  <span style="font-size: 22px; line-height: 1.5;">
-    <strong style="font-weight: 800; color: #fff;">[Term]</strong>
-    <span style="color: rgba(255,255,255,0.55);"> — [description]</span>
-  </span>
-</div>
+<div class="fmd-img-placeholder" style="width: 100%; min-height: 220px; border-radius: var(--deck-radius, var(--ds-radius, 0px));">[Description of what image should show]</div>
 ```
 
 ## Bulk Replacement Only
 
 Use a non-empty `create-deck --slides '[...]'` payload only for imports or an
 intentional atomic bulk replacement. For normal AI-generated decks, use the
-empty-deck plus sequential `add-slide` workflow above.
+empty-deck workflow above: sequential `add-slide` calls for every generated
+slide.
 
-A bulk payload looks like this:
-
-```bash
-pnpm action create-deck --title "Product Vision 2025" --slides '[
-  {
-    "id": "slide-1",
-    "layout": "title",
-    "content": "<div class=\"fmd-slide\" style=\"padding: 80px 110px; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; font-family: '\''Poppins'\'', sans-serif;\"><div style=\"font-size: 16px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: #00E5FF; margin-bottom: 24px;\">ANNUAL STRATEGY</div><h1 style=\"font-size: 64px; font-weight: 900; color: #fff; line-height: 1.1; letter-spacing: -2px; margin: 0 0 24px 0;\">Product Vision 2025</h1><p style=\"font-size: 22px; color: rgba(255,255,255,0.55); margin: 0;\">Engineering Leadership — Q1 2025</p></div>"
-  },
-  {
-    "id": "slide-2",
-    "layout": "content",
-    "content": "<div class=\"fmd-slide\" style=\"padding: 80px 110px; display: flex; flex-direction: column; justify-content: flex-start; font-family: '\''Poppins'\'', sans-serif;\"><div style=\"font-size: 14px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: #00E5FF; margin-bottom: 16px;\">OVERVIEW</div><h2 style=\"font-size: 40px; font-weight: 900; color: #fff; line-height: 1.15; letter-spacing: -1px; margin: 0 0 48px 0;\">Three Core Priorities</h2><div style=\"display: flex; flex-direction: column; gap: 20px;\"><div style=\"display: flex; align-items: flex-start; gap: 16px;\"><span style=\"font-size: 8px; color: #fff; margin-top: 8px; flex-shrink: 0;\">&#x25CF;</span><span style=\"font-size: 22px; color: rgba(255,255,255,0.85); line-height: 1.5;\">Ship the agent platform by March</span></div><div style=\"display: flex; align-items: flex-start; gap: 16px;\"><span style=\"font-size: 8px; color: #fff; margin-top: 8px; flex-shrink: 0;\">&#x25CF;</span><span style=\"font-size: 22px; color: rgba(255,255,255,0.85); line-height: 1.5;\">Grow to 10k active teams</span></div><div style=\"display: flex; align-items: flex-start; gap: 16px;\"><span style=\"font-size: 8px; color: #fff; margin-top: 8px; flex-shrink: 0;\">&#x25CF;</span><span style=\"font-size: 22px; color: rgba(255,255,255,0.85); line-height: 1.5;\">Reduce time-to-value to under 5 minutes</span></div></div></div>"
-  }
-]'
-```
-
-After creating, navigate to the deck:
+For a bulk replacement, pass the same fully styled HTML templates in the
+`slides` array. After creating, navigate to the deck:
 ```bash
 pnpm action navigate --deckId=<id>
 ```

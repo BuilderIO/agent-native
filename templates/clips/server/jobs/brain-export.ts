@@ -27,19 +27,19 @@ async function seedRecentBrainExports(): Promise<void> {
       FROM recordings
       INNER JOIN recording_transcripts
         ON recording_transcripts.recording_id = recordings.id
-      WHERE recordings.status = ?
+      WHERE recordings.status = $1
         AND recordings.trashed_at IS NULL
         AND recordings.org_id IS NOT NULL
-        AND recordings.created_at >= ?
-        AND recording_transcripts.status = ?
+        AND recordings.created_at >= $2
+        AND recording_transcripts.status = $3
         AND LENGTH(TRIM(COALESCE(recording_transcripts.full_text, ''))) > 0
         AND NOT EXISTS (
           SELECT 1 FROM application_state
           WHERE application_state.session_id = recordings.owner_email
-            AND application_state.key = ? || recordings.id
+            AND application_state.key = $4 || recordings.id
         )
       ORDER BY recordings.created_at DESC
-      LIMIT ?`,
+      LIMIT $5`,
     args: [
       "ready",
       new Date(
@@ -75,7 +75,7 @@ async function seedRecentBrainExports(): Promise<void> {
 export async function runBrainExportSweepOnce(): Promise<void> {
   await seedRecentBrainExports();
   const { rows } = await getDbExec().execute({
-    sql: "SELECT session_id, key, value FROM application_state WHERE key LIKE ? AND (value LIKE ? OR value LIKE ?) ORDER BY updated_at ASC LIMIT ?",
+    sql: "SELECT session_id, key, value FROM application_state WHERE key LIKE $1 AND (value LIKE $2 OR value LIKE $3) ORDER BY updated_at ASC LIMIT $4",
     args: [
       `${BRAIN_EXPORT_STATE_PREFIX}%`,
       '%"status":"pending"%',

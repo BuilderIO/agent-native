@@ -457,6 +457,19 @@ describe("framework request handler", () => {
     ).resolves.toEqual({ fellThrough: true });
   });
 
+  it("waits for async plugin registration before discovering missing defaults", async () => {
+    const nitroApp = createNitroApp();
+    vi.mocked(getMissingDefaultPlugins).mockResolvedValueOnce(["agent-chat"]);
+
+    getH3App(nitroApp);
+    await Promise.resolve();
+    markDefaultPluginProvided(nitroApp, "agent-chat");
+
+    await expect(
+      dispatch(nitroApp, "/.well-known/agent-card.json"),
+    ).resolves.toEqual({ fellThrough: true });
+  });
+
   it("does not auto-mount a default plugin slot refused by plugins.disabled", async () => {
     process.env.AGENT_NATIVE_DISABLED_PLUGINS = "agent-chat";
     resetAppConfigForTests();
@@ -531,6 +544,64 @@ describe("framework request handler", () => {
     await expect(dispatch(nitroApp, "/_agent-native/sign-in")).resolves.toEqual(
       { ok: true },
     );
+
+    release();
+  });
+
+  it("dispatches /_agent-native/embed/start without waiting for default bootstrap", async () => {
+    // core-routes-plugin.ts registers the workspace-app handshake routes
+    // (identity, embed/start) synchronously before `awaitBootstrap`, on the
+    // same precedent as ping/health, so a cold function's first MCP App
+    // embed doesn't wait on unrelated DB-dependent init.
+    const nitroApp = createNitroApp();
+    let release!: () => void;
+    const bootstrap = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.mocked(getMissingDefaultPlugins).mockImplementationOnce(async () => {
+      await bootstrap;
+      return [];
+    });
+
+    markFrameworkRoutesReadyBeforeBootstrap(nitroApp, [
+      "/_agent-native/embed/start",
+    ]);
+    getH3App(nitroApp).use("/_agent-native/embed/start", () => ({
+      ok: true,
+    }));
+
+    await expect(
+      dispatch(nitroApp, "/_agent-native/embed/start"),
+    ).resolves.toEqual({ ok: true });
+
+    release();
+  });
+
+  it("dispatches /_agent-native/auth/session without waiting for default bootstrap", async () => {
+    // auth-plugin.ts's non-BYOA (default, Better Auth) branch marks
+    // FRAMEWORK_AUTH_EARLY_PATHS ready and mounts Better Auth without
+    // awaiting the shared default-plugin bootstrap (agent-chat, org,
+    // integrations, ...) — a cold function's session check must not wait on
+    // an unrelated plugin's DB-dependent init. See auth-plugin.spec.ts for
+    // the plugin-level assertions of this same contract.
+    const nitroApp = createNitroApp();
+    let release!: () => void;
+    const bootstrap = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.mocked(getMissingDefaultPlugins).mockImplementationOnce(async () => {
+      await bootstrap;
+      return [];
+    });
+
+    markFrameworkRoutesReadyBeforeBootstrap(nitroApp, ["/_agent-native/auth"]);
+    getH3App(nitroApp).use("/_agent-native/auth/session", () => ({
+      ok: true,
+    }));
+
+    await expect(
+      dispatch(nitroApp, "/_agent-native/auth/session"),
+    ).resolves.toEqual({ ok: true });
 
     release();
   });

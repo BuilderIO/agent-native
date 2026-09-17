@@ -143,7 +143,11 @@ describe("listCalendarEvents booking merge", () => {
   });
 
   it("hides a linked local booking when Google was read successfully but no longer returns the event", async () => {
-    getDbMock.mockReturnValue(createDbMock({ bookings: [bookingRow()] }));
+    getDbMock.mockReturnValue(
+      createDbMock({
+        bookings: [bookingRow()],
+      }),
+    );
 
     const result = await listCalendarEvents({
       from: "2026-06-17",
@@ -322,6 +326,25 @@ describe("list-events inventory contract", () => {
     expect(listGoogleEventsMock).not.toHaveBeenCalled();
   });
 
+  it("forwards opaque calendar source keys without trusting client metadata", async () => {
+    listGoogleEventsMock.mockResolvedValue({ events: [], errors: [] });
+
+    await listCalendarEvents({
+      from: "2026-06-17",
+      to: "2026-06-18",
+      calendarSourceKeys: ["google-calendar:opaque-source"],
+    });
+
+    expect(listGoogleEventsMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(String),
+      expect.any(String),
+      expect.objectContaining({
+        calendarSourceKeys: ["google-calendar:opaque-source"],
+      }),
+    );
+  });
+
   it("rejects an explicitly empty account selection", async () => {
     await expect(
       (listEventsAction as any).run(
@@ -424,6 +447,57 @@ describe("list-events inventory contract", () => {
       expect.objectContaining({
         accountEmail: "failed@example.com",
         status: "error",
+      }),
+    );
+  });
+
+  it("does not let a shared-calendar provider id hide a local booking", async () => {
+    getDbMock.mockReturnValue(
+      createDbMock({
+        bookings: [bookingRow({ calendarAccountId: "working@example.com" })],
+      }),
+    );
+    listGoogleEventsMock.mockResolvedValue({
+      events: [
+        {
+          id: "google-google-calendar:opaque-google-event-1",
+          googleEventId: "google-event-1",
+          title: "Unrelated shared event",
+          description: "",
+          start: "2026-06-17T16:00:00.000Z",
+          end: "2026-06-17T16:30:00.000Z",
+          location: "",
+          allDay: false,
+          source: "google",
+          accountEmail: "working@example.com",
+          calendarSourceKey: "google-calendar:opaque",
+          calendarPrimary: false,
+          calendarReadOnly: true,
+          createdAt: "2026-06-12T10:13:39.746Z",
+          updatedAt: "2026-06-12T10:13:39.746Z",
+        },
+      ],
+      errors: [],
+    });
+
+    const result = await (listEventsAction as any).run(
+      {
+        from: "2026-06-17",
+        to: "2026-06-18",
+        calendarSourceKeys: ["google-calendar:opaque"],
+      },
+      { caller: "mcp" },
+    );
+
+    expect(result.items).toHaveLength(2);
+    expect(result.items.map((item: any) => item.source)).toEqual(
+      expect.arrayContaining(["google", "booking"]),
+    );
+    expect(result.items).toContainEqual(
+      expect.objectContaining({
+        id: "google-google-calendar:opaque-google-event-1",
+        calendarSourceKey: "google-calendar:opaque",
+        calendarReadOnly: true,
       }),
     );
   });
@@ -556,6 +630,8 @@ describe("list-events inventory contract", () => {
           googleEventId: "overlay-1",
           accountEmail: "healthy@example.com",
           overlayEmail: "person@example.com",
+          calendarPrimary: false,
+          calendarReadOnly: true,
           createdAt: "2026-06-12T10:13:39.746Z",
           updatedAt: "2026-06-12T10:13:39.746Z",
         },
@@ -594,6 +670,14 @@ describe("list-events inventory contract", () => {
     expect(result.sourceCoverage).toEqual([
       { source: "overlay", id: "person@example.com", status: "ok" },
     ]);
+    expect(result.items).toContainEqual(
+      expect.objectContaining({
+        id: "overlay-person@example.com-overlay-1",
+        source: "overlay",
+        overlayEmail: "person@example.com",
+        calendarReadOnly: true,
+      }),
+    );
     expect(result.coverageComplete).toBe(false);
     expect(result.complete).toBe(false);
   });

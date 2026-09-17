@@ -46,7 +46,10 @@ import {
   createDesktopLocalAgentRuntime,
   type DesktopLocalAgentId,
 } from "../lib/desktop-local-agent-runtime.js";
+import type { DesktopTerminalAgentId } from "../lib/desktop-terminal-preferences.js";
+import type { RendererTheme } from "../lib/theme.js";
 import type { AppWebviewAuthState } from "./AppWebview.js";
+import DesktopTerminalTabs from "./DesktopTerminalTabs.js";
 
 type DesktopChatModelGroup = {
   engine: string;
@@ -83,9 +86,13 @@ export interface DesktopAppChatShellProps {
   isActive?: boolean;
   chatEnabled?: boolean;
   toggleScopeId?: string;
-  onNewCliTab?: () => void;
-  onNewUiTab?: () => void;
-  newTabMode?: "ui" | "cli";
+  defaultMode?: "chat" | "cli";
+  terminal?: {
+    agent: DesktopTerminalAgentId;
+    theme: RendererTheme;
+    path?: string;
+    view?: string;
+  };
   onLocalCodeChangeStarted?: (
     result: DesktopPrepareLocalCodeChangeResult,
   ) => void;
@@ -155,9 +162,8 @@ export default function DesktopAppChatShell({
   isActive = true,
   chatEnabled = true,
   toggleScopeId,
-  onNewCliTab,
-  onNewUiTab,
-  newTabMode = "ui",
+  defaultMode = "chat",
+  terminal,
   onLocalCodeChangeStarted,
 }: DesktopAppChatShellProps) {
   const [desktopChatQueryClient] = useState(() =>
@@ -541,6 +547,7 @@ export default function DesktopAppChatShell({
               animateDesktop={false}
               openStorageKey="desktop-app-chat"
               storageKey={`desktop-app-chat:${appId}`}
+              defaultMode={defaultMode}
               scope={{
                 type: "desktop-app",
                 id: appId,
@@ -548,6 +555,23 @@ export default function DesktopAppChatShell({
                 contextKey: `desktop-app:${appId}`,
               }}
               toggleScopeId={toggleScopeId}
+              renderCliTab={
+                terminal
+                  ? ({ active }) => (
+                      <DesktopTerminalTabs
+                        agent={terminal.agent}
+                        theme={terminal.theme}
+                        active={active}
+                        activeApp={{
+                          id: appId,
+                          name: appName,
+                          ...(terminal.path ? { path: terminal.path } : {}),
+                          ...(terminal.view ? { view: terminal.view } : {}),
+                        }}
+                      />
+                    )
+                  : undefined
+              }
               onOpenSettings={
                 isActive
                   ? onOpenSettings
@@ -555,11 +579,9 @@ export default function DesktopAppChatShell({
                     : undefined
                   : ignoreOpenSettings
               }
-              onNewCliTab={onNewCliTab}
-              onNewUiTab={onNewUiTab}
-              newTabMode={newTabMode}
               newCliTabLabel="New CLI tab"
               newUiTabLabel="New UI tab"
+              chatOnly={false}
               apiUrl={showChatSidebar ? (apiUrl ?? undefined) : undefined}
               isolateHistoryByScope
               agentChatSurface="desktop"

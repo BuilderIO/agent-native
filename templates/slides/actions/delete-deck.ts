@@ -1,9 +1,5 @@
 /**
  * delete-deck — remove a deck and its version history.
- *
- * Hidden from the agent: deck deletion has always been a UI-only operation and
- * this action exists to give the editor the same permission rule it had on the
- * route it replaced.
  */
 import { defineAction } from "@agent-native/core/action";
 import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
@@ -20,7 +16,6 @@ export default defineAction({
     id: z.string().min(1).describe("Deck ID"),
   }),
   http: { method: "DELETE" },
-  agentTool: false,
   run: async ({ id }) => {
     try {
       // assertAccess loads the row and verifies the caller has admin role on
@@ -62,30 +57,44 @@ export default defineAction({
           if (recipient) orgRecipients.add(recipient);
         }
       }
-      await db
-        .delete(schema.deckVersions)
-        .where(
-          and(
-            eq(schema.deckVersions.deckId, id),
-            eq(schema.deckVersions.ownerEmail, owner),
-          ),
-        );
-      const result = await db
-        .delete(schema.decks)
-        .where(eq(schema.decks.id, id))
-        .returning();
+      const result = await db.transaction(async (tx) => {
+        // Comment creation takes this same lock before validating the slide,
+        // so deck removal cannot race an insert of an orphaned comment.
+        const [lockedDeck] = await tx
+          .select({ id: schema.decks.id })
+          .from(schema.decks)
+          .where(eq(schema.decks.id, id))
+          .for("update");
+        if (!lockedDeck) return [];
+
+        await tx
+          .delete(schema.deckVersions)
+          .where(
+            and(
+              eq(schema.deckVersions.deckId, id),
+              eq(schema.deckVersions.ownerEmail, owner),
+            ),
+          );
+        await tx
+          .delete(schema.slideComments)
+          .where(eq(schema.slideComments.deckId, id));
+        return tx
+          .delete(schema.decks)
+          .where(eq(schema.decks.id, id))
+          .returning();
+      });
 
       if (result.length === 0) {
         throw deckHttpError(404, "Deck not found");
       }
       if (access.resource.visibility === "public") {
-        notifyClients(id, { type: "deck-deleted", visibility: "public" });
+        await notifyClients(id, { type: "deck-deleted", visibility: "public" });
       } else {
         for (const recipient of ownerRecipients) {
-          notifyClients(id, { type: "deck-deleted", owner: recipient });
+          await notifyClients(id, { type: "deck-deleted", owner: recipient });
         }
         for (const recipient of orgRecipients) {
-          notifyClients(id, { type: "deck-deleted", orgId: recipient });
+          await notifyClients(id, { type: "deck-deleted", orgId: recipient });
         }
       }
       return { success: true };

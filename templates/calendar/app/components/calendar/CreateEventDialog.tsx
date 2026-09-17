@@ -15,7 +15,7 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { differenceInMinutes, format } from "date-fns";
-import { useId, useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
 
 import {
@@ -34,6 +34,7 @@ import {
   RepeatPicker,
   TimePickerPopover,
 } from "@/components/calendar/InlineEventPickers";
+import { LocationAutocomplete } from "@/components/calendar/LocationAutocomplete";
 import { TimezoneCombobox } from "@/components/TimezoneCombobox";
 import { Button } from "@/components/ui/button";
 import {
@@ -103,6 +104,11 @@ import {
   eventPopoverHeaderTitle,
   eventPopoverShell,
 } from "@/lib/event-popover-style";
+import {
+  applyEndTimeChange,
+  shiftEndForDateChange,
+  shiftEndForStartChange,
+} from "@/lib/event-time-range";
 
 type VideoProvider = "none" | "google_meet" | "zoom";
 type EventType = "default" | "outOfOffice" | "focusTime" | "workingLocation";
@@ -284,7 +290,6 @@ export function CreateEventPopover({
   const [startTime, setStartTime] = useState(defaultStart || fallbackStart);
   const [endTime, setEndTime] = useState(defaultEnd || fallbackEnd);
   const [location, setLocation] = useState("");
-  const locationSuggestionsId = useId();
   const [allDay, setAllDay] = useState(false);
   const [eventType, setEventType] = useState<EventType>("default");
   const [autoDeclineMode, setAutoDeclineMode] = useState<AutoDeclineMode>(
@@ -509,17 +514,16 @@ export function CreateEventPopover({
     if (!date || !endDate || (!allDay && (!startTime || !endTime))) {
       return;
     }
-    const allDayEnd = new Date(`${endDate}T00:00:00`);
-    allDayEnd.setDate(allDayEnd.getDate() + 1);
+    const allDayEnd = addDaysToDateString(endDate, 1);
     const startValue = fullDayOutOfOffice
       ? date
       : effectiveAllDay
-        ? new Date(`${date}T00:00:00`).toISOString()
+        ? date
         : dateTimeInTimezoneToIso(date, startTime, eventTimezone);
     const endValue = fullDayOutOfOffice
       ? endDate
       : effectiveAllDay
-        ? allDayEnd.toISOString()
+        ? allDayEnd
         : dateTimeInTimezoneToIso(endDate, endTime, eventTimezone);
     const attachmentResult = validateAttachmentDrafts(attachments);
     const reminderPatch = buildReminderPayload(reminderMode, reminders);
@@ -635,8 +639,37 @@ export function CreateEventPopover({
   ]);
 
   function handleDateChange(nextDate: string) {
+    if (!allDay) {
+      const next = shiftEndForDateChange(
+        { date, startTime, endDate, endTime },
+        nextDate,
+      );
+      setDate(next.date);
+      setEndDate(next.endDate);
+      setEndTime(next.endTime);
+      return;
+    }
     setDate(nextDate);
     setEndDate((current) => (current < nextDate ? nextDate : current));
+  }
+
+  function handleStartTimeChange(nextStartTime: string) {
+    const next = shiftEndForStartChange(
+      { date, startTime, endDate, endTime },
+      nextStartTime,
+    );
+    setStartTime(next.startTime);
+    setEndDate(next.endDate);
+    setEndTime(next.endTime);
+  }
+
+  function handleEndTimeChange(nextEndTime: string) {
+    const next = applyEndTimeChange(
+      { date, startTime, endDate, endTime },
+      nextEndTime,
+    );
+    setEndDate(next.endDate);
+    setEndTime(next.endTime);
   }
 
   function handleDraftDescription() {
@@ -776,17 +809,16 @@ export function CreateEventPopover({
 
     const fullDayOutOfOffice = isOutOfOffice && allDay;
     const effectiveAllDay = allDay && !timedOnlyStatus;
-    const allDayEnd = new Date(`${endDate}T00:00:00`);
-    allDayEnd.setDate(allDayEnd.getDate() + 1);
+    const allDayEnd = addDaysToDateString(endDate, 1);
     const startValue = fullDayOutOfOffice
       ? date
       : effectiveAllDay
-        ? new Date(`${date}T00:00:00`).toISOString()
+        ? date
         : dateTimeInTimezoneToIso(date, startTime, eventTimezone);
     const endValue = fullDayOutOfOffice
       ? endDate
       : effectiveAllDay
-        ? allDayEnd.toISOString()
+        ? allDayEnd
         : dateTimeInTimezoneToIso(endDate, endTime, eventTimezone);
 
     if (
@@ -903,6 +935,7 @@ export function CreateEventPopover({
               delEvent.mutate(
                 buildDeleteEventMutationInput(
                   {
+                    ...result,
                     id: eventId,
                     accountEmail: result.accountEmail ?? accountEmail,
                   },
@@ -941,6 +974,7 @@ export function CreateEventPopover({
           const target = event.target as HTMLElement;
           if (
             target.closest("[data-attendee-autocomplete]") ||
+            target.closest("[data-location-autocomplete]") ||
             target.closest("[data-time-picker-popover]")
           ) {
             event.preventDefault();
@@ -991,26 +1025,31 @@ export function CreateEventPopover({
                       value={startTime}
                       label={t("eventForm.start")}
                       className="px-1.5 py-1"
-                      onChange={setStartTime}
+                      onChange={handleStartTimeChange}
                     />
                     <span className="text-muted-foreground/60">→</span>
                     <TimePickerPopover
                       value={endTime}
                       label={t("eventForm.end")}
                       className="px-1.5 py-1"
+                      after={endDate === date ? startTime : undefined}
                       getOptionMeta={(value) => {
+                        const next = applyEndTimeChange(
+                          { date, startTime, endDate, endTime },
+                          value,
+                        );
                         const duration = differenceInMinutes(
                           new Date(
                             dateTimeInTimezoneToIso(
-                              endDate,
-                              value,
+                              next.endDate,
+                              next.endTime,
                               eventTimezone,
                             ),
                           ),
                           new Date(
                             dateTimeInTimezoneToIso(
-                              date,
-                              startTime,
+                              next.date,
+                              next.startTime,
                               eventTimezone,
                             ),
                           ),
@@ -1019,12 +1058,7 @@ export function CreateEventPopover({
                           ? formatDurationLabel(duration, t)
                           : undefined;
                       }}
-                      onChange={(value) => {
-                        setEndTime(value);
-                        if (endDate === date && value <= startTime) {
-                          setEndDate(addDaysToDateString(date, 1));
-                        }
-                      }}
+                      onChange={handleEndTimeChange}
                     />
                     <span className="text-xs text-muted-foreground/70">
                       {formatDurationLabel(findTimeDurationMinutes, t)}
@@ -1097,26 +1131,15 @@ export function CreateEventPopover({
 
                 <div className="flex items-center gap-2 py-1">
                   <IconMapPin className="size-[18px] shrink-0 text-muted-foreground" />
-                  <Input
+                  <LocationAutocomplete
                     id="event-location"
                     value={location}
-                    onChange={(e) => setLocation(e.target.value)}
+                    onChange={setLocation}
+                    suggestions={locationSuggestions}
                     placeholder={t("eventForm.optionalLocation")}
-                    aria-label={t("eventForm.location")}
+                    label={t("eventForm.location")}
                     className="h-[30px] border-0 bg-transparent px-0 shadow-none placeholder:text-muted-foreground/60 focus-visible:ring-0"
-                    list={
-                      locationSuggestions.length > 0
-                        ? locationSuggestionsId
-                        : undefined
-                    }
                   />
-                  {locationSuggestions.length > 0 && (
-                    <datalist id={locationSuggestionsId}>
-                      {locationSuggestions.map((suggestion) => (
-                        <option key={suggestion} value={suggestion} />
-                      ))}
-                    </datalist>
-                  )}
                 </div>
 
                 <div className="flex items-center gap-2 py-1">

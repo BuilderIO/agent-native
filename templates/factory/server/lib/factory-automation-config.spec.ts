@@ -1,18 +1,67 @@
 import { describe, expect, it } from "vitest";
 
+import { managedReviewSkillAlignmentMarkers } from "../triage/review-skill-alignment.js";
 import {
+  applyAutomationConfigFrontmatter,
   assertAuthorFilter,
   authorMatchesFilter,
   buildGuardrailsText,
+  composeFactoryAutomationBody,
+  countSkillAlignmentBlocks,
   cronForDaily,
   cronForInterval,
   defaultAutomationConfig,
+  inferAutomationSource,
+  needsAutomationBodyRepair,
+  normalizeUserPrompt,
   parseAuthorIdsField,
   parseScheduleFromCron,
+  previewAutomationInstructions,
+  readFactoryAutomationConfig,
+  replaceAutomationContentWithUserPrompt,
   replaceUserPrompt,
+  restoreFactoryAutomationIdentityFields,
+  splitAutomationFrontmatter,
+  templateIdForSeedName,
 } from "./factory-automation-config.js";
 
 describe("factory-automation-config", () => {
+  it("infers GitHub for PR babysit copies even when YAML source is missing or Slack", () => {
+    const withoutSource = `---
+template: pr-babysit
+repository: acme/widgets
+---
+Babysit pull requests.
+`;
+    expect(inferAutomationSource("factory-pr-babysit-2", withoutSource)).toBe(
+      "github",
+    );
+    expect(
+      readFactoryAutomationConfig(
+        withoutSource,
+        "factories/factorytester/factory-pr-babysit-2",
+      ).source,
+    ).toBe("github");
+    expect(
+      inferAutomationSource(
+        "factory-pr-babysit-2",
+        `---
+source: slack
+template: pr-babysit
+---
+Babysit pull requests.
+`,
+      ),
+    ).toBe("github");
+    expect(templateIdForSeedName("factory-pr-babysit-2")).toBe("pr-babysit");
+  });
+
+  it("infers custom jobs from factory-<source>- leaf prefixes", () => {
+    expect(inferAutomationSource("factory-github-my-repo")).toBe("github");
+    expect(inferAutomationSource("factory-slack-my-alerts")).toBe("slack");
+    expect(inferAutomationSource("factory-sentry-prod")).toBe("sentry");
+  });
+
   it("rejects include mode with no author ids", () => {
     expect(() => assertAuthorFilter("slack", "include", [])).toThrow(
       /at least one author id/,
@@ -61,6 +110,7 @@ describe("factory-automation-config", () => {
     const guardrails = buildGuardrailsText("support-triage", config);
     expect(guardrails).toContain("dispatch-factory-item");
     expect(guardrails).toContain("reaction");
+    expect(guardrails).toContain("omit it on skips");
     expect(guardrails).not.toContain("limit 20");
     expect(guardrails).not.toContain("👀");
 
@@ -83,5 +133,179 @@ Classify Slack items.
     expect(next).toContain("Never post Slack messages");
     expect(next).not.toContain("Stale skip text");
     expect(next).toContain("Classify Slack items.");
+  });
+
+  it("does not delete a stored Slack channel when the config omits one", () => {
+    const content = `---
+source: slack
+template: slack-feedback
+slackChannelId: C0BUK2293SA
+slackChannelName: feedback
+---
+
+Observe Slack.
+`;
+    const next = applyAutomationConfigFrontmatter(
+      content,
+      defaultAutomationConfig("slack", "slack-feedback"),
+    );
+    expect(next).toContain("slackChannelId: C0BUK2293SA");
+    expect(next).toContain("slackChannelName: feedback");
+  });
+
+  it("restores editor-owned identity fields dropped during metadata repair", () => {
+    const original = `---
+source: slack
+template: slack-feedback
+displayName: Product feedback
+slackChannelId: C0ATH3CCZT4
+slackChannelName: product-feedback
+authorMode: exclude
+authorIds: U096KN3EL2Y
+---
+
+Observe Slack.
+`;
+    const repaired = `---
+source: slack
+template: slack-feedback
+authorMode: exclude
+---
+
+Observe Slack.
+`;
+    const next = restoreFactoryAutomationIdentityFields(
+      original,
+      repaired,
+      "factory-slack-feedback",
+    );
+    expect(next).toContain("displayName: Product feedback");
+    expect(next).toContain("slackChannelId: C0ATH3CCZT4");
+    expect(next).toContain("authorIds: U096KN3EL2Y");
+  });
+
+  it("strips duplicate injected blocks from pasted prompt text", () => {
+    const { start, end } = managedReviewSkillAlignmentMarkers();
+    const pasted = `${start}
+first alignment
+${end}
+
+${start}
+second alignment
+${end}
+
+User instructions stay.
+`;
+    const normalized = normalizeUserPrompt(pasted);
+    expect(normalized).toBe("User instructions stay.");
+    expect(countSkillAlignmentBlocks(pasted)).toBe(2);
+  });
+
+  it("composes body without changing frontmatter identity fields", () => {
+    const content = `---
+source: slack
+template: slack-feedback
+displayName: Product feedback
+slackChannelId: C0ATH3CCZT4
+factoryId: product-an-feedback
+inboxLimit: 10
+workLimit: 2
+---
+
+Stale body.
+`;
+    const config = readFactoryAutomationConfig(
+      content,
+      "factory-slack-feedback",
+    );
+    const { frontmatter: originalFrontmatter } =
+      splitAutomationFrontmatter(content);
+    const next = replaceAutomationContentWithUserPrompt(
+      content,
+      "Only triage paying customers.",
+      "factory-slack-feedback",
+    );
+    const { frontmatter: nextFrontmatter, body } =
+      splitAutomationFrontmatter(next);
+    expect(nextFrontmatter).toBe(originalFrontmatter);
+    expect(body).toContain("Only triage paying customers.");
+    expect(body).toContain("dispatch-factory-item");
+    expect(countSkillAlignmentBlocks(next)).toBeLessThanOrEqual(1);
+    expect(
+      composeFactoryAutomationBody({
+        userPrompt: "Only triage paying customers.",
+        automationName: "factory-slack-feedback",
+        factoryId: "product-an-feedback",
+        config,
+      }),
+    ).toContain("Only triage paying customers.");
+  });
+
+  it("matches preview guardrails and alignment to composed body sections", () => {
+    const config = defaultAutomationConfig("slack", "slack-feedback");
+    const preview = previewAutomationInstructions({
+      factoryId: "product-an-feedback",
+      config,
+      automationName: "factory-slack-feedback",
+    });
+    const body = composeFactoryAutomationBody({
+      userPrompt: "Classify Slack feedback.",
+      automationName: "factory-slack-feedback",
+      factoryId: "product-an-feedback",
+      config,
+    });
+    expect(body).toContain(preview.guardrails);
+    if (preview.skillAlignment) {
+      expect(body).toContain(preview.skillAlignment);
+    }
+  });
+
+  it("does not require body repair for prompt-only automations missing alignmentRevision", () => {
+    const content = `---
+template: slack-feedback
+source: slack
+---
+Only triage paying customers.
+`;
+    expect(needsAutomationBodyRepair(content)).toBe(false);
+  });
+
+  it("requires body repair when duplicate alignment blocks are present", () => {
+    const { start, end } = managedReviewSkillAlignmentMarkers();
+    const content = `---
+template: slack-feedback
+source: slack
+alignmentRevision: 1
+---
+${start}
+one
+${end}
+
+${start}
+two
+${end}
+
+User text.
+`;
+    expect(needsAutomationBodyRepair(content)).toBe(true);
+  });
+
+  it("deletes a stored Slack channel when the config clears it", () => {
+    const content = `---
+source: slack
+template: slack-feedback
+slackChannelId: C0BUK2293SA
+slackChannelName: feedback
+---
+
+Observe Slack.
+`;
+    const next = applyAutomationConfigFrontmatter(content, {
+      ...defaultAutomationConfig("slack", "slack-feedback"),
+      slackChannelId: "",
+      slackChannelName: "",
+    });
+    expect(next).not.toContain("slackChannelId:");
+    expect(next).not.toContain("slackChannelName:");
   });
 });

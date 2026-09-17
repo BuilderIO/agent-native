@@ -30,6 +30,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { prefetchPeopleContacts } from "@/hooks/use-people";
 import { shouldOfferGoogleOAuthSetup } from "@/lib/google-oauth-setup";
+import { isCalendarShortcutSuppressedTarget } from "@/lib/keyboard-shortcuts";
 
 import { Sidebar } from "./Sidebar";
 
@@ -70,8 +71,11 @@ interface CalendarContextValue {
   setPeopleSearchOpen: (open: boolean) => void;
   addCalendarOpen: boolean;
   setAddCalendarOpen: (open: boolean) => void;
-  addCalendarDefaultTab: "people" | "url";
-  setAddCalendarDefaultTab: (tab: "people" | "url") => void;
+  addCalendarDefaultTab: "people" | "url" | "google";
+  setAddCalendarDefaultTab: (tab: "people" | "url" | "google") => void;
+  /** Opens the add-a-peer dialog prefilled with this email. Prefills the
+   *  search only — the user still confirms, so a link click never writes. */
+  openAddPersonPrefilled: (email: string) => void;
   hiddenCalendars: ReturnType<typeof useHiddenCalendars>["hidden"];
   toggleHiddenCalendar: ReturnType<typeof useHiddenCalendars>["toggle"];
   isHiddenCalendar: ReturnType<typeof useHiddenCalendars>["isHidden"];
@@ -99,10 +103,13 @@ interface CalendarContextValue {
  */
 interface CalendarSettersValue {
   setSelectedDate: (date: Date) => void;
+  /** Opens the add-a-peer dialog prefilled with this email. Prefills the
+   *  search only — the user still confirms, so a link click never writes. */
+  openAddPersonPrefilled: (email: string) => void;
   setViewMode: (mode: ViewMode) => void;
   setPeopleSearchOpen: (open: boolean) => void;
   setAddCalendarOpen: (open: boolean) => void;
-  setAddCalendarDefaultTab: (tab: "people" | "url") => void;
+  setAddCalendarDefaultTab: (tab: "people" | "url" | "google") => void;
   toggleHiddenCalendar: ReturnType<typeof useHiddenCalendars>["toggle"];
   setEventDetailSidebar: (sidebar: boolean) => void;
   setSidebarEvent: (event: CalendarEvent | null) => void;
@@ -117,7 +124,7 @@ interface CalendarRareValuesContextValue {
   viewMode: ViewMode;
   peopleSearchOpen: boolean;
   addCalendarOpen: boolean;
-  addCalendarDefaultTab: "people" | "url";
+  addCalendarDefaultTab: "people" | "url" | "google";
   hiddenCalendars: ReturnType<typeof useHiddenCalendars>["hidden"];
   isHiddenCalendar: ReturnType<typeof useHiddenCalendars>["isHidden"];
   eventDetailSidebar: boolean;
@@ -133,6 +140,7 @@ interface CalendarHighFrequencyContextValue {
 
 const noopSetters: CalendarSettersValue = {
   setSelectedDate: () => {},
+  openAddPersonPrefilled: () => {},
   setViewMode: () => {},
   setPeopleSearchOpen: () => {},
   setAddCalendarOpen: () => {},
@@ -240,14 +248,27 @@ export function AppLayout({ children }: AppLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] =
     useState(readSidebarCollapsed);
+  const [sidebarExpandedWhileChatOpen, setSidebarExpandedWhileChatOpen] =
+    useState(false);
   const perAppChatOpen = usePerAppChatOpen();
+  useEffect(() => {
+    if (!perAppChatOpen) setSidebarExpandedWhileChatOpen(false);
+  }, [perAppChatOpen]);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<ViewMode>(isMobile ? "day" : "week");
   const [peopleSearchOpen, setPeopleSearchOpen] = useState(false);
   const [addCalendarOpen, setAddCalendarOpen] = useState(false);
   const [addCalendarDefaultTab, setAddCalendarDefaultTab] = useState<
-    "people" | "url"
+    "people" | "url" | "google"
   >("people");
+  const [addPersonPrefillEmail, setAddPersonPrefillEmail] = useState<
+    string | undefined
+  >(undefined);
+  const openAddPersonPrefilled = useCallback((email: string) => {
+    setAddPersonPrefillEmail(email);
+    setAddCalendarDefaultTab("people");
+    setAddCalendarOpen(true);
+  }, []);
   const {
     hidden: hiddenCalendars,
     toggle: toggleHiddenCalendar,
@@ -296,14 +317,7 @@ export function AppLayout({ children }: AppLayoutProps) {
     const openShortcuts = () => setShortcutsHelpOpen(true);
     window.addEventListener("calendar:open-shortcuts", openShortcuts);
     function handleKey(e: KeyboardEvent) {
-      const target = e.target as HTMLElement;
-      if (
-        target.tagName === "INPUT" ||
-        target.tagName === "TEXTAREA" ||
-        target.isContentEditable
-      ) {
-        return;
-      }
+      if (isCalendarShortcutSuppressedTarget(e.target)) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key === "?" || (e.key === "/" && e.shiftKey)) {
         e.preventDefault();
@@ -332,6 +346,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   const settersValue = useMemo<CalendarSettersValue>(
     () => ({
       setSelectedDate,
+      openAddPersonPrefilled,
       setViewMode,
       setPeopleSearchOpen,
       setAddCalendarOpen,
@@ -343,7 +358,12 @@ export function AppLayout({ children }: AppLayoutProps) {
       setEventDraft,
       openSidebar,
     }),
-    [toggleHiddenCalendar, setEventDetailSidebar, openSidebar],
+    [
+      toggleHiddenCalendar,
+      setEventDetailSidebar,
+      openSidebar,
+      openAddPersonPrefilled,
+    ],
   );
 
   const rareValuesValue = useMemo<CalendarRareValuesContextValue>(
@@ -386,8 +406,19 @@ export function AppLayout({ children }: AppLayoutProps) {
           <NavigationSync />
           <AddCalendarDialog
             open={addCalendarOpen}
-            onOpenChange={setAddCalendarOpen}
+            onOpenChange={(open) => {
+              setAddCalendarOpen(open);
+              // Clear the prefill on close so reopening the dialog manually
+              // doesn't resurrect a stale deep-linked address.
+              if (!open) setAddPersonPrefillEmail(undefined);
+            }}
             defaultTab={addCalendarDefaultTab}
+            prefillPersonEmail={addPersonPrefillEmail}
+            visibleTabs={
+              addCalendarDefaultTab === "google"
+                ? ["google"]
+                : ["people", "url"]
+            }
           />
           <KeyboardShortcutsHelp
             open={shortcutsHelpOpen}
@@ -400,8 +431,23 @@ export function AppLayout({ children }: AppLayoutProps) {
             <Sidebar
               open={sidebarOpen}
               onClose={() => setSidebarOpen(false)}
-              collapsed={!isMobile && (sidebarCollapsed || perAppChatOpen)}
-              onCollapsedChange={isMobile ? undefined : setSidebarCollapsed}
+              collapsed={
+                !isMobile &&
+                (perAppChatOpen
+                  ? !sidebarExpandedWhileChatOpen
+                  : sidebarCollapsed)
+              }
+              onCollapsedChange={
+                isMobile
+                  ? undefined
+                  : (nextCollapsed) => {
+                      if (perAppChatOpen) {
+                        setSidebarExpandedWhileChatOpen(!nextCollapsed);
+                        return;
+                      }
+                      setSidebarCollapsed(nextCollapsed);
+                    }
+              }
             />
             <AgentSidebar
               position="right"

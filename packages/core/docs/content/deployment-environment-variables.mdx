@@ -29,7 +29,7 @@ hosting behavior.
 | `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | Dedicated 32+ char shared HMAC secret for preview-safe Builder authorization relay. Set the same value on the approved corporate callback deployment and preview deployments only when authorization must land in an isolated preview database.                                                                                                                         |
 | `AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS` | Corporate callback-only, comma-separated allowlist of exact trusted preview origins (for example, `https://0123456789abcdef01234567--content.netlify.app`). Set it only on the corporate callback deployment. Netlify origins must use an immutable, deploy-specific 24-hex permalink. Mutable `deploy-preview-*` aliases, wildcards, and domain suffixes are rejected. |
 
-Database connection variables (`DATABASE_URL`, `DATABASE_AUTH_TOKEN`, per-app `<APP_NAME>_DATABASE_URL`) live in [Database](/docs/server-database#production).
+Database connection variables (`DATABASE_URL`, per-app `<APP_NAME>_DATABASE_URL`) live in [Database](/docs/server-database#production).
 
 ## Schema setup and cold starts {#skip-ensure-tables}
 

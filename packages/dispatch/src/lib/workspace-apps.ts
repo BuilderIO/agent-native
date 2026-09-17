@@ -1,6 +1,10 @@
 import { CHAT_FIRST_DEFAULT_APP_IDS } from "@agent-native/core/client/chat-first";
-import { isInBuilderFrame } from "@agent-native/core/client/host";
 import {
+  getClientSurface,
+  isInBuilderFrame,
+} from "@agent-native/core/client/host";
+import {
+  normalizeWorkspaceAppHomePath,
   resolveEnvironmentTargets,
   withBuilderUtmTrackingParams,
 } from "@agent-native/core/shared";
@@ -15,6 +19,7 @@ export interface WorkspaceAppSummary {
   name: string;
   description?: string;
   path: string;
+  homePath?: string;
   url?: string | null;
   isDispatch?: boolean;
   audience?: "internal" | "public";
@@ -290,7 +295,35 @@ export function workspaceAppHref(app: WorkspaceAppSummary): string | null {
         })
       : null;
   }
-  return app.path || app.url || null;
+  const base = app.path || app.url || null;
+  if (!base || app.isDispatch) return base;
+  return workspaceAppDirectHref(app, workspaceAppTargetPath(app));
+}
+
+export function workspaceAppTargetPath(app: {
+  homePath?: string | null;
+  url?: string | null;
+}): string {
+  if (typeof app.homePath === "string") {
+    return normalizeWorkspaceAppHomePath(app.homePath);
+  }
+
+  const rawUrl = app.url?.trim();
+  if (rawUrl) {
+    try {
+      const url = new URL(rawUrl);
+      if (
+        (url.protocol === "http:" || url.protocol === "https:") &&
+        url.pathname !== "/"
+      ) {
+        return "/";
+      }
+    } catch {
+      // coercion-ok: invalid app URLs use the default app home path.
+    }
+  }
+
+  return normalizeWorkspaceAppHomePath(undefined);
 }
 
 export function workspaceAppEmbedTarget(
@@ -362,8 +395,8 @@ export function workspaceAppDirectHref(
 
   if (absoluteBase) {
     absoluteBase.pathname = resolvedPath;
-    absoluteBase.search = targetUrl.search;
-    absoluteBase.hash = targetUrl.hash;
+    if (target.includes("?")) absoluteBase.search = targetUrl.search;
+    if (target.includes("#")) absoluteBase.hash = targetUrl.hash;
     return absoluteBase.toString();
   }
 
@@ -376,9 +409,9 @@ export function isPendingBuilderHref(app: WorkspaceAppSummary): boolean {
 
 export function shouldOpenWorkspaceAppInTopWindow(): boolean {
   if (typeof window === "undefined") return false;
-  // A generic iframe is an inline host by design. Only Builder owns the
-  // parent navigation contract for workspace apps.
-  return isInBuilderFrame();
+  // Standard browser iframes stay inline; Builder and native shells need the
+  // app as the top-level document so browser APIs such as WebMCP bind to it.
+  return isInBuilderFrame() || getClientSurface() !== "web";
 }
 
 export function navigateToWorkspaceApp(href: string): boolean {

@@ -571,6 +571,20 @@ describe("AgentEngine registry", () => {
       );
     });
 
+    it("keeps explicitly selected BYOK provider model ids", async () => {
+      const { normalizeModelForEngine } = await import("./registry.js");
+      const engine = {
+        name: "anthropic",
+        defaultModel: "claude-sonnet-5",
+        supportedModels: ["claude-sonnet-5"],
+        acceptsCustomModels: true,
+      } as any;
+
+      expect(normalizeModelForEngine(engine, "claude-next-preview")).toBe(
+        "claude-next-preview",
+      );
+    });
+
     it("preserves arbitrary Ollama model ids", async () => {
       const { resolveEnginePreservesCustomModels } =
         await import("./registry.js");
@@ -587,6 +601,18 @@ describe("AgentEngine registry", () => {
       await expect(
         resolveEnginePreservesCustomModels({ name: "ai-sdk:openrouter" }),
       ).resolves.toBe(true);
+    });
+
+    it("allows custom IDs for explicitly configured provider entries", async () => {
+      const { resolveEngineAcceptsCustomModels } =
+        await import("./registry.js");
+
+      await expect(
+        resolveEngineAcceptsCustomModels({ acceptsCustomModels: true }),
+      ).resolves.toBe(true);
+      await expect(
+        resolveEngineAcceptsCustomModels({ acceptsCustomModels: false }),
+      ).resolves.toBe(false);
     });
 
     it("falls back an unrecognized first-party OpenAI model to the default without a gateway", async () => {
@@ -1478,24 +1504,25 @@ describe("AgentEngine registry", () => {
         "BUILDER_GATEWAY_TOKEN",
         rejectedToken,
       );
-      vi.doMock("../../settings/store.js", () => ({
-        getSetting: vi.fn(async (key: string) =>
-          key === `provider-auth-failure:${fingerprint}`
-            ? {
-                fingerprint,
-                key: "BUILDER_GATEWAY_TOKEN",
-                message: "401 status code (no body)",
-                status: 401,
-                at: Date.now(),
-              }
-            : null,
-        ),
-        deleteSetting: vi.fn(),
-      }));
-      // The enclosing beforeEach already registered an always-null
-      // settings/store factory and imported through it. `doMock` only governs
-      // the NEXT import, so without this reset the module instance built there
-      // keeps answering and this failure marker is never seen.
+      vi.doMock(
+        "../../server/credential-provider.js",
+        async (importOriginal) => ({
+          ...(await importOriginal()),
+          getProviderCredentialAuthFailure: vi.fn(
+            async (options: { key?: string | null; value?: string | null }) =>
+              options.key === "BUILDER_GATEWAY_TOKEN" &&
+              options.value === rejectedToken
+                ? {
+                    fingerprint,
+                    key: "BUILDER_GATEWAY_TOKEN",
+                    message: "401 status code (no body)",
+                    status: 401,
+                    at: Date.now(),
+                  }
+                : null,
+          ),
+        }),
+      );
       vi.resetModules();
 
       const { registerAgentEngine, detectEngineFromEnvForRequest } =
@@ -2701,7 +2728,6 @@ describe("AgentEngine registry", () => {
         readAppSecret,
         readAppSecrets,
       }));
-
       const { registerAgentEngine, detectEngineFromUserSecrets } =
         await import("./registry.js");
 
@@ -2755,9 +2781,37 @@ describe("AgentEngine registry", () => {
         readAppSecret,
         readAppSecrets,
       }));
+      vi.doMock(
+        "../../server/credential-provider.js",
+        async (importOriginal) => {
+          const actual =
+            await importOriginal<
+              typeof import("../../server/credential-provider.js")
+            >();
+          return {
+            ...actual,
+            resolveBuilderCredentialsDetailed: vi.fn(async () => ({
+              privateKey: "p-key",
+              publicKey: "space",
+              lookupFailed: false,
+            })),
+          };
+        },
+      );
+      vi.stubEnv("AGENT_ENGINE_PREFER_BYO_KEY", undefined);
 
-      const { registerAgentEngine, detectEngineFromUserSecrets } =
-        await import("./registry.js");
+      const {
+        registerAgentEngine,
+        unregisterAgentEngine,
+        listAgentEngines,
+        detectEngineFromUserSecrets,
+      } = await import("./registry.js");
+
+      // A reused Vitest worker can retain registered engines from another
+      // package suite; this test is specifically about Builder's priority.
+      for (const entry of listAgentEngines()) {
+        unregisterAgentEngine(entry.name);
+      }
 
       registerAgentEngine({
         name: "builder",
@@ -2992,6 +3046,37 @@ describe("AgentEngine registry", () => {
         apiKey: undefined,
         allowEnvFallback: true,
         baseUrl: "https://gateway.example/v1",
+      });
+      expect(resolved).toBe(openAiEngine);
+    });
+
+    it("allows an operator-provided private OpenAI-compatible endpoint", async () => {
+      process.env.OPENAI_API_KEY = "sk-operator-test"; // guard:allow-env-credential — verifies operator-owned endpoint classification
+      process.env.OPENAI_BASE_URL = "http://127.0.0.1:43123/v1"; // guard:allow-env-credential — loopback proves the private-endpoint allowance stays deploy-scoped
+
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+
+      const openAiEngine = { name: "ai-sdk:openai", stream: vi.fn() } as any;
+      const openAiCreate = vi.fn().mockReturnValue(openAiEngine);
+
+      registerAgentEngine({
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "gpt-5.4",
+        supportedModels: [],
+        requiredEnvVars: ["OPENAI_API_KEY"],
+        create: openAiCreate,
+      });
+
+      const resolved = await resolveEngine({ engineOption: "ai-sdk:openai" });
+
+      expect(openAiCreate).toHaveBeenCalledWith({
+        apiKey: undefined,
+        allowEnvFallback: true,
+        baseUrl: "http://127.0.0.1:43123/v1",
       });
       expect(resolved).toBe(openAiEngine);
     });

@@ -37,7 +37,7 @@ async function createOwnerContext(page: Page): Promise<{
   request: APIRequestContext;
   email: string;
 }> {
-  const email = `guestspec-owner-${Date.now()}-${Math.floor(
+  const email = `guestspec-owner+autoz-${Date.now()}-${Math.floor(
     Math.random() * 1e6,
   )}@plan.test`;
   const password = makeE2ePassword("guest-owner");
@@ -368,7 +368,7 @@ test.describe("guest mode + claim", () => {
     // for programmatic auth), exactly as global-setup does. This is the moment a
     // guest "signs in to keep their work"; the claim middleware runs on the next
     // authenticated request.
-    const email = `guest-claim-${Date.now()}-${Math.floor(
+    const email = `guest-claim+autoz-${Date.now()}-${Math.floor(
       Math.random() * 1e6,
     )}@plan.test`;
     const password = makeE2ePassword("guest-claim");
@@ -440,7 +440,7 @@ test.describe("guest mode + claim", () => {
     await makePublic(owner.request, planId);
 
     // Owner re-authenticates as a different account in the same context.
-    const owner2Email = `guestspec-owner2-${Date.now()}@plan.test`;
+    const owner2Email = `guestspec-owner2+autoz-${Date.now()}@plan.test`;
     const owner2Password = makeE2ePassword("guest-owner-two");
     await ownerPage.request.post("/_agent-native/auth/register", {
       data: {

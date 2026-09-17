@@ -2,11 +2,10 @@
 name: ship
 description: >-
   Commit and push the complete current-branch snapshot, open a ready PR,
-  babysit it, merge when clean, merge safe Dependabot updates encountered in
-  the queue, then create a fresh branch. Use when the user asks to ship,
-  publish, or hand off local changes. GitHub Actions auto-deploys beta and the
-  docs site through the prebuilt publisher; other production promotion is
-  manual.
+  babysit it, merge when clean, then create a fresh branch. Use when the user
+  asks to ship, publish, or hand off local changes. GitHub Actions auto-deploys
+  beta and the docs site through the prebuilt publisher; other production
+  promotion is manual.
 user-invocable: true
 scope: dev
 metadata:
@@ -52,20 +51,9 @@ do not repeat the merge while the PR is conflict-free or checks are pending.
 Never enable GitHub auto-merge; use the explicit admin merge below once the
 gates pass.
 
-When a ship run also reviews the open PR queue, it may merge a non-draft PR
-authored by the exact Dependabot bot login when the `review-prs` Dependabot
-merge exception passes. That exception is limited to patch/minor,
-dependency-only manifest/lockfile updates with clean mergeability, all
-required checks successful, no active review blocker, no ultra-scary security,
-data, or deployment risk, and no minor update for a major-version-0
-dependency. Satisfy any required approving review, then bind the normal
-protected merge to the expected head SHA with `--match-head-commit <sha>`; do
-not use an admin bypass. Any required approval must come from a verified
-BuilderIO human member who is not the PR author or a bot. Verify the
-approver's GitHub user type is `User` and
-`gh api orgs/BuilderIO/members/<login>` succeeds. This queue exception may
-skip the current branch's `/babysit-pr` soak, but it does not skip branch
-protection. Do not auto-merge other external PRs.
+When a ship run also reviews the open PR queue, leave every bot-authored PR,
+including Dependabot, completely untouched. Do not inspect, approve, recap, or
+merge bot PRs; queue review of human PRs is governed by `/review-prs`.
 
 ## Branch-wide Push
 
@@ -123,9 +111,12 @@ disposition table into the PR or ship recap. The handoff remains cross-app and
 cross-source: adding Design UI bugs to the eligible set must not drop
 Analytics, Dispatch, Calendar, Slides, Content, GitHub, Sentry, or any other
 previously identified candidate. Every actionable item must have an owning
-source seam and focused verification, with one explicit disposition: fixed,
-awaiting reporter clarification, already owned or duplicate, deferred or
-informational, external or non-repo-owned, or unavailable/unverified.
+source seam, focused verification, and one disposition from the shared
+vocabulary. Active/evidence-limited dispositions retain the eye and block
+merge; terminal dispositions release it with their marker.
+`Clarification needed` is an active, eye-held disposition and blocks merge
+until answered or expired; only a terminal disposition with its marker clears
+the gate.
 
 The handoff must preserve the feedback workflow's automation disclosure:
 every Slack reply it posts ends with `this was sent from a bot.`
@@ -142,26 +133,44 @@ Honor the feedback ownership and reaction gates from `/review-latest-feedback`:
   already has an `👀` reaction from anyone, preserve that fact as an existing
   investigation marker, but do not treat it as a disposition or suppression
   signal. After classifying the parent, re-read the complete thread and, for
-  an actionable in-scope item, require a verified disposition from the
-  invoking Slack identity - **Fixed**, **In progress**, or **Clarification
-  needed**; an eye-only or stale eye-only item remains actionable for that
-  handoff check. For items
+  an actionable in-scope item, require one disposition and reaction state:
+  **Fixed**, **Shipped**, or **Live verified** with `✅`; **Resolved elsewhere**,
+  **Skipped**, **Clustered**, **Abandoned - no answer in 4 days**, or
+  **Open - no reply** with `:no_entry_sign:`; or **Verified locally**, **Built
+  - live unverified**, **Deployed - live unverified**, **Not reproducible -
+  attempted**, **In progress**, **Asked**, **Clarification needed**, **Blocked
+  on reporter**, or **Merged - release pending** while this workflow's eye is
+  held. Silent terminal states do not require a Slack reply; never manufacture
+  one just to satisfy this handoff check. An eye-only or stale eye-only item
+  remains actionable for that handoff check. For items
   routed to Sid or Alice, or classified as external, duplicate, deferred, or
   informational, honor that owning disposition and do not turn the eye into a
   merge blocker. If the reaction state is unavailable, record the item as
   unavailable/unverified and refresh the feedback thread instead of guessing.
 - Design feedback, including small UI or interaction bugs, Design clips, and
-  imported-design usability, routes to Sid unless the user separately assigns
-  a concrete Design fix. Do not add eyes, investigate, reply, or include it as
-  this workflow's work. All Content app feedback remains owned by Alice; keep
-  those source links and ownership decisions in the ship ledger, but do not
+  imported-design usability, is in scope when the user assigns concrete Design
+  fixes. Claim, investigate, reply, and ship those items when explicitly in
+  scope; preserve foreign ownership for other feedback. All Content app
+  feedback remains owned by Alice; keep those source links and ownership
+  decisions in the ship ledger, but do not
   include them as this workflow's fixes, investigation, clarification
   requests, replies, dispatches, or merge blockers.
 
 If a prior run mistakenly added an eye to an out-of-scope or already-owned
-parent, remove it with the connected Slack action when available. Do not add a
-new reply or reaction. If removal is unavailable, record the exact parent for
-manual cleanup and keep it out of the ship ledger's actionable work.
+parent, release it with `:no_entry_sign:` when reactions are available. Do not
+add a new reply or investigate it. If the release marker is unavailable, record
+the exact parent for manual cleanup and keep it out of the ship ledger's
+actionable work.
+
+Use the disposition-specific release contract from
+`review-latest-feedback`: `✅` is reserved for **Fixed**, **Shipped**, or
+**Live verified** after all four verification bars hold; `:no_entry_sign:` is
+the release marker for other terminal, non-fixed closures. When reopening or
+re-claiming an item, remove this workflow's stale release marker before adding
+`👀`; if reaction removal is unavailable, use full enumeration with reaction
+metadata, do not re-add or retain `👀` beside the stale marker, and do not
+trust the optimized negative-marker cursor; claim the item only after the
+marker is removed.
 
 When deciding whether an awaiting clarification is already answered, treat the
 requested URL, error, screenshot, repro, run ID, or other evidence as present
@@ -213,14 +222,21 @@ The ship report and PR description must keep source-tested, built, and merged
 claims separate. A green test or PR does not prove that beta or production is
 live; deployment monitoring belongs to `/ship-now` or `/ship-and-monitor`.
 Before merging, `/babysit-pr` must re-check that every actionable feedback or
-review item has a fix or a concise reply and that no new evidence has been left
-without a disposition. Items routed to Sid or Alice remain outside this
-workflow's ownership. External, duplicate, deferred, and informational items
+review item is either a verified **Fixed** or **Shipped** result with a concise
+reply and `✅`, a verified **Live verified** result with `✅` (reply only when
+informative), a non-fixed terminal disposition with `:no_entry_sign:`, or an
+active/evidence-limited disposition whose eye still blocks merge. A reply alone
+never satisfies this gate, and no new evidence may be left without a
+disposition. Items routed to Alice remain outside this workflow's ownership;
+explicitly assigned Design items are included. External, duplicate, deferred, and informational items
 also follow their recorded disposition rather than blocking this workflow. A
-parent marked with `👀` is not thereby complete or non-actionable: preserve the
-reaction without duplicating it, and for actionable in-scope items do not merge
-while an eye-only or stale eye-only item lacks a verified disposition from the
-invoking Slack identity.
+  parent marked with `👀` is not thereby complete or non-actionable: preserve the
+  reaction without duplicating it, and for actionable in-scope items do not merge
+  while an active eye-only or stale eye-only item lacks a verified disposition.
+  A foreign valid workflow eye is owned elsewhere and must not be released by
+  this workflow; exclude it from this handoff unless this PR depends on that
+  item, in which case preserve it as a handoff blocker. A released terminal
+  item is not a merge blocker.
 
 ## Worktree and branch setup
 
@@ -342,11 +358,31 @@ branch, stay on it.
    tree, `origin/main` drift, queued checks, or a timer tick is not a safe
    slice and must not produce a commit or push.
 
-6. **Babysit immediately**: run `/babysit-pr <number>` and follow that skill’s
-   tick loop exactly. Treat `babysit-pr` as the source of truth for how to watch
-   the PR. Its Step 0 checks the current nonignored branch snapshot and
-   publishes only actionable work, then checks mergeability, every unaddressed
-   review comment by reply state, and CI.
+6. **Babysit immediately and durably**: run `/babysit-pr <number>` and follow
+   that skill’s tick loop exactly. Before yielding after PR creation, confirm
+   that the task-scoped durable heartbeat
+   `babysit-pr-<number>-<this task's threadId>` is active and targets this task,
+   following the babysit ownership check, successful PR-scoped lease claim, and
+   atomic conditional-update or serialized-coordinator requirement. The lease
+   is the remote `agent-native-babysit-lock-<number>` ref described by
+   `/babysit-pr`; never create the task-scoped heartbeat until that lease is
+   held. An ACTIVE legacy per-PR heartbeat or task-scoped heartbeat targeting
+   another task is owned by that task: do not overwrite, pause, or duplicate it.
+   For a task-scoped foreign heartbeat, read the PR lease ref before treating it
+   as blocking. It blocks only while its owner matches the current unexpired
+   lease record; a missing, expired, released, or owner-mismatched lease makes
+   the heartbeat stale. Do not mutate the stale heartbeat, but take over the
+   lease with the documented atomic precondition and let `/babysit-pr` create
+   the current watcher. If the lease cannot be read or the legacy retirement
+   fence cannot be verified, keep this ship invocation in the foreground and
+   do not overwrite the heartbeat. Treat `babysit-pr` as the source of truth for
+   how to watch the PR.
+   Its Step 0 checks the current nonignored branch snapshot and publishes only
+   actionable work, then checks mergeability, every unaddressed review comment
+   by reply state, and CI.
+   If the heartbeat cannot be created or updated, stay in the foreground
+   babysit loop and report the exact failure; never end the ship task after
+   opening the PR without an active watcher.
    Keep going until the PR is either merged/closed or the user explicitly tells
    you to stop.
 
@@ -360,17 +396,6 @@ branch, stay on it.
    live PR head before merging `origin/main`; do not update or merge an
    obsolete local head while another session has advanced the PR branch.
    `/babysit-pr` provides the exact `headRefOid` check for this gate.
-
-   If this invocation also found a Dependabot PR, apply the dedicated
-   `review-prs` exception above and merge each qualifying update with its
-   expected head SHA. Immediately before each merge, re-read the current head,
-   review state, mergeability, and checks; obtain any required approval from a
-   verified BuilderIO human member other than the PR author or a bot, after
-   verifying the GitHub user type is `User` and organization membership with
-   `gh api orgs/BuilderIO/members/<login>`. Then run:
-   `gh pr merge <number> --squash --match-head-commit <sha>` without `--admin`.
-   Re-read each PR after merging and record its result; never use this path to
-   bypass a failed or unavailable check.
 
 8. **Create the next branch after merge**: after the PR is merged and `origin/main`
    contains the merge commit, run `/new-branch`. Follow that skill’s preflight,
@@ -390,7 +415,9 @@ branch, stay on it.
   fix real bugs if CI or review feedback flags them.
 - Never commit `learnings.md` or files in `.gitignore`.
 - If feedback appears in inline comments or review bodies, every item needs a
-  fix or a reply before merge.
+  verified fix and reply, or a disposition-specific terminal outcome, before
+  merge; an active/evidence-limited state remains a blocker. Silent terminal
+  closures do not need a manufactured reply.
 - Treat `/babysit-pr` as the source of truth for CI/review monitoring cadence,
   comment handling, local-file push discipline, and merge gates. Update
   `babysit-pr` first if the watcher behavior changes.

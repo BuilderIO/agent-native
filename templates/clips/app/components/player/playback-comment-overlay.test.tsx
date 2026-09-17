@@ -11,6 +11,7 @@ import {
   getActivePlaybackComments,
   getPlaybackCommentVisibleMs,
   PlaybackCommentOverlay,
+  COMMENT_PREVIEW_WIDTH_PX,
   PLAYBACK_COMMENT_VISIBLE_MS,
   type PlaybackComment,
 } from "./playback-comment-overlay";
@@ -39,7 +40,6 @@ const comment: PlaybackComment = {
   content: "Please take a look at this.",
   videoTimestampMs: 12_000,
   parentId: null,
-  resolved: false,
 };
 
 describe("playback comment timing", () => {
@@ -70,11 +70,13 @@ describe("playback comment timing", () => {
     );
   });
 
-  it("does not surface replies or resolved comments over playback", () => {
+  it("does not surface replies while showing every root comment over playback", () => {
     const reply = { ...comment, id: "reply-1", parentId: comment.id };
     const resolved = { ...comment, id: "resolved-1", resolved: true };
 
-    expect(getActivePlaybackComments([reply, resolved], 12_500)).toEqual([]);
+    expect(getActivePlaybackComments([reply, resolved], 12_500)).toEqual([
+      resolved,
+    ]);
   });
 });
 
@@ -108,6 +110,10 @@ describe("PlaybackCommentOverlay", () => {
         .querySelector("[data-player-comment-preview] img")
         ?.getAttribute("src"),
     ).toBe("https://lh3.googleusercontent.com/avatar.jpg");
+    expect(
+      container.querySelector("[data-player-comment-preview]")?.className,
+    ).toContain("w-80 max-w-full");
+    expect(COMMENT_PREVIEW_WIDTH_PX).toBe(320);
 
     act(() => root.unmount());
     container.remove();
@@ -177,8 +183,8 @@ describe("PlaybackCommentOverlay", () => {
 
       observe(target: Element): void {
         const width = target.hasAttribute("data-player-playback-comment")
-          ? 320
-          : 100;
+          ? 640
+          : COMMENT_PREVIEW_WIDTH_PX;
         Object.defineProperty(target, "getBoundingClientRect", {
           configurable: true,
           value: () => ({ width }),

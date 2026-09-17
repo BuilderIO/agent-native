@@ -146,10 +146,8 @@ async function dispatchResponseError(
  * may take minutes); it is only raced against a short settle timer so the
  * request reliably leaves a serverless box before it freezes.
  *
- * When `A2A_SECRET` is unset in local SQLite development, the request is sent
- * unsigned — the processor accepts unsigned dispatches in dev and relies on
- * the SQL atomic claim for double-processing protection. Shared and production
- * dispatches fail before sending an unauthenticated request.
+ * Dispatches require an HMAC signature before sending an unauthenticated request.
+ * Local PGlite development may use the trusted loopback path when no secret is set.
  */
 /**
  * For host-root dispatch targets (`/.netlify/functions/*`), strip the configured
@@ -190,7 +188,7 @@ export async function fireInternalDispatch(
     headers["Authorization"] = `Bearer ${signInternalToken(options.taskId)}`;
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
-    // Only local SQLite development has the loopback/unsigned exception. A
+    // Only local PGlite development has the loopback/unsigned exception. A
     // shared database or production deployment must never turn a signing
     // failure into an unauthenticated processor request.
     if (

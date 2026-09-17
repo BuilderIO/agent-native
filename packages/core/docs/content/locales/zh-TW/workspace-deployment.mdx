@@ -336,7 +336,7 @@ agents.example.com {
 - 將 `BETTER_AUTH_URL` 設定為該應用程式路徑的公開 URL。OAuth 回呼 URL
   應該使用相同的公開 URL。
 - 不要依賴容器檔案系統來存放正式環境資料。請將 `DATABASE_URL` 設定為
-  Postgres（或其他持久性 SQL 後端）。
+  PostgreSQL。
 - 如果 Cloudflare 在 VPS 前面終止 TLS，請將 Cloudflare 設定為傳送一般的
   `X-Forwarded-Proto` / `X-Forwarded-Host` 標頭，並將公開主機路由到代理
   容器。

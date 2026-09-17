@@ -75,6 +75,10 @@ import {
 import { useEvent, useUpdateEvent } from "@/hooks/use-events";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useConnectZoom, useZoomStatus } from "@/hooks/use-zoom-auth";
+import {
+  getCalendarEventRenderKey,
+  withCalendarEventSourceIdentity,
+} from "@/lib/calendar-event-identity";
 import { addCalendarDays } from "@/lib/calendar-timezone";
 import {
   getDateKeyInTimezone,
@@ -109,6 +113,10 @@ import {
   eventPopoverShell,
   eventPopoverWidth,
 } from "@/lib/event-popover-style";
+import {
+  applyEndTimeChange,
+  shiftEndForStartChange,
+} from "@/lib/event-time-range";
 import { isOutOfOfficeEvent } from "@/lib/out-of-office";
 import {
   createEventDetailPopoverToken,
@@ -324,23 +332,6 @@ interface TimeEditValues {
   timezone: string;
 }
 
-function addMinutesToTimeValue(
-  date: string,
-  time: string,
-  minutes: number,
-): { date: string; time: string } {
-  const [hour, minute] = time.split(":").map(Number);
-  const total = (hour || 0) * 60 + (minute || 0) + minutes;
-  const dayOffset = Math.floor(total / (24 * 60));
-  const minuteOfDay = ((total % (24 * 60)) + 24 * 60) % (24 * 60);
-  const nextDate = new Date(`${date}T00:00:00`);
-  nextDate.setDate(nextDate.getDate() + dayOffset);
-  return {
-    date: format(nextDate, "yyyy-MM-dd"),
-    time: `${String(Math.floor(minuteOfDay / 60)).padStart(2, "0")}:${String(minuteOfDay % 60).padStart(2, "0")}`,
-  };
-}
-
 function mergeAttendeesForPrompt(
   existing: CalendarEvent["attendees"] | undefined,
   additions: CalendarEvent["attendees"] | undefined,
@@ -450,15 +441,15 @@ function toTimeInputValue(iso: string, timezone?: string): string {
 interface EventDetailPopoverProps {
   event: CalendarEvent;
   children: React.ReactNode;
-  onDelete: (eventId: string) => void;
+  onDelete: (event: CalendarEvent) => void;
   isDraft?: boolean;
   timezone?: string;
   /** When true, the popover opens immediately and title is focused for editing */
   defaultOpen?: boolean;
   /** Called when the title is changed and should be persisted */
-  onTitleSave?: (eventId: string, title: string, accountEmail?: string) => void;
+  onTitleSave?: (event: CalendarEvent, title: string) => void;
   /** Called when the popover is dismissed for a new event (to clean up if no title was set) */
-  onDismissNew?: (eventId: string, accountEmail?: string) => void;
+  onDismissNew?: (event: CalendarEvent) => void;
   /** Called after the popover's visible open state changes through its normal lifecycle. */
   onOpenChange?: (open: boolean) => void;
   /** Prefer a placement that keeps Day-view detail controls inside the grid. */
@@ -501,11 +492,17 @@ export function EventDetailPopover({
   const workingLocationLabels = createWorkingLocationDisplayLabels(t);
   const isMobile = useIsMobile();
   const eventTimezone = timezone || event.startTimeZone || getLocalTimezone();
+  const isReadOnlySource =
+    !!event.overlayEmail ||
+    event.calendarPrimary === false ||
+    event.calendarReadOnly === true;
   const [open, setOpen] = useState(defaultOpen);
   const [editingTitle, setEditingTitle] = useState(
-    defaultOpen ? getEditableEventTitle(event) : "",
+    defaultOpen && !isReadOnlySource ? getEditableEventTitle(event) : "",
   );
-  const [isEditingTitle, setIsEditingTitle] = useState(defaultOpen);
+  const [isEditingTitle, setIsEditingTitle] = useState(
+    defaultOpen && !isReadOnlySource,
+  );
   const isNewEventRef = useRef(defaultOpen);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const popoverTokenRef = useRef<symbol | null>(null);
@@ -570,13 +567,13 @@ export function EventDetailPopover({
     string | null
   >(() => getStoredZoomAfterConnectEventId());
   const [showConferencingOptions, setShowConferencingOptions] = useState(false);
-  const isOverlay = !!event.overlayEmail;
+  const isOverlay = isReadOnlySource;
   const ownerLabel = event.ownerName || event.overlayEmail;
 
   const updateEvent = useUpdateEvent();
   const masterEventId =
     open && event.recurringEventId ? `google-${event.recurringEventId}` : "";
-  const masterEvent = useEvent(masterEventId);
+  const masterEvent = useEvent(masterEventId, event.calendarSourceKey);
   const recurrenceRules =
     event.recurrence && event.recurrence.length > 0
       ? event.recurrence
@@ -651,12 +648,15 @@ export function EventDetailPopover({
             return;
           }
           updateEvent.mutate(
-            {
-              id: event.id,
-              accountEmail: event.accountEmail,
-              targetAccountEmail,
-              ...guestNotification,
-            },
+            withCalendarEventSourceIdentity(
+              {
+                id: event.id,
+                accountEmail: event.accountEmail,
+                targetAccountEmail,
+                ...guestNotification,
+              },
+              event,
+            ),
             {
               onSuccess: () => toast.success(t("eventForm.eventUpdated")),
               onError: () => {
@@ -840,12 +840,15 @@ export function EventDetailPopover({
             return;
           }
           updateEvent.mutate(
-            {
-              id: event.id,
-              accountEmail: event.accountEmail,
-              ...updates,
-              ...guestNotification,
-            },
+            withCalendarEventSourceIdentity(
+              {
+                id: event.id,
+                accountEmail: event.accountEmail,
+                ...updates,
+                ...guestNotification,
+              },
+              event,
+            ),
             { onSettled: endAction },
           );
         } catch {
@@ -938,12 +941,15 @@ export function EventDetailPopover({
           return;
         }
         updateEvent.mutate(
-          {
-            id: event.id,
-            accountEmail: event.accountEmail,
-            ...updates,
-            ...guestNotification,
-          },
+          withCalendarEventSourceIdentity(
+            {
+              id: event.id,
+              accountEmail: event.accountEmail,
+              ...updates,
+              ...guestNotification,
+            },
+            event,
+          ),
           {
             onSuccess: () => toast(t("eventForm.googleMeetAdded")),
             onError: () => toast.error(t("eventForm.googleMeetAddFailed")),
@@ -993,12 +999,15 @@ export function EventDetailPopover({
           return;
         }
         updateEvent.mutate(
-          {
-            id: event.id,
-            accountEmail: event.accountEmail,
-            ...updates,
-            ...guestNotification,
-          },
+          withCalendarEventSourceIdentity(
+            {
+              id: event.id,
+              accountEmail: event.accountEmail,
+              ...updates,
+              ...guestNotification,
+            },
+            event,
+          ),
           {
             onSuccess: () => toast(t("eventForm.zoomAdded")),
             onError: (error) =>
@@ -1114,12 +1123,15 @@ export function EventDetailPopover({
           return;
         }
         updateEvent.mutate(
-          {
-            id: event.id,
-            accountEmail: event.accountEmail,
-            ...updates,
-            ...guestNotification,
-          },
+          withCalendarEventSourceIdentity(
+            {
+              id: event.id,
+              accountEmail: event.accountEmail,
+              ...updates,
+              ...guestNotification,
+            },
+            event,
+          ),
           {
             onError: () => toast.error(t("eventForm.updateFailed")),
             onSettled: endAction,
@@ -1198,7 +1210,7 @@ export function EventDetailPopover({
         return;
       }
       if (!beginAction()) return;
-      updateEvent.mutate(update, {
+      updateEvent.mutate(withCalendarEventSourceIdentity(update, event), {
         onError: () => toast.error(t("calendarView.failedUpdateEvent")),
         onSettled: endAction,
       });
@@ -1312,43 +1324,26 @@ export function EventDetailPopover({
 
   const handleInlineTimeChange = useCallback(
     (field: "startTime" | "endTime", nextValue: string) => {
-      let nextDate = editDate;
-      let nextEndDate = editEndDate;
-      let nextStartTime = editStartTime;
-      let nextEndTime = editEndTime;
+      const current = {
+        date: editDate,
+        endDate: editEndDate,
+        startTime: editStartTime,
+        endTime: editEndTime,
+      };
+      const next =
+        field === "startTime"
+          ? shiftEndForStartChange(current, nextValue)
+          : applyEndTimeChange(current, nextValue);
 
-      if (field === "startTime") {
-        nextStartTime = nextValue;
-        if (nextEndDate === nextDate && nextEndTime <= nextStartTime) {
-          const duration = Math.max(
-            15,
-            differenceInMinutes(parseISO(event.end), parseISO(event.start)),
-          );
-          const nextEnd = addMinutesToTimeValue(
-            nextDate,
-            nextStartTime,
-            duration,
-          );
-          nextEndDate = nextEnd.date;
-          nextEndTime = nextEnd.time;
-        }
-      } else {
-        nextEndTime = nextValue;
-        if (nextEndDate === nextDate && nextEndTime <= nextStartTime) {
-          const nextEnd = addMinutesToTimeValue(nextDate, nextEndTime, 24 * 60);
-          nextEndDate = nextEnd.date;
-        }
-      }
-
-      setEditDate(nextDate);
-      setEditEndDate(nextEndDate);
-      setEditStartTime(nextStartTime);
-      setEditEndTime(nextEndTime);
+      setEditDate(next.date);
+      setEditEndDate(next.endDate);
+      setEditStartTime(next.startTime);
+      setEditEndTime(next.endTime);
       saveTimeValues({
-        date: nextDate,
-        endDate: nextEndDate,
-        startTime: nextStartTime,
-        endTime: nextEndTime,
+        date: next.date,
+        endDate: next.endDate,
+        startTime: next.startTime,
+        endTime: next.endTime,
         timezone: editTimezone,
       });
     },
@@ -1358,8 +1353,6 @@ export function EventDetailPopover({
       editStartTime,
       editEndTime,
       editTimezone,
-      event.end,
-      event.start,
       saveTimeValues,
     ],
   );
@@ -1579,7 +1572,7 @@ export function EventDetailPopover({
     const title = editingTitle.trim();
     const updates = isEditingTitle && title ? { title } : undefined;
     if (updates) {
-      onTitleSave?.(event.id, updates.title, event.accountEmail);
+      onTitleSave?.(event, updates.title);
       setIsEditingTitle(false);
       isNewEventRef.current = false;
     }
@@ -1621,7 +1614,7 @@ export function EventDetailPopover({
         // Popover is closing — handle saves
         if (isEditingTitle) {
           if (trimmedTitle) {
-            onTitleSave?.(event.id, trimmedTitle, event.accountEmail);
+            onTitleSave?.(event, trimmedTitle);
             isNewEventRef.current = false;
             savedPendingChange = true;
           }
@@ -1646,7 +1639,7 @@ export function EventDetailPopover({
           !trimmedTitle &&
           onDismissNew
         ) {
-          onDismissNew(event.id, event.accountEmail);
+          onDismissNew(event);
         }
 
         setEditingField(null);
@@ -1658,8 +1651,7 @@ export function EventDetailPopover({
       open,
       isEditingTitle,
       editingTitle,
-      event.id,
-      event.accountEmail,
+      event,
       onTitleSave,
       onDismissNew,
       editingField,
@@ -1679,8 +1671,9 @@ export function EventDetailPopover({
     eventDetailSidebar &&
     !isNewEventRef.current &&
     !isDraft &&
-    sidebarEvent?.id === event.id &&
-    sidebarEvent.accountEmail === event.accountEmail;
+    sidebarEvent !== null &&
+    getCalendarEventRenderKey(sidebarEvent) ===
+      getCalendarEventRenderKey(event);
   const detailsOpen = popoverOpen || sidebarDetailsOpen;
   const previousDetailsOpenRef = useRef(false);
 
@@ -1810,7 +1803,7 @@ export function EventDetailPopover({
           <div ref={detailsScrollRef} className="flex-1 overflow-y-auto">
             <div className="px-2 py-2">
               {/* Title — always editable */}
-              {isEditingTitle && !isWorkingLocation ? (
+              {isEditingTitle && !isWorkingLocation && !isOverlay ? (
                 <input
                   ref={titleInputRef}
                   value={editingTitle}
@@ -1820,7 +1813,7 @@ export function EventDetailPopover({
                       e.preventDefault();
                       const trimmed = editingTitle.trim();
                       if (trimmed) {
-                        onTitleSave?.(event.id, trimmed, event.accountEmail);
+                        onTitleSave?.(event, trimmed);
                         isNewEventRef.current = false;
                       }
                       setIsEditingTitle(false);
@@ -1846,7 +1839,7 @@ export function EventDetailPopover({
                   onBlur={() => {
                     const trimmed = editingTitle.trim();
                     if (trimmed && trimmed !== getEditableEventTitle(event)) {
-                      onTitleSave?.(event.id, trimmed, event.accountEmail);
+                      onTitleSave?.(event, trimmed);
                       isNewEventRef.current = false;
                     }
                     setIsEditingTitle(false);
@@ -1881,8 +1874,10 @@ export function EventDetailPopover({
                 />
               )}
 
-              {/* Time, date, timezone, and repeat stay editable in place. */}
-              <div className="flex items-start gap-2 rounded-md py-1.5">
+              <fieldset
+                disabled={isOverlay}
+                className="flex min-w-0 items-start gap-2 rounded-md py-1.5"
+              >
                 <IconClock className="mt-1 size-[18px] shrink-0 text-muted-foreground" />
                 <div className="min-w-0 flex-1">
                   {isWorkingLocation && (
@@ -1943,16 +1938,35 @@ export function EventDetailPopover({
                         <TimePickerPopover
                           value={editEndTime}
                           label={t("eventForm.end")}
+                          after={
+                            editEndDate === editDate ? editStartTime : undefined
+                          }
                           getOptionMeta={(value) => {
-                            const [hour, minute] = value.split(":").map(Number);
-                            const [startHour, startMinute] = editStartTime
-                              .split(":")
-                              .map(Number);
-                            const duration =
-                              hour * 60 +
-                              minute -
-                              (startHour * 60 + startMinute) +
-                              (editEndDate !== editDate ? 24 * 60 : 0);
+                            const next = applyEndTimeChange(
+                              {
+                                date: editDate,
+                                endDate: editEndDate,
+                                startTime: editStartTime,
+                                endTime: editEndTime,
+                              },
+                              value,
+                            );
+                            const duration = differenceInMinutes(
+                              new Date(
+                                dateTimeInTimezoneToIso(
+                                  next.endDate,
+                                  next.endTime,
+                                  editTimezone,
+                                ),
+                              ),
+                              new Date(
+                                dateTimeInTimezoneToIso(
+                                  next.date,
+                                  next.startTime,
+                                  editTimezone,
+                                ),
+                              ),
+                            );
                             if (duration <= 0) return undefined;
                             if (duration < 60) return `${duration}min`;
                             const hours = Math.floor(duration / 60);
@@ -2002,7 +2016,7 @@ export function EventDetailPopover({
                     </>
                   )}
                 </div>
-              </div>
+              </fieldset>
 
               {!event.allDay && !isOverlay && !isWorkingLocation && (
                 <div className="flex items-center gap-2 py-1">
@@ -2738,6 +2752,26 @@ export function EventDetailPopover({
               </>
             )}
 
+            {(event.calendarPrimary === false || event.calendarReadOnly) &&
+              event.calendarName &&
+              !event.overlayEmail && (
+                <>
+                  <div className={eventPopoverDivider} />
+                  <div className="flex items-center gap-2 px-4 py-1.5">
+                    <span
+                      aria-hidden="true"
+                      className="ml-1 size-2 shrink-0 rounded-full ring-1 ring-border"
+                      style={{ backgroundColor: event.color }}
+                    />
+                    <span className="truncate text-muted-foreground">
+                      {t("eventForm.viewingOwnerCalendar", {
+                        owner: `${event.calendarName} · ${event.accountEmail ?? "Google"}`,
+                      })}
+                    </span>
+                  </div>
+                </>
+              )}
+
             {/* Bottom padding */}
             <div className="h-3" />
           </div>
@@ -2752,7 +2786,7 @@ export function EventDetailPopover({
                 disabled={mutationPending}
                 onClick={() => {
                   if (isDraft) onDraftDiscard?.(event.id);
-                  else onDelete(event.id);
+                  else onDelete(event);
                   handleOpenChange(false);
                 }}
               >
@@ -2783,7 +2817,7 @@ export function EventDetailPopover({
                   onClick={handleCreateDraft}
                 >
                   {event.attendees?.length
-                    ? t("eventForm.createAndSend")
+                    ? t("eventForm.save")
                     : t("eventForm.createEvent")}
                 </Button>
               )}

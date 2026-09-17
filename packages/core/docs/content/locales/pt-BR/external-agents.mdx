@@ -1,7 +1,7 @@
 ---
-title: "Agentes Externos: Claude, ChatGPT, Codex, Cursor, Cowork"
-description: "Conecte Claude, ChatGPT, Codex, Cursor, Claude Cowork ou qualquer host compatível com MCP a um aplicativo nativo de agente hospedado e, em seguida, faça o retorno dos artefatos ao UI em execução com aplicativos MCP e links diretos."
-search: "Claude ChatGPT Claude Código Codex Cursor Claude Cowork MCP Aplicativos agente nativo conectar ferramentas de agente local agentes externos"
+title: "Agentes Externos: Claude, ChatGPT, Codex, Cursor, Cowork, Grok"
+description: "Conecte Claude, ChatGPT, Codex, Cursor, Claude Cowork, Grok ou qualquer host compatível com MCP a um aplicativo nativo de agente hospedado e, em seguida, faça o retorno dos artefatos ao UI em execução com aplicativos MCP e links diretos."
+search: "Claude Anthropic ChatGPT OpenAI Claude Código Codex Cursor Claude Cowork Grok xAI MCP Aplicativos agente nativo conectar ferramentas de agente local agentes externos"
 ---
 
 # Agentes Externos
@@ -99,9 +99,11 @@ Cada aplicativo Agent-Native expõe uma URL MCP canônica:
 https://<your-app>.agent-native.com/mcp
 ```
 
-No aplicativo, abra **Settings**, pesquise **MCP** e copie a **MCP server URL**. Cole essa
-URL no host de IA que você deseja usar. A URL é a URL base do aplicativo implantado seguida de `/mcp`;
-você não precisa procurar uma configuração de desenvolvedor.
+No aplicativo, abra **Settings → Integrations** e pesquise pelo nome de host que
+você já conhece: Claude, Claude Cowork, Claude Code, Anthropic, ChatGPT, OpenAI,
+Codex, Grok ou xAI. O único resultado de host externo abre **Settings → MCP**
+com o guia mais adequado selecionado. Copie a **MCP server URL** e cole-a no
+host de IA. A URL é a URL base do aplicativo implantado seguida de `/mcp`.
 
 Para trabalho em espaço de trabalho ou entre aplicativos, use Dispatch:
 
@@ -123,7 +125,7 @@ https://<your-app>.agent-native.com/mcp
 
 Todo aplicativo hospedado também tem uma página auxiliar em
 `https://&lt;app&gt;/mcp/connect` com o URL copiável e
-guias específicas do host para Claude, ChatGPT, Cursor, Código Claude, Codex e Outros.
+guias específicas do host para Claude, ChatGPT, Cursor, Claude Code, Codex, Grok e Outros.
 
 <a id="access-tab"></a>
 
@@ -514,6 +516,8 @@ Isso disponibiliza a mesma superfície de aplicativo para todos os hosts compat�
 
 Na prática, todo aplicativo nativo do agente deve ser criado com ambos: aplicativos MCP para revisão/edição in-line em hosts compatíveis e `link` para retorno universal ao aplicativo completo. Os clientes CLI/editor de código que não renderizam um iframe voltam para o link direto. As ferramentas de seleção humana podem adicionar uma etapa de colagem a esse substituto: por exemplo, o seletor de recursos abre a partir do link substituto, permite que o usuário escolha a mídia no navegador e, em seguida, copia um resumo da transferência que o usuário cola de volta no bate-papo.
 
+Os agentes externos recebem as ferramentas reais de criação/atualização do aplicativo — as mesmas ações nomeadas que o agente interno chama — então, quando um usuário pedir novo conteúdo (um design, uma apresentação, um formulário, um documento), crie-o diretamente e salve-o com essas ferramentas em vez de delegar o trabalho por meio do `ask_app`. Ações marcadas com `endsTurn: true`, como um formulário de perguntas interno que espera a resposta do usuário no chat do próprio aplicativo, ficam ocultas do MCP, WebMCP e A2A a menos que `mcpTool: true` — veja [endsTurn em Definindo Actions](/docs/actions-defining). Entradas e resultados de ferramentas suportam até 500.000 caracteres no WebMCP, de modo que uma tela, apresentação ou documento inteiro cabe em uma única gravação — veja [WebMCP](/docs/webmcp). Chamadas WebMCP locais à página carregam o id da aba do navegador (o mesmo valor de `getBrowserTabId()` que a UI usa — veja [Consciência do Contexto](/docs/context-awareness)), de modo que a navegação e a seleção por aba são resolvidas para a aba que o agente está controlando, mesmo quando oculta.
+
 ### Ponte de aplicativo MCP de primeira classe {#mcp-app-bridge}
 
 `embedApp()` inicia a partir do destino `link` da ação, cria uma sessão de incorporação de curta duração e inicia a rota do aplicativo assinada. A web Claude usa um caminho de transplante de quadro único; ChatGPT obtém um iframe de rota controlada com host `window.openai` APIs. Todos os caminhos renderizam a rota React normal. Rotas diretamente hidratadas chamam `ui/update-model-context`, `ui/message`, `ui/open-link` e `ui/request-display-mode` através da ponte host; o caminho ChatGPT retransmite as mesmas solicitações por meio de `agentNative.mcpHost.*` postMessage. O padrão `embedApp({ height })` é `560px` e os grampos são `320-900px`.
@@ -834,6 +838,7 @@ O fluxo `connect` hospedado substituto nunca copia o segredo compartilhado da im
 ## Relacionado {#related}
 
 - [MCP Apps](/docs/mcp-apps) — criação de aplicativos MCP UIs, ponte incorporada e ponte de host API.
+- [WebMCP](/docs/webmcp) — ferramentas locais à página, o limite de 500.000 caracteres para entrada/resultado, e o cabeçalho de id da aba do navegador.
 - [MCP Protocol](/docs/mcp-protocol) — o servidor MCP montado automaticamente e a metaferramenta `ask-agent`.
 - [MCP Clients](/docs/mcp-clients) — a direção simétrica: seu aplicativo consumindo servidores MCP locais/remotos.
 - [A2A Protocol](/docs/a2a-protocol) — a metaferramenta `ask-agent` e chamadas de pares JSON-RPC.

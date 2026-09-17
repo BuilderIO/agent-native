@@ -14,7 +14,7 @@
     {
       "rule": "byte-sync:gitignore-source:mismatch",
       "template": "assets",
-      "note": "Existing _gitignore has legitimate template-specific additions (.generated/, .agent-native/, data/*.db*) on top of the shared base. Needs a human decision in Phase 2/3: reconcile into the canonical file or keep as an accepted per-template diff."
+      "note": "Existing _gitignore has legitimate template-specific additions (.generated/, .agent-native/, data/pglite/) on top of the shared base. Needs a human decision in Phase 2/3: reconcile into the canonical file or keep as an accepted per-template diff."
     },
     {
       "rule": "byte-sync:gitignore-source:mismatch",
@@ -24,7 +24,7 @@
     {
       "rule": "byte-sync:gitignore-source:mismatch",
       "template": "chat",
-      "note": "Existing _gitignore adds .generated/ and data/*.db* on top of the shared base. Needs reconciliation in Phase 2/3."
+      "note": "Existing _gitignore adds .generated/ and data/pglite/ on top of the shared base. Needs reconciliation in Phase 2/3."
     },
     {
       "rule": "byte-sync:gitignore-source:mismatch",
@@ -39,12 +39,12 @@
     {
       "rule": "byte-sync:gitignore-source:mismatch",
       "template": "dispatch",
-      "note": "Existing _gitignore adds .generated/ and data/*.db* on top of the shared base. Needs reconciliation in Phase 2/3."
+      "note": "Existing _gitignore adds .generated/ and data/pglite/ on top of the shared base. Needs reconciliation in Phase 2/3."
     },
     {
       "rule": "byte-sync:gitignore-source:mismatch",
       "template": "plan",
-      "note": "Existing _gitignore adds .generated/ and data/*.db* on top of the shared base. Needs reconciliation in Phase 2/3."
+      "note": "Existing _gitignore adds .generated/ and data/pglite/ on top of the shared base. Needs reconciliation in Phase 2/3."
     },
     {
       "rule": "byte-sync:gitignore-source:mismatch",

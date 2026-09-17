@@ -9,6 +9,11 @@ description: "Magic-link-first Better Auth integration with password fallback, s
 
 Agent-Native apps use [Better Auth](https://better-auth.com) for authentication with an account-first design. Users create an account on first visit and get real identity from day one.
 
+For an administered, invite-only deployment, set the signup and organization
+creation policies in [Administered Deployments](/docs/administered-deployments).
+This is separate from domain auto-join. A verified allowed domain can admit a
+person to an organization, while an invitation is an explicit membership offer.
+
 ## Overview {#overview}
 
 Auth is configured automatically via `autoMountAuth(app)` in the auth server plugin. There are three modes:
@@ -136,6 +141,11 @@ provides:
 
 Better Auth routes are mounted at `/_agent-native/auth/ba/*`. The framework also provides backward-compatible endpoints:
 
+In an invite-only deployment, admission is checked before a Better Auth user
+is created. The policy covers email/password, magic-link, and social sign-up.
+See [Administered Deployments](/docs/administered-deployments#close-signup-and-organization-creation)
+for the bootstrap-admin and allowed-domain rules.
+
 - `GET /_agent-native/auth/session` — get current session
 - `POST /_agent-native/auth/magic-link` — request a magic-link email
 - `POST /_agent-native/auth/login` — email/password fallback login
@@ -179,8 +189,9 @@ exchange validation, exact origin and callback allowlists, authenticated-session
 requirements, session isolation, and revocation remain unconditional in every
 flag state. Custom and third-party apps are excluded.
 Canonical hosted apps recognize packaged Desktop requests without per-app
-identity-hub environment configuration. Ordinary browsers and self-hosted apps
-still require `AGENT_NATIVE_IDENTITY_HUB_URL` to opt in.
+identity-hub environment configuration. Ordinary browsers stay on normal
+per-app sign-in. Self-hosted apps need `AGENT_NATIVE_IDENTITY_HUB_URL` only for
+the remaining explicit Desktop or server-side federation path.
 Every Desktop build may initialize the broker when the per-device
 `desktopSsoEnabled` preference is true (the default); an explicit persisted
 `false` remains an opt-out. The `desktop.workspace-sso` Dispatch flag must also
@@ -209,8 +220,8 @@ AUTH_SKIP_EMAIL_VERIFICATION=1
 
 When this flag is set, password fallback signup does not require email
 verification and the signup verification email is not sent. It does not change
-magic-link delivery. Use it only for QA or preview environments, and name test accounts with a `+qa` address
-(`name+qa@example.com`) so they are easy to identify.
+magic-link delivery. Use it only for QA or preview environments, and name test accounts with a `+autoz` address
+(`name+autoz@example.com`) so they are easy to identify.
 
 ## Email Verification Policy {#email-verification-policy}
 

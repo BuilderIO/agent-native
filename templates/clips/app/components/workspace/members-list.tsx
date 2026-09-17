@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import {
   Select,
   SelectContent,
@@ -126,9 +127,13 @@ export function MembersList({
 
   if (!members.length) {
     return (
-      <div className="py-6 text-center text-sm text-muted-foreground">
-        {t("membersList.noMembers")}
-      </div>
+      <Empty className="gap-2 border py-6 md:p-6">
+        <EmptyHeader>
+          <EmptyTitle className="text-sm font-medium text-muted-foreground">
+            {t("membersList.noMembers")}
+          </EmptyTitle>
+        </EmptyHeader>
+      </Empty>
     );
   }
 

@@ -21,6 +21,7 @@ import {
   agentRecordingAccessFilter,
   isAgentRecordingCaller,
 } from "../server/lib/agent-recording-access.js";
+import { resolvePlayerThumbnailUrl } from "../server/lib/player-thumbnail-url.js";
 import { resolvePlayerVideoUrl } from "../server/lib/player-video-url.js";
 import {
   countedViewCondition,
@@ -228,6 +229,8 @@ export default defineAction({
     if (args.view === "library" || args.view === "space") {
       if (args.folderId !== undefined && args.folderId !== null) {
         whereClauses.push(eq(schema.recordings.folderId, args.folderId));
+      } else {
+        whereClauses.push(isNull(schema.recordings.folderId));
       }
     }
 
@@ -239,7 +242,7 @@ export default defineAction({
         whereClauses.push(eq(schema.recordings.organizationId, orgId));
       }
       // Match recordings where spaceIds JSON array contains spaceId.
-      // Use a LIKE check — works across SQLite/Postgres without JSON ops.
+      // Use a LIKE check - works across Postgres and PGlite without JSON ops.
       const needle = `%"${args.spaceId.replace(/%/g, "")}"%`;
       whereClauses.push(sql`${schema.recordings.spaceIds} LIKE ${needle}`);
     }
@@ -284,8 +287,8 @@ export default defineAction({
     )`;
     // Same floor as `countRecordingViews`: `recording_views` only exists from
     // migration v46, so pre-migration clips have no log rows and must fall back
-    // to the counted-viewer count instead of sorting as zero. CASE rather than
-    // MAX()/GREATEST() — the two-argument spelling differs across dialects.
+    // to the counted-viewer count instead of sorting as zero. CASE keeps the
+    // ordering expression explicit about which count wins.
     const viewCountOrder = sql<number>`(
       CASE WHEN ${viewLogCount} > ${countedViewerCount}
         THEN ${viewLogCount}
@@ -326,6 +329,13 @@ export default defineAction({
           uploadProgress: schema.recordings.uploadProgress,
           failureReason: schema.recordings.failureReason,
           visibility: schema.recordings.visibility,
+          hasPassword: sql<number>`(
+            CASE WHEN ${schema.recordings.password} IS NOT NULL
+              AND ${schema.recordings.password} <> ''
+              THEN 1 ELSE 0
+            END
+          )`,
+          expiresAt: schema.recordings.expiresAt,
           ownerEmail: schema.recordings.ownerEmail,
           folderId: schema.recordings.folderId,
           spaceIds: schema.recordings.spaceIds,
@@ -437,8 +447,10 @@ export default defineAction({
         sourceAppName: r.sourceAppName,
         sourceWindowTitle: r.sourceWindowTitle,
         description: r.description,
-        thumbnailUrl: r.thumbnailUrl,
-        animatedThumbnailUrl: r.animatedThumbnailUrl,
+        thumbnailUrl: resolvePlayerThumbnailUrl(r),
+        animatedThumbnailUrl: r.animatedThumbnailUrl
+          ? resolvePlayerThumbnailUrl(r, { animated: true })
+          : null,
         // Raw source length. StitchManager sums this across queued
         // recordings to size the concatenated export, which always
         // includes each source's full untrimmed media — trims are applied
@@ -454,6 +466,8 @@ export default defineAction({
         uploadProgress: r.uploadProgress,
         failureReason: r.failureReason,
         visibility: r.visibility,
+        hasPassword: Number(r.hasPassword ?? 0) > 0,
+        expiresAt: r.expiresAt,
         ownerEmail: r.ownerEmail,
         ownerName: profileNameFor(r.ownerEmail, null, ownerProfiles),
         folderId: r.folderId,

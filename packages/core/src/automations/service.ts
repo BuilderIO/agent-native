@@ -1,11 +1,16 @@
 import { getDbExec } from "../db/client.js";
 import { isValidCron, isValidTimezone, nextOccurrence } from "../jobs/cron.js";
 import {
+  assertDelegatedPolicyId,
   buildJobResourceContent,
+  isRecoveredFactoryJob,
   jobBelongsToApp,
   normalizeJobMcpTools,
   parseJobResource,
+  patchJobFrontmatterFields,
+  replaceJobResourceBody,
   type JobFrontmatter,
+  type JobFrontmatterPatch,
 } from "../jobs/frontmatter.js";
 import { deleteAutomationRuns } from "../jobs/run-history.js";
 import { resolveUserSchedulingTimezone } from "../localization/user-timezone.js";
@@ -170,7 +175,10 @@ async function readOrganizationMembership(
   email: string,
 ): Promise<OrganizationMembership | null> {
   const result = await getDbExec().execute({
-    sql: "SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1",
+    sql: `SELECT role FROM org_members
+          WHERE org_id = ? AND LOWER(email) = ?
+            AND federation_removal_pending_at IS NULL
+          LIMIT 1`,
     args: [orgId, email.toLowerCase()],
   });
   if (!result.rows.length) return null;
@@ -252,7 +260,8 @@ export async function canUpdateAutomationResource(
 /**
  * Factory is a shared team workspace: any current org member may queue Run now
  * for that app's Factory-domain org jobs. Mail/CRM and other automations stay
- * on creator-or-admin `canUpdate`.
+ * on creator-or-admin `canUpdate`. Recovered Factory-folder jobs that lost
+ * `domain` / `appId` stay on the same team-member exception.
  */
 export async function canQueueAutomationRunNow(
   actorInput: AutomationActor,
@@ -261,7 +270,13 @@ export async function canQueueAutomationRunNow(
 ): Promise<boolean> {
   const { meta } = parseJobResource(resource.content);
   const actor = normalizeActor(actorInput);
-  if (!jobBelongsToApp(meta, actor.appId)) return false;
+  const recoveredFactory = isRecoveredFactoryJob(
+    meta,
+    resource.path,
+    actor.appId,
+    resource.owner,
+  );
+  if (!jobBelongsToApp(meta, actor.appId) && !recoveredFactory) return false;
   const access = await mutationAccess(actor, resource, meta);
   if (access.canUpdate) return true;
   const resourceOrgId = organizationIdFromResourceOwner(resource.owner);
@@ -270,7 +285,7 @@ export async function canQueueAutomationRunNow(
     Boolean(resourceOrgId) &&
     actor.orgId === resourceOrgId &&
     actor.appId === "factory" &&
-    meta.domain === "factory"
+    (meta.domain === "factory" || recoveredFactory)
   );
 }
 
@@ -509,6 +524,7 @@ export async function updateAutomation(
     );
   }
   const { meta } = definition;
+  const fields: JobFrontmatterPatch = {};
   if (input.schedule !== undefined) {
     if (meta.triggerType !== "schedule") {
       throw httpError("Only scheduled automations have a cron schedule.", 400);
@@ -517,6 +533,7 @@ export async function updateAutomation(
       throw httpError(`Invalid cron expression "${input.schedule}".`, 400);
     }
     meta.schedule = input.schedule;
+    fields.schedule = input.schedule;
   }
   if (input.timezone !== undefined) {
     if (!isValidTimezone(input.timezone)) {
@@ -526,6 +543,7 @@ export async function updateAutomation(
       throw httpError("Only scheduled automations have a timezone.", 400);
     }
     meta.timezone = input.timezone;
+    fields.timezone = input.timezone;
   }
   if (input.schedule !== undefined || input.timezone !== undefined) {
     meta.nextRun = nextOccurrence(
@@ -533,9 +551,11 @@ export async function updateAutomation(
       undefined,
       meta.timezone,
     ).toISOString();
+    fields.nextRun = meta.nextRun;
   }
   if (input.enabled !== undefined) {
     meta.enabled = input.enabled;
+    fields.enabled = input.enabled;
     if (
       input.enabled &&
       meta.triggerType === "schedule" &&
@@ -546,16 +566,28 @@ export async function updateAutomation(
         undefined,
         meta.timezone,
       ).toISOString();
+      fields.nextRun = meta.nextRun;
     }
   }
   if (input.condition !== undefined) {
     meta.condition = input.condition?.trim() || undefined;
+    fields.condition = meta.condition;
   }
   if (input.delegatedPolicyId !== undefined) {
     meta.delegatedPolicyId = input.delegatedPolicyId?.trim() || undefined;
+    try {
+      assertDelegatedPolicyId(meta.delegatedPolicyId);
+    } catch (error) {
+      throw httpError(
+        error instanceof Error ? error.message : String(error),
+        400,
+      );
+    }
+    fields.delegatedPolicyId = meta.delegatedPolicyId;
   }
   if (input.model !== undefined) {
     meta.model = input.model?.trim() || undefined;
+    fields.model = meta.model;
   }
   if (input.executionHostId !== undefined) {
     if (input.executionHostId && meta.triggerType !== "schedule") {
@@ -569,6 +601,7 @@ export async function updateAutomation(
       "execution_host_id",
       { opaque: true },
     );
+    fields.executionHostId = meta.executionHostId;
   }
   if (input.executionEngine !== undefined) {
     meta.executionEngine = normalizeExecutionTarget(
@@ -576,27 +609,36 @@ export async function updateAutomation(
       "execution_engine",
       { opaque: true },
     );
+    fields.executionEngine = meta.executionEngine;
   }
   if (input.executionCwd !== undefined) {
     meta.executionCwd = normalizeExecutionTarget(
       input.executionCwd,
       "execution_cwd",
     );
+    fields.executionCwd = meta.executionCwd;
   }
   if (input.mcpTools !== undefined) {
     const mcpTools = normalizeJobMcpTools(input.mcpTools);
     meta.mcpTools = mcpTools?.length ? mcpTools : undefined;
+    fields.mcpTools = meta.mcpTools;
   }
   if (input.scope === "organization") {
     meta.orgId = organizationIdFromResourceOwner(definition.resource.owner)!;
     meta.runAs = "creator";
+    fields.orgId = meta.orgId;
+    fields.runAs = meta.runAs;
   }
   const body = input.body === undefined ? definition.body : input.body.trim();
   if (!body) throw httpError("Automation body is required.", 400);
+  let content = patchJobFrontmatterFields(definition.resource.content, fields);
+  if (input.body !== undefined) {
+    content = replaceJobResourceBody(content, body);
+  }
   await resourcePut(
     definition.resource.owner,
     definition.resource.path,
-    buildJobResourceContent(meta, body),
+    content,
   );
   return { ...definition, meta, body };
 }

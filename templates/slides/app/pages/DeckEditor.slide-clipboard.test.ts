@@ -4,17 +4,21 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-import type { Deck } from "../context/DeckContext";
 import {
   getSlideClipboardStorageKey,
   normalizeSlideClipboard,
+  normalizeSlideClipboards,
   readSlideClipboard,
+  readSlideClipboards,
   resolveSlideClipboardForPaste,
+  resolveSlideClipboardsForPaste,
   writeSlideClipboard,
+  writeSlideClipboards,
 } from "../lib/slide-clipboard";
 import {
   isSlideClipboardStillArmed,
-  isSourceImportedDeck,
+  constrainSlideDragToVerticalAxis,
+  getAltDragPlacement,
   SLIDE_CLIPBOARD_ARM_WINDOW_MS,
   syncSlideContentSnapshots,
 } from "./DeckEditor";
@@ -90,27 +94,104 @@ describe("slide paste fallback", () => {
   });
 });
 
-describe("source-imported deck structure", () => {
-  it("recognizes source-preserving import metadata", () => {
-    expect(
-      isSourceImportedDeck({
-        sourceImport: {
-          mode: "source-preserving",
-          format: "pptx",
-          slides: [],
-        },
-      } as unknown as Deck),
-    ).toBe(true);
+describe("slide thumbnail shortcuts", () => {
+  it("routes slide clipboard shortcuts through the focused thumbnail", () => {
+    expect(deckEditorSource).toContain(
+      'if (key !== "c" && key !== "x" && key !== "v" && key !== "d") return;',
+    );
+    expect(deckEditorSource).toContain(
+      "selectedSlideIds.includes(activeSlideId)",
+    );
+    expect(deckEditorSource).toContain("selectedSlideIds : [activeSlideId]");
+    expect(deckEditorSource).toContain(
+      "handleDuplicateSlideFromRail(slideIds);",
+    );
   });
 
-  it("does not block ordinary or malformed deck metadata", () => {
-    expect(isSourceImportedDeck(null)).toBe(false);
-    expect(isSourceImportedDeck(undefined)).toBe(false);
+  it("cuts the focused slide selection without removing every slide", () => {
+    const shortcutStart = deckEditorSource.indexOf(
+      "// Command/Ctrl+C then Command/Ctrl+V on the focused slide rail",
+    );
+    const shortcutEnd = deckEditorSource.indexOf(
+      'document.addEventListener("keydown", handleKeyDown)',
+      shortcutStart,
+    );
+    const shortcutBody = deckEditorSource.slice(shortcutStart, shortcutEnd);
+
+    expect(shortcutBody).toContain("if (!activeSlideId) return;");
+    expect(shortcutBody).toContain(
+      "selectedSlideIds.length > 0 ? selectedSlideIds : [activeSlideId]",
+    );
+    expect(shortcutBody).toContain(
+      "if (slideIds.length >= deck.slides.length) return;",
+    );
+    expect(shortcutBody).toContain("cutSlides(slideIds);");
+  });
+
+  it("lets focused thumbnails own shortcuts while canvas selection remains visible", () => {
+    const shortcutStart = deckEditorSource.indexOf(
+      "// Command/Ctrl+C then Command/Ctrl+V on the focused slide rail",
+    );
+    const shortcutEnd = deckEditorSource.indexOf(
+      'document.addEventListener("keydown", handleKeyDown)',
+      shortcutStart,
+    );
+    const shortcutBody = deckEditorSource.slice(shortcutStart, shortcutEnd);
+
+    expect(shortcutBody).toContain(
+      'document.activeElement?.closest("[data-slide-thumbnail-id]")',
+    );
+    expect(shortcutBody).toContain(
+      "!focusedThumbnail &&\n        document.querySelector(\"[data-slide-element-selected='true']\")",
+    );
+  });
+
+  it("persists multi-slide copies for another deck tab to paste", () => {
+    expect(deckEditorSource).toContain("saveSlidesToClipboard(slides);");
+    expect(deckEditorSource).toContain(
+      "readSlideClipboards(slideClipboardStorageKey)",
+    );
+    expect(deckEditorSource).toContain(
+      "const clipboard = slideClipboardSlidesRef.current ?? syncSlideClipboard();",
+    );
+  });
+});
+
+describe("alt-drag slide placement", () => {
+  const slides = [{ id: "slide-1" }, { id: "slide-2" }, { id: "slide-3" }];
+
+  it("inserts a copy before the drop target when dragged upward", () => {
+    expect(getAltDragPlacement(slides, "slide-3", "slide-1")).toEqual({
+      afterSlideId: "slide-1",
+      beforeSlideId: "slide-1",
+    });
+  });
+
+  it("inserts a copy after the drop target when dragged downward", () => {
+    expect(getAltDragPlacement(slides, "slide-1", "slide-3")).toEqual({
+      afterSlideId: "slide-3",
+    });
+  });
+
+  it("keeps slide drag transforms on the vertical axis", () => {
     expect(
-      isSourceImportedDeck({
-        sourceImport: { mode: "source-preserving", format: "pptx" },
-      } as unknown as Deck),
-    ).toBe(false);
+      constrainSlideDragToVerticalAxis({
+        x: 48,
+        y: 24,
+        scaleX: 1,
+        scaleY: 1,
+      }),
+    ).toEqual({ x: 0, y: 24, scaleX: 1, scaleY: 1 });
+  });
+
+  it("uses an Alt-only drag overlay for the copied thumbnail", () => {
+    expect(deckEditorSource).toContain('data-slide-drag-overlay="copy"');
+    expect(deckEditorSource).toContain(
+      "altDragSlideId={altDragState?.slideId}",
+    );
+    expect(deckEditorSource).toContain(
+      "modifiers={[verticalSlideDragModifier]}",
+    );
   });
 });
 
@@ -160,6 +241,47 @@ describe("slide clipboard storage", () => {
       status: "ready",
       slide,
       copiedAt: 1_000,
+    });
+  });
+
+  it("round-trips an ordered multi-slide snapshot", () => {
+    const storage = createStorage();
+    const storageKey = getSlideClipboardStorageKey("alice@example.com");
+    const slides = [
+      slide,
+      { ...slide, id: "slide-2", content: "<div>Second</div>" },
+    ];
+
+    expect(writeSlideClipboards(storageKey, slides, 1_500, storage)).toBe(true);
+    expect(readSlideClipboards(storageKey, storage)).toEqual({
+      status: "ready",
+      slides,
+      copiedAt: 1_500,
+    });
+    expect(readSlideClipboard(storageKey, storage)).toEqual({
+      status: "ready",
+      slide,
+      copiedAt: 1_500,
+    });
+  });
+
+  it("reads legacy single-slide snapshots as one-slide clipboards", () => {
+    const storageKey = getSlideClipboardStorageKey("alice@example.com");
+    expect(
+      readSlideClipboards(
+        storageKey,
+        createStorage({
+          [storageKey]: JSON.stringify({
+            version: 1,
+            slide,
+            copiedAt: 1_750,
+          }),
+        }),
+      ),
+    ).toEqual({
+      status: "ready",
+      slides: [slide],
+      copiedAt: 1_750,
     });
   });
 
@@ -213,6 +335,7 @@ describe("slide clipboard storage", () => {
           version: 1,
           slide: {
             ...slide,
+            layoutWarningDismissed: true,
             imageLoading: true,
             unexpected: "stale data",
             animations: [{ id: "animation-1", elementIndex: 0, type: "fade" }],
@@ -226,6 +349,7 @@ describe("slide clipboard storage", () => {
       status: "ready",
       slide: {
         ...slide,
+        layoutWarningDismissed: true,
         animations: [{ id: "animation-1", elementIndex: 0, type: "fade" }],
       },
       copiedAt: 2_500,
@@ -240,6 +364,7 @@ describe("slide clipboard storage", () => {
         unexpected: true,
       }),
     ).toEqual(slide);
+    expect(normalizeSlideClipboards([slide])).toEqual([slide]);
   });
 
   it("rejects malformed optional fields", () => {
@@ -289,6 +414,24 @@ describe("slide clipboard storage", () => {
         storageKey,
       ),
     ).toEqual(latestSlide);
+  });
+
+  it("uses a newer multi-slide cross-tab snapshot instead of stale cached slides", () => {
+    const storageKey = getSlideClipboardStorageKey("alice@example.com");
+    const cachedSlides = [{ ...slide, content: "Cached" }];
+    const latestSlides = [
+      { ...slide, content: "Latest" },
+      { ...slide, id: "slide-2", content: "Second" },
+    ];
+
+    expect(
+      resolveSlideClipboardsForPaste(
+        { status: "ready", slides: latestSlides, copiedAt: 4_000 },
+        cachedSlides,
+        storageKey,
+        storageKey,
+      ),
+    ).toEqual(latestSlides);
   });
 
   it("keeps a fresh in-memory snapshot when persistence is rejected", () => {

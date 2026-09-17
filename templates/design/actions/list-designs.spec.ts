@@ -253,24 +253,50 @@ describe("list-designs", () => {
     expect(designProjection).not.toHaveProperty("data");
   });
 
-  it("keeps no-argument callers on the complete lightweight list", async () => {
-    mocks.designRows = [design("design-1", "One"), design("design-2", "Two")];
+  it("bounds no-argument callers to the first lightweight page", async () => {
+    mocks.designRows = Array.from({ length: 13 }, (_, index) =>
+      design(`design-${index + 1}`, `Design ${index + 1}`),
+    );
 
     const result = await action.run({});
 
-    expect(result.designs.map((item) => item.id)).toEqual([
-      "design-1",
-      "design-2",
-    ]);
+    expect(result.designs).toHaveLength(12);
+    expect(result.designs[0]?.id).toBe("design-1");
+    expect(result.designs.at(-1)?.id).toBe("design-12");
     expect(result).toMatchObject({
-      count: 2,
-      totalCount: 2,
-      hasMore: false,
+      count: 13,
+      totalCount: 13,
+      hasMore: true,
       page: 1,
-      pageSize: 2,
-      totalPages: 1,
+      pageSize: 12,
+      totalPages: 2,
     });
-    expect(mocks.pageCalls).toEqual([]);
+    expect(mocks.pageCalls).toEqual([{ limit: 12, offset: 0 }]);
+  });
+
+  it("keeps lightweight UI pickers bounded and normalizes pagination metadata", async () => {
+    mocks.designRows = Array.from({ length: 51 }, (_, index) =>
+      design(`design-${index + 1}`, `Design ${index + 1}`),
+    );
+
+    const result = await action.run({
+      includeAll: true,
+      page: 2,
+      pageSize: 1,
+    });
+
+    expect(result.designs).toHaveLength(50);
+    expect(result.designs[0]?.id).toBe("design-1");
+    expect(result.designs.at(-1)?.id).toBe("design-50");
+    expect(result).toMatchObject({
+      count: 51,
+      totalCount: 51,
+      hasMore: true,
+      page: 1,
+      pageSize: 50,
+      totalPages: 2,
+    });
+    expect(mocks.pageCalls).toEqual([{ limit: 50, offset: 0 }]);
   });
 
   it("applies Mine to the authenticated owner while retaining access scoping", async () => {
@@ -337,5 +363,27 @@ describe("list-designs", () => {
     expect(JSON.stringify(mocks.designWhereCalls[0])).toContain("%alpha%");
     expect(JSON.stringify(mocks.fileWhereCalls[0])).toContain("design-3");
     expect(JSON.stringify(mocks.fileWhereCalls[0])).not.toContain("design-1");
+  });
+
+  it("does not use the reserved board file as a preview fallback", async () => {
+    mocks.designRows = [design("design-1", "Canvas")];
+    mocks.fileRows = [
+      {
+        designId: "design-1",
+        filename: "__board__.html",
+        content: "<main>Board</main>",
+        fileType: "html",
+      },
+      {
+        designId: "design-1",
+        filename: "home.html",
+        content: "<main>Visible screen</main>",
+        fileType: "html",
+      },
+    ];
+
+    const result = await action.run({ includePreview: "true" });
+
+    expect(result.designs[0]?.previewHtml).toBe("<main>Visible screen</main>");
   });
 });

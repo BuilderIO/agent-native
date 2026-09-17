@@ -35,6 +35,10 @@ import {
 } from "@/components/ui/tooltip";
 import { useUpdateEvent } from "@/hooks/use-events";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
+import {
+  getCalendarEventRenderKey,
+  withCalendarEventSourceIdentity,
+} from "@/lib/calendar-event-identity";
 import { getDisplayDateInTimezone } from "@/lib/calendar-timezone";
 import { getEditableEventTitle } from "@/lib/event-form-utils";
 import { isOutOfOfficeEvent } from "@/lib/out-of-office";
@@ -72,8 +76,8 @@ function buildEventDetailSlotContext(event: CalendarEvent) {
 interface EventDetailPanelProps {
   event: CalendarEvent | null;
   onClose: () => void;
-  onDelete: (eventId: string) => void;
-  onTitleSave?: (eventId: string, title: string, accountEmail?: string) => void;
+  onDelete: (event: CalendarEvent) => void;
+  onTitleSave?: (event: CalendarEvent, title: string) => void;
   timezone?: string;
 }
 
@@ -150,7 +154,10 @@ export function EventDetailPanel({
   );
   const { promptGuestNotification, guestNotificationDialog } =
     useGuestNotificationPrompt();
-  const isOverlay = !!event?.overlayEmail;
+  const isOverlay =
+    !!event?.overlayEmail ||
+    event?.calendarPrimary === false ||
+    event?.calendarReadOnly === true;
   const isWorkingLocation = event ? isWorkingLocationEvent(event) : false;
   const isOutOfOffice = event ? isOutOfOfficeEvent(event) : false;
   const isRecurringEvent = !!(
@@ -167,11 +174,18 @@ export function EventDetailPanel({
           entryPoint.entryPointType === "video" &&
           entryPoint.uri.includes("meet.google.com"),
       ));
-  const ownerLabel = event?.ownerName || event?.overlayEmail;
+  const ownerLabel =
+    event?.ownerName ||
+    event?.overlayEmail ||
+    ((event?.calendarPrimary === false || event?.calendarReadOnly) &&
+    event?.calendarName
+      ? `${event.calendarName} · ${event.accountEmail ?? "Google"}`
+      : undefined);
   const eventDetailSlotContext = useMemo(
     () => (event ? buildEventDetailSlotContext(event) : null),
     [event],
   );
+  const eventRenderKey = event ? getCalendarEventRenderKey(event) : null;
 
   // Reset editing state when event changes
   useEffect(() => {
@@ -179,7 +193,7 @@ export function EventDetailPanel({
     setIsEditingDescription(false);
     setEditDescription(event?.description || "");
     lastSavedDescriptionRef.current = event?.description || "";
-  }, [event?.id]);
+  }, [eventRenderKey]);
 
   useEffect(() => {
     setSelectedAccountEmail(event?.accountEmail);
@@ -209,12 +223,15 @@ export function EventDetailPanel({
           return;
         }
         updateEvent.mutate(
-          {
-            id: event.id,
-            accountEmail: event.accountEmail,
-            ...updates,
-            ...guestNotification,
-          },
+          withCalendarEventSourceIdentity(
+            {
+              id: event.id,
+              accountEmail: event.accountEmail,
+              ...updates,
+              ...guestNotification,
+            },
+            event,
+          ),
           {
             onError: () => {
               lastSavedDescriptionRef.current = prev;
@@ -253,12 +270,15 @@ export function EventDetailPanel({
           return;
         }
         updateEvent.mutate(
-          {
-            id: event.id,
-            accountEmail: event.accountEmail,
-            targetAccountEmail,
-            ...guestNotification,
-          },
+          withCalendarEventSourceIdentity(
+            {
+              id: event.id,
+              accountEmail: event.accountEmail,
+              targetAccountEmail,
+              ...guestNotification,
+            },
+            event,
+          ),
           {
             onSuccess: () => toast.success(t("eventForm.eventUpdated")),
             onError: () => {
@@ -283,12 +303,15 @@ export function EventDetailPanel({
       });
       if (!guestNotification) return;
       updateEvent.mutate(
-        {
-          id: event.id,
-          accountEmail: event.accountEmail,
-          ...updates,
-          ...guestNotification,
-        },
+        withCalendarEventSourceIdentity(
+          {
+            id: event.id,
+            accountEmail: event.accountEmail,
+            ...updates,
+            ...guestNotification,
+          },
+          event,
+        ),
         {
           onSuccess: () => toast(t("eventForm.googleMeetAdded")),
           onError: () => toast.error(t("eventForm.googleMeetAddFailed")),
@@ -311,12 +334,15 @@ export function EventDetailPanel({
       });
       if (!guestNotification) return;
       updateEvent.mutate(
-        {
-          id: event.id,
-          accountEmail: event.accountEmail,
-          ...updates,
-          ...guestNotification,
-        },
+        withCalendarEventSourceIdentity(
+          {
+            id: event.id,
+            accountEmail: event.accountEmail,
+            ...updates,
+            ...guestNotification,
+          },
+          event,
+        ),
         {
           onError: () => toast.error(t("eventForm.updateFailed")),
         },
@@ -348,12 +374,17 @@ export function EventDetailPanel({
           updates,
         });
         if (!guestNotification) return;
-        updateEvent.mutate({
-          id: event.id,
-          accountEmail: event.accountEmail,
-          ...updates,
-          ...guestNotification,
-        });
+        updateEvent.mutate(
+          withCalendarEventSourceIdentity(
+            {
+              id: event.id,
+              accountEmail: event.accountEmail,
+              ...updates,
+              ...guestNotification,
+            },
+            event,
+          ),
+        );
       })();
     },
     [event, promptGuestNotification, updateEvent],
@@ -362,9 +393,15 @@ export function EventDetailPanel({
   const handleSaveWorkingLocation = useCallback(
     (selection: WorkingLocationSelection) => {
       if (!event) return;
-      updateEvent.mutate(buildWorkingLocationUpdate(event, selection), {
-        onError: () => toast.error(t("calendarView.failedUpdateEvent")),
-      });
+      updateEvent.mutate(
+        withCalendarEventSourceIdentity(
+          buildWorkingLocationUpdate(event, selection),
+          event,
+        ),
+        {
+          onError: () => toast.error(t("calendarView.failedUpdateEvent")),
+        },
+      );
     },
     [event, t, updateEvent],
   );
@@ -426,7 +463,7 @@ export function EventDetailPanel({
               {/* Content */}
               <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
                 {/* Title — click to edit */}
-                {isEditingTitle && !isWorkingLocation ? (
+                {isEditingTitle && !isWorkingLocation && !isOverlay ? (
                   <input
                     ref={titleInputRef}
                     value={editingTitle}
@@ -439,7 +476,7 @@ export function EventDetailPanel({
                           trimmed &&
                           trimmed !== getEditableEventTitle(event)
                         ) {
-                          onTitleSave?.(event.id, trimmed, event.accountEmail);
+                          onTitleSave?.(event, trimmed);
                         }
                         setIsEditingTitle(false);
                       } else if (e.key === "Escape") {
@@ -451,7 +488,7 @@ export function EventDetailPanel({
                     onBlur={() => {
                       const trimmed = editingTitle.trim();
                       if (trimmed && trimmed !== getEditableEventTitle(event)) {
-                        onTitleSave?.(event.id, trimmed, event.accountEmail);
+                        onTitleSave?.(event, trimmed);
                       }
                       setIsEditingTitle(false);
                     }}
@@ -462,10 +499,12 @@ export function EventDetailPanel({
                   <h2
                     className={cn(
                       "-mx-0.5 rounded px-0.5 text-lg font-semibold leading-tight text-foreground",
-                      !isWorkingLocation && "cursor-text hover:bg-muted/50",
+                      !isWorkingLocation &&
+                        !isOverlay &&
+                        "cursor-text hover:bg-muted/50",
                     )}
                     onClick={() => {
-                      if (isWorkingLocation) return;
+                      if (isWorkingLocation || isOverlay) return;
                       setEditingTitle(getEditableEventTitle(event));
                       setIsEditingTitle(true);
                     }}
@@ -548,20 +587,23 @@ export function EventDetailPanel({
                   </div>
                 ) : null}
 
-                {event.overlayEmail && ownerLabel && (
-                  <div className="flex items-center gap-2.5 text-sm text-muted-foreground">
-                    <span
-                      aria-hidden="true"
-                      className="ml-0.5 size-2 shrink-0 rounded-full ring-1 ring-border"
-                      style={{ backgroundColor: event.ownerColor }}
-                    />
-                    <span>
-                      {t("eventForm.viewingOwnerCalendar", {
-                        owner: ownerLabel,
-                      })}
-                    </span>
-                  </div>
-                )}
+                {(event.overlayEmail ||
+                  event.calendarPrimary === false ||
+                  event.calendarReadOnly) &&
+                  ownerLabel && (
+                    <div className="flex items-center gap-2.5 text-sm text-muted-foreground">
+                      <span
+                        aria-hidden="true"
+                        className="ml-0.5 size-2 shrink-0 rounded-full ring-1 ring-border"
+                        style={{ backgroundColor: event.ownerColor }}
+                      />
+                      <span>
+                        {t("eventForm.viewingOwnerCalendar", {
+                          owner: ownerLabel,
+                        })}
+                      </span>
+                    </div>
+                  )}
 
                 {!isWorkingLocation &&
                   (meetingLink ? (
@@ -698,7 +740,7 @@ export function EventDetailPanel({
                     variant="ghost"
                     size="sm"
                     className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                    onClick={() => onDelete(event.id)}
+                    onClick={() => onDelete(event)}
                   >
                     <IconTrash className="mr-1.5 h-3.5 w-3.5" />
                     {t("eventForm.delete")}

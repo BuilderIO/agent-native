@@ -1,10 +1,21 @@
 import { describe, expect, it } from "vitest";
 
-import { isQaTestEmail } from "./qa-test-email.js";
+import { isAutozQaEmail, isQaTestEmail } from "./qa-test-email.js";
+
+describe("isAutozQaEmail", () => {
+  it("requires the reserved +autoz marker", () => {
+    expect(isAutozQaEmail("qa+autoz-run@example.com")).toBe(true);
+    expect(isAutozQaEmail("qa+AUTOZ@example.com")).toBe(true);
+    expect(isAutozQaEmail("qa+qa-test-bot-run@example.com")).toBe(false);
+    expect(isAutozQaEmail("qa@example.com")).toBe(false);
+  });
+});
 
 describe("isQaTestEmail", () => {
   it("matches the synthetic identities found leaking into production analytics", () => {
     for (const email of [
+      "steve+autoz-run-9f2@builder.io",
+      "steve+AUTOZ@example.com",
       "steve+qa-test-bot-9f2@builder.io",
       "qa-test-bot-9f2@agent-native.com",
       "an-e2e-probe-4471@e2e.agent-native.test",

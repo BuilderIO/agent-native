@@ -1,5 +1,11 @@
 import { parse as parseJavaScript } from "acorn";
 import { type DefaultTreeAdapterTypes, parse, type ParserError } from "parse5";
+import CssSyntaxError from "postcss/lib/css-syntax-error";
+import CssInput from "postcss/lib/input";
+import parseCss from "postcss/lib/parse";
+// This exported PostCSS subpath has no declaration file.
+// @ts-expect-error PostCSS exports its tokenizer without TypeScript declarations.
+import tokenizeCss from "postcss/lib/tokenize";
 
 import { isStandaloneHttpUrl } from "./html-content.js";
 
@@ -28,6 +34,7 @@ export type DesignHtmlIntegrityIssue =
   | "attribute-unterminated"
   | "expression-invalid"
   | "script-invalid"
+  | "style-invalid"
   | "element-unclosed"
   | "close-tag-orphaned"
   | "content-truncated"
@@ -92,7 +99,7 @@ const DOCUMENT_SHAPE_MESSAGES: Partial<
   "runtime-cloak-missing":
     "this document uses x-cloak without the CSS rule that keeps Alpine-controlled content hidden before Alpine starts",
   "runtime-alpine-missing":
-    "this document uses x-cloak but does not load Alpine.js, so the hidden state can never be removed",
+    "this document uses Alpine directives but does not load Alpine.js, so every repeat, binding and event stays inert",
 };
 
 export function describeDesignHtmlIntegrityIssue(
@@ -115,6 +122,8 @@ export function describeDesignHtmlIntegrityIssue(
         `the page still renders, so nothing visibly fails — the script simply ` +
         `never runs, and everything it was going to wire up stays dead.`
       );
+    case "style-invalid":
+      return `the inline <style> at ${at} is not valid CSS: ${detail.reason ?? "it does not parse"}. Repair the stylesheet before retrying the edit.`;
     case "attribute-unterminated":
       return (
         `the ${detail.attribute ? `\`${detail.attribute}\`` : "attribute"} value on ` +
@@ -150,9 +159,11 @@ export function describeDesignHtmlIntegrityIssue(
       );
     case "runtime-alpine-missing":
       return (
-        `the document uses x-cloak on <${detail.tag ?? "element"}> at ${at}, ` +
-        `but no script source contains Alpine.js. The element will remain ` +
-        `hidden forever; load Alpine.js before relying on x-cloak.`
+        `the document uses ${detail.attribute ?? "Alpine directives"} on ` +
+        `<${detail.tag ?? "element"}> at ${at}, but no <script src> contains ` +
+        `"alpinejs". Every repeat, binding and event stays inert and renders ` +
+        `nothing at all. Load Alpine.js — and if a script tag already looks ` +
+        `present, check its src still carries the package name.`
       );
     case "runtime-overlay-unhidden":
       return (
@@ -176,7 +187,9 @@ export function describeDesignHtmlIntegrityIssue(
 
 export class DesignHtmlIntegrityError extends Error {
   readonly code = DESIGN_HTML_INTEGRITY_ERROR_CODE;
-  readonly status = 422;
+  // action-routes.ts reads `.statusCode`, not `.status` — without this the
+  // route swallows this error's actionable message into a generic 500.
+  readonly statusCode = 422;
   readonly issue: DesignHtmlIntegrityIssue;
   readonly detail?: DesignHtmlIntegrityIssueDetail[];
 
@@ -212,6 +225,7 @@ const MANAGED_RAW_TEXT_MARKERS = [
   { marker: "data-agent-native-state-breakpoints", tag: "style" },
   { marker: "data-agent-native-states", tag: "style" },
   { marker: "data-agent-native-motion", tag: "style" },
+  { marker: "data-agent-native-group-runtime", tag: "script" },
   { marker: "data-agent-native-shader-runtime", tag: "script" },
 ] as const;
 
@@ -868,7 +882,7 @@ const EXECUTABLE_SCRIPT_TYPES = new Set([
 ]);
 
 /** `null` when the browser treats the element as data rather than code. */
-function scriptGrammar(type: string): "script" | "module" | null {
+export function scriptGrammar(type: string): "script" | "module" | null {
   const normalized = type.trim().toLowerCase();
   if (normalized === "") return "script";
   if (normalized === "module") return "module";
@@ -945,6 +959,133 @@ function collectScriptBodyIssues(
   return issues;
 }
 
+type CssToken = [type: string, value: string, start?: number, end?: number];
+
+interface CssTokenizer {
+  endOfFile(): boolean;
+  nextToken(): CssToken | undefined;
+}
+
+function ignoreTopLevelHtmlCommentTokens(css: string): string {
+  const input = new CssInput(css, { map: false });
+  const scanner = (tokenizeCss as (input: CssInput) => CssTokenizer)(input);
+  const source = input.css;
+  const tokens: CssToken[] = [];
+  while (!scanner.endOfFile()) {
+    const token = scanner.nextToken();
+    if (!token) break;
+    tokens.push(token);
+  }
+
+  const ignored: Array<[start: number, end: number]> = [];
+  let atRule = false;
+  let braces = 0;
+  let brackets = 0;
+  let betweenRules = true;
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index]!;
+    if (token[0] === "space" || token[0] === "comment") continue;
+
+    if (braces === 0 && brackets === 0 && betweenRules) {
+      if (token[0] === "word" && token[2] !== undefined) {
+        let cursor = token[2];
+        while (
+          source.startsWith("<!--", cursor) ||
+          source.startsWith("-->", cursor)
+        ) {
+          const length = source.startsWith("<!--", cursor) ? 4 : 3;
+          ignored.push([cursor, cursor + length]);
+          cursor += length;
+        }
+        if (cursor > token[2]) {
+          let resumeIndex = index;
+          while (resumeIndex + 1 < tokens.length) {
+            const next = tokens[resumeIndex + 1]!;
+            if (next[2] === undefined || next[2] >= cursor) break;
+            resumeIndex += 1;
+          }
+          const resume = tokens[resumeIndex]!;
+          const resumeEnd =
+            resume[2] === undefined
+              ? undefined
+              : (resume[3] ?? resume[2] + resume[1].length - 1);
+          if (
+            resume[2] !== undefined &&
+            resume[2] < cursor &&
+            resumeEnd !== undefined &&
+            resumeEnd >= cursor
+          ) {
+            betweenRules = false;
+            atRule = false;
+          }
+          index = resumeIndex;
+          continue;
+        }
+      }
+      betweenRules = false;
+      atRule = token[0] === "at-word";
+    }
+
+    if (token[0] === "[") brackets += 1;
+    else if (token[0] === "]") brackets = Math.max(0, brackets - 1);
+    else if (token[0] === "{" && brackets === 0) braces += 1;
+    else if (token[0] === "}" && brackets === 0 && braces > 0) {
+      braces -= 1;
+      if (braces === 0) {
+        betweenRules = true;
+        atRule = false;
+      }
+    } else if (token[0] === ";" && braces === 0 && brackets === 0 && atRule) {
+      betweenRules = true;
+      atRule = false;
+    }
+  }
+
+  if (ignored.length === 0) return css;
+  const offset = input.hasBOM ? 1 : 0;
+  const characters = css.split("");
+  for (const [start, end] of ignored) {
+    for (let index = start + offset; index < end + offset; index += 1) {
+      characters[index] = " ";
+    }
+  }
+  return characters.join("");
+}
+
+function collectStyleBodyIssues(
+  parsed: ParsedDocument,
+  locate: Locator,
+): DesignHtmlIntegrityIssueDetail[] {
+  const issues: DesignHtmlIntegrityIssueDetail[] = [];
+  for (const element of parsed.elements) {
+    if (element.tagName !== "style") continue;
+    const type = attributeOf(element, "type")?.trim().toLowerCase();
+    if (type && type !== "text/css" && type !== "text/tailwindcss") continue;
+    const body = element.childNodes.find((node) => node.nodeName === "#text");
+    if (!body) continue;
+    const location = body.sourceCodeLocation;
+    const text = location
+      ? parsed.source.slice(location.startOffset, location.endOffset)
+      : (body as DefaultTreeAdapterTypes.TextNode).value;
+    try {
+      // Syntax only: unknown properties, nested rules and Tailwind directives
+      // must remain editable. Ignore source maps supplied by the document.
+      parseCss(ignoreTopLevelHtmlCommentTokens(text), { map: false });
+    } catch (error) {
+      if (!(error instanceof CssSyntaxError)) throw error;
+      const start = location?.startOffset ?? 0;
+      issues.push({
+        issue: "style-invalid",
+        ...locate(start + (error.input?.offset ?? 0)),
+        tag: "style",
+        reason: error.reason,
+      });
+    }
+  }
+  return issues;
+}
+
 /**
  * Runs on fragments as well as documents — an unterminated quote is as
  * destructive in a `<template>` snippet as in a full page.
@@ -981,6 +1122,7 @@ function collectStructuralIssues(
     ...collectOrphanEndTags(parsed, locate),
     ...collectExpressionIssues(parsed, locate),
     ...collectScriptBodyIssues(parsed, locate),
+    ...collectStyleBodyIssues(parsed, locate),
   ]
     .sort((left, right) =>
       left.line === right.line
@@ -1116,21 +1258,93 @@ const ALPINE_RUNTIME = /\balpinejs\b/i;
 const INLINE_PRE_HIDE = /(?:display\s*:\s*none|visibility\s*:\s*hidden)/i;
 
 /**
- * `x-cloak` is an Alpine convention, not a runtime feature: it only works
- * when the authored document also supplies the CSS rule that hides the node
- * before Alpine initializes. A missing rule is especially dangerous for
- * fixed overlays, which can make a correct screen look completely replaced.
+ * Who is on the hook for loading Alpine. A complete document renders as its
+ * own `srcdoc`, so it must carry the script itself; a fragment is pasted into
+ * a host page that may already have it, and demanding one there would reject
+ * every working expression snippet.
+ */
+type RuntimeOwner = "document" | "host";
+
+const EMPTY_X_DATA = /^\s*(?:\{\s*\})?\s*$/;
+
+/** An Alpine attribute that drives behaviour, so a dead runtime is visible.
+ *  `:`/`@` are included because Alpine owns them here even though other
+ *  frameworks reuse the spelling — only reached once `x-data` is present. */
+function bindsAnything(name: string): boolean {
+  return (
+    (name.startsWith("x-") && name !== "x-data") ||
+    name.startsWith(":") ||
+    name.startsWith("@")
+  );
+}
+
+/**
+ * True when the document declares a scope that holds nothing and binds
+ * nothing — `<body x-data="{}">` on an otherwise plain page. Loading Alpine
+ * would change how it renders in no way at all.
+ */
+function declaresNoAlpineBehaviour(
+  declared: DefaultTreeAdapterTypes.Element,
+  parsed: ParsedDocument,
+): boolean {
+  const value =
+    declared.attrs.find(
+      (attribute) => attribute.name.toLowerCase() === "x-data",
+    )?.value ?? "";
+  if (!EMPTY_X_DATA.test(value)) return false;
+  return !parsed.elements.some((element) =>
+    element.attrs.some((attribute) =>
+      bindsAnything(attribute.name.toLowerCase()),
+    ),
+  );
+}
+
+/**
+ * Two independent traps. Without the runtime script every Alpine directive is
+ * inert, so a repeat renders nothing and the screen reads as empty rather
+ * than broken. `x-cloak` is the narrower one: it is a convention, not a
+ * runtime feature, and without the authored CSS rule a fixed overlay can make
+ * a correct screen look completely replaced.
  */
 function collectInteractiveRuntimeIssues(
   parsed: ParsedDocument,
   locate: Locator,
+  runtimeOwner: RuntimeOwner,
 ): DesignHtmlIntegrityIssueDetail[] {
-  const cloaked = parsed.elements.find((element) =>
-    element.attrs.some(
-      (attribute) => attribute.name.toLowerCase() === "x-cloak",
-    ),
-  );
-  if (!cloaked) return [];
+  const ownerOf = (name: string) =>
+    parsed.elements.find((element) =>
+      element.attrs.some((attribute) => attribute.name.toLowerCase() === name),
+    );
+  // `x-data` is the one directive Alpine cannot work without, and it has no
+  // meaning outside Alpine — so it anchors the runtime check without
+  // misreading a `:`/`@` attribute from another framework as Alpine. An EMPTY
+  // scope with no bindings anywhere is the exception: there is no state, so
+  // the absent runtime leaves nothing inert and a hard refusal is wrong.
+  const declared = runtimeOwner === "document" ? ownerOf("x-data") : undefined;
+  const scoped =
+    declared && !declaresNoAlpineBehaviour(declared, parsed)
+      ? declared
+      : undefined;
+  const cloaked = ownerOf("x-cloak");
+  if (!scoped && !cloaked) return [];
+
+  const anchorAt = (
+    element: DefaultTreeAdapterTypes.Element,
+    attributeName: string,
+  ): Omit<DesignHtmlIntegrityIssueDetail, "issue"> => {
+    const at = locate(
+      locationOf(element)?.attrs?.[attributeName]?.startOffset ??
+        locationOf(element)?.startOffset ??
+        0,
+    );
+    return {
+      line: at.line,
+      column: at.column,
+      excerpt: at.excerpt,
+      tag: element.tagName,
+      attribute: attributeName,
+    };
+  };
 
   const hasAlpineRuntime = parsed.elements.some(
     (element) =>
@@ -1150,7 +1364,9 @@ function collectInteractiveRuntimeIssues(
 
   const hasCloakRule =
     hasUnreadableStylesheet ||
-    INLINE_PRE_HIDE.test(attributeOf(cloaked, "style") ?? "") ||
+    INLINE_PRE_HIDE.test(
+      (cloaked ? attributeOf(cloaked, "style") : "") ?? "",
+    ) ||
     parsed.elements.some((element) => {
       if (element.tagName !== "style") return false;
       const css = childrenOf(element)
@@ -1160,27 +1376,24 @@ function collectInteractiveRuntimeIssues(
       return X_CLOAK_RULE.test(css);
     });
 
-  const attribute = cloaked.attrs.find(
-    (entry) => entry.name.toLowerCase() === "x-cloak",
-  );
-  const offset =
-    locationOf(cloaked)?.attrs?.[attribute?.name ?? ""]?.startOffset ??
-    locationOf(cloaked)?.startOffset ??
-    0;
-  const detail = {
-    line: locate(offset).line,
-    column: locate(offset).column,
-    excerpt: locate(offset).excerpt,
-    tag: cloaked.tagName,
-    attribute: "x-cloak",
-  };
+  const runtimeAnchor = scoped ?? cloaked;
   return [
-    ...(hasAlpineRuntime
+    ...(hasAlpineRuntime || !runtimeAnchor
       ? []
-      : [{ issue: "runtime-alpine-missing" as const, ...detail }]),
-    ...(hasCloakRule
+      : [
+          {
+            issue: "runtime-alpine-missing" as const,
+            ...anchorAt(runtimeAnchor, scoped ? "x-data" : "x-cloak"),
+          },
+        ]),
+    ...(hasCloakRule || !cloaked
       ? []
-      : [{ issue: "runtime-cloak-missing" as const, ...detail }]),
+      : [
+          {
+            issue: "runtime-cloak-missing" as const,
+            ...anchorAt(cloaked, "x-cloak"),
+          },
+        ]),
   ];
 }
 
@@ -1306,7 +1519,11 @@ export function inspectDesignHtmlDocumentIntegrity(
   const marker = collectManagedMarkerIssue(parsed);
   if (marker) return { valid: false, issue: marker };
 
-  const interactiveRuntime = collectInteractiveRuntimeIssues(parsed, locate);
+  const interactiveRuntime = collectInteractiveRuntimeIssues(
+    parsed,
+    locate,
+    "document",
+  );
   if (interactiveRuntime.length > 0) {
     return {
       valid: false,
@@ -1334,12 +1551,14 @@ const RUNTIME_ISSUES: ReadonlySet<DesignHtmlIntegrityIssue> = new Set([
 function introducedRuntimeIssues(
   next: DesignHtmlIntegrityIssueDetail[],
   previousContent: string,
+  runtimeOwner: RuntimeOwner,
 ): DesignHtmlIntegrityIssueDetail[] {
   if (next.length === 0 || !previousContent.trim()) return next;
   const inherited = new Set(
     collectInteractiveRuntimeIssues(
       parseDocument(previousContent),
       createLocator(previousContent),
+      runtimeOwner,
     ).map((entry) => entry.issue),
   );
   return next.filter((entry) => !inherited.has(entry.issue));
@@ -1389,8 +1608,10 @@ export function assertDesignHtmlEditIntegrity(args: {
       collectInteractiveRuntimeIssues(
         parseDocument(args.nextContent),
         createLocator(args.nextContent),
+        "host",
       ),
       args.previousContent,
+      "host",
     );
     if (interactiveRuntime.length > 0) {
       throw new DesignHtmlIntegrityError(interactiveRuntime[0]!.issue, {
@@ -1411,6 +1632,7 @@ export function assertDesignHtmlEditIntegrity(args: {
       const introduced = introducedRuntimeIssues(
         result.detail ?? [],
         args.previousContent,
+        "document",
       );
       if (introduced.length === 0) return;
       throw new DesignHtmlIntegrityError(introduced[0]!.issue, {
@@ -1450,13 +1672,12 @@ export function assertDesignHtmlWellFormed(args: {
       detail: structural,
     });
   }
-  // Fragments are checked too, unlike the document-shape rules above: a screen
-  // is rendered as its own `srcdoc`, so nothing injects Alpine or a `[x-cloak]`
-  // rule around it. A sketch that omits them is broken exactly as a full
-  // document would be.
+  // `x-cloak` is checked even here: a cloaked node with no hiding rule is
+  // hidden wherever the fragment lands.
   const interactiveRuntime = collectInteractiveRuntimeIssues(
     parseDocument(args.content),
     createLocator(args.content),
+    "host",
   );
   if (interactiveRuntime.length > 0) {
     throw new DesignHtmlIntegrityError(interactiveRuntime[0]!.issue, {

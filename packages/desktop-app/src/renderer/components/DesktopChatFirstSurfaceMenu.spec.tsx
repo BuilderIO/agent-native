@@ -74,4 +74,31 @@ describe("DesktopChatFirstSurfaceMenu", () => {
     await act(async () => sidebarItem?.click());
     expect(onToggleSidebar).toHaveBeenCalledOnce();
   });
+
+  it("keeps the current-type plus and close controls beside the menu", () => {
+    const onNewUiTab = vi.fn();
+    const onClose = vi.fn();
+
+    act(() => {
+      root.render(
+        <DesktopChatFirstSurfaceMenu
+          onNewUiTab={onNewUiTab}
+          onClose={onClose}
+        />,
+      );
+    });
+
+    const newTab = container.querySelector<HTMLButtonElement>(
+      '[aria-label="New UI tab"]',
+    );
+    const close = container.querySelector<HTMLButtonElement>(
+      '[aria-label="Close chat"]',
+    );
+    expect(newTab).not.toBeNull();
+    expect(close).not.toBeNull();
+    act(() => newTab?.click());
+    act(() => close?.click());
+    expect(onNewUiTab).toHaveBeenCalledOnce();
+    expect(onClose).toHaveBeenCalledOnce();
+  });
 });

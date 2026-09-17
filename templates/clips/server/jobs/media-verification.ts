@@ -17,7 +17,7 @@ let skippingLogged = false;
 
 export async function runMediaVerificationSweepOnce(): Promise<void> {
   const { rows } = await getDbExec().execute({
-    sql: `SELECT session_id, key, value FROM application_state WHERE key LIKE ?`,
+    sql: `SELECT session_id, key, value FROM application_state WHERE key LIKE $1`,
     args: [`${MEDIA_VERIFICATION_STATE_PREFIX}%`],
   });
   const now = Date.now();

@@ -24,6 +24,7 @@ import {
   buildJobResourceContent,
   jobBelongsToApp,
   parseJobResource,
+  patchJobFrontmatterFields,
 } from "../jobs/frontmatter.js";
 import {
   resourceGetByPath,
@@ -215,11 +216,10 @@ async function recordTriggerExecutionOutcome(
     return true;
   }
 
-  const nextMeta: TriggerFrontmatter = { ...current.meta, ...outcome };
   const written = await resourcePutIfCurrent({
     owner: resource.owner,
     path: resource.path,
-    content: buildTriggerContent(nextMeta, current.body),
+    content: patchJobFrontmatterFields(latest.content, outcome),
     expectedId: latest.id,
     expectedUpdatedAt: latest.updatedAt,
     expectedContent: latest.content,
@@ -358,8 +358,18 @@ async function handleEvent(
         continue;
       }
 
-      // Evaluate condition
-      const matches = await evaluateCondition(meta.condition, payload, apiKey);
+      // Evaluate condition. Unevaluable (network/HTTP) is not a non-match —
+      // record error and leave the trigger eligible for a later event.
+      let matches: boolean;
+      try {
+        matches = await evaluateCondition(meta.condition, payload, apiKey);
+      } catch (err) {
+        const reason =
+          err instanceof Error ? err.message : "Condition evaluation failed";
+        await recordTriggerSkip(resource, "error", reason);
+        console.warn(`[triggers] ${reason}: "${resource.path}"`);
+        continue;
+      }
       if (!matches) {
         await recordTriggerSkip(resource, "skipped", undefined);
         continue;
@@ -427,7 +437,16 @@ export async function dispatchAutomationWebhookTask(
   if (isBackgroundAutomationRunActive(meta)) {
     return "retry";
   }
-  const matches = await evaluateCondition(meta.condition, task.payload, apiKey);
+  // Unevaluable conditions must fail and retry through the task queue without resetting attempts.
+  let matches: boolean;
+  try {
+    matches = await evaluateCondition(meta.condition, task.payload, apiKey);
+  } catch (err) {
+    const reason =
+      err instanceof Error ? err.message : "Condition evaluation failed";
+    await recordTriggerSkip(resource, "error", reason);
+    throw err;
+  }
   if (!matches) {
     await recordTriggerSkip(resource, "skipped", undefined);
     return "completed";
@@ -496,7 +515,11 @@ async function dispatchAgentic(
   const claimed = await resourcePutIfCurrent({
     owner: resource.owner,
     path: resource.path,
-    content: buildTriggerContent(runningMeta, latestTrigger.body),
+    content: patchJobFrontmatterFields(latest.content, {
+      lastRun: runningMeta.lastRun,
+      lastStatus: "running",
+      lastError: undefined,
+    }),
     expectedId: latest.id,
     expectedUpdatedAt: latest.updatedAt,
     expectedContent: latest.content,

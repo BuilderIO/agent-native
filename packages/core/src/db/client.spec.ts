@@ -1,14 +1,62 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // We test the pure functions that don't require database initialization.
-// getDialect, isPostgres, intType depend on process.env.DATABASE_URL.
 
-describe("db/client dialect detection", () => {
+describe("PGlite dev reloads", () => {
+  const processState = process as NodeJS.Process & {
+    __agentNativePgliteClients?: Map<string, Promise<unknown>>;
+    __agentNativePgliteProcessLocks?: Map<string, unknown>;
+    __agentNativePgliteProcessExitCleanupRegistered?: boolean;
+  };
+  let dataDir = "";
+
+  afterEach(async () => {
+    const { closePgliteClients } = await import("./client.js");
+    await closePgliteClients();
+    delete processState.__agentNativePgliteClients;
+    delete processState.__agentNativePgliteProcessLocks;
+    delete processState.__agentNativePgliteProcessExitCleanupRegistered;
+    vi.doUnmock("@electric-sql/pglite");
+    vi.resetModules();
+    if (dataDir) rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  it("reuses one client when a Vite reload gets a fresh global realm", async () => {
+    dataDir = mkdtempSync(join(tmpdir(), "agent-native-pglite-reload-"));
+    const client = { close: vi.fn(async () => {}) };
+    const create = vi.fn(async () => client);
+    vi.doMock("@electric-sql/pglite", () => ({ PGlite: { create } }));
+
+    const firstModule = await import("./client.js");
+    const first = await firstModule.getPgliteClient(`pglite:${dataDir}`);
+
+    Reflect.deleteProperty(
+      globalThis as Record<string, unknown>,
+      "__agentNativePgliteClients",
+    );
+    Reflect.deleteProperty(
+      globalThis as Record<string, unknown>,
+      "__agentNativePgliteProcessLocks",
+    );
+    vi.resetModules();
+
+    const reloadedModule = await import("./client.js");
+    const reloaded = await reloadedModule.getPgliteClient(`pglite:${dataDir}`);
+
+    expect(reloaded).toBe(first);
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("db/client Postgres URL handling", () => {
   let originalEnv: NodeJS.ProcessEnv;
 
   beforeEach(() => {
     originalEnv = { ...process.env };
-    // Reset the cached _dialect by re-importing (we'll use dynamic import)
   });
 
   afterEach(() => {
@@ -34,79 +82,19 @@ describe("db/client dialect detection", () => {
     vi.resetModules();
   });
 
-  it("detects postgres dialect from postgres:// URL", async () => {
-    vi.stubEnv("DATABASE_URL", "postgres://user:pass@host:5432/db");
-    const { getDialect, isPostgres, intType } = await import("./client.js");
-    expect(getDialect()).toBe("postgres");
-    expect(isPostgres()).toBe(true);
-    expect(intType()).toBe("BIGINT");
-  });
-
-  it("detects postgres dialect from postgresql:// URL", async () => {
-    vi.stubEnv("DATABASE_URL", "postgresql://user:pass@host:5432/db");
-    const { getDialect, isPostgres, intType } = await import("./client.js");
-    expect(getDialect()).toBe("postgres");
-    expect(isPostgres()).toBe(true);
-    expect(intType()).toBe("BIGINT");
-  });
-
-  it("detects postgres dialect from opt-in pglite: URL", async () => {
+  it("recognizes the PGlite runtime", async () => {
     vi.stubEnv("DATABASE_URL", "pglite:./data/pglite");
-    const { getDialect, isPostgres, intType, isLocalDatabase } =
-      await import("./client.js");
-    expect(getDialect()).toBe("postgres");
-    expect(isPostgres()).toBe(true);
-    expect(intType()).toBe("BIGINT");
+    const { isLocalDatabase } = await import("./client.js");
     expect(isLocalDatabase()).toBe(true);
-  });
-
-  it("detects sqlite dialect from file: URL", async () => {
-    vi.stubEnv("DATABASE_URL", "file:./data/app.db");
-    const { getDialect, isPostgres, intType } = await import("./client.js");
-    expect(getDialect()).toBe("sqlite");
-    expect(isPostgres()).toBe(false);
-    expect(intType()).toBe("INTEGER");
-  });
-
-  it("defaults to sqlite when DATABASE_URL is empty", async () => {
-    vi.stubEnv("DATABASE_URL", "");
-    const { getDialect, isPostgres } = await import("./client.js");
-    expect(getDialect()).toBe("sqlite");
-    expect(isPostgres()).toBe(false);
-  });
-
-  it("detects postgres dialect from an unpooled-only URL", async () => {
-    vi.stubEnv("DATABASE_URL", "");
-    vi.stubEnv("NETLIFY_DATABASE_URL", "");
-    vi.stubEnv("DATABASE_URL_UNPOOLED", "postgres://direct.example/db");
-    const { getDialect } = await import("./client.js");
-    expect(getDialect()).toBe("postgres");
-  });
-
-  it("detects a D1 binding from Nitro's native Worker environment", async () => {
-    vi.stubEnv("DATABASE_URL", "");
-    const binding = { prepare: vi.fn() };
-    (globalThis as Record<string, unknown>).__env__ = { DB: binding };
-    const { getCloudflareD1Binding, getDialect } = await import("./client.js");
-
-    expect(getCloudflareD1Binding()).toBe(binding);
-    expect(getDialect()).toBe("d1");
-  });
-
-  it("detects sqlite for remote libsql URLs", async () => {
-    vi.stubEnv("DATABASE_URL", "libsql://db-name-user.turso.io");
-    const { getDialect } = await import("./client.js");
-    expect(getDialect()).toBe("sqlite");
   });
 
   it("uses Netlify's runtime database URL when DATABASE_URL is not exported", async () => {
     vi.stubEnv("DATABASE_URL", "");
     vi.stubEnv("NETLIFY_DATABASE_URL", "postgres://netlify.example/db");
-    const { getDatabaseUrl, getDialect } = await import("./client.js");
-    expect(getDatabaseUrl("file:./data/app.db")).toBe(
+    const { getDatabaseUrl } = await import("./client.js");
+    expect(getDatabaseUrl("postgres://fallback.example/db")).toBe(
       "postgres://netlify.example/db",
     );
-    expect(getDialect()).toBe("postgres");
   });
 
   it("keeps app-specific database URLs ahead of Netlify's shared env", async () => {
@@ -235,133 +223,6 @@ describe("db/client dialect detection", () => {
   });
 });
 
-describe("db/client D1 execution", () => {
-  it("uses D1 batch for atomic statements instead of interactive SQL transactions", async () => {
-    const prepared: Array<{ sql: string; args: unknown[] }> = [];
-    const binding = {
-      prepare: vi.fn((sql: string) => {
-        const statement = {
-          sql,
-          args: [] as unknown[],
-          bind(...args: unknown[]) {
-            statement.args = args;
-            return statement;
-          },
-          all: vi.fn(),
-        };
-        prepared.push(statement);
-        return statement;
-      }),
-      batch: vi.fn(async () => [
-        { results: [{ matched: 1 }], meta: { changes: 0 } },
-        { results: [], meta: { changes: 1 } },
-      ]),
-    };
-    const { createDbExec } = await import("./client.js");
-    const client = await createDbExec({ d1Binding: binding });
-
-    expect(client.transaction).toBeUndefined();
-    await expect(
-      client.atomicBatch?.([
-        { sql: "SELECT value FROM state WHERE key = ?", args: ["pending"] },
-        { sql: "DELETE FROM state WHERE key = ?", args: ["proposal"] },
-      ]),
-    ).resolves.toEqual([
-      { rows: [{ matched: 1 }], rowsAffected: 0 },
-      { rows: [], rowsAffected: 1 },
-    ]);
-    expect(binding.batch).toHaveBeenCalledTimes(1);
-    expect(prepared.map(({ sql, args }) => ({ sql, args }))).toEqual([
-      {
-        sql: "SELECT value FROM state WHERE key = ?",
-        args: ["pending"],
-      },
-      { sql: "DELETE FROM state WHERE key = ?", args: ["proposal"] },
-    ]);
-  });
-});
-
-describe("db/client local SQLite initialization", () => {
-  afterEach(() => {
-    vi.useRealTimers();
-    vi.doUnmock("better-sqlite3");
-    vi.resetModules();
-  });
-
-  it("retries a stale-runtime lock while enabling WAL", async () => {
-    vi.useFakeTimers();
-    const locked = Object.assign(new Error("database is locked"), {
-      code: "SQLITE_BUSY",
-    });
-    const pragma = vi
-      .fn()
-      .mockReturnValueOnce(undefined)
-      .mockImplementationOnce(() => {
-        throw locked;
-      })
-      .mockReturnValueOnce([{ journal_mode: "wal" }]);
-    const close = vi.fn();
-
-    vi.doMock("better-sqlite3", () => ({
-      default: class MockDatabase {
-        pragma = pragma;
-        close = close;
-      },
-    }));
-
-    const { createDbExec } = await import("./client.js");
-    const pending = createDbExec({ url: "file:./data/app.db" });
-
-    await vi.advanceTimersByTimeAsync(500);
-    const exec = await pending;
-
-    expect(pragma.mock.calls).toEqual([
-      ["busy_timeout = 10000"],
-      ["journal_mode = WAL"],
-      ["journal_mode = WAL"],
-    ]);
-
-    await exec.close?.();
-    expect(close).toHaveBeenCalledOnce();
-  });
-
-  it("closes the handle and surfaces a lock that outlasts every retry", async () => {
-    vi.useFakeTimers();
-    const locked = Object.assign(new Error("database is locked"), {
-      code: "SQLITE_BUSY",
-    });
-    const pragma = vi.fn((statement: string) => {
-      if (statement === "journal_mode = WAL") throw locked;
-    });
-    const close = vi.fn();
-
-    vi.doMock("better-sqlite3", () => ({
-      default: class MockDatabase {
-        pragma = pragma;
-        close = close;
-      },
-    }));
-
-    const { createDbExec } = await import("./client.js");
-    const pending = expect(
-      createDbExec({ url: "file:./data/app.db" }),
-    ).rejects.toBe(locked);
-
-    await vi.advanceTimersByTimeAsync(5_000);
-    await pending;
-
-    expect(pragma.mock.calls).toEqual([
-      ["busy_timeout = 10000"],
-      ["journal_mode = WAL"],
-      ["journal_mode = WAL"],
-      ["journal_mode = WAL"],
-      ["journal_mode = WAL"],
-      ["journal_mode = WAL"],
-    ]);
-    expect(close).toHaveBeenCalledOnce();
-  });
-});
-
 describe("pgliteDataDirFromUrl", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
@@ -391,27 +252,6 @@ describe("pgliteDataDirFromUrl", () => {
     expect(
       pgliteRuntimeDataDir(pgliteDataDirFromUrl("pglite:///tmp/pglite")),
     ).toBe("/tmp/pglite");
-  });
-});
-
-describe("PGlite optional dependency", () => {
-  afterEach(() => {
-    vi.resetModules();
-  });
-
-  it("reports setup instructions when pglite: is selected without the package", async () => {
-    const pglitePackage = "@electric-sql/pglite";
-    try {
-      await import(pglitePackage);
-      return;
-    } catch {
-      // Continue only when the optional package is absent in this install.
-    }
-
-    const { createDbExec } = await import("./client.js");
-    await expect(createDbExec({ url: "pglite:memory" })).rejects.toThrow(
-      "PGlite database support requires the optional @electric-sql/pglite package.",
-    );
   });
 });
 
@@ -448,6 +288,34 @@ describe("getRuntimeDatabaseUrl", () => {
 
     expect(getRuntimeDatabaseUrl()).toBe("postgres://direct.example/db");
     expect(getRuntimeDatabaseSource()).toBe("DATABASE_URL_UNPOOLED");
+  });
+
+  it("ignores a malformed unpooled alias and falls back to DATABASE_URL", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    vi.stubEnv("DATABASE_URL", "postgres://pooled.example/db");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "postgresql://");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+
+    const { getRuntimeDatabaseSource, getRuntimeDatabaseUrl } =
+      await import("./client.js");
+
+    expect(getRuntimeDatabaseUrl()).toBe("postgres://pooled.example/db");
+    expect(getRuntimeDatabaseSource()).toBe("DATABASE_URL");
+  });
+
+  it("ignores a malformed DATABASE_URL and falls back to Netlify's runtime URL", async () => {
+    vi.stubEnv("APP_NAME", "");
+    vi.stubEnv("NETLIFY", "true");
+    vi.stubEnv("DATABASE_URL", "postgresql://");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "postgres://netlify.example/db");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+
+    const { getRuntimeDatabaseSource, getRuntimeDatabaseUrl } =
+      await import("./client.js");
+
+    expect(getRuntimeDatabaseUrl()).toBe("postgres://netlify.example/db");
+    expect(getRuntimeDatabaseSource()).toBe("NETLIFY_DATABASE_URL");
   });
 
   it("keeps pooled URLs unchanged outside serverless runtimes", async () => {
@@ -542,13 +410,6 @@ describe("getMigrationDatabaseUrl", () => {
     expect(getMigrationDatabaseUrl()).toBe(other);
   });
 
-  it("leaves a sqlite file: URL unchanged", async () => {
-    vi.stubEnv("APP_NAME", "");
-    vi.stubEnv("DATABASE_URL", "file:./data/app.db");
-    const { getMigrationDatabaseUrl } = await import("./client.js");
-    expect(getMigrationDatabaseUrl()).toBe("file:./data/app.db");
-  });
-
   it("prefers Netlify's explicit unpooled migration URL over a stale generic unpooled URL", async () => {
     vi.stubEnv("APP_NAME", "");
     vi.stubEnv(
@@ -605,12 +466,41 @@ describe("getDbExec", () => {
   });
 });
 
-describe("sqliteToPostgresParams", () => {
+describe("initClient hosted-runtime local database guard", () => {
+  // App-prefixed URLs (e.g. PLAN_DATABASE_URL) are read straight off
+  // process.env, bypassing getAppConfig()'s self-invalidating cache — an
+  // earlier spec in this file that stubs APP_NAME without also clearing it
+  // is enough to leak a real-looking Neon URL in here, so every case below
+  // clears APP_NAME too, not just the generic DATABASE_URL* keys.
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it("throws instead of silently serving a hosted function invocation without a database URL", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "app-server");
+    vi.stubEnv("APP_NAME", "");
+    vi.stubEnv("DATABASE_URL", "");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+
+    const { getDbExec, HostedRuntimeLocalDatabaseError } =
+      await import("./client.js");
+
+    await expect(getDbExec().execute("SELECT 1")).rejects.toThrow(
+      HostedRuntimeLocalDatabaseError,
+    );
+  });
+});
+
+describe("toPostgresParams", () => {
   it("converts placeholders while preserving question marks inside SQL literals", async () => {
-    const { sqliteToPostgresParams } = await import("./client.js");
+    const { toPostgresParams } = await import("./client.js");
 
     expect(
-      sqliteToPostgresParams(
+      toPostgresParams(
         "SELECT substring(referrer from 'https?://([^/?#]+)') AS domain FROM analytics_events WHERE owner_email = ? AND path LIKE ?",
       ),
     ).toBe(
@@ -619,10 +509,10 @@ describe("sqliteToPostgresParams", () => {
   });
 
   it("ignores question marks in identifiers, comments, and dollar-quoted strings", async () => {
-    const { sqliteToPostgresParams } = await import("./client.js");
+    const { toPostgresParams } = await import("./client.js");
 
     expect(
-      sqliteToPostgresParams(
+      toPostgresParams(
         'SELECT "weird?column", $$literal ? value$$ FROM analytics_events -- comment ?\nWHERE owner_email = ? /* block ? */ AND org_id = ?',
       ),
     ).toBe(
@@ -631,10 +521,10 @@ describe("sqliteToPostgresParams", () => {
   });
 
   it("converts placeholders after a backslash SQL string literal", async () => {
-    const { sqliteToPostgresParams } = await import("./client.js");
+    const { toPostgresParams } = await import("./client.js");
 
     expect(
-      sqliteToPostgresParams(
+      toPostgresParams(
         "SELECT * FROM org_members WHERE email LIKE ? ESCAPE '\\' AND role = ? LIMIT ? OFFSET ?",
       ),
     ).toBe(
@@ -1566,13 +1456,10 @@ describe("isTransientDatabaseError", () => {
 });
 
 describe("annotateMissingTable", () => {
-  it("points SQLite and Postgres missing-table errors at the db plugin", async () => {
+  it("points Postgres missing-table errors at the db plugin", async () => {
     const { annotateMissingTable } = await import("./client.js");
 
-    for (const message of [
-      "no such table: text_analyses",
-      'relation "text_analyses" does not exist',
-    ]) {
+    for (const message of ['relation "text_analyses" does not exist']) {
       const annotated = annotateMissingTable(
         new Error(message),
         "SELECT * FROM text_analyses",
@@ -1596,7 +1483,7 @@ describe("annotateMissingTable", () => {
   it("does not stack the hint when the same error passes through twice", async () => {
     const { annotateMissingTable } = await import("./client.js");
 
-    const err = new Error("no such table: forms");
+    const err = new Error('relation "forms" does not exist');
     const once = annotateMissingTable(err, "SELECT 1") as Error;
     const twice = annotateMissingTable(once, "SELECT 1") as Error;
     expect(twice.message.match(/server\/plugins\/db\.ts/g)).toHaveLength(1);

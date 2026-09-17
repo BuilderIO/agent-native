@@ -1,7 +1,7 @@
 import { symmetricEncrypt } from "better-auth/crypto";
-import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createTestPglite } from "../a2a/test-pglite.js";
 import {
   healUndecryptableJwks,
   isJwksDecryptError,
@@ -12,20 +12,19 @@ import {
 const OLD_SECRET = "old-secret-0123456789abcdef0123456789abcdef";
 const NEW_SECRET = "new-secret-fedcba9876543210fedcba9876543210";
 
-let db: Database.Database;
+let db: Awaited<ReturnType<typeof createTestPglite>>;
 let executeCalls: number;
 let currentSecret: string;
 
 vi.mock("../db/client.js", () => ({
-  isPostgres: () => false,
   getDbExec: () => ({
     execute: async (query: { sql: string; args: unknown[] }) => {
       executeCalls += 1;
       const statement = db.prepare(query.sql);
       if (/^\s*select/i.test(query.sql)) {
-        return { rows: statement.all(...query.args), rowsAffected: 0 };
+        return { rows: await statement.all(...query.args), rowsAffected: 0 };
       }
-      const info = statement.run(...query.args);
+      const info = await statement.run(...query.args);
       return { rows: [], rowsAffected: info.changes };
     },
   }),
@@ -45,30 +44,37 @@ async function insertJwksRow(
     key: encryptionSecret,
     data: JSON.stringify({ kty: "OKP", crv: "Ed25519", d: "fake-private" }),
   });
-  db.prepare(
-    "INSERT INTO jwks (id, public_key, private_key, created_at, expires_at) VALUES (?, ?, ?, ?, ?)",
-  ).run(id, "{}", JSON.stringify(ciphertext), Date.now(), expiresAt);
+  await db
+    .prepare(
+      "INSERT INTO jwks (id, public_key, private_key, created_at, expires_at) VALUES (?, ?, ?, ?, ?)",
+    )
+    .run(
+      id,
+      "{}",
+      JSON.stringify(ciphertext),
+      Date.now(),
+      expiresAt ? new Date(expiresAt).toISOString() : null,
+    );
 }
 
-function activeKeyCount(): number {
-  return (
-    db
-      .prepare(
-        "SELECT COUNT(*) AS n FROM jwks WHERE expires_at IS NULL OR expires_at > ?",
-      )
-      .get(Date.now()) as { n: number }
-  ).n;
+async function activeKeyCount(): Promise<number> {
+  const row = (await db
+    .prepare(
+      "SELECT COUNT(*) AS n FROM jwks WHERE expires_at IS NULL OR expires_at > ?",
+    )
+    .get(new Date().toISOString())) as { n: number };
+  return Number(row.n);
 }
 
-beforeEach(() => {
-  db = new Database(":memory:");
-  db.exec(
+beforeEach(async () => {
+  db = await createTestPglite();
+  await db.exec(
     `CREATE TABLE jwks (
        id TEXT PRIMARY KEY,
        public_key TEXT NOT NULL,
        private_key TEXT NOT NULL,
-       created_at INTEGER NOT NULL,
-       expires_at INTEGER
+       created_at BIGINT NOT NULL,
+       expires_at TIMESTAMPTZ
      )`,
   );
   executeCalls = 0;
@@ -78,8 +84,8 @@ beforeEach(() => {
   vi.spyOn(console, "info").mockImplementation(() => {});
 });
 
-afterEach(() => {
-  db.close();
+afterEach(async () => {
+  await db.close();
   vi.restoreAllMocks();
 });
 
@@ -87,7 +93,7 @@ describe("healUndecryptableJwks", () => {
   it("expires the active keys when the newest one no longer decrypts", async () => {
     await insertJwksRow(OLD_SECRET);
     await expect(healUndecryptableJwks()).resolves.toBe(true);
-    expect(activeKeyCount()).toBe(0);
+    expect(await activeKeyCount()).toBe(0);
     expect(console.error).toHaveBeenCalledWith(
       expect.stringContaining("cannot be decrypted"),
     );
@@ -96,14 +102,14 @@ describe("healUndecryptableJwks", () => {
   it("leaves a key that decrypts with the current secret alone", async () => {
     await insertJwksRow(NEW_SECRET);
     await expect(healUndecryptableJwks()).resolves.toBe(false);
-    expect(activeKeyCount()).toBe(1);
+    expect(await activeKeyCount()).toBe(1);
   });
 
   it("checks the newest active key, ignoring already-expired rows", async () => {
     await insertJwksRow(OLD_SECRET, { id: "expired", expiresAt: 1 });
     await insertJwksRow(NEW_SECRET, { id: "active" });
     await expect(healUndecryptableJwks()).resolves.toBe(false);
-    expect(activeKeyCount()).toBe(1);
+    expect(await activeKeyCount()).toBe(1);
   });
 
   it("does nothing when no key exists", async () => {
@@ -111,19 +117,23 @@ describe("healUndecryptableJwks", () => {
   });
 
   it("does not expire envelope-encrypted keys (multi-version secrets)", async () => {
-    db.prepare(
-      "INSERT INTO jwks (id, public_key, private_key, created_at, expires_at) VALUES (?, ?, ?, ?, NULL)",
-    ).run("envelope", "{}", JSON.stringify("$ba$1$deadbeef"), Date.now());
+    await db
+      .prepare(
+        "INSERT INTO jwks (id, public_key, private_key, created_at, expires_at) VALUES (?, ?, ?, ?, NULL)",
+      )
+      .run("envelope", "{}", JSON.stringify("$ba$1$deadbeef"), Date.now());
     await expect(healUndecryptableJwks()).resolves.toBe(false);
-    expect(activeKeyCount()).toBe(1);
+    expect(await activeKeyCount()).toBe(1);
   });
 
   it("does not expire keys when private-key encryption is disabled", async () => {
-    db.prepare(
-      "INSERT INTO jwks (id, public_key, private_key, created_at, expires_at) VALUES (?, ?, ?, ?, NULL)",
-    ).run("plain", "{}", JSON.stringify({ kty: "OKP" }), Date.now());
+    await db
+      .prepare(
+        "INSERT INTO jwks (id, public_key, private_key, created_at, expires_at) VALUES (?, ?, ?, ?, NULL)",
+      )
+      .run("plain", "{}", JSON.stringify({ kty: "OKP" }), Date.now());
     await expect(healUndecryptableJwks()).resolves.toBe(false);
-    expect(activeKeyCount()).toBe(1);
+    expect(await activeKeyCount()).toBe(1);
   });
 
   it("attempts at most once per cooldown window", async () => {
@@ -164,7 +174,7 @@ describe("withJwksRotationRecovery", () => {
       .mockResolvedValueOnce("retried");
     await expect(wrapHook(handler).handler({})).resolves.toBe("retried");
     expect(handler).toHaveBeenCalledTimes(2);
-    expect(activeKeyCount()).toBe(0);
+    expect(await activeKeyCount()).toBe(0);
   });
 
   it("skips the optional header instead of failing when recovery cannot help", async () => {
@@ -172,7 +182,7 @@ describe("withJwksRotationRecovery", () => {
     const handler = vi.fn().mockRejectedValue(decryptError);
     await expect(wrapHook(handler).handler({})).resolves.toBeUndefined();
     expect(handler).toHaveBeenCalledTimes(1);
-    expect(activeKeyCount()).toBe(1);
+    expect(await activeKeyCount()).toBe(1);
     expect(console.error).toHaveBeenCalledWith(
       expect.stringContaining("Skipping the set-auth-jwt"),
       decryptError,

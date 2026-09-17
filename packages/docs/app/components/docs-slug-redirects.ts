@@ -9,6 +9,9 @@
  */
 export const DOCS_SLUG_REDIRECTS: Record<string, string> = {
   "core-philosophy": "key-concepts",
+  // The Frames page was retired. Agent Surfaces is the current chooser for
+  // app and agent hosting patterns.
+  frames: "agent-surfaces",
   "database-adapters": "deployment",
   // database.mdx was a near-duplicate of the Server section's own database
   // page; the Server version is the complete one (adds scoping + sync).
@@ -53,6 +56,12 @@ export const DOCS_SLUG_REDIRECTS: Record<string, string> = {
   // to the Agent / Developer Guide).
   "template-calendar-scheduling": "template-calendar-features",
   "template-calendar-booking-links": "template-calendar-features",
+  // Dispatch's Messaging/Operations/Vault pages merged into the five-page
+  // app-doc format (Overview / Features / Talk to the Agent / Cross-App Use /
+  // Developer Guide), the same rework Calendar went through above.
+  "template-dispatch-messaging-routing": "template-dispatch-features",
+  "template-dispatch-operations": "template-dispatch-features",
+  "template-dispatch-vault-integrations": "template-dispatch-features",
   // Forms' Building & Publishing and Responses & Insights pages merged into
   // one Features doc as part of the app-doc-format rework (Overview /
   // Features / Talk to the Agent / Cross-App Use / Developer Guide).

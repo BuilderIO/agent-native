@@ -37,6 +37,29 @@ import { getDb, schema } from "../db/index.js";
 export const DRAFT_ROLE: ShareRole = "viewer";
 export const APPROVE_ROLE: ShareRole = "editor";
 
+/**
+ * The creative-context access target for provenance on a draft this caller
+ * just created in `libraryId`.
+ *
+ * Recording it needs only `DRAFT_ROLE`, because the artifact is the caller's
+ * own candidate run/asset/session rather than kit content. Defaulting to
+ * `editor` there is what made every viewer generation die mid-turn with a bare
+ * `Requires editor role on asset-library <id> (have viewer)` — the kit gate had
+ * already passed, so the refusal arrived with no remedy and read as a
+ * permanent precondition the caller could not act on.
+ */
+export function draftProvenanceAccess(libraryId: string): {
+  resourceType: "asset-library";
+  resourceId: string;
+  recordMinRole: "viewer";
+} {
+  return {
+    resourceType: "asset-library",
+    resourceId: libraryId,
+    recordMinRole: "viewer",
+  };
+}
+
 export interface LibraryWriteAccess {
   role: ShareRole | "owner";
   /** True when this caller may save and organize, not only draft. */
@@ -346,7 +369,7 @@ export function canReadSession(
  *
  * Authorization comes from a prior read, so an editor can approve the candidate
  * in between. The predicate makes that save win, and the confirming re-read
- * keeps the answer portable — row counts are adapter-specific. Returns false
+ * keeps the answer explicit about whether the row was deleted. Returns false
  * when the row survived, which callers must treat as "not deleted" rather than
  * as success.
  */

@@ -5,6 +5,7 @@ import {
   type Page,
 } from "@playwright/test";
 
+import { e2eBaseURL } from "./base-url";
 import { designFrame, gotoEditor } from "./helpers";
 
 /**
@@ -101,11 +102,10 @@ const BOARD_HTML = `<!DOCTYPE html>
 const PRIMARY = process.platform === "darwin" ? "Meta" : "Control";
 
 function actionBaseUrl(baseURL: string | undefined): string {
-  return (
-    baseURL ??
-    process.env.E2E_BASE_URL ??
-    `http://127.0.0.1:${process.env.E2E_PORT ?? "9333"}`
-  ).replace(/\/$/, "");
+  return (baseURL ?? process.env.E2E_BASE_URL ?? e2eBaseURL()).replace(
+    /\/$/,
+    "",
+  );
 }
 
 async function postAction(
@@ -291,7 +291,10 @@ test.describe("canvas chords", () => {
     await pressEditorKey(page, `${PRIMARY}+G`);
 
     await expectFileContent(request, baseURL, designId, (html) => {
-      const wrapper = openTagContaining(html, 'layer-name="Group');
+      const wrapper = openTagContaining(
+        html,
+        'data-agent-native-layer-name="Group',
+      );
       expect(wrapper, "no group wrapper was created").toBeTruthy();
       expect(wrapper).toContain("left: 240px");
       expect(wrapper).toContain("top: 340px");

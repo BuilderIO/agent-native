@@ -746,6 +746,8 @@ event: event.mcp.missing
 mode: agentic
 createdBy: alice+triggers@agent-native.test
 mcpTools: ["mcp__calendar__missing_tool"]
+slackChannelId: C0BUK2293SA
+displayName: Calendar watch
 ---
 
 Read the calendar.`,
@@ -774,6 +776,8 @@ Read the calendar.`,
     expect(persisted).toContain("lastStatus: error");
     expect(persisted).toContain("Configured MCP tools are unavailable");
     expect(persisted).toContain("mcp__calendar__missing_tool");
+    expect(persisted).toContain("slackChannelId: C0BUK2293SA");
+    expect(persisted).toContain("displayName: Calendar watch");
   });
 
   it("routes organization events only to their creator and fails closed when membership is unreadable", async () => {

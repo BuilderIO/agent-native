@@ -18,19 +18,18 @@ Slack in one pass. Reply only in the requested scope and keep replies as
 evidence-based as the code. Cluster identical symptoms under one Builder
 thread while replying in each in-scope report that needs a status.
 
-This workflow is for clear bugs, not a general UX review. A clear bug has
-observable broken behavior such as a click or submit doing nothing, an action
-error, data loss or reversion, a wrong result, or a regression. Do not react,
-ask questions, reply, or change code for preferences, product ideas, copy or
-layout suggestions, praise, status updates, merge or review requests, bot
-forwards, duplicates, or other random messages. Design feedback, including
-Design clips and imported-design usability, routes to Sid and is not handled
-here. Content remains with Alice.
+This workflow handles clear bugs and concrete design/UX feedback about existing
+repo-owned surfaces. In Slack sweeps, follow `review-latest-feedback` for
+eligibility: do not exclude Design feedback because it is visual or subjective;
+new capability requests still require the invoking identity's `:upvote:`.
+Praise, status updates, merge or review requests, bot forwards, duplicates, and
+other unrelated messages stay out of scope. Content remains with Alice unless
+the user explicitly assigns it.
 
-One exception: an `:upvote:` from the invoking identity promotes an otherwise
-out-of-scope UX or feature request into scope - that reaction is the product
-decision, so build the smallest version rather than asking which variant is
-wanted. The upvote is the authorization — do not wait for a second sign-off.
+An `:upvote:` from the invoking identity promotes a new-capability request into
+scope - that reaction is the product decision, so build the smallest version
+rather than asking which variant is wanted. The upvote is the authorization —
+do not wait for a second sign-off.
 It does not transfer ownership: an upvoted Design or Content item still gets
 built, with Sid or Alice named in the recap row so the mapped owner is not
 surprised by a change in their area. Naming them is a courtesy, not a gate.
@@ -41,25 +40,30 @@ Even when invoked alone, this workflow asks at most three new clarification
 questions per run across all threads, ranked by which answer would unblock a
 safe fix.
 
-If an earlier run already added `👀` to an out-of-scope item, remove that
-reaction with the connected Slack removal action when available. Do not add
-another reaction, investigate it as a bug, ask a compensating question, or post
-a new reply. If this workflow already posted a mistaken reply, delete that
-reply when safe; otherwise edit it to one brief `Skipped` disposition. If the
-connector cannot remove reactions, record the exact parent for manual cleanup
-and leave the thread otherwise untouched. New messages must pass the clear-bug
-gate before any external write.
+If this workflow earlier added `👀` to an out-of-scope item, release that claim
+with `:no_entry_sign:` when reactions are available. Do not investigate it as a
+compensating question, or post a new reply. If this workflow already posted a
+mistaken reply, delete that reply when safe; otherwise edit it to one brief
+`Skipped` disposition. If the connector cannot add the release marker, record
+the exact parent for manual cleanup and leave the thread otherwise untouched.
+New messages must pass the clear-bug gate before any external write.
 
-Every clear-bug parent or upvoted improvement that receives `👀`
-enters the reply ledger. The reaction is not a reply or completion marker.
-Before finishing, re-read each eye-marked item and verify the invoking identity
-posted **Fixed**, **Shipped**, **In progress**, or **Clarification needed**, or
-recorded **Open - no reply** or **Abandoned - no answer in 4 days** with a
-concrete reason. An expired question leaves the ledger with its `👀` removed
-and no reply owed. **In progress** requires
-concrete existing ownership or active fixing and must be revisited; a bot
-forward, another person's reply, or `👀` alone does not qualify. Mistaken
-out-of-scope eyes use the cleanup rule above, not a new reply.
+Use the disposition-specific release contract from `review-latest-feedback`:
+`✅` is only for **Fixed**, **Shipped**, or **Live verified** after all four
+bars; other terminal states use `:no_entry_sign:`. On reopen or re-claim,
+remove this workflow's stale marker before adding `👀`. If removal is
+unavailable, use full reaction-aware enumeration, do not place `👀` beside the
+stale marker, and claim only after cleanup.
+
+Every eyed clear-bug or upvoted item enters the ledger; the eye is not
+completion. Before finishing, re-read each claim and record a reply or
+disposition from the vocabulary below. Evidence-limited states retain the eye
+and carry forward: next run, re-read the thread, act on evidence, and replace
+the state only after verification or blocker resolution. A reply or source change never promotes one to
+**Fixed**. Terminal states need their disposition-specific release marker.
+Record **Owned elsewhere** for a foreign eye without changing it. Pending
+clarification keeps the eye; **In progress** needs ownership and revisit.
+Mistaken out-of-scope eyes use cleanup rule.
 
 ## Prerequisites
 
@@ -119,41 +123,37 @@ Apply the shared `address-feedback` **Choose the fix altitude** gate before
 reacting, editing code, or replying. It selects the smallest owning seam and
 prevents one subjective report from becoming a global instruction.
 
-Once classified as a clear bug or an upvoted improvement, add `👀`
-before investigation or delegation. Leave subjective/product, policy,
-informational, bot-forward, status-only, non-repo-owned, and Design items
-without reaction, reply, or code unless the invoking identity's `:upvote:` put
-them in scope; Design goes to Sid unless upvoted or explicitly assigned.
-
-`👀` is an investigation marker, not a handled marker. An eye-only clear bug
-remains open until verification and its final user-facing status are complete.
-Keep internal verification gaps internal and do not claim **Fixed**.
-
-Do not end a run with an eye-only clear bug **unfinished**. Keep working it.
-But finishing the work and posting a message are different obligations:
-internal test, deployment, and tooling gaps are never reporter questions, and
-an item you investigated without cracking is recorded internally as open, not
-broadcast as a status update. Reply where the reply carries information the
-thread does not already have; otherwise leave the eye and the recap row and
-post nothing. Record **Open - no reply** with the concrete reason. Silence is a
-disposition.
+For Slack sweeps, `review-latest-feedback` owns scope and reaction eligibility.
+Honor its inclusion of concrete Design/UX feedback about existing surfaces and
+the invoking user's assignment; do not override it with a generic UX exclusion.
+New-capability requests still need the invoking identity's `:upvote:`. Once an
+item is in scope, add `👀` before investigation or delegation.
 
 Never post the same sentence into several threads. When reports share one
 cause, reply once and record the rest as clustered.
 
 A tracked clear-bug or authorized upvoted improvement receives at most one
-external disposition per run: **Fixed**, **Shipped**, **In progress**,
-**Clarification needed**, or **Open - no reply** with a reason. An already-eyed
-item later found to be out of scope gets reaction cleanup and no new reply; if
+disposition per run. Evidence-limited active dispositions are **Verified
+locally**, **Built - live unverified**, **Deployed - live unverified**, **Not
+reproducible - attempted**, **In progress**, **Asked**, **Clarification
+needed**, **Blocked on reporter**, and **Merged - release pending**; they
+retain the workflow's eye. Terminal dispositions are **Fixed**, **Shipped**,
+**Live verified**, **Open - no reply**, **Resolved elsewhere**, **Skipped**,
+**Clustered**, and **Abandoned - no answer in 4 days**, each with the required
+evidence and disposition-specific release marker. An already-eyed item later
+found to be out of scope gets a `:no_entry_sign:` release marker and no new
+reply; if
 this workflow already replied, delete that reply when safe or edit it to one
 concise **Skipped** disposition. **Fixed** closes the current issue. **In progress** is
 an open ownership state for a thread
 where `@agent-native` or another participant already found the cause, linked a
 fix, or said the work is being fixed; use it to acknowledge the existing work,
 never to replace verification or to create a vague status update. The next run
-must revisit **In progress** and resolve it to **Fixed** or
-**Clarification needed**. `Blocked`, `not fixed yet`, `still needs a fix`, and
-similar phrases are internal notes, never a complete Slack reply. If a reply
+must revisit **In progress** and resolve it to **Fixed**, **Clarification
+needed**, or evidence-backed **Open - no reply** when no safe fix or
+reproduction remains. `Blocked`, `not fixed yet`, `still needs a fix`, and
+similar phrases are internal notes, never a complete Slack reply. **Open - no
+reply** is terminal only after releasing the eye with `:no_entry_sign:`. If a reply
 does not say the fix is complete, acknowledge concrete existing ownership, or
 ask what is needed to fix it, do not post it. These are ledger states, not
 mandatory headings: keep the reporter-facing wording natural instead of
@@ -164,14 +164,15 @@ handoff first.
 
 **Clarification needed** is an open state, not a completed product fix. Asking
 the question creates a standing obligation to come back for the answer. It is
-the invoking identity's terminal disposition for the current cursor, but the next
+the invoking identity's open disposition for the current cursor, not a terminal
+closure; keep the eye. The next
 `review-latest-feedback` run must re-read every thread it previously asked in
 before scanning newer messages; when this workflow runs on its own, do the same
 and act on the replies first.
 
-That obligation expires after four days, standalone runs included: remove the
-`👀`, post nothing, and record the terminal **Abandoned - no answer in 4 days**.
-An expired thread keeps no eye and owes no reply. Carry the underlying bug
+That obligation expires after four days, standalone runs included: release the
+`👀` with `:no_entry_sign:`, post nothing, and record the terminal **Abandoned - no answer in
+4 days**. An expired thread keeps no open eye and owes no reply. Carry the underlying bug
 forward with no reporter dependency.
 
 **In progress** is also an open state. It records that the thread already has
@@ -217,12 +218,13 @@ non-repeating question only if one specific required detail still blocks it.
    Builder thread for that cluster; do not create separate Builder threads
    unless the reports diverge in symptom, surface, or owner.
 2. The reaction is the first external action after classification. Add `👀` to
-   each clear bug immediately, one thread at a time as it enters scope. Do not
+   each clear bug and every actionable Design/UX item already classified in
+   scope, one thread at a time as it enters scope. Do not
    batch reactions until after investigation, implementation, testing, or the
    final Slack pass. If the reaction fails, stop and retry or report the
    concrete Slack permission/API blocker before continuing the investigation.
-   Do not react to subjective/product, policy, informational, bot-forward,
-   status-only, Design, or non-repo-owned items.
+   Do not react to out-of-scope product requests, policy or informational
+   messages, bot forwards, status-only items, or non-repo-owned reports.
    For an authorized upvoted improvement, perform and read back that same eye
    reaction before investigation or delegation, then include it in the ledger.
 3. Parallelize independent investigations and narrow fixes with disjoint write
@@ -258,13 +260,12 @@ non-repeating question only if one specific required detail still blocks it.
    afterward to confirm the reply landed under the intended parent. Use the
    exact parent timestamp as `thread_ts`; never reply to a search-result
    timestamp or an adjacent thread. Before ending the run, mechanically
-   audit the reply ledger: for every `👀` parent, record the invoking user's
-   reply timestamp and whether it is **Fixed**, **Shipped**, **In progress**, or
-   **Clarification needed**, or **Open - no reply** with the reason. For a
-   mistakenly eyed out-of-scope item, record reaction removal and no new reply
-   instead. An eye-only clear bug means keep working the fix — it does not mean
-   manufacture a message to close the row. Do not create new reactions or
-   questions for out-of-scope items.
+   audit the reply ledger: for every claimed parent, record the optional
+   invoking-user reply timestamp, disposition, and eye state. Use the states in
+   the contract above, with a reason; silent terminal states have no timestamp.
+   Record **Owned elsewhere** for a foreign eye without mutating it. Record
+   out-of-scope and non-owning **Clustered** rows with a `:no_entry_sign:` release marker and
+   no reply. Do not create questions for out-of-scope items.
    If any participant replies after the post, re-read the entire thread again
    before deciding whether to fix, close, or ask anything else.
 7. If any participant supplies the requested detail or an explicit resolution,
@@ -331,7 +332,9 @@ identity:
   prompt, run ID, session, or file already present or available through an
   accessible source, and never write “not fixed yet” without a real question
   that unblocks the fix. If a linked source is inaccessible, ask for access or
-  a fresh/replacement link instead of requesting its contents again.
+  a fresh/replacement link instead of requesting its contents again. If no
+  reporter detail would unblock the work, release the `👀` with `:no_entry_sign:`, record
+  **Open - no reply**, and post nothing.
 - When a request ID would help, make the path easy and optional: “at the end of
   the chat, hit the three dots and share the request ID if that option is
   available.” Pair it with the useful surface link when one exists, such as a
@@ -340,7 +343,8 @@ identity:
 - Before finishing the sweep, search every reply authored in that sweep for
   vague unresolved wording and edit or remove it. Re-read the affected threads
   after each edit. Check that skipped subjective/product/policy items still
-  have neither an eye reaction nor a reply from the invoking identity.
+  have no open eye (`👀` without this workflow's release marker) and no reply from the
+  invoking identity. A claimed-and-released item may retain both reactions.
 
 A useful reply shape is:
 

@@ -29,8 +29,7 @@ Produktionswerte und Hosting-Verhalten.
 | `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | Dediziertes, gemeinsam genutztes HMAC-Geheimnis mit 32+ Zeichen für die previewsichere Builder-Autorisierungsweiterleitung. Legen Sie denselben Wert auf der genehmigten Unternehmens-Callback-Bereitstellung und auf Vorschau-Bereitstellungen nur fest, wenn die Autorisierung in einer isolierten Vorschau-Datenbank landen muss.                                                                                                                                      |
 | `AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS` | Nur für den Unternehmens-Callback bestimmte, kommagetrennte Zulassungsliste exakter vertrauenswürdiger Vorschau-Ursprünge (zum Beispiel `https://0123456789abcdef01234567--content.netlify.app`). Legen Sie sie nur auf der Unternehmens-Callback-Bereitstellung fest. Netlify-Ursprünge müssen einen unveränderlichen, bereitstellungsspezifischen 24-Hex-Permalink verwenden. Veränderliche `deploy-preview-*`-Aliase, Platzhalter und Domain-Suffixe werden abgelehnt. |
 
-Die Datenbankverbindungsvariablen (`DATABASE_URL`, `DATABASE_AUTH_TOKEN`,
-pro App `<APP_NAME>_DATABASE_URL`) finden Sie unter [Datenbank](/docs/server-database#production).
+Die Datenbankverbindungsvariablen (`DATABASE_URL`, pro App `<APP_NAME>_DATABASE_URL`) finden Sie unter [Datenbank](/docs/server-database#production).
 
 ## Produktionsrelevante Konfiguration {#env-required-prod}
 

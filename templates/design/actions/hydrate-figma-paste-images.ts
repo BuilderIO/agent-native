@@ -25,6 +25,11 @@ import {
   hydrateImageRefsInHtml,
   loadHydratableFile,
 } from "../server/lib/figma-image-hydration.js";
+import {
+  FIGMA_IMPORT_ERROR_CODES,
+  failFigmaImport,
+  isFigmaImportFailure,
+} from "../server/lib/figma-import-errors.js";
 import { resolveImageFillRefs } from "../server/lib/figma-node-import.js";
 import { readLiveSourceFile } from "../server/source-workspace.js";
 
@@ -46,8 +51,9 @@ export default defineAction({
       await loadHydratableFile(fileId);
 
     if (!figmaFileKey) {
-      throw new Error(
+      failFigmaImport(
         `No Figma file key found for file ${fileId}. This file may not have been imported via a Figma clipboard paste.`,
+        FIGMA_IMPORT_ERROR_CODES.targetInvalid,
       );
     }
 
@@ -68,6 +74,7 @@ export default defineAction({
     try {
       resolvedUrls = await resolveImageFillRefs(figmaFileKey, hashesToResolve);
     } catch (err) {
+      if (isFigmaImportFailure(err)) throw err;
       const msg = err instanceof Error ? err.message : String(err);
       if (/quota cooldown|provider.*quota/i.test(msg)) {
         const retryAfterSeconds =
@@ -78,9 +85,13 @@ export default defineAction({
               ? `${Math.ceil(retryAfterSeconds / 60)} min`
               : `${retryAfterSeconds}s`
             : "~1 min";
-        throw Object.assign(
-          new Error(`Figma API rate limited — try again in ${waitHint}.`),
-          { statusCode: 429 },
+        failFigmaImport(
+          `Figma API rate limited — try again in ${waitHint}.`,
+          FIGMA_IMPORT_ERROR_CODES.rateLimited,
+          {
+            statusCode: 429,
+            details: retryAfterSeconds > 0 ? { retryAfterSeconds } : undefined,
+          },
         );
       }
       throw err;

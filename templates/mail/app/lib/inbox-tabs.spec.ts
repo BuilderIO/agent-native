@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 import {
   augmentSelfSentLabels,
   filterInboxTabEmails,
+  labelTabHref,
+  resolveDefaultMailHref,
   resolvePinnedLabels,
 } from "./inbox-tabs";
 
@@ -148,6 +150,81 @@ describe("resolvePinnedLabels", () => {
       resolvePinnedLabels(["archive", "important", "drafts"], true),
     ).toEqual(["archive", "important", "drafts"]);
     expect(resolvePinnedLabels(["archive"], true)).toEqual(["archive"]);
+  });
+});
+
+describe("labelTabHref", () => {
+  it("routes a nested user label to the unscoped all-mail view, not the inbox tab", () => {
+    // Repro: Jason Yang's "2-Tasks/Jira" label carries mail that's filed out
+    // of the inbox. Routing through /inbox forces `in:inbox` server-side
+    // (gmail-query.ts) and the label reads as empty even though it has mail.
+    expect(labelTabHref("2-tasks/jira")).toBe("/all?label=2-tasks%2Fjira");
+  });
+
+  it("keeps Gmail's inbox-only categories pinned to the inbox view", () => {
+    // "important" (and the other category labels) only ever exist inside the
+    // inbox, so they keep the client-slice-of-inbox behavior on purpose.
+    expect(labelTabHref("important")).toBe("/inbox?label=important");
+    expect(labelTabHref("updates")).toBe("/inbox?label=updates");
+  });
+});
+
+describe("resolveDefaultMailHref", () => {
+  it("selects Important by default on fresh install", () => {
+    expect(
+      resolveDefaultMailHref({
+        pinnedLabels: undefined,
+        isGoogleConnected: true,
+      }),
+    ).toBe("/inbox?label=important");
+  });
+
+  it("selects the first top label by default when labels are pinned", () => {
+    expect(
+      resolveDefaultMailHref({
+        pinnedLabels: ["important", "work"],
+        isGoogleConnected: true,
+      }),
+    ).toBe("/inbox?label=important");
+
+    expect(
+      resolveDefaultMailHref({
+        pinnedLabels: ["work", "important"],
+        isGoogleConnected: true,
+      }),
+    ).toBe("/all?label=work");
+
+    expect(
+      resolveDefaultMailHref({
+        pinnedLabels: ["starred", "important"],
+        isGoogleConnected: true,
+      }),
+    ).toBe("/starred");
+  });
+
+  it("falls back to /inbox when combineInbox is enabled or tabs unpinned", () => {
+    expect(
+      resolveDefaultMailHref({
+        combineInbox: true,
+        pinnedLabels: ["important"],
+      }),
+    ).toBe("/inbox");
+
+    expect(
+      resolveDefaultMailHref({
+        pinnedLabels: [],
+        isGoogleConnected: true,
+      }),
+    ).toBe("/inbox");
+  });
+
+  it("selects the first saved filter if no pinned labels exist", () => {
+    expect(
+      resolveDefaultMailHref({
+        pinnedLabels: [],
+        savedFilters: [{ id: "urgent-filter" }],
+      }),
+    ).toBe("/inbox?filter=urgent-filter");
   });
 });
 

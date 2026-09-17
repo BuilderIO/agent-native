@@ -71,6 +71,8 @@ export interface AgentEngineEntry {
   defaultModel: string;
   /** All supported models (shown in model picker) */
   supportedModels: readonly string[];
+  /** Whether explicit user-selected model IDs may be outside the curated catalog. */
+  acceptsCustomModels?: boolean;
   /** Environment variables required for this engine to work */
   requiredEnvVars: string[];
   /** Alternative credential shapes; detection treats these and `requiredEnvVars` as OR. */
@@ -90,8 +92,14 @@ const AGENT_NATIVE_BUILD_ENGINE_PACKAGES_ENV_VAR =
  */
 export function registerAgentEngine(entry: AgentEngineEntry): void {
   if (_registry.has(entry.name)) {
-    // Allow re-registration in tests / hot-reload — just overwrite
+    // Allow re-registration in tests / hot-reload — just overwrite.
+    // Delete first: `Map.set` on an existing key keeps its original insertion
+    // slot, so a re-registered engine would silently retain the priority it
+    // had in a previous test's registry. Detection walks this map in order, so
+    // that leaves a stale entry ahead of Builder and probes a provider key on
+    // the path that is supposed to resolve without reading one.
     if (process.env.NODE_ENV === "test") {
+      _registry.delete(entry.name);
       _registry.set(entry.name, entry);
       return;
     }
@@ -317,25 +325,28 @@ function findLatestSupportedVersionMatch(
 
 export interface NormalizeModelOptions {
   /**
-   * Force unrecognized (custom) model IDs to be kept verbatim, as if
-   * `engine.preserveCustomModels` were set on a live engine instance.
+   * Force unrecognized (custom) model IDs to be kept verbatim, as if the
+   * corresponding capability were set on a live engine instance.
    *
    * The settings actions call `normalizeModelForEngine` with a static registry
-   * ENTRY, which never carries the runtime `preserveCustomModels` flag — that
-   * is only set on the engine INSTANCE created with an OpenAI-compatible
-   * `baseUrl` or the OpenRouter provider. They resolve the capability with
-   * {@link resolveEnginePreservesCustomModels} and pass it here so a gateway
-   * model (e.g. an Ollama `gemma4`) is not rewritten to the OpenAI default on
-   * save/read. First-party OpenAI (no gateway) leaves this unset, so an unknown
-   * or invalid model still normalizes to a supported one.
+   * ENTRY, which cannot carry runtime endpoint state. Gateway callers pass
+   * `preserveCustomModels`; BYOK provider entries pass `acceptsCustomModels`,
+   * so a newly released model is not rewritten to the provider default on
+   * save/read.
    */
   preserveCustomModels?: boolean;
+  /** Preserve an explicitly selected model ID even when it is not catalogued. */
+  acceptsCustomModels?: boolean;
 }
 
 export function normalizeModelForEngine(
   engine: Pick<
     AgentEngine,
-    "name" | "defaultModel" | "supportedModels" | "preserveCustomModels"
+    | "name"
+    | "defaultModel"
+    | "supportedModels"
+    | "acceptsCustomModels"
+    | "preserveCustomModels"
   >,
   model: string | null | undefined,
   options: NormalizeModelOptions = {},
@@ -347,7 +358,12 @@ export function normalizeModelForEngine(
   // version-shaped gateway model that happens to share a family with a
   // built-in model (e.g. `gpt-5.4` on an OpenAI-compatible endpoint) is not
   // rewritten to a catalog entry.
-  if (engine.preserveCustomModels || options.preserveCustomModels) {
+  if (
+    engine.preserveCustomModels ||
+    engine.acceptsCustomModels ||
+    options.preserveCustomModels ||
+    options.acceptsCustomModels
+  ) {
     return candidate;
   }
 
@@ -365,7 +381,11 @@ export function normalizeModelForEngine(
 
 type ModelResolvableEngine = Pick<
   AgentEngine,
-  "name" | "defaultModel" | "supportedModels" | "preserveCustomModels"
+  | "name"
+  | "defaultModel"
+  | "supportedModels"
+  | "acceptsCustomModels"
+  | "preserveCustomModels"
 >;
 
 /**
@@ -382,8 +402,10 @@ function resolveModelHintForEngine(
   const candidate = typeof hint === "string" ? hint.trim() : "";
   if (!candidate || candidate === "auto") return undefined;
   // An engine with no catalog, or one that passes custom ids through verbatim
-  // (an OpenAI-compatible gateway), cannot prove membership — so it takes no
-  // hint at all rather than forwarding an unverifiable id to a provider.
+  // (an OpenAI-compatible gateway), cannot prove membership - so it takes no
+  // hint at all rather than forwarding an unverifiable id to a provider. A
+  // BYOK engine may preserve its own explicit selection, but caller hints are
+  // still accepted only when the ID is in the curated catalog below.
   if (engine.preserveCustomModels || engine.supportedModels.length === 0) {
     return undefined;
   }
@@ -427,22 +449,7 @@ export function resolveDelegatedRunModel(
   return normalizeModelForEngine(engine, hinted ?? engine.defaultModel);
 }
 
-/**
- * Whether models saved or read for this engine ENTRY should be preserved
- * verbatim instead of normalized against the built-in catalog.
- *
- * `normalizeModelForEngine` honors a live engine's `preserveCustomModels`, but
- * that flag is only set on an AI SDK engine INSTANCE when the provider is
- * Ollama, or when OpenAI is pointed at an OpenAI-compatible gateway (a custom
- * base URL — e.g. Ollama Cloud or LiteLLM), whose model IDs are not in the
- * built-in catalogs.
- * The static registry entry the settings actions pass to
- * `normalizeModelForEngine` cannot carry that runtime flag, so this async
- * helper reproduces the same decision from the request's stored/deploy config.
- * Ollama always returns true because its local model inventory is user-defined;
- * first-party OpenAI (no gateway) returns false so an unknown/invalid model
- * still normalizes to a supported one.
- */
+/** Whether this engine's configured endpoint accepts arbitrary model IDs. */
 export async function resolveEnginePreservesCustomModels(
   entry: Pick<AgentEngineEntry, "name">,
 ): Promise<boolean> {
@@ -457,6 +464,13 @@ export async function resolveEnginePreservesCustomModels(
   } catch {
     return false;
   }
+}
+
+/** Whether explicit settings may select a model outside the curated catalog. */
+export async function resolveEngineAcceptsCustomModels(
+  entry: Pick<AgentEngineEntry, "acceptsCustomModels">,
+): Promise<boolean> {
+  return entry.acceptsCustomModels === true;
 }
 
 function assertAgentEnginePackageInstalled(entry: AgentEngineEntry): void {
@@ -706,6 +720,17 @@ export async function detectEngineFromUserSecrets(
     return null;
   }
 
+  const firstEntry = _registry.values().next().value;
+  if (
+    !getAppConfig().agent.preferBringYourOwnKey &&
+    firstEntry?.name === "builder" &&
+    isAgentEnginePackageInstalled(firstEntry) &&
+    firstEntry.requiredEnvVars.length > 0 &&
+    (await hasUsableBuilderConnection(identity))
+  ) {
+    return firstEntry;
+  }
+
   // Deliberately lazy: a connected Builder account resolves from the first
   // registry entry without reading a provider key at all, so warming eagerly
   // would put four scope reads in front of the fast path on a continuously
@@ -746,26 +771,7 @@ export async function detectEngineFromUserSecrets(
     return true;
   };
 
-  // Batch-load every candidate provider credential for this identity in one
-  // read per scope, so the per-engine checks below answer from the request
-  // memo instead of each key re-walking the four-scope waterfall. Without this
-  // an unconfigured request sweeps the whole registry one point read at a time.
-  const candidateProviderKeys = Array.from(
-    new Set(
-      [..._registry.values()]
-        .filter(
-          (entry) =>
-            entry.name !== "builder" && isAgentEnginePackageInstalled(entry),
-        )
-        .flatMap((entry) => entry.requiredEnvVars),
-    ),
-  );
-  if (candidateProviderKeys.length > 0) {
-    await prefetchSecrets(candidateProviderKeys);
-  }
-
   const preferByo = getAppConfig().agent.preferBringYourOwnKey;
-
   if (preferByo) {
     for (const entry of _registry.values()) {
       if (entry.name === "builder") continue;
@@ -846,9 +852,11 @@ async function resolveProviderBaseUrl(
   envVar: string,
 ): Promise<string | undefined> {
   const raw = await resolveSecret(envVar);
+  const deployValue = canUseDeployCredentialFallbackForRequest(envVar)
+    ? readDeployCredentialEnv(envVar)
+    : undefined;
 
-  if (!raw && canUseDeployCredentialFallbackForRequest(envVar)) {
-    const deployValue = readDeployCredentialEnv(envVar);
+  if (!raw) {
     if (!deployValue) return undefined;
     return validateProviderBaseUrl(deployValue, {
       allowPrivate: true,
@@ -857,9 +865,14 @@ async function resolveProviderBaseUrl(
 
   return raw
     ? validateProviderBaseUrl(raw, {
+        // Deployment configuration is operator-owned. `resolveSecret` may
+        // return that fallback directly, so preserve the same private-network
+        // allowance as the explicit deploy-only branch above without extending
+        // it to user-, org-, or workspace-scoped endpoint values.
+        allowPrivate: deployValue !== undefined && raw === deployValue,
         allowLocalOllama:
           envVar === OLLAMA_BASE_URL_ENV_VAR &&
-          process.env.NODE_ENV === "development",
+          process.env.NODE_ENV !== "production",
       })
     : undefined;
 }
@@ -1045,7 +1058,7 @@ async function engineCreateConfigForEntry(
       safeExtra.baseUrl = await validateProviderBaseUrl(safeExtra.baseURL, {
         allowLocalOllama:
           entry.name === "ai-sdk:ollama" &&
-          process.env.NODE_ENV === "development",
+          process.env.NODE_ENV !== "production",
       });
     }
     if (safeExtra.baseUrl == null) {

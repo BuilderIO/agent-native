@@ -324,7 +324,7 @@ describe("createAgentNativeBrowserSessionBridge", () => {
     expect(webmcp.listTools).toHaveBeenCalledOnce();
   });
 
-  it("preserves the last WebMCP manifest during a transient failure", async () => {
+  it("clears stale WebMCP tools after discovery fails", async () => {
     const bodies: Record<string, unknown>[] = [];
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body));
@@ -366,7 +366,7 @@ describe("createAgentNativeBrowserSessionBridge", () => {
     await bridge.refreshRegistration();
     await bridge.refreshRegistration();
 
-    expect(bodies[1].webmcpTools).toEqual(bodies[0].webmcpTools);
+    expect(bodies[1]).not.toHaveProperty("webmcpTools");
   });
 
   it("claims a server request and executes a direct embedded action", async () => {

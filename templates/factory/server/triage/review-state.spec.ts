@@ -46,6 +46,7 @@ describe("triage review state", () => {
         existingAuthor: "steve8708",
         nextAuthor: "steve8708",
         existingBabysitState: "out-of-scope",
+        nextState: "open",
         nextDraft: false,
         sourceChanged: true,
       }),
@@ -59,6 +60,7 @@ describe("triage review state", () => {
         existingAuthor: "steve8708",
         nextAuthor: "builder-io-bot",
         existingBabysitState: "out-of-scope",
+        nextState: "open",
         nextDraft: false,
         sourceChanged: true,
       }),
@@ -72,6 +74,80 @@ describe("triage review state", () => {
         existingAuthor: "builder-io-bot",
         nextAuthor: "builder-io-bot",
         existingBabysitState: "closed-or-draft",
+        nextState: "open",
+        nextDraft: false,
+        sourceChanged: false,
+      }),
+    ).toBe("pr_observed");
+  });
+
+  it("keeps merged terminal rows out of the review window", () => {
+    expect(
+      statusAfterPullRequestPoll({
+        existingStatus: "merged",
+        existingAuthor: "builder-io-bot",
+        nextAuthor: "builder-io-bot",
+        existingBabysitState: "merged",
+        nextState: "closed",
+        nextDraft: false,
+        sourceChanged: true,
+      }),
+    ).toBe("merged");
+  });
+
+  it("returns a merged pull request to the review status when GitHub reopens it", () => {
+    expect(
+      statusAfterPullRequestPoll({
+        existingStatus: "merged",
+        existingAuthor: "builder-io-bot",
+        nextAuthor: "builder-io-bot",
+        existingBabysitState: "merged",
+        nextState: "open",
+        nextDraft: false,
+        sourceChanged: true,
+      }),
+    ).toBe("pr_observed");
+  });
+
+  it("does not treat a closed pull request as reopened", () => {
+    expect(
+      statusAfterPullRequestPoll({
+        existingStatus: "needs_manual",
+        existingAuthor: "builder-io-bot",
+        nextAuthor: "builder-io-bot",
+        existingBabysitState: "closed-or-draft",
+        nextState: "closed",
+        nextDraft: false,
+        sourceChanged: false,
+      }),
+    ).toBe("needs_manual");
+  });
+
+  it("keeps a stuck babysit decision on needs_manual across polls", () => {
+    expect(
+      statusAfterPullRequestPoll({
+        existingStatus: "needs_manual",
+        existingAuthor: "builder-io-bot",
+        nextAuthor: "builder-io-bot",
+        existingBabysitState: "stuck",
+        nextState: "open",
+        nextDraft: false,
+        sourceChanged: true,
+      }),
+    ).toBe("needs_manual");
+  });
+
+  // A human comment moves neither the head SHA nor the title, so without the
+  // reopen flag a stuck item would keep needs_manual and never be looked at again.
+  it("returns a reopened babysit item to the review status without a source change", () => {
+    expect(
+      statusAfterPullRequestPoll({
+        existingStatus: "needs_manual",
+        existingAuthor: "builder-io-bot",
+        nextAuthor: "builder-io-bot",
+        existingBabysitState: "stuck",
+        babysitReopened: true,
+        nextState: "open",
         nextDraft: false,
         sourceChanged: false,
       }),

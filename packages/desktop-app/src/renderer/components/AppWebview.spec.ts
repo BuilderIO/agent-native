@@ -105,6 +105,14 @@ describe("Desktop identity lazy child synchronization", () => {
         sessionReady: false,
         status: "failed",
       }),
+    ).toBe(true);
+    expect(
+      shouldDeferDesktopAppWebviewLoad({
+        eligible: true,
+        enabled: true,
+        sessionReady: true,
+        status: "failed",
+      }),
     ).toBe(false);
   });
 
@@ -572,6 +580,122 @@ describe("Desktop identity activation", () => {
 
     expect(webviewSlot?.style.display).toBe("flex");
     expect(identityStatuses.at(-1)).toBe("signed-in");
+  });
+
+  it("falls back to the app page when child synchronization stalls", async () => {
+    vi.useFakeTimers();
+    try {
+      const ensureAppSession = vi.fn(() => new Promise<boolean>(() => {}));
+      Object.defineProperty(window, "electronAPI", {
+        configurable: true,
+        value: {
+          identity: {
+            getSettings: vi.fn(async () => ({ ssoEnabled: true })),
+            getStatus: vi.fn(async () => "signed-in"),
+            ensureAppSession,
+            onStatusChange: vi.fn(() => () => {}),
+          },
+        },
+      });
+      rememberDesktopIdentityStatus("signed-in");
+      root = createRoot(container);
+
+      const app: AppDefinition = {
+        id: "mail",
+        name: "Mail",
+        icon: "mail",
+        description: "",
+        devPort: 3000,
+      };
+      const appConfig: AppConfig = {
+        ...app,
+        url: "https://mail.agent-native.com",
+        isBuiltIn: true,
+        enabled: true,
+        mode: "prod",
+      };
+
+      act(() => {
+        root.render(
+          React.createElement(AppWebview, {
+            app,
+            appConfig,
+            isActive: true,
+            theme: "dark",
+          }),
+        );
+      });
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      const webview = container.querySelector("webview");
+      expect(webview?.getAttribute("src")).toBe("about:blank");
+
+      await act(async () => {
+        vi.advanceTimersByTime(15_000);
+        await Promise.resolve();
+      });
+
+      expect(webview?.getAttribute("src")).not.toBe("about:blank");
+      expect(container.textContent).not.toContain("Loading Mail...");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not time out deferred inactive tabs", async () => {
+    vi.useFakeTimers();
+    try {
+      Object.defineProperty(window, "electronAPI", {
+        configurable: true,
+        value: { identity: {} },
+      });
+      root = createRoot(container);
+
+      const app: AppDefinition = {
+        id: "mail",
+        name: "Mail",
+        icon: "mail",
+        description: "",
+        devPort: 3000,
+      };
+      const appConfig: AppConfig = {
+        ...app,
+        url: "https://mail.agent-native.com",
+        isBuiltIn: true,
+        enabled: true,
+        mode: "prod",
+      };
+
+      act(() => {
+        root.render(
+          React.createElement(AppWebview, {
+            app,
+            appConfig,
+            isActive: false,
+            theme: "dark",
+          }),
+        );
+      });
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      const webview = container.querySelector("webview");
+      expect(webview?.getAttribute("src")).toBe("about:blank");
+
+      await act(async () => {
+        vi.advanceTimersByTime(15_000);
+        await Promise.resolve();
+      });
+
+      expect(webview?.getAttribute("src")).toBe("about:blank");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("reconciles a completed sign-in when the status event was missed", async () => {
@@ -1251,11 +1375,14 @@ describe("AppWebview per-app chat state propagation", () => {
 });
 
 describe("AppWebview theme propagation", () => {
+  beforeEach(() => window.localStorage.clear());
+
   it("updates the guest root and shared theme storage", () => {
     document.documentElement.className = "light";
     document.documentElement.removeAttribute("data-theme");
     document.documentElement.style.colorScheme = "light";
     window.localStorage.removeItem("theme");
+    window.localStorage.removeItem("agent-native-desktop-host-theme");
 
     let changeDetail: unknown;
     const onThemeChange = (event: Event) => {
@@ -1271,6 +1398,12 @@ describe("AppWebview theme propagation", () => {
       expect(document.documentElement.dataset.theme).toBe("dark");
       expect(document.documentElement.style.colorScheme).toBe("dark");
       expect(window.localStorage.getItem("theme")).toBe("dark");
+      expect(
+        window.localStorage.getItem("agent-native-desktop-host-theme"),
+      ).toBe("dark");
+      expect(
+        window.localStorage.getItem("agent-native-desktop-guest-theme"),
+      ).toBeNull();
       expect(changeDetail).toEqual({
         type: "agent-native-theme-update",
         theme: "dark",
@@ -1279,6 +1412,61 @@ describe("AppWebview theme propagation", () => {
     } finally {
       window.removeEventListener("agent-native:theme-change", onThemeChange);
     }
+  });
+
+  it("preserves a guest theme that differs from the last injected host theme", () => {
+    new Function(buildGuestThemeScript("dark"))();
+    window.localStorage.setItem("theme", "light");
+
+    new Function(buildGuestThemeScript("dark"))();
+
+    expect(document.documentElement.classList.contains("light")).toBe(true);
+    expect(window.localStorage.getItem("theme")).toBe("light");
+    expect(
+      window.localStorage.getItem("agent-native-desktop-guest-theme"),
+    ).toBe("light");
+  });
+
+  it("updates and clears the guest override when the guest changes theme", () => {
+    new Function(buildGuestThemeScript("dark"))();
+    window.localStorage.setItem("theme", "light");
+    new Function(buildGuestThemeScript("dark"))();
+
+    window.localStorage.setItem("theme", "dark");
+    new Function(buildGuestThemeScript("dark"))();
+    expect(
+      window.localStorage.getItem("agent-native-desktop-guest-theme"),
+    ).toBe("dark");
+
+    window.localStorage.setItem("theme", "system");
+    new Function(buildGuestThemeScript("light"))();
+    expect(
+      window.localStorage.getItem("agent-native-desktop-guest-theme"),
+    ).toBeNull();
+    expect(window.localStorage.getItem("theme")).toBe("light");
+  });
+
+  it("follows the host when the guest has not selected a different theme", () => {
+    new Function(buildGuestThemeScript("dark"))();
+
+    new Function(buildGuestThemeScript("light"))();
+
+    expect(document.documentElement.classList.contains("light")).toBe(true);
+    expect(window.localStorage.getItem("theme")).toBe("light");
+  });
+
+  it("preserves an explicit guest choice that matches the current host theme", () => {
+    new Function(buildGuestThemeScript("dark"))();
+    window.localStorage.setItem("theme", "light");
+    new Function(buildGuestThemeScript("light"))();
+
+    new Function(buildGuestThemeScript("dark"))();
+
+    expect(document.documentElement.classList.contains("light")).toBe(true);
+    expect(window.localStorage.getItem("theme")).toBe("light");
+    expect(
+      window.localStorage.getItem("agent-native-desktop-guest-theme"),
+    ).toBe("light");
   });
 });
 

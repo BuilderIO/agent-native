@@ -33,9 +33,8 @@
  *   - `Cross-Origin-Opener-Policy: same-origin` — isolates window.opener so
  *     a popup-window opener reference can't read or modify our document.
  *   - `Cross-Origin-Embedder-Policy: require-corp` — emitted only for
- *     validated MCP embed-session page loads and browser iframe navigations.
- *     COEP hosts such as Claude's MCP Apps proxy require framed cross-origin
- *     documents to opt in explicitly.
+ *     validated MCP embed-session page loads. COEP hosts such as Claude's MCP
+ *     Apps proxy require framed cross-origin documents to opt in explicitly.
  *   - `Cross-Origin-Resource-Policy: same-site` — prevents other origins from
  *     embedding our endpoints as `<img>` / `<script>` / `<audio>`, blocking
  *     the simplest data-leak chain when combined with auth cookies. Validated
@@ -46,8 +45,7 @@
  * requires every embedded subresource to opt in via CORP/CORS, which would
  * break Builder's iframe editor and template embed use cases. COOP + CORP
  * without COEP gives us most of the protection on normal responses; COEP is
- * only added for validated MCP embed-session page loads and browser iframe
- * navigations (see above).
+ * only added for validated MCP embed-session page loads (see above).
  *
  * NOTE: `X-Frame-Options` is intentionally not set globally. Agent-Native apps
  * are expected to run inside iframe hosts such as Builder, Design, and MCP app
@@ -144,7 +142,7 @@ export function createSecurityHeadersMiddleware() {
     );
     setResponseHeader(event, "Permissions-Policy", PERMISSIONS_POLICY);
     setResponseHeader(event, "Cross-Origin-Opener-Policy", "same-origin");
-    if (embedFrameRequest || iframeNavigationRequest) {
+    if (embedFrameRequest) {
       setResponseHeader(event, "Cross-Origin-Embedder-Policy", "require-corp");
     }
     setResponseHeader(

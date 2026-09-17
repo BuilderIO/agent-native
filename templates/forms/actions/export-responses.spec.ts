@@ -60,6 +60,7 @@ const sharingMock = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/file-upload", () => uploadMock);
 vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestContext: () => undefined,
   getRequestUserEmail: () => "owner@example.com",
 }));
 

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const listAutomationDefinitionsMock = vi.hoisted(() => vi.fn());
+const findFactoryAutomationDefinitionMock = vi.hoisted(() => vi.fn());
 const resourceGetByPathMock = vi.hoisted(() => vi.fn());
 const resourcePutIfCurrentMock = vi.hoisted(() => vi.fn());
 const requireWorkspaceMemberMock = vi.hoisted(() => vi.fn());
@@ -36,8 +36,8 @@ vi.mock("@agent-native/core/resources", () => ({
   resourcePutIfCurrent: resourcePutIfCurrentMock,
 }));
 
-vi.mock("@agent-native/core/triggers", () => ({
-  listAutomationDefinitions: listAutomationDefinitionsMock,
+vi.mock("../server/lib/factory-automation-resources.js", () => ({
+  findFactoryAutomationDefinition: findFactoryAutomationDefinitionMock,
 }));
 
 vi.mock("../server/lib/require-workspace-member.js", () => ({
@@ -49,6 +49,14 @@ vi.mock("../server/connectors/credentials.js", () => ({
   assertFactoryConnectorReady: assertFactoryConnectorReadyMock,
   VaultUnavailableError,
 }));
+
+const insertValuesMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+const deleteReturningMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue([{ id: "ver-deleted" }]),
+);
+const getDbMock = vi.hoisted(() => vi.fn());
+
+vi.mock("../server/db/index.js", () => ({ getDb: getDbMock }));
 
 const existingContent = `---
 domain: factory
@@ -72,24 +80,22 @@ beforeEach(() => {
     userEmail: "teammate@example.com",
     orgId: "org-1",
   });
-  listAutomationDefinitionsMock.mockResolvedValue([
-    {
-      name: "factories/support-triage/factory-slack-feedback",
-      canUpdate: false,
-      resource: {
-        id: "resource-1",
-        owner: "__organization__:org-1",
-        path: "jobs/factories/support-triage/factory-slack-feedback.md",
-        content: existingContent,
-        updatedAt: 1,
-      },
-      meta: {
-        domain: "factory",
-        triggerType: "schedule",
-        timezone: "UTC",
-      },
+  findFactoryAutomationDefinitionMock.mockResolvedValue({
+    name: "factories/support-triage/factory-slack-feedback",
+    body: "Observe Slack.",
+    resource: {
+      id: "resource-1",
+      owner: "__organization__:org-1",
+      path: "jobs/factories/support-triage/factory-slack-feedback.md",
+      content: existingContent,
+      updatedAt: 1,
     },
-  ]);
+    meta: {
+      domain: "factory",
+      triggerType: "schedule",
+      timezone: "UTC",
+    },
+  });
   resourceGetByPathMock.mockResolvedValue({
     id: "resource-1",
     owner: "__organization__:org-1",
@@ -99,6 +105,12 @@ beforeEach(() => {
   });
   resourcePutIfCurrentMock.mockResolvedValue({ id: "resource-1" });
   assertFactoryConnectorReadyMock.mockResolvedValue(undefined);
+  insertValuesMock.mockResolvedValue(undefined);
+  deleteReturningMock.mockResolvedValue([{ id: "ver-deleted" }]);
+  getDbMock.mockReturnValue({
+    insert: () => ({ values: insertValuesMock }),
+    delete: () => ({ where: () => ({ returning: deleteReturningMock }) }),
+  });
 });
 
 describe("save-factory-automation", () => {
@@ -128,6 +140,74 @@ describe("save-factory-automation", () => {
       "createdBy: teammate@example.com",
     );
     expect(assertFactoryConnectorReadyMock).toHaveBeenCalled();
+  });
+
+  it("removes a Slack channel when a disabled save clears it", async () => {
+    const { default: action } = await import("./save-factory-automation.js");
+    const result = await action.run(
+      {
+        factoryId: "support-triage",
+        automationId: "resource-1",
+        name: "factories/support-triage/factory-slack-feedback",
+        prompt: "Watch Slack more closely.",
+        slackChannelId: "",
+        slackChannelName: "",
+        enabled: false,
+        clearIdentityFields: true,
+      },
+      { userEmail: "teammate@example.com" },
+    );
+    expect(result).toMatchObject({ ok: true, enabled: false });
+    const saved = resourcePutIfCurrentMock.mock.calls[0]?.[0].content as string;
+    expect(saved).not.toContain("slackChannelId:");
+    expect(saved).not.toContain("slackChannelName:");
+  });
+
+  it("does not bump the version when an already-unset optional field is resent as an empty string", async () => {
+    // The form always resends every field, including unset optional
+    // destination fields as "" rather than omitting them. A freshly-read
+    // config reports these as null, so "" vs null must not look like a
+    // real change — otherwise every resave (e.g. toggling enabled alone)
+    // would bump the version for nothing.
+    const { default: action } = await import("./save-factory-automation.js");
+    const result = await action.run(
+      {
+        factoryId: "support-triage",
+        automationId: "resource-1",
+        name: "factories/support-triage/factory-slack-feedback",
+        prompt: "Observe Slack.",
+        slackChannelId: "C123",
+        slackChannelName: "",
+        repository: "",
+        sentryOrgSlug: "",
+        sentryProjectSlug: "",
+        sentryEnvironment: "",
+        enabled: true,
+      },
+      { userEmail: "teammate@example.com" },
+    );
+    expect(result).toMatchObject({ ok: true, promptVersion: 0 });
+    expect(insertValuesMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects disabled saves that clear the channel without clearIdentityFields", async () => {
+    const { default: action } = await import("./save-factory-automation.js");
+    await expect(
+      action.run(
+        {
+          factoryId: "support-triage",
+          automationId: "resource-1",
+          name: "factories/support-triage/factory-slack-feedback",
+          prompt: "Watch Slack more closely.",
+          slackChannelId: "",
+          enabled: false,
+        },
+        { userEmail: "teammate@example.com" },
+      ),
+    ).rejects.toThrow(
+      "Refusing to clear Slack channel without clearIdentityFields: true.",
+    );
+    expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
   });
 
   it("rejects Slack saves that clear the channel", async () => {
@@ -217,5 +297,180 @@ describe("save-factory-automation", () => {
       actionContractError: true,
     });
     expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
+  });
+
+  it("saves a factory-folder job that lost domain and triggerType", async () => {
+    const slimContent = `---
+enabled: true
+slackChannelId: C123
+---
+Observe Slack.
+`;
+    findFactoryAutomationDefinitionMock.mockResolvedValue({
+      name: "factories/support-triage/factory-slack-feedback",
+      body: "Observe Slack.",
+      resource: {
+        id: "resource-1",
+        owner: "__organization__:org-1",
+        path: "jobs/factories/support-triage/factory-slack-feedback.md",
+        content: slimContent,
+        updatedAt: 1,
+      },
+      meta: {
+        enabled: true,
+      },
+    });
+    resourceGetByPathMock.mockResolvedValue({
+      id: "resource-1",
+      owner: "__organization__:org-1",
+      path: "jobs/factories/support-triage/factory-slack-feedback.md",
+      content: slimContent,
+      updatedAt: 1,
+    });
+    const { default: action } = await import("./save-factory-automation.js");
+    const result = await action.run(
+      {
+        factoryId: "support-triage",
+        automationId: "resource-1",
+        name: "factories/support-triage/factory-slack-feedback",
+        prompt: "Watch Slack more closely.",
+        scheduleMode: "interval",
+        intervalMinutes: 10,
+        enabled: false,
+      },
+      { userEmail: "teammate@example.com" },
+    );
+    expect(result).toMatchObject({ ok: true, id: "resource-1" });
+    const saved = resourcePutIfCurrentMock.mock.calls[0]?.[0].content as string;
+    expect(saved).toContain("appId: factory");
+    expect(saved).toContain("nextRun: 2026-08-24T00:00:00.000Z");
+    expect(saved).not.toMatch(/^domain:/m);
+  });
+
+  it("rejects list-row null destinations and accepts omitted ones", async () => {
+    const { default: action } = await import("./save-factory-automation.js");
+    const slackSave = {
+      factoryId: "support-triage",
+      automationId: "resource-1",
+      name: "factories/support-triage/factory-slack-feedback",
+      prompt: "Watch Slack more closely.",
+      enabled: true,
+      slackChannelId: "C123",
+    };
+    const asPosted = JSON.parse(
+      JSON.stringify({
+        ...slackSave,
+        repository: null,
+        sentryOrgSlug: null,
+        sentryProjectSlug: null,
+        sentryEnvironment: null,
+      }),
+    ) as Record<string, unknown>;
+    expect(action.schema.safeParse(asPosted).success).toBe(false);
+
+    const omitted = JSON.parse(
+      JSON.stringify({
+        ...slackSave,
+        repository: undefined,
+        sentryOrgSlug: undefined,
+        sentryProjectSlug: undefined,
+        sentryEnvironment: undefined,
+      }),
+    ) as Record<string, unknown>;
+    expect(omitted).not.toHaveProperty("repository");
+    expect(action.schema.safeParse(omitted).success).toBe(true);
+  });
+
+  it("writes github source for a PR babysit copy that lost YAML source", async () => {
+    const copyContent = `---
+schedule: "*/5 * * * *"
+enabled: false
+template: pr-babysit
+repository: acme/widgets
+---
+Babysit pull requests.
+`;
+    findFactoryAutomationDefinitionMock.mockResolvedValue({
+      name: "factories/support-triage/factory-pr-babysit-2",
+      body: "Babysit pull requests.",
+      resource: {
+        id: "resource-copy",
+        owner: "__organization__:org-1",
+        path: "jobs/factories/support-triage/factory-pr-babysit-2.md",
+        content: copyContent,
+        updatedAt: 1,
+      },
+      meta: {
+        triggerType: "schedule",
+      },
+    });
+    resourceGetByPathMock.mockResolvedValue({
+      id: "resource-copy",
+      owner: "__organization__:org-1",
+      path: "jobs/factories/support-triage/factory-pr-babysit-2.md",
+      content: copyContent,
+      updatedAt: 1,
+    });
+    const { default: action } = await import("./save-factory-automation.js");
+    const result = await action.run(
+      {
+        factoryId: "support-triage",
+        automationId: "resource-copy",
+        name: "factories/support-triage/factory-pr-babysit-2",
+        prompt: "Babysit pull requests.",
+        repository: "acme/widgets",
+        authorMode: "include",
+        authorIds: ["138030887"],
+        enabled: false,
+      },
+      { userEmail: "teammate@example.com" },
+    );
+    expect(result).toMatchObject({ ok: true, source: "github" });
+    const saved = resourcePutIfCurrentMock.mock.calls[0]?.[0].content as string;
+    expect(saved).toMatch(/^source: github$/m);
+    expect(saved).not.toMatch(/^source: slack$/m);
+    expect(saved).toContain("authorIds: 138030887");
+  });
+
+  it("deletes the inserted predecessor snapshot when the live write is rejected", async () => {
+    resourcePutIfCurrentMock.mockResolvedValue(null);
+    const { default: action } = await import("./save-factory-automation.js");
+
+    await expect(
+      action.run(
+        {
+          factoryId: "support-triage",
+          automationId: "resource-1",
+          name: "factories/support-triage/factory-slack-feedback",
+          prompt: "Watch Slack more closely.",
+          enabled: true,
+        },
+        { userEmail: "teammate@example.com" },
+      ),
+    ).rejects.toThrow("changed concurrently");
+
+    expect(insertValuesMock).toHaveBeenCalledTimes(1);
+    expect(deleteReturningMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("deletes the inserted predecessor snapshot when the live write throws", async () => {
+    resourcePutIfCurrentMock.mockRejectedValue(new Error("db unavailable"));
+    const { default: action } = await import("./save-factory-automation.js");
+
+    await expect(
+      action.run(
+        {
+          factoryId: "support-triage",
+          automationId: "resource-1",
+          name: "factories/support-triage/factory-slack-feedback",
+          prompt: "Watch Slack more closely.",
+          enabled: true,
+        },
+        { userEmail: "teammate@example.com" },
+      ),
+    ).rejects.toThrow("db unavailable");
+
+    expect(insertValuesMock).toHaveBeenCalledTimes(1);
+    expect(deleteReturningMock).toHaveBeenCalledTimes(1);
   });
 });

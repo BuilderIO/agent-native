@@ -3,6 +3,7 @@ import { IconArrowLeft } from "@tabler/icons-react";
 import { Link, useParams, type LoaderFunctionArgs } from "react-router";
 
 import { BuilderImage } from "../components/builder-image";
+import { firstPartyAppUrl } from "../components/deployment-links";
 import { sitePathForLocale } from "../components/docs-locale";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { SectionDivider } from "../components/SectionDivider";
@@ -17,19 +18,13 @@ import {
   trackEvent,
   type Template,
 } from "../components/TemplateCard";
+import { AppStatusBadge } from "../components/website-redesign/ds/app-status-badge";
 import enUS from "../i18n/en-US";
 import { withDefaultSocialImage, withTemplateSocialImage } from "../seo";
 
-const genericFaqCounts: Partial<Record<Template["slug"], number>> = {
-  assets: 4,
-  chat: 3,
-};
+const genericFaqCounts: Partial<Record<Template["slug"], number>> = {};
 
-const genericHeroScreenshots: Partial<Record<Template["slug"], string>> = {
-  assets:
-    "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8670a102c1f44808aa158c4a7a66f6e6",
-  chat: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fc6afb337a30240e19f1e0523aaef6865",
-};
+const genericHeroScreenshots: Partial<Record<Template["slug"], string>> = {};
 
 function findTemplate(slug: string | undefined) {
   return templates.find((t) => t.slug === slug);
@@ -148,13 +143,18 @@ export default function GenericTemplatePage() {
             {t("common.freeAndOpenSource")}
           </span>
         }
-        title={t("templateDetail.title", { name: template.name })}
+        title={
+          <span className="inline-flex flex-wrap items-center gap-3">
+            {t("templateDetail.title", { name: template.name })}
+            <AppStatusBadge appId={template.slug} />
+          </span>
+        }
         customizeTemplate={template}
         description={<p className="m-0">{description}</p>}
         headingAction={
           hasDemoUrl ? (
             <a
-              href={template.demoUrl}
+              href={firstPartyAppUrl(template.demoUrl)}
               target="_blank"
               rel="noopener noreferrer"
               className="primary-button"

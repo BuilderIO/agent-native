@@ -37,7 +37,7 @@ If Dispatch synced the vault into a different organization, set
 Connect providers in Dispatch or in Settings -> Integrations. Factory resolves
 Slack, GitHub, Sentry, and other supported provider credentials from
 the shared workspace vault. Hosted Factory does not read provider keys from
-deployment environment variables. Local sqlite development (`pnpm dev`) may
+deployment environment variables. Local development (`pnpm dev`) may
 use `.env` Slack, GitHub, and Sentry tokens when no connection or vault row
 exists. To migrate an existing deployment, add the provider
 connection in the standard workspace integration surface, verify it, and then
@@ -48,6 +48,15 @@ encryption fallback). Never copy raw tokens between apps or add a second
 env-only read in a provider client.
 
 ### GitHub token permissions
+
+Factory prefers the new Agent-Native GitHub App. Configure `GITHUB_APP_ID`,
+`GITHUB_APP_INSTALLATION_ID`, and `GITHUB_APP_PRIVATE_KEY` together. The App
+needs repository `Pull requests: Read and write`, `Issues: Read and write`,
+and `Checks: Read`, plus organization `Members: Read` for governance. Hosted
+Factory stores the private key in the shared vault and generates short-lived
+installation tokens server-side. Do not send a static token or private key to
+developers. During migration, an existing `GITHUB_TOKEN` remains supported
+when no App keys are configured.
 
 For Factory pull-request polling and babysitting, scope a fine-grained token to
 the target repository and grant these repository permissions:

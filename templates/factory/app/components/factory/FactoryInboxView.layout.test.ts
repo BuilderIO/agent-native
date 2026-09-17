@@ -16,10 +16,12 @@ describe("FactoryInboxView", () => {
     expect(source).toContain("get-slack-feedback-context");
     expect(source).toContain("TriageRiskPill");
     expect(source).toContain("TriageStatusPill");
+    expect(source).toContain("InboxPill");
+    expect(source).toContain("inboxPresentation");
+    expect(source).toContain('t("triage.status")');
+    expect(source).toContain('t("triage.inboxColumnAutomation")');
     expect(source).toContain('t("triage.evidence")');
-    expect(source).toContain('t("triage.evidenceDescription")');
     expect(source).toContain('t("triage.actionsTaken")');
-    expect(source).toContain('t("triage.actionsTakenDescription")');
     expect(source).toContain("nextCursor");
     expect(source).toContain("inboxListColumns");
     expect(source).toContain("factory-inbox-pane-detail");
@@ -58,12 +60,50 @@ describe("FactoryInboxView", () => {
     expect(source).not.toContain(
       "lg:grid-cols-[minmax(280px,0.9fr)_minmax(0,1.4fr)]",
     );
-    expect(source).toContain('t("triage.author")');
     expect(source).toContain("item.author");
     expect(source).toContain("resolveInboxSourceUrl");
     expect(source).toContain('t("triage.feedbackError")');
     expect(source).toContain("triage.statusValues.");
     expect(source).toContain('t("triage.untitled")');
+    expect(source).toContain("inboxListIdentityLine");
+    expect(source).toContain("inboxListAuthorLabel");
+    expect(source).toContain("slackThreadReady");
     expect(source).not.toContain('t("factoryRoute.selectObservation")');
+  });
+
+  it("surfaces the latest task summary before the reason, evidence, and log", () => {
+    const source = readViewSource();
+    // Both sources share one card shell so Slack and GitHub items read alike.
+    expect(source).toContain("InboxMessageCard");
+    expect(source).not.toContain("SlackMessageCard");
+    // Bands are divided by hairlines; the pane already sits inside a Card.
+    expect(source).toContain("border-t border-border pt-4");
+    expect(source).toContain("lg:border-s lg:border-border lg:ps-4");
+    // The reason is the system's verdict, not source content.
+    expect(source).toContain("border-s-2 border-primary/40 ps-3");
+    expect(source).toContain("events[events.length - 1]?.summary.trim()");
+    expect(source).toContain('t("triage.summary")');
+    const headerAt = source.indexOf("<header");
+    const summaryAt = source.indexOf("{taskSummary ? (");
+    const reasonAt = source.indexOf("{reason ? (");
+    const evidenceAt = source.indexOf('t("triage.evidence")');
+    const actionsAt = source.indexOf('t("triage.actionsTaken")');
+    expect(headerAt).toBeGreaterThan(-1);
+    expect(summaryAt).toBeGreaterThan(headerAt);
+    expect(reasonAt).toBeGreaterThan(summaryAt);
+    expect(evidenceAt).toBeGreaterThan(reasonAt);
+    expect(actionsAt).toBeGreaterThan(evidenceAt);
+  });
+
+  it("keeps explanatory subtitles out of the detail sections", () => {
+    const source = readViewSource();
+    for (const key of [
+      "triage.evidenceDescription",
+      "triage.actionsTakenDescription",
+      "triage.feedbackDescription",
+      "triage.author",
+    ]) {
+      expect(source).not.toContain(key);
+    }
   });
 });

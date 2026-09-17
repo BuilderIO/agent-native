@@ -15,7 +15,7 @@ function makeE2ePassword(label: string): string {
  * SHARING + PUBLISH + ACCESS CONTROL (security-critical) — adversarial E2E.
  *
  * Runs in the "authed" project: the storageState session is the OWNER
- * (e2e-tester@plan.test). We register a fresh REVIEWER (shared as viewer) and a
+ * (e2e+autoz@plan.test). We register a fresh REVIEWER (shared as viewer) and a
  * fresh OUTSIDER (no access) in their own browser contexts and prove the access
  * matrix end to end through the real action surface + the real UI:
  *
@@ -43,7 +43,7 @@ type RegisteredUser = {
 };
 
 function uniqueEmail(tag: string) {
-  return `plan-e2e-${tag}-${Date.now()}-${Math.floor(Math.random() * 1e6)}@plan.test`;
+  return `plan-e2e-${tag}+autoz-${Date.now()}-${Math.floor(Math.random() * 1e6)}@plan.test`;
 }
 
 /**

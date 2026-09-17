@@ -1,3 +1,4 @@
+import { AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER } from "@agent-native/core/shared";
 import type {
   LoaderFunctionArgs,
   MetaArgs,
@@ -41,6 +42,7 @@ export function bookingOgLoader({
     `${appBasePath()}/api/public/booking-links/${encodeURIComponent(slug)}/og.png`,
     request.url,
   );
+  imageUrl.searchParams.set("v", AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER);
   if (params.username) imageUrl.searchParams.set("username", params.username);
   return { ogImageUrl: imageUrl.toString() };
 }

@@ -9,8 +9,6 @@ Agent-Native 可以使用公司的 React 组件渲染应用自有屏幕和共享
 
 适配器契约不要求 Tailwind、shadcn、Radix、`className` 或任何特定的样式运行时。组件可以使用主题提供程序、CSS-in-JS、CSS Modules、React Aria 或普通 CSS。`className` 和 `style` 是可选的互操作钩子，而不是样式要求。
 
-有关完整适配器、主题提供程序接线、深色模式和已记录的 v1 差距，请参阅可运行的 [Material UI Chat 示例](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) 和 [Ant Design Chat 示例](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-antd)。
-
 ## 选择最小的自定义层级
 
 | 层级                    | 适用场景                                               | 仍然共享的内容                             |
@@ -84,8 +82,6 @@ export function AppToolkitProvider({
 ```
 
 支持部分适配器。你省略的组件会使用 Agent-Native 的默认适配器。如果某个自定义组件在渲染时抛出异常，组件级错误边界会记录失败，并为该控件渲染默认组件；其余自定义系统仍保持启用。
-
-两个完整的 Chat 应用会针对真实设计系统验证这一契约：[Material UI 示例](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) 使用 Emotion、`ThemeProvider` 和 MUI 的叠加层堆栈；[Ant Design 示例](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-antd) 使用 `ConfigProvider` 以及 Ant Design 的表单和叠加层原语。它们的 `app/design-system.tsx` 文件是主要的集成参考；上面的 Acme fixture 有意保持精简，用于单元测试。
 
 旧版 `components={{ Button }}` 提供程序 API 仍然兼容，并作为优先级最低的 `ActionButton` 适配器处理。如果两者同时提供，`designSystem.components.ActionButton` 优先，开发构建会记录警告。
 
@@ -223,8 +219,6 @@ describe("Acme Agent-Native adapter", () => {
 
 ### MUI 风格的主题提供程序系统
 
-[Chat + Material UI 示例](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) 是主要的实作参考。它的单一 `app/design-system.tsx` 模块导出语义适配器、MUI 的浅色和深色 `createTheme` 值以及 `defineTheme` 令牌源。应用的 `AppToolkitProvider` 将 MUI `ThemeProvider` 保持在共享 Toolkit 界面之上，而 `vite.config.ts` 导入同一个 `theme` 值来生成构建时 CSS。这样 Emotion 样式、MUI portal 和 Agent-Native 令牌都使用同一个事实来源。
-
 让公司的主题提供程序位于 `AppToolkitProvider` 之上，并在包边界处适配语义 props。在适配器内部将 `intent`、`emphasis` 和 `size` 映射到系统自己的词汇，不要在 Agent-Native 功能代码中映射。对于叠加层，将 `portalContainer` 转发到设计系统的 container 或 portal prop，并使用其焦点管理器实现 `initialFocusRef`/`restoreFocusRef`。
 
 ```tsx
@@ -249,8 +243,6 @@ export const ActionButton: DesignSystemComponents["ActionButton"] = ({
 ```
 
 不要将某个功能的主题提供程序复制到每个适配器组件中。在应用边界安装一次，让 portal 和叠加层继承相同的上下文。
-
-[Chat MUI 适配器](https://github.com/BuilderIO/agent-native/blob/main/examples/chat-mui/app/design-system.tsx) 是一个完整示例：它导出一个 `defineTheme` 值，将该值导入 `defineDesignSystem`，并从 `vite.config.ts` 导入同一模块。这个单一事实来源让 MUI 的浅色/深色提供程序令牌与构建时语义 CSS 令牌保持一致，而无需运行时生成主题。
 
 ### 基于 React Aria 的系统
 
@@ -315,9 +307,3 @@ export const ActionButton: DesignSystemComponents["ActionButton"] = ({
 - [**Toolkit UI Primitives**](/docs/toolkit-ui) — 本地适配器、提供程序接线和共享原语导入。
 - [**Agent-Native Toolkit**](/docs/agent-native-toolkit) — 可复用的功能所有权和包边界。
 - [**Settings Kit**](/docs/toolkit-settings) 和 [**Sharing Kit**](/docs/toolkit-sharing) — 保留应用操作和访问契约的共享功能控制器。
-
-## Chat 示例覆盖范围
-
-可运行的 [Material UI Chat](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) 和 [Ant Design Chat](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-antd) 示例会注册全部 17 个 contract components，并通过 adapters 渲染其中的 16/17。`Menu` 仍是明确的缺口，因为 agent-panel header 包含一个 v1 data-only contract 无法表达的 live compound submenu。assistant-ui composer/message renderer、cmdk internals 和 Tiptap editor 仍属于 v1 non-goals。
-
-日常的 Chat 分享按钮仍使用旧版 popover。随应用发布的 `/design-system-proof` 路由让完整的 Core `ShareDialog` 可访问，同时不会把该 popover 误称为设计系统 dialog。

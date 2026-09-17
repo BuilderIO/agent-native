@@ -336,12 +336,9 @@ const messages = {
     sharePubliclyDescription:
       "Pour partager du contenu publiquement, connectez une base de données cloud.",
     providerDescriptions: {
-      turso: "SQLite en périphérie",
       neon: "Postgres sans serveur",
       supabase: "Alternative open source à Firebase",
-      d1: "SQLite en périphérie",
     },
-    providerNames: { d1: "Cloudflare D1" },
     setupSteps: "Étapes de configuration",
     authToken: "Jeton d’authentification",
     connectedReloading: "Connexion réussie. Rechargement...",
@@ -362,6 +359,10 @@ const messages = {
     responseSubmitted: "Réponse envoyée",
     noFields: "Ce formulaire n’a pas encore de champs.",
     failedSubmit: "Impossible d’envoyer le formulaire",
+    uncheckablePattern:
+      "La règle de ce formulaire pour {label} ne peut pas être vérifiée. Demandez au propriétaire du formulaire de la corriger.",
+    patternTooLong:
+      "La valeur de {label} est trop longue pour être vérifiée avec la règle de ce formulaire.",
   },
   responseInsights: {
     unavailable: "Insights indisponibles",
@@ -412,6 +413,13 @@ const messages = {
     page: "Page",
     source: "Code source",
     sortBy: "Sort by {{label}}",
+    communityReview: "Réviser",
+    communityPublish: "Publier sur le site",
+    communityPublishing: "Publication...",
+    communityPublished: "Publié",
+    communityView: "Voir sur le site",
+    communityNeedsCheck: "Vérifiez Builder avant de réessayer",
+    communityPromotionFailed: "Impossible de publier cette soumission.",
   },
 };
 

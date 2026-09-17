@@ -2,13 +2,16 @@ import { emit } from "@agent-native/core/event-bus";
 import { getOrgContext, orgMembers } from "@agent-native/core/org";
 import {
   getSession,
+  getAppProductionUrl,
   recordChange,
   readBody,
   runWithRequestContext,
   verifyCaptcha,
 } from "@agent-native/core/server";
 import { getSetting, getUserSetting } from "@agent-native/core/settings";
+import { testUserRegex } from "@agent-native/core/shared";
 import { accessFilter } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import { and, eq, gt, gte, inArray, lt, lte, ne, or, sql } from "drizzle-orm";
 import {
   createError,
@@ -1340,21 +1343,18 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
         return { error: `${field.label} must be a valid email address` };
       }
       if (field.pattern && typeof value === "string" && value) {
-        // Cap input length to mitigate ReDoS on user-defined patterns
-        const safeValue = value.slice(0, 1000);
-        let re: RegExp;
-        // Limit pattern length and reject obviously dangerous constructs
-        if (field.pattern.length > 200) {
+        // Capping the input length does not bound a catastrophically
+        // backtracking pattern: `^([A-Za-z]+\\s?)+$` already runs for hours on a
+        // 58-character value, well inside any cap. The bound has to come from
+        // refusing to evaluate patterns shaped like that at all.
+        const result = testUserRegex(field.pattern, value);
+        if (result.status === "unevaluated") {
           setResponseStatus(event, 400);
-          return { error: `Validation pattern too long for ${field.label}` };
+          return {
+            error: `Invalid validation pattern for ${field.label}: ${result.reason}`,
+          };
         }
-        try {
-          re = new RegExp(field.pattern);
-        } catch {
-          setResponseStatus(event, 400);
-          return { error: `Invalid validation pattern for ${field.label}` };
-        }
-        if (!re.test(safeValue)) {
+        if (result.status === "no-match") {
           setResponseStatus(event, 400);
           return {
             error:
@@ -1647,6 +1647,22 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     } catch {
       // best-effort
     }
+    track(
+      "booking_received",
+      {
+        app_name: "calendar",
+        template_name: "calendar",
+        output_id: id,
+        output_type: "booking",
+        booking_type_id: link?.id ?? requestedSlug ?? "default",
+        guest_count: 1 + additionalGuestEmails.length,
+        duration_minutes: Math.round(
+          (requestedRange.end.getTime() - requestedRange.start.getTime()) /
+            60000,
+        ),
+      },
+      { userId: hostEmail },
+    );
     recordBookingsChanged(hostEmail);
 
     setResponseStatus(event, 201);
@@ -1832,62 +1848,65 @@ export const getAvailableSlots = defineEventHandler(async (event: H3Event) => {
   }
 });
 
+export async function cancelBookingById(
+  id: string,
+  origin = getAppProductionUrl(),
+) {
+  if (!id)
+    throw createError({ statusCode: 400, statusMessage: "id is required" });
+
+  const db = getDb();
+  const existing = await db
+    .select()
+    .from(schema.bookings)
+    .where(eq(schema.bookings.id, id))
+    .then((rows) => rows[0]);
+
+  if (!existing) {
+    throw createError({ statusCode: 404, statusMessage: "Booking not found" });
+  }
+
+  // Bookings have no ownerEmail of their own — scope through the booking link.
+  const accessibleLinks = await db
+    .select({ slug: schema.bookingLinks.slug })
+    .from(schema.bookingLinks)
+    .where(accessFilter(schema.bookingLinks, schema.bookingLinkShares));
+  const accessibleSlugs = new Set(accessibleLinks.map((link) => link.slug));
+  if (!accessibleSlugs.has(existing.slug)) {
+    throw createError({ statusCode: 403, statusMessage: "Access denied" });
+  }
+
+  if (existing.status === "cancelled") {
+    return { success: true, alreadyCancelled: true };
+  }
+
+  const hostEmail = await getBookingLinkOwnerEmail(existing.slug);
+  const bookingTimeZone = await getOwnerBookingTimeZone(hostEmail);
+  const bookAgainUrl = existing.slug
+    ? `${origin}/book/${existing.slug}`
+    : undefined;
+  await sendBookingCancellationEmails({
+    booking: rowToBooking(existing),
+    hostEmail,
+    bookAgainUrl,
+    timeZone: bookingTimeZone,
+  });
+  await deleteGoogleEventForBooking({ booking: existing, hostEmail });
+  await db
+    .update(schema.bookings)
+    .set({ status: "cancelled" })
+    .where(eq(schema.bookings.id, id));
+  recordBookingsChanged(hostEmail);
+  return { success: true };
+}
+
 export const deleteBooking = defineEventHandler(async (event: H3Event) => {
   return requireRequestContext(event, async () => {
     try {
-      const id = getRouterParam(event, "id") as string;
-      const db = getDb();
-
-      const existing = await db
-        .select()
-        .from(schema.bookings)
-        .where(eq(schema.bookings.id, id))
-        .then((rows) => rows[0]);
-
-      if (!existing) {
-        setResponseStatus(event, 404);
-        return { error: "Booking not found" };
-      }
-
-      // Verify the caller has access to the booking link that owns this booking.
-      // Bookings have no ownerEmail of their own — scoping is via the slug →
-      // bookingLink ownership/sharing chain.
-      const accessibleLinks = await db
-        .select({ slug: schema.bookingLinks.slug })
-        .from(schema.bookingLinks)
-        .where(accessFilter(schema.bookingLinks, schema.bookingLinkShares));
-      const accessibleSlugs = new Set(accessibleLinks.map((l) => l.slug));
-
-      if (!accessibleSlugs.has(existing.slug)) {
-        setResponseStatus(event, 403);
-        return { error: "Access denied" };
-      }
-
-      if (existing.status === "cancelled") {
-        return { success: true, alreadyCancelled: true };
-      }
-
-      const hostEmail = await getBookingLinkOwnerEmail(existing.slug);
-      const bookingTimeZone = await getOwnerBookingTimeZone(hostEmail);
-      const reqUrl = getRequestURL(event);
-      const bookAgainUrl = existing.slug
-        ? `${reqUrl.origin}/book/${existing.slug}`
-        : undefined;
-
-      await sendBookingCancellationEmails({
-        booking: rowToBooking(existing),
-        hostEmail,
-        bookAgainUrl,
-        timeZone: bookingTimeZone,
-      });
-      await deleteGoogleEventForBooking({ booking: existing, hostEmail });
-
-      await db
-        .update(schema.bookings)
-        .set({ status: "cancelled" })
-        .where(eq(schema.bookings.id, id));
-      recordBookingsChanged(hostEmail);
-      return { success: true };
+      return await cancelBookingById(
+        getRouterParam(event, "id") as string,
+        getRequestURL(event).origin,
+      );
     } catch (error: any) {
       setResponseStatus(event, error?.statusCode ?? 500);
       return { error: error.message };

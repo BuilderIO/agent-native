@@ -1,5 +1,5 @@
 // Integration tests for the row-union per-source column field-binding action
-// (slice 6c + its Codex review fixes). Boots a real in-memory libsql DB, runs
+// (slice 6c + its Codex review fixes). Boots a real PGlite database, runs
 // the actual migrations, seeds a 2-source row-union, and drives the bind action
 // through `run` (with an owner request context so assertAccess passes).
 
@@ -22,7 +22,7 @@ import {
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `bind-source-field-test-${process.pid}-${Date.now()}.sqlite`,
+  `bind-source-field-test-${process.pid}-${Date.now()}.pglite`,
 );
 
 let getDb: () => any;
@@ -35,7 +35,7 @@ let removeRowsOwnedOnlyBySource: typeof import("./change-content-database-source
 const OWNER = "owner@example.com";
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -58,9 +58,7 @@ afterEach(() => {
 });
 
 afterAll(() => {
-  for (const suffix of ["", "-shm", "-wal"]) {
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
-  }
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 let counter = 0;
@@ -334,13 +332,22 @@ describe("bind-content-database-source-field (row-union)", () => {
   it("fails closed when the source field disappears before the bind update", async () => {
     const f = await seedRowUnion();
     const triggerName = `delete_bound_field_${counter}`;
+    const functionName = `${triggerName}_fn`;
+    await getDbExec().execute(
+      `CREATE FUNCTION ${functionName}() RETURNS trigger
+       LANGUAGE plpgsql AS $bind$
+       BEGIN
+         IF OLD.id = '${f.fields.fieldACat}' AND NEW.property_id IS NOT NULL THEN
+           DELETE FROM content_database_source_fields WHERE id = OLD.id;
+         END IF;
+         RETURN NEW;
+       END;
+       $bind$`,
+    );
     await getDbExec().execute(
       `CREATE TRIGGER ${triggerName}
-       BEFORE UPDATE OF property_id ON content_database_source_fields
-       WHEN OLD.id = '${f.fields.fieldACat}' AND NEW.property_id IS NOT NULL
-       BEGIN
-         DELETE FROM content_database_source_fields WHERE id = OLD.id;
-       END`,
+       AFTER UPDATE OF property_id ON content_database_source_fields
+       FOR EACH ROW EXECUTE FUNCTION ${functionName}()`,
     );
     try {
       await expect(
@@ -353,7 +360,10 @@ describe("bind-content-database-source-field (row-union)", () => {
         ),
       ).rejects.toThrow(/deleted before its binding could be saved/i);
     } finally {
-      await getDbExec().execute(`DROP TRIGGER IF EXISTS ${triggerName}`);
+      await getDbExec().execute(
+        `DROP TRIGGER IF EXISTS ${triggerName} ON content_database_source_fields`,
+      );
+      await getDbExec().execute(`DROP FUNCTION IF EXISTS ${functionName}()`);
     }
   });
 

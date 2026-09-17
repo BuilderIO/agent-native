@@ -13,6 +13,10 @@ let latestEventRows: Array<{
 }> = [];
 let staleSelectRows: Array<{ id: string }> = [];
 let claimSlotRows: Array<{ id: string }> = [];
+let completedTurnRows: Array<{
+  id: string;
+  has_terminal_event?: boolean;
+}> = [];
 let runStatusRows: Array<{ status: string }> = [];
 let claimStateRows: Array<{
   dispatch_mode: string | null;
@@ -32,11 +36,10 @@ let unclaimedBackgroundRunRows: Array<{ id: string }> = [];
 let unclaimedBackgroundRunRowsWithStartedAt: Array<{
   id: string;
   started_at: number;
-  has_dispatch_payload?: boolean | number;
+  has_dispatch_payload?: boolean;
 }> = [];
 let runCountRows: Array<{ run_count: number }> = [];
 let prunedRunRows: Array<Record<string, unknown>> = [];
-let postgres = false;
 // claimBackgroundRun CAS simulation: the real DB row only has `dispatch_mode
 // = 'background'` ONCE, so only the FIRST `claimBackgroundRun` UPDATE for a
 // given runId can match the WHERE clause; every subsequent attempt (a
@@ -45,7 +48,7 @@ let postgres = false;
 // a test can prove per-row independence too.
 const claimedBackgroundRunIds = new Set<string>();
 
-const mockDb = {
+const mockDb: any = {
   execute: vi.fn(async (sql: string | { sql: string; args?: unknown[] }) => {
     const rawSql = typeof sql === "string" ? sql : sql.sql;
     const args = typeof sql === "string" ? [] : (sql.args ?? []);
@@ -54,7 +57,6 @@ const mockDb = {
     if (/pg_try_advisory_xact_lock/i.test(rawSql)) {
       return { rows: [{ acquired: true }], rowsAffected: 0 };
     }
-
     if (
       /SELECT seq,\s*event_data(?:,\s*event_at)?\s+FROM agent_run_events/i.test(
         rawSql,
@@ -66,6 +68,18 @@ const mockDb = {
     // Must come before the broader stale-run SELECT check since both match
     // "SELECT id FROM agent_runs ... status = 'running'". Matches both the
     // livenessBasisSql CASE expression and any legacy heartbeat-only form.
+    if (
+      /SELECT id,\s*EXISTS \(/i.test(rawSql) &&
+      /WHERE thread_id = \? AND turn_id = \?/i.test(rawSql)
+    ) {
+      return {
+        rows: completedTurnRows.map((row) => ({
+          has_terminal_event: true,
+          ...row,
+        })),
+        rowsAffected: 0,
+      };
+    }
     if (
       /SELECT id FROM agent_runs\s*WHERE thread_id/i.test(rawSql) &&
       (/COALESCE\(last_progress_at, started_at\)/i.test(rawSql) ||
@@ -189,14 +203,18 @@ const mockDb = {
       rowsAffected: /^\s*(UPDATE|INSERT|DELETE)\b/i.test(rawSql) ? 1 : 0,
     };
   }),
+  transaction: vi.fn(async (fn: (tx: any) => Promise<unknown>) => fn(mockDb)),
 };
 
 const mockCaptureError = vi.fn();
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => mockDb,
-  intType: () => "INTEGER",
-  isPostgres: () => postgres,
+}));
+
+vi.mock("../db/ddl-guard.js", () => ({
+  ensureColumnExists: vi.fn().mockResolvedValue(undefined),
+  ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../server/capture-error.js", () => ({
@@ -261,6 +279,7 @@ describe("run store", () => {
     latestEventRows = [];
     staleSelectRows = [];
     claimSlotRows = [];
+    completedTurnRows = [];
     runStatusRows = [];
     claimStateRows = [];
     runListRows = [];
@@ -274,7 +293,6 @@ describe("run store", () => {
     unclaimedBackgroundRunRowsWithStartedAt = [];
     runCountRows = [];
     prunedRunRows = [];
-    postgres = false;
     insertEventBehavior = () => {};
     abortRowsAffected = 1;
     __resetNoRunningRunsProbeForTests();
@@ -978,8 +996,6 @@ describe("run store", () => {
   });
 
   it("uses a transaction-scoped lease for Postgres cleanup", async () => {
-    postgres = true;
-
     await cleanupOldRuns(24 * 60 * 60 * 1000);
 
     const lock = execCalls.find((call) =>
@@ -991,21 +1007,78 @@ describe("run store", () => {
   // Fix 2: atomic run lease
   it("tryClaimRunSlot grants the slot when no live running row exists", async () => {
     claimSlotRows = []; // no current runner
-    const result = await tryClaimRunSlot("thread-free");
+    const result = await tryClaimRunSlot("thread-free", "run-free");
     expect(result.claimed).toBe(true);
     expect(result.activeRunId).toBeNull();
+    expect(
+      execCalls.some((call) => call.sql.includes("pg_advisory_xact_lock")),
+    ).toBe(true);
+    expect(
+      execCalls.some((call) => call.sql.includes("INSERT INTO agent_runs")),
+    ).toBe(true);
   });
 
   it("tryClaimRunSlot denies the slot when a live running row exists", async () => {
     claimSlotRows = [{ id: "run-active-123" }];
-    const result = await tryClaimRunSlot("thread-busy");
+    const result = await tryClaimRunSlot("thread-busy", "run-contender");
     expect(result.claimed).toBe(false);
     expect(result.activeRunId).toBe("run-active-123");
   });
 
+  it("tryClaimRunSlot reuses a completed run for the same turn", async () => {
+    completedTurnRows = [{ id: "run-completed" }];
+
+    await expect(
+      tryClaimRunSlot("thread-completed", "run-retry", undefined, {
+        turnId: "turn-completed",
+        replayCompletedTurn: true,
+      }),
+    ).resolves.toEqual({
+      claimed: false,
+      activeRunId: null,
+      completedRunId: "run-completed",
+    });
+  });
+
+  it("tryClaimRunSlot does not replay a completed continuation chunk", async () => {
+    completedTurnRows = [{ id: "run-continuation", has_terminal_event: false }];
+
+    await expect(
+      tryClaimRunSlot("thread-continuation", "run-retry", undefined, {
+        turnId: "turn-continuation",
+        replayCompletedTurn: true,
+      }),
+    ).resolves.toEqual({
+      claimed: true,
+      activeRunId: null,
+    });
+  });
+
+  it("tryClaimRunSlot replays a terminal run before its completion status lands", async () => {
+    completedTurnRows = [{ id: "run-terminal", has_terminal_event: true }];
+
+    await expect(
+      tryClaimRunSlot("thread-terminal", "run-retry", undefined, {
+        turnId: "turn-terminal",
+        replayCompletedTurn: true,
+      }),
+    ).resolves.toEqual({
+      claimed: false,
+      activeRunId: null,
+      completedRunId: "run-terminal",
+    });
+    expect(
+      execCalls.some(
+        (call) =>
+          /AS has_terminal_event/i.test(call.sql) &&
+          !call.sql.includes('"type":"auto_continue"'),
+      ),
+    ).toBe(true);
+  });
+
   it("tryClaimRunSlot uses a liveness cutoff to exclude stale rows", async () => {
     claimSlotRows = []; // stale row was filtered by liveness cutoff in SQL
-    const result = await tryClaimRunSlot("thread-stale");
+    const result = await tryClaimRunSlot("thread-stale", "run-replacement");
     expect(result.claimed).toBe(true);
 
     const select = execCalls.find(
@@ -1025,7 +1098,7 @@ describe("run store", () => {
     // as int4 from the literal windows, and Date.now() overflows with
     // `value "…" is out of range for type integer`, failing every chat turn.
     claimSlotRows = [];
-    await tryClaimRunSlot("thread-cast");
+    await tryClaimRunSlot("thread-cast", "run-cast");
     const select = execCalls.find(
       (call) =>
         /SELECT id FROM agent_runs\s*WHERE thread_id/i.test(call.sql) &&
@@ -1264,6 +1337,7 @@ describe("run store", () => {
       "turn-1",
       "background",
       '{"messages":[]}',
+      expect.any(Number),
     ]);
   });
 
@@ -1399,6 +1473,8 @@ describe("run store", () => {
       /COALESCE\(r\.turn_id, r\.id\) = \?/i.test(c.sql),
     );
     expect(eventsCall?.args).toEqual(["thread-1", "turn-known"]);
+    expect(eventsCall?.sql).toContain("r.continuation_order");
+    expect(eventsCall?.sql).toContain("e.event_at");
   });
 
   it("getCurrentTurnEventsForThread still infers the turn when the caller has none", async () => {
@@ -1457,6 +1533,27 @@ describe("run store", () => {
     expect(select?.sql).toContain("COALESCE(heartbeat_at, started_at)");
   });
 
+  it("orders unclaimed rows by least recent liveness so failed retries yield to newer handoffs", async () => {
+    unclaimedBackgroundRunRowsWithStartedAt = [
+      { id: "run-old-retry", started_at: 100 },
+      { id: "run-new-handoff", started_at: 200 },
+    ];
+
+    await listUnclaimedBackgroundRunRows({ limit: 2 });
+
+    const select = execCalls.find((call) =>
+      /SELECT id, started_at.*FROM agent_runs\s*WHERE status = 'running'/is.test(
+        call.sql,
+      ),
+    );
+    expect(select?.sql).toMatch(
+      /ORDER BY COALESCE\(heartbeat_at, started_at\) ASC, started_at ASC/i,
+    );
+    // `started_at` remains the original handoff time used by the five-minute
+    // redispatch bound; the ordering clock is the mutable heartbeat.
+    expect(select?.sql).toContain("SELECT id, started_at");
+  });
+
   it("listUnclaimedBackgroundRunRows ignores rows with a non-string/empty id defensively", async () => {
     unclaimedBackgroundRunRowsWithStartedAt = [
       { id: "run-ok", started_at: 100 },
@@ -1477,8 +1574,6 @@ describe("run store", () => {
     unclaimedBackgroundRunRowsWithStartedAt = [
       { id: "run-with-payload", started_at: 1, has_dispatch_payload: true },
       { id: "run-no-payload", started_at: 2, has_dispatch_payload: false },
-      // SQLite reports booleans as 1/0.
-      { id: "run-sqlite", started_at: 3, has_dispatch_payload: 1 },
     ];
 
     const rows = await listUnclaimedBackgroundRunRows();
@@ -1486,7 +1581,6 @@ describe("run store", () => {
     expect(rows).toEqual([
       { id: "run-with-payload", startedAt: 1, hasDispatchPayload: true },
       { id: "run-no-payload", startedAt: 2, hasDispatchPayload: false },
-      { id: "run-sqlite", startedAt: 3, hasDispatchPayload: true },
     ]);
   });
 

@@ -123,7 +123,7 @@ export function createQaEmail(app: string, environment: string): string {
     "",
   );
   const nonce = randomUUID().replace(/-/g, "").slice(0, 10);
-  return `signup+qa-test-bot-${run || "local"}-${attempt || "1"}-${environment}-${app}-${nonce}@${serverId()}${MAILOSAUR_DOMAIN_SUFFIX}`;
+  return `signup+autoz-${run || "local"}-${attempt || "1"}-${environment}-${app}-${nonce}@${serverId()}${MAILOSAUR_DOMAIN_SUFFIX}`;
 }
 
 export async function waitForVerificationEmail(

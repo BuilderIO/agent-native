@@ -2,16 +2,20 @@
  * Unit tests for the burst-coalescing behaviour added to
  * createPlanVersionSnapshot in plan-versions.ts.
  *
- * Tests run against an in-process libsql SQLite database so the real Drizzle
+ * Tests run against an in-process PostgreSQL PostgreSQL database so the real Drizzle
  * query layer is exercised; vi.setSystemTime controls wall-clock timing.
  */
 
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 
-import { createClient, type Client } from "@libsql/client";
-import { drizzle, type LibSQLDatabase } from "drizzle-orm/libsql";
+const { PGlite } = createRequire(
+  new URL("../../../packages/core/package.json", import.meta.url),
+)("@electric-sql/pglite");
+type PGliteClient = Awaited<ReturnType<typeof PGlite.create>>;
+import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import {
   afterAll,
   afterEach,
@@ -29,8 +33,28 @@ import * as planSchema from "../db/schema.js";
 // DB wiring — injected via vi.mock so createPlanVersionSnapshot picks it up
 // ---------------------------------------------------------------------------
 
-let client: Client;
-let db: LibSQLDatabase<typeof planSchema>;
+type SqlStatement = string | { sql: string; args?: unknown[] };
+
+function postgresSql(sql: string): string {
+  let index = 0;
+  return sql.replace(/\?/g, () => "$" + ++index);
+}
+
+async function execute(statement: SqlStatement) {
+  if (typeof statement === "string") {
+    const results = [];
+    for (const sql of statement
+      .split(";")
+      .map((value) => value.trim())
+      .filter(Boolean))
+      results.push(await client.query(postgresSql(sql)));
+    return results[results.length - 1];
+  }
+  return client.query(postgresSql(statement.sql), statement.args ?? []);
+}
+
+let client: PGliteClient;
+let db: PgliteDatabase<typeof planSchema>;
 let dbDir: string;
 
 vi.mock("../db/index.js", () => ({
@@ -78,7 +102,7 @@ const CREATED_AT = "2026-06-09T10:00:00.000Z";
 
 async function resetTables() {
   // guard:allow-unscoped -- test-only fixture cleanup resets the isolated temp DB.
-  await client.executeMultiple(`
+  await execute(`
     DELETE FROM plan_versions;
     DELETE FROM plan_sections;
     DELETE FROM plans;
@@ -141,10 +165,10 @@ async function countVersionRows(): Promise<number> {
 
 beforeAll(async () => {
   dbDir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-coalesce-"));
-  client = createClient({ url: `file:${path.join(dbDir, "test.db")}` });
+  client = await PGlite.create(dbDir);
   db = drizzle(client, { schema: planSchema });
 
-  await client.executeMultiple(`
+  await execute(`
     CREATE TABLE plans (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
@@ -212,15 +236,15 @@ beforeAll(async () => {
       summary_source TEXT,
       block_count INTEGER,
       section_count INTEGER,
-      has_canvas INTEGER,
-      has_prototype INTEGER,
+      has_canvas BOOLEAN,
+      has_prototype BOOLEAN,
       preview_text TEXT
     );
   `);
 });
 
-afterAll(() => {
-  client?.close();
+afterAll(async () => {
+  await client?.close();
   if (dbDir) fs.rmSync(dbDir, { recursive: true, force: true });
 });
 

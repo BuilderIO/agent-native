@@ -1,5 +1,71 @@
 # @agent-native/recap-cli
 
+## 0.5.34
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.33
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.32
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.31
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.30
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.29
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.28
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.27
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.26
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.25
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.24
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.5.23
 
 ### Patch Changes

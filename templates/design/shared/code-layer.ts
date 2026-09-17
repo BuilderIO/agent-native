@@ -1,17 +1,30 @@
+import type { Declaration, Root } from "postcss";
+import CssSyntaxError from "postcss/lib/css-syntax-error";
+import parseCss from "postcss/lib/parse";
+
 import {
   isSafeCssUrlReference,
   removeBreakpointMediaDeclaration,
   setBreakpointMediaDeclaration,
 } from "./breakpoint-media.js";
+import { parseCssColorExtended } from "./color-utils";
 import {
+  linkedComponentRootForNode,
+  COMPONENT_ID_ATTR,
   isComponentInstance,
   instanceFromNode,
   type ComponentInstance,
 } from "./component-model";
 import type { TailwindBreakpointPrefix } from "./design-state.js";
+import {
+  ensureGroupRuntime,
+  MEASURED_FLOW_GROUP_ATTR,
+} from "./group-runtime.js";
 import { isStandaloneHttpUrl } from "./html-content.js";
+import { resolveLayerNameAttribute } from "./layer-name.js";
 import {
   getPropertyClasses,
+  migrateMaxWidthClassBounds,
   parseClassGroups,
   parseClassToken,
   removeMaxWidthPropertyClass,
@@ -27,6 +40,9 @@ import type { DesignSourceType } from "./source-mode";
  * screen's stored content. Same wording from both producers so the message
  * doesn't depend on which gesture the user happened to use.
  */
+export const LINKED_COMPONENT_STRUCTURE_REFUSAL =
+  "Changing linked component layer structure is not supported yet.";
+
 export const URL_BACKED_SCREEN_EDIT_REFUSAL =
   "This screen is backed by a live route URL, not editable markup — layers cannot be moved into or out of it. Edit the running app's source instead.";
 
@@ -49,6 +65,26 @@ export interface CodeLayerSource {
   artboardId?: string;
   bridgeUrl?: string;
   revision?: string;
+}
+
+export interface CodeLayerSourceEdit {
+  start: number;
+  end: number;
+  insertedLength: number;
+}
+
+export function mapCodeLayerSourceOffsetThroughEdits(
+  sourceOffset: number,
+  edits: readonly CodeLayerSourceEdit[],
+): number | null {
+  let offset = sourceOffset;
+  for (const edit of edits) {
+    if (edit.start <= offset && offset < edit.end) return null;
+    if (edit.end <= offset) {
+      offset += edit.insertedLength - (edit.end - edit.start);
+    }
+  }
+  return offset;
 }
 
 export interface CodeLayerSourceSpan {
@@ -78,12 +114,18 @@ export type VisualStyleProperty =
   | "display"
   | "color"
   | "background"
+  | "background-clip"
   | "background-color"
   | "background-image"
   | "background-size"
   | "background-repeat"
   | "background-position"
+  | "background-clip"
+  | "-webkit-background-clip"
+  | "-webkit-box-orient"
+  | "-webkit-line-clamp"
   | "background-blend-mode"
+  | "-webkit-text-fill-color"
   | "fill"
   | "fill-opacity"
   | "opacity"
@@ -93,7 +135,10 @@ export type VisualStyleProperty =
   | "font-family"
   | "font-style"
   | "letter-spacing"
+  | "word-spacing"
   | "line-height"
+  | "--agent-native-truncate-original-display"
+  | "--agent-native-truncate-original-overflow"
   | "text-align"
   | "text-decoration"
   | "text-transform"
@@ -115,8 +160,11 @@ export type VisualStyleProperty =
   | "stroke-width"
   | "stroke-opacity"
   | "stroke-dasharray"
+  | "stroke-dashoffset"
   | "stroke-linecap"
   | "stroke-linejoin"
+  | "stroke-miterlimit"
+  | "--an-vector-stroke-position"
   | "outline"
   | "outline-width"
   | "outline-style"
@@ -130,6 +178,7 @@ export type VisualStyleProperty =
   | "backdrop-filter"
   | "transform"
   | "transform-origin"
+  | "transform-box"
   | "rotate"
   | "scale"
   | "translate"
@@ -168,6 +217,7 @@ export type VisualStyleProperty =
   | "grid-auto-rows"
   | "box-sizing"
   | "aspect-ratio"
+  | "isolation"
   | "z-index";
 
 export interface StyleToken {
@@ -280,7 +330,7 @@ export type EditCapability =
     }
   | {
       kind: "structure";
-      operations: Array<"moveNode">;
+      operations: Array<"moveNode" | "deleteNode">;
       confidence: number;
       reason?: string;
     }
@@ -305,6 +355,12 @@ export interface CodeLayerNode {
   dataAttributes: Record<string, string>;
   classes: string[];
   textSnippet: string | null;
+  /** Text this element holds directly, not text a child holds. */
+  paintsOwnText: boolean;
+  /** The entire element is an inline text-edit/style root. */
+  wholeTextStyleRoot?: boolean;
+  /** The `x-for` this node is rendered by, when it sits inside a repeat. */
+  repeatXFor: string | null;
   style: Partial<Record<VisualStyleProperty | (string & {}), string>>;
   styleTokens: StyleToken[];
   parentId?: string;
@@ -359,6 +415,9 @@ export interface CodeLayerTreeNode {
   id: string;
   name: string;
   type: CodeLayerTreeNodeType;
+  isNativeTextPrimitive?: boolean;
+  /** Identity, not shape: a button is a frame that is *also* a component. */
+  isComponent?: boolean;
   tag: string;
   selector: string;
   detail: string;
@@ -412,9 +471,29 @@ export interface EditIntentTarget {
 
 export interface StyleEditIntent {
   kind: "style";
+  operation?: "set";
   target: EditIntentTarget;
   property: VisualStyleProperty | (string & {});
   value: string;
+  opacity?: string;
+  stroke?: string;
+  strokeWidth?: string;
+  strokeOpacity?: string;
+  strokeDasharray?: string;
+  strokeDashoffset?: string;
+  strokeLinecap?: string;
+  strokeLinejoin?: string;
+  strokeMiterlimit?: string;
+  transform?: string;
+  transformOrigin?: string;
+  transformBox?: string;
+}
+
+export interface StyleRemoveEditIntent {
+  kind: "style";
+  operation: "remove";
+  target: EditIntentTarget;
+  property: VisualStyleProperty | (string & {});
 }
 
 export interface ClassEditIntent {
@@ -452,6 +531,11 @@ export interface AttributeEditIntent {
   value: string;
 }
 
+export interface DeleteNodeEditIntent {
+  kind: "deleteNode";
+  target: EditIntentTarget;
+}
+
 export interface MoveNodeEditIntent {
   kind: "moveNode";
   target: EditIntentTarget;
@@ -461,9 +545,11 @@ export interface MoveNodeEditIntent {
 
 /**
  * GROUP: wrap sibling nodes sharing a parent inside a new <div> wrapper.
- * The wrapper is inserted at the position of the first target; targets are
- * reparented into it in source order. The new wrapper gets a fresh
- * data-agent-native-node-id and data-agent-native-layer-name="Group".
+ * Targets are reparented in source order, and the wrapper takes the stacking
+ * position of the topmost selected target. The new wrapper gets a fresh
+ * data-agent-native-node-id, a sequential layer name, and the
+ * `data-agent-native-group-wrapper="true"` marker. Group wrappers also carry
+ * the group marker unless the caller requests a frame wrapper or auto-layout.
  *
  * When autoLayout is true the wrapper also receives
  * `display:flex; flex-direction:column; gap:8px` and
@@ -471,10 +557,38 @@ export interface MoveNodeEditIntent {
  *
  * Returns "unsupported" if the targets don't share a common parent.
  */
+export interface WrapNodeSizeHint {
+  width: number;
+  height: number;
+  /** Parent-content-relative border-box position for an in-flow target. */
+  left?: number;
+  top?: number;
+  /** Live layout found authored CSS that removes this target from flow. */
+  outOfFlow?: true;
+}
+
 export interface WrapNodesEditIntent {
   kind: "wrapNodes";
   targetIds: string[];
   autoLayout?: boolean;
+  /** Defaults to a Group; auto-layout always creates a Frame. */
+  wrapperKind?: "group" | "frame";
+  /**
+   * Live-rendered dimensions per projected target node id. Width/height are
+   * used as a fallback when an absolutely positioned target omits its own
+   * dimensions. left/top are parent-content-relative positions used to keep
+   * an in-flow group at its measured size while rebasing its direct children.
+   * Callers without live DOM measurements simply omit the hint and retain the
+   * source-only behavior. A unique authored node id is also accepted for
+   * direct API callers; ambiguous authored ids are never hint aliases.
+   */
+  sizeHints?: Record<string, WrapNodeSizeHint>;
+}
+
+/** Create an editable SVG-backed Boolean Subtract from supported shape siblings. */
+export interface BooleanSubtractEditIntent {
+  kind: "booleanSubtract";
+  targetIds: string[];
 }
 
 /**
@@ -599,11 +713,14 @@ export interface BreakpointStyleEditIntent {
 
 export type EditIntent =
   | StyleEditIntent
+  | StyleRemoveEditIntent
   | ClassEditIntent
   | TextEditIntent
   | AttributeEditIntent
+  | DeleteNodeEditIntent
   | MoveNodeEditIntent
   | WrapNodesEditIntent
+  | BooleanSubtractEditIntent
   | UnwrapEditIntent
   | AutoLayoutEditIntent
   | ResponsiveClassEditIntent
@@ -635,6 +752,10 @@ export interface PatchNodeSummary {
   classes: string[];
   style: Partial<Record<VisualStyleProperty | (string & {}), string>>;
   textSnippet: string | null;
+  /** Text this element holds directly, not text a child holds. */
+  paintsOwnText: boolean;
+  /** The `x-for` this node is rendered by, when it sits inside a repeat. */
+  repeatXFor: string | null;
 }
 
 export interface PatchResult {
@@ -651,7 +772,7 @@ export interface PatchResult {
   after?: PatchNodeSummary;
   changed: boolean;
   message?: string;
-  /** For wrapNodes: the data-agent-native-node-id of the newly created wrapper. */
+  /** The data-agent-native-node-id of a newly created structural wrapper. */
   wrapperNodeId?: string;
 }
 
@@ -690,6 +811,7 @@ interface ParsedElement {
 interface ProjectionBuild {
   projection: CodeLayerProjection;
   elementByNodeId: Map<string, ParsedElement>;
+  elements: ParsedElement[];
 }
 
 const STYLE_PROPERTIES = [
@@ -708,11 +830,16 @@ const STYLE_PROPERTIES = [
   "display",
   "color",
   "background",
+  "background-clip",
   "background-color",
   "background-image",
   "background-size",
   "background-repeat",
   "background-position",
+  "background-clip",
+  "-webkit-background-clip",
+  "-webkit-box-orient",
+  "-webkit-line-clamp",
   "background-blend-mode",
   "fill",
   "fill-opacity",
@@ -723,7 +850,10 @@ const STYLE_PROPERTIES = [
   "font-family",
   "font-style",
   "letter-spacing",
+  "word-spacing",
   "line-height",
+  "--agent-native-truncate-original-display",
+  "--agent-native-truncate-original-overflow",
   "text-align",
   "text-decoration",
   "text-transform",
@@ -745,8 +875,11 @@ const STYLE_PROPERTIES = [
   "stroke-width",
   "stroke-opacity",
   "stroke-dasharray",
+  "stroke-dashoffset",
   "stroke-linecap",
   "stroke-linejoin",
+  "stroke-miterlimit",
+  "--an-vector-stroke-position",
   "outline",
   "outline-width",
   "outline-style",
@@ -754,12 +887,14 @@ const STYLE_PROPERTIES = [
   "outline-offset",
   "-webkit-text-stroke-width",
   "-webkit-text-stroke-color",
+  "-webkit-text-fill-color",
   "box-shadow",
   "text-shadow",
   "filter",
   "backdrop-filter",
   "transform",
   "transform-origin",
+  "transform-box",
   "rotate",
   "scale",
   "translate",
@@ -798,6 +933,7 @@ const STYLE_PROPERTIES = [
   "grid-auto-rows",
   "box-sizing",
   "aspect-ratio",
+  "isolation",
   "z-index",
 ] as const satisfies readonly VisualStyleProperty[];
 
@@ -816,6 +952,8 @@ const STYLE_PROPERTY_ALIASES: Record<string, VisualStyleProperty> = {
   // required leading dash, which would miss the allow-list entirely.
   webkitTextStrokeColor: "-webkit-text-stroke-color",
   webkitTextStrokeWidth: "-webkit-text-stroke-width",
+  webkitBoxOrient: "-webkit-box-orient",
+  webkitLineClamp: "-webkit-line-clamp",
 };
 
 // Matches url(...) in double-quoted, single-quoted, or unquoted form so each
@@ -841,16 +979,25 @@ const VOID_TAGS = new Set([
   "wbr",
 ]);
 
+// Interiors that are not markup at all, plus boxless void metadata both
+// bridges already strip from the runtime snapshot. Descendants are never
+// parsed, so nothing here can ever be addressed.
 const NON_VISUAL_TAGS = new Set([
   "head",
   "script",
   "style",
   "meta",
   "link",
+  "source",
+  "track",
   "title",
-  "template",
   "noscript",
 ]);
+
+// Parsed and descended into, but not a layer of its own: a `<template>`
+// measures 0x0 and both bridges refuse to select it, so a row for one is a
+// layer the canvas can never show. Its children re-parent to its own parent.
+const TRANSPARENT_TAGS = new Set(["template"]);
 
 const RAW_TEXT_VISUAL_TAGS = new Set(["textarea"]);
 
@@ -887,11 +1034,6 @@ const STABLE_NODE_ID_ATTRIBUTES = [
   "data-layer-id",
   "data-builder-id",
   "data-loc",
-] as const;
-
-const LAYER_NAME_ATTRIBUTE_PRIORITY = [
-  "data-agent-native-layer-name",
-  "data-layer-name",
 ] as const;
 
 const SEMANTIC_LABEL_ATTRIBUTE_PRIORITY = [
@@ -933,6 +1075,428 @@ const SHAPE_LAYER_TAGS = new Set([
   "svg",
 ]);
 const COMPONENT_LAYER_TAGS = new Set(["button", "input", "select", "textarea"]);
+
+/**
+ * Tags that format text *inside* a text layer instead of becoming their own
+ * layer. A heading with one coloured `<span>` is a single Text layer with
+ * runs; splitting it into three is what makes an imported page unreadable.
+ */
+const INLINE_TEXT_TAGS = new Set([
+  "a",
+  "abbr",
+  "b",
+  "bdi",
+  "bdo",
+  "br",
+  "cite",
+  "code",
+  "data",
+  "dfn",
+  "em",
+  "i",
+  "kbd",
+  "mark",
+  "q",
+  "s",
+  "samp",
+  "small",
+  "span",
+  "strong",
+  "sub",
+  "sup",
+  "time",
+  "u",
+  "var",
+  "wbr",
+]);
+
+// Keep this source-projection allowlist aligned with the bridge's
+// isInlineEditableDescendant; a single checkbox or layout child makes its
+// parent a container instead of one whole text style root.
+const INLINE_TEXT_STYLE_ROOT_TAGS = new Set([
+  "a",
+  "abbr",
+  "b",
+  "br",
+  "cite",
+  "code",
+  "em",
+  "i",
+  "mark",
+  "small",
+  "span",
+  "strong",
+  "sub",
+  "sup",
+  "time",
+  "u",
+  "wbr",
+  "p",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "li",
+  "ul",
+  "ol",
+  "dl",
+  "dt",
+  "dd",
+  "label",
+  "caption",
+  "td",
+  "th",
+]);
+
+/**
+ * First segments of Tailwind utilities. Tailwind's stem vocabulary is closed,
+ * so this is a table; the deny-list it replaces was a guess and lost — it let
+ * `flex-col`, `opacity-90`, and `top-0` become layer names.
+ */
+const UTILITY_CLASS_STEMS = new Set([
+  "absolute",
+  "accent",
+  "align",
+  "animate",
+  "antialiased",
+  "appearance",
+  "aspect",
+  "auto",
+  "backdrop",
+  "backface",
+  "basis",
+  "before",
+  "after",
+  "bg",
+  "blend",
+  "block",
+  "blur",
+  "border",
+  "bottom",
+  "box",
+  "break",
+  "brightness",
+  "capitalize",
+  "caption",
+  "caret",
+  "clear",
+  "col",
+  "collapse",
+  "columns",
+  "contain",
+  "container",
+  "content",
+  "contents",
+  "contrast",
+  "cursor",
+  "dark",
+  "data",
+  "decoration",
+  "delay",
+  "diagonal",
+  "divide",
+  "drop",
+  "duration",
+  "ease",
+  "empty",
+  "end",
+  "even",
+  "fill",
+  "filter",
+  "first",
+  "fixed",
+  "flex",
+  "float",
+  "flow",
+  "font",
+  "forced",
+  "from",
+  "gap",
+  "gradient",
+  "grayscale",
+  "grid",
+  "group",
+  "grow",
+  "h",
+  "hidden",
+  "hue",
+  "hyphens",
+  "indent",
+  "inline",
+  "inset",
+  "invert",
+  "invisible",
+  "isolate",
+  "isolation",
+  "italic",
+  "items",
+  "justify",
+  "last",
+  "leading",
+  "left",
+  "light",
+  "line",
+  "lining",
+  "list",
+  "lowercase",
+  "ltr",
+  "m",
+  "marker",
+  "max",
+  "mb",
+  "me",
+  "min",
+  "mix",
+  "ml",
+  "motion",
+  "mr",
+  "ms",
+  "mt",
+  "mx",
+  "my",
+  "no",
+  "normal",
+  "not",
+  "object",
+  "odd",
+  "oldstyle",
+  "only",
+  "opacity",
+  "open",
+  "order",
+  "ordinal",
+  "origin",
+  "outline",
+  "overflow",
+  "overline",
+  "overscroll",
+  "p",
+  "pb",
+  "pe",
+  "peer",
+  "perspective",
+  "pl",
+  "place",
+  "placeholder",
+  "pointer",
+  "pr",
+  "print",
+  "proportional",
+  "ps",
+  "pt",
+  "px",
+  "py",
+  "relative",
+  "resize",
+  "right",
+  "ring",
+  "rotate",
+  "rounded",
+  "row",
+  "rtl",
+  "s",
+  "saturate",
+  "scale",
+  "scroll",
+  "select",
+  "selection",
+  "self",
+  "sepia",
+  "shadow",
+  "shrink",
+  "size",
+  "skew",
+  "slashed",
+  "snap",
+  "space",
+  "sr",
+  "stacked",
+  "start",
+  "static",
+  "sticky",
+  "stroke",
+  "subpixel",
+  "table",
+  "tabular",
+  "text",
+  "to",
+  "top",
+  "touch",
+  "tracking",
+  "transform",
+  "transition",
+  "translate",
+  "truncate",
+  "underline",
+  "uppercase",
+  "via",
+  "visible",
+  "visited",
+  "w",
+  "whitespace",
+  "will",
+  "z",
+]);
+
+function bareClassToken(token: string): string {
+  return token.slice(token.lastIndexOf(":") + 1).replace(/^-/, "");
+}
+
+function looksLikeUtilityClass(token: string): boolean {
+  const bare = bareClassToken(token);
+  if (!bare) return true;
+  if (bare.includes("[") || bare.includes("/")) return true;
+  return UTILITY_CLASS_STEMS.has(bare.split("-")[0] ?? "");
+}
+
+/**
+ * The four facts that decide a design node's type. Read from the class list
+ * and inline style because a source projection has no layout engine — a live
+ * screen can upgrade these through the bridge's computed style.
+ */
+interface NodeVisualFacts {
+  painted: boolean;
+  padded: boolean;
+  sized: boolean;
+  circular: boolean;
+}
+
+function classDimension(
+  classes: readonly string[],
+  axis: "w" | "h",
+): string | null {
+  for (const token of classes) {
+    const bare = bareClassToken(token);
+    if (bare.startsWith(`${axis}-`)) return bare.slice(axis.length + 1);
+  }
+  return null;
+}
+
+/**
+ * `rounded-full` alone does not mean a circle — on a wide box it is a pill,
+ * which is a rounded rectangle. Equal extents are what separate the two.
+ */
+function isSquare(
+  classes: readonly string[],
+  style: Record<string, string | undefined>,
+): boolean {
+  if (
+    classes.some((token) => {
+      const bare = bareClassToken(token);
+      return bare.startsWith("size-") || bare === "aspect-square";
+    })
+  ) {
+    return true;
+  }
+  const width = classDimension(classes, "w") ?? style["width"]?.trim();
+  const height = classDimension(classes, "h") ?? style["height"]?.trim();
+  return Boolean(width && height && width === height);
+}
+
+function classPaints(token: string): boolean {
+  const bare = bareClassToken(token);
+  if (/^bg-/.test(bare)) {
+    return !/^bg-(transparent|none|inherit|current|clip-|origin-|fixed|local|scroll|bottom|center|left|right|top|repeat|no-repeat|auto|cover|contain|blend-)/.test(
+      bare,
+    );
+  }
+  if (/^border(-[xytrbles])?(-\d+)?$/.test(bare)) return !/-0$/.test(bare);
+  if (/^ring(-\d+)?$/.test(bare)) return bare !== "ring-0";
+  if (/^outline(-\d+)?$/.test(bare)) return bare !== "outline-0";
+  if (/^shadow(-(sm|md|lg|xl|2xl|inner))?$/.test(bare)) return true;
+  return false;
+}
+
+function classPads(token: string): boolean {
+  const match = /^(p|px|py|pt|pr|pb|pl|ps|pe)-(.+)$/.exec(
+    bareClassToken(token),
+  );
+  return Boolean(match) && match![2] !== "0";
+}
+
+function classSizes(token: string): boolean {
+  const bare = bareClassToken(token);
+  // `inset-0` on an absolute overlay is a size even though it names no axis.
+  if (/^inset(-[xy])?-/.test(bare)) return !bare.endsWith("-auto");
+  const match = /^(w|h|size|min-w|min-h)-(.+)$/.exec(bare);
+  if (!match) return false;
+  return !["auto", "fit", "min", "max"].includes(match[2]!);
+}
+
+function styleValueIsPresent(
+  value: string | undefined,
+  empties: RegExp,
+): boolean {
+  if (typeof value !== "string") return false;
+  const trimmed = value.trim();
+  return trimmed.length > 0 && !empties.test(trimmed);
+}
+
+function visualFactsFor(node: CodeLayerNode): NodeVisualFacts {
+  return visualFactsOf(node.classes, node.style);
+}
+
+function visualFactsOfElement(element: ParsedElement): NodeVisualFacts {
+  return visualFactsOf(
+    classList(element),
+    parseStyle(attributeValue(element, "style")),
+  );
+}
+
+function visualFactsOf(
+  classes: readonly string[],
+  rawStyle: Record<string, string | undefined> | object,
+): NodeVisualFacts {
+  const style = rawStyle as Record<string, string | undefined>;
+  const emptyPaint = /^(none|transparent|initial|inherit|unset|0|0px)$/i;
+  const emptyLength = /^(0|0px|0rem|auto|initial|inherit|unset)$/i;
+
+  const painted =
+    classes.some(classPaints) ||
+    styleValueIsPresent(style["background"], emptyPaint) ||
+    styleValueIsPresent(style["background-color"], emptyPaint) ||
+    styleValueIsPresent(style["background-image"], emptyPaint) ||
+    styleValueIsPresent(style["border"], emptyPaint) ||
+    styleValueIsPresent(style["border-width"], emptyPaint) ||
+    styleValueIsPresent(style["box-shadow"], emptyPaint) ||
+    styleValueIsPresent(style["outline"], emptyPaint);
+
+  const padded =
+    classes.some(classPads) ||
+    styleValueIsPresent(style["padding"], emptyLength) ||
+    styleValueIsPresent(style["padding-top"], emptyLength) ||
+    styleValueIsPresent(style["padding-right"], emptyLength) ||
+    styleValueIsPresent(style["padding-bottom"], emptyLength) ||
+    styleValueIsPresent(style["padding-left"], emptyLength);
+
+  const sized =
+    classes.some(classSizes) ||
+    styleValueIsPresent(style["width"], emptyLength) ||
+    styleValueIsPresent(style["height"], emptyLength);
+
+  const roundedFull =
+    classes.some((token) => bareClassToken(token) === "rounded-full") ||
+    /^(50%|9999px|9999rem)$/.test((style["border-radius"] ?? "").trim());
+
+  return {
+    painted,
+    padded,
+    sized,
+    circular: roundedFull && isSquare(classes, style),
+  };
+}
+
+/**
+ * Identity, orthogonal to shape: a form control is a Frame that is also a
+ * component. Class and layer-name guessing is deliberately NOT here — it
+ * painted `product-card-wrapper` violet, and the canvas copy carried no
+ * utility-class guard, so one element got two colours in two panels.
+ */
+function treeNodeIsComponent(node: CodeLayerNode): boolean {
+  return Boolean(node.componentInstance) || COMPONENT_LAYER_TAGS.has(node.tag);
+}
 
 function hashStable(value: string): string {
   let hash = 0x811c9dc5;
@@ -984,6 +1548,18 @@ function escapeHtmlText(value: string): string {
 
 function decodeBasicHtmlEntities(value: string): string {
   return value
+    .replace(/&#x([0-9a-f]+);?/gi, (_, hex: string) => {
+      const codePoint = Number.parseInt(hex, 16);
+      return Number.isSafeInteger(codePoint) && codePoint <= 0x10ffff
+        ? String.fromCodePoint(codePoint)
+        : _;
+    })
+    .replace(/&#([0-9]+);?/g, (_, decimal: string) => {
+      const codePoint = Number.parseInt(decimal, 10);
+      return Number.isSafeInteger(codePoint) && codePoint <= 0x10ffff
+        ? String.fromCodePoint(codePoint)
+        : _;
+    })
     .replace(/&nbsp;/g, " ")
     .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
@@ -1008,8 +1584,23 @@ function prettifyIdentifier(value: string): string {
   );
 }
 
+// A `>` inside a quoted attribute (`filter(a => b)`, `x-show="n > 0"`) is not
+// the end of the tag. Ending there spills the attribute into visible text,
+// which then becomes a layer name.
 function stripTags(value: string): string {
-  return value.replace(/<[^>]*>/g, " ");
+  let out = "";
+  let index = 0;
+  while (index < value.length) {
+    const open = value.indexOf("<", index);
+    if (open === -1) {
+      out += value.slice(index);
+      break;
+    }
+    out += value.slice(index, open);
+    out += " ";
+    index = findHtmlTagEnd(value, open);
+  }
+  return out;
 }
 
 function getAttribute(
@@ -1036,14 +1627,16 @@ function explicitLayerNameFor(element: ParsedElement): {
   source: CodeLayerNode["layerNameSource"];
   attribute?: string;
 } | null {
-  for (const attribute of LAYER_NAME_ATTRIBUTE_PRIORITY) {
-    const value = attributeValue(element, attribute);
-    if (value) {
-      const name = truncateLayerName(value);
-      if (name) return { name, source: "attribute", attribute };
-    }
-  }
-  return null;
+  const explicit = resolveLayerNameAttribute((attribute) =>
+    attributeValue(element, attribute),
+  );
+  return explicit
+    ? {
+        name: truncateLayerName(explicit.value),
+        source: "attribute",
+        attribute: explicit.attribute,
+      }
+    : null;
 }
 
 function semanticLayerNameFor(element: ParsedElement): {
@@ -1062,6 +1655,14 @@ function semanticLayerNameFor(element: ParsedElement): {
     }
   }
 
+  return null;
+}
+
+function identifierLayerNameFor(element: ParsedElement): {
+  name: string;
+  source: CodeLayerNode["layerNameSource"];
+  attribute?: string;
+} | null {
   const id = attributeValue(element, "id");
   if (id) {
     return {
@@ -1072,14 +1673,7 @@ function semanticLayerNameFor(element: ParsedElement): {
   }
 
   const meaningfulClass = classList(element).find(
-    (token) =>
-      !/^(flex|grid|block|inline|hidden|relative|absolute|fixed|sticky)$/.test(
-        token,
-      ) &&
-      !/^(sm|md|lg|xl|2xl):/.test(token) &&
-      !/^(p|px|py|pt|pr|pb|pl|m|mx|my|mt|mr|mb|ml|w|h|min|max|text|bg|border|rounded|shadow|gap)-/.test(
-        token,
-      ),
+    (token) => !looksLikeUtilityClass(token),
   );
   if (meaningfulClass) {
     return { name: prettifyIdentifier(meaningfulClass), source: "selector" };
@@ -1106,11 +1700,21 @@ function fallbackTagLayerName(tag: string): string {
       return "Form";
     case "header":
       return "Header";
+    case "a":
+      return "Link";
     case "img":
     case "picture":
       return "Image";
+    case "input":
+      return "Input";
+    case "label":
+      return "Label";
     case "main":
       return "Main";
+    case "select":
+      return "Select";
+    case "textarea":
+      return "Text area";
     case "nav":
       return "Navigation";
     case "section":
@@ -1157,50 +1761,197 @@ function classList(element: ParsedElement): string[] {
 function parseStyle(value: string | null): Record<string, string> {
   const style: Record<string, string> = {};
   if (!value) return style;
-  for (const part of value.split(";")) {
-    const index = part.indexOf(":");
-    if (index === -1) continue;
-    const property = part.slice(0, index).trim().toLowerCase();
-    const propertyValue = part.slice(index + 1).trim();
-    if (property && propertyValue) style[property] = propertyValue;
+  const parsed = tryParseStyleDeclarations(value);
+  if (!parsed) return style;
+  const importantByProperty = new Map<string, boolean>();
+  for (const declaration of parsed.declarations) {
+    const property = cssPropertyKey(declaration.prop);
+    if (importantByProperty.get(property) && !declaration.important) continue;
+    style[property] = styleDeclarationValue(declaration);
+    importantByProperty.set(property, declaration.important);
   }
   return style;
 }
 
-function parseStyleDeclarations(value: string | null): Array<{
-  property: string;
-  value: string;
-}> {
-  if (!value) return [];
-  return value
-    .split(";")
-    .map((part) => {
-      const index = part.indexOf(":");
-      if (index === -1) return null;
-      const property = part.slice(0, index).trim().toLowerCase();
-      const propertyValue = part.slice(index + 1).trim();
-      if (!property || !propertyValue) return null;
-      return { property, value: propertyValue };
-    })
-    .filter((part): part is { property: string; value: string } =>
-      Boolean(part),
+interface ParsedStyleDeclarations {
+  root: Root;
+  declarations: Declaration[];
+}
+
+class InvalidInlineStyleError extends Error {
+  constructor(
+    readonly offset: number | undefined,
+    reason: string,
+  ) {
+    super(`The existing inline style is malformed: ${reason}`);
+    this.name = "InvalidInlineStyleError";
+  }
+}
+
+function parseStyleDeclarations(value: string | null): ParsedStyleDeclarations {
+  try {
+    const parsedCss = parseCss(value ?? "", { map: false });
+    if (parsedCss.type !== "root") {
+      throw new Error("Expected an inline style root");
+    }
+    const root = parsedCss;
+    const unsupportedNode = (root.nodes ?? []).find(
+      (node) => node.type !== "decl" && node.type !== "comment",
     );
+    if (unsupportedNode) {
+      throw new InvalidInlineStyleError(
+        unsupportedNode.source?.start?.offset,
+        `unexpected ${unsupportedNode.type} in inline styles`,
+      );
+    }
+    return {
+      root,
+      declarations: (root.nodes ?? []).filter(
+        (node): node is Declaration => node.type === "decl",
+      ),
+    };
+  } catch (error) {
+    if (!(error instanceof CssSyntaxError)) throw error;
+    throw new InvalidInlineStyleError(error.input?.offset, error.reason);
+  }
+}
+
+function tryParseStyleDeclarations(
+  value: string | null,
+): ParsedStyleDeclarations | null {
+  try {
+    return parseStyleDeclarations(value);
+  } catch (error) {
+    if (error instanceof InvalidInlineStyleError) return null;
+    throw error;
+  }
+}
+
+function cssPropertyKey(property: string): string {
+  return property.startsWith("--") ? property : property.toLowerCase();
+}
+
+function styleDeclarationValue(declaration: Declaration): string {
+  return declaration.important
+    ? `${declaration.value} !important`
+    : declaration.value;
+}
+
+function effectiveStyleDeclarations(
+  parsed: ParsedStyleDeclarations,
+): Declaration[] {
+  const winners = new Map<string, Declaration>();
+  for (const declaration of parsed.declarations) {
+    const key = cssPropertyKey(declaration.prop);
+    const current = winners.get(key);
+    if (!current || declaration.important || !current.important) {
+      winners.set(key, declaration);
+    }
+  }
+  return Array.from(winners.values());
 }
 
 function serializeStyleDeclarations(
-  declarations: Array<{ property: string; value: string }>,
+  parsed: ParsedStyleDeclarations | Array<{ property: string; value: string }>,
 ): string {
-  return declarations
-    .map((item) => `${item.property}: ${item.value}`)
-    .join("; ");
+  return Array.isArray(parsed)
+    ? createStyleDeclarations(parsed).root.toString()
+    : parsed.root.toString();
+}
+
+function createStyleDeclarations(
+  declarations: Array<{ property: string; value: string }>,
+): ParsedStyleDeclarations {
+  const parsed = parseStyleDeclarations(null);
+  for (const [index, declaration] of declarations.entries()) {
+    parsed.root.append({
+      prop: declaration.property,
+      value: declaration.value,
+    });
+    const appended = parsed.root.nodes?.[parsed.root.nodes.length - 1];
+    if (appended?.type === "decl") {
+      appended.raws.before = index === 0 ? "" : " ";
+      appended.raws.between = ": ";
+    }
+  }
+  parsed.declarations = (parsed.root.nodes ?? []).filter(
+    (node): node is Declaration => node.type === "decl",
+  );
+  return parsed;
+}
+
+function setStyleDeclaration(
+  parsed: ParsedStyleDeclarations,
+  property: string,
+  value: string,
+): void {
+  const requestedDeclarations = parseStyleDeclarations(
+    `${property}: ${value}`,
+  ).declarations;
+  const requested = requestedDeclarations[0];
+  if (
+    requestedDeclarations.length !== 1 ||
+    !requested ||
+    cssPropertyKey(requested.prop) !== cssPropertyKey(property)
+  ) {
+    throw new InvalidInlineStyleError(
+      0,
+      `expected one declaration for ${property}`,
+    );
+  }
+  const key = cssPropertyKey(property);
+  const matches = parsed.declarations.filter(
+    (declaration) => cssPropertyKey(declaration.prop) === key,
+  );
+  const existing = matches.reduce<Declaration | undefined>(
+    (winner, declaration) =>
+      !winner || declaration.important || !winner.important
+        ? declaration
+        : winner,
+    undefined,
+  );
+  if (existing) {
+    existing.value = requested.value;
+    existing.important = existing.important || requested.important;
+    existing.raws.value = undefined;
+    existing.raws.between = ": ";
+    if (existing.important) existing.raws.important = " !important";
+    return;
+  }
+  parsed.root.append({
+    prop: property,
+    value: requested.value,
+    important: requested.important,
+  });
+  const appended = parsed.root.nodes?.[parsed.root.nodes.length - 1];
+  if (appended?.type === "decl") {
+    appended.raws.before = parsed.declarations.length === 0 ? "" : " ";
+    appended.raws.between = ": ";
+    if (appended.important) appended.raws.important = " !important";
+    parsed.declarations.push(appended);
+  }
+}
+
+function removeStyleDeclarations(
+  parsed: ParsedStyleDeclarations,
+  properties: readonly string[],
+): void {
+  const toRemove = new Set(properties.map(cssPropertyKey));
+  parsed.declarations = parsed.declarations.filter((declaration) => {
+    if (!toRemove.has(cssPropertyKey(declaration.prop))) return true;
+    declaration.remove();
+    return false;
+  });
 }
 
 function normalizeStyleProperty(property: string): VisualStyleProperty | null {
   const normalized =
     STYLE_PROPERTY_ALIASES[property] ??
-    property
-      .replace(/[A-Z]/g, (char) => `-${char.toLowerCase()}`)
-      .toLowerCase();
+    (property.startsWith("--")
+      ? property
+      : property
+          .replace(/[A-Z]/g, (char) => `-${char.toLowerCase()}`)
+          .toLowerCase());
   if (!STYLE_PROPERTY_SET.has(normalized)) return null;
   return normalized as VisualStyleProperty;
 }
@@ -1244,6 +1995,9 @@ function isSafeStyleValue(
 ): boolean {
   const trimmed = value.trim();
   if (!trimmed) return false;
+  if (property === "--an-vector-stroke-position") {
+    return ["inside", "center", "outside"].includes(trimmed);
+  }
   if (/expression\s*\(/i.test(trimmed)) return false;
   if (/javascript\s*:/i.test(trimmed)) return false;
   if (/url\s*\(/i.test(trimmed)) {
@@ -1265,6 +2019,13 @@ function isSafeStyleValue(
       "inline-grid",
       "none",
       "contents",
+      "-webkit-box",
+      "-webkit-inline-box",
+      "initial",
+      "inherit",
+      "unset",
+      "revert",
+      "revert-layer",
     ].includes(trimmed);
   }
   return true;
@@ -1418,7 +2179,9 @@ export function findEnclosingTemplateClose(
     if (openEnd > offset) break;
     const close = findClosingTag(html, "template", openEnd);
     const contentEnd = close ? close.closeStart : html.length;
-    if (offset > openEnd && offset <= contentEnd) {
+    // `openEnd` IS the first content position, so a strict `>` missed the
+    // most likely insertion point of all: before the template's first child.
+    if (offset >= openEnd && offset <= contentEnd) {
       return { closeEnd: close ? close.closeEnd : html.length };
     }
     templateOpenRe.lastIndex = close ? close.closeEnd : html.length;
@@ -1562,13 +2325,34 @@ function candidateDataSelector(
   return null;
 }
 
-function selectorPart(element: ParsedElement): string {
+function selectorPart(
+  element: ParsedElement,
+  elements: ParsedElement[],
+): string {
   const dataSelector = candidateDataSelector(element);
-  if (dataSelector) return `${element.tag}${dataSelector.selector}`;
+  if (dataSelector) {
+    const sameTypeSibling = elements.some(
+      (sibling) =>
+        sibling.index !== element.index &&
+        sibling.parentIndex === element.parentIndex &&
+        sibling.tag === element.tag,
+    );
+    const nth = sameTypeSibling ? `:nth-of-type(${element.nthOfType})` : "";
+    return `${element.tag}${dataSelector.selector}${nth}`;
+  }
 
   const id = attributeValue(element, "id");
   const escapedId = id ? cssIdent(id) : null;
-  if (escapedId) return `#${escapedId}`;
+  if (escapedId) {
+    const duplicateId = elements.some(
+      (candidate) =>
+        candidate.index !== element.index &&
+        attributeValue(candidate, "id") === id,
+    );
+    return duplicateId
+      ? `${element.tag}#${escapedId}:nth-of-type(${element.nthOfType})`
+      : `#${escapedId}`;
+  }
 
   const safeClasses = classList(element)
     .map(cssIdent)
@@ -1586,7 +2370,7 @@ function pathSelector(
   const parts: string[] = [];
   let current: ParsedElement | undefined = element;
   while (current) {
-    parts.unshift(selectorPart(current));
+    parts.unshift(selectorPart(current, elements));
     current =
       current.parentIndex === undefined
         ? undefined
@@ -1638,7 +2422,7 @@ function nodeIdFor(
   const id = attributeValue(element, "id");
   if (id) return `html:${hashStable(`${sourceKey}:id:${id}`)}`;
   const path = pathSelector(element, elements);
-  return `html:${hashStable(`${sourceKey}:${path}:${element.start}`)}`;
+  return `html:${hashStable(`${sourceKey}:${path}`)}`;
 }
 
 function stableSourceIdForElement(element: ParsedElement): string | null {
@@ -1653,15 +2437,19 @@ function styleTokensFor(element: ParsedElement): StyleToken[] {
   const tokens: StyleToken[] = [];
 
   // --- Inline styles (no breakpoint concept) ---
-  for (const declaration of parseStyleDeclarations(
+  const parsedInlineStyle = tryParseStyleDeclarations(
     attributeValue(element, "style"),
-  )) {
-    const property = normalizeStyleProperty(declaration.property);
+  );
+  for (const declaration of parsedInlineStyle
+    ? effectiveStyleDeclarations(parsedInlineStyle)
+    : []) {
+    const property = normalizeStyleProperty(declaration.prop);
     if (!property) continue;
+    const value = styleDeclarationValue(declaration);
     tokens.push({
       property,
-      value: declaration.value,
-      token: `${declaration.property}: ${declaration.value}`,
+      value,
+      token: `${declaration.prop}: ${value}`,
       source: "inline-style",
       confidence: 0.95,
     });
@@ -1894,9 +2682,84 @@ function textSnippetFor(html: string, element: ParsedElement): string | null {
   return text.length > 160 ? `${text.slice(0, 157)}...` : text;
 }
 
+/**
+ * Text this element paints itself, ignoring anything a child holds. A row of
+ * dot + label + checkbox paints nothing, so it is a container even though its
+ * tag is one that usually carries text.
+ */
+function paintsOwnTextFor(
+  html: string,
+  element: ParsedElement,
+  elements: readonly ParsedElement[],
+): boolean {
+  if (element.selfClosing) return false;
+  let at = element.contentStart;
+  for (const childIndex of element.childIndexes) {
+    const child = elements[childIndex];
+    if (!child) continue;
+    if (html.slice(at, child.start).trim()) return true;
+    at = Math.max(at, child.end);
+  }
+  return Boolean(html.slice(at, element.contentEnd).trim());
+}
+
+function wholeTextStyleRootFor(
+  html: string,
+  element: ParsedElement,
+  elements: readonly ParsedElement[],
+): boolean {
+  if (
+    element.tag === "html" ||
+    element.tag === "body" ||
+    attributeValue(element, "data-agent-native-group") === "true" ||
+    attributeValue(element, "data-an-primitive") === "frame"
+  ) {
+    return false;
+  }
+  if (attributeValue(element, "data-an-primitive") === "text") {
+    return Boolean(textSnippetFor(html, element));
+  }
+  if (
+    !paintsOwnTextFor(html, element, elements) &&
+    !INLINE_TEXT_STYLE_ROOT_TAGS.has(element.tag)
+  ) {
+    return false;
+  }
+  if (!textSnippetFor(html, element)) return false;
+
+  const stack = [...element.childIndexes];
+  while (stack.length > 0) {
+    const child = elements[stack.pop()!];
+    if (!child || !INLINE_TEXT_STYLE_ROOT_TAGS.has(child.tag)) return false;
+    stack.push(...child.childIndexes);
+  }
+  return true;
+}
+
+/** The `x-for` of the nearest enclosing template, for a node inside a repeat. */
+function repeatXForFor(
+  element: ParsedElement,
+  elements: readonly ParsedElement[],
+): string | null {
+  let at = element.parentIndex;
+  while (at !== undefined) {
+    const ancestor = elements[at];
+    if (!ancestor) return null;
+    if (ancestor.tag === "template") {
+      const xFor = ancestor.attributes.find(
+        (attribute) => attribute.name === "x-for",
+      );
+      if (xFor && typeof xFor.value === "string") return xFor.value;
+    }
+    at = ancestor.parentIndex;
+  }
+  return null;
+}
+
 function layerNameFor(
   html: string,
   element: ParsedElement,
+  elements: readonly ParsedElement[],
 ): {
   name: string;
   source: CodeLayerNode["layerNameSource"];
@@ -1908,15 +2771,52 @@ function layerNameFor(
   const semantic = semanticLayerNameFor(element);
   if (semantic) return semantic;
 
-  if (TEXT_LAYER_TAGS.has(element.tag)) {
+  const textName = () => {
     const text = textSnippetFor(html, element);
-    if (text) return { name: truncateLayerName(text), source: "text" };
+    return text
+      ? { name: truncateLayerName(text), source: "text" as const }
+      : null;
+  };
+
+  // A leaf is named by what it says; a container by what it is. Reversing this
+  // is how a wrapper ends up named after its entire subtree's text.
+  if (element.childIndexes.length === 0) {
+    const leafName = textName();
+    if (leafName) return leafName;
+  }
+
+  const identifier = identifierLayerNameFor(element);
+  if (identifier) return identifier;
+
+  const inlineOnly = element.childIndexes.every((index) => {
+    const child = elements[index];
+    return Boolean(
+      child &&
+      INLINE_TEXT_TAGS.has(child.tag) &&
+      child.childIndexes.length === 0,
+    );
+  });
+  const facts = visualFactsOfElement(element);
+  if (
+    TEXT_LAYER_TAGS.has(element.tag) &&
+    inlineOnly &&
+    !facts.painted &&
+    !facts.padded
+  ) {
+    const richTextName = textName();
+    if (richTextName) return richTextName;
   }
 
   return { name: fallbackTagLayerName(element.tag), source: "tag" };
 }
 
-function treeTypeForNode(node: CodeLayerNode): CodeLayerTreeNodeType {
+function treeTypeForNode(
+  node: CodeLayerNode,
+  nodesById: ReadonlyMap<string, CodeLayerNode>,
+): CodeLayerTreeNodeType {
+  if (node.dataAttributes["data-agent-native-group"] === "true") {
+    return "group";
+  }
   // Canvas primitives (drawn shapes / board objects) carry their kind via
   // data-an-primitive so the layers panel shows a true shape/text/frame icon
   // instead of the generic code glyph. The marker wins over tag heuristics:
@@ -1926,6 +2826,12 @@ function treeTypeForNode(node: CodeLayerNode): CodeLayerTreeNodeType {
     if (primitiveKind === "text") return "text";
     if (primitiveKind === "frame") return "frame";
     if (primitiveKind === "image") return "image";
+    if (primitiveKind === "boolean") return "group";
+    if (primitiveKind === "boolean-operand") {
+      return node.dataAttributes["data-an-boolean-shape"] === "ellipse"
+        ? "ellipse"
+        : "shape";
+    }
     if (
       primitiveKind === "ellipse" ||
       primitiveKind === "circle" ||
@@ -1944,23 +2850,72 @@ function treeTypeForNode(node: CodeLayerNode): CodeLayerTreeNodeType {
     // rectangle/rect and anything else still classify as a generic shape.
     return "shape";
   }
-  if (TEXT_LAYER_TAGS.has(node.tag)) return "text";
   if (IMAGE_LAYER_TAGS.has(node.tag)) return "image";
   if (SHAPE_LAYER_TAGS.has(node.tag)) return "shape";
   // A node annotated as a component instance is always classified as "component"
   // regardless of its tag — this is the canonical detection path.
   if (node.componentInstance) return "component";
-  if (
-    COMPONENT_LAYER_TAGS.has(node.tag) ||
-    node.classes.some((item) => /component|card|button|control/.test(item))
-  ) {
+  // Form controls are leaf widgets with no design primitive to decompose into.
+  if (COMPONENT_LAYER_TAGS.has(node.tag) && node.tag !== "button") {
     return "component";
   }
+
+  const facts = visualFactsFor(node);
+  const childNodes = node.children
+    .map((id) => nodesById.get(id))
+    .filter((child): child is CodeLayerNode => Boolean(child));
+
+  if (childNodes.length === 0) {
+    // A Text node's fill colours glyphs, not a background, so a painted or
+    // padded text leaf must be a frame or it loses its box (see buildSpec).
+    if (node.textSnippet) {
+      return facts.painted || facts.padded ? "frame" : "text";
+    }
+    if (facts.painted && facts.sized)
+      return facts.circular ? "ellipse" : "shape";
+    return "element";
+  }
+
+  if (
+    TEXT_LAYER_TAGS.has(node.tag) &&
+    !facts.painted &&
+    !facts.padded &&
+    childNodes.every(
+      (child) => INLINE_TEXT_TAGS.has(child.tag) && child.children.length === 0,
+    )
+  ) {
+    return "text";
+  }
+
   if (node.layout.isFlexContainer || node.layout.isGridContainer) {
     return "frame";
   }
-  if (node.children.length > 0) return "group";
-  return "element";
+  if (facts.painted || facts.padded) return "frame";
+  return "group";
+}
+
+const GENERIC_TAG_LAYER_NAMES = new Set(["Frame", "Text"]);
+
+const TYPE_DISPLAY_NAMES: Partial<Record<CodeLayerTreeNodeType, string>> = {
+  ellipse: "Ellipse",
+  frame: "Frame",
+  group: "Group",
+  shape: "Rectangle",
+  text: "Text",
+};
+
+/**
+ * An element carrying only utility classes has no name of its own, and the tag
+ * fallback describes the tag rather than what the element resolved to — every
+ * bare `<div>` reads "Frame" whether it became a frame, a dot, or a divider.
+ */
+function unnamedLayerName(
+  node: CodeLayerNode,
+  type: CodeLayerTreeNodeType,
+): string | null {
+  if (node.layerNameSource !== "tag") return null;
+  if (!GENERIC_TAG_LAYER_NAMES.has(node.layerName)) return null;
+  return TYPE_DISPLAY_NAMES[type] ?? null;
 }
 
 function isCollapsibleDocumentShellNode(node: CodeLayerTreeNode): boolean {
@@ -2075,14 +3030,27 @@ function hasSvgAncestor(
   element: ParsedElement,
   elements: ParsedElement[],
 ): boolean {
+  const isBooleanOperand =
+    element.tag === "svg" &&
+    attributeValue(element, "data-an-primitive") === "boolean-operand";
+  let insideBoolean = false;
   let parentIndex = element.parentIndex;
   while (parentIndex !== undefined) {
     const parent = elements[parentIndex];
     if (!parent) break;
-    if (parent.tag === "svg") return true;
+    if (parent.tag === "svg") {
+      if (
+        isBooleanOperand &&
+        attributeValue(parent, "data-an-primitive") === "boolean"
+      ) {
+        insideBoolean = true;
+      } else {
+        return true;
+      }
+    }
     parentIndex = parent.parentIndex;
   }
-  return false;
+  return isBooleanOperand ? !insideBoolean : false;
 }
 
 function buildProjection(
@@ -2096,13 +3064,70 @@ function buildProjection(
   const nodeIdByElementIndex = new Map<number, string>();
   const nodes: CodeLayerNode[] = [];
   const diagnostics: ProjectionDiagnostic[] = [];
+  for (const element of elements) {
+    const styleAttribute = getAttribute(element, "style");
+    if (!styleAttribute || typeof styleAttribute.value !== "string") continue;
+    try {
+      parseStyleDeclarations(styleAttribute.value);
+    } catch (error) {
+      if (!(error instanceof InvalidInlineStyleError)) throw error;
+      diagnostics.push({
+        severity: "warning",
+        code: "invalid-inline-style",
+        message: error.message,
+        span: { start: styleAttribute.start, end: styleAttribute.end },
+      });
+    }
+  }
+  const candidateNodeIdByElementIndex = new Map<number, string>();
+  const candidateNodeIdCounts = new Map<string, number>();
 
   for (const element of elements) {
     if (NON_VISUAL_TAGS.has(element.tag)) continue;
+    if (TRANSPARENT_TAGS.has(element.tag)) continue;
     if (hasSvgAncestor(element, elements)) continue;
     const nodeId = nodeIdFor(element, elements, source);
+    candidateNodeIdByElementIndex.set(element.index, nodeId);
+    candidateNodeIdCounts.set(
+      nodeId,
+      (candidateNodeIdCounts.get(nodeId) ?? 0) + 1,
+    );
+  }
+
+  const usedNodeIds = new Set(
+    Array.from(candidateNodeIdCounts)
+      .filter(([, count]) => count === 1)
+      .map(([nodeId]) => nodeId),
+  );
+  for (const element of elements) {
+    const candidateId = candidateNodeIdByElementIndex.get(element.index);
+    if (!candidateId) continue;
+    if (candidateNodeIdCounts.get(candidateId) === 1) {
+      nodeIdByElementIndex.set(element.index, candidateId);
+      continue;
+    }
+
+    const disambiguator = pathSelector(element, elements);
+    const baseId = `html:${hashStable(`${candidateId}:duplicate:${disambiguator}`)}`;
+    let nodeId = baseId;
+    let suffix = 1;
+    while (usedNodeIds.has(nodeId)) {
+      nodeId = `${baseId}:${suffix}`;
+      suffix += 1;
+    }
+    usedNodeIds.add(nodeId);
     nodeIdByElementIndex.set(element.index, nodeId);
   }
+
+  // A transparent ancestor has no id, so its children would come back as
+  // roots. Re-parent them to the nearest ancestor that IS projected.
+  const projectedParentIndex = (element: ParsedElement): number | undefined => {
+    let at = element.parentIndex;
+    while (at !== undefined && !nodeIdByElementIndex.has(at)) {
+      at = elements[at]?.parentIndex;
+    }
+    return at;
+  };
 
   const elementByNodeId = new Map<string, ParsedElement>();
 
@@ -2110,20 +3135,23 @@ function buildProjection(
     const nodeId = nodeIdByElementIndex.get(element.index);
     if (!nodeId) continue;
 
+    const parentIndex = projectedParentIndex(element);
     const parent =
-      element.parentIndex === undefined
-        ? undefined
-        : elements[element.parentIndex];
+      parentIndex === undefined ? undefined : elements[parentIndex];
     const parentId =
-      element.parentIndex === undefined
+      parentIndex === undefined
         ? undefined
-        : nodeIdByElementIndex.get(element.parentIndex);
+        : nodeIdByElementIndex.get(parentIndex);
     const selector = primarySelector(element, elements);
     const path = pathSelector(element, elements);
     const classes = classList(element);
-    const style = parseStyle(attributeValue(element, "style"));
+    const style = withVectorPaintStyle(
+      element,
+      elements,
+      parseStyle(attributeValue(element, "style")),
+    );
     const dataAttributes = dataAttributeRecord(element);
-    const layerName = layerNameFor(html, element);
+    const layerName = layerNameFor(html, element, elements);
     // Only alias attribute selectors that are actually STABLE, UNIQUE node
     // identifiers (data-agent-native-node-id, data-code-layer-id, etc). Every
     // other data-* attribute (e.g. data-an-primitive="frame", or the boolean
@@ -2159,12 +3187,13 @@ function buildProjection(
       dataAttributes,
       classes,
       textSnippet: textSnippetFor(html, element),
+      paintsOwnText: paintsOwnTextFor(html, element, elements),
+      wholeTextStyleRoot: wholeTextStyleRootFor(html, element, elements),
+      repeatXFor: repeatXForFor(element, elements),
       style,
       styleTokens: styleTokensFor(element),
       parentId,
-      children: element.childIndexes
-        .map((index) => nodeIdByElementIndex.get(index))
-        .filter((id): id is string => Boolean(id)),
+      children: [],
       layout: {
         parentId,
         parentSelector: parent
@@ -2198,6 +3227,17 @@ function buildProjection(
     elementByNodeId.set(nodeId, element);
   }
 
+  const childIdsByParentId = new Map<string, string[]>();
+  for (const node of nodes) {
+    if (!node.parentId) continue;
+    const childIds = childIdsByParentId.get(node.parentId) ?? [];
+    childIds.push(node.id);
+    childIdsByParentId.set(node.parentId, childIds);
+  }
+  for (const node of nodes) {
+    node.children = childIdsByParentId.get(node.id) ?? [];
+  }
+
   if (nodes.length === 0 && html.trim()) {
     diagnostics.push({
       severity: "warning",
@@ -2218,6 +3258,7 @@ function buildProjection(
       diagnostics,
     },
     elementByNodeId,
+    elements,
   };
 }
 
@@ -2290,9 +3331,84 @@ export function clearCodeLayerProjectionCache(): void {
   projectionCache.clear();
 }
 
+const TEXT_WRAP_SKIP_TAGS = new Set([
+  "option",
+  "optgroup",
+  "pre",
+  "textarea",
+  "title",
+]);
+
+/**
+ * Give every painted or padded text leaf a real `<span>` child so a button
+ * projects as a frame wrapping Text. Idempotent: a wrapped element is no
+ * longer a leaf. Mixed content is skipped — wrapping the loose runs of
+ * `<p>Hi <b>there</b></p>` would turn one sentence into three layers.
+ */
+export function wrapBareTextLeavesInHtml(
+  html: string,
+  options: {
+    source?: CodeLayerSource;
+    targetNodeIds?: readonly string[];
+    onSourceEdit?: (edit: CodeLayerSourceEdit) => void;
+  } = {},
+): { content: string; changed: boolean; wrapped: number } {
+  const projection = buildCodeLayerProjection(html, options);
+  const targetNodeIds = options.targetNodeIds
+    ? new Set(options.targetNodeIds)
+    : null;
+  const edits: Array<{ start: number; end: number }> = [];
+
+  for (const node of projection.nodes) {
+    if (targetNodeIds && !targetNodeIds.has(node.id)) continue;
+    if (node.children.length > 0) continue;
+    if (Object.prototype.hasOwnProperty.call(node.attributes, "data-an-text"))
+      continue;
+    if (!node.textSnippet) continue;
+    if (TEXT_WRAP_SKIP_TAGS.has(node.tag)) continue;
+    const span = node.source;
+    if (
+      !span ||
+      span.contentStart === undefined ||
+      span.contentEnd === undefined ||
+      span.contentEnd <= span.contentStart
+    ) {
+      continue;
+    }
+    if (!targetNodeIds) {
+      const facts = visualFactsFor(node);
+      if (!facts.painted && !facts.padded) continue;
+    }
+    if (/[<>]/.test(html.slice(span.contentStart, span.contentEnd))) continue;
+    edits.push({ start: span.contentStart, end: span.contentEnd });
+  }
+
+  if (edits.length === 0) return { content: html, changed: false, wrapped: 0 };
+
+  let content = html;
+  for (const edit of edits.sort((a, b) => b.start - a.start)) {
+    const replacement = `<span data-an-text>${content.slice(
+      edit.start,
+      edit.end,
+    )}</span>`;
+    content = `${content.slice(0, edit.start)}${replacement}${content.slice(
+      edit.end,
+    )}`;
+    options.onSourceEdit?.({
+      start: edit.start,
+      end: edit.end,
+      insertedLength: replacement.length,
+    });
+  }
+  return { content, changed: true, wrapped: edits.length };
+}
+
 export function ensureCodeLayerNodeIdsInHtml(
   html: string,
-  options: { source?: CodeLayerSource } = {},
+  options: {
+    source?: CodeLayerSource;
+    onSourceEdit?: (edit: CodeLayerSourceEdit) => void;
+  } = {},
 ): { content: string; changed: boolean; stamped: number } {
   const projection = buildCodeLayerProjection(html, options);
   const usedIds = new Set<string>();
@@ -2376,8 +3492,99 @@ export function ensureCodeLayerNodeIdsInHtml(
   let content = html;
   for (const edit of orderedEdits) {
     content = `${content.slice(0, edit.start)}${edit.value}${content.slice(edit.end)}`;
+    options.onSourceEdit?.({
+      start: edit.start,
+      end: edit.end,
+      insertedLength: edit.value.length,
+    });
   }
   return { content, changed: true, stamped: orderedEdits.length };
+}
+
+export function ensureCodeLayerNodeIdInHtml(
+  html: string,
+  targetNodeId: string,
+  options: {
+    source?: CodeLayerSource;
+    preferredId?: string;
+    selector?: string;
+  } = {},
+): { content: string; changed: boolean; nodeId?: string } {
+  const build = buildProjection(
+    html,
+    options.source ?? { kind: "inline-html" },
+  );
+  const resolution = resolveTarget(build, {
+    nodeId: targetNodeId,
+    ...(options.selector ? { selector: options.selector } : {}),
+  });
+  const node = resolution.status === "resolved" ? resolution.node : undefined;
+  if (!node) return { content: html, changed: false };
+  const element = node.source
+    ? build.elements.find((candidate) => candidate.start === node.source?.start)
+    : undefined;
+  if (!element) return { content: html, changed: false };
+
+  const existingId = attributeValue(
+    element,
+    "data-agent-native-node-id",
+  )?.trim();
+  const allElements = parseHtmlElements(html);
+  const idElements = existingId
+    ? allElements.filter(
+        (candidate) =>
+          attributeValue(candidate, "data-agent-native-node-id") === existingId,
+      )
+    : [];
+  const openTag = html.slice(element.start, element.openEnd);
+  const idAttributes = Array.from(
+    openTag.matchAll(
+      /\sdata-agent-native-node-id\s*=\s*(?:"[^"]*"|'[^']*'|[^\s/>]+)/gi,
+    ),
+  );
+  if (existingId && idElements.length === 1 && idAttributes.length === 1) {
+    return { content: html, changed: false, nodeId: existingId };
+  }
+
+  const usedIds = new Set(
+    allElements
+      .map((candidate) =>
+        attributeValue(candidate, "data-agent-native-node-id")?.trim(),
+      )
+      .filter((value): value is string => Boolean(value)),
+  );
+  const baseId =
+    options.preferredId?.trim() || stableAttributeValueForNode(node);
+  let nodeId = baseId;
+  let suffix = 1;
+  while (usedIds.has(nodeId)) {
+    nodeId = `an-${hashStable(`${baseId}:${suffix}`)}`;
+    suffix += 1;
+  }
+
+  let nextOpenTag = openTag;
+  if (idAttributes.length === 0) {
+    const closeIndex = nextOpenTag.trimEnd().endsWith("/>")
+      ? nextOpenTag.lastIndexOf("/")
+      : nextOpenTag.length - 1;
+    nextOpenTag = `${nextOpenTag.slice(0, closeIndex)} data-agent-native-node-id="${escapeHtmlAttribute(nodeId)}"${nextOpenTag.slice(closeIndex)}`;
+  } else {
+    for (let index = idAttributes.length - 1; index >= 0; index -= 1) {
+      const match = idAttributes[index];
+      if (!match || match.index === undefined) continue;
+      const value =
+        index === 0
+          ? ` data-agent-native-node-id="${escapeHtmlAttribute(nodeId)}"`
+          : "";
+      nextOpenTag = `${nextOpenTag.slice(0, match.index)}${value}${nextOpenTag.slice(match.index + match[0].length)}`;
+    }
+  }
+
+  return {
+    content: `${html.slice(0, element.start)}${nextOpenTag}${html.slice(element.openEnd)}`,
+    changed: true,
+    nodeId,
+  };
 }
 
 export function removeCodeLayerNodeFromHtml(
@@ -2400,10 +3607,20 @@ export function buildCodeLayerTree(
 
   for (const node of projection.nodes) {
     const componentName = node.componentInstance?.name;
+    const explicitLayerName =
+      node.layerNameSource === "attribute" ? node.layerName : undefined;
+    const type = treeTypeForNode(node, nodesById);
     treeById.set(node.id, {
       id: node.id,
-      name: componentName ?? node.layerName,
-      type: treeTypeForNode(node),
+      name:
+        explicitLayerName ??
+        componentName ??
+        unnamedLayerName(node, type) ??
+        node.layerName,
+      type,
+      isNativeTextPrimitive:
+        node.dataAttributes["data-an-primitive"] === "text",
+      isComponent: treeNodeIsComponent(node),
       tag: node.tag,
       selector: node.selector,
       detail: `<${node.tag}>`,
@@ -2435,6 +3652,8 @@ export function buildCodeLayerTree(
         : undefined;
     const treeNode = treeById.get(node.id);
     if (!parent || !treeNode || parent.id === treeNode.id) continue;
+    // Inline runs inside a Text layer are formatting, not layers of their own.
+    if (parent.type === "text" && INLINE_TEXT_TAGS.has(node.tag)) continue;
     const childIds = childIdsByParentId.get(parent.id) ?? new Set<string>();
     if (childIds.has(treeNode.id)) continue;
     childIds.add(treeNode.id);
@@ -2482,6 +3701,18 @@ function isDocumentRootSelectorPart(selectorPart: string): boolean {
 // DOM. When the stored source order differs, the positional index no longer
 // lines up. Dropping the suffix lets resolution fall back to the element's
 // stable signal (tag, classes, attributes, ancestor path).
+/**
+ * True when every selector part that loses a `:nth-of-type` still carries a
+ * class, id, or attribute qualifier of its own.
+ */
+function positionStripKeepsEvidence(selector: string): boolean {
+  return selector
+    .split(">")
+    .map((part) => part.trim())
+    .filter((part) => /:nth-of-type\(\d+\)/.test(part))
+    .every((part) => /[.#[]/.test(part.replace(/:nth-of-type\(\d+\)/g, "")));
+}
+
 function stripPositionalNthOfType(selector: string): string {
   return selector.replace(/:nth-of-type\(\d+\)/g, "");
 }
@@ -2683,11 +3914,17 @@ function resolveTarget(
 ): EditIntentResolution {
   const { projection, elementByNodeId } = build;
   const elementByIndex = new Map(
-    Array.from(elementByNodeId.values()).map((element) => [
-      element.index,
-      element,
-    ]),
+    build.elements.map((element) => [element.index, element]),
   );
+  const matchesForSelector = (value: string): CodeLayerNode[] =>
+    projection.nodes.filter((node) => {
+      return selectorMatches(
+        node,
+        value,
+        elementByNodeId.get(node.id),
+        elementByIndex,
+      );
+    });
   if (target.nodeId) {
     const matches = projection.nodes.filter((candidate) =>
       nodeMatchesStableSourceId(candidate, target.nodeId ?? ""),
@@ -2696,6 +3933,14 @@ function resolveTarget(
       return { status: "resolved", node: matches[0] };
     }
     if (matches.length > 1) {
+      const selectorMatchesById = target.selector
+        ? matchesForSelector(target.selector).filter((candidate) =>
+            matches.includes(candidate),
+          )
+        : [];
+      if (selectorMatchesById.length === 1 && selectorMatchesById[0]) {
+        return { status: "resolved", node: selectorMatchesById[0] };
+      }
       return {
         status: "conflict",
         message: `Node id "${target.nodeId}" matched ${matches.length} code layer nodes.`,
@@ -2718,16 +3963,6 @@ function resolveTarget(
   }
 
   const selectorValue = target.selector ?? "";
-  const matchesForSelector = (value: string): CodeLayerNode[] =>
-    projection.nodes.filter((node) =>
-      selectorMatches(
-        node,
-        value,
-        elementByNodeId.get(node.id),
-        elementByIndex,
-      ),
-    );
-
   const matches = matchesForSelector(selectorValue);
   if (matches.length === 1 && matches[0]) {
     return { status: "resolved", node: matches[0] };
@@ -2750,6 +3985,17 @@ function resolveTarget(
   if (positionTolerantSelector && positionTolerantSelector !== selectorValue) {
     const tolerantMatches = matchesForSelector(positionTolerantSelector);
     if (tolerantMatches.length === 1 && tolerantMatches[0]) {
+      // One match is not proof it is the right element. Dropping a position
+      // is only safe while the part keeps evidence of its own; a part that
+      // degrades to a bare tag was identified by position alone, so its
+      // "unique" match is a different sibling — a runtime clone resolving
+      // onto the one static row is the reachable case.
+      if (!positionStripKeepsEvidence(selectorValue)) {
+        return {
+          status: "conflict",
+          message: `Selector "${selectorValue}" identifies its target only by position, and this source has no such position. Re-select the element to refresh its id.`,
+        };
+      }
       return { status: "resolved", node: tolerantMatches[0] };
     }
     if (tolerantMatches.length > 1) {
@@ -2789,6 +4035,8 @@ function summarizeNode(node: CodeLayerNode): PatchNodeSummary {
     classes: [...node.classes],
     style: { ...node.style },
     textSnippet: node.textSnippet,
+    paintsOwnText: node.paintsOwnText,
+    repeatXFor: node.repeatXFor,
   };
 }
 
@@ -2839,19 +4087,740 @@ function replaceOrInsertAttribute(
   return `${html.slice(0, insertAt)} ${name}="${escaped}"${html.slice(insertAt)}`;
 }
 
+/**
+ * Migrate generated max-width class tokens in HTML without serializing the
+ * document. The existing source parser skips opaque head/script/style text;
+ * reverse attribute splices keep every other byte unchanged.
+ */
+export function migrateMaxWidthClassBoundsInHtml(
+  html: string,
+  boundMap: ReadonlyMap<number, number | null>,
+): string | null {
+  if (boundMap.size === 0) return html;
+  const updates: Array<{ element: ParsedElement; className: string }> = [];
+
+  for (const element of parseHtmlElements(html)) {
+    const currentClass = attributeValue(element, "class");
+    if (currentClass === null) continue;
+    const nextClass = migrateMaxWidthClassBounds(currentClass, boundMap);
+    if (nextClass === null) {
+      // coercion-ok: callers treat null as a typed migration refusal.
+      return null;
+    }
+    if (nextClass !== currentClass) {
+      updates.push({ element, className: nextClass });
+    }
+  }
+
+  let nextHtml = html;
+  for (let index = updates.length - 1; index >= 0; index -= 1) {
+    const update = updates[index];
+    if (!update) continue;
+    nextHtml = replaceOrInsertAttribute(
+      nextHtml,
+      update.element,
+      "class",
+      update.className,
+    );
+  }
+  return nextHtml;
+}
+
+function removeAttributeFromHtml(
+  html: string,
+  element: ParsedElement,
+  name: string,
+): string {
+  const attribute = getAttribute(element, name);
+  return attribute
+    ? `${html.slice(0, attribute.start)}${html.slice(attribute.end)}`
+    : html;
+}
+
 function setStyleValue(
   currentStyle: string | null,
   property: VisualStyleProperty,
   value: string,
 ): string {
   const declarations = parseStyleDeclarations(currentStyle);
-  const existing = declarations.find((item) => item.property === property);
-  if (existing) {
-    existing.value = value;
-  } else {
-    declarations.push({ property, value });
-  }
+  setStyleDeclaration(declarations, property, value);
   return serializeStyleDeclarations(declarations);
+}
+
+const VECTOR_PAINT_PRIMITIVES = new Set([
+  "path",
+  "line",
+  "arrow",
+  "polygon",
+  "star",
+  "rect",
+  "rectangle",
+  "ellipse",
+  "circle",
+]);
+
+const VECTOR_SHAPE_TAGS = new Set([
+  "path",
+  "polygon",
+  "ellipse",
+  "circle",
+  "rect",
+  "line",
+  "polyline",
+  "use",
+]);
+
+const VECTOR_PAINT_PROPERTIES = [
+  "fill",
+  "fill-opacity",
+  "stroke",
+  "stroke-width",
+  "stroke-opacity",
+] as const;
+
+const VECTOR_STROKE_POSITION = "data-an-vector-stroke-position";
+const VECTOR_STROKE_OVERLAY = "data-an-vector-stroke-overlay";
+const VECTOR_STROKE_LOGICAL_WIDTH = "data-an-vector-logical-width";
+const VECTOR_STROKE_GENERATED_DEFS = "data-an-vector-stroke-defs";
+const VECTOR_STROKE_GEOMETRY = "data-an-vector-stroke-geometry";
+const VECTOR_STROKE_ORIGINAL_OVERFLOW =
+  "data-an-vector-stroke-original-overflow";
+const VECTOR_STROKE_ORIGINAL_OVERFLOW_PRIORITY =
+  "data-an-vector-stroke-original-overflow-priority";
+
+function vectorStrokeOverlay(
+  element: ParsedElement,
+  elements: ParsedElement[],
+): ParsedElement | null {
+  if (element.tag !== "svg") return null;
+  for (const childIndex of element.childIndexes) {
+    const child = elements[childIndex];
+    if (child?.tag === "use" && getAttribute(child, VECTOR_STROKE_OVERLAY)) {
+      return child;
+    }
+  }
+  return null;
+}
+
+function vectorStyleValue(
+  element: ParsedElement,
+  property: string,
+): string | null {
+  return (
+    parseStyle(attributeValue(element, "style"))[property] ??
+    attributeValue(element, property)
+  );
+}
+
+function scaledSvgLength(value: string, scale: number): string | null {
+  const match = value
+    .trim()
+    .match(/^([+-]?(?:\d+(?:\.\d*)?|\.\d+))([a-z%]*)$/i);
+  if (!match) return scale === 1 ? value : null;
+  const number = Number(match[1]);
+  if (!Number.isFinite(number)) return null;
+  return `${number * scale}${match[2]}`;
+}
+
+function vectorStrokeGeometryMarkup(
+  shape: ParsedElement,
+  id: string,
+  transform?: Pick<
+    StyleEditIntent,
+    "transform" | "transformOrigin" | "transformBox"
+  >,
+): string {
+  const attributes = [
+    `id="${escapeHtmlAttribute(id)}"`,
+    `${VECTOR_STROKE_GEOMETRY}=""`,
+  ];
+  const hasComputedTransform = Boolean(
+    transform?.transform ||
+    transform?.transformOrigin ||
+    transform?.transformBox,
+  );
+  for (const attribute of shape.attributes) {
+    if (
+      ![
+        "d",
+        "points",
+        "x",
+        "y",
+        "width",
+        "height",
+        "rx",
+        "ry",
+        "cx",
+        "cy",
+        "r",
+        "transform",
+        "fill-rule",
+        "clip-rule",
+      ].includes(attribute.lowerName)
+    ) {
+      continue;
+    }
+    if (hasComputedTransform && attribute.lowerName === "transform") continue;
+    const value = attribute.value === true ? "" : attribute.value;
+    attributes.push(`${attribute.name}="${escapeHtmlAttribute(value)}"`);
+  }
+  const transformStyle = [
+    ["transform", transform?.transform],
+    ["transform-origin", transform?.transformOrigin],
+    ["transform-box", transform?.transformBox],
+  ]
+    .filter((entry): entry is [string, string] => Boolean(entry[1]))
+    .map(([property, value]) => `${property}: ${value}`)
+    .join("; ");
+  return `<${shape.tag} ${attributes.join(" ")}${
+    transformStyle ? ` style="${escapeHtmlAttribute(transformStyle)}"` : ""
+  }/>`;
+}
+
+function uniqueVectorStrokeId(elements: ParsedElement[], base: string): string {
+  const used = new Set(
+    elements
+      .map((element) => attributeValue(element, "id"))
+      .filter((value): value is string => Boolean(value)),
+  );
+  const safeBase = base.replace(/[^A-Za-z0-9_-]/g, "-") || "vector";
+  let candidate = `an-vector-stroke-${safeBase}`;
+  let suffix = 2;
+  while (
+    used.has(candidate) ||
+    used.has(`${candidate}-inside`) ||
+    used.has(`${candidate}-outside`)
+  ) {
+    candidate = `an-vector-stroke-${safeBase}-${suffix++}`;
+  }
+  return candidate;
+}
+
+function removeVectorStrokeGeneratedMarkup(
+  html: string,
+  wrapper: ParsedElement,
+): string {
+  const elements = parseHtmlElements(html);
+  const currentWrapper = elements[wrapper.index];
+  if (!currentWrapper || currentWrapper.start !== wrapper.start) return html;
+  const spans = currentWrapper.childIndexes
+    .map((index) => elements[index])
+    .filter((child): child is ParsedElement =>
+      Boolean(
+        child &&
+        ((child.tag === "defs" &&
+          getAttribute(child, VECTOR_STROKE_GENERATED_DEFS)) ||
+          (child.tag === "use" && getAttribute(child, VECTOR_STROKE_OVERLAY))),
+      ),
+    )
+    .map(({ start, end }) => ({ start, end }))
+    .sort((a, b) => b.start - a.start);
+  let result = html;
+  for (const { start, end } of spans) {
+    result = `${result.slice(0, start)}${result.slice(end)}`;
+  }
+  return result;
+}
+
+function applyVectorStrokePositionEdit(
+  html: string,
+  wrapper: ParsedElement,
+  position: string,
+  intent: StyleEditIntent,
+): string | PatchResultStatus {
+  if (!["inside", "center", "outside"].includes(position)) {
+    return "unsupported";
+  }
+  const computedStyles = [
+    ["opacity", intent.opacity],
+    ["stroke", intent.stroke],
+    ["stroke-width", intent.strokeWidth],
+    ["stroke-opacity", intent.strokeOpacity],
+    ["stroke-dasharray", intent.strokeDasharray],
+    ["stroke-dashoffset", intent.strokeDashoffset],
+    ["stroke-linecap", intent.strokeLinecap],
+    ["stroke-linejoin", intent.strokeLinejoin],
+    ["stroke-miterlimit", intent.strokeMiterlimit],
+    ["transform", intent.transform],
+    ["transform-origin", intent.transformOrigin],
+    ["transform-box", intent.transformBox],
+  ] as const;
+  if (
+    computedStyles.some(([property, value]) => {
+      const normalized = normalizeStyleProperty(property);
+      return Boolean(
+        value && (!normalized || !isSafeStyleValue(normalized, value)),
+      );
+    })
+  ) {
+    return "unsupported";
+  }
+  const elements = parseHtmlElements(html);
+  const currentWrapper = elements[wrapper.index];
+  if (
+    !currentWrapper ||
+    currentWrapper.start !== wrapper.start ||
+    currentWrapper.tag !== "svg"
+  ) {
+    return "unsupported";
+  }
+  const shape = vectorShapeChild(currentWrapper, elements);
+  const kind = attributeValue(currentWrapper, "data-an-primitive");
+  if (!shape || !vectorStrokeCanAlign(kind, shape)) return "unsupported";
+
+  const previousOverlay = vectorStrokeOverlay(currentWrapper, elements);
+  const previousDefs = currentWrapper.childIndexes
+    .map((childIndex) => elements[childIndex])
+    .find(
+      (child) =>
+        child?.tag === "defs" &&
+        getAttribute(child, VECTOR_STROKE_GENERATED_DEFS) !== undefined,
+    );
+  const previousGeometry = previousDefs?.childIndexes
+    .map((childIndex) => elements[childIndex])
+    .find((child) => getAttribute(child, VECTOR_STROKE_GEOMETRY) !== undefined);
+  const previousGeometryStyle = previousGeometry
+    ? parseStyle(attributeValue(previousGeometry, "style"))
+    : {};
+  const paint = previousOverlay ?? shape;
+  const stroke = intent.stroke ?? vectorStyleValue(paint, "stroke") ?? "none";
+  const shapeOpacity =
+    intent.opacity ??
+    vectorStyleValue(paint, "opacity") ??
+    (previousOverlay ? vectorStyleValue(shape, "opacity") : null) ??
+    undefined;
+  const logicalWidth =
+    intent.strokeWidth ??
+    (previousOverlay
+      ? attributeValue(previousOverlay, VECTOR_STROKE_LOGICAL_WIDTH)
+      : null) ??
+    vectorStyleValue(paint, "stroke-width") ??
+    "1px";
+  const strokeExtras = Object.fromEntries(
+    (
+      [
+        ["stroke-opacity", intent.strokeOpacity],
+        ["stroke-dasharray", intent.strokeDasharray],
+        ["stroke-dashoffset", intent.strokeDashoffset],
+        ["stroke-linecap", intent.strokeLinecap],
+        ["stroke-linejoin", intent.strokeLinejoin],
+        ["stroke-miterlimit", intent.strokeMiterlimit],
+      ] as const
+    )
+      .map(([property, value]) => [
+        property,
+        value ?? vectorStyleValue(paint, property),
+      ])
+      .filter((entry): entry is [string, string] => Boolean(entry[1])),
+  );
+  const actualWidth = scaledSvgLength(
+    logicalWidth,
+    position === "center" ? 1 : 2,
+  );
+  if (!actualWidth) return "unsupported";
+
+  let result = removeVectorStrokeGeneratedMarkup(html, currentWrapper);
+  let freshElements = parseHtmlElements(result);
+  let freshWrapper = freshElements[wrapper.index];
+  if (!freshWrapper || freshWrapper.tag !== "svg") return "unsupported";
+  result = replaceOrInsertAttribute(
+    result,
+    freshWrapper,
+    VECTOR_STROKE_POSITION,
+    position,
+  );
+  freshElements = parseHtmlElements(result);
+  freshWrapper = freshElements[wrapper.index];
+  if (!freshWrapper || freshWrapper.tag !== "svg") return "unsupported";
+  const savedOverflow = getAttribute(
+    freshWrapper,
+    VECTOR_STROKE_ORIGINAL_OVERFLOW,
+  );
+  if (position === "outside") {
+    if (savedOverflow === undefined) {
+      const overflow = effectiveStyleDeclarations(
+        parseStyleDeclarations(attributeValue(freshWrapper, "style")),
+      ).find((declaration) => cssPropertyKey(declaration.prop) === "overflow");
+      const value = overflow?.value ?? "";
+      result = replaceOrInsertAttribute(
+        result,
+        freshWrapper,
+        VECTOR_STROKE_ORIGINAL_OVERFLOW,
+        value,
+      );
+      freshElements = parseHtmlElements(result);
+      freshWrapper = freshElements[wrapper.index];
+      if (!freshWrapper || freshWrapper.tag !== "svg") return "unsupported";
+      result = replaceOrInsertAttribute(
+        result,
+        freshWrapper,
+        VECTOR_STROKE_ORIGINAL_OVERFLOW_PRIORITY,
+        overflow?.important ? "important" : "",
+      );
+      freshElements = parseHtmlElements(result);
+      freshWrapper = freshElements[wrapper.index];
+      if (!freshWrapper || freshWrapper.tag !== "svg") return "unsupported";
+    }
+    result = replaceOrInsertAttribute(
+      result,
+      freshWrapper,
+      "style",
+      setStyleValue(
+        attributeValue(freshWrapper, "style"),
+        "overflow",
+        "visible !important",
+      ),
+    );
+  } else if (savedOverflow !== undefined) {
+    const value = attributeValue(freshWrapper, VECTOR_STROKE_ORIGINAL_OVERFLOW);
+    const priority = attributeValue(
+      freshWrapper,
+      VECTOR_STROKE_ORIGINAL_OVERFLOW_PRIORITY,
+    );
+    const declarations = parseStyleDeclarations(
+      attributeValue(freshWrapper, "style"),
+    );
+    removeStyleDeclarations(declarations, ["overflow"]);
+    if (value) {
+      setStyleDeclaration(
+        declarations,
+        "overflow",
+        `${value}${priority === "important" ? " !important" : ""}`,
+      );
+    }
+    result = replaceOrInsertAttribute(
+      result,
+      freshWrapper,
+      "style",
+      serializeStyleDeclarations(declarations),
+    );
+    freshElements = parseHtmlElements(result);
+    freshWrapper = freshElements[wrapper.index];
+    if (!freshWrapper || freshWrapper.tag !== "svg") return "unsupported";
+    result = removeAttributeFromHtml(
+      result,
+      freshWrapper,
+      VECTOR_STROKE_ORIGINAL_OVERFLOW,
+    );
+    freshElements = parseHtmlElements(result);
+    freshWrapper = freshElements[wrapper.index];
+    if (!freshWrapper || freshWrapper.tag !== "svg") return "unsupported";
+    result = removeAttributeFromHtml(
+      result,
+      freshWrapper,
+      VECTOR_STROKE_ORIGINAL_OVERFLOW_PRIORITY,
+    );
+  }
+  freshElements = parseHtmlElements(result);
+  freshWrapper = freshElements[wrapper.index];
+  if (!freshWrapper || freshWrapper.tag !== "svg") return "unsupported";
+  const freshShape = freshWrapper
+    ? vectorShapeChild(freshWrapper, freshElements)
+    : null;
+  if (!freshWrapper || !freshShape) return "unsupported";
+  const shapeStyle = setStyleValue(
+    attributeValue(freshShape, "style"),
+    "stroke",
+    "none",
+  );
+  result = replaceOrInsertAttribute(result, freshShape, "style", shapeStyle);
+  freshElements = parseHtmlElements(result);
+  freshWrapper = freshElements[wrapper.index];
+  const geometry = freshWrapper
+    ? vectorShapeChild(freshWrapper, freshElements)
+    : null;
+  if (!freshWrapper || !geometry) return "unsupported";
+
+  const nodeId =
+    attributeValue(freshWrapper, "data-agent-native-node-id") ??
+    attributeValue(freshWrapper, "id") ??
+    String(freshWrapper.siblingIndex);
+  const geometryId = uniqueVectorStrokeId(freshElements, nodeId);
+  const clipId = `${geometryId}-inside`;
+  const maskId = `${geometryId}-outside`;
+  const geometryMarkup = vectorStrokeGeometryMarkup(geometry, geometryId, {
+    transform: intent.transform ?? previousGeometryStyle.transform,
+    transformOrigin:
+      intent.transformOrigin ?? previousGeometryStyle["transform-origin"],
+    transformBox: intent.transformBox ?? previousGeometryStyle["transform-box"],
+  });
+  const viewBoxValues = (
+    attributeValue(freshWrapper, "viewBox") ?? "0 0 300 150"
+  )
+    .trim()
+    .split(/[\s,]+/)
+    .map(Number);
+  const [viewX, viewY, viewWidth, viewHeight] = viewBoxValues;
+  if (
+    viewBoxValues.length !== 4 ||
+    ![viewX, viewY, viewWidth, viewHeight].every(Number.isFinite) ||
+    viewWidth! <= 0 ||
+    viewHeight! <= 0
+  ) {
+    return "unsupported";
+  }
+  const miterLimit = Number.parseFloat(
+    strokeExtras["stroke-miterlimit"] ?? "4",
+  );
+  const maskPad = Math.max(
+    ((Number.parseFloat(actualWidth) || 0) *
+      Math.max(Number.isFinite(miterLimit) ? miterLimit : 4, 1)) /
+      2,
+    1,
+  );
+  const defs =
+    `<defs ${VECTOR_STROKE_GENERATED_DEFS}="">${geometryMarkup}` +
+    `<clipPath id="${clipId}" clipPathUnits="userSpaceOnUse"><use href="#${geometryId}"/></clipPath>` +
+    `<mask id="${maskId}" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" mask-type="luminance" x="${viewX! - maskPad}" y="${viewY! - maskPad}" width="${viewWidth! + maskPad * 2}" height="${viewHeight! + maskPad * 2}">` +
+    `<rect x="${viewX! - maskPad}" y="${viewY! - maskPad}" width="${viewWidth! + maskPad * 2}" height="${viewHeight! + maskPad * 2}" fill="white"/>` +
+    `<use href="#${geometryId}" fill="black"/></mask></defs>`;
+  const overlayStyle = serializeStyleDeclarations([
+    { property: "fill", value: "none" },
+    { property: "stroke", value: stroke },
+    { property: "stroke-width", value: actualWidth },
+    ...(shapeOpacity ? [{ property: "opacity", value: shapeOpacity }] : []),
+    ...Object.entries(strokeExtras).map(([property, value]) => ({
+      property,
+      value,
+    })),
+    ...(position === "inside"
+      ? [{ property: "clip-path", value: `url(#${clipId})` }]
+      : position === "outside"
+        ? [{ property: "mask", value: `url(#${maskId})` }]
+        : []),
+  ]);
+  const overlay =
+    `<use href="#${geometryId}" ${VECTOR_STROKE_OVERLAY}="" ` +
+    `${VECTOR_STROKE_LOGICAL_WIDTH}="${escapeHtmlAttribute(logicalWidth)}" ` +
+    `pointer-events="none" aria-hidden="true" style="${escapeHtmlAttribute(overlayStyle)}"/>`;
+  const insertAt = geometry.end;
+  return `${result.slice(0, insertAt)}${defs}${overlay}${result.slice(insertAt)}`;
+}
+
+/**
+ * A drawn vector primitive's `<svg>` carries the geometry and its shape child
+ * carries the paint, so fill/stroke aimed at the wrapper tints the bounding
+ * box instead. Mirrored by `vectorPaintTarget` in editor-chrome.bridge.ts.
+ */
+function vectorShapeChild(
+  element: ParsedElement,
+  elements: ParsedElement[],
+): ParsedElement | null {
+  if (element.tag !== "svg") return null;
+  const kind = attributeValue(element, "data-an-primitive");
+  if (!kind) {
+    const directShapes = element.childIndexes
+      .map((index) => elements[index])
+      .filter((child): child is ParsedElement =>
+        Boolean(child && VECTOR_SHAPE_TAGS.has(child.tag)),
+      );
+    return directShapes.length === 1 ? (directShapes[0] ?? null) : null;
+  }
+  if (
+    !VECTOR_PAINT_PRIMITIVES.has(kind) &&
+    kind !== "boolean" &&
+    kind !== "boolean-operand"
+  ) {
+    return null;
+  }
+  for (const childIndex of element.childIndexes) {
+    const child = elements[childIndex];
+    if (child && VECTOR_SHAPE_TAGS.has(child.tag)) {
+      if (
+        kind === "boolean" &&
+        attributeValue(child, "data-an-boolean-result") !== "true"
+      ) {
+        continue;
+      }
+      return child;
+    }
+  }
+  return null;
+}
+
+function vectorStrokeCanAlign(
+  kind: string | null,
+  shape: ParsedElement,
+): boolean {
+  if (kind === "polygon" || kind === "star") {
+    return (
+      shape.tag === "polygon" ||
+      (shape.tag === "path" && /z/i.test(attributeValue(shape, "d") ?? ""))
+    );
+  }
+  if (kind === "rect" || kind === "rectangle") return shape.tag === "rect";
+  if (kind === "ellipse" || kind === "circle") {
+    return shape.tag === "ellipse" || shape.tag === "circle";
+  }
+  return (
+    kind === "path" &&
+    shape.tag === "path" &&
+    /z/i.test(attributeValue(shape, "d") ?? "")
+  );
+}
+
+/**
+ * Folds the shape child's paint onto the wrapper node. The child is skipped by
+ * `hasSvgAncestor`, so the wrapper is the only layer a reader can address —
+ * without this the inspector sees no fill and offers to add a `background`.
+ */
+function withVectorPaintStyle(
+  element: ParsedElement,
+  elements: ParsedElement[],
+  style: Record<string, string>,
+): Record<string, string> {
+  const child = vectorShapeChild(element, elements);
+  if (!child) return style;
+  const kind = attributeValue(element, "data-an-primitive");
+  if (kind === "boolean-operand" || kind === "boolean") {
+    const merged = { ...style };
+    for (const [property, customProperty] of Object.entries(
+      BOOLEAN_OPERAND_PAINT_PROPERTIES,
+    )) {
+      if (!customProperty) continue;
+      const value = style[customProperty];
+      if (value) merged[property] = value;
+    }
+    if (kind === "boolean") {
+      for (const [property, customProperty] of Object.entries(
+        BOOLEAN_RESULT_PAINT_PROPERTIES,
+      )) {
+        if (!customProperty) continue;
+        const value = style[customProperty];
+        if (value) merged[property] = value;
+      }
+    }
+    return merged;
+  }
+  const overlay = vectorStrokeOverlay(element, elements);
+  const childStyle = parseStyle(attributeValue(child, "style"));
+  const overlayStyle = overlay
+    ? parseStyle(attributeValue(overlay, "style"))
+    : null;
+  const merged = { ...style };
+  for (const property of VECTOR_PAINT_PROPERTIES) {
+    // An inline declaration on the child outranks its presentation
+    // attribute, the same order the cascade resolves them when painting.
+    const value =
+      property.startsWith("stroke") && overlayStyle
+        ? (overlayStyle[property] ?? attributeValue(overlay!, property))
+        : (childStyle[property] ?? attributeValue(child, property));
+    if (value) {
+      merged[property] = value;
+    } else if (
+      property === "fill" &&
+      child.tag !== "line" &&
+      child.tag !== "polyline"
+    ) {
+      merged[property] = "black";
+    }
+  }
+  const vectorOpacity =
+    overlayStyle?.opacity ??
+    childStyle.opacity ??
+    attributeValue(child, "opacity");
+  if (vectorOpacity) merged.vectorOpacity = vectorOpacity;
+  if (overlay) {
+    merged["stroke-width"] =
+      attributeValue(overlay, VECTOR_STROKE_LOGICAL_WIDTH) ??
+      merged["stroke-width"] ??
+      "1px";
+  }
+  const position = attributeValue(element, VECTOR_STROKE_POSITION);
+  if (position) merged["--an-vector-stroke-position"] = position;
+  if (
+    vectorStrokeCanAlign(attributeValue(element, "data-an-primitive"), child)
+  ) {
+    merged["--an-vector-stroke-can-align"] = "true";
+  }
+  return merged;
+}
+
+/**
+ * Box paint that a vector wrapper must never carry: it paints the bounding
+ * rectangle, and the inspector no longer edits these for a vector, so a value
+ * left here is unreachable from the UI.
+ */
+const VECTOR_WRAPPER_BOX_PAINT = new Set([
+  "background",
+  "background-color",
+  "background-image",
+  "border",
+  "border-width",
+  "border-style",
+  "border-color",
+]);
+
+function clearVectorWrapperPaint(html: string, wrapper: ParsedElement): string {
+  const style = attributeValue(wrapper, "style");
+  if (!style) return html;
+  const kept = parseStyleDeclarations(style);
+  removeStyleDeclarations(kept, [...VECTOR_WRAPPER_BOX_PAINT]);
+  const next = serializeStyleDeclarations(kept);
+  if (next === style) return html;
+  // Safe against the child edit that just ran: the wrapper's open tag, and so
+  // its style attribute offsets, precede every child byte.
+  return replaceOrInsertAttribute(html, wrapper, "style", next);
+}
+
+function vectorPaintChild(
+  html: string,
+  element: ParsedElement,
+  property: string,
+  parsedElements?: ParsedElement[],
+): ParsedElement | null {
+  if (!property.startsWith("fill") && !property.startsWith("stroke")) {
+    return null;
+  }
+  const elements = parsedElements ?? parseHtmlElements(html);
+  // childIndexes only address this array if it is the same parse the caller's
+  // element came from; a shifted index would repaint an unrelated element.
+  const parsed = elements[element.index];
+  if (!parsed || parsed.start !== element.start) return null;
+  if (property.startsWith("stroke")) {
+    return (
+      vectorStrokeOverlay(parsed, elements) ??
+      vectorShapeChild(parsed, elements)
+    );
+  }
+  return vectorShapeChild(parsed, elements);
+}
+
+type StyleEditTargetRoute =
+  | { kind: "boolean-operand" }
+  | { kind: "boolean-result" }
+  | { kind: "released-svg" }
+  | { kind: "vector-paint"; element: ParsedElement }
+  | { kind: "ordinary"; element: ParsedElement };
+
+type StyleEditTargetIntent = Pick<
+  StyleEditIntent | StyleRemoveEditIntent,
+  "property"
+>;
+
+function resolveStyleEditTargetRoute(
+  html: string,
+  node: CodeLayerNode,
+  element: ParsedElement,
+  intent: StyleEditTargetIntent,
+  elements: ParsedElement[],
+): StyleEditTargetRoute {
+  if (booleanOperandFor(element)) return { kind: "boolean-operand" };
+  if (node.dataAttributes["data-an-primitive"] === "boolean") {
+    return { kind: "boolean-result" };
+  }
+  if (
+    element.tag === "svg" &&
+    ["rectangle", "ellipse"].includes(
+      node.dataAttributes["data-an-primitive"] ?? "",
+    )
+  ) {
+    return { kind: "released-svg" };
+  }
+  const paintChild = vectorPaintChild(html, element, intent.property, elements);
+  return paintChild
+    ? { kind: "vector-paint", element: paintChild }
+    : { kind: "ordinary", element };
 }
 
 function applyStyleEdit(
@@ -2859,21 +4828,679 @@ function applyStyleEdit(
   element: ParsedElement,
   intent: StyleEditIntent,
 ): { content: string; capability: EditCapability } | PatchResultStatus {
-  const property = normalizeStyleProperty(intent.property);
-  if (!property || !isSafeStyleValue(property, intent.value))
-    return "unsupported";
+  const normalized = normalizedSafeStyleValue(intent.property, intent.value);
+  if (!normalized) return "unsupported";
+  const { property, value } = normalized;
+  if (property === "--an-vector-stroke-position") {
+    const content = applyVectorStrokePositionEdit(html, element, value, intent);
+    if (content === "unsupported") return content;
+    return {
+      content,
+      capability: {
+        kind: "style",
+        properties: [property],
+        confidence: 0.9,
+      },
+    };
+  }
+  const alignedOverlay =
+    getAttribute(element, VECTOR_STROKE_OVERLAY) !== undefined;
+  const parent =
+    element.parentIndex === undefined
+      ? undefined
+      : parseHtmlElements(html)[element.parentIndex];
+  const position = parent
+    ? (attributeValue(parent, VECTOR_STROKE_POSITION) ?? "center")
+    : "center";
+  const logicalWidth = value;
+  const storedValue =
+    alignedOverlay && property === "stroke-width"
+      ? scaledSvgLength(logicalWidth, position === "center" ? 1 : 2)
+      : logicalWidth;
+  if (storedValue === null) return "unsupported";
   const nextStyle = setStyleValue(
     attributeValue(element, "style"),
     property,
-    intent.value.trim(),
+    storedValue,
   );
+  let content = replaceOrInsertAttribute(html, element, "style", nextStyle);
+  if (alignedOverlay && property === "stroke-width") {
+    const current = parseHtmlElements(content)[element.index];
+    if (!current) return "unsupported";
+    content = replaceOrInsertAttribute(
+      content,
+      current,
+      VECTOR_STROKE_LOGICAL_WIDTH,
+      logicalWidth,
+    );
+  }
+  if (
+    alignedOverlay &&
+    (property === "stroke-width" || property === "stroke-miterlimit")
+  ) {
+    const updatedElements = parseHtmlElements(content);
+    const updatedOverlay = updatedElements[element.index];
+    const wrapper =
+      updatedOverlay?.parentIndex === undefined
+        ? undefined
+        : updatedElements[updatedOverlay.parentIndex];
+    const updatedPosition = wrapper
+      ? attributeValue(wrapper, VECTOR_STROKE_POSITION)
+      : null;
+    if (!wrapper || !updatedPosition) return "unsupported";
+    const rebuilt = applyVectorStrokePositionEdit(
+      content,
+      wrapper,
+      updatedPosition,
+      {
+        kind: "style",
+        target: intent.target,
+        property: "--an-vector-stroke-position",
+        value: updatedPosition,
+      },
+    );
+    if (rebuilt === "unsupported") return rebuilt;
+    content = rebuilt;
+  }
   return {
-    content: replaceOrInsertAttribute(html, element, "style", nextStyle),
+    content,
     capability: {
       kind: "style",
       properties: [property],
       confidence: 0.9,
     },
+  };
+}
+
+function applyStyleRemoveEdit(
+  html: string,
+  element: ParsedElement,
+  intent: StyleRemoveEditIntent,
+  route: StyleEditTargetRoute,
+): { content: string; capability: EditCapability } | PatchResultStatus {
+  const property = normalizeStyleProperty(intent.property);
+  if (
+    !property ||
+    property === "--an-vector-stroke-position" ||
+    (route.kind !== "ordinary" && route.kind !== "vector-paint")
+  ) {
+    return "unsupported";
+  }
+
+  const styleElement = route.kind === "vector-paint" ? route.element : element;
+  if (
+    attributeValue(styleElement, VECTOR_STROKE_OVERLAY) !== null ||
+    attributeValue(styleElement, VECTOR_STROKE_GEOMETRY) !== null
+  ) {
+    return "unsupported";
+  }
+  const currentStyle = attributeValue(styleElement, "style");
+  if (currentStyle === null) {
+    return {
+      content: html,
+      capability: { kind: "style", properties: [property], confidence: 0.9 },
+    };
+  }
+
+  const declarations = parseStyleDeclarations(currentStyle);
+  removeStyleDeclarations(declarations, [property]);
+  const nextStyle = serializeStyleDeclarations(declarations);
+  if (nextStyle === currentStyle) {
+    return {
+      content: html,
+      capability: { kind: "style", properties: [property], confidence: 0.9 },
+    };
+  }
+  let content = nextStyle.trim()
+    ? replaceOrInsertAttribute(html, styleElement, "style", nextStyle)
+    : removeAttributeFromHtml(html, styleElement, "style");
+  if (route.kind === "vector-paint") {
+    content = clearVectorWrapperPaint(content, element);
+  }
+  return {
+    content,
+    capability: { kind: "style", properties: [property], confidence: 0.9 },
+  };
+}
+
+function normalizedSafeStyleValue(
+  property: string,
+  value: string,
+): { property: VisualStyleProperty; value: string } | null {
+  const normalizedProperty = normalizeStyleProperty(property);
+  if (!normalizedProperty || !isSafeStyleValue(normalizedProperty, value)) {
+    return null;
+  }
+  return { property: normalizedProperty, value: value.trim() };
+}
+
+function booleanOperandFor(element: ParsedElement): boolean {
+  return (
+    element.tag === "svg" &&
+    attributeValue(element, "data-an-primitive") === "boolean-operand"
+  );
+}
+
+const BOOLEAN_OPERAND_PAINT_PROPERTIES: Partial<Record<string, string>> = {
+  fill: "--operand-fill",
+  "fill-opacity": "--operand-fill-opacity",
+  opacity: "--operand-opacity",
+  stroke: "--operand-stroke",
+  "stroke-width": "--operand-stroke-width",
+  "stroke-opacity": "--operand-stroke-opacity",
+};
+
+const BOOLEAN_RESULT_PAINT_PROPERTIES: Partial<Record<string, string>> = {
+  fill: "--boolean-mask-fill",
+  "fill-opacity": "--boolean-mask-fill-opacity",
+  stroke: "--boolean-mask-stroke",
+  "stroke-width": "--boolean-mask-stroke-width",
+  "stroke-opacity": "--boolean-mask-stroke-opacity",
+};
+
+function applyReleasedSvgShapeStyleEdit(
+  html: string,
+  element: ParsedElement,
+  intent: StyleEditIntent,
+  elements: ParsedElement[],
+): { content: string; capability: EditCapability } | PatchResultStatus {
+  const property = normalizeStyleProperty(intent.property);
+  if (property !== "border-radius") {
+    const paintChild = vectorPaintChild(
+      html,
+      element,
+      intent.property,
+      elements,
+    );
+    return applyStyleEdit(html, paintChild ?? element, intent);
+  }
+  if (!isSafeStyleValue(property, intent.value)) return "unsupported";
+  if (attributeValue(element, "data-an-primitive") !== "rectangle") {
+    return "unsupported";
+  }
+  const rect = vectorShapeChild(element, elements);
+  const width = Number(attributeValue(element, "width"));
+  const height = Number(attributeValue(element, "height"));
+  const radius = booleanShapeRadius(intent.value, width, height);
+  if (
+    !rect ||
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    width <= 0 ||
+    height <= 0 ||
+    !radius
+  ) {
+    return "unsupported";
+  }
+  let rectStyle = setStyleValue(
+    attributeValue(rect, "style"),
+    "rx" as VisualStyleProperty,
+    `${radius.x}px`,
+  );
+  rectStyle = setStyleValue(
+    rectStyle,
+    "ry" as VisualStyleProperty,
+    `${radius.y}px`,
+  );
+  return {
+    content: patchElementAttributes(html, [
+      {
+        element,
+        attributes: {
+          style: setStyleValue(
+            attributeValue(element, "style"),
+            "border-radius",
+            intent.value.trim(),
+          ),
+        },
+      },
+      {
+        element: rect,
+        attributes: {
+          rx: String(radius.x),
+          ry: String(radius.y),
+          style: rectStyle,
+        },
+      },
+    ]),
+    capability: { kind: "style", properties: [property], confidence: 0.9 },
+  };
+}
+
+function patchElementAttributes(
+  html: string,
+  updates: Array<{
+    element: ParsedElement;
+    attributes: Record<string, string | null>;
+  }>,
+): string {
+  const replacements: Array<{ start: number; end: number; value: string }> = [];
+  const insertions = new Map<number, string[]>();
+  for (const { element, attributes } of updates) {
+    const missing: string[] = [];
+    for (const [name, value] of Object.entries(attributes)) {
+      if (value === null) {
+        for (const attribute of element.attributes.filter(
+          (candidate) => candidate.lowerName === name.toLowerCase(),
+        )) {
+          replacements.push({
+            start: attribute.start,
+            end: attribute.end,
+            value: "",
+          });
+        }
+        continue;
+      }
+      const existing = getAttribute(element, name);
+      const serialized = `${name}="${escapeHtmlAttribute(value)}"`;
+      if (existing) {
+        replacements.push({
+          start: existing.start,
+          end: existing.end,
+          value: serialized,
+        });
+      } else {
+        missing.push(serialized);
+      }
+    }
+    if (missing.length > 0) {
+      const rawOpen = html.slice(element.start, element.openEnd);
+      const closeIndex = element.openEnd - 1;
+      const slashIndex = rawOpen.trimEnd().endsWith("/>")
+        ? html.lastIndexOf("/", closeIndex)
+        : -1;
+      const insertAt = slashIndex > element.start ? slashIndex : closeIndex;
+      insertions.set(insertAt, [
+        ...(insertions.get(insertAt) ?? []),
+        ...missing,
+      ]);
+    }
+  }
+  for (const [start, attributes] of insertions) {
+    replacements.push({
+      start,
+      end: start,
+      value: ` ${attributes.join(" ")}`,
+    });
+  }
+  let result = html;
+  for (const replacement of replacements.sort((a, b) => b.start - a.start)) {
+    result = `${result.slice(0, replacement.start)}${replacement.value}${result.slice(replacement.end)}`;
+  }
+  return result;
+}
+
+/** Patch attributes on projected nodes using the parser's exact attribute spans. */
+export function patchCodeLayerNodeAttributes(
+  html: string,
+  updates: Array<{
+    node: CodeLayerNode;
+    attributes: Record<string, string | null>;
+  }>,
+): string | null {
+  const elementsByStart = new Map(
+    parseHtmlElements(html).map((element) => [element.start, element] as const),
+  );
+  const parsedUpdates: Array<{
+    element: ParsedElement;
+    attributes: Record<string, string | null>;
+  }> = [];
+  for (const update of updates) {
+    const openStart = update.node.source?.openStart;
+    const element =
+      openStart === undefined ? undefined : elementsByStart.get(openStart);
+    if (!element) return null;
+    parsedUpdates.push({ element, attributes: update.attributes });
+  }
+  return patchElementAttributes(html, parsedUpdates);
+}
+
+/** Read an exact leaf text value through the parser spans used by edit intents. */
+export function readCodeLayerNodeTextContent(
+  html: string,
+  node: CodeLayerNode,
+): string | null {
+  const openStart = node.source?.openStart;
+  const element =
+    openStart === undefined
+      ? undefined
+      : parseHtmlElements(html).find(
+          (candidate) => candidate.start === openStart,
+        );
+  if (
+    !element ||
+    element.selfClosing ||
+    element.childIndexes.length > 0 ||
+    element.contentStart > element.contentEnd
+  ) {
+    return null;
+  }
+  return decodeBasicHtmlEntities(
+    html.slice(element.contentStart, element.contentEnd),
+  );
+}
+
+function isWithinParsedElement(
+  element: ParsedElement,
+  ancestor: ParsedElement,
+  elements: readonly ParsedElement[],
+): boolean {
+  let current: ParsedElement | undefined = element;
+  while (current) {
+    if (current.index === ancestor.index) return true;
+    current =
+      current.parentIndex === undefined
+        ? undefined
+        : elements[current.parentIndex];
+  }
+  return false;
+}
+
+function applyBooleanOperandStyleEdit(
+  html: string,
+  element: ParsedElement,
+  intent: StyleEditIntent,
+  elements: ParsedElement[],
+): { content: string; capability: EditCapability } | PatchResultStatus {
+  const property = normalizeStyleProperty(intent.property);
+  if (!property || !isSafeStyleValue(property, intent.value)) {
+    return "unsupported";
+  }
+  if (
+    [
+      "border-top-left-radius",
+      "border-top-right-radius",
+      "border-bottom-right-radius",
+      "border-bottom-left-radius",
+    ].includes(property)
+  ) {
+    return "unsupported";
+  }
+  if (
+    !BOOLEAN_OPERAND_PAINT_PROPERTIES[property] &&
+    ![
+      "left",
+      "top",
+      "width",
+      "height",
+      "border-radius",
+      "transform",
+      "position",
+    ].includes(property)
+  ) {
+    return "unsupported";
+  }
+  // The inspector can include this companion edit before left/top because
+  // SVG operands under <defs> report a non-positioned computed style.
+  if (property === "position" && intent.value.trim() !== "absolute") {
+    return "unsupported";
+  }
+  const svg = elements[element.index];
+  const rect = svg?.childIndexes
+    .map((index) => elements[index])
+    .find((child) => child?.tag === "rect");
+  if (!svg || !rect) return "conflict";
+  const nextStyle = setStyleValue(
+    attributeValue(svg, "style"),
+    (BOOLEAN_OPERAND_PAINT_PROPERTIES[property] ??
+      property) as VisualStyleProperty,
+    intent.value.trim(),
+  );
+  const svgAttributes: Record<string, string> = { style: nextStyle };
+  const rectAttributes: Record<string, string> = {};
+  const changesGeometry = [
+    "left",
+    "top",
+    "width",
+    "height",
+    "border-radius",
+    "stroke-width",
+  ].includes(property);
+  if (!changesGeometry) {
+    return {
+      content: patchElementAttributes(html, [
+        { element: svg, attributes: svgAttributes },
+      ]),
+      capability: { kind: "style", properties: [property], confidence: 0.9 },
+    };
+  }
+  const currentWidth = Number(attributeValue(svg, "width"));
+  const currentHeight = Number(attributeValue(svg, "height"));
+  const width =
+    property === "width" ? parsePixelLength(intent.value) : currentWidth;
+  const height =
+    property === "height" ? parsePixelLength(intent.value) : currentHeight;
+  if (
+    (property === "width" || property === "height") &&
+    (width === null || height === null || width <= 0 || height <= 0)
+  ) {
+    return "unsupported";
+  }
+  if (property === "left" || property === "top") {
+    const position = parsePixelLength(intent.value);
+    if (position === null) return "unsupported";
+    svgAttributes[property === "left" ? "x" : "y"] = String(position);
+  }
+  if (width !== null && height !== null) {
+    const shape = attributeValue(svg, "data-an-boolean-shape");
+    const oldStrokeWidthValue =
+      parseStyle(attributeValue(svg, "style"))["--operand-stroke-width"] ?? "0";
+    const oldStrokeWidth =
+      parsePixelLength(oldStrokeWidthValue) ?? Number(oldStrokeWidthValue);
+    const strokeWidth =
+      property === "stroke-width"
+        ? (parsePixelLength(intent.value) ?? Number(intent.value))
+        : oldStrokeWidth;
+    if (!Number.isFinite(strokeWidth) || strokeWidth < 0) return "unsupported";
+    const inset = strokeWidth / 2;
+    const innerWidth = Math.max(0, width - strokeWidth);
+    const innerHeight = Math.max(0, height - strokeWidth);
+    const radius = booleanShapeRadius(
+      property === "border-radius"
+        ? intent.value
+        : parseStyle(attributeValue(svg, "style"))["border-radius"],
+      width,
+      height,
+    );
+    if (!radius) return "unsupported";
+    rectAttributes.x = String(inset);
+    rectAttributes.y = String(inset);
+    rectAttributes.width = String(innerWidth);
+    rectAttributes.height = String(innerHeight);
+    rectAttributes.rx = String(
+      shape === "ellipse" ? innerWidth / 2 : Math.max(0, radius.x - inset),
+    );
+    rectAttributes.ry = String(
+      shape === "ellipse" ? innerHeight / 2 : Math.max(0, radius.y - inset),
+    );
+    svgAttributes.width = String(width);
+    svgAttributes.height = String(height);
+    svgAttributes.viewBox = `0 0 ${width} ${height}`;
+  }
+  const content = patchElementAttributes(html, [
+    { element: svg, attributes: svgAttributes },
+    { element: rect, attributes: rectAttributes },
+  ]);
+  return {
+    content,
+    capability: { kind: "style", properties: [property], confidence: 0.9 },
+  };
+}
+
+function applyBooleanResultStyleEdit(
+  html: string,
+  element: ParsedElement,
+  intent: StyleEditIntent,
+  elements: ParsedElement[],
+): { content: string; capability: EditCapability } | PatchResultStatus {
+  const property = normalizeStyleProperty(intent.property);
+  const customProperty = property && BOOLEAN_RESULT_PAINT_PROPERTIES[property];
+  const use = vectorShapeChild(element, elements);
+  if (!property) return "unsupported";
+  if (
+    property === "border-radius" ||
+    [
+      "border-top-left-radius",
+      "border-top-right-radius",
+      "border-bottom-right-radius",
+      "border-bottom-left-radius",
+    ].includes(property)
+  ) {
+    if (!use || !isSafeStyleValue(property, intent.value)) return "unsupported";
+    const rootStyle = parseStyle(attributeValue(element, "style"));
+    const dimensions = attributeValue(element, "viewBox")
+      ?.trim()
+      .split(/\s+/)
+      .slice(2)
+      .map(Number);
+    const [width, height] = dimensions ?? [];
+    const requestedRadius =
+      width && height ? booleanShapeRadius(intent.value, width, height) : null;
+    if (!requestedRadius) return "unsupported";
+    if (property !== "border-radius") {
+      const existingRadius =
+        width && height
+          ? booleanShapeRadius(rootStyle["border-radius"], width, height)
+          : null;
+      if (
+        !existingRadius ||
+        existingRadius.x !== requestedRadius.x ||
+        existingRadius.y !== requestedRadius.y
+      ) {
+        return "unsupported";
+      }
+      return {
+        content: html,
+        capability: { kind: "style", properties: [property], confidence: 0.9 },
+      };
+    }
+
+    const baseHref = attributeValue(use, "href");
+    const baseGeometryId = baseHref?.startsWith("#")
+      ? baseHref.slice(1)
+      : undefined;
+    const baseGeometry = elements.find(
+      (candidate) =>
+        candidate.tag === "svg" &&
+        attributeValue(candidate, "id") === baseGeometryId &&
+        attributeValue(candidate, "data-an-boolean-operand") === "base",
+    );
+    if (
+      !baseGeometry ||
+      attributeValue(baseGeometry, "data-an-boolean-shape") !== "rectangle"
+    ) {
+      return "unsupported";
+    }
+    const maskId = attributeValue(use, "mask")?.match(
+      /^url\(#([^\s)]+)\)$/,
+    )?.[1];
+    const mask = elements.find(
+      (candidate) =>
+        candidate.tag === "mask" && attributeValue(candidate, "id") === maskId,
+    );
+    const whiteMaskUse = mask?.childIndexes
+      .map((index) => elements[index])
+      .find(
+        (candidate) =>
+          candidate?.tag === "use" &&
+          attributeValue(candidate, "href") === baseHref,
+      );
+    if (!mask || !whiteMaskUse) return "conflict";
+
+    const radiusProperties = [
+      ["--boolean-result-radius-x", `${requestedRadius.x}px`],
+      ["--boolean-result-radius-y", `${requestedRadius.y}px`],
+    ] as const;
+    const setRadiusProperties = (style: string | null) => {
+      let nextStyle = style ?? "";
+      for (const [name, value] of radiusProperties) {
+        nextStyle = setStyleValue(
+          nextStyle,
+          name as VisualStyleProperty,
+          value,
+        );
+      }
+      return nextStyle;
+    };
+    return {
+      content: patchElementAttributes(html, [
+        {
+          element,
+          attributes: {
+            style: setStyleValue(
+              attributeValue(element, "style"),
+              "border-radius",
+              intent.value.trim(),
+            ),
+          },
+        },
+        {
+          element: use,
+          attributes: {
+            style: setRadiusProperties(attributeValue(use, "style")),
+          },
+        },
+        {
+          element: whiteMaskUse,
+          attributes: {
+            style: setRadiusProperties(attributeValue(whiteMaskUse, "style")),
+          },
+        },
+      ]),
+      capability: { kind: "style", properties: [property], confidence: 0.9 },
+    };
+  }
+  if (!customProperty) {
+    if (
+      VECTOR_WRAPPER_BOX_PAINT.has(property) ||
+      property.startsWith("border-")
+    ) {
+      return "unsupported";
+    }
+    return applyStyleEdit(html, element, intent);
+  }
+  if (!use) return "conflict";
+  if (!isSafeStyleValue(property, intent.value)) return "unsupported";
+  const nextStyle = setStyleValue(
+    attributeValue(element, "style"),
+    customProperty as VisualStyleProperty,
+    intent.value.trim(),
+  );
+  const styleUpdates = [
+    { element, attributes: { style: nextStyle } },
+    {
+      element: use,
+      attributes: {
+        style: setStyleValue(
+          attributeValue(use, "style"),
+          customProperty as VisualStyleProperty,
+          intent.value.trim(),
+        ),
+      },
+    },
+  ];
+  if (property.startsWith("stroke")) {
+    for (const cutterStrokeUse of elements.filter(
+      (candidate) =>
+        candidate.tag === "use" &&
+        attributeValue(candidate, "data-an-boolean-cutter-stroke") === "true" &&
+        isWithinParsedElement(candidate, element, elements),
+    )) {
+      styleUpdates.push({
+        element: cutterStrokeUse,
+        attributes: {
+          style: setStyleValue(
+            attributeValue(cutterStrokeUse, "style"),
+            customProperty as VisualStyleProperty,
+            intent.value.trim(),
+          ),
+        },
+      });
+    }
+  }
+  return {
+    content: patchElementAttributes(html, styleUpdates),
+    capability: { kind: "style", properties: [property], confidence: 0.9 },
   };
 }
 
@@ -2944,10 +5571,48 @@ function applyClassEdit(
 
 // Same shape as the bridge's own attributeOverrides guard (editor-chrome.bridge.ts)
 // — alphanumeric/dash/colon/dot/underscore, must start with a letter, never an
-// `on*` event handler. Deliberately conservative: this path is for host-side
-// bookkeeping writes (pending node-id persistence today), not general-purpose
-// attribute editing, so unknown/unsafe names are rejected rather than guessed at.
+// `on*` event handler. URL-bearing values get a second scheme check below so a
+// general attribute edit cannot persist executable markup.
 const SAFE_ATTRIBUTE_NAME = /^(?!on)[a-zA-Z][a-zA-Z0-9:_.-]*$/;
+const URL_ATTRIBUTE_NAMES = new Set([
+  "action",
+  "background",
+  "cite",
+  "data",
+  "formaction",
+  "href",
+  "poster",
+  "src",
+  "srcset",
+  "xlink:href",
+]);
+
+function isSafeAttributeValue(name: string, value: string): boolean {
+  const lowerName = name.toLowerCase();
+  if (lowerName === "style" || lowerName === "srcdoc") return false;
+  if (!URL_ATTRIBUTE_NAMES.has(lowerName)) return true;
+
+  const decoded = decodeBasicHtmlEntities(value);
+  if (/[\u0000-\u001f\u007f]/.test(decoded)) return false;
+  const candidates =
+    lowerName === "srcset"
+      ? decoded
+          .split(",")
+          .map((candidate) => candidate.trim().split(/\s+/, 1)[0] ?? "")
+      : [decoded.trim()];
+  return candidates.every((candidate) => {
+    if (!candidate) return true;
+    const compact = candidate.replace(/[\u0000-\u0020]+/g, "");
+    if (/^(?:javascript|vbscript):/i.test(compact)) return false;
+    if (/^data:/i.test(compact)) {
+      return /^data:image\/(?:png|jpe?g|gif|webp);/i.test(compact);
+    }
+    if (/^[a-z][a-z0-9+.-]*:/i.test(compact)) {
+      return /^(?:https?|mailto|tel):/i.test(compact);
+    }
+    return true;
+  });
+}
 
 function applyAttributeEdit(
   html: string,
@@ -2957,6 +5622,7 @@ function applyAttributeEdit(
   if (!intent.name || !SAFE_ATTRIBUTE_NAME.test(intent.name)) {
     return "unsupported";
   }
+  if (!isSafeAttributeValue(intent.name, intent.value)) return "unsupported";
   return {
     content: replaceOrInsertAttribute(html, element, intent.name, intent.value),
     capability: {
@@ -3232,7 +5898,24 @@ function applyMoveNodeEdit(
   anchor: ParsedElement,
   intent: MoveNodeEditIntent,
   destinationParent?: ParsedElement,
+  moveLayout?: {
+    destinationIsFlow?: boolean;
+    sourceWasIgnoredInFlow?: boolean;
+    forceRootIntoFlow?: boolean;
+  },
 ): { content: string; capability: EditCapability } | PatchResultStatus {
+  if (
+    booleanOperandFor(element) ||
+    (intent.placement === "inside" &&
+      (attributeValue(anchor, "data-an-primitive") === "boolean" ||
+        booleanOperandFor(anchor) ||
+        (destinationParent !== undefined &&
+          (attributeValue(destinationParent, "data-an-primitive") ===
+            "boolean" ||
+            booleanOperandFor(destinationParent)))))
+  ) {
+    return "unsupported";
+  }
   if (element.index === anchor.index) return "conflict";
   if (anchor.start >= element.start && anchor.end <= element.end) {
     return "conflict";
@@ -3247,7 +5930,7 @@ function applyMoveNodeEdit(
     sourceParentIndex !== destinationParent.index;
   const rawFragment = html.slice(element.start, element.end);
   const fragment = entersNewParent
-    ? prepareMovedFragmentForParent(rawFragment, destinationParent)
+    ? prepareMovedFragmentForParent(rawFragment, destinationParent, moveLayout)
     : rawFragment;
   const withoutTarget = `${html.slice(0, element.start)}${html.slice(
     element.end,
@@ -3263,6 +5946,13 @@ function applyMoveNodeEdit(
     element.start < rawInsertAt ? rawInsertAt - removedLength : rawInsertAt;
 
   if (insertAt < 0 || insertAt > withoutTarget.length) return "conflict";
+  // A node spliced into a template's markup range lands in a detached
+  // fragment: it renders nowhere and no querySelector pass can reach it
+  // again. moveNodeBetweenDocuments redirects past the template for the same
+  // reason; here there is no destination to fall back to.
+  if (isOffsetInsideTemplateInterior(withoutTarget, insertAt)) {
+    return "unsupported";
+  }
 
   return {
     content: `${withoutTarget.slice(0, insertAt)}${fragment}${withoutTarget.slice(insertAt)}`,
@@ -3282,13 +5972,8 @@ function applyMoveNodeEdit(
 function isFlowLayoutContainer(element: ParsedElement | undefined): boolean {
   if (!element) return false;
   const display = parseStyle(attributeValue(element, "style")).display;
-  if (
-    display === "flex" ||
-    display === "inline-flex" ||
-    display === "grid" ||
-    display === "inline-grid"
-  ) {
-    return true;
+  if (display !== undefined) {
+    return ["flex", "inline-flex", "grid", "inline-grid"].includes(display);
   }
   const classes = new Set(classList(element));
   return (
@@ -3297,6 +5982,18 @@ function isFlowLayoutContainer(element: ParsedElement | undefined): boolean {
     classes.has("grid") ||
     classes.has("inline-grid")
   );
+}
+
+function isOutOfFlowElement(element: ParsedElement): boolean {
+  const position = parseStyle(attributeValue(element, "style")).position;
+  if (position !== undefined) {
+    return position === "absolute" || position === "fixed";
+  }
+  return classList(element).some((token) => {
+    const variants = token.split(":");
+    const utility = variants[variants.length - 1]?.replace(/^!/, "");
+    return utility === "absolute" || utility === "fixed";
+  });
 }
 
 /**
@@ -3309,13 +6006,25 @@ function isFlowLayoutContainer(element: ParsedElement | undefined): boolean {
 function prepareMovedFragmentForParent(
   fragment: string,
   destinationParent: ParsedElement | undefined,
+  moveLayout?: {
+    destinationIsFlow?: boolean;
+    sourceWasIgnoredInFlow?: boolean;
+    forceRootIntoFlow?: boolean;
+  },
 ): string {
   const fragmentRoot = parseHtmlElements(fragment).find(
     (element) => element.parentIndex === undefined,
   );
   if (!fragmentRoot) return fragment;
-  if (isFlowLayoutContainer(destinationParent)) {
-    return stripAbsolutePositioningFromChild(fragment, fragmentRoot);
+  const destinationIsFlow =
+    moveLayout?.destinationIsFlow ?? isFlowLayoutContainer(destinationParent);
+  if (destinationIsFlow) {
+    if (moveLayout?.sourceWasIgnoredInFlow) return fragment;
+    return stripAbsolutePositioningFromChild(
+      fragment,
+      fragmentRoot,
+      moveLayout?.forceRootIntoFlow ?? false,
+    );
   }
   // Mirror image: entering a non-flow (absolute/freeform) parent, or the
   // document root, strips any leftover flex/grid-item-only styling instead —
@@ -3345,11 +6054,9 @@ function stripStyleProperties(
   propertiesToRemove: string[],
 ): string {
   if (!styleValue) return "";
-  const toRemove = new Set(propertiesToRemove.map((p) => p.toLowerCase()));
-  const remaining = parseStyleDeclarations(styleValue).filter(
-    (decl) => !toRemove.has(decl.property),
-  );
-  return serializeStyleDeclarations(remaining);
+  const parsed = parseStyleDeclarations(styleValue);
+  removeStyleDeclarations(parsed, propertiesToRemove);
+  return serializeStyleDeclarations(parsed);
 }
 
 /** Absolute-positioning properties stripped when converting a child to auto-layout flow. */
@@ -3382,6 +6089,36 @@ const FLEX_ITEM_STRIP_PROPS = [
 ] as const;
 
 /**
+ * Properties whose old flow placement would be counted twice after a direct
+ * child is pinned to its measured position inside a new relative wrapper.
+ */
+const MEASURED_FLOW_REBASE_STRIP_PROPS = [
+  "position",
+  "left",
+  "top",
+  "right",
+  "bottom",
+  "inset",
+  "inset-block",
+  "inset-block-start",
+  "inset-block-end",
+  "inset-inline",
+  "inset-inline-start",
+  "inset-inline-end",
+  "margin",
+  "margin-top",
+  "margin-right",
+  "margin-bottom",
+  "margin-left",
+  "margin-block",
+  "margin-block-start",
+  "margin-block-end",
+  "margin-inline",
+  "margin-inline-start",
+  "margin-inline-end",
+] as const;
+
+/**
  * Strip absolute-positioning properties from a child's inline style, applying
  * the edit directly to the html string at the child element's source spans.
  * Returns the updated html string.
@@ -3389,16 +6126,35 @@ const FLEX_ITEM_STRIP_PROPS = [
 function stripAbsolutePositioningFromChild(
   html: string,
   child: ParsedElement,
+  forceRootIntoFlow = false,
 ): string {
   const currentStyle = attributeValue(child, "style");
-  let nextHtml = currentStyle
-    ? replaceOrInsertAttribute(
-        html,
-        child,
-        "style",
-        stripStyleProperties(currentStyle, [...AUTO_LAYOUT_STRIP_PROPS]),
-      )
-    : html;
+  const isFrame =
+    (
+      attributeValue(child, "data-an-primitive") ||
+      attributeValue(child, "data-agent-native-primitive")
+    )?.toLowerCase() === "frame";
+  const strippedStyle = currentStyle
+    ? stripStyleProperties(currentStyle, [...AUTO_LAYOUT_STRIP_PROPS])
+    : "";
+  let nextStyle = strippedStyle;
+  if (isFrame || forceRootIntoFlow) {
+    const declarations = parseStyleDeclarations(strippedStyle);
+    for (const [property, value] of [
+      ["position", "relative !important"],
+      ["left", "auto !important"],
+      ["top", "auto !important"],
+      ["right", "auto !important"],
+      ["bottom", "auto !important"],
+    ]) {
+      setStyleDeclaration(declarations, property, value);
+    }
+    nextStyle = serializeStyleDeclarations(declarations);
+  }
+  let nextHtml =
+    currentStyle || isFrame || forceRootIntoFlow
+      ? replaceOrInsertAttribute(html, child, "style", nextStyle)
+      : html;
 
   // Source-backed Alpine/Tailwind designs commonly express positioning as
   // utility classes instead of inline CSS. Once the layer moves into a new
@@ -3464,8 +6220,10 @@ function stripFlexItemStylingFromChild(
   // every such move — exactly the kind of source churn this substrate is
   // supposed to avoid. Only rewrite when there's actually something to strip.
   const declarations = parseStyleDeclarations(currentStyle);
-  const hasFlexItemProp = declarations.some((decl) =>
-    (FLEX_ITEM_STRIP_PROPS as readonly string[]).includes(decl.property),
+  const hasFlexItemProp = declarations.declarations.some((decl) =>
+    (FLEX_ITEM_STRIP_PROPS as readonly string[]).includes(
+      cssPropertyKey(decl.prop),
+    ),
   );
   if (!hasFlexItemProp) return html;
   return replaceOrInsertAttribute(
@@ -3477,27 +6235,68 @@ function stripFlexItemStylingFromChild(
 }
 
 /**
- * L7: sequential "Group N" naming. Counts existing layer names already
- * matching "Group" or "Group <number>" in the projection (via
+ * Pin a flow child to its measured border-box position inside a relative
+ * wrapper. Margins and inset values contributed to the measured position in
+ * the old parent, so retaining them would offset the child a second time.
+ */
+function rebaseMeasuredFlowChild(
+  html: string,
+  child: ParsedElement,
+  left: number,
+  top: number,
+): string {
+  const declarations = parseStyleDeclarations(attributeValue(child, "style"));
+  removeStyleDeclarations(declarations, MEASURED_FLOW_REBASE_STRIP_PROPS);
+  setStyleDeclaration(declarations, "position", "absolute");
+  setStyleDeclaration(declarations, "left", formatMeasuredPixel(left));
+  setStyleDeclaration(declarations, "top", formatMeasuredPixel(top));
+  return replaceOrInsertAttribute(
+    html,
+    child,
+    "style",
+    serializeStyleDeclarations(declarations),
+  );
+}
+
+/**
+ * L7: sequential "<baseName> N" naming. Counts existing layer names already
+ * matching "<baseName>" or "<baseName> <number>" in the projection (via
  * data-agent-native-layer-name / layerName) and returns the next unused
  * name in that sequence, so repeated grouping doesn't leave multiple
- * ambiguous "Group" layers.
+ * ambiguous same-named layers. Figma names a plain ⌘G group "Group" but an
+ * auto-layout wrap (Shift+A) "Frame" — same wrapper mechanics, different
+ * default name — so the base name is threaded in by the caller rather than
+ * hardcoded here.
  */
-function nextSequentialGroupName(nodes: CodeLayerNode[]): string {
-  const groupNamePattern = /^Group(?: (\d+))?$/;
+function nextSequentialWrapperName(
+  nodes: CodeLayerNode[],
+  baseName: string,
+): string {
+  const namePattern = new RegExp(`^${baseName}(?: (\\d+))?$`);
   let highestNumbered = 0;
-  let hasBareGroup = false;
+  let hasBareName = false;
   for (const node of nodes) {
-    const match = groupNamePattern.exec(node.layerName.trim());
+    const match = namePattern.exec(node.layerName.trim());
     if (!match) continue;
     if (match[1]) {
       highestNumbered = Math.max(highestNumbered, Number(match[1]));
     } else {
-      hasBareGroup = true;
+      hasBareName = true;
     }
   }
-  if (!hasBareGroup && highestNumbered === 0) return "Group";
-  return `Group ${Math.max(highestNumbered, hasBareGroup ? 1 : 0) + 1}`;
+  if (!hasBareName && highestNumbered === 0) return baseName;
+  return `${baseName} ${Math.max(highestNumbered, hasBareName ? 1 : 0) + 1}`;
+}
+
+function nextSequentialFrameName(nodes: CodeLayerNode[]): string {
+  const used = new Set(
+    nodes
+      .filter((node) => node.dataAttributes["data-an-primitive"] === "frame")
+      .map((node) => node.layerName.trim()),
+  );
+  let index = 1;
+  while (used.has(`Frame ${index}`)) index += 1;
+  return `Frame ${index}`;
 }
 
 interface AbsoluteUnionBounds {
@@ -3516,6 +6315,16 @@ interface AbsoluteUnionBounds {
  */
 function computeAbsoluteUnionBounds(
   elements: ParsedElement[],
+  /**
+   * Live-rendered width/height fallback, keyed by exact parsed element
+   * identity, for a target whose inline style carries
+   * position/left/top but omits width/height (auto-sized content, e.g. a
+   * Text-tool node sized by its text rather than an explicit box). Never
+   * overrides an explicit inline width/height — only fills the gap that
+   * would otherwise return null and leave the wrapper with no geometry at
+   * all (a frame that doesn't enclose its own content).
+   */
+  sizeHints?: ReadonlyMap<ParsedElement, WrapNodeSizeHint>,
 ): AbsoluteUnionBounds | null {
   let minLeft = Infinity;
   let minTop = Infinity;
@@ -3527,8 +6336,9 @@ function computeAbsoluteUnionBounds(
     if (style.position !== "absolute") return null;
     const left = parsePixelLength(style.left);
     const top = parsePixelLength(style.top);
-    const width = parsePixelLength(style.width);
-    const height = parsePixelLength(style.height);
+    const hint = sizeHints?.get(element);
+    const width = parsePixelLength(style.width) ?? hint?.width ?? null;
+    const height = parsePixelLength(style.height) ?? hint?.height ?? null;
     if (left === null || top === null || width === null || height === null) {
       return null;
     }
@@ -3536,6 +6346,297 @@ function computeAbsoluteUnionBounds(
     minTop = Math.min(minTop, top);
     maxRight = Math.max(maxRight, left + width);
     maxBottom = Math.max(maxBottom, top + height);
+  }
+
+  if (
+    !Number.isFinite(minLeft) ||
+    !Number.isFinite(minTop) ||
+    !Number.isFinite(maxRight) ||
+    !Number.isFinite(maxBottom)
+  ) {
+    return null;
+  }
+
+  return {
+    left: minLeft,
+    top: minTop,
+    width: maxRight - minLeft,
+    height: maxBottom - minTop,
+  };
+}
+
+interface SelectionBackgroundRectangle {
+  element: ParsedElement;
+  node: CodeLayerNode;
+  bounds: AbsoluteUnionBounds;
+  padding: { top: number; right: number; bottom: number; left: number };
+}
+
+/**
+ * A painted rectangle can be the visual background of a Shift+A selection.
+ * Figma turns that layer into the frame itself, but only when it is the
+ * bottom-most selected sibling and fully contains every other selected layer.
+ * Partial overlaps stay ordinary auto-layout children so selecting two
+ * arbitrary shapes never changes their identity or stacking semantics.
+ */
+function findSelectionBackgroundRectangle(
+  targetElements: ParsedElement[],
+  nodeByElement: ReadonlyMap<ParsedElement, CodeLayerNode>,
+  sizeHintsByElement: ReadonlyMap<ParsedElement, WrapNodeSizeHint>,
+): SelectionBackgroundRectangle | null {
+  if (targetElements.length < 2) return null;
+
+  const background = targetElements[0]!;
+  const backgroundNode = nodeByElement.get(background);
+  if (
+    !backgroundNode ||
+    background.tag !== "div" ||
+    attributeValue(background, "data-an-primitive") !== "rectangle" ||
+    background.childIndexes.length > 0 ||
+    backgroundNode.paintsOwnText ||
+    backgroundNode.componentInstance ||
+    Object.prototype.hasOwnProperty.call(
+      backgroundNode.dataAttributes,
+      "data-agent-native-component",
+    ) ||
+    Object.prototype.hasOwnProperty.call(
+      backgroundNode.dataAttributes,
+      "data-agent-native-component-id",
+    ) ||
+    Object.prototype.hasOwnProperty.call(
+      backgroundNode.dataAttributes,
+      "data-agent-native-component-ref",
+    ) ||
+    Object.prototype.hasOwnProperty.call(
+      backgroundNode.dataAttributes,
+      "data-agent-native-group-wrapper",
+    ) ||
+    Object.prototype.hasOwnProperty.call(
+      backgroundNode.dataAttributes,
+      "data-agent-native-group",
+    )
+  ) {
+    return null;
+  }
+  const backgroundStyle = parseStyle(attributeValue(background, "style"));
+  const fill =
+    backgroundStyle["background-color"] ?? backgroundStyle.background;
+  const parsedFill = fill ? parseCssColorExtended(fill) : null;
+  if (!parsedFill || parsedFill.a <= 0) return null;
+  if (backgroundStyle.transform && backgroundStyle.transform !== "none") {
+    return null;
+  }
+  if (
+    backgroundStyle.rotate &&
+    backgroundStyle.rotate !== "none" &&
+    backgroundStyle.rotate !== "0deg" &&
+    backgroundStyle.rotate !== "0"
+  ) {
+    return null;
+  }
+  if (
+    backgroundStyle.scale &&
+    backgroundStyle.scale !== "none" &&
+    backgroundStyle.scale !== "1"
+  ) {
+    return null;
+  }
+
+  const origin = {
+    left: parsePixelLength(backgroundStyle.left),
+    top: parsePixelLength(backgroundStyle.top),
+  };
+  const backgroundHint = sizeHintsByElement.get(background);
+  const left = origin.left ?? backgroundHint?.left ?? null;
+  const top = origin.top ?? backgroundHint?.top ?? null;
+  const width =
+    parsePixelLength(backgroundStyle.width) ?? backgroundHint?.width ?? null;
+  const height =
+    parsePixelLength(backgroundStyle.height) ?? backgroundHint?.height ?? null;
+  if (
+    backgroundStyle.position !== "absolute" ||
+    left === null ||
+    top === null ||
+    width === null ||
+    height === null ||
+    width <= 0 ||
+    height <= 0
+  ) {
+    return null;
+  }
+  const bounds = { left, top, width, height };
+
+  const childBounds = targetElements.slice(1).map((element) => {
+    const style = parseStyle(attributeValue(element, "style"));
+    const hint = sizeHintsByElement.get(element);
+    const childLeft = parsePixelLength(style.left) ?? hint?.left ?? null;
+    const childTop = parsePixelLength(style.top) ?? hint?.top ?? null;
+    const childWidth = parsePixelLength(style.width) ?? hint?.width ?? null;
+    const childHeight = parsePixelLength(style.height) ?? hint?.height ?? null;
+    return childLeft === null ||
+      childTop === null ||
+      childWidth === null ||
+      childHeight === null ||
+      childWidth <= 0 ||
+      childHeight <= 0
+      ? null
+      : {
+          left: childLeft,
+          top: childTop,
+          width: childWidth,
+          height: childHeight,
+        };
+  });
+  if (
+    childBounds.some(
+      (child) =>
+        child === null ||
+        child.left < bounds.left ||
+        child.top < bounds.top ||
+        child.left + child.width > bounds.left + bounds.width ||
+        child.top + child.height > bounds.top + bounds.height,
+    )
+  ) {
+    return null;
+  }
+
+  const minLeft = Math.min(...childBounds.map((child) => child!.left));
+  const minTop = Math.min(...childBounds.map((child) => child!.top));
+  const maxRight = Math.max(
+    ...childBounds.map((child) => child!.left + child!.width),
+  );
+  const maxBottom = Math.max(
+    ...childBounds.map((child) => child!.top + child!.height),
+  );
+  return {
+    element: background,
+    node: backgroundNode,
+    bounds,
+    padding: {
+      left: minLeft - bounds.left,
+      top: minTop - bounds.top,
+      right: bounds.left + bounds.width - maxRight,
+      bottom: bounds.top + bounds.height - maxBottom,
+    },
+  };
+}
+
+function promoteSelectionBackgroundRectangle(
+  html: string,
+  promotion: SelectionBackgroundRectangle,
+  targetElements: ParsedElement[],
+  wrapperNodeId: string,
+  wrapperLayerName: string,
+): string {
+  const backgroundMarkup = html.slice(
+    promotion.element.start,
+    promotion.element.end,
+  );
+  const backgroundRoot = parseHtmlElements(backgroundMarkup).find(
+    (element) => element.parentIndex === undefined,
+  );
+  if (!backgroundRoot) return html;
+
+  const centered =
+    Math.abs(promotion.padding.left - promotion.padding.right) <= 8 &&
+    Math.abs(promotion.padding.top - promotion.padding.bottom) <= 8;
+  let style = attributeValue(backgroundRoot, "style") ?? "";
+  for (const [property, value] of [
+    ["display", "flex"],
+    ["flex-direction", centered ? "row" : "column"],
+    ["gap", "10px"],
+    ["align-items", centered ? "center" : "flex-start"],
+    ["justify-content", centered ? "center" : "flex-start"],
+    ["box-sizing", "border-box"],
+    [
+      "padding",
+      `${formatMeasuredPixel(promotion.padding.top)} ${formatMeasuredPixel(promotion.padding.right)} ${formatMeasuredPixel(promotion.padding.bottom)} ${formatMeasuredPixel(promotion.padding.left)}`,
+    ],
+  ] as const) {
+    style = setStyleValue(style, property, value);
+  }
+
+  let promoted = patchElementAttributes(backgroundMarkup, [
+    {
+      element: backgroundRoot,
+      attributes: {
+        "data-agent-native-node-id": wrapperNodeId,
+        "data-agent-native-layer-name": wrapperLayerName,
+        "data-an-primitive": "frame",
+        "data-agent-native-group-wrapper": "true",
+        "data-agent-native-preserve-styles": "true",
+        style,
+      },
+    },
+  ]);
+
+  const promotedRoot = parseHtmlElements(promoted).find(
+    (element) => element.parentIndex === undefined,
+  );
+  if (!promotedRoot) return html;
+  const childFragments = targetElements.slice(1).map((element) => {
+    const fragment = html.slice(element.start, element.end);
+    const root = parseHtmlElements(fragment).find(
+      (candidate) => candidate.parentIndex === undefined,
+    );
+    return root ? stripAbsolutePositioningFromChild(fragment, root) : fragment;
+  });
+  const children = childFragments.join("");
+  if (promotedRoot.selfClosing) {
+    const opening = promoted.slice(promotedRoot.start, promotedRoot.openEnd);
+    promoted = `${opening.replace(/\/\>\s*$/, ">")}${children}</${promotedRoot.tag}>`;
+  } else {
+    promoted = `${promoted.slice(0, promotedRoot.contentStart)}${children}${promoted.slice(promotedRoot.contentEnd)}`;
+  }
+
+  const topmostStart = targetElements[targetElements.length - 1]!.start;
+  let removedBefore = 0;
+  let result = html;
+  for (const element of [...targetElements].sort(
+    (left, right) => right.start - left.start,
+  )) {
+    result = `${result.slice(0, element.start)}${result.slice(element.end)}`;
+    if (element.start < topmostStart)
+      removedBefore += element.end - element.start;
+  }
+  const insertAt = topmostStart - removedBefore;
+  return `${result.slice(0, insertAt)}${promoted}${result.slice(insertAt)}`;
+}
+
+/**
+ * Compute a measured union for targets that currently participate in their
+ * parent's flow. The wrapper stays in that flow slot, so its parent-relative
+ * origin is deliberately not written to the wrapper; only its dimensions are
+ * persisted and each direct child is rebased into that local origin.
+ */
+function computeMeasuredFlowBounds(
+  elements: ParsedElement[],
+  sizeHints?: ReadonlyMap<ParsedElement, WrapNodeSizeHint>,
+): AbsoluteUnionBounds | null {
+  let minLeft = Infinity;
+  let minTop = Infinity;
+  let maxRight = -Infinity;
+  let maxBottom = -Infinity;
+
+  for (const element of elements) {
+    if (isOutOfFlowElement(element)) return null;
+    const hint = sizeHints?.get(element);
+    if (
+      !hint ||
+      hint.outOfFlow ||
+      !Number.isFinite(hint.left) ||
+      !Number.isFinite(hint.top) ||
+      !Number.isFinite(hint.width) ||
+      !Number.isFinite(hint.height) ||
+      hint.width < 0 ||
+      hint.height < 0
+    ) {
+      return null;
+    }
+    minLeft = Math.min(minLeft, hint.left!);
+    minTop = Math.min(minTop, hint.top!);
+    maxRight = Math.max(maxRight, hint.left! + hint.width);
+    maxBottom = Math.max(maxBottom, hint.top! + hint.height);
   }
 
   if (
@@ -3591,6 +6692,7 @@ function applyWrapNodes(
   | { content: string; capability: EditCapability; wrapperNodeId: string }
   | PatchResultStatus {
   const { autoLayout = false } = intent;
+  const wrapperIsFrame = autoLayout || intent.wrapperKind === "frame";
   // A UI selection is unique, but action/tool callers and stale multi-select
   // state can repeat an id. Extracting/removing the same source span twice
   // corrupts the surrounding document and duplicates the node inside the new
@@ -3598,17 +6700,41 @@ function applyWrapNodes(
   const targetIds = Array.from(new Set(intent.targetIds));
   if (targetIds.length === 0) return "unsupported";
 
-  // Resolve all target nodes via nodeId attribute matching.
+  // Resolve selected projection identities exactly; the authored ID fallback
+  // is only for legacy callers whose ID is unique in this projection.
   const targetElements: ParsedElement[] = [];
+  const nodeByElement = new Map<ParsedElement, CodeLayerNode>();
+  const sizeHintsByElement = new Map<ParsedElement, WrapNodeSizeHint>();
+  const authoredNodeIdCounts = new Map<string, number>();
+  for (const node of build.projection.nodes) {
+    const authoredNodeId = node.dataAttributes["data-agent-native-node-id"];
+    if (authoredNodeId) {
+      authoredNodeIdCounts.set(
+        authoredNodeId,
+        (authoredNodeIdCounts.get(authoredNodeId) ?? 0) + 1,
+      );
+    }
+  }
   for (const id of targetIds) {
-    const node = build.projection.nodes.find(
-      (n) =>
-        n.dataAttributes["data-agent-native-node-id"] === id || n.id === id,
-    );
+    const node =
+      build.projection.nodes.find((candidate) => candidate.id === id) ??
+      build.projection.nodes.find(
+        (candidate) =>
+          candidate.dataAttributes["data-agent-native-node-id"] === id &&
+          authoredNodeIdCounts.get(id) === 1,
+      );
     if (!node) return "conflict";
     const el = build.elementByNodeId.get(node.id);
     if (!el) return "conflict";
     targetElements.push(el);
+    nodeByElement.set(el, node);
+    const authoredNodeId = node.dataAttributes["data-agent-native-node-id"];
+    const hint =
+      intent.sizeHints?.[node.id] ??
+      (authoredNodeId && authoredNodeIdCounts.get(authoredNodeId) === 1
+        ? intent.sizeHints?.[authoredNodeId]
+        : undefined);
+    if (hint) sizeHintsByElement.set(el, hint);
   }
 
   // All targets must share the same parent.
@@ -3619,14 +6745,65 @@ function applyWrapNodes(
   targetElements.sort((a, b) => a.start - b.start);
 
   // L6: targets no longer need to be sibling-index-CONTIGUOUS. The removal +
-  // single-reinsertion-point algorithm below already extracts every target
+  // single-reinsertion-point algorithm below extracts every target
   // (regardless of gaps) and re-inserts them together at the topmost
-  // target's position — i.e. it already "moves members adjacent to the
-  // topmost member, then wraps." A non-adjacent same-parent selection (e.g.
-  // sibling indexes 0, 2, 4) closes its own gaps naturally: the un-selected
-  // siblings that were between them (1, 3) end up adjacent to each other
-  // once the targets are pulled out, and the targets end up adjacent to each
-  // other inside the new wrapper. This matches Figma's group behavior.
+  // target's stacking position — the LAST one in source order, since later
+  // source position paints on top for plain siblings with no z-index. A
+  // non-adjacent same-parent selection (e.g. sibling indexes 0, 2, 4) closes
+  // its own gaps naturally: the un-selected siblings that were between them
+  // (1, 3) end up adjacent to each other once the targets are pulled out,
+  // and the targets end up adjacent to each other inside the new wrapper.
+  // This matches Figma's group behavior: the group lands at the z-position
+  // of its topmost selected child, not its bottommost.
+
+  // Shift+A treats a painted rectangle that contains the rest of the
+  // selection as the frame's background. Reuse that source element so the
+  // promoted frame keeps the rectangle's identity and fill. Frame selection
+  // and ordinary grouping remain on the generic wrapper path.
+  const backgroundPromotion = autoLayout
+    ? findSelectionBackgroundRectangle(
+        targetElements,
+        nodeByElement,
+        sizeHintsByElement,
+      )
+    : null;
+  if (backgroundPromotion) {
+    const usedIds = new Set(
+      build.projection.nodes.flatMap((node) => {
+        const id = node.dataAttributes["data-agent-native-node-id"];
+        return id ? [id] : [];
+      }),
+    );
+    const authoredNodeId =
+      backgroundPromotion.node.dataAttributes["data-agent-native-node-id"];
+    const wrapperNodeId =
+      authoredNodeId && authoredNodeIdCounts.get(authoredNodeId) === 1
+        ? authoredNodeId
+        : freshNodeId(usedIds, `promote:${backgroundPromotion.element.start}`);
+    const wrapperLayerName = nextSequentialFrameName(
+      build.projection.nodes.filter(
+        (node) => node.id !== backgroundPromotion.node.id,
+      ),
+    );
+    const content = promoteSelectionBackgroundRectangle(
+      html,
+      backgroundPromotion,
+      targetElements,
+      wrapperNodeId,
+      wrapperLayerName,
+    );
+    if (content !== html) {
+      return {
+        content,
+        capability: {
+          kind: "structure",
+          operations: ["moveNode"],
+          confidence: 0.92,
+        },
+        wrapperNodeId,
+      };
+    }
+  }
 
   // Collect existing node ids so we can generate a unique one.
   const usedIds = new Set(
@@ -3641,10 +6818,14 @@ function applyWrapNodes(
     `wrap:${targetElements.map((el) => el.start).join(":")}`,
   );
 
-  // L7: sequential "Group N" naming — count existing "Group"/"Group N" names
-  // already in the projection so repeated grouping doesn't produce multiple
-  // ambiguous layers all just named "Group".
-  const wrapperLayerName = nextSequentialGroupName(build.projection.nodes);
+  // L7: sequential naming — an auto-layout wrap (Shift+A) reads as a Figma
+  // "Frame", a plain wrap (⌘G) as a "Group"; count existing same-named
+  // layers already in the projection so repeated wraps don't produce
+  // multiple ambiguous layers with the same bare name.
+  const wrapperLayerName = nextSequentialWrapperName(
+    build.projection.nodes,
+    wrapperIsFrame ? "Frame" : "Group",
+  );
 
   // L7: when EVERY target is absolutely positioned with pixel left/top (and
   // ideally width/height), give the wrapper real computed geometry — the
@@ -3654,7 +6835,20 @@ function applyWrapNodes(
   // Falls back to the previous flow/auto-layout wrapper when any child isn't
   // absolutely positioned (there is no meaningful bounding box to compute
   // without a layout pass).
-  const targetGeometry = computeAbsoluteUnionBounds(targetElements);
+  const targetGeometry = computeAbsoluteUnionBounds(
+    targetElements,
+    sizeHintsByElement,
+  );
+  if (
+    !targetGeometry &&
+    targetElements.some((element) => sizeHintsByElement.get(element)?.outOfFlow)
+  ) {
+    return "unsupported";
+  }
+  const measuredFlowGeometry =
+    !autoLayout && !targetGeometry
+      ? computeMeasuredFlowBounds(targetElements, sizeHintsByElement)
+      : null;
 
   // Collect the source fragments for all targets.
   const fragments = targetElements.map((el) => {
@@ -3681,6 +6875,18 @@ function applyWrapNodes(
           -targetGeometry.top,
         );
       }
+    } else if (measuredFlowGeometry) {
+      const hint = sizeHintsByElement.get(el);
+      const fragElements = parseHtmlElements(frag);
+      const root = fragElements.find((fe) => fe.parentIndex === undefined);
+      if (hint && root) {
+        frag = rebaseMeasuredFlowChild(
+          frag,
+          root,
+          hint.left! - measuredFlowGeometry.left,
+          hint.top! - measuredFlowGeometry.top,
+        );
+      }
     }
     return frag;
   });
@@ -3698,39 +6904,48 @@ function applyWrapNodes(
       : autoLayoutStyle
     : targetGeometry
       ? `position: absolute; left: ${targetGeometry.left}px; top: ${targetGeometry.top}px; width: ${targetGeometry.width}px; height: ${targetGeometry.height}px;`
-      : null;
+      : measuredFlowGeometry
+        ? `position: relative; width: ${formatMeasuredPixel(measuredFlowGeometry.width)}; height: ${formatMeasuredPixel(measuredFlowGeometry.height)};`
+        : null;
   const wrapperStyleAttr = wrapperStyle ? ` style="${wrapperStyle}"` : "";
-  const wrapperOpen = `<div data-agent-native-node-id="${escapeHtmlAttribute(wrapperNodeId)}" data-agent-native-layer-name="${escapeHtmlAttribute(wrapperLayerName)}"${wrapperStyleAttr}>`;
+  const wrapperKindAttr = wrapperIsFrame
+    ? ' data-an-primitive="frame"'
+    : ' data-agent-native-group="true"';
+  const hasMeasuredGroupRuntime = Boolean(
+    measuredFlowGeometry && !wrapperIsFrame,
+  );
+  const measuredFlowAttr = hasMeasuredGroupRuntime
+    ? ` ${MEASURED_FLOW_GROUP_ATTR}="true"`
+    : "";
+  const wrapperOpen = `<div data-agent-native-node-id="${escapeHtmlAttribute(wrapperNodeId)}" data-agent-native-layer-name="${escapeHtmlAttribute(wrapperLayerName)}" data-agent-native-group-wrapper="true" data-agent-native-preserve-styles="true"${wrapperKindAttr}${measuredFlowAttr}${wrapperStyleAttr}>`;
   const wrapperClose = `</div>`;
   const wrapperContent = `${wrapperOpen}${fragments.join("")}${wrapperClose}`;
 
   // Build the replacement: remove all targets from html (back to front) then
-  // insert the wrapper at the first target's position.
-  // Sort by position descending to remove safely.
+  // insert the wrapper at the LAST target's position — targetElements is
+  // sorted ascending by source position, so the last entry is the topmost in
+  // stacking order. Inserting there (rather than at the first/bottommost
+  // target) is what leaves an un-selected sibling that sat between the
+  // targets (e.g. Green between Red and Blue) BELOW the new group, matching
+  // Figma. Sort by position descending to remove safely.
   const sorted = [...targetElements].sort((a, b) => b.start - a.start);
+  const lastTargetStart = targetElements[targetElements.length - 1]!.start;
 
   // Remove all targets from the html (back to front).
   let result = html;
-  let firstTargetStart = targetElements[0]!.start;
-
   for (const el of sorted) {
-    const start = el.start;
-    const end = el.end;
-    if (start < firstTargetStart) {
-      firstTargetStart = start;
-    }
-    result = `${result.slice(0, start)}${result.slice(end)}`;
+    result = `${result.slice(0, el.start)}${result.slice(el.end)}`;
   }
 
-  // Re-compute firstTargetStart relative to the modified string: all removals
-  // before it shift it. Count how many bytes were removed before firstTargetStart.
+  // Re-compute lastTargetStart relative to the modified string: every other
+  // target removed before it shifts it left by its own length.
   let bytesRemovedBefore = 0;
   for (const el of targetElements) {
-    if (el.start < targetElements[0]!.start) {
+    if (el.start < lastTargetStart) {
       bytesRemovedBefore += el.end - el.start;
     }
   }
-  const insertAt = firstTargetStart - bytesRemovedBefore;
+  const insertAt = lastTargetStart - bytesRemovedBefore;
 
   result = `${result.slice(0, insertAt)}${wrapperContent}${result.slice(insertAt)}`;
 
@@ -3745,6 +6960,398 @@ function applyWrapNodes(
   };
 }
 
+interface BooleanOperandGeometry {
+  element: ParsedElement;
+  sourceNode: CodeLayerNode;
+  kind: "rectangle" | "ellipse";
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  radiusX: number;
+  radiusY: number;
+  radiusCss: string;
+  fill: string;
+  stroke: string;
+  strokeWidth: number;
+  opacity: number;
+}
+
+type BooleanSubtractEditResult =
+  | {
+      content: string;
+      capability: EditCapability;
+      wrapperNodeId: string;
+    }
+  | { status: "unsupported" | "conflict"; message: string };
+
+function booleanShapeRadius(
+  value: string | undefined,
+  width: number,
+  height: number,
+): { x: number; y: number } | null {
+  if (!value || value === "0" || value === "0px") return { x: 0, y: 0 };
+  const radii = value.trim().split("/");
+  if (radii.length > 2) return null;
+  const [horizontal, vertical] = radii.map((part) => {
+    const parts = part.trim().split(/\s+/);
+    return parts.length === 1 ? parts[0] : undefined;
+  });
+  if (!horizontal || (value.includes("/") && !vertical)) return null;
+  const resolve = (part: string, dimension: number) => {
+    if (part.endsWith("%")) {
+      const percentage = Number(part.slice(0, -1));
+      return Number.isFinite(percentage) && percentage >= 0
+        ? (dimension * percentage) / 100
+        : null;
+    }
+    return parsePixelLength(part);
+  };
+  const x = resolve(horizontal, width);
+  const y = resolve(vertical ?? horizontal, height);
+  if (x === null || y === null || x < 0 || y < 0) return null;
+  return { x: Math.min(x, width / 2), y: Math.min(y, height / 2) };
+}
+
+function borderPaint(style: Record<string, string>): {
+  color: string;
+  width: number;
+} | null {
+  const shorthand = style.border?.trim();
+  if (shorthand && shorthand !== "none") {
+    const match = /^([\d.]+)px\s+solid\s+(.+)$/i.exec(shorthand);
+    if (!match) return null;
+    const width = Number(match[1]);
+    const color = match[2]!.trim();
+    if (!Number.isFinite(width) || width < 0 || !parseCssColorExtended(color)) {
+      return null;
+    }
+    return { color, width };
+  }
+  const widthValue = style["border-width"] ?? "0px";
+  const borderStyle = style["border-style"] ?? "none";
+  if (borderStyle === "none" || widthValue === "0" || widthValue === "0px") {
+    return { color: "none", width: 0 };
+  }
+  const width = parsePixelLength(widthValue);
+  const color = style["border-color"];
+  if (
+    width === null ||
+    width < 0 ||
+    borderStyle !== "solid" ||
+    !color ||
+    !parseCssColorExtended(color)
+  ) {
+    return null;
+  }
+  return { color, width };
+}
+
+function booleanOperandGeometry(
+  html: string,
+  build: ProjectionBuild,
+  targetIds: readonly string[],
+):
+  | { operands: BooleanOperandGeometry[]; parentIndex: number }
+  | { status: "unsupported" | "conflict"; message: string } {
+  const uniqueIds = Array.from(new Set(targetIds));
+  if (uniqueIds.length < 2) {
+    return {
+      status: "unsupported",
+      message: "Subtract needs at least two selected shapes.",
+    };
+  }
+
+  const operands: BooleanOperandGeometry[] = [];
+  for (const id of uniqueIds) {
+    const sourceNode = build.projection.nodes.find(
+      (node) =>
+        node.dataAttributes["data-agent-native-node-id"] === id ||
+        node.id === id,
+    );
+    const element = sourceNode && build.elementByNodeId.get(sourceNode.id);
+    if (!sourceNode || !element) {
+      return {
+        status: "conflict",
+        message: "A selected shape could not be resolved in the source.",
+      };
+    }
+    const primitiveKind = sourceNode.dataAttributes["data-an-primitive"];
+    const shapeKind =
+      primitiveKind === "ellipse" ||
+      primitiveKind === "circle" ||
+      primitiveKind === "oval"
+        ? "ellipse"
+        : primitiveKind === "rectangle" || primitiveKind === "rect"
+          ? "rectangle"
+          : null;
+    const style = parseStyle(attributeValue(element, "style"));
+    const fill = style["background-color"] ?? style.background;
+    const left = parsePixelLength(style.left);
+    const top = parsePixelLength(style.top);
+    const width = parsePixelLength(style.width);
+    const height = parsePixelLength(style.height);
+    const radius = booleanShapeRadius(
+      style["border-radius"],
+      width ?? 0,
+      height ?? 0,
+    );
+    const border = borderPaint(style);
+    const opacity = style.opacity === undefined ? 1 : Number(style.opacity);
+    const allowedProperties = new Set([
+      "position",
+      "left",
+      "top",
+      "width",
+      "height",
+      "background",
+      "background-color",
+      "border",
+      "border-width",
+      "border-style",
+      "border-color",
+      "border-radius",
+      "background-image",
+      "opacity",
+      "transform",
+    ]);
+    const unsupportedStyle = Object.keys(style).some(
+      (property) =>
+        !allowedProperties.has(property) ||
+        (property === "transform" && style[property] !== "none"),
+    );
+    if (
+      !shapeKind ||
+      element.tag !== "div" ||
+      element.childIndexes.length > 0 ||
+      html.slice(element.contentStart, element.contentEnd).trim() ||
+      sourceNode.classes.length > 0 ||
+      Boolean(attributeValue(element, "id")) ||
+      style.position !== "absolute" ||
+      left === null ||
+      top === null ||
+      width === null ||
+      height === null ||
+      width <= 0 ||
+      height <= 0 ||
+      !fill ||
+      !parseCssColorExtended(fill) ||
+      (style["background-image"] && style["background-image"] !== "none") ||
+      unsupportedStyle ||
+      !radius ||
+      !border ||
+      !Number.isFinite(opacity) ||
+      opacity < 0 ||
+      opacity > 1 ||
+      (style["z-index"] !== undefined && style["z-index"] !== "auto")
+    ) {
+      return {
+        status: "unsupported",
+        message:
+          "Subtract supports positioned rectangle and ellipse layers with a solid fill and no children.",
+      };
+    }
+
+    if (
+      element.attributes.some(
+        (attribute) =>
+          attribute.lowerName.startsWith("on") ||
+          ["class", "id"].includes(attribute.lowerName) ||
+          (!attribute.lowerName.startsWith("data-") &&
+            !attribute.lowerName.startsWith("aria-") &&
+            attribute.lowerName !== "style" &&
+            attribute.lowerName !== "title" &&
+            attribute.lowerName !== "role"),
+      )
+    ) {
+      return {
+        status: "unsupported",
+        message:
+          "Subtract cannot preserve custom markup on these shape layers.",
+      };
+    }
+
+    operands.push({
+      element,
+      sourceNode,
+      kind: shapeKind,
+      left,
+      top,
+      width,
+      height,
+      radiusX: shapeKind === "ellipse" ? width / 2 : radius.x,
+      radiusY: shapeKind === "ellipse" ? height / 2 : radius.y,
+      radiusCss: style["border-radius"] ?? "0px",
+      fill,
+      stroke: border.color,
+      strokeWidth: border.width,
+      opacity,
+    });
+  }
+
+  const parentIndexes = new Set(
+    operands.map(({ element }) => element.parentIndex),
+  );
+  if (
+    parentIndexes.size !== 1 ||
+    operands.some(({ element }) => element.parentIndex === undefined)
+  ) {
+    return {
+      status: "unsupported",
+      message: "Subtract requires shapes with the same parent.",
+    };
+  }
+  operands.sort((a, b) => a.element.start - b.element.start);
+  const parentIndex = operands[0]!.element.parentIndex!;
+  const parentElement = build.elements[parentIndex];
+  if (!parentElement) {
+    return {
+      status: "conflict",
+      message: "The selected shapes no longer share a source parent.",
+    };
+  }
+  const siblingIndexes = parentElement.childIndexes;
+  const firstSiblingIndex = siblingIndexes.indexOf(operands[0]!.element.index);
+  if (
+    firstSiblingIndex < 0 ||
+    operands.some(
+      ({ element }, offset) =>
+        siblingIndexes[firstSiblingIndex + offset] !== element.index,
+    )
+  ) {
+    return {
+      status: "unsupported",
+      message: "Subtract requires consecutive sibling shape layers.",
+    };
+  }
+  return { operands, parentIndex };
+}
+
+function applyBooleanSubtract(
+  html: string,
+  build: ProjectionBuild,
+  intent: BooleanSubtractEditIntent,
+): BooleanSubtractEditResult {
+  const validation = booleanOperandGeometry(html, build, intent.targetIds);
+  if ("status" in validation) return validation;
+  const { operands } = validation;
+  const minLeft = Math.min(...operands.map((operand) => operand.left));
+  const minTop = Math.min(...operands.map((operand) => operand.top));
+  const maxRight = Math.max(
+    ...operands.map((operand) => operand.left + operand.width),
+  );
+  const maxBottom = Math.max(
+    ...operands.map((operand) => operand.top + operand.height),
+  );
+  const width = maxRight - minLeft;
+  const height = maxBottom - minTop;
+  const usedIds = new Set<string>();
+  for (const node of build.projection.nodes) {
+    for (const id of [
+      node.dataAttributes["data-agent-native-node-id"],
+      typeof node.attributes.id === "string" ? node.attributes.id : undefined,
+    ]) {
+      if (id) usedIds.add(id);
+    }
+  }
+  const wrapperNodeId = freshNodeId(
+    usedIds,
+    `boolean-subtract:${operands.map((operand) => operand.element.start).join(":")}`,
+  );
+  const geometryIds = operands.map((operand) =>
+    freshNodeId(usedIds, `boolean-geometry:${operand.sourceNode.id}`),
+  );
+  const maskId = freshNodeId(usedIds, `boolean-mask:${wrapperNodeId}`);
+  const operandFragments = operands.map((operand, index) => {
+    const nodeId =
+      operand.sourceNode.dataAttributes["data-agent-native-node-id"] ??
+      operand.sourceNode.id;
+    const name =
+      resolveLayerNameAttribute((attribute) =>
+        attributeValue(operand.element, attribute),
+      )?.value ?? operand.sourceNode.layerName;
+    const localLeft = operand.left - minLeft;
+    const localTop = operand.top - minTop;
+    const strokeInset = operand.strokeWidth / 2;
+    const rectWidth = Math.max(0, operand.width - operand.strokeWidth);
+    const rectHeight = Math.max(0, operand.height - operand.strokeWidth);
+    const radiusX =
+      operand.kind === "ellipse"
+        ? rectWidth / 2
+        : Math.max(0, operand.radiusX - strokeInset);
+    const radiusY =
+      operand.kind === "ellipse"
+        ? rectHeight / 2
+        : Math.max(0, operand.radiusY - strokeInset);
+    const resultRadiusStyle =
+      index === 0
+        ? `rx:var(--boolean-result-radius-x,${radiusX}px);ry:var(--boolean-result-radius-y,${radiusY}px);`
+        : "";
+    const attributes = operand.element.attributes
+      .filter((attribute) => {
+        const name = attribute.lowerName;
+        return (
+          name.startsWith("data-") ||
+          name.startsWith("aria-") ||
+          name === "title" ||
+          name === "role"
+        );
+      })
+      .map((attribute) =>
+        attribute.value === true
+          ? ` ${attribute.name}`
+          : ` ${attribute.name}="${escapeHtmlAttribute(String(attribute.value))}"`,
+      )
+      .filter(
+        (attribute) =>
+          !/^ data-agent-native-(?:node-id|layer-name)(?:=|$)/i.test(
+            attribute,
+          ) &&
+          !/^ data-an-primitive(?:=|$)/i.test(attribute) &&
+          !/^ data-an-boolean-(?:operand|shape)(?:=|$)/i.test(attribute),
+      )
+      .join("");
+    const operandTag = index === 0 ? "base" : "subtract";
+    return `<svg id="${escapeHtmlAttribute(geometryIds[index]!)}" data-agent-native-node-id="${escapeHtmlAttribute(nodeId)}" data-agent-native-layer-name="${escapeHtmlAttribute(name)}" data-an-primitive="boolean-operand" data-an-boolean-shape="${operand.kind}" data-an-boolean-operand="${operandTag}"${attributes} x="${localLeft}" y="${localTop}" width="${operand.width}" height="${operand.height}" viewBox="0 0 ${operand.width} ${operand.height}" preserveAspectRatio="none" style="position:absolute;left:${localLeft}px;top:${localTop}px;width:${operand.width}px;height:${operand.height}px;border-radius:${escapeHtmlAttribute(operand.radiusCss)};--operand-fill:${escapeHtmlAttribute(operand.fill)};--operand-fill-opacity:1;--operand-opacity:${operand.opacity};--operand-stroke:${escapeHtmlAttribute(operand.stroke)};--operand-stroke-width:${operand.strokeWidth};--operand-stroke-opacity:1"><rect x="${strokeInset}" y="${strokeInset}" width="${rectWidth}" height="${rectHeight}" rx="${radiusX}" ry="${radiusY}" style="${resultRadiusStyle}fill:var(--boolean-mask-fill,var(--operand-fill));fill-opacity:var(--boolean-mask-fill-opacity,var(--operand-fill-opacity));opacity:var(--boolean-mask-opacity,var(--operand-opacity));stroke:var(--boolean-mask-stroke,var(--operand-stroke));stroke-width:var(--boolean-mask-stroke-width,var(--operand-stroke-width));stroke-opacity:var(--boolean-mask-stroke-opacity,var(--operand-stroke-opacity))"/></svg>`;
+  });
+  const cutterUses = geometryIds
+    .slice(1)
+    .map(
+      (geometryId) =>
+        `<use href="#${escapeHtmlAttribute(geometryId)}" data-an-boolean-cutter="true" style="--boolean-mask-fill:black;--boolean-mask-fill-opacity:1;--boolean-mask-opacity:1;--boolean-mask-stroke:none;--boolean-mask-stroke-width:0;--boolean-mask-stroke-opacity:1;fill:black;fill-opacity:1;opacity:1;stroke:none;stroke-width:0"/>`,
+    )
+    .join("");
+  const cutterStrokeUses = geometryIds
+    .slice(1)
+    .map(
+      (geometryId, cutterOffset) =>
+        `<use href="#${escapeHtmlAttribute(geometryId)}" data-an-boolean-cutter-stroke="true" mask="url(#${escapeHtmlAttribute(maskId)})" style="--boolean-mask-fill:none;--boolean-mask-fill-opacity:0;--boolean-mask-opacity:1;--boolean-mask-stroke:${escapeHtmlAttribute(operands[0]!.stroke)};--boolean-mask-stroke-width:${operands[0]!.strokeWidth}px;--boolean-mask-stroke-opacity:1;fill:none;fill-opacity:0;opacity:1;stroke:var(--boolean-mask-stroke);stroke-width:calc(var(--boolean-mask-stroke-width) * 2);stroke-opacity:var(--boolean-mask-stroke-opacity)"/>`,
+    )
+    .join("");
+  const baseRadius = `--boolean-result-radius-x:${operands[0]!.radiusX}px;--boolean-result-radius-y:${operands[0]!.radiusY}px`;
+  const resultUseStyle = `--boolean-mask-opacity:1;--boolean-mask-fill:${escapeHtmlAttribute(operands[0]!.fill)};--boolean-mask-fill-opacity:1;--boolean-mask-stroke:${escapeHtmlAttribute(operands[0]!.stroke)};--boolean-mask-stroke-width:${operands[0]!.strokeWidth}px;--boolean-mask-stroke-opacity:1;${baseRadius};fill:var(--boolean-mask-fill);fill-opacity:var(--boolean-mask-fill-opacity);opacity:1;stroke:var(--boolean-mask-stroke);stroke-width:calc(var(--boolean-mask-stroke-width) * 2);stroke-opacity:var(--boolean-mask-stroke-opacity)`;
+  const whiteMaskUseStyle = `--boolean-mask-fill:white;--boolean-mask-fill-opacity:1;--boolean-mask-opacity:1;--boolean-mask-stroke:none;--boolean-mask-stroke-width:0;--boolean-mask-stroke-opacity:1;${baseRadius};fill:white;fill-opacity:1;opacity:1;stroke:none;stroke-width:0`;
+  const rootStyle = `position:absolute;left:${minLeft}px;top:${minTop}px;width:${width}px;height:${height}px;overflow:visible;opacity:${operands[0]!.opacity};--boolean-mask-opacity:1;--boolean-mask-fill:${escapeHtmlAttribute(operands[0]!.fill)};--boolean-mask-fill-opacity:1;--boolean-mask-stroke:${escapeHtmlAttribute(operands[0]!.stroke)};--boolean-mask-stroke-width:${operands[0]!.strokeWidth}px;--boolean-mask-stroke-opacity:1`;
+  const wrapper = `<svg data-agent-native-node-id="${escapeHtmlAttribute(wrapperNodeId)}" data-agent-native-layer-name="Subtract" data-an-primitive="boolean" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" style="${rootStyle}"><defs><mask id="${escapeHtmlAttribute(maskId)}" maskUnits="objectBoundingBox" maskContentUnits="userSpaceOnUse" x="-10%" y="-10%" width="120%" height="120%"><use href="#${escapeHtmlAttribute(geometryIds[0]!)}" style="${whiteMaskUseStyle}"/>${cutterUses}</mask>${operandFragments.join("")}</defs><use data-an-boolean-result="true" href="#${escapeHtmlAttribute(geometryIds[0]!)}" mask="url(#${escapeHtmlAttribute(maskId)})" style="${resultUseStyle}"/>${cutterStrokeUses}</svg>`;
+
+  const targets = operands.map((operand) => operand.element);
+  const insertAt = targets[0]!.start;
+  let result = html;
+  for (const target of [...targets].sort((a, b) => b.start - a.start)) {
+    result = `${result.slice(0, target.start)}${result.slice(target.end)}`;
+  }
+  result = `${result.slice(0, insertAt)}${wrapper}${result.slice(insertAt)}`;
+  return {
+    content: result,
+    capability: {
+      kind: "structure",
+      operations: ["moveNode"],
+      confidence: 0.9,
+    },
+    wrapperNodeId,
+  };
+}
+
 /** Parse a CSS length like "12px" into a finite pixel number, else null. */
 function parsePixelLength(value: string | undefined): number | null {
   if (!value) return null;
@@ -3752,6 +7359,10 @@ function parsePixelLength(value: string | undefined): number | null {
   if (!match) return null;
   const parsed = Number(match[1]);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function formatMeasuredPixel(value: number): string {
+  return `${Number(value.toFixed(4))}px`;
 }
 
 /**
@@ -3788,6 +7399,463 @@ function rebaseChildOffset(
   }
   if (nextStyle === (currentStyle ?? "")) return html;
   return replaceOrInsertAttribute(html, child, "style", nextStyle);
+}
+
+interface BooleanLinearTransform {
+  a: number;
+  b: number;
+  c: number;
+  d: number;
+}
+
+const IDENTITY_BOOLEAN_TRANSFORM: BooleanLinearTransform = {
+  a: 1,
+  b: 0,
+  c: 0,
+  d: 1,
+};
+
+function multiplyBooleanTransforms(
+  left: BooleanLinearTransform,
+  right: BooleanLinearTransform,
+): BooleanLinearTransform {
+  return {
+    a: left.a * right.a + left.c * right.b,
+    b: left.b * right.a + left.d * right.b,
+    c: left.a * right.c + left.c * right.d,
+    d: left.b * right.c + left.d * right.d,
+  };
+}
+
+function parseBooleanAngle(value: string): number | null {
+  const match = /^([+-]?[\d.]+(?:e[+-]?\d+)?)(deg|rad|turn|grad)$/i.exec(
+    value.trim(),
+  );
+  if (!match) return null;
+  const amount = Number(match[1]);
+  if (!Number.isFinite(amount)) return null;
+  const unit = match[2]!.toLowerCase();
+  const degrees =
+    unit === "rad"
+      ? amount * (180 / Math.PI)
+      : unit === "turn"
+        ? amount * 360
+        : unit === "grad"
+          ? amount * 0.9
+          : amount;
+  return (degrees * Math.PI) / 180;
+}
+
+function parseBooleanScale(value: string): [number, number] | null {
+  if (value.trim() === "none") return [1, 1];
+  const values = value.trim().split(/\s+/);
+  if (values.length < 1 || values.length > 2) return null;
+  const x = Number(values[0]);
+  const y = values.length === 2 ? Number(values[1]) : x;
+  return Number.isFinite(x) && Number.isFinite(y) ? [x, y] : null;
+}
+
+function booleanRotationTransform(radians: number): BooleanLinearTransform {
+  const cosine = Math.cos(radians);
+  const sine = Math.sin(radians);
+  return { a: cosine, b: sine, c: -sine, d: cosine };
+}
+
+function parseBooleanTransformList(
+  value: string | undefined,
+): BooleanLinearTransform | null {
+  if (!value || value.trim() === "none") return IDENTITY_BOOLEAN_TRANSFORM;
+  const functions = [...value.matchAll(/([a-z][a-z0-9]*)\(([^()]*)\)/gi)];
+  if (functions.length === 0) return null;
+  const remainder = value.replace(/([a-z][a-z0-9]*)\(([^()]*)\)/gi, "");
+  if (remainder.trim()) return null;
+
+  let result = IDENTITY_BOOLEAN_TRANSFORM;
+  for (const match of functions) {
+    const name = match[1]!.toLowerCase();
+    const args = match[2]!.trim();
+    let next: BooleanLinearTransform;
+    if (name === "rotate" || name === "rotatez") {
+      const angle = parseBooleanAngle(args);
+      if (angle === null) return null;
+      next = booleanRotationTransform(angle);
+    } else if (name === "scale") {
+      const scale = parseBooleanScale(args);
+      if (!scale) return null;
+      next = { a: scale[0], b: 0, c: 0, d: scale[1] };
+    } else if (name === "scalex" || name === "scaley") {
+      const amount = Number(args);
+      if (!Number.isFinite(amount)) return null;
+      next =
+        name === "scalex"
+          ? { a: amount, b: 0, c: 0, d: 1 }
+          : { a: 1, b: 0, c: 0, d: amount };
+    } else if (
+      name === "translate" ||
+      name === "translatex" ||
+      name === "translatey"
+    ) {
+      // Translation is copied to each released shape. Percentages would
+      // resolve against each operand's box instead of the Boolean result.
+      if (args.includes("%") || /calc\s*\(/i.test(args)) return null;
+      if (
+        !/^[+-]?(?:[\d.]+(?:e[+-]?\d+)?(?:px)?)(?:\s+[+-]?(?:[\d.]+(?:e[+-]?\d+)?(?:px)?))?$/i.test(
+          args,
+        )
+      ) {
+        return null;
+      }
+      next = IDENTITY_BOOLEAN_TRANSFORM;
+    } else {
+      return null;
+    }
+    result = multiplyBooleanTransforms(result, next);
+  }
+  return result;
+}
+
+function booleanTransformOrigin(
+  value: string | undefined,
+  width: number,
+  height: number,
+): { x: number; y: number } | null {
+  const parts = (value ?? "50% 50%").trim().split(/\s+/);
+  if (parts.length < 1 || parts.length > 3) return null;
+  const resolve = (
+    token: string | undefined,
+    extent: number,
+    start: "left" | "top",
+    end: "right" | "bottom",
+  ): number | null => {
+    if (!token || token === "center") return extent / 2;
+    if (token === start) return 0;
+    if (token === end) return extent;
+    if (token.endsWith("%")) {
+      const amount = Number(token.slice(0, -1));
+      return Number.isFinite(amount) ? (extent * amount) / 100 : null;
+    }
+    if (token.endsWith("px")) return parsePixelLength(token);
+    if (/^-?(?:\d+\.?\d*|\.\d+)$/.test(token) && Number(token) === 0) {
+      return 0;
+    }
+    return null;
+  };
+  if (parts.length === 3 && !/^0(?:px)?$/.test(parts[2]!)) return null;
+  const x = resolve(parts[0], width, "left", "right");
+  const y = resolve(parts[1], height, "top", "bottom");
+  return x === null || y === null ? null : { x, y };
+}
+
+function removeElementAttributes(
+  html: string,
+  element: ParsedElement,
+  names: readonly string[],
+): string {
+  const remove = new Set(names.map((name) => name.toLowerCase()));
+  const attributes = element.attributes
+    .filter((attribute) => remove.has(attribute.lowerName))
+    .sort((left, right) => right.start - left.start);
+  let result = html;
+  for (const attribute of attributes) {
+    result = `${result.slice(0, attribute.start)}${result.slice(attribute.end)}`;
+  }
+  return result;
+}
+
+function releaseBooleanRoot(
+  html: string,
+  element: ParsedElement,
+): { content: string; capability: EditCapability } | PatchResultStatus {
+  const rootStyle = parseStyle(attributeValue(element, "style"));
+  const viewBox = (attributeValue(element, "viewBox") ?? "")
+    .trim()
+    .split(/\s+/)
+    .map(Number);
+  const rootWidth =
+    parsePixelLength(rootStyle.width) ??
+    Number(attributeValue(element, "width"));
+  const rootHeight =
+    parsePixelLength(rootStyle.height) ??
+    Number(attributeValue(element, "height"));
+  const rootLeft = parsePixelLength(rootStyle.left);
+  const rootTop = parsePixelLength(rootStyle.top);
+  if (
+    element.tag !== "svg" ||
+    rootStyle.position !== "absolute" ||
+    rootLeft === null ||
+    rootTop === null ||
+    !Number.isFinite(rootWidth) ||
+    !Number.isFinite(rootHeight) ||
+    rootWidth <= 0 ||
+    rootHeight <= 0 ||
+    viewBox.length !== 4 ||
+    viewBox[0] !== 0 ||
+    viewBox[1] !== 0 ||
+    viewBox[2] !== rootWidth ||
+    viewBox[3] !== rootHeight
+  ) {
+    return "unsupported";
+  }
+  const transform = parseBooleanTransformList(rootStyle.transform);
+  const independentRotation =
+    !rootStyle.rotate || rootStyle.rotate === "none"
+      ? 0
+      : parseBooleanAngle(rootStyle.rotate);
+  const scale = parseBooleanScale(rootStyle.scale ?? "none");
+  const origin = booleanTransformOrigin(
+    rootStyle["transform-origin"],
+    rootWidth,
+    rootHeight,
+  );
+  const translate = rootStyle.translate;
+  if (
+    !transform ||
+    independentRotation === null ||
+    !scale ||
+    !origin ||
+    (translate && translate !== "none" && translate.includes("%"))
+  ) {
+    return "unsupported";
+  }
+  const combined = multiplyBooleanTransforms(
+    multiplyBooleanTransforms(booleanRotationTransform(independentRotation), {
+      a: scale[0],
+      b: 0,
+      c: 0,
+      d: scale[1],
+    }),
+    transform,
+  );
+
+  const innerContent = html.slice(element.contentStart, element.contentEnd);
+  const innerElements = parseHtmlElements(innerContent);
+  const operands = innerElements.filter(booleanOperandFor);
+  const baseIndex = operands.findIndex(
+    (operand) => attributeValue(operand, "data-an-boolean-operand") === "base",
+  );
+  const cutterCount = operands.filter(
+    (operand) =>
+      attributeValue(operand, "data-an-boolean-operand") === "subtract",
+  ).length;
+  const baseShape =
+    baseIndex === -1
+      ? undefined
+      : attributeValue(operands[baseIndex]!, "data-an-boolean-shape");
+  if (
+    baseIndex === -1 ||
+    cutterCount === 0 ||
+    (baseShape !== "rectangle" && baseShape !== "ellipse")
+  ) {
+    return "unsupported";
+  }
+
+  const groupRadius = rootStyle["border-radius"]
+    ? booleanShapeRadius(rootStyle["border-radius"], rootWidth, rootHeight)
+    : null;
+  if (rootStyle["border-radius"] && !groupRadius) return "unsupported";
+
+  const releasedOperands = operands.map((operand) => {
+    const shape = attributeValue(operand, "data-an-boolean-shape");
+    if (shape !== "rectangle" && shape !== "ellipse") return null;
+    const rect = operand.childIndexes
+      .map((index) => innerElements[index])
+      .find((child) => child?.tag === "rect");
+    if (!rect || operand.childIndexes.length !== 1) return null;
+    const operandStyle = parseStyle(attributeValue(operand, "style"));
+    const localLeft = parsePixelLength(operandStyle.left);
+    const localTop = parsePixelLength(operandStyle.top);
+    const width = Number(attributeValue(operand, "width"));
+    const height = Number(attributeValue(operand, "height"));
+    const operandTransform = operandStyle.transform;
+    if (
+      operandStyle.position !== "absolute" ||
+      localLeft === null ||
+      localTop === null ||
+      !Number.isFinite(width) ||
+      !Number.isFinite(height) ||
+      width <= 0 ||
+      height <= 0 ||
+      (operandTransform && operandTransform !== "none") ||
+      (operandStyle.rotate && operandStyle.rotate !== "none") ||
+      (operandStyle.scale && operandStyle.scale !== "none") ||
+      (operandStyle.translate && operandStyle.translate !== "none")
+    ) {
+      return null;
+    }
+    const centerX = localLeft + width / 2;
+    const centerY = localTop + height / 2;
+    const transformedCenterX =
+      origin.x +
+      combined.a * (centerX - origin.x) +
+      combined.c * (centerY - origin.y);
+    const transformedCenterY =
+      origin.y +
+      combined.b * (centerX - origin.x) +
+      combined.d * (centerY - origin.y);
+    const fill = operandStyle["--operand-fill"];
+    const stroke = operandStyle["--operand-stroke"];
+    const fillOpacity = operandStyle["--operand-fill-opacity"] ?? "1";
+    const strokeOpacity = operandStyle["--operand-stroke-opacity"] ?? "1";
+    const ownOpacity = Number(operandStyle["--operand-opacity"] ?? "1");
+    const strokeWidth = operandStyle["--operand-stroke-width"] ?? "0";
+    const strokeWidthNumber =
+      parsePixelLength(strokeWidth) ?? Number(strokeWidth);
+    if (
+      !fill ||
+      !stroke ||
+      !Number.isFinite(ownOpacity) ||
+      ownOpacity < 0 ||
+      ownOpacity > 1 ||
+      !Number.isFinite(Number(fillOpacity)) ||
+      !Number.isFinite(Number(strokeOpacity)) ||
+      !Number.isFinite(strokeWidthNumber) ||
+      strokeWidthNumber < 0
+    ) {
+      return null;
+    }
+
+    let released = innerContent.slice(operand.start, operand.end);
+    let localElements = parseHtmlElements(released);
+    const localOperand = localElements[0];
+    const localRect = localOperand?.childIndexes
+      .map((index) => localElements[index])
+      .find((child) => child?.tag === "rect");
+    if (!localOperand || !localRect) return null;
+    let nextOperandStyle = stripStyleProperties(
+      attributeValue(localOperand, "style"),
+      [
+        "--operand-fill",
+        "--operand-fill-opacity",
+        "--operand-opacity",
+        "--operand-stroke",
+        "--operand-stroke-width",
+        "--operand-stroke-opacity",
+        "border-radius",
+      ],
+    );
+    for (const property of [
+      "transform",
+      "rotate",
+      "scale",
+      "translate",
+    ] as const) {
+      const value = rootStyle[property];
+      if (value && value !== "none") {
+        nextOperandStyle = setStyleValue(nextOperandStyle, property, value);
+      }
+    }
+    nextOperandStyle = setStyleValue(nextOperandStyle, "position", "absolute");
+    nextOperandStyle = setStyleValue(
+      nextOperandStyle,
+      "left",
+      `${rootLeft + transformedCenterX - width / 2}px`,
+    );
+    nextOperandStyle = setStyleValue(
+      nextOperandStyle,
+      "top",
+      `${rootTop + transformedCenterY - height / 2}px`,
+    );
+    nextOperandStyle = setStyleValue(nextOperandStyle, "width", `${width}px`);
+    nextOperandStyle = setStyleValue(nextOperandStyle, "height", `${height}px`);
+    nextOperandStyle = setStyleValue(
+      nextOperandStyle,
+      "transform-origin",
+      "center center",
+    );
+    nextOperandStyle = setStyleValue(
+      nextOperandStyle,
+      "opacity",
+      String(ownOpacity),
+    );
+
+    let nextRectStyle = stripStyleProperties(
+      attributeValue(localRect, "style"),
+      [
+        "rx",
+        "ry",
+        "fill",
+        "fill-opacity",
+        "opacity",
+        "stroke",
+        "stroke-width",
+        "stroke-opacity",
+      ],
+    );
+    nextRectStyle = setStyleValue(nextRectStyle, "fill", fill);
+    nextRectStyle = setStyleValue(nextRectStyle, "fill-opacity", fillOpacity);
+    nextRectStyle = setStyleValue(nextRectStyle, "stroke", stroke);
+    nextRectStyle = setStyleValue(
+      nextRectStyle,
+      "stroke-width",
+      `${strokeWidthNumber}px`,
+    );
+    nextRectStyle = setStyleValue(
+      nextRectStyle,
+      "stroke-opacity",
+      strokeOpacity,
+    );
+    const rectAttributes: Record<string, string> = {};
+    if (
+      attributeValue(operand, "data-an-boolean-operand") === "base" &&
+      groupRadius
+    ) {
+      rectAttributes.rx = String(groupRadius.x);
+      rectAttributes.ry = String(groupRadius.y);
+      nextRectStyle = setStyleValue(
+        nextRectStyle,
+        "rx" as VisualStyleProperty,
+        `${groupRadius.x}px`,
+      );
+      nextRectStyle = setStyleValue(
+        nextRectStyle,
+        "ry" as VisualStyleProperty,
+        `${groupRadius.y}px`,
+      );
+      nextOperandStyle = setStyleValue(
+        nextOperandStyle,
+        "border-radius",
+        groupRadius.x === groupRadius.y
+          ? `${groupRadius.x}px`
+          : `${groupRadius.x}px / ${groupRadius.y}px`,
+      );
+    }
+    rectAttributes.style = nextRectStyle;
+
+    released = patchElementAttributes(released, [
+      {
+        element: localOperand,
+        attributes: {
+          "data-an-primitive": shape,
+          x: "0",
+          y: "0",
+          style: nextOperandStyle,
+        },
+      },
+      { element: localRect, attributes: rectAttributes },
+    ]);
+    localElements = parseHtmlElements(released);
+    const patchedOperand = localElements[0];
+    if (!patchedOperand) return null;
+    released = removeElementAttributes(released, patchedOperand, [
+      "data-an-boolean-shape",
+      "data-an-boolean-operand",
+    ]);
+    return released;
+  });
+  const releasedMarkup = releasedOperands.filter(
+    (operand): operand is string => operand !== null,
+  );
+  if (releasedMarkup.length !== operands.length) return "unsupported";
+  // Keep the operands in their original base-then-cutter order. The complete
+  // defs/mask/use scaffold is removed with the Boolean root.
+  return {
+    content: `${html.slice(0, element.start)}${releasedMarkup.join("")}${html.slice(element.end)}`,
+    capability: {
+      kind: "structure",
+      operations: ["moveNode"],
+      confidence: 0.85,
+    },
+  };
 }
 
 /**
@@ -3827,6 +7895,10 @@ function applyUnwrap(
 
   const element = build.elementByNodeId.get(node.id);
   if (!element) return "conflict";
+  if (attributeValue(element, "data-an-primitive") === "boolean") {
+    return releaseBooleanRoot(html, element);
+  }
+  if (booleanOperandFor(element)) return "unsupported";
   if (element.selfClosing || element.contentStart >= element.contentEnd) {
     // Nothing to unwrap from an empty/void element.
     return "unsupported";
@@ -3915,18 +7987,19 @@ function applyAutoLayout(
   if (!enabled) {
     const childRects = intent.childRects;
     const hasRects = !!childRects && Object.keys(childRects).length > 0;
+    if (!hasRects) return "needsAgent";
     const currentStyle = attributeValue(element, "style");
     const declarations = parseStyleDeclarations(currentStyle);
     const setOnContainer = (property: string, value: string) => {
-      const existing = declarations.find((d) => d.property === property);
-      if (existing) existing.value = value;
-      else declarations.push({ property, value });
+      setStyleDeclaration(declarations, property, value);
     };
     setOnContainer("display", "block");
     if (hasRects) {
       // Absolute children resolve against the nearest positioned ancestor, so
       // a static container would let them escape to the page.
-      const position = declarations.find((d) => d.property === "position");
+      const position = effectiveStyleDeclarations(declarations).find(
+        (d) => cssPropertyKey(d.prop) === "position",
+      );
       if (!position || position.value === "static") {
         setOnContainer("position", "relative");
       }
@@ -3938,13 +8011,15 @@ function applyAutoLayout(
           ["min-width", rect.width],
           ["min-height", rect.height],
         ] as const) {
-          const existing = declarations.find((d) => d.property === property);
+          const existing = effectiveStyleDeclarations(declarations).find(
+            (d) => cssPropertyKey(d.prop) === property,
+          );
           // `min-height: 0` is the standard flex idiom and holds nothing open.
           // Only a px minimum at least as large as the measured extent does.
           if (existing && !holdsOpen(existing.value, value)) {
-            existing.value = `${Math.round(value)}px`;
+            setOnContainer(property, `${Math.round(value)}px`);
           } else if (!existing) {
-            declarations.push({ property, value: `${Math.round(value)}px` });
+            setOnContainer(property, `${Math.round(value)}px`);
           }
         }
       }
@@ -3955,13 +8030,6 @@ function applyAutoLayout(
       "style",
       serializeStyleDeclarations(declarations),
     );
-    if (!hasRects) {
-      return {
-        content: result,
-        capability: { kind: "style", properties: ["display"], confidence: 0.9 },
-      };
-    }
-
     const updatedElements = parseHtmlElements(result);
     const targetAttr = attributeValue(element, "data-agent-native-node-id");
     const updatedTarget =
@@ -3984,9 +8052,7 @@ function applyAutoLayout(
           attributeValue(child, "style"),
         );
         const setOnChild = (property: string, value: string) => {
-          const existing = childDecls.find((d) => d.property === property);
-          if (existing) existing.value = value;
-          else childDecls.push({ property, value });
+          setStyleDeclaration(childDecls, property, value);
         };
         // The measured rect is a border box placed by its margin edge, so a
         // content-box child would grow by its padding and a margin would shift
@@ -4034,12 +8100,7 @@ function applyAutoLayout(
   const currentStyle = attributeValue(element, "style");
   let declarations = parseStyleDeclarations(currentStyle);
   const setOrReplace = (prop: string, val: string) => {
-    const existing = declarations.find((d) => d.property === prop);
-    if (existing) {
-      existing.value = val;
-    } else {
-      declarations.push({ property: prop, value: val });
-    }
+    setStyleDeclaration(declarations, prop, val);
   };
   const containerStyles = intent.containerStyles;
   const writtenProperties: VisualStyleProperty[] = [];
@@ -4113,6 +8174,54 @@ function applyAutoLayout(
     }
   }
 
+  const frameElements = parseHtmlElements(result);
+  const frameTarget = frameElements.find(
+    (candidate) =>
+      attributeValue(candidate, "data-agent-native-node-id") === targetId ||
+      candidate.start === element.start,
+  );
+  if (frameTarget) {
+    const convertGroupName =
+      enabled && node.dataAttributes["data-agent-native-group"] === "true";
+    result = removeElementAttributes(result, frameTarget, [
+      "data-agent-native-group",
+    ]);
+    const retaggedElements = parseHtmlElements(result);
+    const retaggedTarget = retaggedElements.find(
+      (candidate) =>
+        attributeValue(candidate, "data-agent-native-node-id") === targetId ||
+        candidate.start === element.start,
+    );
+    if (retaggedTarget) {
+      result = replaceOrInsertAttribute(
+        result,
+        retaggedTarget,
+        "data-an-primitive",
+        "frame",
+      );
+      if (convertGroupName) {
+        const renamedElements = parseHtmlElements(result);
+        const renamedTarget = renamedElements.find(
+          (candidate) =>
+            attributeValue(candidate, "data-agent-native-node-id") ===
+              targetId || candidate.start === element.start,
+        );
+        if (renamedTarget) {
+          result = replaceOrInsertAttribute(
+            result,
+            renamedTarget,
+            "data-agent-native-layer-name",
+            nextSequentialFrameName(
+              build.projection.nodes.filter(
+                (candidate) => candidate.id !== node.id,
+              ),
+            ),
+          );
+        }
+      }
+    }
+  }
+
   return {
     content: result,
     capability: {
@@ -4144,10 +8253,18 @@ function findAfterNode(
   );
 }
 
-export function applyVisualEdit(
+function applyVisualEditUnsafe(
   html: string,
   intent: EditIntent,
-  options: { source?: CodeLayerSource } = {},
+  options: {
+    source?: CodeLayerSource;
+    allowMainComponentStructure?: boolean;
+    moveNode?: {
+      destinationIsFlow?: boolean;
+      sourceWasIgnoredInFlow?: boolean;
+      forceRootIntoFlow?: boolean;
+    };
+  } = {},
 ): ApplyVisualEditResult {
   const source = options.source ?? { kind: "inline-html" };
   if (source.kind !== "inline-html" && source.kind !== "design-file") {
@@ -4185,6 +8302,63 @@ export function applyVisualEdit(
 
   const initial = buildProjection(html, source);
 
+  const structureTargets =
+    intent.kind === "wrapNodes" || intent.kind === "booleanSubtract"
+      ? intent.targetIds.map(
+          (nodeId) => resolveTarget(initial, { nodeId }).node,
+        )
+      : intent.kind === "unwrap"
+        ? [resolveTarget(initial, { nodeId: intent.targetId }).node]
+        : intent.kind === "deleteNode"
+          ? [resolveTarget(initial, intent.target).node]
+          : [];
+  if (
+    structureTargets.some((node) => {
+      if (!node) return false;
+      if (
+        (intent.kind === "deleteNode" || intent.kind === "unwrap") &&
+        initial.projection.nodes.some(
+          (candidate) =>
+            Object.prototype.hasOwnProperty.call(
+              candidate.dataAttributes,
+              COMPONENT_ID_ATTR,
+            ) &&
+            candidate.source &&
+            node.source &&
+            candidate.source.start >= node.source.start &&
+            candidate.source.end <= node.source.end,
+        )
+      )
+        return true;
+      const affectedParent =
+        intent.kind === "unwrap"
+          ? node
+          : initial.projection.nodes.find(
+              (parent) => parent.id === node.parentId,
+            );
+      const linkedRoot = affectedParent
+        ? linkedComponentRootForNode(affectedParent, initial.projection)
+        : null;
+      return (
+        linkedRoot &&
+        (!options.allowMainComponentStructure ||
+          !linkedRoot.dataAttributes[COMPONENT_ID_ATTR])
+      );
+    })
+  ) {
+    return {
+      content: html,
+      projection: initial.projection,
+      result: patchResult(
+        "unsupported",
+        source,
+        intent,
+        false,
+        LINKED_COMPONENT_STRUCTURE_REFUSAL,
+      ),
+    };
+  }
+
   // --- Structural intents that don't resolve a single target node ---
 
   if (intent.kind === "wrapNodes") {
@@ -4209,11 +8383,17 @@ export function applyVisualEdit(
         },
       };
     }
-    const nextProjection = buildCodeLayerProjection(wrapEdit.content, {
+    // Component structure validation requires this intermediate transform to
+    // change only the canonical main span. Propagation installs the document
+    // runtime after that boundary has been validated for every linked copy.
+    const nextContent = options.allowMainComponentStructure
+      ? wrapEdit.content
+      : ensureGroupRuntime(wrapEdit.content);
+    const nextProjection = buildCodeLayerProjection(nextContent, {
       source,
     });
     return {
-      content: wrapEdit.content,
+      content: nextContent,
       projection: nextProjection,
       result: {
         ...patchResult(
@@ -4226,6 +8406,42 @@ export function applyVisualEdit(
             : "Nodes wrapped.",
         ),
         wrapperNodeId: wrapEdit.wrapperNodeId,
+      },
+    };
+  }
+
+  if (intent.kind === "booleanSubtract") {
+    const subtractEdit = applyBooleanSubtract(html, initial, intent);
+    if ("status" in subtractEdit) {
+      return {
+        content: html,
+        projection: initial.projection,
+        result: patchResult(
+          subtractEdit.status,
+          source,
+          intent,
+          false,
+          subtractEdit.message,
+        ),
+      };
+    }
+    const nextProjection = buildCodeLayerProjection(subtractEdit.content, {
+      source,
+    });
+    return {
+      content: subtractEdit.content,
+      projection: nextProjection,
+      result: {
+        ...patchResult(
+          "applied",
+          source,
+          intent,
+          subtractEdit.content !== html,
+          "Boolean subtraction created.",
+          undefined,
+          subtractEdit.capability,
+        ),
+        wrapperNodeId: subtractEdit.wrapperNodeId,
       },
     };
   }
@@ -4337,10 +8553,104 @@ export function applyVisualEdit(
     };
   }
 
+  if (intent.kind === "deleteNode") {
+    if (booleanOperandFor(element)) {
+      return {
+        content: html,
+        projection: initial.projection,
+        result: patchResult(
+          "unsupported",
+          source,
+          intent,
+          false,
+          "A Boolean operand cannot be deleted while its mask references it.",
+          beforeNode,
+          undefined,
+          before,
+        ),
+      };
+    }
+    const deleted = removeCodeLayerNodeFromHtml(html, beforeNode);
+    if (deleted === null) {
+      return {
+        content: html,
+        projection: initial.projection,
+        result: patchResult(
+          "unsupported",
+          source,
+          intent,
+          false,
+          "This node cannot be deleted from the editable source.",
+          beforeNode,
+          undefined,
+          before,
+        ),
+      };
+    }
+    return {
+      content: deleted,
+      projection: buildCodeLayerProjection(deleted, { source }),
+      result: patchResult(
+        "applied",
+        source,
+        intent,
+        deleted !== html,
+        "Node deleted.",
+        beforeNode,
+        {
+          kind: "structure",
+          operations: ["deleteNode"],
+          confidence: 0.95,
+        },
+        before,
+      ),
+    };
+  }
+
   let edit: { content: string; capability: EditCapability } | PatchResultStatus;
   let moveInsertAt: number | undefined;
   if (intent.kind === "style") {
-    edit = applyStyleEdit(html, element, intent);
+    const route = resolveStyleEditTargetRoute(
+      html,
+      beforeNode,
+      element,
+      intent,
+      initial.elements,
+    );
+    if (intent.operation === "remove") {
+      edit = applyStyleRemoveEdit(html, element, intent, route);
+    } else if (route.kind === "boolean-operand") {
+      edit = applyBooleanOperandStyleEdit(
+        html,
+        element,
+        intent,
+        initial.elements,
+      );
+    } else if (route.kind === "boolean-result") {
+      edit = applyBooleanResultStyleEdit(
+        html,
+        element,
+        intent,
+        initial.elements,
+      );
+    } else if (route.kind === "released-svg") {
+      edit = applyReleasedSvgShapeStyleEdit(
+        html,
+        element,
+        intent,
+        initial.elements,
+      );
+    } else if (route.kind === "vector-paint") {
+      edit = applyStyleEdit(html, route.element, intent);
+      if (typeof edit !== "string") {
+        edit = {
+          ...edit,
+          content: clearVectorWrapperPaint(edit.content, element),
+        };
+      }
+    } else {
+      edit = applyStyleEdit(html, route.element, intent);
+    }
   } else if (intent.kind === "class") {
     edit = applyClassEdit(html, element, intent);
   } else if (intent.kind === "textContent") {
@@ -4366,6 +8676,40 @@ export function applyVisualEdit(
           beforeNode,
           undefined,
           before,
+        ),
+      };
+    }
+    const sourceParent = initial.projection.nodes.find(
+      (node) => node.id === beforeNode.parentId,
+    );
+    const destinationParentNode =
+      intent.placement === "inside"
+        ? anchorResolution.node
+        : initial.projection.nodes.find(
+            (node) => node.id === anchorResolution.node!.parentId,
+          );
+    if (
+      [sourceParent, destinationParentNode].some((node) => {
+        const linkedRoot = node
+          ? linkedComponentRootForNode(node, initial.projection)
+          : null;
+        return (
+          linkedRoot &&
+          (!options.allowMainComponentStructure ||
+            !linkedRoot.dataAttributes[COMPONENT_ID_ATTR])
+        );
+      })
+    ) {
+      return {
+        content: html,
+        projection: initial.projection,
+        result: patchResult(
+          "unsupported",
+          source,
+          intent,
+          false,
+          LINKED_COMPONENT_STRUCTURE_REFUSAL,
+          beforeNode,
         ),
       };
     }
@@ -4409,6 +8753,7 @@ export function applyVisualEdit(
       anchorElement,
       intent,
       destinationParent,
+      options.moveNode,
     );
   }
 
@@ -4457,6 +8802,154 @@ export function applyVisualEdit(
   };
 }
 
+export function applyVisualEdit(
+  html: string,
+  intent: EditIntent,
+  options: {
+    source?: CodeLayerSource;
+    /** Only the atomic linked-component action may publish this transform. */
+    allowMainComponentStructure?: boolean;
+    moveNode?: {
+      destinationIsFlow?: boolean;
+      sourceWasIgnoredInFlow?: boolean;
+      forceRootIntoFlow?: boolean;
+    };
+  } = {},
+): ApplyVisualEditResult {
+  try {
+    return applyVisualEditUnsafe(html, intent, options);
+  } catch (error) {
+    if (!(error instanceof InvalidInlineStyleError)) throw error;
+    const source = options.source ?? { kind: "inline-html" };
+    return {
+      content: html,
+      projection: buildCodeLayerProjection(html, { source }),
+      result: patchResult("unsupported", source, intent, false, error.message),
+    };
+  }
+}
+
+export type VisualStyleBatchResult =
+  | { status: "applied"; content: string }
+  | { status: "fallback" }
+  | { status: "failed"; editIndex: number; reason: string };
+
+/**
+ * Internal fast path for one gesture's ordinary inline CSS edits. Semantic
+ * vector targets return `fallback` so callers can replay the whole gesture
+ * through `applyVisualEdit` and retain its specialized routing.
+ */
+export function applyOrdinaryVisualStyleBatch(
+  html: string,
+  edits: readonly {
+    target: EditIntentTarget;
+    property: string;
+    value: string;
+  }[],
+  options: { source?: CodeLayerSource } = {},
+): VisualStyleBatchResult {
+  if (edits.length === 0) return { status: "applied", content: html };
+  const source = options.source ?? { kind: "inline-html" };
+  if (
+    (source.kind !== "inline-html" && source.kind !== "design-file") ||
+    isStandaloneHttpUrl(html)
+  ) {
+    return { status: "fallback" };
+  }
+
+  const initial = buildProjection(html, source);
+  const updatesByElement = new Map<
+    number,
+    { element: ParsedElement; style: string; values: Map<string, string> }
+  >();
+
+  for (const [editIndex, edit] of edits.entries()) {
+    const resolution = resolveTarget(initial, edit.target);
+    if (resolution.status !== "resolved" || !resolution.node) {
+      return {
+        status: "failed",
+        editIndex,
+        reason: resolution.message ?? "Could not resolve the edit target.",
+      };
+    }
+    const element = initial.elementByNodeId.get(resolution.node.id);
+    if (!element || !resolution.node.source) {
+      return {
+        status: "failed",
+        editIndex,
+        reason: "The target node does not have editable source spans.",
+      };
+    }
+
+    const intent: StyleEditIntent = {
+      kind: "style",
+      target: edit.target,
+      property: edit.property,
+      value: edit.value,
+    };
+    const route = resolveStyleEditTargetRoute(
+      html,
+      resolution.node,
+      element,
+      intent,
+      initial.elements,
+    );
+    if (route.kind !== "ordinary") return { status: "fallback" };
+
+    const normalized = normalizedSafeStyleValue(edit.property, edit.value);
+    if (!normalized) {
+      return {
+        status: "failed",
+        editIndex,
+        reason:
+          "The requested edit is not supported by the deterministic editor.",
+      };
+    }
+
+    const existingUpdate = updatesByElement.get(route.element.index);
+    const update = existingUpdate ?? {
+      element: route.element,
+      style: attributeValue(route.element, "style") ?? "",
+      values: new Map<string, string>(),
+    };
+    if (!existingUpdate) {
+      updatesByElement.set(route.element.index, update);
+    }
+    const previousValue = update.values.get(normalized.property);
+    if (previousValue !== undefined && previousValue !== normalized.value) {
+      return {
+        status: "failed",
+        editIndex,
+        reason: `Conflicting values for ${normalized.property} on the same target.`,
+      };
+    }
+    if (previousValue === undefined) {
+      update.values.set(normalized.property, normalized.value);
+      try {
+        update.style = setStyleValue(
+          update.style,
+          normalized.property,
+          normalized.value,
+        );
+      } catch (error) {
+        if (!(error instanceof InvalidInlineStyleError)) throw error;
+        return { status: "failed", editIndex, reason: error.message };
+      }
+    }
+  }
+
+  return {
+    status: "applied",
+    content: patchElementAttributes(
+      html,
+      [...updatesByElement.values()].map((update) => ({
+        element: update.element,
+        attributes: { style: update.style },
+      })),
+    ),
+  };
+}
+
 /**
  * Attributes injected by the editor at runtime that must NOT appear in
  * on-disk source files. These are stripped before any write-back so that
@@ -4499,9 +8992,16 @@ export function stripEditorOnlyAttributes(html: string): string {
 }
 
 export interface MoveNodeBetweenDocumentsOptions {
-  nodeId: string;
+  nodeId?: string;
+  sourceSelector?: string;
   anchorNodeId?: string;
+  anchorSelector?: string;
   placement?: "before" | "after" | "inside";
+  moveLayout?: {
+    destinationIsFlow?: boolean;
+    sourceWasIgnoredInFlow?: boolean;
+    forceRootIntoFlow?: boolean;
+  };
 }
 
 export interface MoveNodeBetweenDocumentsResult {
@@ -4529,9 +9029,10 @@ export interface MoveNodeBetweenDocumentsResult {
 }
 
 /**
- * Move a node (by data-agent-native-node-id) from sourceHtml into destHtml.
- * The node's serialized subtree is removed from sourceHtml and inserted into
- * destHtml relative to anchorNodeId (default: append to <body> or end of doc).
+ * Move a node from sourceHtml into destHtml by stable ID or unique authored
+ * selectors. ID-less source and destination nodes are stamped before the move
+ * so later edits can resolve them durably. Omitting an anchor explicitly
+ * appends to the body; a requested but unresolved anchor fails atomically.
  * Any node ids in the moved subtree that already exist in destHtml are
  * re-stamped to stay unique. No external dependencies.
  */
@@ -4540,7 +9041,16 @@ export function moveNodeBetweenDocuments(
   destHtml: string,
   opts: MoveNodeBetweenDocumentsOptions,
 ): MoveNodeBetweenDocumentsResult {
-  const { nodeId, anchorNodeId, placement = "inside" } = opts;
+  const {
+    nodeId,
+    sourceSelector,
+    anchorNodeId,
+    anchorSelector,
+    placement = "inside",
+    moveLayout,
+  } = opts;
+  const originalSourceHtml = sourceHtml;
+  const originalDestHtml = destHtml;
 
   // A URL-backed (localhost/fusion) screen stores its route URL as content,
   // not a document. Both branches below end in string concatenation against
@@ -4558,19 +9068,128 @@ export function moveNodeBetweenDocuments(
     };
   }
 
-  // --- Locate the node in sourceHtml ---
-  const sourceElements = parseHtmlElements(sourceHtml);
-  const sourceTarget = sourceElements.find(
-    (el) => attributeValue(el, "data-agent-native-node-id") === nodeId,
-  );
-  if (!sourceTarget) {
+  const sourceBuild = buildProjection(sourceHtml, { kind: "inline-html" });
+  const sourceResolution = resolveTarget(sourceBuild, {
+    ...(nodeId ? { nodeId } : {}),
+    ...(sourceSelector ? { selector: sourceSelector } : {}),
+  });
+  if (sourceResolution.status !== "resolved" || !sourceResolution.node) {
     return {
       sourceHtml,
       destHtml,
       status: "unsupported",
-      message: `Node with data-agent-native-node-id="${nodeId}" not found in sourceHtml.`,
+      message:
+        sourceResolution.message ??
+        "The moved layer did not resolve uniquely in sourceHtml.",
     };
   }
+
+  const hasRequestedAnchor = Boolean(anchorNodeId || anchorSelector);
+  const destBuild = hasRequestedAnchor
+    ? buildProjection(destHtml, { kind: "inline-html" })
+    : null;
+  const anchorResolution =
+    hasRequestedAnchor && destBuild
+      ? resolveTarget(destBuild, {
+          ...(anchorNodeId ? { nodeId: anchorNodeId } : {}),
+          ...(anchorSelector ? { selector: anchorSelector } : {}),
+        })
+      : null;
+  if (
+    hasRequestedAnchor &&
+    (anchorResolution?.status !== "resolved" || !anchorResolution.node)
+  ) {
+    return {
+      sourceHtml,
+      destHtml,
+      status: "unsupported",
+      message:
+        anchorResolution?.message ??
+        "The requested destination anchor did not resolve uniquely in destHtml.",
+    };
+  }
+
+  const sourceParentNode = sourceBuild.projection.nodes.find(
+    (node) => node.id === sourceResolution.node!.parentId,
+  );
+  const destinationParent =
+    anchorResolution?.node && destBuild
+      ? placement === "inside"
+        ? anchorResolution.node
+        : destBuild.projection.nodes.find(
+            (node) => node.id === anchorResolution.node!.parentId,
+          )
+      : undefined;
+  if (
+    (sourceParentNode &&
+      linkedComponentRootForNode(sourceParentNode, sourceBuild.projection)) ||
+    (destinationParent &&
+      destBuild &&
+      linkedComponentRootForNode(destinationParent, destBuild.projection))
+  )
+    return {
+      sourceHtml,
+      destHtml,
+      status: "unsupported",
+      message: LINKED_COMPONENT_STRUCTURE_REFUSAL,
+    };
+
+  const sourceIdentity = ensureCodeLayerNodeIdInHtml(
+    sourceHtml,
+    sourceResolution.node.id,
+    { selector: sourceResolution.node.path },
+  );
+  if (!sourceIdentity.nodeId) {
+    return {
+      sourceHtml,
+      destHtml,
+      status: "unsupported",
+      message: "The moved layer could not receive a durable source identity.",
+    };
+  }
+  const destIdentity =
+    anchorResolution?.status === "resolved" && anchorResolution.node
+      ? ensureCodeLayerNodeIdInHtml(destHtml, anchorResolution.node.id, {
+          selector: anchorResolution.node.path,
+        })
+      : null;
+  if (hasRequestedAnchor && !destIdentity?.nodeId) {
+    return {
+      sourceHtml,
+      destHtml,
+      status: "unsupported",
+      message: "The destination anchor could not receive a durable identity.",
+    };
+  }
+  sourceHtml = sourceIdentity.content;
+  destHtml = destIdentity?.content ?? destHtml;
+  const resolvedNodeId = sourceIdentity.nodeId;
+  const resolvedAnchorNodeId = destIdentity?.nodeId;
+
+  // --- Locate the identified source and destination elements ---
+  const sourceElements = parseHtmlElements(sourceHtml);
+  const sourceTarget = sourceElements.find(
+    (el) => attributeValue(el, "data-agent-native-node-id") === resolvedNodeId,
+  );
+  if (!sourceTarget) {
+    return {
+      sourceHtml: originalSourceHtml,
+      destHtml: originalDestHtml,
+      status: "unsupported",
+      message: "The moved layer identity was lost before extraction.",
+    };
+  }
+  const sourceParent =
+    sourceTarget.parentIndex === undefined
+      ? undefined
+      : sourceElements[sourceTarget.parentIndex];
+  const sourceWasIgnoredInFlow =
+    moveLayout?.sourceWasIgnoredInFlow ??
+    (isFlowLayoutContainer(sourceParent) && isOutOfFlowElement(sourceTarget));
+  const fragmentMoveLayout = {
+    ...moveLayout,
+    sourceWasIgnoredInFlow,
+  };
 
   // --- Extract the subtree fragment ---
   let fragment = sourceHtml.slice(sourceTarget.start, sourceTarget.end);
@@ -4593,7 +9212,7 @@ export function moveNodeBetweenDocuments(
   // duplicate happened to resolve first).
   const fragElements = parseHtmlElements(fragment);
   const remapEdits: Array<{ start: number; end: number; value: string }> = [];
-  let movedNodeId = nodeId;
+  let movedNodeId = resolvedNodeId;
   for (const fragEl of fragElements) {
     const attr = getAttribute(fragEl, "data-agent-native-node-id");
     if (!attr || typeof attr.value !== "string") continue;
@@ -4632,16 +9251,18 @@ export function moveNodeBetweenDocuments(
   let nextDestHtml: string;
   let anchorRedirected = false;
 
-  if (anchorNodeId) {
+  if (resolvedAnchorNodeId) {
     const anchor = destElements.find(
-      (el) => attributeValue(el, "data-agent-native-node-id") === anchorNodeId,
+      (el) =>
+        attributeValue(el, "data-agent-native-node-id") ===
+        resolvedAnchorNodeId,
     );
     if (!anchor) {
       return {
-        sourceHtml,
-        destHtml,
+        sourceHtml: originalSourceHtml,
+        destHtml: originalDestHtml,
         status: "unsupported",
-        message: `Anchor node with data-agent-native-node-id="${anchorNodeId}" not found in destHtml.`,
+        message: "The requested destination anchor was lost before insertion.",
       };
     }
     let insertAt =
@@ -4680,7 +9301,11 @@ export function moveNodeBetweenDocuments(
         : anchor.parentIndex === undefined
           ? undefined
           : destElements[anchor.parentIndex];
-    fragment = prepareMovedFragmentForParent(fragment, destinationParent);
+    fragment = prepareMovedFragmentForParent(
+      fragment,
+      destinationParent,
+      fragmentMoveLayout,
+    );
     nextDestHtml = `${destHtml.slice(0, insertAt)}${fragment}${destHtml.slice(insertAt)}`;
   } else {
     // Default: find <body> and append inside it, or append at end of doc.
@@ -4703,7 +9328,11 @@ export function moveNodeBetweenDocuments(
     // former absolute offsets along would leave it visually detached from
     // the body's ordering/gap/alignment, so run the same normalization
     // (prepareMovedFragmentForParent no-ops for non-flow bodies).
-    fragment = prepareMovedFragmentForParent(fragment, bodyEl);
+    fragment = prepareMovedFragmentForParent(
+      fragment,
+      bodyEl,
+      fragmentMoveLayout,
+    );
     nextDestHtml = `${destHtml.slice(0, insertAt)}${fragment}${destHtml.slice(insertAt)}`;
   }
 

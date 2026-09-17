@@ -80,7 +80,6 @@ const publicMarketingTemplates = [
   "dispatch",
   "factory",
   "forms",
-  "macros",
   "mail",
   "plan",
   "slides",
@@ -138,7 +137,7 @@ assertFilesExist("clips", [
   "download.tsx",
   "embed.$shareId.tsx",
   "invite.$token.tsx",
-  "r.$recordingId.tsx",
+  "_app.r.$recordingId.tsx",
   "record.tsx",
   "share.$shareId.tsx",
 ]);

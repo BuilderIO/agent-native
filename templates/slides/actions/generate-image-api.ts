@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
+import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { uploadFile } from "@agent-native/core/file-upload";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { z } from "zod";
@@ -37,11 +38,16 @@ async function urlToReferenceImage(
   url: string,
 ): Promise<ReferenceImage | null> {
   try {
-    const res = await fetch(url);
+    const res = await ssrfSafeFetch(
+      url,
+      { signal: AbortSignal.timeout(15_000) },
+      { httpsOnly: true, maxRedirects: 2 },
+    );
     if (!res.ok) return null;
     const contentType = res.headers.get("content-type") || "image/png";
+    const mimeType = contentType.split(";")[0].trim().toLowerCase();
+    if (!mimeType.startsWith("image/")) return null;
     const buffer = Buffer.from(await res.arrayBuffer());
-    const mimeType = contentType.split(";")[0].trim();
     return { data: buffer.toString("base64"), mimeType };
   } catch {
     return null;

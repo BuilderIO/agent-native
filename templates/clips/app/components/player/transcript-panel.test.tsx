@@ -4,6 +4,8 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { TooltipProvider } from "@/components/ui/tooltip";
+
 import {
   getTranscriptSeekMs,
   mergeTranscriptSegmentsForDisplay,
@@ -58,13 +60,53 @@ describe("TranscriptPanel no-audio failures", () => {
           failureReason={
             "Transcript unavailable: This recording has no audio track, so there was nothing to transcribe."
           }
+          audience="viewer"
           onRetry={vi.fn()}
         />,
       );
     });
 
-    expect(container.textContent).toContain("transcriptPanel.noSpeechDetected");
+    expect(container.textContent).toContain(
+      "transcriptPanel.noTranscriptCaptured",
+    );
+    expect(container.textContent).not.toContain(
+      "transcriptPanel.noSpeechDetected",
+    );
+    expect(container.textContent).not.toContain(
+      "transcriptPanel.noSpeechDescription",
+    );
     expect(container.querySelector(".text-destructive")).toBeNull();
+  });
+
+  it("keeps every viewer transcript failure neutral", () => {
+    for (const failureReason of [
+      "No transcription provider configured.",
+      "Builder credits exhausted.",
+      "The media decoder returned malformed input.",
+    ]) {
+      act(() => {
+        root.render(
+          <TranscriptPanel
+            segments={[]}
+            currentMs={0}
+            onSeek={vi.fn()}
+            status="failed"
+            failureReason={failureReason}
+            audience="viewer"
+            onRetry={vi.fn()}
+          />,
+        );
+      });
+
+      expect(container.textContent).toContain(
+        "transcriptPanel.noTranscriptCaptured",
+      );
+      expect(container.textContent).not.toContain(failureReason);
+      expect(container.textContent).not.toContain(
+        "transcriptPanel.enableTranscriptionTitle",
+      );
+      expect(container.textContent).not.toContain("builderCredits.pausedTitle");
+    }
   });
 
   it("keeps provider failures styled as errors", () => {
@@ -81,6 +123,63 @@ describe("TranscriptPanel no-audio failures", () => {
     });
 
     expect(container.querySelector(".text-destructive")).not.toBeNull();
+  });
+
+  it("insets the active segment highlight within the panel frame", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <TranscriptPanel
+            segments={[{ startMs: 0, endMs: 2_000, text: "Hello." }]}
+            currentMs={0}
+            onSeek={vi.fn()}
+            status="ready"
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    const scrollRegion = Array.from(
+      container.querySelectorAll<HTMLDivElement>("div"),
+    ).find(
+      (element) =>
+        element.classList.contains("overflow-y-auto") &&
+        element.classList.contains("px-3"),
+    );
+    const activeRow = container.querySelector('[role="button"]');
+
+    expect(scrollRegion).not.toBeUndefined();
+    expect(activeRow?.parentElement?.parentElement?.parentElement).toBe(
+      scrollRegion,
+    );
+  });
+
+  it("hides transcript cues that start inside an edited-out range", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <TranscriptPanel
+            segments={[
+              { startMs: 0, endMs: 1_000, text: "Keep this." },
+              { startMs: 1_000, endMs: 2_000, text: "Cut this." },
+              { startMs: 2_000, endMs: 3_000, text: "Keep that." },
+            ]}
+            editsJson={JSON.stringify({
+              version: 1,
+              trims: [{ startMs: 1_000, endMs: 2_000, excluded: true }],
+              blurs: [],
+            })}
+            currentMs={0}
+            onSeek={vi.fn()}
+            status="ready"
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain("Keep this.");
+    expect(container.textContent).toContain("Keep that.");
+    expect(container.textContent).not.toContain("Cut this.");
   });
 });
 

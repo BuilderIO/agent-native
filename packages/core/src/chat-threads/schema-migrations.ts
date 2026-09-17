@@ -41,6 +41,7 @@ export const CHAT_THREAD_SCHEMA_MIGRATIONS: MigrationEntry[] = [
     name: "chat-threads-scope-and-sharing-columns",
     sql: `
       ALTER TABLE chat_threads ADD COLUMN IF NOT EXISTS scope_type TEXT;
+      -- guard:allow-identity-column — opaque resource reference, not an account identity
       ALTER TABLE chat_threads ADD COLUMN IF NOT EXISTS scope_id TEXT;
       ALTER TABLE chat_threads ADD COLUMN IF NOT EXISTS scope_label TEXT;
       ALTER TABLE chat_threads ADD COLUMN IF NOT EXISTS pinned_at INTEGER;
@@ -79,6 +80,13 @@ export const CHAT_THREAD_SCHEMA_MIGRATIONS: MigrationEntry[] = [
         SET source_platform = 'integration'
         WHERE source_platform IS NULL
           AND thread_data LIKE '%"integrationDeliveryAttempted":true%'
+    `,
+  },
+  {
+    version: 4,
+    name: "chat-thread-shares-notified-at",
+    sql: `
+      ALTER TABLE IF EXISTS chat_thread_shares ADD COLUMN IF NOT EXISTS notified_at TEXT
     `,
   },
 ];

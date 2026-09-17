@@ -2,9 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   factoryAuditEvents,
+  factoryAutomationVersions,
   factoryComments,
   factoryDefinitions,
   factoryGraphVersions,
+  factoryPollCursors,
   triageConfig,
   triageDecisions,
   triageFeedback,
@@ -18,7 +20,9 @@ const readFactoryDefinitionMock = vi.hoisted(() => vi.fn());
 const readTriageConfigRowMock = vi.hoisted(() => vi.fn());
 const requireWorkspaceMemberMock = vi.hoisted(() => vi.fn());
 const workspaceMemberIdentityFromContextMock = vi.hoisted(() => vi.fn());
+const listFactoryAutomationCleanupPathsMock = vi.hoisted(() => vi.fn());
 const removeFactoryAutomationResourcesMock = vi.hoisted(() => vi.fn());
+const removeFactoryAutomationRunHistoryMock = vi.hoisted(() => vi.fn());
 const snapshotFactoryAutomationsMock = vi.hoisted(() => vi.fn());
 const restoreFactoryAutomationSnapshotsMock = vi.hoisted(() => vi.fn());
 
@@ -50,7 +54,9 @@ vi.mock("../server/lib/require-workspace-member.js", () => ({
 }));
 
 vi.mock("../server/plugins/factory-scheduler-job.js", () => ({
+  listFactoryAutomationCleanupPaths: listFactoryAutomationCleanupPathsMock,
   removeFactoryAutomationResources: removeFactoryAutomationResourcesMock,
+  removeFactoryAutomationRunHistory: removeFactoryAutomationRunHistoryMock,
   snapshotFactoryAutomations: snapshotFactoryAutomationsMock,
   restoreFactoryAutomationSnapshots: restoreFactoryAutomationSnapshotsMock,
 }));
@@ -82,7 +88,9 @@ beforeEach(() => {
     sentryPollingEnabled: 0,
     slackChannelId: "C123",
   });
+  listFactoryAutomationCleanupPathsMock.mockResolvedValue([]);
   removeFactoryAutomationResourcesMock.mockResolvedValue(undefined);
+  removeFactoryAutomationRunHistoryMock.mockResolvedValue(undefined);
   snapshotFactoryAutomationsMock.mockResolvedValue(existingSnapshots);
   restoreFactoryAutomationSnapshotsMock.mockResolvedValue(undefined);
 });
@@ -131,12 +139,26 @@ describe("delete-factory", () => {
       "org-1",
       "support-triage",
       "member@example.com",
+      ["jobs/factories/support-triage/factory-slack-feedback.md"],
+    );
+    expect(removeFactoryAutomationRunHistoryMock).toHaveBeenCalledWith(
+      "org-1",
+      "support-triage",
+      "member@example.com",
+      ["jobs/factories/support-triage/factory-slack-feedback.md"],
+    );
+    expect(listFactoryAutomationCleanupPathsMock).toHaveBeenCalledWith(
+      "org-1",
+      "support-triage",
+      "member@example.com",
     );
     expect(deletedTables).toEqual([
       factoryDefinitions,
       factoryComments,
       factoryGraphVersions,
+      factoryAutomationVersions,
       factoryAuditEvents,
+      factoryPollCursors,
       triageFeedback,
       triageDecisions,
       triageRuns,
@@ -189,6 +211,7 @@ describe("delete-factory", () => {
       "org-1",
       existingSnapshots,
     );
+    expect(removeFactoryAutomationRunHistoryMock).not.toHaveBeenCalled();
   });
 
   it("restores scheduled automations when schedule removal fails", async () => {
@@ -250,6 +273,7 @@ describe("delete-factory", () => {
       "org-1",
       existingSnapshots,
     );
+    expect(removeFactoryAutomationRunHistoryMock).not.toHaveBeenCalled();
   });
 
   it("returns an unverified success when post-commit confirmation cannot be read", async () => {
@@ -290,5 +314,46 @@ describe("delete-factory", () => {
       verificationError: "database unavailable",
     });
     expect(restoreFactoryAutomationSnapshotsMock).not.toHaveBeenCalled();
+  });
+
+  it("returns an unverified success when Factory jobs remain after the row is gone", async () => {
+    const tx = {
+      delete: vi.fn((table: unknown) => {
+        if (table === factoryDefinitions) {
+          return {
+            where: vi.fn(() => ({
+              returning: vi.fn().mockResolvedValue([{ id: "support-triage" }]),
+            })),
+          };
+        }
+        return { where: vi.fn().mockResolvedValue(undefined) };
+      }),
+    };
+    getDbMock.mockReturnValue({
+      transaction: vi.fn(
+        async (callback: (transaction: typeof tx) => Promise<void>) =>
+          callback(tx),
+      ),
+    });
+    listFactoryAutomationCleanupPathsMock.mockResolvedValue([
+      "jobs/factories/support-triage/factory-slack-custom.md",
+    ]);
+    const { default: action } = await import("./delete-factory.js");
+
+    await expect(
+      action.run(
+        { factoryId: "support-triage", confirmName: "Support triage" },
+        { userEmail: "member@example.com", orgId: "org-1" },
+      ),
+    ).resolves.toEqual({
+      ok: true,
+      factoryId: "support-triage",
+      name: "Support triage",
+      verified: false,
+      verificationError:
+        "Automations still present: jobs/factories/support-triage/factory-slack-custom.md",
+    });
+    expect(restoreFactoryAutomationSnapshotsMock).not.toHaveBeenCalled();
+    expect(removeFactoryAutomationRunHistoryMock).not.toHaveBeenCalled();
   });
 });

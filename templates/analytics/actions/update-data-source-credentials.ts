@@ -1,12 +1,20 @@
 import { defineAction } from "@agent-native/core/action";
+import type { ActionRunContext } from "@agent-native/core/action";
+import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
 import {
   credentialKeys,
+  credentialProviderConfigs,
   optionalCredentialKeys,
   partitionCredentialUpdate,
 } from "../server/lib/credential-keys";
-import { deleteCredential, saveCredential } from "../server/lib/credentials";
+import {
+  deleteCredential,
+  hasCredential,
+  saveCredential,
+  type CredentialContext,
+} from "../server/lib/credentials";
 import { tryRequestCredentialContext } from "../server/lib/credentials-context";
 import { loadDashboardSeed } from "../server/lib/dashboard-seeds";
 import {
@@ -48,6 +56,22 @@ function validateCredential(key: string, value: string): string | null {
   return null;
 }
 
+async function providerConnected(
+  provider: (typeof credentialProviderConfigs)[number],
+  context: CredentialContext,
+): Promise<boolean | undefined> {
+  const results = await Promise.allSettled(
+    provider.requiredKeys.map((key) => hasCredential(key, context)),
+  );
+  if (results.some((result) => result.status === "rejected")) return undefined;
+  const present = results.map(
+    (result) => result.status === "fulfilled" && result.value,
+  );
+  return provider.requiredMode === "any"
+    ? present.some(Boolean)
+    : present.every(Boolean);
+}
+
 export default defineAction({
   description:
     "UI-only: save or clear Analytics data-source credentials. Secret values are encrypted and never returned.",
@@ -62,7 +86,7 @@ export default defineAction({
       .min(1),
   }),
   agentTool: false,
-  run: async ({ vars }) => {
+  run: async ({ vars }, actionContext?: ActionRunContext) => {
     const recognized = vars.filter((v) => ALLOWED_KEYS.has(v.key));
     if (recognized.length === 0) {
       throw new Error("No recognized credential keys in request");
@@ -88,6 +112,22 @@ export default defineAction({
 
     const ctx = tryRequestCredentialContext();
     if (!ctx) throw new Error("Sign in to save credentials");
+
+    const changedKeys = new Set([...toSave.map(({ key }) => key), ...toDelete]);
+    const affectedProviders = credentialProviderConfigs.filter((provider) =>
+      provider.requiredKeys.some((key) => changedKeys.has(key)),
+    );
+    const previousConnections = new Map(
+      await Promise.all(
+        affectedProviders.map(
+          async (provider) =>
+            [
+              provider.provider,
+              await providerConnected(provider, ctx),
+            ] as const,
+        ),
+      ),
+    );
 
     for (const { key, value } of toSave) {
       await saveCredential(key, value, ctx);
@@ -116,6 +156,25 @@ export default defineAction({
           err instanceof Error ? err.message : err,
         );
       }
+    }
+
+    for (const provider of affectedProviders) {
+      const connected = await providerConnected(provider, ctx);
+      if (
+        connected !== true ||
+        previousConnections.get(provider.provider) !== false
+      )
+        continue;
+      track(
+        "connector_added",
+        {
+          app_name: "analytics",
+          template_name: "analytics",
+          connector_name: provider.provider,
+          configured_via: "local_credentials",
+        },
+        actionContext,
+      );
     }
 
     return { saved: toSave.map((v) => v.key), deleted: toDelete };

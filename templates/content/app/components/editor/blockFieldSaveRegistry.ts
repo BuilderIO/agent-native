@@ -83,6 +83,47 @@ export function peekBlockFieldSaveController(
   return registry.get(key)?.controller;
 }
 
+/** Persist one mounted additional Blocks field before its exact read. */
+export async function flushBlockFieldSaveController(
+  documentId: string,
+  propertyId: string,
+): Promise<void> {
+  const controller = registry.get(`${documentId}:${propertyId}`)?.controller;
+  // An unmounted field has already completed its teardown flush, so SQL is
+  // authoritative and there is no live value left to persist.
+  if (!controller) return;
+
+  await controller.flush();
+  if (controller.pending !== controller.lastSaved) {
+    throw new Error("A Blocks field could not be saved before reading it.");
+  }
+}
+
+/** Persist every mounted additional Blocks field owned by one document. */
+export async function flushAllBlockFieldSaveControllersForDocument(
+  documentId: string,
+): Promise<void> {
+  const prefix = `${documentId}:`;
+  const controllers = [...registry.entries()]
+    .filter(([key]) => key.startsWith(prefix))
+    .map(([, entry]) => entry.controller);
+
+  const results = await Promise.allSettled(
+    controllers.map(async (controller) => {
+      await controller.flush();
+      if (controller.pending !== controller.lastSaved) {
+        throw new Error(
+          "A Blocks field could not be saved before leaving the page.",
+        );
+      }
+    }),
+  );
+  const rejected = results.find(
+    (result): result is PromiseRejectedResult => result.status === "rejected",
+  );
+  if (rejected) throw rejected.reason;
+}
+
 function ensureEntry(
   key: string,
   factory: () => BlockFieldSaveController,
@@ -106,11 +147,11 @@ function controllerIsDirty(controller: BlockFieldSaveController): boolean {
  * unreferenced after the flush settles (a reopen during the flush re-acquires
  * the same instance and cancels the eviction).
  */
-export function releaseBlockFieldSaveController(key: string): void {
+export function releaseBlockFieldSaveController(key: string): Promise<boolean> {
   const entry = registry.get(key);
-  if (!entry) return;
+  if (!entry) return Promise.resolve(false);
   entry.refCount -= 1;
-  if (entry.refCount > 0) return;
+  if (entry.refCount > 0) return Promise.resolve(false);
 
   // Last reference gone: flush the final pending content, then evict once it
   // has fully settled — but only if nobody re-acquired in the meantime.
@@ -122,7 +163,7 @@ export function releaseBlockFieldSaveController(key: string): void {
     if (current === entry && current.refCount === 0 && current.evicting) {
       if (controllerIsDirty(current.controller)) {
         current.evicting = false;
-        return;
+        return false;
       }
       registry.delete(key);
       // Drop the per-key save-impl ref alongside the controller. It is only
@@ -133,11 +174,13 @@ export function releaseBlockFieldSaveController(key: string): void {
       // there is no stale closure. Only delete here — never while refCount > 0
       // or a reopen is pending — because the live factory closes over this ref.
       saveImpls.delete(key);
+      return true;
     }
+    return false;
   };
   // flush() resolves after any in-flight save AND the trailing save have
   // settled, so the final DB value is the latest content before we drop state.
-  Promise.resolve(entry.controller.flush()).then(settle, settle);
+  return Promise.resolve(entry.controller.flush()).then(settle, settle);
 }
 
 // The shared controller for a key is created ONCE, but each editor mount carries

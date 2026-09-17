@@ -1,5 +1,5 @@
 import { mockEvent, type H3Event } from "h3";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const resolveSecretPairsMock = vi.hoisted(() => vi.fn());
 const CredentialStoreUnavailableErrorMock = vi.hoisted(
@@ -9,26 +9,193 @@ const CredentialStoreUnavailableErrorMock = vi.hoisted(
       readonly retryable = true;
     },
 );
+const McpOAuthRegistrationUnsupportedErrorMock = vi.hoisted(
+  () =>
+    class McpOAuthRegistrationUnsupportedErrorMock extends Error {
+      readonly issuer?: string;
+      readonly authorizationServerUrl?: string;
+
+      constructor(details: {
+        issuer?: string;
+        authorizationServerUrl?: string;
+      }) {
+        super("MCP OAuth dynamic client registration is unsupported");
+        this.name = "McpOAuthRegistrationUnsupportedError";
+        this.issuer = details.issuer;
+        this.authorizationServerUrl = details.authorizationServerUrl;
+      }
+    },
+);
 
 vi.mock("../server/credential-provider.js", () => ({
   CredentialStoreUnavailableError: CredentialStoreUnavailableErrorMock,
   resolveSecretPairs: resolveSecretPairsMock,
 }));
 
-import { CredentialStoreUnavailableError } from "../server/credential-provider.js";
+const callbackMocks = vi.hoisted(() => ({
+  addOAuthRemoteServer: vi.fn(),
+  finishMcpOAuthAuthorization: vi.fn(),
+  getH3App: vi.fn(),
+  getOrgContext: vi.fn(),
+  getSession: vi.fn(),
+  listRemoteServers: vi.fn(),
+  replaceOAuthRemoteServer: vi.fn(),
+  startMcpOAuthAuthorization: vi.fn(),
+  validateMcpOAuthCallbackIssuer: vi.fn(),
+}));
+
+vi.mock("../server/auth.js", () => ({
+  getSession: callbackMocks.getSession,
+  safeReturnPath: (value: string) => value,
+}));
+
+vi.mock("../org/context.js", () => ({
+  getOrgContext: callbackMocks.getOrgContext,
+}));
+
+vi.mock("../server/framework-request-handler.js", () => ({
+  getH3App: callbackMocks.getH3App,
+}));
+
+vi.mock("./oauth-client.js", () => ({
+  finishMcpOAuthAuthorization: callbackMocks.finishMcpOAuthAuthorization,
+  isGoogleWorkspaceMcpServer: () => false,
+  McpOAuthRegistrationUnsupportedError:
+    McpOAuthRegistrationUnsupportedErrorMock,
+  startMcpOAuthAuthorization: callbackMocks.startMcpOAuthAuthorization,
+  validateMcpOAuthCallbackIssuer: callbackMocks.validateMcpOAuthCallbackIssuer,
+}));
+
+vi.mock("./remote-store.js", () => ({
+  addOAuthRemoteServer: callbackMocks.addOAuthRemoteServer,
+  listRemoteServers: callbackMocks.listRemoteServers,
+  normalizeServerName: (value: string) => value.trim(),
+  replaceOAuthRemoteServer: callbackMocks.replaceOAuthRemoteServer,
+  validateRemoteUrl: (value: string) => {
+    try {
+      return { ok: true, url: new URL(value) };
+    } catch {
+      return { ok: false, error: "MCP server URL is invalid." };
+    }
+  },
+}));
+
 import {
+  DEFAULT_MCP_INTEGRATIONS,
+  mcpUrlRequiresOrganizationScope,
+} from "../client/resources/mcp-integration-catalog.js";
+import { CredentialStoreUnavailableError } from "../server/credential-provider.js";
+import { McpOAuthRegistrationUnsupportedError } from "./oauth-client.js";
+import {
+  bindMcpOAuthAuthorizationScope,
   clearMcpOAuthFlowCookies,
   isValidMcpOAuthFlow,
+  mcpOAuthStartFailureResponse,
   readMcpOAuthFlowCookie,
   redirectWithStagedCookies,
   resolveMcpOAuthStartError,
   resolveMcpOAuthScope,
+  describeMcpOAuthScopeViolation,
+  resolveTrustedMcpOAuthAuthorizationScope,
   resolveManagedMcpOAuthClient,
   resolveMcpOAuthReturnPath,
+  mountMcpOAuthRoutes,
   setMcpOAuthFlowCookie,
   stripMcpOAuthAppBasePath,
+  wantsHtmlResponse,
   type McpOAuthFlow,
+  trackFirstRunMcpOAuthEvent,
 } from "./oauth-routes.js";
+
+const trackingModuleMock = vi.hoisted(() => ({
+  shouldReject: false,
+  track: vi.fn(() => {
+    if (trackingModuleMock.shouldReject) {
+      throw new Error("tracking registry unavailable");
+    }
+  }),
+}));
+const trackMock = trackingModuleMock.track;
+vi.mock("../tracking/registry.js", () => {
+  if (trackingModuleMock.shouldReject) {
+    throw new Error("tracking registry unavailable");
+  }
+  return { track: trackingModuleMock.track };
+});
+
+describe("trusted MCP OAuth authorization scopes", () => {
+  it("pins Builder Publish to its read-only scope", () => {
+    expect(
+      resolveTrustedMcpOAuthAuthorizationScope(
+        new URL("https://mcp.builder.io/mcp/publish"),
+      ),
+    ).toBe("mcp:publish:read");
+    expect(
+      resolveTrustedMcpOAuthAuthorizationScope(
+        new URL("https://mcp.builder.io/mcp/publish/"),
+      ),
+    ).toBe("mcp:publish:read");
+    expect(
+      resolveTrustedMcpOAuthAuthorizationScope(
+        new URL("https://mcp.builder.io/mcp/fusion"),
+      ),
+    ).toBeUndefined();
+  });
+
+  it("requires Builder Publish connections to use organization scope", () => {
+    const serverUrl = new URL("https://mcp.builder.io/mcp/publish");
+
+    expect(resolveMcpOAuthScope(serverUrl, "user")).toEqual({
+      ok: false,
+      violation: "organization-scope-required",
+    });
+    expect(resolveMcpOAuthScope(serverUrl, undefined)).toEqual({
+      ok: false,
+      violation: "organization-scope-required",
+    });
+    expect(resolveMcpOAuthScope(serverUrl, "org")).toEqual({
+      ok: true,
+      scope: "org",
+    });
+  });
+
+  it("explains each violated scope constraint in its own direction", () => {
+    const orgOnly = describeMcpOAuthScopeViolation(
+      "organization-scope-required",
+    );
+    const personalOnly = describeMcpOAuthScopeViolation(
+      "personal-scope-required",
+    );
+
+    expect(orgOnly).not.toBe(personalOnly);
+    // The reported bug was an org-only server answering with personal-only text.
+    expect(orgOnly).toMatch(/set up for your workspace/i);
+    expect(orgOnly).toMatch(/owner or admin/i);
+    expect(orgOnly).not.toMatch(/personal connection/i);
+    expect(personalOnly).toMatch(/personal connection/i);
+    expect(personalOnly).not.toMatch(/set up for your workspace/i);
+
+    for (const message of [orgOnly, personalOnly]) {
+      expect(message).not.toMatch(/managed mcp oauth/i);
+      expect(message).not.toMatch(/scope/i);
+    }
+  });
+
+  it("records the trusted read scope when the token response omits scope", () => {
+    const credentials = {
+      serverUrl: "https://mcp.builder.io/mcp/publish",
+      clientInformation: { client_id: "builder-client" },
+      tokens: { access_token: "builder-token" },
+    };
+
+    expect(
+      bindMcpOAuthAuthorizationScope(
+        { authorizationScope: "mcp:publish:read" },
+        credentials,
+      ).tokens.scope,
+    ).toBe("mcp:publish:read");
+  });
+});
 
 const baseFlow: McpOAuthFlow = {
   name: "linear",
@@ -44,7 +211,243 @@ const baseFlow: McpOAuthFlow = {
   expiresAt: Date.now() + 60_000,
 };
 
+const persistedServer = {
+  id: "mcp-linear",
+  name: "linear",
+  url: baseFlow.url,
+  createdAt: Date.now(),
+};
+
 describe("MCP OAuth callback flow validation", () => {
+  beforeEach(() => {
+    vi.stubEnv("BETTER_AUTH_SECRET", "oauth-routes-test-secret");
+    trackMock.mockReset();
+    callbackMocks.addOAuthRemoteServer.mockReset();
+    callbackMocks.finishMcpOAuthAuthorization.mockReset();
+    callbackMocks.getH3App.mockReset();
+    callbackMocks.getOrgContext.mockReset().mockResolvedValue(null);
+    callbackMocks.getSession
+      .mockReset()
+      .mockResolvedValue({ email: "alice@example.com" });
+    callbackMocks.listRemoteServers.mockReset();
+    callbackMocks.replaceOAuthRemoteServer.mockReset();
+    callbackMocks.startMcpOAuthAuthorization.mockReset();
+    callbackMocks.validateMcpOAuthCallbackIssuer.mockReset();
+    callbackMocks.finishMcpOAuthAuthorization.mockResolvedValue({
+      credentials: {
+        serverUrl: baseFlow.url,
+        clientInformation: baseFlow.clientInformation,
+        tokens: { access_token: "access-token", token_type: "bearer" },
+      },
+    });
+    callbackMocks.addOAuthRemoteServer.mockResolvedValue({
+      ok: true,
+      server: persistedServer,
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("keeps OAuth responses alive when first-run telemetry fails", async () => {
+    trackingModuleMock.shouldReject = true;
+    const warnMock = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      const startRoutes: Array<{
+        handler: (event: H3Event) => unknown;
+      }> = [];
+      callbackMocks.getH3App.mockReturnValue({
+        use: (_base: string, handler: (event: H3Event) => unknown) => {
+          startRoutes.push({ handler });
+        },
+      });
+      mountMcpOAuthRoutes({}, { reconfigure: vi.fn() });
+
+      const startEvent = mockEvent(
+        new Request(
+          "https://app.example.com/start?tracking_flow=first_run&tracking_integration_id=linear",
+        ),
+      );
+      const startResult = await startRoutes[0]!.handler(startEvent);
+
+      expect(startResult).toEqual({
+        error: "MCP OAuth requires a server name and URL.",
+      });
+      expect(startEvent.res.status).toBe(400);
+
+      const callback = await invokeCallback(
+        {
+          ...baseFlow,
+          trackingFlow: "first_run",
+          trackingIntegrationId: "linear",
+        },
+        {},
+        vi.fn().mockResolvedValue(true),
+      );
+
+      expect(callback.result).toBeInstanceOf(Response);
+      expect((callback.result as Response).status).toBe(302);
+      expect(warnMock).toHaveBeenCalledWith(
+        "[mcp-oauth] first-run telemetry failed",
+        expect.any(Error),
+      );
+    } finally {
+      warnMock.mockRestore();
+      trackingModuleMock.shouldReject = false;
+      vi.resetModules();
+    }
+  });
+
+  it("records first-run OAuth completion once with safe metadata", async () => {
+    await trackFirstRunMcpOAuthEvent(
+      {
+        ...baseFlow,
+        trackingFlow: "first_run",
+        trackingIntegrationId: "linear",
+      },
+      "integration_connect_completed",
+      { reconfigured: true },
+      "alice@example.com",
+    );
+
+    expect(trackMock).toHaveBeenCalledOnce();
+    expect(trackMock).toHaveBeenCalledWith(
+      "integration_connect_completed",
+      expect.objectContaining({
+        flow: "first_run",
+        step_id: "tools",
+        integration_id: "linear",
+        integration_name: "linear",
+        connection_mode: "oauth",
+        auth_mode: "oauth",
+        scope: "user",
+      }),
+      { userId: "alice@example.com" },
+    );
+  });
+
+  it("tracks state validation failures only for an owned first-run flow", async () => {
+    const response = await invokeCallback(
+      {
+        ...baseFlow,
+        trackingFlow: "first_run",
+        trackingIntegrationId: "linear",
+      },
+      { state: "wrong-state" },
+      vi.fn(),
+    );
+
+    expect(response.result).toEqual({
+      error: "MCP OAuth state is invalid or expired.",
+    });
+    expect(response.event.res.status).toBe(400);
+    expect(trackMock).toHaveBeenCalledWith(
+      "integration_connect_failed",
+      expect.objectContaining({
+        error_type: "state_invalid",
+        integration_id: "linear",
+      }),
+      { userId: "alice@example.com" },
+    );
+    expect(trackMock.mock.calls[0][1]).not.toHaveProperty("state");
+    expect(trackMock.mock.calls[0][1]).not.toHaveProperty("error");
+    expect(callbackMocks.validateMcpOAuthCallbackIssuer).not.toHaveBeenCalled();
+  });
+
+  it("tracks trusted callback issuer validation failures without the error detail", async () => {
+    callbackMocks.validateMcpOAuthCallbackIssuer.mockImplementation(() => {
+      throw new Error("untrusted issuer detail");
+    });
+
+    const response = await invokeCallback(
+      {
+        ...baseFlow,
+        trackingFlow: "first_run",
+        trackingIntegrationId: "linear",
+      },
+      {},
+      vi.fn(),
+    );
+
+    expect(response.result).toEqual({
+      error: "MCP OAuth authorization response issuer is invalid.",
+    });
+    expect(response.event.res.status).toBe(400);
+    expect(trackMock).toHaveBeenCalledWith(
+      "integration_connect_failed",
+      expect.objectContaining({ error_type: "issuer_invalid" }),
+      { userId: "alice@example.com" },
+    );
+    expect(trackMock.mock.calls[0][1]).not.toHaveProperty("error_message");
+    expect(callbackMocks.finishMcpOAuthAuthorization).not.toHaveBeenCalled();
+  });
+
+  it("tracks organization authorization failures after flow validation", async () => {
+    callbackMocks.getOrgContext.mockResolvedValue({
+      orgId: "org-acme",
+      role: "member",
+    });
+
+    const response = await invokeCallback(
+      {
+        ...baseFlow,
+        scope: "org",
+        scopeId: "org-acme",
+        orgId: "org-acme",
+        trackingFlow: "first_run",
+        trackingIntegrationId: "linear",
+      },
+      {},
+      vi.fn(),
+    );
+
+    expect(response.result).toEqual({
+      error:
+        "Only organization owners and admins can connect an org MCP server.",
+    });
+    expect(response.event.res.status).toBe(403);
+    expect(trackMock).toHaveBeenCalledWith(
+      "integration_connect_failed",
+      expect.objectContaining({ error_type: "authorization_denied" }),
+      { userId: "alice@example.com" },
+    );
+    expect(callbackMocks.finishMcpOAuthAuthorization).not.toHaveBeenCalled();
+  });
+
+  it("reports persistence complete when manager reconfiguration throws", async () => {
+    const reconfigure = vi
+      .fn()
+      .mockRejectedValue(new Error("manager reload failed"));
+
+    const response = await invokeCallback(
+      {
+        ...baseFlow,
+        trackingFlow: "first_run",
+        trackingIntegrationId: "linear",
+      },
+      {},
+      reconfigure,
+    );
+
+    expect(response.result).toBeInstanceOf(Response);
+    expect((response.result as Response).status).toBe(302);
+    expect(reconfigure).toHaveBeenCalledOnce();
+    expect(callbackMocks.addOAuthRemoteServer).toHaveBeenCalledOnce();
+    expect(trackMock).toHaveBeenCalledOnce();
+    expect(trackMock).toHaveBeenCalledWith(
+      "integration_connect_completed",
+      expect.objectContaining({ reconfigured: false }),
+      { userId: "alice@example.com" },
+    );
+    expect(trackMock).not.toHaveBeenCalledWith(
+      "integration_connect_failed",
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
   it("returns to integrations when OAuth saved credentials do not connect", () => {
     expect(resolveMcpOAuthReturnPath(false, { ...baseFlow })).toBe(
       "/settings/integrations",
@@ -55,6 +458,49 @@ describe("MCP OAuth callback flow validation", () => {
         returnUrl: "/chat?thread=meeting-actions",
       }),
     ).toBe("/chat?thread=meeting-actions");
+  });
+
+  it("tracks a first-run failure when OAuth discovery fails after popup open", async () => {
+    callbackMocks.startMcpOAuthAuthorization.mockRejectedValue(
+      new Error("discovery failed with provider detail"),
+    );
+
+    const writeEvent = mockEvent(
+      new Request(
+        "https://app.example.com/_agent-native/mcp/servers/oauth/start",
+      ),
+    );
+    const routes: Array<{ handler: (event: H3Event) => unknown }> = [];
+    callbackMocks.getH3App.mockReturnValue({
+      use: (_base: string, handler: (event: H3Event) => unknown) => {
+        routes.push({ handler });
+      },
+    });
+    mountMcpOAuthRoutes({}, { reconfigure: vi.fn() });
+
+    const event = mockEvent(
+      new Request(
+        "https://app.example.com/start?name=linear&url=https%3A%2F%2Fmcp.example.com%2Fmcp&scope=user&tracking_flow=first_run&tracking_integration_id=linear",
+      ),
+    );
+    const result = await routes[0]!.handler(event);
+
+    expect(result).toEqual({
+      error:
+        "This MCP server could not start OAuth. Check that the server URL is correct, then try again.",
+      errorCode: "oauth_start_failed",
+    });
+    expect(event.res.status).toBe(400);
+    expect(trackMock).toHaveBeenCalledWith(
+      "integration_connect_failed",
+      expect.objectContaining({
+        error_type: "oauth_start_failed",
+        integration_id: "linear",
+        integration_name: "linear",
+      }),
+      { userId: "alice@example.com" },
+    );
+    expect(trackMock.mock.calls[0][1]).not.toHaveProperty("error_message");
   });
 
   it("carries staged cookies on native redirects", () => {
@@ -266,23 +712,87 @@ describe("managed MCP OAuth clients", () => {
   it("rejects organization scope for managed MCP OAuth servers", () => {
     expect(
       resolveMcpOAuthScope(new URL("https://mcp.hubspot.com"), "org"),
-    ).toBeNull();
+    ).toEqual({ ok: false, violation: "personal-scope-required" });
     expect(
       resolveMcpOAuthScope(new URL("https://mcp.hubspot.com"), "org", {
         allowManagedOrgReconnect: true,
       }),
-    ).toBe("org");
+    ).toEqual({ ok: true, scope: "org" });
     expect(
       resolveMcpOAuthScope(new URL("https://drivemcp.googleapis.com"), "org", {
         allowManagedOrgReconnect: true,
       }),
-    ).toBe("org");
+    ).toEqual({ ok: true, scope: "org" });
     expect(
       resolveMcpOAuthScope(new URL("https://mcp.hubspot.com"), "user"),
-    ).toBe("user");
+    ).toEqual({ ok: true, scope: "user" });
     expect(
       resolveMcpOAuthScope(new URL("https://mcp.example.com"), "org"),
-    ).toBe("org");
+    ).toEqual({ ok: true, scope: "org" });
+  });
+
+  it("matches the server org-only rule for hand-entered Builder Publish URLs", () => {
+    for (const raw of [
+      "https://mcp.builder.io/mcp/publish",
+      "https://mcp.builder.io/mcp/publish/",
+    ]) {
+      expect(mcpUrlRequiresOrganizationScope(raw)).toBe(true);
+      expect(resolveMcpOAuthScope(new URL(raw), "user").ok).toBe(false);
+    }
+    // A query or fragment takes the URL outside the trusted Builder Publish
+    // match on the server too, so it is a generic server that accepts either
+    // scope. Forcing org here would fail requests the server would allow.
+    for (const raw of [
+      "https://mcp.builder.io/mcp/fusion",
+      "https://mcp.builder.io/mcp/publish?x=1",
+      "https://mcp.builder.io/mcp/publish#frag",
+      "https://mcp.example.com/mcp",
+    ]) {
+      expect(mcpUrlRequiresOrganizationScope(raw)).toBe(false);
+      expect(resolveMcpOAuthScope(new URL(raw), "user")).toEqual({
+        ok: true,
+        scope: "user",
+      });
+    }
+    for (const raw of ["https://mcp.hubspot.com", "not-a-url"]) {
+      expect(mcpUrlRequiresOrganizationScope(raw)).toBe(false);
+    }
+  });
+
+  it("keeps every catalog scope flag in step with what the server enforces", () => {
+    for (const integration of DEFAULT_MCP_INTEGRATIONS) {
+      if (integration.authMode !== "oauth" || !integration.url) continue;
+      const serverUrl = new URL(integration.url);
+
+      // The client must not advertise a personal connection the server rejects.
+      expect({
+        id: integration.id,
+        organizationScopeOnly: integration.organizationScopeOnly === true,
+      }).toEqual({
+        id: integration.id,
+        organizationScopeOnly: !resolveMcpOAuthScope(serverUrl, "user").ok,
+      });
+
+      // The URL-level rule that buildMcpOAuthStartUrl enforces has to agree
+      // with the server too, since custom servers carry no catalog flag.
+      expect({
+        id: integration.id,
+        urlRequiresOrg: mcpUrlRequiresOrganizationScope(integration.url),
+      }).toEqual({
+        id: integration.id,
+        urlRequiresOrg: !resolveMcpOAuthScope(serverUrl, "user").ok,
+      });
+
+      // ...nor a workspace connection the server rejects. `managedOAuth` is
+      // what makes the UI hide the workspace option for those providers.
+      expect({
+        id: integration.id,
+        managedOAuth: integration.managedOAuth === true,
+      }).toEqual({
+        id: integration.id,
+        managedOAuth: !resolveMcpOAuthScope(serverUrl, "org").ok,
+      });
+    }
   });
 
   it("resolves the workspace HubSpot client without exposing its secret to the browser", async () => {
@@ -330,7 +840,10 @@ describe("managed MCP OAuth clients", () => {
         client_secret: "google-client-secret",
         token_endpoint_auth_method: "client_secret_post",
       });
-      expect(resolveMcpOAuthScope(new URL(origin), "org")).toBeNull();
+      expect(resolveMcpOAuthScope(new URL(origin), "org")).toEqual({
+        ok: false,
+        violation: "personal-scope-required",
+      });
     }
     expect(resolveSecretPairsMock).toHaveBeenLastCalledWith(
       [["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]],
@@ -369,9 +882,139 @@ describe("MCP OAuth start failures", () => {
       status: 400,
       body: {
         error:
-          "This MCP server could not start OAuth. It may not support standard MCP OAuth discovery or dynamic client registration.",
+          "This MCP server could not start OAuth. Check that the server URL is correct, then try again.",
+        errorCode: "oauth_start_failed",
       },
     });
+  });
+
+  // GitHub's authorization server advertises no registration_endpoint, so the
+  // generic message told users to retry a flow that can never succeed.
+  it("names the authorization server that cannot register a client", () => {
+    const failure = resolveMcpOAuthStartError(
+      new McpOAuthRegistrationUnsupportedError({
+        issuer: "https://github.com/login/oauth",
+        authorizationServerUrl: "https://github.com/login/oauth",
+      }),
+    );
+
+    expect(failure.status).toBe(400);
+    expect(failure.body.errorCode).toBe(
+      "oauth_dynamic_registration_unsupported",
+    );
+    expect(failure.body.retryable).toBe(false);
+    expect(failure.body.error).toContain("github.com/login/oauth");
+    expect(failure.body.error).toContain("Authorization: Bearer <token>");
+  });
+
+  it("falls back to the authorization server URL when no issuer was published", () => {
+    const failure = resolveMcpOAuthStartError(
+      new McpOAuthRegistrationUnsupportedError({
+        authorizationServerUrl: "https://auth.example.com/tenant/",
+      }),
+    );
+
+    expect(failure.body.error).toContain("auth.example.com/tenant");
+  });
+
+  it("still describes the failure when discovery named no server at all", () => {
+    const failure = resolveMcpOAuthStartError(
+      new McpOAuthRegistrationUnsupportedError({}),
+    );
+
+    expect(failure.body.errorCode).toBe(
+      "oauth_dynamic_registration_unsupported",
+    );
+    expect(failure.body.error).toContain("sign-in provider");
+  });
+});
+
+describe("MCP OAuth start failure rendering", () => {
+  const htmlEvent = () =>
+    mockEvent(
+      new Request(
+        "http://app.example.com/_agent-native/mcp/servers/oauth/start",
+        {
+          headers: { accept: "text/html,application/xhtml+xml" },
+        },
+      ),
+    );
+  const jsonEvent = () =>
+    mockEvent(
+      new Request(
+        "http://app.example.com/_agent-native/mcp/servers/oauth/start",
+        {
+          headers: { accept: "application/json" },
+        },
+      ),
+    );
+
+  it("recognizes a browser navigation from its Accept header", () => {
+    expect(wantsHtmlResponse(htmlEvent())).toBe(true);
+    expect(wantsHtmlResponse(jsonEvent())).toBe(false);
+  });
+
+  // The Connect button opens this route in a popup, so a JSON body was painted
+  // across the window as a raw error object.
+  it("renders an HTML page for the popup instead of the raw JSON body", async () => {
+    const response = mcpOAuthStartFailureResponse(htmlEvent(), {
+      status: 400,
+      body: { error: "GitHub cannot register a client.", errorCode: "x" },
+    });
+
+    expect(response).toBeInstanceOf(Response);
+    const html = await (response as Response).text();
+    expect((response as Response).status).toBe(400);
+    expect((response as Response).headers.get("content-type")).toContain(
+      "text/html",
+    );
+    expect(html).toContain("GitHub cannot register a client.");
+    expect(html).not.toContain('{"error"');
+  });
+
+  it("escapes the message it renders", async () => {
+    const response = mcpOAuthStartFailureResponse(htmlEvent(), {
+      status: 400,
+      body: { error: "<img src=x onerror=alert(1)>" },
+    });
+
+    const html = await (response as Response).text();
+    expect(html).not.toContain("<img src=x");
+    expect(html).toContain("&lt;img");
+  });
+
+  // The callback stages the flow-cookie deletion before it validates anything,
+  // and h3 does not merge staged Set-Cookie headers into a returned Response.
+  it("carries the staged flow-cookie deletion onto the HTML page", async () => {
+    const event = htmlEvent();
+    clearMcpOAuthFlowCookies(event);
+    const staged = event.res.headers.getSetCookie();
+    expect(staged.length).toBeGreaterThan(0);
+
+    const response = mcpOAuthStartFailureResponse(event, {
+      status: 400,
+      body: { error: "MCP OAuth state is invalid or expired." },
+    }) as Response;
+
+    expect(response.headers.getSetCookie()).toEqual(staged);
+    expect(response.headers.get("content-type")).toContain("text/html");
+    await expect(response.text()).resolves.toContain(
+      "MCP OAuth state is invalid or expired.",
+    );
+  });
+
+  it("keeps the JSON body for non-browser callers", () => {
+    const event = jsonEvent();
+    const response = mcpOAuthStartFailureResponse(event, {
+      status: 503,
+      body: { error: "store down", errorCode: "credential_store_unavailable" },
+    });
+
+    expect(response).toEqual({
+      error: "store down",
+      errorCode: "credential_store_unavailable",
+    });
+    expect(event.res.status).toBe(503);
   });
 });
 
@@ -384,6 +1027,42 @@ function eventWithCookies(setCookies: string[]): H3Event {
       headers: { cookie: cookieHeader },
     }),
   );
+}
+
+async function invokeCallback(
+  flow: McpOAuthFlow,
+  query: { state?: string; code?: string; error?: string },
+  reconfigure: () => Promise<boolean>,
+): Promise<{ result: unknown; event: H3Event }> {
+  const writeEvent = mockEvent(
+    new Request(
+      "https://app.example.com/_agent-native/mcp/servers/oauth/start",
+    ),
+  );
+  setMcpOAuthFlowCookie(writeEvent, flow, false);
+  const cookie = writeEvent.res.headers
+    .getSetCookie()
+    .map((value) => value.split(";", 1)[0])
+    .join("; ");
+  const params = new URLSearchParams({
+    state: query.state ?? flow.state,
+    ...(query.code === undefined ? { code: "authorization-code" } : {}),
+    ...(query.code === undefined ? {} : { code: query.code }),
+    ...(query.error === undefined ? {} : { error: query.error }),
+  });
+  const event = mockEvent(
+    new Request(`https://app.example.com/callback?${params.toString()}`, {
+      headers: { cookie },
+    }),
+  );
+  const routes: Array<{ handler: (event: H3Event) => unknown }> = [];
+  callbackMocks.getH3App.mockReturnValue({
+    use: (_base: string, handler: (event: H3Event) => unknown) => {
+      routes.push({ handler });
+    },
+  });
+  mountMcpOAuthRoutes({}, { reconfigure });
+  return { result: await routes[0]!.handler(event), event };
 }
 
 function cookieName(setCookie: string): string {

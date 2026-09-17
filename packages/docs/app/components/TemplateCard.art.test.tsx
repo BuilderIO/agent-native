@@ -64,11 +64,12 @@ describe("TemplateCard copy", () => {
   it("renders only the description, matching the homepage carousel card", () => {
     const { container } = renderCard("clips");
 
+    const clipsCopy = docsI18nCatalog.messages.templateLanding.clips;
+
     const paragraphs = Array.from(container.querySelectorAll("article p"));
     expect(paragraphs).toHaveLength(1);
-    expect(paragraphs[0]?.textContent).toContain("Record your screen.");
-    expect(container.textContent).not.toContain(
-      "Screen recordings your AI can actually watch",
-    );
+    expect(paragraphs[0]?.textContent).toContain(clipsCopy.s008);
+    // The card is description-only; the landing headline must not leak in.
+    expect(container.textContent).not.toContain(clipsCopy.s007Secondary);
   });
 });

@@ -259,7 +259,7 @@ export async function importPptxBufferToDeck(args: {
         .where(deckRevisionWhere(schema.decks, deckId, latestDeck.updatedAt));
       assertDeckWriteApplied(updateResult, deckId, "PPTX import");
 
-      notifyClients(deckId);
+      await notifyClients(deckId);
       await writeAppState("refresh-signal", {
         ts: now,
         source,
@@ -300,7 +300,7 @@ export async function importPptxBufferToDeck(args: {
     updatedAt: now,
   });
 
-  notifyClients(id);
+  await notifyClients(id);
   await writeAppState("refresh-signal", { ts: now, source });
 
   return {

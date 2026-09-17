@@ -39,6 +39,7 @@ import {
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { resolveHasBuilderGatewayCredential } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import { transcribeWithBuilder } from "@agent-native/core/transcription/builder";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -705,12 +706,14 @@ export async function importLoomTranscriptForRecording({
   ownerEmail,
   recording,
   now,
+  context,
 }: {
   db: ReturnType<typeof getDb>;
   recordingId: string;
   ownerEmail: string;
   recording: RecordingMediaRow;
   now: string;
+  context?: ActionRunContext;
 }) {
   const shareUrl = resolveLoomTranscriptShareUrl(recording);
   let reason = shareUrl
@@ -737,6 +740,19 @@ export async function importLoomTranscriptForRecording({
         await writeAppState("refresh-signal", { ts: Date.now() });
         await finalizeEndedMeetingsForRecording(db, recordingId);
         await queueBrainExport(recordingId);
+        track(
+          "recording_completed",
+          {
+            app_name: "clips",
+            template_name: "clips",
+            output_id: recordingId,
+            output_type: "clip",
+            duration_s: Math.round((recording.durationMs ?? 0) / 1000),
+            has_transcript: true,
+            transcription_source: "loom",
+          },
+          context,
+        );
         return {
           recordingId,
           status: "ready" as const,
@@ -1262,12 +1278,6 @@ const requestTranscriptAction = defineAction({
       };
     }
 
-    // ── Builder transcription (cloud fallback) ────────────────────────
-    // Gate on the gateway credential, not on Builder connection custody:
-    // `transcribeWithBuilder` authenticates through `resolveBuilderGatewayAuth`,
-    // which reads gateway credentials and a legacy private key and never
-    // consults an OAuth grant. Gating on custody would select this path for an
-    // OAuth-only user, write pending state, prepare audio, and only then fail.
     if (await resolveHasBuilderGatewayCredential()) {
       if (!regeneratingReadyTranscript) {
         await upsertTranscriptRow(db, {
@@ -1319,6 +1329,7 @@ const requestTranscriptAction = defineAction({
           ownerEmail,
           recording: rec,
           now,
+          context,
         });
       }
 
@@ -1410,6 +1421,21 @@ const requestTranscriptAction = defineAction({
           await finalizeEndedMeetingsForRecording(db, args.recordingId);
           await queueBrainExport(args.recordingId);
           await clearBuilderCreditsExhausted();
+          if (!regeneratingReadyTranscript) {
+            track(
+              "recording_completed",
+              {
+                app_name: "clips",
+                template_name: "clips",
+                output_id: args.recordingId,
+                output_type: "clip",
+                duration_s: Math.round((rec.durationMs ?? 0) / 1000),
+                has_transcript: true,
+                transcription_source: "builder",
+              },
+              context,
+            );
+          }
 
           // Re-read title fresh — `rec.title` was fetched before the 30+ s
           // transcription and may be stale if the user renamed during that window.

@@ -79,8 +79,6 @@ interface DbAdminConnection {
   appId: string | null;
   appUrl: string | null;
   databaseUrlLast4: string | null;
-  hasDatabaseAuthToken: boolean;
-  databaseAuthTokenLast4: string | null;
 }
 
 interface SaveDbAdminConnectionInput {
@@ -88,7 +86,6 @@ interface SaveDbAdminConnectionInput {
   appId?: string;
   appUrl?: string;
   databaseUrl: string;
-  databaseAuthToken?: string;
 }
 
 interface DashboardUsageStats {
@@ -627,7 +624,6 @@ function AnalyticsDbAdminPanel({
     appId: "",
     appUrl: "",
     databaseUrl: "",
-    databaseAuthToken: "",
   });
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -688,7 +684,6 @@ function AnalyticsDbAdminPanel({
         appId: "",
         appUrl: "",
         databaseUrl: "",
-        databaseAuthToken: "",
       });
       onSelectConnection(saved.id);
     } catch (err) {
@@ -874,23 +869,6 @@ function AnalyticsDbAdminPanel({
                 type="password"
                 autoComplete="off"
                 required
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="db-connection-auth-token">
-                {t("agents.connectionAuthToken")}
-              </Label>
-              <Input
-                id="db-connection-auth-token"
-                value={form.databaseAuthToken}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    databaseAuthToken: event.target.value,
-                  }))
-                }
-                type="password"
-                autoComplete="off"
               />
             </div>
             {formError ? (

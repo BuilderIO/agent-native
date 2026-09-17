@@ -26,10 +26,14 @@ describe("renderMarkdownToHtml", () => {
     expect(html).not.toContain("<img");
   });
 
-  it("canonicalizes same-site docs links and leaves external ones alone", () => {
-    const html = renderMarkdownToHtml("[docs](/docs) [site](https://x.test)");
+  it("canonicalizes same-site links and leaves external ones alone", () => {
+    const html = renderMarkdownToHtml(
+      "[docs](/docs) [policy](/legal/takedown) [site](https://x.test)",
+      "es-ES",
+    );
 
-    expect(html).toContain('<a href="/docs/">docs</a>');
+    expect(html).toContain('<a href="/es-es/docs/">docs</a>');
+    expect(html).toContain('<a href="/es-es/legal/takedown/">policy</a>');
     expect(html).toContain('<a href="https://x.test">site</a>');
   });
 

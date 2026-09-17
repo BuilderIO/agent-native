@@ -1,14 +1,14 @@
 import { defineAction } from "@agent-native/core/action";
 import { buildDeepLink } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { resolveAccess, roleSatisfies } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import { roleSatisfies } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
+import { and, eq, isNull, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { parseDocumentHideFromSearch } from "../server/lib/documents.js";
 import { favoriteDocumentIds } from "./_content-favorites.js";
-import { resolveContentSpaceAccess } from "./_content-space-access.js";
 import {
   getDatabaseByDocumentId,
   getBuilderBodyHydrationMembershipByDocumentId,
@@ -17,6 +17,11 @@ import {
   isSoftDeletedDatabaseDocument,
   serializeDatabaseMembership,
 } from "./_database-utils.js";
+import { resolveDocumentAccess } from "./_document-access.js";
+import {
+  documentContentHash,
+  documentRevisionToken,
+} from "./_document-edit-mutation.js";
 import { serializeDocumentSource } from "./_document-source.js";
 import {
   getDatabaseById,
@@ -24,6 +29,10 @@ import {
   resolvePropertyDatabaseForDocument,
   serializeDatabase,
 } from "./_property-utils.js";
+import {
+  canSuggestDocument,
+  documentHasInlineDatabase,
+} from "./_suggestion-eligibility.js";
 
 function canEditRole(role: string) {
   return role === "owner" || role === "admin" || role === "editor";
@@ -40,26 +49,6 @@ function canManageRole(role: string) {
   return role === "owner" || role === "admin";
 }
 
-async function resolveDocumentAccess(id: string) {
-  const current = await resolveAccess("document", id);
-  if (current) return current;
-  const [reference] = await getDb()
-    .select({ spaceId: schema.documents.spaceId })
-    .from(schema.documents)
-    .where(eq(schema.documents.id, id))
-    .limit(1);
-  if (!reference?.spaceId) return null;
-  try {
-    const spaceAccess = await resolveContentSpaceAccess(reference.spaceId);
-    return resolveAccess("document", id, {
-      userEmail: spaceAccess.authority.userEmail,
-      orgId: spaceAccess.authority.orgId ?? undefined,
-    });
-  } catch {
-    return null;
-  }
-}
-
 export default defineAction({
   description:
     "Read one access-scoped document by its stable ID, including the full Markdown body and metadata. Use list-documents or search-documents first when the ID is unknown.",
@@ -74,19 +63,19 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "Exact database ID when reading membership-local properties for a database item.",
+        "Exact collection ID when reading membership-local properties for a collection item.",
       ),
     databaseDocumentId: z
       .string()
       .optional()
       .describe(
-        "Backing database document ID; only use with databaseId for the exact database context.",
+        "Backing collection document ID; only use with databaseId for the exact collection context.",
       ),
   }),
   http: { method: "GET" },
   readOnly: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
-  run: async (args) => {
+  run: async (args, ctx) => {
     if (!args.id) throw new Error("--id is required");
 
     const access = await resolveDocumentAccess(args.id);
@@ -163,6 +152,73 @@ export default defineAction({
       // not the private database document that owns those definitions.
       requireDatabaseAccess: propertyDatabaseAccess !== null,
     });
+    const source = serializeDocumentSource(doc);
+    const hasInlineDatabase = documentHasInlineDatabase(doc.content ?? "");
+    let isOrdinaryDatabaseItem = false;
+    let isExternallyLinked = false;
+    if (
+      canCommentRole(access.role) &&
+      !database &&
+      !source?.mode &&
+      !hasInlineDatabase
+    ) {
+      const db = getDb();
+      const [ordinaryMembership, externalLink] = await Promise.all([
+        db
+          .select({ id: schema.contentDatabaseItems.id })
+          .from(schema.contentDatabaseItems)
+          .innerJoin(
+            schema.contentDatabases,
+            eq(
+              schema.contentDatabases.id,
+              schema.contentDatabaseItems.databaseId,
+            ),
+          )
+          .where(
+            and(
+              eq(schema.contentDatabaseItems.documentId, doc.id),
+              isNull(schema.contentDatabases.deletedAt),
+              isNull(schema.contentDatabases.systemRole),
+            ),
+          )
+          .limit(1),
+        db
+          .select({ documentId: schema.documentSyncLinks.documentId })
+          .from(schema.documentSyncLinks)
+          .where(
+            and(
+              eq(schema.documentSyncLinks.documentId, doc.id),
+              ne(schema.documentSyncLinks.state, "unlinked"),
+            ),
+          )
+          .limit(1),
+      ]);
+      isOrdinaryDatabaseItem = ordinaryMembership.length > 0;
+      isExternallyLinked = externalLink.length > 0;
+    }
+    const canSuggest = canSuggestDocument({
+      canComment: canCommentRole(access.role),
+      isDatabase: Boolean(database),
+      isOrdinaryDatabaseItem,
+      isExternallyLinked,
+      isSourceOwned: Boolean(
+        doc.sourceMode || doc.sourceKind || doc.sourcePath,
+      ),
+      hasInlineDatabase,
+    });
+    const revision = documentRevisionToken(doc.bodyRevision, doc.content ?? "");
+
+    track(
+      "document_viewed",
+      {
+        app_name: "content",
+        template_name: "content",
+        output_id: doc.id,
+        output_type: "document",
+        is_owner: access.role === "owner",
+      },
+      ctx,
+    );
 
     return {
       id: doc.id,
@@ -175,15 +231,22 @@ export default defineAction({
         databaseMembership && !propertyDatabaseAccess ? null : doc.parentId,
       title: doc.title,
       content: doc.content,
+      revision,
+      baseRevision: revision,
+      bodyRevision: doc.bodyRevision,
+      collabContentRevision:
+        doc.collabBodyRevision === doc.bodyRevision ? revision : null,
+      contentHash: documentContentHash(doc.content ?? ""),
       description: doc.description,
       icon: doc.icon,
       position: doc.position,
       isFavorite: favoriteIds.has(doc.id),
       hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
       visibility: doc.visibility,
-      source: serializeDocumentSource(doc),
+      source,
       accessRole: access.role,
       canComment: canCommentRole(access.role),
+      canSuggest,
       canEdit: canEditRole(access.role),
       canManage: canManageRole(access.role),
       database: database

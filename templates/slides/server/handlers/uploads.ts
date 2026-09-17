@@ -13,6 +13,7 @@ import {
   MAX_FIG_REFERENCE_FILE_BYTES,
   MAX_REFERENCE_FILE_BYTES,
   MAX_REFERENCE_FILES,
+  MAX_SVG_REFERENCE_FILE_BYTES,
   SLIDES_REFERENCE_FILE_ERROR_LABEL,
   isSlidesReferenceFileExtension,
 } from "../../shared/upload-types.js";
@@ -22,7 +23,12 @@ import {
   deleteUploadedReferenceBlob,
   storeUploadedReferenceBlob,
 } from "../lib/uploaded-reference-storage.js";
-import { canSaveAsUploadedAsset, uploadImageAsset } from "./assets.js";
+import {
+  canSaveAsUploadedAsset,
+  hasExpectedSvgSignature,
+  isSafeSvg,
+  uploadImageAsset,
+} from "./assets.js";
 import {
   resolveSlidesRequestAuth,
   withSlidesRequestContext,
@@ -31,6 +37,7 @@ import {
 export {
   MAX_FIG_REFERENCE_FILE_BYTES,
   MAX_REFERENCE_FILE_BYTES,
+  MAX_SVG_REFERENCE_FILE_BYTES,
 } from "../../shared/upload-types.js";
 const FIG_LOCAL_COPY_SIGNATURE = new Uint8Array([
   0x66, 0x69, 0x67, 0x2d, 0x6b, 0x69, 0x77, 0x69,
@@ -45,8 +52,11 @@ export interface UploadedReferenceFile {
   size: number;
 }
 
-function safeFilename(originalName: string): string | null {
-  const ext = path.extname(originalName).toLowerCase();
+function safeFilename(
+  originalName: string,
+  extension = path.extname(originalName).toLowerCase(),
+): string | null {
+  const ext = extension.toLowerCase();
   if (!isSlidesReferenceFileExtension(ext)) return null;
   // Filename uniqueness comes from nanoid (~21 chars, ~126 bits of entropy),
   // not `Date.now()` — second-resolution timestamps are guessable and let
@@ -63,6 +73,9 @@ function ascii(data: Uint8Array, start: number, end: number): string {
 export function maxReferenceFileBytes(
   originalName: string | undefined,
 ): number {
+  if (path.extname(originalName ?? "").toLowerCase() === ".svg") {
+    return MAX_SVG_REFERENCE_FILE_BYTES;
+  }
   return path.extname(originalName ?? "").toLowerCase() === ".fig"
     ? MAX_FIG_REFERENCE_FILE_BYTES
     : MAX_REFERENCE_FILE_BYTES;
@@ -105,16 +118,28 @@ function hasExpectedSignature(ext: string, data: Uint8Array): boolean {
     return ascii(data, 0, 4) === "RIFF" && ascii(data, 8, 12) === "WEBP";
   }
   if (ext === ".svg") {
-    const head = Buffer.from(
-      data.subarray(0, Math.min(data.length, 8192)),
-    ).toString("utf8");
-    const normalized = head.replace(/^\uFEFF/, "").trimStart();
-    return (
-      /^<svg(?:\s|>)/i.test(normalized) ||
-      /^<\?xml\b[\s\S]{0,4096}<svg(?:\s|>)/i.test(normalized)
-    );
+    return hasExpectedSvgSignature(data);
   }
   return !data.subarray(0, 4096).includes(0);
+}
+
+interface DetectedReferenceImage {
+  extension: ".png" | ".jpg" | ".gif" | ".webp";
+  mimeType: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+}
+
+function detectReferenceImage(data: Uint8Array): DetectedReferenceImage | null {
+  const candidates: DetectedReferenceImage[] = [
+    { extension: ".png", mimeType: "image/png" },
+    { extension: ".jpg", mimeType: "image/jpeg" },
+    { extension: ".gif", mimeType: "image/gif" },
+    { extension: ".webp", mimeType: "image/webp" },
+  ];
+  return (
+    candidates.find((candidate) =>
+      hasExpectedSignature(candidate.extension, data),
+    ) ?? null
+  );
 }
 
 function pathForAgent(absPath: string): string {
@@ -132,16 +157,47 @@ export async function saveUploadedReferenceFile(args: {
   data: Uint8Array;
   type?: string;
 }): Promise<UploadedReferenceFile> {
-  const filename = safeFilename(args.originalName);
+  const declaredExt = path.extname(args.originalName).toLowerCase();
+  if (!isSlidesReferenceFileExtension(declaredExt)) {
+    throw new Error(
+      `Unsupported file type. Allowed: ${SLIDES_REFERENCE_FILE_ERROR_LABEL}.`,
+    );
+  }
+  const maxBytes = maxReferenceFileBytes(args.originalName);
+  if (args.data.length > maxBytes) {
+    throw new Error(`File too large (max ${formatMaxFileSize(maxBytes)})`);
+  }
+  const isDeclaredImage = [".png", ".jpg", ".jpeg", ".gif", ".webp"].includes(
+    declaredExt,
+  );
+  const detectedImage = isDeclaredImage
+    ? detectReferenceImage(args.data)
+    : null;
+  const ext =
+    detectedImage && !hasExpectedSignature(declaredExt, args.data)
+      ? detectedImage.extension
+      : declaredExt;
+  const filename = safeFilename(args.originalName, ext);
   if (!filename) {
     throw new Error(
       `Unsupported file type. Allowed: ${SLIDES_REFERENCE_FILE_ERROR_LABEL}.`,
     );
   }
-  const ext = path.extname(filename).toLowerCase();
   if (!hasExpectedSignature(ext, args.data)) {
     throw new Error(`File contents do not match ${ext} upload type`);
   }
+  if (ext === ".svg" && !isSafeSvg(args.data)) {
+    throw new Error("SVG contains active content or external references");
+  }
+  const assetOriginalName =
+    ext === declaredExt
+      ? args.originalName
+      : `${path.basename(args.originalName, path.extname(args.originalName))}${ext}`;
+  const resolvedType =
+    detectedImage?.mimeType ??
+    (declaredExt === ".svg"
+      ? "image/svg+xml"
+      : args.type || "application/octet-stream");
   let uploadedPath: string;
   if (isHostedSlidesRuntime()) {
     let reference: string | null;
@@ -151,7 +207,7 @@ export async function saveUploadedReferenceFile(args: {
         orgId: args.orgId,
         data: args.data,
         filename,
-        mimeType: args.type || "application/octet-stream",
+        mimeType: resolvedType,
       });
     } catch {
       throw Object.assign(
@@ -182,7 +238,7 @@ export async function saveUploadedReferenceFile(args: {
   let url: string | undefined;
   if (
     canSaveAsUploadedAsset({
-      originalName: args.originalName,
+      originalName: assetOriginalName,
       data: args.data,
     })
   ) {
@@ -190,9 +246,9 @@ export async function saveUploadedReferenceFile(args: {
       url = (
         await uploadImageAsset({
           email: args.email,
-          originalName: args.originalName,
+          originalName: assetOriginalName,
           data: args.data,
-          type: args.type,
+          type: resolvedType,
         })
       ).url;
     } catch {
@@ -207,7 +263,7 @@ export async function saveUploadedReferenceFile(args: {
     url,
     originalName: args.originalName,
     filename,
-    type: args.type || "application/octet-stream",
+    type: resolvedType,
     size: args.data.length,
   };
 }

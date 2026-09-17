@@ -15,7 +15,7 @@ import {
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `content-landing-${process.pid}-${Date.now()}.sqlite`,
+  `content-landing-${process.pid}-${Date.now()}.pglite`,
 );
 const WELCOME_TITLE = "Welcome to Agent-Native Content";
 
@@ -37,7 +37,7 @@ let provisionContentSpaces: typeof import("./_content-spaces.js").provisionConte
 let resolveContentLandingAction: typeof import("./resolve-content-landing.js").default;
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -49,8 +49,7 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(() => {
-  for (const suffix of ["", "-shm", "-wal"])
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 async function createPersonalDocument(userEmail: string, id: string) {

@@ -1,3 +1,5 @@
+import { AGENT_AUDIT_LOG_CREATE_SQL } from "../audit/store.js";
+
 /**
  * Migration definitions for the org module. Versions are namespaced into a high
  * range (1000+) so they don't collide with template-owned migrations sharing
@@ -9,8 +11,8 @@ export const ORG_MIGRATIONS = [
     sql: `CREATE TABLE IF NOT EXISTS organizations (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
-      created_by TEXT NOT NULL,
-      created_at INTEGER NOT NULL
+      created_by TEXT NOT NULL, -- guard:allow-identity-column — immutable organization creation provenance
+      created_at BIGINT NOT NULL
     )`,
   },
   {
@@ -20,7 +22,7 @@ export const ORG_MIGRATIONS = [
       org_id TEXT NOT NULL,
       email TEXT NOT NULL,
       role TEXT NOT NULL,
-      joined_at INTEGER NOT NULL,
+      joined_at BIGINT NOT NULL,
       UNIQUE(org_id, email)
     )`,
   },
@@ -31,7 +33,7 @@ export const ORG_MIGRATIONS = [
       org_id TEXT NOT NULL,
       email TEXT NOT NULL,
       invited_by TEXT NOT NULL,
-      created_at INTEGER NOT NULL,
+      created_at BIGINT NOT NULL,
       status TEXT NOT NULL
     )`,
   },
@@ -71,8 +73,8 @@ export const ORG_MIGRATIONS = [
     // via `LOWER(email)`. This keeps exactly one row per (org_id,
     // LOWER(email)) — the row with the oldest `joined_at` (ties broken by
     // `id` for determinism) — by deleting any row for which a strictly
-    // "older" row exists in the same group. Portable across SQLite and
-    // Postgres (plain correlated EXISTS subquery, no window functions).
+    // "older" row exists in the same group. The correlated EXISTS subquery
+    // avoids window functions.
     // Must run before the unique index below or that CREATE would fail on
     // any database that already has case-variant duplicates.
     version: 1009,
@@ -111,7 +113,7 @@ export const ORG_MIGRATIONS = [
       email TEXT NOT NULL,
       role TEXT NOT NULL,
       updated_by TEXT NOT NULL,
-      updated_at INTEGER NOT NULL
+      updated_at BIGINT NOT NULL
     )`,
   },
   {
@@ -142,8 +144,8 @@ export const ORG_MIGRATIONS = [
       name TEXT NOT NULL,
       description TEXT,
       path TEXT NOT NULL,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
+      created_at BIGINT NOT NULL,
+      updated_at BIGINT NOT NULL
     )`,
   },
   {
@@ -180,5 +182,124 @@ export const ORG_MIGRATIONS = [
               FROM workspace_app_shares
               WHERE workspace_app_shares.resource_id = workspace_apps.id
             )`,
+  },
+  {
+    version: 1019,
+    name: "organization-identity-federation",
+    sql: `
+      ALTER TABLE organizations ADD COLUMN IF NOT EXISTS identity_authority TEXT;
+      ALTER TABLE organizations ADD COLUMN IF NOT EXISTS identity_id TEXT;
+      CREATE UNIQUE INDEX IF NOT EXISTS organizations_identity_uidx
+        ON organizations (identity_authority, identity_id);
+    `,
+  },
+  {
+    version: 1020,
+    name: "organization-federation-removal-pending",
+    sql: `ALTER TABLE org_members
+          ADD COLUMN IF NOT EXISTS federation_removal_pending_at BIGINT`,
+  },
+  {
+    version: 1021,
+    name: "organization-federation-roster-initialized",
+    sql: `ALTER TABLE organizations
+          ADD COLUMN IF NOT EXISTS federation_roster_initialized_at BIGINT`,
+  },
+  {
+    // Widening only. Every column below stores a JS `Date.now()`
+    // millisecond epoch (13 digits) but was declared `INTEGER` — Postgres
+    // int4, max 2,147,483,647 — so the very first org-creation INSERT
+    // (`organizations.created_at`, `org_members.joined_at`) fails with
+    // `value "<ms epoch>" is out of range for type integer`. BIGINT matches
+    // every other millisecond-timestamp column in the framework.
+    version: 1022,
+    name: "org-tables-timestamps-bigint",
+    sql: `
+      -- guard:allow-destructive-ddl — widen legacy int4 timestamp storage to preserve Date.now() values
+      ALTER TABLE organizations ALTER COLUMN created_at TYPE BIGINT;
+      -- guard:allow-destructive-ddl — widen legacy int4 timestamp storage to preserve Date.now() values
+      ALTER TABLE organizations ALTER COLUMN federation_roster_initialized_at TYPE BIGINT;
+      -- guard:allow-destructive-ddl — widen legacy int4 timestamp storage to preserve Date.now() values
+      ALTER TABLE org_members ALTER COLUMN joined_at TYPE BIGINT;
+      -- guard:allow-destructive-ddl — widen legacy int4 timestamp storage to preserve Date.now() values
+      ALTER TABLE org_members ALTER COLUMN federation_removal_pending_at TYPE BIGINT;
+      -- guard:allow-destructive-ddl — widen legacy int4 timestamp storage to preserve Date.now() values
+      ALTER TABLE org_invitations ALTER COLUMN created_at TYPE BIGINT;
+      -- guard:allow-destructive-ddl — widen legacy int4 timestamp storage to preserve Date.now() values
+      ALTER TABLE app_member_roles ALTER COLUMN updated_at TYPE BIGINT;
+      -- guard:allow-destructive-ddl — widen legacy int4 timestamp storage to preserve Date.now() values
+      ALTER TABLE workspace_apps ALTER COLUMN created_at TYPE BIGINT;
+      -- guard:allow-destructive-ddl — widen legacy int4 timestamp storage to preserve Date.now() values
+      ALTER TABLE workspace_apps ALTER COLUMN updated_at TYPE BIGINT;
+    `,
+  },
+  {
+    version: 1023,
+    name: "workspace-app-shares-notified-at",
+    sql: `ALTER TABLE IF EXISTS workspace_app_shares ADD COLUMN IF NOT EXISTS notified_at TEXT`,
+  },
+  {
+    version: 1024,
+    name: "suggestion-creations-receipt-version",
+    sql: `ALTER TABLE IF EXISTS agent_review_suggestion_creations ADD COLUMN IF NOT EXISTS receipt_version INTEGER NOT NULL DEFAULT 1`,
+  },
+  {
+    version: 1025,
+    name: "app-member-roles-drop-single-role-unique-index",
+    sql: `DROP INDEX IF EXISTS app_member_roles_org_app_lower_email_uidx`,
+  },
+  {
+    version: 1026,
+    name: "app-member-roles-unique-org-app-email-role-idx",
+    sql: `CREATE UNIQUE INDEX IF NOT EXISTS app_member_roles_org_app_lower_email_role_uidx
+          ON app_member_roles (org_id, app_id, LOWER(email), role)`,
+  },
+  {
+    version: 1027,
+    name: "app-permission-overrides-and-invitation-roles",
+    sql: `ALTER TABLE org_invitations ADD COLUMN IF NOT EXISTS app_roles_json TEXT`,
+  },
+  {
+    version: 1028,
+    name: "app-permission-overrides-table",
+    sql: `CREATE TABLE IF NOT EXISTS app_permission_overrides (
+      org_id TEXT NOT NULL,
+      app_id TEXT NOT NULL,
+      permission TEXT NOT NULL,
+      roles_json TEXT NOT NULL,
+      updated_by TEXT NOT NULL,
+      updated_at BIGINT NOT NULL,
+      UNIQUE (org_id, app_id, permission)
+    )`,
+  },
+  {
+    version: 1029,
+    name: "org-scim-membership-ownership",
+    sql: `CREATE TABLE IF NOT EXISTS org_scim_memberships (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      -- guard:allow-identity-column — immutable Better Auth user id, not an email identity.
+      user_id TEXT NOT NULL,
+      created_membership BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at BIGINT NOT NULL,
+      UNIQUE (org_id, user_id)
+    )`,
+  },
+  {
+    version: 1030,
+    name: "org-scim-membership-member-id",
+    sql: `ALTER TABLE org_scim_memberships
+          ADD COLUMN IF NOT EXISTS member_id TEXT`,
+  },
+  {
+    version: 1031,
+    name: "workspace-app-org-enabled",
+    sql: `ALTER TABLE workspace_apps
+          ADD COLUMN IF NOT EXISTS org_enabled BOOLEAN NOT NULL DEFAULT TRUE`,
+  },
+  {
+    version: 1032,
+    name: "agent-audit-log-base-table",
+    sql: AGENT_AUDIT_LOG_CREATE_SQL,
   },
 ];

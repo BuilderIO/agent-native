@@ -30,7 +30,7 @@ producción y el comportamiento de alojamiento.
 | `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | Secreto HMAC compartido y dedicado de 32 o más caracteres para la retransmisión segura de la autorización de Builder en vistas previas. Establece el mismo valor en la implementación de devolución de llamada corporativa aprobada y en las implementaciones de vista previa solo cuando la autorización deba almacenarse en una base de datos de vista previa aislada.                                                                                                                                                                      |
 | `AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS` | Lista de permitidos, separada por comas y solo para la devolución de llamada corporativa, de orígenes de vista previa exactos y de confianza (por ejemplo, `https://0123456789abcdef01234567--content.netlify.app`). Establécela únicamente en la implementación de devolución de llamada corporativa. Los orígenes de Netlify deben usar un enlace permanente inmutable y específico de la implementación con un ID hexadecimal de 24 caracteres. Se rechazan los alias mutables `deploy-preview-*`, los comodines y los sufijos de dominio. |
 
-Las variables de conexión de la base de datos (`DATABASE_URL`, `DATABASE_AUTH_TOKEN`, `<APP_NAME>_DATABASE_URL` por aplicación) se encuentran en [Base de datos](/docs/server-database#production).
+Las variables de conexión de la base de datos (`DATABASE_URL`, `<APP_NAME>_DATABASE_URL` por aplicación) se encuentran en [Base de datos](/docs/server-database#production).
 
 ## Configuración sensible para producción {#env-required-prod}
 

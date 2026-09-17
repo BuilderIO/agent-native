@@ -74,6 +74,7 @@ interface ListCalendarEventsArgs {
   query?: string;
   overlayEmails?: string | string[];
   accountEmails?: string[];
+  calendarSourceKeys?: string[];
   sources?: CalendarInventorySource[];
   providerPageSize?: number;
 }
@@ -131,6 +132,12 @@ export interface CalendarInventoryItem {
   source: "google" | "booking" | "ics" | "overlay";
   sourceId?: string;
   accountEmail?: string;
+  calendarSourceKey?: string;
+  calendarId?: string;
+  calendarName?: string;
+  calendarAccessRole?: CalendarEvent["calendarAccessRole"];
+  calendarPrimary?: boolean;
+  calendarReadOnly?: boolean;
   overlayEmail?: string;
   organizer?: { email?: string; displayName?: string; self?: boolean };
   selfResponseStatus?: CalendarEvent["responseStatus"];
@@ -239,6 +246,7 @@ function inventoryQueryKey(args: {
   to: string;
   query?: string;
   accountEmails: string[];
+  calendarSourceKeys?: string[];
   overlayEmails?: string | string[];
   sources: CalendarInventorySource[];
 }): string {
@@ -248,6 +256,7 @@ function inventoryQueryKey(args: {
     to: args.to,
     query: args.query?.trim().toLowerCase() || "",
     accountEmails: normalizedEmails(args.accountEmails),
+    calendarSourceKeys: [...(args.calendarSourceKeys ?? [])].sort(),
     overlayEmails: normalizedOverlayEmails(args.overlayEmails),
     sources: [...args.sources].sort(),
   });
@@ -314,7 +323,10 @@ function compactInventoryEvent(event: CalendarEvent): CalendarInventoryItem {
   );
   const key = [
     event.source,
-    event.accountEmail ?? event.overlayEmail ?? "local",
+    event.calendarSourceKey ??
+      event.accountEmail ??
+      event.overlayEmail ??
+      "local",
     event.googleEventId ?? event.id,
     event.start,
   ].join(":");
@@ -327,7 +339,12 @@ function compactInventoryEvent(event: CalendarEvent): CalendarInventoryItem {
         : event.source;
   return {
     key,
-    id: event.googleEventId ?? event.id,
+    // Keep the app id when it carries a calendar namespace; the raw provider
+    // id is only unique within one Google calendar.
+    id:
+      event.googleEventId && event.id !== `google-${event.googleEventId}`
+        ? event.id
+        : (event.googleEventId ?? event.id),
     title: cap(event.title) ?? "Untitled",
     start: event.start,
     end: event.end,
@@ -338,6 +355,12 @@ function compactInventoryEvent(event: CalendarEvent): CalendarInventoryItem {
     source,
     sourceId: event.sourceId,
     accountEmail: event.accountEmail,
+    calendarSourceKey: event.calendarSourceKey,
+    calendarId: event.calendarId,
+    calendarName: cap(event.calendarName),
+    calendarAccessRole: event.calendarAccessRole,
+    calendarPrimary: event.calendarPrimary,
+    calendarReadOnly: event.calendarReadOnly,
     overlayEmail: event.overlayEmail,
     organizer: event.organizer
       ? {
@@ -638,6 +661,7 @@ export async function listCalendarEvents(
     connected && includeGoogle
       ? googleCalendar.listEvents(range.from, range.to, email, {
           accountEmails: args.accountEmails,
+          calendarSourceKeys: args.calendarSourceKeys,
           maxResults: args.providerPageSize,
         })
       : Promise.resolve({ events: [], errors: [] });
@@ -727,11 +751,21 @@ export async function listCalendarEvents(
 
   const googleEventIds = new Set(
     googleEvents
+      .filter(
+        (event) =>
+          event.calendarPrimary !== false &&
+          !event.overlayEmail &&
+          event.googleEventId,
+      )
       .map((event) => event.googleEventId)
       .filter((id): id is string => Boolean(id)),
   );
   const googleReadAuthoritative =
-    includeGoogle && connected && googleResult.errors.length === 0;
+    includeGoogle &&
+    connected &&
+    googleResult.errors.length === 0 &&
+    (!args.calendarSourceKeys?.length ||
+      googleEvents.some((event) => event.calendarPrimary === true));
   const bookingEvents = rawBookingEvents.filter((event) =>
     shouldShowLocalBookingEvent({
       event,
@@ -800,6 +834,14 @@ export default defineAction({
       .describe(
         "Connected Google accounts to read; omitted reads every connected account",
       ),
+    calendarSourceKeys: z
+      .array(z.string().min(1).max(4096))
+      .min(1)
+      .max(100)
+      .optional()
+      .describe(
+        "Opaque Google calendar source keys returned by list-google-calendars; each is revalidated before reading",
+      ),
     sources: z
       .array(z.enum(["google", "bookings", "ics", "overlays"]))
       .max(4)
@@ -855,6 +897,7 @@ export default defineAction({
         to: preparedRange.to,
         query: args.query,
         accountEmails: args.accountEmails ?? preparedOwnedAccounts ?? [],
+        calendarSourceKeys: args.calendarSourceKeys,
         overlayEmails: args.overlayEmails,
         sources: resolveInventorySources(args.sources),
       });
@@ -884,6 +927,7 @@ export default defineAction({
           to: result.range.to,
           query: args.query,
           accountEmails: result.requestedAccounts ?? result.resolvedAccounts,
+          calendarSourceKeys: args.calendarSourceKeys,
           overlayEmails: args.overlayEmails,
           sources: result.sources,
         });

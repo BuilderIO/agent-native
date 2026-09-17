@@ -17,7 +17,7 @@ export function normalizeSlidePadding(html: string): string {
       const style = styleMatch[2];
       if (/(?:^|;)\s*padding\s*:/i.test(style)) return html;
 
-      const nextStyle = `padding: 80px 110px;${
+      const nextStyle = `padding: 64px 80px;${
         style.startsWith(" ") ? "" : " "
       }${style}`;
       const nextStyleAttribute = styleMatch[0].replace(style, nextStyle);
@@ -36,7 +36,7 @@ export function normalizeSlidePadding(html: string): string {
     const classEnd = classMatch.index + classMatch[0].length;
     const nextOpeningTag =
       openingTag.slice(0, classEnd) +
-      ' style="padding: 80px 110px;"' +
+      ' style="padding: 64px 80px;"' +
       openingTag.slice(classEnd);
 
     return (

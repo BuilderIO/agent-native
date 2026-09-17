@@ -78,6 +78,8 @@ La arquitectura del marco evita vulnerabilidades comunes cuando se utilizan los 
 | Exposición secreta       | `.env` gitignorado; credenciales y bóveda cifradas en reposo (AES-256-GCM)    |
 | SSRF                     | `ssrfSafeFetch` bloquea destinos internos/metadatos + reenlace de redirección |
 
+El marco crea el contexto de solicitud desde la sesión y aplica la propiedad con `accessFilter()` y `assertAccess()` en las lecturas y escrituras de la aplicación. El SQL del agente recibe vistas temporales filtradas para la identidad y organización activas. RLS aún no está habilitado, por lo que las consultas directas de la aplicación deben seguir usando estos asistentes.
+
 ## Validación de entrada {#input-validation}
 
 Utilice `defineAction` con un Zod `schema:` para cada acción. El marco valida la entrada automáticamente antes de que se ejecute el código:
@@ -238,13 +240,13 @@ El marco crea vistas temporales SQL que filtran las consultas automáticamente:
 
 ```sql
 CREATE TEMPORARY VIEW "notes" AS
-  SELECT * FROM main."notes"
+  SELECT * FROM public."notes"
   WHERE "owner_email" = 'alice@example.com';
 ```
 
 Las declaraciones INSERT se inyectan automáticamente `owner_email` cuando la columna aún no está presente.
 
-Las herramientas `db-query` / `db-exec` rechazan referencias a tablas calificadas por esquema (`public.<table>`, `main.<table>`): un nombre calificado se resuelve en la tabla base y omitiría la vista temporal anterior. Los agentes utilizan nombres de tablas simples; el alcance se aplica automáticamente.
+Las herramientas `db-query` / `db-exec` rechazan referencias a tablas calificadas por esquema (`public.<table>`): un nombre calificado se resuelve en la tabla base y omitiría la vista temporal anterior. Los agentes utilizan nombres de tablas simples; el alcance se aplica automáticamente.
 
 ### Alcance por organización (`org_id`)
 

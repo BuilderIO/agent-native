@@ -1291,6 +1291,9 @@ describe("session replay ingest parsing", () => {
     ).rejects.toMatchObject({
       statusCode: 429,
       message: "Replay ingest byte quota exceeded for this public key",
+      // The recorder stops for the session on a day-long window and only
+      // pauses on a short one, so the two 429s must stay distinguishable.
+      retryAfterSeconds: 24 * 60 * 60,
     });
   });
 
@@ -1314,6 +1317,7 @@ describe("session replay ingest parsing", () => {
     ).rejects.toMatchObject({
       statusCode: 429,
       message: "Replay ingest rate limit exceeded for this public key",
+      retryAfterSeconds: 60,
     });
   });
 

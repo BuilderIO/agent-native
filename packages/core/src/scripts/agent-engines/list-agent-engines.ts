@@ -3,7 +3,6 @@
  */
 
 import { getAgentAppModelDefaultForCurrentRequest } from "../../agent/app-model-defaults.js";
-import { DEFAULT_MODEL } from "../../agent/default-model.js";
 import {
   listAgentEngines,
   registerBuiltinEngines,
@@ -13,6 +12,7 @@ import {
   isAgentEnginePackageInstalled,
   isStoredEngineUsableForRequest,
   normalizeModelForEngine,
+  resolveEngineAcceptsCustomModels,
   resolveEnginePreservesCustomModels,
 } from "../../agent/engine/index.js";
 import type { ActionTool } from "../../agent/types.js";
@@ -88,17 +88,18 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
       (storedUsable ? storedEntry : undefined) ??
       detectedFromUser ??
       detectedFromEnv ??
-      undefined);
+      getAgentEngineEntry("anthropic"));
   const currentModelCandidate =
     appDefaultUsable && currentEntry?.name === appDefault?.engine
       ? appDefault?.model
       : storedUsable && currentEntry?.name === current?.engine
         ? current?.model
         : undefined;
-  const currentEngineName = currentEntry?.name ?? "anthropic";
-  // Resolve the OpenAI-compatible-endpoint capability so a custom gateway model
-  // is reported as-is instead of being normalized to the engine default — the
-  // read-side counterpart of the same fix in set-/manage-agent-engine.
+  // Resolve both gateway and provider model capabilities so a saved custom
+  // model is reported as-is instead of being normalized to the engine default.
+  const acceptsCustomModels = currentEntry
+    ? await resolveEngineAcceptsCustomModels(currentEntry)
+    : false;
   const preserveCustomModels = currentEntry
     ? await resolveEnginePreservesCustomModels(currentEntry)
     : false;
@@ -107,9 +108,9 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
       ? normalizeModelForEngine(
           currentEntry,
           currentModelCandidate ?? currentEntry.defaultModel,
-          { preserveCustomModels },
+          { acceptsCustomModels, preserveCustomModels },
         )
-      : (currentModelCandidate ?? DEFAULT_MODEL);
+      : undefined;
   // Readiness has to be resolved here: `requiredEnvVars` alone cannot see
   // vault-stored keys or the deploy-injected Builder gateway lane, so a client
   // that re-derives it from env keys marks working engines unconfigured.
@@ -141,6 +142,8 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
         description: e.description,
         defaultModel: e.defaultModel,
         supportedModels: e.supportedModels,
+        acceptsCustomModels: await resolveEngineAcceptsCustomModels(e),
+        preserveCustomModels: await resolveEnginePreservesCustomModels(e),
         capabilities: e.capabilities,
         requiredEnvVars: e.requiredEnvVars,
         installPackage: e.installPackage,
@@ -152,12 +155,13 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
   );
   const result = {
     engines: engineEntries,
-    current: envUnavailable
-      ? null
-      : {
-          engine: currentEngineName,
-          model: currentModel,
-        },
+    current:
+      !currentEntry || envUnavailable
+        ? null
+        : {
+            engine: currentEntry.name,
+            model: currentModel,
+          },
   };
 
   return JSON.stringify(result, null, 2);

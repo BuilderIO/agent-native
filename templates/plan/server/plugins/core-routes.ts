@@ -11,12 +11,5 @@ export default createCoreRoutesPlugin({
   // Dropping this override would write a second entry on the next connect
   // instead of updating the one already in a user's config.
   mcp: { serverName: "plan" },
-  envKeys: [
-    { key: "DATABASE_URL", label: "Database URL", required: false },
-    {
-      key: "DATABASE_AUTH_TOKEN",
-      label: "Database Auth Token",
-      required: false,
-    },
-  ],
+  envKeys: [{ key: "DATABASE_URL", label: "Database URL", required: false }],
 });

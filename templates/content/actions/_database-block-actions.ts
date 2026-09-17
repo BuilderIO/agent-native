@@ -4,6 +4,7 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
 import {
   BLOCKS_FIELD_BLOCK_KINDS,
   BLOCKS_FIELD_OPERATION_CAPABILITIES,
@@ -71,7 +72,7 @@ const placementSchema = z.discriminatedUnion("placement", [
 ]);
 
 export const databaseBlockTargetSchema = databaseMutationTargetSchema.extend({
-  itemId: z.string().min(1).describe("Exact database membership row ID"),
+  itemId: z.string().min(1).describe("Exact collection membership row ID"),
   rowDocumentId: z.string().min(1).describe("Exact row page ID"),
   propertyId: z.string().min(1).describe("Exact Blocks property ID"),
 });
@@ -175,7 +176,6 @@ function isUniqueConstraintError(error: unknown): boolean {
       : (JSON.stringify(candidate?.message) ?? "");
   return (
     code === "23505" ||
-    code.includes("SQLITE_CONSTRAINT") ||
     /unique constraint|primary key constraint|duplicate key/i.test(message)
   );
 }
@@ -504,7 +504,11 @@ async function writeMarkdown(
   if (loaded.storageTarget === "document_body") {
     const updated = await db
       .update(schema.documents)
-      .set({ content: markdown, updatedAt: now })
+      .set({
+        content: markdown,
+        bodyRevision: bodyRevisionForContent(markdown),
+        updatedAt: now,
+      })
       .where(
         and(
           eq(schema.documents.id, target.rowDocumentId),

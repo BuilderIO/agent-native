@@ -3,6 +3,100 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-16
+
+### Improved
+
+- Dashboards open without background synchronization scans during cold starts
+
+## 2026-09-15
+
+### Improved
+
+- Account menus are now shorter, with workspace apps and agent management available in Settings.
+
+### Fixed
+
+- Implementing an Analytics plan now starts a fresh Act-mode run.
+
+## 2026-09-14
+
+### Improved
+
+- Sidebar and session filter buttons now show when a filter is narrowing the list.
+
+### Changed
+
+- Creative Context is now an opt-in Lab, off by default.
+
+## 2026-09-12
+
+### Improved
+
+- Sign-in panel moves clear of product content
+
+### Fixed
+
+- Dashboard pages no longer refresh after unrelated agent actions
+
+## 2026-09-11
+
+### Fixed
+
+- Analytics keeps event receipts until BigQuery confirms delivery
+- Ask sidebar controls stay on one row for a cleaner chat list.
+- Coverage-sensitive searches now return a clearly labeled partial answer when a full provider scan cannot finish
+- Retention metrics stay visibly unknown when analytics event coverage has gaps
+- The 7d Rolling Signed-In Return Rate chart no longer drops to 0% for the newest days; a point appears only once its 7-day or 14-day return window has fully elapsed, and the 7d/30d ranges now render.
+
+## 2026-09-10
+
+### Improved
+
+- Dashboards render charts immediately instead of animating every panel on load, so large dashboards no longer freeze the page.
+
+### Fixed
+
+- Agent context links for dashboards, analyses, and session replays now work for external agents instead of returning Unauthorized
+- BigQuery active-user charts now show the full selected history.
+- Chart editor dialogs stay centered when editing dashboards
+
+## 2026-09-09
+
+### Improved
+
+- Faster analytics dashboard loading
+- Collaborator avatars use a slimmer border.
+
+## 2026-09-08
+
+### Improved
+
+- Login pages use the same mouse-reactive wave background as the docs and booking experiences.
+
+### Fixed
+
+- Analytics dashboards and daily emails include current zero-activity dates.
+
+## 2026-09-04
+
+### Improved
+
+- The agent now answers data questions with explicit confidence instead of a dead end, and uses existing dashboards first
+
+## 2026-09-03
+
+### Fixed
+
+- Analytics autosaves now skip unchanged edits, keeping history focused on real changes.
+- Saved Analytics panels recover when chart fields are nested in their config
+
+## 2026-09-01
+
+### Added
+
+- Analytics admins can join read-only data from connected app databases
+
 ## 2026-08-31
 
 ### Improved
@@ -71,7 +165,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
-- Fixed the Agent-Native Templates (First-party) dashboard panels failing to load on a local SQLite database
+- Fixed the Agent-Native Templates (First-party) dashboard panels failing to load on a local PGlite database
 - Org admin panels no longer report a database error as a permission denial. A failed
   organization-role lookup now surfaces as a retryable error instead of silently reading
   as "you are not an owner or admin", which had been 403-ing the usage stats panel for

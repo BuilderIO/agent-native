@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import type { ActionRunContext } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import {
@@ -8,17 +10,25 @@ import {
   seedFromText,
 } from "@agent-native/core/collab";
 import {
+  deletePrivateBlob,
   putPrivateBlob,
   readPrivateBlob,
   type PrivateBlobHandle,
 } from "@agent-native/core/private-blob";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
+import {
+  componentDeletionGeometrySchema,
+  type ComponentDeletionGeometry,
+} from "../../shared/component-archive.js";
 import { getDb, schema } from "../db/index.js";
-import { withSourceFileWriteLock } from "../source-workspace.js";
+import {
+  designSourceMutationLockKey,
+  withSourceFileWriteLock,
+} from "../source-workspace.js";
 import { buildDesignSnapshot } from "./design-snapshot.js";
 
 const CHAT_VERSION_LOOKBACK = 100;
@@ -46,6 +56,10 @@ export interface ParsedDesignVersionSnapshot {
   designDescription?: string | null;
   projectType?: string;
   designSystemId?: string | null;
+  tweaks?: unknown;
+  appliedTweaks?: unknown;
+  resolvedCssVars?: unknown;
+  deletionGeometry?: ComponentDeletionGeometry;
   capturedAt?: string;
   chatContext?: DesignVersionChatContext;
 }
@@ -74,13 +88,39 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+function stableStringify(value: unknown): string {
+  if (value === undefined) return "undefined";
+  if (value === null || typeof value !== "object") {
+    const serialized = JSON.stringify(value);
+    if (serialized === undefined) {
+      throw new Error("Design history contains an unserializable value.");
+    }
+    return serialized;
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableStringify(item)).join(",")}]`;
+  }
+  const object = value as Record<string, unknown>;
+  return `{${Object.keys(object)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableStringify(object[key])}`)
+    .join(",")}}`;
+}
+
+function nextRevisionTimestamp(previous: string | null | undefined): string {
+  const previousMs = previous ? Date.parse(previous) : Number.NaN;
+  return new Date(
+    Math.max(Date.now(), Number.isFinite(previousMs) ? previousMs + 1 : 0),
+  ).toISOString();
+}
+
 function parseDesignData(designId: string, value: unknown): string {
   if (typeof value !== "string") {
     throw new Error(`Design "${designId}" has invalid data JSON.`);
   }
   try {
     const parsed: unknown = JSON.parse(value);
-    if (isRecord(parsed)) return value;
+    if (isRecord(parsed)) return stableStringify(parsed);
   } catch {
     throw new Error(`Design "${designId}" has invalid data JSON.`);
   }
@@ -222,6 +262,22 @@ export function parseDesignVersionSnapshot(
       throw new Error("Design version snapshot has an invalid design system.");
     }
     parsed.designSystemId = value.designSystemId;
+  }
+  if (value.tweaks !== undefined) parsed.tweaks = value.tweaks;
+  if (value.appliedTweaks !== undefined)
+    parsed.appliedTweaks = value.appliedTweaks;
+  if (value.resolvedCssVars !== undefined)
+    parsed.resolvedCssVars = value.resolvedCssVars;
+  if (value.deletionGeometry !== undefined) {
+    const deletionGeometry = componentDeletionGeometrySchema.safeParse(
+      value.deletionGeometry,
+    );
+    if (!deletionGeometry.success) {
+      throw new Error(
+        "Design version snapshot has invalid component deletion geometry.",
+      );
+    }
+    parsed.deletionGeometry = deletionGeometry.data;
   }
   if (typeof value.capturedAt === "string")
     parsed.capturedAt = value.capturedAt;
@@ -438,6 +494,7 @@ async function captureDesignVersion(
   options: {
     label: string;
     chatContext?: DesignVersionChatContext;
+    deletionGeometry?: ComponentDeletionGeometry;
   },
   access: DesignAccess,
 ): Promise<{ id: string; createdAt: string; label: string }> {
@@ -451,32 +508,129 @@ async function captureDesignVersion(
   };
   const designData = parseDesignData(designId, design.data);
   const liveSnapshot = await buildDesignSnapshot(designId, designData);
-  const createdAt = new Date().toISOString();
-  const id = nanoid();
+  const designTitle = typeof design.title === "string" ? design.title : "";
+  const designDescription =
+    typeof design.description === "string" || design.description === null
+      ? design.description
+      : null;
+  const projectType =
+    typeof design.projectType === "string" ? design.projectType : "prototype";
+  const designSystemId =
+    typeof design.designSystemId === "string" || design.designSystemId === null
+      ? design.designSystemId
+      : null;
+  const currentFiles = liveSnapshot.files.map(
+    ({ id, filename, fileType, content }) => ({
+      id,
+      filename,
+      fileType,
+      content,
+    }),
+  );
+  const currentState = {
+    designData,
+    designTitle,
+    designDescription,
+    projectType,
+    designSystemId,
+    files: currentFiles,
+    tweaks: liveSnapshot.tweaks,
+    appliedTweaks: liveSnapshot.appliedTweaks,
+    resolvedCssVars: liveSnapshot.resolvedCssVars,
+    deletionGeometry: options.deletionGeometry,
+  };
+  const db = getDb();
+  const [latest] = await db
+    .select({
+      id: schema.designVersions.id,
+      snapshot: schema.designVersions.snapshot,
+      createdAt: schema.designVersions.createdAt,
+      label: schema.designVersions.label,
+      chatContext: schema.designVersions.chatContext,
+    })
+    .from(schema.designVersions)
+    .where(eq(schema.designVersions.designId, designId))
+    .orderBy(
+      asc(isNull(schema.designVersions.createdAt)),
+      desc(schema.designVersions.createdAt),
+      desc(schema.designVersions.id),
+    )
+    .limit(1);
+  const createdAt = nextRevisionTimestamp(latest?.createdAt);
+  if (latest) {
+    const currentChatContextKey = chatContextKey(options.chatContext);
+    let chatContextCompatible = !currentChatContextKey;
+    if (currentChatContextKey) {
+      try {
+        chatContextCompatible =
+          chatContextKey(parseStoredChatContext(latest.chatContext)) ===
+          currentChatContextKey;
+      } catch {
+        chatContextCompatible = false;
+      }
+    }
+    try {
+      const previous = await readDesignVersionSnapshot(
+        latest.snapshot,
+        designId,
+      );
+      const previousState = {
+        designData: previous.designData,
+        designTitle: previous.designTitle,
+        designDescription: previous.designDescription,
+        projectType: previous.projectType,
+        designSystemId: previous.designSystemId,
+        files: previous.files,
+        tweaks: previous.tweaks,
+        appliedTweaks: previous.appliedTweaks,
+        resolvedCssVars: previous.resolvedCssVars,
+        deletionGeometry: previous.deletionGeometry,
+      };
+      if (
+        chatContextCompatible &&
+        stableStringify(previousState) === stableStringify(currentState)
+      ) {
+        return {
+          id: latest.id,
+          createdAt: latest.createdAt ?? createdAt,
+          label: latest.label ?? options.label,
+        };
+      }
+      // coercion-ok: unreadable history cannot suppress a new autosave.
+    } catch {
+      // An unreadable checkpoint cannot establish equality; preserve autosave.
+    }
+  }
+  const id = `design-version-${createHash("sha256")
+    .update(
+      stableStringify({
+        designId,
+        previousVersionId: latest?.id ?? "initial",
+        chatContextKey: chatContextKey(options.chatContext),
+        state: currentState,
+      }),
+    )
+    .digest("hex")}`;
   const snapshot = JSON.stringify({
     schemaVersion: 1,
     snapshotKind: "design-history",
     designId,
     designData,
-    designTitle: typeof design.title === "string" ? design.title : "",
-    designDescription:
-      typeof design.description === "string" || design.description === null
-        ? design.description
-        : null,
-    projectType:
-      typeof design.projectType === "string" ? design.projectType : "prototype",
-    designSystemId:
-      typeof design.designSystemId === "string" ||
-      design.designSystemId === null
-        ? design.designSystemId
-        : null,
+    designTitle,
+    designDescription,
+    projectType,
+    designSystemId,
     files: liveSnapshot.files,
     tweaks: liveSnapshot.tweaks,
     appliedTweaks: liveSnapshot.appliedTweaks,
     resolvedCssVars: liveSnapshot.resolvedCssVars,
     capturedAt: createdAt,
     ...(options.chatContext ? { chatContext: options.chatContext } : {}),
+    ...(options.deletionGeometry
+      ? { deletionGeometry: options.deletionGeometry }
+      : {}),
   });
+  let uploadedBlob: PrivateBlobHandle | null = null;
   let storedSnapshot = snapshot;
   if (Buffer.byteLength(snapshot, "utf8") > MAX_INLINE_DESIGN_VERSION_BYTES) {
     const blob = await putPrivateBlob({
@@ -497,6 +651,7 @@ async function captureDesignVersion(
         "Private blob storage is required for design checkpoints larger than 256 KiB.",
       );
     }
+    uploadedBlob = blob;
     storedSnapshot = JSON.stringify({
       schemaVersion: 2,
       snapshotKind: "design-history-blob",
@@ -504,11 +659,14 @@ async function captureDesignVersion(
       fileCount: liveSnapshot.files.length,
       capturedAt: createdAt,
       ...(options.chatContext ? { chatContext: options.chatContext } : {}),
+      ...(options.deletionGeometry
+        ? { deletionGeometry: options.deletionGeometry }
+        : {}),
       blob,
     });
   }
 
-  await getDb()
+  const [inserted] = await db
     .insert(schema.designVersions)
     .values({
       id,
@@ -520,8 +678,39 @@ async function captureDesignVersion(
         : null,
       fileCount: liveSnapshot.files.length,
       createdAt,
-    });
-  return { id, createdAt, label: options.label };
+    })
+    .onConflictDoNothing()
+    .returning({ id: schema.designVersions.id });
+  if (!inserted && uploadedBlob) {
+    const cleanup = await deletePrivateBlob(uploadedBlob).catch((error) => ({
+      deleted: false,
+      reason: error instanceof Error ? error.message : String(error),
+    }));
+    if (!cleanup.deleted) {
+      console.warn("[design-version] duplicate blob cleanup incomplete", {
+        designId,
+        versionId: id,
+        reason: cleanup.reason,
+      });
+    }
+  }
+  const [stored] = await db
+    .select({
+      id: schema.designVersions.id,
+      createdAt: schema.designVersions.createdAt,
+      label: schema.designVersions.label,
+    })
+    .from(schema.designVersions)
+    .where(eq(schema.designVersions.id, id))
+    .limit(1);
+  if (!stored) {
+    throw new Error(`Design version "${id}" was not persisted.`);
+  }
+  return {
+    id: stored.id,
+    createdAt: stored.createdAt ?? createdAt,
+    label: stored.label ?? options.label,
+  };
 }
 
 export async function withDesignVersionLock<T>(
@@ -542,7 +731,11 @@ export async function withDesignVersionLock<T>(
 
 export async function createDesignVersionSnapshot(
   designId: string,
-  options: { label: string; chatContext?: DesignVersionChatContext },
+  options: {
+    label: string;
+    chatContext?: DesignVersionChatContext;
+    deletionGeometry?: ComponentDeletionGeometry;
+  },
 ) {
   return withDesignVersionLock(designId, async () => {
     const access = await assertAccess("design", designId, "editor");
@@ -577,7 +770,11 @@ export async function snapshotDesignBeforeAgentEdit(
       })
       .from(schema.designVersions)
       .where(eq(schema.designVersions.designId, designId))
-      .orderBy(desc(schema.designVersions.createdAt))
+      .orderBy(
+        asc(isNull(schema.designVersions.createdAt)),
+        desc(schema.designVersions.createdAt),
+        desc(schema.designVersions.id),
+      )
       .limit(CHAT_VERSION_LOOKBACK);
 
     let existing: { id: string; createdAt: string; label: string } | undefined;
@@ -636,7 +833,11 @@ export async function listDesignVersions(
     })
     .from(schema.designVersions)
     .where(eq(schema.designVersions.designId, designId))
-    .orderBy(desc(schema.designVersions.createdAt))
+    .orderBy(
+      asc(isNull(schema.designVersions.createdAt)),
+      desc(schema.designVersions.createdAt),
+      desc(schema.designVersions.id),
+    )
     .limit(limit);
 
   const regular: DesignVersionListEntry[] = [];
@@ -795,6 +996,9 @@ export async function restoreDesignVersion(args: {
         const restoreFiles: RestoreFile[] = [];
 
         await db.transaction(async (tx) => {
+          await tx.execute(
+            sql`SELECT pg_advisory_xact_lock(hashtextextended(${designSourceMutationLockKey(args.designId)}, 0::bigint))`,
+          );
           for (const targetFile of target.files) {
             const byId = targetFile.id
               ? currentById.get(targetFile.id)

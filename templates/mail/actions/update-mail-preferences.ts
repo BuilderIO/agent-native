@@ -35,10 +35,12 @@ const patchSchema = z.object({
   avatar: z.string().optional(),
   signature: z.string().optional(),
   writingStyle: z.string().optional(),
+  autocompleteEnabled: z.boolean().optional(),
   theme: z.enum(["light", "dark", "system"]).optional(),
   density: z.enum(["compact", "comfortable", "spacious"]).optional(),
   previewPane: z.enum(["right", "bottom", "off"]).optional(),
   sendAndArchive: z.boolean().optional(),
+  combineInbox: z.boolean().optional(),
   undoSendDelay: z.coerce.number().optional(),
   pinnedLabels: z.array(z.string()).optional(),
   pinnedLabelsBase: z.array(z.string()).optional(),
@@ -59,7 +61,7 @@ const patchSchema = z.object({
 
 export default defineAction({
   description:
-    "Update the mail preferences backing the Settings UI. Only the supplied fields change. Agents should use update-mail-settings for signature and writing style.",
+    "Update the mail preferences backing the Settings UI. Only the supplied fields change. Agents should use update-mail-settings for drafting and Send + Mark Done preferences.",
   schema: patchSchema,
   http: { method: "PUT" },
   agentTool: false,

@@ -33,6 +33,7 @@
         "github",
         "fullstory",
         "amplitude",
+        "sigma",
         "slack",
         "asana",
         "hubspot",
@@ -81,6 +82,7 @@
         "sentry",
         "granola",
         "clips",
+        "anthropic-managed-agents",
         "generic"
       ],
       "entrypoints": ["./connections"],

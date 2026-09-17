@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
 
-import { getDialect, type Dialect } from "@agent-native/core/db";
 import { and, asc, eq, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
+import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
 import type {
   ContentDatabase,
   ContentDatabaseBodyHydration,
@@ -30,7 +30,6 @@ import type {
   ContentDatabaseSourceRow,
   ContentDatabaseSourceSyncState,
   ContentDatabaseSourceType,
-  ContentDatabaseSourceWriteOwner,
   BuilderCmsModelFieldSummary,
   DocumentProperty,
   DocumentPropertyOptions,
@@ -54,6 +53,10 @@ import {
   type DocumentPropertyOptionColor,
 } from "../shared/properties.js";
 import { sanitizeNormalizationFormula } from "../shared/properties.js";
+import {
+  parseContentDatabaseSourceFieldReadOnly,
+  parseContentDatabaseSourceWriteOwner,
+} from "../shared/source-field-policy.js";
 import {
   bulkChunkSizeForColumnCount,
   chunks,
@@ -99,8 +102,10 @@ import {
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import { ensureFilesSystemPropertyDefinitions } from "./_files-system-properties.js";
 import {
+  createAppendPositionAllocator,
   databaseItemsPositionScope,
   documentsPositionScope,
+  nextAppendPosition,
   propertyDefinitionsPositionScope,
   withPositionLock,
 } from "./_position-utils.js";
@@ -468,12 +473,6 @@ export function normalizeSourceSyncState(
     : "linked";
 }
 
-function normalizeWriteOwner(
-  value: string | null | undefined,
-): ContentDatabaseSourceWriteOwner {
-  return value === "source" || value === "derived" ? value : "local";
-}
-
 function normalizeSourceType(
   value: string | null | undefined,
 ): ContentDatabaseSourceType {
@@ -594,8 +593,8 @@ export function serializeSourceField(
       row.mappingType === "title" || row.mappingType === "system"
         ? row.mappingType
         : "property",
-    writeOwner: normalizeWriteOwner(row.writeOwner),
-    readOnly: row.readOnly === 1,
+    writeOwner: parseContentDatabaseSourceWriteOwner(row.writeOwner),
+    readOnly: parseContentDatabaseSourceFieldReadOnly(row.readOnly),
     provenance: row.provenance,
     freshness: normalizeSourceFreshness(row.freshness),
     lastSyncedAt: row.lastSyncedAt,
@@ -637,15 +636,11 @@ const HEAVY_BUILDER_BODY_SOURCE_VALUE_KEYS = new Set([
 const SOURCE_VALUES_JSON_COLUMN =
   '"content_database_source_rows"."source_values_json"';
 
-export function sourceSnapshotValuesJsonProjectionSql(dialect: Dialect) {
+export function sourceSnapshotValuesJsonProjectionSql() {
   const keys = Array.from(HEAVY_BUILDER_BODY_SOURCE_VALUE_KEYS);
-  if (dialect === "postgres") {
-    return `COALESCE((${SOURCE_VALUES_JSON_COLUMN}::jsonb${keys
-      .map((key) => ` - '${key}'`)
-      .join("")})::text, '{}')`;
-  }
-  const paths = keys.map((key) => `'$."${key}"'`);
-  return `COALESCE(json_remove(${SOURCE_VALUES_JSON_COLUMN}, ${paths.join(", ")}), '{}')`;
+  return `COALESCE((${SOURCE_VALUES_JSON_COLUMN}::jsonb${keys
+    .map((key) => ` - '${key}'`)
+    .join("")})::text, '{}')`;
 }
 
 function sourceSnapshotRowSelection(args: {
@@ -662,9 +657,7 @@ function sourceSnapshotRowSelection(args: {
     sourceQualifiedId: row.sourceQualifiedId,
     sourceDisplayKey: row.sourceDisplayKey,
     sourceValuesJson: args.stripHeavyBuilderBodyValues
-      ? sql<string>`${sql.raw(
-          sourceSnapshotValuesJsonProjectionSql(getDialect()),
-        )}`
+      ? sql<string>`${sql.raw(sourceSnapshotValuesJsonProjectionSql())}`
       : row.sourceValuesJson,
     provenance: row.provenance,
     syncState: row.syncState,
@@ -1421,7 +1414,10 @@ type BuilderLiveBodyReadResult =
   | {
       state: "not_found";
       entry: null;
-      providerStatus: "http_404" | "http_200_unexpected_entry";
+      providerStatus:
+        | "http_404"
+        | "http_200_unexpected_entry"
+        | "mcp_not_found";
     };
 
 async function readBuilderEntryWithLiveBodyFromSourceRow(args: {
@@ -2413,7 +2409,11 @@ async function processBuilderBodyHydrationJob(
           : eq(schema.documents.content, currentContent);
       const [updatedDocument] = await tx
         .update(schema.documents)
-        .set({ content: nextContent, updatedAt: now })
+        .set({
+          content: nextContent,
+          bodyRevision: bodyRevisionForContent(nextContent),
+          updatedAt: now,
+        })
         .where(and(eq(schema.documents.id, row.documentId), contentCas))
         .returning({ id: schema.documents.id });
       wroteBody = Boolean(updatedDocument);
@@ -2660,17 +2660,19 @@ async function persistPristineBuilderBodyHydrationsInBulk(
           builderBodyHydrationQueueOwnershipFilter(job),
         );
 
+        const hydratedContent = hydrationCaseSql(
+          schema.documents.id,
+          schema.documents.content,
+          batch.map((row) => ({
+            id: row.job.documentId,
+            value: row.content,
+          })),
+        );
         const updatedDocuments = await tx
           .update(schema.documents)
           .set({
-            content: hydrationCaseSql(
-              schema.documents.id,
-              schema.documents.content,
-              batch.map((row) => ({
-                id: row.job.documentId,
-                value: row.content,
-              })),
-            ),
+            content: hydratedContent,
+            bodyRevision: bodyRevisionForContent(hydratedContent),
             updatedAt: now,
           })
           .where(
@@ -2808,16 +2810,13 @@ async function persistPristineBuilderBodyHydrationsInBulk(
   return persistedJobIds;
 }
 
-export function builderBodyHydrationBulkChunkLimit(
-  dialect: Dialect = getDialect(),
-) {
-  const portableLimit = bulkChunkSizeForColumnCount(
-    BUILDER_BODY_HYDRATION_MAX_BOUND_PARAMS_PER_ROW,
-    dialect,
+export function builderBodyHydrationBulkChunkLimit() {
+  return Math.max(
+    bulkChunkSizeForColumnCount(
+      BUILDER_BODY_HYDRATION_MAX_BOUND_PARAMS_PER_ROW,
+    ),
+    BUILDER_BODY_HYDRATION_POSTGRES_BULK_LIMIT,
   );
-  return dialect === "postgres"
-    ? Math.max(portableLimit, BUILDER_BODY_HYDRATION_POSTGRES_BULK_LIMIT)
-    : portableLimit;
 }
 
 async function enqueueStaleBuilderBodyHydrationForOpenDocument(args: {
@@ -4130,9 +4129,7 @@ export function builderReviewSourceValueTextProjection(
   key: BuilderReviewSourceValueTextKey,
 ) {
   const sourceValuesJson = schema.contentDatabaseSourceRows.sourceValuesJson;
-  return getDialect() === "postgres"
-    ? sql<string>`COALESCE(${sourceValuesJson}::jsonb ->> ${key}, '')`
-    : sql<string>`COALESCE(json_extract(${sourceValuesJson}, ${`$."${key}"`}), '')`;
+  return sql<string>`COALESCE(${sourceValuesJson}::jsonb ->> ${key}, '')`;
 }
 
 async function findBuilderReviewBodyCandidateDocumentIds(args: {
@@ -6670,7 +6667,7 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
         databaseItemsPositionScope(args.database.id),
         async () => {
           const [maxDocPos] = await db
-            .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+            .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
             .from(schema.documents)
             .where(
               and(
@@ -6679,14 +6676,18 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
               ),
             );
           const [maxItemPos] = await db
-            .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+            .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
             .from(schema.contentDatabaseItems)
             .where(
               eq(schema.contentDatabaseItems.databaseId, args.database.id),
             );
 
-          let nextDocPosition = (maxDocPos?.max ?? -1) + 1;
-          let nextItemPosition = (maxItemPos?.max ?? -1) + 1;
+          const allocateDocumentPosition = createAppendPositionAllocator(
+            maxDocPos?.max,
+          );
+          const allocateItemPosition = createAppendPositionAllocator(
+            maxItemPos?.max,
+          );
           const documentRows: (typeof schema.documents.$inferInsert)[] = [];
           const itemRows: (typeof schema.contentDatabaseItems.$inferInsert)[] =
             [];
@@ -6724,7 +6725,7 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
               continue;
             }
 
-            const documentPosition = nextDocPosition++;
+            const documentPosition = allocateDocumentPosition();
             const documentRow = {
               id: documentId,
               spaceId: databaseSpaceId,
@@ -6741,7 +6742,7 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
               createdAt: args.now,
               updatedAt: args.now,
             };
-            const itemPosition = nextItemPosition++;
+            const itemPosition = allocateItemPosition();
             documentRows.push(documentRow);
             itemRows.push({
               id: itemId,
@@ -8023,7 +8024,7 @@ export async function ensureDatabaseSourceProperty(args: {
       propertyDefinitionsPositionScope(args.database.id),
       async () => {
         const [maxPos] = await db
-          .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+          .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
           .from(schema.documentPropertyDefinitions)
           .where(
             eq(schema.documentPropertyDefinitions.databaseId, args.database.id),
@@ -8037,7 +8038,7 @@ export async function ensureDatabaseSourceProperty(args: {
           type: "select",
           visibility: "always_show",
           optionsJson,
-          position: (maxPos?.max ?? -1) + 1,
+          position: nextAppendPosition(maxPos?.max),
           createdAt: args.now,
           updatedAt: args.now,
         });

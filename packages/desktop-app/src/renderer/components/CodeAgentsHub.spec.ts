@@ -28,6 +28,7 @@ import {
   updateWebContentsIdByTab,
   updateDesktopIdentityStatusByTab,
   orderDesktopApps,
+  resolveDesktopChatFirstPrimaryTab,
   MultiFrontierModeControl,
 } from "./CodeAgentsHub.js";
 import {
@@ -232,11 +233,14 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     );
   });
 
-  it("keeps the light desktop composer aligned with the rail gray", () => {
+  it("keeps the light desktop composer white with a quiet unfocused border", () => {
     const shellCss = readFileSync("src/renderer/shell.css", "utf8");
 
     expect(shellCss).toMatch(
-      /\.light\s+\.desktop-chat-first-hub\s+\[data-chat-first-app-pane\]\s+\.agent-sidebar-panel\s+\.agent-composer-root\s*\{\s*background:\s*hsl\(var\(--sidebar-background\)\);\s*\}/,
+      /\.light\s+\.desktop-chat-first-hub\s+\[data-chat-first-app-pane\]\s+\.agent-sidebar-panel\s+\.agent-composer-root\s*\{\s*background:\s*hsl\(var\(--card\)\);\s*\}/,
+    );
+    expect(shellCss).toMatch(
+      /\.light\s+\.desktop-chat-first-hub\s+\[data-chat-first-app-pane\]\s+\.agent-sidebar-panel\s+\.agent-composer-root:not\(:focus-within\)\s*\{\s*border-color:\s*hsl\(var\(--border\)\);\s*\}/,
     );
   });
 
@@ -262,22 +266,28 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(hubSource).not.toContain("chatFirstDefaultInitializedRef");
   });
 
-  it("moves the active app beside CLI tabs and restores it for UI tabs", () => {
+  it("keeps the active app in the main surface beside its chat sidebar", () => {
     const hubSource = readFileSync(
       "src/renderer/components/CodeAgentsHub.tsx",
       "utf8",
     );
 
-    expect(hubSource).toContain('placement: enabled ? "side" : "main"');
+    expect(hubSource).toContain(
+      'const surfaceTab = chatFirstAppSurfaceTab(app, path, view, "main");',
+    );
     expect(hubSource).toContain('state.tabs.find((tab) => tab.kind === "app")');
     expect(hubSource).toContain("setChatFirstSurfacePanelOpen(false)");
     expect(hubSource).toContain("onNewCliTab={handleNewCliTab}");
     expect(hubSource).toContain("onNewUiTab={handleNewUiTab}");
+    expect(hubSource).toContain("shouldUseDesktopAppChatShell(tab.path)");
     expect(hubSource).toContain(
-      'shouldUseDesktopAppChatShell(tab.path) &&\n                  tab.placement !== "side"',
+      'terminalPreferences.enabled && isTabActive ? "cli" : "chat"',
     );
     expect(hubSource).toContain(
-      'newTabMode={terminalPreferences.enabled ? "cli" : "ui"}',
+      "terminalPreferences.enabled\n                    ? {",
+    );
+    expect(hubSource).toContain(
+      "!chatFirstAppSelected &&\n    (terminalSessionStarted || hasChatFirstActiveChat)",
     );
   });
 
@@ -410,6 +420,17 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(shortcutSource).toContain('? ","');
   });
 
+  it("keeps the main-process active app synchronized when switching surface tabs", () => {
+    const hubSource = readFileSync(
+      "src/renderer/components/CodeAgentsHub.tsx",
+      "utf8",
+    );
+
+    expect(hubSource).toMatch(
+      /chatFirstSurfaceTabsStore\.activate\(tab\.id\);[\s\S]*?window\.electronAPI\?\.setActiveApp\?\.\([\s\S]*?tab\.appId[\s\S]*?CODE_AGENTS_SURFACE_ID/,
+    );
+  });
+
   it("orders pinned desktop apps ahead of unpinned apps and filters by name or description", () => {
     const apps = [
       {
@@ -510,16 +531,19 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(hubSource).toContain("onTogglePinned={toggleChatFirstAppPinned}");
   });
 
-  it("keeps normal app opens embedded and makes browser opening explicit", () => {
+  it("keeps selected apps in the main surface and makes browser opening explicit", () => {
     const hubSource = readFileSync(
       "src/renderer/components/CodeAgentsHub.tsx",
       "utf8",
     );
 
     expect(hubSource).toContain(
+      'const surfaceTab = chatFirstAppSurfaceTab(app, path, view, "main");',
+    );
+    expect(hubSource).not.toContain(
       'terminalPreferences.enabled ? "side" : "main"',
     );
-    expect(hubSource).toContain('resolution.target.view,\n        "side",');
+    expect(hubSource).not.toContain('resolution.target.view,\n        "side",');
     expect(hubSource).toContain(
       "window.electronAPI?.desktopChat?.onOpenApp(resolveChatFirstOpenApp)",
     );
@@ -540,21 +564,28 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(hubSource).toContain("hasChatFirstActiveChat");
     expect(hubSource).toContain("!chatFirstAppSelected");
     expect(hubSource).toContain("const openChatFirstNewChat = useCallback(");
+    expect(hubSource).toContain('new Event("agent-native:desktop-new-chat")');
     expect(hubSource).toContain("setHasChatFirstActiveChat(false)");
     expect(hubSource).toContain("onNewChat: openChatFirstNewChat");
     expect(hubSource).toContain("chatFirstSurfacePanel.toggle");
     expect(hubSource).toContain("sidebarOpen={chatFirstSurfacePanel.open}");
     expect(hubSource).toContain(
-      "onToggleSidebar={chatFirstSurfacePanel.toggle}",
-    );
-    expect(hubSource).toContain(
       "{chatFirstSurfacePanel.open && canRenderChatFirstSurfacePanel ? (",
     );
     expect(hubSource).toContain(
-      'const canRenderChatFirstSurfacePanel =\n    hasChatFirstActiveChat &&\n    !chatFirstAllAppsOpen &&\n    !scheduledTasksOpen &&\n    (!chatFirstAppSelected || activeChatFirstSurfaceTab?.placement === "side");',
+      "(hasChatFirstActiveChat || terminalSessionStarted) &&",
     );
     expect(hubSource).toContain(
-      "const canToggleChatFirstSurfacePanel =\n    canRenderChatFirstSurfacePanel && !chatFirstAppSelected;",
+      'const chatFirstAppTakesMain = activeChatFirstSurfaceTab?.kind === "app";',
+    );
+    expect(hubSource).toContain(
+      "const canToggleChatFirstSurfacePanel = canRenderChatFirstSurfacePanel;",
+    );
+    expect(hubSource).toMatch(
+      /hasChatFirstActiveChat &&\s*!chatFirstAppSelected/,
+    );
+    expect(hubSource).toContain(
+      "canToggleChatFirstSurfacePanel\n                    ? chatFirstSurfacePanel.toggle",
     );
     expect(hubSource).toContain(
       'if (!hasChatFirstActiveChat) {\n        setChatFirstNotice("Open a chat to view browser surfaces.");',
@@ -952,5 +983,64 @@ describe("CodeAgentsHub app auth state", () => {
     expect(
       updateAppAuthStateByTab(unauthenticated, "dispatch-tab", "unknown"),
     ).toBe(unauthenticated);
+  });
+});
+
+describe("resolveDesktopChatFirstPrimaryTab", () => {
+  it("names the scheduled surface so the rail can deactivate app icons", () => {
+    expect(
+      resolveDesktopChatFirstPrimaryTab({
+        scheduledTasksOpen: true,
+        appSelected: false,
+        activeTab: null,
+      }),
+    ).toBe("scheduled");
+  });
+
+  it("keeps naming scheduled even if an app tab is still open underneath", () => {
+    expect(
+      resolveDesktopChatFirstPrimaryTab({
+        scheduledTasksOpen: true,
+        appSelected: true,
+        activeTab: { kind: "app", appId: "mail" },
+      }),
+    ).toBe("scheduled");
+  });
+
+  it("names the chats surface when nothing else owns the rail", () => {
+    expect(
+      resolveDesktopChatFirstPrimaryTab({
+        scheduledTasksOpen: false,
+        appSelected: false,
+        activeTab: null,
+      }),
+    ).toBe("new-chat");
+  });
+
+  it("names no tab when a workspace app owns the rail", () => {
+    expect(
+      resolveDesktopChatFirstPrimaryTab({
+        scheduledTasksOpen: false,
+        appSelected: true,
+        activeTab: { kind: "app", appId: "mail", path: "/inbox" },
+      }),
+    ).toBeUndefined();
+  });
+
+  it("maps the dispatch-hosted integrations and automations paths", () => {
+    expect(
+      resolveDesktopChatFirstPrimaryTab({
+        scheduledTasksOpen: false,
+        appSelected: true,
+        activeTab: { kind: "app", appId: "dispatch", path: "/integrations" },
+      }),
+    ).toBe("integrations");
+    expect(
+      resolveDesktopChatFirstPrimaryTab({
+        scheduledTasksOpen: false,
+        appSelected: true,
+        activeTab: { kind: "app", appId: "dispatch", path: "/automations" },
+      }),
+    ).toBe("scheduled");
   });
 });

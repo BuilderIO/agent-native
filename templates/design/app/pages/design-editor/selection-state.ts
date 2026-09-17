@@ -1,12 +1,25 @@
-import type { CanvasFrameGeometryById } from "@shared/canvas-frames";
-import type { CodeLayerProjection } from "@shared/code-layer";
+import type {
+  CanvasFrameGeometry,
+  CanvasFrameGeometryById,
+} from "@shared/canvas-frames";
+import type { CodeLayerNode, CodeLayerProjection } from "@shared/code-layer";
 import type { DesignSourceType } from "@shared/source-mode";
 
 import type { ScreenGeometrySelection } from "@/components/design/EditPanel";
 import { getInitialFrameGeometry } from "@/components/design/multi-screen/frame-geometry";
-import type { ElementInfo } from "@/components/design/types";
+import type {
+  ElementInfo,
+  ElementSelectionIntent,
+} from "@/components/design/types";
 import { prettyScreenName } from "@/lib/screen-names";
+import { elementInfoFromCodeLayerNode } from "@/pages/design-editor/code-layer-state";
 
+import {
+  clampScreenFrameSize,
+  readScreenSizeConstraints,
+  type ScreenSizeConstraints,
+} from "../../components/design/multi-screen/screen-sizing";
+import type { GeometryHistorySelection } from "./history";
 import type { DesignTool, EditorMode } from "./types";
 
 // PF11: cache the FNV hash by content-string value. Two calls with an equal
@@ -207,9 +220,11 @@ export function shouldIgnoreOverviewLayerCreationEcho(args: {
   // any other element must still replace the panel selection immediately.
   const echoedLayerId =
     args.info?.sourceId ?? args.info?.id ?? args.info?.pendingNodeId;
+  // Projection ids are file-scoped; authored DOM ids can repeat across Screens.
   return (
     args.resolvedLayerId === args.pendingLayerId ||
-    echoedLayerId === args.pendingLayerId
+    (args.pendingScreenId === args.screenId &&
+      echoedLayerId === args.pendingLayerId)
   );
 }
 
@@ -243,6 +258,71 @@ export function resolveAvailableActiveFileId(args: {
     : null;
 }
 
+export interface OverviewScreenGeometrySource {
+  id: string;
+  width?: number;
+  height?: number;
+  heightMode?: ScreenGeometrySelection["heightMode"];
+  sizeConstraints?: ScreenSizeConstraints;
+}
+
+type ResolvedScreenFrameGeometry = CanvasFrameGeometry &
+  Required<Pick<CanvasFrameGeometry, "x" | "y" | "width" | "height">>;
+
+export function resolveOverviewScreenFrameGeometry(args: {
+  screen: OverviewScreenGeometrySource;
+  screenIndex: number;
+  canvasFrameGeometryById: CanvasFrameGeometryById;
+  naturalHeight?: number;
+  sizeConstraints?: ScreenSizeConstraints;
+}): ResolvedScreenFrameGeometry {
+  const fallbackGeometry = getInitialFrameGeometry(args.screenIndex, {
+    width: args.screen.width ?? 1280,
+    height: args.screen.height ?? 2560,
+  });
+  const persistedGeometry = args.canvasFrameGeometryById[args.screen.id] ?? {};
+  const geometry = {
+    ...fallbackGeometry,
+    ...persistedGeometry,
+    x: persistedGeometry.x ?? fallbackGeometry.x,
+    y: persistedGeometry.y ?? fallbackGeometry.y,
+    width: persistedGeometry.width ?? fallbackGeometry.width,
+    height: persistedGeometry.height ?? fallbackGeometry.height,
+  };
+  if (
+    args.screen.heightMode === "hug" &&
+    typeof args.naturalHeight === "number" &&
+    Number.isFinite(args.naturalHeight) &&
+    args.naturalHeight > 0
+  ) {
+    geometry.height = args.naturalHeight;
+  }
+  return args.sizeConstraints
+    ? clampScreenFrameSize(geometry, args.sizeConstraints)
+    : geometry;
+}
+
+export function getOverviewScreenExportGeometryById(args: {
+  overviewScreens: OverviewScreenGeometrySource[];
+  canvasFrameGeometryById: CanvasFrameGeometryById;
+  naturalHeightsById?: Record<string, number>;
+  screenRootComputedStylesById?: Record<string, Record<string, string>>;
+}): CanvasFrameGeometryById {
+  const geometryById: CanvasFrameGeometryById = {};
+  args.overviewScreens.forEach((screen, screenIndex) => {
+    geometryById[screen.id] = resolveOverviewScreenFrameGeometry({
+      screen,
+      screenIndex,
+      canvasFrameGeometryById: args.canvasFrameGeometryById,
+      naturalHeight: args.naturalHeightsById?.[screen.id],
+      sizeConstraints: readScreenSizeConstraints(
+        args.screenRootComputedStylesById?.[screen.id],
+      ),
+    });
+  });
+  return geometryById;
+}
+
 export function getSelectedScreenGeometryForInspector(args: {
   selectedInspectorElementCount: number;
   selectedScreenIds: string[];
@@ -252,8 +332,11 @@ export function getSelectedScreenGeometryForInspector(args: {
     title?: string;
     width?: number;
     height?: number;
+    heightMode?: ScreenGeometrySelection["heightMode"];
   }>;
   canvasFrameGeometryById: CanvasFrameGeometryById;
+  naturalHeightsById?: Record<string, number>;
+  screenRootComputedStylesById?: Record<string, Record<string, string>>;
 }): ScreenGeometrySelection | null {
   if (args.selectedInspectorElementCount > 0) return null;
   if (args.selectedScreenIds.length !== 1) return null;
@@ -265,15 +348,15 @@ export function getSelectedScreenGeometryForInspector(args: {
   if (screenIndex < 0) return null;
   const screen = args.overviewScreens[screenIndex];
   if (!screen) return null;
-  const fallbackGeometry = getInitialFrameGeometry(screenIndex, {
-    width: screen.width ?? 1280,
-    height: screen.height ?? 2560,
+  const geometry = resolveOverviewScreenFrameGeometry({
+    screen,
+    screenIndex,
+    canvasFrameGeometryById: args.canvasFrameGeometryById,
+    naturalHeight: args.naturalHeightsById?.[screenId],
+    sizeConstraints: readScreenSizeConstraints(
+      args.screenRootComputedStylesById?.[screenId],
+    ),
   });
-  const persistedGeometry = args.canvasFrameGeometryById[screenId] ?? {};
-  const geometry = {
-    ...fallbackGeometry,
-    ...persistedGeometry,
-  };
   return {
     id: screen.id,
     title: screen.title ?? prettyScreenName(screen.filename),
@@ -281,6 +364,10 @@ export function getSelectedScreenGeometryForInspector(args: {
     y: geometry.y,
     width: geometry.width,
     height: geometry.height,
+    heightMode: screen.heightMode,
+    sizeConstraints: readScreenSizeConstraints(
+      args.screenRootComputedStylesById?.[screenId],
+    ),
   };
 }
 
@@ -451,11 +538,30 @@ export function shouldClearBridgeSelectionOnEmptyMarquee(args: {
   return args.resolvedCount === 0 && !args.additive;
 }
 
-/** Clear element context only when a selected review thread changes screens. */
+/**
+ * Figma spec §1 (see screen-element-select.ts's click-path
+ * `additiveSelection`): Shift is the only additive (union) gesture. Cmd/Ctrl
+ * deep-selects and REPLACES, same as a plain click. The marquee path must
+ * resolve this the same way the click path does, or a Cmd-marquee unions
+ * onto the existing selection instead of replacing it.
+ *
+ * Exported for unit testing.
+ */
+export function resolveMarqueeAdditive(
+  intent: ElementSelectionIntent | undefined,
+): boolean {
+  return Boolean(intent?.additive || intent?.range || intent?.shiftKey);
+}
+
+/** Clear stale element context when review focus changes screens or the board. */
 export function shouldClearSelectionForReviewThreadTarget(args: {
   activeFileId?: string | null;
   targetId?: string | null;
+  boardFileId?: string | null;
 }): boolean {
+  if (args.targetId === null) {
+    return Boolean(args.boardFileId && args.activeFileId !== args.boardFileId);
+  }
   return Boolean(args.targetId && args.targetId !== args.activeFileId);
 }
 
@@ -510,4 +616,86 @@ export function buildActiveFileNodeIdSet(
     if (attrId) ids.add(attrId);
   }
   return ids;
+}
+
+/**
+ * Figma parity: only a genuine user pick — pointer, keyboard, or marquee,
+ * see ElementSelectionIntent's `source` — is its own undo step. An
+ * intent-less call is the bridge/host re-anchoring selection as a side
+ * effect of something else (a duplicate's clone selected mid-gesture, a
+ * post-persist code-layer catch-up echo, a drag-reparent commit reselecting
+ * the moved node); that edit's own content/geometry entry already carries
+ * selectionBefore/After, so recording this too would stack a stray
+ * "selection" entry on top of it — and undo would pop the reselect instead
+ * of the edit.
+ *
+ * Exported for unit testing.
+ */
+export function isUserOriginatedSelectionIntent(
+  intent: ElementSelectionIntent | undefined,
+): boolean {
+  return Boolean(intent);
+}
+
+/**
+ * Whether two selection snapshots are the same selection — used to skip
+ * recording a no-op selection-history entry (a command ran but landed back
+ * on the same selection it started from).
+ *
+ * Exported for unit testing.
+ */
+export function selectionHistorySnapshotsEqual(
+  a: GeometryHistorySelection,
+  b: GeometryHistorySelection,
+): boolean {
+  return (
+    a.activeFileId === b.activeFileId &&
+    sameStringIds(a.overviewSelectedScreenIds, b.overviewSelectedScreenIds) &&
+    sameStringIds(a.selectedLayerIds, b.selectedLayerIds)
+  );
+}
+
+/**
+ * Figma-parity undo/redo selection restore for the new selection-only
+ * history kind: `restoreSelectionSnapshot` (DesignEditor.tsx) only knows
+ * `GeometryHistorySelection`'s own fields (layer ids, screen ids, active
+ * file) and has no `ElementInfo` to give the canvas selection overlay, which
+ * reads `selectedElement`, not `selectedLayerIdsState`. Mirrors the same
+ * derivation `undoContent`/`redoContent` already do from a content
+ * projection, but from the flat `codeLayerOwnerByNodeId` map instead (a
+ * selection-only entry never rewrites document content, so there is no
+ * content snapshot to re-project). Scoped to exactly one restored layer, like
+ * its content-history counterparts — a multi-select has no single
+ * `ElementInfo` to give the overlay.
+ *
+ * Exported for unit testing.
+ */
+export function elementInfoForSelectionSnapshot(
+  selection: GeometryHistorySelection,
+  codeLayerOwnerByNodeId: ReadonlyMap<string, { node: CodeLayerNode }>,
+): ElementInfo | null {
+  if (selection.selectedLayerIds.length !== 1) return null;
+  const owner = codeLayerOwnerByNodeId.get(selection.selectedLayerIds[0]!);
+  return owner ? elementInfoFromCodeLayerNode(owner.node) : null;
+}
+
+/**
+ * Tail of DesignEditor.tsx's `selectedLayerIds` memo: the primary pick
+ * (`selectedElementLayerId`, from `selectedElement`) is re-added when a
+ * stale re-anchoring echo left it out of the otherwise-filtered array.
+ * `selectedElement` is the thing a Shift+click toggle-off must move FIRST
+ * (see runScreenElementSelect) — as long as it does, this never resurrects a
+ * member the user just removed, since the filtered array and the primary
+ * agree on which id fell out.
+ */
+export function resolveEffectiveSelectedLayerIds(
+  filtered: string[],
+  selectedElementLayerId: string | null,
+): string[] {
+  if (selectedElementLayerId && !filtered.includes(selectedElementLayerId)) {
+    return filtered.length > 1
+      ? [...filtered, selectedElementLayerId]
+      : [selectedElementLayerId];
+  }
+  return filtered;
 }

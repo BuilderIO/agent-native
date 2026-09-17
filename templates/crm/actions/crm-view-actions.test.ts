@@ -1,4 +1,4 @@
-// Integration tests for the saved-view actions against a real libsql database
+// Integration tests for the saved-view actions against a real PGlite database
 // and the real migrations — including the list action reading a view's stored
 // filter, which is the whole reason saved views exist.
 
@@ -12,7 +12,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `crm-view-actions-test-${process.pid}-${Date.now()}.sqlite`,
+  `crm-view-actions-test-${process.pid}-${Date.now()}.pglite`,
 );
 
 const OWNER = "owner@example.test";
@@ -70,7 +70,7 @@ async function save(args: Record<string, unknown>) {
 }
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = await import("../server/db/schema.js");
@@ -171,9 +171,7 @@ beforeAll(async () => {
 }, 120_000);
 
 afterAll(() => {
-  for (const suffix of ["", "-shm", "-wal"]) {
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
-  }
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 describe("save-crm-saved-view", () => {

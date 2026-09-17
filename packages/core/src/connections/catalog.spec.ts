@@ -32,6 +32,7 @@ describe("workspace connection provider catalog", () => {
       "sentry",
       "granola",
       "clips",
+      "anthropic-managed-agents",
       "generic",
     ]);
   });
@@ -62,6 +63,8 @@ describe("workspace connection provider catalog", () => {
         "email",
         "profile",
         "https://www.googleapis.com/auth/gmail.modify",
+        "https://www.googleapis.com/auth/contacts.readonly",
+        "https://www.googleapis.com/auth/contacts.other.readonly",
       ]),
     );
     expect(
@@ -151,7 +154,7 @@ describe("workspace connection provider catalog", () => {
         templateUse: "brain",
         capability: "code",
       }).map((provider) => provider.id),
-    ).toEqual(["github", "jira"]);
+    ).toEqual(["github", "jira", "anthropic-managed-agents"]);
 
     expect(
       listWorkspaceConnectionProvidersForTemplate("factory").map(

@@ -16,6 +16,7 @@ import {
   _resetAgentChatContextForTests,
   _resetAgentChatSubmitBufferForTests,
 } from "./agent-chat.js";
+import { getBrowserTabId } from "./browser-tab-id.js";
 import { invalidateClientStatusRequests } from "./client-status-requests.js";
 import {
   MultiTabAssistantChat,
@@ -27,6 +28,22 @@ import type { ChatThreadScope, ChatThreadSummary } from "./use-chat-threads.js";
 afterEach(() => {
   invalidateClientStatusRequests();
 });
+
+function openTabsStorageKey(
+  storageKey: string,
+  scope?: { type: string; id: string },
+): string {
+  const scopePart = scope ? `:scope:${scope.type}:${scope.id}` : "";
+  return `agent-chat-open-tabs:${storageKey}:tab:${getBrowserTabId()}${scopePart}`;
+}
+
+function legacyOpenTabsStorageKey(
+  storageKey: string,
+  scope?: { type: string; id: string },
+): string {
+  const scopePart = scope ? `:scope:${scope.type}:${scope.id}` : "";
+  return `agent-chat-open-tabs:${storageKey}${scopePart}`;
+}
 
 const chatHandleMocks = vi.hoisted(() => ({
   sendMessage: vi.fn(),
@@ -343,7 +360,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     );
     window.localStorage.clear();
     window.localStorage.setItem(
-      "agent-chat-open-tabs:bridge-test",
+      openTabsStorageKey("bridge-test"),
       JSON.stringify(["thread-1"]),
     );
     container = document.createElement("div");
@@ -1082,7 +1099,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
   it("rehydrates the open tabs for the newly active resource scope", async () => {
     const storageKey = "scope-navigation-test";
     const scopedOpenTabsKey = (designId: string) =>
-      `agent-chat-open-tabs:${storageKey}:scope:design:${designId}`;
+      openTabsStorageKey(storageKey, { type: "design", id: designId });
     const baseThread = threadMocks.threads[0];
     threadMocks.threads = [
       { ...baseThread, id: "thread-a" },
@@ -1286,6 +1303,44 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     });
 
     expect(listAgentChatContext()).toEqual([]);
+  });
+
+  it("restores dismissed resource context when the target slide changes", async () => {
+    const baseScope = {
+      type: "deck" as const,
+      id: "deck-1",
+      label: "This Slide",
+      context: "Current slide id: slide-1.",
+      contextVersion: "deck-1|slide-1|1",
+    };
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat storageKey="bridge-test" scope={baseScope} />,
+      );
+      await Promise.resolve();
+    });
+
+    removeAgentChatContextItem("agent-current-resource-context");
+
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          scope={{
+            ...baseScope,
+            context: "Current slide id: slide-2.",
+            contextVersion: "deck-1|slide-2|2",
+          }}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    expect(listAgentChatContext()).toEqual([
+      expect.objectContaining({
+        context: expect.stringContaining("Current slide id: slide-2."),
+      }),
+    ]);
   });
 
   it("passes an app context namespace to the active composer", async () => {
@@ -1647,7 +1702,7 @@ describe("MultiTabAssistantChat cold-start first message", () => {
     // A tab is restored, but no thread is active yet — the exact cold-start
     // window where the bootstrap createThread() has not resolved.
     window.localStorage.setItem(
-      "agent-chat-open-tabs:cold-start",
+      openTabsStorageKey("cold-start"),
       JSON.stringify(["thread-1"]),
     );
     threadMocks.activeThreadId = "";
@@ -1711,7 +1766,7 @@ describe("MultiTabAssistantChat cold-start delivery (Mode B)", () => {
     );
     window.localStorage.clear();
     window.localStorage.setItem(
-      "agent-chat-open-tabs:mode-b",
+      openTabsStorageKey("mode-b"),
       JSON.stringify(["thread-1"]),
     );
     _resetAgentChatSubmitBufferForTests();
@@ -1831,6 +1886,45 @@ describe("MultiTabAssistantChat cold-start delivery (Mode B)", () => {
     });
 
     expect(threadMocks.switchThread).toHaveBeenCalledWith("thread-2");
+  });
+
+  it("opens and prefills the requested thread without sending to the previous chat", async () => {
+    resetThreadMocks();
+    threadMocks.threads = [
+      ...threadMocks.threads,
+      {
+        id: "background-thread",
+        title: "Background run",
+        preview: "",
+        messageCount: 1,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        scope: null,
+      },
+    ];
+    await act(async () => {
+      root.render(<MultiTabAssistantChat storageKey="mode-b" />);
+    });
+
+    act(() => {
+      requestAgentChatThreadOpen({
+        threadId: "background-thread",
+        prefill: "Continue the background run",
+      });
+    });
+    threadMocks.activeThreadId = "background-thread";
+    await act(async () => {
+      root.render(<MultiTabAssistantChat storageKey="mode-b" />);
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 80));
+    });
+
+    expect(threadMocks.switchThread).toHaveBeenCalledWith("background-thread");
+    expect(chatHandleMocks.prefillMessage).toHaveBeenCalledWith(
+      "Continue the background run",
+    );
+    expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
   });
 
   it("does not restore a transient thread after the user selected another one", async () => {
@@ -1995,7 +2089,7 @@ describe("MultiTabAssistantChat agent-team tabs", () => {
     );
     window.localStorage.clear();
     window.localStorage.setItem(
-      "agent-chat-open-tabs:agent-team-test",
+      openTabsStorageKey("agent-team-test"),
       JSON.stringify(["thread-1"]),
     );
     container = document.createElement("div");
@@ -2096,7 +2190,7 @@ describe("MultiTabAssistantChat tab close/open lifecycle", () => {
     threadMocks.activeThreadId = "thread-1";
     threadMocks.threads = [makeThread("thread-1"), makeThread("thread-2")];
     window.localStorage.setItem(
-      "agent-chat-open-tabs:dup-test",
+      openTabsStorageKey("dup-test"),
       JSON.stringify(["thread-1", "thread-2", "thread-2"]),
     );
 
@@ -2120,6 +2214,236 @@ describe("MultiTabAssistantChat tab close/open lifecycle", () => {
     expect(headerProps?.tabs.map((tab) => tab.id)).toEqual([
       "thread-1",
       "thread-2",
+    ]);
+  });
+
+  it("does not use the first message preview as the tab label", async () => {
+    threadMocks.activeThreadId = "thread-1";
+    threadMocks.threads = [
+      {
+        ...makeThread("thread-1"),
+        preview: "Please summarize the latest release notes",
+        messageCount: 1,
+      },
+    ];
+    window.localStorage.setItem(
+      openTabsStorageKey("prompt-label-test"),
+      JSON.stringify(["thread-1"]),
+    );
+
+    let headerProps: MultiTabAssistantChatHeaderProps | null = null;
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="prompt-label-test"
+          renderHeader={(props) => {
+            headerProps = props;
+            return null;
+          }}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(headerProps?.tabs[0]?.label).not.toBe(
+      "Please summarize the latest release notes",
+    );
+  });
+
+  // Regression test: a click anywhere in a tab's close-button hit zone used to
+  // close it even though nothing was visibly clickable there. Each tab must
+  // render its own labeled close button, and switching tabs must never fire
+  // the close handler for the tab that was clicked to switch to.
+  it("renders a labeled close button per tab and only closes the tab whose close button is clicked", async () => {
+    threadMocks.activeThreadId = "thread-1";
+    threadMocks.threads = [makeThread("thread-1"), makeThread("thread-2")];
+    window.localStorage.setItem(
+      openTabsStorageKey("close-button-test"),
+      JSON.stringify(["thread-1", "thread-2"]),
+    );
+
+    await act(async () => {
+      root.render(<MultiTabAssistantChat storageKey="close-button-test" />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const closeButtons = () =>
+      Array.from(
+        container.querySelectorAll<HTMLButtonElement>(
+          'button[aria-label="Close tab"]',
+        ),
+      );
+    expect(closeButtons()).toHaveLength(2);
+
+    // The reported bug was a hit zone that stayed clickable while invisible
+    // (opacity alone does not disable pointer-events). jsdom/happy-dom does
+    // not compute real hover-driven hit-testing for a plain `.click()` call,
+    // so guard the actual CSS invariant directly: the close button must be
+    // non-interactive by default and only regain pointer-events together
+    // with becoming visible, scoped to a real ancestor of the button.
+    const styleText = container.querySelector("style")?.textContent ?? "";
+    expect(styleText).toContain(
+      ".agent-tab-close{opacity:0;pointer-events:none}",
+    );
+    expect(styleText).toContain(
+      ".agent-tab-group:hover .agent-tab-close,.agent-tab-close:focus-visible{opacity:1;pointer-events:auto}",
+    );
+    const closeButtonGroupAncestor =
+      closeButtons()[0].closest(".agent-tab-group");
+    expect(closeButtonGroupAncestor?.contains(closeButtons()[0])).toBe(true);
+
+    // The switch button is a separate element from the close button, so
+    // clicking it must never remove the tab.
+    const secondTabSwitchButton = container.querySelectorAll<HTMLButtonElement>(
+      ".agent-tab > button:first-child",
+    )[1];
+    expect(secondTabSwitchButton).toBeTruthy();
+    act(() => {
+      secondTabSwitchButton.click();
+    });
+    expect(closeButtons()).toHaveLength(2);
+    expect(threadMocks.switchThread).toHaveBeenCalledWith("thread-2");
+
+    // Clicking the explicit, labeled close button removes only that tab.
+    act(() => {
+      closeButtons()[1].click();
+    });
+    expect(closeButtons()).toHaveLength(1);
+  });
+
+  it("migrates legacy open tabs and sub-agent metadata into this browser tab", async () => {
+    const storageKey = "legacy-tab-migration-test";
+    const child = makeThread("thread-child");
+    threadMocks.activeThreadId = "thread-1";
+    threadMocks.threads = [
+      makeThread("thread-1"),
+      makeThread("thread-2"),
+      child,
+    ];
+    window.localStorage.setItem(
+      legacyOpenTabsStorageKey(storageKey),
+      JSON.stringify(["thread-1", "thread-2", "thread-2", "thread-child"]),
+    );
+    window.localStorage.setItem(
+      `agent-chat-parent-map:${storageKey}`,
+      JSON.stringify({ "thread-child": "thread-1" }),
+    );
+    window.localStorage.setItem(
+      `agent-chat-sub-agent-names:${storageKey}`,
+      JSON.stringify({ "thread-child": "Research" }),
+    );
+
+    let headerProps: MultiTabAssistantChatHeaderProps | null = null;
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey={storageKey}
+          renderHeader={(props) => {
+            headerProps = props;
+            return null;
+          }}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const tabId = getBrowserTabId();
+    expect(headerProps?.tabs.map((tab) => tab.id)).toEqual([
+      "thread-1",
+      "thread-2",
+    ]);
+    expect(
+      JSON.parse(
+        window.localStorage.getItem(openTabsStorageKey(storageKey)) ?? "null",
+      ),
+    ).toEqual(["thread-1", "thread-2"]);
+    expect(
+      JSON.parse(
+        window.localStorage.getItem(
+          `agent-chat-parent-map:${storageKey}:tab:${tabId}`,
+        ) ?? "null",
+      ),
+    ).toEqual({ "thread-child": "thread-1" });
+    expect(
+      JSON.parse(
+        window.localStorage.getItem(
+          `agent-chat-sub-agent-names:${storageKey}:tab:${tabId}`,
+        ) ?? "null",
+      ),
+    ).toEqual({ "thread-child": "Research" });
+  });
+
+  it("commits new and cleared tabs without disturbing the other open tabs", async () => {
+    const storageKey = "new-tab-lifecycle-test";
+    threadMocks.activeThreadId = "thread-2";
+    threadMocks.threads = [
+      makeThread("thread-1"),
+      makeThread("thread-2"),
+      makeThread("thread-3"),
+    ];
+    window.localStorage.setItem(
+      openTabsStorageKey(storageKey),
+      JSON.stringify(["thread-1", "thread-2", "thread-3"]),
+    );
+
+    const createdIds = ["thread-new", "thread-replacement"];
+    threadMocks.createThread.mockImplementation(async () => {
+      const id = createdIds.shift();
+      if (!id) throw new Error("test exhausted its thread ids");
+      threadMocks.activeThreadId = id;
+      threadMocks.threads = [...threadMocks.threads, makeThread(id)];
+      return id;
+    });
+
+    let headerProps: MultiTabAssistantChatHeaderProps | null = null;
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey={storageKey}
+          renderHeader={(props) => {
+            headerProps = props;
+            return null;
+          }}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await headerProps?.addTab();
+    });
+
+    expect(headerProps?.activeTabId).toBe("thread-new");
+    expect(headerProps?.tabs.map((tab) => tab.id)).toEqual([
+      "thread-1",
+      "thread-2",
+      "thread-3",
+      "thread-new",
+    ]);
+
+    await act(async () => {
+      headerProps?.clearActiveTab();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(headerProps?.activeTabId).toBe("thread-replacement");
+    expect(headerProps?.tabs.map((tab) => tab.id)).toEqual([
+      "thread-1",
+      "thread-2",
+      "thread-3",
+      "thread-replacement",
     ]);
   });
 
@@ -2187,7 +2511,7 @@ describe("MultiTabAssistantChat tab close/open lifecycle", () => {
       },
     ];
     window.localStorage.setItem(
-      "agent-chat-open-tabs:short-title-test",
+      openTabsStorageKey("short-title-test"),
       JSON.stringify(["short-title-thread"]),
     );
 
@@ -2212,7 +2536,7 @@ describe("MultiTabAssistantChat tab close/open lifecycle", () => {
     threadMocks.activeThreadId = "thread-1";
     threadMocks.threads = [makeThread("thread-1")];
     window.localStorage.setItem(
-      "agent-chat-open-tabs:dup-active-test",
+      openTabsStorageKey("dup-active-test"),
       JSON.stringify(["thread-1", "thread-1"]),
     );
     // Mirrors the real `useChatThreads.createThread`, which sets the new
@@ -2259,7 +2583,7 @@ describe("MultiTabAssistantChat tab close/open lifecycle", () => {
       makeThread("thread-3"),
     ];
     window.localStorage.setItem(
-      "agent-chat-open-tabs:close-test",
+      openTabsStorageKey("close-test"),
       JSON.stringify(["thread-1", "thread-2", "thread-3"]),
     );
 
@@ -2321,7 +2645,7 @@ describe("MultiTabAssistantChat tab close/open lifecycle", () => {
     threadMocks.activeThreadId = "thread-1";
     threadMocks.threads = [makeThread("thread-1")];
     window.localStorage.setItem(
-      "agent-chat-open-tabs:last-tab-test",
+      openTabsStorageKey("last-tab-test"),
       JSON.stringify(["thread-1"]),
     );
     threadMocks.createThread.mockImplementation(async () => {
@@ -2363,7 +2687,7 @@ describe("MultiTabAssistantChat tab close/open lifecycle", () => {
     threadMocks.activeThreadId = "thread-1";
     threadMocks.threads = [makeThread("thread-1")];
     window.localStorage.setItem(
-      "agent-chat-open-tabs:duplicate-close-test",
+      openTabsStorageKey("duplicate-close-test"),
       JSON.stringify(["thread-1"]),
     );
 
@@ -2421,7 +2745,7 @@ describe("MultiTabAssistantChat tab close/open lifecycle", () => {
     threadMocks.activeThreadId = "thread-1";
     threadMocks.threads = [makeThread("thread-1"), makeThread("thread-2")];
     window.localStorage.setItem(
-      "agent-chat-open-tabs:backlog-test",
+      openTabsStorageKey("backlog-test"),
       JSON.stringify(["thread-1"]),
     );
 
@@ -2483,7 +2807,7 @@ describe("MultiTabAssistantChat page overlay", () => {
     );
     window.localStorage.clear();
     window.localStorage.setItem(
-      "agent-chat-open-tabs:page-overlay-test",
+      openTabsStorageKey("page-overlay-test"),
       JSON.stringify(["thread-1"]),
     );
     container = document.createElement("div");
@@ -2600,7 +2924,7 @@ describe("MultiTabAssistantChat history popover", () => {
     );
     window.localStorage.clear();
     window.localStorage.setItem(
-      "agent-chat-open-tabs:history-test",
+      openTabsStorageKey("history-test"),
       JSON.stringify(["thread-1"]),
     );
     container = document.createElement("div");
@@ -2656,6 +2980,27 @@ describe("MultiTabAssistantChat history popover", () => {
       container.querySelectorAll(".an-chat-history-row__title"),
     ).map((el) => el.textContent);
     expect(titles).toEqual(["Pinned chat", "Active chat", "Other chat"]);
+  });
+
+  it("does not expose an untitled prompt in history", async () => {
+    threadMocks.threads = [
+      ...threadMocks.threads,
+      {
+        id: "thread-4",
+        title: "",
+        preview: "Please summarize the latest release notes",
+        messageCount: 1,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        scope: null,
+      },
+    ];
+
+    await openHistory();
+
+    expect(container.textContent).not.toContain(
+      "Please summarize the latest release notes",
+    );
   });
 
   it("pins an unpinned thread via the row action menu", async () => {

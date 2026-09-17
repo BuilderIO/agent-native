@@ -31,9 +31,8 @@ function stringifyValue(value: unknown): string {
  *    attempts are exhausted `failExpiredSandboxExecution` marks it `failed`
  *    instead of leaving it "running" forever.
  *
- * Schema notes: additive-only, portable across Postgres (Neon) and SQLite —
- * same `ensureTableExists`/dialect-branched DDL pattern as
- * `resources/store.ts`. Timestamps are epoch-ms in `BIGINT`/`INTEGER` columns.
+ * Schema notes: additive-only Postgres schema. Timestamps are epoch-ms in
+ * `BIGINT` columns.
  * Reads for user-facing surfaces are always owner-scoped
  * (`getSandboxExecutionForOwner`); the unscoped internal reader exists only
  * for the trusted executor/sweep paths.
@@ -41,12 +40,7 @@ function stringifyValue(value: unknown): string {
 
 import crypto from "node:crypto";
 
-import {
-  getDbExec,
-  intType,
-  isPostgres,
-  retryOnDdlRace,
-} from "../../db/client.js";
+import { getDbExec } from "../../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
@@ -140,7 +134,6 @@ export function resetSandboxExecutionsStoreForTests(): void {
 }
 
 async function _doEnsureTable(): Promise<void> {
-  const client = getDbExec();
   const createSql = `
     CREATE TABLE IF NOT EXISTS ${TABLE} (
       id TEXT PRIMARY KEY,
@@ -150,31 +143,31 @@ async function _doEnsureTable(): Promise<void> {
       runtime TEXT NOT NULL DEFAULT 'node',
       code TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'queued',
-      timeout_ms ${intType()} NOT NULL,
-      max_output_chars ${intType()} NOT NULL,
-      attempt_count ${intType()} NOT NULL DEFAULT 0,
-      max_attempts ${intType()} NOT NULL DEFAULT ${SANDBOX_EXECUTION_DEFAULT_MAX_ATTEMPTS},
+      timeout_ms BIGINT NOT NULL,
+      max_output_chars BIGINT NOT NULL,
+      attempt_count BIGINT NOT NULL DEFAULT 0,
+      max_attempts BIGINT NOT NULL DEFAULT ${SANDBOX_EXECUTION_DEFAULT_MAX_ATTEMPTS},
       claim_token TEXT,
-      lease_expires_at ${intType()},
+      lease_expires_at BIGINT,
       stdout TEXT NOT NULL DEFAULT '',
       stderr TEXT NOT NULL DEFAULT '',
-      stdout_truncated ${intType()} NOT NULL DEFAULT 0,
-      stderr_truncated ${intType()} NOT NULL DEFAULT 0,
-      exit_code ${intType()},
-      timed_out ${intType()} NOT NULL DEFAULT 0,
+      stdout_truncated BIGINT NOT NULL DEFAULT 0,
+      stderr_truncated BIGINT NOT NULL DEFAULT 0,
+      exit_code BIGINT,
+      timed_out BIGINT NOT NULL DEFAULT 0,
       error TEXT,
       bridge_tools_used TEXT,
       allowed_action_names TEXT,
-      created_at ${intType()} NOT NULL,
-      started_at ${intType()},
-      finished_at ${intType()},
-      updated_at ${intType()} NOT NULL
+      created_at BIGINT NOT NULL,
+      started_at BIGINT,
+      finished_at BIGINT,
+      updated_at BIGINT NOT NULL
     )
   `;
   const ownerIdxSql = `CREATE INDEX IF NOT EXISTS sandbox_executions_owner_created_idx ON ${TABLE} (owner, created_at)`;
   const dueIdxSql = `CREATE INDEX IF NOT EXISTS sandbox_executions_due_idx ON ${TABLE} (status, lease_expires_at)`;
 
-  if (isPostgres()) {
+  {
     // Probe information_schema first (no lock) and DDL only what's missing —
     // same guarded pattern as resources/store.ts so a fresh background worker
     // never blocks on an ACCESS EXCLUSIVE lock for schema that already exists.
@@ -197,24 +190,6 @@ async function _doEnsureTable(): Promise<void> {
       ownerIdxSql,
     );
     await ensureIndexExists("sandbox_executions_due_idx", dueIdxSql);
-  } else {
-    await retryOnDdlRace(() => client.execute(createSql));
-    try {
-      await retryOnDdlRace(() =>
-        client.execute(
-          `ALTER TABLE ${TABLE} ADD COLUMN allowed_action_names TEXT`,
-        ),
-      );
-    } catch (error) {
-      const message = String(
-        (error as { message?: unknown } | null)?.message ?? error,
-      );
-      if (!/duplicate column name|column .* already exists/i.test(message)) {
-        throw error;
-      }
-    }
-    await retryOnDdlRace(() => client.execute(ownerIdxSql));
-    await retryOnDdlRace(() => client.execute(dueIdxSql));
   }
 }
 

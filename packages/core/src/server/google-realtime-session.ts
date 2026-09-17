@@ -14,7 +14,7 @@ import { readAppSecret } from "../secrets/storage.js";
 import { getSession } from "./auth.js";
 import {
   gatewayLaneUnavailableMessage,
-  resolveBuilderGatewayCredentials,
+  resolveBuilderGatewayAuth,
 } from "./credential-provider.js";
 import { runWithRequestContext } from "./request-context.js";
 import { isSameOriginRequest } from "./request-origin.js";
@@ -119,8 +119,8 @@ export function createGoogleRealtimeSessionHandler() {
         };
       }
 
-      const builderCreds = await resolveBuilderGatewayCredentials();
-      if (!builderCreds.privateKey || !builderCreds.publicKey) {
+      const builderAuth = await resolveBuilderGatewayAuth();
+      if (!builderAuth) {
         setResponseStatus(event, 400);
         return {
           error: gatewayLaneUnavailableMessage(
@@ -139,10 +139,12 @@ export function createGoogleRealtimeSessionHandler() {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${builderCreds.privateKey}`,
-            "x-builder-api-key": builderCreds.publicKey,
-            ...(builderCreds.userId
-              ? { "x-builder-user-id": builderCreds.userId }
+            Authorization: builderAuth.authorization,
+            ...(builderAuth.spaceId
+              ? { "x-builder-api-key": builderAuth.spaceId }
+              : {}),
+            ...(builderAuth.userId
+              ? { "x-builder-user-id": builderAuth.userId }
               : {}),
           },
           body: JSON.stringify({

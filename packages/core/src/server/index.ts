@@ -7,6 +7,10 @@ export {
   type AppConfigInput,
 } from "../app-config/index.js";
 export {
+  inferWorkspaceAppRootHomePath,
+  readConfiguredWorkspaceAppHomePath,
+} from "../workspace-app-config.js";
+export {
   createServer,
   type CreateServerOptions,
   type EnvKeyConfig,
@@ -73,12 +77,14 @@ export {
   autoMountAuth,
   registerAuthPublicPaths,
   getSession,
+  getMcpOAuthBearerSession,
   COOKIE_NAME,
   addSession,
   removeSession,
   getSessionEmail,
   getFrameworkSessionCookieValues,
   setFrameworkSessionCookie,
+  setFirstRunOnboardingCookie,
   clearFrameworkSessionCookies,
   runAuthGuard,
   registerDesktopExchange,
@@ -94,18 +100,27 @@ export {
 } from "./auth.js";
 export {
   handleIdentitySso,
+  ensureIdentityUser,
   getIdentityHubUrl,
   isIdentitySsoEnabled,
   isIdentitySsoBypassPath,
   identitySsoLoginButtonHtml,
+  IDENTITY_SSO_BOOTSTRAP_ACTIVATE_PATH,
+  IDENTITY_SSO_BOOTSTRAP_BINDING_COOKIE,
+  clearIdentitySsoBootstrapBindingCookie,
+  getIdentitySsoBootstrapBindingCookie,
+  setIdentitySsoBootstrapBindingCookie,
   IDENTITY_SSO_PROVIDER_ID,
   IDENTITY_SSO_SCOPE,
   IDENTITY_SSO_DESKTOP_COMPLETE_PATH,
 } from "./identity-sso.js";
 export {
+  createBetterAuthSessionForEmail,
   ensureGoogleAuthIdentity,
   hasGoogleAuthIdentity,
+  setBetterAuthSessionCookie,
 } from "./better-auth-instance.js";
+export { setIdentityGoogleAuthCookie } from "./identity-auth-provider.js";
 export { requireEnvKey, type MissingKeyResponse } from "./missing-key.js";
 export {
   assertCurrentRequestUserIsOrgAdmin,
@@ -145,6 +160,7 @@ export {
   type AgentLoopToolCallSummary,
   type AgentLoopToolResultSummary,
 } from "../agent/index.js";
+export type { AgentActionScope } from "../agent/types.js";
 export {
   actionsToEngineTools,
   executeAgentToolCall,
@@ -156,6 +172,8 @@ export {
   type ExecuteAgentToolCallOptions,
   type ResolvedOwnerApiKey,
 } from "../agent/production-agent.js";
+export { getRunStatus, getRunTurnRef } from "../agent/run-store.js";
+export { getActiveRunForThreadAsync } from "../agent/run-manager.js";
 export {
   mountRealtimeVoiceRoutes,
   realtimeVoiceSafetyIdentifier,
@@ -185,11 +203,13 @@ export { createDevScriptRegistry } from "../scripts/dev/index.js";
 export {
   createPollHandler,
   recordChange,
+  prepareTransactionalChange,
   getVersion,
   getChangesSince,
   getPollEmitter,
   canSeeChangeForUser,
   POLL_CHANGE_EVENT,
+  type TransactionalChange,
 } from "./poll.js";
 export { createPollEventsHandler } from "./poll-events.js";
 export { createAuthPlugin, defaultAuthPlugin } from "./auth-plugin.js";
@@ -221,6 +241,8 @@ export {
   createFeatureFlagA2AActionRouteAuth,
   createFeatureFlagsPlugin,
 } from "../feature-flags/server.js";
+export { createLabsPlugin } from "../labs/server.js";
+export { createExperimentsPlugin } from "../experiments/server.js";
 export {
   createContextXrayPlugin,
   defaultContextXrayPlugin,
@@ -315,6 +337,7 @@ export {
   renderAgentNativeOgImageSvg,
   type AgentNativeOgImageInput,
 } from "./social-og-image.js";
+export { AGENT_NATIVE_OG_BACKGROUND_DATA_URL } from "./og-background-data.js";
 export { OG_FONT_FAMILY, resolveOgFontFiles } from "./og-fonts.js";
 export {
   createBrowserSessionActionEntries,
@@ -528,12 +551,23 @@ export {
   isAllowedOAuthRedirectUri,
   encodeOAuthState,
   decodeOAuthState,
+  encodeNetlifyPreviewGoogleOAuthRelayState,
+  decodeNetlifyPreviewGoogleOAuthRelayState,
+  wrapNetlifyPreviewGoogleOAuthState,
+  getNetlifyPreviewGoogleOAuthCallbackUrl,
+  isNetlifyPreviewGoogleOAuthCallbackUrl,
+  isNetlifyPreviewGoogleOAuthRelayState,
+  AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET_ENV,
+  NETLIFY_PREVIEW_GOOGLE_OAUTH_CALLBACK_URL,
+  logOAuthStateDecodeFailure,
   resolveOAuthOwner,
   createOAuthSession,
   oauthCallbackResponse,
   oauthErrorPage,
   oauthDesktopExchangePage,
   type OAuthStatePayload,
+  type OAuthStateDecodeFailureReason,
+  type DecodeOAuthStateResult,
   type OAuthOwnerResult,
   type OAuthSessionResult,
 } from "./google-oauth.js";
@@ -573,23 +607,34 @@ export {
   // identity — image and video generation, realtime transcription. Falls
   // through to the identity credential first, so a consumer moves lane by
   // swapping the resolver and changing nothing else.
-  resolveBuilderGatewayCredentials,
   resolveBuilderGatewayCredentialsDetailed,
+  resolveBuilderGatewayAuth,
+  // Deprecated: kept only for external callers built against the old export.
+  resolveBuilderGatewayCredentials,
   resolveHasBuilderGatewayCredential,
   resolveBuilderCredentialSource,
   resolveBuilderCredential,
   readDeployCredentialEnv,
+  resolveVercelDeploymentProtectionHeaders,
   writeBuilderCredentials,
   deleteBuilderCredentials,
   resolveSecret,
   type BuilderCredentialsDetailed,
 } from "./credential-provider.js";
 export {
+  BUILDER_PUBLISH_MCP_RESOURCE,
   canAuthorizeBuilderApiRequest,
   hasBuilderApiCredentialCustody,
   resolveBuilderApiAuthorization,
+  resolveBuilderRequestAuthorization,
+  type BuilderLegacyCredentialKey,
+  type BuilderRequestAuthorization,
 } from "./builder-api-auth.js";
-export { BUILDER_ASSETS_WRITE_SCOPE } from "./builder-oauth.js";
+export {
+  BUILDER_ASSETS_WRITE_SCOPE,
+  BUILDER_OAUTH_SCOPE,
+  type BuilderOAuthPermissionScope,
+} from "./builder-oauth.js";
 export {
   builderDesignSystemUrl,
   builderProjectBranchUrl,
@@ -639,6 +684,9 @@ export {
   resolveBuilderBranchProjectId,
   resolveIsBuilderBranchingEnabled,
   runBuilderAgent,
+  type BuilderAgentAttachment,
+  type BuilderAgentUploadAttachment,
+  type BuilderAgentUrlAttachment,
   type BuilderProjectResult,
   type RunBuilderAgentResult,
 } from "./builder-browser.js";
@@ -694,7 +742,11 @@ export {
   type RenderedEmail,
   type EmailCta,
 } from "./email-template.js";
-export { getAppProductionUrl, getFirstPartyProdUrl } from "./app-url.js";
+export {
+  getAppProductionUrl,
+  getFirstPartyProdUrl,
+  resolveAppRuntimeUrl,
+} from "./app-url.js";
 export {
   getConfiguredAppBasePath,
   normalizeAppBasePath,

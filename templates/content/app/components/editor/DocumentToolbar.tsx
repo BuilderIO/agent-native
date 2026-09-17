@@ -1,14 +1,15 @@
 import { AgentToggleButton } from "@agent-native/core/client/agent-chat";
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
+import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { type CollabUser } from "@agent-native/core/client/collab";
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { ShareButton } from "@agent-native/core/client/sharing";
+import { buildSettingsRoute } from "@agent-native/core/client/navigation";
 import { CreativeContextShareTab } from "@agent-native/creative-context/client";
 import { PresenceBar } from "@agent-native/toolkit/collab-ui";
 import { ShareTrigger } from "@agent-native/toolkit/sharing";
-import type { DocumentSourceInfo } from "@shared/api";
+import type { Document, DocumentSourceInfo } from "@shared/api";
 import {
   IconArrowBarDown,
   IconArrowBarUp,
@@ -16,6 +17,7 @@ import {
   IconArrowForwardUp,
   IconAlertTriangle,
   IconCheck,
+  IconChevronDown,
   IconCopy,
   IconDownload,
   IconDotsVertical,
@@ -36,19 +38,33 @@ import {
   IconMessageCircle,
   IconRefresh,
   IconPin,
+  IconPencil,
   IconTrash,
+  IconX,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useRef,
   useState,
+  type Ref,
   type ReactNode,
 } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
+// The share controller + dialog surface stays out of the editor's first-load
+// bundle; it loads the first time the Share flow opens.
+const ShareButton = lazy(() =>
+  import("@agent-native/core/client/sharing").then((m) => ({
+    default: m.ShareButton,
+  })),
+);
+
+import { useSidebarTrigger } from "@/components/layout/sidebar-trigger";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -82,6 +98,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useCreativeContextLab } from "@/hooks/use-creative-context-lab";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import {
   useNotionConnection,
@@ -105,7 +122,10 @@ import {
   DatabaseExportDialog,
   type DatabaseExportContext,
 } from "./database/DatabaseExportDialog";
-import { VersionHistoryPanel } from "./VersionHistoryPanel";
+import {
+  VersionHistoryPanel,
+  type HistoryRestoreApplyResult,
+} from "./VersionHistoryPanel";
 
 type ExportFormat = "pdf" | "markdown" | "html";
 
@@ -211,7 +231,7 @@ function formatEditedLabel(updatedAt?: string | null) {
   })}`;
 }
 
-function ToolbarBreadcrumb({
+export function ToolbarBreadcrumb({
   items,
   currentDocumentId,
   ariaLabel,
@@ -244,30 +264,42 @@ function ToolbarBreadcrumb({
           </>
         );
 
+        const canNavigate = item.id && item.id !== currentDocumentId;
+        const pageButton = canNavigate ? (
+          <button
+            type="button"
+            className="flex min-w-0 max-w-48 items-center gap-1 rounded px-1.5 py-1 text-left text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={() => onOpen(item.id!)}
+          >
+            {content}
+          </button>
+        ) : null;
+
         return (
           <div
             key={`${item.id ?? label}-${index}`}
             className="flex min-w-0 items-center gap-1"
           >
             {item.menuItems?.length ? (
-              <ToolbarBreadcrumbMenu
-                item={item}
-                label={label}
-                currentDocumentId={currentDocumentId}
-                current={isLast}
-                untitledLabel={untitledLabel}
-                onOpen={onOpen}
-              >
-                {content}
-              </ToolbarBreadcrumbMenu>
-            ) : item.id && item.id !== currentDocumentId ? (
-              <button
-                type="button"
-                className="flex min-w-0 max-w-48 items-center gap-1 rounded px-1.5 py-1 text-left text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                onClick={() => onOpen(item.id!)}
-              >
-                {content}
-              </button>
+              <>
+                {pageButton}
+                <ToolbarBreadcrumbMenu
+                  item={item}
+                  label={label}
+                  currentDocumentId={currentDocumentId}
+                  current={isLast}
+                  untitledLabel={untitledLabel}
+                  onOpen={onOpen}
+                >
+                  {canNavigate ? (
+                    <IconChevronDown className="size-3.5 shrink-0" />
+                  ) : (
+                    content
+                  )}
+                </ToolbarBreadcrumbMenu>
+              </>
+            ) : canNavigate ? (
+              pageButton
             ) : (
               <span
                 className={cn(
@@ -354,6 +386,7 @@ function ToolbarBreadcrumbMenu({
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const openedWithKeyboardRef = useRef(false);
   const firstSelectableItemRef = useRef<HTMLDivElement | null>(null);
@@ -394,17 +427,32 @@ function ToolbarBreadcrumbMenu({
     >
       <DropdownMenuTrigger asChild>
         <button
+          ref={triggerRef}
           type="button"
           aria-label={label}
           className={cn(
             "flex min-w-0 max-w-48 items-center gap-1 rounded px-1.5 py-1 text-left hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             current ? "text-foreground" : "text-muted-foreground",
           )}
-          onPointerEnter={() => {
+          onPointerEnter={(event) => {
+            if (event.pointerType !== "mouse") return;
             cancelClose();
             setOpen(true);
           }}
-          onPointerLeave={scheduleClose}
+          onPointerDown={(event) => {
+            // Hover already opened the menu; don't toggle it closed on click.
+            if (
+              event.pointerType === "mouse" &&
+              open &&
+              event.button === 0 &&
+              !event.ctrlKey
+            ) {
+              event.preventDefault();
+            }
+          }}
+          onPointerLeave={(event) => {
+            if (event.pointerType === "mouse") scheduleClose();
+          }}
           onKeyDown={(event) => {
             if (
               event.key === "Enter" ||
@@ -425,6 +473,11 @@ function ToolbarBreadcrumbMenu({
         onKeyDown={cancelClose}
         onPointerEnter={cancelClose}
         onPointerLeave={scheduleClose}
+        onInteractOutside={(event) => {
+          if (triggerRef.current?.contains(event.target as Node)) {
+            event.preventDefault();
+          }
+        }}
       >
         {item.menuItems?.map((menuItem) => {
           const menuLabel = menuItem.title.trim() || untitledLabel;
@@ -461,11 +514,18 @@ function ToolbarBreadcrumbMenu({
 }
 
 interface DocumentToolbarProps {
+  compact?: boolean;
   documentId: string;
   documentTitle?: string;
   documentContent?: string;
   breadcrumbItems?: ToolbarBreadcrumbItem[];
   documentUpdatedAt?: string | null;
+  prepareHistoryRestore?: () => Promise<string>;
+  historyRestoreReady?: boolean;
+  onHistoryRestored?: (
+    restored: Document,
+  ) => HistoryRestoreApplyResult | Promise<HistoryRestoreApplyResult>;
+  restoreUnavailableReason?: string;
   activeUsers?: CollabUser[];
   agentPresent?: boolean;
   agentActive?: boolean;
@@ -479,6 +539,7 @@ interface DocumentToolbarProps {
   isFavorite?: boolean;
   onToggleFavorite?: (isFavorite: boolean) => void;
   utilityPanel: "info" | "comments" | null;
+  commentsHistoryOpen?: boolean;
   onUtilityPanelChange: (panel: "info" | "comments" | null) => void;
   showCommentsControl?: boolean;
   databaseExportContext?: DatabaseExportContext | null;
@@ -487,14 +548,23 @@ interface DocumentToolbarProps {
   canRedo?: boolean;
   onUndo?: () => void;
   onRedo?: () => void;
+  canSuggest?: boolean;
+  suggesting?: boolean;
+  onSuggestingChange?: (suggesting: boolean) => void;
+  editorEscapeTargetRef?: Ref<HTMLButtonElement>;
 }
 
 export function DocumentToolbar({
+  compact = false,
   documentId,
   documentTitle,
   documentContent,
   breadcrumbItems = [],
   documentUpdatedAt,
+  prepareHistoryRestore,
+  historyRestoreReady = true,
+  onHistoryRestored,
+  restoreUnavailableReason,
   activeUsers,
   agentPresent,
   agentActive,
@@ -508,6 +578,7 @@ export function DocumentToolbar({
   isFavorite = false,
   onToggleFavorite,
   utilityPanel,
+  commentsHistoryOpen = false,
   onUtilityPanelChange,
   showCommentsControl = true,
   databaseExportContext,
@@ -516,15 +587,22 @@ export function DocumentToolbar({
   canRedo = false,
   onUndo,
   onRedo,
+  canSuggest = false,
+  suggesting = false,
+  onSuggestingChange,
+  editorEscapeTargetRef,
 }: DocumentToolbarProps) {
+  const sidebarTrigger = useSidebarTrigger();
   const t = useT();
   const navigate = useNavigate();
   const location = useLocation();
+  const creativeContextEnabled = useCreativeContextLab();
   const queryClient = useQueryClient();
   const isLocalFileDocument = source?.mode === "local-files";
   const openShareOnLoad =
     !isLocalFileDocument &&
     new URLSearchParams(location.search).get("share") === "1";
+  const [shareRequested, setShareRequested] = useState(false);
   const [autoSync, setAutoSync] = useLocalStorage(
     `notion-auto-sync:${documentId}`,
     false,
@@ -638,10 +716,15 @@ export function DocumentToolbar({
     [documentId, hideFromSearch, queryClient, setDocumentDiscoverability, t],
   );
 
-  const handleCopyLocalRelativePath = useCallback(() => {
+  const handleCopyLocalRelativePath = useCallback(async () => {
     const filePath = source?.path;
     if (!filePath) return;
-    void navigator.clipboard?.writeText(filePath);
+    if (!(await writeClipboardText(filePath))) {
+      toast.error(t("empty.genericError"), {
+        description: t("editor.toolbar.clipboardAccessUnavailable"),
+      });
+      return;
+    }
     toast.success(t("editor.toolbar.copiedRelativePath"));
   }, [source?.path, t]);
 
@@ -653,34 +736,31 @@ export function DocumentToolbar({
       });
       return;
     }
-    void navigator.clipboard?.writeText(filePath);
+    if (!(await writeClipboardText(filePath))) {
+      toast.error(t("empty.genericError"), {
+        description: t("editor.toolbar.clipboardAccessUnavailable"),
+      });
+      return;
+    }
     toast.success(t("editor.toolbar.copiedAbsolutePath"));
   }, [source, t]);
 
   const handleCopyPageLink = useCallback(async () => {
-    if (!navigator.clipboard?.writeText) {
+    if (!(await writeClipboardText(copyPageUrl))) {
       toast.error(t("editor.toolbar.couldNotCopyLink"), {
         description: t("editor.toolbar.clipboardAccessUnavailable"),
       });
       return;
     }
 
-    try {
-      await navigator.clipboard.writeText(copyPageUrl);
-      if (!isLocalFileDocument) {
-        trackEvent("share_link_copied", {
-          resource_type: "document",
-          resource_id: documentId,
-          link_type: "share",
-        });
-      }
-      toast.success(t("editor.toolbar.copiedPageLink"));
-    } catch (error) {
-      toast.error(t("editor.toolbar.couldNotCopyLink"), {
-        description:
-          error instanceof Error ? error.message : t("empty.genericError"),
+    if (!isLocalFileDocument) {
+      trackEvent("share_link_copied", {
+        resource_type: "document",
+        resource_id: documentId,
+        link_type: "share",
       });
     }
+    toast.success(t("editor.toolbar.copiedPageLink"));
   }, [copyPageUrl, documentId, isLocalFileDocument, t]);
 
   const handleRevealLocalPath = useCallback(async () => {
@@ -844,8 +924,8 @@ export function DocumentToolbar({
   );
 
   const handleSetup = () => {
-    toast.info(t("editor.toolbar.setUpNotionFirst"));
     setOpen(false);
+    void navigate(`${buildSettingsRoute("integrations")}?q=Notion`);
   };
 
   const handleExport = useCallback(
@@ -887,26 +967,28 @@ export function DocumentToolbar({
   return (
     <>
       <div className="relative z-10 flex h-12 shrink-0 items-center gap-3 bg-background px-4">
-        <ToolbarBreadcrumb
-          items={
-            breadcrumbItems.length
-              ? breadcrumbItems
-              : [{ id: documentId, title: documentTitle || "Untitled" }]
-          }
-          currentDocumentId={documentId}
-          ariaLabel={t("editor.toolbar.pageBreadcrumb")}
-          untitledLabel={t("sidebar.untitled")}
-          onOpen={(id) => {
-            if (onOpenBreadcrumbItem) {
-              onOpenBreadcrumbItem(id);
-              return;
+        {sidebarTrigger}
+        {!compact ? (
+          <ToolbarBreadcrumb
+            items={
+              breadcrumbItems.length
+                ? breadcrumbItems
+                : [{ id: documentId, title: documentTitle || "Untitled" }]
             }
-            void navigate(`/page/${id}`, { flushSync: true });
-          }}
-        />
-
-        <div className="ml-auto flex min-w-0 items-center gap-0.5 sm:gap-1">
-          {editedLabel ? (
+            currentDocumentId={documentId}
+            ariaLabel={t("editor.toolbar.pageBreadcrumb")}
+            untitledLabel={t("sidebar.untitled")}
+            onOpen={(id) => {
+              if (onOpenBreadcrumbItem) {
+                onOpenBreadcrumbItem(id);
+                return;
+              }
+              void navigate(`/page/${id}`, { flushSync: true });
+            }}
+          />
+        ) : null}
+        <div className="ml-auto flex shrink-0 items-center gap-0.5 sm:gap-1">
+          {editedLabel && !compact ? (
             <span className="hidden shrink-0 px-2 text-sm text-muted-foreground lg:inline">
               {editedLabel}
             </span>
@@ -929,72 +1011,150 @@ export function DocumentToolbar({
               onPress={() => void handleShareLocalFile()}
             />
           ) : (
-            <>
-              <ShareButton
-                resourceType="document"
-                resourceId={documentId}
-                resourceTitle={documentTitle}
-                shareUrl={shareUrl}
-                defaultOpen={openShareOnLoad}
-                onOpenChange={handleDbShareOpenChange}
-                visibilityCopy={{
-                  org: {
-                    description: effectiveHideFromSearch
-                      ? t("editor.toolbar.orgLinkCanView")
-                      : t("editor.toolbar.orgCanFindAndView"),
-                  },
-                }}
-                hideInSearchControl={{
-                  checked: effectiveHideFromSearch,
-                  pending: setDocumentDiscoverability.isPending,
-                  label: t("editor.toolbar.hideInSearch"),
-                  description: t("editor.toolbar.hideInSearchDescription"),
-                  onCheckedChange: handleHideFromSearchChange,
-                }}
-                variant="compact"
-                shareTabs={{
-                  tabs: [
-                    {
-                      value: "context",
-                      label: t("creativeContext.share.tabLabel"),
-                      content: (
-                        <CreativeContextShareTab
-                          resource={{
-                            appId: "content",
-                            resourceType: "document",
-                            resourceId: documentId,
-                            title: documentTitle || "Untitled",
-                            updatedAt: documentUpdatedAt ?? undefined,
-                            preview: {
-                              kind: "document",
-                              label: t("root.commandDocumentsHeading"),
-                            },
-                          }}
-                        />
-                      ),
+            <Suspense
+              fallback={
+                <ShareTrigger
+                  aria-expanded={false}
+                  label={t("editor.toolbar.share")}
+                  onPress={() => setShareRequested(true)}
+                />
+              }
+            >
+              {shareRequested || openShareOnLoad ? (
+                <ShareButton
+                  resourceType="document"
+                  resourceId={documentId}
+                  resourceTitle={documentTitle}
+                  shareUrl={shareUrl}
+                  defaultOpen={shareRequested || openShareOnLoad}
+                  onOpenChange={handleDbShareOpenChange}
+                  visibilityCopy={{
+                    org: {
+                      description: effectiveHideFromSearch
+                        ? t("editor.toolbar.orgLinkCanView")
+                        : t("editor.toolbar.orgCanFindAndView"),
                     },
-                  ],
-                }}
-              />
+                  }}
+                  hideInSearchControl={{
+                    checked: effectiveHideFromSearch,
+                    pending: setDocumentDiscoverability.isPending,
+                    label: t("editor.toolbar.hideInSearch"),
+                    description: t("editor.toolbar.hideInSearchDescription"),
+                    onCheckedChange: handleHideFromSearchChange,
+                  }}
+                  variant="compact"
+                  shareTabs={
+                    creativeContextEnabled
+                      ? {
+                          tabs: [
+                            {
+                              value: "context",
+                              label: t("creativeContext.share.tabLabel"),
+                              content: (
+                                <CreativeContextShareTab
+                                  resource={{
+                                    appId: "content",
+                                    resourceType: "document",
+                                    resourceId: documentId,
+                                    title: documentTitle || "Untitled",
+                                    updatedAt: documentUpdatedAt ?? undefined,
+                                    preview: {
+                                      kind: "document",
+                                      label: t("root.commandDocumentsHeading"),
+                                    },
+                                  }}
+                                />
+                              ),
+                            },
+                          ],
+                        }
+                      : undefined
+                  }
+                />
+              ) : (
+                <ShareTrigger
+                  aria-expanded={false}
+                  label={t("editor.toolbar.share")}
+                  onPress={() => setShareRequested(true)}
+                />
+              )}
 
               <VersionHistoryPanel
                 documentId={documentId}
                 open={historyOpen}
                 onOpenChange={setHistoryOpen}
                 canRestore={canEdit}
+                restoreReady={historyRestoreReady}
                 activeUsers={activeUsers}
+                prepareRestore={prepareHistoryRestore}
+                onRestored={onHistoryRestored}
+                restoreUnavailableReason={restoreUnavailableReason}
               />
-            </>
+            </Suspense>
           )}
+
+          {suggesting ? (
+            <div className="flex h-8 items-center gap-1 rounded-md bg-primary/10 ps-2 text-sm text-primary">
+              <IconPencil aria-hidden="true" className="size-3.5" />
+              <span>{t("editor.toolbar.suggesting")}</span>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    ref={editorEscapeTargetRef}
+                    className="ms-0.5 flex size-7 items-center justify-center rounded-sm text-primary/70 hover:bg-primary/15 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    aria-label={t("editor.toolbar.stopSuggesting")}
+                    onClick={() => onSuggestingChange?.(false)}
+                  >
+                    <IconX aria-hidden="true" className="size-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {t("editor.toolbar.stopSuggesting")}
+                </TooltipContent>
+              </Tooltip>
+            </div>
+          ) : null}
+
+          {showCommentsControl ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className={cn(
+                    "flex size-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    commentsHistoryOpen && "bg-accent text-accent-foreground",
+                  )}
+                  aria-label={t("comments.title")}
+                  aria-pressed={commentsHistoryOpen}
+                  onClick={() => {
+                    const nextPanel = commentsHistoryOpen ? null : "comments";
+                    if (nextPanel === "comments") {
+                      trackEvent("document_utility_panel_opened", {
+                        app_name: "content",
+                        template_name: "content",
+                        panel: "comments",
+                      });
+                    }
+                    onUtilityPanelChange(nextPanel);
+                  }}
+                >
+                  <IconMessageCircle size={16} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>{t("comments.title")}</TooltipContent>
+            </Tooltip>
+          ) : null}
 
           <DropdownMenu modal={false}>
             <Tooltip>
               <TooltipTrigger asChild>
                 <DropdownMenuTrigger asChild>
                   <button
+                    ref={suggesting ? undefined : editorEscapeTargetRef}
                     className={cn(
                       "flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground",
-                      utilityPanel && "bg-accent text-foreground",
+                      utilityPanel === "info" && "bg-accent text-foreground",
                     )}
                     aria-label={t("editor.toolbar.morePageActions")}
                   >
@@ -1006,7 +1166,35 @@ export function DocumentToolbar({
                 {t("editor.toolbar.morePageActions")}
               </TooltipContent>
             </Tooltip>
-            <DropdownMenuContent align="end" className="w-60">
+            <DropdownMenuContent
+              align="end"
+              className="w-60"
+              data-database-preview-portal={compact ? "" : undefined}
+            >
+              {canSuggest ? (
+                <>
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      onSuggestingChange?.(!suggesting);
+                      window.setTimeout(() => {
+                        document
+                          .querySelector<HTMLElement>(
+                            ".notion-editor[contenteditable='true'], .notion-editor [contenteditable='true']",
+                          )
+                          ?.focus({ preventScroll: true });
+                      }, 50);
+                    }}
+                  >
+                    <IconPencil className="me-2 h-4 w-4" />
+                    {t(
+                      suggesting
+                        ? "editor.toolbar.stopSuggesting"
+                        : "editor.toolbar.suggestEdits",
+                    )}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                </>
+              ) : null}
               <DropdownMenuGroup>
                 <DropdownMenuItem disabled={!canUndo} onSelect={onUndo}>
                   <IconArrowBackUp className="me-2 h-4 w-4" />
@@ -1037,11 +1225,17 @@ export function DocumentToolbar({
                   </DropdownMenuItem>
                 ) : null}
                 <DropdownMenuItem
-                  onSelect={() =>
-                    onUtilityPanelChange(
-                      utilityPanel === "info" ? null : "info",
-                    )
-                  }
+                  onSelect={() => {
+                    const nextPanel = utilityPanel === "info" ? null : "info";
+                    if (nextPanel === "info") {
+                      trackEvent("document_utility_panel_opened", {
+                        app_name: "content",
+                        template_name: "content",
+                        panel: "info",
+                      });
+                    }
+                    onUtilityPanelChange(nextPanel);
+                  }}
                   className={cn(
                     utilityPanel === "info" &&
                       "bg-accent text-accent-foreground",
@@ -1050,22 +1244,6 @@ export function DocumentToolbar({
                   <IconInfoCircle className="me-2 h-4 w-4" />
                   {t("editor.toolbar.info")}
                 </DropdownMenuItem>
-                {showCommentsControl ? (
-                  <DropdownMenuItem
-                    onSelect={() =>
-                      onUtilityPanelChange(
-                        utilityPanel === "comments" ? null : "comments",
-                      )
-                    }
-                    className={cn(
-                      utilityPanel === "comments" &&
-                        "bg-accent text-accent-foreground",
-                    )}
-                  >
-                    <IconMessageCircle className="me-2 h-4 w-4" />
-                    {t("comments.title")}
-                  </DropdownMenuItem>
-                ) : null}
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
               {isLocalFileDocument ? (
@@ -1084,7 +1262,9 @@ export function DocumentToolbar({
                     <IconFolderOpen className="me-2 h-4 w-4" />
                     {t("editor.toolbar.revealInFinder")}
                   </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={handleCopyLocalRelativePath}>
+                  <DropdownMenuItem
+                    onSelect={() => void handleCopyLocalRelativePath()}
+                  >
                     <IconCopy className="me-2 h-4 w-4" />
                     {t("editor.toolbar.copyRelativePath")}
                   </DropdownMenuItem>
@@ -1099,54 +1279,64 @@ export function DocumentToolbar({
               ) : (
                 <>
                   <DropdownMenuGroup>
-                    <DropdownMenuItem onSelect={() => setHistoryOpen(true)}>
+                    <DropdownMenuItem
+                      onSelect={() => {
+                        trackEvent("document_history_opened", {
+                          app_name: "content",
+                          template_name: "content",
+                        });
+                        setHistoryOpen(true);
+                      }}
+                    >
                       <IconHistory className="me-2 h-4 w-4" />
                       {t("editor.toolbar.versionHistory")}
                     </DropdownMenuItem>
                   </DropdownMenuGroup>
                   <DropdownMenuSeparator />
-                  <DropdownMenuSub>
-                    <DropdownMenuSubTrigger disabled={exportDocument.isPending}>
-                      {exportDocument.isPending ? (
-                        <IconLoader2 className="me-2 h-4 w-4 animate-spin" />
-                      ) : (
-                        <IconDownload className="me-2 h-4 w-4" />
-                      )}
+                  {databaseExportContext ? (
+                    <DropdownMenuItem
+                      onSelect={() => setDatabaseExportOpen(true)}
+                    >
+                      <IconDownload className="me-2 h-4 w-4" />
                       {t("editor.toolbar.export")}
-                    </DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent className="w-44">
-                      {databaseExportContext ? (
+                    </DropdownMenuItem>
+                  ) : (
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger
+                        disabled={exportDocument.isPending}
+                      >
+                        {exportDocument.isPending ? (
+                          <IconLoader2 className="me-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <IconDownload className="me-2 h-4 w-4" />
+                        )}
+                        {t("editor.toolbar.export")}
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent className="w-44">
                         <DropdownMenuItem
                           disabled={exportDocument.isPending}
-                          onSelect={() => setDatabaseExportOpen(true)}
+                          onSelect={() => void handleExport("pdf")}
                         >
-                          <IconDownload className="me-2 h-4 w-4" />
-                          CSV
+                          <IconFileTypePdf className="me-2 h-4 w-4" />
+                          PDF
                         </DropdownMenuItem>
-                      ) : null}
-                      <DropdownMenuItem
-                        disabled={exportDocument.isPending}
-                        onSelect={() => void handleExport("pdf")}
-                      >
-                        <IconFileTypePdf className="me-2 h-4 w-4" />
-                        PDF
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        disabled={exportDocument.isPending}
-                        onSelect={() => void handleExport("markdown")}
-                      >
-                        <IconMarkdown className="me-2 h-4 w-4" />
-                        Markdown
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        disabled={exportDocument.isPending}
-                        onSelect={() => void handleExport("html")}
-                      >
-                        <IconFileTypeHtml className="me-2 h-4 w-4" />
-                        HTML
-                      </DropdownMenuItem>
-                    </DropdownMenuSubContent>
-                  </DropdownMenuSub>
+                        <DropdownMenuItem
+                          disabled={exportDocument.isPending}
+                          onSelect={() => void handleExport("markdown")}
+                        >
+                          <IconMarkdown className="me-2 h-4 w-4" />
+                          Markdown
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          disabled={exportDocument.isPending}
+                          onSelect={() => void handleExport("html")}
+                        >
+                          <IconFileTypeHtml className="me-2 h-4 w-4" />
+                          HTML
+                        </DropdownMenuItem>
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                  )}
                 </>
               )}
               <DropdownMenuSeparator />
@@ -1156,12 +1346,7 @@ export function DocumentToolbar({
                     <PopoverTrigger asChild>
                       <button
                         type="button"
-                        className={cn(
-                          "flex w-full items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground",
-                          isLinked
-                            ? "text-foreground"
-                            : "text-muted-foreground",
-                        )}
+                        className="flex w-full items-center rounded-sm px-2 py-1.5 text-sm text-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground"
                       >
                         <span className="me-2 flex h-4 w-4 shrink-0 items-center justify-center">
                           {hasConflict ? (
@@ -1551,7 +1736,6 @@ export function DocumentToolbar({
       <DatabaseExportDialog
         documentId={documentId}
         context={databaseExportContext ?? null}
-        defaultScope="current_view"
         open={databaseExportOpen}
         onOpenChange={setDatabaseExportOpen}
       />

@@ -5,7 +5,8 @@ const mocks = vi.hoisted(() => ({
   loadActionsFromStaticRegistry: vi.fn(() => ({})),
 }));
 
-vi.mock("@agent-native/core/server", () => ({
+vi.mock("@agent-native/core/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/server")>()),
   createAgentChatPlugin: mocks.createAgentChatPlugin,
   loadActionsFromStaticRegistry: mocks.loadActionsFromStaticRegistry,
 }));
@@ -56,9 +57,9 @@ describe("Content agent chat plugin", () => {
     expect(mocks.createAgentChatPlugin).toHaveBeenCalledWith(
       expect.objectContaining({
         appId: "content",
-        mcp: {
+        mcp: expect.objectContaining({
           externalAgents: { writes: "allowlisted" },
-        },
+        }),
       }),
     );
   });

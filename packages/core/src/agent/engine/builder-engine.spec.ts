@@ -109,10 +109,14 @@ function jsonlResponse(events: unknown[]): Response {
   });
 }
 
-function jsonErrorResponse(status: number, body: unknown): Response {
+function jsonErrorResponse(
+  status: number,
+  body: unknown,
+  headers?: Record<string, string>,
+): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...headers },
   });
 }
 
@@ -881,6 +885,52 @@ describe("createBuilderEngine", () => {
     expect(oauthState.markReconnect).toHaveBeenCalledWith("person@example.com");
   });
 
+  it("marks OAuth custody for reconnect on a bare gateway 403", async () => {
+    oauthState.ownerEmail = "person@example.com";
+    oauthState.accessToken = "oauth-access-token";
+    oauthState.stored = true;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonErrorResponse(403, {
+          message: "Forbidden",
+        }),
+      ),
+    );
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+    expect(events.find((e) => e.type === "stop")?.errorCode).toBe(
+      "builder_auth_error",
+    );
+    expect(
+      credentialState.recordBuilderGatewayAuthFailure,
+    ).not.toHaveBeenCalled();
+    expect(oauthState.markReconnect).toHaveBeenCalledWith("person@example.com");
+  });
+
+  it("preserves an explicit OAuth gateway policy 403", async () => {
+    oauthState.ownerEmail = "person@example.com";
+    oauthState.accessToken = "oauth-access-token";
+    oauthState.stored = true;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonErrorResponse(403, {
+          code: "forbidden",
+          message: "Not allowed",
+        }),
+      ),
+    );
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+    const stop = events.find((event) => event.type === "stop");
+
+    expect(stop?.errorCode).toBe("forbidden");
+    expect(stop?.error).toBe("Not allowed");
+    expect(oauthState.markReconnect).not.toHaveBeenCalled();
+  });
+
   it("marks the OAuth grant in the request organization", async () => {
     oauthState.ownerEmail = "person@example.com";
     oauthState.orgId = "org-request";
@@ -937,6 +987,148 @@ describe("createBuilderEngine", () => {
       code: "http_403",
       message: "Invalid token",
     });
+  });
+
+  it("treats a bare 403 on the legacy (non-OAuth) lane as a transient rejection, not a credential failure", async () => {
+    // Same bare "Forbidden" the OAuth lane maps to builder_auth_error above —
+    // on the legacy lane it is the gateway's load-shedding signature, not a
+    // revoked key, and must not send the reader to reconnect a working
+    // Builder connection.
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(jsonErrorResponse(403, { message: "Forbidden" })),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("provider_transient_rejection");
+    expect(stop?.statusCode).toBe(403);
+    expect(stop?.providerRetryable).toBe(true);
+    expect(
+      credentialState.recordBuilderGatewayAuthFailure,
+    ).not.toHaveBeenCalled();
+  });
+
+  it("treats a bare '403 status code (no body)' SDK echo as a transient rejection", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          jsonErrorResponse(403, { message: "403 status code (no body)" }),
+        ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.errorCode).toBe("provider_transient_rejection");
+    expect(stop?.statusCode).toBe(403);
+    expect(stop?.providerRetryable).toBe(true);
+  });
+
+  it("keeps a structured gateway 403 code unchanged instead of classifying it as transient", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonErrorResponse(403, {
+          code: "gateway_suspended",
+          message: "This space's Builder gateway access was suspended.",
+        }),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.errorCode).toBe("gateway_suspended");
+    expect(stop?.providerRetryable).toBeUndefined();
+  });
+
+  it("treats an in-stream bare '403 status code (no body)' as a transient rejection", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "error",
+            error: "403 status code (no body)",
+            requestId: "req_403",
+          },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("provider_transient_rejection");
+    expect(stop?.statusCode).toBe(403);
+    expect(stop?.providerRetryable).toBe(true);
+    expect(
+      credentialState.recordBuilderGatewayAuthFailure,
+    ).not.toHaveBeenCalled();
+  });
+
+  it("treats an in-stream bare 403 carrying the gateway's own http_403 code as a transient rejection", async () => {
+    // The gateway's fallback code for an uncoded 403 is the literal string
+    // "http_403" (same as the HTTP-error path's `code` variable) — it must
+    // classify identically to no code at all, not be treated as "structured".
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "error",
+            error: "Forbidden",
+            errorCode: "http_403",
+            requestId: "req_403",
+          },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("provider_transient_rejection");
+  });
+
+  it("keeps an in-stream structured gateway code (e.g. gateway_suspended) unchanged even with a bare-looking body", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "error",
+            error: "Forbidden",
+            errorCode: "gateway_suspended",
+            requestId: "req_403",
+          },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("gateway_suspended");
   });
 
   describe("Builder-credits lane", () => {
@@ -1014,7 +1206,11 @@ describe("createBuilderEngine", () => {
         expect(stop?.reason).toBe("error");
         expect(stop?.error).toBe(GATEWAY_UNAVAILABLE_VISITOR_MESSAGE);
         expect(stop?.errorCode).toBeTruthy();
-        expect(stop?.upgradeUrl).toBeUndefined();
+        expect(stop?.upgradeUrl).toBe(
+          rejection.label === "credits-limit"
+            ? AGENT_NATIVE_UPGRADE_URL
+            : undefined,
+        );
       });
     }
 
@@ -1056,6 +1252,31 @@ describe("createBuilderEngine", () => {
       expect(stop?.reason).toBe("error");
       expect(stop?.error).toBe(GATEWAY_UNAVAILABLE_VISITOR_MESSAGE);
       expect(stop?.errorCode).toBe("credits-limit-reached");
+      expect(stop?.upgradeUrl).toBe(AGENT_NATIVE_UPGRADE_URL);
+    });
+
+    it("preserves Retry-After on a credits-lane visitor stop", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          jsonErrorResponse(
+            429,
+            {
+              code: "too_many_concurrent_requests",
+              message: "Too many concurrent gateway requests.",
+            },
+            { "retry-after": "5" },
+          ),
+        ),
+      );
+
+      const events = await collectEvents(
+        createBuilderEngine().stream(BASE_OPTS),
+      );
+      const stop = events.find((e) => e.type === "stop");
+
+      expect(stop?.error).toBe(GATEWAY_UNAVAILABLE_VISITOR_MESSAGE);
+      expect(stop?.retryAfterMs).toBe(5_000);
     });
 
     it("shows one visitor line for an in-stream invalid_request", async () => {
@@ -1276,6 +1497,72 @@ describe("createBuilderEngine", () => {
     expect(stop?.error).toBe("Too many concurrent gateway requests.");
     expect(stop?.statusCode).toBe(429);
     expect(stop?.providerRetryable).toBe(true);
+  });
+
+  it("propagates the HTTP Retry-After delay on a 429 stop event", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonErrorResponse(
+          429,
+          {
+            code: "too_many_concurrent_requests",
+            message: "Too many concurrent gateway requests.",
+          },
+          { "Retry-After": "5" },
+        ),
+      ),
+    );
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+    const stop = events.find((e) => e.type === "stop");
+
+    expect(stop?.statusCode).toBe(429);
+    expect(stop?.providerRetryable).toBe(true);
+    expect(stop?.retryAfterMs).toBe(5_000);
+  });
+
+  it("propagates the HTTP Retry-After delay on an ordinary 503 stop event", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          jsonErrorResponse(
+            503,
+            { message: "Service temporarily unavailable." },
+            { "retry-after": "7" },
+          ),
+        ),
+    );
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+    const stop = events.find((e) => e.type === "stop");
+
+    expect(stop?.errorCode).toBe("http_503");
+    expect(stop?.statusCode).toBe(503);
+    expect(stop?.providerRetryable).toBe(true);
+    expect(stop?.retryAfterMs).toBe(7_000);
+  });
+
+  it("caps an oversized HTTP Retry-After delay at 60 seconds", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          jsonErrorResponse(
+            503,
+            { message: "Service temporarily unavailable." },
+            { "retry-after": "600" },
+          ),
+        ),
+    );
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+    const stop = events.find((e) => e.type === "stop");
+
+    expect(stop?.retryAfterMs).toBe(60_000);
   });
 
   it("maps daily gateway caps to a non-retryable error message", async () => {

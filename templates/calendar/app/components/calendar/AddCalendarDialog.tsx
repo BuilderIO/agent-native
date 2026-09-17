@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
 import {
   IconSearch,
   IconX,
@@ -6,6 +7,7 @@ import {
   IconLoader2,
   IconLink,
   IconCalendarPlus,
+  IconBrandGoogle,
 } from "@tabler/icons-react";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
@@ -26,6 +28,10 @@ import {
   useRemoveExternalCalendar,
 } from "@/hooks/use-external-calendars";
 import {
+  useGoogleAuthStatus,
+  useGoogleDesktopAuth,
+} from "@/hooks/use-google-auth";
+import {
   useOverlayPeople,
   useAddOverlayPerson,
   useRemoveOverlayPerson,
@@ -43,16 +49,29 @@ const URL_REGEX = /^(https?|webcal):\/\/.+/i;
 interface AddCalendarDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  defaultTab?: "people" | "url";
+  defaultTab?: "people" | "url" | "google";
+  visibleTabs?: Array<"people" | "url" | "google">;
+  /** Fires once the peer is actually saved to the overlay list, so a caller
+   *  opening this dialog mid-flow (e.g. the booking-link host picker) can
+   *  adopt the peer without making the user pick them a second time. */
+  onPersonAdded?: (person: { email: string; name?: string }) => void;
+  /** Prefills the people search. Never auto-adds: a link click must not
+   *  write someone into the user's calendar without confirmation. */
+  prefillPersonEmail?: string;
 }
 
 export function AddCalendarDialog({
   open,
   onOpenChange,
   defaultTab = "people",
+  visibleTabs = ["people", "url", "google"],
+  onPersonAdded,
+  prefillPersonEmail,
 }: AddCalendarDialogProps) {
   const t = useT();
-  const [activeTab, setActiveTab] = useState<"people" | "url">(defaultTab);
+  const [activeTab, setActiveTab] = useState<"people" | "url" | "google">(
+    defaultTab,
+  );
 
   // Sync default tab when dialog opens
   useEffect(() => {
@@ -70,34 +89,107 @@ export function AddCalendarDialog({
 
         <Tabs
           value={activeTab}
-          onValueChange={(v) => setActiveTab(v as "people" | "url")}
+          onValueChange={(v) => setActiveTab(v as "people" | "url" | "google")}
           className="mt-3"
         >
-          <TabsList className="mx-4 w-[calc(100%-2rem)]">
-            <TabsTrigger value="people" className="flex-1">
-              {t("eventForm.people")}
-            </TabsTrigger>
-            <TabsTrigger value="url" className="flex-1">
-              {t("eventForm.fromUrl")}
-            </TabsTrigger>
-          </TabsList>
+          {visibleTabs.length > 1 && (
+            <TabsList className="mx-4 w-[calc(100%-2rem)]">
+              {visibleTabs.includes("people") && (
+                <TabsTrigger value="people" className="flex-1">
+                  {t("eventForm.people")}
+                </TabsTrigger>
+              )}
+              {visibleTabs.includes("url") && (
+                <TabsTrigger value="url" className="flex-1">
+                  {t("eventForm.fromUrl")}
+                </TabsTrigger>
+              )}
+              {visibleTabs.includes("google") && (
+                <TabsTrigger value="google" className="flex-1">
+                  Google
+                </TabsTrigger>
+              )}
+            </TabsList>
+          )}
 
-          <TabsContent value="people" className="mt-0">
-            <PeopleTab open={open} />
-          </TabsContent>
+          {visibleTabs.includes("people") && (
+            <TabsContent value="people" className="mt-0">
+              <PeopleTab
+                open={open}
+                onPersonAdded={onPersonAdded}
+                prefillPersonEmail={prefillPersonEmail}
+              />
+            </TabsContent>
+          )}
 
-          <TabsContent value="url" className="mt-0 px-4 pb-4 pt-3">
-            <UrlTab onClose={() => onOpenChange(false)} />
-          </TabsContent>
+          {visibleTabs.includes("url") && (
+            <TabsContent value="url" className="mt-0 px-4 pb-4 pt-3">
+              <UrlTab onClose={() => onOpenChange(false)} />
+            </TabsContent>
+          )}
+          {visibleTabs.includes("google") && (
+            <TabsContent value="google" className="mt-0 px-4 pb-4 pt-3">
+              <GoogleTab />
+            </TabsContent>
+          )}
         </Tabs>
       </DialogContent>
     </Dialog>
   );
 }
 
+function GoogleTab() {
+  const t = useT();
+  const status = useGoogleAuthStatus();
+  const {
+    isDesktopGoogleAuth,
+    isGoogleDesktopAuthPending,
+    startDesktopGoogleAuth,
+  } = useGoogleDesktopAuth({
+    onError: (issue) =>
+      toast.error(issue.message || issue.error || t("settings.googleFailed")),
+    onSuccess: () => window.location.reload(),
+  });
+
+  function connect() {
+    if (isDesktopGoogleAuth) {
+      startDesktopGoogleAuth({
+        addAccount: true,
+        previousAccountCount: status.data?.accounts.length ?? 0,
+      });
+      return;
+    }
+    startWorkspaceProviderOAuth("google_calendar", {
+      appId: "calendar",
+      returnPath: `${window.location.pathname}${window.location.search}`,
+      scope: "user",
+    });
+  }
+
+  return (
+    <Button
+      type="button"
+      className="w-full gap-2"
+      onClick={connect}
+      disabled={isGoogleDesktopAuthPending}
+    >
+      <IconBrandGoogle className="size-4" />
+      {t("settings.connectGoogleCalendar")}
+    </Button>
+  );
+}
+
 // ─── People tab ──────────────────────────────────────────────────────────────
 
-function PeopleTab({ open }: { open: boolean }) {
+function PeopleTab({
+  open,
+  onPersonAdded,
+  prefillPersonEmail,
+}: {
+  open: boolean;
+  onPersonAdded?: (person: { email: string; name?: string }) => void;
+  prefillPersonEmail?: string;
+}) {
   const t = useT();
   const [query, setQuery] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -155,11 +247,14 @@ function PeopleTab({ open }: { open: boolean }) {
     setActiveIndex(results.length > 0 ? 0 : -1);
   }, [results]);
 
+  // Reset on open, seeding from a deep link when present, so the later
+  // prefill effect below can't be clobbered by this one running afterward.
   useEffect(() => {
     if (!open) return;
-    setQuery("");
-    setSearchQuery("");
+    setQuery(prefillPersonEmail ?? "");
+    setSearchQuery(prefillPersonEmail ?? "");
     setActiveIndex(-1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-run on open, not on every prefill change
   }, [open]);
 
   useEffect(() => {
@@ -176,7 +271,12 @@ function PeopleTab({ open }: { open: boolean }) {
   }, [activeIndex]);
 
   function handleAdd(email: string, name?: string) {
-    addPerson.mutate({ email, name });
+    addPerson.mutate(
+      { email, name },
+      // Only after the overlay write lands: a rolled-back add must not leave
+      // the caller holding a peer who is not actually on the calendar.
+      { onSuccess: () => onPersonAdded?.({ email, name }) },
+    );
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {

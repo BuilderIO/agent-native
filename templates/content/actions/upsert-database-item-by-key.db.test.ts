@@ -11,14 +11,14 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { documentsPositionScope, withPositionLock } from "./_position-utils.js";
 
-// guard:allow-unscoped — isolated SQLite fixtures intentionally inspect rows directly.
+// guard:allow-unscoped — isolated PGlite fixtures intentionally inspect rows directly.
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `content-row-mutations-${process.pid}-${Date.now()}.sqlite`,
+  `content-row-mutations-${process.pid}-${Date.now()}.pglite`,
 );
 const TEST_DATABASE_URL =
-  process.env.CONTENT_ROW_MUTATION_POSTGRES_URL ?? `file:${TEST_DB_PATH}`;
+  process.env.CONTENT_ROW_MUTATION_POSTGRES_URL ?? `pglite:${TEST_DB_PATH}`;
 const OWNER = "owner@example.com";
 const OUTSIDER = "outsider@example.com";
 const COLLABORATOR = "collaborator@example.com";
@@ -66,10 +66,7 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(() => {
-  if (TEST_DATABASE_URL.startsWith("file:")) {
-    for (const suffix of ["", "-shm", "-wal"])
-      rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
-  }
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 async function fixture() {
@@ -606,6 +603,106 @@ describe("reliable Content database row mutations", () => {
         ),
       );
     expect(receipts).toHaveLength(1);
+  });
+
+  it("appends canonically after legacy negative positions without duplicating a replay", async () => {
+    const ids = await fixture();
+    const now = new Date().toISOString();
+    const legacyRows = [
+      { suffix: "near", position: -11 },
+      { suffix: "far", position: -111 },
+    ];
+    await getDb()
+      .insert(schema.documents)
+      .values(
+        legacyRows.map(({ suffix, position }) => ({
+          id: `${ids.databaseId}-legacy-document-${suffix}`,
+          spaceId: null,
+          ownerEmail: OWNER,
+          parentId: ids.databaseDocumentId,
+          title: `Legacy ${suffix}`,
+          content: "",
+          position,
+          visibility: "private" as const,
+          createdAt: now,
+          updatedAt: now,
+        })),
+      );
+    await getDb()
+      .insert(schema.contentDatabaseItems)
+      .values(
+        legacyRows.map(({ suffix, position }) => ({
+          id: `${ids.databaseId}-legacy-item-${suffix}`,
+          ownerEmail: OWNER,
+          databaseId: ids.databaseId,
+          documentId: `${ids.databaseId}-legacy-document-${suffix}`,
+          position,
+          createdAt: now,
+          updatedAt: now,
+        })),
+      );
+
+    const discovered = await contract(ids.databaseId);
+    const firstInput = {
+      ...envelope(discovered, "legacy-position-first"),
+      title: "First canonical row",
+    };
+    const first = await asOwner(() => createRow.run(firstInput));
+    expect(first.receipt).toMatchObject({
+      outcome: "created",
+      idempotency: { result: "applied" },
+      readback: { verified: true },
+    });
+
+    const replayed = await asOwner(() => createRow.run(firstInput));
+    expect(replayed.receipt).toMatchObject({
+      receiptId: first.receipt.receiptId,
+      row: first.receipt.row,
+      idempotency: { result: "replayed" },
+    });
+
+    const second = await asOwner(() =>
+      createRow.run({
+        ...envelope(discovered, "legacy-position-second"),
+        title: "Second canonical row",
+      }),
+    );
+    const itemRows = await getDb()
+      .select({
+        documentId: schema.contentDatabaseItems.documentId,
+        position: schema.contentDatabaseItems.position,
+      })
+      .from(schema.contentDatabaseItems)
+      .where(eq(schema.contentDatabaseItems.databaseId, ids.databaseId));
+    const documentRows = await getDb()
+      .select({ id: schema.documents.id, position: schema.documents.position })
+      .from(schema.documents)
+      .where(eq(schema.documents.parentId, ids.databaseDocumentId));
+
+    expect(itemRows).toHaveLength(4);
+    expect(documentRows).toHaveLength(4);
+    expect(
+      itemRows.find(
+        (row: { documentId: string }) =>
+          row.documentId === first.receipt.row.documentId,
+      )?.position,
+    ).toBe(0);
+    expect(
+      itemRows.find(
+        (row: { documentId: string }) =>
+          row.documentId === second.receipt.row.documentId,
+      )?.position,
+    ).toBe(1);
+    expect(
+      documentRows.find(
+        (row: { id: string }) => row.id === first.receipt.row.documentId,
+      )?.position,
+    ).toBe(0);
+    expect(
+      documentRows.find(
+        (row: { id: string }) => row.id === second.receipt.row.documentId,
+      )?.position,
+    ).toBe(1);
   });
 
   it("denies receipt replay after row access is revoked", async () => {

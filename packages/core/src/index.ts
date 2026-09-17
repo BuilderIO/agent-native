@@ -2,6 +2,7 @@
 // Import everything from "@agent-native/core".
 
 export * from "./config.js";
+export * from "./authorization/index.js";
 
 // Agent (production mode)
 export {
@@ -156,6 +157,7 @@ export {
   type JsonSchema,
 } from "./automation/index.js";
 export {
+  CONNECT_APPS_FLAG,
   defineFeatureFlag,
   defineFeatureFlags,
   evaluateFeatureFlag,
@@ -174,6 +176,24 @@ export {
   createFeatureFlagA2AActionRouteAuth,
   createFeatureFlagsPlugin,
 } from "./feature-flags/server.js";
+export {
+  defineLab,
+  defineLabs,
+  getLabDefinition,
+  listLabs,
+  registerLabs,
+  type LabDefinition,
+} from "./labs/index.js";
+export { createLabsPlugin } from "./labs/server.js";
+export {
+  defineExperiment,
+  defineExperiments,
+  getExperimentDefinition,
+  listExperiments,
+  registerExperiments,
+  type ExperimentDefinition,
+} from "./experiments/index.js";
+export { createExperimentsPlugin } from "./experiments/server.js";
 
 // Server
 export {

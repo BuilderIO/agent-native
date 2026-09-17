@@ -28,6 +28,35 @@ export const WAVEFORM_GAIN_DECAY = 0.985;
  *  frozen tall bar would claim someone is still talking. */
 export const WAVEFORM_IDLE_MS = 350;
 
+/** A mic below this level is effectively silent rather than merely quiet. */
+export const MIC_AUDIBLE_LEVEL = 0.012;
+
+/** Give normal pauses room before treating sustained silence as a problem. */
+export const MIC_SILENCE_WARNING_MS = 5_000;
+
+export type MicSignalWarning = "muted" | "silent" | null;
+
+/**
+ * Classify the microphone state shown by recording chrome.
+ *
+ * An explicitly disabled mic warns immediately. An enabled mic gets a short
+ * grace period so ordinary pauses do not flash a false warning. Pausing the
+ * recording suppresses the warning because silence is expected then.
+ */
+export function micSignalWarning({
+  microphoneEnabled,
+  paused,
+  silentForMs,
+}: {
+  microphoneEnabled: boolean | null;
+  paused: boolean;
+  silentForMs: number;
+}): MicSignalWarning {
+  if (paused || microphoneEnabled === null) return null;
+  if (!microphoneEnabled) return "muted";
+  return silentForMs >= MIC_SILENCE_WARNING_MS ? "silent" : null;
+}
+
 /**
  * One meter's state: the scrolling samples and the rolling peak they are
  * measured against.

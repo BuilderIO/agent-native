@@ -82,6 +82,7 @@ vi.mock("../server/db/index.js", () => ({
   },
 }));
 
+import { makeLocalhostRouteId } from "../shared/source-mode.js";
 import action, { derivePreviewToken } from "./connect-localhost.js";
 
 beforeEach(() => {
@@ -94,6 +95,44 @@ beforeEach(() => {
 });
 
 describe("connect-localhost", () => {
+  it("keeps fallback ids unique for routes on another loopback origin", async () => {
+    const result = await action.run({
+      id: "conn_primary",
+      devServerUrl: "http://localhost:5173",
+      rootPath: "/tmp/app",
+      routes: [
+        {
+          path: "/settings",
+          url: "http://127.0.0.2:5173/settings#tab",
+        },
+      ],
+    });
+
+    expect(result.routes[0]?.id).toBe(
+      makeLocalhostRouteId("http://127.0.0.2:5173/settings"),
+    );
+    expect(result.routes[0]?.id).not.toBe(makeLocalhostRouteId("/settings"));
+  });
+
+  it("keeps fallback ids connection-scoped for same-origin secondary routes", async () => {
+    const result = await action.run({
+      id: "conn_primary",
+      devServerUrl: "http://localhost:5173",
+      rootPath: "/tmp/app",
+      routes: [
+        {
+          connectionId: "conn_secondary",
+          path: "/settings",
+          url: "http://localhost:5173/settings",
+        },
+      ],
+    });
+
+    expect(result.routes[0]?.id).toBe(
+      makeLocalhostRouteId("conn_secondary:/settings"),
+    );
+  });
+
   it("derives the stable per-user connection id when id is omitted", async () => {
     await action.run({
       devServerUrl: "http://localhost:5173/",

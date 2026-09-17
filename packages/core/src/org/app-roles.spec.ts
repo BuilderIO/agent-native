@@ -6,8 +6,10 @@ const mockGetRequestOrgId = vi.fn();
 
 vi.mock("../db/client.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../db/client.js")>()),
-  getDbExec: () => ({ execute: mockExecute }),
-  isPostgres: () => false,
+  getDbExec: () => ({
+    execute: mockExecute,
+    transaction: (fn: any) => fn({ execute: mockExecute }),
+  }),
   isLocalDatabase: () => true,
 }));
 vi.mock("../server/request-context.js", async (importOriginal) => ({
@@ -22,6 +24,7 @@ import {
   resolveAppRole,
   listAppMemberRoles,
   setAppMemberRole,
+  setAppMemberRoles,
   getRegisteredAppRoles,
 } from "./app-roles.js";
 
@@ -41,7 +44,7 @@ function defineTestRoles(overrides: Partial<{ defaultRole: "member" }> = {}) {
 }
 
 /** One row shape from the membership + assignment join. */
-const joinRow = (appRole: string | null) => ({ rows: [{ appRole }] });
+const joinRow = (...roles: string[]) => ({ rows: [{ roles }] });
 
 describe("app roles", () => {
   beforeEach(() => {
@@ -63,7 +66,7 @@ describe("app roles", () => {
         roles: ["member", "coach-admin"] as const,
         defaultRole: "member",
       });
-      mockExecute.mockResolvedValueOnce(joinRow(null));
+      mockExecute.mockResolvedValueOnce(joinRow());
 
       const guard = access.requireAny("member");
       await expect(guard({}, CALLER as any)).rejects.toThrow(ForbiddenError);
@@ -76,7 +79,7 @@ describe("app roles", () => {
         roles: ["member", "coach-admin"] as const,
         defaultRole: "member",
       });
-      mockExecute.mockResolvedValueOnce(joinRow(null));
+      mockExecute.mockResolvedValueOnce(joinRow());
 
       await expect(access.assertAny(["member"], CALLER)).rejects.toThrow(
         `no ${appId} role assigned`,
@@ -89,7 +92,7 @@ describe("app roles", () => {
         roles: ["member", "coach-admin"] as const,
         defaultRole: "member",
       });
-      mockExecute.mockResolvedValueOnce(joinRow(null));
+      mockExecute.mockResolvedValueOnce(joinRow());
 
       expect(await access.resolve(CALLER)).toEqual({
         status: "unassigned",
@@ -166,6 +169,42 @@ describe("app roles", () => {
       await expect(access.assertAny(["coach-admin"], CALLER)).rejects.toThrow(
         "have member",
       );
+    });
+
+    it("resolves multiple assignments and assertAny authorizes their intersection", async () => {
+      const access = defineTestRoles();
+      mockExecute.mockResolvedValueOnce(joinRow("member", "coach-admin"));
+
+      expect(await access.resolve(CALLER)).toEqual({
+        status: "assigned",
+        roles: ["member", "coach-admin"],
+        orgId: "org1",
+      });
+      mockExecute.mockResolvedValueOnce(joinRow("member", "coach-admin"));
+      await expect(access.assertAny(["coach-admin"], CALLER)).resolves.toBe(
+        "coach-admin",
+      );
+    });
+
+    it("uses org permission overrides instead of code defaults", async () => {
+      const access = defineAppRoles({
+        appId: uniqueAppId("permission"),
+        roles: ["member", "approver"] as const,
+        permissions: { approve: ["approver"] as const },
+      });
+      mockExecute.mockResolvedValueOnce(joinRow("member"));
+      mockExecute.mockResolvedValueOnce({
+        rows: [{ permission: "approve", roles_json: '["member"]' }],
+      });
+
+      await expect(
+        access.assertPermission(["approve"], CALLER),
+      ).resolves.toBeUndefined();
+      mockExecute.mockResolvedValueOnce(joinRow("member"));
+      mockExecute.mockResolvedValueOnce({ rows: [] });
+      await expect(
+        access.assertPermission(["approve"], CALLER),
+      ).rejects.toThrow(ForbiddenError);
     });
   });
 
@@ -253,7 +292,7 @@ describe("app roles", () => {
 
     it("returns unassigned when the member has a row but a null role", async () => {
       const access = defineTestRoles();
-      mockExecute.mockResolvedValueOnce(joinRow(null));
+      mockExecute.mockResolvedValueOnce(joinRow());
       expect(await access.resolve(CALLER)).toEqual({
         status: "unassigned",
         orgId: "org1",
@@ -265,17 +304,17 @@ describe("app roles", () => {
       mockExecute.mockResolvedValueOnce(joinRow("coach-admin"));
       expect(await access.resolve(CALLER)).toEqual({
         status: "assigned",
-        role: "coach-admin",
+        roles: ["coach-admin"],
         orgId: "org1",
       });
     });
 
     it("reads a lowercased column alias from dialects that fold identifiers", async () => {
       const access = defineTestRoles();
-      mockExecute.mockResolvedValueOnce({ rows: [{ approle: "member" }] });
+      mockExecute.mockResolvedValueOnce({ rows: [{ roles: ["member"] }] });
       expect(await access.resolve(CALLER)).toMatchObject({
         status: "assigned",
-        role: "member",
+        roles: ["member"],
       });
     });
 
@@ -287,7 +326,7 @@ describe("app roles", () => {
 
       expect(await access.resolve()).toEqual({
         status: "assigned",
-        role: "member",
+        roles: ["member"],
         orgId: "org-ambient",
       });
     });
@@ -299,7 +338,7 @@ describe("app roles", () => {
           { appId: uniqueAppId("raw"), roles: ["member"] as const },
           CALLER,
         ),
-      ).toEqual({ status: "assigned", role: "member", orgId: "org1" });
+      ).toEqual({ status: "assigned", roles: ["member"], orgId: "org1" });
     });
   });
 
@@ -358,8 +397,8 @@ describe("app roles", () => {
       updatedBy: "owner@acme.com",
     };
 
-    it("deletes the assignment for role: null instead of writing a default", async () => {
-      await setAppMemberRole({ ...base, role: null });
+    it("replaces the assignment set transactionally, including clearing it", async () => {
+      await setAppMemberRoles({ ...base, roles: [] });
 
       expect(mockExecute).toHaveBeenCalledTimes(1);
       const { sql, args } = mockExecute.mock.calls[0][0];
@@ -368,17 +407,25 @@ describe("app roles", () => {
       expect(args).toEqual(["org1", "coach", "ae@acme.com"]);
     });
 
-    it("atomically inserts or updates an assignment", async () => {
+    it("atomically inserts multiple assignments", async () => {
+      await setAppMemberRoles({ ...base, roles: ["member", "coach-admin"] });
+
+      expect(mockExecute).toHaveBeenCalledTimes(3);
+      const { sql, args } = mockExecute.mock.calls[1][0];
+      expect(sql).toContain("INSERT INTO app_member_roles");
+      expect(mockExecute.mock.calls[2][0].sql).toContain(
+        "INSERT INTO app_member_roles",
+      );
+      expect(args).toEqual(
+        expect.arrayContaining(["org1", "coach", "ae@acme.com", "member"]),
+      );
+    });
+
+    it("keeps the singular setter as a compatibility alias", async () => {
       await setAppMemberRole({ ...base, role: "member" });
 
-      expect(mockExecute).toHaveBeenCalledTimes(1);
-      const { sql, args } = mockExecute.mock.calls[0][0];
-      expect(sql).toContain("INSERT INTO app_member_roles");
-      expect(sql).toContain(
-        "ON CONFLICT (org_id, app_id, LOWER(email)) DO UPDATE",
-      );
-      expect(sql).toContain("role = excluded.role");
-      expect(args).toEqual(
+      expect(mockExecute).toHaveBeenCalledTimes(2);
+      expect(mockExecute.mock.calls[1][0].args).toEqual(
         expect.arrayContaining(["org1", "coach", "ae@acme.com", "member"]),
       );
     });
@@ -388,14 +435,14 @@ describe("app roles", () => {
     it("returns assignments only for current members of one app in one org", async () => {
       mockExecute.mockResolvedValueOnce({
         rows: [
-          { email: "ae@acme.com", role: "member" },
-          { email: "boss@acme.com", role: "coach-admin" },
+          { email: "ae@acme.com", roles: ["member"] },
+          { email: "boss@acme.com", roles: ["coach-admin"] },
         ],
       });
 
       expect(await listAppMemberRoles("coach", "org1")).toEqual([
-        { email: "ae@acme.com", role: "member" },
-        { email: "boss@acme.com", role: "coach-admin" },
+        { email: "ae@acme.com", roles: ["member"] },
+        { email: "boss@acme.com", roles: ["coach-admin"] },
       ]);
       const { sql, args } = mockExecute.mock.calls[0][0];
       expect(sql).toContain("INNER JOIN org_members");
@@ -436,7 +483,7 @@ describe("app roles", () => {
 
       expect(await roles.resolve()).toEqual({
         status: "assigned",
-        role: "coach-admin",
+        roles: ["coach-admin"],
         orgId: "org1",
       });
     });

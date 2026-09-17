@@ -1,5 +1,6 @@
 import { Link } from "react-router";
 
+import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import {
   Table,
   TableBody,
@@ -28,9 +29,13 @@ export function TopVideosTable({
 }: TopVideosTableProps) {
   if (!rows.length) {
     return (
-      <div className="py-6 text-center text-sm text-muted-foreground">
-        {emptyText}
-      </div>
+      <Empty className="gap-2 rounded-none py-6 md:p-6">
+        <EmptyHeader>
+          <EmptyTitle className="text-sm font-medium text-muted-foreground">
+            {emptyText}
+          </EmptyTitle>
+        </EmptyHeader>
+      </Empty>
     );
   }
 

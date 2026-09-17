@@ -325,12 +325,9 @@ const messages = {
     sharePubliclyDescription:
       "コンテンツを公開共有するには、クラウドデータベースを接続してください。",
     providerDescriptions: {
-      turso: "エッジの SQLite",
       neon: "サーバーレス Postgres",
       supabase: "Firebase のオープンソース代替",
-      d1: "エッジの SQLite",
     },
-    providerNames: { d1: "Cloudflare D1" },
     setupSteps: "設定手順",
     authToken: "認証トークン",
     connectedReloading: "接続しました。再読み込みしています...",
@@ -351,6 +348,10 @@ const messages = {
     responseSubmitted: "回答を送信しました",
     noFields: "このフォームにはまだフィールドがありません。",
     failedSubmit: "フォームを送信できませんでした",
+    uncheckablePattern:
+      "このフォームの「{label}」のルールは検証できません。フォームの所有者に修正を依頼してください。",
+    patternTooLong:
+      "「{label}」の値が長すぎて、このフォームのルールを検証できません。",
   },
   responseInsights: {
     unavailable: "インサイトを利用できません",
@@ -399,6 +400,13 @@ const messages = {
     page: "Page",
     source: "ソース",
     sortBy: "Sort by {{label}}",
+    communityReview: "確認",
+    communityPublish: "サイトに公開",
+    communityPublishing: "公開中...",
+    communityPublished: "公開済み",
+    communityView: "サイトで表示",
+    communityNeedsCheck: "再試行する前に Builder を確認",
+    communityPromotionFailed: "この送信を公開できませんでした。",
   },
 };
 

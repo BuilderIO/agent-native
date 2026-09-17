@@ -5,13 +5,14 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { ctaUrlSchema } from "./lib/cta-url.js";
 
 export default defineAction({
   description: "Update a call-to-action button on a recording.",
   schema: z.object({
     id: z.string().describe("CTA ID"),
     label: z.string().min(1).optional(),
-    url: z.string().url().optional(),
+    url: ctaUrlSchema.optional(),
     color: z.string().optional(),
     placement: z.enum(["end", "throughout"]).optional(),
   }),

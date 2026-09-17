@@ -29,8 +29,9 @@ import path from "node:path";
  */
 import { getRequestURL, type H3Event } from "h3";
 
+import { getAppConfig } from "../app-config/index.js";
 import { TEMPLATES } from "../cli/templates-meta.js";
-import { isLocalDatabase } from "../db/client.js";
+import { resolveDeployEnvironment } from "./deploy-environment.js";
 
 let cachedPkgName: string | undefined | null = null;
 
@@ -80,6 +81,40 @@ function firstConfiguredPublicUrl(keys: readonly string[]): string | undefined {
   return undefined;
 }
 
+function normalizePlatformUrl(value: string | undefined): string | undefined {
+  const raw = value?.trim();
+  if (!raw) return undefined;
+  const candidate = /^[a-z][a-z\d+.-]*:\/\//i.test(raw)
+    ? raw
+    : `https://${raw}`;
+  try {
+    const url = new URL(candidate);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return undefined;
+    return stripTrailingSlash(url.toString());
+  } catch {
+    // coercion-ok: malformed optional platform metadata is absent, so callers
+    // retain their existing configured-URL fallback.
+    return undefined;
+  }
+}
+
+function vercelDeploymentUrl(): string | undefined {
+  const branchUrl = getAppConfig().runtime.vercelBranchUrl;
+  const production = resolveDeployEnvironment() === "production";
+  const candidates = production
+    ? [
+        process.env.VERCEL_PROJECT_PRODUCTION_URL,
+        process.env.VERCEL_URL,
+        branchUrl,
+      ]
+    : [process.env.VERCEL_URL, branchUrl];
+  for (const candidate of candidates) {
+    const url = normalizePlatformUrl(candidate);
+    if (url) return url;
+  }
+  return undefined;
+}
+
 function isLoopbackUrl(value: string | undefined): boolean {
   if (!value) return false;
   try {
@@ -100,6 +135,7 @@ function isHostedRuntime(): boolean {
     process.env.DEPLOY_URL ||
     process.env.VERCEL ||
     process.env.VERCEL_URL ||
+    getAppConfig().runtime.vercelBranchUrl ||
     process.env.VERCEL_PROJECT_PRODUCTION_URL,
   );
 }
@@ -128,6 +164,32 @@ export function getFirstPartyProdUrl(): string | undefined {
   return t?.prodUrl;
 }
 
+/**
+ * Resolve the origin where this running deployment serves workspace routes.
+ * Unlike `getAppProductionUrl`, a Vercel preview URL is intentional here: a
+ * sibling app must stay on the same deployment instead of falling through to
+ * the canonical production URL.
+ *
+ * Explicit workspace/app configuration remains the first choice. When it is
+ * absent, Vercel's exact deployment or branch URL supplies the missing origin;
+ * production uses the project production URL when the platform reports that
+ * lane. Invalid platform values are ignored so callers retain their existing
+ * fail-closed URL validation.
+ */
+export function resolveAppRuntimeUrl(): string | undefined {
+  const config = getAppConfig();
+  if (config.workspace.gatewayUrl) return config.workspace.gatewayUrl;
+
+  const isVercelPreview =
+    process.env.VERCEL_ENV?.trim().toLowerCase() === "preview";
+  const deploymentUrl =
+    isVercelPreview || !config.app.url ? vercelDeploymentUrl() : undefined;
+
+  return (
+    deploymentUrl ?? config.app.url ?? firstConfiguredUrl(["URL", "DEPLOY_URL"])
+  );
+}
+
 export function getAppProductionUrl(
   event?: H3Event,
   options: { fallback?: string } = {},
@@ -153,12 +215,8 @@ export function getAppProductionUrl(
     }
   }
 
-  // Fall back to a first-party template's hard-coded prod URL when we're
-  // running in production OR on a remote database (Neon/Postgres/Turso).
-  // A remote DB means we're deployed even if NODE_ENV isn't explicitly
-  // "production" (e.g. Netlify Functions). In local dev with SQLite, skip
-  // this — the hard-coded URL breaks auth via Secure cookies on HTTP.
-  if (process.env.NODE_ENV === "production" || !isLocalDatabase()) {
+  // Fall back to a first-party template's hard-coded production URL in deployed environments.
+  if (process.env.NODE_ENV === "production") {
     const firstParty = getFirstPartyProdUrl();
     if (firstParty) return stripTrailingSlash(firstParty);
 

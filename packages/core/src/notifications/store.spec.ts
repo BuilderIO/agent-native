@@ -1,23 +1,24 @@
-import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Real in-memory sqlite behind the raw getDbExec client. This lets the
+import { createTestPglite } from "../a2a/test-pglite.js";
+
+// Real in-memory PGlite behind the raw getDbExec client. This lets the
 // owner-scoping invariants (you cannot mark/delete another owner's
 // notification) be tested for real rather than by inspecting captured SQL.
-let sqlite: Database.Database;
+let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 
 const rawClient = {
   execute: vi.fn(async (input: string | { sql: string; args?: unknown[] }) => {
     if (typeof input === "string") {
-      sqlite.exec(input);
+      await pglite.exec(input);
       return { rows: [], rowsAffected: 0 };
     }
-    const stmt = sqlite.prepare(input.sql);
+    const stmt = await pglite.prepare(input.sql);
     const args = (input.args ?? []) as unknown[];
     if (/^\s*select/i.test(input.sql)) {
-      return { rows: stmt.all(...args), rowsAffected: 0 };
+      return { rows: await stmt.all(...args), rowsAffected: 0 };
     }
-    const info = stmt.run(...args);
+    const info = await stmt.run(...args);
     return { rows: [], rowsAffected: info.changes };
   }),
 };
@@ -26,8 +27,7 @@ const recordChange = vi.fn();
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => rawClient,
-  intType: () => "INTEGER",
-  isPostgres: () => false,
+  isProductionServerlessFunctionRuntime: () => false,
   retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
   safeJsonParse: (value: unknown, fallback: unknown) => {
     if (value == null) return fallback;
@@ -58,14 +58,14 @@ const BOB = "bob@example.com";
 
 // Seed a row with an explicit created_at so ordering/cursor tests are
 // deterministic (the store stamps Date.now() which collides under fast loops).
-function seedRow(opts: {
+async function seedRow(opts: {
   id: string;
   owner: string;
   title: string;
   createdAt: number;
   readAt?: number | null;
 }) {
-  sqlite
+  await pglite
     .prepare(
       `INSERT INTO notifications
         (id, owner, severity, title, body, metadata, delivered_channels, created_at, read_at)
@@ -74,11 +74,11 @@ function seedRow(opts: {
     .run(opts.id, opts.owner, opts.title, opts.createdAt, opts.readAt ?? null);
 }
 
-beforeEach(() => {
-  sqlite = new Database(":memory:");
+beforeEach(async () => {
+  pglite = await createTestPglite();
   // The store caches CREATE TABLE in a module-level _initPromise; create the
   // table per fresh DB ourselves so each test starts clean.
-  sqlite.exec(`CREATE TABLE IF NOT EXISTS notifications (
+  await pglite.exec(`CREATE TABLE IF NOT EXISTS notifications (
     id TEXT PRIMARY KEY,
     owner TEXT NOT NULL,
     severity TEXT NOT NULL,
@@ -86,13 +86,13 @@ beforeEach(() => {
     body TEXT,
     metadata TEXT,
     delivered_channels TEXT NOT NULL DEFAULT '[]',
-    created_at INTEGER NOT NULL,
-    read_at INTEGER
+    created_at BIGINT NOT NULL,
+    read_at BIGINT
   )`);
 });
 
-afterEach(() => {
-  sqlite.close();
+afterEach(async () => {
+  await pglite.close();
   vi.clearAllMocks();
 });
 
@@ -151,12 +151,12 @@ describe("listNotifications", () => {
   const T2 = T1 + 1000;
   const T3 = T1 + 2000;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     // Three Alice notifications at distinct timestamps; one Bob notification.
-    seedRow({ id: "a1", owner: ALICE, title: "A1", createdAt: T1 });
-    seedRow({ id: "a2", owner: ALICE, title: "A2", createdAt: T2 });
-    seedRow({ id: "a3", owner: ALICE, title: "A3", createdAt: T3 });
-    seedRow({ id: "b1", owner: BOB, title: "B1", createdAt: T2 });
+    await seedRow({ id: "a1", owner: ALICE, title: "A1", createdAt: T1 });
+    await seedRow({ id: "a2", owner: ALICE, title: "A2", createdAt: T2 });
+    await seedRow({ id: "a3", owner: ALICE, title: "A3", createdAt: T3 });
+    await seedRow({ id: "b1", owner: BOB, title: "B1", createdAt: T2 });
   });
 
   it("scopes to the owner and orders newest-first", async () => {

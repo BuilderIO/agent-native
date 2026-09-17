@@ -305,13 +305,8 @@ const messages = {
     sharePublicly: "公开分享",
     sharePubliclyDescription: "要公开分享内容，请连接云数据库。",
     providerDescriptions: {
-      turso: "边缘 SQLite",
       neon: "无服务器 Postgres",
       supabase: "开源 Firebase 替代方案",
-      d1: "边缘 SQLite",
-    },
-    providerNames: {
-      d1: "Cloudflare D1",
     },
     setupSteps: "设置步骤",
     authToken: "认证令牌",
@@ -331,6 +326,9 @@ const messages = {
     responseSubmitted: "回复已提交",
     noFields: "此表单还没有字段。",
     failedSubmit: "提交表单失败",
+    uncheckablePattern:
+      "此表单中“{label}”的规则无法校验。请联系表单所有者修复。",
+    patternTooLong: "字段“{label}”的值过长，无法使用此表单规则校验。",
   },
   responseInsights: {
     unavailable: "洞察不可用",
@@ -376,6 +374,13 @@ const messages = {
     page: "Page",
     source: "来源",
     sortBy: "Sort by {{label}}",
+    communityReview: "审核",
+    communityPublish: "发布到网站",
+    communityPublishing: "正在发布...",
+    communityPublished: "已发布",
+    communityView: "查看网站",
+    communityNeedsCheck: "重试前请检查 Builder",
+    communityPromotionFailed: "无法发布此提交。",
   },
 };
 

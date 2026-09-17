@@ -2,7 +2,7 @@ import { useLocale, useT } from "@agent-native/core/client/i18n";
 import {
   IconBrandGithub,
   IconMenu2,
-  IconMessage,
+  IconLayoutSidebarRight,
   IconSearch,
   IconX,
 } from "@tabler/icons-react";
@@ -17,6 +17,7 @@ import { Kbd } from "./ds/kbd";
 import { LanguagePicker } from "./ds/language-picker";
 import { Logo } from "./ds/logo";
 import { NavLink } from "./ds/nav-link";
+import { LogoContextMenu } from "./logo-context-menu";
 
 // Pulls in the docs search index, so it stays out of the initial header chunk.
 const SearchModal = lazy(() =>
@@ -47,7 +48,7 @@ function AskAiIconButton() {
       aria-label={label}
       title={label}
     >
-      <IconMessage size={18} stroke={1.5} />
+      <IconLayoutSidebarRight size={18} stroke={1.5} />
     </IconButton>
   );
 }
@@ -62,7 +63,14 @@ function GithubStarsButton({ starCount, className }: GithubStarsButtonProps) {
     <Button
       variant="secondary"
       dimBorder
-      className={className}
+      className={[
+        // Keep the cold-cache fallback the same width as the server count so
+        // the one-time client revalidation cannot shift the header.
+        "min-w-[96px]",
+        className,
+      ]
+        .filter(Boolean)
+        .join(" ")}
       href={GITHUB_REPO_URL}
       target="_blank"
       rel="noreferrer"
@@ -163,13 +171,15 @@ export function SiteHeader({ starCount }: SiteHeaderProps) {
     >
       <div className="mx-auto flex h-full w-full max-w-site items-center justify-between">
         <div className="flex items-center gap-[var(--spacing-8)]">
-          <Link
-            to={localizedPath("/")}
-            aria-label="Agent-Native"
-            className="flex text-[var(--b-text-primary)]"
-          >
-            <Logo />
-          </Link>
+          <LogoContextMenu brandHref={localizedPath("/brand")}>
+            <Link
+              to={localizedPath("/")}
+              aria-label="Agent-Native"
+              className="flex text-[var(--b-text-primary)]"
+            >
+              <Logo />
+            </Link>
+          </LogoContextMenu>
 
           <nav className="hidden items-center gap-1 lg:flex">
             {navLinks.map((link) => (

@@ -248,9 +248,10 @@ describe(
 
         expect(pkg.pnpm).toBeUndefined();
         expect(workspaceYaml).toContain("allowBuilds:");
-        expect(workspaceYaml).toContain("better-sqlite3: true");
         expect(workspaceYaml).toContain("esbuild: true");
         expect(workspaceYaml).toContain("node-pty: true");
+        expect(workspaceYaml).toContain("node-pty@*:");
+        expect(workspaceYaml).toContain("node-gyp: ^12.4.0");
         expect(workspaceYaml).toContain("tesseract.js: true");
         expect(workspaceYaml).not.toContain("onlyBuiltDependencies:");
       },

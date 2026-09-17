@@ -6,7 +6,10 @@ import {
 import { resolveDualAxis } from "../../app/pages/adhoc/sql-dashboard/dual-axis";
 import { interpolate } from "../../app/pages/adhoc/sql-dashboard/interpolate";
 import { serializePanelSql } from "../../app/pages/adhoc/sql-dashboard/panel-sql";
-import { pivotRows } from "../../app/pages/adhoc/sql-dashboard/pivot";
+import {
+  pivotRows,
+  timeRangeDays,
+} from "../../app/pages/adhoc/sql-dashboard/pivot";
 import type {
   ColumnFormat,
   SqlDashboardConfig,
@@ -558,10 +561,12 @@ const REPORT_CHART_TYPES: Record<string, ReportChartType> = {
 function pivotPanelRows(
   panel: SqlPanel,
   rows: Array<Record<string, unknown>>,
+  timeRange?: number,
 ): { rows: Array<Record<string, unknown>>; forcedYKeys?: string[] } {
   if (!panel.config?.pivot || rows.length === 0) return { rows };
   const pivoted = pivotRows(rows, panel.config.pivot, {
     fillDateGaps: panel.chartType !== "bar",
+    timeRange,
   });
   return { rows: pivoted.rows, forcedYKeys: pivoted.seriesKeys };
 }
@@ -1189,7 +1194,11 @@ export async function renderReportEmail(args: {
     const truncatedNote = data.truncated
       ? noteHtml("The source truncated this result set.")
       : "";
-    const { rows, forcedYKeys } = pivotPanelRows(panel, data.rows);
+    const { rows, forcedYKeys } = pivotPanelRows(
+      panel,
+      data.rows,
+      timeRangeDays(vars.timeRange),
+    );
 
     const chartType: ReportChartType | undefined =
       REPORT_CHART_TYPES[panel.chartType];

@@ -4,8 +4,10 @@
 // templates ship as verbatim copy-only scaffolding (.ts), so their compiled
 // .js never exists in dist.
 import { PASSWORD_MIN_LENGTH_MESSAGE } from "../shared/password-policy.js";
+import { ENVIRONMENT_BADGE_MESSAGES } from "./environment-badge-messages.js";
 
 const messages = {
+  environmentBadge: ENVIRONMENT_BADGE_MESSAGES["en-US"],
   workspaceFile: {
     download: "Download",
   },
@@ -25,6 +27,12 @@ const messages = {
     themeTitle: "Theme",
     themeDescription: "Toggle dark / light",
   },
+  common: {
+    cancel: "Cancel",
+    confirmDisconnect: "Confirm disconnect",
+    disconnect: "Disconnect",
+    disconnecting: "Disconnecting…",
+  },
   onboarding: {
     back: "Back",
     chooseRole: "Choose your role",
@@ -40,6 +48,19 @@ const messages = {
     roleOther: "Other",
     skipForNow: "Skip for now",
     saveRoleError: "Could not save your role.",
+    builderReadyWithCodeChanges:
+      "AI credits and cloud code changes are ready to use.",
+    builderReadyCreditsOnly:
+      "AI credits are ready to use. Cloud code edits require a Builder project in Background Agent settings.",
+    openBackgroundAgentSettings: "Open Background Agent settings",
+    fileStorage: {
+      title: "Choose file storage",
+      description:
+        "Choose Builder.io for managed file storage, or use custom storage keys for your own S3-compatible bucket.",
+      custom: "Use custom storage keys",
+      customDescription:
+        "Configure an S3-compatible bucket with a stable public URL.",
+    },
   },
   settings: {
     title: "Settings",
@@ -58,6 +79,9 @@ const messages = {
     openTeamSettings: "Open team settings",
     openResourceSettings: "Open resource settings",
     backHome: "Back to home",
+    builderConnection: {
+      manage: "Manage Builder.io connection",
+    },
     mcpConnectionsTitle: "Agent integrations",
     mcpConnectionsDescription:
       "Connect tools and services so the agent can use them.",
@@ -99,6 +123,14 @@ const messages = {
     profileSaving: "Saving...",
     profileSaved: "Profile updated",
     profileSaveError: "Could not update profile",
+    emailTitle: "Email",
+    emailChange: "Change email",
+    emailChanging: "Sending...",
+    emailChangeSent:
+      "Check your email for instructions to confirm this change.",
+    emailChangeError: "Could not send confirmation.",
+    emailNewLabel: "New email",
+    emailNewPlaceholder: "Enter new email",
     passwordTitle: "Password",
     passwordDescription:
       "Add a password for an alternative way to sign in to your account.",
@@ -134,6 +166,31 @@ const messages = {
       "Only your own signed-in sessions use this key. Integration, webhook, scheduled job, automation, and agent-to-agent runs sign in as their owner rather than as you, so they cannot read it.",
     scopeWorkspaceDescription:
       "Everyone in this workspace uses this key, including integration, webhook, scheduled job, automation, and agent-to-agent runs.",
+    sourceVault: "Vault",
+    sourceWorkspace: "Workspace",
+    sourceEnvironment: "Environment",
+    statusUnavailable: "Unavailable",
+    managedInVault:
+      "Managed in the workspace Vault. Every app in this workspace uses this value.",
+    openVault: "Open Vault",
+    setForWorkspace: "Set for everyone in this workspace.",
+    fromEnvironment: "Provided by the deployment environment.",
+    usePersonalKey: "Use a personal key instead",
+    overridesVault:
+      "This personal key overrides the workspace Vault value. Remove it to use the Vault key.",
+    overridesWorkspace:
+      "This personal key overrides the workspace value. Remove it to use the shared key.",
+    newKey: "New",
+    searchKeys: "Search keys...",
+    noKeysFound: "No keys found.",
+    chooseKey: "Choose a key",
+    required: "Required",
+    customKey: "Custom key",
+    customKeyHint: "Add any key by name",
+    addCustomKeyNamed: "Add “{{name}}” as a custom key",
+    emptyTitle: "No keys yet.",
+    emptyHint: "Add a key to use your own accounts.",
+    emptyMore: "and {{count}} more under New, or add any custom key",
   },
   agentResources: {
     openDocs: "Open {{section}} documentation",
@@ -317,6 +374,35 @@ const messages = {
       status: "Status",
       opens: "Opens",
       lastEvent: "Last event",
+      app: "App",
+      sendLogTitle: "Send log",
+      sendLogTemplate: "Template",
+      sendLogProvider: "Provider",
+      sendLogResponseStatus: "Response status",
+      sendLogError: "Error",
+      sendLogTo: "To",
+      sendLogFrom: "From",
+      sendLogContainsOperator: "contains",
+      sendLogExcludeOperator: "exclude",
+      sendLogContainsPlaceholder: "e.g. name@example.com",
+      sendLogExcludePlaceholder: "e.g. @builder.io",
+      sendLogAddressFilterLabel: "{{dimension}} {{operator}}",
+      sendLogRemoveAddressFilter: "Remove {{filter}}",
+      sendLogAllTemplates: "All templates",
+      sendLogSearchTemplates: "Search templates…",
+      sendLogNoTemplatesFound: "No templates found.",
+      sendLogAllStatuses: "All statuses",
+      sendLogSent: "Sent",
+      sendLogFailed: "Failed",
+      sendLogAllProviders: "All providers",
+      sendLogClearFilters: "Clear filters",
+      sendLogEmpty: "No sends match these filters in this date range.",
+      sendLogTimestamp: "Timestamp",
+      sendLogPrevious: "Previous",
+      sendLogNext: "Next",
+      sendLogBodyHtml: "HTML",
+      sendLogBodyText: "Text",
+      sendLogBodyFrameTitle: "Sent email body",
     },
     pages: {
       appsDescription:
@@ -573,6 +659,14 @@ const messages = {
     configured: "Configured",
     apiKey: "API key",
     localRuntime: "Local",
+    keyScope: "Key scope",
+    personalKeyScope: "Personal",
+    organizationKeyScope: "Organization",
+    personalKeyInEffect: "Your personal key is in effect.",
+    organizationKeyInEffect: "Organization key is in effect.",
+    sharedKeyInEffect: "A shared key is in effect.",
+    useOrganizationKey: "Use organization key",
+    keyStatusUnavailable: "Key status is unavailable.",
     enterApiKey: "Enter your {{provider}} API key.",
     providerSetupFailed: "Could not configure this provider.",
     noApiKeyNeeded: "No API key required.",
@@ -605,8 +699,8 @@ const messages = {
       connectBuilder: "Connect Builder.io",
       useOpenAiKey: "Custom keys",
       startWithOpenAiKey: "Start with OpenAI key",
-      start: "Real-time voice",
-      keepDictating: "Dictate",
+      start: "Start voice chat",
+      keepDictating: "Dictate a message",
       rememberPreference: "Remember my preference",
       showChat: "Show chat",
       hideChat: "Hide chat",
@@ -1049,6 +1143,21 @@ const messages = {
     retry: "Retry",
   },
   org: {
+    askAdminTitle: "Ask your administrator",
+    askAdminDescription:
+      "Ask an administrator for an invitation to join this workspace.",
+    appPermissions: "App permissions",
+    applications: "Applications",
+    applicationsEmpty: "No workspace applications are registered yet.",
+    applicationsLoadFailed: "Couldn't load workspace applications.",
+    applicationAccess: "Access for {{name}}",
+    applicationAccessAll: "All members",
+    applicationAccessRestricted: "Restricted",
+    applicationAccessDisabled: "Disabled",
+    appRolesOptional: "App roles",
+    noAppRolesFound: "No roles found.",
+    notAssigned: "Not assigned",
+    resetToDefaults: "Reset to defaults",
     createTitle: "Create your organization",
     createDescription:
       "This app organizes your content by team. Create an organization to continue - you can invite teammates afterward.",
@@ -1136,6 +1245,7 @@ const messages = {
     createGroupForBulk: "Create group",
     changeRole: "Change role",
     removeMember: "Remove member",
+    transferTo: "Transfer ownership to",
     cancel: "Cancel",
     remove: "Remove",
     save: "Save",
@@ -1148,8 +1258,65 @@ const messages = {
     deleteOrgConfirmPlaceholder: "Organization name",
     deleteOrgConfirmCta: "Delete organization",
     deleteOrgPending: "Deleting…",
+    sso: {
+      signIn: "Organization sign-in",
+      signInHelp: "Choose the sign-in provider members must use.",
+      requiredProvider: "Required sign-in provider",
+      optional: "Optional",
+      google: "Google",
+      title: "Single sign-on",
+      description: "Connect an OIDC or SAML identity provider.",
+      verified: "Verified",
+      verifyRequired: "Verification required",
+      verify: "Verify",
+      remove: "Remove",
+      type: "Identity provider type",
+      providerId: "Provider ID",
+      issuer: "Issuer URL",
+      domain: "Organization domain",
+      noDomain: "No domain configured",
+      clientId: "Client ID",
+      clientSecret: "Client secret",
+      discoveryEndpoint: "Discovery endpoint (optional)",
+      entryPoint: "SAML entry point URL",
+      entityId: "IdP entity ID",
+      metadata: "Paste IdP metadata XML",
+      certificate: "Signing certificate (optional)",
+      domainHelp:
+        "The domain must match the organization's verified domain. Submitted secrets and metadata are cleared from this form.",
+      saveProvider: "Save provider",
+      cancel: "Cancel",
+      addProvider: "Add provider",
+    },
+    scim: {
+      title: "Directory provisioning",
+      description: "Manage SCIM connections for this organization.",
+      revoke: "Revoke",
+      copyTokenOnce: "Copy this token now. It will not be shown again.",
+      dismissToken: "Dismiss token",
+      createConnection: "Create SCIM connection",
+    },
+    ssoSetup: {
+      idpSetup: "Identity provider setup",
+      redirectUri: "Redirect URI",
+      spMetadataUrl: "Service provider metadata URL",
+      dnsRecordName: "DNS TXT record name",
+      dnsRecordValue: "DNS TXT record value",
+      dnsPropagation: "Allow DNS changes to propagate before verifying.",
+    },
+    ssoConfirm: {
+      title: "Require this sign-in provider?",
+      description:
+        "Members will need to use this provider the next time they sign in. Current sessions may be revoked.",
+      confirm: "Require provider",
+    },
   },
   integrations: {
+    subtitle: "Connect the tools your agent can use.",
+    recommended: "Recommended",
+    manage: "Manage",
+    connectedSection: "Connected",
+    availableSection: "Available integrations",
     webhookUrl: "Webhook URL",
     copyWebhookUrl: "Copy webhook URL",
     webhookUrlLocalOnly:
@@ -1182,6 +1349,10 @@ const messages = {
       "For a central Slack or Telegram entrypoint that can route work across multiple apps, use the",
     sharedMessaging:
       "Need one shared messaging surface for your workspace? Connect Slack or Telegram to a dispatch app and let it delegate to other agents over A2A.",
+    lookingForApiKeys: "Looking for an API key instead?",
+    goToApiKeys: "Go to API keys",
+    lookingForProviders: "Looking for OAuth or MCP providers?",
+    goToIntegrations: "Go to Integrations",
   },
   mcpIntegrations: {
     menuLabel: "Integrations",
@@ -1232,8 +1403,11 @@ const messages = {
     connectForMe: "Connect for me",
     setUpForWorkspace: "Set up for workspace",
     workspaceAdminRequired: "Workspace owner or admin required.",
+    workspaceJoinRequired: "Join a workspace first.",
     personalOnlyDescription:
       "Only personal connections are supported for this integration.",
+    workspaceOnlyDescription:
+      "This integration connects once for the whole workspace, so it cannot be connected to just your account. A workspace owner or admin can set it up.",
     loadingScopeMetadata: "Loading connection scope…",
     retry: "Retry",
     retrying: "Retrying…",
@@ -1280,6 +1454,14 @@ const messages = {
         useCase: "Product analytics, charts, dashboards, cohorts, experiments",
         setupNote:
           "Amplitude MCP uses OAuth over streaming HTTP. The default endpoint is for US data residency; use Amplitude's EU endpoint when the account requires EU residency.",
+      },
+      sigma: {
+        description:
+          "Search, explore, and analyze Sigma workbooks and dashboards.",
+        useCase:
+          "Analytics, dashboards, workbooks, data exploration, business intelligence",
+        setupNote:
+          "Sigma's MCP URL is organization-specific. In Sigma, open Profile > Integrations > Connect Sigma to AI tools, copy the URL, and paste it here. Sigma MCP currently supports search, metadata exploration, and analysis; dashboard or workbook creation and import are not exposed by this connection.",
       },
       notion: {
         description: "Search pages and team knowledge.",
@@ -1404,7 +1586,7 @@ const messages = {
         useCase:
           "Repositories, issues, pull requests, code, engineering analytics",
         setupNote:
-          "GitHub does not use a Figma-style vendor client allowlist. Its hosted endpoint is tied to GitHub Copilot integrations; clients need a registered OAuth app, and organizations may enforce OAuth App Access Policies.",
+          "GitHub's sign-in provider does not let apps register themselves, so the Connect button cannot complete OAuth. Connect with a GitHub personal access token instead, and note that organizations may enforce OAuth App Access Policies.",
       },
       slack: {
         description:

@@ -26,7 +26,7 @@ description: "ビルド、ランタイム、シークレット、ホスティン
 | `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | プレビューでも安全な Builder 認可リレー専用の、32 文字以上の共有 HMAC シークレットです。認可を隔離されたプレビューデータベースに反映させる必要がある場合に限り、承認済みの企業コールバックデプロイとプレビューデプロイに同じ値を設定します。                                                                                                                                                    |
 | `AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS` | 企業コールバック専用の、信頼された正確なプレビューオリジンのカンマ区切り許可リスト（例: `https://0123456789abcdef01234567--content.netlify.app`）です。企業コールバックデプロイにのみ設定します。Netlify のオリジンは、変更不可なデプロイ固有の 24 桁 16 進パーマリンクを使用する必要があります。変更可能な `deploy-preview-*` エイリアス、ワイルドカード、ドメインサフィックスは拒否されます。 |
 
-データベース接続変数（`DATABASE_URL`、`DATABASE_AUTH_TOKEN`、アプリごとの `<APP_NAME>_DATABASE_URL`）は [データベース](/docs/server-database#production) にあります。
+データベース接続変数（`DATABASE_URL`、アプリごとの `<APP_NAME>_DATABASE_URL`）は [データベース](/docs/server-database#production) にあります。
 
 ## 本番機密設定 {#env-required-prod}
 

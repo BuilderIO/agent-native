@@ -15,6 +15,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
+import type { PdfStyleDigest } from "../server/handlers/import/pdf-style-digest.js";
 import {
   assertPptxImagesRenderable,
   uploadPptxSlideImages,
@@ -389,8 +390,14 @@ export default defineAction({
         data: new Uint8Array(fileBuffer),
         CanvasFactory: canvasFactory,
       });
-      const result = await pdf.getText().finally(() => pdf.destroy());
-      const pages = normalizePdfPages(result);
+      let pages: { num: number; text: string }[];
+      let style: PdfStyleReadResult;
+      try {
+        pages = normalizePdfPages(await pdf.getText());
+        style = await readPdfStyleDigest(pdf);
+      } finally {
+        await pdf.destroy();
+      }
       const textPages = pages.filter((p) => p.text.trim());
 
       if (textPages.length === 0) {
@@ -416,6 +423,7 @@ export default defineAction({
           totalTextLength > sourceLimit
             ? `Returned the first ${sourceLimit} extracted characters. Re-run with a higher maxChars value if more source context is needed.`
             : undefined,
+        ...style,
         deckId,
       };
     }
@@ -517,20 +525,10 @@ async function importPdfPagesWithFidelity(args: {
     data: new Uint8Array(fileBuffer),
     CanvasFactory: canvasFactory,
   });
-  // `pdf-parse` memoizes the loaded pdfjs document behind `load()` (a TS-only
-  // `private` method — a real, callable runtime property). Reaching into it
-  // gives every step below the one parsed document instead of reparsing the
-  // file per step.
-  const loadDocument = () =>
-    (
-      pdf as unknown as {
-        load(): Promise<
-          import("pdfjs-dist/legacy/build/pdf.mjs").PDFDocumentProxy
-        >;
-      }
-    ).load();
+  const loadDocument = () => loadPdfDocument(pdf);
 
   let pages: { num: number; text: string }[];
+  let pageCount = 0;
   let fidelityPages: Awaited<ReturnType<typeof parsePdfFidelity>>;
   // Set when this PDF is one of ours but its deck source could not be used.
   // Carried into the result so the caller reports a rebuilt deck as rebuilt
@@ -574,6 +572,7 @@ async function importPdfPagesWithFidelity(args: {
       : undefined;
 
     const doc = await loadDocument();
+    pageCount = doc.numPages;
     // coercion-ok: undefined here means either canvasFactory was absent or
     // getImage() already failed and logged a warning above — text-only
     // fidelity is the intended degrade, not a swallowed failure.
@@ -582,6 +581,19 @@ async function importPdfPagesWithFidelity(args: {
     await pdf.destroy();
   }
 
+  if (!Number.isInteger(pageCount) || pageCount < 1) {
+    throw new Error("The PDF renderer returned an invalid page count.");
+  }
+  if (
+    pages.length !== pageCount ||
+    pages.some((page, index) => page.num !== index + 1)
+  ) {
+    const textByPage = new Map(pages.map((page) => [page.num, page.text]));
+    pages = Array.from({ length: pageCount }, (_, index) => ({
+      num: index + 1,
+      text: textByPage.get(index + 1) ?? "",
+    }));
+  }
   if (pages.length === 0) {
     throw new Error("The PDF renderer returned no importable pages.");
   }
@@ -724,6 +736,58 @@ async function importPdfPagesWithFidelity(args: {
     ...(imagesSkipped > 0 ? { imagesSkipped } : {}),
     ...(sidecarWarning ? { warning: sidecarWarning } : {}),
   };
+}
+
+type LoadablePdf = {
+  load(): Promise<import("pdfjs-dist/legacy/build/pdf.mjs").PDFDocumentProxy>;
+};
+
+/**
+ * `pdf-parse` memoizes the loaded pdfjs document behind `load()` — a TS-only
+ * `private` method that is a real, callable runtime property. Reaching into it
+ * gives every step the one parsed document instead of reparsing the file.
+ */
+function loadPdfDocument(pdf: unknown) {
+  return (pdf as LoadablePdf).load();
+}
+
+interface PdfStyleReadResult {
+  styleDigest: PdfStyleDigest | null;
+  /** Set only when the digest could not be built, so "no styles" stays distinct from "not read". */
+  styleDigestUnavailableReason?: string;
+}
+
+/**
+ * A PDF attached as a visual reference is chosen for its design, so the
+ * read-only path reports typography, palette, and page geometry alongside the
+ * text. A parse failure is reported as a reason rather than an empty digest:
+ * callers steer generation on this, and a silently absent digest reads as
+ * "this reference has no design".
+ */
+async function readPdfStyleDigest(pdf: unknown): Promise<PdfStyleReadResult> {
+  try {
+    const { parsePdfFidelity } =
+      await import("../server/handlers/import/pdf-fidelity-parser.js");
+    const { buildPdfStyleDigest } =
+      await import("../server/handlers/import/pdf-style-digest.js");
+    const fidelityPages = await parsePdfFidelity(
+      await loadPdfDocument(pdf),
+      [],
+    );
+    const styleDigest = buildPdfStyleDigest(fidelityPages);
+    if (!styleDigest) {
+      return {
+        styleDigest: null,
+        styleDigestUnavailableReason:
+          "the PDF renderer returned no pages to analyze",
+      };
+    }
+    return { styleDigest };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    console.warn("[import-file] PDF style digest unavailable:", reason);
+    return { styleDigest: null, styleDigestUnavailableReason: reason };
+  }
 }
 
 function newSlideId(): string {
@@ -945,7 +1009,7 @@ async function appendDeckSlides(
     return writeNow;
   });
 
-  notifyClients(deckId);
+  await notifyClients(deckId);
   await writeAppState("refresh-signal", { ts: now, source });
   return resolvedTitle;
 }

@@ -117,13 +117,40 @@ export function buildSessionReplayIframeBootstrap(): string {
   </script>`;
 }
 
+/**
+ * Blank the interiors of comments and raw-text elements, preserving length so
+ * every index still refers to the same character in `html`. Lazy matching to
+ * the first `</script>` is HTML's own rule, so the mask and the browser agree
+ * on where each body ends.
+ *
+ * Raw-text and RCDATA elements hold text, not markup. `title` even sits inside
+ * the head, so a literal `</head>` there precedes the real one and would win,
+ * inserting the bootstrap where it never executes. `plaintext` has no end tag
+ * and swallows the rest of the document.
+ */
+function maskUnparsedRegions(html: string): string {
+  const regions =
+    /<!--[\s\S]*?-->|<(script|style|title|textarea|xmp|noembed|noframes|iframe)\b[^>]*>[\s\S]*?<\/\1\s*>/gi;
+  // `plaintext` has no end tag — everything after it is text, to EOF.
+  const plaintext = /<plaintext\b[^>]*>[\s\S]*$/i;
+  return html
+    .replace(regions, (region) => " ".repeat(region.length))
+    .replace(plaintext, (region) => " ".repeat(region.length));
+}
+
 export function injectSessionReplayIframeBootstrap(html: string): string {
   const bootstrap = buildSessionReplayIframeBootstrap();
-  const headClose = html.search(/<\/head\s*>/i);
+  // Search the masked copy, splice the real one. The editor preview inlines a
+  // bridge bundle whose source contains `</head>` inside a JS string literal;
+  // splicing there unterminates that literal and the bootstrap's own
+  // `</script>` closes the bridge early, so the entire bundle stops parsing
+  // and the preview silently loses every interaction.
+  const markup = maskUnparsedRegions(html);
+  const headClose = markup.search(/<\/head\s*>/i);
   if (headClose >= 0) {
     return `${html.slice(0, headClose)}${bootstrap}${html.slice(headClose)}`;
   }
-  const bodyOpen = html.search(/<body(?:\s[^>]*)?>/i);
+  const bodyOpen = markup.search(/<body(?:\s[^>]*)?>/i);
   if (bodyOpen >= 0) {
     return `${html.slice(0, bodyOpen)}${bootstrap}${html.slice(bodyOpen)}`;
   }

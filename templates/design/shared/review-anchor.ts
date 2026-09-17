@@ -3,10 +3,48 @@ export interface ReviewAnchorPoint {
   yPct: number;
 }
 
+export interface ReviewAnchorRegion {
+  xPct: number;
+  yPct: number;
+  widthPct: number;
+  heightPct: number;
+}
+
+export interface ReviewBoardGeometry {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface ReviewAnchorWorldPoint {
+  x: number;
+  y: number;
+}
+
+export interface ReviewCanvasPoint {
+  x: number;
+  y: number;
+}
+
+export interface ReviewAnchorWorldRegion {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface DesignReviewAnchor {
   nodeId?: string;
   selector?: string;
+  screenId?: string;
+  screenPoint?: ReviewAnchorPoint;
   point: ReviewAnchorPoint;
+  relativePoint?: ReviewAnchorPoint;
+  region?: ReviewAnchorRegion;
+  worldPoint?: ReviewAnchorWorldPoint;
+  worldRegion?: ReviewAnchorWorldRegion;
+  canvasPoint?: ReviewCanvasPoint;
 }
 
 export interface ResolvedReviewAnchor {
@@ -106,11 +144,98 @@ export function parseReviewAnchor(value: unknown): DesignReviewAnchor | null {
   const nodeId = typeof record.nodeId === "string" ? record.nodeId.trim() : "";
   const selector =
     typeof record.selector === "string" ? record.selector.trim() : "";
+  const screenId =
+    typeof record.screenId === "string" ? record.screenId.trim() : "";
+  const screenPoint = screenId ? parsePoint(record.screenPoint) : null;
+  const relativePoint = parsePoint(record.relativePoint);
+  const region = parseRegion(record.region);
+  const worldPoint = parseWorldPoint(record.worldPoint);
+  const worldRegion = parseWorldRegion(record.worldRegion);
+  const canvasPointRecord =
+    record.canvasPoint &&
+    typeof record.canvasPoint === "object" &&
+    !Array.isArray(record.canvasPoint)
+      ? (record.canvasPoint as Record<string, unknown>)
+      : null;
+  const canvasX = canvasPointRecord?.x;
+  const canvasY = canvasPointRecord?.y;
+  const canvasPoint =
+    typeof canvasX === "number" &&
+    Number.isFinite(canvasX) &&
+    typeof canvasY === "number" &&
+    Number.isFinite(canvasY)
+      ? { x: canvasX, y: canvasY }
+      : undefined;
   return {
     ...(nodeId ? { nodeId } : {}),
     ...(selector ? { selector } : {}),
+    ...(screenId && screenPoint ? { screenId, screenPoint } : {}),
     point: { xPct, yPct },
+    ...(relativePoint ? { relativePoint } : {}),
+    ...(region ? { region } : {}),
+    ...(worldPoint ? { worldPoint } : {}),
+    ...(worldRegion ? { worldRegion } : {}),
+    ...(canvasPoint ? { canvasPoint } : {}),
   };
+}
+
+function parsePoint(value: unknown): ReviewAnchorPoint | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const point = value as Record<string, unknown>;
+  const xPct = finitePercentage(point.xPct);
+  const yPct = finitePercentage(point.yPct);
+  return xPct === null || yPct === null ? null : { xPct, yPct };
+}
+
+function parseWorldPoint(value: unknown): ReviewAnchorWorldPoint | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const point = value as Record<string, unknown>;
+  return typeof point.x === "number" &&
+    Number.isFinite(point.x) &&
+    typeof point.y === "number" &&
+    Number.isFinite(point.y)
+    ? { x: point.x, y: point.y }
+    : null;
+}
+
+function parseWorldRegion(value: unknown): ReviewAnchorWorldRegion | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const region = value as Record<string, unknown>;
+  const values = [region.x, region.y, region.width, region.height];
+  if (
+    !values.every((item) => typeof item === "number" && Number.isFinite(item))
+  )
+    return null;
+  if ((region.width as number) <= 0 || (region.height as number) <= 0)
+    return null;
+  return {
+    x: region.x as number,
+    y: region.y as number,
+    width: region.width as number,
+    height: region.height as number,
+  };
+}
+
+function parseRegion(value: unknown): ReviewAnchorRegion | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const region = value as Record<string, unknown>;
+  const xPct = finitePercentage(region.xPct);
+  const yPct = finitePercentage(region.yPct);
+  const widthPct = finitePercentage(region.widthPct);
+  const heightPct = finitePercentage(region.heightPct);
+  if (
+    xPct === null ||
+    yPct === null ||
+    widthPct === null ||
+    heightPct === null ||
+    xPct + widthPct > 100 ||
+    yPct + heightPct > 100 ||
+    widthPct <= 0 ||
+    heightPct <= 0
+  ) {
+    return null;
+  }
+  return { xPct, yPct, widthPct, heightPct };
 }
 
 /** Resolve a node or selector position first, then degrade to the click point. */
@@ -119,6 +244,7 @@ export function resolveReviewAnchor(
   resolveNodePoint: (nodeId: string) => ReviewAnchorPoint | null,
   resolveSelectorPoint: (selector: string) => ReviewAnchorPoint | null = () =>
     null,
+  screenId?: string | null,
 ): ResolvedReviewAnchor | null {
   const anchor = parseReviewAnchor(value);
   if (!anchor) return null;
@@ -150,5 +276,9 @@ export function resolveReviewAnchor(
       }
     }
   }
-  return { anchor, point: anchor.point, source: "point" };
+  const point =
+    screenId && anchor.screenId === screenId && anchor.screenPoint
+      ? anchor.screenPoint
+      : anchor.point;
+  return { anchor, point, source: "point" };
 }

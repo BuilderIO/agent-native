@@ -66,25 +66,16 @@ import {
   type GoogleAuthMode,
 } from "./google-auth-mode.js";
 import { hasGoogleSignInCredentials } from "./google-oauth-credentials.js";
-import { identitySsoLoginButtonHtml } from "./identity-sso-store.js";
+import {
+  isCanonicalIdentitySsoClientRequest,
+  isCanonicalIdentitySsoClientConfigured,
+  isIdentitySsoAvailableForRequest,
+  isNetlifyDeployPermalinkIdentitySsoClientRequest,
+} from "./identity-sso-store.js";
 import { getPublicOAuthOrigin } from "./oauth-public-origin.js";
 import { getWorkspaceGatewayReturnOrigin } from "./oauth-return-url.js";
 function hasGoogleOAuth(): boolean {
   return hasGoogleSignInCredentials();
-}
-
-function getConnectionLabel(): string {
-  const url = process.env.DATABASE_URL || "";
-  if (!url) return "SQLite (local file)";
-  if (url.startsWith("pglite:")) return "PGlite (local Postgres)";
-  if (url.startsWith("postgres://") || url.startsWith("postgresql://")) {
-    if (url.includes("neon.tech")) return "Neon Postgres";
-    if (url.includes("supabase")) return "Supabase Postgres";
-    return "Postgres";
-  }
-  if (url.startsWith("file:")) return "SQLite (local file)";
-  if (url.startsWith("libsql://") || url.includes("turso.io")) return "Turso";
-  return "SQL database";
 }
 
 function isWorkspaceRuntime(): boolean {
@@ -197,8 +188,6 @@ const EN_AUTH_COPY = {
   resendEmail: "Resend email",
   sendResetLink: "Send reset link",
   backToSignIn: "Back to sign in",
-  localNotePrefix: "Your account is stored in this app's own DB",
-  localNoteSuffix: ", not a third-party service.",
   localDevButton: "Continue as local dev",
   localDevDescription: "Only works in local development on this computer.",
   localDevHelp: "Learn about local development sign-in",
@@ -285,8 +274,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     resendEmail: "重新发送邮件",
     sendResetLink: "发送重置链接",
     backToSignIn: "返回登录",
-    localNotePrefix: "你的账户存储在此应用自己的数据库中",
-    localNoteSuffix: "，而不是第三方服务。",
     localDevButton: "以本地开发身份继续",
     localDevDescription: "仅在此计算机的本地开发环境中有效。",
     localDevHelp: "了解本地开发登录",
@@ -361,8 +348,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     resendEmail: "重新寄送郵件",
     sendResetLink: "寄送重設連結",
     backToSignIn: "返回登入",
-    localNotePrefix: "你的帳號儲存在此應用程式自己的資料庫中",
-    localNoteSuffix: "，而不是第三方服務。",
     localDevButton: "以本機開發身分繼續",
     localDevDescription: "僅在這台電腦的本機開發環境中有效。",
     localDevHelp: "了解本機開發登入",
@@ -439,9 +424,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     resendEmail: "Reenviar email",
     sendResetLink: "Enviar enlace de restablecimiento",
     backToSignIn: "Volver a iniciar sesión",
-    localNotePrefix:
-      "Tu cuenta se almacena en la propia base de datos de esta app",
-    localNoteSuffix: ", no en un servicio de terceros.",
     localDevButton: "Continuar como desarrollador local",
     localDevDescription: "Solo funciona en el desarrollo local de este equipo.",
     localDevHelp: "Más información sobre el inicio de sesión local",
@@ -525,9 +507,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     resendEmail: "Renvoyer l'e-mail",
     sendResetLink: "Envoyer le lien de réinitialisation",
     backToSignIn: "Retour à la connexion",
-    localNotePrefix:
-      "Votre compte est stocké dans la base de données propre à cette app",
-    localNoteSuffix: ", pas dans un service tiers.",
     localDevButton: "Continuer comme développeur local",
     localDevDescription:
       "Fonctionne uniquement en développement local sur cet ordinateur.",
@@ -612,9 +591,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     resendEmail: "E-Mail erneut senden",
     sendResetLink: "Reset-Link senden",
     backToSignIn: "Zurück zur Anmeldung",
-    localNotePrefix:
-      "Dein Konto wird in der eigenen Datenbank dieser App gespeichert",
-    localNoteSuffix: ", nicht bei einem Drittanbieter.",
     localDevButton: "Als lokale Entwicklung fortfahren",
     localDevDescription:
       "Funktioniert nur in der lokalen Entwicklung auf diesem Computer.",
@@ -699,8 +675,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     resendEmail: "メールを再送信",
     sendResetLink: "リセットリンクを送信",
     backToSignIn: "サインインに戻る",
-    localNotePrefix: "アカウントはこのアプリ自身の DB に保存されます",
-    localNoteSuffix: "。サードパーティサービスには保存されません。",
     localDevButton: "ローカル開発として続行",
     localDevDescription: "このコンピューターのローカル開発でのみ利用できます。",
     localDevHelp: "ローカル開発サインインについて詳しく見る",
@@ -783,8 +757,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     resendEmail: "이메일 다시 보내기",
     sendResetLink: "재설정 링크 보내기",
     backToSignIn: "로그인으로 돌아가기",
-    localNotePrefix: "계정은 이 앱의 자체 DB에 저장됩니다",
-    localNoteSuffix: ", 타사 서비스가 아닙니다.",
     localDevButton: "로컬 개발자로 계속",
     localDevDescription: "이 컴퓨터의 로컬 개발 환경에서만 작동합니다.",
     localDevHelp: "로컬 개발 로그인 자세히 보기",
@@ -863,9 +835,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     resendEmail: "Reenviar email",
     sendResetLink: "Enviar link de redefinição",
     backToSignIn: "Voltar para entrar",
-    localNotePrefix:
-      "Sua conta fica armazenada no banco de dados próprio deste app",
-    localNoteSuffix: ", não em um serviço de terceiros.",
     localDevButton: "Continuar como desenvolvedor local",
     localDevDescription:
       "Funciona apenas no desenvolvimento local deste computador.",
@@ -948,8 +917,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     resendEmail: "ईमेल फिर भेजें",
     sendResetLink: "रीसेट लिंक भेजें",
     backToSignIn: "साइन इन पर वापस जाएं",
-    localNotePrefix: "आपका खाता इस ऐप के अपने DB में संग्रहीत है",
-    localNoteSuffix: ", किसी third-party सेवा में नहीं।",
     localDevButton: "स्थानीय डेवलपर के रूप में जारी रखें",
     localDevDescription: "यह केवल इस कंप्यूटर के स्थानीय विकास में काम करता है।",
     localDevHelp: "स्थानीय विकास साइन-इन के बारे में जानें",
@@ -1028,8 +995,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     resendEmail: "إعادة إرسال البريد",
     sendResetLink: "إرسال رابط إعادة التعيين",
     backToSignIn: "العودة إلى تسجيل الدخول",
-    localNotePrefix: "يتم تخزين حسابك في قاعدة بيانات هذا التطبيق",
-    localNoteSuffix: "، وليس في خدمة خارجية.",
     localDevButton: "المتابعة كمطور محلي",
     localDevDescription: "يعمل فقط أثناء التطوير المحلي على هذا الكمبيوتر.",
     localDevHelp: "تعرف على تسجيل دخول التطوير المحلي",
@@ -1140,6 +1105,8 @@ export interface OnboardingHtmlOptions {
    * If Google OAuth env vars are not configured, an error message is shown.
    */
   googleOnly?: boolean;
+  /** Additional provider scopes require the direct OAuth flow to persist tokens. */
+  googleScopes?: string[];
   /** Authentication surface to render. Defaults to the existing password flow. */
   authMode?: "magic-link" | "password";
   /** Render the quiet, centered auth surface used when the app has an initial prompt. */
@@ -1158,7 +1125,6 @@ export interface OnboardingHtmlOptions {
     screenshotWidth?: number;
     screenshotHeight?: number;
     learnMoreUrl?: string;
-    learnMorePlacement?: "top-right" | "bottom-right";
     /** @deprecated Local execution is no longer offered from auth pages. */
     runLocalCommand?: string;
   };
@@ -1167,6 +1133,10 @@ export interface OnboardingHtmlOptions {
    * default auth guard serves before a template-specific auth plugin.
    */
   requestHost?: string;
+  /** @deprecated Browser SSO was removed. The fields are retained for patch compatibility. */
+  identitySsoRequestHost?: string;
+  /** @deprecated Browser SSO was removed. The field is retained for patch compatibility. */
+  identitySsoRequestProtocol?: string;
   requestPath?: string;
   requestOrigin?: string;
   /**
@@ -1202,6 +1172,7 @@ function initialAuthView(
     if (requestedView === "login" || requestedView === "signup") {
       return requestedView;
     }
+    if (url.searchParams.get("c")) return "login";
     const pathname = url.pathname.replace(/\/+$/, "") || "/";
     if (pathname.endsWith("/login")) return "login";
     if (pathname.endsWith("/signup")) return "signup";
@@ -1284,6 +1255,10 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     "/agent-native-icon-dark.svg",
     appBasePath,
   );
+  const brandMarkLightSrc = withAppBasePath(
+    "/agent-native-icon-light.svg",
+    appBasePath,
+  );
   const socialImageUrl = withAgentNativeSocialImageCacheBuster(
     opts.requestOrigin
       ? `${opts.requestOrigin}${withAppBasePath(AGENT_NATIVE_SOCIAL_IMAGE_PATH, appBasePath)}`
@@ -1302,28 +1277,49 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     opts.signupLegalNotice === false
       ? undefined
       : (opts.signupLegalNotice ?? hostedSignupLegalNotice);
-  const identitySsoEnabled = Boolean(identitySsoLoginButtonHtml());
-  const embeddedAuthCss = identitySsoEnabled
-    ? '  html[data-agent-native-embedded="1"] #identity-sso-btn { display: none !important; }\n'
-    : "";
-  const identitySsoMagicLinkSelector = identitySsoEnabled
-    ? "  .card.magic-link-complete #identity-sso-btn,\n"
-    : "";
-
+  const identitySsoRequestHost =
+    opts.identitySsoRequestHost ?? opts.requestHost;
+  const identitySsoRequestProtocol = opts.identitySsoRequestProtocol ?? "https";
+  const googleViaIdentitySso =
+    !opts.googleScopes?.length &&
+    isNetlifyDeployPermalinkIdentitySsoClientRequest(
+      identitySsoRequestHost,
+      identitySsoRequestProtocol,
+    );
+  const identitySsoEnabled = isIdentitySsoAvailableForRequest({
+    requestHost: identitySsoRequestHost,
+    requestProtocol: identitySsoRequestProtocol,
+  });
+  const identitySsoAuto =
+    identitySsoEnabled &&
+    (isCanonicalIdentitySsoClientRequest(
+      identitySsoRequestHost,
+      identitySsoRequestProtocol,
+    ) ||
+      (!identitySsoRequestHost && isCanonicalIdentitySsoClientConfigured()));
   const marketingStyles = hasMarketing
     ? `
-  body.has-marketing { padding: 0; position: relative; overflow-x: hidden; }
-  #starfield {
+  body.has-marketing {
+    --b-hero-ocean-opacity: 0.32;
+    --b-hero-shader-opacity: 0.15;
+    padding: 0;
+    position: relative;
+    overflow-x: hidden;
+    color-scheme: dark;
+  }
+  [data-agent-native-starfield] {
     position: fixed;
     inset: 0;
     width: 100%;
     height: 100%;
-    opacity: 0.35;
+    opacity: var(--b-hero-shader-opacity, 0.15);
     pointer-events: none;
     z-index: 0;
   }
   @media (prefers-reduced-motion: reduce) {
-    #starfield { opacity: 0.18; }
+    [data-agent-native-starfield] {
+      opacity: var(--b-hero-shader-opacity, 0.15);
+    }
   }
   .split {
     position: relative;
@@ -1353,14 +1349,17 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     width: 100%;
     max-width: 100%;
     max-height: calc(100vh - 3rem);
+    aspect-ratio: 914 / 818;
+    border-radius: 0.75rem;
+    overflow: hidden;
+    box-shadow: 0 12px 36px rgba(0,0,0,0.38); /* guard:allow-raw-color - standalone auth HTML has no app theme token layer */
   }
   .auth-marketing-screenshot {
     display: block;
-    width: auto;
-    max-width: 100%;
-    height: auto;
+    width: 100%;
+    height: 100%;
     max-height: calc(100vh - 3rem);
-    object-fit: contain;
+    object-fit: cover;
   }
   .marketing-panel {
     flex: 1;
@@ -1461,7 +1460,8 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     padding: 2rem;
   }
   .form-panel .card { max-width: 400px; }
-  .form-panel .local-note { max-width: 400px; }
+  /* guard:allow-raw-color - standalone auth HTML has no app theme token layer */
+  .auth-marketing-home .card { box-shadow: 0 18px 50px rgba(0,0,0,0.62); }
   @media (max-width: 900px) {
     .auth-marketing-shell-with-top-right {
       display: flex;
@@ -1486,6 +1486,163 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     .app-desc { margin-bottom: 1rem; }
     .feature-list { gap: 0.5rem; }
     .form-panel { flex: none; padding: 1.5rem 1rem; }
+  }
+  @media (prefers-color-scheme: light) {
+    body.has-marketing {
+      --b-hero-ocean-opacity: 0.3;
+      --b-hero-shader-opacity: 0.22;
+      background: color-mix(in srgb, CanvasText 4%, Canvas);
+      color: CanvasText;
+      color-scheme: light;
+    }
+    .auth-marketing-home {
+      background: color-mix(in srgb, CanvasText 4%, Canvas);
+      color: CanvasText;
+    }
+    .auth-marketing-home .auth-marketing-learn-more,
+    .auth-marketing-home .auth-marketing-learn-more:hover,
+    body.has-marketing .locale-trigger {
+      color: CanvasText;
+    }
+    .auth-marketing-home .auth-marketing-learn-more-link {
+      color: LinkText;
+    }
+    /* The marketing panel's base colors are picked for the near-black body.
+       Without these the app name renders white-on-white and the whole panel
+       reads as empty rather than as low contrast. */
+    .auth-marketing-home .app-name { color: CanvasText; }
+    .auth-marketing-home .app-tagline,
+    .auth-marketing-home .feature-list li {
+      color: color-mix(in srgb, CanvasText 72%, Canvas);
+    }
+    .auth-marketing-home .app-desc {
+      color: color-mix(in srgb, CanvasText 62%, Canvas);
+    }
+    .auth-marketing-home .feature-list li::before {
+      background: color-mix(in srgb, CanvasText 22%, transparent);
+      border-color: color-mix(in srgb, CanvasText 38%, transparent);
+    }
+    .auth-marketing-home .oss-link { color: LinkText; }
+    .auth-marketing-home .oss-link:hover {
+      color: color-mix(in srgb, LinkText 75%, CanvasText);
+    }
+    .auth-marketing-home .copy-run-local {
+      color: color-mix(in srgb, CanvasText 62%, Canvas);
+      border-color: color-mix(in srgb, CanvasText 18%, transparent);
+    }
+    .auth-marketing-home .copy-run-local:hover {
+      color: CanvasText;
+      border-color: color-mix(in srgb, CanvasText 32%, transparent);
+    }
+    .auth-marketing-home .card {
+      background: Canvas;
+      border-color: color-mix(in srgb, CanvasText 14%, transparent);
+      color: CanvasText;
+      box-shadow: 0 18px 50px color-mix(in srgb, CanvasText 18%, transparent);
+    }
+    .auth-marketing-home .card h1 { color: CanvasText; }
+    .auth-marketing-home .card .subtitle,
+    .auth-marketing-home .card label { color: GrayText; }
+    .auth-marketing-home .card input {
+      color: CanvasText;
+      border-color: color-mix(in srgb, CanvasText 18%, transparent);
+    }
+    .auth-marketing-home .card input::placeholder { color: GrayText; }
+    .auth-marketing-home .card .tabs {
+      background: color-mix(in srgb, CanvasText 7%, transparent);
+    }
+    .auth-marketing-home .card .tab { color: GrayText; }
+    .auth-marketing-home .card .tab.active {
+      background: color-mix(in srgb, CanvasText 12%, transparent);
+      color: CanvasText;
+      box-shadow: 0 1px 2px color-mix(in srgb, CanvasText 18%, transparent);
+    }
+    .auth-marketing-home .card button[type="submit"],
+    .auth-marketing-home .card .btn-primary {
+      background: CanvasText;
+      color: Canvas;
+    }
+    .auth-marketing-home .card button[type="submit"]:hover,
+    .auth-marketing-home .card .btn-primary:hover {
+      background: color-mix(in srgb, CanvasText 82%, Canvas);
+    }
+    .auth-marketing-home .card .btn-google {
+      background: Canvas;
+      color: CanvasText;
+      border: 1px solid color-mix(in srgb, CanvasText 14%, transparent);
+    }
+    .auth-marketing-home .card .btn-google:hover {
+      background: color-mix(in srgb, CanvasText 6%, Canvas);
+    }
+    .auth-marketing-home .card .btn-secondary {
+      color: GrayText;
+      border-color: color-mix(in srgb, CanvasText 14%, transparent);
+    }
+    .auth-marketing-home .card .btn-secondary:hover,
+    .auth-marketing-home .card .link-button:hover {
+      color: CanvasText;
+      border-color: color-mix(in srgb, CanvasText 24%, transparent);
+    }
+    .auth-marketing-home .card .divider { color: GrayText; }
+    .auth-marketing-home .card .divider::before,
+    .auth-marketing-home .card .divider::after {
+      background: color-mix(in srgb, CanvasText 12%, transparent);
+    }
+    .auth-marketing-home .card .legal-note,
+    .auth-marketing-home .card .legal-note a,
+    .auth-marketing-home .card .local-dev-full-options {
+      color: GrayText;
+    }
+    .auth-marketing-home .card .signup-local-mode-note {
+      color: GrayText;
+      background: color-mix(in srgb, CanvasText 4%, transparent);
+      border-color: color-mix(in srgb, CanvasText 14%, transparent);
+    }
+    .auth-marketing-home .card .signup-local-mode-note code { color: CanvasText; }
+    .auth-marketing-home .card .progress-step { color: GrayText; }
+    .auth-marketing-home .card .progress-step::before {
+      background: color-mix(in srgb, CanvasText 12%, transparent);
+    }
+    .auth-marketing-home .card .progress-step span {
+      background: color-mix(in srgb, CanvasText 4%, Canvas);
+      border-color: color-mix(in srgb, CanvasText 18%, transparent);
+      color: GrayText;
+    }
+    .auth-marketing-home .card .progress-step.complete,
+    .auth-marketing-home .card .progress-step.current { color: CanvasText; }
+    .auth-marketing-home .card .progress-step.complete span {
+      background: color-mix(in srgb, LinkText 16%, transparent);
+      border-color: color-mix(in srgb, LinkText 55%, transparent);
+      color: LinkText;
+    }
+    .auth-marketing-home .card .progress-step.current span {
+      background: CanvasText;
+      border-color: CanvasText;
+      color: Canvas;
+      box-shadow: 0 0 0 4px color-mix(in srgb, CanvasText 8%, transparent);
+    }
+    .auth-marketing-home .card .verification-panel {
+      background: color-mix(in srgb, CanvasText 4%, transparent);
+      border-color: color-mix(in srgb, CanvasText 14%, transparent);
+    }
+    .auth-marketing-home .card .verification-kicker { color: LinkText; }
+    .auth-marketing-home .card .verification-copy,
+    .auth-marketing-home .card .verification-copy strong { color: CanvasText; }
+    .auth-marketing-home .card .verification-note,
+    .auth-marketing-home .card .link-button { color: GrayText; }
+    body.has-marketing .locale-menu {
+      background: Canvas;
+      color: CanvasText;
+      border-color: color-mix(in srgb, CanvasText 14%, transparent);
+      box-shadow: 0 18px 50px color-mix(in srgb, CanvasText 18%, transparent);
+    }
+    body.has-marketing .locale-menu-item { color: GrayText; }
+    body.has-marketing .locale-menu-item:hover,
+    body.has-marketing .locale-menu-item:focus,
+    body.has-marketing .locale-menu-item[aria-checked="true"] {
+      background: color-mix(in srgb, CanvasText 7%, transparent);
+      color: CanvasText;
+    }
   }
 `
     : "";
@@ -1531,7 +1688,6 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
               : undefined,
             screenshotWidth: marketing.screenshotWidth,
             screenshotHeight: marketing.screenshotHeight,
-            learnMorePlacement: marketing.learnMorePlacement,
             learnMoreUrl:
               marketing.learnMoreUrl ??
               (marketingSlug
@@ -1541,15 +1697,18 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
         : undefined,
     marketingLocales: authMarketingLocales,
     brandMarkSrc,
+    brandMarkLightSrc,
     githubUrl: "https://github.com/BuilderIO/agent-native",
     showGoogle,
+    organizationSsoEnabled: getAppConfig().access.sso.enabled,
     signupLegalNotice,
     signupLocalModeNote,
-    connectionLabel: getConnectionLabel(),
     docsAuthUrl: docsUrl("authentication", {
       hash: "local-development-sign-in",
     }),
     identitySsoEnabled,
+    googleViaIdentitySso,
+    identitySsoAuto,
     publicOAuthOrigin,
     workspaceGatewayReturnOrigin,
     googleAuthMode,
@@ -1849,7 +2008,6 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   .local-dev-signin {
     margin: 1.25rem 0 0.25rem;
     padding-top: 1rem;
-    border-top: 1px solid color-mix(in srgb, currentColor 12%, transparent);
   }
   .btn-local-dev {
     margin-top: 0.25rem;
@@ -1896,7 +2054,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   }
   .local-dev-full-options {
     display: block;
-    margin: 0.75rem auto 0;
+    margin: 1rem 0 0;
     padding: 0;
     background: transparent;
     border: 0;
@@ -1910,6 +2068,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   .local-dev-full-options[hidden] { display: none; }
   .full-auth-options { margin-top: 1rem; }
   .full-auth-options[hidden] { display: none; }
+  .sso-signin { margin-top: 0.75rem; }
   .legal-note {
     margin-top: 0.375rem;
     margin-bottom: 0.875rem;
@@ -2086,7 +2245,6 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   }
   .card.magic-link-complete .subtitle,
   .card.magic-link-complete #google-signin,
-${identitySsoMagicLinkSelector}
   .card.magic-link-complete #auth-divider,
   .card.magic-link-complete #auth-tabs,
   .card.magic-link-complete #upgrade-note,
@@ -2152,29 +2310,10 @@ ${identitySsoMagicLinkSelector}
     word-break: break-word;
   }
   .google-debug.show { display: block; }
-  .local-note {
-    display: none;
-    max-width: 400px;
-    width: 100%;
-    margin-top: 1rem;
-    padding: 0.625rem 0.875rem;
-    font-size: 0.6875rem;
-    line-height: 1.5;
-    color: #666;
-    border: 1px dashed rgba(255,255,255,0.08);
-    border-radius: 8px;
-    text-align: center;
-  }
-  .local-note.show { display: block; }
-  .local-note strong { color: #999; font-weight: 500; }
-  .local-note a { color: #888; text-decoration: none; }
-  .local-note a:hover { color: #bbb; }
 ${marketingStyles}
   /* guard:allow-raw-color - standalone auth HTML has no app theme token layer */
   body.simplified-auth { background: #141414; }
   body.simplified-auth .card { border-color: transparent; box-shadow: none; }
-  body.simplified-auth .local-note { display: none !important; }
-${embeddedAuthCss}
 `;
   const authPageLayoutStyles = `
   .auth-root { width: 100%; }
@@ -2191,16 +2330,11 @@ ${embeddedAuthCss}
     align-items: center;
     position: absolute;
     padding: 0;
-    top: max(1rem, env(safe-area-inset-top));
-    inset-inline-end: calc(max(1rem, env(safe-area-inset-right)) + 2.5rem);
+    bottom: max(1rem, env(safe-area-inset-bottom));
+    inset-inline-end: max(1rem, env(safe-area-inset-right));
     z-index: 2;
   }
   .auth-marketing-learn-more { font-size: 0.8rem; }
-  .auth-marketing-home.has-bottom-right-learn-more .auth-marketing-top-right {
-    top: auto;
-    bottom: max(1rem, env(safe-area-inset-bottom));
-    inset-inline-end: max(1rem, env(safe-area-inset-right));
-  }
   .auth-marketing-home .auth-marketing-layout {
     min-height: 100vh;
     display: flex;
@@ -2209,37 +2343,54 @@ ${embeddedAuthCss}
   .auth-marketing-home .split { width: 100%; max-width: none; margin: 0; }
   .auth-marketing-home .marketing-panel { min-width: 0; }
   .auth-marketing-home.has-product-screenshot .marketing-panel {
-    flex: 0 1 auto;
-    max-width: calc(100% - 28rem);
+    flex: 1 1 0;
+    max-width: none;
     padding: 0;
     justify-content: center;
-  }
-  .auth-marketing-home.has-product-screenshot .auth-marketing-screenshot-wrap,
-  .auth-marketing-home.has-product-screenshot .auth-marketing-screenshot {
-    max-height: calc(100vh - 5rem);
+    align-items: flex-start;
   }
   .auth-marketing-home.has-product-screenshot .auth-marketing-screenshot-wrap {
-    width: fit-content;
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    max-height: none;
+    margin: 0;
+    border-radius: 0;
+  }
+  .auth-marketing-home.has-product-screenshot .auth-marketing-screenshot {
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    max-height: none;
+    filter: none;
   }
   .auth-marketing-home.has-product-screenshot .form-panel {
-    flex: 1 1 0;
-    min-width: 28rem;
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    width: 100%;
+    min-width: 0;
     max-width: none;
+    padding: 1rem clamp(1rem, 4vw, 4rem);
+    overflow-y: auto;
+  }
+  .auth-marketing-home.has-product-screenshot .form-panel > .card {
+    margin-block: auto;
   }
   .auth-marketing-home .form-panel { min-width: 0; }
-  .auth-marketing-home [data-agent-native-starfield] { position: fixed; inset: 0; width: 100%; height: 100%; }
+  .auth-marketing-home [data-agent-native-starfield] { position: fixed; inset: 0; width: 100%; height: 100%; transform: translateY(-5vh); }
   @media (max-width: 900px) {
     body.has-marketing {
       align-items: flex-start;
       justify-content: flex-start;
     }
     .auth-marketing-home .auth-marketing-top-right {
-      top: max(1rem, env(safe-area-inset-top));
-      bottom: auto;
-      inset-inline-start: max(1rem, env(safe-area-inset-left));
-      inset-inline-end: auto;
-    }
-    .auth-marketing-home.has-bottom-right-learn-more .auth-marketing-top-right {
       top: auto;
       bottom: max(1rem, env(safe-area-inset-bottom));
       inset-inline-start: 50%;
@@ -2249,10 +2400,10 @@ ${embeddedAuthCss}
     .auth-marketing-home .auth-marketing-layout { min-height: auto; }
     .auth-marketing-home .auth-marketing-shell { display: block; }
     .auth-marketing-home .auth-marketing-shell-with-top-right { display: flex; }
-    .auth-marketing-home.has-product-screenshot .marketing-panel { display: none; }
     .auth-marketing-home.has-product-screenshot .form-panel {
       min-width: 0;
-      padding: 3.75rem 0.8125rem 1.5rem;
+      align-items: center;
+      padding: 1rem;
     }
   }
 `;
@@ -2389,9 +2540,6 @@ ${embeddedAuthCss}
   );
   return `<!DOCTYPE html>${authDocumentMarkup}`;
 }
-
-/** @deprecated Use getOnboardingHtml() instead */
-export const ONBOARDING_HTML = getOnboardingHtml();
 
 const RESET_PASSWORD_STYLES = `
   /* guard:allow-raw-color - standalone reset page has no app theme token layer */

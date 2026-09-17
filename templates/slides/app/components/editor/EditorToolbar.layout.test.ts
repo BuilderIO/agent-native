@@ -60,11 +60,13 @@ describe("EditorToolbar layout contract", () => {
     );
   });
 
-  it("keeps media below slide tools and leaves comments as a single item", () => {
-    expect(
-      editorToolbarSource.indexOf('{t("editorToolbar.media")}'),
-    ).toBeGreaterThan(
-      editorToolbarSource.indexOf('{t("editorToolbar.slideTools")}'),
+  it("keeps the overflow menu focused on the remaining editor actions", () => {
+    expect(editorToolbarSource).not.toContain(
+      '{t("editorToolbar.transition")}',
+    );
+    expect(editorToolbarSource).not.toContain('{t("editorToolbar.media")}');
+    expect(editorToolbarSource).not.toContain(
+      '{t("editorToolbar.lightTheme")}',
     );
     expect(editorToolbarSource).not.toContain(
       '<DropdownMenuLabel>\n                  {t("editorToolbar.comments")}\n                </DropdownMenuLabel>',

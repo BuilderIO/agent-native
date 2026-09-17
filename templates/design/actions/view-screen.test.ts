@@ -21,6 +21,11 @@ const mocks = vi.hoisted(() => {
     queryReviewComments: vi.fn(),
     eq: vi.fn((left, right) => ({ left, right })),
     selectChain,
+    getDesignSystemRun: vi.fn(async ({ id }: { id: string }) => ({
+      id,
+      title: "Acme",
+      agentContext: "Use --brand-accent: #123456.",
+    })),
   };
 });
 
@@ -81,6 +86,10 @@ vi.mock("../server/db/index.js", () => ({
 
 vi.mock("../shared/canvas-frames.js", () => ({
   parseCanvasFrameGeometryById: mocks.parseCanvasFrameGeometryById,
+}));
+
+vi.mock("./get-design-system.js", () => ({
+  default: { run: mocks.getDesignSystemRun },
 }));
 
 import action from "./view-screen.js";
@@ -145,7 +154,17 @@ describe("view-screen", () => {
 
     const result = JSON.parse(await action.run({}));
 
+    expect(mocks.getDesignSystemRun).toHaveBeenCalledWith(
+      expect.objectContaining({ compact: "true" }),
+    );
     expect(result.design?.designSystemId).toBe("system-7");
+    expect(result.design?.designSystem).toMatchObject({
+      status: "available",
+      scope: "summary",
+      id: "system-7",
+      agentContext: "Use --brand-accent: #123456.",
+      next: expect.any(String),
+    });
   });
 
   it("reports no linked design system rather than guessing one", async () => {
@@ -208,6 +227,40 @@ describe("view-screen", () => {
       id: "file_index",
       filename: "index.html",
     });
+  });
+
+  it("does not report JSX support files as overview screens", async () => {
+    mocks.readAppStateForCurrentTab
+      .mockResolvedValueOnce({
+        view: "editor",
+        editorView: "overview",
+        designId: "design_123",
+      })
+      .mockResolvedValueOnce({
+        viewMode: "overview",
+        activeFileId: "support",
+      });
+    mocks.selectChain.where.mockResolvedValue([
+      {
+        id: "file_index",
+        filename: "index.html",
+        fileType: "html",
+        updatedAt: "2026-06-29T00:00:00.000Z",
+      },
+      {
+        id: "support",
+        filename: "support.jsx",
+        fileType: "jsx",
+        updatedAt: "2026-06-29T00:00:00.000Z",
+      },
+    ]);
+
+    const result = JSON.parse(await action.run({}));
+
+    expect(result.design.activeScreen).toBeNull();
+    expect(
+      result.design.screens.map((file: { id: string }) => file.id),
+    ).toEqual(["file_index"]);
   });
 
   it("lists candidate reviews waiting on any design screen", async () => {

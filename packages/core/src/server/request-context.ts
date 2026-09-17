@@ -16,6 +16,7 @@
  * continue to work.
  */
 
+import type { AgentActionScope } from "../agent/types.js";
 import type { SignupAttributionContext } from "./attribution.js";
 
 type AsyncLocalStorageLike<T> = {
@@ -120,6 +121,14 @@ export interface RequestRunContext {
   model?: string;
   /** Request-authorized action names exposed to this agent run. */
   allowedActionNames?: readonly string[];
+  /** Server-resolved app data used by the request-authorized actions. */
+  actionScope?: Readonly<AgentActionScope>;
+  /** One-turn app authorization snapshot used by agent context and actions. */
+  appAuthorization?: {
+    appId: string;
+    roles: string[];
+    permissions: Record<string, string[]>;
+  } | null;
   /** Hosted tools-only harness selected for this agent run. */
   hostedHarnessRuntime?: "claude-code" | "codex" | "pi" | "opencode";
   /**
@@ -153,6 +162,8 @@ export interface RequestContext {
   userEmail?: string;
   userName?: string;
   orgId?: string;
+  /** An authenticated caller explicitly selected Personal instead of an organization. */
+  orgScope?: "personal";
   /**
    * Narrow authorization capability verified from an embed session. This is
    * deliberately separate from user identity: capability-only sessions must
@@ -193,6 +204,8 @@ export interface RequestContext {
    * fallback. Optional — absent on paths that don't populate it.
    */
   requestOrigin?: string;
+  /** True only after the selected organization membership passed federation validation. */
+  federationMembershipValidated?: boolean;
   /**
    * True when the request's real socket peer is loopback, captured by the
    * action-route handler while the h3 event is still in scope (nothing below
@@ -249,6 +262,22 @@ export interface RequestContext {
    * during a run; tool closures dereference it on each invocation.
    */
   run?: RequestRunContext;
+}
+
+const EXPLICIT_PERSONAL_ORG_SCOPE_KEY = "__anExplicitPersonalOrgScope";
+
+export function markExplicitPersonalOrgScope(event: {
+  context?: Record<string, unknown>;
+}): void {
+  if (event.context) {
+    event.context[EXPLICIT_PERSONAL_ORG_SCOPE_KEY] = true;
+  }
+}
+
+export function hasExplicitPersonalOrgScope(event: {
+  context?: Record<string, unknown>;
+}): boolean {
+  return event.context?.[EXPLICIT_PERSONAL_ORG_SCOPE_KEY] === true;
 }
 
 const GLOBAL_KEY = "__agentNativeRequestContextAls" as const;
@@ -331,7 +360,10 @@ export function runWithRequestContext<T>(
     inheritedSyntheticTraffic !== undefined
       ? { ...ctx, isSyntheticTraffic: inheritedSyntheticTraffic }
       : ctx;
-  if (context.run?.allowedActionNames !== undefined) {
+  if (
+    context.run?.allowedActionNames !== undefined ||
+    context.run?.actionScope !== undefined
+  ) {
     assertRequestActionSurfaceIsolation();
   }
   return als.run(context, () => {

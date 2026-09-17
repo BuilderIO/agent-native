@@ -338,19 +338,21 @@ const messages = {
     page: "Page",
     source: "Source",
     sortBy: "Sort by {{label}}",
+    communityReview: "Review",
+    communityPublish: "Publish to site",
+    communityPublishing: "Publishing...",
+    communityPublished: "Published",
+    communityView: "View on site",
+    communityNeedsCheck: "Check Builder before retrying",
+    communityPromotionFailed: "Could not publish this submission.",
   },
   cloudUpgrade: {
     sharePublicly: "Share Publicly",
     sharePubliclyDescription:
       "To share content publicly, connect a cloud database.",
     providerDescriptions: {
-      turso: "SQLite at the edge",
       neon: "Serverless Postgres",
       supabase: "Open source Firebase alternative",
-      d1: "SQLite at the edge",
-    },
-    providerNames: {
-      d1: "Cloudflare D1",
     },
     setupSteps: "Setup steps",
     authToken: "Auth token",
@@ -372,6 +374,10 @@ const messages = {
     responseSubmitted: "Response submitted",
     noFields: "This form has no fields yet.",
     failedSubmit: "Failed to submit form",
+    uncheckablePattern:
+      "This form's rule for {label} can't be checked. Ask the form owner to fix it.",
+    patternTooLong:
+      "The value for {label} is too long to check against this form's rule.",
   },
   responseInsights: {
     unavailable: "Insights unavailable",

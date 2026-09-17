@@ -6,6 +6,7 @@ import {
   classifyProviderError,
   classifyTerminalErrorCode,
   describeErrorWithCauses,
+  isBareProviderRejectionMessage,
   isBuilderGatewayInternalErrorMessage,
   isProviderConnectionError,
   isProviderConnectionErrorMessage,
@@ -248,5 +249,142 @@ describe("isProviderConnectionErrorMessage", () => {
     });
     expect(isProviderConnectionError(err)).toBe(true);
     expect(isProviderConnectionError(new Error("bad request"))).toBe(false);
+  });
+
+  it("classifies a bare 403 as a transient rejection instead of a credential error", () => {
+    const bareForbidden = Object.assign(
+      new Error("403 status code (no body)"),
+      { statusCode: 403 },
+    );
+    expect(classifyProviderError(bareForbidden)).toEqual({
+      errorCode: "provider_transient_rejection",
+      statusCode: 403,
+      providerRetryable: true,
+    });
+  });
+
+  it("keeps a structured 403 message as an ordinary http_403", () => {
+    const namedRejection = Object.assign(
+      new Error("Invalid API key provided"),
+      { statusCode: 403 },
+    );
+    expect(classifyProviderError(namedRejection)).toEqual({
+      errorCode: "http_403",
+      statusCode: 403,
+    });
+  });
+
+  it("keeps http_403 for a message that only starts with the status echo but names a reason", () => {
+    const partialEcho = Object.assign(
+      new Error("403 status code: invalid API key"),
+      { statusCode: 403 },
+    );
+    expect(classifyProviderError(partialEcho)).toEqual({
+      errorCode: "http_403",
+      statusCode: 403,
+    });
+  });
+});
+
+describe("classifyProviderError explicit non-retryable 403", () => {
+  it("keeps http_403 when the SDK says an opaque 403 is not retryable", () => {
+    const err = Object.assign(new Error("Forbidden"), {
+      statusCode: 403,
+      isRetryable: false,
+    });
+    const classified = classifyProviderError(err);
+    expect(classified.errorCode).toBe("http_403");
+    expect(classified.providerRetryable).toBe(false);
+  });
+});
+
+describe("isBareProviderRejectionMessage", () => {
+  it("matches an SDK/proxy status echo with no reason", () => {
+    expect(isBareProviderRejectionMessage("")).toBe(true);
+    expect(isBareProviderRejectionMessage("Forbidden")).toBe(true);
+    expect(isBareProviderRejectionMessage("403 status code (no body)")).toBe(
+      true,
+    );
+    expect(isBareProviderRejectionMessage("Builder gateway returned 403")).toBe(
+      true,
+    );
+  });
+
+  it("does not match a message that names an actual reason", () => {
+    expect(isBareProviderRejectionMessage("Invalid API key provided")).toBe(
+      false,
+    );
+    expect(
+      isBareProviderRejectionMessage("User is not authorized for this space"),
+    ).toBe(false);
+    // "403 status code" is only a bare echo on its own — a message that goes
+    // on to name a reason after it must not match the same way "403 status
+    // code (no body)" does.
+    expect(
+      isBareProviderRejectionMessage("403 status code: invalid API key"),
+    ).toBe(false);
+  });
+
+  it("matches the exact status-echo forms with no reason", () => {
+    expect(isBareProviderRejectionMessage("403 status code")).toBe(true);
+    expect(isBareProviderRejectionMessage("403 status code (no body)")).toBe(
+      true,
+    );
+  });
+});
+
+describe("classifyProviderError retryAfterMs", () => {
+  it("reads a seconds-form retry-after off the error's own responseHeaders", () => {
+    const apiError = Object.assign(new Error("Too many requests"), {
+      statusCode: 429,
+      responseHeaders: { "retry-after": "5" },
+    });
+    expect(classifyProviderError(apiError).retryAfterMs).toBe(5000);
+  });
+
+  it("reads retry-after off the AI SDK RetryError's unwrapped lastError", () => {
+    const apiError = Object.assign(new Error("Too many requests"), {
+      statusCode: 429,
+      // Header lookup is case-insensitive.
+      responseHeaders: { "Retry-After": "5" },
+    });
+    const retryError = Object.assign(
+      new Error("Failed after 2 attempts. Last error: Too many requests"),
+      { lastError: apiError },
+    );
+    expect(classifyProviderError(retryError).retryAfterMs).toBe(5000);
+  });
+
+  it("falls back to a plain .cause when neither the error nor lastError carries headers", () => {
+    const err = Object.assign(new Error("upstream failure"), {
+      cause: { responseHeaders: { "retry-after": "5" } },
+    });
+    expect(classifyProviderError(err).retryAfterMs).toBe(5000);
+  });
+
+  it("parses an HTTP-date retry-after into a millisecond delta", () => {
+    const future = new Date(Date.now() + 7000).toUTCString();
+    const apiError = Object.assign(new Error("Too many requests"), {
+      statusCode: 429,
+      responseHeaders: { "retry-after": future },
+    });
+    const ms = classifyProviderError(apiError).retryAfterMs;
+    expect(ms).toBeGreaterThan(6000);
+    expect(ms).toBeLessThanOrEqual(7000);
+  });
+
+  it("leaves retryAfterMs undefined with no header present", () => {
+    const apiError = Object.assign(new Error("Too many requests"), {
+      statusCode: 429,
+    });
+    expect(classifyProviderError(apiError).retryAfterMs).toBeUndefined();
+  });
+
+  it("caps an oversized retry-after at 60s instead of trusting it outright", () => {
+    const apiError = Object.assign(new Error("Too many requests"), {
+      statusCode: 429,
+      responseHeaders: { "retry-after": "600" },
+    });
+    expect(classifyProviderError(apiError).retryAfterMs).toBe(60_000);
   });
 });

@@ -6,12 +6,28 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
+import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
+import {
+  mergeCanvasFramePlacements,
+  nextFreeCanvasRowY,
+  parseCanvasFrameGeometryById,
+} from "../shared/canvas-frames.js";
+import { getOverviewScreenFileIds } from "../shared/design-files.js";
 import {
   assertDesignHtmlCreateIntegrity,
   describeDesignHtmlIntegrityIssue,
 } from "../shared/html-integrity.js";
+import { getResponsiveBreakpointWidths } from "../shared/responsive-frame-layout.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
+
+// Matches the desktop default the in-app generation directives use
+// (generation-prompt-directives.ts) so a screen created directly via this
+// action looks the same as one the in-app agent generated.
+const CREATED_SCREEN_WIDTH = 1440;
+const CREATED_SCREEN_HEIGHT = 1024;
+const CREATED_SCREEN_GAP = 96;
 
 export default defineAction({
   description:
@@ -40,26 +56,6 @@ export default defineAction({
     await assertAccess("design", designId, "editor");
     await snapshotDesignBeforeAgentEdit(designId, context);
 
-    const db = getDb();
-
-    // Guard against duplicate (designId, filename) — edit-design uses .limit(1)
-    // which is non-deterministic when multiple rows match the same key.
-    const [existing] = await db
-      .select({ id: schema.designFiles.id })
-      .from(schema.designFiles)
-      .where(
-        and(
-          eq(schema.designFiles.designId, designId),
-          eq(schema.designFiles.filename, filename),
-        ),
-      )
-      .limit(1);
-    if (existing) {
-      throw new Error(
-        `File "${filename}" already exists in design ${designId} — use edit-design to modify it`,
-      );
-    }
-
     const id = nanoid();
     const now = new Date().toISOString();
 
@@ -77,29 +73,107 @@ export default defineAction({
       filename,
     });
 
-    await db.insert(schema.designFiles).values({
-      id,
-      designId,
-      filename,
-      fileType: fileType ?? "html",
-      content: annotatedContent,
-      createdAt: now,
-      updatedAt: now,
+    await withDesignSourceMutationTransaction(designId, async (tx) => {
+      // Guard against duplicate (designId, filename) inside the same
+      // transaction as the insert; the unique index remains the final guard.
+      const [existing] = await tx
+        .select({ id: schema.designFiles.id })
+        .from(schema.designFiles)
+        .where(
+          and(
+            eq(schema.designFiles.designId, designId),
+            eq(schema.designFiles.filename, filename),
+          ),
+        )
+        .limit(1);
+      if (existing) {
+        throw new Error(
+          `File "${filename}" already exists in design ${designId} — use edit-design to modify it`,
+        );
+      }
+
+      await tx.insert(schema.designFiles).values({
+        id,
+        designId,
+        filename,
+        fileType: fileType ?? "html",
+        content: annotatedContent,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      await tx
+        .update(schema.designs)
+        .set({ updatedAt: now })
+        .where(eq(schema.designs.id, designId));
     });
 
     // Seed collab state for the new file
     await seedFromText(id, annotatedContent);
 
-    // Update the design's updatedAt timestamp
-    await db
-      .update(schema.designs)
-      .set({ updatedAt: now })
-      .where(eq(schema.designs.id, designId));
+    const db = getDb();
 
     const resolvedFileType = fileType ?? "html";
     const renderable =
       (resolvedFileType === "html" || resolvedFileType === "jsx") &&
       content.trim().length > 0;
+
+    // A renderable screen with no canvas placement fell back to the overview
+    // board's blank-frame default (a small 320x640 card meant for a screen
+    // the user will sketch and resize by hand), which reads as broken for a
+    // complete screen an agent just authored. Give it a real desktop
+    // placement immediately, the same way generate-design and
+    // present-design-variants place screens they create.
+    if (renderable) {
+      const screenFiles = await db
+        .select({
+          id: schema.designFiles.id,
+          filename: schema.designFiles.filename,
+          fileType: schema.designFiles.fileType,
+        })
+        .from(schema.designFiles)
+        .where(eq(schema.designFiles.designId, designId));
+      const screenFileIds = getOverviewScreenFileIds(screenFiles);
+
+      await mutateDesignData({
+        designId,
+        mutate: (current) => {
+          const existingFrames = parseCanvasFrameGeometryById(
+            current.canvasFrames,
+          );
+          if (existingFrames[id]) return current;
+          const merged = mergeCanvasFramePlacements({
+            existing: current.canvasFrames,
+            placements: [
+              {
+                fileId: id,
+                filename,
+                x: 0,
+                y: nextFreeCanvasRowY(
+                  current.canvasFrames,
+                  CREATED_SCREEN_GAP,
+                  {
+                    responsiveLayout: {
+                      screenFileIds,
+                      screenMetadataByFileId: current.screenMetadata,
+                      breakpointWidths: getResponsiveBreakpointWidths(
+                        current.breakpointSet,
+                      ),
+                    },
+                  },
+                ),
+                width: CREATED_SCREEN_WIDTH,
+                height: CREATED_SCREEN_HEIGHT,
+              },
+            ],
+            resolveFileId: (placement) => placement.fileId,
+          });
+          return { ...current, canvasFrames: merged.canvasFrames };
+        },
+        isApplied: (current) =>
+          Boolean(parseCanvasFrameGeometryById(current.canvasFrames)[id]),
+      });
+    }
 
     return {
       id,
@@ -107,7 +181,9 @@ export default defineAction({
       filename,
       fileType: resolvedFileType,
       renderable,
-      urlPath: renderable ? `/design/${designId}` : null,
+      urlPath: renderable
+        ? `/design/${encodeURIComponent(designId)}?editorView=overview&screen=${encodeURIComponent(id)}`
+        : null,
       ...(advisory.length > 0
         ? { warnings: advisory.map(describeDesignHtmlIntegrityIssue) }
         : {}),

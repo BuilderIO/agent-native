@@ -3,6 +3,7 @@ import { IconScissors } from "@tabler/icons-react";
 import { useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import {
   Tooltip,
   TooltipContent,
@@ -162,9 +163,13 @@ export function TranscriptEditor({
         className="flex-1 overflow-auto p-3 text-[14px] leading-relaxed outline-none"
       >
         {segments.length === 0 ? (
-          <div className="text-muted-foreground text-sm">
-            {t("transcriptEditor.noTranscript")}
-          </div>
+          <Empty className="min-h-full gap-2 rounded-none p-4 md:p-6">
+            <EmptyHeader>
+              <EmptyTitle className="text-sm font-normal text-muted-foreground">
+                {t("transcriptEditor.noTranscript")}
+              </EmptyTitle>
+            </EmptyHeader>
+          </Empty>
         ) : (
           rendered
         )}

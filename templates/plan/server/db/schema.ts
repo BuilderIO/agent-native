@@ -5,6 +5,7 @@ import {
   ownableColumns,
   createSharesTable,
 } from "@agent-native/core/db/schema";
+import { boolean } from "drizzle-orm/pg-core";
 
 import {
   PLAN_AUTHORS,
@@ -173,8 +174,8 @@ export const planVersions = table("plan_versions", {
   source: text("summary_source", { enum: PLAN_SOURCES }),
   blockCount: integer("block_count"),
   sectionCount: integer("section_count"),
-  hasCanvas: integer("has_canvas", { mode: "boolean" }),
-  hasPrototype: integer("has_prototype", { mode: "boolean" }),
+  hasCanvas: boolean("has_canvas"),
+  hasPrototype: boolean("has_prototype"),
   previewText: text("preview_text"),
 });
 
