@@ -131,7 +131,7 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
         toast.success(notification.title);
       }
       void navigate(
-        `/design/${result?.designId ?? context.designId}?view=overview`,
+        `/design/${result?.designId ?? context.designId}?editorView=overview`,
       );
     },
     [context.designId, formatNumber, navigate, queryClient, t],

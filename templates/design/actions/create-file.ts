@@ -180,7 +180,7 @@ export default defineAction({
       fileType: resolvedFileType,
       renderable,
       urlPath: renderable
-        ? `/design/${encodeURIComponent(designId)}?view=overview&screen=${encodeURIComponent(id)}`
+        ? `/design/${encodeURIComponent(designId)}?editorView=overview&screen=${encodeURIComponent(id)}`
         : null,
       ...(advisory.length > 0
         ? { warnings: advisory.map(describeDesignHtmlIntegrityIssue) }

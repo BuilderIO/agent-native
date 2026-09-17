@@ -103,6 +103,21 @@ describe("useNavigationState selection cleanup", () => {
     ).toMatchObject({ editorView: "overview" });
   });
 
+  it("keeps the canonical editor view when a legacy query conflicts after reload", async () => {
+    await renderProbe(
+      "/visual-edit/design-123?editorView=overview&view=single",
+    );
+
+    const routeStateCalls = coreClientMocks.useAgentRouteState.mock.calls;
+    const config = routeStateCalls[routeStateCalls.length - 1]?.[0];
+    expect(
+      config.getNavigationState({
+        pathname: "/visual-edit/design-123",
+        search: "?editorView=overview&view=single",
+      }),
+    ).toMatchObject({ editorView: "overview" });
+  });
+
   it("keeps the Builder shell out of persisted editor navigation state", async () => {
     await renderProbe("/visual-edit/shell?view=overview");
 

@@ -178,9 +178,10 @@ async function main() {
         // coercion-ok: Vite heartbeat/control frames are not JSON or HMR evidence.
       }
       if (message?.type === "update" || message?.type === "full-reload") {
+        const socketUrl = new URL(socket.url());
         hmrSignals.push({
           type: message.type,
-          url: socket.url(),
+          url: `${socketUrl.protocol}//${socketUrl.host}${socketUrl.pathname}`,
           at: Date.now(),
         });
       }
@@ -938,6 +939,12 @@ async function main() {
       (signals) => signals.length > 0,
       "Vite HMR signal after local source write",
       60_000,
+    );
+    assert(
+      hmrDuringApply.every(
+        ({ url }) => !url.includes("?") && !url.includes("#"),
+      ),
+      "HMR receipt included a query or fragment.",
     );
 
     await page.reload({ waitUntil: "commit" });
