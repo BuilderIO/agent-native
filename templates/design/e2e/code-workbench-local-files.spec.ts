@@ -839,6 +839,111 @@ test("promotes and edits a URL-backed React component through the live iframe", 
   );
 });
 
+test("duplicates a URL-backed React component through undo and redo", async ({
+  page,
+  request,
+}) => {
+  const componentPath = path.join(rootPath, "src", "Component.jsx");
+  const source = fs.readFileSync(componentPath, "utf8");
+  const targetText = source.includes('variant="tertiary"')
+    ? "tertiary"
+    : "primary";
+  if (!source.includes('data-agent-native-component="PrimaryButton"')) {
+    fs.writeFileSync(
+      componentPath,
+      source.replace(
+        'data-agent-native-node-id="react-button-1"',
+        'data-agent-native-node-id="react-button-1" data-agent-native-component="PrimaryButton" data-agent-native-prop-variant="primary"',
+      ),
+    );
+    await bundleReactFixture();
+  }
+  const opened = await postAction(request, "add-localhost-screens", {
+    connectionId,
+    designId,
+    paths: ["/react"],
+  });
+  const screenId = opened.screens?.[0]?.id;
+  if (!screenId) {
+    throw new Error(`Missing React screen metadata: ${JSON.stringify(opened)}`);
+  }
+
+  await page.goto(appPath(`/design/${designId}?editorView=overview`), {
+    waitUntil: "domcontentloaded",
+  });
+  await expect(
+    page.getByRole("button", { name: "Move", exact: true }),
+  ).toBeVisible({ timeout: 30_000 });
+  const screenRow = page
+    .getByRole("tree", { name: "Layers" })
+    .locator(`[data-layer-row-button][data-layer-node-id="${screenId}"]`);
+  await expect(screenRow).toBeVisible({ timeout: 20_000 });
+  await screenRow.click();
+  await expect
+    .poll(() =>
+      page
+        .locator(
+          `iframe[data-design-preview-iframe][data-screen-iframe-id="${screenId}"]`,
+        )
+        .contentFrame()
+        .locator('[data-agent-native-node-id="react-button-1"]')
+        .getAttribute("data-agent-native-component"),
+    )
+    .toBe("PrimaryButton");
+
+  const frame = page
+    .locator(
+      `iframe[data-design-preview-iframe][data-screen-iframe-id="${screenId}"]`,
+    )
+    .contentFrame();
+  const selection: any = await selectByText(page, targetText, { screenId });
+  const instances = () =>
+    frame.locator('[data-agent-native-component="PrimaryButton"]');
+  const pendingToolbar = page.locator(
+    "[data-design-pending-visual-style-toolbar]",
+  );
+
+  await expect(instances()).toHaveCount(1);
+  await page.keyboard.press("ControlOrMeta+d");
+  await expect(instances()).toHaveCount(2);
+  const duplicatedIds = await instances().evaluateAll((elements) =>
+    elements.map((element) =>
+      element.getAttribute("data-agent-native-node-id"),
+    ),
+  );
+  expect(new Set(duplicatedIds).size).toBe(2);
+  const runtimeInstanceIds = await instances().evaluateAll((elements) =>
+    elements.map((element) =>
+      element.getAttribute("data-agent-native-runtime-instance-id"),
+    ),
+  );
+  const cloneRuntimeInstanceIds = runtimeInstanceIds.filter(
+    (instanceId): instanceId is string => Boolean(instanceId),
+  );
+  expect(cloneRuntimeInstanceIds).toHaveLength(1);
+  expect(cloneRuntimeInstanceIds[0]).not.toBe(
+    selection.runtimeComponent?.instanceId,
+  );
+  await expect(pendingToolbar).toBeVisible();
+
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(instances()).toHaveCount(1);
+  await expect(pendingToolbar).toBeHidden();
+  await page.keyboard.press("ControlOrMeta+Shift+z");
+  await expect(instances()).toHaveCount(2);
+  await expect(pendingToolbar).toBeVisible();
+  const redoneIds = await instances().evaluateAll((elements) =>
+    elements
+      .map((element) => element.getAttribute("data-agent-native-node-id"))
+      .sort(),
+  );
+  expect(redoneIds).toEqual([...duplicatedIds].sort());
+  await expect(instances().first()).toHaveAttribute(
+    "data-agent-native-layer-name",
+    "React Primary Button",
+  );
+});
+
 test("keeps a URL screen selected when its static snapshot fails", async ({
   page,
   request,

@@ -301,6 +301,48 @@ test("component boolean and text prop controls persist through reload", async ({
   await expect(reloadedLabelInput).toHaveValue("Updated label");
 });
 
+test("component duplicate preserves instance identity through undo and redo", async ({
+  page,
+  request,
+}) => {
+  await selectByText(page, "Widget Surface", { screenId: fileId });
+  const frame = designFrame(page, fileId);
+  const instances = () =>
+    frame.locator('[data-agent-native-component="E2EWidget"]');
+  const persistedInstances = async () =>
+    (await fileContent(request)).match(
+      /data-agent-native-component="E2EWidget"/g,
+    )?.length ?? 0;
+
+  await expect(instances()).toHaveCount(1);
+  const originalId = await instances()
+    .first()
+    .getAttribute("data-agent-native-node-id");
+  expect(originalId).toBe("e2e-widget-button");
+
+  await page.keyboard.press("ControlOrMeta+d");
+  await expect(instances()).toHaveCount(2);
+  const duplicatedIds = await instances().evaluateAll((elements) =>
+    elements.map((element) =>
+      element.getAttribute("data-agent-native-node-id"),
+    ),
+  );
+  expect(new Set(duplicatedIds).size).toBe(2);
+  await expect.poll(persistedInstances).toBe(2);
+
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(instances()).toHaveCount(1);
+  await expect.poll(persistedInstances).toBe(1);
+
+  await page.keyboard.press("ControlOrMeta+Shift+z");
+  await expect(instances()).toHaveCount(2);
+  await expect.poll(persistedInstances).toBe(2);
+  await expect(instances().first()).toHaveAttribute(
+    "data-agent-native-layer-name",
+    "E2E Widget Button",
+  );
+});
+
 test("run-design-audit scopes findings to the requested file", async ({
   request,
 }) => {
