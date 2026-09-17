@@ -80,6 +80,10 @@ function harness(args: {
   const setSelectedElement = vi.fn();
   const setSelectedLayerIdsState = vi.fn();
   const clearPendingOverviewLayerSelectionTimer = vi.fn();
+  const renderedElementInfo = new Map<string, ElementInfo>();
+  const handleBreakpointBarSelect = vi.fn(() => {
+    renderedElementInfo.clear();
+  });
   const pendingOverviewLayerSelectionRef = {
     current: args.pendingLayerId ?? pendingNode.id,
   };
@@ -97,10 +101,11 @@ function harness(args: {
           ? otherProjection
           : null,
     getScreenContent: () => HTML,
-    handleBreakpointBarSelect: vi.fn(),
+    handleBreakpointBarSelect,
     id: "design-a",
     pendingOverviewLayerSelectionRef,
     pendingOverviewScreenSelectionRef,
+    renderedElementInfoByLayerKeyRef: { current: renderedElementInfo },
     selectedLayerIdsState: args.selectedLayerIds ?? [node.id],
     setActiveFileId: vi.fn(),
     setActiveTool: vi.fn(),
@@ -121,9 +126,11 @@ function harness(args: {
     body,
     commandArgs,
     clearPendingOverviewLayerSelectionTimer,
+    handleBreakpointBarSelect,
     node,
     pendingOverviewLayerSelectionRef,
     pendingOverviewScreenSelectionRef,
+    renderedElementInfo,
     setSelectedElement,
     setSelectedLayerIdsState,
     sibling,
@@ -213,6 +220,26 @@ describe("canvas modifier selection", () => {
 });
 
 describe("Layers selection runtime-info echo", () => {
+  it("caches a responsive measurement after activating its edit scope", () => {
+    const setup = harness({
+      pendingLayerId: "unrelated-pending-layer",
+      pendingScreenId: null,
+    });
+
+    runScreenElementSelect(
+      setup.commandArgs,
+      SCREEN_ID,
+      bridgeInfo({ id: "button-a", tag: "button" }),
+      undefined,
+      { breakpointWidthPx: 390 },
+    );
+
+    expect(setup.handleBreakpointBarSelect).toHaveBeenCalledWith(390);
+    expect(setup.renderedElementInfo.has(`${SCREEN_ID}:${setup.node.id}`)).toBe(
+      true,
+    );
+  });
+
   it("hydrates only the exact pending non-root layer and preserves selection state", () => {
     const setup = harness({
       pendingScreenId: SCREEN_ID,
@@ -608,6 +635,9 @@ describe("Layers selection runtime-info echo", () => {
 
       runScreenElementSelect(setup.commandArgs, SCREEN_ID, info);
 
+      expect(setup.setSelectedElement).toHaveBeenCalledWith(
+        expect.objectContaining({ computedStyles: info.computedStyles }),
+      );
       expect(queueFileContentSave).toHaveBeenCalledOnce();
       const [fileId, savedContent, saveOptions] =
         queueFileContentSave.mock.calls[0]!;

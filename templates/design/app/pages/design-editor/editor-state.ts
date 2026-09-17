@@ -177,9 +177,21 @@ export function getDesignEditorStateUrlSearch(args: {
   tool?: DesignTool | null;
   mode?: EditorMode | null;
 }) {
-  const params = new URLSearchParams(args.currentSearch);
+  const currentParams = new URLSearchParams(args.currentSearch);
+  const params = new URLSearchParams();
+  let editorViewWritten = false;
+  for (const [key, value] of currentParams) {
+    if (key === "view" || key === "editorView") {
+      if (!editorViewWritten) {
+        params.set("editorView", args.viewMode);
+        editorViewWritten = true;
+      }
+      continue;
+    }
+    params.append(key, value);
+  }
+  if (!editorViewWritten) params.set("editorView", args.viewMode);
   const leftPanel = normalizeDesignLeftPanel(args.leftPanel) ?? null;
-  params.set("view", args.viewMode);
   if (leftPanel && leftPanel !== "file") {
     params.set("panel", leftPanel);
   } else {

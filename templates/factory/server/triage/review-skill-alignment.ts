@@ -1,3 +1,5 @@
+export const FACTORY_ALIGNMENT_REVISION = 1;
+
 const ALIGNMENT_START = "<!-- factory-skill-alignment:start -->";
 const ALIGNMENT_END = "<!-- factory-skill-alignment:end -->";
 

@@ -119,7 +119,7 @@ function designDeepLink(designId: string): string {
     app: "design",
     view: "editor",
     params: { designId, editorView: "overview" },
-    to: `/design/${encodeURIComponent(designId)}?view=overview`,
+    to: `/design/${encodeURIComponent(designId)}?editorView=overview`,
   });
 }
 
@@ -1194,7 +1194,7 @@ export default defineAction({
       view: "editor",
       designId,
       editorView: "overview",
-      path: `/design/${encodeURIComponent(designId)}?view=overview`,
+      path: `/design/${encodeURIComponent(designId)}?editorView=overview`,
     });
     // The pick opens a continuation turn that inherits nothing from this one,
     // and that turn is what expands the kept placeholder into the real screen.
@@ -1278,7 +1278,7 @@ export default defineAction({
       variantSetId,
       count: screens.length,
       screens,
-      path: `/design/${encodeURIComponent(designId)}?view=overview`,
+      path: `/design/${encodeURIComponent(designId)}?editorView=overview`,
       embed: true,
       cleanedUpPreviousVariantScreens: variantSetCleanup.removedFileIds.length,
       deletedSupersededSetIds: variantSetCleanup.removedSetIds,
