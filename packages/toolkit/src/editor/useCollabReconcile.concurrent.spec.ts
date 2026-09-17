@@ -1476,6 +1476,58 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
     ]);
   });
 
+  it("accepts a newer acknowledgement at an observed timestamp as the merge base", async () => {
+    vi.useFakeTimers();
+    const { captured, Harness } = makeHarness();
+    const compareContentRevisions = (first: string, second: string) =>
+      Number(first.split(":")[1]) - Number(second.split(":")[1]);
+    const timestamp = "2024-01-01T00:00:02.000Z";
+    render(root, Harness, {
+      value: "Alpha\n\nBravo\n\nCharlie",
+      contentUpdatedAt: timestamp,
+      contentRevision: "body:1:sha256:initial",
+      compareContentRevisions,
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+
+    act(() =>
+      captured.editor!.commands.setContent(
+        "Alpha local\n\nBravo\n\nCharlie local",
+      ),
+    );
+    const acknowledgement = {
+      value: "Alpha local\n\nBravo\n\nCharlie",
+      revision: "body:2:sha256:acknowledged",
+      updatedAt: timestamp,
+      sequence: 1,
+    };
+    render(root, Harness, {
+      value: "Alpha\n\nBravo\n\nCharlie",
+      contentUpdatedAt: timestamp,
+      contentRevision: "body:1:sha256:initial",
+      compareContentRevisions,
+      acknowledgedLocalSnapshot: acknowledgement,
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+
+    render(root, Harness, {
+      value: "Alpha external\n\nBravo server\n\nCharlie",
+      contentUpdatedAt: timestamp,
+      contentRevision: "body:3:sha256:external",
+      compareContentRevisions,
+      acknowledgedLocalSnapshot: acknowledgement,
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+
+    expect(getEditorMarkdown(captured.editor!)).toBe(
+      "Alpha external\n\nBravo server\n\nCharlie local",
+    );
+    expect(captured.reconciled?.at(-1)).toEqual({
+      status: "merged",
+      content: "Alpha external\n\nBravo server\n\nCharlie local",
+    });
+  });
+
   it("persists the first local edit after a synced empty collaborative document", async () => {
     const captured: Captured = {
       editor: null,

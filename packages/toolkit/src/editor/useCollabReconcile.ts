@@ -692,14 +692,26 @@ export function useCollabReconcile({
         const acknowledgementIsNewestAccepted =
           !acceptedAcknowledgement ||
           acknowledgedLocalSnapshot.sequence > acceptedAcknowledgement.sequence;
+        const acknowledgementRevisionOrder =
+          acknowledgedLocalSnapshot.updatedAt ===
+            latestObservedUpdatedAtRef.current &&
+          latestObservedRevisionRef.current
+            ? compareContentRevisions?.(
+                acknowledgedLocalSnapshot.revision,
+                latestObservedRevisionRef.current,
+              )
+            : null;
         const acknowledgementIsNotSuperseded =
           !latestObservedUpdatedAtRef.current ||
           acknowledgedLocalSnapshot.updatedAt >
             latestObservedUpdatedAtRef.current ||
           (acknowledgedLocalSnapshot.updatedAt ===
             latestObservedUpdatedAtRef.current &&
-            latestObservedRevisionRef.current ===
-              acknowledgedLocalSnapshot.revision);
+            (latestObservedRevisionRef.current ===
+              acknowledgedLocalSnapshot.revision ||
+              (acknowledgementRevisionOrder !== undefined &&
+                acknowledgementRevisionOrder !== null &&
+                acknowledgementRevisionOrder >= 0)));
         if (acknowledgementIsNewestAccepted && acknowledgementIsNotSuperseded) {
           acknowledgedLocalSnapshotRef.current = acknowledgedLocalSnapshot;
           const existingRollback = acknowledgementBaseRollbackRef.current;
@@ -718,6 +730,16 @@ export function useCollabReconcile({
             value: acknowledgedLocalSnapshot.value,
             revision: acknowledgedLocalSnapshot.revision,
           };
+          if (
+            acknowledgedLocalSnapshot.updatedAt ===
+              latestObservedUpdatedAtRef.current &&
+            acknowledgementRevisionOrder !== undefined &&
+            acknowledgementRevisionOrder !== null &&
+            acknowledgementRevisionOrder > 0
+          ) {
+            latestObservedRevisionRef.current =
+              acknowledgedLocalSnapshot.revision;
+          }
           if (
             !lastAppliedUpdatedAtRef.current ||
             acknowledgedLocalSnapshot.updatedAt >
