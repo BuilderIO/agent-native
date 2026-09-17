@@ -89,6 +89,11 @@ const messages: AgentChatTranslation = {
     "التعرف على الكلام في المتصفح أو تحويل الكلام إلى نص",
   "onboarding.capability.voiceInput.why":
     "يحوّل الإدخال الصوتي الطلبات المنطوقة إلى نص؛ وتظل الكتابة متاحة دائمًا.",
+  "onboarding.capability.embeddings.label": "التضمينات",
+  "onboarding.capability.embeddings.keySummary":
+    "مفتاح Gemini أو Cohere أو Voyage",
+  "onboarding.capability.embeddings.why":
+    "تُحسّن التضمينات البحث الدلالي. يظل البحث بالكلمات المفتاحية يعمل من دونها.",
   "onboarding.capability.assetsImageGeneration.label": "إنشاء الصور",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "أرصدة Builder أو مفتاح مزود صور",

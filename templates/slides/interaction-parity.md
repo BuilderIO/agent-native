@@ -445,8 +445,9 @@ evidence below are marked verified, and only for the tested cases.
     Before the fix, the rail keydown handler accepted only C/V/D, so X could
     not invoke that slide operation. Code disposition: focused Cmd/Ctrl+X now
     cuts the selected slide set through `cutSlides`, leaves a rendered-text
-    selection to native browser behavior, and retains the existing protections
-    against cutting all slides or mutating source-imported decks. A source
+    selection to native browser behavior, and retains the existing protection
+    against cutting all slides. Structural edits clear source-import
+    provenance. A source
     regression was added but not run; direct Google behavior and cut/paste
     undo/reload remain pending the serial slot.
 25. Keyboard duplication of a selected slide set. Google Help says multiple

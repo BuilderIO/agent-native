@@ -67,16 +67,6 @@ export default defineAction({
       deckData,
       repairDeckSlideReferences(deckData, slides, originalSlideIds),
     );
-    if (
-      deckData.sourceImport &&
-      typeof deckData.sourceImport === "object" &&
-      !Array.isArray(deckData.sourceImport)
-    ) {
-      deckData.sourceImport = {
-        ...deckData.sourceImport,
-        editableSnapshot: true,
-      };
-    }
     deckData.title = newTitle;
     deckData.createdAt = now;
     deckData.updatedAt = now;

@@ -338,6 +338,26 @@ describe("add-slide", () => {
     });
   });
 
+  it("clears source provenance when adding to an imported deck", async () => {
+    deckData.sourceImport = {
+      mode: "source-preserving",
+      format: "pptx",
+      slideIds: ["slide-1", "slide-2"],
+      slides: [{ id: "slide-1" }, { id: "slide-2" }],
+    };
+
+    const result = await action.run({
+      deckId: "deck-1",
+      slideId: "slide-new",
+      content: "<div>New</div>",
+    });
+
+    expect(result).toMatchObject({ sourceImportCleared: true });
+    expect(JSON.parse(updatedFields!.data as string)).not.toHaveProperty(
+      "sourceImport",
+    );
+  });
+
   it("preserves explicitly empty speaker notes when provided", async () => {
     await action.run({
       deckId: "deck-1",

@@ -164,6 +164,37 @@ export function restoreSlideObjectStyle(
   else element.setAttribute("style", style);
 }
 
+export interface SlideObjectDomSnapshot {
+  className: string;
+  style: string | null;
+  objectId: string | null;
+  contentEditable: string | null;
+  editingBlock: string | null;
+}
+
+export function restoreSlideObjectDomSnapshot(
+  element: HTMLElement,
+  snapshot: SlideObjectDomSnapshot,
+): void {
+  element.className = snapshot.className;
+  restoreSlideObjectStyle(element, snapshot.style);
+  if (snapshot.contentEditable === null) {
+    element.removeAttribute("contenteditable");
+  } else {
+    element.setAttribute("contenteditable", snapshot.contentEditable);
+  }
+  if (snapshot.editingBlock === null) {
+    element.removeAttribute("data-editing-block");
+  } else {
+    element.setAttribute("data-editing-block", snapshot.editingBlock);
+  }
+  if (snapshot.objectId === null) {
+    element.removeAttribute("data-slide-object-id");
+  } else {
+    element.setAttribute("data-slide-object-id", snapshot.objectId);
+  }
+}
+
 export function createSlideObjectPlacementGeometry(
   start: { x: number; y: number },
   end: { x: number; y: number },

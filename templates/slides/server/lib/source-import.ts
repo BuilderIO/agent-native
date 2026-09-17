@@ -11,8 +11,6 @@ export interface SourceImportSlideSnapshot {
 export interface SourceImportMetadata {
   mode: "source-preserving";
   format: SourceImportFormat;
-  /** The copy keeps source geometry for export but no longer locks structure. */
-  editableSnapshot?: boolean;
   fidelity: "source-faithful" | "partial";
   importedAt: string;
   slideCount: number;
