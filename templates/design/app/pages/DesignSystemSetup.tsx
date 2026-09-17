@@ -1087,6 +1087,7 @@ export default function DesignSystemSetup() {
                   selected={sourcePanel === "other" && otherSource === "code"}
                   onClick={() => selectOtherSource("code")}
                   locked={!codeIndexingAllowed}
+                  lockedMessage={t("designSystemSetup.codeIndexingEnterpriseOnly")}
                 />
                 <SourceChoice
                   icon={IconFileDescription}
@@ -1744,28 +1745,40 @@ function SourceChoice({
   title,
   selected,
   onClick,
+  locked,
+  lockedMessage,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   title: string;
   selected: boolean;
   onClick: () => void;
+  locked?: boolean;
+  lockedMessage?: string;
 }) {
   return (
     <button
       type="button"
       aria-pressed={selected}
-      onClick={onClick}
+      aria-disabled={locked}
+      title={locked ? lockedMessage : undefined}
+      onClick={locked ? undefined : onClick}
       className={`flex min-h-16 items-center gap-2 rounded-lg border px-3 py-2 text-start transition-[background-color,border-color] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-        selected
-          ? "border-primary/50 bg-primary/5 text-foreground"
-          : "border-border hover:bg-accent/50"
+        locked
+          ? "border-border opacity-60 cursor-not-allowed"
+          : selected
+            ? "border-primary/50 bg-primary/5 text-foreground"
+            : "border-border hover:bg-accent/50"
       }`}
     >
       <Icon className="size-4 shrink-0 text-muted-foreground" />
       <span className="min-w-0 flex-1 truncate text-sm font-medium">
         {title}
       </span>
-      {selected ? <IconCheck className="size-4 shrink-0 text-primary" /> : null}
+      {locked ? (
+        <IconLock className="size-4 shrink-0 text-muted-foreground" />
+      ) : selected ? (
+        <IconCheck className="size-4 shrink-0 text-primary" />
+      ) : null}
     </button>
   );
 }
