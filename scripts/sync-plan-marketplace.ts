@@ -408,8 +408,9 @@ async function expectedFiles(): Promise<GeneratedFile[]> {
     }),
   );
 
-  // Codex catalog under .agents/plugins. `source` is a sibling local path with
-  // no `..` segments, matching MarketplacePluginSourceObject::Local.
+  // Codex catalog under .agents/plugins. `source.path` resolves from the repo
+  // root, not from this manifest's directory, so it repeats `.agents/plugins/`
+  // instead of naming the sibling bundle directly.
   files.push(
     await jsonFile(join(".agents", "plugins", "marketplace.json"), {
       name: CLAUDE_MARKETPLACE_NAME,
@@ -423,7 +424,7 @@ async function expectedFiles(): Promise<GeneratedFile[]> {
           name,
           source: {
             source: "local",
-            path: `./${name}`,
+            path: `./.agents/plugins/${name}`,
           },
         };
       }),
