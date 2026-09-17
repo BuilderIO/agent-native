@@ -3,15 +3,35 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-17
+
+### Added
+
+- Design can open running localhost apps through the current browser session
+
+### Improved
+
+- Design loads faster and large .fig imports can target selected frames
+
+### Fixed
+
+- Large .fig files import directly in the browser without the old upload ceiling
+
 ## 2026-09-16
 
 ### Improved
 
+- Design files avoid cold-start scans and open faster after idle periods
+- Design marquee selections stay responsive on large screens
 - Design editor agent chat uses shared conversation tabs and stays usable at narrow widths
 - Empty template libraries now link directly back to your designs.
 
 ### Fixed
 
+- Design comments keep keyboard mentions and selected recipients through drafts and replies
+- Design Fill editing uses the visible background paint on text-bearing controls
+- Design inspector controls match compact Figma spacing
+- URL-backed visual edits keep their editor state through consent and source writeback
 - Canvas zoom controls and keyboard shortcuts now update the canvas immediately
 - Design auto layout controls stay aligned to the 28-column inspector grid
 - Design review pins follow screens and keep comment actions together
@@ -25,6 +45,10 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 - A message that only mentions a design, or pastes Design's own guidance back into chat, no longer ends with a false "couldn't confirm that a Design artifact was saved" reply.
 
 ## 2026-09-15
+
+### Added
+
+- Added draggable corner-radius handles to the selection outline (drag inward to round corners, like Figma) and polished the outer resize handle styling
 
 ### Improved
 
@@ -41,6 +65,11 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Fixed .fig file import placing multi-frame flows in reverse order — frames now import in left-to-right canvas order instead of layer/creation order
+- Fixed fill dialog tooltips (paint type tabs, eyedropper, document colors) rendering behind the dialog instead of in front of it
+- Fixed the live width × height readout shown while drawing a new shape to render as a rounded blue pill, matching the equivalent resize readout
+- Fixed polygon and star shapes getting letterboxed instead of resizing with their bounding box
+- Fixed the width × height label shown while resizing an element rendering as plain unstyled text instead of a visible colored badge
 - Alt-dragging a layer inside a group now keeps the duplicate under the cursor for the whole drag instead of jumping into place on release.
 - Breakpoint width edits preserve the existing breakpoint, and new Screens stay clear of visible breakpoint previews.
 - Changing a grid's column or row count no longer turns fill or hug tracks into fixed pixel sizes
