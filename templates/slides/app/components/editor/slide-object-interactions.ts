@@ -1663,7 +1663,8 @@ function hasIndependentlyPositionedDescendant(element: HTMLElement): boolean {
   return Array.from(element.querySelectorAll<HTMLElement>("*")).some(
     (descendant) => {
       const computedPosition = window.getComputedStyle(descendant).position;
-      return (computedPosition || descendant.style.position) === "absolute";
+      const position = computedPosition || descendant.style.position;
+      return position === "absolute" || position === "fixed";
     },
   );
 }
@@ -1676,6 +1677,7 @@ export function resolveSlideObjectMoveRoots(
 ): HTMLElement[] {
   const roots = normalizeSlideObjectRoots(elements).map((element) => {
     let current: HTMLElement | null = element;
+    let promotedRoot: HTMLElement | null = null;
     while (current && current !== boundary) {
       const leaves = Array.from(
         current.querySelectorAll<HTMLElement>("[data-builder-id]"),
@@ -1692,11 +1694,11 @@ export function resolveSlideObjectMoveRoots(
           return id !== null && selectedIds.has(id);
         })
       ) {
-        return current;
+        promotedRoot = current;
       }
       current = current.parentElement;
     }
-    return element;
+    return promotedRoot ?? element;
   });
   return normalizeSlideObjectRoots(roots);
 }

@@ -1672,6 +1672,50 @@ describe("slide object interactions", () => {
     ).toEqual([label, positioned]);
   });
 
+  it("promotes the highest fully-selected bordered card", () => {
+    const slideContent = document.createElement("div");
+    const outerCard = document.createElement("div");
+    outerCard.style.borderBottom = "2px solid";
+    const innerCard = document.createElement("div");
+    innerCard.style.borderRight = "2px solid";
+    const label = document.createElement("div");
+    label.dataset.builderId = "label";
+    const copy = document.createElement("div");
+    copy.dataset.builderId = "copy";
+    innerCard.append(label, copy);
+    outerCard.append(innerCard);
+    slideContent.append(outerCard);
+
+    expect(
+      resolveSlideObjectMoveRoots(
+        [label, copy],
+        new Set(["label", "copy"]),
+        slideContent,
+      ),
+    ).toEqual([outerCard]);
+  });
+
+  it("does not promote a bordered flow card with fixed descendants", () => {
+    const slideContent = document.createElement("div");
+    const card = document.createElement("div");
+    card.style.borderTop = "2px solid";
+    const label = document.createElement("div");
+    label.dataset.builderId = "label";
+    const fixed = document.createElement("div");
+    fixed.dataset.builderId = "fixed";
+    fixed.style.position = "fixed";
+    card.append(label, fixed);
+    slideContent.append(card);
+
+    expect(
+      resolveSlideObjectMoveRoots(
+        [label, fixed],
+        new Set(["label", "fixed"]),
+        slideContent,
+      ),
+    ).toEqual([label, fixed]);
+  });
+
   it("moves every member by the same delta relative to its own captured start", () => {
     const objectA = createFreeformObject("a", { left: 10, top: 20 });
     const objectB = createFreeformObject("b", { left: 30, top: 40 });
