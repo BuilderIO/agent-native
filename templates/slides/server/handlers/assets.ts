@@ -112,7 +112,7 @@ function hasExpectedImageSignature(ext: string, data: Uint8Array): boolean {
   return false;
 }
 
-function isSafeSvg(data: Uint8Array): boolean {
+export function isSafeSvg(data: Uint8Array): boolean {
   let source: string;
   try {
     source = new TextDecoder("utf-8", { fatal: true }).decode(data);
@@ -133,9 +133,9 @@ function isSafeSvg(data: Uint8Array): boolean {
   if (forbidden.some((pattern) => pattern.test(source))) return false;
 
   for (const match of source.matchAll(
-    /(?:href|xlink:href)\s*=\s*(["'])(.*?)\1/gi,
+    /(?:href|xlink:href)\s*=\s*(?:(['"])(.*?)\1|([^\s>]+))/gi,
   )) {
-    const target = match[2]?.trim() ?? "";
+    const target = (match[2] ?? match[3] ?? match[4] ?? "").trim();
     if (
       target &&
       !target.startsWith("#") &&

@@ -71,6 +71,14 @@ describe("uploaded asset validation", () => {
         ),
       }),
     ).toBe(false);
+    expect(
+      canSaveAsUploadedAsset({
+        originalName: "unquoted-remote.svg",
+        data: Buffer.from(
+          '<svg xmlns="http://www.w3.org/2000/svg"><image href=https://example.com/x.png /></svg>',
+        ),
+      }),
+    ).toBe(false);
   });
 
   it("normalizes SVG MIME before sending it to the upload provider", async () => {

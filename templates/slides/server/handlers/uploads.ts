@@ -22,7 +22,11 @@ import {
   deleteUploadedReferenceBlob,
   storeUploadedReferenceBlob,
 } from "../lib/uploaded-reference-storage.js";
-import { canSaveAsUploadedAsset, uploadImageAsset } from "./assets.js";
+import {
+  canSaveAsUploadedAsset,
+  isSafeSvg,
+  uploadImageAsset,
+} from "./assets.js";
 import {
   resolveSlidesRequestAuth,
   withSlidesRequestContext,
@@ -178,6 +182,9 @@ export async function saveUploadedReferenceFile(args: {
   }
   if (!hasExpectedSignature(ext, args.data)) {
     throw new Error(`File contents do not match ${ext} upload type`);
+  }
+  if (ext === ".svg" && !isSafeSvg(args.data)) {
+    throw new Error("SVG contains active content or external references");
   }
   const assetOriginalName =
     ext === declaredExt

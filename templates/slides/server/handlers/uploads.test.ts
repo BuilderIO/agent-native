@@ -8,6 +8,7 @@ const mockReadMultipartFormData = vi.hoisted(() => vi.fn());
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
 const mockResolveSlidesRequestAuth = vi.hoisted(() => vi.fn());
 const mockWithSlidesRequestContext = vi.hoisted(() => vi.fn());
+const mockIsSafeSvg = vi.hoisted(() => vi.fn(() => true));
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
@@ -37,6 +38,7 @@ vi.mock("../lib/uploaded-reference-storage.js", () => ({
 
 vi.mock("./assets.js", () => ({
   canSaveAsUploadedAsset: () => false,
+  isSafeSvg: () => mockIsSafeSvg(),
   uploadImageAsset: vi.fn(),
 }));
 
@@ -63,6 +65,8 @@ describe("Slides reference upload limits", () => {
     mockStoreUploadedReferenceBlob.mockReset();
     mockReadMultipartFormData.mockReset();
     mockSetResponseStatus.mockReset();
+    mockIsSafeSvg.mockReset();
+    mockIsSafeSvg.mockReturnValue(true);
     mockResolveSlidesRequestAuth.mockResolvedValue({
       ok: true,
       context: { email: "owner@example.com", orgId: "active-org" },
@@ -175,6 +179,22 @@ describe("Slides reference upload limits", () => {
       filename: expect.stringMatching(/\.svg$/),
       type: "image/svg+xml",
     });
+  });
+
+  it("rejects unsafe SVG reference uploads before storing them", async () => {
+    mockIsSafeSvg.mockReturnValue(false);
+
+    await expect(
+      saveUploadedReferenceFile({
+        email: "owner@example.com",
+        originalName: "unsafe.svg",
+        data: Buffer.from(
+          "<svg><image href=https://example.com/x.png /></svg>",
+        ),
+      }),
+    ).rejects.toThrow("SVG contains active content or external references");
+
+    expect(mockWriteFile).not.toHaveBeenCalled();
   });
 
   it("stores hosted reference uploads in durable private blob storage", async () => {
