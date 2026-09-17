@@ -173,8 +173,11 @@ vi.mock("../server/db/index.js", () => {
     schema: mocks.schema,
     getDb: () => ({
       ...db,
-      transaction: async (callback: (tx: typeof db & { execute: () => Promise<unknown> }) => Promise<unknown>) =>
-        callback({ ...db, execute: async () => ({ rows: [] }) }),
+      transaction: async (
+        callback: (
+          tx: typeof db & { execute: () => Promise<unknown> },
+        ) => Promise<unknown>,
+      ) => callback({ ...db, execute: async () => ({ rows: [] }) }),
     }),
   };
 });
