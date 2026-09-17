@@ -14,14 +14,23 @@ type OwnerRecord = {
 
 function ReconnectOwnerHarness({
   id,
+  threadId,
   onReady,
+  onCleanup,
 }: {
   id: string;
+  threadId?: string;
   onReady: (record: OwnerRecord) => void;
+  onCleanup?: (runId: string | null, threadId?: string | null) => void;
 }) {
   const runIdRef = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
-  const mountedRef = useReconnectReaderOwner(runIdRef, abortRef);
+  const mountedRef = useReconnectReaderOwner(
+    runIdRef,
+    abortRef,
+    (ownerThreadId) => onCleanup?.(runIdRef.current, ownerThreadId),
+    threadId,
+  );
 
   useEffect(() => {
     const controller = new AbortController();
@@ -86,5 +95,58 @@ describe("useReconnectReaderOwner", () => {
     rootUnmounted = true;
     expect(secondOwner?.controller.signal.aborted).toBe(true);
     expect(secondOwner?.mountedRef.current).toBe(false);
+  });
+
+  it("runs cleanup while the reader identity is still available", () => {
+    let cleanupRunId: string | null = null;
+
+    act(() => {
+      root.render(
+        <ReconnectOwnerHarness
+          id="run-cleanup"
+          onReady={() => {}}
+          onCleanup={(runId) => {
+            cleanupRunId = runId;
+          }}
+        />,
+      );
+    });
+
+    act(() => root.unmount());
+    rootUnmounted = true;
+    expect(cleanupRunId).toBe("run-cleanup");
+  });
+
+  it("releases the old thread when the owner changes threads in place", () => {
+    let cleanupThreadId: string | null | undefined;
+    const onReady = () => {};
+
+    act(() => {
+      root.render(
+        <ReconnectOwnerHarness
+          id="run-thread-one"
+          threadId="thread-one"
+          onReady={onReady}
+          onCleanup={(_runId, threadId) => {
+            cleanupThreadId = threadId;
+          }}
+        />,
+      );
+    });
+
+    act(() => {
+      root.render(
+        <ReconnectOwnerHarness
+          id="run-thread-two"
+          threadId="thread-two"
+          onReady={onReady}
+          onCleanup={(_runId, threadId) => {
+            cleanupThreadId = threadId;
+          }}
+        />,
+      );
+    });
+
+    expect(cleanupThreadId).toBe("thread-one");
   });
 });

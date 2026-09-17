@@ -60,6 +60,7 @@ describe("framework release schema migrations", () => {
         "terminal_reason",
         "worker_stage",
         "in_flight_since",
+        "continuation_order",
       ]),
     );
     expect(await columns(db, "agent_run_events")).toContain("event_at");
