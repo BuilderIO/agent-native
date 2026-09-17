@@ -2959,6 +2959,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         color: cs.color,
         backgroundColor: cs.backgroundColor,
         backgroundImage: cs.backgroundImage,
+        backgroundClip: cs.backgroundClip === "text" || cs.getPropertyValue("-webkit-background-clip") === "text" ? "text" : cs.backgroundClip,
         backgroundPosition: cs.backgroundPosition,
         backgroundRepeat: cs.backgroundRepeat,
         backgroundSize: cs.backgroundSize,
