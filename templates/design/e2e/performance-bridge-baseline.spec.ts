@@ -286,6 +286,7 @@ async function installMarqueeProfiler(
         firstMessageAt: number | null;
         finalMessageAt: number | null;
         messageCount: number;
+        bridgeReplyCount: number;
         finalMessageCount: number;
         finalSelectionIds: string[];
       };
@@ -301,6 +302,7 @@ async function installMarqueeProfiler(
       firstMessageAt: null,
       finalMessageAt: null,
       messageCount: 0,
+      bridgeReplyCount: 0,
       finalMessageCount: 0,
       finalSelectionIds: [],
     };
@@ -325,6 +327,7 @@ async function installMarqueeProfiler(
       const at = window.performance.now() - performance.startedAt;
       performance.messageCount += 1;
       performance.firstMessageAt ??= at;
+      if (isBridgeReply) performance.bridgeReplyCount += 1;
       if (data.intent?.final !== true) return;
       performance.finalMessageCount += 1;
       performance.finalMessageAt = at;
@@ -415,6 +418,16 @@ async function performProfiledMarquee(
       lastBox.x + lastBox.width + 12,
       firstBox.y + firstBox.height + 12,
       { steps: 24 },
+    );
+    await page.waitForFunction(
+      () =>
+        ((
+          window as typeof window & {
+            __marqueePerformance?: { bridgeReplyCount?: number };
+          }
+        ).__marqueePerformance?.bridgeReplyCount ?? 0) > 0,
+      undefined,
+      { timeout: 15_000 },
     );
     await page.mouse.up();
   } finally {
