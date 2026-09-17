@@ -203,6 +203,7 @@ export default defineAction({
           await snapshotDesignBeforeAgentEditInVersionLock(
             file.designId,
             context,
+            tx,
           );
         }
 

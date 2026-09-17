@@ -454,10 +454,13 @@ async function assertNoUnpersistedCollaborativeEdits(
   designId: string,
   storedFiles: ReadonlyArray<{ id: string; content: string }>,
   designData?: string | null,
+  database?: DesignDatabase,
 ): Promise<void> {
   let liveSnapshot;
   try {
-    liveSnapshot = await buildDesignSnapshot(designId, designData);
+    liveSnapshot = database
+      ? await buildDesignSnapshot(designId, designData, {}, database)
+      : await buildDesignSnapshot(designId, designData);
   } catch {
     throw new DesignVersionRestoreConflictError(
       "Design history cannot verify live editing state right now. Refresh and try again.",
@@ -489,6 +492,7 @@ async function withDesignFileLocks<T>(
 }
 
 type DesignAccess = Awaited<ReturnType<typeof assertAccess>>;
+type DesignDatabase = Pick<ReturnType<typeof getDb>, "select" | "insert">;
 
 const designVersionLocks = new Map<string, Promise<unknown>>();
 
@@ -501,8 +505,9 @@ async function captureDesignVersion(
     preferStoredFileContent?: boolean;
   },
   access: DesignAccess,
+  database?: DesignDatabase,
 ): Promise<{ id: string; createdAt: string; label: string }> {
-  const design = access.resource as {
+  let design = access.resource as {
     data?: unknown;
     title?: unknown;
     description?: unknown;
@@ -510,14 +515,24 @@ async function captureDesignVersion(
     designSystemId?: unknown;
     ownerEmail?: unknown;
   };
+  if (database) {
+    const [currentDesign] = await database
+      .select()
+      .from(schema.designs)
+      .where(eq(schema.designs.id, designId))
+      .limit(1);
+    if (!currentDesign) {
+      throw new Error(`Design "${designId}" not found.`);
+    }
+    design = { ...design, ...currentDesign };
+  }
   const designData = parseDesignData(designId, design.data);
-  const liveSnapshot = await buildDesignSnapshot(
-    designId,
-    designData,
-    options.preferStoredFileContent
-      ? { preferStoredFileContent: true }
-      : undefined,
-  );
+  const snapshotOptions = options.preferStoredFileContent
+    ? { preferStoredFileContent: true }
+    : undefined;
+  const liveSnapshot = database
+    ? await buildDesignSnapshot(designId, designData, snapshotOptions, database)
+    : await buildDesignSnapshot(designId, designData, snapshotOptions);
   const designTitle = typeof design.title === "string" ? design.title : "";
   const designDescription =
     typeof design.description === "string" || design.description === null
@@ -549,7 +564,7 @@ async function captureDesignVersion(
     resolvedCssVars: liveSnapshot.resolvedCssVars,
     deletionGeometry: options.deletionGeometry,
   };
-  const db = getDb();
+  const db = database ?? getDb();
   const [latest] = await db
     .select({
       id: schema.designVersions.id,
@@ -761,6 +776,7 @@ export async function createDesignVersionSnapshot(
 async function snapshotDesignBeforeAgentEditInLock(
   designId: string,
   context: ActionRunContext,
+  database?: DesignDatabase,
 ): Promise<{ id: string; createdAt: string; label: string } | null> {
   const chatContext = actionChatContext(context);
   const editorContext = editorActionContext(context);
@@ -777,13 +793,14 @@ async function snapshotDesignBeforeAgentEditInLock(
         chatContext: editorContext,
       },
       access,
+      database,
     );
   }
   if (!chatContext) return null;
   const key = chatContextKey(chatContext);
   if (!key) return null;
 
-  const rows = await getDb()
+  const rows = await (database ?? getDb())
     .select({
       id: schema.designVersions.id,
       createdAt: schema.designVersions.createdAt,
@@ -831,6 +848,7 @@ async function snapshotDesignBeforeAgentEditInLock(
       chatContext,
     },
     access,
+    database,
   );
 }
 
@@ -848,9 +866,10 @@ export async function snapshotDesignBeforeAgentEdit(
 export async function snapshotDesignBeforeAgentEditInVersionLock(
   designId: string,
   context?: ActionRunContext,
+  database?: DesignDatabase,
 ): Promise<{ id: string; createdAt: string; label: string } | null> {
   if (!context) return null;
-  return snapshotDesignBeforeAgentEditInLock(designId, context);
+  return snapshotDesignBeforeAgentEditInLock(designId, context, database);
 }
 
 export async function listDesignVersions(
@@ -947,7 +966,7 @@ export async function restoreDesignVersion(args: {
   collaborationReconcilePending: string[];
 }> {
   return withDesignVersionLock(args.designId, async () => {
-    await assertAccess("design", args.designId, "editor");
+    const access = await assertAccess("design", args.designId, "editor");
     const db = getDb();
     const [version] = await db
       .select({
@@ -998,50 +1017,51 @@ export async function restoreDesignVersion(args: {
         ...target.files.flatMap((file) => (file.id ? [file.id] : [])),
       ],
       async () => {
-        const lockedFiles = await db
-          .select()
-          .from(schema.designFiles)
-          .where(eq(schema.designFiles.designId, args.designId));
-        await assertNoForeignCollaborators(
-          [
-            ...lockedFiles.map((file) => file.id),
-            ...target.files.flatMap((file) => (file.id ? [file.id] : [])),
-          ],
-          currentEmail,
-        );
-
-        const lockedAccess = await assertAccess(
-          "design",
-          args.designId,
-          "editor",
-        );
-        const currentDesign = lockedAccess.resource as {
-          data?: unknown;
-          updatedAt?: string | null;
-        };
-        await assertNoUnpersistedCollaborativeEdits(
-          args.designId,
-          lockedFiles,
-          typeof currentDesign.data === "string"
-            ? currentDesign.data
-            : undefined,
-        );
-        const before = await captureDesignVersion(
-          args.designId,
-          { label: "Before restore" },
-          lockedAccess,
-        );
-        const now = new Date();
-        const updatedAt = nextUpdatedAt(currentDesign.updatedAt ?? null, now);
-        const currentById = new Map(lockedFiles.map((file) => [file.id, file]));
-        const currentByFilename = new Map(
-          lockedFiles.map((file) => [file.filename, file]),
-        );
-        const claimedIds = new Set<string>();
-        const restoreFiles: RestoreFile[] = [];
-
-        await db.transaction(async (tx) => {
+        return db.transaction(async (tx) => {
           await lockDesignFilesTable(tx);
+          const lockedFiles = await tx
+            .select()
+            .from(schema.designFiles)
+            .where(eq(schema.designFiles.designId, args.designId));
+          await assertNoForeignCollaborators(
+            [
+              ...lockedFiles.map((file) => file.id),
+              ...target.files.flatMap((file) => (file.id ? [file.id] : [])),
+            ],
+            currentEmail,
+          );
+
+          const [currentDesign] = await tx
+            .select()
+            .from(schema.designs)
+            .where(eq(schema.designs.id, args.designId))
+            .limit(1);
+          if (!currentDesign) {
+            throw new Error(`Design "${args.designId}" not found.`);
+          }
+          await assertNoUnpersistedCollaborativeEdits(
+            args.designId,
+            lockedFiles,
+            currentDesign.data,
+            tx,
+          );
+          const before = await captureDesignVersion(
+            args.designId,
+            { label: "Before restore" },
+            access,
+            tx,
+          );
+          const now = new Date();
+          const updatedAt = nextUpdatedAt(currentDesign.updatedAt ?? null, now);
+          const currentById = new Map(
+            lockedFiles.map((file) => [file.id, file]),
+          );
+          const currentByFilename = new Map(
+            lockedFiles.map((file) => [file.filename, file]),
+          );
+          const claimedIds = new Set<string>();
+          const restoreFiles: RestoreFile[] = [];
+
           for (const targetFile of target.files) {
             const byId = targetFile.id
               ? currentById.get(targetFile.id)
@@ -1201,18 +1221,18 @@ export async function restoreDesignVersion(args: {
               "Design changed while history was being restored. Refresh and try again.",
             );
           }
-        });
 
-        return {
-          beforeRestoreVersionId: before.id,
-          restore: {
-            updatedAt,
-            files: restoreFiles,
-            deletedFileIds: lockedFiles
-              .filter((file) => !claimedIds.has(file.id))
-              .map((file) => file.id),
-          },
-        };
+          return {
+            beforeRestoreVersionId: before.id,
+            restore: {
+              updatedAt,
+              files: restoreFiles,
+              deletedFileIds: lockedFiles
+                .filter((file) => !claimedIds.has(file.id))
+                .map((file) => file.id),
+            },
+          };
+        });
       },
     );
 

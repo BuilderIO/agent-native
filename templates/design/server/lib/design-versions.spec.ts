@@ -139,6 +139,7 @@ import {
   parseDesignVersionSnapshot,
   readDesignVersionSnapshot,
   snapshotDesignBeforeAgentEdit,
+  snapshotDesignBeforeAgentEditInVersionLock,
 } from "./design-versions.js";
 
 beforeEach(() => {
@@ -434,6 +435,59 @@ describe("createDesignVersionSnapshot", () => {
         },
       ],
     });
+  });
+
+  it("uses the caller transaction for hosted-style checkpoint reads and writes", async () => {
+    let selectCall = 0;
+    const transactionDb = {
+      select: () => {
+        selectCall += 1;
+        const rows =
+          selectCall === 1
+            ? [{ ...captureMocks.design }]
+            : selectCall === 2
+              ? []
+              : [
+                  {
+                    id: "checkpoint-1",
+                    createdAt: "2026-07-08T00:00:00.000Z",
+                    label: "Before editor edit",
+                  },
+                ];
+        const chain = {
+          from: () => chain,
+          where: () => chain,
+          orderBy: () => chain,
+          limit: async () => rows,
+        };
+        return chain;
+      },
+      insert: () => {
+        const query = {
+          values: () => query,
+          onConflictDoNothing: () => query,
+          returning: async () => [{ id: "checkpoint-1" }],
+        };
+        return query;
+      },
+    };
+
+    await snapshotDesignBeforeAgentEditInVersionLock(
+      "design-1",
+      { caller: "frontend", actionName: "delete-file" },
+      transactionDb as unknown as NonNullable<
+        Parameters<typeof snapshotDesignBeforeAgentEditInVersionLock>[2]
+      >,
+    );
+
+    expect(captureMocks.buildDesignSnapshot).toHaveBeenCalledWith(
+      "design-1",
+      expect.any(String),
+      undefined,
+      transactionDb,
+    );
+    expect(selectCall).toBe(3);
+    expect(captureMocks.revisions).toHaveLength(0);
   });
 
   it("coalesces concurrent browser checkpoints through the shared version lock", async () => {

@@ -48,6 +48,8 @@ export interface BuildDesignSnapshotOptions {
   preferStoredFileContent?: boolean;
 }
 
+type SnapshotDatabase = Pick<ReturnType<typeof getDb>, "select">;
+
 function parseDesignData(data?: string | null): Record<string, unknown> {
   if (!data) return {};
   try {
@@ -68,8 +70,9 @@ export async function buildDesignSnapshot(
   designId: string,
   designData?: string | null,
   options: BuildDesignSnapshotOptions = {},
+  database?: SnapshotDatabase,
 ): Promise<DesignSnapshot> {
-  const db = getDb();
+  const db = database ?? getDb();
 
   const rows = await db
     .select()

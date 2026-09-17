@@ -322,6 +322,9 @@ describe("delete-file", () => {
       "delete",
       "design",
     ]);
+    expect(
+      mocks.snapshotDesignBeforeAgentEditInVersionLock,
+    ).toHaveBeenCalledWith("design_123", undefined, mocks.tx);
   });
 
   it("deletes the file and prunes stale board metadata", async () => {
@@ -431,5 +434,39 @@ describe("delete-file", () => {
       1,
     );
     expect(currentFiles.filter((file) => file.id !== "board")).toHaveLength(1);
+  });
+
+  it("does not retain a checkpoint when the delete transaction rolls back", async () => {
+    const checkpoints: string[] = [];
+    mocks.snapshotDesignBeforeAgentEditInVersionLock.mockImplementation(
+      async (
+        _designId: string,
+        _context: unknown,
+        transaction: { checkpoint?: string },
+      ) => {
+        transaction.checkpoint = "checkpoint-1";
+        checkpoints.push(transaction.checkpoint);
+        return {
+          id: transaction.checkpoint,
+          createdAt: "now",
+          label: "Before",
+        };
+      },
+    );
+    mocks.txUpdateChain.where.mockResolvedValue({});
+    mocks.db.transaction.mockImplementation(async (callback) => {
+      const before = checkpoints.length;
+      try {
+        return await callback(mocks.tx);
+      } catch (error) {
+        checkpoints.length = before;
+        throw error;
+      }
+    });
+
+    await expect(
+      action.run({ id: "file-b", allowLockedLayers: true }),
+    ).rejects.toThrow(/verify that the design metadata was updated/i);
+    expect(checkpoints).toEqual([]);
   });
 });
