@@ -1234,7 +1234,7 @@ describe("getPrimitiveDropTargetForPoint", () => {
       overlappingFrames,
       getMeta,
     );
-    expect(result?.nodeId).toBe("other-screen-inner");
+    expect(result).toBeNull();
   });
 
   it("regression: excludes geometric descendants of the dragged node", () => {

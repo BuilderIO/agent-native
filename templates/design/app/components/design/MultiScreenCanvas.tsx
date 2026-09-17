@@ -7707,12 +7707,16 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         // iframe would let both owners finalize one drop, duplicating an
         // Alt-drag. Let the host commit and cancel only the bridge's transient
         // clone/preview afterward.
-        if (crossScreenTargetRef.current === null) {
+        if (
+          crossScreenTargetRef.current === null &&
+          !crossScreenEndSeenRef.current
+        ) {
           dispatchAt(
             selectionOverlay,
             "mouseup",
             toIframePoint(ev.clientX, ev.clientY),
             ev,
+            ev.buttons,
           );
         }
         cancelMove(performance.timeOrigin + performance.now());
