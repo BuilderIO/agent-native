@@ -661,7 +661,6 @@ export async function resolveCommentAiActionSurface(
     "apply-resolve": "apply-comment-ai-request",
   }[commentAiIntentSchema.parse(request.intent)];
   return {
-    mode: "allowlist" as const,
     allowedActionNames: ["get-comment-ai-context", operation],
     actionScope: {
       kind: "content-comment-ai",
