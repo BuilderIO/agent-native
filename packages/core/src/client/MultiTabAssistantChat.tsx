@@ -441,14 +441,14 @@ function HistoryPopover({
 
   const toHistoryItem = (thread: ChatThreadSummary): ChatHistoryItem => {
     const isActive = thread.id === activeThreadId;
-    const title =
-      thread.title || thread.preview || t("agentChat.history.untitledChat");
+    const hasTitle = Boolean(thread.title);
+    const title = thread.title || t("agentChat.history.untitledChat");
     return {
       id: thread.id,
       title,
       titleText: title,
       subtitle:
-        thread.preview && thread.title !== thread.preview
+        hasTitle && thread.preview && thread.title !== thread.preview
           ? thread.preview
           : undefined,
       timestamp: isActive
@@ -2674,10 +2674,7 @@ export function MultiTabAssistantChat({
       );
       return {
         id,
-        label:
-          t?.title ||
-          t?.preview?.slice(0, 30) ||
-          translate("agentChat.tabs.newChat"),
+        label: t?.title || translate("agentChat.tabs.newChat"),
         status:
           agentTeamStatus ??
           (runningThreads.has(id)

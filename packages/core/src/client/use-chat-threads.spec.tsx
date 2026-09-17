@@ -1919,6 +1919,68 @@ describe("useChatThreads", () => {
     });
   });
 
+  it("keeps an extracted first message in the preview until a title is generated", async () => {
+    const sourceThread: ChatThreadSummary = {
+      id: "thread-1",
+      title: "",
+      preview: "",
+      messageCount: 0,
+      createdAt: 1,
+      updatedAt: 2,
+      scope: null,
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [sourceThread] });
+      }
+      if (url === "/chat/threads/thread-1" && init?.method === "PUT") {
+        return jsonResponse({ ok: true });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "extracted-title-test", null, {
+        autoCreate: false,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await hook!.saveThreadData("thread-1", {
+        threadData: "",
+        title: "Please summarize the latest release notes",
+        preview: "Please summarize the latest release notes",
+        messageCount: 1,
+      });
+    });
+
+    const saveCall = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        url === "/chat/threads/thread-1" && init?.method === "PUT",
+    );
+    expect(JSON.parse(saveCall![1]!.body as string)).toMatchObject({
+      title: "",
+      preview: "Please summarize the latest release notes",
+    });
+    expect(
+      hook!.threads.find((thread) => thread.id === "thread-1"),
+    ).toMatchObject({
+      title: "",
+      preview: "Please summarize the latest release notes",
+    });
+  });
+
   it("materializes a new thread before saving a passive voice transcript", async () => {
     let putCount = 0;
     const scope: ChatThreadScope = {
@@ -1974,7 +2036,7 @@ describe("useChatThreads", () => {
     );
     expect(JSON.parse(createCall![1]!.body as string)).toEqual({
       id: "forked-thread",
-      title: "Open sources",
+      title: "",
       scope,
     });
   });

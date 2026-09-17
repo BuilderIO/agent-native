@@ -301,6 +301,20 @@ describe("chat thread store", () => {
     expect(emitChatThreadChangeMock).toHaveBeenCalledWith("thread-1");
   });
 
+  it("preserves a title committed while message persistence was stale", async () => {
+    row!.title = "Generated chat title";
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify({ messages: [userMessage, assistantMessage] }),
+      "",
+      "Done.",
+      2,
+    );
+
+    expect(row!.title).toBe("Generated chat title");
+  });
+
   it("throws after exhausted thread-data conflicts by default", async () => {
     conflictEveryThreadDataUpdate = true;
 
