@@ -103,6 +103,22 @@ describe("uploaded asset validation", () => {
         ),
       }),
     ).toBe(false);
+    expect(
+      canSaveAsUploadedAsset({
+        originalName: "commented-css.svg",
+        data: Buffer.from(
+          '<svg><style>@im/**/port "https://example.com/style.css";</style></svg>',
+        ),
+      }),
+    ).toBe(false);
+    expect(
+      canSaveAsUploadedAsset({
+        originalName: "xml-base.svg",
+        data: Buffer.from(
+          '<svg xml:base="https://example.com/"><use href="#icon" /></svg>',
+        ),
+      }),
+    ).toBe(false);
   });
 
   it("normalizes SVG MIME before sending it to the upload provider", async () => {

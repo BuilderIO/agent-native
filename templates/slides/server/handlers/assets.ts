@@ -171,12 +171,15 @@ export function isSafeSvg(data: Uint8Array): boolean {
     return false;
   }
   source = source.replace(/^\uFEFF/, "").trim();
-  const normalizedSource = decodeCssEscapes(decodeXmlReferences(source));
+  const normalizedSource = decodeCssEscapes(
+    decodeXmlReferences(source),
+  ).replace(/\/\*[\s\S]*?\*\//g, "");
   const forbidden = [
     /<\s*(?:script|foreignObject|iframe|object|embed|link|audio|video|animate|set|discard)\b/i,
     /<\s*\/?[a-z_][\w.-]*:[a-z_][\w.-]*\b/i,
     /<!\s*(?:DOCTYPE|ENTITY)\b/i,
     /<\?xml-stylesheet\b/i,
+    /\bxml:base\s*=/i,
     /\son[a-z][a-z0-9:_-]*\s*=/i,
     /\b(?:javascript|vbscript)\s*:/i,
     /\b(?:expression|behavior|-moz-binding)\s*\(/i,
