@@ -136,9 +136,8 @@ export function runSaveFileContent(
           const advancedOutboxEntry = latest
             ? createFileSaveOutboxEntry(latest)
             : null;
-          if (advancedOutboxEntry) {
-            void journalOutboxEntry(advancedOutboxEntry);
-          }
+          if (advancedOutboxEntry)
+            await journalOutboxEntry(advancedOutboxEntry);
         }
         if (
           persistedContentMatches &&

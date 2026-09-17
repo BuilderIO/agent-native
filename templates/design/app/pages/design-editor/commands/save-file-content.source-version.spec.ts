@@ -151,6 +151,8 @@ describe("runSaveFileContent source version", () => {
       expectedVersionHash: sourceContentHash(firstPending.content),
     };
     const firstSave = deferred<unknown>();
+    const advancedJournalStarted = deferred<void>();
+    const advancedJournal = deferred<boolean>();
     const mutateAsync = vi.fn((input: { operationRevision: number }) =>
       input.operationRevision === 1
         ? firstSave.promise
@@ -170,12 +172,23 @@ describe("runSaveFileContent source version", () => {
       (request: FileContentSaveRequest) =>
         ({ key: `save:${request.operationRevision}` }) as DesignSaveOutboxEntry,
     );
+    const journalOutboxEntry = vi.fn(async (entry: DesignSaveOutboxEntry) => {
+      if (
+        entry.key === "save:2" &&
+        secondPending.unloadExpectedVersionHash ===
+          sourceContentHash(firstPending.content)
+      ) {
+        advancedJournalStarted.resolve();
+        return advancedJournal.promise;
+      }
+      return true;
+    });
     const args: SaveFileContentArgs = {
       acknowledgeOutboxEntry: vi.fn(async () => {}),
       canEditDesignRef: { current: true },
       createFileSaveOutboxEntry,
       fileSaveChainsRef,
-      journalOutboxEntry: vi.fn(async () => true),
+      journalOutboxEntry,
       latestFileSaveForUnloadRef,
       rollbackPendingLocalFileContent: vi.fn(),
       markPendingLocalFileContent: vi.fn(),
@@ -194,7 +207,16 @@ describe("runSaveFileContent source version", () => {
       updated: true,
       versionHash: sourceContentHash(firstPending.content),
     });
-    await fileSaveChainsRef.current[firstPending.id];
+    await advancedJournalStarted.promise;
+    let chainSettled = false;
+    const chain = fileSaveChainsRef.current[firstPending.id]!;
+    void chain.then(() => {
+      chainSettled = true;
+    });
+    await Promise.resolve();
+    expect(chainSettled).toBe(false);
+    advancedJournal.resolve(true);
+    await chain;
 
     expect(secondPending.unloadExpectedVersionHash).toBe(
       sourceContentHash(firstPending.content),
