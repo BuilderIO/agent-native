@@ -11,7 +11,6 @@
  * the caller's responsibility — call assertAccess/resolveAccess first.
  */
 
-import { hasCollabState, getText } from "@agent-native/core/collab";
 import { eq } from "drizzle-orm";
 
 import type { TweakDefinition } from "../../shared/api.js";
@@ -21,6 +20,7 @@ import {
   type TweakSelections,
 } from "../../shared/resolve-tweaks.js";
 import { getDb, schema } from "../db/index.js";
+import { readLiveSourceFile } from "../source-workspace.js";
 
 export interface SnapshotFile {
   id: string;
@@ -76,23 +76,17 @@ export async function buildDesignSnapshot(
     let source: "collab" | "stored" = "stored";
     // Prefer live collab text when an editing session exists for this file so
     // an external agent sees in-flight edits, not the last persisted snapshot.
-    try {
-      if (await hasCollabState(f.id)) {
-        const live = await getText(f.id, "content");
-        if (
-          typeof live === "string" &&
-          shouldUseLiveFileContent({
-            liveContent: live,
-            storedContent: f.content,
-            fileType: f.fileType,
-          })
-        ) {
-          content = live;
-          source = "collab";
-        }
-      }
-    } catch {
-      // Collab read is best-effort; fall back to stored content.
+    const live = await readLiveSourceFile(f);
+    if (
+      live.source === "collab" &&
+      shouldUseLiveFileContent({
+        liveContent: live.content,
+        storedContent: f.content,
+        fileType: f.fileType,
+      })
+    ) {
+      content = live.content;
+      source = "collab";
     }
     files.push({
       id: f.id,

@@ -19,7 +19,6 @@ import { defineAction } from "@agent-native/core/action";
 import {
   applyTextToYDoc,
   CollabBaseVersionConflictError,
-  withPreparedYDocMutation,
 } from "@agent-native/core/collab";
 import { getDbExec } from "@agent-native/core/db";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
@@ -32,7 +31,7 @@ import "../server/db/index.js"; // ensure registerShareableResource runs
 import {
   SourceWorkspaceEditConflictError,
   designSourceMutationLockKey,
-  withSourceFileWriteLock,
+  withPreparedSourceFileMutation,
 } from "../server/source-workspace.js";
 import { resolveSourceCapabilities } from "../shared/capability-resolver.js";
 import { buildCodeLayerProjection } from "../shared/code-layer.js";
@@ -130,12 +129,14 @@ export default defineAction({
     let preparedCallbackEntered = false;
     let result;
     try {
-      result = await withSourceFileWriteLock(candidate.id, () =>
+      result = await withPreparedSourceFileMutation(
+        candidate.id,
+        undefined,
         // Holding the core document lock across the SQL snapshot prevents a
         // local Yjs writer from changing the document between the row locks and
         // the component projection. Cross-process writers are stopped by the
         // transaction-scoped _collab_docs row lock below.
-        withPreparedYDocMutation(candidate.id, undefined, async (lease) => {
+        async (lease) => {
           preparedCallbackEntered = true;
           const [file] = await db
             .select({
@@ -338,7 +339,7 @@ export default defineAction({
                   : undefined,
             };
           });
-        }),
+        },
       );
     } catch (error) {
       if (

@@ -3,9 +3,7 @@ import {
   CollabBaseVersionConflictError,
   hasCollabState,
   getText,
-  applyText,
   applyTextToYDoc,
-  seedFromText,
   type PreparedYDocMutationLease,
   withPreparedYDocMutation,
 } from "@agent-native/core/collab";
@@ -44,9 +42,9 @@ export interface SourceWorkspaceFile {
 // Per-file in-process write serialization for writeInlineSourceFile's full
 // read-check-write critical section.
 //
-// @agent-native/core/collab's applyText/seedFromText each serialize their OWN
-// Y.Doc mutation via an internal per-docId lock, but that only protects the
-// CRDT mutation itself — not the read-then-decide-then-write sequence around
+// @agent-native/core/collab's mutation helpers each serialize their OWN Y.Doc
+// mutation via an internal per-docId lock, but that only protects the CRDT
+// mutation itself — not the read-then-decide-then-write sequence around
 // it. Two concurrent writers to a file that has NO collab doc yet (a real
 // case: doc creation is lazy, so nothing has opened this file in a live
 // session) can each observe hasCollabState()===false, so BOTH take the
@@ -55,11 +53,11 @@ export interface SourceWorkspaceFile {
 // content, silently discarding whichever writer didn't "win" the seed (a
 // lost update, not a CRDT merge — reproduced in
 // insert-design-native-asset.interleave.spec.ts). Serializing the whole
-// critical section per file id closes this: the second writer's read
-// (hasCollabState / getText / expectedVersionHash check) now happens AFTER
-// the first writer's collab mutation has landed, so it observes the true
-// current state and either converges its own diff cleanly or is rejected by
-// the expectedVersionHash guard — never silently clobbered.
+// critical section per file id closes this: the second writer's prepared
+// document read and expectedVersionHash check now happen AFTER the first
+// writer's collab mutation has landed, so it observes the true current state
+// and either converges its own diff cleanly or is rejected by the
+// expectedVersionHash guard — never silently clobbered.
 const _writeLocks = new Map<string, Promise<void>>();
 
 /**
@@ -120,6 +118,16 @@ export async function withSourceFileWriteLock<T>(
       _writeLocks.delete(fileId);
     }
   }
+}
+
+export function withPreparedSourceFileMutation<T>(
+  fileId: string,
+  requestSource: string | undefined,
+  callback: (lease: PreparedYDocMutationLease) => Promise<T>,
+): Promise<T> {
+  return withSourceFileWriteLock(fileId, () =>
+    withPreparedYDocMutation(fileId, requestSource, callback),
+  );
 }
 
 /** Serialize cross-process mutations that reconcile a design's source/index. */
@@ -262,20 +270,29 @@ export async function readLiveSourceFile(file: SourceWorkspaceFile): Promise<{
   content: string;
   versionHash: string;
   language: string;
+  source: "collab" | "stored";
 }> {
   let content = file.content ?? "";
+  let source: "collab" | "stored" = "stored";
   try {
     if (await hasCollabState(file.id)) {
       const live = await getText(file.id, "content");
-      if (typeof live === "string") content = live;
+      if (typeof live !== "string") {
+        throw new Error("Collaboration content was not text.");
+      }
+      content = live;
+      source = "collab";
     }
   } catch {
-    // Collab reads are best-effort; SQL content is the fallback.
+    throw new SourceWorkspaceEditConflictError(
+      "Could not verify a source file's live version. Re-read the design and retry.",
+    );
   }
   return {
     content,
     versionHash: sourceContentHash(content),
     language: languageForSourcePath(file.filename),
+    source,
   };
 }
 
@@ -357,7 +374,7 @@ export async function writeInlineSourceFile(args: {
   /** Used only when the editor deliberately changes a screen's source mode. */
   allowUrlBackedTransition?: boolean;
 }): Promise<{ versionHash: string; changed: boolean; updatedAt: string }> {
-  return withSourceFileWriteLock(args.file.id, () =>
+  return withPreparedSourceFileMutation(args.file.id, "agent", async (lease) =>
     withDesignSourceMutationTransaction(args.designId, async (tx) => {
       await assertAccess("design", args.designId, "editor");
       const [currentFile] = await tx
@@ -380,7 +397,15 @@ export async function writeInlineSourceFile(args: {
       if (!currentFile || currentFile.designId !== args.designId) {
         throw new Error("Source file not found.");
       }
-      const current = await readLiveSourceFile(currentFile);
+      let liveContent = lease.doc.getText("content").toString();
+      if (lease.baseVersion === null) {
+        liveContent = currentFile.content ?? "";
+        applyTextToYDoc(lease.doc, "content", liveContent, "agent");
+      }
+      const current = {
+        content: liveContent,
+        versionHash: sourceContentHash(liveContent),
+      };
       const identityOnly = args.identityOnly === true;
       let identityOnlyOperationSource: string | undefined;
       let identityOnlyOperationRevision: number | undefined;
@@ -527,84 +552,23 @@ export async function writeInlineSourceFile(args: {
       };
       assertCandidateIntegrity(args.content);
 
-      if (await hasCollabState(args.file.id)) {
-        const liveBeforeApply = await getText(args.file.id, "content");
-        const expectedLiveHash = identityOnly
-          ? liveBaseHash
-          : args.expectedVersionHash;
-        if (
-          expectedLiveHash &&
-          expectedLiveHash !== sourceContentHash(liveBeforeApply)
-        ) {
-          throw new SourceWorkspaceEditConflictError(
-            "Source file changed since it was read. Re-read the file and retry.",
-          );
-        }
-        if (liveBeforeApply !== args.content) {
-          try {
-            await applyText(args.file.id, args.content, "content", "agent", {
-              // The check above ran before the write lock and against a value
-              // that another serverless process can invalidate a millisecond
-              // later. Re-assert it on the text the diff is actually computed
-              // from: `args.content` is a whole document built on the older
-              // base, so a peer's edit that landed in between would be
-              // overwritten silently rather than reported as a conflict.
-              validateBase: (base) => {
-                if (
-                  expectedLiveHash &&
-                  expectedLiveHash !== sourceContentHash(base)
-                ) {
-                  throw new SourceWorkspaceEditConflictError(
-                    "Source file changed while the edit was being applied. Re-read the file and retry.",
-                  );
-                }
-              },
-              // A human artboard edit can reach the shared Y.Doc from another
-              // serverless process after the version check above. Validate the
-              // fully converged CRDT snapshot before core persists or broadcasts
-              // the agent diff so clients never observe a malformed intermediate
-              // document that is immediately rolled back below.
-              validateSnapshot: (snapshot) =>
-                assertCandidateIntegrity(snapshot),
-            });
-          } catch (error) {
-            // A peer that commits after the base check now fails the persistence
-            // CAS by name; it is the same retryable conflict, not a bad edit.
-            if (error instanceof CollabBaseVersionConflictError) {
-              throw new SourceWorkspaceEditConflictError(
-                "Source file changed while the edit was being applied. Re-read the file and retry.",
-              );
-            }
-            if (!isDesignHtmlIntegrityError(error)) throw error;
-            // The caller's candidate already passed the integrity check above.
-            // A failure here therefore came from concurrent CRDT convergence,
-            // so surface it as a retryable conflict instead of blaming the edit
-            // with the invalid-HTML toast.
-            throw new SourceWorkspaceEditConflictError(
-              "Source file changed while the edit was being applied. Re-read the file and retry.",
-            );
-          }
-        }
-      } else {
-        // No collab doc exists for this file yet. Without the write-lock this
-        // function is now wrapped in, two concurrent callers could both
-        // observe hasCollabState()===false (doc creation is lazy) and both
-        // reach seedFromText — which only takes effect for the first caller —
-        // so a naive unconditional SQL write after this branch could clobber
-        // whichever writer "won" the seed with a loser's stale content (a lost
-        // update, not merely a no-op: exactly the "assets disappear/reappear"
-        // bug this fix closes). The lock serializes this whole critical
-        // section per file id, so by the time a second call reaches this
-        // branch it already observes hasCollabState()===true from the first
-        // call's seed and takes the applyText branch instead.
-        await seedFromText(args.file.id, args.content);
+      const liveBeforeApply = lease.doc.getText("content").toString();
+      const expectedLiveHash = identityOnly
+        ? liveBaseHash
+        : args.expectedVersionHash;
+      if (
+        expectedLiveHash &&
+        expectedLiveHash !== sourceContentHash(liveBeforeApply)
+      ) {
+        throw new SourceWorkspaceEditConflictError(
+          "Source file changed since it was read. Re-read the file and retry.",
+        );
+      }
+      if (liveBeforeApply !== args.content) {
+        applyTextToYDoc(lease.doc, "content", args.content, "agent");
       }
 
-      // Persist whatever the collab layer actually holds now, not the caller's
-      // args.content blindly — normally the same string, but this keeps SQL a
-      // true mirror of the converged live document under the lock rather than
-      // trusting args.content directly.
-      const authoritativeContent = await getText(args.file.id, "content");
+      const authoritativeContent = lease.doc.getText("content").toString();
       try {
         if (identityOnly && authoritativeContent !== args.content) {
           throw new SourceWorkspaceEditConflictError(
@@ -623,14 +587,10 @@ export async function writeInlineSourceFile(args: {
           fileType: currentFile.fileType ?? args.file.fileType ?? "html",
         });
       } catch (error) {
-        // `applyText` is a full-target diff, but keep the write transaction
-        // fail-closed even if a malformed/concurrent collab state somehow
-        // converges to something other than the validated candidate. Restore
-        // the exact pre-write live content before SQL can observe corruption.
-        if (!identityOnly) {
-          await applyText(args.file.id, current.content, "content", "agent");
-        }
-        throw error;
+        if (!isDesignHtmlIntegrityError(error)) throw error;
+        throw new SourceWorkspaceEditConflictError(
+          "Source file changed while the edit was being applied. Re-read the file and retry.",
+        );
       }
 
       // The JS lock is process-local. Guard the SQL mirror with the exact
@@ -713,21 +673,22 @@ export async function writeInlineSourceFile(args: {
       }
 
       if (!persisted) {
-        const [winner] = await tx
-          .select({ content: schema.designFiles.content })
-          .from(schema.designFiles)
-          .where(eq(schema.designFiles.id, args.file.id))
-          .limit(1);
-        if (
-          !identityOnly &&
-          winner &&
-          winner.content !== authoritativeContent
-        ) {
-          await applyText(args.file.id, winner.content, "content", "agent");
-        }
         throw new SourceWorkspaceEditConflictError(
           "Source file changed while it was being saved. Re-read the file and retry.",
         );
+      }
+
+      try {
+        // The active exec is routed through the surrounding Drizzle
+        // transaction, so the collab CAS and SQL mirror commit together.
+        await lease.persist(getDbExec(), authoritativeContent);
+      } catch (error) {
+        if (error instanceof CollabBaseVersionConflictError) {
+          throw new SourceWorkspaceEditConflictError(
+            "Source file changed while the edit was being applied. Re-read the file and retry.",
+          );
+        }
+        throw error;
       }
 
       await tx
@@ -864,16 +825,13 @@ export async function writeInlineSourceFilesBatch(args: {
     const planned = await Promise.all(
       args.files.map(async ({ file, content, expectedVersionHash }) => {
         const currentFile = byId.get(file.id)!;
-        let liveContent = currentFile.content ?? "";
-        try {
-          if (await hasCollabState(file.id)) {
-            liveContent = await getText(file.id, "content");
-          }
-        } catch {
-          throw new SourceWorkspaceEditConflictError(
-            "Could not verify a source file's live version. Re-read the design and retry.",
-          );
-        }
+        const liveContent = (
+          await readLiveSourceFile({
+            ...currentFile,
+            createdAt: null,
+            updatedAt: currentFile.updatedAt ?? null,
+          })
+        ).content;
         if (
           sourceContentHash(currentFile.content ?? "") !==
             expectedVersionHash ||

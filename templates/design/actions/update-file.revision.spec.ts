@@ -41,6 +41,7 @@ async function waitAtCollabReadBarrier(): Promise<void> {
 }
 
 vi.mock("@agent-native/core/collab", () => ({
+  CollabBaseVersionConflictError: class CollabBaseVersionConflictError extends Error {},
   hasCollabState: async () => {
     await waitAtCollabReadBarrier();
     return collabState.exists;
@@ -62,6 +63,43 @@ vi.mock("@agent-native/core/collab", () => ({
     collabState.exists = true;
     collabState.content = content;
   },
+  applyTextToYDoc: (
+    doc: { content: string },
+    _fieldName: string,
+    text: string,
+  ) => {
+    if (collabState.failApplyCount > 0) {
+      collabState.failApplyCount -= 1;
+      throw new Error("simulated collab apply failure");
+    }
+    doc.content = text;
+  },
+  withPreparedYDocMutation: async (
+    _docId: string,
+    _requestSource: string | undefined,
+    run: (lease: {
+      doc: { content: string; getText: () => { toString: () => string } };
+      baseVersion: number | null;
+      persist: (_tx: unknown, text: string) => Promise<void>;
+    }) => Promise<unknown>,
+  ) => {
+    const doc = {
+      content: collabState.exists ? collabState.content : "",
+      getText: () => ({ toString: () => doc.content }),
+    };
+    let persisted = false;
+    const result = await run({
+      doc,
+      baseVersion: collabState.exists ? 0 : null,
+      persist: async (_tx, text) => {
+        collabState.exists = true;
+        collabState.content = text;
+        persisted = true;
+      },
+    });
+    if (!persisted) return result;
+    return result;
+  },
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
@@ -77,10 +115,36 @@ vi.mock("@agent-native/core/sharing", () => ({
 // its own in-memory lock map, so there is no shared JS serialization. The SQL
 // CAS in update-file must be sufficient on its own.
 vi.mock("../server/source-workspace.js", () => ({
+  SourceWorkspaceEditConflictError: class SourceWorkspaceEditConflictError extends Error {
+    statusCode = 409;
+  },
+  readLiveSourceFile: async ({ content }: { content?: string | null }) => ({
+    content: collabState.exists ? collabState.content : (content ?? ""),
+    versionHash: "test-hash",
+    language: "html",
+  }),
   withSourceFileWriteLock: async <T>(
     _fileId: string,
     run: () => Promise<T>,
   ): Promise<T> => run(),
+  withPreparedSourceFileMutation: async <T>(
+    _fileId: string,
+    _requestSource: string | undefined,
+    run: (lease: unknown) => Promise<T>,
+  ): Promise<T> => {
+    const doc = {
+      content: collabState.exists ? collabState.content : "",
+      getText: () => ({ toString: () => doc.content }),
+    };
+    return run({
+      doc,
+      baseVersion: collabState.exists ? 0 : null,
+      persist: async (_tx: unknown, text: string) => {
+        collabState.exists = true;
+        collabState.content = text;
+      },
+    });
+  },
   withDesignSourceMutationTransaction: async <T>(
     _designId: string,
     run: (tx: unknown) => Promise<T>,

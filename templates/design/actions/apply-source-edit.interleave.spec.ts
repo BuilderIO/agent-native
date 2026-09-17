@@ -151,6 +151,57 @@ vi.mock("@agent-native/core/collab", () => ({
     const doc = getOrCreateDoc(docId);
     doc.getText("content").insert(0, text);
   },
+  applyTextToYDoc: (
+    doc: InstanceType<typeof Y.Doc>,
+    _fieldName: string,
+    text: string,
+  ) => {
+    if (collabTestControl.peerContentBeforeNextValidatedApply !== null) {
+      const peerContent = collabTestControl.peerContentBeforeNextValidatedApply;
+      collabTestControl.peerContentBeforeNextValidatedApply = null;
+      applyTextDiff(getOrCreateDoc(FILE_ID), peerContent);
+      throw new Error("Source file changed while the edit was being applied.");
+    }
+    applyTextDiff(doc, text);
+    if (collabTestControl.corruptNextValidatedApply) {
+      collabTestControl.corruptNextValidatedApply = false;
+      applyTextDiff(
+        doc,
+        `${doc.getText("content").toString()}<!DOCTYPE html><html><body>concurrent</body></html>`,
+      );
+    }
+  },
+  withPreparedYDocMutation: async (
+    docId: string,
+    _requestSource: string | undefined,
+    run: (lease: {
+      doc: InstanceType<typeof Y.Doc>;
+      baseVersion: number | null;
+      persist: (_tx: unknown, text: string) => Promise<void>;
+    }) => Promise<unknown>,
+  ) => {
+    const base = collabDocs.docs.get(docId) as
+      | InstanceType<typeof Y.Doc>
+      | undefined;
+    const doc = new Y.Doc();
+    if (base) Y.applyUpdate(doc, Y.encodeStateAsUpdate(base));
+    let persisted = false;
+    try {
+      const result = await run({
+        doc,
+        baseVersion: base ? 0 : null,
+        persist: async (_tx, _text) => {
+          collabDocs.docs.set(docId, doc);
+          persisted = true;
+        },
+      });
+      if (!persisted) doc.destroy();
+      return result;
+    } catch (error) {
+      doc.destroy();
+      throw error;
+    }
+  },
   getDoc: async (docId: string) => getOrCreateDoc(docId),
   applyUpdate: async (docId: string, update: Uint8Array) => {
     Y.applyUpdate(getOrCreateDoc(docId), update);

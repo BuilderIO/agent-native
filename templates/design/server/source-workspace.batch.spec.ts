@@ -43,8 +43,8 @@ import { sourceContentHash } from "../shared/source-workspace.js";
 import { getDb, schema } from "./db/index.js";
 import {
   withDesignSourceMutationTransaction,
+  withPreparedSourceFileMutation,
   writeInlineSourceFilesBatch,
-  withSourceFileWriteLock,
   type SourceWorkspaceFile,
 } from "./source-workspace.js";
 
@@ -298,7 +298,7 @@ describe("writeInlineSourceFilesBatch", () => {
     expect(winner).toEqual({ content: DESTINATION_NEXT });
   });
 
-  it("serializes index-first and rename-first critical sections on one source file", async () => {
+  it("serializes index and single-file source mutations before either takes the design lock", async () => {
     const run = async (fileId: string, first: string, second: string) => {
       const order: string[] = [];
       let enterFirst!: () => void;
@@ -310,21 +310,41 @@ describe("writeInlineSourceFilesBatch", () => {
         releaseFirst = resolve;
       });
 
-      const firstRun = withSourceFileWriteLock(fileId, async () => {
-        order.push(first);
-        enterFirst();
-        await firstRelease;
-      });
+      const sourceMutation = (label: string, wait = false) =>
+        withPreparedSourceFileMutation(fileId, undefined, async () => {
+          order.push(`${label}-ydoc`);
+          if (wait) {
+            enterFirst();
+            await firstRelease;
+          }
+          await withDesignSourceMutationTransaction(DESIGN_ID, async () => {
+            order.push(`${label}-sql`);
+          });
+        });
+
+      const firstRun = sourceMutation(first, true);
       await firstEntered;
 
-      const secondRun = withSourceFileWriteLock(fileId, async () => {
-        order.push(second);
-      });
-      expect(order).toEqual([first]);
+      const secondRun = sourceMutation(second);
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      expect(order).toEqual([`${first}-ydoc`]);
 
       releaseFirst();
-      await Promise.all([firstRun, secondRun]);
-      expect(order).toEqual([first, second]);
+      await Promise.race([
+        Promise.all([firstRun, secondRun]),
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () => reject(new Error("source mutation deadlocked")),
+            1000,
+          ),
+        ),
+      ]);
+      expect(order).toEqual([
+        `${first}-ydoc`,
+        `${first}-sql`,
+        `${second}-ydoc`,
+        `${second}-sql`,
+      ]);
     };
 
     await run("lock-order-index-first", "index", "rename");

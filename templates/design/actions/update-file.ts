@@ -1,10 +1,11 @@
 import { defineAction } from "@agent-native/core/action";
 import {
+  CollabBaseVersionConflictError,
+  applyTextToYDoc,
   hasCollabState,
-  getText,
-  applyText,
-  seedFromText,
+  type PreparedYDocMutationLease,
 } from "@agent-native/core/collab";
+import { getDbExec } from "@agent-native/core/db";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
@@ -12,7 +13,10 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
+  readLiveSourceFile,
+  SourceWorkspaceEditConflictError,
   withDesignSourceMutationTransaction,
+  withPreparedSourceFileMutation,
   withSourceFileWriteLock,
   writeInlineSourceFile,
 } from "../server/source-workspace.js";
@@ -311,7 +315,7 @@ export default defineAction({
     let exactOperationAlreadyPersisted = false;
     let persistedVersionHash: string | undefined;
 
-    await withSourceFileWriteLock(id, () =>
+    const runMutation = (lease?: PreparedYDocMutationLease) =>
       withDesignSourceMutationTransaction(file.designId, async (tx) => {
         for (let attempt = 0; attempt < 4; attempt += 1) {
           skippedStaleMirror = false;
@@ -338,12 +342,30 @@ export default defineAction({
 
           const persistedContentHash = sourceContentHash(persistedFile.content);
           persistedVersionHash = persistedContentHash;
-          const collabExists =
-            content !== undefined ? await hasCollabState(id) : false;
-          const liveContent =
-            content !== undefined && collabExists
-              ? await getText(id, "content")
-              : persistedFile.content;
+          let collabExists = lease !== undefined;
+          let liveContent: string;
+          if (lease) {
+            if (lease.baseVersion === null) {
+              applyTextToYDoc(
+                lease.doc,
+                "content",
+                persistedFile.content,
+                "agent",
+              );
+            }
+            liveContent = lease.doc.getText("content").toString();
+          } else if (content !== undefined) {
+            collabExists = await hasCollabState(id);
+            liveContent = (
+              await readLiveSourceFile({
+                ...file,
+                content: persistedFile.content,
+                fileType: persistedFile.fileType ?? file.fileType ?? "html",
+              })
+            ).content;
+          } else {
+            liveContent = persistedFile.content;
+          }
           if (content !== undefined) {
             assertDesignHtmlEditIntegrity({
               previousContent: liveContent,
@@ -605,52 +627,13 @@ export default defineAction({
             (!skipContentWrite || shouldConvergePersistedRetry) &&
             syncCollab
           ) {
-            const collabExists = await hasCollabState(id);
-            if (collabExists) {
-              await applyText(id, content, "content", "agent");
-            } else {
-              await seedFromText(id, content);
+            if (!lease) {
+              throw new Error(
+                "Collaboration writes require a prepared source document.",
+              );
             }
-
-            // SQL CAS is cross-instance, while the collab document uses a
-            // separate transport. If another instance committed a newer SQL
-            // revision while this request was applying its text diff, converge
-            // the live document back to the current SQL winner before returning.
-            // Whichever writer finishes last performs this same check, so a late
-            // older collab apply cannot leave Yjs behind the monotonic mirror.
-            const [latestPersisted] = await tx
-              .select({
-                content: schema.designFiles.content,
-                contentOperationSource:
-                  schema.designFiles.contentOperationSource,
-                contentOperationRevision:
-                  schema.designFiles.contentOperationRevision,
-              })
-              .from(schema.designFiles)
-              .where(eq(schema.designFiles.id, id))
-              .limit(1);
-            if (latestPersisted && latestPersisted.content !== content) {
-              const collabStillExists = await hasCollabState(id);
-              if (collabStillExists) {
-                await applyText(
-                  id,
-                  latestPersisted.content,
-                  "content",
-                  "agent",
-                );
-              } else {
-                await seedFromText(id, latestPersisted.content);
-              }
-              persistedVersionHash = sourceContentHash(latestPersisted.content);
-              if (
-                latestPersisted.contentOperationSource === operationSource &&
-                typeof latestPersisted.contentOperationRevision === "number" &&
-                operationRevision !== undefined &&
-                latestPersisted.contentOperationRevision >= operationRevision
-              ) {
-                skippedStaleOperation = true;
-              }
-            }
+            applyTextToYDoc(lease.doc, "content", content, "agent");
+            await lease.persist(getDbExec(), content);
           }
           await tx
             .update(schema.designs)
@@ -670,8 +653,20 @@ export default defineAction({
         ) as Error & { statusCode?: number };
         exhausted.statusCode = 409;
         throw exhausted;
-      }),
-    );
+      });
+
+    try {
+      await (content !== undefined && syncCollab
+        ? withPreparedSourceFileMutation(id, "agent", runMutation)
+        : withSourceFileWriteLock(id, runMutation));
+    } catch (error) {
+      if (error instanceof CollabBaseVersionConflictError) {
+        throw new SourceWorkspaceEditConflictError(
+          "File changed while its live collaboration document was being saved. Re-read the file and retry.",
+        );
+      }
+      throw error;
+    }
 
     if (skippedStaleMirror) {
       return { id, updated: true, skippedStaleMirror: true };

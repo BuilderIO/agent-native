@@ -114,6 +114,16 @@ const harness = vi.hoisted(() => {
         return run(lease);
       },
     ),
+    withPreparedSourceFileMutation: vi.fn(
+      async (
+        _id: string,
+        _source: string | undefined,
+        run: (lease: unknown) => Promise<unknown>,
+      ) => {
+        events.push("source-lock", "prepared-lock");
+        return run(lease);
+      },
+    ),
     designSourceMutationLockKey: vi.fn(
       (designId: string) => `agent-native:design-source:${designId}`,
     ),
@@ -157,6 +167,7 @@ vi.mock("../server/source-workspace.js", () => ({
     readonly statusCode = 409;
   },
   designSourceMutationLockKey: harness.designSourceMutationLockKey,
+  withPreparedSourceFileMutation: harness.withPreparedSourceFileMutation,
   withSourceFileWriteLock: harness.withSourceFileWriteLock,
 }));
 vi.mock("../shared/capability-resolver.js", () => ({
@@ -213,6 +224,7 @@ describe("index-components source ordering", () => {
     harness.lease.persist.mockClear();
     harness.db.transaction.mockClear();
     harness.withPreparedYDocMutation.mockClear();
+    harness.withPreparedSourceFileMutation.mockClear();
     harness.tx.execute.mockClear();
     harness.tx.insert.mockClear();
     harness.tx.update.mockClear();
