@@ -128,6 +128,7 @@ import { assertDesignHtmlEditIntegrity } from "@shared/html-integrity";
 import type { InteractionState } from "@shared/interaction-states";
 import { DESIGN_TWEAKS } from "@shared/labs";
 import type { LayoutGrid } from "@shared/layout-grid";
+import { readLiteralJsxPropsAtAnchor } from "@shared/local-jsx-visual-edit";
 import { countLockedLayersAcrossFiles } from "@shared/locked-layers";
 import type { MotionAnimationClip, MotionEase } from "@shared/motion-timeline";
 import {
@@ -8432,6 +8433,7 @@ function DesignEditor() {
 
   const { data: selectedComponentSource } = useActionQuery<{
     versionHash?: string;
+    content?: string;
   }>(
     "read-local-file",
     {
@@ -8445,11 +8447,30 @@ function DesignEditor() {
     },
   );
 
+  const selectedComponentLiteralProps = useMemo(() => {
+    if (
+      !selectedComponentLocalSourceAnchor ||
+      typeof selectedComponentSource?.content !== "string"
+    ) {
+      return undefined;
+    }
+    const literalProps = readLiteralJsxPropsAtAnchor({
+      content: selectedComponentSource.content,
+      anchor: selectedComponentLocalSourceAnchor,
+    });
+    return literalProps?.filter(
+      ({ name }) =>
+        !name.startsWith("data-agent-native-") &&
+        name !== "style" &&
+        name !== "className",
+    );
+  }, [selectedComponentLocalSourceAnchor, selectedComponentSource?.content]);
+
   const selectedComponentLocalSource = useMemo(() => {
     if (!selectedComponentLocalSourceAnchor) return undefined;
     const expectedVersionHash = selectedComponentSource?.versionHash;
     if (!expectedVersionHash) return undefined;
-    const propStamps = (selectedElement?.runtimeComponent?.props ?? []).map(
+    const propStamps = (selectedComponentLiteralProps ?? []).map(
       ({ name, value }) => ({
         name: propNameToDataAttribute(name),
         value,
@@ -8463,7 +8484,7 @@ function DesignEditor() {
   }, [
     selectedComponentLocalSourceAnchor,
     selectedComponentSource?.versionHash,
-    selectedElement?.runtimeComponent?.props,
+    selectedComponentLiteralProps,
   ]);
 
   // Outer HTML of the selection — backs the inline/Alpine "Inspect code" view.
@@ -20732,6 +20753,9 @@ function DesignEditor() {
       props: runtimeIdentity?.props?.length
         ? runtimeIdentity.props
         : extractProps(selectedCodeLayerNode),
+      ...(selectedComponentLiteralProps
+        ? { literalProps: selectedComponentLiteralProps }
+        : {}),
       ...(runtimeIdentity?.componentId
         ? { componentId: runtimeIdentity.componentId }
         : {}),
@@ -20755,6 +20779,7 @@ function DesignEditor() {
     selectedCodeLayerNode,
     selectedComponentNodeId,
     selectedElement,
+    selectedComponentLiteralProps,
     selectedComponentLocalSource,
   ]);
 

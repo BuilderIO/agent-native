@@ -1031,10 +1031,15 @@ export default defineAction({
           content: live.content,
           anchor: localSource,
           intent: {
-            kind: "attribute",
-            name: jsxPropNameForComponentAttribute(edit.attribute),
-            value: edit.value,
-            expectedValue: localSource.expectedValue,
+            kind: "attributes",
+            values: {
+              [jsxPropNameForComponentAttribute(edit.attribute)]: edit.value,
+              [edit.attribute]: edit.value,
+            },
+            expectedValues: {
+              [jsxPropNameForComponentAttribute(edit.attribute)]:
+                localSource.expectedValue,
+            },
           },
         });
         if (planned.result.status !== "applied") {

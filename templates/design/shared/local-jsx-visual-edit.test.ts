@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { planLocalJsxVisualEdit } from "./local-jsx-visual-edit.js";
+import {
+  planLocalJsxVisualEdit,
+  readLiteralJsxPropsAtAnchor,
+} from "./local-jsx-visual-edit.js";
 
 const anchor = {
   line: 3,
@@ -119,6 +122,56 @@ describe("planLocalJsxVisualEdit", () => {
       'data-agent-native-component="PrimaryButton"',
     );
     expect(annotated.content).toContain('data-agent-native-layer-name="CTA"');
+
+    const withRuntimeAnnotation = planLocalJsxVisualEdit({
+      content:
+        '<Button variant="primary" data-agent-native-prop-variant="primary" />',
+      anchor: { line: 1, column: 1, positionPrecision: "authored" },
+      intent: {
+        kind: "attributes",
+        values: {
+          variant: "secondary",
+          "data-agent-native-prop-variant": "secondary",
+        },
+        expectedValues: { variant: "primary" },
+      },
+    });
+    expect(withRuntimeAnnotation.result.status).toBe("applied");
+    expect(withRuntimeAnnotation.content).toContain(
+      'variant="secondary" data-agent-native-prop-variant="secondary"',
+    );
+  });
+
+  it("reads only quoted invocation props and ignores defaulted runtime values", () => {
+    const content = 'const view = <Button variant="primary" />;';
+    const sourceAnchor = {
+      line: 1,
+      column: content.indexOf("<Button") + 1,
+      positionPrecision: "authored" as const,
+    };
+    expect(
+      readLiteralJsxPropsAtAnchor({ content, anchor: sourceAnchor }),
+    ).toEqual([{ name: "variant", value: "primary" }]);
+    const defaultedContent = "const view = <Button />;";
+    expect(
+      readLiteralJsxPropsAtAnchor({
+        content: defaultedContent,
+        anchor: {
+          ...sourceAnchor,
+          column: defaultedContent.indexOf("<Button") + 1,
+        },
+      }),
+    ).toEqual([]);
+    const dynamicContent = "const view = <Button variant={kind} />;";
+    expect(
+      readLiteralJsxPropsAtAnchor({
+        content: dynamicContent,
+        anchor: {
+          ...sourceAnchor,
+          column: dynamicContent.indexOf("<Button") + 1,
+        },
+      }),
+    ).toBeUndefined();
   });
 
   it("rejects a dynamic value in an otherwise flat style object", () => {

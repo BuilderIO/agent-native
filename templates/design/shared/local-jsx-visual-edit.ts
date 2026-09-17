@@ -39,7 +39,11 @@ export type LocalJsxLeafIntent =
       value: string;
       expectedValue?: string;
     }
-  | { kind: "attributes"; values: Record<string, string> };
+  | {
+      kind: "attributes";
+      values: Record<string, string>;
+      expectedValues?: Record<string, string | undefined>;
+    };
 
 export interface LocalJsxVisualEditResult {
   content: string;
@@ -56,6 +60,11 @@ interface OpeningTag {
   end: number;
   name: string;
   selfClosing: boolean;
+}
+
+export interface LocalJsxLiteralProp {
+  name: string;
+  value: string;
 }
 
 function offsetAt(
@@ -158,6 +167,106 @@ function scanOpeningTags(content: string): OpeningTag[] {
     }
   }
   return tags;
+}
+
+/**
+ * Read quoted component props from the authored opening tag at a verified
+ * source anchor. Dynamic and shorthand attributes are skipped because their
+ * values are not proven literals; spreads fail closed because they can shadow
+ * every prop.
+ */
+export function readLiteralJsxPropsAtAnchor(args: {
+  content: string;
+  anchor: LocalJsxSourceAnchor;
+}): LocalJsxLiteralProp[] | undefined {
+  const { content, anchor } = args;
+  if (
+    anchor.positionPrecision !== "authored" ||
+    (anchor.runtimeMultiplicity ?? 1) !== 1 ||
+    anchor.scope === "repeated-render" ||
+    anchor.scope === "shared-component-definition"
+  ) {
+    return undefined;
+  }
+  if (offsetAt(content, anchor.line, anchor.column) === null) return undefined;
+  const candidates = scanOpeningTags(content).filter((tag) => {
+    const position = positionAt(content, tag.start);
+    return (
+      position.line === anchor.line &&
+      Math.abs(position.column - anchor.column) <= 1
+    );
+  });
+  if (candidates.length !== 1) return undefined;
+
+  const tag = candidates[0]!;
+  const opening = content.slice(tag.start, tag.end);
+  if (/\{\s*\.\.\./.test(opening)) return undefined;
+
+  const props: LocalJsxLiteralProp[] = [];
+  const reserved = new Set(["children", "key", "ref"]);
+  let sawUnsupported = false;
+  let index = 1 + tag.name.length;
+  while (index < opening.length - 1) {
+    while (/\s/.test(opening[index] ?? "")) index += 1;
+    if (opening[index] === ">" || opening.slice(index, index + 2) === "/>")
+      break;
+    if (opening[index] === "{") {
+      let depth = 0;
+      do {
+        const char = opening[index];
+        if (char === "{") depth += 1;
+        else if (char === "}") depth -= 1;
+        index += 1;
+      } while (index < opening.length && depth > 0);
+      if (depth > 0) return undefined;
+      sawUnsupported = true;
+      continue;
+    }
+
+    const nameMatch = /^[A-Za-z_:][A-Za-z0-9:_.-]*/.exec(opening.slice(index));
+    if (!nameMatch) return undefined;
+    const name = nameMatch[0]!;
+    index += name.length;
+    while (/\s/.test(opening[index] ?? "")) index += 1;
+    if (opening[index] !== "=") {
+      sawUnsupported = true;
+      continue;
+    }
+    index += 1;
+    while (/\s/.test(opening[index] ?? "")) index += 1;
+    const quote = opening[index];
+    if (quote !== '"' && quote !== "'") {
+      let depth = 0;
+      if (opening[index] === "{") {
+        do {
+          const char = opening[index];
+          if (char === "{") depth += 1;
+          else if (char === "}") depth -= 1;
+          index += 1;
+        } while (index < opening.length && depth > 0);
+      }
+      if (depth > 0) return undefined;
+      sawUnsupported = true;
+      continue;
+    }
+    index += 1;
+    const valueStart = index;
+    while (
+      index < opening.length &&
+      (opening[index] !== quote || opening[index - 1] === "\\")
+    ) {
+      index += 1;
+    }
+    if (index >= opening.length) return undefined;
+    if (!reserved.has(name)) {
+      props.push({
+        name,
+        value: decodeJsxAttributeValue(opening.slice(valueStart, index)),
+      });
+    }
+    index += 1;
+  }
+  return sawUnsupported && props.length === 0 ? undefined : props;
 }
 
 function fail(
@@ -419,7 +528,9 @@ export function planLocalJsxVisualEdit(args: {
       const expectedValue =
         intent.kind === "attribute" && rawName === intent.name
           ? intent.expectedValue
-          : undefined;
+          : intent.kind === "attributes"
+            ? intent.expectedValues?.[rawName]
+            : undefined;
       if (expectedValue !== undefined) {
         if (
           !literalMatch ||

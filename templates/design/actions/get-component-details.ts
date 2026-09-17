@@ -95,6 +95,9 @@ export default defineAction({
         props: z.array(
           z.object({ name: z.string().min(1), value: z.string() }),
         ),
+        literalProps: z
+          .array(z.object({ name: z.string().min(1), value: z.string() }))
+          .optional(),
         alpineData: z.string().nullable().optional(),
         componentId: z.string().optional(),
         componentRef: z.string().optional(),
@@ -179,6 +182,7 @@ export default defineAction({
           Boolean(runtime.componentId && !runtime.componentRef),
         canRestore: false,
         observedProps: runtime.props,
+        literalProps: runtime.literalProps,
         persistedProps,
         persistedVariants,
         persistedStories,

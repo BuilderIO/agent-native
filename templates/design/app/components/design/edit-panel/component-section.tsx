@@ -321,6 +321,7 @@ interface ComponentDetailsResult {
   isMain?: boolean;
   canRestore?: boolean;
   observedProps: Array<{ name: string; value: string }>;
+  literalProps?: Array<{ name: string; value: string }>;
   persistedVariants: Record<string, string[]>;
   sourceLocation?: { filePath: string; exportName?: string } | null;
   /** Component instance shape, including the Alpine `x-data` expression. */
@@ -360,6 +361,7 @@ export interface RuntimeComponentDetails {
   nodeId: string;
   selector: string;
   props: Array<{ name: string; value: string }>;
+  literalProps?: Array<{ name: string; value: string }>;
   alpineData?: string | null;
   componentId?: string;
   componentRef?: string;
@@ -408,6 +410,7 @@ interface DetachComponentInstanceResult {
 export type PropRow = {
   name: string;
   value: string;
+  literalValue?: string;
   /** Variant/enum options when the prop is a known group. */
   options?: string[];
   /** Persist surface for this prop. */
@@ -461,9 +464,18 @@ export function buildComponentPropRows(data: {
   instance?: { alpineData?: string | null } | null;
   observedProps: Array<{ name: string; value: string }>;
   persistedVariants: Record<string, string[]>;
+  literalProps?: Array<{ name: string; value: string }>;
 }): PropRow[] {
-  const { observedProps, persistedVariants, instance } = data;
+  const {
+    observedProps,
+    persistedVariants,
+    instance,
+    literalProps = [],
+  } = data;
   const alpineData = parseAlpineDataObject(instance?.alpineData);
+  const literalValues = new Map(
+    literalProps.map(({ name, value }) => [name, value]),
+  );
 
   const rows: PropRow[] = [];
   const seen = new Set<string>();
@@ -487,13 +499,29 @@ export function buildComponentPropRows(data: {
     rows.push({
       name: prop.name,
       value: prop.value,
+      ...(literalValues.has(prop.name)
+        ? { literalValue: literalValues.get(prop.name) }
+        : {}),
       options: persistedVariants[prop.name],
       surface: "attribute",
     });
     seen.add(prop.name);
   }
 
-  // 3) persistedVariant groups with no observed value yet (default to first).
+  // 3) Verified literal invocation props that are not reflected in the host DOM.
+  for (const prop of literalProps) {
+    if (seen.has(prop.name)) continue;
+    rows.push({
+      name: prop.name,
+      value: prop.value,
+      literalValue: prop.value,
+      options: persistedVariants[prop.name],
+      surface: "attribute",
+    });
+    seen.add(prop.name);
+  }
+
+  // 4) persistedVariant groups with no observed value yet (default to first).
   // Surface is always "attribute" here, NOT "alpineData" even when this
   // instance's x-data happens to be non-empty for other keys: x-data blocks
   // for a real component instance are written with every prop the component
@@ -510,7 +538,10 @@ export function buildComponentPropRows(data: {
     if (seen.has(group)) continue;
     rows.push({
       name: group,
-      value: options[0] ?? "",
+      value: literalValues.get(group) ?? options[0] ?? "",
+      ...(literalValues.has(group)
+        ? { literalValue: literalValues.get(group) }
+        : {}),
       options,
       surface: "attribute",
     });
@@ -613,11 +644,28 @@ export function ComponentSection({
 }) {
   const t = useT();
   const queryClient = useQueryClient();
+  const [runtimePropOverride, setRuntimePropOverride] = useState<Array<{
+    name: string;
+    value: string;
+  }> | null>(null);
+  const effectiveRuntime = runtime
+    ? {
+        ...runtime,
+        props: runtimePropOverride ?? runtime.props,
+      }
+    : undefined;
+  const propPreviewStateRef = useRef(
+    new Map<string, { generation: number; authoritativeValue: string }>(),
+  );
+  useEffect(() => {
+    setRuntimePropOverride(null);
+    propPreviewStateRef.current.clear();
+  }, [nodeId, runtime?.nodeId, runtime?.props]);
   const detailsParams = {
     designId,
     nodeId,
     ...(fileId ? { fileId } : {}),
-    ...(runtime ? { runtime } : {}),
+    ...(effectiveRuntime ? { runtime: effectiveRuntime } : {}),
   };
   const detailsKey = ["action", "get-component-details", detailsParams];
   const latestSourceRef = useRef<{
@@ -716,7 +764,7 @@ export function ComponentSection({
   };
 
   const sourceForMutation = () => {
-    if (runtime?.local) return undefined;
+    if (effectiveRuntime?.local) return undefined;
     const latestSource = latestSourceRef.current;
     return latestSource.content
       ? {
@@ -850,6 +898,37 @@ export function ComponentSection({
     ],
   );
 
+  const updateLocalSourceVersion = (versionHash: unknown) => {
+    if (!effectiveRuntime?.local || typeof versionHash !== "string") return;
+    queryClient.setQueryData(
+      [
+        "action",
+        "read-local-file",
+        {
+          designId,
+          connectionId: effectiveRuntime.local.connectionId,
+          path: effectiveRuntime.local.path,
+        },
+      ],
+      (previous: { versionHash?: string } | undefined) => ({
+        ...previous,
+        versionHash,
+      }),
+    );
+  };
+
+  const updateRuntimeProp = (propName: string | undefined, value: string) => {
+    if (!effectiveRuntime || !propName) return;
+    setRuntimePropOverride((previous) => {
+      const props = previous ?? effectiveRuntime.props;
+      const index = props.findIndex((prop) => prop.name === propName);
+      if (index === -1) return [...props, { name: propName, value }];
+      return props.map((prop, propIndex) =>
+        propIndex === index ? { ...prop, value } : prop,
+      );
+    });
+  };
+
   // Persist a single prop change through apply-component-prop-edit. Attribute
   // props also preview immediately in the iframe so the selected component
   // changes without waiting for the write/refetch round-trip.
@@ -861,23 +940,40 @@ export function ComponentSection({
           attribute: string;
           value: string;
           expectedValue?: string;
+          previewValue?: string;
+          propName?: string;
         },
   ) => {
     const previousPreviewValue =
-      edit.kind === "attribute" ? edit.expectedValue : undefined;
+      edit.kind === "attribute"
+        ? (edit.previewValue ?? edit.expectedValue ?? "")
+        : undefined;
+    const previewGeneration =
+      edit.kind === "attribute"
+        ? (propPreviewStateRef.current.get(edit.attribute)?.generation ?? 0) + 1
+        : undefined;
+    if (edit.kind === "attribute") {
+      const previous = propPreviewStateRef.current.get(edit.attribute);
+      propPreviewStateRef.current.set(edit.attribute, {
+        generation: previewGeneration!,
+        authoritativeValue:
+          previous?.authoritativeValue ?? previousPreviewValue!,
+      });
+    }
     const rollbackPreview = () => {
-      if (edit.kind === "attribute" && previousPreviewValue !== undefined) {
-        postComponentPropPreview(edit.attribute, previousPreviewValue);
-      }
+      if (edit.kind !== "attribute") return;
+      const current = propPreviewStateRef.current.get(edit.attribute);
+      if (!current || current.generation !== previewGeneration) return;
+      postComponentPropPreview(edit.attribute, current.authoritativeValue);
     };
     if (edit.kind === "attribute") {
       postComponentPropPreview(edit.attribute, edit.value);
     }
     const latestSource = latestSourceRef.current;
-    const mutationSource = runtime?.local
+    const mutationSource = effectiveRuntime?.local
       ? {
           local: {
-            ...runtime.local,
+            ...effectiveRuntime.local,
             ...(edit.kind === "attribute" && edit.expectedValue !== undefined
               ? { expectedValue: edit.expectedValue }
               : {}),
@@ -924,6 +1020,7 @@ export function ComponentSection({
             result?: { status?: unknown; message?: unknown };
           };
           const resultStatus = response.result?.status;
+          updateLocalSourceVersion(response.source?.versionHash);
           if (
             response.conflict ||
             response.ctaRequired ||
@@ -938,23 +1035,15 @@ export function ComponentSection({
             );
             return;
           }
-          const source = response.source;
-          if (runtime?.local && typeof source?.versionHash === "string") {
-            queryClient.setQueryData(
-              [
-                "action",
-                "read-local-file",
-                {
-                  designId,
-                  connectionId: runtime.local.connectionId,
-                  path: runtime.local.path,
-                },
-              ],
-              (previous: { versionHash?: string } | undefined) => ({
-                ...previous,
-                versionHash: source.versionHash,
-              }),
-            );
+          if (edit.kind === "attribute") {
+            const current = propPreviewStateRef.current.get(edit.attribute);
+            if (current) {
+              propPreviewStateRef.current.set(edit.attribute, {
+                ...current,
+                authoritativeValue: edit.value,
+              });
+            }
+            updateRuntimeProp(edit.propName, edit.value);
           }
           if (
             typeof response.fileId === "string" &&
@@ -978,12 +1067,12 @@ export function ComponentSection({
         onError: (error: unknown) => {
           if (
             !retriedAfterConsent &&
-            runtime?.local &&
+            effectiveRuntime?.local &&
             requestLocalhostWrite &&
             isLocalhostWriteConsentError(error)
           ) {
             requestLocalhostWrite({
-              files: [runtime.local.path],
+              files: [effectiveRuntime.local.path],
               onGranted: () => submit(true),
               onCancel: rollbackPreview,
             });
@@ -1068,13 +1157,14 @@ export function ComponentSection({
   // non-inline sources the controls are read-only here.
   const isInline = sourceType === "inline";
   const editingEnabled =
-    (isInline || Boolean(runtime?.local)) && capabilities.canEditProps;
+    (isInline || Boolean(effectiveRuntime?.local)) && capabilities.canEditProps;
   const alpineData = parseAlpineDataObject(instance?.alpineData);
 
   const rows: PropRow[] = buildComponentPropRows({
     instance,
     observedProps,
     persistedVariants,
+    literalProps: data.literalProps ?? effectiveRuntime?.literalProps,
   });
 
   const hasRows = rows.length > 0;
@@ -1117,7 +1207,9 @@ export function ComponentSection({
         kind: "attribute",
         attribute: propNameToDataAttribute(row.name),
         value: nextValue,
-        expectedValue: row.value,
+        expectedValue: row.literalValue,
+        previewValue: row.value,
+        propName: row.name,
       });
     }
   };

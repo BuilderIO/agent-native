@@ -53,7 +53,7 @@ function PrimaryButton({ variant = "primary", children, ...props }) {
     });
   };
   return (
-    <button ref={buttonRef} {...props} data-agent-native-prop-variant={variant}>
+    <button ref={buttonRef} {...props}>
       {children ?? variant}
     </button>
   );
@@ -667,7 +667,7 @@ test("promotes and edits a URL-backed React component through the live iframe", 
     sourceFile: "src/Component.jsx",
     line,
     column,
-    props: [{ name: "variant", value: "primary" }],
+    props: [],
   });
 
   const createComponent = page.getByRole("button", {
