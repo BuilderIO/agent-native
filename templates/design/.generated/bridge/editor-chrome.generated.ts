@@ -2762,17 +2762,22 @@ export const editorChromeBridgeScript: string = `"use strict";
       width: true,
       height: true
     };
-    function collectPortableComputedStyles(el) {
+    function collectPortableComputedStyles(el, cache) {
       if (!el) return {};
+      if (cache?.has(el)) return cache.get(el) || null;
+      var cacheFailure = function() {
+        cache?.set(el, null);
+        return null;
+      };
       var cs = window.getComputedStyle(el);
       var defaults = portableStyleTagDefaults(el);
-      if (!defaults) return null;
+      if (!defaults) return cacheFailure();
       var hostStyle = el.style;
       var styles = {};
       var typedElement = el;
       if (typeof typedElement.computedStyleMap !== "function") {
         dndLog("style:typed-om-unavailable", { tag: el.tagName });
-        return null;
+        return cacheFailure();
       }
       try {
         var typedStyles = typedElement.computedStyleMap();
@@ -2780,7 +2785,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           var typedValue = typedStyles.get(property);
           if (typedValue == null || !String(typedValue).trim()) {
             dndLog("style:typed-om-value-missing", { property });
-            return null;
+            return cacheFailure();
           }
           var size = String(typedValue).trim();
           if (size !== "auto" || hostStyle?.getPropertyValue(property)) {
@@ -2789,7 +2794,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
       } catch (_error) {
         dndLog("style:typed-om-read-failed", { tag: el.tagName });
-        return null;
+        return cacheFailure();
       }
       PORTABLE_STYLE_PROPERTIES.forEach(function(property2) {
         if (PORTABLE_STYLE_BOX_SIZE_PROPERTIES[property2]) return;
@@ -2808,9 +2813,10 @@ export const editorChromeBridgeScript: string = `"use strict";
           }
         }
       }
+      cache?.set(el, styles);
       return styles;
     }
-    function collectPortableStyleSnapshot(root) {
+    function collectPortableStyleSnapshot(root, cache) {
       if (!root || isDocumentRootElement(root)) return void 0;
       var maxNodes = 5e3;
       var descendants = Array.prototype.slice.call(root.querySelectorAll("*"));
@@ -2841,7 +2847,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           probeFailed = true;
           return;
         }
-        var styles = collectPortableComputedStyles(node);
+        var styles = collectPortableComputedStyles(node, cache);
         if (styles === null) {
           probeFailed = true;
           return;
@@ -3282,7 +3288,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         "--an-vector-stroke-position": el.getAttribute("data-an-vector-stroke-position") || ""
       };
     }
-    function getElementInfo(el) {
+    function getElementInfo(el, portableComputedStylesCache) {
       var cs = window.getComputedStyle(el);
       var paintCs = window.getComputedStyle(vectorPaintTarget(el) || el);
       var boundingRect = rectInfoForElement(el);
@@ -3357,7 +3363,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         });
       }
       var provenance = elementDebugProvenance(el);
-      var portableStyleSnapshot = collectPortableStyleSnapshot(el);
+      var portableStyleSnapshot = collectPortableStyleSnapshot(
+        el,
+        portableComputedStylesCache
+      );
       return {
         tagName: el.tagName.toLowerCase(),
         componentName: componentName || void 0,
@@ -3557,8 +3566,9 @@ export const editorChromeBridgeScript: string = `"use strict";
           return documentSpaceBoundsContainPoint(el, atPoint);
         });
       }
+      var portableComputedStylesCache = /* @__PURE__ */ new Map();
       return targets.map(function(target) {
-        return getElementInfo(target);
+        return getElementInfo(target, portableComputedStylesCache);
       });
     }
     function documentSpaceBoundsContainPoint(el, point) {

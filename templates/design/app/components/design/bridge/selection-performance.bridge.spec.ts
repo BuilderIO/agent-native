@@ -28,6 +28,8 @@ function hydratedBridge(): string {
 }
 
 const CARDS = 60;
+const LARGE_CANDIDATES = 849;
+const LARGE_DOM_ELEMENTS = 883;
 
 /** A grid of cards, each with three children — the shape of a generated
  *  screen, at a size where per-candidate work is measurable. */
@@ -48,10 +50,41 @@ function fixture(): string {
   return `${html}</body></html>`;
 }
 
+/**
+ * Keep the benchmark close to the large-canvas trace: 169 repeated cards give
+ * 849 selectable elements, while 34 inert script nodes make the portable root
+ * snapshot 883 elements. Every card and its header overlap with the root and
+ * each other, so the request-local portable-style cache has real work to
+ * eliminate without making the payload itself unbounded.
+ */
+function largeFixture(): string {
+  const columns = 13;
+  let html =
+    '<!doctype html><html><head><meta charset="utf-8"><style>body{margin:0;background:#f8fafc;font-family:system-ui}main{position:relative;width:1200px;height:1800px}</style></head><body><main data-agent-native-node-id="large-root">';
+  for (let index = 0; index < 169; index += 1) {
+    const column = index % columns;
+    const row = Math.floor(index / columns);
+    html += `<article data-agent-native-node-id="card-${index}" style="position:absolute;left:${column * 92}px;top:${row * 136}px;width:84px;height:124px;box-sizing:border-box;padding:5px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;display:flex;flex-direction:column;gap:4px"><div data-agent-native-node-id="card-head-${index}" style="display:flex;align-items:center;justify-content:space-between;width:100%;height:22px;overflow:hidden"><strong data-agent-native-node-id="card-title-${index}" style="display:block;width:42px;overflow:hidden;white-space:nowrap">Card ${index}</strong><span data-agent-native-node-id="card-badge-${index}" style="display:block;width:28px;overflow:hidden;white-space:nowrap">Ready</span></div><p data-agent-native-node-id="card-copy-${index}" style="margin:0;width:100%;height:58px;overflow:hidden;color:#475569">Nested auto-layout content for performance profiling.</p></article>`;
+  }
+  for (let index = 0; index < 3; index += 1) {
+    html += `<div data-agent-native-node-id="extra-${index}" style="position:absolute;left:${index * 24}px;top:1760px;width:18px;height:18px;background:#94a3b8"></div>`;
+  }
+  for (let index = 0; index < 34; index += 1) {
+    html += `<script type="application/json" data-perf-inert="${index}"></script>`;
+  }
+  return `${html}</main></body></html>`;
+}
+
 type CollectedInfo = {
   sourceId?: string;
   computedStyles?: Record<string, string>;
   boundingRect: { x: number; y: number; width: number; height: number };
+  portableStyleSnapshot?: {
+    nodes?: Array<{
+      path: number[];
+      styles?: Record<string, string>;
+    }>;
+  };
 };
 
 async function openBridgePage(page: Page) {
@@ -110,6 +143,215 @@ async function collectSelectableRects(
         );
       }),
     [options.deep, options.atPoint ?? null] as const,
+  );
+}
+
+type LargeBenchmarkReceipt = {
+  elapsedMs: number;
+  payload: CollectedInfo[];
+};
+
+async function openLargeBridgePage(page: Page): Promise<void> {
+  await page.setContent(
+    '<iframe data-large-perf-frame="0" style="width:1200px;height:1800px;border:0"></iframe><iframe data-large-perf-frame="1" style="width:1200px;height:1800px;border:0"></iframe>',
+  );
+  await page.evaluate((source) => {
+    document
+      .querySelectorAll<HTMLIFrameElement>("iframe[data-large-perf-frame]")
+      .forEach((iframe) => {
+        iframe.srcdoc = source;
+      });
+  }, largeFixture());
+
+  const iframes = await page
+    .locator("iframe[data-large-perf-frame]")
+    .elementHandles();
+  for (const iframe of iframes) {
+    const frame = await iframe.contentFrame();
+    if (!frame) throw new Error("large performance iframe did not attach");
+    const elementCount = await frame.evaluate(() => {
+      const root = document.querySelector("main");
+      return root ? root.querySelectorAll("*").length + 1 : 0;
+    });
+    if (elementCount !== LARGE_DOM_ELEMENTS) {
+      throw new Error(
+        `large performance fixture has ${elementCount} elements, expected ${LARGE_DOM_ELEMENTS}`,
+      );
+    }
+    await frame.evaluate(() => {
+      const win = window as typeof window & {
+        __largeStyleReads?: number;
+        __largeElementCount?: number;
+      };
+      win.__largeStyleReads = 0;
+      const root = document.querySelector("main");
+      win.__largeElementCount = root
+        ? root.querySelectorAll("*").length + 1
+        : 0;
+      const rawGetComputedStyle = window.getComputedStyle.bind(window);
+      window.getComputedStyle = function (element, pseudoElement) {
+        win.__largeStyleReads = (win.__largeStyleReads ?? 0) + 1;
+        return rawGetComputedStyle(element, pseudoElement);
+      };
+    });
+    await frame.addScriptTag({ content: hydratedBridge() });
+  }
+  await page.waitForTimeout(100);
+}
+
+async function collectLargeFrame(
+  page: Page,
+  frameIndex: number,
+): Promise<LargeBenchmarkReceipt> {
+  return page.evaluate(
+    (requestedIndex) =>
+      new Promise<LargeBenchmarkReceipt>((resolve, reject) => {
+        const iframe = document.querySelectorAll<HTMLIFrameElement>(
+          "iframe[data-large-perf-frame]",
+        )[requestedIndex];
+        const contentWindow = iframe?.contentWindow;
+        if (!contentWindow) {
+          reject(
+            new Error(`missing large performance iframe ${requestedIndex}`),
+          );
+          return;
+        }
+        const correlationId = `large-${requestedIndex}-${Math.random()}`;
+        const started = performance.now();
+        const timer = window.setTimeout(() => {
+          window.removeEventListener("message", listener);
+          reject(
+            new Error(`large performance request ${requestedIndex} timed out`),
+          );
+        }, 10_000);
+        const listener = (event: MessageEvent) => {
+          if (
+            event.source !== contentWindow ||
+            event.data?.type !== "agent-native:selectable-rects-result" ||
+            event.data?.correlationId !== correlationId
+          ) {
+            return;
+          }
+          window.clearTimeout(timer);
+          window.removeEventListener("message", listener);
+          resolve({
+            elapsedMs: performance.now() - started,
+            payload: Array.isArray(event.data.payload)
+              ? event.data.payload
+              : [],
+          });
+        };
+        window.addEventListener("message", listener);
+        contentWindow.postMessage(
+          {
+            type: "agent-native:collect-selectable-rects",
+            correlationId,
+            deep: true,
+          },
+          "*",
+        );
+      }),
+    frameIndex,
+  );
+}
+
+async function collectLargeFramesConcurrently(
+  page: Page,
+): Promise<[LargeBenchmarkReceipt, LargeBenchmarkReceipt]> {
+  return page.evaluate(
+    () =>
+      new Promise<[LargeBenchmarkReceipt, LargeBenchmarkReceipt]>(
+        (resolve, reject) => {
+          const iframes = [
+            ...document.querySelectorAll<HTMLIFrameElement>(
+              "iframe[data-large-perf-frame]",
+            ),
+          ];
+          const contentWindows = iframes.map((iframe) => iframe.contentWindow);
+          if (contentWindows.some((contentWindow) => !contentWindow)) {
+            reject(new Error("large performance iframe is unavailable"));
+            return;
+          }
+          const started = performance.now();
+          const correlations = contentWindows.map(
+            (_, index) => `large-concurrent-${index}-${Math.random()}`,
+          );
+          const receipts: Array<LargeBenchmarkReceipt | undefined> = new Array(
+            contentWindows.length,
+          ).fill(undefined);
+          const timer = window.setTimeout(() => {
+            window.removeEventListener("message", listener);
+            reject(
+              new Error("concurrent large performance requests timed out"),
+            );
+          }, 10_000);
+          const listener = (event: MessageEvent) => {
+            const index = contentWindows.indexOf(event.source as WindowProxy);
+            if (
+              index === -1 ||
+              event.data?.type !== "agent-native:selectable-rects-result" ||
+              event.data?.correlationId !== correlations[index]
+            ) {
+              return;
+            }
+            receipts[index] = {
+              elapsedMs: performance.now() - started,
+              payload: Array.isArray(event.data.payload)
+                ? event.data.payload
+                : [],
+            };
+            if (receipts.every(Boolean)) {
+              window.clearTimeout(timer);
+              window.removeEventListener("message", listener);
+              resolve(
+                receipts as [LargeBenchmarkReceipt, LargeBenchmarkReceipt],
+              );
+            }
+          };
+          window.addEventListener("message", listener);
+          contentWindows.forEach((contentWindow, index) => {
+            contentWindow!.postMessage(
+              {
+                type: "agent-native:collect-selectable-rects",
+                correlationId: correlations[index],
+                deep: true,
+              },
+              "*",
+            );
+          });
+        },
+      ),
+  );
+}
+
+function comparablePayload(payload: CollectedInfo[]) {
+  return payload.map((info) => ({
+    sourceId: info.sourceId,
+    boundingRect: info.boundingRect,
+    computedStyleKeys: Object.keys(info.computedStyles ?? {}).sort(),
+    portableStyleKeys: (info.portableStyleSnapshot?.nodes ?? []).map(
+      (node) =>
+        `${node.path.join(".")}:${Object.keys(node.styles ?? {})
+          .sort()
+          .join(",")}`,
+    ),
+  }));
+}
+
+async function readLargeStyleReads(page: Page): Promise<number[]> {
+  const iframes = await page
+    .locator("iframe[data-large-perf-frame]")
+    .elementHandles();
+  return Promise.all(
+    iframes.map(async (iframe) => {
+      const frame = await iframe.contentFrame();
+      if (!frame) throw new Error("large performance iframe detached");
+      return frame.evaluate(
+        () =>
+          (window as typeof window & { __largeStyleReads?: number })
+            .__largeStyleReads ?? 0,
+      );
+    }),
   );
 }
 
@@ -234,6 +476,62 @@ describe("selectable-rects collect is bounded by the point it was asked about", 
           0,
         );
       }
+    } finally {
+      await browser.close();
+    }
+  }, 60_000);
+});
+
+describe("large concurrent selectable-rects requests", () => {
+  it("preserves payload shape while caching portable styles per request", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 1400, height: 900 },
+      });
+      const errors: string[] = [];
+      page.on("pageerror", (error) => errors.push(error.message));
+      await openLargeBridgePage(page);
+
+      const serial = await collectLargeFrame(page, 0);
+      expect(serial.payload).toHaveLength(LARGE_CANDIDATES);
+      const expected = comparablePayload(serial.payload);
+
+      const iframes = await page
+        .locator("iframe[data-large-perf-frame]")
+        .elementHandles();
+      for (const iframe of iframes) {
+        const frame = await iframe.contentFrame();
+        if (!frame) throw new Error("large performance iframe detached");
+        await frame.evaluate(() => {
+          (
+            window as typeof window & { __largeStyleReads?: number }
+          ).__largeStyleReads = 0;
+        });
+      }
+
+      const [first, second] = await collectLargeFramesConcurrently(page);
+      expect(errors, errors.join("\n")).toEqual([]);
+      expect(first.payload).toHaveLength(LARGE_CANDIDATES);
+      expect(second.payload).toHaveLength(LARGE_CANDIDATES);
+      expect(comparablePayload(first.payload)).toEqual(expected);
+      expect(comparablePayload(second.payload)).toEqual(expected);
+
+      // The original two-iframe trace crossed two seconds. Keep the request
+      // boundary explicit: each collector must finish below that threshold
+      // while preserving the same count, identity, geometry, and style keys.
+      expect(first.elapsedMs).toBeLessThan(2_000);
+      expect(second.elapsedMs).toBeLessThan(2_000);
+
+      const styleReads = await readLargeStyleReads(page);
+      expect(styleReads).toHaveLength(2);
+      // A bounded handful of live reads per candidate plus one portable read
+      // per unique element is the expected shape; a repeated subtree walk
+      // exceeds this bound and regresses toward the measured 13k-read trace.
+      expect(styleReads[0]).toBeLessThanOrEqual(LARGE_DOM_ELEMENTS * 6);
+      expect(styleReads[1]).toBeLessThanOrEqual(LARGE_DOM_ELEMENTS * 6);
+      expect(styleReads[0]).toBeGreaterThan(LARGE_DOM_ELEMENTS * 4);
+      expect(styleReads[1]).toBeGreaterThan(LARGE_DOM_ELEMENTS * 4);
     } finally {
       await browser.close();
     }

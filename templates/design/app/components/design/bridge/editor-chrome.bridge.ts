@@ -2871,11 +2871,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   function collectPortableComputedStyles(
     el: Element | null,
+    cache?: Map<Element, Record<string, string> | null>,
   ): Record<string, string> | null {
     if (!el) return {};
+    if (cache?.has(el)) return cache.get(el) || null;
+    var cacheFailure = function (): null {
+      cache?.set(el, null);
+      return null;
+    };
     var cs = window.getComputedStyle(el);
     var defaults = portableStyleTagDefaults(el);
-    if (!defaults) return null;
+    if (!defaults) return cacheFailure();
     var hostStyle = (el as HTMLElement).style;
     var styles: Record<string, string> = {};
     var typedElement = el as Element & {
@@ -2883,7 +2889,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     };
     if (typeof typedElement.computedStyleMap !== "function") {
       dndLog("style:typed-om-unavailable", { tag: el.tagName });
-      return null;
+      return cacheFailure();
     }
     try {
       var typedStyles = typedElement.computedStyleMap();
@@ -2891,7 +2897,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         var typedValue = typedStyles.get(property);
         if (typedValue == null || !String(typedValue).trim()) {
           dndLog("style:typed-om-value-missing", { property: property });
-          return null;
+          return cacheFailure();
         }
         var size = String(typedValue).trim();
         // Explicit auto must replace a losing inline size in the moved markup.
@@ -2901,7 +2907,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
     } catch (_error) {
       dndLog("style:typed-om-read-failed", { tag: el.tagName });
-      return null;
+      return cacheFailure();
     }
     PORTABLE_STYLE_PROPERTIES.forEach(function (property) {
       if (PORTABLE_STYLE_BOX_SIZE_PROPERTIES[property]) return;
@@ -2936,10 +2942,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         }
       }
     }
+    cache?.set(el, styles);
     return styles;
   }
 
-  function collectPortableStyleSnapshot(root: Element | null) {
+  function collectPortableStyleSnapshot(
+    root: Element | null,
+    cache?: Map<Element, Record<string, string> | null>,
+  ) {
     if (!root || isDocumentRootElement(root)) return undefined;
     var maxNodes = 5000;
     var descendants = Array.prototype.slice.call(root.querySelectorAll("*"));
@@ -2972,7 +2982,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         probeFailed = true;
         return;
       }
-      var styles = collectPortableComputedStyles(node);
+      var styles = collectPortableComputedStyles(node, cache);
       if (styles === null) {
         probeFailed = true;
         return;
@@ -3537,7 +3547,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     };
   }
 
-  function getElementInfo(el: Element): unknown {
+  function getElementInfo(
+    el: Element,
+    portableComputedStylesCache?: Map<Element, Record<string, string> | null>,
+  ): unknown {
     var cs = window.getComputedStyle(el);
     var paintCs = window.getComputedStyle(vectorPaintTarget(el) || el);
     var boundingRect = rectInfoForElement(el);
@@ -3650,7 +3663,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // site; framework runtime metadata fills the React owner call site. The
     // shared resolver crosses ShadowRoot.host for Vue, Svelte, and attributes.
     var provenance: FrameworkDebugProvenance = elementDebugProvenance(el);
-    var portableStyleSnapshot = collectPortableStyleSnapshot(el);
+    var portableStyleSnapshot = collectPortableStyleSnapshot(
+      el,
+      portableComputedStylesCache,
+    );
     return {
       tagName: el.tagName.toLowerCase(),
       componentName: componentName || undefined,
@@ -3985,8 +4001,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         return documentSpaceBoundsContainPoint(el, atPoint);
       });
     }
+    var portableComputedStylesCache = new Map<
+      Element,
+      Record<string, string> | null
+    >();
     return targets.map(function (target) {
-      return getElementInfo(target);
+      return getElementInfo(target, portableComputedStylesCache);
     });
   }
 
