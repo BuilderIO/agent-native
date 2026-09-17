@@ -78,6 +78,19 @@ describe("AgentKit Markdown text parts", () => {
     expect(container.querySelector("strong")?.textContent).toBe("Strong");
   });
 
+  it("renders heading markers as semantic heading elements", async () => {
+    const text = ["# Top level", "", "## Section", "", "### Detail"].join("\n");
+
+    await renderPart(
+      { type: "text", text, format: "markdown" },
+      { active: false, resetKey: "markdown-headings" },
+    );
+
+    expect(container.querySelector("h1")?.textContent).toBe("Top level");
+    expect(container.querySelector("h2")?.textContent).toBe("Section");
+    expect(container.querySelector("h3")?.textContent).toBe("Detail");
+  });
+
   it("keeps incomplete streamed emphasis literal until the agent closes it", async () => {
     await renderPart(
       {
