@@ -199,6 +199,11 @@ export function CommentEntry({
   const pending = comment.mutation?.status === "pending";
   const showMutationStatus =
     comment.mutation?.kind !== "resolve" || !comment.parent_id;
+  const aiSource = getAiCommentSource(comment.submission_source);
+  const visibleAuthor =
+    aiSource && comment.author_model
+      ? `${agentDisplayName(comment.author_model)} · ${comment.author_model}`
+      : (comment.author_name ?? comment.author_email.split("@")[0]);
   const canEdit =
     canComment &&
     !!currentUserEmail &&
@@ -272,7 +277,7 @@ export function CommentEntry({
       }}
     >
       <div className="flex items-center gap-2 mb-1">
-        {getAiCommentSource(comment.submission_source) ? (
+        {aiSource ? (
           <AgentAvatar model={comment.author_model} />
         ) : (
           <CommentAvatar
@@ -281,10 +286,10 @@ export function CommentEntry({
           />
         )}
         <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground">
-          {comment.author_name ?? comment.author_email.split("@")[0]}
+          {visibleAuthor}
         </span>
         <CommentAttributionBadge comment={comment} />
-        <span className="text-xs text-muted-foreground">
+        <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">
           {formatDate(comment.created_at, { month: "short", day: "numeric" })}
         </span>
         {canEdit && !editing && (

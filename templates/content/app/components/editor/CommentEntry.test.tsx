@@ -44,6 +44,11 @@ vi.mock("@/components/ui/dropdown-menu", () => ({
     onSelect: () => void;
   }) => <button onClick={onSelect}>{children}</button>,
 }));
+vi.mock("@/components/ui/tooltip", () => ({
+  Tooltip: ({ children }: { children: ReactNode }) => <>{children}</>,
+  TooltipTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
+  TooltipContent: ({ children }: { children: ReactNode }) => <>{children}</>,
+}));
 vi.mock("./CommentComposer", () => ({
   CommentComposer: ({
     value,
@@ -208,4 +213,27 @@ it("keeps the submitted draft when checking remains unresolved", async () => {
   expect(container.querySelector('[role="alert"]')?.textContent).toBe(
     "comments.saveUnconfirmed",
   );
+});
+
+it("shows the exact model on an agent-authored comment without crowding the date", async () => {
+  await act(async () =>
+    root.render(
+      <Harness
+        entry={{
+          ...comment,
+          author_name: "AI Agent",
+          actorKind: "agent",
+          submission_source: "agent",
+          author_model: "gpt-5-6-sol",
+        }}
+      />,
+    ),
+  );
+
+  expect(container.textContent).toContain("GPT · gpt-5-6-sol");
+  const date = [...container.querySelectorAll("span")].find(
+    (node) => node.textContent === "Sep 10",
+  );
+  expect(date?.className).toContain("shrink-0");
+  expect(date?.className).toContain("whitespace-nowrap");
 });
