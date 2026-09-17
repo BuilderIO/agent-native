@@ -5948,6 +5948,7 @@ const AssistantChatInner = forwardRef<
       selectedEngine,
       selectedModel,
       t,
+      threadId,
       updateComposerContextItems,
     ],
   );
