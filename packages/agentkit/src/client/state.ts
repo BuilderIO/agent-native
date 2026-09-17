@@ -40,6 +40,7 @@ export interface AgentRunState {
   id: RunId;
   status: AgentRunStatus;
   lastSequence: number;
+  activeMessageId?: string;
   startedAt?: string;
   completedAt?: string;
   usage?: AgentUsage;
@@ -259,8 +260,10 @@ export function settleRunProjection(
   runId: RunId,
   status: AgentTerminalRunStatus,
   completedAt: string,
+  activeMessageId?: string,
 ): AgentThreadState {
   const messageIds = new Set<string>();
+  if (activeMessageId) messageIds.add(activeMessageId);
   const toolIds = new Set<string>();
   const activityIds = new Set<string>();
   const taskIds = new Set<string>();

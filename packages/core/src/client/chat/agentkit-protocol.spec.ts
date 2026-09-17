@@ -437,6 +437,7 @@ describe("createAgentKitProtocolAdapter", () => {
       "tool.delta",
       "tool.updated",
       "activity.completed",
+      "message.completed",
       "run.status",
       "run.completed",
     ]);
@@ -468,13 +469,13 @@ describe("createAgentKitProtocolAdapter", () => {
         afterSequence: 8,
       }),
     );
-    expect(replay.map((event) => event.sequence)).toEqual([9, 10, 11]);
+    expect(replay.map((event) => event.sequence)).toEqual([9, 10, 11, 12]);
 
     await expect(
       transport.getRun?.({ threadId: "thread-1", runId }),
     ).resolves.toMatchObject({
       status: "completed",
-      lastSequence: 11,
+      lastSequence: 12,
     });
   });
 
@@ -701,6 +702,56 @@ describe("createAgentKitProtocolAdapter", () => {
         }),
       }),
     );
+  });
+
+  it("completes an active message when the runtime omits message-done", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "message-start",
+        message: {
+          id: "assistant-terminal",
+          role: "assistant",
+          content: [],
+        },
+      };
+      yield {
+        type: "message-delta",
+        messageId: "assistant-terminal",
+        delta: { type: "text", text: "Partial response" },
+      };
+      yield { type: "done", reason: "complete" };
+    }
+
+    const transport = createAgentKitProtocolAdapter(createRuntime(events));
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Finish the response")],
+    });
+    const result = await drain(
+      transport.subscribeToRun({ threadId: "thread-1", runId }),
+    );
+    const messageCompletionIndex = result.findIndex(
+      (event) =>
+        event.type === "message.completed" &&
+        event.message.id === "assistant-terminal",
+    );
+    const terminalIndex = result.findIndex(
+      (event) => event.type === "run.status" && event.status === "completed",
+    );
+
+    expect(messageCompletionIndex).toBeGreaterThan(-1);
+    expect(messageCompletionIndex).toBeLessThan(terminalIndex);
+    expect(result[messageCompletionIndex]).toMatchObject({
+      type: "message.completed",
+      message: {
+        id: "assistant-terminal",
+        status: "complete",
+        parts: [],
+      },
+    });
+    await expect(
+      transport.getRun?.({ threadId: "thread-1", runId }),
+    ).resolves.toMatchObject({ activeMessageId: "assistant-terminal" });
   });
 
   it("forwards provider-neutral run options into the Core turn", async () => {

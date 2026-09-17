@@ -126,6 +126,55 @@ describe("AgentKitClient", () => {
     expect(thread.tools["tool-1"]?.status).toBe("completed");
   });
 
+  it("settles the snapshot message associated with a terminal run", async () => {
+    const transport = createTransport([]);
+    transport.getThreadSnapshot = async () => ({
+      id: "thread-1",
+      createdAt: "2026-08-29T00:00:00.000Z",
+      updatedAt: "2026-08-29T00:00:02.000Z",
+      messages: [
+        {
+          id: "assistant-complete",
+          role: "assistant",
+          status: "streaming",
+          parts: [{ type: "text", text: "Completed response" }],
+        },
+        {
+          id: "assistant-active",
+          role: "assistant",
+          status: "streaming",
+          parts: [{ type: "text", text: "Still working" }],
+        },
+      ],
+      runs: [
+        {
+          id: "run-complete",
+          threadId: "thread-1",
+          status: "completed" as const,
+          lastSequence: 4,
+          completedAt: "2026-08-29T00:00:02.000Z",
+          activeMessageId: "assistant-complete",
+        },
+        {
+          id: "run-active",
+          threadId: "thread-1",
+          status: "running" as const,
+          lastSequence: 2,
+          activeMessageId: "assistant-active",
+        },
+      ],
+      activeRunIds: ["run-active"],
+    });
+    const client = new AgentKitClient({ transport });
+
+    const thread = await client.loadThread("thread-1");
+
+    expect(thread.messages).toEqual([
+      expect.objectContaining({ id: "assistant-complete", status: "complete" }),
+      expect.objectContaining({ id: "assistant-active", status: "streaming" }),
+    ]);
+  });
+
   it("resubscribes the same run after a connection continuation", async () => {
     let subscriptionCount = 0;
     const resolveConnectionRequest = vi.fn(async () => undefined);
@@ -857,6 +906,56 @@ describe("AgentKitClient", () => {
       client.removeQueuedMessage("thread-1", "queued-1"),
     ).rejects.toThrow("write failed");
     expect(client.getThread("thread-1").queuedMessages).toEqual([queued]);
+  });
+
+  it("serializes queue mutations so an earlier rollback preserves later intent", async () => {
+    const firstQueued: AgentQueuedMessage = {
+      id: "queued-1",
+      threadId: "thread-1",
+      text: "Follow up",
+      createdAt: "2026-08-29T00:00:00.000Z",
+    };
+    const secondQueued: AgentQueuedMessage = {
+      ...firstQueued,
+      id: "queued-2",
+      text: "Then announce it",
+    };
+    const firstRequest = Promise.withResolvers<void>();
+    const removeQueuedMessage = vi.fn(
+      async ({ messageId }: { messageId: string }) => {
+        if (messageId === firstQueued.id) await firstRequest.promise;
+      },
+    );
+    const transport = createTransport([]);
+    transport.getThreadSnapshot = async () => ({
+      id: "thread-1",
+      createdAt: firstQueued.createdAt,
+      updatedAt: firstQueued.createdAt,
+      messages: [],
+      queuedMessages: [firstQueued, secondQueued],
+    });
+    transport.removeQueuedMessage = removeQueuedMessage;
+    const client = new AgentKitClient({ transport });
+    await client.loadThread("thread-1");
+
+    const firstRemoval = client.removeQueuedMessage("thread-1", firstQueued.id);
+    const secondRemoval = client.removeQueuedMessage(
+      "thread-1",
+      secondQueued.id,
+    );
+    await vi.waitFor(() => expect(removeQueuedMessage).toHaveBeenCalledOnce());
+    expect(client.getThread("thread-1").queuedMessages).toEqual([secondQueued]);
+
+    firstRequest.reject(new Error("first removal failed"));
+    await expect(firstRemoval).rejects.toThrow("first removal failed");
+    await secondRemoval;
+
+    expect(removeQueuedMessage).toHaveBeenNthCalledWith(
+      2,
+      { threadId: "thread-1", messageId: secondQueued.id },
+      expect.anything(),
+    );
+    expect(client.getThread("thread-1").queuedMessages).toEqual([firstQueued]);
   });
 
   it("keeps new durable queue entries while a removal snapshot is stale", async () => {

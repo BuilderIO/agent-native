@@ -121,6 +121,7 @@ interface ProtocolRun {
   usage?: AgentUsage;
   metadata?: Record<string, unknown>;
   activeMessageId?: string;
+  activeMessageCompleted: boolean;
   actions: Map<string, AgentActionInvocation>;
   activeTools: Map<string, AgentToolCall>;
   activeActivities: Map<string, AgentActivity>;
@@ -1397,6 +1398,19 @@ export function createAgentKitProtocolAdapter(
       }
       return;
     }
+    if (terminalStatus && run.activeMessageId && !run.activeMessageCompleted) {
+      append(run, {
+        type: "message.completed",
+        occurredAt: event.occurredAt ?? now(),
+        metadata: event.metadata,
+        message: {
+          id: run.activeMessageId,
+          role: "assistant",
+          status: terminalStatus === "completed" ? "complete" : "error",
+          parts: [],
+        },
+      });
+    }
     const terminalActivityStatus = terminalStatus;
     const terminalToolStatus = terminalActivityStatus;
     if (terminalToolStatus && run.activeTools.size > 0) {
@@ -1475,6 +1489,12 @@ export function createAgentKitProtocolAdapter(
       metadata: mergeProtocolMetadata(run.metadata, event.metadata),
     } as AgentEvent;
     run.events.push(protocolEvent);
+    if (
+      protocolEvent.type === "message.completed" &&
+      protocolEvent.message.id === run.activeMessageId
+    ) {
+      run.activeMessageCompleted = true;
+    }
     if (
       protocolEvent.type === "activity.started" ||
       protocolEvent.type === "activity.updated" ||
@@ -1559,6 +1579,7 @@ export function createAgentKitProtocolAdapter(
     switch (event.type) {
       case "message-start":
         run.activeMessageId = event.message.id;
+        run.activeMessageCompleted = false;
         return [
           {
             type: "message.created",
@@ -1567,6 +1588,8 @@ export function createAgentKitProtocolAdapter(
           },
         ];
       case "message-delta":
+        run.activeMessageId = event.messageId;
+        run.activeMessageCompleted = false;
         if (event.delta.type === "text") {
           return [
             {
@@ -1602,6 +1625,7 @@ export function createAgentKitProtocolAdapter(
         ];
       case "message-done":
         run.activeMessageId = event.message.id;
+        run.activeMessageCompleted = true;
         return [
           {
             type: "message.completed",
@@ -2400,6 +2424,7 @@ export function createAgentKitProtocolAdapter(
         lastAccessedAtMs: timeMs(),
         activeReaders: 0,
         metadata: runMetadata,
+        activeMessageCompleted: false,
         actions: new Map(),
         activeTools: new Map(),
         activeActivities: new Map(),
@@ -2454,6 +2479,7 @@ export function createAgentKitProtocolAdapter(
         usage: run.usage,
         error: run.error,
         metadata: run.metadata,
+        activeMessageId: run.activeMessageId,
       };
     },
     async cancelRun(input) {
@@ -2745,6 +2771,7 @@ export function createAgentKitProtocolAdapter(
           activeReaders: 0,
           metadata: replacementMetadata,
           activeMessageId: run.activeMessageId,
+          activeMessageCompleted: run.activeMessageCompleted,
           actions: new Map(run.actions),
           activeTools: new Map(run.activeTools),
           activeActivities: new Map(run.activeActivities),
