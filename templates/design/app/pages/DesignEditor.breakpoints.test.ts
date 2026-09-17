@@ -392,17 +392,10 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     expect(source).not.toContain("w-[190px] max-w-full shrink-0 !text-[11px]");
   });
 
-  it("confirms that deleting a base screen includes all responsive variants", () => {
-    const deletionDialogSource = readFileSync(
-      "app/components/design/editor/PendingScreenDeletionDialog.tsx",
-      "utf8",
-    );
-    expect(deletionDialogSource).toContain(
-      "designEditor.screenDeletion.descriptionOne",
-    );
-    expect(deletionDialogSource).toContain(
-      "designEditor.screenDeletion.descriptionMany",
-    );
+  it("deletes selected screens without an editor-open-only confirmation flow", () => {
+    expect(source).not.toContain("PendingScreenDeletionDialog");
+    expect(source).not.toContain("screenDeletion");
+    expect(source).toContain("recordDeletionHistory: true");
   });
 
   it("routes every style-commit path through the scoped write helper", () => {

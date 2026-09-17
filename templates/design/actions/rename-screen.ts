@@ -9,7 +9,10 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { designSourceMutationLockKey } from "../server/source-workspace.js";
+import {
+  designSourceMutationLockKey,
+  lockDesignFilesTable,
+} from "../server/source-workspace.js";
 import { isProbablyHtmlDocumentContent } from "../shared/html-content.js";
 import {
   renameFilenamePreservingExtension,
@@ -184,6 +187,7 @@ export default defineAction({
             await tx.execute(
               sql`SELECT pg_advisory_xact_lock(hashtextextended(${designSourceMutationLockKey(scopedFile.designId)}, 0::bigint))`,
             );
+            await lockDesignFilesTable(tx);
 
             const [design] = await tx
               .select({ updatedAt: schema.designs.updatedAt })

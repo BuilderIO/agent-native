@@ -410,6 +410,13 @@ export interface UndoArgs {
   createFileMutation: ReturnType<
     typeof useActionMutation<undefined, undefined, "create-file">
   >;
+  optimisticallyInsertCreatedFile?: (args: {
+    fileId: string;
+    filename: string;
+    fileType: DesignFile["fileType"];
+    content: string;
+    result?: Record<string, unknown> | null;
+  }) => void;
   deleteFileMutation: ReturnType<
     typeof useActionMutation<undefined, undefined, "delete-file">
   >;
@@ -419,7 +426,9 @@ export interface UndoArgs {
   fileDeletionRedoStackRef: RefObject<FileDeletionHistoryEntry[]>;
   fileDeletionUndoStackRef: RefObject<FileDeletionHistoryEntry[]>;
   fileHistoryMutationPendingRef: RefObject<boolean>;
+  clearPendingHistory?: () => void;
   files: DesignFile[];
+  filesRef?: RefObject<DesignFile[]>;
   geometryRedoStackRef: RefObject<GeometryHistoryEntry[]>;
   geometryUndoStackRef: RefObject<GeometryHistoryEntry[]>;
   getFreshActiveContent: () => string;
@@ -547,6 +556,7 @@ export function runUndo({
   contentUndoSelectionStackRef,
   contentUndoStackRef,
   createFileMutation,
+  optimisticallyInsertCreatedFile,
   deleteFileMutation,
   designDataJsonRef,
   fileCreationRedoStackRef,
@@ -554,7 +564,9 @@ export function runUndo({
   fileDeletionRedoStackRef,
   fileDeletionUndoStackRef,
   fileHistoryMutationPendingRef,
+  clearPendingHistory,
   files,
+  filesRef,
   geometryRedoStackRef,
   geometryUndoStackRef,
   getFreshActiveContent,
@@ -609,8 +621,9 @@ export function runUndo({
     selection: GeometryHistorySelection | undefined,
     replaySources: Record<string, string> = {},
   ) => {
+    const currentFiles = filesRef?.current ?? files;
     const actualSources = Object.fromEntries(
-      files.map((file) => [
+      currentFiles.map((file) => [
         file.id,
         replaySources[file.id] ?? getScreenContent(file.id),
       ]),
@@ -1478,6 +1491,17 @@ export function runUndo({
           ...file,
           content: preparedFiles[index]?.content ?? file.content,
         }));
+        entry.files.forEach((file, index) => {
+          const recreatedFile = recreatedEntry.files[index];
+          const prepared = preparedFiles[index];
+          if (!recreatedFile || !prepared) return;
+          optimisticallyInsertCreatedFile?.({
+            fileId: recreatedFile.id,
+            filename: file.filename,
+            fileType: file.fileType,
+            content: prepared.content,
+          });
+        });
         const metadataRestore = restoreMetadataAndGeometry(
           restoreEntry,
           recreatedEntry,
@@ -1548,6 +1572,7 @@ export function runUndo({
           setSelectedLayerIdsState(recreatedEntry.files.map((file) => file.id));
         }
       } catch (error) {
+        clearPendingHistory?.();
         const cleanupResults = await Promise.allSettled(
           recreatedIds.map((fileId) =>
             deleteFileMutation.mutateAsync({

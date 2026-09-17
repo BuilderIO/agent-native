@@ -56,12 +56,14 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
+  accessFilter: vi.fn(() => undefined),
   assertAccess: captureMocks.assertAccess,
 }));
 
 vi.mock("nanoid", () => ({ nanoid: captureMocks.nanoid }));
 
 vi.mock("../source-workspace.js", () => ({
+  lockDesignSourceMutation: vi.fn(),
   withSourceFileWriteLock: async (
     _fileId: string,
     work: () => Promise<unknown>,
@@ -84,6 +86,7 @@ vi.mock("../db/index.js", () => {
       createdAt: { name: "createdAt" },
     },
     designFiles: {},
+    designShares: {},
     designs: {},
   };
   const queryResult = (rows: unknown[]) => {
@@ -135,9 +138,11 @@ vi.mock("../db/index.js", () => {
 
 import {
   createDesignVersionSnapshot,
+  listDesignVersions,
   parseDesignVersionSnapshot,
   readDesignVersionSnapshot,
   snapshotDesignBeforeAgentEdit,
+  snapshotDesignBeforeAgentEditInVersionLock,
 } from "./design-versions.js";
 
 beforeEach(() => {
@@ -392,6 +397,121 @@ describe("createDesignVersionSnapshot", () => {
     expect(captureMocks.revisions[1]?.chatContext).toContain(
       '"turnId":"turn-1"',
     );
+  });
+
+  it("persists browser checkpoints from live collaborative content", async () => {
+    captureMocks.liveSnapshot = {
+      ...captureMocks.liveSnapshot,
+      files: [
+        {
+          ...captureMocks.liveSnapshot.files[0],
+          content: "<main>Latest Yjs edit</main>",
+        },
+      ],
+    };
+    const checkpoint = await snapshotDesignBeforeAgentEdit("design-1", {
+      caller: "frontend",
+      actionName: "update-file",
+    });
+
+    expect(checkpoint).toBeTruthy();
+    expect(captureMocks.buildDesignSnapshot).toHaveBeenCalledWith(
+      "design-1",
+      expect.any(String),
+      undefined,
+    );
+    expect(captureMocks.revisions[0]?.snapshot).toContain("Latest Yjs edit");
+    expect(
+      JSON.parse(captureMocks.revisions[0]!.chatContext as string),
+    ).toEqual({
+      surface: "editor",
+      actionName: "update-file",
+    });
+
+    await expect(listDesignVersions("design-1", 10)).resolves.toMatchObject({
+      versions: [
+        {
+          id: checkpoint?.id,
+          source: "editor",
+          editable: true,
+          chatContext: { surface: "editor", actionName: "update-file" },
+        },
+      ],
+    });
+  });
+
+  it("uses the caller transaction for hosted-style checkpoint reads and writes", async () => {
+    let selectCall = 0;
+    const transactionDb = {
+      select: () => {
+        selectCall += 1;
+        const rows =
+          selectCall === 1
+            ? [{ ...captureMocks.design }]
+            : selectCall === 2
+              ? []
+              : [
+                  {
+                    id: "checkpoint-1",
+                    createdAt: "2026-07-08T00:00:00.000Z",
+                    label: "Before editor edit",
+                  },
+                ];
+        const chain = {
+          from: () => chain,
+          where: () => chain,
+          orderBy: () => chain,
+          limit: async () => rows,
+        };
+        return chain;
+      },
+      insert: () => {
+        const query = {
+          values: () => query,
+          onConflictDoNothing: () => query,
+          returning: async () => [{ id: "checkpoint-1" }],
+        };
+        return query;
+      },
+    };
+
+    await snapshotDesignBeforeAgentEditInVersionLock(
+      "design-1",
+      { caller: "frontend", actionName: "delete-file" },
+      transactionDb as unknown as NonNullable<
+        Parameters<typeof snapshotDesignBeforeAgentEditInVersionLock>[2]
+      >,
+    );
+
+    expect(captureMocks.buildDesignSnapshot).toHaveBeenCalledWith(
+      "design-1",
+      expect.any(String),
+      undefined,
+      transactionDb,
+    );
+    expect(selectCall).toBe(3);
+    expect(captureMocks.revisions).toHaveLength(0);
+  });
+
+  it("coalesces concurrent browser checkpoints through the shared version lock", async () => {
+    captureMocks.buildDesignSnapshot.mockImplementation(async () => {
+      await Promise.resolve();
+      return captureMocks.liveSnapshot;
+    });
+
+    const [first, second] = await Promise.all([
+      snapshotDesignBeforeAgentEdit("design-1", {
+        caller: "frontend",
+        actionName: "update-file",
+      }),
+      snapshotDesignBeforeAgentEdit("design-1", {
+        caller: "frontend",
+        actionName: "update-file",
+      }),
+    ]);
+
+    expect(second).toEqual(first);
+    expect(captureMocks.revisions).toHaveLength(1);
   });
 
   it("cleans up a large blob when a duplicate insert loses the race", async () => {

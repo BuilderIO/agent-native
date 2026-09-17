@@ -599,6 +599,12 @@ export function restorePendingFileContent<
 
 export interface FileContentSaveRequest {
   identityMigrationSourceContent?: string;
+  /**
+   * CAS base for the durable latest-content replay. Normal saves keep their
+   * per-edit base so the serialized chain remains strict; the outbox needs the
+   * oldest unacknowledged base so a pagehide can replay the full snapshot.
+   */
+  unloadExpectedVersionHash?: string;
   id: string;
   content: string;
   syncCollab: boolean;
@@ -608,6 +614,19 @@ export interface FileContentSaveRequest {
   operationRevision: number;
   /** Hash of the source content this edit was computed from. */
   expectedVersionHash: string;
+}
+
+/**
+ * A pagehide request must retain its own CAS base. The durable outbox may fold
+ * later edits onto the oldest base, but a direct keepalive can race that
+ * predecessor and must remain replayable in operation order.
+ */
+export function prepareFileContentSaveKeepalive(
+  pending: FileContentSaveRequest,
+): FileContentSaveRequest {
+  return pending.unloadExpectedVersionHash === undefined
+    ? pending
+    : { ...pending, unloadExpectedVersionHash: undefined };
 }
 
 export function coalescePendingFileContentSave(
@@ -637,16 +656,58 @@ type FileContentSaveRequestsById = Readonly<
 export function shouldClearLatestUnloadSave(
   latest: FileContentSaveRequest | undefined,
   completed: FileContentSaveRequest,
-  skippedStaleMirror = false,
 ): boolean {
   return Boolean(
-    !skippedStaleMirror &&
     latest &&
     latest.id === completed.id &&
     latest.content === completed.content &&
     latest.syncCollab === completed.syncCollab &&
     latest.operationSource === completed.operationSource &&
     latest.operationRevision === completed.operationRevision,
+  );
+}
+
+/**
+ * A completed predecessor advances a newer unload replay from its old CAS
+ * base. Mutate the request in place so debounce slots and save chains keep the
+ * same request object, then let the caller re-journal its updated payload.
+ */
+export function advanceLatestUnloadSaveBase(
+  latest: FileContentSaveRequest | undefined,
+  completed: FileContentSaveRequest,
+  persistedVersionHash: string,
+): boolean {
+  const completedBase =
+    completed.unloadExpectedVersionHash ?? completed.expectedVersionHash;
+  const latestBase =
+    latest?.unloadExpectedVersionHash ?? latest?.expectedVersionHash;
+  if (
+    !latest ||
+    latest === completed ||
+    latest.id !== completed.id ||
+    latest.operationSource !== completed.operationSource ||
+    latest.operationRevision <= completed.operationRevision ||
+    latestBase !== completedBase
+  ) {
+    return false;
+  }
+  latest.unloadExpectedVersionHash = persistedVersionHash;
+  return true;
+}
+
+export function shouldClearLatestUnloadSaveForOutboxEntry(
+  latest: FileContentSaveRequest | undefined,
+  entry: {
+    resourceId: string;
+    operationSource: string;
+    operationRevision: number;
+  },
+): boolean {
+  return Boolean(
+    latest &&
+    latest.id === entry.resourceId &&
+    latest.operationSource === entry.operationSource &&
+    latest.operationRevision === entry.operationRevision,
   );
 }
 

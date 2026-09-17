@@ -460,7 +460,11 @@ export function commitElementMinMax(
     onStyleChange(property, kind === "min" ? "0px" : "none", meta);
     return;
   }
-  onStyleChange(property, `${Math.max(0, Math.round(value))}px`, meta);
+  onStyleChange(
+    property,
+    `${Math.max(0, Math.round(value * 10) / 10)}px`,
+    meta,
+  );
 }
 
 export function inferElementSizing(
