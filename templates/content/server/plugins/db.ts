@@ -1155,6 +1155,11 @@ export const runContentMigrations = runMigrations(
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       );
+      ALTER TABLE comment_ai_attempts ADD COLUMN IF NOT EXISTS payload_json TEXT;
+      ALTER TABLE comment_ai_attempts ADD COLUMN IF NOT EXISTS run_id TEXT;
+      ALTER TABLE comment_ai_attempts ADD COLUMN IF NOT EXISTS model TEXT;
+      ALTER TABLE comment_ai_attempts ADD COLUMN IF NOT EXISTS error_code TEXT;
+      ALTER TABLE comment_ai_attempts ADD COLUMN IF NOT EXISTS error TEXT;
       UPDATE comment_ai_requests AS request
       SET thread_digest = COALESCE(
             request.thread_digest,
