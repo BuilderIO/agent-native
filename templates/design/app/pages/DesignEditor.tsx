@@ -800,6 +800,7 @@ import {
   getPersistedContentHostSyncOptions,
   isStandaloneHttpUrl,
   previewContentReplaceNeedsRenderFallback,
+  prepareFileContentSaveKeepalive,
   removeUndoRedoOrderKind,
   restorePendingFileContent,
   resolveLocalhostSourceWriteContent,
@@ -4233,16 +4234,25 @@ function DesignEditor() {
       // Keep pagehide mirrors behind the same source-version guard as normal saves.
       const collabLive = pending.syncCollab === false;
       if (!shouldSendKeepalive(true, collabLive)) return;
-      const entry = createFileSaveOutboxEntry(pending);
+      // The durable outbox folds successors onto the oldest unacknowledged
+      // base, but a pagehide request may race that predecessor. Keep this
+      // direct request on its own base so it either follows the predecessor or
+      // remains replayable after the predecessor lands.
+      const keepalivePending = prepareFileContentSaveKeepalive(pending);
+      const entry = createFileSaveOutboxEntry(keepalivePending);
       if (!entry) return;
-      void journalOutboxEntry(entry);
+      const journalPromise = journalOutboxEntry(entry);
       const attempt = tryCallActionKeepalive(
         "update-file",
         entry.payload as any,
       );
-      if (!attempt.accepted) return;
+      if (!attempt.accepted) {
+        void journalPromise.catch(() => {});
+        return;
+      }
       void attempt.completion
         .then(async (result: unknown) => {
+          await journalPromise;
           const persistedContentMatches = updateFileResultPersistedContent(
             result,
             pending.content,

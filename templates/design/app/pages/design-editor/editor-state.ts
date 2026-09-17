@@ -616,6 +616,19 @@ export interface FileContentSaveRequest {
   expectedVersionHash: string;
 }
 
+/**
+ * A pagehide request must retain its own CAS base. The durable outbox may fold
+ * later edits onto the oldest base, but a direct keepalive can race that
+ * predecessor and must remain replayable in operation order.
+ */
+export function prepareFileContentSaveKeepalive(
+  pending: FileContentSaveRequest,
+): FileContentSaveRequest {
+  return pending.unloadExpectedVersionHash === undefined
+    ? pending
+    : { ...pending, unloadExpectedVersionHash: undefined };
+}
+
 export function coalescePendingFileContentSave(
   next: FileContentSaveRequest,
   pending: FileContentSaveRequest | undefined,
