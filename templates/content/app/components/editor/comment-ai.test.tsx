@@ -194,7 +194,7 @@ describe("comment AI controls", () => {
     expect(container.querySelector("textarea")?.value).toBe("unfinished reply");
   });
 
-  it("supports keyboard selection and disables unavailable suggestions", async () => {
+  it("supports keyboard selection and keeps Apply independent from Suggest permission", async () => {
     const onStart = renderControls();
     const trigger = container.querySelector<HTMLButtonElement>(
       '[aria-label="comments.askAi"]',
@@ -214,17 +214,19 @@ describe("comment AI controls", () => {
 
     act(() => root.unmount());
     root = createRoot(container);
-    renderControls({ canSuggest: false });
+    const permissionOnStart = renderControls({ canSuggest: false });
     await openMenu(
       container.querySelector<HTMLButtonElement>(
         '[aria-label="comments.askAi"]',
       )!,
     );
-    expect(
-      document
-        .querySelector<HTMLElement>("[role=menuitem]")
-        ?.getAttribute("data-disabled"),
-    ).not.toBeNull();
+    const permissionItems = [
+      ...document.querySelectorAll<HTMLElement>("[role=menuitem]"),
+    ];
+    expect(permissionItems[0]?.getAttribute("data-disabled")).not.toBeNull();
+    expect(permissionItems[2]?.getAttribute("data-disabled")).toBeNull();
+    await act(async () => permissionItems[2]?.click());
+    expect(permissionOnStart).toHaveBeenCalledWith("apply-resolve", undefined);
   });
 
   it("shows actionable errors and retries with the same request id", async () => {

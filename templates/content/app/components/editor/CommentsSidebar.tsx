@@ -1420,7 +1420,11 @@ export function CommentsSidebar({
               starting={commentAi.startingThreadIds.has(thread.threadId)}
               canSuggest={canSuggest}
               canReply={canComment && !thread.resolved}
-              canApply={canSuggest && canResolve && !thread.resolved}
+              canApply={
+                canResolve &&
+                !thread.resolved &&
+                thread.comments.some((comment) => comment.parent_id === null)
+              }
               onStart={startAi}
             />
           ) : undefined
