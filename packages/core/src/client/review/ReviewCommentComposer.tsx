@@ -294,7 +294,7 @@ export function ReviewCommentComposer({
             const triggerIndex =
               event.currentTarget.selectionStart ?? value.length;
             const beforeTrigger = value.slice(0, triggerIndex);
-            if (beforeTrigger && !/\s$/.test(beforeTrigger)) return;
+            if (/[\p{L}\p{N}_]$/u.test(beforeTrigger)) return;
             setMentionTriggerIndex(triggerIndex);
             mentionTokenEndRef.current = triggerIndex + 1;
             setMentionSearch("");

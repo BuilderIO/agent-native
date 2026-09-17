@@ -82,12 +82,13 @@ describe("ReviewCommentComposer actions", () => {
     ).not.toBe(tools);
   });
 
-  it("opens typed mentions only at a word boundary", () => {
+  it("opens typed mentions only at standalone boundaries", () => {
     const mention = { label: "Alice", email: "alice@example.com" };
     const renderComposer = (value: string) => {
       act(() => {
         root.render(
           <ReviewCommentComposer
+            key={value}
             value={value}
             onChange={() => {}}
             onSubmit={() => {}}
@@ -109,6 +110,16 @@ describe("ReviewCommentComposer actions", () => {
     expect(document.querySelector('[role="menuitem"]')).toBeNull();
 
     renderComposer("email ");
+    textarea = container.querySelector<HTMLTextAreaElement>("textarea");
+    act(() => {
+      textarea!.setSelectionRange(6, 6);
+      textarea!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "@", bubbles: true }),
+      );
+    });
+    expect(document.querySelector('[role="menuitem"]')).not.toBeNull();
+
+    renderComposer("email,");
     textarea = container.querySelector<HTMLTextAreaElement>("textarea");
     act(() => {
       textarea!.setSelectionRange(6, 6);
