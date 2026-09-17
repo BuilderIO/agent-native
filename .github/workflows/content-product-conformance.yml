@@ -43,6 +43,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           path: candidate
           fetch-depth: 0
+          filter: blob:none
           persist-credentials: false
 
       - name: Fetch exact target revision
