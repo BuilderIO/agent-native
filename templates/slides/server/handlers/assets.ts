@@ -69,6 +69,16 @@ function ascii(data: Uint8Array, start: number, end: number): string {
   return Buffer.from(data.subarray(start, end)).toString("ascii");
 }
 
+export function hasExpectedSvgSignature(data: Uint8Array): boolean {
+  const head = Buffer.from(
+    data.subarray(0, Math.min(data.length, 8192)),
+  ).toString("utf8");
+  const normalized = head.replace(/^\uFEFF/, "").trimStart();
+  return /^(?:(?:\s|<!--[\s\S]*?-->|<\?xml\b[\s\S]*?\?>))*<svg(?:\s|\/?>)/i.test(
+    normalized,
+  );
+}
+
 function hasExpectedImageSignature(ext: string, data: Uint8Array): boolean {
   if (ext === ".png") {
     return (
@@ -100,13 +110,7 @@ function hasExpectedImageSignature(ext: string, data: Uint8Array): boolean {
     return ascii(data, 4, 12).includes("ftyp");
   }
   if (ext === ".svg") {
-    const head = Buffer.from(
-      data.subarray(0, Math.min(data.length, 8192)),
-    ).toString("utf8");
-    const normalized = head.replace(/^\uFEFF/, "").trimStart();
-    return /^(?:(?:\s|<!--[\s\S]*?-->|<\?xml\b[\s\S]*?\?>))*<svg(?:\s|\/?>)/i.test(
-      normalized,
-    );
+    return hasExpectedSvgSignature(data);
   }
   return false;
 }

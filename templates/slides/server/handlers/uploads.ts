@@ -25,6 +25,7 @@ import {
 } from "../lib/uploaded-reference-storage.js";
 import {
   canSaveAsUploadedAsset,
+  hasExpectedSvgSignature,
   isSafeSvg,
   uploadImageAsset,
 } from "./assets.js";
@@ -117,14 +118,7 @@ function hasExpectedSignature(ext: string, data: Uint8Array): boolean {
     return ascii(data, 0, 4) === "RIFF" && ascii(data, 8, 12) === "WEBP";
   }
   if (ext === ".svg") {
-    const head = Buffer.from(
-      data.subarray(0, Math.min(data.length, 8192)),
-    ).toString("utf8");
-    const normalized = head.replace(/^\uFEFF/, "").trimStart();
-    return (
-      /^<svg(?:\s|>)/i.test(normalized) ||
-      /^<\?xml\b[\s\S]{0,4096}<svg(?:\s|>)/i.test(normalized)
-    );
+    return hasExpectedSvgSignature(data);
   }
   return !data.subarray(0, 4096).includes(0);
 }
