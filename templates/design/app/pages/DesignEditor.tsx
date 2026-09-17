@@ -1759,6 +1759,9 @@ function DesignEditor() {
     [],
   );
   const selectedLayerTargetsRef = useRef<SelectedLayerTarget[]>([]);
+  const renderedElementInfoByLayerKeyRef = useRef<Map<string, ElementInfo>>(
+    new Map(),
+  );
   const commitStylesToSelectedLayersRef = useRef<
     (
       styles: Record<string, string>,
@@ -10797,6 +10800,7 @@ function DesignEditor() {
             id,
             pendingOverviewLayerSelectionRef,
             pendingOverviewScreenSelectionRef,
+            renderedElementInfoByLayerKeyRef,
             selectedLayerIdsState,
             setActiveFileId,
             setActiveTool,
@@ -10867,6 +10871,11 @@ function DesignEditor() {
       setHoveredElement(null);
       setHoveredElementScreenId(null);
       setSelectedLayerIdsState([]);
+      for (const key of renderedElementInfoByLayerKeyRef.current.keys()) {
+        if (key.startsWith(`${screenId}:`)) {
+          renderedElementInfoByLayerKeyRef.current.delete(key);
+        }
+      }
       if (viewModeRef.current === "overview") {
         setOverviewSelectedScreenIds([]);
         if (breakpointWidthPx !== undefined) {
@@ -14846,11 +14855,24 @@ function DesignEditor() {
         {
           activeFile,
           applyLinkedComponentEdit,
+          activeBreakpointUpperBoundPx,
+          activeBreakpointWidthStateRef,
           applyLocalContentUpdate,
           canEditDesign,
           codeLayerOwnerByNodeIdRef,
           commitVisualStyles,
           getFreshActiveContent,
+          renderedElementInfoByLayerKeyRef,
+          reportRefusal: (reason) =>
+            toast.error(
+              t(
+                reason === "linked-component"
+                  ? "designEditor.componentInstances.linkedEditScopeUnsupported"
+                  : "designEditor.patchProof.selectorMissing",
+              ),
+              { duration: 4000 },
+            ),
+          responsiveEditScopeRef,
           selectedElement,
           selectedLayerIdsState,
           setSelectedElement,
@@ -14859,11 +14881,13 @@ function DesignEditor() {
       ),
     [
       activeFile,
+      activeBreakpointUpperBoundPx,
       applyLinkedComponentEdit,
       applyLocalContentUpdate,
       canEditDesign,
       commitVisualStyles,
       getFreshActiveContent,
+      t,
       selectedElement,
       selectedLayerIdsState,
     ],
@@ -21136,6 +21160,7 @@ function DesignEditor() {
               lastMarqueeSelectionSignatureRef,
               pendingOverviewLayerSelectionRef,
               pendingOverviewScreenSelectionRef,
+              renderedElementInfoByLayerKeyRef,
               setActiveFileId,
               setActiveTool,
               setCreatedOverviewLayerSelection,

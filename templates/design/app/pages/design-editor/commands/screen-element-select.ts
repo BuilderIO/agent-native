@@ -54,6 +54,7 @@ export interface ScreenElementSelectArgs {
   id: string | undefined;
   pendingOverviewLayerSelectionRef: RefObject<string | null>;
   pendingOverviewScreenSelectionRef: RefObject<string | null>;
+  renderedElementInfoByLayerKeyRef?: RefObject<Map<string, ElementInfo>>;
   selectedLayerIdsState: string[];
   setActiveFileId: Dispatch<SetStateAction<string | null>>;
   setActiveTool: Dispatch<SetStateAction<DesignTool>>;
@@ -86,6 +87,7 @@ export function runScreenElementSelect(
     id,
     pendingOverviewLayerSelectionRef,
     pendingOverviewScreenSelectionRef,
+    renderedElementInfoByLayerKeyRef,
     selectedLayerIdsState,
     setActiveFileId,
     setActiveTool,
@@ -263,6 +265,19 @@ export function runScreenElementSelect(
           );
         }
       }
+    }
+  }
+  if (node) {
+    renderedElementInfoByLayerKeyRef?.current.set(
+      `${screenId}:${node.id}`,
+      canonical,
+    );
+    const stableId = node.dataAttributes["data-agent-native-node-id"];
+    if (stableId) {
+      renderedElementInfoByLayerKeyRef?.current.set(
+        `${screenId}:${stableId}`,
+        canonical,
+      );
     }
   }
   // Known limitation: elements rendered from a `<template x-for>`
