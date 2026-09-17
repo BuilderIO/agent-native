@@ -2835,11 +2835,35 @@ export const editorChromeBridgeScript: string = `"use strict";
       width: true,
       height: true
     };
+    function canReusePortableComputedStyles(el) {
+      var animatedElement = el;
+      if (typeof animatedElement.getAnimations !== "function") return true;
+      try {
+        var animations = animatedElement.getAnimations();
+        if (!Array.isArray(animations)) {
+          dndLog("style:animation-state-unreadable", { tag: el.tagName });
+          return false;
+        }
+        for (var index = 0; index < animations.length; index += 1) {
+          var playState = animations[index]?.playState;
+          if (typeof playState !== "string") {
+            dndLog("style:animation-state-unreadable", { tag: el.tagName });
+            return false;
+          }
+          if (playState === "running" || playState === "pending") return false;
+        }
+        return true;
+      } catch (_error) {
+        dndLog("style:animation-state-read-failed", { tag: el.tagName });
+        return false;
+      }
+    }
     function collectPortableComputedStyles(el, cache, computedStyle) {
       if (!el) return {};
-      if (cache?.has(el)) return cache.get(el) || null;
+      var cacheSafe = !cache || canReusePortableComputedStyles(el);
+      if (cacheSafe && cache?.has(el)) return cache.get(el) || null;
       var cacheFailure = function() {
-        cache?.set(el, null);
+        if (cacheSafe) cache?.set(el, null);
         return null;
       };
       var cs = computedStyle || window.getComputedStyle(el);
@@ -2886,7 +2910,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           }
         }
       }
-      cache?.set(el, styles);
+      if (cacheSafe) cache?.set(el, styles);
       return styles;
     }
     function collectPortableStyleSnapshot(root, cache, rootComputedStyle) {

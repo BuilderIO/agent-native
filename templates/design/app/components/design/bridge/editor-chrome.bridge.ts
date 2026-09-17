@@ -2971,15 +2971,42 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     height: true,
   };
 
+  function canReusePortableComputedStyles(el: Element): boolean {
+    var animatedElement = el as Element & {
+      getAnimations?: () => Array<{ playState?: string }>;
+    };
+    if (typeof animatedElement.getAnimations !== "function") return true;
+    try {
+      var animations = animatedElement.getAnimations();
+      if (!Array.isArray(animations)) {
+        dndLog("style:animation-state-unreadable", { tag: el.tagName });
+        return false;
+      }
+      for (var index = 0; index < animations.length; index += 1) {
+        var playState = animations[index]?.playState;
+        if (typeof playState !== "string") {
+          dndLog("style:animation-state-unreadable", { tag: el.tagName });
+          return false;
+        }
+        if (playState === "running" || playState === "pending") return false;
+      }
+      return true;
+    } catch (_error) {
+      dndLog("style:animation-state-read-failed", { tag: el.tagName });
+      return false;
+    }
+  }
+
   function collectPortableComputedStyles(
     el: Element | null,
     cache?: Map<Element, Record<string, string> | null>,
     computedStyle?: CSSStyleDeclaration,
   ): Record<string, string> | null {
     if (!el) return {};
-    if (cache?.has(el)) return cache.get(el) || null;
+    var cacheSafe = !cache || canReusePortableComputedStyles(el);
+    if (cacheSafe && cache?.has(el)) return cache.get(el) || null;
     var cacheFailure = function (): null {
-      cache?.set(el, null);
+      if (cacheSafe) cache?.set(el, null);
       return null;
     };
     var cs = computedStyle || window.getComputedStyle(el);
@@ -3045,7 +3072,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         }
       }
     }
-    cache?.set(el, styles);
+    if (cacheSafe) cache?.set(el, styles);
     return styles;
   }
 

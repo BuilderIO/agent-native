@@ -82,6 +82,7 @@ type CollectedInfo = {
   boundingRect: { x: number; y: number; width: number; height: number };
   portableStyleSnapshot?: {
     nodes?: Array<{
+      sourceId?: string;
       path: number[];
       styles?: Record<string, string>;
     }>;
@@ -500,6 +501,9 @@ describe("large concurrent selectable-rects requests", () => {
         #transition-child, #animation-child {
           position: absolute; width: 180px; height: 80px;
         }
+        #transition-leaf, #animation-leaf {
+          width: 90px; height: 40px;
+        }
         #transition-child {
           left: 20px; top: 20px; opacity: 1;
           transition: opacity 1s linear;
@@ -509,10 +513,22 @@ describe("large concurrent selectable-rects requests", () => {
           animation: fade 1s linear paused;
           animation-fill-mode: both;
         }
+        #transition-leaf {
+          opacity: 1;
+          transition: opacity 1s linear;
+        }
+        #animation-leaf {
+          animation: fade 1s linear paused;
+          animation-fill-mode: both;
+        }
       </style></head><body style="margin:0">
         <div id="parent" data-agent-native-node-id="parent">
-          <div id="transition-child" data-agent-native-node-id="transition-child"></div>
-          <div id="animation-child" data-agent-native-node-id="animation-child"></div>
+          <div id="transition-child" data-agent-native-node-id="transition-child">
+            <div id="transition-leaf" data-agent-native-node-id="transition-leaf"></div>
+          </div>
+          <div id="animation-child" data-agent-native-node-id="animation-child">
+            <div id="animation-leaf" data-agent-native-node-id="animation-leaf"></div>
+          </div>
         </div>
       </body></html>`);
       await page.evaluate(() => {
@@ -520,12 +536,25 @@ describe("large concurrent selectable-rects requests", () => {
           document.querySelector<HTMLElement>("#transition-child");
         const animationChild =
           document.querySelector<HTMLElement>("#animation-child");
-        if (!transitionChild || !animationChild) {
+        const transitionLeaf =
+          document.querySelector<HTMLElement>("#transition-leaf");
+        const animationLeaf =
+          document.querySelector<HTMLElement>("#animation-leaf");
+        if (
+          !transitionChild ||
+          !animationChild ||
+          !transitionLeaf ||
+          !animationLeaf
+        ) {
           throw new Error("animation fixture did not attach");
         }
         const animation = animationChild.getAnimations()[0];
-        if (!animation) throw new Error("animation fixture did not animate");
+        const nestedAnimation = animationLeaf.getAnimations()[0];
+        if (!animation || !nestedAnimation) {
+          throw new Error("animation fixture did not animate");
+        }
         animation.currentTime = 0;
+        nestedAnimation.currentTime = 0;
 
         const rectReads = new Map<HTMLElement, number>([
           [transitionChild, 0],
@@ -540,12 +569,23 @@ describe("large concurrent selectable-rects requests", () => {
             if (reads !== 2) return rect;
             if (child === transitionChild) {
               child.style.opacity = "0";
+              transitionLeaf.style.opacity = "0";
               const transition = child.getAnimations()[0];
-              if (!transition) throw new Error("transition did not start");
+              const nestedTransition = transitionLeaf.getAnimations()[0];
+              if (!transition || !nestedTransition) {
+                throw new Error("transition did not start");
+              }
               transition.currentTime = 500;
+              transition.playbackRate = 0;
+              nestedTransition.currentTime = 500;
+              nestedTransition.playbackRate = 0;
             } else {
               animation.play();
               animation.currentTime = 500;
+              animation.playbackRate = 0;
+              nestedAnimation.play();
+              nestedAnimation.currentTime = 500;
+              nestedAnimation.playbackRate = 0;
             }
             return rect;
           };
@@ -555,17 +595,40 @@ describe("large concurrent selectable-rects requests", () => {
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
 
       const payload = await collectSelectableRects(page, { deep: true });
-      for (const sourceId of ["transition-child", "animation-child"]) {
+      const liveNestedOpacities = await page.evaluate(() => ({
+        transition: getComputedStyle(
+          document.querySelector<HTMLElement>("#transition-leaf")!,
+        ).opacity,
+        animation: getComputedStyle(
+          document.querySelector<HTMLElement>("#animation-leaf")!,
+        ).opacity,
+      }));
+      for (const [sourceId, nestedId, liveNestedOpacity] of [
+        ["transition-child", "transition-leaf", liveNestedOpacities.transition],
+        ["animation-child", "animation-leaf", liveNestedOpacities.animation],
+      ] as const) {
         const info = payload.find(
           (candidate) => candidate.sourceId === sourceId,
         );
         expect(info).toBeDefined();
-        const portableOpacity =
-          info?.portableStyleSnapshot?.nodes?.[0]?.styles?.opacity;
+        const portableNodes = info?.portableStyleSnapshot?.nodes ?? [];
+        const portableOpacity = portableNodes.find(
+          (node) => node.path.length === 0,
+        )?.styles?.opacity;
+        const nestedPortableOpacity = portableNodes.find(
+          (node) => node.sourceId === nestedId,
+        )?.styles?.opacity;
         expect(portableOpacity).toBe(info?.computedStyles?.opacity);
         expect(portableOpacity).not.toBe(
           sourceId === "transition-child" ? "1" : "0",
         );
+        expect(nestedPortableOpacity).toBe(liveNestedOpacity);
+        expect(nestedPortableOpacity).not.toBe(
+          sourceId === "transition-child" ? "1" : "0",
+        );
+        const rootPortableOpacity =
+          info?.portableStyleSnapshot?.nodes?.[0]?.styles?.opacity;
+        expect(rootPortableOpacity).toBe(portableOpacity);
       }
     } finally {
       await browser.close();
