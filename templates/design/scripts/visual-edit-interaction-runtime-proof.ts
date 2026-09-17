@@ -31,7 +31,7 @@ const boardHtml = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Visual edit board proof</title></head>
   <body style="margin:0;position:relative;width:131072px;height:131072px;overflow:visible">
-    <div data-agent-native-node-id="${boardNodeId}" data-agent-native-layer-name="Proof board primitive" data-an-primitive="rectangle" style="position:absolute;left:600px;top:220px;width:96px;height:72px;border-radius:8px"></div>
+    <div data-agent-native-node-id="${boardNodeId}" data-agent-native-layer-name="Proof board primitive" data-an-primitive="rectangle" style="position:absolute;left:1050px;top:500px;width:48px;height:36px;border-radius:8px;background:currentColor"></div>
   </body>
 </html>`;
 
@@ -77,29 +77,8 @@ async function frameForIframe(locator: Locator): Promise<Frame> {
   return requireValue(frame, "Preview iframe has no content frame.");
 }
 
-async function frameNodePageBox(frame: Frame, iframe: Locator, nodeId: string) {
-  const localBox = await frame
-    .locator(`[data-agent-native-node-id="${nodeId}"]`)
-    .evaluate((element) => {
-      const rect = element.getBoundingClientRect();
-      return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
-    });
-  const iframeBox = requireValue(
-    await iframe.boundingBox(),
-    "Preview iframe has no page bounding box.",
-  );
-  const viewport = await frame.evaluate(() => ({
-    width: document.documentElement.clientWidth || window.innerWidth,
-    height: document.documentElement.clientHeight || window.innerHeight,
-  }));
-  const scaleX = iframeBox.width / Math.max(1, viewport.width);
-  const scaleY = iframeBox.height / Math.max(1, viewport.height);
-  return {
-    x: iframeBox.x + localBox.x * scaleX,
-    y: iframeBox.y + localBox.y * scaleY,
-    width: localBox.width * scaleX,
-    height: localBox.height * scaleY,
-  };
+async function frameNodePageBox(frame: Frame, nodeId: string) {
+  return frame.locator(`[data-agent-native-node-id="${nodeId}"]`).boundingBox();
 }
 
 async function cdpScreenshot(page: Page, filePath: string): Promise<void> {
@@ -269,6 +248,38 @@ async function main() {
       { name, args },
     )) as WebMcpCall;
 
+  const requiredWebMcpTools = [
+    "get-visual-edit-prompt",
+    "read-local-file",
+    "request-localhost-write-consent",
+    "write-local-file",
+  ];
+  const waitForWebMcpTools = () =>
+    waitFor(
+      () =>
+        page.evaluate(async () => {
+          const helper = (
+            window as typeof window & {
+              __agentNativeWebMcp?: {
+                ready: (options?: { waitMs?: number }) => Promise<unknown>;
+                tools: () => Promise<Array<{ name: string }>>;
+              };
+            }
+          ).__agentNativeWebMcp;
+          if (!helper) throw new Error("WebMCP page helper missing.");
+          const ready = await helper.ready({ waitMs: 10_000 });
+          const tools = await helper.tools();
+          return {
+            ready,
+            names: tools.map((tool) => tool.name).sort(),
+          };
+        }),
+      (value) =>
+        requiredWebMcpTools.every((name) => value.names.includes(name)),
+      "visual-edit WebMCP registration",
+      60_000,
+    );
+
   const readLocalFile = async (): Promise<BridgeSnapshot> => {
     const designId = requireValue(
       createdDesignId,
@@ -430,14 +441,22 @@ async function main() {
     );
     assert(signIn.ok(), `Design local-dev sign-in failed: ${signIn.status()}.`);
     await page.goto(`${designUrl}/`, { waitUntil: "domcontentloaded" });
-    await page.waitForFunction(
-      () => sessionStorage.getItem("agent-native:browser-tab-id") !== null,
-      undefined,
-      { timeout: 10_000 },
-    );
-    const storedBrowserTabId = await page.evaluate(() =>
-      sessionStorage.getItem("agent-native:browser-tab-id"),
-    );
+    await page.waitForURL((url) => new URL(url).pathname !== "/", {
+      timeout: 30_000,
+    });
+    const browserTabDeadline = Date.now() + 30_000;
+    let storedBrowserTabId: string | null = null;
+    while (!storedBrowserTabId && Date.now() < browserTabDeadline) {
+      try {
+        storedBrowserTabId = await page.evaluate(() =>
+          sessionStorage.getItem("agent-native:browser-tab-id"),
+        );
+      } catch {
+        // coercion-ok: client redirects can transiently detach the document; the bounded retry below surfaces a real failure.
+        // The authenticated root can perform one or more client redirects.
+      }
+      if (!storedBrowserTabId) await page.waitForTimeout(250);
+    }
     assert(
       typeof storedBrowserTabId === "string" && storedBrowserTabId.length > 0,
       "Design page did not establish a browser-tab id.",
@@ -457,11 +476,11 @@ async function main() {
           title: "Nested auto-layout target",
           sourceFile,
           sourceKind: "html",
-          x: 700,
+          x: 600,
           y: 100,
           z: 0,
-          width: 900,
-          height: 700,
+          width: 400,
+          height: 400,
         },
       ],
       publicReadOnly: false,
@@ -538,7 +557,7 @@ async function main() {
       (await targetIframe.getAttribute("srcdoc")) === null,
       "Target iframe unexpectedly uses srcdoc.",
     );
-    const targetFrame = await frameForIframe(targetIframe);
+    let targetFrame = await frameForIframe(targetIframe);
     try {
       await targetFrame
         .locator(`[data-agent-native-node-id="${targetNodeId}"]`)
@@ -553,29 +572,7 @@ async function main() {
       );
     }
 
-    const webMcpTools = await page.evaluate(async () => {
-      const helper = (
-        window as typeof window & {
-          __agentNativeWebMcp?: {
-            ready: (options?: { waitMs?: number }) => Promise<unknown>;
-            tools: () => Promise<Array<{ name: string }>>;
-          };
-        }
-      ).__agentNativeWebMcp;
-      if (!helper) throw new Error("WebMCP page helper missing.");
-      const ready = await helper.ready({ waitMs: 10_000 });
-      const tools = await helper.tools();
-      return {
-        ready,
-        names: tools.map((tool) => tool.name).sort(),
-      };
-    });
-    const requiredWebMcpTools = [
-      "get-visual-edit-prompt",
-      "read-local-file",
-      "request-localhost-write-consent",
-      "write-local-file",
-    ];
+    const webMcpTools = await waitForWebMcpTools();
     assert(
       requiredWebMcpTools.every((name) => webMcpTools.names.includes(name)),
       `Supported visual-edit WebMCP tools are missing: ${JSON.stringify({
@@ -594,80 +591,170 @@ async function main() {
     const boardIframe = page.locator(
       "[data-board-surface-layer] iframe[data-design-preview-iframe]",
     );
-    await boardIframe.waitFor({ state: "attached", timeout: 30_000 });
-    const boardFrame = await frameForIframe(boardIframe);
-    const boardPrimitive = boardFrame.locator(
-      `[data-agent-native-node-id="${boardNodeId}"]`,
-    );
-    await boardPrimitive.waitFor({ state: "visible", timeout: 30_000 });
-    await page
-      .getByRole("button", { name: "Move", exact: true })
-      .first()
-      .click();
+    const dragAtZoom = async (zoom: number, undoAfterDrop: boolean) => {
+      await page.goto(
+        `${designUrl}${opened.urlPath}&view=overview&zoom=${zoom}`,
+        {
+          waitUntil: "domcontentloaded",
+        },
+      );
+      await page
+        .locator("iframe[data-design-preview-iframe]")
+        .first()
+        .waitFor({ state: "attached", timeout: 30_000 });
+      await waitForWebMcpTools();
+      await targetIframe.waitFor({ state: "attached", timeout: 30_000 });
+      const zoomTargetFrame = await frameForIframe(targetIframe);
+      await zoomTargetFrame
+        .locator(`[data-agent-native-node-id="${targetNodeId}"]`)
+        .waitFor({ state: "visible", timeout: 30_000 });
+      await boardIframe.waitFor({ state: "attached", timeout: 30_000 });
+      const zoomBoardFrame = await frameForIframe(boardIframe);
+      await zoomBoardFrame
+        .locator(`[data-agent-native-node-id="${boardNodeId}"]`)
+        .waitFor({ state: "visible", timeout: 30_000 });
+      await page
+        .getByRole("button", { name: "Move", exact: true })
+        .first()
+        .click();
 
-    const surfaceBox = requireValue(
-      await page.locator("[data-multi-screen-canvas-surface]").boundingBox(),
-      "Visual-edit canvas surface has no page bounding box.",
-    );
-    const boardIframeBox = requireValue(
-      await boardIframe.boundingBox(),
-      "Board iframe has no page bounding box.",
-    );
-    const targetIframeBox = requireValue(
-      await targetIframe.boundingBox(),
-      "Target iframe has no page bounding box.",
-    );
+      const zoomSurfaceBox = requireValue(
+        await page.locator("[data-multi-screen-canvas-surface]").boundingBox(),
+        "Visual-edit canvas surface has no page bounding box.",
+      );
+      const zoomBoardIframeBox = requireValue(
+        await boardIframe.boundingBox(),
+        "Board iframe has no page bounding box.",
+      );
+      const zoomTargetIframeBox = requireValue(
+        await targetIframe.boundingBox(),
+        "Target iframe has no page bounding box.",
+      );
+      const zoomSourceBox = requireValue(
+        await frameNodePageBox(zoomBoardFrame, boardNodeId),
+        "Board primitive has no page bounding box.",
+      );
+      const zoomAnchorBox = requireValue(
+        await zoomTargetFrame
+          .locator(`[data-agent-native-node-id="${anchorNodeId}"]`)
+          .boundingBox(),
+        "Target anchor has no page bounding box.",
+      );
+      const zoomTailBox = requireValue(
+        await zoomTargetFrame
+          .locator(`[data-agent-native-node-id="${tailNodeId}"]`)
+          .boundingBox(),
+        "Target tail has no page bounding box.",
+      );
+      const zoomSourcePoint = {
+        x: zoomSourceBox.x + zoomSourceBox.width / 2,
+        y: zoomSourceBox.y + zoomSourceBox.height / 2,
+      };
+      const zoomGapPoint = {
+        x: zoomAnchorBox.x + zoomAnchorBox.width / 2,
+        y:
+          zoomAnchorBox.y +
+          zoomAnchorBox.height +
+          (zoomTailBox.y - zoomAnchorBox.y - zoomAnchorBox.height) * 0.35,
+      };
+      assert(
+        zoomSourcePoint.x >= zoomSurfaceBox.x &&
+          zoomSourcePoint.x <= zoomSurfaceBox.x + zoomSurfaceBox.width &&
+          zoomSourcePoint.y >= zoomSurfaceBox.y &&
+          zoomSourcePoint.y <= zoomSurfaceBox.y + zoomSurfaceBox.height,
+        `Composed board coordinate is outside the overview canvas surface at ${zoom}%: ${JSON.stringify(
+          {
+            surfaceBox: zoomSurfaceBox,
+            boardIframeBox: zoomBoardIframeBox,
+            sourceBox: zoomSourceBox,
+            sourcePoint: zoomSourcePoint,
+          },
+        )}`,
+      );
+      await page.mouse.move(zoomSourcePoint.x, zoomSourcePoint.y);
+      await page.mouse.down();
+      await page.mouse.move(zoomGapPoint.x, zoomGapPoint.y, { steps: 28 });
+      await page.waitForTimeout(300);
+      await page.mouse.up();
 
-    const sourceBox = requireValue(
-      await frameNodePageBox(boardFrame, boardIframe, boardNodeId),
-      "Board primitive has no page bounding box.",
-    );
-    const anchorBox = requireValue(
-      await targetFrame
-        .locator(`[data-agent-native-node-id="${anchorNodeId}"]`)
-        .boundingBox(),
-      "Target anchor has no page bounding box.",
-    );
-    const tailBox = requireValue(
-      await targetFrame
-        .locator(`[data-agent-native-node-id="${tailNodeId}"]`)
-        .boundingBox(),
-      "Target tail has no page bounding box.",
-    );
-    const sourcePoint = {
-      x: sourceBox.x + sourceBox.width / 2,
-      y: sourceBox.y + sourceBox.height / 2,
+      let zoomPendingPayload: JsonObject;
+      try {
+        zoomPendingPayload = await assertPendingEdit(
+          await pendingEdit(),
+          screenId,
+        );
+      } catch (error) {
+        throw new Error(
+          `Structure drag did not produce a pending edit at ${zoom}%: ${JSON.stringify(
+            {
+              surfaceBox: zoomSurfaceBox,
+              targetIframeBox: zoomTargetIframeBox,
+              sourceBox: zoomSourceBox,
+              boardIframeBox: zoomBoardIframeBox,
+              anchorBox: zoomAnchorBox,
+              tailBox: zoomTailBox,
+              sourcePoint: zoomSourcePoint,
+              gapPoint: zoomGapPoint,
+            },
+          )} (${String(error)})`,
+        );
+      }
+      const zoomLiveAfterDrop = await waitFor(
+        () => liveRelationship(zoomTargetFrame, boardNodeId),
+        (value) =>
+          value.parentId === targetNodeId &&
+          JSON.stringify(value.siblingIds) ===
+            JSON.stringify([anchorNodeId, boardNodeId, tailNodeId]),
+        `live nested insertion at ${zoom}%`,
+      );
+      let liveAfterUndoCount: number | null = null;
+      if (undoAfterDrop) {
+        await page.keyboard.press("ControlOrMeta+z");
+        liveAfterUndoCount = await waitFor(
+          () =>
+            zoomTargetFrame
+              .locator(`[data-agent-native-node-id="${boardNodeId}"]`)
+              .count(),
+          (count) => count === 0,
+          `live insertion undo at ${zoom}%`,
+        );
+        await waitFor(
+          () => callWebMcp("get-visual-edit-prompt"),
+          (value) =>
+            value.state === "done" &&
+            value.ok === true &&
+            (value.result?.pendingEditCount ?? -1) === 0,
+          `pending insertion undo at ${zoom}%`,
+        );
+      }
+      return {
+        zoom,
+        targetFrame: zoomTargetFrame,
+        coordinateProbe: {
+          overviewZoom: zoom,
+          surfaceBox: zoomSurfaceBox,
+          boardIframeBox: zoomBoardIframeBox,
+          targetIframeBox: zoomTargetIframeBox,
+          sourceBox: zoomSourceBox,
+          anchorBox: zoomAnchorBox,
+          tailBox: zoomTailBox,
+          sourcePoint: zoomSourcePoint,
+          gapPoint: zoomGapPoint,
+        },
+        pendingPayload: zoomPendingPayload,
+        liveAfterDrop: zoomLiveAfterDrop,
+        liveAfterUndoCount,
+      };
     };
-    const gapPoint = {
-      x: anchorBox.x + anchorBox.width / 2,
-      y:
-        anchorBox.y +
-        anchorBox.height +
-        (tailBox.y - anchorBox.y - anchorBox.height) * 0.35,
-    };
-    assert(
-      sourcePoint.x >= surfaceBox.x &&
-        sourcePoint.x <= surfaceBox.x + surfaceBox.width &&
-        sourcePoint.y >= surfaceBox.y &&
-        sourcePoint.y <= surfaceBox.y + surfaceBox.height,
-      "Composed board coordinate is outside the overview canvas surface.",
-    );
-    await page.mouse.move(sourcePoint.x, sourcePoint.y);
-    await page.mouse.down();
-    await page.mouse.move(gapPoint.x, gapPoint.y, { steps: 28 });
-    await page.waitForTimeout(300);
-    await page.mouse.up();
 
-    const pending = await pendingEdit();
-    const pendingPayload = await assertPendingEdit(pending, screenId);
-    const liveAfterDrop = await waitFor(
-      () => liveRelationship(targetFrame, boardNodeId),
-      (value) =>
-        value.parentId === targetNodeId &&
-        JSON.stringify(value.siblingIds) ===
-          JSON.stringify([anchorNodeId, boardNodeId, tailNodeId]),
-      "live nested insertion",
-    );
+    const zoomRuntimeProof = [];
+    for (const zoom of [50, 200]) {
+      zoomRuntimeProof.push(await dragAtZoom(zoom, true));
+    }
+    const primaryZoomProof = await dragAtZoom(100, false);
+    zoomRuntimeProof.push(primaryZoomProof);
+    targetFrame = primaryZoomProof.targetFrame;
+    const { coordinateProbe, pendingPayload, liveAfterDrop } = primaryZoomProof;
     await cdpScreenshot(page, `${outputDir}/url-backed-nested-pending.png`);
 
     await page.keyboard.press("ControlOrMeta+z");
@@ -846,17 +933,10 @@ async function main() {
         sandbox,
         hasSrcdoc: false,
       },
-      coordinateProbe: {
-        overviewZoom: 100,
-        surfaceBox,
-        boardIframeBox,
-        targetIframeBox,
-        sourceBox,
-        anchorBox,
-        tailBox,
-        sourcePoint,
-        gapPoint,
-      },
+      coordinateProbe,
+      zoomRuntimeProof: zoomRuntimeProof.map(
+        ({ targetFrame: _targetFrame, ...proof }) => proof,
+      ),
       sourceNodeId: boardNodeId,
       targetNodeId,
       anchorNodeId,
@@ -880,7 +960,9 @@ async function main() {
         "url-backed-nested-pending.png",
         "url-backed-nested-reloaded.png",
       ],
-      zoomCoordinateTransformCoverage: [50, 100, 200],
+      zoomCoordinateTransformCoverage: zoomRuntimeProof
+        .map(({ zoom }) => zoom)
+        .sort((a, b) => a - b),
     };
     await writeFile(
       `${outputDir}/url-backed-interaction-proof.json`,

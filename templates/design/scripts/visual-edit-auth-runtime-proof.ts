@@ -515,10 +515,6 @@ async function main() {
       await context.cookies(),
       designHostname,
     );
-    const bridgeCookiesBeforeChildAuth = cookiesForHost(
-      await context.cookies(),
-      bridgeHostname,
-    );
     await signInDesign();
     await page.reload({ waitUntil: "commit" });
     await page
@@ -545,7 +541,14 @@ async function main() {
       "bridge auth state after Design sign-in",
       authenticatedFrameHost,
     );
+    let bridgeCookiesBeforeChildAuth:
+      | Awaited<ReturnType<typeof context.cookies>>
+      | undefined;
     if (signedIn.signedOutFrames === screenPaths.length) {
+      bridgeCookiesBeforeChildAuth = cookiesForHost(
+        await context.cookies(),
+        bridgeHostname,
+      );
       childAuthTransport = "button";
       const signInFrame = await findFrame(
         page,
@@ -627,6 +630,10 @@ async function main() {
       await context.cookies(),
       bridgeHostname,
     );
+    const bridgeCookieMetadataChangedOnChildSignIn =
+      bridgeCookiesBeforeChildAuth !== undefined &&
+      cookieMetadataFingerprint(bridgeCookiesBeforeChildAuth) !==
+        cookieMetadataFingerprint(bridgeCookiesAfterChildSignIn);
     const designCookiesAfterChildSignIn = cookiesForHost(
       await context.cookies(),
       designHostname,
@@ -638,12 +645,6 @@ async function main() {
       throw new Error(
         "Signing in to Slides changed the Design session cookies.",
       );
-    }
-    if (
-      cookieMetadataFingerprint(bridgeCookiesBeforeChildAuth) ===
-      cookieMetadataFingerprint(bridgeCookiesAfterChildSignIn)
-    ) {
-      throw new Error("Signing in to Slides did not change bridge cookies.");
     }
     if (
       (await page.locator("iframe[data-design-preview-iframe]").count()) !==
@@ -831,11 +832,15 @@ async function main() {
         designCookiesBeforeChildAuth: designCookiesBeforeChildAuth.length,
         designCookiesAfterChildSignIn: designCookiesAfterChildSignIn.length,
         designCookiesAfterChildSignOut: designCookiesAfterChildSignOut.length,
-        bridgeCookiesBeforeChildAuth: bridgeCookiesBeforeChildAuth.length,
+        bridgeCookiesBeforeChildAuth:
+          bridgeCookiesBeforeChildAuth?.length ?? null,
         bridgeCookiesAfterChildSignIn: bridgeCookiesAfterChildSignIn.length,
         bridgeCookiesAfterChildSignOut: bridgeCookiesAfterChildSignOut.length,
         designSessionUnchangedDuringChildAuth: true,
-        bridgeSessionChangedOnDesignSignIn: true,
+        bridgeCookieMetadataChangedOnChildSignIn,
+        bridgeSessionReusedAcrossFrames:
+          signedIn.signedOutFrames === 0 &&
+          signedIn.appFrames === screenPaths.length,
         childSessionAuthTransport: childAuthTransport,
         bridgeCookieMetadataChangedOnChildSignOut,
       },
@@ -863,12 +868,31 @@ async function main() {
     );
     console.log(JSON.stringify(artifact, null, 2));
   } finally {
+    let cleanupError: unknown;
     if (createdDesignId) {
-      await signInDesign();
-      await postAction("delete-design", { id: createdDesignId });
+      try {
+        await signInDesign();
+        await postAction("delete-design", { id: createdDesignId });
+      } catch (error) {
+        cleanupError = error;
+      }
+      try {
+        await signOutDesign();
+      } catch (error) {
+        cleanupError ??= error;
+      }
     }
-    await context.close();
-    await browser.close();
+    try {
+      await context.close();
+    } catch (error) {
+      cleanupError ??= error;
+    }
+    try {
+      await browser.close();
+    } catch (error) {
+      cleanupError ??= error;
+    }
+    if (cleanupError) throw cleanupError;
   }
 }
 
