@@ -620,12 +620,15 @@ export default defineAction({
           }));
 
       // An explicit slideId from view-screen or get-deck is a valid target
-      // even when it is not the tab's current canvas. Only reject a target
-      // that is provably stale because it came from the current selection.
+      // even when it is not the tab's current canvas. A content hash is the
+      // read's target revision, so text matches alone must not override it.
+      // Only reject an unversioned target that is provably stale because it
+      // came from the current selection.
       if (
         currentSlideId &&
         currentSlideId !== slideId &&
-        usesCurrentSelection
+        usesCurrentSelection &&
+        baseContentHash === undefined
       ) {
         fail(
           `The selected Slides target is on slide ${currentSlideId}, but this edit targets ${slideId}. Re-read view-screen and use the selection slide ID; no write was made.`,

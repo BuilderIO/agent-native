@@ -138,6 +138,7 @@ vi.mock("../server/lib/deck-versions.js", () => ({
   deckVersionChatContextFromAction: vi.fn(() => undefined),
 }));
 
+import { hashSlideContent } from "../shared/slide-fit";
 import { nextDeckRevision } from "./_deck-write";
 import action from "./update-slide";
 
@@ -277,13 +278,14 @@ describe("update-slide", () => {
       deckId: "deck-1",
       slideId: "slide-2",
       slideIndex: 1,
-      items: [],
+      items: [{ selectedText: "Old" }],
     });
 
     const result = await action.run({
       deckId: "deck-1",
       slideId: "slide-1",
       edits: [{ find: "Old", replace: "New", expectedMatches: 1 }],
+      baseContentHash: hashSlideContent("<div>Old</div>"),
     });
 
     expect(result).toMatchObject({ ok: true, applied: true });
