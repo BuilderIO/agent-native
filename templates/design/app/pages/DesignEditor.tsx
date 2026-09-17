@@ -4196,7 +4196,7 @@ function DesignEditor() {
     designSystems,
     defaultSystem,
     isLoading: designSystemsLoading,
-  } = useDesignSystems(isSignedIn);
+  } = useDesignSystems(isSignedIn && showPrompt);
   const {
     preferences: editorPreferences,
     setPreferences: setEditorPreferences,
@@ -4284,7 +4284,9 @@ function DesignEditor() {
 
   const selectedPromptDesignSystemId =
     promptDesignSystemId === undefined
-      ? resolvePromptDesignSystemId()
+      ? designSystemsLoading
+        ? undefined
+        : resolvePromptDesignSystemId()
       : promptDesignSystemId;
 
   const handlePromptOpenChange = useCallback(
@@ -4292,12 +4294,12 @@ function DesignEditor() {
       if (open && !canEditDesign) return;
       setShowPrompt(open);
       if (open) {
-        setPromptDesignSystemId(resolvePromptDesignSystemId());
+        setPromptDesignSystemId(design?.designSystemId ?? undefined);
       } else {
         setPromptDesignSystemId(undefined);
       }
     },
-    [canEditDesign, resolvePromptDesignSystemId],
+    [canEditDesign, design?.designSystemId],
   );
 
   const handleTweakPromptOpenChange = useCallback(
@@ -4322,8 +4324,13 @@ function DesignEditor() {
   );
 
   const persistPromptDesignSystem = useCallback(
-    (designSystemId: string | null) => {
-      if (!id || !canEditDesign || design?.designSystemId === designSystemId) {
+    (designSystemId: string | null | undefined) => {
+      if (
+        designSystemId === undefined ||
+        !id ||
+        !canEditDesign ||
+        design?.designSystemId === designSystemId
+      ) {
         return;
       }
       queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
@@ -25331,7 +25338,10 @@ function DesignEditor() {
           });
           handlePromptOpenChange(false);
         }}
-        loading={generating}
+        loading={
+          generating ||
+          (designSystemsLoading && promptDesignSystemId === undefined)
+        }
         anchorRef={promptAnchorRef}
         designSystems={designSystems}
         designSystemsLoading={designSystemsLoading}

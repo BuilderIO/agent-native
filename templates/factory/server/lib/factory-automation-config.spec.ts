@@ -1,19 +1,27 @@
 import { describe, expect, it } from "vitest";
 
+import { managedReviewSkillAlignmentMarkers } from "../triage/review-skill-alignment.js";
 import {
   applyAutomationConfigFrontmatter,
   assertAuthorFilter,
   authorMatchesFilter,
   buildGuardrailsText,
+  composeFactoryAutomationBody,
+  countSkillAlignmentBlocks,
   cronForDaily,
   cronForInterval,
   defaultAutomationConfig,
   inferAutomationSource,
+  needsAutomationBodyRepair,
+  normalizeUserPrompt,
   parseAuthorIdsField,
   parseScheduleFromCron,
+  previewAutomationInstructions,
   readFactoryAutomationConfig,
+  replaceAutomationContentWithUserPrompt,
   replaceUserPrompt,
   restoreFactoryAutomationIdentityFields,
+  splitAutomationFrontmatter,
   templateIdForSeedName,
 } from "./factory-automation-config.js";
 
@@ -174,6 +182,112 @@ Observe Slack.
     expect(next).toContain("displayName: Product feedback");
     expect(next).toContain("slackChannelId: C0ATH3CCZT4");
     expect(next).toContain("authorIds: U096KN3EL2Y");
+  });
+
+  it("strips duplicate injected blocks from pasted prompt text", () => {
+    const { start, end } = managedReviewSkillAlignmentMarkers();
+    const pasted = `${start}
+first alignment
+${end}
+
+${start}
+second alignment
+${end}
+
+User instructions stay.
+`;
+    const normalized = normalizeUserPrompt(pasted);
+    expect(normalized).toBe("User instructions stay.");
+    expect(countSkillAlignmentBlocks(pasted)).toBe(2);
+  });
+
+  it("composes body without changing frontmatter identity fields", () => {
+    const content = `---
+source: slack
+template: slack-feedback
+displayName: Product feedback
+slackChannelId: C0ATH3CCZT4
+factoryId: product-an-feedback
+inboxLimit: 10
+workLimit: 2
+---
+
+Stale body.
+`;
+    const config = readFactoryAutomationConfig(
+      content,
+      "factory-slack-feedback",
+    );
+    const { frontmatter: originalFrontmatter } =
+      splitAutomationFrontmatter(content);
+    const next = replaceAutomationContentWithUserPrompt(
+      content,
+      "Only triage paying customers.",
+      "factory-slack-feedback",
+    );
+    const { frontmatter: nextFrontmatter, body } =
+      splitAutomationFrontmatter(next);
+    expect(nextFrontmatter).toBe(originalFrontmatter);
+    expect(body).toContain("Only triage paying customers.");
+    expect(body).toContain("dispatch-factory-item");
+    expect(countSkillAlignmentBlocks(next)).toBeLessThanOrEqual(1);
+    expect(
+      composeFactoryAutomationBody({
+        userPrompt: "Only triage paying customers.",
+        automationName: "factory-slack-feedback",
+        factoryId: "product-an-feedback",
+        config,
+      }),
+    ).toContain("Only triage paying customers.");
+  });
+
+  it("matches preview guardrails and alignment to composed body sections", () => {
+    const config = defaultAutomationConfig("slack", "slack-feedback");
+    const preview = previewAutomationInstructions({
+      factoryId: "product-an-feedback",
+      config,
+      automationName: "factory-slack-feedback",
+    });
+    const body = composeFactoryAutomationBody({
+      userPrompt: "Classify Slack feedback.",
+      automationName: "factory-slack-feedback",
+      factoryId: "product-an-feedback",
+      config,
+    });
+    expect(body).toContain(preview.guardrails);
+    if (preview.skillAlignment) {
+      expect(body).toContain(preview.skillAlignment);
+    }
+  });
+
+  it("does not require body repair for prompt-only automations missing alignmentRevision", () => {
+    const content = `---
+template: slack-feedback
+source: slack
+---
+Only triage paying customers.
+`;
+    expect(needsAutomationBodyRepair(content)).toBe(false);
+  });
+
+  it("requires body repair when duplicate alignment blocks are present", () => {
+    const { start, end } = managedReviewSkillAlignmentMarkers();
+    const content = `---
+template: slack-feedback
+source: slack
+alignmentRevision: 1
+---
+${start}
+one
+${end}
+
+${start}
+two
+${end}
+
+User text.
+`;
+    expect(needsAutomationBodyRepair(content)).toBe(true);
   });
 
   it("deletes a stored Slack channel when the config clears it", () => {

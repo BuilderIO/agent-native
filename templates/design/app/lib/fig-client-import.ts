@@ -18,11 +18,15 @@
 import { callAction } from "@agent-native/core/client/hooks";
 
 import { decodeFig } from "../../server/lib/fig-file-decoder.js";
+import type { DecodedFig } from "../../server/lib/fig-file-decoder.js";
 import { bytesToBase64 } from "../../shared/fig-bytes.js";
 import {
   assertEmbeddedImageBudget,
   convertDecodedFigToEditableHtml,
   MAX_FIG_FRAME_HTML_BYTES,
+  inspectDecodedFig,
+  shouldWarnForFigImport,
+  type FigImportSummary,
 } from "../../shared/fig-to-frames.js";
 import type { ImportResult } from "./design-import";
 
@@ -40,6 +44,8 @@ export interface FigClientImportProgress {
 export interface FigClientImportOptions {
   designId: string;
   file: File;
+  decoded?: DecodedFig;
+  selection?: ReadonlySet<string>;
   onProgress?: (progress: FigClientImportProgress) => void;
 }
 
@@ -52,6 +58,14 @@ export class FigClientImportError extends Error {
     this.name = "FigClientImportError";
   }
 }
+
+export interface PreparedFigImport {
+  file: File;
+  decoded: DecodedFig;
+  summary: FigImportSummary;
+}
+
+export { shouldWarnForFigImport };
 
 function mimeForExt(ext: string): string {
   if (ext === "jpg") return "image/jpeg";
@@ -97,12 +111,15 @@ export async function importFigInBrowser(
       `.fig file is too large for browser import (max ${MAX_CLIENT_FIG_BYTES / 1024 / 1024} MB).`,
     );
   }
-  onProgress?.({ phase: "decoding" });
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  // The file never crosses the network on this path. Keep the decoder's
-  // decompression, node, image, and generated-HTML budgets, but remove the
-  // server-only raw upload ceiling.
-  const decoded = decodeFig(bytes, { maxFileBytes: MAX_CLIENT_FIG_BYTES });
+  let decoded = options.decoded;
+  if (!decoded) {
+    onProgress?.({ phase: "decoding" });
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    // The file never crosses the network on this path. Keep the decoder's
+    // decompression, node, image, and generated-HTML budgets, but remove the
+    // server-only raw upload ceiling.
+    decoded = decodeFig(bytes, { maxFileBytes: MAX_CLIENT_FIG_BYTES });
+  }
   assertEmbeddedImageBudget(decoded.images);
   const oversizedImages = decoded.images.filter(
     (image) => image.bytes.byteLength > MAX_CLIENT_IMAGE_BYTES,
@@ -221,7 +238,7 @@ export async function importFigInBrowser(
     }
     // Receipt release is best-effort after all frames are saved. A partial
     // release must not roll back valid frames; the server-side receipt sweep
-    // retries or expires the remaining staged receipts.
+    // expires abandoned staged receipts.
     await converted.finalize?.();
   } catch (error) {
     const cleanup = await Promise.allSettled(
@@ -253,4 +270,21 @@ export async function importFigInBrowser(
     ...saved,
     unresolvedImageRefCount: converted.stats.unresolvedImageRefCount,
   };
+}
+
+export async function prepareFigImport(
+  file: File,
+  onProgress?: (progress: FigClientImportProgress) => void,
+): Promise<PreparedFigImport> {
+  if (file.size > MAX_CLIENT_FIG_BYTES) {
+    throw new Error(
+      `.fig file is too large for browser import (max ${MAX_CLIENT_FIG_BYTES / 1024 / 1024} MB).`,
+    );
+  }
+  onProgress?.({ phase: "decoding" });
+  const decoded = decodeFig(new Uint8Array(await file.arrayBuffer()), {
+    maxFileBytes: MAX_CLIENT_FIG_BYTES,
+  });
+  assertEmbeddedImageBudget(decoded.images);
+  return { file, decoded, summary: inspectDecodedFig(decoded) };
 }
