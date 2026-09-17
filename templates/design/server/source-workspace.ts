@@ -1069,6 +1069,30 @@ export async function writeInlineSourceFilesBatch(args: {
 
         for (const { item, lease } of prepared) {
           const current = item.currentFile;
+          const preparedCollaboration = await lockPreparedSourceCollaboration(
+            tx,
+            item.fileId,
+            lease,
+          );
+          if (preparedCollaboration.needsSeed) {
+            applyTextToYDoc(
+              lease.doc,
+              "content",
+              current.content ?? "",
+              "agent",
+            );
+          }
+          const liveContent = readPreparedSourceText(lease);
+          assertLockedLayersPreserved(liveContent, item.content);
+          assertDesignHtmlEditIntegrity({
+            previousContent: liveContent,
+            nextContent: item.content,
+            fileType: current.fileType ?? "html",
+            filename: current.filename,
+          });
+          if (liveContent !== item.content) {
+            applyTextToYDoc(lease.doc, "content", item.content, "agent");
+          }
           const values = [
             item.fileId,
             args.designId,
@@ -1129,24 +1153,6 @@ export async function writeInlineSourceFilesBatch(args: {
       if (index >= sortedIds.length) return persistPrepared();
       const item = plannedById.get(sortedIds[index]!)!;
       return withPreparedYDocMutation(item.fileId, "agent", async (lease) => {
-        let preparedContent = readPreparedSourceText(lease);
-        if (lease.baseVersion === null) {
-          applyTextToYDoc(lease.doc, "content", item.liveContent, "agent");
-          preparedContent = readPreparedSourceText(lease);
-        } else if (preparedContent !== item.liveContent) {
-          throw new SourceWorkspaceEditConflictError(
-            "A source file's live version changed while the batch was being prepared. Re-read the design and retry.",
-          );
-        }
-        if (preparedContent !== item.content) {
-          applyTextToYDoc(lease.doc, "content", item.content, "agent");
-          assertDesignHtmlEditIntegrity({
-            previousContent: item.liveContent,
-            nextContent: readPreparedSourceText(lease),
-            fileType: item.currentFile.fileType ?? "html",
-            filename: item.currentFile.filename,
-          });
-        }
         prepared.push({ item, lease });
         return withPrepared(index + 1);
       });
