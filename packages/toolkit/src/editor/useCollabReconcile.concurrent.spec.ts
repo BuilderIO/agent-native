@@ -629,6 +629,50 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
     },
   );
 
+  it("does not replay sequential SQL acknowledgements over two-tab Yjs edits", async () => {
+    const harness = makeConnectedEditorHarness(false);
+    const baseline = "Alpha\n\nBravo";
+    const firstSave = "Alpha\n\nBravo from first tab";
+    const merged = "Second tab Alpha\n\nBravo from first tab";
+    vi.useFakeTimers();
+    try {
+      render(root, harness.Harness, {
+        value: baseline,
+        contentUpdatedAt: "2024-01-01T00:00:01.000Z",
+        contentRevision: "revision-1",
+      });
+      await act(async () => vi.advanceTimersByTimeAsync(30));
+
+      act(() => harness.editors[0]!.commands.setContent(firstSave));
+      act(() => harness.editors[1]!.commands.setContent(merged));
+      expect(harness.markdown()).toEqual([merged, merged]);
+
+      render(root, harness.Harness, {
+        value: firstSave,
+        contentUpdatedAt: "2024-01-01T00:00:02.000Z",
+        contentRevision: "revision-2",
+      });
+      await act(async () => vi.advanceTimersByTimeAsync(2501));
+      render(root, harness.Harness, {
+        value: merged,
+        contentUpdatedAt: "2024-01-01T00:00:03.000Z",
+        contentRevision: "revision-3",
+      });
+      await act(async () => vi.advanceTimersByTimeAsync(2501));
+
+      expect(harness.markdown()).toEqual([merged, merged]);
+      expect(harness.markdown()[0]!.match(/Second tab Alpha/g)).toHaveLength(1);
+      expect(
+        harness.markdown()[0]!.match(/Bravo from first tab/g),
+      ).toHaveLength(1);
+      expect(harness.reconciled).toEqual([
+        { status: "merged", content: merged },
+      ]);
+    } finally {
+      harness.dispose();
+    }
+  });
+
   it("uses the latest callback at the original peer deadline, including the default normalizer", async () => {
     const harness = makePeerReconcileHarness();
     vi.useFakeTimers();

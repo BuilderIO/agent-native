@@ -1855,6 +1855,7 @@ function PageEditorSessionBody({
   const {
     report: reportReconcile,
     resolve: resolveReconcile,
+    resolveAutomatically: resolveReconcileAutomatically,
     resolveChoice: resolveReconcileChoice,
     updateDraft: updateReconcileDraft,
     reportRetentionFailure,
@@ -3943,26 +3944,36 @@ function PageEditorSessionBody({
       }
       localContentRef.current = result.content;
       setLocalContent(result.content);
-      reportReconcile(
-        result.status === "conflict" ? "conflict" : "failed",
-        result.content,
-      );
+      if (result.status === "merged") {
+        if (documentContentRef.current === result.serverContent) {
+          void resolveReconcileAutomatically(
+            {
+              localTitle: localTitleRef.current,
+              localDraft: result.content,
+            },
+            {
+              title: documentTitleRef.current,
+              content: result.serverContent,
+              updatedAt: documentUpdatedAtRef.current,
+              revision: result.serverRevision,
+            },
+          );
+        } else {
+          reportReconcile("failed", result.content);
+          retainActiveRecoveryDraft({
+            localTitle: localTitleRef.current,
+            localDraft: result.content,
+          });
+        }
+        return;
+      }
+      reportReconcile(result.status, result.content);
       retainActiveRecoveryDraft({
         localTitle: localTitleRef.current,
         localDraft: result.content,
       });
-      if (result.status === "merged") {
-        if (documentContentRef.current === result.serverContent) {
-          void resolveReconcile({
-            title: documentTitleRef.current,
-            content: result.serverContent,
-            updatedAt: documentUpdatedAtRef.current,
-            revision: result.serverRevision,
-          });
-        }
-      }
     },
-    [reportReconcile, resolveReconcile, retainActiveRecoveryDraft],
+    [reportReconcile, resolveReconcileAutomatically, retainActiveRecoveryDraft],
   );
 
   const handleResolveReconcile = useCallback(

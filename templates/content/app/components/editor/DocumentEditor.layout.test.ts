@@ -1698,6 +1698,13 @@ describe("document editor layout", () => {
     );
     expect(baseAwareReconcile).toContain("title: documentTitleRef.current");
     expect(baseAwareReconcile).not.toContain("title: document.title");
+    expect(baseAwareReconcile).toContain("resolveReconcileAutomatically");
+    expect(
+      baseAwareReconcile.indexOf('result.status === "merged"'),
+    ).toBeLessThan(baseAwareReconcile.indexOf("reportReconcile(result.status"));
+    expect(baseAwareReconcile).toContain(
+      'reportReconcile("failed", result.content)',
+    );
   });
 
   it("localizes the live-editor flush failure fallback", () => {
