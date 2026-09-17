@@ -457,6 +457,10 @@ describe("useChatThreads", () => {
     expect(hook!.threads.map((thread) => thread.id)).toContain(
       "comment-thread",
     );
+    act(() => {
+      hook!.switchThread("comment-thread");
+    });
+    expect(hook!.activeThreadId).toBe("comment-thread");
 
     commentThreadAvailable = false;
     await act(async () => {
@@ -467,6 +471,7 @@ describe("useChatThreads", () => {
     expect(hook!.threads.map((thread) => thread.id)).not.toContain(
       "comment-thread",
     );
+    expect(hook!.activeThreadId).toBeNull();
   });
 
   it("removes a detached thread from isolated history and replaces the active tab", async () => {

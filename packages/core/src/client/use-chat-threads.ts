@@ -712,6 +712,7 @@ export function useChatThreads(
             })),
         );
         if (requestId !== latestFetchRequestRef.current) return undefined;
+        const evictedExplicitIds = new Set<string>();
         const revalidatedExplicit = explicitlyOpened.flatMap(
           ({ id, thread }) => {
             if (thread === undefined) {
@@ -722,6 +723,7 @@ export function useChatThreads(
             }
             if (!thread || thread.archivedAt) {
               explicitlyOpenedThreadIdsRef.current.delete(id);
+              evictedExplicitIds.add(id);
               return [];
             }
             knownThreadScopesRef.current.set(thread.id, thread.scope ?? null);
@@ -730,6 +732,14 @@ export function useChatThreads(
           },
         );
         const visibleWithExplicit = [...visibleLoaded, ...revalidatedExplicit];
+        if (
+          activeThreadIdRef.current &&
+          evictedExplicitIds.has(activeThreadIdRef.current)
+        ) {
+          localStorage.removeItem(activeThreadKey);
+          localStorage.removeItem(activeThreadSeenKey);
+          setActiveThreadId(null);
+        }
         setThreads((prev) => {
           const loadedIds = new Set(visibleWithExplicit.map((t) => t.id));
           // Preserve any optimistic threads we've created this session that
@@ -811,7 +821,14 @@ export function useChatThreads(
         return undefined;
       }
     },
-    [apiUrl, historyScope, includeExternal, isolateHistory],
+    [
+      activeThreadKey,
+      activeThreadSeenKey,
+      apiUrl,
+      historyScope,
+      includeExternal,
+      isolateHistory,
+    ],
   );
 
   const loadedHistoryScopeKeyRef = useRef(historyScopeKey);
