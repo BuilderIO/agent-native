@@ -36,6 +36,7 @@ export interface DesignVersionChatContext {
   runId?: string;
   turnId?: string;
   actionName?: string;
+  surface?: "editor";
 }
 
 export interface DesignVersionFile {
@@ -66,7 +67,7 @@ export interface DesignVersionListEntry {
   designId: string;
   label: string | null;
   createdAt: string | null;
-  source: "chat" | "legacy";
+  source: "chat" | "editor" | "legacy";
   fileCount: number;
   chatContext: DesignVersionChatContext | null;
   editable: boolean;
@@ -136,6 +137,7 @@ function parseChatContext(
       context[key] = candidate;
     }
   }
+  if (value.surface === "editor") context.surface = "editor";
   return Object.keys(context).length > 0 ? context : undefined;
 }
 
@@ -337,9 +339,9 @@ export async function readDesignVersionSnapshot(
 }
 
 function chatContextKey(
-  context: DesignVersionChatContext | undefined,
+  context: DesignVersionChatContext | null | undefined,
 ): string | null {
-  if (!context) return null;
+  if (!context || context.surface === "editor") return null;
   const scope = context.threadId ?? "";
   const turn = context.turnId ?? context.runId ?? "";
   return turn ? `${scope}:${turn}` : null;
@@ -354,6 +356,18 @@ function actionChatContext(
     ...(context.threadId ? { threadId: context.threadId } : {}),
     ...(context.runId ? { runId: context.runId } : {}),
     ...(context.turnId ? { turnId: context.turnId } : {}),
+    ...(context.actionName ? { actionName: context.actionName } : {}),
+  };
+}
+
+function editorActionContext(
+  context: ActionRunContext,
+): DesignVersionChatContext | null {
+  if (context.caller !== "frontend" && context.caller !== "webmcp") {
+    return null;
+  }
+  return {
+    surface: "editor",
     ...(context.actionName ? { actionName: context.actionName } : {}),
   };
 }
@@ -492,6 +506,7 @@ async function captureDesignVersion(
     label: string;
     chatContext?: DesignVersionChatContext;
     deletionGeometry?: ComponentDeletionGeometry;
+    preferStoredFileContent?: boolean;
   },
   access: DesignAccess,
 ): Promise<{ id: string; createdAt: string; label: string }> {
@@ -504,7 +519,13 @@ async function captureDesignVersion(
     ownerEmail?: unknown;
   };
   const designData = parseDesignData(designId, design.data);
-  const liveSnapshot = await buildDesignSnapshot(designId, designData);
+  const liveSnapshot = await buildDesignSnapshot(
+    designId,
+    designData,
+    options.preferStoredFileContent
+      ? { preferStoredFileContent: true }
+      : undefined,
+  );
   const designTitle = typeof design.title === "string" ? design.title : "";
   const designDescription =
     typeof design.description === "string" || design.description === null
@@ -751,10 +772,25 @@ export async function snapshotDesignBeforeAgentEdit(
 ): Promise<{ id: string; createdAt: string; label: string } | null> {
   if (!context) return null;
   const chatContext = actionChatContext(context);
-  if (!chatContext) return null;
+  const editorContext = editorActionContext(context);
+  if (!chatContext && !editorContext) return null;
 
   return withDesignVersionLock(designId, async () => {
     const access = await assertAccess("design", designId, "editor");
+    if (editorContext) {
+      return captureDesignVersion(
+        designId,
+        {
+          label: context.actionName
+            ? `Before editor edit: ${context.actionName}`
+            : "Before editor edit",
+          chatContext: editorContext,
+          preferStoredFileContent: true,
+        },
+        access,
+      );
+    }
+    if (!chatContext) return null;
     const key = chatContextKey(chatContext);
     if (!key) return null;
 
@@ -853,7 +889,12 @@ export async function listDesignVersions(
       designId,
       label: row.label,
       createdAt: row.createdAt,
-      source: chatContext ? "chat" : "legacy",
+      source:
+        chatContext?.surface === "editor"
+          ? "editor"
+          : chatContext
+            ? "chat"
+            : "legacy",
       fileCount: row.fileCount ?? 0,
       chatContext: chatContext ?? null,
       editable: Boolean(chatContext),

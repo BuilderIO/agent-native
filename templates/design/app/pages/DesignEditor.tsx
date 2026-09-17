@@ -269,7 +269,6 @@ import {
 import { HistoryPanel } from "@/components/design/editor/HistoryPanel";
 import type { DesignMigrationResult } from "@/components/design/editor/MakeRealDialog";
 import { MakeRealDialog } from "@/components/design/editor/MakeRealDialog";
-import { PendingScreenDeletionDialog } from "@/components/design/editor/PendingScreenDeletionDialog";
 import { PendingVisualStyleWarningDialog } from "@/components/design/editor/PendingVisualStyleWarningDialog";
 import { ReadOnlyEditorPanel } from "@/components/design/editor/ReadOnlyEditorPanel";
 import { SaveTemplateDialog } from "@/components/design/editor/SaveTemplateDialog";
@@ -2420,6 +2419,10 @@ function DesignEditor() {
   // Disable every history command while one of those mutations is in flight
   // so a rapid second Cmd+Z cannot race a create against the pending delete.
   const fileHistoryMutationPendingRef = useRef(false);
+  const pendingHistoryDirectionRef = useRef<"undo" | "redo" | null>(null);
+  const replayPendingHistoryRef = useRef<
+    ((direction: "undo" | "redo") => void) | null
+  >(null);
   const historyOrderRef = useRef<(UndoRedoOrderKind | "selection")[]>([]);
   const redoOrderRef = useRef<(UndoRedoOrderKind | "selection")[]>([]);
   // Figma parity (ground-truth Round 4): a plain selection change (no
@@ -2510,6 +2513,13 @@ function DesignEditor() {
       setCanUndo(false);
       setCanRedo(false);
       return;
+    }
+    const pendingHistoryDirection = pendingHistoryDirectionRef.current;
+    if (pendingHistoryDirection) {
+      pendingHistoryDirectionRef.current = null;
+      queueMicrotask(() =>
+        replayPendingHistoryRef.current?.(pendingHistoryDirection),
+      );
     }
     const undoManager = undoManagerRef.current;
     const canUseOverviewHistory = viewModeRef.current === "overview";
@@ -2922,6 +2932,7 @@ function DesignEditor() {
     fileDeletionUndoStackRef.current = [];
     fileDeletionRedoStackRef.current = [];
     fileHistoryMutationPendingRef.current = false;
+    pendingHistoryDirectionRef.current = null;
     selectionUndoStackRef.current = [];
     selectionRedoStackRef.current = [];
     clipboardPasteUndoStackRef.current = [];
@@ -14492,15 +14503,6 @@ function DesignEditor() {
     handleDeleteSelection();
   }, [handleCopySelection, handleDeleteSelection]);
 
-  const [pendingScreenDeletion, setPendingScreenDeletion] = useState<{
-    files: DesignFile[];
-  } | null>(null);
-  const [screenDeletionConfirming, setScreenDeletionConfirming] =
-    useState(false);
-  // Covers the gap before React re-renders after confirm — a second activation
-  // must not start another delete while the first mutation is still settling.
-  const screenDeletionConfirmingRef = useRef(false);
-
   const performDeleteFiles = useCallback(
     (
       filesToDelete: DesignFile[],
@@ -14594,19 +14596,20 @@ function DesignEditor() {
     return true;
   }, [files, selectedElement, selectedLayerIdsState]);
 
-  // Gate screen deletion behind confirmation, then record the deleted rows as
-  // one grouped history entry so Cmd+Z can recreate every selected screen.
+  // Delete selected screens immediately and record the rows as one grouped
+  // history entry so Cmd+Z can recreate every selected screen.
   // Always returns false to MultiScreenCanvas so it never performs its own
-  // synchronous local frame-geometry delete ahead of the confirmation.
+  // synchronous local frame-geometry delete ahead of the file mutation.
   const handleDeleteOverviewSelection = useCallback(
     (selectedIds: string[]) => {
       if (!canEditDesign) return false;
+      if (fileHistoryMutationPendingRef.current) return false;
       // BUG-DELETE-OVERVIEW-COLLISION: MultiScreenCanvas consumes Delete in
       // the capture phase whenever a frame is selected, and an in-screen
       // element selection keeps its screen there — so deleting one node in a
       // screen offered to delete the whole screen and the editor's own
       // onDelete hotkey never ran. Route to the element delete instead; the
-      // screen-delete confirmation is only for a real frame selection.
+      // Screen deletion is only for a real frame selection.
       if (
         overviewSelectionTargetsElement({
           selectedElement,
@@ -14630,45 +14633,18 @@ function DesignEditor() {
       const filesToDelete = selectedFiles.slice(0, maxDeleteCount);
       if (!filesToDelete.length) return false;
 
-      setPendingScreenDeletion({ files: filesToDelete });
+      performDeleteFiles(filesToDelete, { recordDeletionHistory: true });
       return false;
     },
     [
       canEditDesign,
       files,
+      performDeleteFiles,
       handleDeleteSelection,
       selectedElement,
       selectedLayerIdsState,
     ],
   );
-
-  const handleCancelScreenDeletion = useCallback(() => {
-    if (screenDeletionConfirmingRef.current || screenDeletionConfirming) return;
-    setPendingScreenDeletion(null);
-  }, [screenDeletionConfirming]);
-
-  const handleConfirmScreenDeletion = useCallback(() => {
-    const pending = pendingScreenDeletion;
-    if (
-      !pending ||
-      screenDeletionConfirmingRef.current ||
-      screenDeletionConfirming
-    ) {
-      return;
-    }
-    // Keep the dialog locked until delete settles so a rapid second confirm
-    // cannot start a concurrent deletion / duplicate history entry.
-    screenDeletionConfirmingRef.current = true;
-    setScreenDeletionConfirming(true);
-    setPendingScreenDeletion(null);
-    performDeleteFiles(pending.files, {
-      recordDeletionHistory: true,
-      onMutationSettled: () => {
-        screenDeletionConfirmingRef.current = false;
-        setScreenDeletionConfirming(false);
-      },
-    });
-  }, [pendingScreenDeletion, performDeleteFiles, screenDeletionConfirming]);
 
   // ── Props/animation clipboard, transforms, nudge ───────────────────────────
   const handleCopyProps = useCallback(() => {
@@ -15279,6 +15255,10 @@ function DesignEditor() {
   });
   historyDispatchRef.current = { undo: runCurrentUndo, redo: runCurrentRedo };
   const dispatchHistory = useCallback((direction: "undo" | "redo") => {
+    if (fileHistoryMutationPendingRef.current) {
+      pendingHistoryDirectionRef.current ??= direction;
+      return;
+    }
     const pendingCountBefore =
       pendingVisualStyleEditsRef.current.length +
       pendingLiveNonStyleEditsRef.current.length;
@@ -15297,6 +15277,7 @@ function DesignEditor() {
       : run();
     if (pending) void pending.catch((error) => toast.error(String(error)));
   }, []);
+  replayPendingHistoryRef.current = dispatchHistory;
   const handleUndo = useCallback(
     () => dispatchHistory("undo"),
     [dispatchHistory],
@@ -22707,7 +22688,13 @@ function DesignEditor() {
               <DropdownMenuShortcut>{shortcut("$mod+d")}</DropdownMenuShortcut>
             </DropdownMenuItem>
             <DropdownMenuItem
-              onClick={handleDeleteSelection}
+              onClick={() => {
+                if (viewMode === "overview") {
+                  handleDeleteOverviewSelection(selectedLayerIdsState);
+                } else {
+                  handleDeleteSelection();
+                }
+              }}
               disabled={!selectedElement && (!activeFile || files.length <= 1)}
             >
               {"Delete" /* i18n-ignore design menu command */}
@@ -25170,13 +25157,6 @@ function DesignEditor() {
         onHydrated={() => {
           void queryClient.invalidateQueries({ queryKey: ["action"] });
         }}
-      />
-
-      <PendingScreenDeletionDialog
-        pendingScreenDeletion={pendingScreenDeletion}
-        onCancel={handleCancelScreenDeletion}
-        onConfirm={handleConfirmScreenDeletion}
-        confirming={screenDeletionConfirming}
       />
 
       {/* ── Render: motion dock ── */}

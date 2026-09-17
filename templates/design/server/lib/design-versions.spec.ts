@@ -135,6 +135,7 @@ vi.mock("../db/index.js", () => {
 
 import {
   createDesignVersionSnapshot,
+  listDesignVersions,
   parseDesignVersionSnapshot,
   readDesignVersionSnapshot,
   snapshotDesignBeforeAgentEdit,
@@ -392,6 +393,58 @@ describe("createDesignVersionSnapshot", () => {
     expect(captureMocks.revisions[1]?.chatContext).toContain(
       '"turnId":"turn-1"',
     );
+  });
+
+  it("persists browser checkpoints from stored content and exposes them as editable history", async () => {
+    const checkpoint = await snapshotDesignBeforeAgentEdit("design-1", {
+      caller: "frontend",
+      actionName: "update-file",
+    });
+
+    expect(checkpoint).toBeTruthy();
+    expect(captureMocks.buildDesignSnapshot).toHaveBeenCalledWith(
+      "design-1",
+      expect.any(String),
+      { preferStoredFileContent: true },
+    );
+    expect(
+      JSON.parse(captureMocks.revisions[0]!.chatContext as string),
+    ).toEqual({
+      surface: "editor",
+      actionName: "update-file",
+    });
+
+    await expect(listDesignVersions("design-1", 10)).resolves.toMatchObject({
+      versions: [
+        {
+          id: checkpoint?.id,
+          source: "editor",
+          editable: true,
+          chatContext: { surface: "editor", actionName: "update-file" },
+        },
+      ],
+    });
+  });
+
+  it("coalesces concurrent browser checkpoints through the shared version lock", async () => {
+    captureMocks.buildDesignSnapshot.mockImplementation(async () => {
+      await Promise.resolve();
+      return captureMocks.liveSnapshot;
+    });
+
+    const [first, second] = await Promise.all([
+      snapshotDesignBeforeAgentEdit("design-1", {
+        caller: "frontend",
+        actionName: "update-file",
+      }),
+      snapshotDesignBeforeAgentEdit("design-1", {
+        caller: "frontend",
+        actionName: "update-file",
+      }),
+    ]);
+
+    expect(second).toEqual(first);
+    expect(captureMocks.revisions).toHaveLength(1);
   });
 
   it("cleans up a large blob when a duplicate insert loses the race", async () => {

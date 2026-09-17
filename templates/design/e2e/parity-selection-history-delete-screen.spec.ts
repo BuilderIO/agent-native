@@ -146,12 +146,8 @@ test("undo of a screen deletion remaps stale selection-history entries instead o
     .poll(() => lastSelectedLayers(page))
     .toEqual([homeIdBeforeDelete]);
 
-  // delete Home, confirm the dialog
+  // delete Home immediately
   await page.keyboard.press("Delete");
-  const dialog = page.getByRole("alertdialog");
-  await expect(dialog).toBeVisible({ timeout: 10_000 });
-  await dialog.getByRole("button", { name: "Delete" }).click();
-  await expect(dialog).toHaveCount(0);
   await expect(layerRow(page, "Home")).toHaveCount(0);
 
   // undo the deletion -> recreates Home under a NEW database id
@@ -190,4 +186,40 @@ test("undo of a screen deletion remaps stale selection-history entries instead o
     consoleErrors,
     `no console errors expected across the undo/redo walk; got: ${consoleErrors.join("; ")}`,
   ).toEqual([]);
+});
+
+test("deletes multiple selected Screens as one undoable operation", async ({
+  page,
+}) => {
+  const id = await newTwoScreenDesign(page);
+  try {
+    await openEditor(page, id);
+
+    await layerRow(page, "Home").click();
+    await page.keyboard.press(
+      process.platform === "darwin" ? "Meta+A" : "Control+A",
+    );
+    await expect(
+      page
+        .getByRole("tree", { name: "Layers" })
+        .locator('[role="treeitem"][aria-level="1"][aria-selected="true"]'),
+    ).toHaveCount(2);
+
+    await page.keyboard.press("Delete");
+    await expect(layerRow(page, "Home")).toHaveCount(0);
+    await expect(layerRow(page, "Second")).toHaveCount(0);
+    await expect(page.getByRole("alertdialog")).toHaveCount(0);
+
+    await page.keyboard.press(UNDO);
+    await expect(layerRow(page, "Home")).toHaveCount(1, {
+      timeout: 10_000,
+    });
+    await expect(layerRow(page, "Second")).toHaveCount(1);
+
+    await page.keyboard.press(REDO);
+    await expect(layerRow(page, "Home")).toHaveCount(0, { timeout: 10_000 });
+    await expect(layerRow(page, "Second")).toHaveCount(0);
+  } finally {
+    await postAction(page, "delete-design", { id }).catch(() => {});
+  }
 });
