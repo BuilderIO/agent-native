@@ -585,9 +585,50 @@ export default defineAction({
         typeof currentSelection.slideId === "string"
           ? currentSelection.slideId
           : null;
-      if (currentSlideId && currentSlideId !== slideId) {
+      const selectionItems = Array.isArray(currentSelection?.items)
+        ? currentSelection.items.filter(
+            (item): item is Record<string, unknown> =>
+              typeof item === "object" && item !== null,
+          )
+        : [];
+      const selectedObjectIds = new Set(
+        selectionItems.flatMap((item) =>
+          typeof item.objectId === "string" ? [item.objectId] : [],
+        ),
+      );
+      const selectedTexts = new Set(
+        selectionItems.flatMap((item) =>
+          typeof item.selectedText === "string" ? [item.selectedText] : [],
+        ),
+      );
+      const usesCurrentSelection =
+        (typeof objectId === "string" && selectedObjectIds.has(objectId)) ||
+        (typeof find === "string" && selectedTexts.has(find)) ||
+        (Array.isArray(edits) &&
+          edits.some((edit) => {
+            if (!edit || typeof edit !== "object") return false;
+            const candidate = edit as {
+              find?: unknown;
+              objectId?: unknown;
+            };
+            return (
+              (typeof candidate.objectId === "string" &&
+                selectedObjectIds.has(candidate.objectId)) ||
+              (typeof candidate.find === "string" &&
+                selectedTexts.has(candidate.find))
+            );
+          }));
+
+      // An explicit slideId from view-screen or get-deck is a valid target
+      // even when it is not the tab's current canvas. Only reject a target
+      // that is provably stale because it came from the current selection.
+      if (
+        currentSlideId &&
+        currentSlideId !== slideId &&
+        usesCurrentSelection
+      ) {
         fail(
-          `The Slides editor is currently on slide ${currentSlideId}, but this edit targets ${slideId}. Re-read view-screen and use its current or selection slide ID; no write was made.`,
+          `The selected Slides target is on slide ${currentSlideId}, but this edit targets ${slideId}. Re-read view-screen and use the selection slide ID; no write was made.`,
           {
             errorCode: "slide_target_not_current",
             statusCode: 409,

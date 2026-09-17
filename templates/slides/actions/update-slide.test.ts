@@ -252,6 +252,7 @@ describe("update-slide", () => {
       deckId: "deck-1",
       slideId: "slide-2",
       slideIndex: 1,
+      items: [{ selectedText: "Old" }],
     });
 
     await expect(
@@ -260,7 +261,7 @@ describe("update-slide", () => {
         slideId: "slide-1",
         edits: [{ find: "Old", replace: "New" }],
       }),
-    ).rejects.toThrow("currently on slide slide-2");
+    ).rejects.toThrow("selected Slides target is on slide slide-2");
 
     expect(mockReadAppStateForCurrentTab).toHaveBeenCalledWith(
       "slides-selection",
@@ -268,6 +269,27 @@ describe("update-slide", () => {
     );
     expect(lastUpdateSet).toBeUndefined();
     expect(mockNotifyClients).not.toHaveBeenCalled();
+  });
+
+  it("allows an explicit named edit to a non-current slide", async () => {
+    mockGetCurrentRequestBrowserTabId.mockReturnValue("tab-1");
+    mockReadAppStateForCurrentTab.mockResolvedValue({
+      deckId: "deck-1",
+      slideId: "slide-2",
+      slideIndex: 1,
+      items: [],
+    });
+
+    const result = await action.run({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      edits: [{ find: "Old", replace: "New", expectedMatches: 1 }],
+    });
+
+    expect(result).toMatchObject({ ok: true, applied: true });
+    expect(JSON.parse(lastUpdateSet!.data as string).slides[0].content).toBe(
+      "<div>New</div>",
+    );
   });
 
   it("does not require Creative Context for an unscoped WebMCP edit", async () => {
