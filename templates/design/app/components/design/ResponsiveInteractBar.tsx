@@ -404,7 +404,17 @@ export function ResponsiveInteractBar({
         <div className="flex shrink-0 items-center bg-[var(--design-editor-panel-bg)] pl-1">
           <ResponsiveInteractExitButton onClose={onClose} />
         </div>
-      ) : null}
+      ) : (
+        <div
+          aria-hidden="true"
+          className="invisible flex shrink-0 items-center pl-1"
+        >
+          <span className="flex h-7 items-center gap-1.5 rounded-md px-2 !text-[12px]">
+            <IconX className="size-4" />
+            {t("designEditor.responsiveInteract.exit")}
+          </span>
+        </div>
+      )}
     </div>
   );
 }
