@@ -38,6 +38,10 @@ vi.mock("@agent-native/core/collab", () => ({
 
 vi.mock("../server/source-workspace.js", () => ({
   readLiveSourceFile: state.readLiveSourceFile,
+  withDesignSourceMutationTransaction: async (
+    _designId: string,
+    callback: (tx: typeof state.db) => Promise<unknown>,
+  ) => callback(state.db),
   writeInlineSourceFile: state.writeInlineSourceFile,
 }));
 
