@@ -11,7 +11,7 @@ import {
 } from "@agent-native/core/collab";
 import { getDbExec } from "@agent-native/core/db";
 import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import { isBoardFile } from "../shared/board-file.js";
 import { ensureCodeLayerNodeIdsInHtml } from "../shared/code-layer.js";
@@ -65,7 +65,7 @@ const _writeLocks = new Map<string, Promise<void>>();
 /**
  * Normalize affected-row metadata from PGlite and hosted Postgres.
  */
-function affectedRowCount(result: unknown): number | undefined {
+export function affectedRowCount(result: unknown): number | undefined {
   const candidate = result as
     | {
         rowsAffected?: unknown;
@@ -84,6 +84,21 @@ function affectedRowCount(result: unknown): number | undefined {
     candidate?.changes ??
     candidate?.meta?.changes;
   return typeof value === "number" ? value : undefined;
+}
+
+/**
+ * Acquire the shared design-file table lock before any file or design row
+ * locks in the design editing mutation boundary.
+ */
+export async function lockDesignFilesTable(tx: unknown): Promise<void> {
+  const execute = (tx as { execute?: unknown }).execute;
+  if (typeof execute !== "function") {
+    throw new Error("Design-file transactions must support SQL table locks.");
+  }
+  await (execute as (query: unknown) => Promise<unknown>).call(
+    tx,
+    sql`LOCK TABLE design_files IN SHARE ROW EXCLUSIVE MODE`,
+  );
 }
 
 // Exported so other write paths touching the same per-file critical section

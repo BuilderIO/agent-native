@@ -38,8 +38,7 @@ describe("DesignEditor version history", () => {
 
   it("routes inline workbench deletion into the editor history boundary", () => {
     expect(editorSource).toContain("onDeleteInlineFile={");
-    expect(editorSource).toContain(
-      "await performDeleteFiles([file], { recordDeletionHistory: true });",
-    );
+    expect(editorSource).toContain("await performDeleteFiles([targetFile], {");
+    expect(editorSource).toContain("recordDeletionHistory: true,");
   });
 });

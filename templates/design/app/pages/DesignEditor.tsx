@@ -6135,6 +6135,29 @@ function DesignEditor() {
     }) => {
       if (!id) return;
       const now = new Date().toISOString();
+      const optimisticFile: DesignFile = {
+        id: args.fileId,
+        filename: args.filename,
+        fileType: args.fileType,
+        content: annotateScreenHtmlForPersist(args.content, args.fileType),
+        createdAt:
+          typeof args.result?.createdAt === "string"
+            ? args.result.createdAt
+            : now,
+        updatedAt:
+          typeof args.result?.updatedAt === "string"
+            ? args.result.updatedAt
+            : now,
+      };
+      // Queued history replay drains in a microtask, before React can publish
+      // the query-cache update through the rendered files projection.
+      historyFilesRef.current = historyFilesRef.current.some(
+        (file) => file.id === args.fileId,
+      )
+        ? historyFilesRef.current.map((file) =>
+            file.id === args.fileId ? optimisticFile : file,
+          )
+        : [...historyFilesRef.current, optimisticFile];
       void queryClient.cancelQueries({
         queryKey: ["action", "get-design", { id }],
         exact: true,
@@ -6143,20 +6166,6 @@ function DesignEditor() {
         if (!old || typeof old !== "object" || !Array.isArray(old.files)) {
           return old;
         }
-        const optimisticFile: DesignFile = {
-          id: args.fileId,
-          filename: args.filename,
-          fileType: args.fileType,
-          content: annotateScreenHtmlForPersist(args.content, args.fileType),
-          createdAt:
-            typeof args.result?.createdAt === "string"
-              ? args.result.createdAt
-              : now,
-          updatedAt:
-            typeof args.result?.updatedAt === "string"
-              ? args.result.updatedAt
-              : now,
-        };
         return {
           ...old,
           files: old.files.some((file: DesignFile) => file.id === args.fileId)
@@ -14640,11 +14649,35 @@ function DesignEditor() {
   );
   const handleDeleteInlineFile = useCallback(
     async (fileId: string) => {
-      const file = files.find((candidate) => candidate.id === fileId);
-      if (!file || !canEditDesign) return;
-      await performDeleteFiles([file], { recordDeletionHistory: true });
+      if (!canEditDesign) return;
+      if (fileHistoryMutationPendingRef.current) {
+        throw new Error(t("common.genericError"));
+      }
+      const queryKey = ["action", "get-design", { id }] as const;
+      let file =
+        files.find((candidate) => candidate.id === fileId) ??
+        rawServerFilesByIdRef.current.get(fileId) ??
+        historyFilesRef.current.find((candidate) => candidate.id === fileId);
+      if (!file) {
+        await queryClient.refetchQueries({ queryKey, exact: true });
+        const refreshed = queryClient.getQueryData<{
+          files?: DesignFile[];
+        }>(queryKey);
+        file = refreshed?.files?.find((candidate) => candidate.id === fileId);
+      }
+      if (!file) throw new Error(t("common.genericError"));
+
+      const targetFile = file;
+      let deleted = false;
+      await performDeleteFiles([targetFile], {
+        recordDeletionHistory: true,
+        onMutationSettled: (deletedFiles) => {
+          deleted = deletedFiles.some((candidate) => candidate.id === fileId);
+        },
+      });
+      if (!deleted) throw new Error(t("common.genericError"));
     },
-    [canEditDesign, files, performDeleteFiles],
+    [canEditDesign, files, id, performDeleteFiles, queryClient, t],
   );
 
   // MultiScreenCanvas consumes arrow keys in the capture phase while a frame

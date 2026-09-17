@@ -6,12 +6,14 @@ import {
   seedFromText,
 } from "@agent-native/core/collab";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
+  affectedRowCount,
+  lockDesignFilesTable,
   withSourceFileWriteLock,
   writeInlineSourceFile,
 } from "../server/source-workspace.js";
@@ -41,17 +43,6 @@ function fileNotFound(id: string): Error & { statusCode?: number } {
   };
   err.statusCode = 404;
   return err;
-}
-
-function rowsAffected(result: unknown): number | undefined {
-  const candidate = result as {
-    rowsAffected?: unknown;
-    rowCount?: unknown;
-    changes?: unknown;
-  } | null;
-  const value =
-    candidate?.rowsAffected ?? candidate?.rowCount ?? candidate?.changes;
-  return typeof value === "number" ? value : undefined;
 }
 
 /**
@@ -523,11 +514,7 @@ export default defineAction({
           updateResult = await db.transaction(async (tx) => {
             // A guarded UPDATE alone can still race under Postgres MVCC, so
             // serialize design-file renames before checking for collisions.
-            await (
-              tx as unknown as {
-                execute: (query: unknown) => Promise<unknown>;
-              }
-            ).execute(sql`LOCK TABLE design_files IN SHARE ROW EXCLUSIVE MODE`);
+            await lockDesignFilesTable(tx);
             const [collision] = await tx
               .select({ id: schema.designFiles.id })
               .from(schema.designFiles)
@@ -549,17 +536,23 @@ export default defineAction({
               .where(and(eq(schema.designFiles.id, id), contentCasWhere));
           });
         } else {
-          updateResult = await db
-            .update(schema.designFiles)
-            .set(updates)
-            .where(and(eq(schema.designFiles.id, id), contentCasWhere));
+          updateResult = await db.transaction(async (tx) => {
+            await lockDesignFilesTable(tx);
+            return tx
+              .update(schema.designFiles)
+              .set(updates)
+              .where(and(eq(schema.designFiles.id, id), contentCasWhere));
+          });
         }
 
-        if (requiresContentCas && rowsAffected(updateResult) === 0) {
+        if (requiresContentCas && affectedRowCount(updateResult) === 0) {
           continue;
         }
 
-        if (requiresContentCas && rowsAffected(updateResult) === undefined) {
+        if (
+          requiresContentCas &&
+          affectedRowCount(updateResult) === undefined
+        ) {
           const [confirmed] = await db
             .select({
               content: schema.designFiles.content,

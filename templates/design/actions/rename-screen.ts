@@ -5,10 +5,11 @@ import {
   seedFromText,
 } from "@agent-native/core/collab";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { lockDesignFilesTable } from "../server/source-workspace.js";
 import { isProbablyHtmlDocumentContent } from "../shared/html-content.js";
 import {
   renameFilenamePreservingExtension,
@@ -180,15 +181,7 @@ export default defineAction({
       for (let attempt = 0; attempt < MAX_RENAME_ATTEMPTS; attempt += 1) {
         try {
           return await db.transaction(async (tx) => {
-            {
-              await (
-                tx as unknown as {
-                  execute: (query: unknown) => Promise<unknown>;
-                }
-              ).execute(
-                sql`LOCK TABLE design_files IN SHARE ROW EXCLUSIVE MODE`,
-              );
-            }
+            await lockDesignFilesTable(tx);
 
             const [design] = await tx
               .select({ updatedAt: schema.designs.updatedAt })

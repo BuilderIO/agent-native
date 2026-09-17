@@ -192,6 +192,9 @@ export async function runDeleteFiles(
   },
 ): Promise<void> {
   if (!filesToDelete.length) return;
+  if (options?.recordDeletionHistory && fileHistoryMutationPendingRef.current) {
+    throw new Error(t("common.genericError"));
+  }
   const deleteIds = new Set(filesToDelete.map((file) => file.id));
   const nextActiveFile = files.find((file) => !deleteIds.has(file.id));
   const nextGeometry = cloneCanvasFrameGeometry(canvasFrameGeometryById);

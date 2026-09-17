@@ -15,6 +15,16 @@ import {
 } from "react";
 
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
@@ -85,6 +95,7 @@ export function FileTree({
     null,
   );
   const [newFileDraft, setNewFileDraft] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<TreeNode | null>(null);
   const typeaheadRef = useRef<{ text: string; at: number }>({
     text: "",
     at: 0,
@@ -177,6 +188,26 @@ export function FileTree({
       }
     },
     [api, handleWriteError, providerKey],
+  );
+
+  const confirmDelete = useCallback(() => {
+    if (!deleteTarget) return;
+    const target = deleteTarget;
+    setDeleteTarget(null);
+    void commitDelete(target);
+  }, [commitDelete, deleteTarget]);
+
+  const requestDelete = useCallback(
+    (target: TreeNode) => {
+      if (providerKey.startsWith("inline:")) {
+        // Inline Design files are covered by the editor's durable undo/history
+        // boundary; external providers remain confirmation-gated below.
+        void commitDelete(target);
+      } else {
+        setDeleteTarget(target);
+      }
+    },
+    [commitDelete, providerKey],
   );
 
   const commitNewFile = useCallback(async () => {
@@ -485,7 +516,7 @@ export function FileTree({
                 {canDeleteNode ? (
                   <ContextMenuItem
                     className="text-[12px] text-destructive focus:text-destructive"
-                    onSelect={() => void commitDelete(row.node)}
+                    onSelect={() => requestDelete(row.node)}
                   >
                     {"Delete" /* i18n-ignore */}
                   </ContextMenuItem>
@@ -561,6 +592,33 @@ export function FileTree({
             />
           </div>
         ) : null}
+        <AlertDialog
+          open={Boolean(deleteTarget)}
+          onOpenChange={(open) => {
+            if (!open) setDeleteTarget(null);
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {"Delete file?" /* i18n-ignore */}
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {deleteTarget?.path
+                  ? `"${deleteTarget.path}" will be permanently deleted.` /* i18n-ignore */
+                  : ""}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>
+                {"Cancel" /* i18n-ignore */}
+              </AlertDialogCancel>
+              <AlertDialogAction onClick={confirmDelete}>
+                {"Delete" /* i18n-ignore */}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </div>
   );

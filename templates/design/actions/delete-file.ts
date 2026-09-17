@@ -4,8 +4,14 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { mutateDesignData } from "../server/lib/design-data-mutation.js";
-import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
+import {
+  snapshotDesignBeforeAgentEditInVersionLock,
+  withDesignVersionLock,
+} from "../server/lib/design-versions.js";
+import {
+  affectedRowCount,
+  lockDesignFilesTable,
+} from "../server/source-workspace.js";
 import { isOverviewScreenFile } from "../shared/design-files.js";
 import { countLockedLayers } from "../shared/locked-layers.js";
 
@@ -60,6 +66,27 @@ function pruneDeletedFileMetadata(
     designVariantSets:
       pruneDesignVariantSets(data.designVariantSets, fileId) ?? {},
   };
+}
+
+function nextUpdatedAt(current: string | null, now: Date): string {
+  const currentMs = current ? Date.parse(current) : Number.NaN;
+  return new Date(
+    Math.max(now.getTime(), Number.isFinite(currentMs) ? currentMs + 1 : 0),
+  ).toISOString();
+}
+
+function parseDesignData(
+  designId: string,
+  serialized: string | null,
+): Record<string, unknown> {
+  if (serialized === null) return {};
+  try {
+    const parsed: unknown = JSON.parse(serialized);
+    if (isRecord(parsed)) return parsed;
+  } catch {
+    throw new Error(`Design "${designId}" has invalid data JSON.`);
+  }
+  throw new Error(`Design "${designId}" has invalid data JSON.`);
 }
 
 export default defineAction({
@@ -143,49 +170,92 @@ export default defineAction({
           "The editor history checkpoint is no longer available.",
         );
       }
-    } else {
-      await snapshotDesignBeforeAgentEdit(file.designId, context);
     }
 
-    const pruneMetadata = () =>
-      mutateDesignData({
-        designId: file.designId,
-        mutate: (current, { updatedAt }) => ({
-          ...pruneDeletedFileMetadata(current, id),
-          updatedAt,
-        }),
-        isApplied: (current) =>
-          JSON.stringify(pruneDeletedFileMetadata(current, id)) ===
-          JSON.stringify(current),
-      });
-
-    // Lock the design's file rows while checking the last user screen. This
-    // keeps two collaborators from both deleting the final overview screen.
-    // The reserved board file is excluded by isOverviewScreenFile.
-    await db.transaction(async (tx) => {
-      const currentFiles = await tx
-        .select({
-          id: schema.designFiles.id,
-          filename: schema.designFiles.filename,
-          fileType: schema.designFiles.fileType,
-        })
-        .from(schema.designFiles)
-        .where(eq(schema.designFiles.designId, file.designId))
-        .for("update");
-      if (
-        isOverviewScreenFile(file) &&
-        currentFiles.filter(isOverviewScreenFile).length <= 1
-      ) {
-        throw new Error(
-          "A design must keep at least one user screen. Delete another screen first.",
+    // Restore locks the same design and updates file rows before designs.data.
+    // Keep the checkpoint and mutation under the same table/version boundary so
+    // history cannot capture a state that interleaves with the delete.
+    const deleted = await withDesignVersionLock(file.designId, async () => {
+      return db.transaction(async (tx) => {
+        await lockDesignFilesTable(tx);
+        const currentFiles = await tx
+          .select({
+            id: schema.designFiles.id,
+            filename: schema.designFiles.filename,
+            fileType: schema.designFiles.fileType,
+          })
+          .from(schema.designFiles)
+          .where(eq(schema.designFiles.designId, file.designId))
+          .for("update");
+        const currentFile = currentFiles.find(
+          (candidate) => candidate.id === id,
         );
-      }
-      await tx.delete(schema.designFiles).where(eq(schema.designFiles.id, id));
-    });
-    // Prune after the row delete so a rejected last-screen delete cannot
-    // remove metadata for a file that still exists.
-    await pruneMetadata();
+        if (!currentFile) return false;
+        if (
+          isOverviewScreenFile(currentFile) &&
+          currentFiles.filter(isOverviewScreenFile).length <= 1
+        ) {
+          throw new Error(
+            "A design must keep at least one user screen. Delete another screen first.",
+          );
+        }
+        if (historyCheckpointId === undefined) {
+          await snapshotDesignBeforeAgentEditInVersionLock(
+            file.designId,
+            context,
+          );
+        }
 
-    return { id, deleted: true };
+        const deleteResult = await tx
+          .delete(schema.designFiles)
+          .where(
+            and(
+              eq(schema.designFiles.id, id),
+              eq(schema.designFiles.designId, file.designId),
+            ),
+          );
+        const affected = affectedRowCount(deleteResult);
+        if (affected === 0) return false;
+        if (affected === undefined)
+          throw new Error("Could not verify that the design file was deleted.");
+        if (affected !== 1)
+          throw new Error("Unexpected design file delete result.");
+
+        const [design] = await tx
+          .select({
+            data: schema.designs.data,
+            updatedAt: schema.designs.updatedAt,
+          })
+          .from(schema.designs)
+          .where(eq(schema.designs.id, file.designId))
+          .for("update");
+        if (!design) throw new Error(`Design "${file.designId}" not found.`);
+
+        const updatedAt = nextUpdatedAt(design.updatedAt, new Date());
+        const data = pruneDeletedFileMetadata(
+          parseDesignData(file.designId, design.data),
+          id,
+        );
+        data.updatedAt = updatedAt;
+        const designUpdateResult = await tx
+          .update(schema.designs)
+          .set({ data: JSON.stringify(data), updatedAt })
+          .where(eq(schema.designs.id, file.designId));
+        const designAffected = affectedRowCount(designUpdateResult);
+        if (designAffected === undefined) {
+          throw new Error(
+            "Could not verify that the design metadata was updated.",
+          );
+        }
+        if (designAffected !== 1) {
+          throw new Error("Unexpected design metadata update result.");
+        }
+        return true;
+      });
+    });
+
+    return deleted
+      ? { id, deleted: true }
+      : { id, deleted: false, alreadyMissing: true };
   },
 });

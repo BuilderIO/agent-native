@@ -25,7 +25,11 @@ import {
   type ComponentDeletionGeometry,
 } from "../../shared/component-archive.js";
 import { getDb, schema } from "../db/index.js";
-import { withSourceFileWriteLock } from "../source-workspace.js";
+import {
+  affectedRowCount,
+  lockDesignFilesTable,
+  withSourceFileWriteLock,
+} from "../source-workspace.js";
 import { buildDesignSnapshot } from "./design-snapshot.js";
 
 const CHAT_VERSION_LOOKBACK = 100;
@@ -384,18 +388,6 @@ function nextUpdatedAt(current: string | null, now: Date): string {
     ? Math.max(currentMs + 1, now.getTime())
     : now.getTime();
   return new Date(nextMs).toISOString();
-}
-
-function affectedRowCount(result: unknown): number | undefined {
-  if (!result || typeof result !== "object") return undefined;
-  const candidate = result as {
-    rowsAffected?: unknown;
-    rowCount?: unknown;
-    changes?: unknown;
-  };
-  const value =
-    candidate.rowsAffected ?? candidate.rowCount ?? candidate.changes;
-  return typeof value === "number" ? value : undefined;
 }
 
 function designFileRevisionWhere(file: {
@@ -766,83 +758,99 @@ export async function createDesignVersionSnapshot(
  * retries and multi-action turns converge on the earliest checkpoint instead
  * of filling history with one copy per tool call.
  */
+async function snapshotDesignBeforeAgentEditInLock(
+  designId: string,
+  context: ActionRunContext,
+): Promise<{ id: string; createdAt: string; label: string } | null> {
+  const chatContext = actionChatContext(context);
+  const editorContext = editorActionContext(context);
+  if (!chatContext && !editorContext) return null;
+
+  const access = await assertAccess("design", designId, "editor");
+  if (editorContext) {
+    return captureDesignVersion(
+      designId,
+      {
+        label: context.actionName
+          ? `Before editor edit: ${context.actionName}`
+          : "Before editor edit",
+        chatContext: editorContext,
+      },
+      access,
+    );
+  }
+  if (!chatContext) return null;
+  const key = chatContextKey(chatContext);
+  if (!key) return null;
+
+  const rows = await getDb()
+    .select({
+      id: schema.designVersions.id,
+      createdAt: schema.designVersions.createdAt,
+      label: schema.designVersions.label,
+      chatContext: schema.designVersions.chatContext,
+    })
+    .from(schema.designVersions)
+    .where(eq(schema.designVersions.designId, designId))
+    .orderBy(
+      asc(isNull(schema.designVersions.createdAt)),
+      desc(schema.designVersions.createdAt),
+      desc(schema.designVersions.id),
+    )
+    .limit(CHAT_VERSION_LOOKBACK);
+
+  let existing: { id: string; createdAt: string; label: string } | undefined;
+  for (const row of rows) {
+    let rowChatContext: DesignVersionChatContext | undefined;
+    try {
+      rowChatContext = parseStoredChatContext(row.chatContext);
+    } catch {
+      continue;
+    }
+    if (chatContextKey(rowChatContext) !== key) continue;
+    const candidate = {
+      id: row.id,
+      createdAt: row.createdAt ?? new Date().toISOString(),
+      label: row.label ?? "Before chat edit",
+    };
+    if (
+      !existing ||
+      versionTime(candidate.createdAt) < versionTime(existing.createdAt)
+    ) {
+      existing = candidate;
+    }
+  }
+  if (existing) return existing;
+
+  return captureDesignVersion(
+    designId,
+    {
+      label: context.actionName
+        ? `Before chat edit: ${context.actionName}`
+        : "Before chat edit",
+      chatContext,
+    },
+    access,
+  );
+}
+
 export async function snapshotDesignBeforeAgentEdit(
   designId: string,
   context?: ActionRunContext,
 ): Promise<{ id: string; createdAt: string; label: string } | null> {
   if (!context) return null;
-  const chatContext = actionChatContext(context);
-  const editorContext = editorActionContext(context);
-  if (!chatContext && !editorContext) return null;
+  return withDesignVersionLock(designId, () =>
+    snapshotDesignBeforeAgentEditInLock(designId, context),
+  );
+}
 
-  return withDesignVersionLock(designId, async () => {
-    const access = await assertAccess("design", designId, "editor");
-    if (editorContext) {
-      return captureDesignVersion(
-        designId,
-        {
-          label: context.actionName
-            ? `Before editor edit: ${context.actionName}`
-            : "Before editor edit",
-          chatContext: editorContext,
-        },
-        access,
-      );
-    }
-    if (!chatContext) return null;
-    const key = chatContextKey(chatContext);
-    if (!key) return null;
-
-    const rows = await getDb()
-      .select({
-        id: schema.designVersions.id,
-        createdAt: schema.designVersions.createdAt,
-        label: schema.designVersions.label,
-        chatContext: schema.designVersions.chatContext,
-      })
-      .from(schema.designVersions)
-      .where(eq(schema.designVersions.designId, designId))
-      .orderBy(
-        asc(isNull(schema.designVersions.createdAt)),
-        desc(schema.designVersions.createdAt),
-        desc(schema.designVersions.id),
-      )
-      .limit(CHAT_VERSION_LOOKBACK);
-
-    let existing: { id: string; createdAt: string; label: string } | undefined;
-    for (const row of rows) {
-      let rowChatContext: DesignVersionChatContext | undefined;
-      try {
-        rowChatContext = parseStoredChatContext(row.chatContext);
-      } catch {
-        continue;
-      }
-      if (chatContextKey(rowChatContext) !== key) continue;
-      const candidate = {
-        id: row.id,
-        createdAt: row.createdAt ?? new Date().toISOString(),
-        label: row.label ?? "Before chat edit",
-      };
-      if (
-        !existing ||
-        versionTime(candidate.createdAt) < versionTime(existing.createdAt)
-      ) {
-        existing = candidate;
-      }
-    }
-    if (existing) return existing;
-
-    return captureDesignVersion(
-      designId,
-      {
-        label: context.actionName
-          ? `Before chat edit: ${context.actionName}`
-          : "Before chat edit",
-        chatContext,
-      },
-      access,
-    );
-  });
+/** Call only while the caller owns withDesignVersionLock(designId, ...). */
+export async function snapshotDesignBeforeAgentEditInVersionLock(
+  designId: string,
+  context?: ActionRunContext,
+): Promise<{ id: string; createdAt: string; label: string } | null> {
+  if (!context) return null;
+  return snapshotDesignBeforeAgentEditInLock(designId, context);
 }
 
 export async function listDesignVersions(
@@ -1033,6 +1041,7 @@ export async function restoreDesignVersion(args: {
         const restoreFiles: RestoreFile[] = [];
 
         await db.transaction(async (tx) => {
+          await lockDesignFilesTable(tx);
           for (const targetFile of target.files) {
             const byId = targetFile.id
               ? currentById.get(targetFile.id)

@@ -1,7 +1,8 @@
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
+import { lockDesignFilesTable } from "../source-workspace.js";
 
 const DEFAULT_MAX_ATTEMPTS = 8;
 const CONFLICT_BACKOFF_MS = 8;
@@ -199,11 +200,7 @@ async function mutateDesignDataUnlocked({
           // Keep the design-data CAS and HTML rewrites in one transaction.
           // ponytail: reuse the existing design-file lock; split by design only
           // if breakpoint edits become a measurable multi-tenant bottleneck.
-          await (
-            tx as unknown as {
-              execute: (query: unknown) => Promise<unknown>;
-            }
-          ).execute(sql`LOCK TABLE design_files IN SHARE ROW EXCLUSIVE MODE`);
+          await lockDesignFilesTable(tx);
         }
 
         const [currentRow] = await tx
