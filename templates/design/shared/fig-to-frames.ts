@@ -254,12 +254,6 @@ async function uploadEmbeddedImages(
     );
   }
 
-  if (omitted > 0) {
-    const message = `${omitted} embedded image${omitted === 1 ? " was" : "s were"} omitted because file storage was unavailable or rejected the upload. No image bytes were stored in SQL.`;
-    const cleanupFailures = await cleanupUploadedImages(uploadCleanups);
-    throw new Error(withCleanupFailures(message, cleanupFailures));
-  }
-
   return {
     imageMap,
     imageSizes,
@@ -356,18 +350,25 @@ export async function convertDecodedFigToEditableHtml(
         preliminary.unresolvedImageRefs?.has(image.hash),
       )
     : decoded.images;
-  const images = await uploadEmbeddedImages(
-    imagesToUpload,
-    options.ownerEmail,
-    options.uploader,
-  );
+  let images: Awaited<ReturnType<typeof uploadEmbeddedImages>> | undefined;
   try {
+    const uploadedImages = await uploadEmbeddedImages(
+      imagesToUpload,
+      options.ownerEmail,
+      options.uploader,
+    );
+    images = uploadedImages;
+    if (uploadedImages.omitted > 0) {
+      throw new Error(
+        `${uploadedImages.omitted} embedded image${uploadedImages.omitted === 1 ? " was" : "s were"} omitted because file storage was unavailable or rejected the upload. No image bytes were stored in SQL.`,
+      );
+    }
     const rendered =
       imagesToUpload.length === 0
         ? preliminary
         : renderHtmlTemplates(decoded.document, {
-            imageMap: images.imageMap,
-            imageSizes: images.imageSizes,
+            imageMap: uploadedImages.imageMap,
+            imageSizes: uploadedImages.imageSizes,
             missingImageUrl: "about:blank",
             trackUnresolvedImageRefs: true,
             selection,
@@ -415,9 +416,9 @@ export async function convertDecodedFigToEditableHtml(
 
     return {
       files,
-      warnings: images.warnings,
-      cleanup: images.cleanup,
-      finalize: images.finalize,
+      warnings: uploadedImages.warnings,
+      cleanup: uploadedImages.cleanup,
+      finalize: uploadedImages.finalize,
       stats: {
         sourceKind: "fig-upload",
         format: decoded.format,
@@ -426,14 +427,14 @@ export async function convertDecodedFigToEditableHtml(
         frameCount: rendered.frameCount,
         nodeCount: nodeChanges.length,
         imageCount: decoded.images.length,
-        uploadedImageCount: images.uploaded,
-        omittedImageCount: images.omitted,
+        uploadedImageCount: uploadedImages.uploaded,
+        omittedImageCount: uploadedImages.omitted,
         approximatedNodeCount: rendered.approximatedNodes.length,
         unresolvedImageRefCount: rendered.unresolvedImageRefs?.size ?? 0,
       },
     };
   } catch (error) {
-    const cleanupFailures = await images.cleanup();
+    const cleanupFailures = images ? await images.cleanup() : 0;
     if (cleanupFailures === 0) throw error;
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(withCleanupFailures(message, cleanupFailures));

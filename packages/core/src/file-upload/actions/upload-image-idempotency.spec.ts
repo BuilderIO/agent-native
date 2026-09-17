@@ -268,4 +268,59 @@ describe("upload-image idempotency receipts", () => {
       null,
     );
   });
+
+  it("requeues a provider error and continues reaping the cleanup batch", async () => {
+    const now = Date.now();
+    mocks.appStateListByKeyPrefix.mockResolvedValue([
+      {
+        key: "file-upload-receipt:fig-import:first",
+        sessionId: "owner@example.com",
+        value: {
+          expiresAt: now - 1,
+          filename: "first.png",
+          id: "asset-1",
+          provider: "builder",
+          status: "staged",
+          url: "https://cdn.builder.io/asset-1.png",
+        },
+      },
+      {
+        key: "file-upload-receipt:fig-import:second",
+        sessionId: "owner@example.com",
+        value: {
+          expiresAt: now - 1,
+          filename: "second.png",
+          id: "asset-2",
+          provider: "builder",
+          status: "staged",
+          url: "https://cdn.builder.io/asset-2.png",
+        },
+      },
+    ]);
+    mocks.deleteUploadedFile
+      .mockRejectedValueOnce(new Error("provider unavailable"))
+      .mockResolvedValueOnce(true);
+
+    await expect(
+      runUploadReceiptCleanupOnce({ force: true, now }),
+    ).resolves.toMatchObject({
+      scanned: 2,
+      deleted: 1,
+      failed: 1,
+    });
+
+    expect(mocks.appStateCompareAndSet).toHaveBeenCalledWith(
+      "owner@example.com",
+      "file-upload-receipt:fig-import:first",
+      expect.objectContaining({ status: "deleting" }),
+      expect.objectContaining({
+        status: "staged",
+        expiresAt: now + 15 * 60 * 1000,
+      }),
+    );
+    expect(mocks.deleteUploadedFile).toHaveBeenCalledWith("builder", {
+      id: "asset-2",
+      url: "https://cdn.builder.io/asset-2.png",
+    });
+  });
 });

@@ -414,10 +414,15 @@ export async function runUploadReceiptCleanupOnce(options?: {
       continue;
     }
 
-    const objectDeleted = await deleteReceiptProviderObject(
-      receipt,
-      row.sessionId,
-    );
+    let objectDeleted = false;
+    try {
+      objectDeleted = await deleteReceiptProviderObject(receipt, row.sessionId);
+    } catch (error) {
+      console.error(
+        "[file-upload] Failed to delete an expired upload receipt:",
+        error,
+      );
+    }
     if (objectDeleted) {
       if (await appStateCompareAndSet(row.sessionId, row.key, deleting, null)) {
         deleted += 1;
@@ -426,11 +431,18 @@ export async function runUploadReceiptCleanupOnce(options?: {
     }
 
     failed += 1;
-    await appStateCompareAndSet(row.sessionId, row.key, deleting, {
-      ...receipt,
-      status: "staged",
-      expiresAt: now + UPLOAD_RECEIPT_RETRY_DELAY_MS,
-    });
+    try {
+      await appStateCompareAndSet(row.sessionId, row.key, deleting, {
+        ...receipt,
+        status: "staged",
+        expiresAt: now + UPLOAD_RECEIPT_RETRY_DELAY_MS,
+      });
+    } catch (error) {
+      console.error(
+        "[file-upload] Failed to requeue an expired upload receipt:",
+        error,
+      );
+    }
   }
 
   return {
