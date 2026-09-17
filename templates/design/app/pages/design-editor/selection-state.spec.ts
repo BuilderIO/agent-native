@@ -1,6 +1,8 @@
 import type { CodeLayerNode } from "@shared/code-layer";
 import { describe, expect, it } from "vitest";
 
+import type { ElementInfo } from "@/components/design/types";
+
 import type { GeometryHistorySelection } from "./history";
 import {
   getOverviewScreenExportGeometryById,
@@ -14,6 +16,7 @@ import {
   resolveOverviewScreenFrameGeometry,
   resolveEffectiveSelectedLayerIds,
   selectionHistorySnapshotsEqual,
+  shouldShowDeepSelectGuidance,
   shouldClearSelectionForReviewThreadTarget,
   shouldEscapeToOverview,
 } from "./selection-state";
@@ -415,6 +418,42 @@ describe("isUserOriginatedSelectionIntent", () => {
   it("is true for a keyboard or marquee pick", () => {
     expect(isUserOriginatedSelectionIntent({ source: "keyboard" })).toBe(true);
     expect(isUserOriginatedSelectionIntent({ source: "marquee" })).toBe(true);
+  });
+});
+
+describe("shouldShowDeepSelectGuidance", () => {
+  const container = {
+    childElementCount: 2,
+    tagName: "DIV",
+  } as ElementInfo;
+
+  it("shows for a plain pointer pick on a container", () => {
+    expect(
+      shouldShowDeepSelectGuidance(container, {
+        source: "pointer",
+      }),
+    ).toBe(true);
+  });
+
+  it("does not show for modifier picks, leaves, or screen roots", () => {
+    expect(
+      shouldShowDeepSelectGuidance(container, {
+        metaKey: true,
+        source: "pointer",
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowDeepSelectGuidance(
+        { ...container, childElementCount: 0 },
+        { source: "pointer" },
+      ),
+    ).toBe(false);
+    expect(
+      shouldShowDeepSelectGuidance(
+        { ...container, tagName: "BODY" },
+        { source: "pointer" },
+      ),
+    ).toBe(false);
   });
 });
 

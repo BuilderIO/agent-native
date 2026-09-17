@@ -506,6 +506,10 @@ const messages = {
   designEditor: {
     ...designTemplateFeatureOverrides["zh-TW"].designEditor,
     ...responsiveInteractOverrides["zh-TW"].designEditor,
+    deepSelectGuidance: {
+      message: "按住 {{modifier}} 並點擊以選取內部圖層。",
+      dismiss: "關閉圖層選取提示",
+    },
     askAgent: "詢問代理",
     commenterRoleLabel: "評論者",
     commenterRoleDescription: "可以檢視並新增審閱評論",
