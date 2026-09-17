@@ -541,7 +541,11 @@ test("Design components preserve identity across inline and URL-backed React bou
     });
     expect(details).toMatchObject({
       name: "RenamedCard",
-      instance: { name: "RenamedCard" },
+      instance: {
+        name: "RenamedCard",
+        instanceId: "card-main",
+        nodeId: "card-main",
+      },
     });
     const legacyDetails = await readAction(request, "get-component-details", {
       designId,
@@ -550,7 +554,11 @@ test("Design components preserve identity across inline and URL-backed React bou
     });
     expect(legacyDetails).toMatchObject({
       name: "ReusableCard",
-      instance: { name: "ReusableCard" },
+      instance: {
+        name: "ReusableCard",
+        instanceId: "legacy-copy",
+        nodeId: "legacy-copy",
+      },
     });
 
     const collision = await request.post(
@@ -671,6 +679,14 @@ test("Design components preserve identity across inline and URL-backed React bou
     await expect(
       urlFrame.locator('[data-agent-native-node-id="card-main"]'),
     ).toHaveAttribute("data-agent-native-source-line", "3");
+    const urlCard = urlFrame.locator('[data-agent-native-node-id="card-main"]');
+    const urlCardInstanceId = await urlCard.getAttribute(
+      "data-agent-native-node-id",
+    );
+    expect(urlCardInstanceId).toBe("card-main");
+    const urlCardSelector =
+      '[data-agent-native-node-id="' + urlCardInstanceId + '"]';
+    await expect(urlFrame.locator(urlCardSelector)).toHaveCount(1);
     const screenURL = design.files.find(
       (candidate) => candidate.id === screenId,
     )?.content;

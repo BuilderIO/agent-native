@@ -13,6 +13,11 @@ const harness = vi.hoisted(() => {
   const selectResults: unknown[][] = [];
   const executeResults: unknown[][] = [];
   const projectionInputs: string[] = [];
+  const persistedSnapshots: string[] = [];
+  let persistError: unknown;
+  const CollabBaseVersionConflictError = class extends Error {
+    readonly statusCode = 409;
+  };
   const schema = {
     componentIndex: { id: "componentIndex.id" },
     designFiles: {
@@ -42,10 +47,6 @@ const harness = vi.hoisted(() => {
     select: vi.fn(() => makeQuery(selectResults.shift() ?? [])),
   };
   const tx: Record<string, any> = {
-    select: vi.fn(() => {
-      events.push("design-file-lock");
-      return makeQuery(selectResults.shift() ?? []);
-    }),
     execute: vi.fn(async (query: unknown) => {
       const sql =
         typeof query === "string"
@@ -54,11 +55,13 @@ const harness = vi.hoisted(() => {
       events.push(
         sql.includes("pg_advisory_xact_lock")
           ? "design-lock"
-          : sql.includes("_collab_docs")
-            ? "collab-lock"
-            : sql.includes("component_index")
-              ? "index-upsert"
-              : "execute",
+          : sql.includes("FROM design_files")
+            ? "design-file-lock"
+            : sql.includes("_collab_docs")
+              ? "collab-lock"
+              : sql.includes("component_index")
+                ? "index-upsert"
+                : "execute",
       );
       if (sql.includes("pg_advisory_xact_lock")) return { rows: [] };
       return { rows: executeResults.shift() ?? [] };
@@ -72,11 +75,26 @@ const harness = vi.hoisted(() => {
     events.push("transaction");
     return run(tx);
   });
+  const lease = {
+    doc: {},
+    persist: vi.fn(async (_transaction: unknown, text: string) => {
+      events.push("collab-seed");
+      persistedSnapshots.push(text);
+      if (persistError) throw persistError;
+    }),
+  };
   return {
+    CollabBaseVersionConflictError,
+    applyTextToYDoc: vi.fn(),
     db,
     events,
     executeResults,
+    lease,
+    persistedSnapshots,
     projectionInputs,
+    setPersistError: (error: unknown) => {
+      persistError = error;
+    },
     schema,
     selectResults,
     tx,
@@ -90,10 +108,10 @@ const harness = vi.hoisted(() => {
       async (
         _id: string,
         _source: string | undefined,
-        run: () => Promise<unknown>,
+        run: (lease: unknown) => Promise<unknown>,
       ) => {
         events.push("prepared-lock");
-        return run();
+        return run(lease);
       },
     ),
     designSourceMutationLockKey: vi.fn(
@@ -106,7 +124,12 @@ vi.mock("@agent-native/core/action", () => ({
   defineAction: (config: unknown) => config,
 }));
 vi.mock("@agent-native/core/collab", () => ({
+  applyTextToYDoc: harness.applyTextToYDoc,
+  CollabBaseVersionConflictError: harness.CollabBaseVersionConflictError,
   withPreparedYDocMutation: harness.withPreparedYDocMutation,
+}));
+vi.mock("@agent-native/core/db", () => ({
+  getDbExec: () => ({ transaction: harness.db.transaction }),
 }));
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: () => "user@example.com",
@@ -178,7 +201,11 @@ describe("index-components source ordering", () => {
     harness.events.length = 0;
     harness.selectResults.length = 0;
     harness.executeResults.length = 0;
+    harness.persistedSnapshots.length = 0;
     harness.projectionInputs.length = 0;
+    harness.setPersistError(undefined);
+    harness.applyTextToYDoc.mockClear();
+    harness.lease.persist.mockClear();
     harness.db.transaction.mockClear();
     harness.withPreparedYDocMutation.mockClear();
     harness.tx.execute.mockClear();
@@ -197,15 +224,15 @@ describe("index-components source ordering", () => {
           content: "<main></main>",
         },
       ],
-      [
-        {
-          id: "file-1",
-          designId: "design-1",
-          filename: "index.html",
-          content: "<main></main>",
-        },
-      ],
     );
+    harness.executeResults.push([
+      {
+        id: "file-1",
+        designId: "design-1",
+        filename: "index.html",
+        content: "<main></main>",
+      },
+    ]);
 
     await action.run({ designId: "design-1", fileId: "file-1" });
 
@@ -216,8 +243,16 @@ describe("index-components source ordering", () => {
       "design-lock",
       "design-file-lock",
       "collab-lock",
+      "collab-seed",
       "index-upsert",
     ]);
+    expect(harness.applyTextToYDoc).toHaveBeenCalledWith(
+      harness.lease.doc,
+      "content",
+      "<main></main>",
+      "agent",
+    );
+    expect(harness.persistedSnapshots).toEqual(["<main></main>"]);
     expect(
       harness.tx.execute.mock.calls.map(([query]: [unknown]) =>
         String((query as { sql?: unknown })?.sql ?? query),
@@ -236,6 +271,8 @@ describe("index-components source ordering", () => {
           content: "<main></main>",
         },
       ],
+    );
+    harness.executeResults.push(
       [
         {
           id: "file-1",
@@ -244,19 +281,55 @@ describe("index-components source ordering", () => {
           content: "<main></main>",
         },
       ],
+      [
+        {
+          yjs_state: "state-v2",
+          text_snapshot:
+            '<main data-agent-native-component="Card"><span /></main>',
+        },
+      ],
     );
-    harness.executeResults.push([
-      {
-        yjs_state: "state-v2",
-        text_snapshot:
-          '<main data-agent-native-component="Card"><span /></main>',
-      },
-    ]);
 
     await action.run({ designId: "design-1", fileId: "file-1" });
     expect(harness.projectionInputs).toEqual([
       '<main data-agent-native-component="Card"><span /></main>',
     ]);
+  });
+
+  it("fails typed when another writer wins lazy collab initialization", async () => {
+    harness.selectResults.push(
+      [{ id: "file-1" }],
+      [
+        {
+          id: "file-1",
+          designId: "design-1",
+          filename: "index.html",
+          content: '<main data-agent-native-component="Card"></main>',
+        },
+      ],
+    );
+    harness.executeResults.push(
+      [
+        {
+          id: "file-1",
+          designId: "design-1",
+          filename: "index.html",
+          content: '<main data-agent-native-component="Card"></main>',
+        },
+      ],
+      [],
+    );
+    harness.setPersistError(
+      new harness.CollabBaseVersionConflictError(
+        "concurrent lazy initialization",
+      ),
+    );
+
+    await expect(
+      action.run({ designId: "design-1", fileId: "file-1" }),
+    ).rejects.toMatchObject({ statusCode: 409 });
+    expect(harness.projectionInputs).toEqual([]);
+    expect(harness.events).not.toContain("index-upsert");
   });
 
   it("fails typed when the locked live snapshot cannot be verified", async () => {
@@ -270,6 +343,8 @@ describe("index-components source ordering", () => {
           content: '<main data-agent-native-component="Card"></main>',
         },
       ],
+    );
+    harness.executeResults.push(
       [
         {
           id: "file-1",
@@ -278,13 +353,13 @@ describe("index-components source ordering", () => {
           content: '<main data-agent-native-component="Card"></main>',
         },
       ],
+      [{ yjs_state: "state", text_snapshot: null }],
     );
-    harness.executeResults.push([{ yjs_state: "state", text_snapshot: null }]);
 
     await expect(
       action.run({ designId: "design-1", fileId: "file-1" }),
     ).rejects.toMatchObject({ statusCode: 409 });
-    expect(harness.tx.execute).toHaveBeenCalledTimes(2);
+    expect(harness.tx.execute).toHaveBeenCalledTimes(3);
     expect(harness.events).not.toContain("index-upsert");
   });
 });

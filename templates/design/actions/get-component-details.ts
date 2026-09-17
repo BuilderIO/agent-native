@@ -38,7 +38,7 @@ import {
   componentNameFor,
   componentNodeIdMatches,
   extractProps,
-  type ComponentInstance,
+  instanceFromNode,
 } from "../shared/component-model.js";
 import { hasCapability } from "../shared/design-source-capabilities.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
@@ -178,19 +178,10 @@ export default defineAction({
 
     // ── Simple props from attributes ─────────────────────────────────────────
     const observedProps = extractProps(node);
-    const alpineData =
-      typeof node.attributes["x-data"] === "string"
-        ? node.attributes["x-data"]
-        : undefined;
-
-    const instance: ComponentInstance = {
-      instanceId: node.id,
-      name,
-      props: observedProps,
-      alpineData,
-      selector: node.selector,
-      nodeId,
-    };
+    const instance = instanceFromNode(node);
+    if (!instance) {
+      throw new Error(`Node "${nodeId}" is not a component instance.`);
+    }
 
     // ── Lookup persisted component_index row ─────────────────────────────────
     const [indexRow] = await db

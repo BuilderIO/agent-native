@@ -12,6 +12,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
+  designSourceMutationLockKey,
   withSourceFileWriteLock,
   writeInlineSourceFile,
 } from "../server/source-workspace.js";
@@ -523,11 +524,9 @@ export default defineAction({
           updateResult = await db.transaction(async (tx) => {
             // A guarded UPDATE alone can still race under Postgres MVCC, so
             // serialize design-file renames before checking for collisions.
-            await (
-              tx as unknown as {
-                execute: (query: unknown) => Promise<unknown>;
-              }
-            ).execute(sql`LOCK TABLE design_files IN SHARE ROW EXCLUSIVE MODE`);
+            await tx.execute(
+              sql`SELECT pg_advisory_xact_lock(hashtextextended(${designSourceMutationLockKey(file.designId)}, 0::bigint))`,
+            );
             const [collision] = await tx
               .select({ id: schema.designFiles.id })
               .from(schema.designFiles)
