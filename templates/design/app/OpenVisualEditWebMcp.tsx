@@ -1,7 +1,21 @@
 import { callAction } from "@agent-native/core/client/hooks";
 import { defineClientAction } from "@agent-native/core/client/host";
-import { createAgentNativeWebMcpRegistration } from "@agent-native/core/client/webmcp";
-import { useEffect } from "react";
+import {
+  createAgentNativeWebMcpRegistration,
+  type AgentNativeWebMcpApprovalRequest,
+} from "@agent-native/core/client/webmcp";
+import { useCallback, useEffect, useRef, useState } from "react";
+
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 /**
  * Safe browser-visible subset of the `open-visual-edit` action result.
@@ -55,6 +69,13 @@ export function createOpenVisualEditWebMcpActions() {
       title: "Open visual edit", // i18n-ignore stable WebMCP tool title
       description: // i18n-ignore stable WebMCP tool description
         "Open or refresh a running localhost app in Design overview mode, using this browser tab's own signed-in session (no separate account login or MCP connector needed). Registers the local bridge, creates or reuses a design, places URL-backed screens, and navigates this session to the canvas. Same arguments as the open-visual-edit CLI action.",
+      requiresApproval: {
+        title: "Open visual edit?", // i18n-ignore stable WebMCP approval title
+        description: // i18n-ignore stable WebMCP approval description
+          "This can create or update a Design project and localhost connection, and may make a new loopback design public.",
+        confirmLabel: "Open visual edit", // i18n-ignore stable WebMCP approval label
+        risk: "medium",
+      },
       schema: {
         type: "object",
         properties: {
@@ -180,15 +201,80 @@ export function createOpenVisualEditWebMcpActions() {
  * The browser tab's own session is the credential.
  */
 export function OpenVisualEditWebMcp() {
+  const [pendingApproval, setPendingApproval] =
+    useState<PendingApproval | null>(null);
+  const pendingApprovalRef = useRef<PendingApproval | null>(null);
+  const resolveApproval = useCallback((approved: boolean) => {
+    const pending = pendingApprovalRef.current;
+    if (!pending) return;
+    pendingApprovalRef.current = null;
+    setPendingApproval(null);
+    pending.resolve(approved);
+  }, []);
+  const requestApproval = useCallback(
+    (request: AgentNativeWebMcpApprovalRequest) =>
+      new Promise<boolean>((resolve) => {
+        pendingApprovalRef.current?.resolve(false);
+        const pending = { request, resolve };
+        pendingApprovalRef.current = pending;
+        setPendingApproval(pending);
+      }),
+    [],
+  );
+
   useEffect(() => {
     const registration = createAgentNativeWebMcpRegistration({
       actions: createOpenVisualEditWebMcpActions(),
+      approve: requestApproval,
     });
     void registration.start().catch(() => {
       // WebMCP is progressive enhancement; the MCP-connector/CLI path remains available.
     });
-    return () => registration.stop();
-  }, []);
+    return () => {
+      registration.stop();
+      resolveApproval(false);
+    };
+  }, [requestApproval, resolveApproval]);
 
-  return null;
+  const approval = pendingApproval
+    ? (pendingApproval.request.action.approval ??
+      (typeof pendingApproval.request.action.requiresApproval === "object"
+        ? pendingApproval.request.action.requiresApproval
+        : undefined))
+    : undefined;
+
+  return (
+    <AlertDialog
+      open={pendingApproval !== null}
+      onOpenChange={(open) => {
+        if (!open) resolveApproval(false);
+      }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            {approval?.title ?? pendingApproval?.request.action.title}
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            {approval?.description ??
+              pendingApproval?.request.action.description}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel onClick={() => resolveApproval(false)}>
+            {"Cancel" /* i18n-ignore stable WebMCP approval control */}
+          </AlertDialogCancel>
+          <AlertDialogAction onClick={() => resolveApproval(true)}>
+            {approval?.confirmLabel ??
+              "Approve" /* i18n-ignore stable WebMCP approval control */}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+interface PendingApproval {
+  request: AgentNativeWebMcpApprovalRequest;
+  resolve: (approved: boolean) => void;
 }
