@@ -22,7 +22,10 @@ vi.mock("../registry.js", () => ({
   uploadFile: mocks.uploadFile,
 }));
 
-import action, { runUploadReceiptCleanupOnce } from "./upload-image.js";
+import action, {
+  commitUploadReceiptsForImport,
+  runUploadReceiptCleanupOnce,
+} from "./upload-image.js";
 
 const uploadArgs = {
   data: "data:image/png;base64,AQ==",
@@ -141,6 +144,56 @@ describe("upload-image idempotency receipts", () => {
       expect.objectContaining({ status: "committed" }),
     );
     expect(mocks.deleteUploadedFile).not.toHaveBeenCalled();
+  });
+
+  it("deletes a committed receipt when a completed import is rolled back", async () => {
+    mocks.readAppState.mockResolvedValue({
+      filename: "figma-image.png",
+      id: "asset-1",
+      provider: "builder",
+      status: "committed",
+      url: "https://cdn.builder.io/asset-1.png",
+    });
+    mocks.deleteUploadedFile.mockResolvedValue(true);
+
+    await expect(
+      action.run({
+        cleanup: "delete",
+        idempotencyKey: "fig-import:image-1",
+      }),
+    ).resolves.toMatchObject({ deleted: true });
+
+    expect(mocks.deleteUploadedFile).toHaveBeenCalledWith("builder", {
+      id: "asset-1",
+      url: "https://cdn.builder.io/asset-1.png",
+    });
+  });
+
+  it("commits every staged receipt in a completed import batch", async () => {
+    const now = Date.now();
+    mocks.appStateListByKeyPrefix.mockResolvedValue([
+      {
+        key: "file-upload-receipt:batch-1:figma-image.png",
+        sessionId: "owner@example.com",
+        value: {
+          expiresAt: now + 1,
+          filename: "figma-image.png",
+          id: "asset-1",
+          provider: "builder",
+          status: "staged",
+          url: "https://cdn.builder.io/asset-1.png",
+        },
+      },
+    ]);
+
+    await commitUploadReceiptsForImport("batch-1");
+
+    expect(mocks.appStateCompareAndSet).toHaveBeenCalledWith(
+      "owner@example.com",
+      "file-upload-receipt:batch-1:figma-image.png",
+      expect.objectContaining({ status: "staged" }),
+      expect.objectContaining({ status: "committed" }),
+    );
   });
 
   it("reaps expired staged receipts through the provider before deleting state", async () => {

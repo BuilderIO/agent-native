@@ -328,7 +328,7 @@ export async function appStateListByKeyPrefix(
 > {
   await ensureTable();
   const client = getDbExec();
-  const boundedLimit = Math.max(1, Math.min(Math.floor(limit), 500));
+  const boundedLimit = Math.max(1, Math.min(Math.floor(limit), 2_048));
   const { rows } = await client.execute({
     sql: `SELECT session_id, key, value FROM application_state WHERE key LIKE ? ESCAPE '!' ORDER BY updated_at ASC LIMIT ?`,
     args: [escapeLike(keyPrefix) + "%", boundedLimit],

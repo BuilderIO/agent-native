@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
+import { commitUploadReceiptsForImport } from "@agent-native/core/file-upload/actions/upload-image";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
@@ -45,6 +46,8 @@ export default defineAction({
     frameWidth: z.number().optional(),
     frameHeight: z.number().optional(),
     clientImportId: z.string().max(200).optional(),
+    clientImportBatchId: z.string().max(200).optional(),
+    clientImportFinalFrame: z.boolean().optional(),
   }),
   run: async (
     {
@@ -56,6 +59,8 @@ export default defineAction({
       frameWidth,
       frameHeight,
       clientImportId,
+      clientImportBatchId,
+      clientImportFinalFrame,
     },
     context,
   ) => {
@@ -77,6 +82,9 @@ export default defineAction({
           operationSource,
         );
         if (existing?.placed) {
+          if (clientImportBatchId && clientImportFinalFrame) {
+            await commitUploadReceiptsForImport(clientImportBatchId);
+          }
           return {
             designId: resolvedDesignId,
             files: [existing.file],
@@ -114,6 +122,9 @@ export default defineAction({
           },
         ],
       });
+      if (clientImportBatchId && clientImportFinalFrame) {
+        await commitUploadReceiptsForImport(clientImportBatchId);
+      }
       return {
         ...saved,
         stats: { sourceKind: "fig-frame", frameCount: saved.files.length },

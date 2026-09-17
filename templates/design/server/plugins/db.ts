@@ -455,7 +455,7 @@ async function ensureDesignFilesUniqueIndex(): Promise<void> {
   }
   try {
     await getDbExec().execute(
-      `CREATE UNIQUE INDEX IF NOT EXISTS design_files_design_operation_source_unique_idx ON design_files (design_id, content_operation_source) WHERE content_operation_source IS NOT NULL`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS design_files_design_operation_source_unique_idx ON design_files (design_id, content_operation_source) WHERE content_operation_source LIKE 'fig-import:%'`,
     );
   } catch (err) {
     console.warn(

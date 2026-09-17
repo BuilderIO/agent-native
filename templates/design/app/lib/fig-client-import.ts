@@ -207,7 +207,6 @@ export async function importFigInBrowser(
   };
   let index = 0;
   const savedFileIds: string[] = [];
-  const importRunId = browserImportId();
   try {
     for (const [frameIndex, frame] of converted.files.entries()) {
       onProgress?.({
@@ -227,7 +226,9 @@ export async function importFigInBrowser(
           frameTitle: frame.preferredFrame?.title,
           frameWidth: frame.preferredFrame?.width,
           frameHeight: frame.preferredFrame?.height,
-          clientImportId: `${importRunId}:${frameIndex}`,
+          clientImportId: `${importId}:frame:${frameIndex}`,
+          clientImportBatchId: importId,
+          clientImportFinalFrame: frameIndex === converted.files.length - 1,
         },
       );
       if (result.error) throw new Error(result.error);

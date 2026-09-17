@@ -9,6 +9,7 @@ import {
 } from "../../application-state/index.js";
 import {
   appStateCompareAndSet,
+  appStateGet,
   appStateListByKeyPrefix,
 } from "../../application-state/store.js";
 import { ssrfSafeFetch } from "../../extensions/url-safety.js";
@@ -41,6 +42,7 @@ const UPLOAD_RECEIPT_CLEANUP_BATCH_SIZE = 50;
 const UPLOAD_RECEIPT_CLEANUP_INTERVAL_MS = 15 * 60 * 1000;
 const UPLOAD_RECEIPT_RESERVATION_WAIT_MS = 5_000;
 const UPLOAD_RECEIPT_RESERVATION_POLL_MS = 100;
+const UPLOAD_RECEIPT_IMPORT_BATCH_LIMIT = 2_048;
 let uploadReceiptCleanupLastRunAt = 0;
 
 type UploadReceiptStatus = "pending" | "staged" | "committed" | "deleting";
@@ -230,9 +232,6 @@ async function settleUploadReceipt(
       continue;
     }
 
-    if (receipt.status === "committed") {
-      return { idempotencyKey, committed: true };
-    }
     if (receipt.status === "pending") {
       if (receipt.expiresAt > Date.now()) {
         return { idempotencyKey, deleted: false };
@@ -273,6 +272,51 @@ async function settleUploadReceipt(
     return { idempotencyKey, deleted: true };
   }
   return { idempotencyKey, deleted: false };
+}
+
+function receiptBelongsToRequest(receipt: UploadReceipt): boolean {
+  const owner = requestReceiptOwner();
+  return (
+    (!receipt.ownerEmail || receipt.ownerEmail === owner.ownerEmail) &&
+    (!receipt.orgId || receipt.orgId === owner.orgId)
+  );
+}
+
+/** Commit every image receipt for a completed browser import batch. */
+export async function commitUploadReceiptsForImport(
+  importId: string,
+): Promise<void> {
+  const rows = await appStateListByKeyPrefix(
+    `${UPLOAD_RECEIPT_PREFIX}${importId}:`,
+    UPLOAD_RECEIPT_IMPORT_BATCH_LIMIT,
+  );
+  for (const row of rows) {
+    const receipt = parseUploadReceipt(row.value);
+    if (receipt.status === "committed" || !receiptBelongsToRequest(receipt)) {
+      continue;
+    }
+    if (receipt.status !== "staged") {
+      throw new Error("Image upload receipt is not ready to commit.");
+    }
+    const committed: UploadReceipt = {
+      ...receipt,
+      status: "committed",
+      expiresAt: Date.now() + UPLOAD_RECEIPT_STAGED_TTL_MS,
+    };
+    if (
+      !(await appStateCompareAndSet(
+        row.sessionId,
+        row.key,
+        row.value,
+        committed,
+      ))
+    ) {
+      const current = await appStateGet(row.sessionId, row.key);
+      if (!current || parseUploadReceipt(current).status !== "committed") {
+        throw new Error("Could not commit the image upload receipt.");
+      }
+    }
+  }
 }
 
 export async function runUploadReceiptCleanupOnce(options?: {
