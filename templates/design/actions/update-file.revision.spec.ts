@@ -81,6 +81,13 @@ vi.mock("../server/source-workspace.js", () => ({
     _fileId: string,
     run: () => Promise<T>,
   ): Promise<T> => run(),
+  withDesignSourceMutationTransaction: async <T>(
+    _designId: string,
+    run: (tx: unknown) => Promise<T>,
+  ): Promise<T> => {
+    const { getDb } = await import("../server/db/index.js");
+    return run(getDb());
+  },
 }));
 
 vi.mock("../server/db/index.js", async () => {

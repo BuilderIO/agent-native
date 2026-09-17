@@ -17,7 +17,7 @@ import {
 } from "@agent-native/core/private-blob";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, asc, desc, eq, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import {
@@ -25,7 +25,10 @@ import {
   type ComponentDeletionGeometry,
 } from "../../shared/component-archive.js";
 import { getDb, schema } from "../db/index.js";
-import { withSourceFileWriteLock } from "../source-workspace.js";
+import {
+  designSourceMutationLockKey,
+  withSourceFileWriteLock,
+} from "../source-workspace.js";
 import { buildDesignSnapshot } from "./design-snapshot.js";
 
 const CHAT_VERSION_LOOKBACK = 100;
@@ -993,6 +996,9 @@ export async function restoreDesignVersion(args: {
         const restoreFiles: RestoreFile[] = [];
 
         await db.transaction(async (tx) => {
+          await tx.execute(
+            sql`SELECT pg_advisory_xact_lock(hashtextextended(${designSourceMutationLockKey(args.designId)}, 0::bigint))`,
+          );
           for (const targetFile of target.files) {
             const byId = targetFile.id
               ? currentById.get(targetFile.id)

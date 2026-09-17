@@ -49,6 +49,7 @@ import {
 
 import changelog from "../CHANGELOG.md?raw";
 import { i18nCatalog } from "./i18n";
+import { OpenVisualEditWebMcp } from "./OpenVisualEditWebMcp";
 import { isPublicDesignAppPath } from "./public-routes";
 
 import stylesheet from "./global.css?url";
@@ -76,6 +77,7 @@ export const links: LinksFunction = () => [
 
 const THEME_INIT_SCRIPT = getThemeInitScript();
 const LOCALE_INIT_SCRIPT = getLocaleInitScript();
+const DESIGN_WEBMCP_EXCLUDED_ACTIONS = ["open-visual-edit"] as const;
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
@@ -221,8 +223,18 @@ function DesignToaster() {
 
 function RootContent() {
   const location = useLocation();
-  if (location.pathname === "/") return <Outlet />;
+  if (location.pathname === "/") return <MarketingRootContent />;
   return <PrivateRootContent />;
+}
+
+function MarketingRootContent() {
+  const { session } = useSession();
+  return (
+    <>
+      {session?.email && <OpenVisualEditWebMcp />}
+      <Outlet />
+    </>
+  );
 }
 
 function PrivateRootContent() {
@@ -248,6 +260,7 @@ function PrivateRootContent() {
   return (
     <>
       {hasSession && <DbSyncSetup />}
+      {hasSession && <OpenVisualEditWebMcp />}
       {hasSession && !isPublicVisualEdit && (
         <DesignCommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen} />
       )}
@@ -268,6 +281,7 @@ export default function Root() {
         queryClient={queryClient}
         isPublicPath={isPublicPath}
         sessionBypass={isEmbedAuthActive()}
+        webMcpExcludeActionNames={DESIGN_WEBMCP_EXCLUDED_ACTIONS}
         i18n={{ catalog: i18nCatalog, persistPreference: !isPublicPath }}
         toaster={<DesignToaster />}
       >

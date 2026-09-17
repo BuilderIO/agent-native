@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-16
+
+### Improved
+
+- Dashboards open without background synchronization scans during cold starts
+
 ## 2026-09-15
 
 ### Improved

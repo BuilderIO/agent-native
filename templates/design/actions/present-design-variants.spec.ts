@@ -59,8 +59,11 @@ const mocks = vi.hoisted(() => {
   txUpdateChain.set.mockReturnValue(txUpdateChain);
 
   const tx = {
-    select: vi.fn(() => txSelectChain),
+    select: vi.fn(() => filesSelectChain),
+    insert: vi.fn(() => insertChain),
+    delete: vi.fn(() => deleteChain),
     update: vi.fn(() => txUpdateChain),
+    execute: vi.fn().mockResolvedValue({ rows: [] }),
   };
 
   const db = {
@@ -871,13 +874,11 @@ describe("present-design-variants", () => {
     expect(fallbackInsert.content).toContain("data-agent-native-node-id");
   });
 
-  it("retries with a fresh filename when a concurrent insert wins the race for the same (designId, filename)", async () => {
+  it("surfaces an unexpected duplicate insert from the locked transaction", async () => {
     mocks.nanoid.mockReset();
     mocks.nanoid
       .mockReturnValueOnce("variant-set-1")
-      .mockReturnValueOnce("file-a-loser")
-      .mockReturnValueOnce("file-a-winner")
-      .mockReturnValueOnce("file-b");
+      .mockReturnValueOnce("file-a");
 
     mocks.insertChain.values
       .mockImplementationOnce(() => {
@@ -890,56 +891,26 @@ describe("present-design-variants", () => {
       })
       .mockResolvedValue(undefined);
 
-    const result = await action.run({
-      designId: "design_123",
-      variants: [
-        {
-          id: "pure-white",
-          label: "Pure White",
-          content: "<!doctype html><html><body>One</body></html>",
-        },
-        {
-          id: "soft-cards",
-          label: "Soft Cards",
-          content: "<!doctype html><html><body>Two</body></html>",
-        },
-      ],
-    });
+    await expect(
+      action.run({
+        designId: "design_123",
+        variants: [
+          {
+            id: "pure-white",
+            label: "Pure White",
+            content: "<!doctype html><html><body>One</body></html>",
+          },
+          {
+            id: "soft-cards",
+            label: "Soft Cards",
+            content: "<!doctype html><html><body>Two</body></html>",
+          },
+        ],
+      }),
+    ).rejects.toThrow("duplicate key value");
 
-    // Two attempts for the first variant (loser + retry), one for the second.
-    expect(mocks.insertChain.values).toHaveBeenCalledTimes(3);
-    const firstAttempt = mocks.insertChain.values.mock.calls[0]![0] as {
-      id: string;
-      filename: string;
-    };
-    const secondAttempt = mocks.insertChain.values.mock.calls[1]![0] as {
-      id: string;
-      filename: string;
-    };
-    expect(firstAttempt.filename).toBe("variant-pure-white.html");
-    // uniqueFilename's local `used` set already contains the failed
-    // candidate, so the retry deterministically picks the next slot without
-    // needing the refreshed DB read to report anything new.
-    expect(secondAttempt.filename).toBe("variant-pure-white-2.html");
-    expect(secondAttempt.id).not.toBe(firstAttempt.id);
-    expect(secondAttempt.id).toBe("file-a-winner");
-
-    // Only the surviving (second) attempt is seeded and reported — the
-    // failed insert never created a row, so seeding it would target nothing.
-    expect(mocks.seedFromText).toHaveBeenCalledWith(
-      "file-a-winner",
-      expect.stringContaining("One"),
-    );
-    expect(mocks.seedFromText).not.toHaveBeenCalledWith(
-      "file-a-loser",
-      expect.anything(),
-    );
-    expect(
-      result.screens.find((screen) => screen.label === "Pure White"),
-    ).toMatchObject({
-      id: "file-a-winner",
-      filename: "variant-pure-white-2.html",
-    });
+    expect(mocks.insertChain.values).toHaveBeenCalledTimes(1);
+    expect(mocks.seedFromText).not.toHaveBeenCalled();
   });
 
   it("propagates a non-conflict insert error immediately without retrying", async () => {
@@ -1125,7 +1096,7 @@ describe("present-design-variants", () => {
     });
 
     // The named set's screens are gone from the design_files table...
-    expect(mocks.db.delete).toHaveBeenCalledWith(mocks.schema.designFiles);
+    expect(mocks.tx.delete).toHaveBeenCalledWith(mocks.schema.designFiles);
     expect(mocks.inArray).toHaveBeenCalledWith(
       mocks.schema.designFiles.id,
       expect.arrayContaining(["old-file-a", "old-file-b"]),

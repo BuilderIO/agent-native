@@ -25,7 +25,13 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
+import {
+  fetchLocalhostSnapshot,
+  resolveLocalhostBridgeConnection,
+  resolveLocalhostConnectionScope,
+} from "../server/lib/localhost-connection.js";
 import { resolveSourceCapabilities } from "../shared/capability-resolver.js";
+import { sanitizeMarkup } from "../shared/capture-sanitize.js";
 import { buildCodeLayerProjection } from "../shared/code-layer.js";
 import type { CodeLayerNode, CodeLayerSource } from "../shared/code-layer.js";
 import {
@@ -38,10 +44,14 @@ import {
   componentNameFor,
   componentNodeIdMatches,
   extractProps,
-  type ComponentInstance,
+  instanceFromNode,
 } from "../shared/component-model.js";
 import { hasCapability } from "../shared/design-source-capabilities.js";
-import { designSourceTypeFromData } from "../shared/source-mode.js";
+import { isStandaloneHttpUrl } from "../shared/html-content.js";
+import {
+  designConnectionIdFromData,
+  designSourceTypeFromData,
+} from "../shared/source-mode.js";
 
 export function canRestoreComponentMain(
   node: Pick<CodeLayerNode, "dataAttributes">,
@@ -62,6 +72,124 @@ function parseJson<T>(raw: string | null | undefined, fallback: T): T {
     return JSON.parse(raw) as T;
   } catch {
     return fallback;
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function metadataForFile(
+  data: Record<string, unknown>,
+  fileId: string,
+): Record<string, unknown> {
+  for (const key of ["screenMetadata", "localhostScreens"]) {
+    const metadata = data[key];
+    const entry = isRecord(metadata) ? metadata[fileId] : undefined;
+    if (isRecord(entry)) return entry;
+  }
+  return {};
+}
+
+function stringValue(
+  attributes: Record<string, string>,
+  names: readonly string[],
+): string | undefined {
+  for (const name of names) {
+    const value = attributes[name]?.trim();
+    if (value) return value;
+  }
+  return undefined;
+}
+
+function positiveIntegerValue(
+  attributes: Record<string, string>,
+  names: readonly string[],
+): number | undefined {
+  const raw = stringValue(attributes, names);
+  if (!raw || !/^\d+$/.test(raw)) return undefined;
+  const value = Number(raw);
+  return Number.isSafeInteger(value) && value > 0 ? value : undefined;
+}
+
+function liveComponentNameFor(
+  node: CodeLayerNode,
+  sourceType: ReturnType<typeof designSourceTypeFromData>,
+): string | null {
+  return (
+    componentNameFor(node) ??
+    (sourceType !== "inline"
+      ? (stringValue(node.dataAttributes, ["data-component-name"]) ?? null)
+      : null)
+  );
+}
+
+function liveInstanceForNode(
+  node: CodeLayerNode,
+  name: string,
+): NonNullable<ReturnType<typeof instanceFromNode>> {
+  const existing = instanceFromNode(node);
+  if (existing) return existing;
+  const stableNodeId =
+    stringValue(node.dataAttributes, ["data-agent-native-node-id"]) ?? node.id;
+  return {
+    instanceId: stableNodeId,
+    name,
+    props: extractProps(node),
+    selector: node.selector,
+    nodeId: stableNodeId,
+    componentId:
+      stringValue(node.dataAttributes, [COMPONENT_ID_ATTR]) ?? undefined,
+    componentRef:
+      stringValue(node.dataAttributes, [COMPONENT_REF_ATTR]) ?? undefined,
+  };
+}
+
+function sourceLocationForNode(
+  node: CodeLayerNode,
+  indexRow:
+    | {
+        filePath?: string | null;
+        exportName?: string | null;
+      }
+    | undefined,
+  canResolveToFile: boolean,
+  componentName: string,
+) {
+  if (!canResolveToFile) return undefined;
+  const filePath =
+    stringValue(node.dataAttributes, [
+      "data-source-file",
+      "data-agent-native-source-file",
+      "data-agent-native-source-path",
+    ]) ?? indexRow?.filePath;
+  if (!filePath) return undefined;
+  const line = positiveIntegerValue(node.dataAttributes, [
+    "data-source-line",
+    "data-agent-native-source-line",
+  ]);
+  const column = positiveIntegerValue(node.dataAttributes, [
+    "data-source-column",
+    "data-agent-native-source-column",
+  ]);
+  return {
+    filePath,
+    exportName: indexRow?.exportName ?? undefined,
+    ...(line ? { line } : {}),
+    ...(column ? { column } : {}),
+    componentName:
+      stringValue(node.dataAttributes, ["data-component-name"]) ??
+      componentName,
+  };
+}
+
+export class ComponentDetailsLiveProjectionError extends Error {
+  readonly statusCode = 424;
+  readonly code = "LIVE_PROJECTION_UNAVAILABLE";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "ComponentDetailsLiveProjectionError";
   }
 }
 
@@ -131,6 +259,7 @@ export default defineAction({
         designId: schema.designFiles.designId,
         filename: schema.designFiles.filename,
         content: schema.designFiles.content,
+        data: schema.designs.data,
       })
       .from(schema.designFiles)
       .innerJoin(
@@ -142,11 +271,51 @@ export default defineAction({
 
     if (!file) throw new Error("Design HTML file not found.");
 
-    // Use the durable SQL source for component prop reads. A connected editor
-    // can briefly hold an older Yjs text snapshot while server-side prop writes
-    // have already updated SQL; preferring collab here makes the inspector
-    // rehydrate stale props even though the canvas renders the saved source.
-    const html = file.content ?? "";
+    // Inline screens use durable SQL. URL-backed screens must be projected from
+    // the live bridge because the stored value is only a route URL.
+    let html = file.content ?? "";
+    if (isStandaloneHttpUrl(html)) {
+      if (sourceType !== "localhost") {
+        throw new ComponentDetailsLiveProjectionError(
+          `Component details for URL-backed screen "${file.filename}" require a localhost bridge snapshot; source type "${sourceType}" has no live component mapping.`,
+        );
+      }
+      const designData = parseJson<Record<string, unknown>>(file.data, {});
+      const metadata = metadataForFile(designData, file.id);
+      const connectionId =
+        (typeof metadata.connectionId === "string" &&
+          metadata.connectionId.trim()) ||
+        designConnectionIdFromData(designData);
+      if (!connectionId) {
+        throw new ComponentDetailsLiveProjectionError(
+          `URL-backed screen "${file.filename}" has no localhost connection metadata. Reopen visual edit or reconnect the localhost app before requesting component details.`,
+        );
+      }
+      const { ownerEmail, orgId } = await resolveLocalhostConnectionScope({
+        designId,
+      });
+      const connection = await resolveLocalhostBridgeConnection({
+        connectionId,
+        ownerEmail,
+        orgId,
+      });
+      const previewToken =
+        typeof metadata.previewToken === "string"
+          ? metadata.previewToken
+          : null;
+      html = sanitizeMarkup(
+        await fetchLocalhostSnapshot({
+          bridgeUrl: connection.bridgeUrl,
+          previewToken,
+          url: html,
+        }),
+      ).trim();
+      if (!html) {
+        throw new ComponentDetailsLiveProjectionError(
+          `The localhost bridge returned an empty snapshot for "${file.filename}". Reload the live frame and retry.`,
+        );
+      }
+    }
 
     // ── Projection lookup ────────────────────────────────────────────────────
     const codeLayerSource: CodeLayerSource = {
@@ -169,28 +338,16 @@ export default defineAction({
       );
     }
 
-    const name = componentNameFor(node);
+    const name = liveComponentNameFor(node, sourceType);
     if (!name) {
       throw new Error(
-        `Node "${nodeId}" does not carry a data-agent-native-component attribute and is not a component root.`,
+        `Node "${nodeId}" does not carry component provenance and is not a component root.`,
       );
     }
 
     // ── Simple props from attributes ─────────────────────────────────────────
     const observedProps = extractProps(node);
-    const alpineData =
-      typeof node.attributes["x-data"] === "string"
-        ? node.attributes["x-data"]
-        : undefined;
-
-    const instance: ComponentInstance = {
-      instanceId: node.id,
-      name,
-      props: observedProps,
-      alpineData,
-      selector: node.selector,
-      nodeId,
-    };
+    const instance = liveInstanceForNode(node, name);
 
     // ── Lookup persisted component_index row ─────────────────────────────────
     const [indexRow] = await db
@@ -212,17 +369,14 @@ export default defineAction({
     const persistedStories = parseJson<unknown[]>(indexRow?.stories, []);
 
     // ── Source location (real-app only) ──────────────────────────────────────
-    // The bridge `resolveNodeToFile` op maps a node id to a source file + span.
-    // For inline designs the capability is `available` but resolves to the
-    // design file itself (no external source file).  We surface whatever we
-    // have from the index row.
-    const sourceLocation =
-      canResolveToFile && indexRow?.filePath
-        ? {
-            filePath: indexRow.filePath,
-            exportName: indexRow.exportName ?? undefined,
-          }
-        : undefined;
+    // Live bridge provenance is preferred; indexed metadata remains the
+    // fallback when the bridge did not stamp a source span.
+    const sourceLocation = sourceLocationForNode(
+      node,
+      indexRow,
+      canResolveToFile,
+      name,
+    );
 
     return {
       designId,
