@@ -32,9 +32,17 @@ const mocks = vi.hoisted(() => {
   );
 
   const filesSelectChain = { from: vi.fn(), where: vi.fn() };
+  const filesSelectWhereResult = {
+    limit: vi.fn(),
+    then: (
+      resolve: (value: unknown) => unknown,
+      reject: (error: unknown) => unknown,
+    ) => Promise.resolve(existingFiles).then(resolve, reject),
+  };
   filesSelectChain.from.mockReturnValue(filesSelectChain);
-  filesSelectChain.where.mockImplementation(() =>
-    Promise.resolve(existingFiles),
+  filesSelectChain.where.mockImplementation(() => filesSelectWhereResult);
+  filesSelectWhereResult.limit.mockImplementation(() =>
+    Promise.resolve(existingFiles.slice(0, 1)),
   );
 
   const insertValues = vi.fn().mockResolvedValue(undefined);
@@ -88,6 +96,7 @@ const mocks = vi.hoisted(() => {
     seedFromText: vi.fn().mockResolvedValue(undefined),
     hasCollabState: vi.fn().mockResolvedValue(false),
     applyText: vi.fn().mockResolvedValue(undefined),
+    and: vi.fn((...conditions) => ({ conditions })),
     eq: vi.fn((left, right) => ({ left, right })),
     nanoidCalls: 0,
   };
@@ -108,6 +117,7 @@ vi.mock("@agent-native/core/sharing", () => ({
 }));
 
 vi.mock("drizzle-orm", () => ({
+  and: mocks.and,
   eq: mocks.eq,
   sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
@@ -123,6 +133,7 @@ vi.mock("../db/index.js", () => ({
     designFiles: {
       id: "designFiles.id",
       designId: "designFiles.designId",
+      contentOperationSource: "designFiles.contentOperationSource",
     },
   },
 }));
@@ -321,6 +332,43 @@ describe("saveImportedDesignFiles: node-id annotation", () => {
     expect(mocks.seedFromText).toHaveBeenCalledWith(
       expect.any(String),
       nativeContent,
+    );
+  });
+
+  it("reuses an existing operation source instead of inserting a duplicate screen", async () => {
+    const existingContent =
+      '<main data-agent-native-node-id="kept">Existing</main>';
+    mocks.setExistingFiles([
+      {
+        id: "existing-screen",
+        filename: "Hero.html",
+        fileType: "html",
+        content: existingContent,
+        contentOperationSource: "fig-import:run-1:0",
+      },
+    ]);
+
+    const result = await saveImportedDesignFiles({
+      designId: "design-1",
+      sourceType: "fig-upload",
+      files: [
+        {
+          filename: "Hero.html",
+          fileType: "html",
+          content: "<main>Retry</main>",
+          operationSource: "fig-import:run-1:0",
+        },
+      ],
+    });
+
+    expect(result.files[0]).toMatchObject({
+      id: "existing-screen",
+      filename: "Hero.html",
+    });
+    expect(mocks.insertValues).not.toHaveBeenCalled();
+    expect(mocks.seedFromText).toHaveBeenCalledWith(
+      "existing-screen",
+      existingContent,
     );
   });
 });

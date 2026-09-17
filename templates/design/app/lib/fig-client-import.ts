@@ -159,9 +159,14 @@ export async function importFigInBrowser(
           cleanup: async () => {
             const result = await callWithOneRetry<{
               alreadyMissing?: boolean;
+              committed?: boolean;
               deleted?: boolean;
             }>("upload-image", { idempotencyKey, cleanup: "delete" });
-            return result.deleted === true || result.alreadyMissing === true;
+            return (
+              result.deleted === true ||
+              result.alreadyMissing === true ||
+              result.committed === true
+            );
           },
           finalize: async () => {
             const result = await callWithOneRetry<{
@@ -214,12 +219,10 @@ export async function importFigInBrowser(
       savedFileIds.push(...(result.files ?? []).map((file) => file.id));
       index += 1;
     }
-    const finalizeFailures = (await converted.finalize?.()) ?? 0;
-    if (finalizeFailures > 0) {
-      throw new Error(
-        `Storage receipt cleanup failed for ${finalizeFailures} uploaded image${finalizeFailures === 1 ? "" : "s"}.`,
-      );
-    }
+    // Receipt release is best-effort after all frames are saved. A partial
+    // release must not roll back valid frames; the server-side receipt sweep
+    // retries or expires the remaining staged receipts.
+    await converted.finalize?.();
   } catch (error) {
     const cleanup = await Promise.allSettled(
       savedFileIds.map((id) =>

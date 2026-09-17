@@ -1,13 +1,22 @@
+import { randomUUID } from "node:crypto";
+
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
 import {
-  deleteAppState,
+  compareAndSetAppState,
   readAppState,
-  writeAppState,
 } from "../../application-state/index.js";
+import {
+  appStateCompareAndSet,
+  appStateListByKeyPrefix,
+} from "../../application-state/store.js";
 import { ssrfSafeFetch } from "../../extensions/url-safety.js";
-import { getRequestUserEmail } from "../../server/request-context.js";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+  runWithRequestContext,
+} from "../../server/request-context.js";
 import { deleteUploadedFile, uploadFile } from "../registry.js";
 
 const MAX_REMOTE_FETCH_BYTES = 25 * 1024 * 1024;
@@ -23,13 +32,30 @@ const SUPPORTED_IMAGE_MIME_TYPES = new Set([
   "image/heic",
   "image/heif",
 ]);
-const UPLOAD_RECEIPT_PREFIX = "file-upload-receipt:";
+export const UPLOAD_RECEIPT_PREFIX = "file-upload-receipt:";
+const UPLOAD_RECEIPT_STAGED_TTL_MS = 24 * 60 * 60 * 1000;
+const UPLOAD_RECEIPT_PENDING_TTL_MS = 5 * 60 * 1000;
+const UPLOAD_RECEIPT_DELETE_LEASE_MS = 5 * 60 * 1000;
+const UPLOAD_RECEIPT_RETRY_DELAY_MS = 15 * 60 * 1000;
+const UPLOAD_RECEIPT_CLEANUP_BATCH_SIZE = 50;
+const UPLOAD_RECEIPT_CLEANUP_INTERVAL_MS = 15 * 60 * 1000;
+const UPLOAD_RECEIPT_RESERVATION_WAIT_MS = 5_000;
+const UPLOAD_RECEIPT_RESERVATION_POLL_MS = 100;
+let uploadReceiptCleanupLastRunAt = 0;
 
-interface UploadReceipt {
-  url: string;
+type UploadReceiptStatus = "pending" | "staged" | "committed" | "deleting";
+
+interface UploadReceipt extends Record<string, unknown> {
+  status: UploadReceiptStatus;
+  url?: string;
   id?: string;
-  provider: string;
+  provider?: string;
   filename: string;
+  expiresAt: number;
+  reservationId?: string;
+  leaseExpiresAt?: number;
+  ownerEmail?: string;
+  orgId?: string;
 }
 
 function uploadReceiptKey(idempotencyKey: string): string {
@@ -37,20 +63,143 @@ function uploadReceiptKey(idempotencyKey: string): string {
 }
 
 function parseUploadReceipt(value: Record<string, unknown>): UploadReceipt {
+  const status = value.status ?? "staged";
   if (
-    typeof value.url !== "string" ||
-    typeof value.provider !== "string" ||
     typeof value.filename !== "string" ||
-    (value.id !== undefined && typeof value.id !== "string")
+    !["pending", "staged", "committed", "deleting"].includes(String(status)) ||
+    (value.url !== undefined && typeof value.url !== "string") ||
+    (value.provider !== undefined && typeof value.provider !== "string") ||
+    (value.id !== undefined && typeof value.id !== "string") ||
+    (value.expiresAt !== undefined &&
+      (typeof value.expiresAt !== "number" ||
+        !Number.isFinite(value.expiresAt)))
   ) {
     throw new Error("Stored image upload receipt is invalid.");
   }
+  const normalizedStatus = status as UploadReceiptStatus;
+  if (
+    normalizedStatus !== "pending" &&
+    (typeof value.url !== "string" || typeof value.provider !== "string")
+  ) {
+    throw new Error("Stored image upload receipt is missing provider data.");
+  }
+  if (
+    normalizedStatus === "pending" &&
+    typeof value.reservationId !== "string"
+  ) {
+    throw new Error("Stored image upload reservation is invalid.");
+  }
   return {
-    url: value.url,
-    provider: value.provider,
+    status: normalizedStatus,
+    ...(typeof value.url === "string" ? { url: value.url } : {}),
+    ...(typeof value.provider === "string" ? { provider: value.provider } : {}),
     filename: value.filename,
     ...(typeof value.id === "string" ? { id: value.id } : {}),
+    expiresAt:
+      typeof value.expiresAt === "number"
+        ? value.expiresAt
+        : Date.now() + UPLOAD_RECEIPT_STAGED_TTL_MS,
+    ...(typeof value.reservationId === "string"
+      ? { reservationId: value.reservationId }
+      : {}),
+    ...(typeof value.leaseExpiresAt === "number"
+      ? { leaseExpiresAt: value.leaseExpiresAt }
+      : {}),
+    ...(typeof value.ownerEmail === "string"
+      ? { ownerEmail: value.ownerEmail }
+      : {}),
+    ...(typeof value.orgId === "string" ? { orgId: value.orgId } : {}),
   };
+}
+
+function receiptHasProviderData(
+  receipt: UploadReceipt,
+): receipt is UploadReceipt & { url: string; provider: string } {
+  return (
+    typeof receipt.url === "string" && typeof receipt.provider === "string"
+  );
+}
+
+function requestReceiptOwner(): Pick<UploadReceipt, "ownerEmail" | "orgId"> {
+  const ownerEmail = getRequestUserEmail() ?? undefined;
+  const orgId = getRequestOrgId() ?? undefined;
+  return {
+    ...(ownerEmail ? { ownerEmail } : {}),
+    ...(orgId ? { orgId } : {}),
+  };
+}
+
+function pendingUploadReceipt(filename: string): UploadReceipt {
+  return {
+    status: "pending",
+    filename,
+    reservationId: randomUUID(),
+    expiresAt: Date.now() + UPLOAD_RECEIPT_PENDING_TTL_MS,
+    ...requestReceiptOwner(),
+  };
+}
+
+function waitForUploadReceipt(): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, UPLOAD_RECEIPT_RESERVATION_POLL_MS);
+  });
+}
+
+async function reserveUploadReceipt(
+  idempotencyKey: string,
+  filename: string,
+): Promise<{ receipt?: UploadReceipt; pending?: UploadReceipt }> {
+  const key = uploadReceiptKey(idempotencyKey);
+  const deadline = Date.now() + UPLOAD_RECEIPT_RESERVATION_WAIT_MS;
+  const pending = pendingUploadReceipt(filename);
+
+  while (true) {
+    const stored = await readAppState(key);
+    if (!stored) {
+      if (await compareAndSetAppState(key, null, pending)) return { pending };
+      continue;
+    }
+
+    const receipt = parseUploadReceipt(stored);
+    if (receipt.status === "staged" || receipt.status === "committed") {
+      return { receipt };
+    }
+
+    const now = Date.now();
+    const leaseExpiresAt =
+      receipt.status === "deleting"
+        ? (receipt.leaseExpiresAt ?? receipt.expiresAt)
+        : receipt.expiresAt;
+    if (leaseExpiresAt > now) {
+      if (now >= deadline) {
+        throw new Error(
+          "Image upload is still being reconciled. Please retry the import.",
+        );
+      }
+      await waitForUploadReceipt();
+      continue;
+    }
+
+    if (await compareAndSetAppState(key, stored, pending)) return { pending };
+  }
+}
+
+async function deleteReceiptProviderObject(
+  receipt: UploadReceipt & { url: string; provider: string },
+  sessionId?: string,
+): Promise<boolean> {
+  const ownerEmail = receipt.ownerEmail ?? sessionId;
+  return await runWithRequestContext(
+    {
+      ...(ownerEmail ? { userEmail: ownerEmail } : {}),
+      ...(receipt.orgId ? { orgId: receipt.orgId } : {}),
+    },
+    () =>
+      deleteUploadedFile(receipt.provider!, {
+        url: receipt.url!,
+        id: receipt.id,
+      }),
+  );
 }
 
 async function settleUploadReceipt(
@@ -58,21 +207,183 @@ async function settleUploadReceipt(
   cleanup: "delete" | "release",
 ) {
   const key = uploadReceiptKey(idempotencyKey);
-  const stored = await readAppState(key);
-  if (!stored) return { idempotencyKey, alreadyMissing: true };
-  const receipt = parseUploadReceipt(stored);
-  if (cleanup === "release") {
-    await deleteAppState(key);
-    return { idempotencyKey, released: true };
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const stored = await readAppState(key);
+    if (!stored) return { idempotencyKey, alreadyMissing: true };
+    const receipt = parseUploadReceipt(stored);
+
+    if (cleanup === "release") {
+      if (receipt.status === "committed") {
+        return { idempotencyKey, released: true };
+      }
+      if (receipt.status !== "staged") {
+        return { idempotencyKey, released: false };
+      }
+      const committed: UploadReceipt = {
+        ...receipt,
+        status: "committed",
+        expiresAt: Date.now() + UPLOAD_RECEIPT_STAGED_TTL_MS,
+      };
+      if (await compareAndSetAppState(key, stored, committed)) {
+        return { idempotencyKey, released: true };
+      }
+      continue;
+    }
+
+    if (receipt.status === "committed") {
+      return { idempotencyKey, committed: true };
+    }
+    if (receipt.status === "pending") {
+      if (receipt.expiresAt > Date.now()) {
+        return { idempotencyKey, deleted: false };
+      }
+      const released = await compareAndSetAppState(key, stored, null);
+      return released
+        ? { idempotencyKey, released: true }
+        : { idempotencyKey, deleted: false };
+    }
+    if (!receiptHasProviderData(receipt)) {
+      throw new Error("Stored image upload receipt is missing provider data.");
+    }
+    if (
+      receipt.status === "deleting" &&
+      (receipt.leaseExpiresAt ?? receipt.expiresAt) > Date.now()
+    ) {
+      return { idempotencyKey, deleted: false };
+    }
+
+    const deleting: UploadReceipt = {
+      ...receipt,
+      status: "deleting",
+      expiresAt: Date.now() + UPLOAD_RECEIPT_DELETE_LEASE_MS,
+      leaseExpiresAt: Date.now() + UPLOAD_RECEIPT_DELETE_LEASE_MS,
+    };
+    if (!(await compareAndSetAppState(key, stored, deleting))) continue;
+
+    const deleted = await deleteReceiptProviderObject(receipt);
+    if (!deleted) {
+      await compareAndSetAppState(key, deleting, {
+        ...receipt,
+        status: "staged",
+        expiresAt: Date.now() + UPLOAD_RECEIPT_RETRY_DELAY_MS,
+      });
+      return { idempotencyKey, deleted: false };
+    }
+    await compareAndSetAppState(key, deleting, null);
+    return { idempotencyKey, deleted: true };
+  }
+  return { idempotencyKey, deleted: false };
+}
+
+export async function runUploadReceiptCleanupOnce(options?: {
+  force?: boolean;
+  now?: number;
+  limit?: number;
+}): Promise<{
+  scanned: number;
+  deleted: number;
+  released: number;
+  failed: number;
+  skipped: boolean;
+}> {
+  const now = options?.now ?? Date.now();
+  if (
+    !options?.force &&
+    now - uploadReceiptCleanupLastRunAt < UPLOAD_RECEIPT_CLEANUP_INTERVAL_MS
+  ) {
+    return { scanned: 0, deleted: 0, released: 0, failed: 0, skipped: true };
+  }
+  uploadReceiptCleanupLastRunAt = now;
+
+  const rows = await appStateListByKeyPrefix(
+    UPLOAD_RECEIPT_PREFIX,
+    options?.limit ?? UPLOAD_RECEIPT_CLEANUP_BATCH_SIZE,
+  );
+  let deleted = 0;
+  let released = 0;
+  let failed = 0;
+
+  for (const row of rows) {
+    let receipt: UploadReceipt;
+    try {
+      receipt = parseUploadReceipt(row.value);
+    } catch {
+      failed += 1;
+      continue;
+    }
+    if (receipt.expiresAt > now) continue;
+
+    if (receipt.status === "pending") {
+      if (
+        await appStateCompareAndSet(row.sessionId, row.key, row.value, null)
+      ) {
+        released += 1;
+      }
+      continue;
+    }
+    if (receipt.status === "committed") {
+      if (
+        await appStateCompareAndSet(row.sessionId, row.key, row.value, null)
+      ) {
+        released += 1;
+      }
+      continue;
+    }
+    if (!receiptHasProviderData(receipt)) {
+      failed += 1;
+      continue;
+    }
+    if (
+      receipt.status === "deleting" &&
+      (receipt.leaseExpiresAt ?? receipt.expiresAt) > now
+    ) {
+      continue;
+    }
+
+    const leaseExpiresAt = now + UPLOAD_RECEIPT_DELETE_LEASE_MS;
+    const deleting: UploadReceipt = {
+      ...receipt,
+      status: "deleting",
+      expiresAt: leaseExpiresAt,
+      leaseExpiresAt,
+    };
+    if (
+      !(await appStateCompareAndSet(
+        row.sessionId,
+        row.key,
+        row.value,
+        deleting,
+      ))
+    ) {
+      continue;
+    }
+
+    const objectDeleted = await deleteReceiptProviderObject(
+      receipt,
+      row.sessionId,
+    );
+    if (objectDeleted) {
+      if (await appStateCompareAndSet(row.sessionId, row.key, deleting, null)) {
+        deleted += 1;
+      }
+      continue;
+    }
+
+    failed += 1;
+    await appStateCompareAndSet(row.sessionId, row.key, deleting, {
+      ...receipt,
+      status: "staged",
+      expiresAt: now + UPLOAD_RECEIPT_RETRY_DELAY_MS,
+    });
   }
 
-  const deleted = await deleteUploadedFile(receipt.provider, {
-    url: receipt.url,
-    id: receipt.id,
-  });
-  if (!deleted) return { idempotencyKey, deleted: false };
-  await deleteAppState(key);
-  return { idempotencyKey, deleted: true };
+  return {
+    scanned: rows.length,
+    deleted,
+    released,
+    failed,
+    skipped: false,
+  };
 }
 
 function extensionFromMime(mimeType: string): string {
@@ -255,47 +566,104 @@ export default defineAction({
     }
 
     const filename = (args.filename || defaultFilename(mimeType)).trim();
+    let pendingReceipt: UploadReceipt | undefined;
     if (idempotencyKey) {
-      const stored = await readAppState(uploadReceiptKey(idempotencyKey));
-      if (stored) {
-        const receipt = parseUploadReceipt(stored);
+      const reserved = await reserveUploadReceipt(idempotencyKey, filename);
+      if (reserved.receipt) {
+        if (!receiptHasProviderData(reserved.receipt)) {
+          throw new Error(
+            "Stored image upload receipt is missing provider data.",
+          );
+        }
         return {
-          url: receipt.url,
-          id: receipt.id,
-          provider: receipt.provider,
+          url: reserved.receipt.url,
+          id: reserved.receipt.id,
+          provider: reserved.receipt.provider,
         };
       }
+      pendingReceipt = reserved.pending;
     }
     const ownerEmail = getRequestUserEmail() ?? undefined;
 
-    const result = await uploadFile({
-      data: bytes,
-      filename,
-      mimeType,
-      ownerEmail,
-    });
-
-    if (!result) {
-      return {
-        error: uploadNotConfiguredError(),
-        configured: false,
-        connectPath: "/_agent-native/builder/connect",
-      };
-    }
-
-    if (idempotencyKey) {
-      await writeAppState(uploadReceiptKey(idempotencyKey), {
-        url: result.url,
-        ...(result.id ? { id: result.id } : {}),
-        provider: result.provider,
+    try {
+      const result = await uploadFile({
+        data: bytes,
         filename,
+        mimeType,
+        ownerEmail,
       });
-    }
 
-    return {
-      url: result.url,
-      id: result.id,
-      provider: result.provider,
-    };
+      if (!result) {
+        if (pendingReceipt && idempotencyKey) {
+          await compareAndSetAppState(
+            uploadReceiptKey(idempotencyKey),
+            pendingReceipt,
+            null,
+          );
+        }
+        return {
+          error: uploadNotConfiguredError(),
+          configured: false,
+          connectPath: "/_agent-native/builder/connect",
+        };
+      }
+
+      if (pendingReceipt && idempotencyKey) {
+        const stagedReceipt: UploadReceipt = {
+          ...pendingReceipt,
+          status: "staged",
+          url: result.url,
+          ...(result.id ? { id: result.id } : {}),
+          provider: result.provider,
+          expiresAt: Date.now() + UPLOAD_RECEIPT_STAGED_TTL_MS,
+        };
+        const staged = await compareAndSetAppState(
+          uploadReceiptKey(idempotencyKey),
+          pendingReceipt,
+          stagedReceipt,
+        );
+        if (!staged) {
+          const current = await readAppState(uploadReceiptKey(idempotencyKey));
+          if (current) {
+            const existing = parseUploadReceipt(current);
+            if (receiptHasProviderData(existing)) {
+              await deleteReceiptProviderObject({
+                ...stagedReceipt,
+                url: result.url,
+                provider: result.provider,
+              });
+              return {
+                url: existing.url,
+                id: existing.id,
+                provider: existing.provider,
+              };
+            }
+          }
+          throw new Error("Could not record the image upload receipt.");
+        }
+      }
+
+      return {
+        url: result.url,
+        id: result.id,
+        provider: result.provider,
+      };
+    } catch (error) {
+      if (pendingReceipt && idempotencyKey) {
+        try {
+          await compareAndSetAppState(
+            uploadReceiptKey(idempotencyKey),
+            pendingReceipt,
+            null,
+          );
+        } catch (cleanupError) {
+          console.error(
+            "[file-upload] Failed to release upload reservation:",
+            cleanupError,
+          );
+        }
+      }
+      throw error;
+    }
   },
 });

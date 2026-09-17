@@ -107,6 +107,12 @@ function jsonValuesEqual(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+function isOperationSourceUniqueViolation(error: unknown): boolean {
+  return (error instanceof Error ? error.message : String(error)).includes(
+    "design_files_design_operation_source_unique_idx",
+  );
+}
+
 function nextImportedFrameZ(currentCanvasFrames: unknown): number {
   const currentFrames = parseCanvasFrameGeometryById(currentCanvasFrames);
   const currentFrameEntries = Object.values(currentFrames);
@@ -277,80 +283,114 @@ export async function saveImportedDesignFiles(
     isApplied: () => true,
   });
 
-  await db.transaction(async (tx) => {
-    const [design] = await tx
-      .select()
-      .from(schema.designs)
-      .where(eq(schema.designs.id, designId))
-      .limit(1);
-    if (!design) throw new Error(`Design ${designId} was not found.`);
+  try {
+    await db.transaction(async (tx) => {
+      const [design] = await tx
+        .select()
+        .from(schema.designs)
+        .where(eq(schema.designs.id, designId))
+        .limit(1);
+      if (!design) throw new Error(`Design ${designId} was not found.`);
 
-    const existingFiles = await tx
-      .select()
-      .from(schema.designFiles)
-      .where(eq(schema.designFiles.designId, designId));
-    const usedFilenames = new Set(existingFiles.map((file) => file.filename));
-    let nextFrameX = 0;
+      const existingFiles = await tx
+        .select()
+        .from(schema.designFiles)
+        .where(eq(schema.designFiles.designId, designId));
+      const usedFilenames = new Set(existingFiles.map((file) => file.filename));
+      let nextFrameX = 0;
 
-    for (let index = 0; index < input.files.length; index += 1) {
-      const file = input.files[index]!;
-      const filename = uniqueFilename(
-        ensureExtension(sanitizeImportedFilename(file.filename), file.fileType),
-        usedFilenames,
-      );
-      const fileId = nanoid();
-      // Exact native clones are immutable source evidence. Other imports are
-      // annotated before persistence so editor operations can address nodes.
-      const annotatedContent = input.preserveExactContent
-        ? file.content
-        : annotateScreenHtmlForPersist(file.content, file.fileType);
-      await tx.insert(schema.designFiles).values({
-        id: fileId,
-        designId,
-        filename,
-        fileType: file.fileType,
-        content: annotatedContent,
-        contentOperationSource: file.operationSource ?? null,
-        createdAt: now,
-        updatedAt: now,
-      });
-      seedRecords.push({ id: fileId, content: annotatedContent });
+      for (let index = 0; index < input.files.length; index += 1) {
+        const file = input.files[index]!;
+        const [existing] = file.operationSource
+          ? await tx
+              .select()
+              .from(schema.designFiles)
+              .where(
+                and(
+                  eq(schema.designFiles.designId, designId),
+                  eq(
+                    schema.designFiles.contentOperationSource,
+                    file.operationSource,
+                  ),
+                ),
+              )
+              .limit(1)
+          : [];
+        const filename =
+          existing?.filename ??
+          uniqueFilename(
+            ensureExtension(
+              sanitizeImportedFilename(file.filename),
+              file.fileType,
+            ),
+            usedFilenames,
+          );
+        const fileId = existing?.id ?? nanoid();
+        // Exact native clones are immutable source evidence. Other imports are
+        // annotated before persistence so editor operations can address nodes.
+        const annotatedContent = input.preserveExactContent
+          ? file.content
+          : annotateScreenHtmlForPersist(file.content, file.fileType);
+        if (!existing) {
+          await tx.insert(schema.designFiles).values({
+            id: fileId,
+            designId,
+            filename,
+            fileType: file.fileType,
+            content: annotatedContent,
+            contentOperationSource: file.operationSource ?? null,
+            createdAt: now,
+            updatedAt: now,
+          });
+          seedRecords.push({ id: fileId, content: annotatedContent });
+        } else {
+          seedRecords.push({ id: fileId, content: existing.content });
+        }
 
-      const width = positiveDimension(
-        file.preferredFrame?.width,
-        DEFAULT_FRAME_WIDTH,
-      );
-      const height = positiveDimension(
-        file.preferredFrame?.height,
-        DEFAULT_FRAME_HEIGHT,
-      );
-      placements.push({
-        fileId,
-        filename,
-        x: file.preferredFrame?.x ?? nextFrameX,
-        y: file.preferredFrame?.y ?? 0,
-        width,
-        height,
-        z: index,
-      });
-      nextFrameX += width + FRAME_GAP;
-      const source = {
-        sourceType: input.sourceType,
-        previewState: "static",
-        title: file.preferredFrame?.title ?? filename.replace(/\.[^.]+$/, ""),
-        width,
-        height,
-        ...file.source,
-      };
-      metadataByFileId.set(fileId, source);
-      savedFiles.push({
-        id: fileId,
-        filename,
-        fileType: file.fileType,
-        source,
-      });
+        const width = positiveDimension(
+          file.preferredFrame?.width,
+          DEFAULT_FRAME_WIDTH,
+        );
+        const height = positiveDimension(
+          file.preferredFrame?.height,
+          DEFAULT_FRAME_HEIGHT,
+        );
+        placements.push({
+          fileId,
+          filename,
+          x: file.preferredFrame?.x ?? nextFrameX,
+          y: file.preferredFrame?.y ?? 0,
+          width,
+          height,
+          z: index,
+        });
+        nextFrameX += width + FRAME_GAP;
+        const source = {
+          sourceType: input.sourceType,
+          previewState: "static",
+          title: file.preferredFrame?.title ?? filename.replace(/\.[^.]+$/, ""),
+          width,
+          height,
+          ...file.source,
+        };
+        metadataByFileId.set(fileId, source);
+        savedFiles.push({
+          id: fileId,
+          filename,
+          fileType: file.fileType,
+          source,
+        });
+      }
+    });
+  } catch (error) {
+    if (
+      input.files.some((file) => file.operationSource) &&
+      isOperationSourceUniqueViolation(error)
+    ) {
+      return saveImportedDesignFiles(input);
     }
-  });
+    throw error;
+  }
 
   await mutateDesignData({
     designId,
