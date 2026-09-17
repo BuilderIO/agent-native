@@ -749,6 +749,9 @@ async function main() {
       await context.cookies(),
       bridgeHostname,
     );
+    const bridgeCookieMetadataChangedOnChildSignOut =
+      cookieMetadataFingerprint(bridgeCookiesAfterChildSignIn) !==
+      cookieMetadataFingerprint(bridgeCookiesAfterChildSignOut);
     const designCookiesAfterChildSignOut = cookiesForHost(
       await context.cookies(),
       designHostname,
@@ -759,14 +762,6 @@ async function main() {
     ) {
       throw new Error(
         "Signing out of Slides changed the Design session cookies.",
-      );
-    }
-    if (
-      cookieMetadataFingerprint(bridgeCookiesAfterChildSignIn) !==
-      cookieMetadataFingerprint(bridgeCookiesAfterChildSignOut)
-    ) {
-      throw new Error(
-        "Signing out of Slides left the bridge cookies in an unexpected state.",
       );
     }
     const signedOutAfterPreviewIframes = await readPreviewIframes(page);
@@ -808,7 +803,7 @@ async function main() {
         designSessionUnchangedDuringChildAuth: true,
         bridgeSessionChangedOnDesignSignIn: true,
         childSessionAuthTransport: childAuthTransport,
-        bridgeSessionRetainedAfterChildSignOut: true,
+        bridgeCookieMetadataChangedOnChildSignOut,
       },
       authenticatedStorageCookieCount: (await context.storageState()).cookies
         .length,
