@@ -4,6 +4,11 @@ const messages = {
   ...messagesByLocale["zh-CN"],
   designEditor: {
     ...messagesByLocale["zh-CN"].designEditor,
+    import: {
+      ...messagesByLocale["zh-CN"].designEditor.import,
+      figUploadDescriptionShort:
+        "本地导入 — 不使用 Figma API 配额。会包含受支持的嵌入图片。",
+    },
     componentInstances: {
       ...messagesByLocale["zh-CN"].designEditor.componentInstances,
       restore: "恢复组件",

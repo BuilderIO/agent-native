@@ -48,6 +48,46 @@ function boundedDetails(value: Record<string, unknown> | undefined): string {
     : serialized;
 }
 
+/** Record which prompt version and execution hash an automation run used. */
+export async function recordFactoryAutomationRunPrompt(input: {
+  identity: { userEmail: string; orgId: string };
+  automationRunId: string;
+  factoryId: string;
+  path: string;
+  promptVersion: number | null;
+  executionPromptHash: string;
+}): Promise<void> {
+  await getDb()
+    .insert(factoryAuditEvents)
+    .values({
+      id: randomUUID(),
+      automationRunId: input.automationRunId,
+      automationThreadId: null,
+      automationName: null,
+      factoryId: input.factoryId,
+      itemId: null,
+      source: null,
+      sourceUrl: null,
+      action: "automation-run-prompt",
+      kind: "governance",
+      status: "success",
+      summary: boundedText(
+        input.promptVersion
+          ? `Prompt v${input.promptVersion} · ${input.executionPromptHash.slice(0, 8)}`
+          : `Prompt ${input.executionPromptHash.slice(0, 8)}`,
+        MAX_SUMMARY_LENGTH,
+      ),
+      detailsJson: boundedDetails({
+        path: input.path,
+        promptVersion: input.promptVersion,
+        executionPromptHash: input.executionPromptHash,
+      }),
+      createdAt: new Date().toISOString(),
+      ownerEmail: input.identity.userEmail,
+      orgId: input.identity.orgId,
+    });
+}
+
 /** Persist a governance event outside an automation run (startup repair, etc.). */
 export async function recordFactoryGovernanceAudit(
   identity: { userEmail: string; orgId: string },

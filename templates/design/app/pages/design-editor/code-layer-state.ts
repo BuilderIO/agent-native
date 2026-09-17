@@ -1096,6 +1096,7 @@ export function canonicalizeElementInfoFromProjection(
   },
   info: ElementInfo,
   ownerScreenId?: string,
+  resolvedNode?: CodeLayerNode | null,
 ): ElementInfo {
   if (
     info.sourceLayerIdentity?.screenId &&
@@ -1104,7 +1105,10 @@ export function canonicalizeElementInfoFromProjection(
   ) {
     return info;
   }
-  const node = resolveCodeLayerNodeFromElementInfo(projection, info);
+  const node =
+    resolvedNode === undefined
+      ? resolveCodeLayerNodeFromElementInfo(projection, info)
+      : resolvedNode;
   if (node)
     return canonicalElementInfoForCodeLayerNode(info, node, ownerScreenId);
   return ownerScreenId && info.sourceLayerIdentity

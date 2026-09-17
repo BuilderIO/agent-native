@@ -521,6 +521,17 @@ export function appendCanvasPrimitiveToHtml(
       // Read by treeTypeForNode in shared/code-layer.ts.
       svg.setAttribute("data-an-primitive", primitive.kind);
       svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+      // Without this, resizing the shape non-uniformly (e.g. dragging only
+      // the height handle) letterboxes the polygon inside its viewBox
+      // (SVG's default preserveAspectRatio is "xMidYMid meet") instead of
+      // stretching it to fill the new box — the box's own width/height
+      // still resize correctly, but the visible shape stays centered at its
+      // creation-time aspect ratio, masking any later resize (including a
+      // flip-through-zero) since the rendered polygon barely changes. The
+      // path/pen-tool primitive right above already sets this for the same
+      // reason; polygon/star never did despite the comment there claiming it
+      // did.
+      svg.setAttribute("preserveAspectRatio", "none");
       svg.setAttribute(
         "style",
         [

@@ -92,13 +92,18 @@ describe("public document route", () => {
       createElement(AgentReadableDocumentDiscovery, {
         document: { id: "doc-1", title: "Launch notes" },
         basePath: "/content",
+        origin: "https://content.example.test",
       }),
     );
 
     expect(html).toContain('class="hidden"');
     expect(html).toContain('aria-hidden="true"');
-    expect(html).toContain("/content/mcp/connect");
+    expect(html).toContain("https://content.example.test/content/mcp/connect");
     expect(html).toContain("get-document");
+    expect(html).toContain("tell-user-to-connect");
+    expect(html).toContain("Do not ask the user to paste");
+    expect(html).toContain("make it public");
+    expect(html).toContain("change sharing permissions");
     expect(html).not.toContain("button");
   });
 
@@ -108,6 +113,7 @@ describe("public document route", () => {
         document: null,
         agentAccessToken: null,
         basePath: "/content",
+        origin: "https://content.example.test",
         unavailable: {
           reason: "private",
           id: "doc-1",
@@ -137,6 +143,7 @@ describe("public document route", () => {
       },
       agentAccessToken: null,
       basePath: "",
+      origin: "https://content.example.test",
     });
     expect((result as any).type).not.toBe("DataWithResponseInit");
     expect(where).toHaveBeenCalledWith({ column: "id_col", value: "doc-1" });
@@ -161,6 +168,7 @@ describe("public document route", () => {
       document: { id: "doc-1", title: "Launch notes" },
       agentAccessToken: "tok+1",
       basePath: "",
+      origin: "https://content.example.test",
     });
   });
 });

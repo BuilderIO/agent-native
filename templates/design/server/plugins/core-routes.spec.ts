@@ -57,7 +57,7 @@ describe("resolveDesignOpenPath", () => {
         view: "editor",
         params: { designId: "d1", screen: "file-1" },
       }),
-    ).toBe("/design/d1?view=overview&screen=file-1");
+    ).toBe("/design/d1?editorView=overview&screen=file-1");
   });
 
   it("falls back to /home for an editor view with no design id", () => {

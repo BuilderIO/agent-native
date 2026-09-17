@@ -2,7 +2,10 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { sizeNeedsMeasurement } from "../edit-panel/element-classification";
-import { requestSelectionMeasurement } from "./measure-selection";
+import {
+  designPreviewWindowsForScreen,
+  requestSelectionMeasurement,
+} from "./measure-selection";
 
 describe("sizeNeedsMeasurement", () => {
   it.each([
@@ -174,5 +177,26 @@ describe("requestSelectionMeasurement", () => {
       retryDelayMs: 40,
     });
     expect(measured?.boundingRect.width).toBe(101);
+  });
+});
+
+describe("designPreviewWindowsForScreen", () => {
+  it("keeps same-node selectors scoped to the requested screen and breakpoint", () => {
+    document.body.innerHTML = `
+      <iframe data-screen-iframe-id="screen-a"></iframe>
+      <iframe data-screen-iframe-id="screen-a::bp-390"></iframe>
+      <iframe data-screen-iframe-id="screen-b"></iframe>
+    `;
+
+    const primary = designPreviewWindowsForScreen("screen-a");
+    const breakpoint = designPreviewWindowsForScreen("screen-a", 390);
+
+    expect(primary).toHaveLength(1);
+    expect(breakpoint).toHaveLength(1);
+    expect(primary[0]).not.toBe(breakpoint[0]);
+    expect(designPreviewWindowsForScreen("screen-b")).toHaveLength(1);
+    expect(designPreviewWindowsForScreen("screen-c")).toHaveLength(0);
+
+    document.body.innerHTML = "";
   });
 });

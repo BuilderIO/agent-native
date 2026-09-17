@@ -49,6 +49,8 @@
  *                              intentionally animates theme changes (e.g. content).
  *   disableWebMcp             — skips the automatic page-local WebMCP action
  *                              registration. Defaults to `false`.
+ *   webMcpExcludeActionNames  — omits named server actions when a page provides
+ *                              a safer or more specific replacement.
  */
 
 import { Toaster } from "@agent-native/toolkit/ui/sonner";
@@ -131,6 +133,12 @@ export interface AppProvidersProps {
    */
   disableWebMcp?: boolean;
 
+  /**
+   * Omit named server actions from the automatic registration when a page
+   * provides a safer or more specific replacement.
+   */
+  webMcpExcludeActionNames?: readonly string[];
+
   /** Render the environment badge in the shared app shell. */
   showEnvironmentBadge?: boolean;
 
@@ -201,14 +209,22 @@ function RoutedAppEnhancements() {
   );
 }
 
-function AgentNativeWebMcpRegistration() {
+function AgentNativeWebMcpRegistration({
+  excludeActionNames,
+}: {
+  excludeActionNames?: readonly string[];
+}) {
+  const excludeActionNamesKey = JSON.stringify(excludeActionNames ?? []);
+
   useEffect(() => {
     // sessionBypass surfaces are token-authenticated MCP embeds; their host
     // may call tools immediately, so registration must not wait out the
     // paint-aligned window — only the cookie-session-gated variant defers.
     // Ownership is local to this effect: two coexisting surfaces each stop
     // only the registration they created.
-    const registration = createAgentNativeServerActionWebMcpRegistration();
+    const registration = createAgentNativeServerActionWebMcpRegistration({
+      excludeActionNames,
+    });
     void registration.start().catch(() => {
       // WebMCP is progressive enhancement. Session expiry or a transient
       // manifest failure must not prevent the authenticated app from
@@ -217,15 +233,21 @@ function AgentNativeWebMcpRegistration() {
     return () => {
       registration.stop();
     };
-  }, []);
+  }, [excludeActionNamesKey]);
   return null;
 }
 
-function SessionGatedAgentNativeWebMcpRegistration() {
+function SessionGatedAgentNativeWebMcpRegistration({
+  excludeActionNames,
+}: {
+  excludeActionNames?: readonly string[];
+}) {
   const { status } = useSession();
   const registrationRef = useRef<ReturnType<
     typeof createAgentNativeServerActionWebMcpRegistration
   > | null>(null);
+  const registrationExcludeActionNamesKeyRef = useRef<string | null>(null);
+  const excludeActionNamesKey = JSON.stringify(excludeActionNames ?? []);
   useEffect(() => {
     // The manifest route requires a session, so registration starts only on
     // a confirmed session: a signed-out visitor (first visit, expired cookie)
@@ -240,28 +262,42 @@ function SessionGatedAgentNativeWebMcpRegistration() {
       // the existing one alive until the session settles.
       registrationRef.current?.stop();
       registrationRef.current = null;
+      registrationExcludeActionNamesKeyRef.current = null;
       return;
     }
-    if (status !== "authenticated" || registrationRef.current) return;
+    if (
+      status !== "authenticated" ||
+      (registrationRef.current &&
+        registrationExcludeActionNamesKeyRef.current === excludeActionNamesKey)
+    ) {
+      return;
+    }
+    registrationRef.current?.stop();
+    registrationRef.current = null;
+    registrationExcludeActionNamesKeyRef.current = null;
     const cancel = scheduleAfterPaint(() => {
-      const registration = createAgentNativeServerActionWebMcpRegistration();
+      const registration = createAgentNativeServerActionWebMcpRegistration({
+        excludeActionNames,
+      });
       void registration.start().catch(() => {
         // WebMCP is progressive enhancement. Session expiry or a transient
         // manifest failure must not prevent the authenticated app from
         // loading.
       });
       registrationRef.current = registration;
+      registrationExcludeActionNamesKeyRef.current = excludeActionNamesKey;
     });
     return () => {
       cancel();
     };
     // Unmount stops exactly the registration this surface created, whether
     // it started or is still scheduled.
-  }, [status]);
+  }, [status, excludeActionNamesKey]);
   useEffect(
     () => () => {
       registrationRef.current?.stop();
       registrationRef.current = null;
+      registrationExcludeActionNamesKeyRef.current = null;
     },
     [],
   );
@@ -270,11 +306,21 @@ function SessionGatedAgentNativeWebMcpRegistration() {
 
 export function AgentNativeWebMcpActionRegistration({
   requireSession = false,
+  excludeActionNames,
 }: {
   requireSession?: boolean;
+  excludeActionNames?: readonly string[];
 } = {}) {
-  if (requireSession) return <SessionGatedAgentNativeWebMcpRegistration />;
-  return <AgentNativeWebMcpRegistration />;
+  if (requireSession) {
+    return (
+      <SessionGatedAgentNativeWebMcpRegistration
+        excludeActionNames={excludeActionNames}
+      />
+    );
+  }
+  return (
+    <AgentNativeWebMcpRegistration excludeActionNames={excludeActionNames} />
+  );
 }
 
 function readDocumentTitleFallback(): string {
@@ -372,6 +418,7 @@ function ProvidersInner({
   toaster = DEFAULT_TOASTER,
   disableThemeTransitions = true,
   disableWebMcp,
+  webMcpExcludeActionNames,
   sessionBypass,
   i18n,
   documentTitleFallback,
@@ -386,6 +433,7 @@ function ProvidersInner({
   toaster?: React.ReactNode | null;
   disableThemeTransitions?: boolean;
   disableWebMcp: boolean;
+  webMcpExcludeActionNames?: readonly string[];
   sessionBypass: boolean;
   i18n?: Omit<AgentNativeI18nProviderProps, "children"> | false;
   documentTitleFallback?: string;
@@ -415,6 +463,7 @@ function ProvidersInner({
           {!disableWebMcp && (
             <AgentNativeWebMcpActionRegistration
               requireSession={!sessionBypass}
+              excludeActionNames={webMcpExcludeActionNames}
             />
           )}
           {localizedChildren}
@@ -449,6 +498,7 @@ export function AppProviders({
   clientOnlyFallback,
   sessionBypass = false,
   disableWebMcp = false,
+  webMcpExcludeActionNames,
   showEnvironmentBadge = false,
   defaultTheme,
   themeAttribute,
@@ -471,6 +521,7 @@ export function AppProviders({
         toaster={toaster}
         disableThemeTransitions={disableThemeTransitions}
         disableWebMcp={disableWebMcp}
+        webMcpExcludeActionNames={webMcpExcludeActionNames}
         sessionBypass={sessionBypass}
         i18n={publicPathI18n(i18n)}
         documentTitleFallback={documentTitleFallback}
@@ -496,6 +547,7 @@ export function AppProviders({
           toaster={toaster}
           disableThemeTransitions={disableThemeTransitions}
           disableWebMcp={disableWebMcp}
+          webMcpExcludeActionNames={webMcpExcludeActionNames}
           sessionBypass={sessionBypass}
           i18n={i18n}
           documentTitleFallback={documentTitleFallback}

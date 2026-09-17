@@ -1550,7 +1550,7 @@ const generateDesignAction = defineAction({
     return {
       designId,
       urlPath: firstRenderableSavedFile
-        ? `/design/${encodeURIComponent(designId)}?view=overview&screen=${encodeURIComponent(firstRenderableSavedFile.id)}`
+        ? `/design/${encodeURIComponent(designId)}?editorView=overview&screen=${encodeURIComponent(firstRenderableSavedFile.id)}`
         : `/design/${encodeURIComponent(designId)}`,
       renderable: true,
       savedFiles,

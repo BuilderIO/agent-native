@@ -121,7 +121,7 @@ describe("marquee selects at the current container level", () => {
     }
   });
 
-  it("dedupes live hit sets and sends full detail only for the primary item", async () => {
+  it("dedupes live hit sets and sends rendered detail for every final item", async () => {
     const browser = await chromium.launch({ headless: true });
     try {
       const page = await browser.newPage();
@@ -162,8 +162,10 @@ describe("marquee selects at the current container level", () => {
         "card",
         "solo-a",
       ]);
-      expect(finalPayload[0]?.computedStyles).toEqual({});
-      expect(finalPayload[0]?.portableStyleSnapshot).toBeUndefined();
+      expect(
+        Object.keys(finalPayload[0]?.computedStyles ?? {}),
+      ).not.toHaveLength(0);
+      expect(finalPayload[0]?.portableStyleSnapshot).toBeDefined();
       expect(
         Object.keys(finalPayload[1]?.computedStyles ?? {}),
       ).not.toHaveLength(0);

@@ -7,6 +7,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import {
   defineEventHandler,
   getQuery,
+  getRequestURL,
   setResponseHeader,
   setResponseStatus,
 } from "h3";
@@ -30,6 +31,7 @@ function deny(
   message: string,
   documentId?: string,
   basePath?: string,
+  origin?: string,
 ) {
   return {
     statusCode,
@@ -39,7 +41,10 @@ function deny(
         ? {
             resourceType: "document",
             resourceId: documentId,
-            ...buildContentDocumentMcpGuidance(documentId, { basePath }),
+            ...buildContentDocumentMcpGuidance(documentId, {
+              basePath,
+              origin,
+            }),
           }
         : {}),
     },
@@ -96,6 +101,7 @@ export default defineEventHandler(async (event) => {
         : "This private document is not readable through anonymous HTTP",
       id,
       getConfiguredAppBasePath(),
+      getRequestURL(event).origin,
     );
     setResponseStatus(event, denied.statusCode);
     return denied.body;

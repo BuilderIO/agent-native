@@ -4,6 +4,11 @@ const messages = {
   ...messagesByLocale["ar-SA"],
   designEditor: {
     ...messagesByLocale["ar-SA"].designEditor,
+    import: {
+      ...messagesByLocale["ar-SA"].designEditor.import,
+      figUploadDescriptionShort:
+        "استيراد محلي — بلا حصة من واجهة Figma. يتم تضمين الصور المضمّنة المدعومة.",
+    },
     componentInstances: {
       ...messagesByLocale["ar-SA"].designEditor.componentInstances,
       restore: "استعادة المكوّن",

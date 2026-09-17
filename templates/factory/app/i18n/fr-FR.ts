@@ -363,6 +363,8 @@ const messages = {
     auditBabysitCiBlocking: "CI bloquante",
     auditBabysitVeto: "Veto",
     auditTrace: "Trace",
+    auditRunPromptVersion: "Prompt v{{version}}",
+    auditRunPromptHash: "Hash {{hash}}",
     auditWhy: "Pourquoi",
     auditWhatHappened: "Ce qui s’est passé",
     auditInspectedOnly: "Inspecté seulement",
@@ -517,14 +519,13 @@ const messages = {
     automationWorkLimitDescription:
       "Nombre d’éléments que l’agent traite par exécution. Maximum 10.",
     automationGuardrails: "Garde-fous",
+    automationSkillAlignment: "Alignement de skill",
     automationGuardrailsDescription:
       "Injectés par Factory. Le prompt ne peut pas changer ces règles.",
     automationGuardrailsSummary:
       "Ajoute jusqu’à {{inbox}} · traite {{work}} par exécution",
     automationGuardrailsPlaceholder:
       "Factory injectera ici le périmètre et les limites.",
-    automationPromptDescription:
-      "Ce que cette exécution doit faire, en plus des garde-fous ci-dessus.",
     automationDisplayNameDescription:
       "Affiché dans la liste des automatisations.",
     automationModelDescription: "Modèle utilisé par ce job planifié.",
@@ -555,6 +556,27 @@ const messages = {
     pastRuns: "Exécutions précédentes",
     pastRunsEmpty: "Aucune exécution enregistrée.",
     saveAutomation: "Enregistrer",
+    automationUnsavedChanges: "Modifications d'automatisation non enregistrées",
+    automationDiscardChanges: "Annuler",
+    automationCurrentSaved: "Actuel (enregistré)",
+    automationCurrentSavedShort: "Version {{version}}",
+    automationNoSavedVersions: "Aucune version enregistrée",
+    automationVersionPickerLabel: "Versions",
+    automationVersionsLoading: "Chargement des versions…",
+    automationVersionsLoadFailed:
+      "Impossible de charger l'historique des versions.",
+    automationVersionLoadFailed: "Impossible de charger cette version.",
+    automationVersionAppliedToDraft:
+      "Version v{{promptVersion}} chargée dans le brouillon. Enregistrez pour conserver.",
+    automationSavedVersion: "Version {{version}}",
+    automationVersionRowDetail: "v{{promptVersion}} · enregistré {{savedAt}}",
+    automationVersionDeleteLabel: "Supprimer cette version",
+    automationVersionDeleteTitle: "Supprimer {{label}} ?",
+    automationVersionDeleteWarning: "Cette action est irréversible.",
+    automationVersionDeleteCancel: "Annuler",
+    automationVersionDeleteConfirm: "Supprimer la version",
+    automationVersionDeleted: "Version supprimée.",
+    automationVersionDeleteFailed: "Impossible de supprimer cette version.",
     automationSaved: "Enregistré",
     automationSaveFailed: "Impossible d'enregistrer l'automatisation.",
     automationRunFailed: "Impossible d'exécuter l'automatisation.",
