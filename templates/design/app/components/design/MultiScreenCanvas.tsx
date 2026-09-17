@@ -7701,12 +7701,20 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           "*",
         );
       };
-      const handleMouseUp = () => {
+      const handleMouseUp = (ev: MouseEvent) => {
         // The bridge's startMove already installed a host-level
         // cross-screen mouseup listener. Forwarding another mouseup into the
         // iframe would let both owners finalize one drop, duplicating an
         // Alt-drag. Let the host commit and cancel only the bridge's transient
         // clone/preview afterward.
+        if (crossScreenTargetRef.current === null) {
+          dispatchAt(
+            selectionOverlay,
+            "mouseup",
+            toIframePoint(ev.clientX, ev.clientY),
+            ev,
+          );
+        }
         cancelMove(performance.timeOrigin + performance.now());
         finishDrag();
       };
