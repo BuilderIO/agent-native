@@ -542,6 +542,7 @@ interface DocumentToolbarProps {
   commentsHistoryOpen?: boolean;
   onUtilityPanelChange: (panel: "info" | "comments" | null) => void;
   showCommentsControl?: boolean;
+  commentsTriggerRef?: Ref<HTMLButtonElement>;
   databaseExportContext?: DatabaseExportContext | null;
   onOpenBreadcrumbItem?: (id: string) => void;
   canUndo?: boolean;
@@ -581,6 +582,7 @@ export function DocumentToolbar({
   commentsHistoryOpen = false,
   onUtilityPanelChange,
   showCommentsControl = true,
+  commentsTriggerRef,
   databaseExportContext,
   onOpenBreadcrumbItem,
   canUndo = false,
@@ -1120,6 +1122,8 @@ export function DocumentToolbar({
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
+                  ref={commentsTriggerRef}
+                  data-comments-history-trigger
                   type="button"
                   className={cn(
                     "flex size-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",

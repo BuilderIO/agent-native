@@ -449,4 +449,25 @@ describe("saved reply Escape inside the real Comments Sheet", () => {
       /<SheetContent\s+ref=\{setUtilityPanelSheetContainer\}[\s\S]*?onEscapeKeyDown=\{\(event\) => \{\s+preserveCommentReplyEscape\(event\);\s+if \(event\.defaultPrevented\) return;\s+const target = event\.target;\s+const nestedPopper =/,
     );
   });
+
+  it("keeps keyboard focus inside the mobile comments Sheet and restores its trigger", () => {
+    const source = readFileSync(
+      new NodeURL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    expect(source).toContain(
+      "ref={inSheet ? utilityPanelSheetCloseRef : undefined}",
+    );
+    expect(source).toMatch(
+      /onOpenAutoFocus=\{\(event\) => \{[\s\S]*?event\.preventDefault\(\);[\s\S]*?\(focusedReply \?\? utilityPanelSheetCloseRef\.current\)\?\.focus\(\);/,
+    );
+    expect(source).toContain(
+      "const restoreTarget = utilityPanelSheetTriggerRef.current;",
+    );
+    expect(source).toContain(
+      "utilityPanelFocusGenerationRef.current !== focusGeneration",
+    );
+    expect(source).toContain("restoreTarget?.isConnected");
+    expect(source).toContain(": fallbackTarget");
+  });
 });
