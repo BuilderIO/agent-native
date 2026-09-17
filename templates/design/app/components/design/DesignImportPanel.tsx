@@ -313,7 +313,13 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
               ),
           });
         } catch (localError) {
-          if (file.size > MAX_FIG_UPLOAD_BYTES) throw localError;
+          if (
+            file.size > MAX_FIG_UPLOAD_BYTES ||
+            (localError as { remoteMutationStarted?: unknown })
+              .remoteMutationStarted === true
+          ) {
+            throw localError;
+          }
           console.warn(
             "[fig-import] in-browser decode failed; falling back to the upload route.",
             localError,
