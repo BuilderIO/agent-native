@@ -502,6 +502,12 @@ export function resolveElementNudgeIntent(
                     args.selectedElement.parentLayout.gridTemplateRows,
                 }
               : {}),
+            ...(args.selectedElement.parentLayout?.gridAutoFlow
+              ? {
+                  "grid-auto-flow":
+                    args.selectedElement.parentLayout.gridAutoFlow,
+                }
+              : {}),
           },
         })
       : NO_FLOW_CONTAINER;

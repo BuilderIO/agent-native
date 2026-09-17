@@ -562,9 +562,11 @@ describe("resolveElementNudgeIntent", () => {
     expect(
       orderAfterNudge(content, "a", "down", "grid", undefined, {
         display: "grid",
+        gridAutoFlow: "column",
         gridTemplateColumns: "100px 100px",
+        gridTemplateRows: "100px 100px",
       }),
-    ).toEqual(["b", "c", "a", "d"]);
+    ).toEqual(["b", "a", "c", "d"]);
   });
 
   it("translates a child that opted out of the flow with position: absolute", () => {

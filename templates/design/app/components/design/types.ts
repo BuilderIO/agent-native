@@ -184,6 +184,7 @@ export interface ElementInfo {
     alignItems?: string;
     justifyContent?: string;
     gap?: string;
+    gridAutoFlow?: string;
     gridTemplateColumns?: string;
     gridTemplateRows?: string;
     position?: string;
