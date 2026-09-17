@@ -317,19 +317,25 @@ describe("Analytics agent Plan mode policy", () => {
     }
   });
 
-  it("keeps stale, high-stakes, and inferred-join caveats conditional", () => {
+  it("requires caveats for material uncertainty and important external decisions", () => {
     const guidance = ANALYTICS_CONDITIONAL_CAVEAT_GUIDANCE;
 
+    expect(guidance).toContain(
+      "Do not present analytics results as guaranteed correct",
+    );
+    expect(guidance).toContain("relevant source and scope details");
+    expect(guidance).toContain("whenever material uncertainty exists");
+    expect(guidance).toContain("important external decision");
     expect(guidance).toContain("explicitly reports");
     expect(guidance).toContain("does not prove that data is fresh or stale");
     expect(guidance).toContain("client-facing, board, investor, QBR");
-    expect(guidance).toContain(
-      "routine internal exploration needs no such warning",
-    );
     expect(guidance).toContain("join was inferred");
     expect(guidance).toContain("Documented joins need no generic hedge");
     expect(guidance).toContain("Combine multiple applicable caveats");
 
+    expect(dataQueryingSkill).toContain(
+      "Do not present analytics results as guaranteed correct",
+    );
     expect(dataQueryingSkill).toMatch(/Known stale data/);
     expect(dataQueryingSkill).toMatch(/High-stakes distribution/);
     expect(dataQueryingSkill).toMatch(/Complex inferred joins/);
