@@ -66,8 +66,8 @@ const BROWSER_AUTHORED_OBJECT =
 
 /**
  * Whether the vector-capable server exporter can render this deck losslessly.
- * `get-deck` returns the import receipt alongside the deck body, so the client
- * deck carries `sourceImport` at runtime even though the type predates it.
+ * Structural edits clear `sourceImport`, but the imported-slide marker remains
+ * on slides whose geometry still came from the source file.
  */
 export function canExportPptxFromServer(
   deck:
@@ -75,7 +75,7 @@ export function canExportPptxFromServer(
     | null
     | undefined,
 ): boolean {
-  if (!deck?.sourceImport || deck.slides.length === 0) return false;
+  if (!deck || deck.slides.length === 0) return false;
   return deck.slides.every((slide) => {
     const html = slide.content ?? "";
     if (!html.includes(IMPORTED_SLIDE_MARKER)) return false;

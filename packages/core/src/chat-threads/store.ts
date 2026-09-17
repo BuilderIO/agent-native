@@ -1069,11 +1069,15 @@ export async function updateThreadData(
       }
 
       const nextUpdatedAt = Math.max(Date.now(), current.updatedAt + 1);
+      // Completion persistence can race the separate generated-title save.
+      // Keep a title already committed by that save when this caller only has
+      // its stale empty snapshot.
+      const nextTitle = title || current.title;
       const result = await client.execute({
         sql: `UPDATE chat_threads SET thread_data = ?, title = ?, preview = ?, message_count = ?, updated_at = ? WHERE id = ? AND updated_at = ?`,
         args: [
           nextThreadData,
-          title,
+          nextTitle,
           preview,
           nextMessageCount,
           nextUpdatedAt,

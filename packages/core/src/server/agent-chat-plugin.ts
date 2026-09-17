@@ -233,6 +233,7 @@ import {
 } from "./agent-teams.js";
 import { getSession, registerAuthPublicPaths } from "./auth.js";
 import { captureError } from "./capture-error.js";
+import { completeText } from "./complete-text.js";
 import {
   getH3App,
   markDefaultPluginProvided,
@@ -3225,7 +3226,7 @@ export function createAgentChatPlugin(
           await updateThreadData(
             threadId,
             JSON.stringify(repo),
-            meta.title || thread.title,
+            thread.title,
             meta.preview || thread.preview,
             repo.messages.length,
           );
@@ -3471,7 +3472,7 @@ export function createAgentChatPlugin(
           await updateThreadData(
             threadId,
             JSON.stringify(repo),
-            meta.title || thread.title,
+            thread.title,
             meta.preview || thread.preview,
             Array.isArray(repo.messages)
               ? repo.messages.length
@@ -5530,7 +5531,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             setResponseStatus(event, 405);
             return { error: "Method not allowed" };
           }
-          const ownerEmail = await getOwnerFromEvent(event);
+          const titleOwnerContext = await resolveOwnerContext(event);
+          if (titleOwnerContext.anonymous) return { title: "" };
+          const ownerEmail = titleOwnerContext.owner;
 
           // Per-user rate limit: 10 calls / 60s. Prevents an authenticated
           // user from spamming the endpoint to exhaust shared Anthropic
@@ -5567,60 +5570,37 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             setResponseStatus(event, 400);
             return { error: "message is required" };
           }
+          const orgId = await getOrgIdFromEvent(event);
           // Strip hidden context and mention markup before title generation.
-          // Fallback titles are often direct truncations, so never let injected
-          // prompt context become a visible tab label.
+          // Never let injected prompt context become a visible tab label.
           const cleanMessage = message
             .replace(/<context\b[^>]*>[\s\S]*?<\/context>\n?/gi, "")
             .replace(/<context\b[^>]*>[\s\S]*$/gi, "")
             .replace(/<\/context>/gi, "")
             .replace(/@\[([^\]|]+)\|[^\]]*\]/g, "@$1")
             .trim();
-          // Mirror the chat-run resolution so BYO-key users have title
-          // generation billed to their own key instead of the platform key.
-          // This request goes straight to Anthropic, so it needs the owner's
-          // Anthropic key specifically — the active engine may be another
-          // provider, whose key must never be sent here. Owners without one
-          // get the truncated title.
-          const { getOwnerApiKeyForEngine } =
-            await import("../agent/production-agent.js");
-          const { apiKey } = await getOwnerApiKeyForEngine(
-            "anthropic",
-            ownerEmail,
-          );
-          if (!apiKey) {
-            // Fallback: truncate the message
-            return { title: cleanMessage.trim().slice(0, 60) };
-          }
           try {
-            const res = await fetch("https://api.anthropic.com/v1/messages", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "x-api-key": apiKey,
-                "anthropic-version": "2023-06-01",
-              },
-              body: JSON.stringify({
-                model: "claude-haiku-4-5-20251001",
-                max_tokens: 30,
-                messages: [
-                  {
-                    role: "user",
-                    content: `Generate a very short title (3-6 words, no quotes) for a chat that starts with this message:\n\n${cleanMessage.slice(0, 500)}`,
-                  },
-                ],
-              }),
-            });
-            if (!res.ok) {
-              return { title: cleanMessage.trim().slice(0, 60) };
-            }
-            const data = (await res.json()) as {
-              content?: Array<{ type: string; text?: string }>;
-            };
-            const text = data.content?.[0]?.text?.trim();
-            return { title: text || cleanMessage.trim().slice(0, 60) };
+            const result = await runWithRequestContext(
+              { userEmail: ownerEmail, orgId },
+              () =>
+                completeText({
+                  appId: options?.appId,
+                  systemPrompt:
+                    "Create a concise chat tab title for the user's request. Return only 3-6 words, with no quotes, punctuation, or explanation.",
+                  input: cleanMessage.slice(0, 500),
+                  maxOutputTokens: 30,
+                  temperature: 0,
+                  timeoutMs: 10_000,
+                }),
+            );
+            const title = result.text
+              .replace(/^["'`]+|["'`]+$/g, "")
+              .replace(/\s+/g, " ")
+              .trim()
+              .slice(0, 80);
+            return { title };
           } catch {
-            return { title: cleanMessage.trim().slice(0, 60) };
+            return { title: "" };
           }
         }),
       );

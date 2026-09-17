@@ -88,6 +88,11 @@ const messages: AgentChatTranslation = {
     "브라우저 음성 인식 또는 음성 텍스트 변환",
   "onboarding.capability.voiceInput.why":
     "음성 입력은 말한 요청을 텍스트로 바꿉니다. 입력은 언제나 사용할 수 있습니다.",
+  "onboarding.capability.embeddings.label": "임베딩",
+  "onboarding.capability.embeddings.keySummary":
+    "Gemini, Cohere 또는 Voyage 키",
+  "onboarding.capability.embeddings.why":
+    "임베딩은 의미 검색을 개선합니다. 임베딩 없이도 키워드 검색은 작동합니다.",
   "onboarding.capability.assetsImageGeneration.label": "이미지 생성",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Builder 크레딧 또는 이미지 제공업체 키",
