@@ -37,11 +37,15 @@ test("comments toolbar opens an anchored composer", async ({
   if (!nestedNodeId) throw new Error("nested comment target has no node id");
   const nestedBox = await nestedNode.boundingBox();
   if (!nestedBox) throw new Error("nested comment target has no layout box");
+  const nestedPoint = {
+    x: nestedBox.x + nestedBox.width * 0.9,
+    y: nestedBox.y + nestedBox.height / 2,
+  };
   await clickPlane.click({
     force: true,
     position: {
-      x: nestedBox.x + nestedBox.width / 2 - canvasBox.x,
-      y: nestedBox.y + nestedBox.height / 2 - canvasBox.y,
+      x: nestedPoint.x - canvasBox.x,
+      y: nestedPoint.y - canvasBox.y,
     },
   });
 
@@ -125,7 +129,7 @@ test("comments toolbar opens an anchored composer", async ({
   expect(createdComment.id).toEqual(expect.any(String));
   expect(createdComment.threadId).toEqual(expect.any(String));
   expect(createdComment.anchor).toMatchObject({
-    nodeId: expect.any(String),
+    nodeId: nestedNodeId,
     relativePoint: {
       xPct: expect.any(Number),
       yPct: expect.any(Number),
@@ -251,7 +255,10 @@ test("comments toolbar opens an anchored composer", async ({
       threadId?: string;
       parentCommentId?: string | null;
       status?: string;
-      anchor?: { nodeId?: string; relativePoint?: unknown };
+      anchor?: {
+        nodeId?: string;
+        relativePoint?: { xPct?: number; yPct?: number };
+      };
       body?: string;
     }>;
   };
@@ -268,8 +275,11 @@ test("comments toolbar opens an anchored composer", async ({
     parentCommentId: null,
     status: "open",
     anchor: {
-      nodeId: expect.any(String),
-      relativePoint: expect.anything(),
+      nodeId: nestedNodeId,
+      relativePoint: {
+        xPct: expect.any(Number),
+        yPct: expect.any(Number),
+      },
     },
   });
   expect(refreshedReply).toMatchObject({
@@ -278,7 +288,49 @@ test("comments toolbar opens an anchored composer", async ({
     parentCommentId: createdComment.id,
     body: "Browser parity reply",
   });
+  const reloadedCommentsResponse = page.waitForResponse(
+    (response) =>
+      response.url().includes("/_agent-native/actions/list-review-comments") &&
+      response.request().method() === "GET" &&
+      response.ok(),
+  );
   await page.reload({ waitUntil: "domcontentloaded" });
+  const reloadedResponse = await reloadedCommentsResponse;
+  const reloadedComments = (await reloadedResponse.json()) as {
+    comments?: Array<{
+      id?: string;
+      threadId?: string;
+      status?: string;
+      anchor?: {
+        nodeId?: string;
+        relativePoint?: { xPct?: number; yPct?: number };
+      };
+      body?: string;
+    }>;
+  };
+  const reloadedRoot = reloadedComments.comments?.find(
+    (comment) => comment.id === createdComment.id,
+  );
+  const reloadedReply = reloadedComments.comments?.find(
+    (comment) => comment.id === reply.id,
+  );
+  expect(reloadedRoot).toMatchObject({
+    id: createdComment.id,
+    threadId: createdComment.threadId,
+    status: "open",
+    anchor: {
+      nodeId: nestedNodeId,
+      relativePoint: {
+        xPct: expect.any(Number),
+        yPct: expect.any(Number),
+      },
+    },
+  });
+  expect(reloadedReply).toMatchObject({
+    id: reply.id,
+    threadId: createdComment.threadId,
+    body: "Browser parity reply",
+  });
   await expect(
     page.getByRole("tab", { name: "Comments", exact: true }),
   ).toBeVisible();
