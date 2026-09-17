@@ -280,11 +280,9 @@ if (workflow) {
       if?: string;
       strategy?: {
         "max-parallel"?: unknown;
-        matrix?:
-          | string
-          | {
-              include?: Array<{ project?: unknown }>;
-            };
+        matrix?: {
+          include?: Array<{ project?: unknown }>;
+        };
       };
     };
     const parsed = parse(workflow) as {
@@ -317,17 +315,9 @@ if (workflow) {
       );
     }
 
-    const authenticatedMatrix = jobs.authed?.strategy?.matrix;
-    const hasDynamicAuthenticatedMatrix =
-      typeof authenticatedMatrix === "string" &&
-      authenticatedMatrix.includes(
-        "fromJSON(needs.discover.outputs.authedMatrix)",
-      );
-    const authenticatedProjects = hasDynamicAuthenticatedMatrix
-      ? ["registry", "chat", "journeys", "design"]
-      : (typeof authenticatedMatrix === "object"
-          ? (authenticatedMatrix.include?.map((entry) => entry.project) ?? [])
-          : []);
+    const authenticatedProjects =
+      jobs.authed?.strategy?.matrix?.include?.map((entry) => entry.project) ??
+      [];
     const configuredProjects = new Set(
       [...config.matchAll(/\bname:\s*["']([^"']+)["']/g)].map(
         (match) => match[1],
