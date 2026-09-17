@@ -136,7 +136,49 @@ export interface ResponsiveInteractBarProps {
   /** Annotate is editor-only; commenters get Edit alone. */
   canAnnotate: boolean;
   onClose: () => void;
+  /**
+   * The docked (non-floating) bar sits in the canvas column, which is
+   * inset by the left rail's width via `paddingLeft`. A wide rail (e.g. the
+   * Code panel) plus a narrow window can squeeze that column so far that
+   * Close — the one control a stuck user is looking for — gets clipped by
+   * the column's `overflow-hidden` instead of just losing the device/zoom
+   * controls it sits next to. The caller renders `ResponsiveInteractExitButton`
+   * pinned outside that squeeze instead and sets this to `false` for the
+   * docked bar. The floating (minimal-UI) bar has no docked rail competing
+   * for width, so it keeps Close inline.
+   */
+  showClose?: boolean;
   className?: string;
+}
+
+/**
+ * The Close/Exit control on its own, styled to match its home inside
+ * ResponsiveInteractBar. Exported so a caller can pin it somewhere the
+ * docked bar's own horizontal squeeze can't reach — see `showClose` above.
+ */
+export function ResponsiveInteractExitButton({
+  onClose,
+  className,
+}: {
+  onClose: () => void;
+  className?: string;
+}) {
+  const t = useT();
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      onClick={onClose}
+      aria-label={t("designEditor.responsiveInteract.exit")}
+      className={cn(
+        "h-7 shrink-0 cursor-pointer gap-1.5 rounded-md px-2 !text-[12px] text-muted-foreground hover:text-foreground",
+        className,
+      )}
+    >
+      <IconX className="size-4" />
+      {t("designEditor.responsiveInteract.exit")}
+    </Button>
+  );
 }
 
 /**
@@ -157,6 +199,7 @@ export function ResponsiveInteractBar({
   onModeChange,
   canAnnotate,
   onClose,
+  showClose = true,
   className,
 }: ResponsiveInteractBarProps) {
   const t = useT();
@@ -357,24 +400,11 @@ export function ResponsiveInteractBar({
           </Popover>
         </div>
       </div>
-      <div className="flex shrink-0 items-center bg-[var(--design-editor-panel-bg)] pl-1">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={onClose}
-              aria-label={t("designEditor.responsiveInteract.exit")}
-              className="size-7 shrink-0 cursor-pointer rounded-md text-muted-foreground hover:text-foreground"
-            >
-              <IconX className="size-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">
-            {t("designEditor.responsiveInteract.exit")}
-          </TooltipContent>
-        </Tooltip>
-      </div>
+      {showClose ? (
+        <div className="flex shrink-0 items-center bg-[var(--design-editor-panel-bg)] pl-1">
+          <ResponsiveInteractExitButton onClose={onClose} />
+        </div>
+      ) : null}
     </div>
   );
 }

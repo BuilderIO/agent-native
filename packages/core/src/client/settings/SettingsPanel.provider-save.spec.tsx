@@ -495,6 +495,7 @@ describe("AgentSettingsContent provider save", () => {
       expect(fixture.providerSettingsRequests).toEqual([
         {
           key: "OPENAI_API_KEY",
+          scope: "org",
           ...(draft === "key"
             ? { value: "obviously-fake-provider-draft" }
             : {}),

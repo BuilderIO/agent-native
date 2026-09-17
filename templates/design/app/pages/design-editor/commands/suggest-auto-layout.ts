@@ -71,7 +71,12 @@ export function runSuggestAutoLayout({
     toast.error(t("designEditor.toasts.reactSourceAnchorsLoading"));
     return;
   }
-  const projection = buildCodeLayerProjection(sourceContent);
+  const projection = buildCodeLayerProjection(sourceContent, {
+    source:
+      sourceType === "localhost"
+        ? { kind: "inline-html", fileId: activeFile.id }
+        : { kind: "design-file", fileId: activeFile.id },
+  });
   const nodesById = new Map(projection.nodes.map((node) => [node.id, node]));
   const selectedIds = getActiveFileSelectedNodeIds(sourceContent);
   if (selectedIds.length !== 1) {

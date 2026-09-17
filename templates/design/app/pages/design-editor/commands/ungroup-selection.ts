@@ -13,7 +13,18 @@ import {
 import { buildActiveFileNodeIdSet } from "@/pages/design-editor/selection-state";
 import type { DesignFile } from "@/pages/design-editor/types";
 
+import type { ApplyLocalContentUpdateResult } from "./apply-local-content-update";
+import {
+  dispatchLinkedComponentStructure,
+  type ApplyLinkedComponentEdit,
+} from "./linked-component-structure";
+import {
+  mapAcceptedSelectionNode,
+  projectAcceptedSource,
+} from "./selection-publication";
+
 export interface UngroupSelectionArgs {
+  applyLinkedComponentEdit?: ApplyLinkedComponentEdit;
   activeFile: DesignFile;
   applyLocalContentUpdate: (
     nextContent: string,
@@ -28,7 +39,7 @@ export interface UngroupSelectionArgs {
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
     },
-  ) => void;
+  ) => ApplyLocalContentUpdateResult;
   canEditDesign: boolean;
   codeLayerOwnerByNodeIdRef: RefObject<
     Map<
@@ -59,6 +70,7 @@ export interface UngroupSelectionArgs {
 }
 
 export function runUngroupSelection({
+  applyLinkedComponentEdit,
   activeFile,
   applyLocalContentUpdate,
   canEditDesign,
@@ -81,17 +93,27 @@ export function runUngroupSelection({
     return;
   }
   const initialContent = getFreshActiveContent();
+  const source = { kind: "design-file" as const, fileId: activeFile.id };
   // Filter to active-file nodes only (mirrors handleGroupSelection fix).
   // A stale id from another file must not be passed to unwrap or it will
   // fail with "conflict" even though the actual selection is valid.
   const fileIds = new Set(files.map((f) => f.id));
   const activeNodeIdSet = buildActiveFileNodeIdSet(
-    buildCodeLayerProjection(initialContent),
+    buildCodeLayerProjection(initialContent, { source }),
   );
   const targetIds = selectedLayerIdsState.filter(
     (id) => !id.startsWith("__") && !fileIds.has(id) && activeNodeIdSet.has(id),
   );
   if (targetIds.length === 0) return;
+  if (
+    dispatchLinkedComponentStructure({
+      content: initialContent,
+      source,
+      intents: targetIds.map((targetId) => ({ kind: "unwrap", targetId })),
+      applyLinkedComponentEdit,
+    })
+  )
+    return;
 
   let content = initialContent;
   let anySucceeded = false;
@@ -101,7 +123,7 @@ export function runUngroupSelection({
     // Resolve the container's current child data-attribute ids from a
     // fresh projection of the running content so ids stay accurate across
     // multiple sequential unwraps in this same loop.
-    const runningProjection = buildCodeLayerProjection(content);
+    const runningProjection = buildCodeLayerProjection(content, { source });
     const containerNode = runningProjection.nodes.find(
       (n) =>
         n.dataAttributes["data-agent-native-node-id"] === targetId ||
@@ -117,10 +139,14 @@ export function runUngroupSelection({
       )
       .filter((attrId): attrId is string => Boolean(attrId));
 
-    const patch = applyVisualEdit(content, {
-      kind: "unwrap",
-      targetId,
-    });
+    const patch = applyVisualEdit(
+      content,
+      {
+        kind: "unwrap",
+        targetId,
+      },
+      { source },
+    );
     if (patch.result.status !== "applied") {
       lastFailureMessage = patch.result.message ?? lastFailureMessage;
       continue;
@@ -135,6 +161,7 @@ export function runUngroupSelection({
       codeLayerPatchMessage(
         lastFailureMessage,
         t("designEditor.toasts.layerMoveFailed"),
+        t,
       ),
       { duration: 4000 },
     );
@@ -145,18 +172,27 @@ export function runUngroupSelection({
       codeLayerPatchMessage(
         lastFailureMessage,
         t("designEditor.toasts.layerMoveFailed"),
+        t,
       ),
       { duration: 4000 },
     );
   }
 
-  applyLocalContentUpdate(content, { forcePreviewFullDocument: true });
-
-  const finalProjection = buildCodeLayerProjection(content);
-  const releasedNodes = finalProjection.nodes.filter((n) => {
+  const submittedProjection = buildCodeLayerProjection(content, { source });
+  const releasedNodeCandidates = submittedProjection.nodes.filter((n) => {
     const attrId = n.dataAttributes["data-agent-native-node-id"];
     return attrId ? releasedChildAttrIds.has(attrId) : false;
   });
+  const publication = applyLocalContentUpdate(content, {
+    forcePreviewFullDocument: true,
+  });
+  if (publication.status !== "accepted") return;
+  const acceptedProjection = projectAcceptedSource(publication, source);
+  const releasedNodes = releasedNodeCandidates
+    .map((node) =>
+      mapAcceptedSelectionNode(publication, acceptedProjection, node),
+    )
+    .filter((node): node is NonNullable<typeof node> => node !== null);
   if (releasedNodes.length > 0) {
     setSelectedLayerIdsState(releasedNodes.map((n) => n.id));
     const lastReleasedNode = releasedNodes[releasedNodes.length - 1];

@@ -304,6 +304,7 @@ export function Sidebar({
       collapsible={collapsible}
       onCollapsedChange={onCollapsedChange}
       brandName={APP_TITLE}
+      appId="factory"
       brandHref="/chat"
       secondaryItems={secondaryItems}
       feedback={feedbackButton}

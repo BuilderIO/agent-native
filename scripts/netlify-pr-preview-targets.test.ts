@@ -87,10 +87,6 @@ test("previews the docs site for app changes but skips prose and hidden template
     previewSitesForChangedPaths(["templates/brain/app.tsx"]),
     [],
   );
-  assert.deepEqual(
-    previewSitesForChangedPaths(["templates/macros/app.tsx"]),
-    [],
-  );
   assert.deepEqual(previewSitesForChangedPaths(["templates/crm/app.tsx"]), []);
   assert.deepEqual(
     previewSitesForChangedPaths(["templates/factory/app.tsx"]),
@@ -236,7 +232,6 @@ test("keeps hidden templates out of the shared preview fanout", () => {
     previewSitesForChangedPaths([
       "packages/core/src/index.ts",
       "templates/crm/app.tsx",
-      "templates/macros/app.tsx",
     ]),
     [
       "analytics",

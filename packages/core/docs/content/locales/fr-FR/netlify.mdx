@@ -25,9 +25,11 @@ alias propres à Chat.
 Pour une application autonome, construisez la sortie Netlify puis déployez les assets et les fonctions :
 
 ```bash
-NITRO_PRESET=netlify npx @agent-native/core@latest build
+NITRO_PRESET=netlify pnpm build
 npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
 ```
+
+Avant le premier déploiement en production, définissez `DATABASE_URL` et un `BETTER_AUTH_SECRET` stable dans les variables d’environnement du site Netlify. Ne vous fiez pas à la base PGlite locale ; `DATABASE_URL` doit pointer vers une base PostgreSQL persistante accessible par la fonction déployée.
 
 Pour un workspace, déployez chaque application depuis un seul site Netlify en exécutant :
 

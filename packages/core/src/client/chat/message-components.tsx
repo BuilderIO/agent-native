@@ -2259,6 +2259,7 @@ export function AssistantMessage() {
     assistantMessageWasUserStopped(msg) ||
     userStoppedRun(messageRunId, messageTurnId) ||
     (externalUserStopped && isLast);
+  const messageIsRunning = isLast && chatRunning && !isUserStoppedRun;
   const thinkingDisplay = useThinkingDisplay();
   const groupWorkParts = useCallback(
     (
@@ -2305,16 +2306,10 @@ export function AssistantMessage() {
     missingFinalResponseCandidate,
     isLast ? MISSING_FINAL_RESPONSE_SETTLE_MS : 0,
   );
-  const shouldShowUserStoppedNotice =
-    isUserStoppedRun && isLast && responseConnectionText.trim().length === 0;
-  const missingFinalResponseNoticeText = shouldShowUserStoppedNotice
-    ? t("agentChat.error.stopped")
-    : isUserStoppedRun
-      ? null
-      : (missingWarningText ??
-        (showMissingFinalResponse
-          ? t("agentChat.message.missingFinal")
-          : null));
+  const missingFinalResponseNoticeText = isUserStoppedRun
+    ? null
+    : (missingWarningText ??
+      (showMissingFinalResponse ? t("agentChat.message.missingFinal") : null));
   const animateMissingFinalResponse = Boolean(
     !isUserStoppedRun &&
     isLast &&
@@ -2602,7 +2597,7 @@ export function AssistantMessage() {
                           return assistantActivityItem(
                             workPart,
                             index,
-                            chatRunning &&
+                            messageIsRunning &&
                               itemIndex === part.indices.length - 1,
                           );
                         })
@@ -2610,7 +2605,7 @@ export function AssistantMessage() {
                           (item): item is AgentActivityItem => item !== null,
                         )}
                       activeSummary={t("agentChat.status.working")}
-                      running={chatRunning}
+                      running={messageIsRunning}
                       variant={hasCodeAgentTools ? "coding" : "steps"}
                       defaultOpen={hasCustomUi}
                     >
@@ -2632,13 +2627,7 @@ export function AssistantMessage() {
                     isUserStoppedRun &&
                     isMissingFinalResponseWarningText(part.text)
                   ) {
-                    return shouldShowUserStoppedNotice ? (
-                      <MissingFinalResponseNotice
-                        messageId={msg.id}
-                        text="Stopped"
-                        animate={false}
-                      />
-                    ) : null;
+                    return null;
                   }
                   if (
                     missingWarningText != null &&

@@ -144,6 +144,7 @@ export function withMeasuredGeometry(
         `iframe[data-design-preview-iframe][data-screen-iframe-id="${CSS.escape(screenId)}"]`,
       )
     : null;
+  if (screenId && !owning) return info;
   const frames = owning
     ? [owning]
     : Array.from(
@@ -161,20 +162,41 @@ export function withMeasuredGeometry(
     if (!node) continue;
     const box = node.getBoundingClientRect();
     if (box.width <= 0 && box.height <= 0) continue;
+    const parentBox = node.parentElement?.getBoundingClientRect();
+    const scrollX = frame.contentWindow?.scrollX ?? 0;
+    const scrollY = frame.contentWindow?.scrollY ?? 0;
     const computed = frame.contentWindow?.getComputedStyle(node);
     return {
       ...info,
       boundingRect: {
-        x: box.x,
-        y: box.y,
+        x: box.x + scrollX,
+        y: box.y + scrollY,
         width: box.width,
         height: box.height,
       },
+      parentBoundingRect: parentBox
+        ? {
+            x: parentBox.x + scrollX,
+            y: parentBox.y + scrollY,
+            width: parentBox.width,
+            height: parentBox.height,
+          }
+        : info.parentBoundingRect,
       computedStyles: computed
         ? {
+            color: computed.color,
+            fontFamily: computed.fontFamily,
+            fontSize: computed.fontSize,
+            fontStyle: computed.fontStyle,
+            fontWeight: computed.fontWeight,
+            letterSpacing: computed.letterSpacing,
+            lineHeight: computed.lineHeight,
+            textAlign: computed.textAlign,
+            textDecorationLine: computed.textDecorationLine,
+            textTransform: computed.textTransform,
+            ...info.computedStyles,
             width: computed.width,
             height: computed.height,
-            ...info.computedStyles,
           }
         : info.computedStyles,
     };

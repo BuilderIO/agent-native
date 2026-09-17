@@ -80,4 +80,37 @@ describe("Better Auth migrations", () => {
       'ON "user" (LOWER(email))',
     );
   });
+
+  it("adds the Better Auth 1.7 jwks key metadata columns", async () => {
+    const db = await createTestPglite();
+    await db.exec(`CREATE TABLE "jwks" (
+        id TEXT PRIMARY KEY,
+        public_key TEXT NOT NULL,
+        private_key TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        expires_at TIMESTAMPTZ
+      );
+      INSERT INTO "jwks" (id, public_key, private_key, created_at)
+        VALUES ('key-1', 'public', 'private', CURRENT_TIMESTAMP)`);
+    await db.exec(postgresSql("better-auth-jwks-alg-crv-columns"));
+    const columns = await db
+      .prepare(
+        "SELECT column_name FROM information_schema.columns WHERE table_name = 'jwks' ORDER BY ordinal_position",
+      )
+      .all();
+    expect(columns.map((column) => column.column_name)).toEqual([
+      "id",
+      "public_key",
+      "private_key",
+      "created_at",
+      "expires_at",
+      "alg",
+      "crv",
+    ]);
+    await expect(
+      db.prepare('SELECT alg, crv FROM "jwks" WHERE id = ?').get("key-1"),
+    ).resolves.toMatchObject({ alg: null, crv: null });
+    await db.exec(postgresSql("better-auth-jwks-alg-crv-columns"));
+    await db.close();
+  });
 });

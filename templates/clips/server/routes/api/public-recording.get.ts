@@ -406,6 +406,13 @@ export default defineEventHandler(async (event) => {
     accessToken: protectedMediaToken,
     appPath,
   });
+  const playbackAnimatedThumbnailUrl = rec.animatedThumbnailUrl
+    ? resolvePlayerThumbnailUrl(rec, {
+        accessToken: protectedMediaToken,
+        animated: true,
+        appPath,
+      })
+    : null;
 
   const canExposeAgentContext =
     (rec.visibility === "public" || tokenAllowsAgentAccess || viewerIsOwner) &&
@@ -481,7 +488,7 @@ export default defineEventHandler(async (event) => {
       title: rec.title,
       description: rec.description,
       thumbnailUrl: playbackThumbnailUrl,
-      animatedThumbnailUrl: rec.animatedThumbnailUrl,
+      animatedThumbnailUrl: playbackAnimatedThumbnailUrl,
       sourceAppName: rec.sourceAppName,
       durationMs: rec.durationMs,
       editsJson: rec.editsJson,

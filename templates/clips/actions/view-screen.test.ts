@@ -150,6 +150,7 @@ vi.mock("drizzle-orm", () => ({
   not: (value: unknown) => ({ kind: "not", value }),
   notInArray: (column: unknown, values: unknown) =>
     mockNotInArray(column, values),
+  sql: vi.fn(),
 }));
 
 vi.mock("../server/db/index.js", () => ({

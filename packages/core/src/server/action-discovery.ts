@@ -1,5 +1,6 @@
 import nodePath from "node:path";
 
+import "../authorization/check-action.js";
 /**
  * Auto-discover actions from a template's actions/ directory.
  *
@@ -213,6 +214,13 @@ function wrapDefaultExport(
 
 function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   const out: Partial<ActionEntry> = {};
+  if (
+    entry.access &&
+    typeof entry.access === "object" &&
+    !Array.isArray(entry.access)
+  ) {
+    out.access = entry.access;
+  }
   if (typeof entry.agentTool === "boolean") out.agentTool = entry.agentTool;
   if (typeof entry.mcpTool === "boolean") out.mcpTool = entry.mcpTool;
   if (typeof entry.deferLoading === "boolean") {
@@ -632,6 +640,32 @@ export async function mergeCoreSharingActions(
       "create-agent-resource-link",
       () => import("../sharing/actions/create-agent-resource-link.js"),
     ],
+    [
+      "list-app-member-roles",
+      () => import("../org/actions/list-app-member-roles.js"),
+    ],
+    [
+      "set-app-member-roles",
+      () => import("../org/actions/set-app-member-roles.js"),
+    ],
+    [
+      "list-app-permissions",
+      () => import("../org/actions/list-app-permissions.js"),
+    ],
+    [
+      "set-app-permission-roles",
+      () => import("../org/actions/set-app-permission-roles.js"),
+    ],
+    [
+      "list-workspace-app-access",
+      () => import("../org/actions/list-workspace-app-access.js"),
+    ],
+    [
+      "set-workspace-app-access",
+      () => import("../org/actions/set-workspace-app-access.js"),
+    ],
+    ["explain-access", () => import("../org/actions/explain-access.js")],
+    ["offboard-member", () => import("../org/actions/offboard-member.js")],
     ["upload-image", () => import("../file-upload/actions/upload-image.js")],
     [
       "list-workspace-user-groups",
@@ -860,8 +894,16 @@ export async function mergeCoreSharingActions(
       () => import("../review/actions/resolve-review-thread.js"),
     ],
     [
+      "update-review-comment-anchor",
+      () => import("../review/actions/update-review-comment-anchor.js"),
+    ],
+    [
       "delete-review-comment",
       () => import("../review/actions/delete-review-comment.js"),
+    ],
+    [
+      "update-review-comment",
+      () => import("../review/actions/update-review-comment.js"),
     ],
     [
       "consume-review-feedback",
@@ -886,6 +928,10 @@ export async function mergeCoreSharingActions(
     [
       "set-review-thread-unread",
       () => import("../review/actions/set-review-thread-unread.js"),
+    ],
+    [
+      "set-review-threads-unread",
+      () => import("../review/actions/set-review-threads-unread.js"),
     ],
     [
       "set-review-thread-muted",

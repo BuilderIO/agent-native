@@ -42,6 +42,13 @@ export default defineEventHandler(async (event) => {
   }
 
   setResponseHeader(event, "Content-Type", mimeType);
+  if (mimeType === "image/svg+xml") {
+    setResponseHeader(
+      event,
+      "Content-Security-Policy",
+      "default-src 'none'; script-src 'none'; object-src 'none'; base-uri 'none'; sandbox",
+    );
+  }
   setResponseHeader(
     event,
     "Cache-Control",

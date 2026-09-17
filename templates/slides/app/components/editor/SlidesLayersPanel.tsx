@@ -75,7 +75,7 @@ function LayerRowIndentSlots({
   return (
     <span
       data-layer-row-indents
-      className="flex h-full shrink-0"
+      className="flex h-full shrink-0 items-center"
       aria-hidden={control ? undefined : true}
     >
       {Array.from({ length: depth + 1 }, (_, index) => (

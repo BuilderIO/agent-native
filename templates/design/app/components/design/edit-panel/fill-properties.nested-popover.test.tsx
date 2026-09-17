@@ -32,6 +32,7 @@
  */
 
 import { act } from "react";
+import { useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -55,7 +56,12 @@ vi.mock("./field-primitives", async (importOriginal) => {
 });
 
 import type { ElementInfo } from "../types";
+import { parseGradientLayer, splitCssLayers } from "./fill-gradient-helpers";
 import { FillProperties } from "./fill-properties";
+import type {
+  StyleChangeHandler,
+  StylesChangeHandler,
+} from "./style-change-types";
 
 function element(overrides: Partial<ElementInfo> = {}): ElementInfo {
   return {
@@ -85,6 +91,38 @@ function gradientLayerElement(backgroundImage = GRADIENT_LAYER): ElementInfo {
       backgroundPosition: "",
     },
   });
+}
+
+function StatefulSolidFill({
+  onStyleChange,
+  onStylesChange,
+  initialStyles = {},
+}: {
+  onStyleChange: StyleChangeHandler;
+  onStylesChange: StylesChangeHandler;
+  initialStyles?: Record<string, string>;
+}) {
+  const [computedStyles, setComputedStyles] = useState({
+    backgroundColor: "rgb(255, 0, 0)",
+    backgroundImage: "none",
+    backgroundSize: "",
+    backgroundRepeat: "",
+    backgroundPosition: "",
+    ...initialStyles,
+  });
+  return (
+    <FillProperties
+      element={element({ computedStyles })}
+      onStyleChange={(property, value, meta) => {
+        onStyleChange(property, value, meta);
+        setComputedStyles((current) => ({ ...current, [property]: value }));
+      }}
+      onStylesChange={(patch, meta) => {
+        onStylesChange(patch, meta);
+        setComputedStyles((current) => ({ ...current, ...patch }));
+      }}
+    />
+  );
 }
 
 function findButtonByText(
@@ -137,6 +175,428 @@ afterEach(() => {
 });
 
 describe("FillProperties — existing layer fill popover", () => {
+  it("distinguishes zero-opacity, hidden, and removed base paints", () => {
+    const onStyleChange = vi.fn();
+    const renderPaint = (authored: string) =>
+      act(() =>
+        root.render(
+          <FillProperties
+            element={element({
+              computedStyles: { backgroundColor: "rgba(0, 0, 0, 0)" },
+              inlineStyles: { backgroundColor: authored },
+            })}
+            onStyleChange={onStyleChange}
+          />,
+        ),
+      );
+    renderPaint("rgba(0, 0, 0, 0)");
+    expect(
+      container.querySelector('[aria-label="editPanel.labels.hideLayer"]'),
+    ).not.toBeNull();
+    renderPaint("color-mix(in srgb, rgba(0, 0, 0, 0.5) 0%, transparent)");
+    const show = container.querySelector<HTMLButtonElement>(
+      '[aria-label="editPanel.labels.showLayer"]',
+    );
+    expect(show).not.toBeNull();
+    act(() => show!.click());
+    expect(onStyleChange).toHaveBeenCalledWith(
+      "backgroundColor",
+      "rgba(0, 0, 0, 0.5)",
+    );
+    renderPaint("transparent");
+    expect(
+      container.querySelector('[aria-label="editPanel.labels.hideLayer"]'),
+    ).toBeNull();
+  });
+
+  it("can hide Add fill without hiding other fill-section actions", () => {
+    act(() => {
+      root.render(
+        <FillProperties
+          element={element({ computedStyles: { color: "#ff0000" } })}
+          onStyleChange={vi.fn()}
+          hideAddFill
+        />,
+      );
+    });
+
+    expect(
+      container.querySelector('button[aria-label="editPanel.labels.addFill"]'),
+    ).toBeNull();
+    expect(
+      container.querySelector(
+        'button[aria-label="editPanel.labels.stylesComingSoon"]',
+      ),
+    ).not.toBeNull();
+  });
+
+  it("keeps the picker open and commits solid-to-gradient as one patch", () => {
+    const onStyleChange = vi.fn();
+    const onStylesChange = vi.fn();
+    act(() => {
+      root.render(
+        <StatefulSolidFill
+          onStyleChange={onStyleChange}
+          onStylesChange={onStylesChange}
+        />,
+      );
+    });
+
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="Open color picker"]',
+        )!
+        .click();
+    });
+    expect(gradientStopsBar()).toBeNull();
+
+    act(() => {
+      document
+        .querySelector<HTMLButtonElement>('[aria-label="Linear"]')!
+        .click();
+    });
+
+    expect(gradientStopsBar()).not.toBeNull();
+    expect(onStyleChange).not.toHaveBeenCalled();
+    expect(onStylesChange).toHaveBeenCalledTimes(1);
+    expect(onStylesChange).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        backgroundColor: "transparent",
+        backgroundImage: expect.stringContaining("linear-gradient"),
+      }),
+      undefined,
+    );
+  });
+
+  it("converts the base solid below image and gradient siblings", () => {
+    const onStyleChange = vi.fn();
+    const onStylesChange = vi.fn();
+    const imageLayer = "url(https://example.test/image.png)";
+    const siblingGradient = RADIAL_LAYER;
+    act(() => {
+      root.render(
+        <StatefulSolidFill
+          onStyleChange={onStyleChange}
+          onStylesChange={onStylesChange}
+          initialStyles={{
+            backgroundColor: "#ff0000",
+            backgroundImage: [imageLayer, siblingGradient].join(", "),
+            backgroundSize: "cover, 24px 24px",
+            backgroundRepeat: "no-repeat, repeat-x",
+            backgroundPosition: "center, 30% 40%",
+          }}
+        />,
+      );
+    });
+
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="Open color picker"]',
+        )!
+        .click();
+    });
+    act(() => {
+      document
+        .querySelector<HTMLButtonElement>('[aria-label="Linear"]')!
+        .click();
+    });
+
+    expect(onStyleChange).not.toHaveBeenCalled();
+    expect(onStylesChange).toHaveBeenCalledTimes(1);
+    const patch = onStylesChange.mock.calls[0][0] as Record<string, string>;
+    const images = splitCssLayers(patch.backgroundImage);
+    expect(patch).toEqual({
+      backgroundColor: "transparent",
+      backgroundImage: expect.any(String),
+      backgroundSize: "cover, 24px 24px, auto",
+      backgroundRepeat: "no-repeat, repeat-x, no-repeat",
+      backgroundPosition: "center, 30% 40%, 0% 0%",
+    });
+    expect(images).toHaveLength(3);
+    expect(images[0]).toBe(imageLayer);
+    expect(images[1]).toBe(siblingGradient);
+    expect(parseGradientLayer(images[2])?.stops[0].color).toBe("#ff0000");
+    expect(gradientStopsBar()).not.toBeNull();
+    expect(findButtonByText(container, "Radial gradient 2")).not.toBeNull();
+  });
+
+  it("converts a top gradient to a solid layer without changing its paint order", () => {
+    const onStyleChange = vi.fn();
+    const onStylesChange = vi.fn();
+    act(() => {
+      root.render(
+        <StatefulSolidFill
+          onStyleChange={onStyleChange}
+          onStylesChange={onStylesChange}
+          initialStyles={{
+            backgroundColor: "#123456",
+            backgroundImage: [GRADIENT_LAYER, RADIAL_LAYER].join(", "),
+            backgroundSize: "24px 24px, cover",
+            backgroundRepeat: "no-repeat, repeat-x",
+            backgroundPosition: "10% 20%, 30% 40%",
+          }}
+        />,
+      );
+    });
+
+    act(() => findButtonByText(container, "Linear gradient 1")!.click());
+    expect(gradientStopsBar()).not.toBeNull();
+    act(() => {
+      document
+        .querySelector<HTMLButtonElement>('[aria-label="Solid"]')!
+        .click();
+    });
+
+    expect(gradientStopsBar()).toBeNull();
+    expect(document.querySelector('input[aria-label="Hex"]')).not.toBeNull();
+    expect(onStylesChange).not.toHaveBeenCalled();
+    expect(onStyleChange).toHaveBeenCalledTimes(1);
+    expect(onStyleChange).toHaveBeenCalledWith(
+      "backgroundImage",
+      ["linear-gradient(#ff0000 0 0)", RADIAL_LAYER].join(", "),
+      undefined,
+    );
+    expect(findButtonByText(container, "#ff0000")).not.toBeNull();
+    expect(findButtonByText(container, "Radial gradient 2")).not.toBeNull();
+  });
+
+  it("preserves a gradient's first-stop opacity and stops when switching back in the open picker", () => {
+    const onStyleChange = vi.fn();
+    const onStylesChange = vi.fn();
+    const originalGradient =
+      "linear-gradient(90deg, rgba(204, 51, 102, 0.2) 0%, rgba(51, 102, 204, 0.2) 100%)";
+    act(() => {
+      root.render(
+        <StatefulSolidFill
+          onStyleChange={onStyleChange}
+          onStylesChange={onStylesChange}
+          initialStyles={{
+            backgroundColor: "#123456",
+            backgroundImage: originalGradient,
+          }}
+        />,
+      );
+    });
+
+    act(() => findButtonByText(container, "Linear gradient 1")!.click());
+    act(() => {
+      document
+        .querySelector<HTMLButtonElement>('[aria-label="Solid"]')!
+        .click();
+    });
+
+    const solidTrigger = findButtonByText(container, "#cc3366");
+    expect(solidTrigger?.textContent).toContain("20%");
+    expect(onStyleChange).toHaveBeenLastCalledWith(
+      "backgroundImage",
+      "linear-gradient(rgba(204, 51, 102, 0.2) 0 0)",
+      undefined,
+    );
+
+    act(() => {
+      document
+        .querySelector<HTMLButtonElement>('[aria-label="Linear"]')!
+        .click();
+    });
+
+    expect(gradientStopsBar()).not.toBeNull();
+    expect(onStyleChange).toHaveBeenLastCalledWith(
+      "backgroundImage",
+      originalGradient,
+      undefined,
+    );
+  });
+
+  it("edits the selected stop alpha without averaging away an asymmetric sibling", () => {
+    const onStyleChange = vi.fn();
+    const onStylesChange = vi.fn();
+    act(() => {
+      root.render(
+        <StatefulSolidFill
+          onStyleChange={onStyleChange}
+          onStylesChange={onStylesChange}
+          initialStyles={{
+            backgroundColor: "rgba(0, 0, 0, 0)",
+            backgroundImage:
+              "linear-gradient(90deg, #cc3366 0%, rgba(51, 102, 204, 0) 100%)",
+          }}
+        />,
+      );
+    });
+
+    act(() => findButtonByText(container, "Linear gradient 1")!.click());
+    const opacity = document.querySelector<HTMLElement>(
+      '[role="slider"][aria-label="Opacity"]',
+    )!;
+    expect(opacity.getAttribute("aria-valuenow")).toBe("100");
+    act(() => {
+      opacity.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Home", bubbles: true }),
+      );
+    });
+    act(() => {
+      opacity.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "ArrowUp",
+          shiftKey: true,
+          bubbles: true,
+        }),
+      );
+    });
+    act(() => {
+      opacity.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "ArrowUp",
+          shiftKey: true,
+          bubbles: true,
+        }),
+      );
+    });
+    const lastTwentyCall =
+      onStyleChange.mock.calls[onStyleChange.mock.calls.length - 1];
+    const atTwenty = parseGradientLayer(lastTwentyCall?.[1] as string);
+    expect(atTwenty?.stops.map((stop) => stop.opacity)).toEqual([20, 0]);
+
+    act(() => {
+      opacity.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "End", bubbles: true }),
+      );
+    });
+    const lastRestoredCall =
+      onStyleChange.mock.calls[onStyleChange.mock.calls.length - 1];
+    const restored = parseGradientLayer(lastRestoredCall?.[1] as string);
+    expect(restored?.stops.map((stop) => stop.opacity)).toEqual([100, 0]);
+  });
+
+  it("keeps ordinary uniform two-stop gradients classified as gradients", () => {
+    act(() => {
+      root.render(
+        <StatefulSolidFill
+          onStyleChange={vi.fn()}
+          onStylesChange={vi.fn()}
+          initialStyles={{
+            backgroundColor: "rgba(0, 0, 0, 0)",
+            backgroundImage: "linear-gradient(90deg, #ff0000 0%, #ff0000 100%)",
+          }}
+        />,
+      );
+    });
+
+    expect(findButtonByText(container, "Linear gradient 1")).not.toBeNull();
+    expect(findButtonByText(container, "Solid 1")).toBeNull();
+  });
+
+  it("removes only the chosen fill for None and closes its picker", () => {
+    const onStyleChange = vi.fn();
+    const onStylesChange = vi.fn();
+    act(() => {
+      root.render(
+        <StatefulSolidFill
+          onStyleChange={onStyleChange}
+          onStylesChange={onStylesChange}
+          initialStyles={{
+            backgroundColor: "rgba(0, 0, 0, 0)",
+            backgroundImage: [GRADIENT_LAYER, RADIAL_LAYER].join(", "),
+            backgroundSize: "24px 24px, cover",
+            backgroundRepeat: "no-repeat, repeat-x",
+            backgroundPosition: "10% 20%, 30% 40%",
+          }}
+        />,
+      );
+    });
+
+    act(() => findButtonByText(container, "Linear gradient 1")!.click());
+    expect(gradientStopsBar()).not.toBeNull();
+    act(() => {
+      document.querySelector<HTMLButtonElement>('[aria-label="None"]')!.click();
+    });
+
+    expect(gradientStopsBar()).toBeNull();
+    expect(onStyleChange).not.toHaveBeenCalled();
+    expect(onStylesChange).toHaveBeenCalledTimes(1);
+    expect(onStylesChange).toHaveBeenCalledWith(
+      {
+        backgroundImage: RADIAL_LAYER,
+        backgroundSize: "cover",
+        backgroundRepeat: "repeat-x",
+        backgroundPosition: "30% 40%",
+      },
+      undefined,
+    );
+    expect(findButtonByText(container, "Radial gradient 1")).not.toBeNull();
+  });
+
+  it("closes the converted layer picker when that layer is removed", () => {
+    const onStyleChange = vi.fn();
+    const onStylesChange = vi.fn();
+    act(() => {
+      root.render(
+        <StatefulSolidFill
+          onStyleChange={onStyleChange}
+          onStylesChange={onStylesChange}
+          initialStyles={{ backgroundImage: GRADIENT_LAYER }}
+        />,
+      );
+    });
+
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="Open color picker"]',
+        )!
+        .click();
+    });
+    act(() => {
+      document
+        .querySelector<HTMLButtonElement>('[aria-label="Linear"]')!
+        .click();
+    });
+    expect(gradientStopsBar()).not.toBeNull();
+    const conversionPatch =
+      onStylesChange.mock.calls[onStylesChange.mock.calls.length - 1]?.[0];
+    expect(conversionPatch?.backgroundColor).toBe("transparent");
+    const convertedLayers = splitCssLayers(
+      conversionPatch?.backgroundImage ?? "",
+    );
+    expect(convertedLayers).toHaveLength(2);
+    expect(convertedLayers[0]).toBe(GRADIENT_LAYER);
+    expect(findButtonByText(container, "Linear gradient 1")).not.toBeNull();
+    expect(findButtonByText(container, "Linear gradient 2")).not.toBeNull();
+    expect(
+      container.querySelectorAll('[aria-label="editPanel.labels.removeLayer"]'),
+    ).toHaveLength(2);
+
+    const convertedGradientRow = Array.from(
+      container.querySelectorAll<HTMLElement>(
+        '[data-inspector-action-rail="fixed"]',
+      ),
+    ).find((row) => findButtonByText(row, "Linear gradient 2") !== null);
+    if (!convertedGradientRow) {
+      throw new Error("Converted gradient row did not render");
+    }
+    const removeConvertedGradient =
+      convertedGradientRow.querySelector<HTMLButtonElement>(
+        '[aria-label="editPanel.labels.removeLayer"]',
+      );
+    if (!removeConvertedGradient) {
+      throw new Error("Converted gradient row has no remove action");
+    }
+    act(() => {
+      removeConvertedGradient.click();
+    });
+
+    expect(gradientStopsBar()).toBeNull();
+    expect(findButtonByText(container, "Linear gradient 1")).not.toBeNull();
+    expect(findButtonByText(container, "Linear gradient 2")).toBeNull();
+    expect(
+      onStylesChange.mock.calls[onStylesChange.mock.calls.length - 1]?.[0]
+        .backgroundImage,
+    ).toBe(GRADIENT_LAYER);
+  });
+
   it("opens the real gradient editor on the first click (no duplicate/phantom popover)", () => {
     act(() => {
       root.render(
@@ -235,6 +695,7 @@ describe("FillProperties — existing layer fill popover", () => {
     expect(onStyleChange).toHaveBeenCalledWith(
       "backgroundImage",
       expect.stringContaining("radial-gradient"),
+      undefined,
     );
     // The row previously remounted (content-derived key) or closed (nested
     // popover dismissal) the instant this commit landed.
@@ -277,7 +738,7 @@ describe("FillProperties — existing layer fill popover", () => {
     expect(gradientStopsBar()).not.toBeNull();
   });
 
-  it("does not show the Solid or None tabs on an existing layer's picker", () => {
+  it("shows solid and none tabs on an existing layer's picker", () => {
     act(() => {
       root.render(
         <FillProperties
@@ -293,14 +754,9 @@ describe("FillProperties — existing layer fill popover", () => {
     });
     expect(gradientStopsBar()).not.toBeNull();
 
-    // Both routed through DesignColorPicker's solid-only `emitColor`/
-    // `onChange` path, which this row wires to a gradient-stop-color patch
-    // — clicking either silently discarded the click instead of doing
-    // anything coherent (reported as "switching to solid closes the popup
-    // and the change isn't reflected").
-    expect(document.querySelector('[aria-label="Solid"]')).toBeNull();
-    expect(document.querySelector('[aria-label="None"]')).toBeNull();
-    // Sanity check: other structurally-supported tabs are still present.
+    expect(document.querySelector('[aria-label="Solid"]')).not.toBeNull();
+    expect(document.querySelector('[aria-label="None"]')).not.toBeNull();
+    // Other supported tabs remain available alongside the conversion tabs.
     expect(document.querySelector('[aria-label="Radial"]')).not.toBeNull();
     expect(document.querySelector('[aria-label="Image"]')).not.toBeNull();
   });
@@ -324,9 +780,24 @@ describe("FillProperties — existing layer fill popover", () => {
     const removeButtons = document.querySelectorAll(
       '[aria-label="editPanel.labels.removeLayer"]',
     );
-    expect(removeButtons.length).toBe(3);
+    expect(removeButtons.length).toBe(2);
+    const activeGradientRow = Array.from(
+      container.querySelectorAll<HTMLElement>(
+        '[data-inspector-action-rail="fixed"]',
+      ),
+    ).find((row) => findButtonByText(row, "Linear gradient 1") !== null);
+    if (!activeGradientRow) {
+      throw new Error("Active gradient row did not render");
+    }
+    const removeActiveGradient =
+      activeGradientRow.querySelector<HTMLButtonElement>(
+        '[aria-label="editPanel.labels.removeLayer"]',
+      );
+    if (!removeActiveGradient) {
+      throw new Error("Active gradient row has no remove action");
+    }
     act(() => {
-      (removeButtons[1] as HTMLButtonElement).click();
+      removeActiveGradient.click();
     });
 
     act(() => {
@@ -454,9 +925,7 @@ describe("FillProperties — existing layer fill popover", () => {
 
     renderBox();
     expect(gradientStopsBar()).not.toBeNull();
-    expect(
-      container.querySelector('button[aria-label="Open color picker"]'),
-    ).not.toBeNull();
+    expect(findButtonByText(container, "Linear gradient 1")).not.toBeNull();
 
     act(() => root.unmount());
     root = createRoot(container);

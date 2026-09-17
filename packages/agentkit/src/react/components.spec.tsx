@@ -224,7 +224,10 @@ describe("AgentKitChat", () => {
       /@media \(max-width: 40rem\)[\s\S]*\[data-agent-composer-slot="area"\][\s\S]*padding-inline: 0;/,
     );
     expect(styles).toMatch(
-      /\[data-agent-composer-slot="model-button"\] \{[\s\S]*max-inline-size: none;/,
+      /\[data-agent-composer-slot="model-button"\] \{[\s\S]*max-inline-size: 11rem;/,
+    );
+    expect(styles).toMatch(
+      /\[data-agent-composer-slot="mode-button"\] \{[\s\S]*min-inline-size: 3\.5rem;/,
     );
     expect(styles).toMatch(
       /@media \(max-width: 40rem\)[\s\S]*\[data-agent-composer-slot="model-button"\][\s\S]*max-inline-size: 7\.5rem;/,
@@ -232,6 +235,10 @@ describe("AgentKitChat", () => {
     expect(styles).toMatch(
       /@media \(max-width: 40rem\)[\s\S]*\.agent-composer-model-effort[\s\S]*display: none;/,
     );
+    const composerPopoverRule = styles.match(
+      /\[data-agent-native-composer-popover="true"\] \{([^}]*)\}/,
+    )?.[1];
+    expect(composerPopoverRule).not.toContain("position: fixed");
     expect(styles).toContain("var(--agent-kit-recessed-surface, Canvas)");
     expect(styles).toContain("var(--agent-kit-raised-surface,");
     expect(styles).toContain("var(--agent-kit-text, CanvasText)");

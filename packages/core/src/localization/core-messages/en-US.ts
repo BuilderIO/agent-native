@@ -68,15 +68,31 @@ const messages = {
     "Creating or reusing your Builder.io account. This usually takes a few seconds.",
   "onboarding.builderConnectionDescription":
     "Finish the one-click connection in the new window.",
+  "onboarding.builderReadyWithCodeChanges":
+    "AI credits and cloud code changes are ready to use.",
+  "onboarding.builderReadyCreditsOnly":
+    "AI credits are ready to use. Cloud code edits require a Builder project in Background Agent settings.",
+  "onboarding.openBackgroundAgentSettings": "Open Background Agent settings",
   "onboarding.capability.llm.keySummary":
     "Connect an AI provider or local model",
   "onboarding.capability.fileStorage.keySummary":
     "Builder storage or an S3-compatible bucket",
+  "onboarding.fileStorage.title": "Choose file storage",
+  "onboarding.fileStorage.description":
+    "Choose Builder.io for managed file storage, or use custom storage keys for your own S3-compatible bucket.",
+  "onboarding.fileStorage.custom": "Use custom storage keys",
+  "onboarding.fileStorage.customDescription":
+    "Configure an S3-compatible bucket with a stable public URL.",
   "onboarding.capability.voiceInput.label": "Voice input",
   "onboarding.capability.voiceInput.keySummary":
     "Browser speech recognition or speech-to-text",
   "onboarding.capability.voiceInput.why":
     "Voice input turns spoken requests into text; typing always works without it.",
+  "onboarding.capability.embeddings.label": "Embeddings",
+  "onboarding.capability.embeddings.keySummary":
+    "Gemini, Cohere, or Voyage key",
+  "onboarding.capability.embeddings.why":
+    "Embeddings improve semantic search. Keyword search still works without them.",
   "onboarding.capability.assetsImageGeneration.label": "Image generation",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Builder credits or an image provider key",
@@ -105,6 +121,14 @@ const messages = {
   "common.agent": "Agent",
   "agentPanel.mode": "Mode",
   "agentPanel.uiMode": "UI",
+  "agentPanel.keyScope": "Key scope",
+  "agentPanel.personalKeyScope": "Personal",
+  "agentPanel.organizationKeyScope": "Organization",
+  "agentPanel.personalKeyInEffect": "Your personal key is in effect.",
+  "agentPanel.organizationKeyInEffect": "Organization key is in effect.",
+  "agentPanel.sharedKeyInEffect": "A shared key is in effect.",
+  "agentPanel.useOrganizationKey": "Use organization key",
+  "agentPanel.keyStatusUnavailable": "Key status is unavailable.",
   "agentHostNudge.sidebarTitle": "Use {{agent}}'s chat",
   "agentHostNudge.sidebarDescription":
     "You're already chatting with {{agent}}. Ask it to work with this app directly.",
@@ -127,6 +151,59 @@ const messages = {
   "common.no": "No",
   "common.retry": "Retry",
   "common.save": "Save",
+  "agents.hostedAgent": "Hosted agent",
+  "agents.provider": "Provider",
+  "agents.providerA2A": "A2A (Foundry, Gemini, or custom)",
+  "agents.providerAnthropic": "Anthropic Managed Agents",
+  "agents.agentId": "Agent ID",
+  "agents.agentIdPlaceholder": "agent_...",
+  "agents.environmentId": "Environment ID",
+  "agents.environmentIdPlaceholder": "env_...",
+  "agents.apiBaseUrl": "API base URL (optional)",
+  "agents.apiBaseUrlPlaceholder": "https://api.anthropic.com",
+  "agents.managedAgentIncomplete":
+    "Complete the Anthropic Managed Agents fields.",
+  "agents.managedAgentCheck":
+    "Connection is checked when you delegate from chat.",
+  "agents.managedAgentSaved":
+    "Anthropic Managed Agent saved. Delegate to it from chat.",
+  "agents.cardUrl": "Agent card URL",
+  "agents.cardUrlPlaceholder": "https://host.example/agent-card.json",
+  "agents.authType": "Authentication",
+  "agents.authNone": "No authentication",
+  "agents.authBearer": "Bearer token",
+  "agents.authClientCredentials": "OAuth client credentials",
+  "agents.chooseCredential": "Choose credential",
+  "agents.vault": "Vault",
+  "agents.tokenUrl": "Token URL",
+  "agents.clientId": "Client ID",
+  "agents.scope": "Scope",
+  "agents.authIncomplete": "Complete the hosted agent authentication fields.",
+  "agents.invalidUrl":
+    "Use HTTPS for agent URLs, except for localhost or loopback development URLs.",
+  "agents.statusReachable": "Reachable",
+  "agents.statusAuthRejected": "Auth rejected",
+  "agents.statusNoJsonRpc": "No JSON-RPC",
+  "agents.directoryTab": "Agent directory",
+  "agents.directoryPageHint":
+    "Find an agent backend and connect it to your workspace.",
+  "agents.directorySearch": "Search providers",
+  "agents.directoryProviders": "Providers",
+  "agents.directoryManual": "Add by URL",
+  "agents.directoryA2A": "A2A",
+  "agents.directoryManaged": "Managed API",
+  "agents.directoryFoundry": "Microsoft Foundry",
+  "agents.directoryFoundryHint": "Connect a Foundry agent over A2A.",
+  "agents.directoryGemini": "Gemini Enterprise",
+  "agents.directoryGeminiHint": "Connect a Gemini Enterprise agent over A2A.",
+  "agents.directoryAnthropic": "Anthropic Managed Agents",
+  "agents.directoryAnthropicHint":
+    "Connect sessions and approvals from Anthropic.",
+  "agents.directoryNoMatches": "No providers match your search.",
+  "agents.directoryRegistry": "Global A2A Registry",
+  "agents.directoryRegistryHint":
+    "Browse public Agent Cards, then verify before connecting.",
+  "agents.directoryBrowse": "Browse registry",
   "common.saveFailed": "Save failed",
   "common.saveFailedStatus": "Save failed ({{status}})",
   "common.saving": "Saving...",
@@ -358,6 +435,8 @@ const messages = {
   "error.stopped": "The agent stopped before finishing",
   "errorMessages.agentConnection":
     "The agent connection was interrupted. Check your connection and retry.",
+  "errorMessages.attachmentPasswordProtected":
+    "This PDF is password-protected, so it can't be read. Remove the password protection or paste the relevant text, then retry.",
   "errorMessages.builderAuthentication":
     "Builder rejected the connected credentials. Reconnect Builder.io in Settings, then retry.",
   "errorMessages.builderModelUnauthorized":
@@ -372,6 +451,10 @@ const messages = {
     "The agent connection timed out before it could finish. You can continue from the partial work or retry.",
   "errorMessages.invalidToolSchema":
     "A tool schema was invalid, so the model rejected the request before it started. The invalid tool can be skipped and the request retried.",
+  "errorMessages.malformedRequest":
+    "The model provider rejected this request as malformed, so it was not retried. Retry, or start a new chat if it keeps happening.",
+  "errorMessages.malformedRequestAttachment":
+    "The model rejected an attached file, so this message was never sent. Remove the attachment and retry — a PDF, a plain-text file, or a JPEG, PNG, GIF, or WebP image is read directly; other formats have to be uploaded and linked instead.",
   "errorMessages.noProviderConnected":
     "No LLM provider is connected. Open Settings > Agent > AI providers, then connect Builder.io (free tier available) or add a provider key.",
   "errorMessages.openBuilderSpaceSettings": "Open Builder space settings",
@@ -705,6 +788,7 @@ const messages = {
   "widget.dataInsights": "Data insights",
   "widget.dataTable": "Data table",
   "widget.downloadCsv": "Download CSV",
+  "widget.connectProvider": "Connect {{provider}}",
   "widget.loadingToolResult": "Loading tool result",
   "widget.noRows": "No rows",
   "widget.points": "{{formattedCount}} points",
@@ -714,6 +798,14 @@ const messages = {
   "widget.rows_one": "{{formattedCount}} row",
   "widget.rows_other": "{{formattedCount}} rows",
   "widget.sampled": "sampled",
+  "settings.emailTitle": "Email",
+  "settings.emailChange": "Change email",
+  "settings.emailChanging": "Sending...",
+  "settings.emailChangeSent":
+    "Check your email for instructions to confirm this change.",
+  "settings.emailChangeError": "Could not send confirmation.",
+  "settings.emailNewLabel": "New email",
+  "settings.emailNewPlaceholder": "Enter new email",
 } as const;
 
 export default messages;

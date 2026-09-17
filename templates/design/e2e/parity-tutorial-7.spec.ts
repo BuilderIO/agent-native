@@ -601,11 +601,11 @@ test.describe("tutorial 7 — card and container system", () => {
       .poll(
         async () => {
           names = await visibleLayerNames(page);
-          return names.length;
+          return names.some((name) => !rootNames.includes(name));
         },
         { timeout: 10_000, message: "Shift+A produced no new wrapper row" },
       )
-      .toBeGreaterThan(rootNames.length);
+      .toBe(true);
     // Diff against the rows visible BEFORE the wrap (which already include
     // the screen's own root row) rather than a hardcoded exclude list — a
     // hardcoded list wrongly treats the pre-existing root as "new" once the

@@ -704,39 +704,6 @@
   color: hsl(var(--foreground, 0 0% 90%));
 }
 
-/* Streaming caret appended after last non-code paragraph while text is live. */
-.agent-markdown[data-streaming="true"]
-  > :last-child:not(pre):not(table):not(.agent-markdown-table-wrap)::after {
-  content: "";
-  display: inline-block;
-  width: 0.42em;
-  height: 1em;
-  margin-inline-start: 0.12em;
-  border-radius: 999px;
-  background: currentColor;
-  opacity: 0.35;
-  transform: translateY(0.16em);
-  animation: agent-markdown-stream-caret 1.15s ease-in-out infinite;
-}
-
-@keyframes agent-markdown-stream-caret {
-  0%,
-  100% {
-    opacity: 0.2;
-  }
-  50% {
-    opacity: 0.58;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .agent-markdown[data-streaming="true"]
-    > :last-child:not(pre):not(table):not(.agent-markdown-table-wrap)::after {
-    animation: none;
-    opacity: 0.28;
-  }
-}
-
 /* Shiki-highlighted code blocks inside agent-markdown replies. */
 .agent-markdown-shiki {
   margin: 0.5em 0;

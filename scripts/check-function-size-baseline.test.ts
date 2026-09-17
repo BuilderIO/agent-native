@@ -138,4 +138,19 @@ describe("serverless function size baseline", () => {
     assert.equal(checked.status, 1, checked.output);
     assert.match(checked.output, /function payload grew/);
   });
+
+  it("warns when a function falls more than 3MB below its baseline", () => {
+    const root = workspace();
+    const baselineFile = path.join(root, "baseline.json");
+    const before = build(root, "before");
+    emitFunction(before, "server", 8 * MB);
+    assert.equal(runGuard(before, baselineFile, ["--update"]).status, 0);
+
+    const after_ = build(root, "after");
+    emitFunction(after_, "server", 4 * MB);
+    const checked = runGuard(after_, baselineFile);
+    assert.equal(checked.status, 0, checked.output);
+    assert.match(checked.output, /fell more than 3MB below baseline/);
+    assert.match(checked.output, /warning only/);
+  });
 });

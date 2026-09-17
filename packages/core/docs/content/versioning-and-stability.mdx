@@ -1,0 +1,63 @@
+---
+title: Versioning and Stability
+description: Understand Agent-Native nightly and stable releases, pre-1.0 compatibility, migrations, and template version pins.
+---
+
+# Versioning and stability
+
+Agent-Native packages are pre-1.0. The release process provides nightly
+snapshots, stable package releases, migration tooling, and doctor checks. It
+does not make an alpha or beta deployment a production support guarantee.
+
+## Release channels
+
+Merges to `main` publish nightly snapshots under the npm `nightly` dist-tag.
+Nightly publication does not move the `latest` tag. Use nightly to test the
+current framework before a stable release.
+
+Stable releases are coordinated through Changesets and the release workflow.
+The workflow accepts patch, minor, or major release types. Scheduled runs
+prepare patch releases Monday through Thursday at noon Pacific time. A release
+is not guaranteed on every scheduled run. The workflow and package publish
+checks must complete successfully.
+
+## Pre-1.0 compatibility policy
+
+Before 1.0, patch releases are intended for bug fixes and compatible
+improvements. Minor releases may add capabilities and may change behavior or
+APIs that are still in alpha or beta. A major release is reserved for a broad
+breaking change. Review the release notes and migration instructions before
+upgrading, especially when a minor release changes a surface your app uses.
+
+When a framework package moves an import or renames an export, its
+`migration-manifest.json` records the supported migration. Run the codemod in
+dry-run mode, inspect the diff, then apply it:
+
+```bash
+npx @agent-native/core@latest upgrade --codemods
+npx @agent-native/core@latest upgrade --codemods --yes
+agent-native doctor --only migration-manifest
+```
+
+Removed paths can remain as tombstone modules that explain the replacement and
+the migration command. There is no fixed tombstone retention period. Do not
+assume an old import remains available indefinitely.
+
+## Templates and exact pins
+
+The create CLI pins the scaffolded `@agent-native/core` dependency to the
+exact version that supplied the template. This keeps the generated code and
+framework package aligned. Upgrade deliberately with the migration tools
+rather than changing that pin to `latest` by hand.
+
+## Alpha and beta expectations
+
+Alpha and beta are release stages, not service-level commitments. The current
+targets are beta by mid-October 2026 and 1.0 by the end of 2026. These dates
+are goals only. They can change as validation and release work progresses.
+Report a reproducible issue with the package version,
+database provider, and migration output so it can be diagnosed against the
+right release.
+
+For an administered deployment recipe, see
+[Administered Deployments](/docs/administered-deployments).

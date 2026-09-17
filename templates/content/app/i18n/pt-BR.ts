@@ -439,6 +439,17 @@ const editor = {
   registryBlockUnreadable: "Não foi possível ler a origem salva do bloco.",
   blocksFieldRevisionConflict:
     "Este campo de blocos foi alterado em outro lugar. Sua edição não foi salva; a versão mais recente agora está sendo exibida.",
+  reconcileConflict:
+    "Esta página foi alterada em outro lugar. Suas edições ainda não foram salvas.",
+  reconcileFailed:
+    "Não foi possível combinar as alterações mais recentes. Suas edições ainda não foram salvas.",
+  reconcileSaveFailed:
+    "Não foi possível salvar suas edições. Revise e tente novamente.",
+  reconcileSaving: "Salvando suas edições…",
+  reconcileReview: "Revisar alterações",
+  reconcileReviewStale:
+    "A versão salva foi alterada novamente. Revise o texto mais recente antes de salvar.",
+  reconcileRefresh: "Revisar versão mais recente",
   collabConnectingReadOnly:
     "Conectando o editor ao vivo. Exibindo um instantâneo somente leitura.",
   liveDocumentSaveBeforeSyncFailed:
@@ -797,7 +808,7 @@ const editor = {
     searchNotionPages: "Pesquisar páginas de noção...",
     setUpNotion: "Configurar noção",
     setUpNotionFirst:
-      "Configure primeiro o Notion na barra lateral - clique no ícone do Notion.",
+      "Configure primeiro o Notion - abra Configurações, depois Integrations, e conecte o Notion.",
     setUpNotionToSync: "Configure o Notion para sincronizar este documento.",
     share: "Compartilhar",
     shareableCopyReady: "Cópia compartilhável pronta",
@@ -834,6 +845,9 @@ const rawLiterals = {
     previewDraftSavedSeparately:
       "Suas edições foram salvas como página separada",
     previewDraftOpenSavedPage: "Abrir página",
+    previewDraftMoreOptions: "Mais opções",
+    previewDraftViewFullVersions: "Ver versões completas",
+    previewDraftShowChanges: "Mostrar alterações",
     previewDraftConflict:
       "Este rascunho está em conflito com uma versão mais recente da página. Ele não foi restaurado.",
     restorePreviewDraft: "Restaurar rascunho",
@@ -1136,7 +1150,26 @@ const overrides = {
   root: {
     commandContent: "Conteúdo",
     commandSearchDocuments: "Buscar documentos",
+    searchSince: "Desde {{date}}",
+    searchModifiedSince: "Modificado desde {{date}}",
     commandSearchHeading: "Buscar",
+    searchScope: "Escopo",
+    searchAllWorkspaces: "Todos os espaços",
+    searchFields: "Campos de pesquisa",
+    searchAllText: "Todo o texto",
+    searchTitleOnly: "Somente título",
+    searchType: "Tipo de objeto",
+    searchAllTypes: "Todos os tipos",
+    searchDate: "Data de modificação",
+    searchAnyDate: "Qualquer data",
+    searchPastWeek: "Última semana",
+    searchPastMonth: "Último mês",
+    searchPrevious: "Resultados anteriores",
+    searchNext: "Próximos resultados",
+    searchRetry: "Tentar novamente",
+    searchScopeUnavailable: "O escopo de pesquisa está indisponível.",
+    searchModified: "Modificado em {{date}}",
+    searchSourceUpdated: "Fonte atualizada em {{date}}",
     commandSearchPlaceholder: "Buscar documentos e coleções...",
     commandSearchLoading: "Buscando...",
     commandSearchError: "A busca não está disponível agora.",

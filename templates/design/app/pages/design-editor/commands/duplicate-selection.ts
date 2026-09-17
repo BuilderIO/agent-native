@@ -12,17 +12,95 @@ import {
   getElementOuterHtml,
   insertClonedHtmlLayer,
   insertClonedHtmlLayers,
+  planLinkedComponentStructureClone,
+  type ComponentCloneBatchContext,
+  type LinkedComponentStructureClonePlan,
 } from "@/pages/design-editor/clone-and-pen-edit";
 import {
   codeLayerSelectorAliases,
   elementInfoFromCodeLayerNode,
 } from "@/pages/design-editor/code-layer-state";
 import type { SelectedCanvasLayerSnapshot } from "@/pages/design-editor/command-types";
+import type { ApplyFileContentUpdateResult } from "@/pages/design-editor/commands/apply-file-content-update";
+import type { ApplyLocalContentUpdateResult } from "@/pages/design-editor/commands/apply-local-content-update";
 import { runRepeatItemEdit } from "@/pages/design-editor/commands/repeat-item-edit";
+import {
+  mapAcceptedSelectionNode,
+  projectAcceptedSource,
+} from "@/pages/design-editor/commands/selection-publication";
+import type { GeometryHistorySelection } from "@/pages/design-editor/history";
 import type { DesignFile } from "@/pages/design-editor/types";
+
+import type { ApplyLinkedComponentEdit } from "./linked-component-structure";
+
+function planLinkedDuplicateSelection(args: {
+  content: string;
+  group: SelectedCanvasLayerSnapshot[];
+  source: {
+    kind: "design-file";
+    designId?: string;
+    fileId: string;
+    filename?: string;
+  };
+  componentLinks: ComponentCloneBatchContext;
+  repeatTransform: { dx: number; dy: number } | null;
+  onUnsupportedStructure: () => void;
+}): LinkedComponentStructureClonePlan | null {
+  let content = args.content;
+  let targetNodeId: string | null = null;
+  const selectionNodeIds: string[] = [];
+  const nodeIdMap = new Map<string, string>();
+  for (const snapshot of args.group) {
+    const projection = buildCodeLayerProjection(content, {
+      source: args.source,
+    });
+    const anchorNode =
+      projection.nodes.find(
+        (node) =>
+          node.id === snapshot.node.id ||
+          node.dataAttributes["data-agent-native-node-id"] ===
+            snapshot.rootNodeId,
+      ) ?? snapshot.node;
+    const sourcePosition = extractLayerPosition(snapshot.html);
+    const plan = planLinkedComponentStructureClone(content, [snapshot.html], {
+      onUnsupportedStructure: args.onUnsupportedStructure,
+      targetSelectors: codeLayerSelectorAliases(anchorNode),
+      placement: "after",
+      stripRootPosition: !sourcePosition,
+      positions: sourcePosition
+        ? [
+            {
+              x: sourcePosition.x + (args.repeatTransform?.dx ?? 0),
+              y: sourcePosition.y + (args.repeatTransform?.dy ?? 0),
+              space: "layout",
+            },
+          ]
+        : undefined,
+      componentLinks: args.componentLinks,
+    });
+    if (!plan) return null;
+    targetNodeId ??= plan.targetNodeId;
+    if (targetNodeId !== plan.targetNodeId) return null;
+    content = plan.mainAfter;
+    selectionNodeIds.push(...plan.selectionNodeIds);
+    plan.nodeIdMap.forEach((value, key) => nodeIdMap.set(key, value));
+  }
+  return targetNodeId
+    ? {
+        mainBefore: args.content,
+        mainAfter: content,
+        targetNodeId,
+        selectionNodeIds,
+        rootNodeIds: selectionNodeIds,
+        nodeIdMap,
+      }
+    : null;
+}
 
 export interface DuplicateSelectionArgs {
   activeFile: DesignFile;
+  applyLinkedComponentEdit?: ApplyLinkedComponentEdit;
+  designId: string | undefined;
   applyFileContentUpdate: (
     fileId: string,
     nextContent: string,
@@ -35,7 +113,7 @@ export interface DuplicateSelectionArgs {
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
     },
-  ) => void;
+  ) => ApplyFileContentUpdateResult;
   applyLocalContentUpdate: (
     nextContent: string,
     options?: {
@@ -49,7 +127,7 @@ export interface DuplicateSelectionArgs {
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
     },
-  ) => void;
+  ) => ApplyLocalContentUpdateResult;
   canEditDesign: boolean;
   files: DesignFile[];
   getFreshActiveContent: () => string;
@@ -69,6 +147,7 @@ export interface DuplicateSelectionArgs {
     nodeIdMap: Map<string, string>,
     targetFileId: string,
   ) => void;
+  selectionBefore?: GeometryHistorySelection;
   selectedCanvasSelector: string;
   selectedElement: ElementInfo | null;
   selectedLayerIdsState: string[];
@@ -82,6 +161,8 @@ export interface DuplicateSelectionArgs {
 
 export function runDuplicateSelection({
   activeFile,
+  applyLinkedComponentEdit,
+  designId,
   applyFileContentUpdate,
   applyLocalContentUpdate,
   canEditDesign,
@@ -93,6 +174,7 @@ export function runDuplicateSelection({
   lastDuplicateTransformRef,
   overviewSelectedScreenIds,
   remapMotionTracksForClone,
+  selectionBefore,
   selectedCanvasSelector,
   selectedElement,
   selectedLayerIdsState,
@@ -107,6 +189,13 @@ export function runDuplicateSelection({
     canEdit: canEditDesign,
     selectedLayers: selectedLayerIdsState.length,
   });
+  let structureUnsupported = false;
+  const onUnsupportedStructure = () => {
+    structureUnsupported = true;
+    toast.error(
+      t("designEditor.componentInstances.linkedStructureUnsupported"),
+    );
+  };
   if (!canEditDesign) return;
   // U19: duplicate is a discrete one-shot action — see the matching note
   // in handlePasteSelection.
@@ -142,6 +231,15 @@ export function runDuplicateSelection({
   }
   const snapshots = getSelectedLayerSnapshots();
   if (snapshots.length > 0) {
+    const componentDocuments = files.map((file) => ({
+      source: {
+        kind: "design-file" as const,
+        designId,
+        fileId: file.id,
+        filename: file.filename,
+      },
+      content: getScreenContent(file.id),
+    }));
     const selectedIds: string[] = [];
     const selectedScreenIds: string[] = [];
     let lastActiveNode: CodeLayerNode | null = null;
@@ -165,17 +263,73 @@ export function runDuplicateSelection({
         : null;
     const nextDuplicateRootNodeIds: string[] = [];
 
-    for (const file of files) {
-      const group = snapshots.filter(
-        (snapshot) => snapshot.sourceFileId === file.id,
+    const sortedSnapshotsByFile = new Map(
+      files.map((file) => [
+        file.id,
+        snapshots
+          .filter((snapshot) => snapshot.sourceFileId === file.id)
+          .sort((a, b) => b.sourceIndex - a.sourceIndex),
+      ]),
+    );
+    const linkedGroups = [...sortedSnapshotsByFile.values()].filter(
+      (group) => group.length > 0,
+    );
+    if (applyLinkedComponentEdit && linkedGroups.length === 1) {
+      const group = linkedGroups[0]!;
+      const file = files.find(
+        (candidate) => candidate.id === group[0]!.sourceFileId,
       );
+      if (file) {
+        const source = {
+          kind: "design-file" as const,
+          designId,
+          fileId: file.id,
+          filename: file.filename,
+        };
+        const componentLinks: ComponentCloneBatchContext = {
+          sourceFileIds: group.map((snapshot) => snapshot.sourceFileId),
+          targetSource: source,
+          documents: componentDocuments,
+        };
+        const plan = planLinkedDuplicateSelection({
+          content: getScreenContent(file.id),
+          group,
+          source,
+          componentLinks,
+          repeatTransform,
+          onUnsupportedStructure,
+        });
+        if (plan) {
+          applyLinkedComponentEdit(
+            file.id,
+            plan.targetNodeId,
+            {
+              kind: "structure",
+              before: plan.mainBefore,
+              after: plan.mainAfter,
+              selectionNodeIds: plan.selectionNodeIds,
+            },
+            selectionBefore,
+            () => remapMotionTracksForClone(plan.nodeIdMap, file.id),
+          );
+          return;
+        }
+      }
+    }
+
+    for (const file of files) {
+      const group = sortedSnapshotsByFile.get(file.id) ?? [];
       if (group.length === 0) continue;
       let content = getScreenContent(file.id);
+      const source = {
+        kind: "design-file" as const,
+        designId,
+        fileId: file.id,
+        filename: file.filename,
+      };
       const insertedRootNodeIds: string[] = [];
-      for (const snapshot of [...group].sort(
-        (a, b) => b.sourceIndex - a.sourceIndex,
-      )) {
-        const projection = buildCodeLayerProjection(content);
+      for (const snapshot of group) {
+        const projection = buildCodeLayerProjection(content, { source });
         const anchorNode =
           projection.nodes.find(
             (node) =>
@@ -185,6 +339,7 @@ export function runDuplicateSelection({
           ) ?? snapshot.node;
         const sourcePosition = extractLayerPosition(snapshot.html);
         const result = insertClonedHtmlLayers(content, [snapshot.html], {
+          onUnsupportedStructure,
           targetSelectors: codeLayerSelectorAliases(anchorNode),
           placement: "after",
           // Absolutely-positioned board items land exactly in place (or at
@@ -200,7 +355,13 @@ export function runDuplicateSelection({
                 },
               ]
             : undefined,
+          componentLinks: {
+            sourceFileIds: group.map((snapshot) => snapshot.sourceFileId),
+            targetSource: source,
+            documents: componentDocuments,
+          },
         });
+        if (structureUnsupported) return;
         if (!result) continue;
         content = result.content;
         insertedRootNodeIds.unshift(...result.rootNodeIds);
@@ -208,17 +369,24 @@ export function runDuplicateSelection({
         remapMotionTracksForClone(result.nodeIdMap, file.id);
       }
       if (insertedRootNodeIds.length === 0) continue;
-      applyFileContentUpdate(file.id, content, {
+      const submittedProjection = buildCodeLayerProjection(content, { source });
+      const publication = applyFileContentUpdate(file.id, content, {
         forcePreviewFullDocument: true,
         refreshPreview: false,
       });
+      if (publication.status !== "accepted") continue;
       selectedScreenIds.push(file.id);
-      const finalProjection = buildCodeLayerProjection(content);
+      const finalProjection = projectAcceptedSource(publication, source);
       insertedRootNodeIds.forEach((rootNodeId) => {
-        const insertedNode = finalProjection.nodes.find(
+        const submittedNode = submittedProjection.nodes.find(
           (node) =>
             node.id === rootNodeId ||
             node.dataAttributes["data-agent-native-node-id"] === rootNodeId,
+        );
+        const insertedNode = mapAcceptedSelectionNode(
+          publication,
+          finalProjection,
+          submittedNode,
         );
         if (!insertedNode) return;
         selectedIds.push(insertedNode.id);
@@ -285,9 +453,31 @@ export function runDuplicateSelection({
       }
     })();
     const nextContent = insertClonedHtmlLayer(baseContent, strippedHtml, {
+      onUnsupportedStructure,
       targetSelectors: [selector],
       placement: "after",
+      componentLinks: activeFile
+        ? {
+            sourceFileIds: [activeFile.id],
+            targetSource: {
+              kind: "design-file",
+              designId,
+              fileId: activeFile.id,
+              filename: activeFile.filename,
+            },
+            documents: files.map((file) => ({
+              source: {
+                kind: "design-file" as const,
+                designId,
+                fileId: file.id,
+                filename: file.filename,
+              },
+              content: getScreenContent(file.id),
+            })),
+          }
+        : undefined,
     });
+    if (structureUnsupported) return;
     if (nextContent) {
       applyLocalContentUpdate(nextContent, {
         forcePreviewFullDocument: true,

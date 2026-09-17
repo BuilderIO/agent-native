@@ -36,6 +36,7 @@ catalog:
   "@radix-ui/react-tooltip": ^1.2.12
   "@tiptap/core": 3.30.1
   "@tiptap/extension-blockquote": 3.30.1
+  "@tiptap/extension-bold": 3.30.1
   "@tiptap/extension-bubble-menu": 3.30.1
   "@tiptap/extension-code-block-lowlight": 3.30.1
   "@tiptap/extension-collaboration": 3.30.1

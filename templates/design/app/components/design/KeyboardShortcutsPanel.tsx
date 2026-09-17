@@ -266,7 +266,7 @@ export function KeyboardShortcutsPanel({
       data-keyboard-shortcuts-panel
       role="region"
       aria-label={t("designEditor.keyboardShortcuts.title")}
-      className="absolute inset-x-0 bottom-0 z-[60] flex h-[241px] flex-col border-t border-neutral-700 bg-neutral-900 text-neutral-100 shadow-[0_-12px_28px_rgba(0,0,0,0.28)]"
+      className="absolute inset-x-0 bottom-0 z-[80] flex h-[241px] flex-col border-t border-neutral-700 bg-neutral-900 text-neutral-100 shadow-[0_-12px_28px_rgba(0,0,0,0.28)]"
     >
       <Tabs
         value={category}

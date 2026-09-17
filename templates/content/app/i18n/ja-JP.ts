@@ -428,6 +428,17 @@ const editor = {
   registryBlockUnreadable: "保存されたブロックソースを読み取れません。",
   blocksFieldRevisionConflict:
     "このブロックフィールドは別の場所で変更されました。編集内容は保存されず、最新バージョンが表示されています。",
+  reconcileConflict:
+    "このページは別の場所で変更されました。編集内容はまだ保存されていません。",
+  reconcileFailed:
+    "最新の変更を統合できませんでした。編集内容はまだ保存されていません。",
+  reconcileSaveFailed:
+    "編集内容を保存できませんでした。確認してもう一度お試しください。",
+  reconcileSaving: "編集内容を保存しています…",
+  reconcileReview: "変更を確認",
+  reconcileReviewStale:
+    "保存済みのバージョンが再度変更されました。保存する前に最新のテキストを確認してください。",
+  reconcileRefresh: "最新バージョンを確認",
   collabConnectingReadOnly:
     "ライブエディターに接続中。読み取り専用のスナップショットを表示しています。",
   liveDocumentSaveBeforeSyncFailed:
@@ -780,7 +791,7 @@ const editor = {
     searchNotionPages: "Notion ページを検索...",
     setUpNotion: "概念をセットアップする",
     setUpNotionFirst:
-      "まずサイドバーで Notion をセットアップします。Notion アイコンをクリックします。",
+      "まず Notion をセットアップします。設定を開き、Integrations で Notion を接続します。",
     setUpNotionToSync:
       "このドキュメントを同期するように Notion をセットアップします。",
     share: "シェアする",
@@ -817,6 +828,9 @@ const rawLiterals = {
     previewDraftSavedToHistory: "編集内容をバージョン履歴に保存しました",
     previewDraftSavedSeparately: "編集内容を別ページとして保存しました",
     previewDraftOpenSavedPage: "ページを開く",
+    previewDraftMoreOptions: "その他のオプション",
+    previewDraftViewFullVersions: "全文を表示",
+    previewDraftShowChanges: "変更箇所を表示",
     previewDraftConflict:
       "この下書きは新しいページのバージョンと競合しているため、復元されませんでした。",
     restorePreviewDraft: "下書きを復元",
@@ -1112,7 +1126,26 @@ const overrides = {
   root: {
     commandContent: "コンテンツ",
     commandSearchDocuments: "ドキュメントを検索",
+    searchSince: "{{date}}以降",
+    searchModifiedSince: "{{date}}以降に更新",
     commandSearchHeading: "検索",
+    searchScope: "検索範囲",
+    searchAllWorkspaces: "すべてのワークスペース",
+    searchFields: "検索フィールド",
+    searchAllText: "すべてのテキスト",
+    searchTitleOnly: "タイトルのみ",
+    searchType: "オブジェクトの種類",
+    searchAllTypes: "すべての種類",
+    searchDate: "更新日",
+    searchAnyDate: "すべての日付",
+    searchPastWeek: "過去1週間",
+    searchPastMonth: "過去1か月",
+    searchPrevious: "前の検索結果",
+    searchNext: "次の検索結果",
+    searchRetry: "再試行",
+    searchScopeUnavailable: "検索範囲を利用できません。",
+    searchModified: "更新日 {{date}}",
+    searchSourceUpdated: "ソース更新日 {{date}}",
     commandSearchPlaceholder: "ドキュメントとコレクションを検索...",
     commandSearchLoading: "検索中...",
     commandSearchError: "現在、検索を利用できません。",

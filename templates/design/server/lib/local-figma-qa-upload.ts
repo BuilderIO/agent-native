@@ -19,6 +19,7 @@ const MIME_EXTENSIONS = new Map([
   ["image/webp", "webp"],
   ["image/gif", "gif"],
   ["image/avif", "avif"],
+  ["image/svg+xml", "svg"],
 ]);
 
 export function isLocalFigmaQaUploadEnabled(
@@ -43,7 +44,7 @@ export function localFigmaQaAssetPath(
   assetId: string,
   rootDir = QA_UPLOAD_ROOT,
 ): string | null {
-  if (!/^[a-f0-9-]{36}\.(?:png|jpg|webp|gif|avif)$/.test(assetId)) {
+  if (!/^[a-f0-9-]{36}\.(?:png|jpg|webp|gif|avif|svg)$/.test(assetId)) {
     return null;
   }
   const ownerRoot = ownerDirectory(ownerEmail, rootDir);

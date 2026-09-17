@@ -13,6 +13,12 @@ const CARD = `<section data-agent-native-node-id="card-a" data-builder-id="blk-1
 const SCREEN = `<div data-agent-native-node-id="screen-root">
   ${CARD}
 </div>`;
+const GROUP = `<div data-agent-native-node-id="group-a" data-agent-native-group="true" data-agent-native-layer-name="Group">
+  <div data-agent-native-node-id="group-child" data-an-primitive="rectangle" style="width:80px;height:40px;background:#f97316"></div>
+</div>`;
+const LEGACY_GROUP = `<div data-agent-native-node-id="an-legacygroup" layer-name="Group" data-agent-native-preserve-styles="true">
+  <div data-agent-native-node-id="legacy-child" data-an-primitive="rectangle" style="width:80px;height:40px;background:#f97316"></div>
+</div>`;
 
 describe("duplicate a Figma/Fusion subtree, then edit or delete inside the copy", () => {
   function duplicate() {
@@ -53,5 +59,33 @@ describe("duplicate a Figma/Fusion subtree, then edit or delete inside the copy"
     expect(afterDelete, "delete returned no content").not.toBeNull();
     expect(afterDelete!.match(/<h3/g)?.length).toBe(1);
     expect(afterDelete!.indexOf("<h3")).toBeLessThan(copyRootStart);
+  });
+
+  it("preserves explicit group identity when cloning a group layer", () => {
+    const inserted = insertClonedHtmlLayers(GROUP, [GROUP]);
+    expect(inserted).not.toBeNull();
+
+    const clonedGroup = buildCodeLayerProjection(inserted!.content).nodes.find(
+      (node) =>
+        node.dataAttributes["data-agent-native-node-id"] ===
+        inserted!.rootNodeIds[0],
+    );
+    expect(clonedGroup?.dataAttributes["data-agent-native-group"]).toBe("true");
+  });
+
+  it("recognizes a raw legacy Group wrapper when cloning", () => {
+    const inserted = insertClonedHtmlLayers(LEGACY_GROUP, [LEGACY_GROUP]);
+    expect(inserted).not.toBeNull();
+
+    const clonedGroup = buildCodeLayerProjection(inserted!.content).nodes.find(
+      (node) =>
+        node.dataAttributes["data-agent-native-node-id"] ===
+        inserted!.rootNodeIds[0],
+    );
+    expect(clonedGroup?.layerName).toBe("Group");
+    expect(clonedGroup?.layerNameAttribute).toBe("layer-name");
+    expect(clonedGroup?.dataAttributes["data-agent-native-group-wrapper"]).toBe(
+      "true",
+    );
   });
 });

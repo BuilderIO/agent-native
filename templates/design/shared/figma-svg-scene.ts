@@ -209,7 +209,7 @@ export interface FigmaSvgLayoutFacts {
 export interface FigmaSvgNode {
   /** Stable id used for SVG element ids / gradient-def ids / the export report. */
   id: string;
-  /** Human label (from data-agent-native-layer-name or a fallback). */
+  /** Human label (from the prioritized layer-name attributes or a fallback). */
   name?: string;
   kind: "box" | "text" | "image" | "raster" | "vector";
   rect: FigmaSvgRect;
@@ -2515,6 +2515,19 @@ export function collectRawFigmaSvgScene(
     return `n${autoId}`;
   }
 
+  function layerNameForElement(el: Element): string | undefined {
+    const attributes = [
+      "data-agent-native-layer-name",
+      "data-layer-name",
+      "layer-name",
+    ];
+    for (const attribute of attributes) {
+      const value = el.getAttribute(attribute)?.trim();
+      if (value) return value;
+    }
+    return undefined;
+  }
+
   // Affine [a, b, c, d, e, f]: x' = a*x + c*y + e, y' = b*x + d*y + f.
   // `getBoundingClientRect()` reports the axis-aligned box of the TRANSFORMED
   // element, so a rotated card measured that way is stored oversized and then
@@ -3264,7 +3277,7 @@ export function collectRawFigmaSvgScene(
         })()
       : {};
 
-    const name = el.getAttribute("data-agent-native-layer-name") || undefined;
+    const name = layerNameForElement(el);
     const id = el.getAttribute("data-agent-native-node-id") || nextId();
     const tag = el.tagName.toUpperCase();
 
