@@ -1183,7 +1183,7 @@ export function runRedo({
         fileType: entry.fileType,
       } as any,
       {
-        onSuccess: (result: any) => {
+        onSuccess: async (result: any) => {
           const nextId = typeof result?.id === "string" ? result.id : null;
           if (nextId) {
             const geometry = {
@@ -1233,13 +1233,16 @@ export function runRedo({
                   return { ...old, data: JSON.stringify(nextData) };
                 },
               );
-              void updateDesignAsync({ id, dataOperations } as any).catch(
-                () => {
-                  void queryClient.invalidateQueries({
-                    queryKey: ["action", "get-design"],
-                  });
-                },
-              );
+              try {
+                await updateDesignAsync({ id, dataOperations } as any);
+              } catch (error) {
+                // The optimistic data may not have reached the server. Let
+                // the final refetch restore the authoritative design state.
+                trace("history", "redo-file-metadata-failed", {
+                  id,
+                  error: error instanceof Error ? error.message : String(error),
+                });
+              }
             }
             optimisticallyInsertCreatedFile({
               fileId: nextId,
@@ -1255,7 +1258,7 @@ export function runRedo({
           }
           fileHistoryMutationPendingRef.current = false;
           syncUndoRedoState();
-          void queryClient.invalidateQueries({
+          await queryClient.invalidateQueries({
             queryKey: ["action", "get-design"],
           });
         },
