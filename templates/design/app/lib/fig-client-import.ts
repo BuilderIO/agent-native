@@ -18,7 +18,10 @@ import { callAction } from "@agent-native/core/client/hooks";
 
 import { decodeFig } from "../../server/lib/fig-file-decoder.js";
 import { bytesToBase64 } from "../../shared/fig-bytes.js";
-import { convertDecodedFigToEditableHtml } from "../../shared/fig-to-frames.js";
+import {
+  assertEmbeddedImageBudget,
+  convertDecodedFigToEditableHtml,
+} from "../../shared/fig-to-frames.js";
 import type { ImportResult } from "./design-import";
 
 /** Base64 plus action JSON must stay below the serverless request ceiling. */
@@ -69,6 +72,7 @@ export async function importFigInBrowser(
   // decompression, node, image, and generated-HTML budgets, but remove the
   // server-only raw upload ceiling.
   const decoded = decodeFig(bytes, { maxFileBytes: null });
+  assertEmbeddedImageBudget(decoded.images);
   const oversizedImages = decoded.images.filter(
     (image) => image.bytes.byteLength > MAX_CLIENT_IMAGE_BYTES,
   );

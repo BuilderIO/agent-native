@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  assertEmbeddedImageBudget: vi.fn(),
   callAction: vi.fn(),
   convertDecodedFigToEditableHtml: vi.fn(),
   decodeFig: vi.fn(),
@@ -16,6 +17,7 @@ vi.mock("../../server/lib/fig-file-decoder.js", () => ({
   decodeFig: mocks.decodeFig,
 }));
 vi.mock("../../shared/fig-to-frames.js", () => ({
+  assertEmbeddedImageBudget: mocks.assertEmbeddedImageBudget,
   convertDecodedFigToEditableHtml: mocks.convertDecodedFigToEditableHtml,
 }));
 
@@ -62,6 +64,7 @@ function converted(files: Array<Record<string, unknown>> = []) {
 
 describe("importFigInBrowser", () => {
   beforeEach(() => {
+    mocks.assertEmbeddedImageBudget.mockReset();
     mocks.callAction.mockReset();
     mocks.convertDecodedFigToEditableHtml.mockReset();
     mocks.decodeFig.mockReset().mockReturnValue(decoded());
@@ -89,6 +92,20 @@ describe("importFigInBrowser", () => {
       "1 embedded image over 4 MB skipped to keep the browser upload request within its transport limit.",
     ]);
     expect(mocks.callAction).not.toHaveBeenCalled();
+  });
+
+  it("checks the full embedded-image budget before transport filtering", async () => {
+    const images = [{ bytes: new Uint8Array(1) }];
+    mocks.decodeFig.mockReturnValue(decoded(images));
+    mocks.assertEmbeddedImageBudget.mockImplementation(() => {
+      throw new Error(".fig document has too much embedded image data");
+    });
+
+    await expect(
+      importFigInBrowser({ designId: "design-1", file }),
+    ).rejects.toThrow(/too much embedded image data/);
+    expect(mocks.assertEmbeddedImageBudget).toHaveBeenCalledWith(images);
+    expect(mocks.convertDecodedFigToEditableHtml).not.toHaveBeenCalled();
   });
 
   it("cleans saved frames and marks the error before fallback can retry", async () => {

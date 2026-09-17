@@ -198,7 +198,7 @@ function withCleanupFailures(message: string, failures: number): string {
   return `${message} Storage cleanup failed for ${failures} uploaded image${failures === 1 ? "" : "s"}.`;
 }
 
-function assertEmbeddedImageBudget(images: DecodedFigImage[]): void {
+export function assertEmbeddedImageBudget(images: DecodedFigImage[]): void {
   if (images.length > MAX_FIG_IMAGES) {
     throw new Error(".fig document has too many embedded images (max 1,024).");
   }
