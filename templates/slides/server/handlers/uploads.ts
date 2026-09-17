@@ -184,7 +184,10 @@ export async function saveUploadedReferenceFile(args: {
       ? args.originalName
       : `${path.basename(args.originalName, path.extname(args.originalName))}${ext}`;
   const resolvedType =
-    detectedImage?.mimeType ?? (args.type || "application/octet-stream");
+    detectedImage?.mimeType ??
+    (declaredExt === ".svg"
+      ? "image/svg+xml"
+      : args.type || "application/octet-stream");
   let uploadedPath: string;
   if (isHostedSlidesRuntime()) {
     let reference: string | null;

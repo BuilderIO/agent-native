@@ -121,6 +121,10 @@ export function buildImageDropAgentPayload(args: {
 
 export function canInlineImageFile(file: File): boolean {
   const mediaType = file.type || "application/octet-stream";
+  if (mediaType.split(";", 1)[0]?.trim().toLowerCase() === "image/svg+xml") {
+    return false;
+  }
+  if (/\.svg$/i.test(file.name)) return false;
   const encodedLength = Math.ceil(file.size / 3) * 4;
   return (
     encodedLength + `data:${mediaType};base64,`.length <=
@@ -129,9 +133,10 @@ export function canInlineImageFile(file: File): boolean {
 }
 
 export function canInlineImageDataUrl(dataUrl: string): boolean {
-  const match = /^data:(image\/[^;]+);base64,(.*)$/s.exec(dataUrl);
+  const match = /^data:(image\/[^;]+);base64,(.*)$/is.exec(dataUrl);
   return Boolean(
     match &&
+    match[1].toLowerCase() !== "image/svg+xml" &&
     match[2].length + `data:${match[1]};base64,`.length <=
       MAX_INLINE_IMAGE_BASE64_CHARS,
   );

@@ -161,6 +161,22 @@ describe("Slides reference upload limits", () => {
     });
   });
 
+  it("normalizes SVG uploads to the SVG MIME type", async () => {
+    const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" />');
+
+    await expect(
+      saveUploadedReferenceFile({
+        email: "owner@example.com",
+        originalName: "logo.svg",
+        data: svg,
+        type: "application/octet-stream",
+      }),
+    ).resolves.toMatchObject({
+      filename: expect.stringMatching(/\.svg$/),
+      type: "image/svg+xml",
+    });
+  });
+
   it("stores hosted reference uploads in durable private blob storage", async () => {
     mockIsHostedSlidesRuntime.mockReturnValue(true);
     mockStoreUploadedReferenceBlob.mockResolvedValue(

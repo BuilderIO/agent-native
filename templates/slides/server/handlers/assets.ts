@@ -52,7 +52,7 @@ async function requireSession(
   return { session: auth.context as AuthedSlidesSession, error: null };
 }
 
-function isRasterAssetExtension(ext: string): boolean {
+function isImageAssetExtension(ext: string): boolean {
   return new Set([
     ".jpg",
     ".jpeg",
@@ -61,6 +61,7 @@ function isRasterAssetExtension(ext: string): boolean {
     ".webp",
     ".avif",
     ".ico",
+    ".svg",
   ]).has(ext);
 }
 
@@ -98,16 +99,74 @@ function hasExpectedImageSignature(ext: string, data: Uint8Array): boolean {
   if (ext === ".avif") {
     return ascii(data, 4, 12).includes("ftyp");
   }
+  if (ext === ".svg") {
+    const head = Buffer.from(
+      data.subarray(0, Math.min(data.length, 8192)),
+    ).toString("utf8");
+    const normalized = head.replace(/^\uFEFF/, "").trimStart();
+    return (
+      /^<svg(?:\s|>)/i.test(normalized) ||
+      /^<\?xml\b[\s\S]{0,4096}<svg(?:\s|>)/i.test(normalized)
+    );
+  }
   return false;
+}
+
+function isSafeSvg(data: Uint8Array): boolean {
+  let source: string;
+  try {
+    source = new TextDecoder("utf-8", { fatal: true }).decode(data);
+  } catch {
+    // coercion-ok: malformed UTF-8 must reject SVG validation.
+    return false;
+  }
+  source = source.replace(/^\uFEFF/, "").trim();
+  const forbidden = [
+    /<\s*(?:script|foreignObject|iframe|object|embed|link|audio|video|animate|set|discard)\b/i,
+    /<!\s*(?:DOCTYPE|ENTITY)\b/i,
+    /<\?xml-stylesheet\b/i,
+    /\son[a-z][a-z0-9:_-]*\s*=/i,
+    /\b(?:javascript|vbscript)\s*:/i,
+    /\b(?:expression|behavior|-moz-binding)\s*\(/i,
+    /@import\b/i,
+  ];
+  if (forbidden.some((pattern) => pattern.test(source))) return false;
+
+  for (const match of source.matchAll(
+    /(?:href|xlink:href)\s*=\s*(["'])(.*?)\1/gi,
+  )) {
+    const target = match[2]?.trim() ?? "";
+    if (
+      target &&
+      !target.startsWith("#") &&
+      !/^data:image\/(?:png|jpeg|gif|webp);base64,/i.test(target)
+    ) {
+      return false;
+    }
+  }
+  for (const match of source.matchAll(/url\(\s*(["']?)(.*?)\1\s*\)/gi)) {
+    const target = match[2]?.trim() ?? "";
+    if (
+      target &&
+      !target.startsWith("#") &&
+      !/^data:image\/(?:png|jpeg|gif|webp);base64,/i.test(target)
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 export function canSaveAsUploadedAsset(args: {
   originalName: string;
   data: Uint8Array;
 }): boolean {
+  const ext = path.extname(args.originalName).toLowerCase();
   return (
     args.data.length <= MAX_ASSET_FILE_SIZE &&
-    isRasterAssetExtension(path.extname(args.originalName).toLowerCase())
+    isImageAssetExtension(ext) &&
+    (ext !== ".svg" ||
+      (hasExpectedImageSignature(ext, args.data) && isSafeSvg(args.data)))
   );
 }
 
@@ -133,22 +192,26 @@ export async function uploadImageAsset(args: {
   }
 
   const ext = path.extname(args.originalName).toLowerCase();
-  // SVG is excluded — it can embed <script> tags and execute when served
-  // as image/svg+xml from the same origin.
-  if (!isRasterAssetExtension(ext)) {
+  if (!isImageAssetExtension(ext)) {
     throw new Error(
-      "Only raster image files are allowed (jpg, png, gif, webp, avif, ico)",
+      "Only image files are allowed (jpg, png, gif, webp, avif, ico, svg)",
     );
   }
   if (!hasExpectedImageSignature(ext, args.data)) {
     throw new Error("Uploaded image bytes do not match file extension");
   }
 
+  if (ext === ".svg" && !isSafeSvg(args.data)) {
+    throw new Error("SVG contains active content or external references");
+  }
+
+  const mimeType = ext === ".svg" ? "image/svg+xml" : args.type;
+
   const result = await runWithRequestContext({ userEmail: args.email }, () =>
     uploadFile({
       data: args.data,
       filename: args.originalName,
-      mimeType: args.type,
+      mimeType,
       ownerEmail: args.email,
     }),
   );
@@ -164,7 +227,7 @@ export async function uploadImageAsset(args: {
   const asset: UploadedAsset = {
     url: result.url,
     filename: args.originalName,
-    type: args.type || "application/octet-stream",
+    type: mimeType || "application/octet-stream",
     size: args.data.length,
     provider: result.provider,
   };
