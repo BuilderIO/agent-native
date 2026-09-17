@@ -269,6 +269,26 @@ export function runScreenElementSelect(
     }
   }
   if (node) {
+    if (viewModeRef.current === "overview") {
+      // Activate the frame scope before caching its measurement. The scope
+      // switch invalidates rendered metadata, so doing this after the write
+      // drops the only responsive measurement for the selected layer.
+      if (options.breakpointWidthPx !== undefined) {
+        handleBreakpointBarSelect(options.breakpointWidthPx);
+        const guidanceKey = `design-responsive-edit-guidance:${id}:${screenId}`;
+        if (
+          typeof window !== "undefined" &&
+          window.localStorage.getItem(guidanceKey) !== "shown"
+        ) {
+          window.localStorage.setItem(guidanceKey, "shown");
+          toast.info(t("designEditor.breakpointBar.scope.firstEditGuidance"), {
+            duration: 6000,
+          });
+        }
+      } else if (activeBreakpointWidthStateRef.current !== undefined) {
+        handleBreakpointBarSelect(undefined);
+      }
+    }
     renderedElementInfoByLayerKeyRef?.current.set(
       `${screenId}:${node.id}`,
       canonical,
@@ -361,22 +381,6 @@ export function runScreenElementSelect(
     setOverviewSelectedScreenIds((current) =>
       !intent && current.length > 0 ? current : [],
     );
-    // A responsive sub-frame now owns a full editor bridge, so selection
-    // carries its exact width into the edit scope. Primary-frame clicks
-    // still return to Base. This prevents two identical selectors in the
-    // base and responsive runtimes from racing for one global scope.
-    if (options.breakpointWidthPx !== undefined) {
-      handleBreakpointBarSelect(options.breakpointWidthPx);
-      const guidanceKey = `design-responsive-edit-guidance:${id}:${screenId}`;
-      if (window.localStorage.getItem(guidanceKey) !== "shown") {
-        window.localStorage.setItem(guidanceKey, "shown");
-        toast.info(t("designEditor.breakpointBar.scope.firstEditGuidance"), {
-          duration: 6000,
-        });
-      }
-    } else if (activeBreakpointWidthStateRef.current !== undefined) {
-      handleBreakpointBarSelect(undefined);
-    }
   }
   setActiveTool(resolveToolAfterSelection);
   setMode("edit");

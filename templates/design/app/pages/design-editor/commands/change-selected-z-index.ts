@@ -229,7 +229,11 @@ function hasExplicitZIndex(info: ElementInfo, node: CodeLayerNode): boolean {
   const computed = info.computedStyles.zIndex?.trim().toLowerCase();
   if (computed && computed !== "auto") return true;
   const authored = node.style["z-index"]?.trim().toLowerCase();
-  return Boolean(authored && authored !== "auto");
+  if (!authored || authored === "auto") return false;
+  return (
+    renderedPosition(info, node) !== "static" ||
+    /flex|grid/.test(renderedParentDisplay(info, node))
+  );
 }
 
 function renderedParentDisplay(info: ElementInfo, node: CodeLayerNode): string {

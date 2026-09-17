@@ -218,6 +218,27 @@ describe("runChangeSelectedZIndex — a paint-order change must not move anythin
     expect(targetStyles()?.zIndex).toBe("1");
   });
 
+  it("does not make an inert authored target z-index suppress DOM reorder", () => {
+    const content = `<div data-agent-native-node-id="wrap">
+<div data-agent-native-node-id="a" style="z-index:999"><span data-agent-native-node-id="pin" style="position:absolute"></span></div>
+<div data-agent-native-node-id="b"></div>
+</div>`;
+    const { args, applyLocalContentUpdate, commitVisualStyles } = multiHarness(
+      content,
+      ["a"],
+      {
+        rendered: {
+          a: { computedStyles: { position: "static", zIndex: "auto" } },
+        },
+      },
+    );
+
+    runChangeSelectedZIndex(args, "front");
+
+    expect(applyLocalContentUpdate).toHaveBeenCalledOnce();
+    expect(commitVisualStyles).not.toHaveBeenCalled();
+  });
+
   it("sends to back below static siblings, not to z-index 0", () => {
     const { args, applyLocalContentUpdate } = harness({
       computedStyles: { position: "static", zIndex: "auto" },
