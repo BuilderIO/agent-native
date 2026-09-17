@@ -1,0 +1,58 @@
+import { useT } from "@agent-native/core/client/i18n";
+import { IconInfoCircle } from "@tabler/icons-react";
+import { type ReactNode } from "react";
+import { useLocation } from "react-router";
+
+import { dispatchDocsHrefForPath, DocsLink } from "./docs-link";
+import { useSetPageTitle } from "./layout/HeaderActions";
+import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
+
+/**
+ * DispatchShell registers the per-page title (with an optional click-to-open
+ * description popover) with the HeaderActions store for layouts that expose
+ * that metadata.
+ */
+export function DispatchShell({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description?: string;
+  children: ReactNode;
+}) {
+  const t = useT();
+  const location = useLocation();
+  const docsHref = dispatchDocsHrefForPath(location.pathname);
+  useSetPageTitle(
+    <div className="flex items-center gap-2 min-w-0">
+      <h1 className="text-lg font-semibold tracking-tight truncate text-foreground">
+        {title}
+      </h1>
+      {docsHref ? (
+        <DocsLink href={docsHref} label={`Open ${title} documentation`} />
+      ) : description ? (
+        <Popover>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-accent hover:text-foreground cursor-pointer"
+              aria-label={t("dispatch.sidebar.aboutPage", { title })}
+            >
+              <IconInfoCircle className="h-3.5 w-3.5" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent
+            side="bottom"
+            align="start"
+            className="max-w-72 text-xs leading-relaxed"
+          >
+            {description}
+          </PopoverContent>
+        </Popover>
+      ) : null}
+    </div>,
+  );
+
+  return <>{children}</>;
+}

@@ -1,0 +1,40 @@
+---
+id: F3
+title: Work and record quality
+status: done
+order: 3
+---
+
+# F3 — Work and record quality
+
+## What it is
+
+CRM keeps follow-up work beside the record context that explains it. Tasks,
+pipeline dashboards, duplicate review, and enrichment are separate workflows
+so a cleanup or spend decision does not get hidden inside a record edit.
+
+## What users can do
+
+<!-- status: done -->
+
+- Create and manage local follow-up tasks from a record or the Work view.
+- Review pipeline value and stage distribution in the dashboard.
+- Ask CRM to find likely duplicates and show the email, domain, or name signal
+  behind each match.
+- Choose the surviving record before merging. CRM promotes values the survivor
+  lacks, moves related workflow data, and keeps the losing record linked as a
+  tombstone rather than silently deleting it.
+- Run a free enrichment verification pass, review the evidence and estimated
+  line-item cost, then approve the exact records for the paid pass.
+
+## Spend and approval gates
+
+The enrichment flow has two phases:
+
+1. **Verify** gathers evidence and estimates what the paid run would cost.
+2. **Approve** selects the exact records and fields that may be enriched.
+3. **Run** performs the paid work only for the approved input set.
+
+A failed provider slot is reported as a failure, not as an empty result. Bulk,
+destructive, ownership, amount, stage, and external-effect changes require an
+exact preview and approval.

@@ -1,0 +1,96 @@
+name: Email deployment and release failures
+
+on:
+  workflow_run:
+    workflows:
+      - Deploy Agent-Native beta sites from GitHub
+      - Deploy Agent-Native beta sites
+      - Deploy Agent-Native docs site from GitHub
+      - Deploy Agent-Native production sites from GitHub
+      - Pilot prebuilt Netlify deploy
+      - Promote Netlify deploy
+      - Manage Agent-Native production sites
+      - Push chat template to starter
+      - Publish packages
+      - "🚀 Release everything"
+      - Desktop App Release
+      - Clips Desktop Release
+      - Desktop SSO Canary
+      - Publish MCP Registry servers
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    name: Email workflow failure
+    if: >-
+      ${{ github.event.workflow_run.conclusion == 'failure'
+      || github.event.workflow_run.conclusion == 'timed_out'
+      || github.event.workflow_run.conclusion == 'startup_failure'
+      || github.event.workflow_run.conclusion == 'action_required' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send failure email via SendGrid
+        env:
+          SENDGRID_API_KEY: ${{ secrets.SENDGRID_API_KEY }}
+          SENDGRID_FROM_EMAIL: ${{ secrets.SENDGRID_FROM_EMAIL }}
+          ALERT_EMAIL: steve@builder.io
+          WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          : "${SENDGRID_API_KEY:?SENDGRID_API_KEY secret is required}"
+          : "${SENDGRID_FROM_EMAIL:?SENDGRID_FROM_EMAIL secret is required}"
+
+          payload="$(node <<'NODE'
+          const env = process.env;
+          const escapeHtml = (value) =>
+            value.replace(/[&<>\"']/g, (character) => ({
+              "&": "&amp;",
+              "<": "&lt;",
+              ">": "&gt;",
+              '\"': "&quot;",
+              "'": "&#39;",
+            })[character]);
+          const workflow = env.WORKFLOW_NAME || "Unknown workflow";
+          const conclusion = env.CONCLUSION || "unknown";
+          const runUrl = env.RUN_URL || "https://github.com";
+          const branch = env.HEAD_BRANCH || "unknown";
+          const sha = env.HEAD_SHA || "unknown";
+          const repository = env.REPOSITORY || "unknown repository";
+          const text = [
+            `Agent-Native workflow ${conclusion}: ${workflow}`,
+            `Repository: ${repository}`,
+            `Branch: ${branch}`,
+            `Commit: ${sha}`,
+            `Run: ${runUrl}`,
+          ].join("\n");
+          const html = [
+            `<p><strong>Agent-Native workflow ${escapeHtml(conclusion)}: ${escapeHtml(workflow)}</strong></p>`,
+            `<p>Repository: ${escapeHtml(repository)}<br>Branch: ${escapeHtml(branch)}<br>Commit: ${escapeHtml(sha)}</p>`,
+            `<p><a href="${escapeHtml(runUrl)}">Open the failed workflow run</a></p>`,
+          ].join("");
+          process.stdout.write(JSON.stringify({
+            personalizations: [{ to: [{ email: env.ALERT_EMAIL }] }],
+            from: { email: env.SENDGRID_FROM_EMAIL },
+            subject: `[Agent-Native] ${conclusion}: ${workflow}`,
+            content: [
+              { type: "text/plain", value: text },
+              { type: "text/html", value: html },
+            ],
+          }));
+          NODE
+          )"
+
+          curl --fail-with-body --silent --show-error \
+            --retry 3 --retry-all-errors --connect-timeout 10 --max-time 30 \
+            -X POST "https://api.sendgrid.com/v3/mail/send" \
+            -H "Authorization: Bearer ${SENDGRID_API_KEY}" \
+            -H "Content-Type: application/json" \
+            --data "${payload}"

@@ -1,0 +1,133 @@
+---
+title: "表单"
+description: "一款由代理驱动的表单构建器，用一个您自己拥有的应用取代 Typeform 和 Google Forms。在聊天中描述您想要的表单，发布一个受保护的链接，然后看着回复自动被路由、导出和汇总。"
+---
+
+# 表单
+
+表单是一款面向任何需要收集信息、又不想写代码的人的表单构建器。您可以用它来做注册、反馈、报名或调查。向代理描述您想要的表单，需要更直接的控制时再对其进行可视化微调，然后发布一个任何人都能填写的链接。
+
+<Cards columns={1}>
+
+### [立即试用 →](https://forms.agent-native.com)
+
+查看表单的实际运行效果并发布一个真实表单。
+
+</Cards>
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F70338a3cf0cc402580858a409dd5bd6a?alt=media&token=f2c7c8e9-6cf3-4e03-865d-abc499d87ff6&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="表单应用的简要导览。"
+  caption="表单应用的简要导览。"
+  autoplay={true}
+  loop={true}
+/>
+
+每个新会话都会打开**Ask Forms**，一个供您描述想要内容的聊天界面。代理会为您创建表单。之后您可以随时切换到可视化编辑器，手动调整字段、校验规则或发布设置。两种编辑方式更新的是同一个表单，因此不会出现不同步的情况。
+
+<Diagram id="doc-block-forms2" title="构建、发布、收集" summary={"代理和可视化编辑器编辑的是同一个表单。任何人都可以在无需登录的情况下打开公开填写页面，新的提交会自动发送到您设置的目的地。"}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Ask Forms 聊天<br /><small class="diagram-muted"
+        >"添加一个 NPS 问题"</small
+      >
+    </div>
+    <div class="diagram-node">
+      可视化编辑器<br /><small class="diagram-muted">标签、校验、顺序</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">create-form · patch-form-fields</span
+    ><small class="diagram-muted">字段 JSON，设置 JSON</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    forms table<br /><small class="diagram-muted">通过 Drizzle 使用 SQL</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">
+      公开填写页<br /><small class="diagram-muted">unauthenticated</small>
+    </div>
+    <div class="diagram-box">
+      responses<br /><small class="diagram-muted"
+        >+ Slack / webhook / 表格</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## 它取代了什么
+
+<Comparison>
+
+### 之前
+
+- 用于收集回复的 Typeform、Google Forms，或手动搭建的表单
+- 手动把新提交内容复制到 Slack 或电子表格中
+- 需要一个单独的工具来总结收到的回复
+- 需要搭建一个 Zapier 自动化，才能把回复同步到 Sheets 或 webhook
+
+### 之后
+
+- 一个表单，代理和可视化编辑器都可以对其进行更新
+- 新回复一到达，就会立即发送到 Slack、Discord、Sheets 或 webhook
+- 只需请求一份摘要，就能得到图表、表格，或两者兼有，无需借助单独的工具
+- 条件字段、垃圾信息防护和匿名模式都内置在同一个构建器中
+
+</Comparison>
+
+## 多应用工作区中的表单
+
+如果您在 [Dispatch](/docs/template-dispatch) 中让表单和其他应用一起运行，表单就不再只是一个需要手动打开的页面。表单的代理可以把属于其他应用的问题转交出去，其他应用也可以直接向您的表单发送回复，就像框架自带的反馈按钮那样。具体是如何运作的，请参阅[多应用工作区中的表单](/docs/template-forms-integrations)。
+
+## 您可以用它做什么
+
+- **以对话方式构建表单。** 试试类似“创建一个联系表单”“添加一个 NPS 分数问题”或“把电子邮件字段设为必填”这样的提示。参阅[可用的字段类型](/docs/template-forms-features#field-types)。
+- **可视化微调。** 需要更直接的控制时，可以直接在表单构建器中编辑标签、占位符、必填状态、选项和字段顺序。
+- **发布并保护一个公开表单。** 分享一个公开链接，需要时开启垃圾信息防护或完全匿名回复。参阅[功能](/docs/template-forms-features)。
+- **查看回复并请求洞察。** 试试类似“总结本周的提交内容”或“按天绘制提交图表”这样的提示。参阅[功能](/docs/template-forms-features#response-insights)。
+- **自动路由提交内容。** 粘贴一个 Slack、Discord、Google Sheets 或通用 webhook 的 URL，新回复一到达就会被发送过去。
+
+## 接下来
+
+- [**功能**](/docs/template-forms-features) — 字段类型、条件逻辑、发布、防护、回复、洞察和路由，以及每一项的设置步骤
+- [**与 Agent 对话**](/docs/template-forms-agent) — 按任务分类的提示，以及代理如何查看您的屏幕
+- [**多应用工作区中的表单**](/docs/template-forms-integrations) — 委托机制，以及其他应用用来提交数据的公开提交地址
+- [**开发者指南**](/docs/template-forms-developers) — 面向开发者的 SQL 架构、action 参考和路由
+- [**Templates**](/docs/cloneable-saas) — Cloneable SaaS 模型
+- [**快速入门**](/docs/getting-started) — 框架的基础：actions、应用状态和实时同步
+- [**Actions**](/docs/actions-overview) — 为构建器提供动力的 action 系统
+- [**Messaging**](/docs/messaging) — Slack 和其他提交目的地
+- [**共享**](/docs/sharing) — 表单共享所依托的共享授权模型

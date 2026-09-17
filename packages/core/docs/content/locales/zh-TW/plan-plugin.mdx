@@ -1,0 +1,252 @@
+---
+title: "Plan 外掛與市場"
+description: "把 Agent-Native Plan 技能（/visual-plan、/visual-recap、/visualize-repo）連同託管的 Plan MCP 連線器，以 Claude Code 或 Codex 外掛的形式安裝，或使用通用 CLI 安裝。說明更新機制的運作方式，以及是否需要提交任何內容。"
+---
+
+# Plan 外掛與市場
+
+Agent-Native **Plan** 應用程式以單一可安裝套件的形式提供。一次安裝就會同時新增 Plan 的斜線指令技能，**並且**接好託管的 Plan MCP 連線器（代理與之溝通的遠端工具伺服器），讓代理可以一步產生計畫並直接發布到 Plan 應用程式中。本頁面適合任何要選擇安裝路徑、排解安裝問題，或想決定是否要把 Plan 提交到精選外掛目錄的人 — 這些技能實際做什麼，請參閱[視覺化 Plan](/docs/template-plan)。
+
+## 你會得到什麼 {#what-you-get}
+
+一次安裝可以讓你得到：
+
+- **三個技能** — `/visual-plan`（規範入口點）、`/visual-recap` 和 `/visualize-repo`。
+- **Plan MCP 連線器** — 針對 `https://plan.agent-native.com` 上的託管應用程式完成註冊（MCP 端點為 `https://plan.agent-native.com/mcp`，伺服器名稱為 `plan`）。
+
+<Diagram id="doc-block-i1sn3n" title="三條路徑，一個套件" summary="通用 CLI、Claude Code 外掛與 Codex 外掛，安裝的都是同一組 Plan 技能，加上託管的 Plan 連線器。">
+
+```html
+<div class="diagram-routes">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      通用 CLI<br /><small class="diagram-muted">skills add visual-plan</small>
+    </div>
+    <div class="diagram-node">
+      Claude Code 外掛<br /><small class="diagram-muted">/plugin install</small>
+    </div>
+    <div class="diagram-node">
+      Codex 外掛<br /><small class="diagram-muted">codex plugin add</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">/visual-plan</span
+    ><span class="diagram-pill accent">/visual-recap</span
+    ><span class="diagram-pill accent">/visualize-repo</span
+    ><small class="diagram-muted">三個技能</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    Plan MCP 連線器<br /><small class="diagram-muted"
+      >plan.agent-native.com/mcp</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-routes {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-routes .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-routes .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-routes .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+.diagram-routes .center .diagram-pill {
+  margin: 2px;
+}
+```
+
+</Diagram>
+
+在預設情況下，`/visual-plan` 與 `/visual-recap` 會發布到託管的 Plan 應用程式 — 它們會透過 MCP 連線器建立一份計畫，並把連結或行內計畫交給你審閱。它們絕不會把行內的 Markdown/ASCII 計畫當作最終產出丟進聊天中。如果 Plan 工具傳回 `needs auth`、`Unauthorized` 或 `Session terminated`，請重新驗證連線器，而不是退回到行內輸出。存取權杖的存活期很長（預設 30 天，並有 365 天的滑動式更新），所以這種情況應該很少見；一旦發生，簡便的修復方法是：
+
+```bash
+npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex
+```
+
+`reconnect` 會依網址找到並重新整理所選本機用戶端的連線器 — 不需要重新安裝。重新連線後，開啟一個新的 Codex 討論串，讓工具註冊表重新載入。在 Claude Code 中，等效做法是 `/mcp` → **Authenticate / Reconnect**，或使用相同指令加上 `--client claude-code`。
+
+例外情況是明確的**本機檔案隱私模式**。當你要求不寫入資料庫，或設定 `AGENT_NATIVE_PLANS_MODE=local-files` 時，這些技能就不可以呼叫 Plan MCP 連線器。它們會寫入 `plans/<slug>/plan.mdx`，加上選用的 `canvas.mdx`、`prototype.mdx` 與 `.plan-state.json`，然後用以下方式在本機預覽：
+
+```bash
+npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind plan --open
+```
+
+這會啟動一個小型的 localhost 橋接，並針對本機資料夾開啟 Plan UI。（`plan local preview` 改為執行一個本機的 Plan 開發伺服器路由，而 `plan local preview --out preview.html` 是一個舊版的替代方案，會寫出一個獨立的靜態 HTML 檔案。`plan serve` 可以當作 `plan local serve` 的簡短別名使用。）
+
+幾個值得知道的本機檔案模式眉角：
+
+- **使用 Chromium 系瀏覽器。** Safari 會封鎖託管的 HTTPS Plan 頁面讀取 `http://127.0.0.1` 這個 localhost 橋接（混合內容／私人網路），導致頁面卡在「Loading plan.」。在 macOS 上，`--open` 已經會優先選用 Chrome/Chromium/Edge/Brave；如果 Safari 還是開啟了，請在 Chromium 系瀏覽器中重新開啟印出的網址。
+- **提供服務的網址會寫入 `plans/<slug>/.plan-url`**（可用 `--url-file` 覆寫）。在背景執行或無頭模式的代理可以讀取這個檔案，而不必去解析長時間執行的 `serve` 指令的標準輸出。請把它當成一個本機權杖檔案，不要提交它。
+- 沒有瀏覽器可用時，**以無頭方式驗證**：`npx @agent-native/core@latest plan local verify --dir plans/<slug>` 會啟動橋接，檢查私人網路的預檢請求與 JSON 負載，印出診斷資訊，並在失敗時以非零狀態結束 — 不需要人眼檢查。
+- **先執行 `plan local check`。** 它會依 Plan 渲染器的區塊 schema 驗證 MDX（包括像 `checklist` 項目的 `id`/`label`，以及 `question-form` 問題的 `id`/`title`/`mode` 這類必要欄位），讓撰寫上的錯誤在交給瀏覽器之前就先曝露出來，而不是變成一個卡住的載入畫面。
+
+對於目前儲存庫中的資料夾，直接的本機路由會包含 `?path=...`，讓本機 Plan 應用程式能持續把瀏覽器中的編輯儲存回儲存庫資料夾。Plan 應用程式會用 `agent-native.json` 中的 `apps.plan.roots[0].path`，作為儲存已提升本機計畫的預設位置，找不到時則回退到 `plans/`。
+
+這樣可以讓計畫內容不進入 Agent-Native Plan 資料庫。在你之後明確發布之前，託管的分享、留言、螢幕截圖與計畫歷史都無法使用。
+
+<Diagram id="doc-block-zctmzc" title="託管模式 vs. 本機檔案模式" summary={"預設情況下，技能會透過連線器發布；本機檔案模式則改為把 MDX 寫入磁碟，並透過 localhost 橋接預覽。"}>
+
+```html
+<div class="diagram-modes">
+  <div class="diagram-card">
+    <span class="diagram-pill accent">預設 · 託管</span
+    ><strong>發布到 Plan 應用程式</strong
+    ><small class="diagram-muted"
+      >MCP 連線器 &rarr; 託管資料庫 &rarr; 分享連結、留言、歷史紀錄、
+      螢幕截圖</small
+    >
+  </div>
+  <div class="diagram-card">
+    <span class="diagram-pill warn">本機檔案隱私</span
+    ><strong>把 MDX 寫入磁碟</strong
+    ><small class="diagram-muted"
+      >plan.mdx + canvas.mdx + prototype.mdx &rarr; localhost 橋接 &rarr; 託管的
+      Plan UI 讀取本機來源。在呼叫
+      <code>publish-visual-plan</code> 之前不會寫入資料庫。</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-modes {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-modes .diagram-card {
+  flex: 1 1 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px 18px;
+}
+```
+
+</Diagram>
+
+Agent-Native Desktop 有另一條給託管計畫用的本機檔案同步路徑：Desktop 應用程式可以把一份託管計畫鏡射成本機 MDX 檔案，並把編輯匯入回去，不需要複製 Plan 應用程式或執行 CLI。這個工作流程仍以託管的 Plan 資料庫作為真實來源；如果目標是完全不寫入 Plan 資料庫，請使用本機檔案隱私模式。
+
+> 這個外掛（`agent-native-visual-plans`）帶有應用程式 id `visual-plans`，這就是為什麼 Claude Code 外掛名稱與 Codex 外掛名稱都是 `agent-native-visual-plans`。Plan 應用程式的顯示名稱是「Agent-Native Plan」。
+
+## 安裝路徑 {#install}
+
+有三種安裝方式。**通用 CLI 路徑**是我們預設建議的方式，因為它能在同一個流程中安裝技能，**並且**讓你選擇託管、本機檔案或自行託管模式。外掛路徑則適用於擁有一流外掛/市場系統的主機，且預設使用託管的 Plan。
+
+### 通用技能路徑（任何 MCP 主機）{#universal}
+
+適用於任何主機 — Claude Code、Codex、Cursor、Cline、Goose、ChatGPT 自訂 MCP 應用程式、Claude Cowork，以及其他任何相容 MCP 的工具。Agent-Native CLI 會安裝 Plan 技能、註冊託管的 Plan MCP 連線器，**並在同一步驟中對所選的本機用戶端執行驗證**，讓你的第一次工具呼叫不會撞上 OAuth 的高牆：
+
+```bash
+npx @agent-native/core@latest skills add visual-plan
+```
+
+這會安裝 `visual-plan`，加上搭配的 `visual-recap` 與 `visualize-repo` 技能，接著註冊 `plan` 連線器，然後執行驗證（用於託管/以帳號為後盾的分享的 OAuth 提示）。實用的旗標：
+
+- `--client codex|claude-code|claude-code-cli|cowork|all` — 要為哪些本機代理寫入 MCP 設定（預設為 `all`）。
+- `--no-connect` — 只註冊連線器而不進行驗證；之後再執行 `npx @agent-native/core@latest connect https://plan.agent-native.com --client all`，或選擇更精確的 `--client`。
+- `--mode hosted|local-files|self-hosted` — 選擇託管分享、全本機 MDX 檔案，或你自己的 Plan 應用程式。
+- `--mcp-url <url>` — 讓連線器指向自訂的來源（一個 ngrok 通道、一個本機開發伺服器，或一個自行託管的部署），而不是預設的託管位置。
+- `--with-github-action` — 同時寫入 PR 視覺回顧的 GitHub Action（詳見[PR 視覺回顧](/docs/pr-visual-recap)）。
+
+當還沒有工作流程存在時，互動式安裝也會提供 PR 視覺回顧 Action。在技能設定期間選擇「是」來加入它，或是之後再用 `--with-github-action` 執行上面的指令。工作流程寫入後，執行：
+
+```bash
+npx @agent-native/core@latest recap setup
+npx @agent-native/core@latest recap doctor
+```
+
+`recap setup` 會在可行的情況下設定 GitHub Action 的 secrets 與變數，`recap doctor` 則會驗證工作流程、本機發布權杖、GitHub 儲存庫存取權，以及必要的 Actions 設定。安裝完成後，重新啟動或重新載入代理用戶端，讓新的技能與工具載入，然後執行 `/visual-plan`。
+
+> 注意：單純的 `npx skills@latest add BuilderIO/agent-native --skill visual-plan`（Vercel/open Skills CLI）只會安裝**指示內容** — 它不會註冊 MCP 連線器。如果你也想接好連線器，請使用上面的 Agent-Native CLI。
+
+### Claude Code（外掛）{#claude-code}
+
+公開的 `BuilderIO/agent-native` 儲存庫本身就是一個 Claude Code 外掛市場，因此你可以直接新增它 — 不需要建置步驟。在 Claude Code 中：
+
+```text
+/plugin marketplace add BuilderIO/agent-native
+/plugin install agent-native-visual-plans@agent-native-apps
+/reload-plugins
+/mcp        # authenticate the Plan connector (one OAuth approval)
+```
+
+`/plugin install` 會加入 Plan 技能與一個**僅含網址**的 MCP 設定（套件中沒有任何 secrets）；`/mcp` → **Authenticate** 會完成 OAuth 交握。如果你想要本機檔案或自行託管模式，請改用通用 CLI 路徑。
+
+> 這個市場目錄名稱是 `agent-native-apps`，而 Plan 外掛是 `agent-native-visual-plans`，所以安裝目標永遠是 `agent-native-visual-plans@agent-native-apps`。
+
+### Codex（外掛）{#codex}
+
+同一個儲存庫也是一個 Codex 外掛市場。新增它、安裝外掛，然後驗證連線器：
+
+```bash
+codex plugin marketplace add BuilderIO/agent-native
+codex plugin add agent-native-visual-plans@agent-native-apps
+codex mcp login plan   # OAuth in the browser
+```
+
+安裝後，**開啟一個新的 Codex 討論串**，讓技能與 MCP 工具載入到工作階段中。這個外掛提供一個僅含網址的連線器（`[mcp_servers.plan]` → `https://plan.agent-native.com/mcp`）；`codex mcp login plan` 會執行 OAuth 流程。如果你偏好用一個指令同時完成安裝與驗證，或是想要本機檔案或自行託管模式，上面的通用 CLI 路徑（`npx @agent-native/core@latest skills add visual-plan --client codex`）在 Codex 上一樣可行。
+
+<Callout tone="info">
+
+**舊版安裝：** 如果你的設定中還有一個指向同一個網址的 `agent-native-plans` 項目，對 Codex 執行 `npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex`，或用相同指令搭配你的目標 `--client`，就能把它整併成規範的 `plan` 名稱。
+
+</Callout>
+
+## 更新 {#updates}
+
+外掛路徑會自動更新 — 一般的技能變更不需要你重新打包或重新新增市場：
+
+- **Claude Code** — 市場項目設定了 `autoUpdate: true`，且外掛使用 commit-SHA 版本控制，因此 Claude Code 會在啟動時從儲存庫拉取新版本；執行 `/reload-plugins` 來啟用它。每次推送到儲存庫的預設分支，都會自動觸及已安裝的使用者。
+- **Codex** — 外掛的 `version` 會內嵌捆綁技能與 MCP 端點的內容雜湊（例如 `1.0.0+codex.<hash>`），因此任何技能或端點的變更都會產生一個新版本。Codex 的啟動時自動升級會自行重新安裝已設定的 git 市場；只要**開啟一個新的討論串**就能套用變更。一般更新不需要手動執行 `codex plugin marketplace upgrade`。
+- **通用 CLI 路徑** — 執行 `npx @agent-native/core@latest skills status visual-plan` 來檢查複製的技能資料夾，或執行 `npx @agent-native/core@latest skills update visual-plan` 就地重新整理它們。如果你同時也想重新註冊/驗證連線器，重新執行 `skills add visual-plan` 依然可行。`@latest` 一律會從已發布的 `@agent-native/core` 套件拉取目前的技能。
+
+這個連線器指向一個**託管**應用程式，因此 Plan 應用程式的 actions 與即時工具介面，永遠會反映已部署的版本，不受你安裝時間的影響；只有捆綁的技能指示才會遵循上面的更新機制。
+
+<Callout tone="info">
+
+**維護者：** 市場套件（`.claude-plugin/`、`.agents/plugins/`）是由 `pnpm sync:plan-marketplace` 從規範的 plan 技能產生，並由 CI 中的 `pnpm guard:plan-marketplace` 驗證，因此已發布的市場永遠會符合規範技能。編輯技能、執行 `pnpm sync:plan-marketplace`，然後提交。
+
+</Callout>
+
+## 你需要提交任何內容嗎？{#submission}
+
+**發布或安裝這個外掛不需要任何提交或審核。** `BuilderIO/agent-native` 是一個自行託管的公開 git 市場，因此使用者可以在 **Claude Code 與 Codex 上**直接用上面的指令新增它 — 不需要申請或核准。通用 CLI 路徑則完全不需要市場。
+
+如果你想要有一個公開列表，這裡有選用的可發現性做法：
+
+- **Claude Code** 有一個社群市場，你可以*選擇性地*提交進去以取得列表（需要提交並經過自動化審核）。官方、由 Anthropic 精選的市場則由 Anthropic 自行決定是否列出 — 沒有開放的自助申請管道。使用上面的安裝指令並不需要這兩者中的任何一個。
+- **Codex** 有一個由 OpenAI 精選的外掛目錄（一份封閉的允許清單，透過合作關係而非自助提交產生）。自行託管的 git 市場與 CLI 路徑都不需要提交就能運作。
+
+簡單來說：把它以自行託管/公開 git 市場的形式發布，使用者就能直接安裝；只有在你想被列入以利發現時，才需要提交到精選目錄。
+
+## 外掛 vs. 技能 {#plugin-vs-skill}
+
+**技能**是一個單一的 `SKILL.md` 指示檔案，代理會在工作相符時讀取它。**外掛**（Claude Code 市場外掛或 Codex 外掛）則是一個套件，捆綁了一或多個技能，**加上**一個 MCP 連線器與中繼資料，讓主機可以一步安裝所有內容。
+
+在底層，這三種路徑都是由 `npx @agent-native/core@latest app-skill` CLI，從同一份原始碼產生出來的：`app-skill pack` 會建置市場/外掛轉接器，而 `skills add` 則是一個友善的一步安裝程式，同時也會註冊並驗證 MCP 連線器。app-skill 清單格式請見[技能指南](/docs/skills-guide)，連接任何 MCP 主機以及 `npx @agent-native/core@latest connect` 流程請見[外部代理](/docs/external-agents)。
+
+## 接下來 {#whats-next}
+
+- [**視覺化 Plan**](/docs/template-plan) — 這些技能做什麼，以及如何使用它們
+- [**PR 視覺回顧**](/docs/pr-visual-recap) — 在每個 pull request 上自動執行 `/visual-recap`
+- [**技能指南**](/docs/skills-guide) — 應用程式支援的技能與清單格式
+- [**外部代理**](/docs/external-agents) — 連接任何 MCP 主機並讓工件往返

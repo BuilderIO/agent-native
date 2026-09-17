@@ -1,0 +1,120 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  BETA_OPT_OUT_DURATION_MS,
+  buildAutomaticBetaRedirectUrl,
+  buildEnvironmentOptOutUrl,
+  buildEnvironmentUrl,
+  isBetaOptOutActive,
+  isBuilderIoEmployee,
+  resolveEnvironmentChannel,
+  resolveEnvironmentTargets,
+} from "./EnvironmentBadge.js";
+
+describe("EnvironmentBadge", () => {
+  it("recognizes first-party beta and production hosts", () => {
+    expect(resolveEnvironmentTargets("beta.plan.agent-native.com")).toEqual({
+      betaHost: "beta.plan.agent-native.com",
+      productionHost: "plan.agent-native.com",
+    });
+    expect(resolveEnvironmentTargets("agent-workspace.builder.io")).toEqual({
+      betaHost: "beta.agent-workspace.builder.io",
+      productionHost: "agent-workspace.builder.io",
+    });
+    expect(
+      resolveEnvironmentTargets("builder-agent-native-workspace.netlify.app"),
+    ).toEqual({
+      betaHost: "beta.agent-workspace.builder.io",
+      productionHost: "builder-agent-native-workspace.netlify.app",
+    });
+    expect(resolveEnvironmentTargets("chat.agent-native.com")).toEqual({
+      betaHost: "beta.chat.agent-native.com",
+      productionHost: "chat.agent-native.com",
+    });
+    // Regression pin for the Design template's reported broken beta
+    // Google sign-in: the automatic lane redirect only fires for a host
+    // resolved here, so Design falling out of this map would silently
+    // disable the fix that returns a signed-out beta arrival to production.
+    expect(resolveEnvironmentTargets("design.agent-native.com")).toEqual({
+      betaHost: "beta.design.agent-native.com",
+      productionHost: "design.agent-native.com",
+    });
+    expect(resolveEnvironmentTargets("starter.agent-native.com")).toBeNull();
+    expect(resolveEnvironmentTargets("www.agent-native.com")).toBeNull();
+    expect(resolveEnvironmentTargets("example.com")).toBeNull();
+  });
+
+  it("prefers explicit deployment config over hostname inference", () => {
+    expect(
+      resolveEnvironmentChannel(
+        { deployment: { environment: "production" } },
+        "beta.plan.agent-native.com",
+      ),
+    ).toBe("production");
+    expect(resolveEnvironmentChannel({}, "beta.plan.agent-native.com")).toBe(
+      "beta",
+    );
+    expect(
+      resolveEnvironmentChannel(
+        { deployment: { environment: "local" } },
+        "localhost",
+      ),
+    ).toBe("local");
+  });
+
+  it("preserves the path, query, and hash while switching hosts", () => {
+    expect(
+      buildEnvironmentUrl(
+        "https://beta.plan.agent-native.com/projects/42?tab=activity#runs",
+        "plan.agent-native.com",
+      ),
+    ).toBe("https://plan.agent-native.com/projects/42?tab=activity#runs");
+  });
+
+  it("marks an automatic beta redirect but leaves a manual switch unmarked", () => {
+    // Beta can only undo a redirect nobody asked for if the two are told
+    // apart at the source.
+    expect(
+      buildAutomaticBetaRedirectUrl(
+        "https://plan.agent-native.com/projects/42?tab=activity#runs",
+        "beta.plan.agent-native.com",
+      ),
+    ).toBe(
+      "https://beta.plan.agent-native.com/projects/42?tab=activity&agentNativeLaneRedirect=1#runs",
+    );
+    expect(
+      buildEnvironmentUrl(
+        "https://plan.agent-native.com/projects/42?tab=activity#runs",
+        "beta.plan.agent-native.com",
+      ),
+    ).toBe("https://beta.plan.agent-native.com/projects/42?tab=activity#runs");
+  });
+
+  it("adds an 8-hour opt-out when switching back to production", () => {
+    const now = 1_700_000_000_000;
+    expect(BETA_OPT_OUT_DURATION_MS).toBe(8 * 60 * 60 * 1000);
+    expect(
+      buildEnvironmentOptOutUrl(
+        "https://beta.plan.agent-native.com/projects/42?tab=activity#runs",
+        "plan.agent-native.com",
+        now,
+      ),
+    ).toBe(
+      `https://plan.agent-native.com/projects/42?tab=activity&agentNativeBetaOptOut=${now + BETA_OPT_OUT_DURATION_MS}#runs`,
+    );
+  });
+
+  it("only treats a future opt-out expiry as active", () => {
+    expect(isBetaOptOutActive("1700000001000", 1_700_000_000_000)).toBe(true);
+    expect(isBetaOptOutActive("1700000000000", 1_700_000_000_000)).toBe(false);
+    expect(isBetaOptOutActive("not-a-timestamp", 1_700_000_000_000)).toBe(
+      false,
+    );
+  });
+
+  it("requires an exact builder.io email domain", () => {
+    expect(isBuilderIoEmployee("Steve@Builder.io")).toBe(true);
+    expect(isBuilderIoEmployee("steve@builder.io.attacker.test")).toBe(false);
+    expect(isBuilderIoEmployee(null)).toBe(false);
+  });
+});
