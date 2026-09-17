@@ -1,5 +1,5 @@
 /**
- * Exactly one SSE reader may fold a given run into UI state.
+ * Exactly one SSE reader may fold a given run/turn into UI state.
  *
  * Two readers attach to the same run routinely: the chat adapter's own stream,
  * and AssistantChat's reconnect reader for runs with no live adapter stream
@@ -18,10 +18,12 @@
  * claim must not mutate UI state. It may still drain its socket to completion.
  */
 
-const owners = new Map<string, symbol>();
+type RunStreamOwner = { runId: string; token: symbol };
 
-function runKey(threadId: string, runId: string): string {
-  return `${threadId} ${runId}`;
+const owners = new Map<string, RunStreamOwner>();
+
+function runKey(threadId: string, runId: string, turnId?: string): string {
+  return `${threadId} ${turnId || runId}`;
 }
 
 /** Mint a token identifying one reader. Not shared between readers. */
@@ -30,19 +32,22 @@ export function createRunStreamToken(label?: string): symbol {
 }
 
 /**
- * Take ownership of a run's UI fold. Returns false when another live reader
- * already holds it — the caller must not attach, or must attach read-only.
- * Re-claiming with the same token is a no-op success so retry loops are safe.
+ * Take ownership of a run's UI fold. When a logical turn id is present, all
+ * background continuation run ids share one claim. Returns false when another
+ * live reader already holds it — the caller must not attach, or must attach
+ * read-only. Re-claiming with the same token is a no-op success so retry loops
+ * are safe.
  */
 export function claimRunStream(
   threadId: string,
   runId: string,
   token: symbol,
+  turnId?: string,
 ): boolean {
-  const key = runKey(threadId, runId);
+  const key = runKey(threadId, runId, turnId);
   const current = owners.get(key);
-  if (current && current !== token) return false;
-  owners.set(key, token);
+  if (current && current.token !== token) return false;
+  owners.set(key, { runId, token });
   return true;
 }
 
@@ -56,19 +61,22 @@ export function preemptRunStream(
   threadId: string,
   runId: string,
   token: symbol,
+  turnId?: string,
 ): boolean {
-  const key = runKey(threadId, runId);
+  const key = runKey(threadId, runId, turnId);
   const current = owners.get(key);
-  owners.set(key, token);
-  return current !== token;
+  owners.set(key, { runId, token });
+  return current?.token !== token || current?.runId !== runId;
 }
 
 export function ownsRunStream(
   threadId: string,
   runId: string,
   token: symbol,
+  turnId?: string,
 ): boolean {
-  return owners.get(runKey(threadId, runId)) === token;
+  const owner = owners.get(runKey(threadId, runId, turnId));
+  return owner?.runId === runId && owner.token === token;
 }
 
 /** Release only if still held by this token, so a late unmount cannot free a successor's claim. */
@@ -76,9 +84,11 @@ export function releaseRunStream(
   threadId: string,
   runId: string,
   token: symbol,
+  turnId?: string,
 ): void {
-  const key = runKey(threadId, runId);
-  if (owners.get(key) === token) owners.delete(key);
+  const key = runKey(threadId, runId, turnId);
+  const owner = owners.get(key);
+  if (owner?.runId === runId && owner.token === token) owners.delete(key);
 }
 
 /** Test seam. */

@@ -61,6 +61,7 @@ type UserMessage = ReturnType<typeof buildUserMessage>;
 
 const INTERRUPTED_TOOL_RESULT =
   "Interrupted before this tool returned a result.";
+const INTERRUPTED_ACTIVITY_RESULT = "Stopped before this action started.";
 
 export const ASSISTANT_RUN_DURATION_METADATA_KEY = "agentNativeRunDurationMs";
 
@@ -144,6 +145,7 @@ export function buildAssistantMessage(
     recoverable?: boolean;
   } | null = null;
   let endedAtInternalContinuationBoundary = false;
+  let userStoppedRun = false;
 
   const appendText = (text: string) => {
     const last = content[content.length - 1];
@@ -348,7 +350,12 @@ export function buildAssistantMessage(
       continue;
     }
 
-    // done, missing_api_key — terminal signals, not content
+    if (event.type === "done") {
+      userStoppedRun ||= event.reason === "user";
+      continue;
+    }
+
+    // missing_api_key — terminal signal, not content
   }
 
   // Only a truly empty turn produces nothing to persist. A turn that ended at
@@ -359,8 +366,8 @@ export function buildAssistantMessage(
   if (content.length === 0) return null;
 
   const continued = endedAtInternalContinuationBoundary;
-  if (!continued) {
-    settleInterruptedToolCalls(content);
+  if (userStoppedRun || !continued) {
+    settleInterruptedToolCalls(content, userStoppedRun);
   }
 
   const custom: Record<string, unknown> = {};
@@ -380,7 +387,8 @@ export function buildAssistantMessage(
     custom[ASSISTANT_RUN_DURATION_METADATA_KEY] = options.runDurationMs;
   }
   if (continued) custom.continued = true;
-  if (runError) {
+  if (userStoppedRun) custom.userStopped = true;
+  if (runError && !userStoppedRun) {
     custom.runError = {
       ...runError,
       ...(runId ? { runId } : {}),
@@ -396,9 +404,11 @@ export function buildAssistantMessage(
     createdAt: new Date(),
     role: "assistant",
     content,
-    status: runError
-      ? { type: "incomplete" as const, reason: "error" as const }
-      : { type: "complete" as const, reason: "stop" as const },
+    status: userStoppedRun
+      ? { type: "complete" as const, reason: "stop" as const }
+      : runError
+        ? { type: "incomplete" as const, reason: "error" as const }
+        : { type: "complete" as const, reason: "stop" as const },
     metadata,
   };
 }
@@ -494,13 +504,32 @@ function messageText(content: unknown): string {
     .join("");
 }
 
-function settleInterruptedToolCalls(content: ContentPart[]): void {
+function settleInterruptedToolCalls(
+  content: ContentPart[],
+  userStopped = false,
+): void {
   for (const part of content) {
-    if (part.type === "tool-call" && part.result === undefined) {
-      part.result = INTERRUPTED_TOOL_RESULT;
-      // Interrupted is not failed — never set `isError` here. The persisted
-      // turn must agree with the live client (client/sse-event-processor.ts).
-      part.outcome = "unknown";
+    const clearsSyntheticInterruption =
+      userStopped &&
+      part.type === "tool-call" &&
+      part.outcome === "unknown" &&
+      (part.result === INTERRUPTED_TOOL_RESULT ||
+        part.result === INTERRUPTED_ACTIVITY_RESULT);
+    if (
+      part.type === "tool-call" &&
+      (part.result === undefined || clearsSyntheticInterruption)
+    ) {
+      if (userStopped) {
+        // A deliberate Stop is neutral in the transcript. Complete the card so
+        // it cannot spin, without claiming the action failed or was unknown.
+        part.result = "";
+        delete part.outcome;
+      } else {
+        part.result = INTERRUPTED_TOOL_RESULT;
+        // Interrupted is not failed — never set `isError` here. The persisted
+        // turn must agree with the live client (client/sse-event-processor.ts).
+        part.outcome = "unknown";
+      }
     }
   }
 }

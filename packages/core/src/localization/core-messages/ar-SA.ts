@@ -89,6 +89,11 @@ const messages: AgentChatTranslation = {
     "التعرف على الكلام في المتصفح أو تحويل الكلام إلى نص",
   "onboarding.capability.voiceInput.why":
     "يحوّل الإدخال الصوتي الطلبات المنطوقة إلى نص؛ وتظل الكتابة متاحة دائمًا.",
+  "onboarding.capability.embeddings.label": "التضمينات",
+  "onboarding.capability.embeddings.keySummary":
+    "مفتاح Gemini أو Cohere أو Voyage",
+  "onboarding.capability.embeddings.why":
+    "تُحسّن التضمينات البحث الدلالي. يظل البحث بالكلمات المفتاحية يعمل من دونها.",
   "onboarding.capability.assetsImageGeneration.label": "إنشاء الصور",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "أرصدة Builder أو مفتاح مزود صور",
@@ -178,6 +183,24 @@ const messages: AgentChatTranslation = {
   "agents.statusReachable": "يمكن الوصول إليه",
   "agents.statusAuthRejected": "رُفضت المصادقة",
   "agents.statusNoJsonRpc": "لا يوجد JSON-RPC",
+  "agents.directoryTab": "دليل الوكلاء",
+  "agents.directoryPageHint": "اعثر على خلفية وكيل واربطها بمساحة عملك.",
+  "agents.directorySearch": "البحث في المزوّدين",
+  "agents.directoryProviders": "المزوّدون",
+  "agents.directoryManual": "الإضافة عبر عنوان URL",
+  "agents.directoryA2A": "A2A",
+  "agents.directoryManaged": "واجهة مُدارة",
+  "agents.directoryFoundry": "Microsoft Foundry",
+  "agents.directoryFoundryHint": "اربط وكيل Foundry عبر A2A.",
+  "agents.directoryGemini": "Gemini Enterprise",
+  "agents.directoryGeminiHint": "اربط وكيل Gemini Enterprise عبر A2A.",
+  "agents.directoryAnthropic": "وكلاء Anthropic المُدارون",
+  "agents.directoryAnthropicHint": "اربط الجلسات والموافقات من Anthropic.",
+  "agents.directoryNoMatches": "لا يطابق بحثك أي مزوّد.",
+  "agents.directoryRegistry": "سجل A2A العالمي",
+  "agents.directoryRegistryHint":
+    "تصفّح بطاقات الوكلاء العامة ثم تحقّق منها قبل الربط.",
+  "agents.directoryBrowse": "تصفح السجل",
   "common.saveFailed": "فشل الحفظ",
   "common.saveFailedStatus": "فشل الحفظ ({{status}})",
   "common.saving": "جارٍ الحفظ...",

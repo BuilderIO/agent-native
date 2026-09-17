@@ -58,6 +58,7 @@ const comment: ReviewComment = vi.hoisted(
       createdAt: "2026-07-13T13:00:00.000Z",
       updatedAt: "2026-07-13T13:00:00.000Z",
       metadata: null,
+      canDelete: true,
     }) satisfies ReviewComment,
 );
 
@@ -484,6 +485,11 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     });
     expect(
       document.querySelector("[data-review-attachment-button]"),
+    ).not.toBeNull();
+    expect(
+      document
+        .querySelector("[data-review-comment-tools]")
+        ?.querySelector("[data-review-attachment-button]"),
     ).not.toBeNull();
     await act(async () => {
       document
@@ -1226,6 +1232,11 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     expect(document.querySelectorAll("[data-review-attachment]")).toHaveLength(
       5,
     );
+    expect(
+      document.querySelector(
+        '[data-review-attachment-button][aria-label="review.attachImage"]',
+      ),
+    ).not.toBeNull();
     await act(async () => {
       document
         .querySelector<HTMLButtonElement>("[data-review-test-submit]")
@@ -1240,6 +1251,78 @@ describe("ReviewCanvasPins persisted thread popover", () => {
         ({ url }) => !url.startsWith("data:"),
       ),
     ).toBe(true);
+  });
+
+  it("keeps comment actions disabled until an image upload settles", async () => {
+    let resolveUpload: ((value: { src: string }) => void) | undefined;
+    mocks.uploadImage.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveUpload = resolve;
+        }),
+    );
+    await act(async () => {
+      root.render(
+        <ReviewCanvasPins
+          active
+          onClose={vi.fn()}
+          canvasSelector=".review-test-canvas"
+          resourceType="design"
+          resourceId="design-1"
+          targetId="screen-1"
+          canPost
+          canResolve
+        />,
+      );
+    });
+    await act(async () => {
+      document
+        .querySelector<HTMLElement>("[data-review-click-plane]")
+        ?.dispatchEvent(
+          new MouseEvent("click", {
+            bubbles: true,
+            clientX: 200,
+            clientY: 180,
+          }),
+        );
+    });
+    await act(async () => {
+      document
+        .querySelector<HTMLButtonElement>("[data-review-test-type]")
+        ?.click();
+    });
+
+    const input = document.querySelector<HTMLInputElement>(
+      "[data-review-attachment-input]",
+    );
+    Object.defineProperty(input, "files", {
+      configurable: true,
+      value: [
+        new File(["image"], "pending.png", {
+          type: "image/png",
+        }),
+      ],
+    });
+    await act(async () => {
+      input?.dispatchEvent(new Event("change", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    const submit = document.querySelector<HTMLButtonElement>(
+      "[data-review-test-submit]",
+    );
+    expect(submit?.disabled).toBe(true);
+    expect(
+      document.querySelector<HTMLTextAreaElement>("[data-review-test-textarea]")
+        ?.disabled,
+    ).toBe(true);
+
+    await act(async () => {
+      resolveUpload?.({ src: "https://cdn.example.com/pending.png" });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(submit?.disabled).toBe(false);
   });
 
   it("supports replies, reactions, and reopening a resolved thread", async () => {

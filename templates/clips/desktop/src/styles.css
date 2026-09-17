@@ -2445,10 +2445,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   border-color: #93c5fd;
 }
 
-.pending-upload-retry-spinning svg {
-  animation: readiness-spin 0.8s linear infinite;
-}
-
 .pending-upload-connect:hover {
   background: #dbeafe;
   border-color: #93c5fd;
@@ -2469,12 +2465,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 .pending-upload-dismiss:disabled {
   cursor: default;
   opacity: 0.6;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .pending-upload-retry-spinning svg {
-    animation: none;
-  }
 }
 
 .local-recording-banner,

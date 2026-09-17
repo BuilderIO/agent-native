@@ -44,6 +44,19 @@ const VOICE_INPUT_CAPABILITY: OnboardingCapability = {
   why: "Voice input turns spoken requests into text; typing always works without it.",
 };
 
+const EMBEDDINGS_CAPABILITY: OnboardingCapability = {
+  id: "embeddings",
+  label: "Embeddings",
+  required: false,
+  suggested: true,
+  builderIncluded: true,
+  keySummary: "Gemini, Cohere, or Voyage key",
+  labelKey: "agentChat.onboarding.capability.embeddings.label",
+  keySummaryKey: "agentChat.onboarding.capability.embeddings.keySummary",
+  whyKey: "agentChat.onboarding.capability.embeddings.why",
+  why: "Embeddings improve semantic search. Keyword search still works without them.",
+};
+
 const PROFILES: Record<string, OnboardingAppProfile> = {
   analytics: {
     appId: "analytics",
@@ -100,7 +113,8 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
       {
         id: "file-storage",
         label: "Media storage",
-        required: true,
+        required: false,
+        suggested: true,
         builderIncluded: true,
         keySummary: "S3-compatible endpoint, bucket, access key, and secret",
         why: "Generated files need a durable place to live before they can be shared.",
@@ -112,14 +126,7 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
     appName: "Brain",
     capabilities: [
       LLM_CAPABILITY,
-      {
-        id: "embeddings",
-        label: "Embeddings",
-        required: false,
-        builderIncluded: true,
-        keySummary: "Gemini, Cohere, or Voyage key",
-        why: "Embeddings improve semantic search. Keyword search still works without them.",
-      },
+      EMBEDDINGS_CAPABILITY,
       {
         id: "source-connections",
         label: "Source connections",
@@ -231,6 +238,19 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
     capabilities: [
       LLM_CAPABILITY,
       DESIGN_SYSTEM_INTELLIGENCE_CAPABILITY,
+      {
+        id: "image-generation",
+        label: "Image generation",
+        required: false,
+        suggested: true,
+        builderIncluded: true,
+        keySummary: "Builder credits or an image provider key",
+        labelKey: "agentChat.onboarding.capability.assetsImageGeneration.label",
+        keySummaryKey:
+          "agentChat.onboarding.capability.assetsImageGeneration.keySummary",
+        whyKey: "agentChat.onboarding.capability.assetsImageGeneration.why",
+        why: "Image generation is the core workflow for creating on-brand assets.",
+      },
       {
         id: "assets-library",
         label: "Assets library",
@@ -367,6 +387,7 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
         id: "image-generation",
         label: "Image generation",
         required: false,
+        suggested: true,
         builderIncluded: true,
         keySummary: "Gemini or OpenAI key",
         why: "Only needed when slides generate images instead of using uploaded assets.",
@@ -429,7 +450,8 @@ export function getOnboardingAppProfile(appId?: string): OnboardingAppProfile {
       capability.id !== "llm" &&
       capability.id !== FILE_UPLOAD_STORAGE_CAPABILITY.id &&
       capability.id !== "video-storage" &&
-      capability.id !== VOICE_INPUT_CAPABILITY.id,
+      capability.id !== VOICE_INPUT_CAPABILITY.id &&
+      capability.id !== EMBEDDINGS_CAPABILITY.id,
   );
   const configuredLlm = profile.capabilities.find(
     (capability) => capability.id === "llm",
@@ -442,8 +464,10 @@ export function getOnboardingAppProfile(appId?: string): OnboardingAppProfile {
   const configuredVoiceInput = profile.capabilities.find(
     (capability) => capability.id === VOICE_INPUT_CAPABILITY.id,
   );
-  const storageRequired =
-    resolvedId === "clips" || Boolean(configuredStorage?.required);
+  const configuredEmbeddings = profile.capabilities.find(
+    (capability) => capability.id === EMBEDDINGS_CAPABILITY.id,
+  );
+  const storageRequired = resolvedId === "clips";
   const capabilities = [
     {
       ...(configuredLlm ?? LLM_CAPABILITY),
@@ -457,6 +481,11 @@ export function getOnboardingAppProfile(appId?: string): OnboardingAppProfile {
     },
     {
       ...(configuredVoiceInput ?? VOICE_INPUT_CAPABILITY),
+      required: false,
+      suggested: true,
+    },
+    {
+      ...(configuredEmbeddings ?? EMBEDDINGS_CAPABILITY),
       required: false,
       suggested: true,
     },

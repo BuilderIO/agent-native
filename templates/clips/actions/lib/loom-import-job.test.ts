@@ -149,6 +149,11 @@ describe("runLoomImportJob", () => {
     });
 
     expect(result).toEqual({ status: "ready" });
+    expect(mockDownloadLoomVideo).toHaveBeenCalledWith({
+      loomId: "abcDEF_123456",
+      shareUrl: "https://www.loom.com/share/abcDEF_123456",
+      expectedDurationMs: 5_000,
+    });
     expect(mockUpdateSet).toHaveBeenCalledWith(
       expect.objectContaining({
         status: "ready",

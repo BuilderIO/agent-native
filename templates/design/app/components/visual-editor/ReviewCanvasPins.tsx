@@ -13,6 +13,7 @@ import {
   useReviewComments,
   useSetReviewThreadUnread,
   useUpdateReviewComment,
+  isTrustedReviewAttachmentUrl,
   type ReviewThread,
 } from "@agent-native/core/client/review";
 import { uploadEditorImage } from "@agent-native/core/client/uploads";
@@ -158,6 +159,7 @@ interface ReviewImageAttachment {
   url: string;
   name: string;
   contentType?: string;
+  provider?: string;
 }
 
 interface PendingReviewReaction {
@@ -678,10 +680,11 @@ function regionBetween(
 function reviewAttachmentMetadata(
   attachments: readonly ReviewImageAttachment[],
 ): Record<string, unknown>[] {
-  return attachments.map(({ url, name, contentType }) => ({
+  return attachments.map(({ url, name, contentType, provider }) => ({
     url,
     name,
     ...(contentType ? { contentType } : {}),
+    ...(provider ? { provider } : {}),
   }));
 }
 
@@ -692,6 +695,86 @@ function reviewAgentAttachments(attachments: readonly ReviewImageAttachment[]) {
     url,
     ...(contentType ? { contentType } : {}),
   }));
+}
+
+function reviewCommentAttachments(
+  comment: ReviewComment,
+): ReviewCommentAttachment[] {
+  const raw = comment.metadata?.attachments;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .flatMap((value) => {
+      if (!value || typeof value !== "object") return [];
+      const attachment = value as Record<string, unknown>;
+      const url = typeof attachment.url === "string" ? attachment.url : "";
+      const contentType =
+        typeof attachment.contentType === "string"
+          ? attachment.contentType
+          : undefined;
+      if (
+        !url ||
+        (contentType && !contentType.startsWith("image/")) ||
+        !isTrustedReviewAttachmentUrl(url)
+      ) {
+        return [];
+      }
+      return [
+        {
+          url,
+          name:
+            typeof attachment.name === "string" && attachment.name.trim()
+              ? attachment.name
+              : "image",
+        },
+      ];
+    })
+    .slice(0, MAX_REVIEW_IMAGE_ATTACHMENTS);
+}
+
+interface ReviewCommentAttachment {
+  url: string;
+  name: string;
+}
+
+function ReviewCommentAttachmentStrip({
+  comment,
+  compact = false,
+}: {
+  comment: ReviewComment;
+  compact?: boolean;
+}) {
+  const attachments = reviewCommentAttachments(comment);
+  if (!attachments.length) return null;
+  return (
+    <div
+      className={cn(
+        "mt-2 flex flex-wrap gap-1.5",
+        compact ? "max-w-56" : "max-w-64",
+      )}
+      data-review-comment-attachments
+    >
+      {attachments.map((attachment) => (
+        <a
+          key={attachment.url}
+          href={attachment.url}
+          target="_blank"
+          rel="noreferrer"
+          className="block size-16 overflow-hidden rounded-md border border-border bg-muted"
+        >
+          <img
+            src={attachment.url}
+            alt={attachment.name}
+            loading="lazy"
+            className="size-full object-cover"
+          />
+        </a>
+      ))}
+    </div>
+  );
+}
+
+function displayReviewCommentBody(body: string): string {
+  return body.replace(/@\[([^\]]+)\]\(mailto:[^)]+\)/g, "@$1");
 }
 
 export function ReviewCanvasPins({
@@ -728,6 +811,7 @@ export function ReviewCanvasPins({
       resourceId,
       targetId,
       includeResolved: true,
+      newestFirst: true,
       limit: 500,
     },
     {
@@ -1936,7 +2020,13 @@ export function ReviewCanvasPins({
 
   const moveThread = useCallback(
     (thread: ReviewThread, point: ReviewAnchorPoint) => {
-      if (!canPost || !canvas || updateComment.isPending) return;
+      if (
+        !canPost ||
+        thread.root.canDelete !== true ||
+        !canvas ||
+        updateComment.isPending
+      )
+        return;
       const parsed = parseReviewAnchor(thread.root.anchor);
       if (!parsed) return;
       const nextAnchor: DesignReviewAnchor = { ...parsed, point };
@@ -1988,7 +2078,9 @@ export function ReviewCanvasPins({
           anchor: nextAnchor,
         },
         {
-          onSuccess: () => {
+          onSuccess: async () => {
+            const refreshed = await comments.refetch();
+            if (refreshed.error) return;
             setOptimisticAnchors((current) => {
               if (!(thread.root.threadId in current)) return current;
               const next = { ...current };
@@ -2011,6 +2103,7 @@ export function ReviewCanvasPins({
       boardGeometry,
       canPost,
       canvas,
+      comments.refetch,
       resourceId,
       resourceType,
       screenAnchorId,
@@ -2081,6 +2174,9 @@ export function ReviewCanvasPins({
       {placementPlaneVisible ? (
         <div
           data-review-click-plane
+          data-review-click-plane-target={
+            screenAnchorId ?? (boardGeometry ? "board" : undefined)
+          }
           className="fixed z-40 cursor-crosshair"
           style={{
             left: rect.left,
@@ -2184,7 +2280,11 @@ export function ReviewCanvasPins({
                     ) ?? parsed.region)
                   : parsed?.region;
               })()}
-              canMove={canPost && (thread.root.canDelete ?? true)}
+              canMove={
+                canPost &&
+                thread.root.canDelete === true &&
+                !updateComment.isPending
+              }
               onMove={(point) => moveThread(thread, point)}
             >
               {activeThreadId === thread.root.threadId ? (
@@ -2651,25 +2751,39 @@ function ReviewImageAttachments({
   attachments,
   disabled = false,
   onChange,
+  onUploadingChange,
   className,
 }: {
   attachments: ReviewImageAttachment[];
   disabled?: boolean;
   onChange: (attachments: ReviewImageAttachment[]) => void;
+  onUploadingChange?: (uploading: boolean) => void;
   className?: string;
 }) {
   const t = useT();
   const inputRef = useRef<HTMLInputElement>(null);
+  const attachmentsRef = useRef(attachments);
+  attachmentsRef.current = attachments;
+  const mountedRef = useRef(true);
   const [uploading, setUploading] = useState(false);
 
+  useEffect(
+    () => () => {
+      mountedRef.current = false;
+    },
+    [],
+  );
+
   const handleFiles = async (files: FileList | null) => {
-    const remaining = MAX_REVIEW_IMAGE_ATTACHMENTS - attachments.length;
+    const remaining =
+      MAX_REVIEW_IMAGE_ATTACHMENTS - attachmentsRef.current.length;
     const selected = Array.from(files ?? [])
       .filter((file) => file.type.startsWith("image/"))
       .slice(0, Math.max(0, remaining));
     if (!selected.length) return;
 
     setUploading(true);
+    onUploadingChange?.(true);
     const results = await Promise.allSettled(
       selected.map(async (file) => {
         const uploaded = await uploadEditorImage(file);
@@ -2681,21 +2795,27 @@ function ReviewImageAttachments({
           url,
           name: file.name || "image",
           contentType: file.type || undefined,
+          ...(uploaded.provider ? { provider: uploaded.provider } : {}),
         } satisfies ReviewImageAttachment;
       }),
     );
     const uploaded = results.flatMap((result) =>
       result.status === "fulfilled" ? [result.value] : [],
     );
+    if (!mountedRef.current) return;
     if (uploaded.length) {
       onChange(
-        [...attachments, ...uploaded].slice(0, MAX_REVIEW_IMAGE_ATTACHMENTS),
+        [...attachmentsRef.current, ...uploaded].slice(
+          0,
+          MAX_REVIEW_IMAGE_ATTACHMENTS,
+        ),
       );
     }
     if (results.some((result) => result.status === "rejected")) {
       toast.error(t("review.postFailed"));
     }
     setUploading(false);
+    onUploadingChange?.(false);
     if (inputRef.current) inputRef.current.value = "";
   };
 
@@ -2746,7 +2866,7 @@ function ReviewImageAttachments({
           attachments.length >= MAX_REVIEW_IMAGE_ATTACHMENTS
         }
         onClick={() => inputRef.current?.click()}
-        aria-label={t("review.moreActions")}
+        aria-label={t("review.attachImage")}
       >
         {uploading ? (
           <Spinner className="size-3.5" />
@@ -2806,6 +2926,7 @@ function DraftComposer({
 }) {
   const t = useT();
   const [engaged, setEngaged] = useState(false);
+  const [attachmentsUploading, setAttachmentsUploading] = useState(false);
   const [modeOverride, setModeOverride] = useState<
     "auto" | NodeRepromptSendMode
   >(initialAgentMode);
@@ -2814,6 +2935,7 @@ function DraftComposer({
   });
   const sendMode = modeOverride === "auto" ? inferredMode : modeOverride;
   const submitting = commentSubmitting || agentSubmitting;
+  const busy = submitting || attachmentsUploading;
   const revealTools =
     engaged || Boolean(value.trim()) || attachments.length > 0;
   const agentLabel =
@@ -2829,7 +2951,7 @@ function DraftComposer({
         size="sm"
         variant={initialAgentMode === "preview" ? "default" : "outline"}
         className="h-8 min-w-0 flex-1 gap-1.5 rounded-e-none"
-        disabled={submitting || !value.trim()}
+        disabled={busy || !value.trim()}
         onClick={() => onSmartSubmit(sendMode)}
       >
         {agentSubmitting ? (
@@ -2846,7 +2968,7 @@ function DraftComposer({
             size="sm"
             variant={initialAgentMode === "preview" ? "default" : "outline"}
             className="h-8 shrink-0 rounded-s-none border-s-0 px-2"
-            disabled={submitting}
+            disabled={busy}
             aria-label={t("designEditor.nodeRewrite.agentModeOptions")}
           >
             <IconChevronDown className="size-3" />
@@ -2907,16 +3029,6 @@ function DraftComposer({
           </Button>
         </div>
       </div>
-      {revealTools ? (
-        <ReviewImageAttachments
-          attachments={attachments}
-          disabled={submitting}
-          onChange={(next) => {
-            setEngaged(true);
-            onAttachmentsChange(next);
-          }}
-        />
-      ) : null}
       <ReviewCommentComposer
         className="px-3 pb-3"
         autoFocus
@@ -2928,7 +3040,21 @@ function DraftComposer({
         emojiLabel={t("review.addEmoji")}
         mentionLabel={t("review.mention")}
         noMentionsLabel={t("review.noMentions")}
-        disabled={submitting}
+        commentToolsEnd={
+          revealTools ? (
+            <ReviewImageAttachments
+              attachments={attachments}
+              disabled={busy}
+              onUploadingChange={setAttachmentsUploading}
+              onChange={(next) => {
+                setEngaged(true);
+                onAttachmentsChange(next);
+              }}
+              className="flex-nowrap p-0"
+            />
+          ) : undefined
+        }
+        disabled={busy}
         onChange={(next) => {
           setEngaged(true);
           onChange(next);
@@ -3149,6 +3275,7 @@ function ReviewThreadPopover({
   const t = useT();
   const rootAuthor = reviewAuthorLabel(thread.root, t("review.reviewer"));
   const avatarUrl = useAvatarUrl(thread.root.authorEmail);
+  const [replyUploading, setReplyUploading] = useState(false);
   return (
     <div
       data-review-popover
@@ -3202,9 +3329,10 @@ function ReviewThreadPopover({
             />
           ) : (
             <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-5 text-foreground">
-              {thread.root.body}
+              {displayReviewCommentBody(thread.root.body)}
             </p>
           )}
+          <ReviewCommentAttachmentStrip comment={thread.root} />
           {thread.root.status === "resolved" &&
           reviewResolutionNote(thread.root) ? (
             <div
@@ -3279,8 +3407,9 @@ function ReviewThreadPopover({
                 {reviewAuthorLabel(reply, t("review.reviewer"))}
               </div>
               <p className="mt-0.5 whitespace-pre-wrap break-words text-xs leading-5 text-foreground/90">
-                {reply.body}
+                {displayReviewCommentBody(reply.body)}
               </p>
+              <ReviewCommentAttachmentStrip comment={reply} compact />
               <ReviewReactionControls
                 commentId={reply.id}
                 reactions={discussion?.reactions[reply.id] ?? []}
@@ -3309,8 +3438,9 @@ function ReviewThreadPopover({
                 commentToolsEnd={
                   <ReviewImageAttachments
                     attachments={replyAttachments}
-                    disabled={replying || resolving}
+                    disabled={replying || resolving || replyUploading}
                     onChange={onReplyAttachmentsChange}
+                    onUploadingChange={setReplyUploading}
                     className="flex-nowrap p-0"
                   />
                 }
@@ -3318,7 +3448,7 @@ function ReviewThreadPopover({
                 mentionLabel={t("review.mention")}
                 noMentionsLabel={t("review.noMentions")}
                 textareaProps={{ "data-review-reply-input": true }}
-                disabled={replying || resolving}
+                disabled={replying || resolving || replyUploading}
                 onChange={onReplyDraftChange}
                 onSubmit={() => onReply()}
                 commentLabel={t("review.reply")}
@@ -3338,7 +3468,7 @@ function ReviewThreadPopover({
                   variant="ghost"
                   size="sm"
                   className="h-7 gap-1.5 px-2 text-xs text-primary hover:text-primary"
-                  disabled={sending || resolving}
+                  disabled={sending || resolving || replyUploading}
                   onClick={onSendToAgent}
                 >
                   {sending ? (
@@ -3357,7 +3487,7 @@ function ReviewThreadPopover({
                 variant="ghost"
                 size="sm"
                 className="h-7 gap-1.5 px-2 text-xs text-muted-foreground"
-                disabled={resolving || sending}
+                disabled={resolving || sending || replyUploading}
                 onClick={onStatusChange}
                 aria-label={
                   thread.root.status === "open"

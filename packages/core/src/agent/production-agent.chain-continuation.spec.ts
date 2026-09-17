@@ -236,6 +236,10 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
     );
     // The successor's rehydration payload is persisted ON the row…
     const insertOptions = (h.deps.insertRun as any).mock.calls[0][3];
+    // The durable run store owns ordering. The in-marker count resets when a
+    // sweep redispatches a stale run, so deriving a DB position from it would
+    // let recovery reuse an earlier chunk's order.
+    expect(insertOptions.continuationOrder).toBeUndefined();
     const payload = JSON.parse(insertOptions.dispatchPayload);
     expect(payload.internalContinuation).toBe(true);
     expect(payload.message).toBe("a very large user message");

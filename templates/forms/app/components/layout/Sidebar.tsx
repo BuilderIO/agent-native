@@ -268,6 +268,7 @@ export function Sidebar() {
       collapsed={effectiveCollapsed}
       onCollapsedChange={setCollapsed}
       brandName={t("navigation.brand")}
+      appId="forms"
       brandHref="/forms"
       items={items}
       secondaryItems={secondaryItems}

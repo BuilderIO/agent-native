@@ -11,6 +11,12 @@ export {
 } from "./agent-chat-context.js";
 export { agentEnv, type EnvVar } from "./agent-env.js";
 export {
+  APP_STATUS,
+  DEFAULT_APP_STATUS,
+  getAppStatus,
+  type AppStatus,
+} from "./app-status.js";
+export {
   extractOAuthStateAppId,
   extractOAuthStateProvider,
 } from "./oauth-state.js";
@@ -30,6 +36,16 @@ export {
   type SignInJourneyInput,
 } from "./sign-in-journey.js";
 export { truncate } from "./truncate.js";
+export {
+  MAX_USER_REGEX_INPUT_LENGTH,
+  MAX_USER_REGEX_LENGTH,
+  analyzeRegexSource,
+  compileUserRegex,
+  testUserRegex,
+  type RegexSafetyVerdict,
+  type UserRegexCompileResult,
+  type UserRegexTestResult,
+} from "./bounded-regex.js";
 export {
   isHumanReadableDocumentTitle,
   normalizeDocumentTitle,

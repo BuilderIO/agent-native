@@ -88,6 +88,11 @@ const messages: AgentChatTranslation = {
     "브라우저 음성 인식 또는 음성 텍스트 변환",
   "onboarding.capability.voiceInput.why":
     "음성 입력은 말한 요청을 텍스트로 바꿉니다. 입력은 언제나 사용할 수 있습니다.",
+  "onboarding.capability.embeddings.label": "임베딩",
+  "onboarding.capability.embeddings.keySummary":
+    "Gemini, Cohere 또는 Voyage 키",
+  "onboarding.capability.embeddings.why":
+    "임베딩은 의미 검색을 개선합니다. 임베딩 없이도 키워드 검색은 작동합니다.",
   "onboarding.capability.assetsImageGeneration.label": "이미지 생성",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Builder 크레딧 또는 이미지 제공업체 키",
@@ -178,6 +183,26 @@ const messages: AgentChatTranslation = {
   "agents.statusReachable": "연결 가능",
   "agents.statusAuthRejected": "인증 거부됨",
   "agents.statusNoJsonRpc": "JSON-RPC 없음",
+  "agents.directoryTab": "에이전트 디렉터리",
+  "agents.directoryPageHint":
+    "에이전트 백엔드를 찾아 워크스페이스에 연결하세요.",
+  "agents.directorySearch": "공급자 검색",
+  "agents.directoryProviders": "공급자",
+  "agents.directoryManual": "URL로 추가",
+  "agents.directoryA2A": "A2A",
+  "agents.directoryManaged": "관리형 API",
+  "agents.directoryFoundry": "Microsoft Foundry",
+  "agents.directoryFoundryHint": "A2A로 Foundry 에이전트를 연결하세요.",
+  "agents.directoryGemini": "Gemini Enterprise",
+  "agents.directoryGeminiHint":
+    "A2A로 Gemini Enterprise 에이전트를 연결하세요.",
+  "agents.directoryAnthropic": "Anthropic 관리형 에이전트",
+  "agents.directoryAnthropicHint": "Anthropic의 세션과 승인을 연결하세요.",
+  "agents.directoryNoMatches": "검색과 일치하는 공급자가 없습니다.",
+  "agents.directoryRegistry": "글로벌 A2A 레지스트리",
+  "agents.directoryRegistryHint":
+    "공개 Agent Card를 찾아 연결하기 전에 확인하세요.",
+  "agents.directoryBrowse": "레지스트리 찾아보기",
   "common.saveFailed": "저장 실패",
   "common.saveFailedStatus": "저장 실패({{status}})",
   "common.saving": "저장 중...",

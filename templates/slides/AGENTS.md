@@ -51,10 +51,10 @@ Read the relevant skill before deeper work:
 - For external integrations, inspect the workspace/provider connection catalog first.
 - Use listed actions for every deck/slide write; never write rows directly.
 - Use `view-screen` when the active deck, slide, or layout is unclear.
-- Preserve deck structure; prefer focused slide edits over regenerating decks.
-- New-deck attachments arrive pre-read; never ignore one. Import into a deck
-  only on explicit request or the Import control; imports follow
-  `sourceImport` and preserve structure.
+- Preserve requested structure; imported decks still support structural edits.
+- New-deck attachments arrive pre-read; import only on explicit request or the
+  Import control. `sourceImport` preserves provenance; structural edits clear it
+  so subsequent exports use the edited deck.
 - A source import with `fidelity: partial` or `imagesSkipped` is not safe to
   restyle automatically; report the exact warning instead of silently
   replacing content.

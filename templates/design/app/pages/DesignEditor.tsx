@@ -3486,6 +3486,7 @@ function DesignEditor() {
       resourceType: "design",
       resourceId: id ?? "",
       includeResolved: true,
+      newestFirst: true,
       limit: 500,
     },
     { enabled: Boolean(id) && !shellMode },

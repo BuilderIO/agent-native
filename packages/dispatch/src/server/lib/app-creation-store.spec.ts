@@ -28,9 +28,11 @@ const mocks = vi.hoisted(() => {
   const state = {
     orgRole: "admin" as string | null,
   };
+  const executedSql: string[] = [];
   return {
     settings,
     state,
+    executedSql,
     getSetting: vi.fn(async (key: string) => settings.get(key) ?? null),
     mutateSetting: vi.fn(
       async (key: string, updater: (current: any) => any) => {
@@ -54,6 +56,7 @@ const mocks = vi.hoisted(() => {
           typeof statement === "string"
             ? statement
             : String((statement as { sql?: unknown })?.sql ?? "");
+        executedSql.push(sql);
         if (sql.includes("SELECT id FROM workspace_apps")) {
           return { rows: [], rowsAffected: 0 };
         }
@@ -163,6 +166,7 @@ afterEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
   vi.clearAllMocks();
+  mocks.executedSql.length = 0;
   mocks.settings.clear();
   mocks.getOrgSetting.mockReset();
   mocks.getOrgSetting.mockResolvedValue(null);
@@ -184,6 +188,7 @@ afterEach(() => {
         typeof statement === "string"
           ? statement
           : String((statement as { sql?: unknown })?.sql ?? "");
+      mocks.executedSql.push(sql);
       if (sql.includes("SELECT id FROM workspace_apps")) {
         return { rows: [], rowsAffected: 0 };
       }
@@ -362,6 +367,35 @@ describe("listWorkspaceApps", () => {
     ]);
   });
 
+  it.each([401, 403])(
+    "keeps a local gateway denial on the unverified fallback path (%i)",
+    async (status) => {
+      const fetchMock = vi.fn(async () => new Response("denied", { status }));
+      vi.stubGlobal("fetch", fetchMock);
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("WORKSPACE_GATEWAY_URL", "http://127.0.0.1:8080");
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      stubManifest([
+        { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+        { id: "clips", name: "Clips", path: "/clips" },
+      ]);
+
+      const apps = await runWithRequestContext(
+        { userEmail: "dev@example.test" },
+        () => listWorkspaceApps({ includeAgentCards: false }),
+      );
+
+      expect(apps.map((app) => app.id)).toEqual(["dispatch", "clips"]);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining(
+          `workspace apps gateway denied the registry read with HTTP ${status}`,
+        ),
+      );
+      warn.mockRestore();
+    },
+  );
+
   it("derives manifest app URLs from the Vercel preview when no workspace origin is configured", async () => {
     stubNoPendingContext();
     stubManifest([
@@ -433,16 +467,72 @@ describe("listWorkspaceApps", () => {
   });
 
   it.each([401, 403])(
-    "surfaces hosted registry authorization failures instead of using local manifests (%i)",
+    "does not expose manifest apps without ACL rows when the hosted registry denies the read (%i)",
     async (status) => {
       const fetchMock = vi.fn(async () => new Response("denied", { status }));
       vi.stubGlobal("fetch", fetchMock);
+      mocks.resolveAccess.mockResolvedValue(null);
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
       vi.stubEnv("A2A_SECRET", "test-a2a-secret");
       vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
       stubManifest([
         { id: "dispatch", name: "Dispatch", path: "/dispatch" },
         { id: "clips", name: "Clips", path: "/clips" },
       ]);
+
+      const apps = await runWithRequestContext(
+        { userEmail: "dev@example.test" },
+        () => listWorkspaceApps({ includeAgentCards: false }),
+      );
+
+      expect(apps.map((app) => app.id)).toEqual(["dispatch"]);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining(
+          `workspace apps gateway denied the registry read with HTTP ${status}`,
+        ),
+      );
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("hidden from this response"),
+      );
+      warn.mockRestore();
+    },
+  );
+
+  it("never mutates registry state from the unverified fallback manifest", async () => {
+    const fetchMock = vi.fn(
+      async () => new Response("denied", { status: 403 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+    stubManifest([
+      { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+      { id: "clips", name: "Clips", path: "/clips" },
+    ]);
+
+    await runWithRequestContext(
+      { userEmail: "dev@example.test", orgId: "builder_io" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(
+      mocks.executedSql.filter((sql) =>
+        /\b(INSERT|UPDATE|DELETE)\b/i.test(sql),
+      ),
+    ).toEqual([]);
+    warn.mockRestore();
+  });
+
+  it.each([401, 403])(
+    "still rejects a denied registry read when no deployment manifest can answer (%i)",
+    async (status) => {
+      const fetchMock = vi.fn(async () => new Response("denied", { status }));
+      vi.stubGlobal("fetch", fetchMock);
+      vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+      vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE_APPS_JSON", "");
 
       await expect(
         runWithRequestContext({ userEmail: "dev@example.test" }, () =>
@@ -451,7 +541,6 @@ describe("listWorkspaceApps", () => {
       ).rejects.toThrow(
         `Workspace apps gateway rejected the request with HTTP ${status}.`,
       );
-      expect(fetchMock).toHaveBeenCalledTimes(1);
     },
   );
 

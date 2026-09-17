@@ -92,6 +92,11 @@ const messages: AgentChatTranslation = {
     "ブラウザーの音声認識または音声文字変換",
   "onboarding.capability.voiceInput.why":
     "音声入力は話したリクエストをテキストに変換します。入力はいつでも使えます。",
+  "onboarding.capability.embeddings.label": "埋め込み",
+  "onboarding.capability.embeddings.keySummary":
+    "Gemini、Cohere、またはVoyageのキー",
+  "onboarding.capability.embeddings.why":
+    "埋め込みは意味検索を改善します。埋め込みがなくてもキーワード検索は使えます。",
   "onboarding.capability.assetsImageGeneration.label": "画像生成",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Builderクレジットまたは画像プロバイダーのキー",
@@ -183,6 +188,27 @@ const messages: AgentChatTranslation = {
   "agents.statusReachable": "接続可能",
   "agents.statusAuthRejected": "認証拒否",
   "agents.statusNoJsonRpc": "JSON-RPC なし",
+  "agents.directoryTab": "エージェントディレクトリ",
+  "agents.directoryPageHint":
+    "エージェントバックエンドを見つけてワークスペースに接続します。",
+  "agents.directorySearch": "プロバイダーを検索",
+  "agents.directoryProviders": "プロバイダー",
+  "agents.directoryManual": "URL で追加",
+  "agents.directoryA2A": "A2A",
+  "agents.directoryManaged": "マネージド API",
+  "agents.directoryFoundry": "Microsoft Foundry",
+  "agents.directoryFoundryHint":
+    "A2A 経由で Foundry エージェントを接続します。",
+  "agents.directoryGemini": "Gemini Enterprise",
+  "agents.directoryGeminiHint":
+    "A2A 経由で Gemini Enterprise エージェントを接続します。",
+  "agents.directoryAnthropic": "Anthropic 管理エージェント",
+  "agents.directoryAnthropicHint": "Anthropic のセッションと承認を接続します。",
+  "agents.directoryNoMatches": "検索に一致するプロバイダーはありません。",
+  "agents.directoryRegistry": "グローバル A2A レジストリ",
+  "agents.directoryRegistryHint":
+    "公開 Agent Card を参照し、接続前に確認してください。",
+  "agents.directoryBrowse": "レジストリを開く",
   "common.saveFailed": "保存に失敗しました",
   "common.saveFailedStatus": "保存に失敗しました（{{status}}）",
   "common.saving": "保存中...",

@@ -1,8 +1,7 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import { getDbExec } from "@agent-native/core/db";
 import {
-  resourceGetByPath,
-  resourcePut,
+  resourcePutIfAbsent,
   sharedResourceOwner,
 } from "@agent-native/core/resources/store";
 import { z } from "zod";
@@ -70,13 +69,6 @@ export default defineAction({
       scope === "shared"
         ? sharedResourceOwner(currentOrgId())
         : currentOwnerEmail();
-    const existing = await resourceGetByPath(owner, path);
-    if (existing) {
-      fail(
-        `An external agent already exists at ${path}. Rename it before connecting again.`,
-        { statusCode: 409 },
-      );
-    }
 
     const manifest = {
       id,
@@ -84,12 +76,22 @@ export default defineAction({
       ...(description?.trim() ? { description: description.trim() } : {}),
       url: parsed.toString(),
     };
-    const resource = await resourcePut(
+    // resourcePutIfAbsent makes the existence check and the write one atomic
+    // operation, so two concurrent connects for the same derived path cannot
+    // both pass a separate pre-check and have the second silently overwrite
+    // the first through resourcePut's upsert semantics.
+    const resource = await resourcePutIfAbsent(
       owner,
       path,
       JSON.stringify(manifest, null, 2),
       "application/json",
     );
+    if (!resource) {
+      fail(
+        `An external agent already exists at ${path}. Rename it before connecting again.`,
+        { statusCode: 409 },
+      );
+    }
 
     return { status: "created" as const, resource, agent: manifest, scope };
   },

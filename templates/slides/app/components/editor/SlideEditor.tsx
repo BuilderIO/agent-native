@@ -192,6 +192,7 @@ import {
   rotateSlideObjectMembers,
   resolveSlideClipboardElement,
   restoreSlideObjectStyle,
+  restoreSlideObjectDomSnapshot,
   setSlideObjectDimension,
   setSlideObjectRotation,
   SLIDE_OBJECT_PASTE_OFFSET,
@@ -235,6 +236,7 @@ import { SlideOverflowWarning } from "./SlideOverflowWarning";
 import {
   contentForSlideTextContainer,
   isSlideTextContainerTag,
+  normalizeSlideClipboardHtml,
   restoreSlideTextContainerContent,
   selectionOffsetsWithin,
   SlideRichTextEditor,
@@ -505,6 +507,29 @@ function getBuilderSelector(el: HTMLElement): string | null {
   const id = el.getAttribute("data-builder-id");
   if (id) return `[data-builder-id="${id}"]`;
   return null;
+}
+
+const PASTED_TEXT_STYLE_PROPERTIES = [
+  "color",
+  "font-family",
+  "font-size",
+  "font-style",
+  "font-weight",
+  "letter-spacing",
+  "line-height",
+  "text-align",
+  "text-decoration",
+] as const;
+
+function applyPastedTextPresentation(box: HTMLElement): void {
+  const source = Array.from(
+    box.querySelectorAll<HTMLElement>("h1, h2, h3, h4, h5, h6, p, li"),
+  ).find((element) => element.textContent?.trim());
+  if (!source) return;
+  for (const property of PASTED_TEXT_STYLE_PROPERTIES) {
+    const value = source.style.getPropertyValue(property);
+    if (value) box.style.setProperty(property, value);
+  }
 }
 
 /** Strip renderer/editor-only attributes from an HTML string before saving */
@@ -1543,6 +1568,10 @@ export default function SlideEditor({
     canvasZoom,
     revision: selectionMeasurementRevision,
   });
+  const selectionOverlayMeasurementKeyRef = useRef(
+    selectionOverlayMeasurementKey,
+  );
+  selectionOverlayMeasurementKeyRef.current = selectionOverlayMeasurementKey;
   const selectedElementRect = currentSelectionOverlayRect(
     selectedElementMeasurement,
     selectionOverlayMeasurementKey,
@@ -3301,9 +3330,9 @@ export default function SlideEditor({
   );
 
   const commitMultiObjectChange = useCallback(
-    (objectIds: string[]) => {
+    (objectIds: string[], serializedContent?: string) => {
       pendingMultiSelectionResyncRef.current = { objectIds, paths: [] };
-      const html = readCurrentSlideContentHtml();
+      const html = serializedContent ?? readCurrentSlideContentHtml();
       if (html !== null) onUpdateSlideRef.current({ content: html });
     },
     [readCurrentSlideContentHtml],
@@ -4664,8 +4693,8 @@ export default function SlideEditor({
     [designSystem?.typography.bodyFont, enterInlineEdit],
   );
 
-  const pastePlainTextAsTextBox = useCallback(
-    (text: string) => {
+  const pasteTextAsTextBox = useCallback(
+    (text: string, richHtml?: string) => {
       const canvas = containerRef.current
         ? ensureSlideTextBoxCanvas(containerRef.current)
         : null;
@@ -4716,10 +4745,17 @@ export default function SlideEditor({
         { x, y, width, height },
         target,
         false,
-        text,
+        richHtml ? ZERO_WIDTH_SPACE : text,
         false,
       );
       if (!box) return false;
+
+      if (richHtml) {
+        box.innerHTML = richHtml;
+        box.style.whiteSpace = "pre-wrap";
+        box.style.overflowWrap = "anywhere";
+        applyPastedTextPresentation(box);
+      }
 
       const slideHeight = containingBlock.offsetHeight;
       if (slideHeight > 0 && box.offsetHeight > slideHeight) {
@@ -4766,13 +4802,25 @@ export default function SlideEditor({
         return;
       }
 
+      const richHtml = e.clipboardData?.getData("text/html") ?? "";
       const text = e.clipboardData?.getData("text/plain") ?? "";
-      if (!text.trim() || !pastePlainTextAsTextBox(text)) return;
+      const normalizedRichHtml = richHtml
+        ? normalizeSlideClipboardHtml(richHtml)
+        : null;
+      if (
+        normalizedRichHtml &&
+        !readSlideObjectClipboardId(richHtml, document) &&
+        pasteTextAsTextBox(text, normalizedRichHtml)
+      ) {
+        e.preventDefault();
+        return;
+      }
+      if (!text.trim() || !pasteTextAsTextBox(text)) return;
       e.preventDefault();
     };
     window.addEventListener("paste", onPaste, true);
     return () => window.removeEventListener("paste", onPaste, true);
-  }, [pastePlainTextAsTextBox, readOnly]);
+  }, [pasteTextAsTextBox, readOnly]);
 
   const placeShapeAt = useCallback(
     (
@@ -5030,7 +5078,7 @@ export default function SlideEditor({
   const updateAlignmentGuides = useCallback(
     (
       guides: readonly SlideAlignmentGuide[],
-      positioningLayer: HTMLElement,
+      coordinateRoot: HTMLElement,
       canvas: { width: number; height: number },
     ) => {
       if (guides.length === 0) {
@@ -5041,7 +5089,7 @@ export default function SlideEditor({
         return;
       }
       const viewport = {
-        rect: positioningLayer.getBoundingClientRect(),
+        rect: coordinateRoot.getBoundingClientRect(),
         canvas,
       };
       const previous = activeAlignmentGuidesRef.current;
@@ -5137,10 +5185,6 @@ export default function SlideEditor({
       }
       let positioningLayer =
         resolveSlidePositioningLayer(element) ?? slideCanvas;
-      let snapCanvas = {
-        width: positioningLayer.offsetWidth || slideWidth,
-        height: positioningLayer.offsetHeight || slideHeight,
-      };
 
       // Pointer-down on the selection perimeter is a move gesture, never a
       // text caret placement. A selected object's body, however, has to keep
@@ -5187,10 +5231,6 @@ export default function SlideEditor({
         const promotedPositioningLayer = resolveSlidePositioningLayer(element);
         if (promotedPositioningLayer) {
           positioningLayer = promotedPositioningLayer;
-          snapCanvas = {
-            width: positioningLayer.offsetWidth || slideWidth,
-            height: positioningLayer.offsetHeight || slideHeight,
-          };
         }
         return true;
       };
@@ -5289,6 +5329,20 @@ export default function SlideEditor({
             const selector = getBuilderSelector(activeElement);
             if (selector) selectElementForStyling(activeElement, selector);
           }
+          const containingBlock = resolveSlideObjectContainingBlock(
+            activeElement,
+            positioningLayer,
+          );
+          const snapCanvas = {
+            width:
+              containingBlock.offsetWidth ||
+              positioningLayer.offsetWidth ||
+              slideWidth,
+            height:
+              containingBlock.offsetHeight ||
+              positioningLayer.offsetHeight ||
+              slideHeight,
+          };
           const snap = snapSlideObjectMove({
             moving: dragOrigin,
             deltaX: gesture.canvasDelta.x,
@@ -5302,7 +5356,13 @@ export default function SlideEditor({
             x: dragOrigin.x + snap.deltaX,
             y: dragOrigin.y + snap.deltaY,
           });
-          updateAlignmentGuides(snap.guides, positioningLayer, snapCanvas);
+          const rect = activeElement.getBoundingClientRect();
+          setSelectedElementMeasurement({
+            key: selectionOverlayMeasurementKeyRef.current,
+            rect,
+            frame: readSlideObjectSelectionFrame(activeElement, rect),
+          });
+          updateAlignmentGuides(snap.guides, containingBlock, snapCanvas);
           return { handled: true };
         },
         commit: (gesture) => {
@@ -5985,6 +6045,7 @@ export default function SlideEditor({
       let prepared = false;
       let promotionsRestored = false;
       let groupPositioningLayer: HTMLElement | null = null;
+      let groupContainingBlock: HTMLElement | null = null;
 
       const removeFreeformLayoutSpacer = (element: HTMLElement) => {
         const objectId = element.getAttribute("data-slide-object-id");
@@ -6119,6 +6180,7 @@ export default function SlideEditor({
         }
 
         groupPositioningLayer = positioningLayer;
+        groupContainingBlock = containingBlock;
         members = nextMembers;
         return true;
       };
@@ -6145,12 +6207,19 @@ export default function SlideEditor({
             members.map((member) => member.start),
           );
           const positioningLayer = groupPositioningLayer;
-          if (!moving || !positioningLayer) {
+          const containingBlock = groupContainingBlock;
+          if (!moving || !positioningLayer || !containingBlock) {
             return { handled: false, reason: "unhandled" };
           }
           const snapCanvas = {
-            width: positioningLayer.offsetWidth || slideWidth,
-            height: positioningLayer.offsetHeight || slideHeight,
+            width:
+              containingBlock.offsetWidth ||
+              positioningLayer.offsetWidth ||
+              slideWidth,
+            height:
+              containingBlock.offsetHeight ||
+              positioningLayer.offsetHeight ||
+              slideHeight,
           };
           const snap = snapSlideObjectMove({
             moving,
@@ -6169,7 +6238,7 @@ export default function SlideEditor({
             snap.deltaY,
             applyObjectGeometry,
           );
-          updateAlignmentGuides(snap.guides, positioningLayer, snapCanvas);
+          updateAlignmentGuides(snap.guides, containingBlock, snapCanvas);
           scheduleMultiSelectionRects(ids);
           return { handled: true };
         },
@@ -6538,15 +6607,106 @@ export default function SlideEditor({
               ) as HTMLElement | null,
           )
           .filter((el): el is HTMLElement => el !== null);
-        if (elements.some((element) => !isPersistedFreeformObject(element))) {
+        const roots = elements.filter(
+          (element) =>
+            !elements.some(
+              (candidate) =>
+                candidate !== element && candidate.contains(element),
+            ),
+        );
+        if (roots.length === 0) return;
+
+        const promotions: Array<{
+          element: HTMLElement;
+          originalClassName: string;
+          originalStyle: string | null;
+          originalObjectId: string | null;
+          originalContentEditable: string | null;
+          originalEditingBlock: string | null;
+          restoreMarkdownTree?: () => void;
+        }> = [];
+        let promotionsRestored = false;
+        const removeFreeformLayoutSpacer = (element: HTMLElement) => {
+          const objectId = element.getAttribute("data-slide-object-id");
+          if (!objectId) return;
+          const owner = element.parentElement ?? element.ownerDocument;
+          owner
+            .querySelectorAll<HTMLElement>("[data-slide-layout-spacer-for]")
+            .forEach((spacer) => {
+              if (
+                spacer.getAttribute("data-slide-layout-spacer-for") === objectId
+              ) {
+                spacer.remove();
+              }
+            });
+        };
+        const restorePromotions = () => {
+          if (promotionsRestored) return;
+          promotionsRestored = true;
+          for (const promotion of promotions) {
+            removeFreeformLayoutSpacer(promotion.element);
+          }
+          const restoredMarkdownTrees = new Set<() => void>();
+          for (const promotion of promotions) {
+            const restoreMarkdownTree = promotion.restoreMarkdownTree;
+            if (
+              restoreMarkdownTree &&
+              !restoredMarkdownTrees.has(restoreMarkdownTree)
+            ) {
+              restoredMarkdownTrees.add(restoreMarkdownTree);
+              restoreMarkdownTree();
+            }
+          }
+          for (const promotion of promotions) {
+            restoreSlideObjectDomSnapshot(promotion.element, {
+              className: promotion.originalClassName,
+              style: promotion.originalStyle,
+              objectId: promotion.originalObjectId,
+              contentEditable: promotion.originalContentEditable,
+              editingBlock: promotion.originalEditingBlock,
+            });
+          }
+        };
+        for (const element of roots) {
+          const originalClassName = element.className;
+          const originalStyle = element.getAttribute("style");
+          const originalObjectId = element.getAttribute("data-slide-object-id");
+          const originalContentEditable =
+            element.getAttribute("contenteditable");
+          const originalEditingBlock =
+            element.getAttribute("data-editing-block");
+          const frozen = freezeElementForFreeformSelection(element);
+          if (!frozen) {
+            restorePromotions();
+            return;
+          }
+          promotions.push({
+            element,
+            originalClassName,
+            originalStyle,
+            originalObjectId,
+            originalContentEditable,
+            originalEditingBlock,
+            restoreMarkdownTree: frozen.restoreMarkdownTree,
+          });
+          if (!isPersistedFreeformObject(frozen.element)) {
+            restorePromotions();
+            return;
+          }
+        }
+
+        const members = collectMovableSlideObjects(roots, getObjectGeometry);
+        if (members.length !== roots.length) {
+          restorePromotions();
           return;
         }
-        const members = collectMovableSlideObjects(elements, getObjectGeometry);
-        if (members.length === 0) return;
         const fmdSlide = members[0].element.closest(
           ".fmd-slide",
         ) as HTMLElement | null;
-        if (!fmdSlide) return;
+        if (!fmdSlide) {
+          restorePromotions();
+          return;
+        }
         const positioningLayer =
           Array.from(fmdSlide.children).find(
             (child): child is HTMLElement =>
@@ -6567,12 +6727,47 @@ export default function SlideEditor({
               ) !== containingBlock,
           )
         ) {
+          restorePromotions();
           return;
         }
         e.preventDefault();
         applySlideObjectMoveDelta(members, dx, dy, applyObjectGeometry);
+        for (const promotion of promotions) {
+          preserveSlideObjectLayoutSpacer(promotion.element);
+        }
+        const html = readCurrentSlideContentHtml();
+        if (html === null) {
+          restorePromotions();
+          return;
+        }
+        for (const promotion of promotions) {
+          removeFreeformLayoutSpacer(promotion.element);
+        }
+        const restoredMarkdownTrees = new Set<() => void>();
+        for (const promotion of promotions) {
+          const restoreMarkdownTree = promotion.restoreMarkdownTree;
+          if (
+            restoreMarkdownTree &&
+            !restoredMarkdownTrees.has(restoreMarkdownTree)
+          ) {
+            restoredMarkdownTrees.add(restoreMarkdownTree);
+            restoreMarkdownTree();
+          }
+        }
+        for (const promotion of promotions) {
+          restoreSlideObjectDomSnapshot(promotion.element, {
+            className: promotion.originalClassName,
+            style: promotion.originalStyle,
+            objectId: promotion.originalObjectId,
+            contentEditable: promotion.originalContentEditable,
+            editingBlock: promotion.originalEditingBlock,
+          });
+        }
         refreshMultiSelectionRects(multiSelection);
-        commitMultiObjectChange(members.map((member) => member.objectId));
+        commitMultiObjectChange(
+          members.map((member) => member.objectId),
+          html,
+        );
         return;
       }
 
@@ -6884,6 +7079,7 @@ export default function SlideEditor({
         targetIsEditableText: Boolean(
           editableTextBlock && !isSlideCanvasShell(editableTextBlock),
         ),
+        duplicateModifierActive: e.altKey,
       });
       if (
         dragTarget &&
