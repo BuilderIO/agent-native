@@ -987,7 +987,10 @@ import {
   shouldLimitEditorChromeUntilContentReady,
   shouldUseOverviewRuntimeReplacement,
 } from "./design-editor/selection-state";
-import { prepareCanonicalSourceContent } from "./design-editor/source-publication";
+import {
+  resolveSourceBaseForPublication,
+  prepareCanonicalSourceContent,
+} from "./design-editor/source-publication";
 import {
   endedTextEditClosesActiveSession,
   endedTextEditMatchesPendingCreation,
@@ -8855,21 +8858,17 @@ function DesignEditor() {
   const sourceBaseForPublication = useCallback(
     (fileId: string, beforeContent: string) => {
       const pending = pendingLocalFileContentsRef.current.get(fileId);
-      const raw =
-        pending?.identityMigrationSourceContent ??
-        pending?.content ??
-        (collabContentFileIdRef.current === fileId
-          ? collabContentRef.current
-          : null) ??
-        rawServerFilesByIdRef.current.get(fileId)?.content ??
-        beforeContent;
-      const canonical = prepareCanonicalSourceContent(raw, {
+      return resolveSourceBaseForPublication({
         fileId,
         fileType: rawServerFilesByIdRef.current.get(fileId)?.fileType,
-      }).content;
-      // A caller-supplied older source remains an older CAS base. Only unwrap
-      // the exact canonical view of the raw snapshot used by this publication.
-      return canonical === beforeContent ? raw : beforeContent;
+        pending,
+        collabContent:
+          collabContentFileIdRef.current === fileId
+            ? collabContentRef.current
+            : null,
+        persistedContent: rawServerFilesByIdRef.current.get(fileId)?.content,
+        beforeContent,
+      });
     },
     [],
   );

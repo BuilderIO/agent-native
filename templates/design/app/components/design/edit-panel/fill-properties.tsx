@@ -150,6 +150,38 @@ export function baseFillLayerSourceProps(
   };
 }
 
+export function shouldUseTextFill(
+  element: ElementInfo,
+  styles: Record<string, string>,
+): boolean {
+  const backgroundImageLayers = splitCssLayers(styles.backgroundImage || "");
+  const backgroundClipLayers = splitCssLayers(styles.backgroundClip || "");
+  const hasVisibleBackgroundColor =
+    !isMixedValue(styles.backgroundColor) &&
+    colorHasVisibleAlpha(styles.backgroundColor);
+  const hasVisibleBoxBackgroundImage = backgroundImageLayers.some(
+    (layer, index) => {
+      const normalizedLayer = layer.trim().toLowerCase();
+      if (isMixedValue(layer) || !normalizedLayer || normalizedLayer === "none")
+        return false;
+      // CSS repeats the shorter comma-list to align the properties by layer.
+      const clip =
+        backgroundClipLayers.length > 0
+          ? backgroundClipLayers[index % backgroundClipLayers.length]
+          : undefined;
+      return clip?.trim().toLowerCase() !== "text";
+    },
+  );
+  const hasTextBackgroundClip = backgroundClipLayers.some(
+    (clip) => clip.trim().toLowerCase() === "text",
+  );
+  return (
+    isTextElement(element) &&
+    !hasVisibleBoxBackgroundImage &&
+    (hasTextBackgroundClip || !hasVisibleBackgroundColor)
+  );
+}
+
 export function FillProperties({
   element,
   onStyleChange,
@@ -199,7 +231,9 @@ export function FillProperties({
     ...element.computedStyles,
     backgroundImage: authoredStyleValue(element, "backgroundImage") ?? "",
   };
-  const isTextFillElement = isTextElement(element);
+  // A DOM control can own text and a real box fill at once. Keep Typography
+  // on the selection, but let Fill edit the visible background paint.
+  const isTextFillElement = shouldUseTextFill(element, styles);
   const isVectorFillElement = isVectorShapeElement(element);
   const fillProperty = isTextFillElement
     ? "color"
