@@ -154,19 +154,31 @@ export function shouldUseTextFill(
   element: ElementInfo,
   styles: Record<string, string>,
 ): boolean {
-  const hasVisibleBackgroundImage = splitCssLayers(
-    styles.backgroundImage || "",
-  ).some(
-    (layer) => !isMixedValue(layer) && layer.trim().toLowerCase() !== "none",
+  const backgroundImageLayers = splitCssLayers(styles.backgroundImage || "");
+  const backgroundClipLayers = splitCssLayers(styles.backgroundClip || "");
+  const hasVisibleBackgroundColor =
+    !isMixedValue(styles.backgroundColor) &&
+    colorHasVisibleAlpha(styles.backgroundColor);
+  const hasVisibleBoxBackgroundImage = backgroundImageLayers.some(
+    (layer, index) => {
+      const normalizedLayer = layer.trim().toLowerCase();
+      if (isMixedValue(layer) || !normalizedLayer || normalizedLayer === "none")
+        return false;
+      // CSS repeats the shorter comma-list to align the properties by layer.
+      const clip =
+        backgroundClipLayers.length > 0
+          ? backgroundClipLayers[index % backgroundClipLayers.length]
+          : undefined;
+      return clip?.trim().toLowerCase() !== "text";
+    },
   );
-  const hasTextBackgroundClip = splitCssLayers(
-    styles.backgroundClip || "",
-  ).some((clip) => clip.trim().toLowerCase() === "text");
+  const hasTextBackgroundClip = backgroundClipLayers.some(
+    (clip) => clip.trim().toLowerCase() === "text",
+  );
   return (
     isTextElement(element) &&
-    (hasTextBackgroundClip ||
-      (!colorHasVisibleAlpha(styles.backgroundColor) &&
-        !hasVisibleBackgroundImage))
+    !hasVisibleBoxBackgroundImage &&
+    (hasTextBackgroundClip || !hasVisibleBackgroundColor)
   );
 }
 

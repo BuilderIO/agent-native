@@ -268,7 +268,22 @@ describe("FillProperties base row — image layer prop wiring", () => {
     expect(shouldUseTextFill(el, el.computedStyles)).toBe(false);
   });
 
-  it("keeps layered text clips on the text-fill path", () => {
+  it("pairs layered image and clip values before choosing the fill target", () => {
+    const el = element({
+      tagName: "span",
+      textContent: "Listen now",
+      computedStyles: {
+        color: "transparent",
+        backgroundColor: "rgb(0 0 0 / 0)",
+        backgroundImage: "none, linear-gradient(black, white)",
+        backgroundClip: "text, border-box",
+      },
+    });
+
+    expect(shouldUseTextFill(el, el.computedStyles)).toBe(false);
+  });
+
+  it("keeps layers paired to text clips on the text-fill path", () => {
     const el = element({
       tagName: "span",
       textContent: "Listen now",
@@ -277,7 +292,23 @@ describe("FillProperties base row — image layer prop wiring", () => {
         backgroundColor: "rgb(0 0 0 / 0)",
         backgroundImage:
           "linear-gradient(red, blue), linear-gradient(black, white)",
-        backgroundClip: "text, border-box",
+        backgroundClip: "text, text",
+      },
+    });
+
+    expect(shouldUseTextFill(el, el.computedStyles)).toBe(true);
+  });
+
+  it("repeats a shorter clip list across visible background layers", () => {
+    const el = element({
+      tagName: "span",
+      textContent: "Listen now",
+      computedStyles: {
+        color: "transparent",
+        backgroundColor: "rgb(0 0 0 / 0)",
+        backgroundImage:
+          "linear-gradient(red, blue), linear-gradient(black, white)",
+        backgroundClip: "text",
       },
     });
 
@@ -316,7 +347,8 @@ describe("FillProperties base row — image layer prop wiring", () => {
       tagName: "span",
       textContent: "Listen now",
       computedStyles: {
-        color: "Mixed",
+        color: "#111827",
+        backgroundColor: "Mixed",
         backgroundImage: "Mixed",
         backgroundClip: "Mixed",
       },
