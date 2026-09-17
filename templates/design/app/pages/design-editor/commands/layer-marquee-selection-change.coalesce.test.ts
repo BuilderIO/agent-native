@@ -51,6 +51,34 @@ describe("coalesceMarqueeSelectionHistory", () => {
     expect(source.slice(start, end)).toContain("final: intent?.final === true");
   });
 
+  it("restores the host element and layer selection when Escape cancels a marquee", () => {
+    const source = readFileSync(
+      new URL("../../DesignEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    const start = source.indexOf(
+      'if (intent.source === "marquee" && intent.cancelled)',
+    );
+    const end = source.indexOf(
+      'if (intent.source === "marquee" && intent.resetHistory)',
+      start,
+    );
+    const cancellation = source.slice(start, end);
+
+    expect(cancellation).toContain(
+      "const before = marqueeSelectionHistoryBeforeRef.current",
+    );
+    expect(cancellation).toContain("intent.restoreHostSelection === true");
+    expect(cancellation).toContain(
+      "restoreSelectionSnapshot(before);\n            setSelectedElement(selectedElementBefore);",
+    );
+    expect(cancellation).toContain("flushSync(() => {");
+    expect(cancellation).not.toContain("pushSelectionHistoryEntry");
+    expect(source).toContain(
+      "marqueeSelectedElementBeforeRef.current = selectedElementRef.current",
+    );
+  });
+
   it("captures the gesture's start selection even when the first reported tick already changed it", () => {
     const pendingBefore: { current: string[] | null } = { current: null };
     coalesceMarqueeSelectionHistory(pendingBefore, false, ["x"], ["a"]);

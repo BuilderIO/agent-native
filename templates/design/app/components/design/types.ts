@@ -220,6 +220,8 @@ export interface ElementSelectionIntent {
   final?: boolean;
   /** Ends a marquee lifecycle without changing the current selection. */
   cancelled?: boolean;
+  /** Restores the host selection captured before an Escape-cancelled marquee. */
+  restoreHostSelection?: boolean;
   /** Retires any pending marquee history before the next gesture starts. */
   resetHistory?: boolean;
   shiftKey?: boolean;

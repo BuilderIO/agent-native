@@ -2635,9 +2635,11 @@ function DesignEditor() {
   // non-marquee selection is a new interaction boundary and must retire it.
   const marqueeSelectionHistoryBeforeRef =
     useRef<GeometryHistorySelection | null>(null);
+  const marqueeSelectedElementBeforeRef = useRef<ElementInfo | null>(null);
   const recordSelectionHistoryAroundChange = useCallback(
     (run: () => void) => {
       marqueeSelectionHistoryBeforeRef.current = null;
+      marqueeSelectedElementBeforeRef.current = null;
       lastMarqueeSelectionSignatureRef.current = null;
       if (viewModeRef.current !== "overview") {
         run();
@@ -2664,17 +2666,30 @@ function DesignEditor() {
         source?: string;
         final?: boolean;
         cancelled?: boolean;
+        restoreHostSelection?: boolean;
         resetHistory?: boolean;
       },
     ) => {
       if (intent.source === "marquee" && intent.cancelled) {
+        const before = marqueeSelectionHistoryBeforeRef.current;
+        const selectedElementBefore = marqueeSelectedElementBeforeRef.current;
         marqueeSelectionHistoryBeforeRef.current = null;
+        marqueeSelectedElementBeforeRef.current = null;
         lastMarqueeSelectionSignatureRef.current = null;
-        run();
+        if (before && intent.restoreHostSelection === true) {
+          flushSync(() => {
+            restoreSelectionSnapshot(before);
+            setSelectedElement(selectedElementBefore);
+            run();
+          });
+        } else {
+          run();
+        }
         return;
       }
       if (intent.source === "marquee" && intent.resetHistory) {
         marqueeSelectionHistoryBeforeRef.current = null;
+        marqueeSelectedElementBeforeRef.current = null;
         lastMarqueeSelectionSignatureRef.current = null;
       }
       // Only an actual marquee drag spans multiple calls needing
@@ -2687,6 +2702,7 @@ function DesignEditor() {
       }
       if (viewModeRef.current !== "overview") {
         marqueeSelectionHistoryBeforeRef.current = null;
+        marqueeSelectedElementBeforeRef.current = null;
         lastMarqueeSelectionSignatureRef.current = null;
         run();
         return;
@@ -2696,6 +2712,7 @@ function DesignEditor() {
         if (marqueeSelectionHistoryBeforeRef.current === null) {
           lastMarqueeSelectionSignatureRef.current = null;
           marqueeSelectionHistoryBeforeRef.current = captureCurrentSelection();
+          marqueeSelectedElementBeforeRef.current = selectedElementRef.current;
         }
         run();
         return;
@@ -2712,9 +2729,14 @@ function DesignEditor() {
         after,
       );
       if (entry) pushSelectionHistoryEntry(entry.before, entry.after);
+      marqueeSelectedElementBeforeRef.current = null;
       lastMarqueeSelectionSignatureRef.current = null;
     },
-    [pushSelectionHistoryEntry, recordSelectionHistoryAroundChange],
+    [
+      pushSelectionHistoryEntry,
+      recordSelectionHistoryAroundChange,
+      restoreSelectionSnapshot,
+    ],
   );
   useEffect(() => {
     pendingVisualStyleEditsRef.current = pendingVisualStyleEdits;
