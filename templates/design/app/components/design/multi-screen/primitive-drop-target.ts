@@ -668,11 +668,14 @@ export function getPrimitiveDropTargetForPoint(
       continue;
     }
     const boardRect = toBoardRect(primitive, topScreen.geometry, metadata);
-    // Figma only accepts a layer in a frame that can contain its rendered
-    // bounds. An oversized child falls through to the next eligible ancestor
-    // instead of making a target look valid and then disappearing on commit.
+    // In-screen reparenting only accepts a frame that can contain the dragged
+    // layer's rendered bounds. A nested cross-screen target may fall back to
+    // its ancestor, but a top-level target has no larger fallback available.
     if (
       draggedBoardRect &&
+      (draggedScreenId === topScreen.screen.id ||
+        primitive.parentNodeId !== undefined ||
+        primitive.parentProjectionNodeId !== undefined) &&
       (draggedBoardRect.width > boardRect.width + 1 ||
         draggedBoardRect.height > boardRect.height + 1)
     ) {

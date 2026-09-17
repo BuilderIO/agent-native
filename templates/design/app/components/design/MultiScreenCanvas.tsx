@@ -1698,7 +1698,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     zoomRef.current = canvasZoom;
   }, [canvasZoom]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     frameGeometryRef.current = frameGeometry;
   }, [frameGeometry]);
 
