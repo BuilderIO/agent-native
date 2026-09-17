@@ -50,6 +50,25 @@ const ACTIVE_STATUSES = new Set<CommentAiRequest["status"]>([
   "refreshing",
 ]);
 const ACTIVE_REQUEST_REFETCH_INTERVAL_MS = 1_500;
+const CONTINUATION_CONTEXT_TURN_LIMIT = 8;
+const CONTINUATION_CONTEXT_CHARACTER_LIMIT = 12_000;
+
+function boundedContinuationContext(
+  turns: Awaited<ReturnType<typeof loadCommentAiConversation>>,
+) {
+  const selectedTurns =
+    turns.length <= CONTINUATION_CONTEXT_TURN_LIMIT
+      ? turns
+      : [turns[0]!, ...turns.slice(-(CONTINUATION_CONTEXT_TURN_LIMIT - 1))];
+  const transcript = selectedTurns
+    .flatMap((turn) => [
+      turn.userText ? `User: ${turn.userText}` : null,
+      turn.assistantText ? `Assistant: ${turn.assistantText}` : null,
+    ])
+    .filter((line): line is string => Boolean(line))
+    .join("\n\n");
+  return transcript.slice(0, CONTINUATION_CONTEXT_CHARACTER_LIMIT);
+}
 
 export interface CommentAiContinuationState {
   operationId: string;
@@ -64,6 +83,10 @@ interface CommentAiDispatchRecovery {
   options: BackgroundAgentSessionStartOptions;
   error?: string;
 }
+
+type PresentedCommentAiRequest = CommentAiRequest & {
+  transportUnknown?: boolean;
+};
 
 export interface CommentAiController {
   requests: CommentAiRequest[];
@@ -170,6 +193,8 @@ export function useCommentAiRequests(
     },
   );
   const serverRequests = query.data?.requests ?? [];
+  const serverRequestsRef = useRef(serverRequests);
+  serverRequestsRef.current = serverRequests;
   const refetchRef = useRef(query.refetch);
   refetchRef.current = query.refetch;
   const mountedRef = useRef(true);
@@ -205,6 +230,7 @@ export function useCommentAiRequests(
           status: "needs-review" as const,
           errorCode: "operation_failed" as const,
           error,
+          transportUnknown: true,
         };
       }),
     [continuationRecord, dispatchRecoveryRecord, serverRequests],
@@ -309,7 +335,7 @@ export function useCommentAiRequests(
   }, []);
 
   useEffect(() => {
-    for (const request of requests) {
+    for (const request of serverRequests) {
       const receipt = sessionReceipt(request);
       if (
         !ACTIVE_STATUSES.has(request.status) ||
@@ -323,7 +349,7 @@ export function useCommentAiRequests(
         try {
           while (
             mountedRef.current &&
-            requestsRef.current.some(
+            serverRequestsRef.current.some(
               (current) =>
                 current.operationId === request.operationId &&
                 ACTIVE_STATUSES.has(current.status),
@@ -357,7 +383,7 @@ export function useCommentAiRequests(
         }
       })();
     }
-  }, [reconcile, requests]);
+  }, [reconcile, serverRequests]);
 
   const start = useCallback<CommentAiController["start"]>(
     async ({ threadId, rootCommentId, intent, requestId: retryRequestId }) => {
@@ -367,11 +393,15 @@ export function useCommentAiRequests(
       const continuationRecovery = retryRequestId
         ? continuationRecordRef.current[retryRequestId]
         : undefined;
-      const active = requestsRef.current.some(
+      const active = serverRequestsRef.current.some(
         (request) =>
           request.threadId === threadId && ACTIVE_STATUSES.has(request.status),
       );
-      if (active || startingRef.current.has(threadId)) return;
+      if (
+        (active && !recovery && !continuationRecovery?.error) ||
+        startingRef.current.has(threadId)
+      )
+        return;
 
       const requestId = retryRequestId ?? globalThis.crypto.randomUUID();
       startingRef.current.add(threadId);
@@ -494,12 +524,12 @@ export function useCommentAiRequests(
     for (const [operationId, continuation] of continuations) {
       if (continuation.status !== "queued" && continuation.status !== "running")
         continue;
-      const request = requests.find(
+      const request = serverRequests.find(
         (candidate) => candidate.operationId === operationId,
       );
       if (request) void monitorContinuation(request, continuation);
     }
-  }, [continuations, monitorContinuation, requests]);
+  }, [continuations, monitorContinuation, serverRequests]);
 
   const continueConversation = useCallback<CommentAiController["continue"]>(
     async (request, message) => {
@@ -520,6 +550,13 @@ export function useCommentAiRequests(
       const operationId = globalThis.crypto.randomUUID();
       let continuation: CommentAiContinuationState | null = null;
       try {
+        const priorConversation = boundedContinuationContext(
+          await loadCommentAiConversation({
+            operationId: request.operationId,
+            agentThreadId: request.agentThreadId,
+            initialTurnId: "",
+          }),
+        );
         const options = {
           message,
           operationId,
@@ -530,7 +567,10 @@ export function useCommentAiRequests(
             requestId: request.operationId,
           },
           instructions:
-            "Continue this comment AI conversation and answer the follow-up directly. Keep the original intent and action scope. Do not repeat a completed comment action or create a duplicate receipt.",
+            "Continue this comment AI conversation and answer the follow-up directly. Keep the original intent and action scope. Do not repeat a completed comment action or create a duplicate receipt." +
+            (priorConversation
+              ? `\n\nProtected conversation context:\n\n${priorConversation}`
+              : ""),
           ...(request.model ? { model: request.model } : {}),
           usageLabel: "content:comment-ai-follow-up",
         } satisfies BackgroundAgentSessionStartOptions;
@@ -704,8 +744,13 @@ export function CommentAiThreadActions({
   onStart: (intent: CommentAiIntent, requestId?: string) => Promise<void>;
 }) {
   const t = useT();
+  const transportUnknown = Boolean(
+    (request as PresentedCommentAiRequest | undefined)?.transportUnknown,
+  );
   const active =
-    starting || Boolean(request && ACTIVE_STATUSES.has(request.status));
+    starting ||
+    transportUnknown ||
+    Boolean(request && ACTIVE_STATUSES.has(request.status));
   const start = (intent: CommentAiIntent, requestId?: string) => {
     if (!active) void onStart(intent, requestId);
   };
