@@ -2778,9 +2778,35 @@ describe("chat submit and stop hardening", () => {
     expect(submitEnd).toBeGreaterThan(submitStart);
     expect(submitSource).toContain("if (!hideUserMessage)");
     expect(resetIndex).toBeGreaterThan(-1);
-    expect(resetIndex).toBeLessThan(attachmentSerializationIndex);
+    expect(resetIndex).toBeGreaterThan(attachmentSerializationIndex);
     expect(resetIndex).toBeLessThan(firstQueueBranchIndex);
     expect(resetIndex).toBeLessThan(optimisticIndex);
+    expect(submitSource).toContain("latestAcceptedVisibleSubmitSequenceRef");
+    expect(submitSource).toContain("isRunningRef.current");
+  });
+
+  it("resets retained text before a queued visible turn starts", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const dequeueStart = source.indexOf("// Auto-dequeue:");
+    const resetIndex = source.indexOf(
+      "resetRetainedTextStreamingState(currentNext.turnId);",
+      dequeueStart,
+    );
+    const promotedBranchIndex = source.indexOf(
+      "if (currentNext.promoted)",
+      resetIndex,
+    );
+    const appendIndex = source.indexOf(
+      "appendThreadMessage({",
+      promotedBranchIndex,
+    );
+
+    expect(dequeueStart).toBeGreaterThan(-1);
+    expect(resetIndex).toBeGreaterThan(dequeueStart);
+    expect(resetIndex).toBeLessThan(promotedBranchIndex);
+    expect(resetIndex).toBeLessThan(appendIndex);
   });
 
   it("never disables the chat composer on an unresolved provider status check", () => {

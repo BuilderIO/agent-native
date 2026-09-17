@@ -3204,6 +3204,8 @@ const AssistantChatInner = forwardRef<
     hasActiveServerRun: hasActiveServerRun || serverRunActive,
     hasTerminalRunError: runErrorInfo !== null,
   });
+  const isRunningRef = useRef(isRunning);
+  isRunningRef.current = isRunning;
   const chatHistoryListQuery = useActionQuery<unknown>(
     (chatHistory?.list.action ?? "list-resource-versions") as never,
     chatHistory?.list.args as never,
@@ -3368,6 +3370,8 @@ const AssistantChatInner = forwardRef<
     retainedTextStreamingState.threadId === textStreamingThreadId
       ? retainedTextStreamingState.identity
       : null;
+  const visibleSubmitSequenceRef = useRef(0);
+  const latestAcceptedVisibleSubmitSequenceRef = useRef(0);
   const resetRetainedTextStreamingState = useCallback(
     (turnId?: string) => {
       setRetainedTextStreamingState({
@@ -5124,6 +5128,9 @@ const AssistantChatInner = forwardRef<
             return;
           }
 
+          if (!currentNext.hideUserMessage) {
+            resetRetainedTextStreamingState(currentNext.turnId);
+          }
           if (currentNext.promoted) {
             const promotedMessage = threadRuntime
               .getState()
@@ -5247,6 +5254,7 @@ const AssistantChatInner = forwardRef<
     engineSetupRequired,
     queueWakeVersion,
     queuedMessages,
+    resetRetainedTextStreamingState,
     threadId,
   ]);
 
@@ -5644,6 +5652,9 @@ const AssistantChatInner = forwardRef<
       actionScope?: AgentActionScope,
     ) => {
       if (isAgentChatSubmitCancelled(submitMessageId)) return false;
+      const visibleSubmitSequence = hideUserMessage
+        ? null
+        : ++visibleSubmitSequenceRef.current;
       const stoppedRunAtSubmitStart = userStoppedRunRef.current;
       if (!preserveReconnectAutoRecoveryBudget) {
         reconnectAutoRecoveryCountRef.current = 0;
@@ -5662,12 +5673,6 @@ const AssistantChatInner = forwardRef<
         ? buildComposerContextSubmission(text)
         : { text, includesContext: false };
       const submittedText = submitted.text;
-      const effectiveContinuationTurnId =
-        continuationTurnId ??
-        (actionScope ? generateAgentChatTurnId() : undefined);
-      if (!hideUserMessage) {
-        resetRetainedTextStreamingState(effectiveContinuationTurnId);
-      }
       let queuedAttachments: Awaited<
         ReturnType<typeof serializeQueuedAttachments>
       >;
@@ -5774,6 +5779,12 @@ const AssistantChatInner = forwardRef<
       }
       // ── End body-size guard ──────────────────────────────────────────
       if (isAgentChatSubmitCancelled(submitMessageId)) return false;
+      const acceptedVisibleSubmit =
+        visibleSubmitSequence !== null &&
+        visibleSubmitSequence >= latestAcceptedVisibleSubmitSequenceRef.current;
+      if (visibleSubmitSequence !== null && acceptedVisibleSubmit) {
+        latestAcceptedVisibleSubmitSequenceRef.current = visibleSubmitSequence;
+      }
       // Snapshot the exec mode at enqueue time when the caller didn't
       // pass an explicit override. Without this, a plan-mode message that
       // sits in the queue runs as 'act' if the user flips the global toggle
@@ -5791,6 +5802,16 @@ const AssistantChatInner = forwardRef<
         engine: selectedEngine,
         effort: selectedEffort,
       };
+      const effectiveContinuationTurnId =
+        continuationTurnId ??
+        (actionScope ? generateAgentChatTurnId() : undefined);
+      if (
+        acceptedVisibleSubmit &&
+        !isRunningRef.current &&
+        !engineSetupRequired
+      ) {
+        resetRetainedTextStreamingState(effectiveContinuationTurnId);
+      }
       if (isRunning && intent === "immediate") {
         // Explicit interrupt path: abort the active server run, then let the
         // auto-dequeue path append this message once the run is clear. Normal
