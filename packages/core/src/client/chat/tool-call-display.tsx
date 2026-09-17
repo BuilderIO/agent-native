@@ -71,6 +71,7 @@ import { resolveToolRenderer } from "./tool-render-registry.js";
 import {
   isBuiltinDataWidgetActionRenderer,
   isBuiltinWorkspaceFileResult,
+  isBuiltinConnectRequiredResult,
   resolveBuiltinActionChatRenderer,
   resolveBuiltinFallbackToolRenderer,
 } from "./widgets/builtin-tool-renderers.js";
@@ -970,7 +971,8 @@ function ToolCallDisplayGeneric({
         context={nativeToolContext}
         isBuiltinDataWidget={
           isBuiltinDataWidgetActionRenderer(nativeToolContext) ||
-          isBuiltinWorkspaceFileResult(nativeToolContext)
+          isBuiltinWorkspaceFileResult(nativeToolContext) ||
+          isBuiltinConnectRequiredResult(nativeToolContext)
         }
       >
         <NativeToolRenderer context={nativeToolContext} />

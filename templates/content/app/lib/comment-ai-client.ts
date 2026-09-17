@@ -46,7 +46,7 @@ function messageText(message: StoredMessage): string | null {
 
 export function parseCommentAiConversation(
   threadData: string,
-  initialOperationId: string,
+  initialTurnId: string,
 ): CommentAiConversationTurn[] {
   let parsed: { messages?: unknown };
   try {
@@ -66,7 +66,7 @@ export function parseCommentAiConversation(
       role === "assistant"
         ? custom?.turnId
         : custom?.agentNativeQueuedMessageId;
-    if (typeof turnId !== "string" || !turnId || turnId === initialOperationId)
+    if (typeof turnId !== "string" || !turnId || turnId === initialTurnId)
       continue;
     const current = turns.get(turnId) ?? {
       turnId,
@@ -88,6 +88,7 @@ export function parseCommentAiConversation(
 
 export async function loadCommentAiConversation(options: {
   agentThreadId: string;
+  initialTurnId: string;
   operationId: string;
   signal?: AbortSignal;
 }): Promise<CommentAiConversationTurn[]> {
@@ -109,5 +110,5 @@ export async function loadCommentAiConversation(options: {
   if (typeof thread.threadData !== "string") {
     throw new Error("The AI conversation could not be read");
   }
-  return parseCommentAiConversation(thread.threadData, options.operationId);
+  return parseCommentAiConversation(thread.threadData, options.initialTurnId);
 }

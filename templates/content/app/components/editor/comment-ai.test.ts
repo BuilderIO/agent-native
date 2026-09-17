@@ -24,6 +24,7 @@ function request(
     attemptCount: 1,
     runId: null,
     agentThreadId: `agent-${operationId}`,
+    agentTurnId: `turn-${operationId}`,
     model: null,
     engine: null,
     result: null,

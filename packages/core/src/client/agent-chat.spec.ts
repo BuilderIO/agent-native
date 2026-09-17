@@ -170,6 +170,43 @@ describe("sendToAgentChat", () => {
     expect(parsed?.usageLabel).toBe("crm:enrich");
   });
 
+  it("carries a bounded action scope through the postMessage payload", () => {
+    sendToAgentChat({
+      message: "Draft a reply",
+      actionScope: { kind: "content-comment-ai", requestId: "request-1" },
+    });
+    const payload = parentPostMessageSpy.mock.calls[0][0];
+    const parsed = parseSubmitChatMessage({ data: payload } as MessageEvent);
+
+    expect(parsed?.actionScope).toEqual({
+      kind: "content-comment-ai",
+      requestId: "request-1",
+    });
+  });
+
+  it("rejects malformed and oversized action scopes", () => {
+    expect(() =>
+      sendToAgentChat({
+        message: "Draft a reply",
+        actionScope: { value: Number.NaN },
+      }),
+    ).toThrow("actionScope must contain only JSON values");
+    expect(() =>
+      sendToAgentChat({
+        message: "Draft a reply",
+        actionScope: { value: "x".repeat(9_000) },
+      }),
+    ).toThrow("actionScope must be at most 8192 bytes");
+    expect(
+      parseSubmitChatMessage({
+        data: {
+          type: "agentNative.submitChat",
+          data: { message: "Draft a reply", actionScope: [] },
+        },
+      } as MessageEvent),
+    ).toBeNull();
+  });
+
   it("drops a blank usageLabel instead of forwarding an empty label", () => {
     const parsed = parseSubmitChatMessage({
       data: {

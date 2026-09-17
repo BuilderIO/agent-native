@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { ensureGroupRuntime } from "../../shared/group-runtime";
 import {
   buildStandaloneHtml,
   buildSvgForeignObject,
@@ -51,6 +52,34 @@ describe("design export helpers", () => {
     );
     expect(html).toContain("<h1>One</h1>");
     expect(html).toContain("<p>Two</p>");
+  });
+
+  it("deduplicates the measured Group runtime across exported screens", () => {
+    const group =
+      '<div data-agent-native-measured-flow-group style="width:44px;height:20px"></div>';
+    const html = buildStandaloneHtml({
+      title: "Export",
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: ensureGroupRuntime(
+            `<!doctype html><html><body>${group}</body></html>`,
+          ),
+        },
+        {
+          filename: "screen-2.html",
+          fileType: "html",
+          content: ensureGroupRuntime(
+            `<!doctype html><html><body>${group}</body></html>`,
+          ),
+        },
+      ],
+    });
+
+    expect(
+      html.match(/<script data-agent-native-group-runtime\b/g),
+    ).toHaveLength(1);
   });
 
   it("keeps complex styles in CDATA while removing executable scripts", () => {

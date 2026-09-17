@@ -9,7 +9,7 @@ Jede agentennative App ist sofort einsatzbereit und mandantenfähig. Organisatio
 
 ## Was Sie kostenlos bekommen {#free}
 
-Ein neues `npx @agent-native/core@latest create`-Gerüst wird bereits geliefert mit:
+Ein neues `npx --yes @agent-native/core@latest create`-Gerüst wird bereits geliefert mit:
 
 - **Benutzerregistrierung und Anmeldung** – siehe [Authentication](/docs/authentication).
 - **Organisationen** – Benutzer erstellen Organisationen und laden Mitglieder per E-Mail ein. Jede Organisation ist ein vollständig isolierter Mandant.
@@ -122,3 +122,7 @@ Dies ist dieselbe Pipeline, die für die Festlegung des Bereichs pro Benutzer ve
 - [**Authentication**](/docs/authentication#organizations) — Sitzungen, soziale Anbieter und die Organisationsverwaltungsoberfläche
 - [**Security — Data Scoping**](/docs/security#data-scoping) — Isolation auf SQL-Ebene, der `ownableColumns()`-Vertrag und Zugriffsschutz
 - [**Multi-App Workspace**](/docs/multi-app-workspace) — Hosten mehrerer Agent-Native-Apps in einem Monorepo mit gemeinsamer Authentifizierung und RBAC
+
+## Isolationsmodell
+
+Verwenden Sie `accessFilter()` und `assertAccess()` für serverseitige Lese- und Schreibvorgänge. Die Agent-SQL-Einschränkung erstellt temporäre gefilterte Views für eigene Tabellen. `pnpm guards` enthält die Prüfung auf nicht eingeschränkte Abfragen. RLS ist derzeit kein aktiver Durchsetzungsmechanismus und als Härtung nach 1.0 geplant. Siehe [Verwaltete Bereitstellungen](/docs/administered-deployments).

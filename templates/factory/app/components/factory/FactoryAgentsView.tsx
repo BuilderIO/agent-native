@@ -7,6 +7,7 @@ import {
   WorkspaceAppCard,
 } from "@agent-native/dispatch/components";
 import { IconPlus } from "@tabler/icons-react";
+import { forwardRef } from "react";
 
 import { Button } from "@/components/ui/button";
 
@@ -21,14 +22,19 @@ interface WorkspaceAppSummary {
   statusLabel?: string;
 }
 
-function CreateAppButton({ label }: { label: string }) {
-  return (
-    <Button size="sm">
-      <IconPlus size={15} />
-      {label}
-    </Button>
-  );
-}
+// Radix's PopoverTrigger asChild clones its child and injects onClick/ref
+// directly onto it. A plain function component here would drop those props
+// silently, leaving the trigger button inert. Forward both through to Button.
+const CreateAppTriggerButton = forwardRef<
+  HTMLButtonElement,
+  React.ComponentPropsWithoutRef<typeof Button> & { label: string }
+>(({ label, ...props }, ref) => (
+  <Button ref={ref} size="sm" {...props}>
+    <IconPlus size={15} />
+    {label}
+  </Button>
+));
+CreateAppTriggerButton.displayName = "CreateAppTriggerButton";
 
 function AgenticAppsSection({ t }: { t: ReturnType<typeof useT> }) {
   const query = useActionQuery<WorkspaceAppSummary[]>("list-workspace-apps", {
@@ -55,7 +61,7 @@ function AgenticAppsSection({ t }: { t: ReturnType<typeof useT> }) {
         {apps.length > 0 ? (
           <CreateAppPopover
             align="end"
-            trigger={<CreateAppButton label={createAppLabel} />}
+            trigger={<CreateAppTriggerButton label={createAppLabel} />}
             onCreated={() => void query.refetch()}
           />
         ) : null}
@@ -86,7 +92,7 @@ function AgenticAppsSection({ t }: { t: ReturnType<typeof useT> }) {
           </div>
           <div className="mt-4 flex justify-center">
             <CreateAppPopover
-              trigger={<CreateAppButton label={createAppLabel} />}
+              trigger={<CreateAppTriggerButton label={createAppLabel} />}
               onCreated={() => void query.refetch()}
             />
           </div>

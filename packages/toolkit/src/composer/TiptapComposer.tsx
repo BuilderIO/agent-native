@@ -1094,8 +1094,8 @@ const FRIENDLY_MODEL_NAMES: Record<string, string> = {
   "kimi-k2-5": "Kimi K2.5",
   "deepseek-v3-1": "DeepSeek v3.1",
   "z-ai/glm-5.2": "GLM 5.2",
-  "openai/gpt-6-astra": "GPT-6 Astra",
-  "openai/gpt-6-astra-pro": "GPT-6 Astra Pro",
+  "openai/gpt-6-astra": "Astra",
+  "openai/gpt-6-astra-pro": "Astra Pro",
   "anthropic/claude-fable-5.1": "Fable 5.1",
   "google/gemini-3.8-flash": "Gemini 3.8 Flash",
   "qwen/qwen3.8-max-0902": "Qwen 3.8 Max",
@@ -1210,18 +1210,18 @@ function friendlyModelName(model: string, t?: ComposerTranslate): string {
     return `${tier} ${claude[2]}${claude[3] ? `.${claude[3]}` : ""}`;
   }
   // GPT: gpt-{major}-{minor}[-suffix] or gpt-{major}.{minor}[-suffix]
-  if (model.startsWith("gpt-")) {
-    const rest = model.slice(4);
+  if (isOpenAiModelId(model)) {
+    const normalizedModel = model.replace(/^openai\//i, "");
+    const rest = normalizedModel.slice(4);
     const gpt = rest.match(/^(\d+)[.-](\d+)(?:[.-](.+))?$/);
+    if (gpt?.[3]) {
+      return gpt[3]
+        .split("-")
+        .map((s) => s[0].toUpperCase() + s.slice(1))
+        .join(" ");
+    }
     if (gpt) {
-      const suffix = gpt[3]
-        ? " " +
-          gpt[3]
-            .split("-")
-            .map((s) => s[0].toUpperCase() + s.slice(1))
-            .join(" ")
-        : "";
-      return `GPT-${gpt[1]}.${gpt[2]}${suffix}`;
+      return `GPT-${gpt[1]}.${gpt[2]}`;
     }
     return `GPT-${rest}`;
   }
@@ -1253,14 +1253,6 @@ export function compactComposerModelName(
   model: string,
   t?: ComposerTranslate,
 ): string {
-  const gpt56Variant = model.match(
-    /^(?:openai\/)?gpt-5[.-]6[.-](sol|terra|luna)$/i,
-  )?.[1];
-  if (gpt56Variant) {
-    const variant =
-      gpt56Variant[0].toUpperCase() + gpt56Variant.slice(1).toLowerCase();
-    return `GPT-5.6 ${variant}`;
-  }
   return friendlyModelName(model, t);
 }
 

@@ -60,7 +60,8 @@ export interface CommentAiRequest {
   attemptId: string | null;
   attemptCount: number;
   runId: string | null;
-  agentThreadId: string;
+  agentThreadId: string | null;
+  agentTurnId: string | null;
   model: string | null;
   engine: string | null;
   result: CommentAiOperationResult | null;
@@ -74,11 +75,13 @@ export interface CommentAiBackgroundSession {
   operationId: string;
   threadId: string;
   scope: { type: "content-comment-ai"; id: string };
+  actionScope: { kind: "content-comment-ai"; requestId: string };
 }
 
 export interface StartCommentAiResult extends CommentAiRequest {
   dispatch: boolean;
   backgroundSession: CommentAiBackgroundSession;
+  actionScope: { kind: "content-comment-ai"; requestId: string };
   prompt: string;
   context?: string;
 }

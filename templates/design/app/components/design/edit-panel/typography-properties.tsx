@@ -20,10 +20,12 @@ import {
   IconTextSize,
   IconUnderline,
 } from "@tabler/icons-react";
-import { useState } from "react";
+import { useId, useState } from "react";
+import { toast } from "sonner";
 
 import { formatShortcutLabel } from "@/components/design/keyboard-shortcuts";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
 import {
   Popover,
   PopoverContent,
@@ -36,6 +38,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import {
   Tooltip,
   TooltipContent,
@@ -58,12 +61,12 @@ import { authoredStyleValue } from "./interaction-state-helpers";
 import { PanelSection } from "./panel-primitives";
 import { roundToOneDecimal } from "./position-helpers";
 import { isMixedValue, MIXED_VALUE } from "./selection-helpers";
-import type { StyleChangeHandler } from "./style-change-types";
-import {
-  optionValue,
-  parseNumericValue,
-  resolveLineHeight,
-} from "./style-options";
+import type {
+  StyleChangeMeta,
+  StyleChangeHandler,
+  StylesChangeHandler,
+} from "./style-change-types";
+import { optionValue, parseNumericValue } from "./style-options";
 import {
   displayFontFamilyName,
   FONT_FAMILY_OPTIONS,
@@ -71,12 +74,24 @@ import {
   isKnownFontWeight,
   isTextDecorationLineActive,
   nextTextDecorationLineValue,
+  letterSpacingScrubCssValue,
+  parseLetterSpacingInput,
+  parseLineHeightInput,
+  resolveLetterSpacingFieldValue,
   resolveFixedResizeDimension,
   resolveFontFamilyFieldValue,
+  resolveLineHeightFieldValue,
+  textTruncationLineCount,
+  textTruncationStyleChanges,
   TEXT_CASE_OPTIONS,
   type TextDecorationLineToken,
   type TextResizeMode,
 } from "./typography-helpers";
+
+const LATO_FONT_FAMILY_OPTION = {
+  value: "'Lato', sans-serif",
+  label: "Lato",
+} as const;
 
 function TextResizeControls({
   resizeMode,
@@ -170,6 +185,13 @@ function TypographyDetailsPopover({
   textCase,
   textCaseIsMixed,
   onTextCaseChange,
+  truncationEnabled,
+  truncationLineCount,
+  truncationMixed,
+  truncationToggleDisabled,
+  truncationLineCountDisabled,
+  onTruncationEnabledChange,
+  onTruncationLineCountChange,
 }: {
   resizeMode: TextResizeMode;
   onResizeModeChange: (mode: TextResizeMode) => void;
@@ -180,6 +202,13 @@ function TypographyDetailsPopover({
   textCase: string;
   textCaseIsMixed: boolean;
   onTextCaseChange: (value: string) => void;
+  truncationEnabled: boolean;
+  truncationLineCount: number;
+  truncationMixed: boolean;
+  truncationToggleDisabled: boolean;
+  truncationLineCountDisabled: boolean;
+  onTruncationEnabledChange: (enabled: boolean) => void;
+  onTruncationLineCountChange: (value: number, meta: StyleChangeMeta) => void;
 }) {
   const t = useT();
   const applePlatform = useApplePlatform();
@@ -187,6 +216,7 @@ function TypographyDetailsPopover({
     formatShortcutLabel(binding, applePlatform);
   const [open, setOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<TypographyDetailsTab>("basics");
+  const truncationSwitchId = useId();
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -217,6 +247,7 @@ function TypographyDetailsPopover({
         side="left"
         align="end"
         sideOffset={8}
+        data-design-chrome-region="right-panel"
         className="z-[100010] w-[360px] rounded-xl border-[var(--design-editor-control-border)] bg-[var(--design-editor-panel-bg)] p-0 text-foreground shadow-2xl"
       >
         <div className="flex items-center gap-1 border-b border-[var(--design-editor-control-border)] p-2.5">
@@ -250,6 +281,37 @@ function TypographyDetailsPopover({
                 onResizeModeChange={onResizeModeChange}
               />
             </div>
+            <div className="flex items-center justify-between gap-3">
+              <Label
+                htmlFor={truncationSwitchId}
+                className="design-sidebar-field-label text-muted-foreground"
+              >
+                {t("editPanel.typographyDetails.truncateText")}
+              </Label>
+              <Switch
+                id={truncationSwitchId}
+                aria-label={t("editPanel.typographyDetails.truncateText")}
+                checked={truncationEnabled && !truncationMixed}
+                disabled={truncationToggleDisabled}
+                onCheckedChange={onTruncationEnabledChange}
+              />
+            </div>
+            {truncationEnabled && !truncationMixed ? (
+              <ScrubInput
+                label={t("editPanel.typographyDetails.maxLines")}
+                ariaLabel={t("editPanel.typographyDetails.maxLines")}
+                value={truncationLineCount}
+                onChange={onTruncationLineCountChange}
+                min={1}
+                max={100}
+                step={1}
+                precision={0}
+                disabled={truncationLineCountDisabled}
+                className="w-full gap-0"
+                labelClassName="h-6 min-w-6 justify-center rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] !text-[11px]"
+                inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
+              />
+            ) : null}
           </div>
         ) : (
           <div className="space-y-3 p-4 !text-[11px]">
@@ -322,16 +384,21 @@ function TypographyDetailsPopover({
 export function TypographyProperties({
   element,
   onStyleChange,
+  onStylesChange,
 }: {
   element: ElementInfo;
   onStyleChange: StyleChangeHandler;
+  onStylesChange?: StylesChangeHandler;
 }) {
   const t = useT();
   const styles = element.computedStyles;
-  const baseFontFamilyOptions = FONT_FAMILY_OPTIONS.map((option) => ({
-    value: option.value,
-    label: t(`editPanel.fontFamilies.${option.key}`),
-  }));
+  const baseFontFamilyOptions = [
+    ...FONT_FAMILY_OPTIONS.map((option) => ({
+      value: option.value,
+      label: t(`editPanel.fontFamilies.${option.key}`),
+    })),
+    LATO_FONT_FAMILY_OPTION,
+  ];
   // Mixed-selection guards: a multi-selection with differing values injects
   // the MIXED_VALUE sentinel string into these computedStyles fields (see
   // mixedElementFromSelection/sameOrMixed). Parsing that sentinel with
@@ -346,6 +413,37 @@ export function TypographyProperties({
   const lineHeightIsMixed = isMixedValue(styles.lineHeight);
   const letterSpacingIsMixed = isMixedValue(styles.letterSpacing);
   const textTransformIsMixed = isMixedValue(styles.textTransform);
+  const letterSpacingField = resolveLetterSpacingFieldValue(
+    authoredStyleValue(element, "letterSpacing"),
+    styles.letterSpacing,
+  );
+  const lineHeightField = resolveLineHeightFieldValue(
+    authoredStyleValue(element, "lineHeight"),
+    styles.lineHeight,
+    styles.fontSize,
+    styles.resolvedLineHeightPx,
+  );
+  const lineClampIsMixed = isMixedValue(styles.webkitLineClamp);
+  const truncationLineCount = lineClampIsMixed
+    ? null
+    : textTruncationLineCount(authoredStyleValue(element, "webkitLineClamp"));
+  const truncationEnabled = truncationLineCount !== null;
+  const applyTextTruncation = (
+    enabled: boolean,
+    lineCount: number,
+    meta?: StyleChangeMeta,
+  ) => {
+    const changes = textTruncationStyleChanges(
+      enabled,
+      lineCount,
+      element.inlineStyles,
+    );
+    if (!changes) {
+      toast.error(t("editPanel.typographyDetails.restoreError"));
+      return;
+    }
+    onStylesChange?.(changes, meta);
+  };
 
   // Text decoration (underline/strikethrough) reads through the bridge's
   // clean `textDecorationLine` computed longhand (never the composite
@@ -383,7 +481,8 @@ export function TypographyProperties({
   const fontFamily = resolveFontFamilyFieldValue(styles.fontFamily);
   const fontFamilyOptions = fontFamilyIsMixed
     ? baseFontFamilyOptions
-    : FONT_FAMILY_OPTIONS.some((option) => option.value === fontFamily)
+    : FONT_FAMILY_OPTIONS.some((option) => option.value === fontFamily) ||
+        displayFontFamilyName(fontFamily).toLowerCase() === "lato"
       ? baseFontFamilyOptions
       : [
           {
@@ -529,6 +628,11 @@ export function TypographyProperties({
             options={fontFamilyOptions}
             mixed={fontFamilyIsMixed}
             mixedLabel={MIXED_VALUE}
+            searchable
+            searchPlaceholder={t("root.commandSearch")}
+            contentProps={{
+              "data-design-chrome-region": "right-panel",
+            }}
             className="h-6 w-full rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]"
             onChange={(value) => onStyleChange("fontFamily", value)}
           />
@@ -545,7 +649,7 @@ export function TypographyProperties({
             <SelectTrigger className="h-6 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent data-design-chrome-region="right-panel">
               {fontWeightIsMixed ? (
                 <SelectItem
                   value={MIXED_VALUE}
@@ -609,17 +713,25 @@ export function TypographyProperties({
               label={t("editPanel.labels.lineHeight")}
               ariaLabel={t("editPanel.labels.lineHeight")}
               icon={IconLineHeight}
-              value={
-                lineHeightIsMixed
-                  ? 0
-                  : resolveLineHeight(styles.lineHeight, styles.fontSize)
-              }
+              value={lineHeightIsMixed ? 0 : lineHeightField.value}
+              textValue={lineHeightIsMixed ? undefined : lineHeightField.text}
+              unit={lineHeightField.unit}
               mixed={lineHeightIsMixed}
               onChange={(value, meta) =>
-                onStyleChange("lineHeight", String(Math.max(0.1, value)), meta)
+                onStyleChange(
+                  "lineHeight",
+                  `${Math.max(0, value)}${lineHeightField.unit}`,
+                  meta,
+                )
               }
-              min={0.1}
-              step={0.1}
+              onTextCommit={(draft, meta) => {
+                const parsed = parseLineHeightInput(draft, lineHeightField);
+                if (!parsed) return { accepted: false };
+                onStyleChange("lineHeight", parsed.cssValue, meta);
+                return { accepted: true, displayValue: parsed.text };
+              }}
+              min={0}
+              step={1}
               precision={2}
               className="w-full gap-0"
               labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] !text-[11px] [&>span]:hidden"
@@ -637,19 +749,29 @@ export function TypographyProperties({
               label={t("editPanel.labels.tracking")}
               ariaLabel={t("editPanel.labels.tracking")}
               icon={IconLetterSpacing}
-              value={
-                letterSpacingIsMixed
-                  ? 0
-                  : styles.letterSpacing
-                    ? parseNumericValue(styles.letterSpacing)
-                    : 0
+              value={letterSpacingIsMixed ? 0 : letterSpacingField.value}
+              textValue={
+                letterSpacingIsMixed ? undefined : letterSpacingField.text
               }
               mixed={letterSpacingIsMixed}
               onChange={(value, meta) =>
-                onStyleChange("letterSpacing", `${value}px`, meta)
+                onStyleChange(
+                  "letterSpacing",
+                  letterSpacingScrubCssValue(value, letterSpacingField.unit),
+                  meta,
+                )
               }
-              unit="px"
-              precision={1}
+              onTextCommit={(draft, meta) => {
+                const parsed = parseLetterSpacingInput(
+                  draft,
+                  letterSpacingField,
+                );
+                if (!parsed) return { accepted: false };
+                onStyleChange("letterSpacing", parsed.cssValue, meta);
+                return { accepted: true, displayValue: parsed.text };
+              }}
+              unit={letterSpacingField.unit}
+              precision={2}
               className="w-full gap-0"
               labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] !text-[11px] [&>span]:hidden"
               inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
@@ -732,6 +854,23 @@ export function TypographyProperties({
             textCase={textCase}
             textCaseIsMixed={textTransformIsMixed}
             onTextCaseChange={setTextCase}
+            truncationEnabled={truncationEnabled}
+            truncationLineCount={truncationLineCount ?? 1}
+            truncationMixed={lineClampIsMixed}
+            truncationToggleDisabled={
+              lineClampIsMixed ||
+              !onStylesChange ||
+              (!truncationEnabled && resizeMode === "fixed")
+            }
+            truncationLineCountDisabled={
+              !onStylesChange || resizeMode === "fixed"
+            }
+            onTruncationEnabledChange={(enabled) =>
+              applyTextTruncation(enabled, truncationLineCount ?? 1)
+            }
+            onTruncationLineCountChange={(value, meta) =>
+              applyTextTruncation(true, value, meta)
+            }
           />
         </InspectorGridCell>
       </InspectorGrid>

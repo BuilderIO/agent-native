@@ -470,11 +470,6 @@ export function validateGoogleCallbackVerificationWorkflow(
         `${reusablePath} Google OAuth verification must not depend on a package-script indirection`,
       );
     }
-    if (verify.includes("source_template != 'macros'")) {
-      issues.push(
-        `${reusablePath} Google OAuth verification must use the deployed capability contract instead of a template allowlist`,
-      );
-    }
     if (
       !rollback.includes("id: google_callback_rollback") ||
       !rollback.includes("restored_deploy_id") ||
@@ -827,6 +822,18 @@ const reusableSteps = Array.isArray(reusableDeployJob?.steps)
   : [];
 const parsedStepIndex = (name: string) =>
   reusableSteps.findIndex((step) => step?.name === name);
+const parsedClientPairingIndex = parsedStepIndex(
+  "Verify paired client and publish artifacts",
+);
+const parsedTrustedPreviewBuildIndex = parsedStepIndex(
+  "Build trusted preview Functions for the PR artifact",
+);
+const parsedTrustedPreviewManifestIndex = parsedStepIndex(
+  "Verify trusted preview server manifest",
+);
+const parsedPreviewSmokeIndex = parsedStepIndex(
+  "Smoke-test the uploaded PR preview",
+);
 const parsedPauseIndex = parsedStepIndex(
   "Pause automatic Netlify builds for production cutover",
 );
@@ -855,6 +862,74 @@ const parsedResumeIndex = parsedStepIndex(
 const parsedCleanupIndex = parsedStepIndex(
   "Restore the production deploy lock after a failed cutover",
 );
+const parsedClientPairingStep = reusableSteps[parsedClientPairingIndex];
+const parsedPreviewSmokeStep = reusableSteps[parsedPreviewSmokeIndex];
+if (
+  parsedClientPairingIndex < 0 ||
+  parsedTrustedPreviewBuildIndex < 0 ||
+  parsedClientPairingIndex >= parsedTrustedPreviewBuildIndex ||
+  !reusable.includes("client_directory") ||
+  !reusable.includes("AGENT_NATIVE_PREBUILT_CLIENT_DIR") ||
+  !reusable.includes("verify-netlify-prebuilt-client.ts") ||
+  !reusable.includes("artifact_root/client") ||
+  !String(parsedClientPairingStep?.run ?? "").includes(
+    '--client "$client_directory"',
+  )
+) {
+  issues.push(
+    `${reusablePath} must pair the PR client artifact with publish output before the trusted Functions build`,
+  );
+}
+const parsedTrustedPreviewManifestStep =
+  reusableSteps[parsedTrustedPreviewManifestIndex];
+const trustedPreviewManifestRun = String(
+  parsedTrustedPreviewManifestStep?.run ?? "",
+);
+const trustedPreviewManifestIf = String(
+  parsedTrustedPreviewManifestStep?.if ?? "",
+);
+if (
+  parsedTrustedPreviewManifestIndex < 0 ||
+  parsedTrustedPreviewManifestIndex <= parsedTrustedPreviewBuildIndex ||
+  parsedTrustedPreviewManifestIndex >= parsedUploadIndex ||
+  !trustedPreviewManifestIf.includes("inputs.target == 'preview'") ||
+  !trustedPreviewManifestIf.includes("inputs.deploy") ||
+  !trustedPreviewManifestIf.includes("inputs.artifact_download") ||
+  !trustedPreviewManifestIf.includes(
+    "steps.target.outputs.source_template == 'dispatch'",
+  ) ||
+  !trustedPreviewManifestRun.includes('"$FUNCTIONS_DIRECTORY"') ||
+  !trustedPreviewManifestRun.includes('"$PUBLISH_DIRECTORY"') ||
+  !trustedPreviewManifestRun.includes('"$client_directory"') ||
+  !trustedPreviewManifestRun.includes('--server "$FUNCTIONS_DIRECTORY"')
+) {
+  issues.push(
+    `${reusablePath} must verify the trusted server manifest against the uploaded preview publish tree before upload`,
+  );
+}
+const previewSmokeRun = String(parsedPreviewSmokeStep?.run ?? "");
+const previewSmokeNodeHeredocs = [
+  ...previewSmokeRun.matchAll(
+    /node(?: --experimental-strip-types)? <<'NODE'\n([\s\S]*?)\n\s*NODE/g,
+  ),
+].map((match) => match[1]);
+if (
+  parsedPreviewSmokeIndex < 0 ||
+  !previewSmokeRun.includes("immutable_url") ||
+  !previewSmokeRun.includes("preview alias") ||
+  !previewSmokeRun.includes("resolveNetlifyImmutableDeployUrl") ||
+  !previewSmokeRun.includes("deploy?.id") ||
+  !previewSmokeRun.includes("NETLIFY_SITE_ID") ||
+  !previewSmokeRun.includes("PREVIEW_ALIAS") ||
+  !previewSmokeRun.includes("resolveNetlifyPreviewAliasUrl") ||
+  !previewSmokeRun.includes('if [[ "$alias_url" == "$immutable_url" ]]') ||
+  previewSmokeNodeHeredocs.some((body) => /\bimmutable_url\b/.test(body)) ||
+  !previewSmokeRun.includes("aliasUrl === process.env.IMMUTABLE_URL")
+) {
+  issues.push(
+    `${reusablePath} PR preview smoke must probe both the immutable deploy URL and the mutable alias`,
+  );
+}
 issues.push(...validateGoogleCallbackVerificationWorkflow(reusable));
 issues.push(...validateNetlifyApiRateLimitHandling(reusable));
 const parsedClipsMigrationIf = reusableSteps[parsedClipsMigrationIndex]?.if;
@@ -1423,7 +1498,9 @@ if (
   !reusableBetaFreshness.includes(
     "Beta source_ref must be a full 40-character commit SHA.",
   ) ||
-  !reusableBetaFreshness.includes("Beta source_ref must equal current main") ||
+  !reusableBetaFreshness.includes(
+    "Beta source ${sourceSha} is not an ancestor of main ${mainSha}",
+  ) ||
   !reusableBetaFreshness.includes(
     "Direct beta dispatch is unsupported; use deploy-beta-sites-prebuilt.yml.",
   ) ||
@@ -1575,16 +1652,13 @@ if (
 }
 if (
   !betaResolveSourceScript.includes(
-    "context.eventName === 'workflow_dispatch'",
+    "const comparison = await github.rest.repos.compareCommits({",
   ) ||
   !betaResolveSourceScript.includes(
-    "sourceSha.toLowerCase() !== mainSha.toLowerCase()",
-  ) ||
-  !betaResolveSourceScript.includes(
-    "Manual beta source_ref must equal current main",
+    "source_ref ${sourceSha} is not an ancestor of main ${mainSha}.",
   )
 ) {
-  issues.push(`${betaPath} must reject stale manual source_ref values`);
+  issues.push(`${betaPath} must reject manual source_ref values outside main`);
 }
 
 if (issues.length) {

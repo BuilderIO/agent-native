@@ -603,6 +603,37 @@ describe("buildAssistantMessage", () => {
     ]);
   });
 
+  it("keeps a user-stopped rebuilt message neutral", () => {
+    const message = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: {
+            type: "tool_start",
+            tool: "save-analysis",
+            input: { id: "stopped-analysis" },
+          },
+        },
+        { seq: 1, event: { type: "done", reason: "user" } },
+      ],
+      "run-user-stop",
+      { turnId: "turn-user-stop" },
+    );
+
+    expect(message).toMatchObject({
+      status: { type: "complete", reason: "stop" },
+      metadata: { custom: { userStopped: true } },
+    });
+    expect(message?.content).toEqual([
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "save-analysis",
+        result: "",
+      }),
+    ]);
+    expect(message?.content[0]).not.toHaveProperty("outcome");
+  });
+
   it("keeps unresolved tool calls pending at internal continuation boundaries", () => {
     const message = buildAssistantMessage(
       [

@@ -167,12 +167,14 @@ export function getViewDateRange(
   selectedDate: Date,
   timezone: string,
   weekStartsOn: 0 | 1 = 0,
+  numberOfDays = 7,
 ): { from: string; to: string } {
   return getCalendarViewDateRange(
     viewMode,
     dateToCalendarDateKey(selectedDate),
     normalizeTimezone(timezone),
     weekStartsOn,
+    numberOfDays,
   );
 }
 

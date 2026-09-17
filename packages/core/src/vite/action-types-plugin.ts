@@ -200,8 +200,16 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
     specifier: "@agent-native/core/review/actions/resolve-review-thread",
   },
   {
+    name: "update-review-comment-anchor",
+    specifier: "@agent-native/core/review/actions/update-review-comment-anchor",
+  },
+  {
     name: "delete-review-comment",
     specifier: "@agent-native/core/review/actions/delete-review-comment",
+  },
+  {
+    name: "update-review-comment",
+    specifier: "@agent-native/core/review/actions/update-review-comment",
   },
   {
     name: "consume-review-feedback",
@@ -226,6 +234,10 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
   {
     name: "set-review-thread-unread",
     specifier: "@agent-native/core/review/actions/set-review-thread-unread",
+  },
+  {
+    name: "set-review-threads-unread",
+    specifier: "@agent-native/core/review/actions/set-review-threads-unread",
   },
   {
     name: "set-review-thread-muted",

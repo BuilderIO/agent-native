@@ -29,6 +29,7 @@ Beginnen Sie in einem neuen Verzeichnis mit dem Chat-Template:
 ```bash
 npx --yes @agent-native/core@latest create my-app --standalone --template chat
 cd my-app
+corepack enable
 pnpm install
 ```
 
@@ -87,6 +88,7 @@ Hello, Alex!
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
+// One action powers every app surface: UI, agent, HTTP, MCP, A2A, and CLI.
 export default defineAction({
   description: "Return a friendly greeting.",
   schema: z.object({

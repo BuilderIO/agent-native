@@ -747,6 +747,106 @@ export function callAction<
   });
 }
 
+function isAbortError(error: unknown): boolean {
+  return (
+    !!error &&
+    typeof error === "object" &&
+    (error as Error).name === "AbortError"
+  );
+}
+
+/**
+ * Backoff that settles as soon as the caller aborts. A plain `setTimeout` keeps
+ * an abandoned call alive for the full delay and then spends another attempt on
+ * an already-aborted signal.
+ */
+// Read through a call so control-flow narrowing cannot conclude the flag is
+// still what it was before the backoff — `aborted` flips underneath us.
+function isAborted(signal?: AbortSignal): boolean {
+  return signal?.aborted === true;
+}
+
+function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
+  if (!signal) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+  return new Promise((resolve) => {
+    const finish = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", finish);
+      resolve();
+    };
+    const timer = setTimeout(finish, ms);
+    signal.addEventListener("abort", finish, { once: true });
+  });
+}
+
+/**
+ * GET-only, because a retried write is not the same request twice. A gateway
+ * 502/504 can arrive after the origin already committed the mutation, so
+ * re-sending a POST duplicates a create, a send, or a charge. `callAction`
+ * defaults to POST; this helper never does, and refuses any other method
+ * outright rather than leaving the hazard to a caller's attention.
+ */
+export type RetriedActionCallOptions = Omit<
+  ClientActionCallOptions,
+  "method"
+> & { method?: "GET" };
+
+/**
+ * `callAction` with the transient-failure budget `useActionQuery` already
+ * applies, reusing `defaultActionQueryRetry` — so a deterministic refusal
+ * (400/403/404/409/500) and a timeout still surface on the first attempt.
+ *
+ * Use this for an imperative read whose failure the UI has to render as a
+ * state. Without a retry budget, one gateway blip against a cold backend is
+ * indistinguishable from a real outage, and the page settles on an error over
+ * data that is about to arrive.
+ *
+ * Reads only — see `RetriedActionCallOptions`. An action with no GET route
+ * stays on `callAction`.
+ */
+export async function callActionWithRetry<
+  TResult = undefined,
+  TName extends ActionName = ActionName,
+>(
+  actionName: TName,
+  params?: ActionParams<TName>,
+  options: RetriedActionCallOptions = {},
+): Promise<TResult extends undefined ? ActionResult<TName> : TResult> {
+  const method = (options as ClientActionCallOptions).method;
+  if (method !== undefined && method !== "GET") {
+    throw new Error(
+      `callActionWithRetry refuses ${method} for "${String(actionName)}": ` +
+        "retrying a write can duplicate a mutation the origin already " +
+        "committed. Use callAction for writes.",
+    );
+  }
+  let failureCount = 0;
+  for (;;) {
+    try {
+      return await callAction<TResult, TName>(actionName, params, {
+        ...options,
+        method: "GET",
+      });
+    } catch (error) {
+      if (
+        isAbortError(error) ||
+        isAborted(options.signal) ||
+        !defaultActionQueryRetry(failureCount, error)
+      ) {
+        throw error;
+      }
+      const delayMs = defaultActionQueryRetryDelay(failureCount);
+      failureCount += 1;
+      await abortableDelay(delayMs, options.signal);
+      // The caller gave up during the backoff. Surface the failure we already
+      // have instead of spending an attempt on a dead signal.
+      if (isAborted(options.signal)) throw error;
+    }
+  }
+}
+
 export type KeepaliveActionCallRejectionReason =
   | "body-too-large"
   | "budget-exhausted"

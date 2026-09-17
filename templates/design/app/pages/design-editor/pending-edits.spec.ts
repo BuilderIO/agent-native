@@ -7,7 +7,9 @@ import type {
 import {
   appendPendingLiveNonStyleUndoEntry,
   appendPendingVisualStyleUndoEntry,
+  formatPendingVisualStylePrompt,
   formatVisualEditClipboardPrompt,
+  pendingVisualStyleGestureIdForPhase,
 } from "./pending-edits";
 
 function styleEdit(
@@ -92,6 +94,34 @@ describe("appendPendingVisualStyleUndoEntry", () => {
     });
     expect(stack).toHaveLength(2);
   });
+
+  it("groups scrub ticks by phase and gives the next gesture a new id", () => {
+    const state = { sequence: 0, activeId: null as string | null };
+    const firstPreview = pendingVisualStyleGestureIdForPhase(
+      state,
+      "preview",
+      true,
+    );
+    expect(pendingVisualStyleGestureIdForPhase(state, "preview", true)).toBe(
+      firstPreview,
+    );
+    expect(pendingVisualStyleGestureIdForPhase(state, "commit", true)).toBe(
+      firstPreview,
+    );
+    const nextPreview = pendingVisualStyleGestureIdForPhase(
+      state,
+      "preview",
+      true,
+    );
+    expect(nextPreview).not.toBe(firstPreview);
+    expect(pendingVisualStyleGestureIdForPhase(state, "cancel", true)).toBe(
+      undefined,
+    );
+    expect(state.activeId).toBeNull();
+    expect(
+      pendingVisualStyleGestureIdForPhase(state, undefined, true),
+    ).not.toBe(nextPreview);
+  });
 });
 
 describe("appendPendingLiveNonStyleUndoEntry", () => {
@@ -135,5 +165,17 @@ describe("formatVisualEditClipboardPrompt", () => {
     expect(formatVisualEditClipboardPrompt("Apply these edits.", null)).toBe(
       "Apply these edits.",
     );
+  });
+});
+
+describe("formatPendingVisualStylePrompt", () => {
+  it("returns an empty WebMCP prompt when the canvas has no pending edits", () => {
+    expect(
+      formatPendingVisualStylePrompt({
+        designId: "design-1",
+        edits: [],
+        liveEdits: [],
+      }),
+    ).toBe("");
   });
 });

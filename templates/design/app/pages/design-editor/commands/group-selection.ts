@@ -5,12 +5,18 @@ import { toast } from "sonner";
 import type * as Y from "yjs";
 
 import { trace } from "@/components/design/design-trace";
+import { getBreakpointIframeId } from "@/components/design/multi-screen/iframe-targeting";
 import type { ElementInfo } from "@/components/design/types";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
 import {
   codeLayerPatchMessage,
   elementInfoFromCodeLayerNode,
 } from "@/pages/design-editor/code-layer-state";
+import type { ApplyLocalContentUpdateResult } from "@/pages/design-editor/commands/apply-local-content-update";
+import {
+  mapAcceptedSelectionNode,
+  projectAcceptedSource,
+} from "@/pages/design-editor/commands/selection-publication";
 import {
   captureContentUndoStackTop,
   captureYjsUndoStackTop,
@@ -24,7 +30,15 @@ import {
 import { buildActiveFileNodeIdSet } from "@/pages/design-editor/selection-state";
 import type { DesignFile } from "@/pages/design-editor/types";
 
+import { collectLiveSizeHints } from "./frame-selection";
+import {
+  dispatchLinkedComponentStructure,
+  type ApplyLinkedComponentEdit,
+} from "./linked-component-structure";
+
 export interface GroupSelectionArgs {
+  applyLinkedComponentEdit?: ApplyLinkedComponentEdit;
+  activeBreakpointWidthState: number | undefined;
   activeFile: DesignFile;
   applyLocalContentUpdate: (
     nextContent: string,
@@ -40,7 +54,7 @@ export interface GroupSelectionArgs {
       clipboardMutation?: ClipboardContentMutationPublication;
       selectionBefore?: YjsUndoSelectionSnapshot;
     },
-  ) => void;
+  ) => ApplyLocalContentUpdateResult;
   canEditDesign: boolean;
   codeLayerOwnerByNodeIdRef: RefObject<
     Map<
@@ -55,6 +69,7 @@ export interface GroupSelectionArgs {
   >;
   contentHistorySelectionAfterRef: RefObject<ContentHistorySelectionAfterMap>;
   contentUndoStackRef: RefObject<ContentHistoryEntry[]>;
+  boardFileId: string | undefined;
   files: DesignFile[];
   getFreshActiveContent: () => string;
   overviewSelectedScreenIds: string[];
@@ -75,12 +90,15 @@ export interface GroupSelectionArgs {
 }
 
 export function runGroupSelection({
+  applyLinkedComponentEdit,
+  activeBreakpointWidthState,
   activeFile,
   applyLocalContentUpdate,
   canEditDesign,
   codeLayerOwnerByNodeIdRef,
   contentHistorySelectionAfterRef,
   contentUndoStackRef,
+  boardFileId,
   files,
   getFreshActiveContent,
   overviewSelectedScreenIds,
@@ -101,6 +119,7 @@ export function runGroupSelection({
     return;
   }
   const baseContent = getFreshActiveContent();
+  const source = { kind: "design-file" as const, fileId: activeFile.id };
   // Collect the DOM-node layer ids that belong to the active screen.
   // Build a set of ids present in the active content so stale ids from
   // other files (which can persist in selectedLayerIdsState after a
@@ -109,27 +128,50 @@ export function runGroupSelection({
   // cause wrapNodes to return "conflict" even for a valid same-file
   // selection.
   const fileIds = new Set(files.map((f) => f.id));
-  const baseProjection = buildCodeLayerProjection(baseContent);
+  const baseProjection = buildCodeLayerProjection(baseContent, { source });
   const activeNodeIdSet = buildActiveFileNodeIdSet(baseProjection);
   const nodeIds = selectedLayerIdsState.filter(
     (id) => !id.startsWith("__") && !fileIds.has(id) && activeNodeIdSet.has(id),
   );
   if (nodeIds.length === 0) return;
-  const patch = applyVisualEdit(baseContent, {
-    kind: "wrapNodes",
+  const activeIframeId =
+    activeBreakpointWidthState !== undefined
+      ? getBreakpointIframeId(activeFile.id, activeBreakpointWidthState)
+      : activeFile.id;
+  const sizeHints = collectLiveSizeHints(
+    nodeIds,
+    baseProjection,
+    activeIframeId,
+    boardFileId,
+  );
+  const wrapIntent = {
+    kind: "wrapNodes" as const,
     targetIds: nodeIds,
     autoLayout: false,
-  });
+    sizeHints,
+  };
+  if (
+    dispatchLinkedComponentStructure({
+      content: baseContent,
+      source,
+      intents: [wrapIntent],
+      applyLinkedComponentEdit,
+    })
+  )
+    return;
+  const patch = applyVisualEdit(baseContent, wrapIntent, { source });
   if (patch.result.status !== "applied") {
     toast.error(
       codeLayerPatchMessage(
         patch.result.message,
         t("designEditor.toasts.layerMoveFailed"),
+        t,
       ),
       { duration: 4000 },
     );
     return;
   }
+  const nextContent = patch.content;
   // Figma-parity undo/redo selection restore: capture the ORIGINAL (ungrouped)
   // selection before the write so undo can hand it back. Figma groups a
   // single object too (see canGroup in DesignEditor.tsx), and undoing THAT
@@ -154,48 +196,56 @@ export function runGroupSelection({
   const contentUndoStackTopBeforeGroup = captureContentUndoStackTop(
     contentUndoStackRef.current,
   );
-  applyLocalContentUpdate(patch.content, {
+  const submittedProjection = buildCodeLayerProjection(nextContent, { source });
+  const submittedWrapper = patch.result.wrapperNodeId
+    ? submittedProjection.nodes.find(
+        (candidate) =>
+          candidate.dataAttributes["data-agent-native-node-id"] ===
+          patch.result.wrapperNodeId,
+      )
+    : undefined;
+  const publication = applyLocalContentUpdate(nextContent, {
     forcePreviewFullDocument: true,
     selectionBefore: selectionBeforeGroup,
   });
+  if (publication.status !== "accepted") return;
+  const acceptedProjection = projectAcceptedSource(publication, source);
+  const wrapperNode = mapAcceptedSelectionNode(
+    publication,
+    acceptedProjection,
+    submittedWrapper,
+  );
   stampYjsUndoSelection(
     undoManagerRef.current,
     undoStackTopBeforeGroup,
     selectionBeforeGroup,
   );
   // Select the new wrapper node if the substrate reported its id.
-  const wrapperId = patch.result.wrapperNodeId;
-  if (wrapperId) {
-    // Find the projection node whose data-agent-native-node-id matches.
-    const wrapperNode = patch.projection.nodes.find(
-      (n) => n.dataAttributes["data-agent-native-node-id"] === wrapperId,
+  if (wrapperNode) {
+    setSelectedLayerIdsState([wrapperNode.id]);
+    setSelectedElement(elementInfoFromCodeLayerNode(wrapperNode));
+    // Figma parity: redo re-selects the group this gesture produced, not
+    // the pre-group selection undo restores. The write lands on whichever
+    // of the two stacks is actually tracking it (Yjs in single-screen
+    // mode, the plain content-history stack in overview mode); both
+    // stamps are harmless no-ops on the stack that didn't receive it.
+    stampYjsUndoSelectionAfter(
+      undoManagerRef.current,
+      undoStackTopBeforeGroup,
+      {
+        selectedElement: elementInfoFromCodeLayerNode(wrapperNode),
+        selectedLayerIds: [wrapperNode.id],
+      },
     );
-    if (wrapperNode) {
-      setSelectedLayerIdsState([wrapperNode.id]);
-      setSelectedElement(elementInfoFromCodeLayerNode(wrapperNode));
-      // Figma parity: redo re-selects the group this gesture produced, not
-      // the pre-group selection undo restores. The write lands on whichever
-      // of the two stacks is actually tracking it (Yjs in single-screen
-      // mode, the plain content-history stack in overview mode); both
-      // stamps are harmless no-ops on the stack that didn't receive it.
-      stampYjsUndoSelectionAfter(
-        undoManagerRef.current,
-        undoStackTopBeforeGroup,
-        {
-          selectedElement: elementInfoFromCodeLayerNode(wrapperNode),
-          selectedLayerIds: [wrapperNode.id],
-        },
-      );
-      stampContentHistorySelectionAfter(
-        contentUndoStackRef.current,
-        contentHistorySelectionAfterRef.current,
-        contentUndoStackTopBeforeGroup,
-        {
-          overviewSelectedScreenIds,
-          selectedLayerIds: [wrapperNode.id],
-          activeFileId: activeFile.id,
-        },
-      );
-    }
+    stampContentHistorySelectionAfter(
+      contentUndoStackRef.current,
+      contentHistorySelectionAfterRef.current,
+      contentUndoStackTopBeforeGroup,
+      {
+        overviewSelectedScreenIds,
+        selectedLayerIds: [wrapperNode.id],
+        activeFileId: activeFile.id,
+      },
+    );
   }
 }

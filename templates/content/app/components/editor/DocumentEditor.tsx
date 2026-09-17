@@ -26,6 +26,7 @@ import {
 import type { ResourceSuggestion } from "@agent-native/core/review";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import type { Document, DocumentSyncStatus } from "@shared/api";
+import { canonicalizeNfm } from "@shared/nfm";
 import {
   SuggestionFormattingMappingError,
   suggestionMarkedSourceRanges,
@@ -76,7 +77,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { flushDocumentPropertyWrites } from "@/hooks/document-property-persistence";
-import { useComments } from "@/hooks/use-comments";
+import { useComments, type CommentThread } from "@/hooks/use-comments";
 import {
   useCreateContentDatabase,
   useDeleteContentDatabase,
@@ -95,6 +96,7 @@ import {
   useDocument,
   useDeleteDocument,
   useDocuments,
+  useResolvePreviewDocumentDraft,
   useUpdatePreviewDocumentDraft,
   useUpdateDocument,
 } from "@/hooks/use-documents";
@@ -162,7 +164,9 @@ import { DocumentDatabase } from "./DocumentDatabase";
 import { DocumentEditorSkeleton } from "./DocumentEditorSkeleton";
 import { DocumentInfoPanel } from "./DocumentInfoPanel";
 import { DocumentProperties } from "./DocumentProperties";
+import { DocumentReconcileRecovery } from "./DocumentReconcileRecovery";
 import { DocumentToolbar, type ToolbarBreadcrumbItem } from "./DocumentToolbar";
+import type { EditorDraftSaveResult } from "./editor-draft-save";
 import { EmojiPicker } from "./EmojiPicker";
 import { LinkedLocalDocumentAgentBridge } from "./LinkedLocalDocumentAgentBridge";
 import {
@@ -199,6 +203,12 @@ import {
   normalizeTitleText,
   stripMarkdownHeadingPrefixFromTitlePaste,
 } from "./title-text";
+import {
+  useDocumentReconcileRecovery,
+  type DocumentReconcileRecoveryState,
+  type ReconcileRecoveryDraft,
+  type ReconcileSaveBase,
+} from "./useDocumentReconcileRecovery";
 import { VisualEditor } from "./VisualEditor";
 import type {
   NotionPageLink,
@@ -207,6 +217,14 @@ import type {
   VisualEditorHistoryState,
   VisualEditorPersistenceController,
 } from "./VisualEditor";
+
+const NO_COMMENT_THREADS: CommentThread[] = [];
+
+export function documentEditorCommentThreads(
+  threads: CommentThread[] | null | undefined,
+) {
+  return threads ?? NO_COMMENT_THREADS;
+}
 
 const TAB_ID = generateTabId();
 
@@ -257,7 +275,11 @@ export interface PageEditorSurfaceProps extends DocumentEditorProps {
 }
 
 type FieldSaveWatermark = { title: string; updatedAt: string | null };
-type ContentSaveWatermark = { content: string; updatedAt: string | null };
+type ContentSaveWatermark = {
+  content: string;
+  updatedAt: string | null;
+  revision?: string;
+};
 type DocumentUtilityPanel = "info" | "comments" | null;
 
 export function documentCanonicalMutationsEnabled(
@@ -326,6 +348,19 @@ export function suggestionPresentation(
   }
   const range = resolveMarkdownSuggestionRange(currentMarkdown, operation);
   if (!range) return null;
+  const editorMarkdown = canonicalizeNfm(currentMarkdown);
+  const currentText = currentMarkdown.slice(range.from, range.to);
+  const editorRange = resolveMarkdownSuggestionRange(editorMarkdown, {
+    before: { markdown: currentMarkdown, changedText: currentText },
+    after: { markdown: currentMarkdown, changedText: currentText },
+    anchor: {
+      from: range.from,
+      to: range.to,
+      prefix: currentMarkdown.slice(Math.max(0, range.from - 32), range.from),
+      suffix: currentMarkdown.slice(range.to, range.to + 32),
+    },
+  });
+  if (!editorRange) return null;
   return {
     id: suggestion.id,
     kind: operation.kind as VisualEditorSuggestion["kind"],
@@ -342,9 +377,12 @@ export function suggestionPresentation(
       to: operationAnchor.from + after.changedText.length,
     },
     anchor: {
-      from: range.from,
-      prefix: currentMarkdown.slice(Math.max(0, range.from - 32), range.from),
-      suffix: currentMarkdown.slice(range.to, range.to + 32),
+      from: editorRange.from,
+      prefix: editorMarkdown.slice(
+        Math.max(0, editorRange.from - 32),
+        editorRange.from,
+      ),
+      suffix: editorMarkdown.slice(editorRange.to, editorRange.to + 32),
     },
     presentation: "canonical",
   };
@@ -451,7 +489,11 @@ function adoptConfirmedSaveWatermarks({
     };
   }
   if (updates.content !== undefined) {
-    lastSavedContentRef.current = { content, updatedAt: savedAt };
+    lastSavedContentRef.current = {
+      content,
+      updatedAt: savedAt,
+      revision: saved?.revision,
+    };
   } else if (
     (updates.title !== undefined || updates.icon !== undefined) &&
     saved?.content === lastSavedContentRef.current.content
@@ -1010,8 +1052,8 @@ type DocumentSaveOptions = {
   historySessionId?: string;
   allowQueuedSave?: boolean;
   expectedLocalSourceRevision?: string | null;
-  adoptCurrentServerBase?: boolean;
   contentBase?: DocumentContentBase;
+  titleBase?: string;
   contentEditVersion?: number;
 };
 
@@ -1102,6 +1144,27 @@ export function positionAnchoredCommentCard({
     width,
     placement: fitsBelow ? ("below" as const) : ("above" as const),
   };
+}
+
+export type AnchoredCommentPosition = {
+  left: number;
+  top: number;
+  width: number;
+  placement: "above" | "below";
+};
+
+export function sameAnchoredCommentPosition(
+  left: AnchoredCommentPosition | null,
+  right: AnchoredCommentPosition | null,
+) {
+  if (left === right) return true;
+  if (!left || !right) return false;
+  return (
+    left.left === right.left &&
+    left.top === right.top &&
+    left.width === right.width &&
+    left.placement === right.placement
+  );
 }
 
 export function pendingCommentTargetMatches(
@@ -1438,6 +1501,7 @@ function PageEditorSessionBody({
     });
   }, [documentId, host, t]);
   const updateDocument = useUpdateDocument();
+  const resolvePreviewDocumentDraft = useResolvePreviewDocumentDraft();
   const updatePreviewDocumentDraft = useUpdatePreviewDocumentDraft();
   const updatePreviewDocumentDraftRef = useRef(
     updatePreviewDocumentDraft.mutateAsync,
@@ -1646,9 +1710,20 @@ function PageEditorSessionBody({
     diskRevision?: DesktopContentFileRevision;
     unsavedText: string;
   } | null>(null);
-  const [documentReconcileConflict, setDocumentReconcileConflict] = useState<{
-    localDraft: string;
-  } | null>(null);
+  const reconcileRecoveryStateRef =
+    useRef<DocumentReconcileRecoveryState | null>(null);
+  const reconcileSaveRef = useRef<
+    (
+      draft: ReconcileRecoveryDraft,
+      base?: ReconcileSaveBase,
+    ) => Promise<boolean>
+  >(async () => false);
+  const reconcileRetainRef = useRef<
+    (draft: ReconcileRecoveryDraft) => Promise<void>
+  >(async () => undefined);
+  const reportReconcileRef = useRef<
+    (reason: "conflict" | "failed", localDraft: string) => void
+  >(() => undefined);
   const [localSourceMissing, setLocalSourceMissing] = useState(false);
   const [localSourceAccess, setLocalSourceAccess] = useState<
     "checking" | "available" | "unavailable"
@@ -1754,10 +1829,11 @@ function PageEditorSessionBody({
   const lastSavedTitleRef = useRef<{ title: string; updatedAt: string | null }>(
     { title: "", updatedAt: null },
   );
-  const lastSavedContentRef = useRef<{
-    content: string;
-    updatedAt: string | null;
-  }>({ content: "", updatedAt: null });
+  const lastSavedContentRef = useRef<ContentSaveWatermark>({
+    content: "",
+    updatedAt: null,
+    revision: undefined,
+  });
   const isInitializedRef = useRef(false);
   const prevDocIdRef = useRef<string | null>(null);
   const localTitleRef = useRef(localTitle);
@@ -1765,6 +1841,36 @@ function PageEditorSessionBody({
   const localContentRef = useRef(localContent);
   const contentEditVersionRef = useRef(0);
   localContentRef.current = localContent;
+  const reconcileRecovery = useDocumentReconcileRecovery({
+    save: (draft, base) => reconcileSaveRef.current(draft, base),
+    retain: (draft) => reconcileRetainRef.current(draft),
+    getDraft: () => localContentRef.current,
+    getTitle: () => localTitleRef.current,
+    getSaveIdentity: () =>
+      JSON.stringify([localTitleRef.current, localContentRef.current]),
+    stateRef: reconcileRecoveryStateRef,
+  });
+  const documentReconcileConflict = reconcileRecovery.state;
+  const {
+    report: reportReconcile,
+    resolve: resolveReconcile,
+    resolveChoice: resolveReconcileChoice,
+    updateDraft: updateReconcileDraft,
+    reportRetentionFailure,
+  } = reconcileRecovery;
+  const retainActiveRecoveryDraft = useCallback(
+    (draft: ReconcileRecoveryDraft) => {
+      void reconcileRetainRef.current(draft).catch(reportRetentionFailure);
+    },
+    [reportRetentionFailure],
+  );
+  const [acknowledgedLocalSnapshot, setAcknowledgedLocalSnapshot] = useState<{
+    value: string;
+    revision: string;
+    updatedAt: string;
+    sequence: number;
+  } | null>(null);
+  const acknowledgedLocalSnapshotSequenceRef = useRef(0);
   const getLinkedLocalEditorSnapshot = useCallback(
     () => ({
       title: localTitleRef.current,
@@ -1779,6 +1885,10 @@ function PageEditorSessionBody({
   documentUpdatedAtRef.current = document.updatedAt ?? null;
   const documentContentRef = useRef(document.content);
   documentContentRef.current = document.content;
+  const documentTitleRef = useRef(document.title);
+  documentTitleRef.current = document.title;
+  const documentRevisionRef = useRef(document.revision);
+  documentRevisionRef.current = document.revision;
   const handleBackgroundSaveError = useCallback(
     (error: unknown) => {
       toast.error(t("empty.genericError"), {
@@ -2035,6 +2145,7 @@ function PageEditorSessionBody({
       lastSavedContentRef.current = {
         content: document.content,
         updatedAt: document.updatedAt ?? null,
+        revision: document.revision,
       };
       isInitializedRef.current = true;
       if (!document.title) {
@@ -2055,6 +2166,7 @@ function PageEditorSessionBody({
   useEffect(() => {
     if (!document || !isInitializedRef.current) return;
     if (isLinkedLocalSourceDocument) return;
+    if (reconcileRecoveryStateRef.current) return;
     const serverTitle = document.title;
     const lastSaved = lastSavedTitleRef.current;
     if (serverTitle === lastSaved.title) {
@@ -2111,6 +2223,7 @@ function PageEditorSessionBody({
       lastSavedContentRef.current = {
         content: serverContent,
         updatedAt: document.updatedAt ?? lastSaved.updatedAt,
+        revision: document.revision,
       };
     }
   }, [
@@ -2146,6 +2259,7 @@ function PageEditorSessionBody({
       lastSavedContentRef.current = {
         content: document.content,
         updatedAt: document.updatedAt ?? lastSavedContentRef.current.updatedAt,
+        revision: document.revision,
       };
     }
   }, [document, isLinkedLocalSourceDocument, localTitle, localContent]);
@@ -2281,6 +2395,10 @@ function PageEditorSessionBody({
             ? ((options.contentBase ?? lastSavedContentRef.current).updatedAt ??
               undefined)
             : undefined;
+        const baseRevision =
+          updates.content !== undefined
+            ? (options.contentBase ?? lastSavedContentRef.current).revision
+            : undefined;
         return await updateDocument.mutateAsync({
           id: documentId,
           loadedUpdatedAt:
@@ -2298,6 +2416,10 @@ function PageEditorSessionBody({
             options.historySessionId ??
             historySessionRef.current.activity(documentId),
           ...(baseUpdatedAt !== undefined ? { baseUpdatedAt } : {}),
+          ...(baseRevision !== undefined ? { baseRevision } : {}),
+          ...(updates.title !== undefined
+            ? { baseTitle: lastSavedTitleRef.current.title }
+            : {}),
         });
       } catch (error) {
         if (updates.title !== undefined) {
@@ -2337,6 +2459,23 @@ function PageEditorSessionBody({
             }
           } else {
             if (
+              updates.content !== undefined &&
+              result.revision &&
+              result.updatedAt
+            ) {
+              const snapshot = {
+                value: result.content,
+                revision: result.revision,
+                updatedAt: result.updatedAt,
+                sequence: ++acknowledgedLocalSnapshotSequenceRef.current,
+              };
+              setAcknowledgedLocalSnapshot((current) =>
+                !current || snapshot.sequence > current.sequence
+                  ? snapshot
+                  : current,
+              );
+            }
+            if (
               result.updatedAt &&
               (!documentUpdatedAtRef.current ||
                 result.updatedAt >= documentUpdatedAtRef.current)
@@ -2348,6 +2487,7 @@ function PageEditorSessionBody({
               }
               if (result.content === lastSavedContentRef.current.content) {
                 lastSavedContentRef.current.updatedAt = result.updatedAt;
+                lastSavedContentRef.current.revision = result.revision;
               }
             }
             for (const field of fields) {
@@ -2504,6 +2644,7 @@ function PageEditorSessionBody({
     lastSavedContentRef.current = {
       content: document.content,
       updatedAt: document.updatedAt,
+      revision: document.revision,
     };
   }, [
     document.content,
@@ -2520,12 +2661,6 @@ function PageEditorSessionBody({
     ): Promise<DocumentSaveResult> => {
       const contentEditVersion =
         options.contentEditVersion ?? contentEditVersionRef.current;
-      if (options.adoptCurrentServerBase) {
-        lastSavedContentRef.current = {
-          content: documentContentRef.current,
-          updatedAt: documentUpdatedAtRef.current,
-        };
-      }
       lastSavedContentRef.current = refreshUnchangedContentSaveWatermark({
         serverContent: documentContentRef.current,
         serverUpdatedAt: documentUpdatedAtRef.current,
@@ -2536,19 +2671,35 @@ function PageEditorSessionBody({
       // stale — content. Guard per-field using the field's own watermark.
       const titleIsStale =
         !isLinkedLocalSourceDocument &&
+        options.titleBase === undefined &&
         documentUpdatedAtRef.current &&
         lastSavedTitleRef.current.updatedAt &&
         documentUpdatedAtRef.current > lastSavedTitleRef.current.updatedAt;
+      const contentBase = options.contentBase ?? lastSavedContentRef.current;
+      if (
+        options.titleBase !== undefined &&
+        documentTitleRef.current !== options.titleBase
+      ) {
+        return { contentPersisted: false };
+      }
+      if (
+        options.contentBase &&
+        (documentContentRef.current !== options.contentBase.content ||
+          documentUpdatedAtRef.current !== options.contentBase.updatedAt ||
+          documentRevisionRef.current !== options.contentBase.revision)
+      ) {
+        return { contentPersisted: false };
+      }
       const contentIsStale =
         !isLinkedLocalSourceDocument &&
-        documentUpdatedAtRef.current &&
-        lastSavedContentRef.current.updatedAt &&
-        documentUpdatedAtRef.current > lastSavedContentRef.current.updatedAt;
+        !!documentRevisionRef.current &&
+        !!contentBase.revision &&
+        documentRevisionRef.current !== contentBase.revision;
 
       const updates: Record<string, string> = {};
       if (title !== lastSavedTitleRef.current.title && !titleIsStale)
         updates.title = title;
-      const contentChanged = content !== lastSavedContentRef.current.content;
+      const contentChanged = content !== contentBase.content;
       if (contentChanged && !contentIsStale) updates.content = content;
       if (Object.keys(updates).length === 0) {
         return { contentPersisted: !contentChanged };
@@ -2565,7 +2716,7 @@ function PageEditorSessionBody({
         let result;
         try {
           result = await saveDocumentWithRebase({
-            base: { ...lastSavedContentRef.current },
+            base: { ...contentBase },
             content,
             owner: {
               version: contentEditVersion,
@@ -2576,7 +2727,6 @@ function PageEditorSessionBody({
               confirm: (confirmedContent) => {
                 localContentRef.current = confirmedContent;
                 setLocalContent(confirmedContent);
-                setDocumentReconcileConflict(null);
               },
             },
             canRetry: (winner) =>
@@ -2595,9 +2745,7 @@ function PageEditorSessionBody({
           activeContentSavesRef.current -= 1;
         }
         if (result.status === "conflict") {
-          setDocumentReconcileConflict({
-            localDraft: result.localDraft,
-          });
+          reportReconcileRef.current("conflict", result.localDraft);
           return { contentPersisted: false };
         }
         saved = result.document;
@@ -2713,6 +2861,21 @@ function PageEditorSessionBody({
     },
     [documentId, t],
   );
+  const recoveryDraftRetentionQueueRef = useRef<Promise<void>>(
+    Promise.resolve(),
+  );
+  const queueRecoveryDraftRetention = useCallback(
+    (title: string, content: string, deferredReason: "conflict" | null) => {
+      const retain = () => retainRecoveryDraft(title, content, deferredReason);
+      const queued = recoveryDraftRetentionQueueRef.current.then(
+        retain,
+        retain,
+      );
+      recoveryDraftRetentionQueueRef.current = queued.catch(() => undefined);
+      return queued;
+    },
+    [retainRecoveryDraft],
+  );
   const clearRecoveryDraft = useCallback(
     async (persistedTitle: string, persistedContent: string) => {
       const current = recoveryDraftRef.current;
@@ -2774,14 +2937,11 @@ function PageEditorSessionBody({
       )
         .then((result) => {
           if (!result.contentPersisted) {
-            setDocumentReconcileConflict(
-              (current) =>
-                current ?? {
-                  localDraft:
-                    contentEditVersionRef.current === pending.contentEditVersion
-                      ? pending.content
-                      : localContentRef.current,
-                },
+            reportReconcileRef.current(
+              "conflict",
+              contentEditVersionRef.current === pending.contentEditVersion
+                ? pending.content
+                : localContentRef.current,
             );
           }
         })
@@ -2873,6 +3033,7 @@ function PageEditorSessionBody({
     lastSavedContentRef.current = {
       content: restored.content,
       updatedAt: restored.updatedAt ?? null,
+      revision: restored.revision,
     };
     historySessionRef.current.reset();
     return editorApplied
@@ -2895,6 +3056,7 @@ function PageEditorSessionBody({
   const debouncedSave = useCallback(
     (title: string, content: string) => {
       if (!canEditRef.current) return;
+      if (reconcileRecoveryStateRef.current) return;
       const expectedLocalSourceRevision = isLinkedLocalSourceDocument
         ? localSourceRevisionForQueuedEdit(
             pendingDocumentSaveRef.current?.expectedLocalSourceRevision,
@@ -2972,9 +3134,9 @@ function PageEditorSessionBody({
         !!lastSavedTitleRef.current.updatedAt &&
         serverUpdatedAt > lastSavedTitleRef.current.updatedAt;
       const contentIsStale =
-        !!serverUpdatedAt &&
-        !!lastSavedContentRef.current.updatedAt &&
-        serverUpdatedAt > lastSavedContentRef.current.updatedAt;
+        !!documentRevisionRef.current &&
+        !!lastSavedContentRef.current.revision &&
+        documentRevisionRef.current !== lastSavedContentRef.current.revision;
 
       const updates: Record<string, string> = {};
       if (pending.title !== lastSavedTitleRef.current.title && !titleIsStale) {
@@ -3004,6 +3166,10 @@ function PageEditorSessionBody({
           updates.content !== undefined
             ? (lastSavedContentRef.current.updatedAt ?? undefined)
             : undefined;
+        const baseRevision =
+          updates.content !== undefined
+            ? lastSavedContentRef.current.revision
+            : undefined;
         const loadedContentWasEmpty =
           updates.content !== undefined
             ? isEffectivelyEmptyDocumentContent(
@@ -3023,6 +3189,10 @@ function PageEditorSessionBody({
             : {}),
           ...(loadedUpdatedAt !== undefined ? { loadedUpdatedAt } : {}),
           ...(baseUpdatedAt !== undefined ? { baseUpdatedAt } : {}),
+          ...(baseRevision !== undefined ? { baseRevision } : {}),
+          ...(updates.title !== undefined
+            ? { baseTitle: lastSavedTitleRef.current.title }
+            : {}),
         });
         const ok = fetch(url, {
           method: "POST",
@@ -3047,6 +3217,7 @@ function PageEditorSessionBody({
         }
         if (updates.content !== undefined) {
           lastSavedContentRef.current = {
+            ...lastSavedContentRef.current,
             content: pending.content,
             updatedAt: optimisticAt,
           };
@@ -3228,6 +3399,13 @@ function PageEditorSessionBody({
         return;
       localTitleRef.current = newTitle;
       setLocalTitle(newTitle);
+      if (updateReconcileDraft(localContentRef.current, newTitle)) {
+        retainActiveRecoveryDraft({
+          localTitle: newTitle,
+          localDraft: localContentRef.current,
+        });
+        return;
+      }
       patchDocumentCaches(queryClient, documentId, { title: newTitle });
       // Renames must not leave a stale optimistic title for the next landing.
       refreshLandingTitleHintCache(queryClient, documentId, newTitle);
@@ -3237,22 +3415,15 @@ function PageEditorSessionBody({
       void rememberContentLandingDocument(documentId, newTitle).catch(() => {});
       debouncedSave(newTitle, localContentRef.current);
     },
-    [debouncedSave, documentId, editorCanEdit, isSuggesting, queryClient],
-  );
-
-  const handleContentChange = useCallback(
-    (newContent: string) => {
-      if (!editorCanEdit) return;
-      contentEditVersionRef.current += 1;
-      localContentRef.current = newContent;
-      setLocalContent(newContent);
-      if (documentReconcileConflict) {
-        setDocumentReconcileConflict({ localDraft: newContent });
-        return;
-      }
-      debouncedSave(localTitleRef.current, newContent);
-    },
-    [debouncedSave, documentReconcileConflict, editorCanEdit],
+    [
+      debouncedSave,
+      documentId,
+      editorCanEdit,
+      isSuggesting,
+      queryClient,
+      retainActiveRecoveryDraft,
+      updateReconcileDraft,
+    ],
   );
 
   const savedSuggestions = useMemo(() => {
@@ -3671,52 +3842,222 @@ function PageEditorSessionBody({
   ]);
 
   const handleContentSaveNow = useCallback(
-    async (newContent: string, adoptCurrentServerBase = false) => {
+    async (
+      recovery: ReconcileRecoveryDraft,
+      reconcileBase?: ReconcileSaveBase,
+    ) => {
       if (!editorCanEdit) return false;
       contentEditVersionRef.current += 1;
-      const contentEditVersion = contentEditVersionRef.current;
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
         saveTimeoutRef.current = null;
         pendingDocumentSaveRef.current = null;
       }
-      localContentRef.current = newContent;
-      setLocalContent(newContent);
+      localTitleRef.current = recovery.localTitle;
+      localContentRef.current = recovery.localDraft;
+      setLocalTitle(recovery.localTitle);
+      setLocalContent(recovery.localDraft);
       const result = await queueDocumentSave(
-        localTitleRef.current,
-        newContent,
+        recovery.localTitle,
+        recovery.localDraft,
         {
-          adoptCurrentServerBase,
+          contentBase: reconcileBase
+            ? {
+                content: reconcileBase.content,
+                updatedAt: reconcileBase.updatedAt,
+                revision: reconcileBase.revision,
+              }
+            : undefined,
+          titleBase: reconcileBase?.title,
         },
       );
-      if (!result.contentPersisted) {
-        setDocumentReconcileConflict(
-          (current) =>
-            current ?? {
-              localDraft:
-                contentEditVersionRef.current === contentEditVersion
-                  ? newContent
-                  : localContentRef.current,
-            },
-        );
-      } else if (contentEditVersionRef.current === contentEditVersion) {
-        setDocumentReconcileConflict(null);
-      }
       return result.contentPersisted;
     },
     [editorCanEdit, queueDocumentSave],
   );
+  reconcileSaveRef.current = handleContentSaveNow;
+  reconcileRetainRef.current = ({ localTitle, localDraft }) =>
+    queueRecoveryDraftRetention(
+      localTitle,
+      localDraft,
+      reconcileRecoveryStateRef.current?.reason === "conflict"
+        ? "conflict"
+        : null,
+    );
+  reportReconcileRef.current = reportReconcile;
 
-  const handleBaseAwareReconcile = useCallback(
-    (result: { status: "merged" | "conflict" | "failed"; content: string }) => {
-      if (result.status === "merged") {
-        void handleContentSaveNow(result.content, true);
+  const handleContentChange = useCallback(
+    (newContent: string) => {
+      if (!editorCanEdit) return;
+      contentEditVersionRef.current += 1;
+      localContentRef.current = newContent;
+      setLocalContent(newContent);
+      if (updateReconcileDraft(newContent)) {
+        retainActiveRecoveryDraft({
+          localTitle: localTitleRef.current,
+          localDraft: newContent,
+        });
         return;
       }
-      setDocumentReconcileConflict({ localDraft: result.content });
+      debouncedSave(localTitleRef.current, newContent);
     },
-    [handleContentSaveNow],
+    [
+      debouncedSave,
+      editorCanEdit,
+      retainActiveRecoveryDraft,
+      updateReconcileDraft,
+    ],
   );
+
+  const handleImmediateContentChange = useCallback(
+    async (newContent: string): Promise<EditorDraftSaveResult> => {
+      if (!editorCanEdit) return "failed";
+      if (reconcileRecoveryStateRef.current) {
+        handleContentChange(newContent);
+        return "retained";
+      }
+      return (await handleContentSaveNow({
+        localTitle: localTitleRef.current,
+        localDraft: newContent,
+      }))
+        ? "persisted"
+        : "failed";
+    },
+    [editorCanEdit, handleContentChange, handleContentSaveNow],
+  );
+
+  const handleBaseAwareReconcile = useCallback(
+    (result: {
+      status: "merged" | "conflict" | "failed";
+      content: string;
+      serverContent: string;
+      serverRevision: string;
+    }) => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+        pendingDocumentSaveRef.current = null;
+      }
+      localContentRef.current = result.content;
+      setLocalContent(result.content);
+      reportReconcile(
+        result.status === "conflict" ? "conflict" : "failed",
+        result.content,
+      );
+      retainActiveRecoveryDraft({
+        localTitle: localTitleRef.current,
+        localDraft: result.content,
+      });
+      if (result.status === "merged") {
+        if (documentContentRef.current === result.serverContent) {
+          void resolveReconcile({
+            title: document.title,
+            content: result.serverContent,
+            updatedAt: documentUpdatedAtRef.current,
+            revision: result.serverRevision,
+          });
+        }
+      }
+    },
+    [reportReconcile, resolveReconcile, retainActiveRecoveryDraft],
+  );
+
+  const handleResolveReconcile = useCallback(
+    async (base: ReconcileSaveBase) => {
+      const saved = await resolveReconcile(base);
+      if (saved)
+        requestAnimationFrame(() => {
+          documentLayoutRef.current
+            ?.querySelector<HTMLElement>(".ProseMirror")
+            ?.focus({ preventScroll: true });
+        });
+      return saved;
+    },
+    [resolveReconcile],
+  );
+
+  const resolveLiveRecoveryDraft = useCallback(
+    async (
+      choice: "use_saved" | "save_separately",
+      base: ReconcileSaveBase,
+    ) => {
+      let resolvedUrlPath: string | undefined;
+      const resolved = await resolveReconcileChoice(
+        base,
+        async (recovery, reviewedBase) => {
+          await retainRecoveryDraft(
+            recovery.localTitle,
+            recovery.localDraft,
+            documentReconcileConflict?.reason === "conflict"
+              ? "conflict"
+              : null,
+          );
+          const draft = recoveryDraftRef.current;
+          if (!draft || !reviewedBase.updatedAt) return false;
+          const result = await resolvePreviewDocumentDraft.mutateAsync({
+            choice,
+            documentId,
+            expectedDraftVersion: draft.version,
+            expectedDraftTitle: draft.title,
+            expectedDraftContent: draft.content,
+            expectedDocumentUpdatedAt: reviewedBase.updatedAt,
+          });
+          if (result.status === "document_conflict") {
+            await queryClient.refetchQueries(documentQueryFilter(documentId));
+            return false;
+          }
+          if (
+            recoveryDraftRef.current?.version === draft.version &&
+            recoveryDraftRef.current.title === draft.title &&
+            recoveryDraftRef.current.content === draft.content
+          ) {
+            recoveryDraftRef.current = null;
+          }
+          resolvedUrlPath = result.urlPath;
+          return true;
+        },
+      );
+      if (!resolved) return false;
+      if (choice === "save_separately" && resolvedUrlPath) {
+        toast.success(t("editor.previewDraftSavedSeparately"));
+        void navigate(resolvedUrlPath);
+        return true;
+      }
+      if (choice === "use_saved") {
+        localTitleRef.current = base.title ?? document.title;
+        localContentRef.current = base.content;
+        setLocalTitle(base.title ?? document.title);
+        setLocalContent(base.content);
+        await queryClient.refetchQueries(documentQueryFilter(documentId));
+        toast.success(t("editor.previewDraftSavedToHistory"));
+      }
+      return true;
+    },
+    [
+      documentId,
+      documentReconcileConflict?.reason,
+      navigate,
+      queryClient,
+      resolveReconcileChoice,
+      resolvePreviewDocumentDraft,
+      retainRecoveryDraft,
+      t,
+    ],
+  );
+
+  const copyLiveRecoveryDraft = useCallback(async () => {
+    const copied = await writeClipboardText(localContentRef.current);
+    if (copied) toast.success(t("editor.unsavedTextCopied"));
+    else toast.error(t("editor.toolbar.clipboardAccessUnavailable"));
+  }, [t]);
+
+  const focusEditorAfterRecoveryReview = useCallback(() => {
+    requestAnimationFrame(() => {
+      documentLayoutRef.current
+        ?.querySelector<HTMLElement>(".ProseMirror")
+        ?.focus({ preventScroll: true });
+    });
+  }, []);
 
   const useDiskVersion = useCallback(() => {
     if (!localSourceConflict) return;
@@ -3759,8 +4100,13 @@ function PageEditorSessionBody({
   const replyDrafts = useCommentReplyDrafts(documentId, session?.email);
   const [pendingCommentTargetValid, setPendingCommentTargetValid] =
     useState(true);
+  // Keyed by the selection, never by the draft text: re-running this on each
+  // keystroke blanks the target back to invalid for a frame, which shows the
+  // "select text" alert and disables Submit inside the open composer.
+  const pendingCommentTargetId = pendingComment?.id ?? null;
+  const pendingCommentQuotedText = pendingComment?.quotedText ?? null;
   useLayoutEffect(() => {
-    if (!pendingComment) {
+    if (!pendingCommentTargetId || pendingCommentQuotedText === null) {
       setPendingCommentTargetValid(true);
       return;
     }
@@ -3778,7 +4124,7 @@ function PageEditorSessionBody({
           ".comment-highlight--pending",
         );
         setPendingCommentTargetValid(
-          pendingCommentTargetMatches(marked, pendingComment.quotedText),
+          pendingCommentTargetMatches(marked, pendingCommentQuotedText),
         );
       });
     };
@@ -3796,7 +4142,7 @@ function PageEditorSessionBody({
       cancelAnimationFrame(frame);
       observer.disconnect();
     };
-  }, [pendingComment]);
+  }, [pendingCommentTargetId, pendingCommentQuotedText]);
   const [focusSuggestionId, setFocusSuggestionId] = useState<string | null>(
     null,
   );
@@ -3810,12 +4156,8 @@ function PageEditorSessionBody({
   const documentLayoutRef = useRef<HTMLDivElement>(null);
   const commentLaneRef = useRef<HTMLElement>(null);
   const anchoredCommentRef = useRef<HTMLElement>(null);
-  const [anchoredCommentPosition, setAnchoredCommentPosition] = useState<{
-    left: number;
-    top: number;
-    width: number;
-    placement: "above" | "below";
-  } | null>(null);
+  const [anchoredCommentPosition, setAnchoredCommentPosition] =
+    useState<AnchoredCommentPosition | null>(null);
   const [commentLaneOffset, setCommentLaneOffset] = useState(0);
   const hasUtilityRailSpace = useElementMinWidth(documentLayoutRef, 960);
   const hasInlineCommentSpace = useElementMinWidth(documentLayoutRef, 1088);
@@ -3855,45 +4197,6 @@ function PageEditorSessionBody({
     (utilityPanel === "info" && !showDesktopInfoPanel);
   const hasFocusedCommentReply =
     replyDrafts.focus.current?.documentId === documentId;
-
-  useLayoutEffect(() => {
-    if (!pendingComment) {
-      setPendingCommentTargetValid(true);
-      return;
-    }
-    const scrollContainer = scrollContainerRef.current;
-    if (!scrollContainer) {
-      setPendingCommentTargetValid(false);
-      return;
-    }
-
-    let frame = 0;
-    const update = () => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => {
-        const marked = scrollContainer.querySelectorAll(
-          ".comment-highlight--pending",
-        );
-        setPendingCommentTargetValid(
-          pendingCommentTargetMatches(marked, pendingComment.quotedText),
-        );
-      });
-    };
-    setPendingCommentTargetValid(false);
-    update();
-    const observer = new MutationObserver(update);
-    observer.observe(scrollContainer, {
-      childList: true,
-      subtree: true,
-      characterData: true,
-      attributes: true,
-      attributeFilter: ["class"],
-    });
-    return () => {
-      cancelAnimationFrame(frame);
-      observer.disconnect();
-    };
-  }, [pendingComment]);
 
   useEffect(() => {
     if (utilityPanel) setLastUtilityPanel(utilityPanel);
@@ -4016,6 +4319,7 @@ function PageEditorSessionBody({
     },
     [activateSuggestion, isSuggesting, savedSuggestions, startSuggestionDraft],
   );
+  const handledCommentDeepLinkRef = useRef<string | null>(null);
 
   const handleUtilityPanelChange = useCallback(
     (nextPanel: DocumentUtilityPanel) => {
@@ -4075,6 +4379,23 @@ function PageEditorSessionBody({
   ]);
 
   useEffect(() => {
+    const threadId = new URLSearchParams(location.search).get("comment");
+    if (!threadId) {
+      handledCommentDeepLinkRef.current = null;
+      return;
+    }
+    const deepLinkKey = `${documentId}:${threadId}`;
+    if (
+      handledCommentDeepLinkRef.current === deepLinkKey ||
+      !threads?.some((thread) => thread.threadId === threadId)
+    ) {
+      return;
+    }
+    handledCommentDeepLinkRef.current = deepLinkKey;
+    activateCommentThread(threadId, true);
+  }, [activateCommentThread, documentId, location.search, threads]);
+
+  useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented) return;
       const path = event.composedPath();
@@ -4106,6 +4427,13 @@ function PageEditorSessionBody({
     ) as HTMLElement | null;
     if (!scrollContainer || !scrollContent) return;
     let frame = 0;
+    // The observers below watch the card itself, and the placement is derived
+    // from the card's own measured height. Committing an unchanged position
+    // would feed that measurement back in as a fresh re-render every frame.
+    const commit = (next: AnchoredCommentPosition) =>
+      setAnchoredCommentPosition((previous) =>
+        sameAnchoredCommentPosition(previous, next) ? previous : next,
+      );
     const update = () => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
@@ -4127,7 +4455,7 @@ function PageEditorSessionBody({
               : ".comment-highlight--pending",
         ) as HTMLElement | null;
         if (!marked) {
-          setAnchoredCommentPosition(
+          commit(
             positionUnanchoredCommentCard({
               containerRect: scrollContent.getBoundingClientRect(),
               boundaryRect: scrollContainer.getBoundingClientRect(),
@@ -4143,7 +4471,7 @@ function PageEditorSessionBody({
         const boundaryRect = scrollContainer.getBoundingClientRect();
         const cardHeight =
           anchoredCommentRef.current?.getBoundingClientRect().height ?? 180;
-        setAnchoredCommentPosition(
+        commit(
           positionAnchoredCommentCard({
             anchorRect,
             containerRect,
@@ -4435,7 +4763,7 @@ function PageEditorSessionBody({
       compact={!hasInlineCommentSpace}
       replyDrafts={replyDrafts}
       documentId={documentId}
-      threads={threads ?? []}
+      threads={documentEditorCommentThreads(threads)}
       isLoading={commentsLoading}
       pendingComment={pendingComment}
       pendingTargetValid={pendingCommentTargetValid}
@@ -4802,41 +5130,23 @@ function PageEditorSessionBody({
           ) : null}
 
           {documentReconcileConflict ? (
-            <div
-              className="flex items-center gap-2 border-b bg-muted/40 px-4 py-2 text-sm"
-              role="alert"
-              data-document-reconcile-conflict
-            >
-              <span className="me-auto">{t("editor.toolbar.conflict")}</span>
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                onClick={() => {
-                  void writeClipboardText(
-                    documentReconcileConflict.localDraft,
-                  ).then((copied) => {
-                    if (copied) toast.success(t("editor.unsavedTextCopied"));
-                    else
-                      toast.error(
-                        t("editor.toolbar.clipboardAccessUnavailable"),
-                      );
-                  });
-                }}
-              >
-                {t("editor.copyUnsavedText")}
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                onClick={() => {
-                  const localDraft = documentReconcileConflict.localDraft;
-                  void handleContentSaveNow(localDraft, true);
-                }}
-              >
-                {t("editor.keepLocalDraft")}
-              </Button>
-            </div>
+            <DocumentReconcileRecovery
+              state={documentReconcileConflict}
+              server={{
+                title: document.title,
+                content: document.content,
+                updatedAt: document.updatedAt ?? null,
+                revision: document.revision,
+              }}
+              canEdit={editorCanEdit}
+              onKeepMine={handleResolveReconcile}
+              onUseSaved={(base) => resolveLiveRecoveryDraft("use_saved", base)}
+              onSaveSeparately={(base) =>
+                resolveLiveRecoveryDraft("save_separately", base)
+              }
+              onCopy={copyLiveRecoveryDraft}
+              onClose={focusEditorAfterRecoveryReview}
+            />
           ) : null}
 
           {isSuggesting &&
@@ -5214,6 +5524,9 @@ function PageEditorSessionBody({
                                 ? null
                                 : (document.revision ?? null)
                             }
+                            acknowledgedLocalSnapshot={
+                              acknowledgedLocalSnapshot
+                            }
                             onBaseAwareReconcile={handleBaseAwareReconcile}
                             collabContentRevision={
                               isLocalFileDocument || isSuggesting
@@ -5228,7 +5541,7 @@ function PageEditorSessionBody({
                             }
                             onSaveContent={
                               suggestionEditorIsolation.persistCanonical
-                                ? handleContentSaveNow
+                                ? handleImmediateContentChange
                                 : undefined
                             }
                             ydoc={

@@ -412,6 +412,22 @@ test.describe("Figma parity — layers panel", () => {
       "data-agent-native-layer-name",
       "Committed Card",
     );
+
+    await expect
+      .poll(() => getIndexHtml(page, designId), {
+        timeout: 15_000,
+        message: "the renamed layer must reach persisted source HTML",
+      })
+      .toContain('data-agent-native-layer-name="Committed Card"');
+
+    await gotoEditor(page, designId);
+    await expandAllLayers(page);
+    await expect(layerRowButton(page, "Committed Card")).toBeVisible();
+    await expect(layerRowButton(page, "Loose Card")).toHaveCount(0);
+    await expect(node(page, "loose")).toHaveAttribute(
+      "data-agent-native-layer-name",
+      "Committed Card",
+    );
   });
 
   test("Cmd+R opens the rename editor for the selection (spec §15)", async ({

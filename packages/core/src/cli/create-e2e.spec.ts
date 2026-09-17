@@ -871,6 +871,7 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     const schedDir = path.join(wsDir, "packages", "scheduling");
     expect(fs.existsSync(schedDir)).toBe(true);
     expect(fs.existsSync(path.join(schedDir, "package.json"))).toBe(true);
+    expect(readPkg(wsDir).packageManager).toBe("pnpm@10.29.1");
   });
 
   it("does not scaffold the optional pinpoint package with design", async () => {
@@ -1108,6 +1109,9 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
           encoding: "utf-8",
         })
         .replaceAll("\\", "/");
+      expect(workspaceYaml).toContain("minimumReleaseAge: 1440");
+      expect(workspaceYaml).toContain('- "@modelcontextprotocol/client"');
+      expect(workspaceYaml).toContain('"@sentry/bundler-plugins": "10.73.0"');
       expect(workspaceYaml).toContain("overrides:");
       expect(workspaceYaml).toContain('"@agent-native/toolkit": "file://');
       expect(workspaceYaml).toContain("agent-native-toolkit-");
@@ -1212,14 +1216,14 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     expect(wsYaml).toContain('"@tiptap/extension-code-block": "3.28.0"');
   });
 
-  it("pins Better Auth in workspace roots until the latest Kysely adapter build is compatible", async () => {
+  it("pins the upgraded Better Auth version in workspace roots", async () => {
     const wsDir = await scaffoldWorkspace("my-ws", ["calendar"]);
     const wsYaml = fs.readFileSync(
       path.join(wsDir, "pnpm-workspace.yaml"),
       "utf-8",
     );
     expect(wsYaml).toContain("better-auth");
-    expect(wsYaml).toContain("1.6.0");
+    expect(wsYaml).toContain("1.7.4");
   });
 
   it("keeps the default workspace chat app branded as Chat", async () => {
@@ -1481,12 +1485,15 @@ describe("template/core version compatibility", () => {
 
   it("pins unpublished generated framework dependencies to compatible versions", () => {
     // Toolkit has no published range in monorepo source, so it falls back to
-    // `latest`. AgentKit falls back to the local package version.
+    // `latest`. AgentKit falls back to the local package version, so this
+    // must track packages/agentkit/package.json's current version.
     const previous = process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
     delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
     try {
       expect(_getToolkitDependencyVersion()).toBe("latest");
-      expect(_getAgentKitDependencyVersion()).toBe("^0.1.0");
+      expect(_getAgentKitDependencyVersion()).toBe(
+        `^${readPkg(path.join(__dirname, "../../../agentkit")).version}`,
+      );
     } finally {
       if (previous === undefined) {
         delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
@@ -1696,6 +1703,7 @@ describe("workspace scaffold defaults", () => {
 
     const gitignore = fs.readFileSync(path.join(wsDir, ".gitignore"), "utf-8");
     expect(gitignore).toContain("dist/");
+    expect(gitignore).toContain(".agent-native/");
   });
 
   it("does not copy generated Vercel output or legacy Claude settings", async () => {
@@ -1730,6 +1738,7 @@ describe("workspace scaffold defaults", () => {
 
   it("does not copy local agent-native runtime state", () => {
     expect(_shouldSkipScaffoldEntry(".agent-native")).toBe(true);
+    expect(_shouldSkipScaffoldEntry("pnpm-lock.yaml")).toBe(true);
     expect(
       _shouldSkipScaffoldEntry("pglite", path.join("data", "pglite")),
     ).toBe(true);

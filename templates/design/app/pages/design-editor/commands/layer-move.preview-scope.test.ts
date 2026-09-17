@@ -4,6 +4,7 @@ import {
 } from "@shared/code-layer";
 import { describe, expect, it } from "vitest";
 
+import { prepareCanonicalSourceContent } from "@/pages/design-editor/source-publication";
 import type { DesignFile } from "@/pages/design-editor/types";
 
 import { runLayerMove, type LayerMoveArgs } from "./layer-move";
@@ -35,7 +36,13 @@ function buildArgs(content: string): {
   const codeLayerOwnerByNodeId = new Map(
     projection.nodes.map((node) => [
       node.id,
-      { fileId: "index.html", node, tree, runtimeOnly: false },
+      {
+        fileId: "index.html",
+        node,
+        sourceProjection: projection,
+        tree,
+        runtimeOnly: false,
+      },
     ]),
   );
   const aId = projection.nodes.find(
@@ -58,8 +65,17 @@ function buildArgs(content: string): {
 
   const args: Omit<LayerMoveArgs, "canMoveLayer"> = {
     activeFile,
-    applyFileContentUpdate: (_fileId, _nextContent, options) => {
+    applyFileContentUpdate: (fileId, nextContent, options) => {
+      const prepared = prepareCanonicalSourceContent(nextContent, {
+        fileId,
+        fileType: "html",
+      });
       updateOptions = options ?? {};
+      return {
+        status: "accepted" as const,
+        content: prepared.content,
+        nodeIdMap: prepared.nodeIdMap,
+      };
     },
     canEditDesign: true,
     codeLayerOwnerByNodeId,

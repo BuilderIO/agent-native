@@ -664,6 +664,7 @@ export function useContentDatabase(
   documentId: string | null,
   limit?: number,
   tableQuery?: ContentDatabaseTableQuery,
+  options?: { systemRole?: string | null },
 ) {
   const queryClient = useQueryClient();
   const baseQuery = useActionQuery<ContentDatabaseResponse>(
@@ -683,6 +684,7 @@ export function useContentDatabase(
       // Cross-key seeds (e.g. a differently-paginated cached response) render
       // instantly but must refetch immediately, not sit fresh for staleTime.
       initialDataUpdatedAt: 0,
+      meta: { contentDatabaseSystemRole: options?.systemRole },
     },
   );
   const pageQuery = useActionQuery<ContentDatabaseItemsPageResponse>(
@@ -692,6 +694,7 @@ export function useContentDatabase(
       enabled: Boolean(documentId && tableQuery),
       retry: false,
       placeholderData: (previous) => previous,
+      meta: { contentDatabaseSystemRole: options?.systemRole },
     },
   );
   const page = tableQuery ? pageQuery.data : undefined;
@@ -735,7 +738,7 @@ export function isContentDatabaseByIdQueryEnabled(
 
 export function useContentDatabaseById(
   databaseId: string | null,
-  options?: { enabled?: boolean },
+  options?: { enabled?: boolean; systemRole?: string | null },
 ) {
   return useActionQuery<ContentDatabaseResponse>(
     "get-content-database",
@@ -747,6 +750,7 @@ export function useContentDatabaseById(
         preserveScopedDatabasePlaceholder(previous, previousQuery, {
           databaseId: databaseId ?? undefined,
         }),
+      meta: { contentDatabaseSystemRole: options?.systemRole },
     },
   );
 }

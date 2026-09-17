@@ -3,6 +3,7 @@ import {
   getBackgroundAgentSessionStatus,
   requestAgentChatThreadOpen,
   startBackgroundAgentSession,
+  type BackgroundAgentSessionSnapshot,
   type BackgroundAgentSessionStatus,
 } from "@agent-native/core/client/agent-chat";
 import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
@@ -47,16 +48,12 @@ const ACTIVE_STATUSES = new Set<CommentAiRequest["status"]>([
   "running",
   "refreshing",
 ]);
-const TERMINAL_SESSION_STATUSES = new Set<BackgroundAgentSessionStatus>([
-  "completed",
-  "truncated",
-  "errored",
-  "aborted",
-  "unavailable",
-]);
 const ACTIVE_REQUEST_REFETCH_INTERVAL_MS = 1_500;
+const UNAVAILABLE_CONFIRMATION_COUNT = 3;
 
 export interface CommentAiContinuationState {
+  operationId: string;
+  threadId: string;
   turnId: string;
   status: BackgroundAgentSessionStatus;
   error?: string;
@@ -72,6 +69,7 @@ export interface CommentAiController {
     threadId: string;
     rootCommentId: string;
     intent: CommentAiIntent;
+    requestId?: string;
   }): Promise<void>;
   continue(request: CommentAiRequest, message: string): Promise<void>;
   stop(request: CommentAiRequest): Promise<void>;
@@ -107,11 +105,25 @@ export function latestCommentAiRequest(
 }
 
 function sessionReceipt(request: CommentAiRequest) {
+  if (!request.agentThreadId || !request.agentTurnId) return null;
   return {
     operationId: request.operationId,
     threadId: request.agentThreadId,
-    turnId: request.operationId,
+    turnId: request.agentTurnId,
   };
+}
+
+export function shouldReconcileCommentAiSnapshot(
+  snapshot: BackgroundAgentSessionSnapshot,
+  consecutiveUnavailable: number,
+) {
+  if (snapshot.status === "queued" || snapshot.status === "running")
+    return false;
+  if (snapshot.status !== "unavailable") return true;
+  return (
+    !snapshot.transportError &&
+    consecutiveUnavailable >= UNAVAILABLE_CONFIRMATION_COUNT
+  );
 }
 
 export function useCommentAiRequests(
@@ -135,6 +147,7 @@ export function useCommentAiRequests(
   const mountedRef = useRef(true);
   const monitoredRequestsRef = useRef(new Set<string>());
   const monitoredContinuationsRef = useRef(new Set<string>());
+  const unavailableCountsRef = useRef(new Map<string, number>());
   const startingRef = useRef(new Set<string>());
   const [startingThreadIds, setStartingThreadIds] = useState<
     ReadonlySet<string>
@@ -164,13 +177,18 @@ export function useCommentAiRequests(
   const reconcile = useCallback(
     async (
       request: CommentAiRequest,
+      turnId: string,
       status: CommentAiSessionStatus,
       runId?: string,
       terminalReason?: string | null,
     ) => {
+      if (!request.agentThreadId) {
+        throw new Error("This AI conversation is not available yet");
+      }
       await callAction("reconcile-comment-ai-session", {
         operationId: request.operationId,
         threadId: request.agentThreadId,
+        turnId,
         status,
         ...(runId ? { runId } : {}),
         ...(terminalReason ? { terminalReason } : {}),
@@ -189,8 +207,10 @@ export function useCommentAiRequests(
 
   useEffect(() => {
     for (const request of requests) {
+      const receipt = sessionReceipt(request);
       if (
         !ACTIVE_STATUSES.has(request.status) ||
+        !receipt ||
         monitoredRequestsRef.current.has(request.operationId)
       )
         continue;
@@ -208,18 +228,28 @@ export function useCommentAiRequests(
           ) {
             let snapshot;
             try {
-              snapshot = await getBackgroundAgentSessionStatus(
-                sessionReceipt(request),
-              );
+              snapshot = await getBackgroundAgentSessionStatus(receipt);
               retryDelay = ACTIVE_REQUEST_REFETCH_INTERVAL_MS;
             } catch {
               await new Promise((resolve) => setTimeout(resolve, retryDelay));
               retryDelay = Math.min(retryDelay * 2, 10_000);
               continue;
             }
-            if (TERMINAL_SESSION_STATUSES.has(snapshot.status)) {
+            const receiptKey = `${snapshot.threadId}\0${snapshot.turnId}`;
+            const unavailableCount =
+              snapshot.status === "unavailable" && !snapshot.transportError
+                ? (unavailableCountsRef.current.get(receiptKey) ?? 0) + 1
+                : 0;
+            if (unavailableCount > 0) {
+              unavailableCountsRef.current.set(receiptKey, unavailableCount);
+            } else {
+              unavailableCountsRef.current.delete(receiptKey);
+            }
+            if (shouldReconcileCommentAiSnapshot(snapshot, unavailableCount)) {
+              unavailableCountsRef.current.delete(receiptKey);
               await reconcile(
                 request,
+                receipt.turnId,
                 snapshot.status,
                 snapshot.runId,
                 snapshot.terminalReason,
@@ -238,14 +268,14 @@ export function useCommentAiRequests(
   }, [reconcile, requests]);
 
   const start = useCallback<CommentAiController["start"]>(
-    async ({ threadId, rootCommentId, intent }) => {
+    async ({ threadId, rootCommentId, intent, requestId: retryRequestId }) => {
       const active = requestsRef.current.some(
         (request) =>
           request.threadId === threadId && ACTIVE_STATUSES.has(request.status),
       );
       if (active || startingRef.current.has(threadId)) return;
 
-      const requestId = globalThis.crypto.randomUUID();
+      const requestId = retryRequestId ?? globalThis.crypto.randomUUID();
       startingRef.current.add(threadId);
       setStartingThreadIds(new Set(startingRef.current));
       let started: StartCommentAiResult | null = null;
@@ -257,69 +287,73 @@ export function useCommentAiRequests(
         if (started.dispatch) {
           const handle = startBackgroundAgentSession({
             message: started.prompt,
-            operationId: started.backgroundSession.operationId,
-            threadId: started.backgroundSession.threadId,
-            scope: started.backgroundSession.scope,
             instructions: started.context,
+            ...started.backgroundSession,
             usageLabel: "content:comment-ai",
           });
-          await handle.accepted;
+          void handle.accepted.then(
+            () => refetchRef.current(),
+            () => refetchRef.current(),
+          );
         }
         await query.refetch();
       } catch (error) {
-        if (started) {
-          await reconcile(
-            started,
-            "errored",
-            undefined,
-            error instanceof Error ? error.message : undefined,
-          ).catch(() => {});
-        }
         throw error;
       } finally {
         startingRef.current.delete(threadId);
         setStartingThreadIds(new Set(startingRef.current));
       }
     },
-    [documentId, query, reconcile],
+    [documentId, query],
   );
 
   const monitorContinuation = useCallback(
-    async (request: CommentAiRequest, turnId: string) => {
-      if (monitoredContinuationsRef.current.has(turnId)) return;
-      monitoredContinuationsRef.current.add(turnId);
-      const receipt = {
-        operationId: turnId,
-        threadId: request.agentThreadId,
-        turnId,
-      };
+    async (request: CommentAiRequest, receipt: CommentAiContinuationState) => {
+      if (monitoredContinuationsRef.current.has(receipt.turnId)) return;
+      monitoredContinuationsRef.current.add(receipt.turnId);
       let retryDelay = ACTIVE_REQUEST_REFETCH_INTERVAL_MS;
+      let consecutiveUnavailable = 0;
       try {
         for (;;) {
           await new Promise((resolve) => setTimeout(resolve, retryDelay));
           if (!mountedRef.current) return;
           let snapshot;
           try {
-            snapshot = await getBackgroundAgentSessionStatus(receipt);
+            snapshot = await getBackgroundAgentSessionStatus({
+              operationId: receipt.operationId,
+              threadId: receipt.threadId,
+              turnId: receipt.turnId,
+            });
             retryDelay = ACTIVE_REQUEST_REFETCH_INTERVAL_MS;
           } catch {
             retryDelay = Math.min(retryDelay * 2, 10_000);
             continue;
           }
-          updateContinuation(request.operationId, {
-            turnId,
-            status: snapshot.status,
-            ...(snapshot.terminalReason
-              ? { error: snapshot.terminalReason }
-              : {}),
-          });
-          if (TERMINAL_SESSION_STATUSES.has(snapshot.status)) {
+          consecutiveUnavailable =
+            snapshot.status === "unavailable" && !snapshot.transportError
+              ? consecutiveUnavailable + 1
+              : 0;
+          if (
+            snapshot.status !== "unavailable" ||
+            consecutiveUnavailable >= UNAVAILABLE_CONFIRMATION_COUNT
+          ) {
+            updateContinuation(request.operationId, {
+              ...receipt,
+              status: snapshot.status,
+              ...(snapshot.terminalReason
+                ? { error: snapshot.terminalReason }
+                : {}),
+            });
+          }
+          if (
+            shouldReconcileCommentAiSnapshot(snapshot, consecutiveUnavailable)
+          ) {
             setTranscriptRevision((value) => value + 1);
             return;
           }
         }
       } finally {
-        monitoredContinuationsRef.current.delete(turnId);
+        monitoredContinuationsRef.current.delete(receipt.turnId);
       }
     },
     [updateContinuation],
@@ -332,34 +366,52 @@ export function useCommentAiRequests(
       const request = requests.find(
         (candidate) => candidate.operationId === operationId,
       );
-      if (request) void monitorContinuation(request, continuation.turnId);
+      if (request) void monitorContinuation(request, continuation);
     }
   }, [continuations, monitorContinuation, requests]);
 
   const continueConversation = useCallback<CommentAiController["continue"]>(
     async (request, message) => {
-      const turnId = globalThis.crypto.randomUUID();
-      updateContinuation(request.operationId, { turnId, status: "queued" });
+      if (!request.agentThreadId) {
+        throw new Error("This AI conversation is not available yet");
+      }
+      const operationId = globalThis.crypto.randomUUID();
+      let continuation: CommentAiContinuationState | null = null;
       try {
         const handle = startBackgroundAgentSession({
           message,
-          operationId: turnId,
+          operationId,
           threadId: request.agentThreadId,
           scope: { type: "content-comment-ai", id: request.operationId },
+          actionScope: {
+            kind: "content-comment-ai",
+            requestId: request.operationId,
+          },
           instructions:
             "Continue this comment AI conversation and answer the follow-up directly. Keep the original intent and action scope. Do not repeat a completed comment action or create a duplicate receipt.",
           ...(request.model ? { model: request.model } : {}),
           usageLabel: "content:comment-ai-follow-up",
         });
+        continuation = {
+          operationId: handle.operationId,
+          threadId: handle.threadId,
+          turnId: handle.turnId,
+          status: "queued" as const,
+        };
+        updateContinuation(request.operationId, continuation);
+        void monitorContinuation(request, continuation);
         await handle.accepted;
-        updateContinuation(request.operationId, { turnId, status: "running" });
-        void monitorContinuation(request, turnId);
-      } catch (error) {
         updateContinuation(request.operationId, {
-          turnId,
-          status: "errored",
-          error: error instanceof Error ? error.message : undefined,
+          ...continuation,
+          status: "running",
         });
+      } catch (error) {
+        if (continuation) {
+          updateContinuation(request.operationId, {
+            ...continuation,
+            error: error instanceof Error ? error.message : undefined,
+          });
+        }
         throw error;
       }
     },
@@ -379,7 +431,7 @@ export function useCommentAiRequests(
             continuation.status === "running");
         if (activeContinuation) {
           await cancelBackgroundAgentSession({
-            threadId: request.agentThreadId,
+            threadId: continuation.threadId,
             turnId: continuation.turnId,
             reason: "user",
           });
@@ -390,12 +442,15 @@ export function useCommentAiRequests(
           setTranscriptRevision((value) => value + 1);
           return;
         }
+        const receipt = sessionReceipt(request);
+        if (!receipt)
+          throw new Error("This AI conversation is not available yet");
         await cancelBackgroundAgentSession({
-          threadId: request.agentThreadId,
-          turnId: request.operationId,
+          threadId: receipt.threadId,
+          turnId: receipt.turnId,
           reason: "user",
         });
-        await reconcile(request, "aborted");
+        await reconcile(request, receipt.turnId, "aborted");
       } finally {
         setStoppingRequestIds((current) => {
           const next = new Set(current);
@@ -409,6 +464,7 @@ export function useCommentAiRequests(
 
   const open = useCallback(
     (request: CommentAiRequest) => {
+      if (!request.agentThreadId) return;
       requestAgentChatThreadOpen({
         threadId: request.agentThreadId,
         prefill: t("comments.aiConversationPrefill"),
@@ -458,13 +514,13 @@ export function CommentAiThreadActions({
   canSuggest: boolean;
   canReply: boolean;
   canApply: boolean;
-  onStart: (intent: CommentAiIntent) => Promise<void>;
+  onStart: (intent: CommentAiIntent, requestId?: string) => Promise<void>;
 }) {
   const t = useT();
   const active =
     starting || Boolean(request && ACTIVE_STATUSES.has(request.status));
-  const start = (intent: CommentAiIntent) => {
-    if (!active) void onStart(intent);
+  const start = (intent: CommentAiIntent, requestId?: string) => {
+    if (!active) void onStart(intent, requestId);
   };
 
   return (
@@ -681,10 +737,11 @@ export function CommentAiConversation({
     queryFn: ({ signal }) =>
       loadCommentAiConversation({
         operationId: request.operationId,
-        agentThreadId: request.agentThreadId,
+        agentThreadId: request.agentThreadId!,
+        initialTurnId: request.agentTurnId!,
         signal,
       }),
-    enabled: Boolean(request.agentThreadId),
+    enabled: Boolean(request.agentThreadId && request.agentTurnId),
     refetchInterval:
       continuation?.status === "queued" || continuation?.status === "running"
         ? ACTIVE_REQUEST_REFETCH_INTERVAL_MS

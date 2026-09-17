@@ -36,6 +36,7 @@ vi.mock("./credential-provider.js", () => ({
 import { validateProviderBaseUrl } from "../agent/engine/provider-endpoint-validation.js";
 import {
   createAgentEngineApiKeyHandler,
+  normalizeAgentEngineApiKeyDeletePayload,
   normalizeAgentEngineApiKeyPayload,
   resolveAgentEngineApiKeyWriteTarget,
   validateAgentEngineProviderKey,
@@ -129,6 +130,54 @@ describe("agent engine api-key route helpers", () => {
       clearBaseUrl: false,
       scope: "user",
     });
+  });
+
+  it("normalizes personal-key removal and its OpenAI endpoint override", () => {
+    expect(
+      normalizeAgentEngineApiKeyDeletePayload({ provider: "openai" }),
+    ).toEqual({
+      ok: true,
+      key: "OPENAI_API_KEY",
+      endpointKey: "OPENAI_BASE_URL",
+    });
+    expect(
+      normalizeAgentEngineApiKeyDeletePayload({ provider: "not-a-provider" }),
+    ).toMatchObject({
+      ok: false,
+      statusCode: 400,
+    });
+  });
+
+  it("removes only the caller's personal OpenAI key and endpoint", async () => {
+    mockDeleteAppSecret.mockClear();
+    mockGetSession.mockResolvedValue({ email: "alice@example.test" });
+    const event = {
+      req: new Request("http://localhost/_agent-native/agent-engine-key", {
+        method: "DELETE",
+        body: JSON.stringify({ provider: "openai" }),
+        headers: { "content-type": "application/json" },
+      }),
+      res: { headers: new Headers(), status: 200 },
+    };
+
+    await expect(
+      createAgentEngineApiKeyHandler()(event as any),
+    ).resolves.toEqual({
+      ok: true,
+      key: "OPENAI_API_KEY",
+      scope: "user",
+    });
+    expect(mockDeleteAppSecret).toHaveBeenNthCalledWith(1, {
+      key: "OPENAI_API_KEY",
+      scope: "user",
+      scopeId: "alice@example.test",
+    });
+    expect(mockDeleteAppSecret).toHaveBeenNthCalledWith(2, {
+      key: "OPENAI_BASE_URL",
+      scope: "user",
+      scopeId: "alice@example.test",
+    });
+    expect(mockGetOrgContext).not.toHaveBeenCalled();
   });
 
   it("accepts OpenAI-compatible endpoint URLs and normalizes trailing slashes", () => {
@@ -299,5 +348,77 @@ describe("agent engine api-key route helpers", () => {
       ok: true,
       target: { scope: "org", scopeId: "org-1" },
     });
+  });
+
+  it("clears a legacy personal row before saving an organization key", async () => {
+    mockGetSession.mockResolvedValue({ email: "owner@example.test" });
+    mockGetOrgContext.mockResolvedValue({ orgId: "org-1", role: "owner" });
+    mockWriteAppSecret.mockClear();
+    mockDeleteAppSecret.mockClear();
+
+    const event = {
+      req: new Request("http://localhost/_agent-native/agent-engine-key", {
+        method: "POST",
+        body: JSON.stringify({
+          provider: "anthropic",
+          apiKey: "sk-ant-example",
+          scope: "org",
+        }),
+        headers: { "content-type": "application/json" },
+      }),
+      res: { headers: new Headers(), status: 200 },
+    };
+
+    await expect(
+      createAgentEngineApiKeyHandler()(event as any),
+    ).resolves.toMatchObject({ ok: true, scope: "org" });
+    expect(mockDeleteAppSecret).toHaveBeenCalledWith({
+      key: "ANTHROPIC_API_KEY",
+      scope: "user",
+      scopeId: "owner@example.test",
+    });
+    expect(mockWriteAppSecret).toHaveBeenCalledWith({
+      key: "ANTHROPIC_API_KEY",
+      value: "sk-ant-example",
+      scope: "org",
+      scopeId: "org-1",
+    });
+  });
+
+  it("reports a partial save when the legacy-key cleanup session is unavailable", async () => {
+    mockGetSession
+      .mockResolvedValueOnce({ email: "owner@example.test" })
+      .mockResolvedValueOnce(null);
+    mockGetOrgContext.mockResolvedValue({ orgId: "org-1", role: "owner" });
+    mockWriteAppSecret.mockClear();
+    mockDeleteAppSecret.mockClear();
+
+    const event = {
+      req: new Request("http://localhost/_agent-native/agent-engine-key", {
+        method: "POST",
+        body: JSON.stringify({
+          provider: "anthropic",
+          apiKey: "sk-ant-example",
+          scope: "org",
+        }),
+        headers: { "content-type": "application/json" },
+      }),
+      res: { headers: new Headers(), status: 200 },
+    };
+
+    await expect(
+      createAgentEngineApiKeyHandler()(event as any),
+    ).resolves.toEqual({
+      ok: false,
+      error:
+        "Organization key saved, but the legacy personal key could not be cleared. Retry this save before using the organization key.",
+    });
+    expect(mockWriteAppSecret).toHaveBeenCalledWith({
+      key: "ANTHROPIC_API_KEY",
+      value: "sk-ant-example",
+      scope: "org",
+      scopeId: "org-1",
+    });
+    expect(mockDeleteAppSecret).not.toHaveBeenCalled();
   });
 });

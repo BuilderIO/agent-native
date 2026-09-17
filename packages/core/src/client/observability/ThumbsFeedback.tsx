@@ -2,7 +2,7 @@ import { Button } from "@agent-native/toolkit/ui/button";
 import { Textarea } from "@agent-native/toolkit/ui/textarea";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { IconThumbUp, IconThumbDown } from "@tabler/icons-react";
-import { useState, useCallback, useId, useRef } from "react";
+import { useState, useCallback, useEffect, useId, useRef } from "react";
 
 import { agentNativePath } from "../api-path.js";
 import { submitFeedbackForm } from "../FeedbackButton.js";
@@ -18,6 +18,10 @@ export interface ThumbsFeedbackProps {
 }
 
 type Selection = "up" | "down" | null;
+
+// How long the "applied" confirmation (pop animation + live-region
+// announcement) stays visible after a vote is successfully submitted.
+const CONFIRMATION_DURATION_MS = 1400;
 
 type TextFeedbackDelivery = {
   value: string;
@@ -45,6 +49,10 @@ export function ThumbsFeedback({
   const t = useT();
   const { session } = useSession();
   const [selection, setSelection] = useState<Selection>(null);
+  // Distinct from `selection`: true only for the brief window right after a
+  // vote is confirmed submitted, so the click reads as "applied" rather than
+  // just "toggled on".
+  const [confirmed, setConfirmed] = useState<Selection>(null);
   const [popoverOpen, setPopoverOpen] = useState(false);
   const [textFeedback, setTextFeedback] = useState("");
   const [textSubmitting, setTextSubmitting] = useState(false);
@@ -53,6 +61,32 @@ export function ThumbsFeedback({
   const feedbackOpenedAtRef = useRef(0);
   const textSubmissionInFlightRef = useRef(false);
   const textFeedbackDeliveryRef = useRef<TextFeedbackDelivery | null>(null);
+  const confirmationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  // Bumped on every up/down click so a stale response from an earlier vote
+  // (the user switched directions before it resolved) can be ignored instead
+  // of animating/announcing the wrong button or clearing the newer vote.
+  const voteRequestIdRef = useRef(0);
+
+  useEffect(
+    () => () => {
+      if (confirmationTimeoutRef.current) {
+        clearTimeout(confirmationTimeoutRef.current);
+      }
+    },
+    [],
+  );
+
+  const flashConfirmation = useCallback((direction: "up" | "down") => {
+    if (confirmationTimeoutRef.current) {
+      clearTimeout(confirmationTimeoutRef.current);
+    }
+    setConfirmed(direction);
+    confirmationTimeoutRef.current = setTimeout(() => {
+      setConfirmed(null);
+    }, CONFIRMATION_DURATION_MS);
+  }, []);
 
   const sendFeedback = useCallback(
     async (
@@ -92,14 +126,22 @@ export function ThumbsFeedback({
     [threadId, runId, messageSeq],
   );
 
+  // Interaction model: up/down are mutually exclusive, not independent
+  // toggles. Clicking the already-active vote does not retract it - for
+  // thumbs-down it re-opens the explanation popover instead. Clicking the
+  // other direction switches the vote and submits a new feedback event; it
+  // does not attempt to retract the previous one.
   const handleThumbsUp = useCallback(() => {
     if (selection === "up") return;
     setSelection("up");
     setPopoverOpen(false);
+    const requestId = ++voteRequestIdRef.current;
     void sendFeedback("thumbs_up").then((submitted) => {
-      if (!submitted) setSelection(null);
+      if (voteRequestIdRef.current !== requestId) return;
+      if (submitted) flashConfirmation("up");
+      else setSelection(null);
     });
-  }, [selection, sendFeedback]);
+  }, [selection, sendFeedback, flashConfirmation]);
 
   const handleThumbsDown = useCallback(() => {
     if (selection === "down") {
@@ -111,10 +153,13 @@ export function ThumbsFeedback({
     feedbackOpenedAtRef.current = Date.now();
     setSelection("down");
     setPopoverOpen(true);
+    const requestId = ++voteRequestIdRef.current;
     void sendFeedback("thumbs_down").then((submitted) => {
-      if (!submitted) setSelection(null);
+      if (voteRequestIdRef.current !== requestId) return;
+      if (submitted) flashConfirmation("down");
+      else setSelection(null);
     });
-  }, [popoverOpen, selection, sendFeedback]);
+  }, [popoverOpen, selection, sendFeedback, flashConfirmation]);
 
   const handleTextFeedback = useCallback(() => {
     const value = textFeedback.trim();
@@ -181,16 +226,21 @@ export function ThumbsFeedback({
 
   return (
     <div className={cn("inline-flex items-center gap-0.5", className)}>
+      <span role="status" aria-live="polite" className="sr-only">
+        {confirmed ? t("agentChat.feedback.submitted") : ""}
+      </span>
       <button
         type="button"
         aria-label={t("agentChat.feedback.thumbsUp")}
         title={t("agentChat.feedback.thumbsUp")}
+        aria-pressed={selection === "up"}
         onClick={handleThumbsUp}
         className={cn(
-          "flex h-6 w-6 items-center justify-center rounded",
+          "flex h-6 w-6 items-center justify-center rounded transition-transform duration-200",
           selection === "up"
             ? "text-foreground"
             : "text-muted-foreground/70 hover:text-muted-foreground hover:bg-accent/50",
+          confirmed === "up" && "scale-110",
         )}
       >
         <IconThumbUp
@@ -206,12 +256,14 @@ export function ThumbsFeedback({
             type="button"
             aria-label={t("agentChat.feedback.thumbsDown")}
             title={t("agentChat.feedback.thumbsDown")}
+            aria-pressed={selection === "down"}
             onClick={handleThumbsDown}
             className={cn(
-              "flex h-6 w-6 items-center justify-center rounded",
+              "flex h-6 w-6 items-center justify-center rounded transition-transform duration-200",
               selection === "down"
                 ? "text-foreground"
                 : "text-muted-foreground/70 hover:text-muted-foreground hover:bg-accent/50",
+              confirmed === "down" && "scale-110",
             )}
           >
             <IconThumbDown

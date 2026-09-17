@@ -42,7 +42,7 @@ describe("resolveFrameGeometrySync", () => {
     expect(result.next["new-duplicate"]).toBeDefined();
   });
 
-  it("notifies the parent when a screen's persisted geometry actually changed", () => {
+  it("adopts persisted geometry locally without echoing it back to the parent", () => {
     const currentGeometryById: Record<string, FrameGeometry> = {
       home: { x: 0, y: 0, width: 878, height: 640 },
     };
@@ -57,7 +57,7 @@ describe("resolveFrameGeometrySync", () => {
     });
 
     expect(result.changed).toBe(true);
-    expect(result.shouldNotifyParent).toBe(true);
+    expect(result.shouldNotifyParent).toBe(false);
     expect(result.next.home).toMatchObject({ width: 1024 });
   });
 
@@ -119,6 +119,6 @@ describe("resolveFrameGeometrySync", () => {
       height: 640,
     });
     expect(result.changed).toBe(true);
-    expect(result.shouldNotifyParent).toBe(true);
+    expect(result.shouldNotifyParent).toBe(false);
   });
 });

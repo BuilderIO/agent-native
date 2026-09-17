@@ -72,7 +72,7 @@ async function processJobs(): Promise<void> {
         await sendScheduledEmail(
           JSON.parse(job.payload) as SendLaterPayload,
           acctEmail,
-          ownerEmail || undefined,
+          job.ownerEmail ?? undefined,
         );
       }
       await markJobDone(job.id);

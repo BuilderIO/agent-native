@@ -65,7 +65,8 @@ export default defineAction({
                 eq(schema.documents.id, request.documentId),
                 eq(schema.documents.ownerEmail, request.ownerEmail),
               ),
-            );
+            )
+            .for("update");
           if (
             !document ||
             documentRevisionToken(document.bodyRevision, document.content) !==

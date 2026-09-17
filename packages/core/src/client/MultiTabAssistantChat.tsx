@@ -13,7 +13,7 @@ import React, {
 } from "react";
 
 import { DEFAULT_MODEL } from "../agent/default-model.js";
-import type { AgentChatAttachment } from "../agent/types.js";
+import type { AgentActionScope, AgentChatAttachment } from "../agent/types.js";
 import {
   DEFAULT_REASONING_EFFORT,
   isReasoningEffort,
@@ -108,6 +108,7 @@ interface PendingSend {
   submitMessageId?: string;
   /** See `AgentChatMessage.usageLabel`. */
   usageLabel?: string;
+  actionScope?: AgentActionScope;
 }
 
 /**
@@ -134,7 +135,8 @@ function deliverPendingSend(ref: AssistantChatHandle, send: PendingSend): void {
     send.requestMode ||
     send.submitMessageId ||
     send.attachments ||
-    send.usageLabel
+    send.usageLabel ||
+    send.actionScope
   ) {
     ref.sendMessage(send.message, send.images, {
       ...(send.trackInRunsTray ? { trackInRunsTray: true } : {}),
@@ -144,6 +146,7 @@ function deliverPendingSend(ref: AssistantChatHandle, send: PendingSend): void {
         ? { submitMessageId: send.submitMessageId }
         : {}),
       ...(send.usageLabel ? { usageLabel: send.usageLabel } : {}),
+      ...(send.actionScope ? { actionScope: send.actionScope } : {}),
     });
   } else {
     ref.sendMessage(send.message, send.images);
@@ -438,14 +441,14 @@ function HistoryPopover({
 
   const toHistoryItem = (thread: ChatThreadSummary): ChatHistoryItem => {
     const isActive = thread.id === activeThreadId;
-    const title =
-      thread.title || thread.preview || t("agentChat.history.untitledChat");
+    const hasTitle = Boolean(thread.title);
+    const title = thread.title || t("agentChat.history.untitledChat");
     return {
       id: thread.id,
       title,
       titleText: title,
       subtitle:
-        thread.preview && thread.title !== thread.preview
+        hasTitle && thread.preview && thread.title !== thread.preview
           ? thread.preview
           : undefined,
       timestamp: isActive
@@ -1937,6 +1940,7 @@ export function MultiTabAssistantChat({
         attachments,
         submitMessageId,
         usageLabel,
+        actionScope,
       } = parsed;
       const requestedTabId = parsed.tabId;
       const requestMode =
@@ -1971,6 +1975,7 @@ export function MultiTabAssistantChat({
         ...(requestMode ? { requestMode } : {}),
         ...(submitMessageId ? { submitMessageId } : {}),
         ...(usageLabel ? { usageLabel } : {}),
+        ...(actionScope ? { actionScope } : {}),
       };
 
       // Resolved once, up front, and carried with the send until a thread
@@ -2186,10 +2191,14 @@ export function MultiTabAssistantChat({
     const id = await createThread();
     if (id) {
       newThreadIds.current.add(id);
+      // `createThread` advances the active thread before its promise resolves.
+      // Add the same id in this transaction so a new chat is mounted even if
+      // the active-thread reconciliation effect has not run yet.
+      setOpenTabIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
       writeThreadUrl(null);
     }
     return id;
-  }, [createThread, writeThreadUrl]);
+  }, [createThread, setOpenTabIds, writeThreadUrl]);
 
   const cleanupClosedTab = useCallback((tabId: string) => {
     if (parentMapRef.current[tabId]) {
@@ -2665,10 +2674,7 @@ export function MultiTabAssistantChat({
       );
       return {
         id,
-        label:
-          t?.title ||
-          t?.preview?.slice(0, 30) ||
-          translate("agentChat.tabs.newChat"),
+        label: t?.title || translate("agentChat.tabs.newChat"),
         status:
           agentTeamStatus ??
           (runningThreads.has(id)
@@ -2735,7 +2741,8 @@ export function MultiTabAssistantChat({
       <style
         dangerouslySetInnerHTML={{
           __html:
-            ".agent-tab-close{opacity:0}.agent-tab:hover .agent-tab-close{opacity:1}" +
+            ".agent-tab-close{opacity:0;pointer-events:none}" +
+            ".agent-tab-group:hover .agent-tab-close,.agent-tab-close:focus-visible{opacity:1;pointer-events:auto}" +
             ".agent-tabs-scroll{scrollbar-width:none;-ms-overflow-style:none;}" +
             ".agent-tabs-scroll::-webkit-scrollbar{display:none;}",
         }}
@@ -2766,7 +2773,7 @@ export function MultiTabAssistantChat({
                             key={tab.id}
                             ref={isActive ? activeTabRefCb : undefined}
                             className={cn(
-                              "agent-tab relative flex items-center rounded-md text-[11px] font-medium shrink-0 min-w-[56px] max-w-[130px]",
+                              "agent-tab agent-tab-group relative flex items-center rounded-md text-[11px] font-medium shrink-0 min-w-[56px] max-w-[130px]",
                               isActive
                                 ? "bg-accent text-foreground ring-1 ring-inset ring-border/60 shadow-sm"
                                 : "text-muted-foreground hover:text-foreground hover:bg-accent/50",
@@ -2868,7 +2875,7 @@ export function MultiTabAssistantChat({
                                 : undefined
                             }
                             className={cn(
-                              "agent-tab relative flex shrink-0 items-center rounded-md text-[10px] font-medium min-w-[48px] max-w-[130px]",
+                              "agent-tab agent-tab-group relative flex shrink-0 items-center rounded-md text-[10px] font-medium min-w-[48px] max-w-[130px]",
                               tab.id === activeThreadId
                                 ? "bg-accent text-foreground"
                                 : "text-muted-foreground hover:bg-accent hover:text-foreground",

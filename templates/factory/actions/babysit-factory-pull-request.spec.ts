@@ -163,7 +163,7 @@ describe("babysit-factory-pull-request decision", () => {
     await expect(
       action.run({ ...input, decision: undefined }, context),
     ).rejects.toThrow(
-      "PR babysitting requires decision (ping, already_asked, or stuck) when inScope is true.",
+      "PR babysitting requires decision (ping, defer, already_asked, or stuck) when inScope is true. Call propose-pr-babysit-status first.",
     );
   });
 

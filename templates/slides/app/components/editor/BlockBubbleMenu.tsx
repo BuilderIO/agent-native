@@ -12,6 +12,7 @@ import {
   IconX,
   IconArrowUp,
   IconLoader2,
+  IconMessageCircle,
 } from "@tabler/icons-react";
 import { useEffect, useState, useRef } from "react";
 import { createPortal } from "react-dom";
@@ -42,6 +43,12 @@ interface BlockBubbleMenuProps {
    * overwrites the revision the agent just wrote.
    */
   onCommitInlineEdit?: () => string | undefined | Promise<string | undefined>;
+  /** Comment on the current text selection without changing its formatting. */
+  onComment?: (
+    quotedText: string,
+    range: Range,
+    editingEl: HTMLElement,
+  ) => void;
   /** Shared Content editor mounted inside the selected slide text block. */
   richTextEditor?: SlideRichTextEditorHandle | null;
 }
@@ -130,6 +137,7 @@ export function BlockBubbleMenu({
   deckId,
   slideContentHash,
   onCommitInlineEdit,
+  onComment,
   richTextEditor = null,
 }: BlockBubbleMenuProps) {
   const t = useT();
@@ -276,6 +284,13 @@ export function BlockBubbleMenu({
     setLinkValue("");
   };
 
+  const commentOnSelection = () => {
+    const range = savedRangeRef.current?.cloneRange();
+    const selectedText = range?.toString() ?? "";
+    if (!range || !selectedText.trim() || !onComment) return;
+    if (restoreSelection()) onComment(selectedText, range, editingEl);
+  };
+
   const openAiInput = () => {
     if (showAiInput) {
       setShowAiInput(false);
@@ -350,6 +365,13 @@ export function BlockBubbleMenu({
         onClick={openAiInput}
         active={showAiInput}
       />
+      {onComment && (
+        <ToolbarButton
+          icon={IconMessageCircle}
+          tooltip={t("comments.addComment")}
+          onClick={commentOnSelection}
+        />
+      )}
       <div className="w-px h-4 bg-border mx-0.5" />
       <ToolbarButton
         icon={IconBold}

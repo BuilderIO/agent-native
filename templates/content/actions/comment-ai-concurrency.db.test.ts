@@ -2,7 +2,8 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { runWithRequestContext } from "@agent-native/core/server";
+import { getDbExec } from "@agent-native/core/db";
+import { createThread, runWithRequestContext } from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
@@ -11,12 +12,14 @@ const TEST_DB_PATH = join(
   `content-comment-ai-concurrency-${process.pid}-${Date.now()}.pglite`,
 );
 const OWNER = "comment-ai-owner@example.com";
+const OTHER_USER = "comment-ai-collaborator@example.com";
 const DOCUMENT_ID = "comment-ai-page";
 const ROOT_A = "comment-ai-root-a";
 const ROOT_B = "comment-ai-root-b";
 const OP_A = "11111111-1111-4111-8111-111111111111";
 const OP_B = "22222222-2222-4222-8222-222222222222";
 const OP_C = "33333333-3333-4333-8333-333333333333";
+const TURN_ID = "durable-turn-id";
 
 let getDb: typeof import("../server/db/index.js").getDb;
 let schema: typeof import("../server/db/schema.js");
@@ -51,7 +54,7 @@ function runOperation<T>(
     {
       userEmail: OWNER,
       run: {
-        chatScope: { type: "content-comment-ai", id: operationId },
+        actionScope: { kind: "content-comment-ai", requestId: operationId },
         threadId: agentThreadId,
         runId: `run-${operationId}`,
         model: "openai/gpt-5.6-sol",
@@ -77,6 +80,13 @@ async function insertRoot(id: string, content: string) {
   });
 }
 
+async function bindTurn(operationId: string) {
+  await getDb()
+    .update(schema.commentAiRequests)
+    .set({ agentTurnId: TURN_ID })
+    .where(eq(schema.commentAiRequests.id, operationId));
+}
+
 beforeAll(async () => {
   process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../server/db/index.js");
@@ -96,6 +106,7 @@ beforeEach(async () => {
   await getDb().delete(schema.commentAiAttempts);
   await getDb().delete(schema.commentAiRequests);
   await getDb().delete(schema.documentComments);
+  await getDb().delete(schema.documentShares);
   await getDb().delete(schema.documentEditReceipts);
   await getDb().delete(schema.documents);
 
@@ -118,6 +129,62 @@ afterAll(() => {
 });
 
 describe("comment AI operation isolation", () => {
+  it("reconciles legacy cross-user active rows before enforcing the global source guard", async () => {
+    await getDbExec().execute(
+      "DROP INDEX IF EXISTS comment_ai_requests_active_comment_idx",
+    );
+    const now = new Date().toISOString();
+    const base = {
+      ownerEmail: OWNER,
+      documentId: DOCUMENT_ID,
+      threadId: ROOT_A,
+      rootCommentId: ROOT_A,
+      fieldId: "body",
+      intent: "reply",
+      status: "queued",
+      threadDigest: "digest",
+      snapshotJson: "[]",
+      baseRevision: "revision",
+      suggestionRevision: now,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await getDb()
+      .insert(schema.commentAiRequests)
+      .values([
+        { ...base, id: OP_A, requesterEmail: OWNER },
+        { ...base, id: OP_B, requesterEmail: OTHER_USER },
+      ]);
+
+    await getDbExec().execute(`WITH ranked_active AS (
+      SELECT id, ROW_NUMBER() OVER (
+        PARTITION BY document_id, root_comment_id
+        ORDER BY created_at ASC, id ASC
+      ) AS active_rank
+      FROM comment_ai_requests
+      WHERE status IN ('queued', 'running', 'refreshing')
+    )
+    UPDATE comment_ai_requests AS request
+    SET status = 'needs-review', error_code = 'operation_failed',
+        error = 'Another Ask AI operation was already active for this comment during the concurrency upgrade',
+        updated_at = CURRENT_TIMESTAMP
+    FROM ranked_active
+    WHERE request.id = ranked_active.id AND ranked_active.active_rank > 1`);
+    await getDbExec()
+      .execute(`CREATE UNIQUE INDEX comment_ai_requests_active_comment_idx
+      ON comment_ai_requests (document_id, root_comment_id)
+      WHERE status IN ('queued', 'running', 'refreshing')`);
+
+    const rows = await getDb()
+      .select()
+      .from(schema.commentAiRequests)
+      .orderBy(schema.commentAiRequests.id);
+    expect(rows.map((row) => [row.id, row.status, row.errorCode])).toEqual([
+      [OP_A, "queued", null],
+      [OP_B, "needs-review", "operation_failed"],
+    ]);
+  });
+
   it("starts two comments concurrently with distinct operation and agent thread ids", async () => {
     const [first, second] = await Promise.all([
       asUser(() => commentAi.startCommentAiRequest(startArgs(OP_A, ROOT_A))),
@@ -157,6 +224,27 @@ describe("comment AI operation isolation", () => {
     expect(await getDb().select().from(schema.commentAiRequests)).toHaveLength(
       1,
     );
+  });
+
+  it("rejects a second user's active operation for the same source comment", async () => {
+    await getDb().insert(schema.documentShares).values({
+      id: crypto.randomUUID(),
+      resourceId: DOCUMENT_ID,
+      principalType: "user",
+      principalId: OTHER_USER,
+      role: "editor",
+      createdBy: OWNER,
+      createdAt: new Date().toISOString(),
+    });
+    await asUser(() =>
+      commentAi.startCommentAiRequest(startArgs(OP_A, ROOT_A)),
+    );
+
+    await expect(
+      runWithRequestContext({ userEmail: OTHER_USER }, () =>
+        commentAi.startCommentAiRequest(startArgs(OP_B, ROOT_A)),
+      ),
+    ).rejects.toMatchObject({ errorCode: "comment_ai_already_active" });
   });
 
   it("reads the latest Page after an unrelated edit instead of rejecting the click-time revision", async () => {
@@ -236,6 +324,155 @@ describe("comment AI operation isolation", () => {
         return commentAi.beginCommentAiAttempt(request);
       }),
     ).rejects.toMatchObject({ code: "discussion_changed" });
+  });
+});
+
+describe("comment AI durable action binding", () => {
+  it("binds the initial generated turn before client acknowledgement and repeats idempotently", async () => {
+    const agentThreadId = `agent-thread-${crypto.randomUUID()}`;
+    await createThread(OWNER, {
+      id: agentThreadId,
+      scope: { type: "content-comment-ai", id: OP_A },
+    });
+    await asUser(() =>
+      commentAi.startCommentAiRequest({
+        ...startArgs(OP_A, ROOT_A),
+        agentThreadId,
+      }),
+    );
+    const details = {
+      ownerEmail: OWNER,
+      threadId: agentThreadId,
+      queuedMessageId: OP_A,
+      requestedTurnId: TURN_ID,
+      actionScope: { kind: "content-comment-ai", requestId: OP_A },
+    };
+
+    const first = await asUser(() =>
+      commentAi.resolveCommentAiActionSurface(details),
+    );
+    const second = await asUser(() =>
+      commentAi.resolveCommentAiActionSurface(details),
+    );
+    const [request] = await getDb()
+      .select()
+      .from(schema.commentAiRequests)
+      .where(eq(schema.commentAiRequests.id, OP_A));
+
+    expect(first).toEqual(second);
+    expect(first).toMatchObject({
+      mode: "allowlist",
+      actionScope: { kind: "content-comment-ai", requestId: OP_A },
+    });
+    expect(request.agentTurnId).toBe(TURN_ID);
+  });
+
+  it("rejects a tampered initial turn tuple before exposing tools", async () => {
+    const agentThreadId = `agent-thread-${crypto.randomUUID()}`;
+    await asUser(() =>
+      commentAi.startCommentAiRequest({
+        ...startArgs(OP_A, ROOT_A),
+        agentThreadId,
+      }),
+    );
+    await bindTurn(OP_A);
+
+    await expect(
+      asUser(() =>
+        commentAi.resolveCommentAiActionSurface({
+          ownerEmail: OWNER,
+          threadId: agentThreadId,
+          queuedMessageId: OP_A,
+          requestedTurnId: "tampered-turn",
+          actionScope: { kind: "content-comment-ai", requestId: OP_A },
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "comment_ai_turn_conflict" });
+  });
+
+  it("rejects an initial operation tuple without its requested turn even after binding", async () => {
+    const agentThreadId = `agent-thread-${crypto.randomUUID()}`;
+    await asUser(() =>
+      commentAi.startCommentAiRequest({
+        ...startArgs(OP_A, ROOT_A),
+        agentThreadId,
+      }),
+    );
+    await bindTurn(OP_A);
+
+    await expect(
+      asUser(() =>
+        commentAi.resolveCommentAiActionSurface({
+          ownerEmail: OWNER,
+          threadId: agentThreadId,
+          queuedMessageId: OP_A,
+          actionScope: { kind: "content-comment-ai", requestId: OP_A },
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "comment_ai_binding_missing" });
+  });
+
+  it("rejects a malformed explicit comment action scope before fallback", async () => {
+    await expect(
+      asUser(() =>
+        commentAi.resolveCommentAiActionSurface({
+          ownerEmail: OWNER,
+          actionScope: {
+            kind: "content-comment-ai",
+            requestId: "not-a-request-id",
+          },
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "comment_ai_binding_missing" });
+  });
+
+  it("reapplies stored intent on a later full-chat send without action scope", async () => {
+    const agentThreadId = `agent-thread-${crypto.randomUUID()}`;
+    await createThread(OWNER, {
+      id: agentThreadId,
+      scope: { type: "content-comment-ai", id: OP_A },
+    });
+    await asUser(() =>
+      commentAi.startCommentAiRequest({
+        ...startArgs(OP_A, ROOT_A, "reply"),
+        agentThreadId,
+      }),
+    );
+    await bindTurn(OP_A);
+
+    const surface = await asUser(() =>
+      commentAi.resolveCommentAiActionSurface({
+        ownerEmail: OWNER,
+        threadId: agentThreadId,
+        requestedTurnId: "later-full-chat-turn",
+        queuedMessageId: "later-message",
+      }),
+    );
+    expect(surface).toMatchObject({
+      mode: "allowlist",
+      allowedActionNames: [
+        "get-comment-ai-context",
+        "reply-to-comment-ai-request",
+      ],
+      actionScope: { kind: "content-comment-ai", requestId: OP_A },
+    });
+  });
+
+  it("fails closed when protected thread scope has no request binding", async () => {
+    const agentThreadId = `agent-thread-${crypto.randomUUID()}`;
+    await createThread(OWNER, {
+      id: agentThreadId,
+      scope: { type: "content-comment-ai", id: OP_C },
+    });
+
+    await expect(
+      asUser(() =>
+        commentAi.resolveCommentAiActionSurface({
+          ownerEmail: OWNER,
+          threadId: agentThreadId,
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "comment_ai_binding_missing" });
   });
 });
 
@@ -544,7 +781,7 @@ describe("background session reconciliation", () => {
     ["completed", "needs-review", "run_unavailable"],
     ["truncated", "needs-review", "run_unavailable"],
     ["errored", "failed", "run_unavailable"],
-    ["unavailable", "failed", "run_unavailable"],
+    ["unavailable", "needs-review", "run_unavailable"],
     ["aborted", "cancelled", null],
   ] as const)(
     "maps %s to the persisted operation status %s",
@@ -552,10 +789,12 @@ describe("background session reconciliation", () => {
       const started = await asUser(() =>
         commentAi.startCommentAiRequest(startArgs(OP_A, ROOT_A)),
       );
+      await bindTurn(OP_A);
       const result = await asUser(() =>
         commentAi.reconcileCommentAiSession({
           operationId: OP_A,
           threadId: started.agentThreadId,
+          turnId: TURN_ID,
           status: sessionStatus,
           runId: "observed-run",
         }),
@@ -589,11 +828,13 @@ describe("background session reconciliation", () => {
       .where(eq(schema.commentAiRequests.id, OP_A))
       .returning();
     expect(request).toBeDefined();
+    await bindTurn(OP_A);
 
     const result = await asUser(() =>
       commentAi.reconcileCommentAiSession({
         operationId: OP_A,
         threadId: started.agentThreadId,
+        turnId: TURN_ID,
         status: "aborted",
       }),
     );
@@ -626,11 +867,14 @@ describe("background session reconciliation", () => {
     );
 
     const result = await asUser(() =>
-      commentAi.reconcileCommentAiSession({
-        operationId: OP_A,
-        threadId: started.agentThreadId,
-        status: "aborted",
-      }),
+      bindTurn(OP_A).then(() =>
+        commentAi.reconcileCommentAiSession({
+          operationId: OP_A,
+          threadId: started.agentThreadId,
+          turnId: TURN_ID,
+          status: "aborted",
+        }),
+      ),
     );
     expect(result).toMatchObject({
       status: "needs-review",
@@ -659,11 +903,14 @@ describe("background session reconciliation", () => {
     });
 
     const result = await asUser(() =>
-      commentAi.reconcileCommentAiSession({
-        operationId: OP_A,
-        threadId: started.agentThreadId,
-        status: "errored",
-      }),
+      bindTurn(OP_A).then(() =>
+        commentAi.reconcileCommentAiSession({
+          operationId: OP_A,
+          threadId: started.agentThreadId,
+          turnId: TURN_ID,
+          status: "errored",
+        }),
+      ),
     );
     expect(result).toMatchObject({
       status: "needs-review",
@@ -677,18 +924,22 @@ describe("background session reconciliation", () => {
       commentAi.startCommentAiRequest(startArgs(OP_A, ROOT_A)),
     );
     await asUser(() =>
-      commentAi.reconcileCommentAiSession({
-        operationId: OP_A,
-        threadId: started.agentThreadId,
-        status: "errored",
-        terminalReason: "Provider failed",
-      }),
+      bindTurn(OP_A).then(() =>
+        commentAi.reconcileCommentAiSession({
+          operationId: OP_A,
+          threadId: started.agentThreadId,
+          turnId: TURN_ID,
+          status: "errored",
+          terminalReason: "Provider failed",
+        }),
+      ),
     );
 
     const result = await asUser(() =>
       commentAi.reconcileCommentAiSession({
         operationId: OP_A,
         threadId: started.agentThreadId,
+        turnId: TURN_ID,
         status: "running",
       }),
     );

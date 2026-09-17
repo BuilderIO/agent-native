@@ -10,6 +10,7 @@ export default defineAction({
   schema: z.object({
     operationId: z.string().uuid(),
     threadId: z.string().min(1).max(200),
+    turnId: z.string().min(1).max(200),
     status: z.enum([
       "queued",
       "running",

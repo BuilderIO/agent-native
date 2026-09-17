@@ -41,6 +41,7 @@ export const CHAT_THREAD_SCHEMA_MIGRATIONS: MigrationEntry[] = [
     name: "chat-threads-scope-and-sharing-columns",
     sql: `
       ALTER TABLE chat_threads ADD COLUMN IF NOT EXISTS scope_type TEXT;
+      -- guard:allow-identity-column — opaque resource reference, not an account identity
       ALTER TABLE chat_threads ADD COLUMN IF NOT EXISTS scope_id TEXT;
       ALTER TABLE chat_threads ADD COLUMN IF NOT EXISTS scope_label TEXT;
       ALTER TABLE chat_threads ADD COLUMN IF NOT EXISTS pinned_at INTEGER;

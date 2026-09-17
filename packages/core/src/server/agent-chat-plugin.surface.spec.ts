@@ -260,6 +260,28 @@ describe("request-scoped action surface", () => {
     );
   });
 
+  it("generates chat tab titles with the shared completion engine", () => {
+    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+      encoding: "utf-8",
+    });
+    const start = source.indexOf("`${routePath}/generate-title`");
+    const end = source.indexOf("// ─── Run management endpoints", start);
+    const route = source.slice(start, end);
+
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(route).toContain(
+      'if (titleOwnerContext.anonymous) return { title: "" };',
+    );
+    expect(route).toContain("runWithRequestContext");
+    expect(route).toContain("const orgId = await getOrgIdFromEvent(event);");
+    expect(route).toContain("{ userEmail: ownerEmail, orgId }");
+    expect(route).toContain("completeText({");
+    expect(route).toContain("appId: options?.appId");
+    expect(route).toContain('return { title: "" };');
+    expect(route).not.toContain("cleanMessage.trim().slice(0, 60)");
+  });
+
   it("keeps local coding tools available while scoping app actions in dev", () => {
     const source = readFileSync("src/server/agent-chat-plugin.ts", {
       encoding: "utf-8",
@@ -272,7 +294,7 @@ describe("request-scoped action surface", () => {
       /const localDevActionNames = new Set\(Object\.keys\(devScriptRegistry\)\);/,
     );
     expect(source).toMatch(
-      /availableActionNames: appActionNames,[\s\S]*?normalizeAgentActionSurfaceResolution\([\s\S]*?if \(normalizedSurface\.mode === "default"\) return surface;[\s\S]*?allowedActionNames: \[[\s\S]*?\.\.\.normalizedSurface\.allowedActionNames,[\s\S]*?\.\.\.localActionNames,/s,
+      /availableActionNames: appActionNames,[\s\S]*?normalizeAgentActionSurfaceResolution\([\s\S]*?if \(normalizedSurface\.mode === "default"\) return surface;[\s\S]*?if \(normalizedSurface\.actionScope\)[\s\S]*?allowedActionNames: normalizedSurface\.allowedActionNames,[\s\S]*?actionScope: normalizedSurface\.actionScope,[\s\S]*?allowedActionNames: \[[\s\S]*?\.\.\.normalizedSurface\.allowedActionNames,[\s\S]*?\.\.\.localActionNames,/s,
     );
     expect(devSource).toMatch(
       /unauthorizedActionFromBash\([\s\S]*?getRequestRunContext\(\)\?\.allowedActionNames/s,

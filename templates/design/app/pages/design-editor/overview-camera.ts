@@ -9,7 +9,10 @@ import {
 } from "@shared/canvas-math";
 import type { SetStateAction } from "react";
 
-import { getInitialFrameGeometry } from "@/components/design/multi-screen/frame-geometry";
+import {
+  getInitialFrameGeometry,
+  getResponsiveScreenCullGeometry,
+} from "@/components/design/multi-screen/frame-geometry";
 import { OVERVIEW_FRAME_WIDTH } from "@/components/design/multi-screen/overview-layout";
 import type {
   FrameGeometry,
@@ -71,6 +74,36 @@ export function getScreenFrameOriginCanvas(args: {
   };
 }
 
+/** Fits the selected Screen frames together with a live Board layer. */
+export function getBoardSelectionFitBounds(args: {
+  selectedFrameEntries: readonly FrameEntry[];
+  selectedScreenIds: ReadonlySet<string>;
+  boardFileId: string;
+  boardBounds: {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  };
+}) {
+  const selectedScreens = args.selectedFrameEntries.filter(
+    (frame) =>
+      frame.id !== args.boardFileId && args.selectedScreenIds.has(frame.id),
+  );
+  return getFrameGroupBounds([
+    ...selectedScreens,
+    {
+      id: args.boardFileId,
+      geometry: {
+        x: args.boardBounds.left,
+        y: args.boardBounds.top,
+        width: args.boardBounds.width,
+        height: args.boardBounds.height,
+      },
+    },
+  ]);
+}
+
 /**
  * Resolves every overview screen's effective canvas-space frame geometry —
  * persisted `canvasFrameGeometryById` entry merged over the same
@@ -81,17 +114,23 @@ export function getScreenFrameOriginCanvas(args: {
  * content. This must never receive the logical board hit-test surface: that
  * surface is intentionally enormous and including it would make zoom-to-fit
  * and adjacent-screen placement behave as though the design were 131,072px
- * wide even when the board is empty.
+ * wide even when the board is empty. `includeResponsivePreviews` is reserved
+ * for adjacency placement, where each screen must reserve the full painted
+ * width of its breakpoint row; camera and hit-test callers keep primary-only
+ * geometry by default.
  */
 export function getAllScreenFrameEntries(args: {
   overviewScreens: Array<{
     id: string;
     width?: number;
     height?: number;
+    breakpointWidths?: readonly number[];
+    breakpointHeights?: Record<string, number>;
   }>;
   canvasFrameGeometryById: CanvasFrameGeometryById;
   boardContentBounds?: FrameGeometry | null;
   boardFileId?: string | null;
+  includeResponsivePreviews?: boolean;
 }): FrameEntry[] {
   const entries: FrameEntry[] = args.overviewScreens.map((screen, index) => {
     const fallbackGeometry = getInitialFrameGeometry(index, {
@@ -99,9 +138,23 @@ export function getAllScreenFrameEntries(args: {
       height: screen.height ?? 2560,
     });
     const persistedGeometry = args.canvasFrameGeometryById[screen.id] ?? {};
+    const primaryGeometry = { ...fallbackGeometry, ...persistedGeometry };
     return {
       id: screen.id,
-      geometry: { ...fallbackGeometry, ...persistedGeometry },
+      geometry: args.includeResponsivePreviews
+        ? getResponsiveScreenCullGeometry(
+            {
+              id: screen.id,
+              metadata: {
+                width: screen.width ?? 1280,
+                height: screen.height ?? 2560,
+              },
+              breakpointWidths: screen.breakpointWidths,
+            },
+            primaryGeometry,
+            (widthPx) => screen.breakpointHeights?.[String(widthPx)],
+          )
+        : primaryGeometry,
     };
   });
   if (
@@ -114,9 +167,10 @@ export function getAllScreenFrameEntries(args: {
   return entries;
 }
 
-/** The `heightPinned` ids out of `overviewScreens`, for `withMeasuredFrameHeights`'s
- *  `pinnedHeightIds` — the same per-screen flag `canvasFrames`'s own
- *  `autoHeight` gate reads (see `deriveOverviewScreens`'s `heightPinned`). */
+/** The pinned ids in the overview screen list. Pinned screens clip
+ *  overflow at their persisted height, so camera fitting must use that
+ *  rendered height too.
+ */
 export function pinnedHeightScreenIds(
   overviewScreens: ReadonlyArray<{ id: string; heightPinned?: boolean }>,
 ): ReadonlySet<string> {
@@ -127,33 +181,43 @@ export function pinnedHeightScreenIds(
   );
 }
 
+/** Accepted primary iframe heights only drive auto-height rendering. Missing
+ *  mode defaults to Auto; Hug uses natural height, while Fixed is persisted.
+ */
+export function autoHeightScreenIds(
+  overviewScreens: ReadonlyArray<{
+    id: string;
+    heightMode?: "auto" | "fixed" | "hug";
+  }>,
+): ReadonlySet<string> {
+  return new Set(
+    overviewScreens
+      .filter(
+        (screen) =>
+          screen.heightMode !== "fixed" && screen.heightMode !== "hug",
+      )
+      .map((screen) => screen.id),
+  );
+}
+
 /**
- * Widens each frame's height to the live measured content height when it's
- * taller than the persisted `canvasFrames` geometry `getAllScreenFrameEntries`
- * resolved. Inline screens auto-grow past their stored height as content is
- * authored (MultiScreenCanvas's own `canvasFrames` render geometry already
- * does this — see its `autoHeight` derivation), but that growth is never
- * written back to `canvasFrames`, so camera-fit math reading the persisted
- * geometry directly (zoom-to-fit/zoom-to-selection) would otherwise fit a
- * shorter box than what's actually on screen. Height-only and growth-only:
- * never touches width or shrinks a frame, so it can't fit tighter than the
- * real page and can't disturb x-position math elsewhere.
- *
- * `pinnedHeightIds` mirrors the exact gate `canvasFrames`'s own `autoHeight`
- * uses (`!metadata.heightPinned`): a pinned screen's rendered frame clips
- * overflow at the pinned height instead of growing, so fitting to the
- * (unrendered) overflow height would zoom past what's actually on screen.
+ * Widens a resolved frame to its live measured height only when the overview
+ * canvas renders that screen through auto-height. This overlays live canvas
+ * geometry on persisted/export geometry without changing position or width,
+ * and never shrinks a frame. Pinned frames clip overflow, and Hug export
+ * geometry already uses natural height, so both are excluded.
  */
 export function withMeasuredFrameHeights(
   frames: FrameEntry[],
-  // i18n-ignore: two adjacent generics, which guard:i18n-catalogs' raw-literal
-  // scan reads as JSX text between `>` and `<`.
-  measuredHeightById: Record<string, number>, // i18n-ignore
-  pinnedHeightIds?: ReadonlySet<string>,
+  measuredHeightById: Record<string, number>,
+  pinnedHeightIds: ReadonlySet<string>,
+  autoHeightIds: ReadonlySet<string>,
 ): FrameEntry[] {
   if (Object.keys(measuredHeightById).length === 0) return frames;
   return frames.map((frame) => {
-    if (pinnedHeightIds?.has(frame.id)) return frame;
+    if (pinnedHeightIds.has(frame.id) || !autoHeightIds.has(frame.id)) {
+      return frame;
+    }
     const measured = measuredHeightById[frame.id];
     if (!measured || measured <= (frame.geometry.height ?? 0)) return frame;
     return { ...frame, geometry: { ...frame.geometry, height: measured } };

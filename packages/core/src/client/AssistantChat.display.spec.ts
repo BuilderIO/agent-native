@@ -28,6 +28,7 @@ import {
   assistantChatAutoscrollStatusKey,
   assistantUiMessageListStructureKey,
   assistantUiRecoverableRenderErrorKind,
+  approvalProtocolContinuationContext,
   createUserMessageRunConfig,
   dedupeReconnectContentAgainstMessages,
   shouldShowReconnectOverlay,
@@ -38,7 +39,9 @@ import {
   isAssistantUiStaleIndexError,
   installAssistantUiMessageRepositoryRecovery,
   latestNonRecoveryUserMessageText,
+  latestProtocolContinuationContext,
   matchesUserStoppedRun,
+  protocolContinuationContext,
   reconnectActivityFallbackContent,
   reconnectProgressTimedOut,
   resolveAssistantChatSuggestionInputs,
@@ -788,6 +791,131 @@ describe("createUserMessageRunConfig model snapshot", () => {
     expect(options.runConfig?.custom).toEqual({
       agentNativeQueuedMessageId: "queued-legacy",
     });
+  });
+
+  it("preserves the action scope in queued run configuration", () => {
+    const options = createUserMessageRunConfig(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "queued-scope",
+      undefined,
+      undefined,
+      "turn-scope",
+      undefined,
+      { kind: "content-comment-ai", requestId: "request-1" },
+    );
+
+    expect(options.runConfig?.custom).toMatchObject({
+      agentNativeQueuedMessageId: "queued-scope",
+      actionScope: {
+        kind: "content-comment-ai",
+        requestId: "request-1",
+      },
+    });
+    expect(options.metadata?.custom).toMatchObject({
+      turnId: "turn-scope",
+      actionScope: {
+        kind: "content-comment-ai",
+        requestId: "request-1",
+      },
+    });
+  });
+});
+
+describe("scoped protocol continuations", () => {
+  const scopedUser = {
+    role: "user",
+    metadata: {
+      custom: {
+        turnId: "turn-scoped",
+        actionScope: {
+          kind: "content-comment-ai",
+          requestId: "request-1",
+        },
+      },
+    },
+    content: [{ type: "text", text: "Draft a reply" }],
+  };
+
+  it("restores scope only for the matching turn", () => {
+    expect(protocolContinuationContext([scopedUser], "turn-scoped")).toEqual({
+      turnId: "turn-scoped",
+      actionScope: {
+        kind: "content-comment-ai",
+        requestId: "request-1",
+      },
+    });
+    expect(protocolContinuationContext([scopedUser], "turn-other")).toEqual({
+      turnId: "turn-other",
+    });
+  });
+
+  it("does not leak an older scope into an unrelated newer turn", () => {
+    const unscopedAssistant = {
+      role: "assistant",
+      metadata: { custom: { turnId: "turn-unscoped" } },
+      content: [{ type: "text", text: "Done" }],
+    };
+
+    expect(
+      latestProtocolContinuationContext([scopedUser, unscopedAssistant]),
+    ).toEqual({ turnId: "turn-unscoped" });
+  });
+
+  it("binds approval scope to the message with that approval", () => {
+    const approvalMessage = {
+      role: "assistant",
+      metadata: { custom: { turnId: "turn-scoped" } },
+      content: [
+        {
+          type: "tool-call",
+          approval: { approvalKey: "approval-scoped" },
+        },
+      ],
+    };
+    const laterUnscoped = {
+      role: "assistant",
+      metadata: { custom: { turnId: "turn-unscoped" } },
+      content: [{ type: "text", text: "Later message" }],
+    };
+
+    expect(
+      approvalProtocolContinuationContext(
+        [scopedUser, approvalMessage, laterUnscoped],
+        "approval-scoped",
+      ),
+    ).toEqual({
+      turnId: "turn-scoped",
+      actionScope: {
+        kind: "content-comment-ai",
+        requestId: "request-1",
+      },
+    });
+    expect(
+      approvalProtocolContinuationContext(
+        [scopedUser, approvalMessage, laterUnscoped],
+        "approval-other",
+      ),
+    ).toEqual({});
+  });
+
+  it("fails closed when stored scope metadata is malformed", () => {
+    expect(() =>
+      protocolContinuationContext(
+        [
+          {
+            ...scopedUser,
+            metadata: {
+              custom: { turnId: "turn-scoped", actionScope: [] },
+            },
+          },
+        ],
+        "turn-scoped",
+      ),
+    ).toThrow("actionScope must be a JSON object");
   });
 });
 
@@ -1828,9 +1956,8 @@ describe("missing agent engine setup", () => {
     const submitSource = source.slice(submitStart, submitEnd);
 
     expect(dequeueSource).toContain("engineSetupRequired");
-    expect(submitSource).toContain(
-      'engineSetupRequired || (isRunning && intent === "queued")',
-    );
+    expect(submitSource).toContain("engineSetupRequired");
+    expect(submitSource).toContain("queueForActiveRun");
     expect(submitSource).not.toContain(
       'reportAgentChatSubmitResult(submitMessageId, false, "missing-engine");',
     );
@@ -1854,6 +1981,100 @@ describe("tool approval continuation", () => {
     expect(approvalSource).toContain(
       "true, // hideUserMessage: this is a protocol continuation, not a new prompt",
     );
+    expect(approvalSource).toContain("approvalProtocolContinuationContext(");
+    expect(approvalSource).toContain("continuation.actionScope");
+  });
+});
+
+describe("protocol continuation scope wiring", () => {
+  it("carries the originating scope through reconnect and recovery controls", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const reconnectStart = source.indexOf(
+      "if (!pendingReconnectRecovery) return;",
+    );
+    const reconnectEnd = source.indexOf(
+      "const latestMessage =",
+      reconnectStart,
+    );
+    const controlsStart = source.indexOf(
+      "{visibleLoopLimit && !showRunningInUI && (",
+    );
+    const controlsEnd = source.indexOf(
+      "{showReconnectOverlay &&",
+      controlsStart,
+    );
+
+    expect(source.slice(reconnectStart, reconnectEnd)).toContain(
+      "continuation.actionScope",
+    );
+    expect(source.slice(controlsStart, controlsEnd)).toContain(
+      "continuation.actionScope",
+    );
+    expect(
+      source
+        .slice(controlsStart, controlsEnd)
+        .match(/continuation\.actionScope/g),
+    ).toHaveLength(2);
+  });
+});
+
+describe("plan implementation handoff", () => {
+  it("starts a fresh Act turn instead of replaying the completed Plan turn", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const start = source.indexOf("const handleImplementPlan = useCallback");
+    const end = source.indexOf("const handleSwitchToAct", start);
+    const implementationSource = source.slice(start, end);
+
+    expect(implementationSource).toContain('onExecModeChange?.("build")');
+    expect(implementationSource).toContain('"act"');
+    expect(implementationSource).toMatch(
+      /latestProtocolContinuationContext\(\s*messagesRef\.current\s*\)/,
+    );
+    expect(implementationSource).not.toContain("continuation.turnId");
+    expect(implementationSource).toContain("continuation.actionScope");
+  });
+
+  it("keeps a scoped action surface on the fresh Act handoff", () => {
+    const scopedPlan = {
+      role: "assistant",
+      metadata: {
+        custom: {
+          turnId: "plan-turn",
+          actionScope: {
+            kind: "content-comment-ai",
+            requestId: "request-1",
+          },
+        },
+      },
+      content: [{ type: "text", text: "Plan complete" }],
+    };
+    const continuation = latestProtocolContinuationContext([scopedPlan]);
+    const options = createUserMessageRunConfig(
+      undefined,
+      "act",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      continuation.actionScope,
+    );
+
+    expect(options.runConfig?.custom).toEqual({
+      requestMode: "act",
+      actionScope: continuation.actionScope,
+    });
+    expect(options.metadata?.custom).toEqual({
+      actionScope: continuation.actionScope,
+    });
+    expect(options.metadata?.custom).not.toHaveProperty("turnId");
   });
 });
 
@@ -2194,6 +2415,118 @@ describe("settleInterruptedAssistantToolCallsInRepo", () => {
       reason: "error",
     });
   });
+
+  it("keeps explicitly stopped tool activity neutral", () => {
+    const repo = {
+      messages: [
+        {
+          message: {
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "tool-1",
+                toolName: "query",
+                args: {},
+                activity: true,
+                result: "Stopped before this action started.",
+                outcome: "unknown",
+              },
+              {
+                type: "tool-call",
+                toolCallId: "tool-2",
+                toolName: "patch",
+                args: {},
+                result: "Interrupted before this tool returned a result.",
+                outcome: "unknown",
+              },
+            ],
+            status: { type: "running" },
+          },
+        },
+      ],
+    };
+
+    const settled = settleInterruptedAssistantToolCallsInRepo(repo, {
+      userStopped: true,
+    });
+    const tools = settled.repo.messages[0].message.content as Array<{
+      result?: unknown;
+      outcome?: unknown;
+    }>;
+
+    expect(tools).toEqual([
+      expect.objectContaining({ result: "" }),
+      expect.objectContaining({ result: "" }),
+    ]);
+    expect(tools[0]?.outcome).toBeUndefined();
+    expect(tools[1]?.outcome).toBeUndefined();
+    expect(settled.repo.messages[0].message).toMatchObject({
+      status: { type: "complete", reason: "stop" },
+      metadata: { custom: { userStopped: true } },
+    });
+  });
+
+  it("scopes a user stop to the active logical turn", () => {
+    const repo = {
+      messages: [
+        {
+          message: {
+            role: "assistant",
+            metadata: { custom: { runId: "old-run", turnId: "old-turn" } },
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "old-tool",
+                toolName: "query",
+                args: {},
+                activity: true,
+              },
+            ],
+            status: { type: "running" },
+          },
+        },
+        {
+          message: {
+            role: "assistant",
+            metadata: {
+              custom: { runId: "successor-run", turnId: "active-turn" },
+            },
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "active-tool",
+                toolName: "patch",
+                args: {},
+                activity: true,
+              },
+            ],
+            status: { type: "running" },
+          },
+        },
+      ],
+    };
+
+    const settled = settleInterruptedAssistantToolCallsInRepo(repo, {
+      userStopped: true,
+      runId: "successor-run",
+      turnId: "active-turn",
+    });
+    const oldMessage = settled.repo.messages[0].message;
+    const activeMessage = settled.repo.messages[1].message;
+
+    expect(oldMessage).toMatchObject({ status: { type: "running" } });
+    expect(oldMessage.metadata).not.toMatchObject({
+      custom: { userStopped: true },
+    });
+    expect(oldMessage.content[0]).toMatchObject({ activity: true });
+    expect(activeMessage).toMatchObject({
+      status: { type: "complete", reason: "stop" },
+      metadata: { custom: { userStopped: true } },
+    });
+    expect(activeMessage.content[0]).toMatchObject({ result: "" });
+    expect(settled.changed).toBe(true);
+  });
 });
 
 describe("resolveAssistantChatRunningStatusLabel", () => {
@@ -2503,6 +2836,10 @@ describe("chat submit and stop hardening", () => {
     expect(chatSource).toContain("ExternalUserStoppedRunContext.Provider");
     expect(messageSource).toContain("ExternalUserStoppedRunContext");
     expect(messageSource).toContain("(externalUserStopped && isLast)");
+    expect(messageSource).toContain(
+      "const messageIsRunning = isLast && chatRunning && !isUserStoppedRun;",
+    );
+    expect(messageSource).toContain("running={messageIsRunning}");
   });
 
   it("wires reconnect ownership into the inner chat and rejects stale callbacks", () => {
@@ -2510,9 +2847,9 @@ describe("chat submit and stop hardening", () => {
       encoding: "utf8",
     });
 
-    expect(source).toContain(
-      "useReconnectReaderOwner(\n    reconnectRunIdRef,\n    reconnectAbortRef,\n  )",
-    );
+    expect(source).toContain("useReconnectReaderOwner(");
+    expect(source).toContain("releaseReconnectOwnership,");
+    expect(source).toContain("threadId,\n  );");
     expect(source).toContain("!reconnectOwnerMountedRef.current ||");
     expect(source).toContain(
       "if (reconnectRunIdRef.current !== runId) return;",
@@ -2532,6 +2869,70 @@ describe("chat submit and stop hardening", () => {
     expect(source).not.toContain("await ensureAgentEngineReadyForSubmit()");
     expect(source).not.toContain("isProviderStatusChecking");
     expect(source).not.toContain("checkingAiConnection");
+  });
+
+  it("clears a retained finished turn before a visible submit becomes optimistic", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const submitStart = source.indexOf("const addToQueue = useCallback");
+    const submitEnd = source.indexOf("const mcpResumeTimerRef", submitStart);
+    const submitSource = source.slice(submitStart, submitEnd);
+    const resetIndex = submitSource.indexOf(
+      "resetRetainedTextStreamingState(effectiveContinuationTurnId);",
+    );
+    const attachmentSerializationIndex = submitSource.indexOf(
+      "serializeQueuedAttachments(attachments)",
+    );
+    const firstQueueBranchIndex = submitSource.indexOf(
+      "if (interruptActiveRun)",
+    );
+    const optimisticIndex = submitSource.indexOf("markOptimisticRunning();");
+
+    expect(submitStart).toBeGreaterThan(-1);
+    expect(submitEnd).toBeGreaterThan(submitStart);
+    expect(submitSource).toContain("if (!hideUserMessage)");
+    expect(resetIndex).toBeGreaterThan(-1);
+    expect(resetIndex).toBeGreaterThan(attachmentSerializationIndex);
+    expect(resetIndex).toBeLessThan(firstQueueBranchIndex);
+    expect(resetIndex).toBeLessThan(optimisticIndex);
+    expect(submitSource).toContain("latestAcceptedVisibleSubmitSequenceRef");
+    expect(submitSource).toContain("isRunningRef.current");
+    expect(submitSource).toContain(
+      "const liveIsRunning = isRunningRef.current;",
+    );
+    expect(submitSource).toContain("const runningAtSubmitStart = isRunning;");
+    expect(submitSource).toContain(
+      "const activeRunAtSubmitStart = getActiveRun();",
+    );
+    expect(submitSource).toContain("const activeRunNow = getActiveRun();");
+    expect(submitSource).toContain("const sameActiveRun");
+    expect(submitSource).toContain("const interruptActiveRun");
+    expect(submitSource).toContain("const queueForActiveRun");
+  });
+
+  it("resets retained text before a queued visible turn starts", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const dequeueStart = source.indexOf("// Auto-dequeue:");
+    const resetIndex = source.indexOf(
+      "resetRetainedTextStreamingState(currentNext.turnId);",
+      dequeueStart,
+    );
+    const promotedBranchIndex = source.indexOf(
+      "if (currentNext.promoted)",
+      resetIndex,
+    );
+    const appendIndex = source.indexOf(
+      "appendThreadMessage({",
+      promotedBranchIndex,
+    );
+
+    expect(dequeueStart).toBeGreaterThan(-1);
+    expect(resetIndex).toBeGreaterThan(dequeueStart);
+    expect(resetIndex).toBeLessThan(promotedBranchIndex);
+    expect(resetIndex).toBeLessThan(appendIndex);
   });
 
   it("never disables the chat composer on an unresolved provider status check", () => {
@@ -2561,15 +2962,23 @@ describe("chat submit and stop hardening", () => {
     expect(helperSource).toContain("applyLocalQueuedMessages(() => [])");
     expect(helperSource).toContain("setPendingReconnectRecovery(null)");
     expect(helperSource).toContain("resetRunningActivity()");
-    expect(helperSource).toContain("includeActivity: true");
-    expect(helperSource).toContain("settleVisibleInterruptedTools()");
-    expect(helperSource).toContain("markVisibleRunStopped()");
-    expect(
-      helperSource.indexOf("settleVisibleInterruptedTools()"),
-    ).toBeLessThan(helperSource.indexOf("threadRuntime.cancelRun()"));
-    expect(helperSource.indexOf("markVisibleRunStopped()")).toBeLessThan(
-      helperSource.indexOf("threadRuntime.cancelRun()"),
+    expect(source).toContain("includeActivity: true");
+    expect(helperSource).toContain(
+      "settleVisibleInterruptedTools(runIdToAbort, turnIdToAbort)",
     );
+    expect(helperSource).toContain(
+      "markVisibleRunStopped(runIdToAbort, turnIdToAbort)",
+    );
+    expect(
+      helperSource.indexOf(
+        "settleVisibleInterruptedTools(runIdToAbort, turnIdToAbort)",
+      ),
+    ).toBeLessThan(helperSource.indexOf("threadRuntime.cancelRun()"));
+    expect(
+      helperSource.indexOf(
+        "markVisibleRunStopped(runIdToAbort, turnIdToAbort)",
+      ),
+    ).toBeLessThan(helperSource.indexOf("threadRuntime.cancelRun()"));
     expect(helperSource).toContain("getPendingTurn(threadId)");
     expect(helperSource).toContain("clearPendingTurnIfMatches(");
     expect(helperSource).toContain("/runs/turn/${encodeURIComponent(");
@@ -2786,7 +3195,8 @@ describe("waitForThreadRunToClear", () => {
       "const reconnectAfterSeq = resolveReconnectAfterSeq(threadId, runId)",
     );
     expect(helperSource).toContain("if (!sseRes.ok || !sseRes.body)");
-    expect(helperSource).toContain("{ preparingActionState }");
+    expect(helperSource).toContain("preparingActionState,");
+    expect(helperSource).toContain("seenEventSeqs,");
     expect(helperSource).toContain(
       "reconnectTimedOut && abortCtrl.signal.aborted",
     );
@@ -2827,7 +3237,7 @@ describe("waitForThreadRunToClear", () => {
     );
   });
 
-  it("does not freeze tail-only reconnect snapshots when stopped", () => {
+  it("drops reconnect snapshots when the user stops", () => {
     const source = readFileSync("src/client/AssistantChat.tsx", {
       encoding: "utf8",
     });
@@ -2845,9 +3255,9 @@ describe("waitForThreadRunToClear", () => {
     expect(reconnectSource).toContain(
       "reconnectTailOnlyRef.current = afterSeq > 0",
     );
-    expect(stopSource).toContain("!reconnectTailOnlyRef.current");
-    expect(stopSource).toContain("reconnectCanMaterializeRef.current");
-    expect(stopSource).toContain("reconnectContent.length > 0");
+    expect(stopSource).toContain("setReconnectContent([])");
+    expect(stopSource).toContain("reconnectCanMaterializeRef.current = false");
+    expect(stopSource).not.toContain("setReconnectFrozen(true)");
     expect(stopSource).toContain("reconnectTailOnlyRef.current = false");
   });
 
@@ -2971,7 +3381,7 @@ describe("waitForThreadRunToClear", () => {
     expect(materializeSource).toContain("return;");
   });
 
-  it("keeps stopped fresh reconnect content materializable", () => {
+  it("does not materialize reconnect content after a user stop", () => {
     const source = readFileSync("src/client/AssistantChat.tsx", {
       encoding: "utf8",
     });
@@ -2981,21 +3391,12 @@ describe("waitForThreadRunToClear", () => {
       stopStart,
     );
     const stopSource = source.slice(stopStart, stopEnd);
-    const freezeStart = stopSource.indexOf("if (shouldFreezeReconnectContent)");
-    const elseStart = stopSource.indexOf("} else {", freezeStart);
-    const freezeBranch = stopSource.slice(freezeStart, elseStart);
-
     expect(stopStart).toBeGreaterThan(-1);
     expect(stopEnd).toBeGreaterThan(stopStart);
-    expect(stopSource).toContain("!reconnectTailOnlyRef.current");
-    expect(stopSource).toContain("reconnectCanMaterializeRef.current");
-    expect(stopSource).toContain("reconnectContent.length > 0");
-    expect(freezeStart).toBeGreaterThan(-1);
-    expect(elseStart).toBeGreaterThan(freezeStart);
-    expect(freezeBranch).toContain("setReconnectFrozen(true)");
-    expect(freezeBranch).not.toContain(
-      "reconnectCanMaterializeRef.current = false",
-    );
+    expect(stopSource).toContain("setReconnectFrozen(false)");
+    expect(stopSource).toContain("setReconnectContent([])");
+    expect(stopSource).toContain("reconnectCanMaterializeRef.current = false");
+    expect(stopSource).not.toContain("shouldFreezeReconnectContent");
   });
 
   it("keeps no-progress fresh reconnect content materializable", () => {
@@ -3161,6 +3562,17 @@ describe("shouldShowReconnectOverlay", () => {
         reconnectFrozen: true,
       }),
     ).toBe(true);
+  });
+
+  it("hides a reader as soon as another logical-turn owner takes over", () => {
+    expect(
+      shouldShowReconnectOverlay({
+        isRuntimeRunning: false,
+        isReconnecting: true,
+        reconnectFrozen: false,
+        reconnectOwnsStream: false,
+      }),
+    ).toBe(false);
   });
 
   it("stays hidden when there is nothing to reconnect", () => {

@@ -5,6 +5,7 @@ import {
   fail,
   type ActionRunContext,
 } from "@agent-native/core/action";
+import { getDbExec } from "@agent-native/core/db";
 import {
   getRequestRunContext,
   getRequestUserEmail,
@@ -54,23 +55,6 @@ function displayNameFromEmail(email: string): string {
   return words.join(" ");
 }
 
-export function commentIdForIdempotency(
-  email: string,
-  documentId: string,
-  key: string,
-) {
-  const digest = createHash("sha256")
-    .update(JSON.stringify([email, documentId, key]))
-    .digest("hex");
-  return [
-    digest.slice(0, 8),
-    digest.slice(8, 12),
-    `5${digest.slice(13, 16)}`,
-    `a${digest.slice(17, 20)}`,
-    digest.slice(20, 32),
-  ].join("-");
-}
-
 const commentSchema = z.object({
   documentId: z.string().describe("Document ID"),
   content: z.string().min(1).describe("Comment text"),
@@ -81,6 +65,12 @@ const commentSchema = z.object({
     .describe(
       "Optional UUID identifying this submission; reuse unchanged on retries. Becomes the comment ID.",
     ),
+  idempotencyKey: z
+    .string()
+    .min(1)
+    .max(200)
+    .optional()
+    .describe("Stable key for retrying the same comment without duplication"),
   threadId: z
     .string()
     .min(1)
@@ -112,6 +102,18 @@ const commentSchema = z.object({
     ),
 });
 
+export function commentIdForIdempotency(
+  email: string,
+  documentId: string,
+  idempotencyKey: string,
+) {
+  const digest = createHash("sha256")
+    .update(`${email}\0${documentId}\0${idempotencyKey}`)
+    .digest("hex")
+    .slice(0, 32);
+  return `${digest.slice(0, 8)}-${digest.slice(8, 12)}-4${digest.slice(13, 16)}-8${digest.slice(17, 20)}-${digest.slice(20)}`;
+}
+
 type CommentTransaction = Parameters<
   Parameters<ReturnType<typeof getDb>["transaction"]>[0]
 >[0];
@@ -131,14 +133,28 @@ export async function addCommentWithGuard(
   const access = await assertAccess("document", documentId, "commenter");
   const ownerEmail = access.resource.ownerEmail as string;
   const db = getDb();
-  const id = args.clientOperationId ?? crypto.randomUUID();
-  const threadId = args.threadId ?? id;
-  const parentId = args.parentId ?? null;
   const email = getRequestUserEmail();
   if (!email) throw new Error("no authenticated user");
+  const id =
+    args.clientOperationId ??
+    (args.idempotencyKey
+      ? commentIdForIdempotency(email, documentId, args.idempotencyKey)
+      : crypto.randomUUID());
+  const threadId = args.threadId ?? id;
+  const parentId = args.parentId ?? null;
 
-  const runContext = getRequestRunContext();
-  const requestName = runContext ? undefined : getRequestUserName()?.trim();
+  const actorKind =
+    getRequestRunContext()?.runId ||
+    ctx?.caller === "tool" ||
+    ctx?.caller === "mcp" ||
+    ctx?.caller === "webmcp" ||
+    ctx?.caller === "a2a"
+      ? "agent"
+      : "human";
+  const runModel = getRequestRunContext()?.model?.trim();
+  const authorModel = actorKind === "agent" && runModel ? runModel : null;
+  const requestName =
+    actorKind === "agent" ? undefined : getRequestUserName()?.trim();
   let name: string;
   if (requestName) {
     name = requestName;
@@ -156,13 +172,6 @@ export async function addCommentWithGuard(
         ? "agent"
         : (ctx?.caller ?? null);
   const submissionRunId = ctx?.runId ?? null;
-  const runModel = runContext?.model?.trim();
-  // Retries may execute on a different model. The first successful insert owns
-  // the provenance, so this field stays outside the replay comparison below.
-  const authorModel =
-    (submissionSource === "agent" || submissionSource === "mcp") && runModel
-      ? runModel.slice(0, 120)
-      : null;
 
   const values = {
     id,
@@ -180,6 +189,7 @@ export async function addCommentWithGuard(
     authorName: name,
     submissionSource,
     submissionRunId,
+    actorKind,
     authorModel,
   };
 
@@ -203,7 +213,6 @@ export async function addCommentWithGuard(
             key !== "authorName" &&
             key !== "submissionSource" &&
             key !== "submissionRunId" &&
-            key !== "authorModel" &&
             existing[key as keyof typeof existing] !== value,
         )
       ) {
@@ -214,8 +223,16 @@ export async function addCommentWithGuard(
       }
       return true;
     };
-
-    if (args.clientOperationId && (await existingReceipt())) return false;
+    if (
+      (args.clientOperationId || args.idempotencyKey) &&
+      (await existingReceipt())
+    )
+      return false;
+    await assertAccess("document", documentId, "commenter", {
+      userEmail: email,
+      orgId: ctx?.orgId ?? undefined,
+      transaction: getDbExec(),
+    });
     if (args.threadId && args.parentId) {
       // Resolution takes the same root lock before its thread-wide update.
       const [root] = await tx
@@ -229,7 +246,11 @@ export async function addCommentWithGuard(
         )
         .limit(1)
         .for("update");
-      if (args.clientOperationId && (await existingReceipt())) return false;
+      if (
+        (args.clientOperationId || args.idempotencyKey) &&
+        (await existingReceipt())
+      )
+        return false;
       const [parent] = await tx
         .select()
         .from(schema.documentComments)
@@ -257,7 +278,6 @@ export async function addCommentWithGuard(
         });
       }
     }
-
     await beforeInsert?.(tx);
     const created = await tx
       .insert(schema.documentComments)

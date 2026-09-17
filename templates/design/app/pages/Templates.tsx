@@ -18,7 +18,7 @@ import {
   IconTrash,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
@@ -332,7 +332,18 @@ export default function Templates() {
               title={t("templatesPage.yourTemplates")}
               templates={userTemplates}
               linkedTemplateId={linkedTemplateId}
-              empty={t("templatesPage.yourTemplatesEmpty")}
+              empty={
+                <div className="flex flex-col items-center gap-3">
+                  <span>{t("templatesPage.yourTemplatesEmpty")}</span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void navigate("/home")}
+                  >
+                    {t("visualEdit.openDesign")}
+                  </Button>
+                </div>
+              }
               onUse={openTemplatePrompt}
               onDelete={setDeleteTemplate}
             />
@@ -427,7 +438,7 @@ function TemplateSection({
   title: string;
   templates: DesignTemplateSummary[];
   linkedTemplateId?: string | null;
-  empty?: string;
+  empty?: ReactNode;
   onUse: (template: DesignTemplateSummary, element: HTMLElement) => void;
   onDelete?: (template: DesignTemplateSummary) => void;
 }) {

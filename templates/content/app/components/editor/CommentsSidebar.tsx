@@ -33,6 +33,7 @@ import {
   type RefObject,
   type ReactNode,
 } from "react";
+import { Link } from "react-router";
 import { toast } from "sonner";
 export { suggestionTextForDisplay } from "@shared/suggestion-text";
 
@@ -52,6 +53,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { FilterTriggerIndicator } from "@/components/ui/filter-trigger";
 import {
   Tooltip,
   TooltipContent,
@@ -121,6 +123,22 @@ function renderCommentBody(content: string, mentions: CommentMention[]) {
       content={content}
       inline
       protectedSpans={commentMentionSpans(mentions)}
+      renderLink={(href, children, className) =>
+        href.startsWith("/page/") ? (
+          <Link to={href} className={className}>
+            {children}
+          </Link>
+        ) : (
+          <a
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={className}
+          >
+            {children}
+          </a>
+        )
+      }
     />
   );
 }
@@ -254,6 +272,12 @@ export function findPendingCommentOffset(
 }
 
 type ThreadLayoutIdentity = { threadId: string; comments: readonly unknown[] };
+
+// Stable identities: a fresh `[]` default re-keys every downstream useMemo,
+// which rebuilds the anchor observers on every render.
+const NO_THREADS: CommentThread[] = [];
+const NO_SUGGESTIONS: ResourceSuggestion[] = [];
+const NO_DRAFT_SUGGESTIONS: DraftSuggestion[] = [];
 
 export function estimateThreadCardHeight(thread: ThreadLayoutIdentity) {
   return 80 + Math.max(0, thread.comments.length - 1) * 44;
@@ -686,7 +710,7 @@ export function CommentsSidebar({
   compact = false,
   replyDrafts,
   documentId,
-  threads = [],
+  threads = NO_THREADS,
   isLoading = false,
   pendingComment,
   pendingTargetValid = true,
@@ -711,8 +735,8 @@ export function CommentsSidebar({
   commentAi,
   alignToAnchors = true,
   forceVisible = false,
-  suggestions = [],
-  draftSuggestions = [],
+  suggestions = NO_SUGGESTIONS,
+  draftSuggestions = NO_DRAFT_SUGGESTIONS,
   onMaterializeDraft,
   canDecideSuggestions = false,
   decidingSuggestion = false,
@@ -764,6 +788,8 @@ export function CommentsSidebar({
     replyDrafts.setHistoryFilters({ kind });
   const setHistoryAuthor = (author: string | null) =>
     replyDrafts.setHistoryFilters({ author });
+  const historyFiltered =
+    historyStatus !== "all" || historyKind !== "all" || historyAuthor !== null;
   const [historyPortalContainer, setHistoryPortalContainer] =
     useState<HTMLDivElement | null>(null);
   const activeConflictId = suggestions.find(
@@ -1127,13 +1153,15 @@ export function CommentsSidebar({
     [],
   );
 
+  // Draft text changes on every keystroke; only presence moves the lane.
+  const hasPendingComment = Boolean(pendingComment);
   const recomputeOffsets = useCallback(() => {
     const container = scrollContainerRef?.current ?? null;
     if (!container || inlineThreads.length === 0) {
       setThreadPositions((prev) => (prev.size === 0 ? prev : new Map()));
       setPendingOffset((prev) => {
         const next =
-          pendingComment && alignToAnchors
+          hasPendingComment && alignToAnchors
             ? findPendingCommentOffset(container, sidebarRef.current)
             : null;
         return prev === next ? prev : next;
@@ -1153,7 +1181,7 @@ export function CommentsSidebar({
       if (position) positions.set(thread.threadId, position);
     }
     const nextPendingOffset =
-      pendingComment && alignToAnchors
+      hasPendingComment && alignToAnchors
         ? findPendingCommentOffset(container, layoutContainer)
         : null;
     setThreadPositions((prev) => {
@@ -1174,7 +1202,7 @@ export function CommentsSidebar({
     setPendingOffset((prev) =>
       prev === nextPendingOffset ? prev : nextPendingOffset,
     );
-  }, [alignToAnchors, inlineThreads, pendingComment, scrollContainerRef]);
+  }, [alignToAnchors, hasPendingComment, inlineThreads, scrollContainerRef]);
 
   useEffect(() => {
     const container = scrollContainerRef?.current ?? null;
@@ -1208,7 +1236,7 @@ export function CommentsSidebar({
       window.removeEventListener("resize", schedule);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openThreadKey, pendingComment, recomputeOffsets]);
+  }, [openThreadKey, hasPendingComment, recomputeOffsets]);
 
   useEffect(() => {
     const openIds = new Set(inlineThreads.map((thread) => thread.threadId));
@@ -1297,13 +1325,17 @@ export function CommentsSidebar({
     const continuation = aiRequest
       ? commentAi?.continuations.get(aiRequest.operationId)
       : undefined;
-    const startAi = async (intent: "suggest" | "reply" | "apply-resolve") => {
+    const startAi = async (
+      intent: "suggest" | "reply" | "apply-resolve",
+      requestId?: string,
+    ) => {
       if (!commentAi || !thread.comments[0]) return;
       try {
         await commentAi.start({
           threadId: thread.threadId,
           rootCommentId: thread.comments[0].id,
           intent,
+          requestId,
         });
       } catch (error) {
         toast.error(t("empty.genericError"), {
@@ -1412,7 +1444,7 @@ export function CommentsSidebar({
                 stopping={commentAi.stoppingRequestIds.has(
                   aiRequest.operationId,
                 )}
-                onRetry={() => startAi(aiRequest.intent)}
+                onRetry={() => startAi(aiRequest.intent, aiRequest.requestId)}
                 onReply={() => {
                   setAiReplyTarget(aiRequest.operationId);
                   onActivateThread?.(thread.threadId);
@@ -1514,9 +1546,14 @@ export function CommentsSidebar({
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
-                className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className={cn(
+                  "inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  historyFiltered ? "text-foreground" : "text-muted-foreground",
+                )}
               >
-                <IconFilter size={14} />
+                <FilterTriggerIndicator active={historyFiltered}>
+                  <IconFilter size={14} />
+                </FilterTriggerIndicator>
                 {t("comments.filter")}
               </button>
             </DropdownMenuTrigger>
@@ -1853,7 +1890,11 @@ function SuggestionOperationSummary({
       | { markdown?: string; changedText?: string }
       | undefined;
     const previousText = before?.changedText;
-    const nextText = after?.changedText;
+    const nextText =
+      operation.kind === "delete_text" &&
+      after?.changedText === "<empty-block/>"
+        ? ""
+        : after?.changedText;
     const key = operation.id ?? index;
     const anchor = operation.anchor as
       | { from?: unknown; to?: unknown }
@@ -2100,6 +2141,10 @@ function SuggestionThreadView({
   onDecide: (decision: SuggestionDecision) => void;
   t: ReturnType<typeof useT>;
 }) {
+  const sourceUrl =
+    typeof suggestion.metadata?.sourceUrl === "string"
+      ? suggestion.metadata.sourceUrl
+      : null;
   const focusTarget = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!focusRequested) return;
@@ -2276,6 +2321,15 @@ function SuggestionThreadView({
               <span className="text-xs text-muted-foreground">
                 {t("comments.unanchored")}
               </span>
+            ) : null}
+            {sourceUrl ? (
+              <Link
+                className="mt-2 inline-block text-xs text-muted-foreground hover:text-foreground hover:underline"
+                to={sourceUrl}
+                onClick={(event) => event.stopPropagation()}
+              >
+                {t("comments.sourceComment")}
+              </Link>
             ) : null}
           </>
         }

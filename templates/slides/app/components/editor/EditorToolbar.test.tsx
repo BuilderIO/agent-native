@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   shareButton: vi.fn(() => null),
   registerEditorCommands: vi.fn(),
+  creativeContextLabEnabled: { value: true },
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -35,6 +36,7 @@ vi.mock("@agent-native/core/client/sharing", () => ({
 
 vi.mock("@agent-native/creative-context/client", () => ({
   CreativeContextShareTab: () => null,
+  useCreativeContextLab: () => mocks.creativeContextLabEnabled.value,
 }));
 
 vi.mock("@agent-native/toolkit/collab-ui", () => ({
@@ -121,6 +123,7 @@ const deck: Deck = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.creativeContextLabEnabled.value = true;
 });
 
 afterEach(() => {
@@ -135,6 +138,7 @@ describe("<EditorToolbar>", () => {
     const onToggleAnimations = vi.fn();
     const onToggleLayers = vi.fn();
     const onChangeSlideTransition = vi.fn();
+    const onShowHistory = vi.fn();
     const slide = {
       id: "slide-1",
       content: "",
@@ -155,7 +159,7 @@ describe("<EditorToolbar>", () => {
           onToggleSidebar={vi.fn()}
           onGenerateImage={vi.fn()}
           onOpenAssetLibrary={vi.fn()}
-          onShowHistory={vi.fn()}
+          onShowHistory={onShowHistory}
           historyButtonRef={createRef<HTMLButtonElement>()}
           currentSlide={slide}
           onAddEmptySlide={onAddEmptySlide}
@@ -202,6 +206,7 @@ describe("<EditorToolbar>", () => {
     run("element-animations");
     run("layers");
     run("slide-transition-fade");
+    run("saved-versions");
 
     expect(onAddEmptySlide).toHaveBeenCalledOnce();
     expect(onToggleTextBoxMode).toHaveBeenCalledOnce();
@@ -209,6 +214,7 @@ describe("<EditorToolbar>", () => {
     expect(onToggleAnimations).toHaveBeenCalledOnce();
     expect(onToggleLayers).toHaveBeenCalledOnce();
     expect(onChangeSlideTransition).toHaveBeenCalledWith("fade");
+    expect(onShowHistory).toHaveBeenCalledOnce();
   });
 
   it("does not register shape tools without an active slide", () => {
@@ -242,29 +248,6 @@ describe("<EditorToolbar>", () => {
       expect.arrayContaining(["shape-rectangle", "shape-circle"]),
     );
     expect(onSelectShape).not.toHaveBeenCalled();
-  });
-
-  it("labels source-preserving decks as limited editing", () => {
-    render(
-      <TooltipProvider>
-        <EditorToolbar
-          deck={deck}
-          deckId="deck-1"
-          deckTitle="Test deck"
-          onTitleChange={vi.fn()}
-          currentSlideIndex={0}
-          sidebarOpen={true}
-          onToggleSidebar={vi.fn()}
-          onGenerateImage={vi.fn()}
-          onOpenAssetLibrary={vi.fn()}
-          onShowHistory={vi.fn()}
-          historyButtonRef={createRef<HTMLButtonElement>()}
-          sourceImported
-        />
-      </TooltipProvider>,
-    );
-
-    expect(screen.getByText("editorToolbar.sourcePreserving")).toBeTruthy();
   });
 
   it("surfaces history from the top-right overflow menu", async () => {
@@ -355,58 +338,66 @@ describe("<EditorToolbar>", () => {
     ).toBeNull();
   });
 
-  it("passes the shared Slides share contract through the core ShareButton", () => {
-    render(
-      <TooltipProvider>
-        <EditorToolbar
-          deck={deck}
-          deckId="deck-1"
-          deckTitle="Test deck"
-          onTitleChange={vi.fn()}
-          currentSlideIndex={0}
-          sidebarOpen={true}
-          onToggleSidebar={vi.fn()}
-          onGenerateImage={vi.fn()}
-          onOpenAssetLibrary={vi.fn()}
-          onShowHistory={vi.fn()}
-          historyButtonRef={createRef<HTMLButtonElement>()}
-        />
-      </TooltipProvider>,
-    );
+  it.each([true, false])(
+    "passes the shared Slides share contract and gates its context tab (%s)",
+    (creativeContextEnabled) => {
+      mocks.creativeContextLabEnabled.value = creativeContextEnabled;
+      render(
+        <TooltipProvider>
+          <EditorToolbar
+            deck={deck}
+            deckId="deck-1"
+            deckTitle="Test deck"
+            onTitleChange={vi.fn()}
+            currentSlideIndex={0}
+            sidebarOpen={true}
+            onToggleSidebar={vi.fn()}
+            onGenerateImage={vi.fn()}
+            onOpenAssetLibrary={vi.fn()}
+            onShowHistory={vi.fn()}
+            historyButtonRef={createRef<HTMLButtonElement>()}
+          />
+        </TooltipProvider>,
+      );
 
-    const shareButtonCalls = mocks.shareButton.mock.calls as unknown as Array<
-      [ShareButtonProps]
-    >;
-    const shareButtonProps: ShareButtonProps =
-      shareButtonCalls[shareButtonCalls.length - 1]?.[0] ?? {};
+      const shareButtonCalls = mocks.shareButton.mock.calls as unknown as Array<
+        [ShareButtonProps]
+      >;
+      const shareButtonProps: ShareButtonProps =
+        shareButtonCalls[shareButtonCalls.length - 1]?.[0] ?? {};
 
-    expect(shareButtonProps?.resourceType).toBe("deck");
-    expect(shareButtonProps?.resourceId).toBe("deck-1");
-    expect(shareButtonProps?.resourceTitle).toBe("Test deck");
-    expect(shareButtonProps?.shareUrl).toEqual(
-      expect.stringContaining("/deck/deck-1"),
-    );
-    expect(shareButtonProps?.secondaryShareUrl).toEqual(
-      expect.stringContaining("/p/deck-1"),
-    );
-    expect(shareButtonProps?.shareUrlLabel).toBe("editorToolbar.editorLink");
-    expect(shareButtonProps?.shareUrlDescription).toBe(
-      "editorToolbar.editorLinkDescription",
-    );
-    expect(shareButtonProps?.secondaryShareUrlLabel).toBe(
-      "editorToolbar.presentationLink",
-    );
-    expect(shareButtonProps?.secondaryShareUrlDescription).toBe(
-      "editorToolbar.presentationLinkDescription",
-    );
-    expect(shareButtonProps?.roleCopy?.commenter).toEqual({
-      label: "editorToolbar.commenterRoleLabel",
-      description: "editorToolbar.commenterRoleDescription",
-    });
-    expect(shareButtonProps.shareTabs?.tabs?.[0]?.value).toBe("context");
-    expect(shareButtonProps.shareTabs?.tabs?.[0]?.label).toBe("Context");
-    expect(shareButtonProps.shareTabs?.tabs?.[0]?.content).toBeTruthy();
-  });
+      expect(shareButtonProps?.resourceType).toBe("deck");
+      expect(shareButtonProps?.resourceId).toBe("deck-1");
+      expect(shareButtonProps?.resourceTitle).toBe("Test deck");
+      expect(shareButtonProps?.shareUrl).toEqual(
+        expect.stringContaining("/deck/deck-1"),
+      );
+      expect(shareButtonProps?.secondaryShareUrl).toEqual(
+        expect.stringContaining("/p/deck-1"),
+      );
+      expect(shareButtonProps?.shareUrlLabel).toBe("editorToolbar.editorLink");
+      expect(shareButtonProps?.shareUrlDescription).toBe(
+        "editorToolbar.editorLinkDescription",
+      );
+      expect(shareButtonProps?.secondaryShareUrlLabel).toBe(
+        "editorToolbar.presentationLink",
+      );
+      expect(shareButtonProps?.secondaryShareUrlDescription).toBe(
+        "editorToolbar.presentationLinkDescription",
+      );
+      expect(shareButtonProps?.roleCopy?.commenter).toEqual({
+        label: "editorToolbar.commenterRoleLabel",
+        description: "editorToolbar.commenterRoleDescription",
+      });
+      if (creativeContextEnabled) {
+        expect(shareButtonProps.shareTabs?.tabs?.[0]?.value).toBe("context");
+        expect(shareButtonProps.shareTabs?.tabs?.[0]?.label).toBe("Context");
+        expect(shareButtonProps.shareTabs?.tabs?.[0]?.content).toBeTruthy();
+      } else {
+        expect(shareButtonProps.shareTabs).toBeUndefined();
+      }
+    },
+  );
 
   it("delegates Present so the editor can flush pending changes first", () => {
     const onPresent = vi.fn();

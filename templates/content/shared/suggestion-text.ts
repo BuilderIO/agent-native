@@ -1,5 +1,6 @@
-import { docToNfm, nfmToDoc, type PMNode } from "./nfm";
+import { canonicalizeNfm, docToNfm, nfmToDoc, type PMNode } from "./nfm";
 import { suggestionFormattingSourceSlice } from "./suggestion-formatting";
+import { resolveMarkdownSuggestionRange } from "./suggestion-rebase";
 
 export type SuggestionPresentationContext = {
   source: string;
@@ -177,10 +178,25 @@ export function suggestionTextPresentationForSource(
 ): SuggestionPresentationNode[] | null {
   if (context.source.slice(context.from, context.to) !== content) return null;
   if (content.length === 0 && context.from === context.to) return [];
+  const canonicalSource = canonicalizeNfm(context.source);
+  const canonicalRange = resolveMarkdownSuggestionRange(canonicalSource, {
+    before: { markdown: context.source, changedText: content },
+    after: { markdown: context.source, changedText: content },
+    anchor: {
+      from: context.from,
+      to: context.to,
+      prefix: context.source.slice(
+        Math.max(0, context.from - 32),
+        context.from,
+      ),
+      suffix: context.source.slice(context.to, context.to + 32),
+    },
+  });
+  if (!canonicalRange) return null;
   const parts = suggestionFormattingSourceSlice(
-    context.source,
-    context.from,
-    context.to,
+    canonicalSource,
+    canonicalRange.from,
+    canonicalRange.to,
   );
   if (!parts) return null;
   const whitespaceOnly =

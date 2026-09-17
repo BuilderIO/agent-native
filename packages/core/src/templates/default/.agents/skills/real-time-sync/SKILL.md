@@ -169,7 +169,7 @@ This avoids duplicate `/api/*` JSON CRUD routes and makes agent-created records 
 
 The framework emits a change event with `source: "action"` whenever any non-read-only action runs to completion — whether called via HTTP (`/_agent-native/actions/:name`) or as an agent tool call. Read-only actions (`http: { method: "GET" }` or explicit `readOnly: true`) are skipped.
 
-This means UIs don't need the agent to remember to call `refresh-screen` after every mutation. A listener like this (used in the `macros` template) will refresh after any mutating agent call:
+This means UIs don't need the agent to remember to call `refresh-screen` after every mutation. A listener like this will refresh after any mutating agent call:
 
 ```ts
 useDbSync({

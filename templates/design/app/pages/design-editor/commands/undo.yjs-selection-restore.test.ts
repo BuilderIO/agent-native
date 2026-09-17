@@ -1,9 +1,17 @@
+import { buildCodeLayerProjection } from "@shared/code-layer";
+import { sourceContentHash } from "@shared/source-workspace";
 import { describe, expect, it, vi } from "vitest";
+import * as Y from "yjs";
 
-import type { ElementInfo } from "@/components/design/types";
+import {
+  canonicalElementInfoForCodeLayerNode,
+  elementInfoFromCodeLayerNode,
+} from "@/pages/design-editor/code-layer-state";
+import { writeCollabText } from "@/pages/design-editor/collab-sync";
+import { runRedo } from "@/pages/design-editor/commands/redo";
+import { runUndo } from "@/pages/design-editor/commands/undo";
+import { LOCAL_EDIT_ORIGIN } from "@/pages/design-editor/editor-session";
 import { YJS_UNDO_SELECTION_META_KEY } from "@/pages/design-editor/history";
-
-import { runUndo } from "./undo";
 
 /**
  * Figma parity (§13 Undo/Redo + Part 3's alt-drag-duplicate resolution):
@@ -20,6 +28,30 @@ import { runUndo } from "./undo";
  * is already null (delete cleared it), so the refresh is a no-op and
  * selection stays empty forever, never returning to the deleted element.
  */
+const CONTENT_WITH_BOX_A = `<!doctype html><html data-agent-native-node-id="html-1"><body data-agent-native-node-id="body-1">
+<div data-agent-native-node-id="box-a" style="position:absolute;left:10px;top:10px;width:20px;height:20px"></div>
+</body></html>`;
+const CONTENT_WITHOUT_BOX_A = `<!doctype html><html data-agent-native-node-id="html-1"><body data-agent-native-node-id="body-1"></body></html>`;
+
+function sourceBoxA() {
+  const projection = buildCodeLayerProjection(CONTENT_WITH_BOX_A, {
+    source: { kind: "design-file", fileId: "file-1" },
+  });
+  const node = projection.nodes.find(
+    (candidate) =>
+      candidate.dataAttributes["data-agent-native-node-id"] === "box-a",
+  );
+  if (!node) throw new Error("source projection fixture node not found");
+  return {
+    node,
+    element: canonicalElementInfoForCodeLayerNode(
+      elementInfoFromCodeLayerNode(node),
+      node,
+      "file-1",
+    ),
+  };
+}
+
 function baseArgs(overrides: Record<string, unknown> = {}) {
   const refreshCalls: string[] = [];
   const undoManagerRef = { current: overrides.um ?? null };
@@ -97,17 +129,94 @@ function fakeStackItem(meta?: Record<string, unknown>) {
 }
 
 describe("runUndo — single-screen Yjs undo restores the stamped selection", () => {
+  it("keeps the real Yjs redo item after canonicalizing an undo result", () => {
+    const ydoc = new Y.Doc();
+    const ytext = ydoc.getText("content");
+    const before = `<!doctype html><html><body></body></html>`;
+    const after = `<!doctype html><html><body><main><button>Added</button></main></body></html>`;
+    ytext.insert(0, before);
+    const um = new Y.UndoManager(ytext, {
+      trackedOrigins: new Set([LOCAL_EDIT_ORIGIN]),
+    });
+    writeCollabText(ydoc, ytext, after, LOCAL_EDIT_ORIGIN);
+    um.stopCapturing();
+    expect(um.canUndo()).toBe(true);
+
+    runUndo(
+      baseArgs({
+        activeFile: {
+          id: "file-1",
+          fileType: "html",
+          updatedAt: "2024-01-01T00:00:00Z",
+        },
+        um,
+        undoManagerRef: { current: um },
+        ydoc,
+        queueFileContentSave: vi.fn(),
+      }),
+    );
+
+    const canonicalUndo = ytext.toJSON();
+    expect(canonicalUndo).not.toBe(before);
+    expect(canonicalUndo).toContain("data-agent-native-node-id");
+    expect(canonicalUndo).not.toContain("<button>Added</button>");
+    expect(um.canRedo()).toBe(true);
+
+    runRedo(
+      baseArgs({
+        activeFile: {
+          id: "file-1",
+          fileType: "html",
+          updatedAt: "2024-01-01T00:00:00Z",
+        },
+        um,
+        undoManagerRef: { current: um },
+        ydoc,
+        recordLocalContentHistoryChangeFallback: vi.fn(),
+        queueFileContentSave: vi.fn(),
+      }) as unknown as Parameters<typeof runRedo>[0],
+    );
+
+    const canonicalRedo = ytext.toJSON();
+    expect(canonicalRedo).toContain(">Added</button>");
+    expect(canonicalRedo).toContain("data-agent-native-node-id");
+    expect(um.canUndo()).toBe(true);
+
+    runUndo(
+      baseArgs({
+        activeFile: {
+          id: "file-1",
+          fileType: "html",
+          updatedAt: "2024-01-01T00:00:00Z",
+        },
+        um,
+        undoManagerRef: { current: um },
+        ydoc,
+        queueFileContentSave: vi.fn(),
+      }),
+    );
+    expect(ytext.toJSON()).toContain("data-agent-native-node-id");
+    expect(ytext.toJSON()).not.toContain(">Added</button>");
+    expect(um.canRedo()).toBe(true);
+  });
+
   it("restores selectedElement/selectedLayerIds from the popped stack item's stamp, not the (already-cleared) current selection", () => {
-    const restoredElement = { selector: "#box-a" } as unknown as ElementInfo;
+    const { element: restoredElement, node } = sourceBoxA();
     const meta = fakeStackItem({
       [YJS_UNDO_SELECTION_META_KEY]: {
         selectedElement: restoredElement,
-        selectedLayerIds: ["box-a"],
+        selectedLayerIds: [node.id],
+        sourceContentByFileId: { "file-1": CONTENT_WITH_BOX_A },
+        sourceFileIdByFileId: { "file-1": "file-1" },
       },
     });
+    let currentContent = CONTENT_WITHOUT_BOX_A;
     const um = {
       canUndo: () => true,
-      undo: vi.fn(() => ({ meta })),
+      undo: vi.fn(() => {
+        currentContent = CONTENT_WITH_BOX_A;
+        return { meta };
+      }),
     };
 
     let capturedElement: unknown;
@@ -125,18 +234,33 @@ describe("runUndo — single-screen Yjs undo restores the stamped selection", ()
           : updater;
     });
 
+    const queueFileContentSave = vi.fn();
     runUndo(
       baseArgs({
         um,
         undoManagerRef: { current: um },
+        queueFileContentSave,
+        ydoc: { getText: () => ({ toJSON: () => currentContent }) },
         setSelectedElement,
         setSelectedLayerIdsState,
       }),
     );
 
     expect(um.undo).toHaveBeenCalledTimes(1);
-    expect(capturedElement).toBe(restoredElement);
-    expect(capturedLayerIds).toEqual(["box-a"]);
+    expect(capturedElement).toMatchObject({
+      sourceId: restoredElement.sourceId,
+      sourceLayerIdentity: { screenId: "file-1", nodeId: node.id },
+    });
+    expect(capturedElement).not.toBeNull();
+    expect(capturedLayerIds).toEqual([node.id]);
+    expect(capturedLayerIds).not.toEqual(["box-a"]);
+    expect(queueFileContentSave).toHaveBeenCalledWith(
+      "file-1",
+      CONTENT_WITH_BOX_A,
+      expect.objectContaining({
+        expectedVersionHash: sourceContentHash(CONTENT_WITHOUT_BOX_A),
+      }),
+    );
   });
 
   it("falls back to the refresh-from-content heuristic when nothing was stamped", () => {

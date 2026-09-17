@@ -66,13 +66,28 @@ const messages: AgentChatTranslation = {
   "onboarding.builderProvisioningDescription":
     "正在创建或重新使用您的 Builder.io 账户，通常需要几秒钟。",
   "onboarding.builderConnectionDescription": "在新窗口中一键完成连接。",
+  "onboarding.builderReadyWithCodeChanges": "AI 积分和云端代码更改已准备就绪。",
+  "onboarding.builderReadyCreditsOnly":
+    "AI 积分已准备就绪。云端代码编辑需要在后台代理设置中配置 Builder 项目。",
+  "onboarding.openBackgroundAgentSettings": "打开后台代理设置",
   "onboarding.capability.llm.keySummary": "连接 AI 提供商或本地模型",
   "onboarding.capability.fileStorage.keySummary":
     "Builder 存储或兼容 S3 的存储桶",
+  "onboarding.fileStorage.title": "选择文件存储",
+  "onboarding.fileStorage.description":
+    "选择 Builder 托管存储，或为自己的兼容 S3 存储桶使用自定义存储密钥。",
+  "onboarding.fileStorage.custom": "使用自定义存储密钥",
+  "onboarding.fileStorage.customDescription":
+    "配置带有稳定公共 URL 的兼容 S3 存储桶。",
   "onboarding.capability.voiceInput.label": "语音输入",
   "onboarding.capability.voiceInput.keySummary": "浏览器语音识别或语音转文字",
   "onboarding.capability.voiceInput.why":
     "语音输入会将口述请求转换为文字；始终可以使用键盘输入。",
+  "onboarding.capability.embeddings.label": "嵌入向量",
+  "onboarding.capability.embeddings.keySummary":
+    "Gemini、Cohere 或 Voyage 密钥",
+  "onboarding.capability.embeddings.why":
+    "嵌入向量可以改进语义搜索。没有嵌入向量时，关键词搜索仍然有效。",
   "onboarding.capability.assetsImageGeneration.label": "图像生成",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Builder 积分或图像提供商密钥",
@@ -100,6 +115,14 @@ const messages: AgentChatTranslation = {
   "common.agent": "智能体",
   "agentPanel.mode": "模式",
   "agentPanel.uiMode": "界面",
+  "agentPanel.keyScope": "密钥范围",
+  "agentPanel.personalKeyScope": "个人",
+  "agentPanel.organizationKeyScope": "组织",
+  "agentPanel.personalKeyInEffect": "当前使用的是您的个人密钥。",
+  "agentPanel.organizationKeyInEffect": "当前使用的是组织密钥。",
+  "agentPanel.sharedKeyInEffect": "当前使用的是共享密钥。",
+  "agentPanel.useOrganizationKey": "改用组织密钥",
+  "agentPanel.keyStatusUnavailable": "无法获取密钥状态。",
   "agentHostNudge.sidebarTitle": "使用 {{agent}} 的聊天",
   "agentHostNudge.sidebarDescription":
     "你已经在与 {{agent}} 聊天。可以直接让它操作此应用。",
@@ -122,6 +145,54 @@ const messages: AgentChatTranslation = {
   "common.no": "否",
   "common.retry": "重试",
   "common.save": "保存",
+  "agents.hostedAgent": "托管代理",
+  "agents.provider": "提供商",
+  "agents.providerA2A": "A2A 代理（Foundry、Gemini 或自定义）",
+  "agents.providerAnthropic": "Anthropic 托管代理",
+  "agents.agentId": "代理 ID",
+  "agents.agentIdPlaceholder": "agent_...",
+  "agents.environmentId": "环境 ID",
+  "agents.environmentIdPlaceholder": "env_...",
+  "agents.apiBaseUrl": "API 基础 URL（可选）",
+  "agents.apiBaseUrlPlaceholder": "https://api.anthropic.com",
+  "agents.managedAgentIncomplete": "请填写 Anthropic 托管代理字段。",
+  "agents.managedAgentCheck": "从聊天中委派时会检查连接。",
+  "agents.managedAgentSaved":
+    "Anthropic 托管代理已保存。可从聊天中向它委派任务。",
+  "agents.cardUrl": "代理卡 URL",
+  "agents.cardUrlPlaceholder": "https://host.example/agent-card.json",
+  "agents.authType": "身份验证",
+  "agents.authNone": "无需身份验证",
+  "agents.authBearer": "Bearer 令牌",
+  "agents.authClientCredentials": "OAuth 客户端凭据",
+  "agents.chooseCredential": "选择凭据",
+  "agents.vault": "保管库",
+  "agents.tokenUrl": "令牌 URL",
+  "agents.clientId": "客户端 ID",
+  "agents.scope": "范围",
+  "agents.authIncomplete": "请完成托管代理的身份验证字段。",
+  "agents.invalidUrl":
+    "代理 URL 必须使用 HTTPS，localhost 或回环开发 URL 除外。",
+  "agents.statusReachable": "可访问",
+  "agents.statusAuthRejected": "身份验证被拒",
+  "agents.statusNoJsonRpc": "无 JSON-RPC",
+  "agents.directoryTab": "代理目录",
+  "agents.directoryPageHint": "查找代理后端并将其连接到你的工作区。",
+  "agents.directorySearch": "搜索提供商",
+  "agents.directoryProviders": "提供商",
+  "agents.directoryManual": "通过 URL 添加",
+  "agents.directoryA2A": "A2A",
+  "agents.directoryManaged": "托管 API",
+  "agents.directoryFoundry": "Microsoft Foundry",
+  "agents.directoryFoundryHint": "通过 A2A 连接 Foundry 代理。",
+  "agents.directoryGemini": "Gemini Enterprise",
+  "agents.directoryGeminiHint": "通过 A2A 连接 Gemini Enterprise 代理。",
+  "agents.directoryAnthropic": "Anthropic 托管代理",
+  "agents.directoryAnthropicHint": "连接 Anthropic 的会话和审批。",
+  "agents.directoryNoMatches": "没有提供商匹配你的搜索。",
+  "agents.directoryRegistry": "全球 A2A 注册表",
+  "agents.directoryRegistryHint": "浏览公开 Agent Card，并在连接前完成验证。",
+  "agents.directoryBrowse": "浏览注册表",
   "common.saveFailed": "保存失败",
   "common.saveFailedStatus": "保存失败（{{status}}）",
   "common.saving": "正在保存...",
@@ -339,6 +410,8 @@ const messages: AgentChatTranslation = {
   "error.failed": "智能体遇到错误",
   "error.stopped": "智能体在完成前已停止",
   "errorMessages.agentConnection": "智能体连接已中断。请检查网络连接后重试。",
+  "errorMessages.attachmentPasswordProtected":
+    "此 PDF 受密码保护，无法读取。请移除密码保护或粘贴相关文本后重试。",
   "errorMessages.builderAuthentication":
     "Builder 拒绝了已连接的凭据。请在设置中重新连接 Builder.io，然后重试。",
   "errorMessages.builderModelUnauthorized":
@@ -348,10 +421,15 @@ const messages: AgentChatTranslation = {
     "模型网关在智能体作答前发生内部错误。请稍后重试；如果持续出现，请提供下方的错误 ID。",
   "errorMessages.gatewayNoDetails":
     "模型网关未返回错误详情，聊天无法恢复。请稍等片刻后重试；如果问题持续出现，请开始新聊天。",
+  "errorMessages.creditsLimitReached": "你已达到 AI 积分额度上限。",
   "errorMessages.inactivityTimeout":
     "智能体连接在完成前超时。您可以从已完成的部分继续，也可以重试。",
   "errorMessages.invalidToolSchema":
     "工具架构无效，因此模型在请求开始前拒绝了该请求。可以跳过无效工具并重试请求。",
+  "errorMessages.malformedRequest":
+    "模型提供方认为该请求格式有误并予以拒绝，因此未重试。请重试，若问题持续出现，请开始新的对话。",
+  "errorMessages.malformedRequestAttachment":
+    "模型拒绝了一个附加文件，因此该消息未发送。请移除附件后重试：PDF、纯文本文件以及 JPEG、PNG、GIF、WebP 图片可直接读取；其他格式需要先上传再以链接形式引用。",
   "errorMessages.noProviderConnected":
     "尚未连接任何 LLM 提供商。打开设置 > 智能体 > AI 提供商，然后连接 Builder.io（提供免费套餐）或添加提供商密钥。",
   "errorMessages.openBuilderSpaceSettings": "打开 Builder 空间设置",
@@ -372,6 +450,7 @@ const messages: AgentChatTranslation = {
   "feedback.notHelpful": "没有帮助",
   "feedback.placeholder": "告诉我们哪里出了问题……",
   "feedback.submit": "提交",
+  "feedback.submitted": "反馈已提交",
   "feedback.thumbsDown": "不喜欢",
   "feedback.thumbsUp": "喜欢",
   "feedback.tooSlow": "太慢",
@@ -671,6 +750,7 @@ const messages: AgentChatTranslation = {
   "widget.dataInsights": "数据洞察",
   "widget.dataTable": "数据表",
   "widget.downloadCsv": "下载 CSV",
+  "widget.connectProvider": "连接 {{provider}}",
   "widget.loadingToolResult": "正在加载工具结果",
   "widget.noRows": "没有数据行",
   "widget.points": "{{formattedCount}} 个数据点",
@@ -678,6 +758,13 @@ const messages: AgentChatTranslation = {
   "widget.rows": "{{formattedCount}} 行",
   "widget.rows_other": "{{formattedCount}} 行",
   "widget.sampled": "已抽样",
+  "settings.emailTitle": "电子邮件",
+  "settings.emailChange": "更改电子邮件",
+  "settings.emailChanging": "正在发送...",
+  "settings.emailChangeSent": "请查看邮件，按照说明确认此更改。",
+  "settings.emailChangeError": "无法发送确认邮件。",
+  "settings.emailNewLabel": "新电子邮件",
+  "settings.emailNewPlaceholder": "输入新电子邮件",
 };
 
 export default messages;

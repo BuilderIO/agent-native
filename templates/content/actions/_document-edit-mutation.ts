@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 
 import { ActionContractError } from "@agent-native/core";
 import type { ActionRunContext } from "@agent-native/core/action";
+import { getDbExec } from "@agent-native/core/db";
+import { assertAccess } from "@agent-native/core/sharing";
 import { recordGenerationCreativeContext } from "@agent-native/creative-context/server";
 import type { CreativeContextReuseLabel } from "@agent-native/creative-context/types";
 import { and, eq } from "drizzle-orm";
@@ -31,7 +33,7 @@ export function documentRevisionToken(
   return `body:${revision}:${documentContentHash(content)}`;
 }
 
-function parseRevisionToken(
+export function parseDocumentRevisionToken(
   value: string,
 ): { revision: number; contentHash: string } | null {
   const match = /^body:(0|[1-9]\d*):(sha256:[a-f0-9]{64})$/.exec(value);
@@ -56,6 +58,62 @@ function conflict(
     details,
     statusCode: 409,
   });
+}
+
+function validateDocumentEditSnapshot(
+  document: typeof schema.documents.$inferSelect | undefined,
+  base: { revision: number; contentHash: string },
+  baseRevision: string,
+  edits: DocumentTextEdit[] | undefined,
+  initializeContent?: string,
+) {
+  if (!document) {
+    throw new ActionContractError("Document not found.", {
+      errorCode: "DOCUMENT_NOT_FOUND",
+      statusCode: 404,
+    });
+  }
+  const beforeContent = document.content ?? "";
+  const beforeHash = documentContentHash(beforeContent);
+  if (
+    document.bodyRevision !== base.revision ||
+    beforeHash !== base.contentHash
+  ) {
+    conflict("STALE_BASE_REVISION", "The document changed after it was read.", {
+      expectedRevision: baseRevision,
+      currentRevision: documentRevisionToken(
+        document.bodyRevision,
+        beforeContent,
+      ),
+      currentBodyRevision: document.bodyRevision,
+      currentContentHash: beforeHash,
+    });
+  }
+  const resolved = edits
+    ? resolveDocumentTextEdits(beforeContent, edits)
+    : beforeContent === ""
+      ? {
+          ok: true as const,
+          content: initializeContent as string,
+          ranges: [{ start: 0, end: 0 }],
+        }
+      : conflict(
+          "DOCUMENT_BODY_NOT_EMPTY",
+          "Document initialization requires a literally empty body.",
+          { currentRevision: baseRevision },
+        );
+  if (!resolved.ok) {
+    conflict(
+      resolved.error.kind === "missing"
+        ? "EDIT_MATCH_MISSING"
+        : resolved.error.kind === "ambiguous"
+          ? "EDIT_MATCH_AMBIGUOUS"
+          : "EDIT_RANGES_OVERLAP",
+      "The complete edit batch could not be resolved against the base document.",
+      { validation: resolved.error },
+    );
+  }
+  return { document, beforeContent, beforeHash, resolved };
 }
 
 function callerScope(ctx: ActionRunContext): string {
@@ -133,22 +191,27 @@ export interface DocumentEditCreativeContext {
   }>;
 }
 
-export async function mutateDocumentBody(args: {
-  documentId: string;
-  baseRevision: string;
-  idempotencyKey: string;
-  edits: DocumentTextEdit[];
-  creativeContext?: DocumentEditCreativeContext;
-  creativeContextDigest?: unknown;
-  resolveCreativeContext?: () => Promise<
-    DocumentEditCreativeContext | undefined
-  >;
-  ctx: ActionRunContext;
-  db?: Db;
-}): Promise<DocumentEditMutationResult> {
+type DocumentBodyMutation =
+  | { edits: DocumentTextEdit[]; initializeContent?: never }
+  | { edits?: never; initializeContent: string };
+
+export async function mutateDocumentBody(
+  args: {
+    documentId: string;
+    baseRevision: string;
+    idempotencyKey: string;
+    creativeContext?: DocumentEditCreativeContext;
+    creativeContextDigest?: unknown;
+    resolveCreativeContext?: () => Promise<
+      DocumentEditCreativeContext | undefined
+    >;
+    ctx: ActionRunContext;
+    db?: Db;
+  } & DocumentBodyMutation,
+): Promise<DocumentEditMutationResult> {
   const db = args.db ?? getDb();
   const scope = callerScope(args.ctx);
-  const base = parseRevisionToken(args.baseRevision);
+  const base = parseDocumentRevisionToken(args.baseRevision);
   if (base === null) {
     throw new ActionContractError(
       "baseRevision is not a valid document revision token.",
@@ -158,86 +221,112 @@ export async function mutateDocumentBody(args: {
       },
     );
   }
-  const normalizedEdits = args.edits.map(({ find, replace }) => ({
+  const normalizedEdits = args.edits?.map(({ find, replace }) => ({
     find,
     replace,
   }));
-  const payloadDigest = digest({
-    documentId: args.documentId,
-    baseRevision: args.baseRevision,
-    edits: normalizedEdits,
-    creativeContext: args.creativeContextDigest ?? args.creativeContext ?? null,
-  });
+  const initializationContent = args.initializeContent;
+  if (!normalizedEdits && initializationContent === undefined) {
+    throw new ActionContractError("A document body mutation is required.", {
+      errorCode: "DOCUMENT_EDIT_MODE_REQUIRED",
+      statusCode: 400,
+    });
+  }
+  if (
+    initializationContent !== undefined &&
+    initializationContent.trim().length === 0
+  ) {
+    throw new ActionContractError(
+      "initializeContent must contain non-whitespace content.",
+      {
+        errorCode: "DOCUMENT_INITIALIZATION_CONTENT_REQUIRED",
+        statusCode: 400,
+      },
+    );
+  }
+  const payloadDigest = digest(
+    normalizedEdits
+      ? {
+          documentId: args.documentId,
+          baseRevision: args.baseRevision,
+          edits: normalizedEdits,
+          creativeContext:
+            args.creativeContextDigest ?? args.creativeContext ?? null,
+        }
+      : {
+          documentId: args.documentId,
+          baseRevision: args.baseRevision,
+          operation: "initialize",
+          initializeContent: initializationContent,
+          creativeContext:
+            args.creativeContextDigest ?? args.creativeContext ?? null,
+        },
+  );
+
+  const readReplay = async (client: Db) => {
+    const [stored] = await client
+      .select()
+      .from(schema.documentEditReceipts)
+      .where(
+        and(
+          eq(schema.documentEditReceipts.documentId, args.documentId),
+          eq(schema.documentEditReceipts.callerScope, scope),
+          eq(schema.documentEditReceipts.idempotencyKey, args.idempotencyKey),
+        ),
+      );
+    if (stored) {
+      if (stored.payloadDigest !== payloadDigest) {
+        conflict(
+          "IDEMPOTENCY_KEY_REUSED",
+          "This idempotency key was already used for a different document edit.",
+          { idempotencyKey: args.idempotencyKey },
+        );
+      }
+      return replayResult(stored);
+    }
+    return null;
+  };
 
   try {
+    const previous = await readReplay(db);
+    if (previous) return previous;
+    const [preflightDocument] = await db
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, args.documentId));
+    validateDocumentEditSnapshot(
+      preflightDocument,
+      base,
+      args.baseRevision,
+      normalizedEdits,
+      initializationContent,
+    );
+    const creativeContext = args.resolveCreativeContext
+      ? await args.resolveCreativeContext()
+      : args.creativeContext;
     return await db.transaction(async (transaction) => {
       const tx = transaction as unknown as Db;
-      const [stored] = await tx
-        .select()
-        .from(schema.documentEditReceipts)
-        .where(
-          and(
-            eq(schema.documentEditReceipts.documentId, args.documentId),
-            eq(schema.documentEditReceipts.callerScope, scope),
-            eq(schema.documentEditReceipts.idempotencyKey, args.idempotencyKey),
-          ),
-        );
-      if (stored) {
-        if (stored.payloadDigest !== payloadDigest) {
-          conflict(
-            "IDEMPOTENCY_KEY_REUSED",
-            "This idempotency key was already used for a different document edit.",
-            { idempotencyKey: args.idempotencyKey },
-          );
-        }
-        return replayResult(stored);
-      }
+      const concurrent = await readReplay(tx);
+      if (concurrent) return concurrent;
+
+      await assertAccess("document", args.documentId, "editor", {
+        userEmail: args.ctx.userEmail,
+        orgId: args.ctx.orgId ?? undefined,
+        transaction: getDbExec(),
+      });
 
       const [document] = await tx
         .select()
         .from(schema.documents)
         .where(eq(schema.documents.id, args.documentId));
-      if (!document) {
-        throw new ActionContractError("Document not found.", {
-          errorCode: "DOCUMENT_NOT_FOUND",
-          statusCode: 404,
-        });
-      }
-      const beforeContent = document.content ?? "";
-      const beforeHash = documentContentHash(beforeContent);
-      if (
-        document.bodyRevision !== base.revision ||
-        beforeHash !== base.contentHash
-      ) {
-        conflict(
-          "STALE_BASE_REVISION",
-          "The document changed after it was read.",
-          {
-            expectedRevision: args.baseRevision,
-            currentRevision: documentRevisionToken(
-              document.bodyRevision,
-              beforeContent,
-            ),
-            currentBodyRevision: document.bodyRevision,
-            currentContentHash: beforeHash,
-          },
-        );
-      }
-      const resolved = resolveDocumentTextEdits(beforeContent, normalizedEdits);
-      if (!resolved.ok) {
-        conflict(
-          resolved.error.kind === "missing"
-            ? "EDIT_MATCH_MISSING"
-            : resolved.error.kind === "ambiguous"
-              ? "EDIT_MATCH_AMBIGUOUS"
-              : "EDIT_RANGES_OVERLAP",
-          "The complete edit batch could not be resolved against the base document.",
-          { validation: resolved.error },
-        );
-      }
-      const creativeContext = args.resolveCreativeContext
-        ? await args.resolveCreativeContext()
-        : args.creativeContext;
+      const validated = validateDocumentEditSnapshot(
+        document,
+        base,
+        args.baseRevision,
+        normalizedEdits,
+        initializationContent,
+      );
+      const { beforeContent, beforeHash, resolved } = validated;
 
       const changed = resolved.content !== beforeContent;
       const afterRevision = changed
@@ -314,7 +403,7 @@ export async function mutateDocumentBody(args: {
       }));
       const result: DocumentEditMutationResult = {
         applied: changed ? resolved.ranges.length : 0,
-        total: normalizedEdits.length,
+        total: normalizedEdits?.length ?? 1,
         receipt: {
           receiptId,
           outcome: changed ? "applied" : "unchanged",
@@ -385,24 +474,8 @@ export async function mutateDocumentBody(args: {
     // Concurrent duplicate deliveries may both miss the receipt before one
     // commits. Re-read after rollback so the loser returns the winner's durable
     // outcome instead of surfacing a false stale/unique-key failure.
-    const [stored] = await db
-      .select()
-      .from(schema.documentEditReceipts)
-      .where(
-        and(
-          eq(schema.documentEditReceipts.documentId, args.documentId),
-          eq(schema.documentEditReceipts.callerScope, scope),
-          eq(schema.documentEditReceipts.idempotencyKey, args.idempotencyKey),
-        ),
-      );
-    if (!stored) throw error;
-    if (stored.payloadDigest !== payloadDigest) {
-      conflict(
-        "IDEMPOTENCY_KEY_REUSED",
-        "This idempotency key was already used for a different document edit.",
-        { idempotencyKey: args.idempotencyKey },
-      );
-    }
-    return replayResult(stored);
+    const replay = await readReplay(db);
+    if (!replay) throw error;
+    return replay;
   }
 }

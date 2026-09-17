@@ -74,6 +74,7 @@ import {
   isBuilderBranchingEnabled,
   isBuilderConnectCallbackUrlAllowed,
   isSignedBuilderConnectState,
+  normalizeBuilderAgentAttachments,
   normalizeBuilderAgentContext,
   resolveBuilderCallbackReturnUrl,
   resolveBuilderConnectCallbackUrl,
@@ -1529,6 +1530,66 @@ describe("Builder callback CSRF state", () => {
       });
     });
 
+    // A rejected credential is not a transient outage. Without a typed code,
+    // callers see a plain Error and tell the user to retry something that
+    // cannot succeed until they reconnect.
+    it("raises a reconnectable error when Builder rejects the credential", async () => {
+      process.env.BUILDER_PRIVATE_KEY = "bpk-test";
+      process.env.BUILDER_PUBLIC_KEY = "pub-test";
+      process.env.BUILDER_USER_ID = "builder-user-123";
+      process.env.BUILDER_API_HOST = "https://api.test.builder.io";
+
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify({ error: "Unauthorized" }), {
+            status: 401,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
+      );
+
+      await expect(
+        runBuilderAgent({
+          prompt: "Create an app",
+          projectId: "project-123",
+          userEmail: "brent@builder.io",
+        }),
+      ).rejects.toMatchObject({
+        actionContractError: true,
+        errorCode: "builder_not_connected",
+        message: "Unauthorized",
+      });
+    });
+
+    // 403 is Space membership, not a bad credential. Reconnect is the wrong
+    // advice, so it must stay an ordinary error.
+    it("keeps a membership rejection as an ordinary error", async () => {
+      process.env.BUILDER_PRIVATE_KEY = "bpk-test";
+      process.env.BUILDER_PUBLIC_KEY = "pub-test";
+      process.env.BUILDER_USER_ID = "builder-user-123";
+      process.env.BUILDER_API_HOST = "https://api.test.builder.io";
+
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify({ error: "Not a member" }), {
+            status: 403,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
+      );
+
+      const error = await runBuilderAgent({
+        prompt: "Create an app",
+        projectId: "project-123",
+        userEmail: "brent@builder.io",
+      }).catch((err: unknown) => err);
+
+      expect(error).toBeInstanceOf(Error);
+      expect(error).not.toHaveProperty("actionContractError");
+    });
+
     it("attributes the branch to the requesting user, not the connected credential", async () => {
       process.env.BUILDER_PRIVATE_KEY = "bpk-test";
       process.env.BUILDER_PUBLIC_KEY = "pub-test";
@@ -1601,6 +1662,123 @@ describe("Builder callback CSRF state", () => {
       expect(() =>
         buildBuilderAgentUserPrompt("Update the dashboard", "x".repeat(32_001)),
       ).toThrow("context must be 32000 characters or fewer");
+    });
+
+    it("forwards upload and URL attachments in the user message", async () => {
+      process.env.BUILDER_PRIVATE_KEY = "bpk-test";
+      process.env.BUILDER_PUBLIC_KEY = "pub-test";
+      process.env.BUILDER_API_HOST = "https://api.test.builder.io";
+      const fetchSpy = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            branchName: "qa-branch",
+            projectId: "project-123",
+            url: "https://builder.io/app/projects/project-123/branch/qa-branch",
+            status: "processing",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+      vi.stubGlobal("fetch", fetchSpy);
+      const attachments = [
+        {
+          type: "upload" as const,
+          contentType: "text/plain" as const,
+          name: "notes.txt",
+          dataUrl: "",
+          text: "Read these notes",
+          size: Buffer.byteLength("Read these notes", "utf8"),
+          id: "file-notes",
+        },
+        { type: "url" as const, value: "https://example.com/spec" },
+      ];
+
+      await runBuilderAgent({
+        prompt: "Use the attached requirements",
+        attachments,
+        projectId: "project-123",
+        userEmail: "brent@builder.io",
+      });
+
+      const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+      expect(body.userMessage).toEqual({
+        userPrompt: "Use the attached requirements",
+        attachments,
+      });
+    });
+
+    it("accepts image, PDF, JSON, and text attachment formats", () => {
+      expect(
+        normalizeBuilderAgentAttachments([
+          {
+            type: "upload",
+            contentType: "image/png",
+            name: "preview.png",
+            dataUrl: "data:image/png;base64,ZmFrZQ==",
+            size: 5,
+            id: "file-image",
+          },
+          {
+            type: "upload",
+            contentType: "application/pdf",
+            name: "requirements.pdf",
+            dataUrl: "data:application/pdf;base64,ZmFrZQ==",
+            size: 5,
+            id: "file-pdf",
+          },
+          {
+            type: "upload",
+            contentType: "application/json",
+            name: "config.json",
+            dataUrl: "",
+            text: '{"enabled":true}',
+            size: Buffer.byteLength('{"enabled":true}', "utf8"),
+            id: "file-json",
+          },
+        ]),
+      ).toHaveLength(3);
+    });
+
+    it("validates supported attachment content", () => {
+      expect(() =>
+        normalizeBuilderAgentAttachments([
+          {
+            type: "upload",
+            contentType: "application/octet-stream" as never,
+            name: "data.bin",
+            dataUrl: "",
+            size: 1,
+            id: "file-bin",
+          },
+        ]),
+      ).toThrow("Unsupported Builder attachment content type");
+    });
+
+    it("omits attachments when none are supplied", async () => {
+      process.env.BUILDER_PRIVATE_KEY = "bpk-test";
+      process.env.BUILDER_PUBLIC_KEY = "pub-test";
+      process.env.BUILDER_API_HOST = "https://api.test.builder.io";
+      const fetchSpy = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            branchName: "qa-branch",
+            projectId: "project-123",
+            url: "https://builder.io/app/projects/project-123/branch/qa-branch",
+            status: "processing",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+      vi.stubGlobal("fetch", fetchSpy);
+
+      await runBuilderAgent({
+        prompt: "Create an app",
+        projectId: "project-123",
+        userEmail: "brent@builder.io",
+      });
+
+      const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+      expect(body.userMessage).toEqual({ userPrompt: "Create an app" });
     });
 
     it("bounds a stalled agent run instead of leaving the MCP request hanging", async () => {
