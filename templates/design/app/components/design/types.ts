@@ -1,4 +1,7 @@
-import type { ElementProvenance } from "@shared/source-mode";
+import type {
+  ElementProvenance,
+  RuntimeComponentIdentity,
+} from "@shared/source-mode";
 
 export interface PortableStyleSnapshotNode {
   sourceId?: string;
@@ -47,6 +50,10 @@ export interface RuntimeVerificationRequest {
 export interface ElementInfo {
   tagName: string;
   componentName?: string;
+  /** The durable inline/component annotation, distinct from runtime labels. */
+  componentAnnotation?: string;
+  /** Framework-derived identity for an unannotated runtime component. */
+  runtimeComponent?: RuntimeComponentIdentity;
   id?: string;
   sourceId?: string;
   /**

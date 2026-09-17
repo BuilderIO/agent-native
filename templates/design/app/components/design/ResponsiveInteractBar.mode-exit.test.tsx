@@ -92,12 +92,20 @@ describe("ResponsiveInteractBar mode exits", () => {
   // (see DesignEditor.tsx's pinned ResponsiveInteractExitButton, which
   // covers Close for that case instead). `showClose={false}` is how a
   // caller opts a render out of the in-bar Close so there's exactly one
-  // Close control on screen, not two.
-  it("omits its own Close when the caller renders it pinned elsewhere", () => {
+  // interactive Close control on screen, while an invisible label-sized
+  // spacer keeps the scrollable controls clear of that pinned control.
+  it("reserves the pinned Close width without rendering a second control", () => {
     const markup = renderBar({ showClose: false });
 
     expect(markup).toContain('aria-label="Edit"');
     expect(markup).not.toContain('aria-label="Exit responsive preview"');
+    expect(markup).toContain(
+      'aria-hidden="true" class="invisible flex shrink-0 items-center pl-1"',
+    );
+    expect(markup).toMatch(
+      /<button class="[^"]*h-7[^"]*shrink-0[^"]*gap-1\.5[^"]*px-2[^"]*!text-\[12px\][^"]*" disabled="" tabindex="-1">/,
+    );
+    expect(markup).toContain("Exit responsive preview");
   });
 
   it("hides Annotate for a caller without edit access", () => {
