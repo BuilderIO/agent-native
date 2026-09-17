@@ -784,6 +784,7 @@ import {
   TAB_ID,
 } from "./design-editor/editor-session";
 import {
+  advanceLatestUnloadSaveBase,
   coalescePendingFileContentSave,
   createPendingLocalFileContent,
   type FileContentSaveRequest,
@@ -805,6 +806,7 @@ import {
   resolveOptimisticTextDecorationLine,
   resolveServerFiles,
   shouldRetirePendingLocalFileContent,
+  shouldClearLatestUnloadSave,
   shouldClearLatestUnloadSaveForOutboxEntry,
   shouldSendKeepalive,
   type OptimisticTextDecorationLineEntry,
@@ -4240,11 +4242,36 @@ function DesignEditor() {
       );
       if (!attempt.accepted) return;
       void attempt.completion
-        .then((result: unknown) => {
-          if (!updateFileResultPersistedContent(result, pending.content)) {
+        .then(async (result: unknown) => {
+          const persistedContentMatches = updateFileResultPersistedContent(
+            result,
+            pending.content,
+          );
+          if (!persistedContentMatches) {
             return;
           }
-          return acknowledgeOutboxEntry(entry);
+          const resultInfo = result as { versionHash?: string } | undefined;
+          const latest = latestFileSaveForUnloadRef.current[pending.id];
+          if (shouldClearLatestUnloadSave(latest, pending)) {
+            await acknowledgeOutboxEntry(entry);
+            delete latestFileSaveForUnloadRef.current[pending.id];
+            return;
+          }
+          if (
+            advanceLatestUnloadSaveBase(
+              latest,
+              pending,
+              resultInfo?.versionHash ?? sourceContentHash(pending.content),
+            )
+          ) {
+            const advancedOutboxEntry = latest
+              ? createFileSaveOutboxEntry(latest)
+              : null;
+            if (advancedOutboxEntry) {
+              await journalOutboxEntry(advancedOutboxEntry);
+            }
+          }
+          await acknowledgeOutboxEntry(entry);
         })
         // Pagehide/navigation can intentionally abort this request. The
         // journaled operation remains available for replay, and there is no
