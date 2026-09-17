@@ -815,6 +815,11 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
           ([, intent]) => intent?.cancelled === true,
         ),
       ).toHaveLength(1);
+      expect(
+        onLayerMarqueeSelectionChange.mock.calls.find(
+          ([, intent]) => intent?.cancelled === true,
+        )?.[1],
+      ).toMatchObject({ restoreHostSelection: true });
     } finally {
       postMessageSpies.forEach((spy) => spy.mockRestore());
     }

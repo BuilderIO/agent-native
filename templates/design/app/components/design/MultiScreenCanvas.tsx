@@ -4555,6 +4555,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         onLayerMarqueeSelectionChange?.([], {
           source: "marquee",
           cancelled: true,
+          restoreHostSelection: true,
         });
         updateSelectedIds(() => state.baseSelectedIds);
         updateSelectedDraftIds(() => state.baseSelectedDraftIds);
