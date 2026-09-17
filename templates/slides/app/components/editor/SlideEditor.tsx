@@ -566,14 +566,30 @@ function resolveSlideCanvasHitTarget(
   }
   const underlying = document
     .elementsFromPoint(clientX, clientY)
+    .map((element) => {
+      let candidate: Element | null = element;
+      while (
+        candidate &&
+        candidate !== slideContent &&
+        slideContent.contains(candidate)
+      ) {
+        if (
+          candidate instanceof HTMLElement &&
+          candidate.hasAttribute("data-builder-id")
+        ) {
+          return candidate;
+        }
+        candidate = candidate.parentElement;
+      }
+      return null;
+    })
     .find(
       (element): element is HTMLElement =>
-        element instanceof HTMLElement &&
+        element !== null &&
         element !== emptyTextBox &&
         !emptyTextBox.contains(element) &&
         element !== slideContent &&
-        !isSlideCanvasShell(element) &&
-        slideContent.contains(element),
+        !isSlideCanvasShell(element),
     );
   return underlying ?? target;
 }

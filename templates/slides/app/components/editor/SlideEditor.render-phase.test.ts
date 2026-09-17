@@ -150,6 +150,8 @@ describe("SlideEditor render-phase safety", () => {
     );
     const helperBody = source.slice(helperStart, helperEnd);
 
+    expect(helperBody).toContain("candidate instanceof HTMLElement");
+    expect(helperBody).toContain("candidate = candidate.parentElement;");
     expect(helperBody).toContain("element !== slideContent");
     expect(helperBody).toContain("return underlying ?? target;");
   });
