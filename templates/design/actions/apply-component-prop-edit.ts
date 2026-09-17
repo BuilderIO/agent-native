@@ -990,6 +990,17 @@ export default defineAction({
         edit.kind === "attribute"
       ) {
         await assertAccess("design", designId, "editor");
+        if (!localSource.expectedVersionHash) {
+          return {
+            designId,
+            nodeId,
+            sourceType,
+            persisted: false,
+            conflict: true,
+            error:
+              "Component prop edits require the source version captured with the live selection. Refresh the selection and retry.",
+          };
+        }
         const live = await readLocalFileAction.run({
           designId,
           connectionId: localSource.connectionId,

@@ -2547,31 +2547,35 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function runtimeComponentIdentityForElement(el, provenance, instanceId) {
       var name = provenance.component && provenance.component.trim();
-      var sourceFile = provenance.sourceFile && provenance.sourceFile.trim();
-      if (!name || !sourceFile || !provenance.framework || provenance.framework === "html" || !instanceId) {
+      var definitionSourceFile = provenance.sourceFile && provenance.sourceFile.trim();
+      var invocationSourceFile = provenance.ownerSourceFile && provenance.ownerSourceFile.trim();
+      var invocationLine = provenance.ownerLine;
+      var invocationColumn = provenance.ownerColumn;
+      var invocationMethod = provenance.ownerMethod;
+      if (!name || !definitionSourceFile || !provenance.framework || provenance.framework === "html" || !instanceId) {
         return void 0;
       }
       var boundary = [
         provenance.framework,
-        sourceFile,
+        definitionSourceFile,
         provenance.line || "",
         provenance.column || "",
         name
       ].join("|");
-      var writable = provenance.framework === "react" && provenance.method !== void 0 && provenance.method !== "debug-stack" && Number.isFinite(provenance.line) && Number.isFinite(provenance.column);
+      var writable = provenance.framework === "react" && invocationSourceFile !== void 0 && invocationMethod !== void 0 && invocationMethod !== "debug-stack" && Number.isFinite(invocationLine) && Number.isFinite(invocationColumn);
       return {
         componentId: "runtime-component-" + runtimeLayerHash(boundary),
         instanceId,
         name,
         framework: provenance.framework,
-        sourceFile,
-        line: provenance.line,
-        column: provenance.column,
-        method: provenance.method,
+        sourceFile: invocationSourceFile,
+        line: invocationLine,
+        column: invocationColumn,
+        method: invocationMethod,
         ownerKey: provenance.ownerKey,
         props: runtimeComponentPropsForElement(el),
         writeCapability: writable ? "authored-jsx-literal" : "unsupported",
-        reason: writable ? void 0 : "The runtime did not expose a verified authored JSX location."
+        reason: writable ? void 0 : "The runtime did not expose a verified authored component invocation location."
       };
     }
     function isAutoLayoutDisplay(display) {

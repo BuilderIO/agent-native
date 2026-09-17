@@ -2593,10 +2593,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     instanceId: string,
   ): any {
     var name = provenance.component && provenance.component.trim();
-    var sourceFile = provenance.sourceFile && provenance.sourceFile.trim();
+    var definitionSourceFile =
+      provenance.sourceFile && provenance.sourceFile.trim();
+    var invocationSourceFile =
+      provenance.ownerSourceFile && provenance.ownerSourceFile.trim();
+    var invocationLine = provenance.ownerLine;
+    var invocationColumn = provenance.ownerColumn;
+    var invocationMethod = provenance.ownerMethod;
     if (
       !name ||
-      !sourceFile ||
+      !definitionSourceFile ||
       !provenance.framework ||
       provenance.framework === "html" ||
       !instanceId
@@ -2605,32 +2611,33 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     var boundary = [
       provenance.framework,
-      sourceFile,
+      definitionSourceFile,
       provenance.line || "",
       provenance.column || "",
       name,
     ].join("|");
     var writable =
       provenance.framework === "react" &&
-      provenance.method !== undefined &&
-      provenance.method !== "debug-stack" &&
-      Number.isFinite(provenance.line) &&
-      Number.isFinite(provenance.column);
+      invocationSourceFile !== undefined &&
+      invocationMethod !== undefined &&
+      invocationMethod !== "debug-stack" &&
+      Number.isFinite(invocationLine) &&
+      Number.isFinite(invocationColumn);
     return {
       componentId: "runtime-component-" + runtimeLayerHash(boundary),
       instanceId: instanceId,
       name: name,
       framework: provenance.framework,
-      sourceFile: sourceFile,
-      line: provenance.line,
-      column: provenance.column,
-      method: provenance.method,
+      sourceFile: invocationSourceFile,
+      line: invocationLine,
+      column: invocationColumn,
+      method: invocationMethod,
       ownerKey: provenance.ownerKey,
       props: runtimeComponentPropsForElement(el),
       writeCapability: writable ? "authored-jsx-literal" : "unsupported",
       reason: writable
         ? undefined
-        : "The runtime did not expose a verified authored JSX location.",
+        : "The runtime did not expose a verified authored component invocation location.",
     };
   }
 

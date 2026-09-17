@@ -60,6 +60,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
+import type { LocalhostWriteConsentPayload } from "../LocalhostWriteConsentDialog";
 import { findCanvasIframeForScreen } from "../multi-screen/iframe-targeting";
 import {
   canRebuildAlpineDataLosslessly,
@@ -73,6 +74,15 @@ import {
   InspectorGrid,
   InspectorGridCell,
 } from "./inspector-grid";
+
+function isLocalhostWriteConsentError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.name === "LocalWriteConsentRequiredError" ||
+      error.name === "WriteConsentRequiredError" ||
+      /write-consent grant|grant expired/i.test(error.message))
+  );
+}
 
 // ─── Make it real — inline upgrade card (§3, §6.6) ──────────────────────────
 
@@ -340,7 +350,9 @@ export interface ComponentLocalSource {
     | "repeated-render"
     | "shared-component-definition"
     | "unknown";
+  expectedVersionHash?: string;
   expectedValue?: string;
+  propStamps?: Array<{ name: string; value: string }>;
 }
 
 export interface RuntimeComponentDetails {
@@ -562,6 +574,7 @@ export function ComponentSection({
   onComponentPropApplied,
   sourceCapabilities = [],
   runtime,
+  requestLocalhostWrite,
 }: {
   designId: string;
   fileId?: string;
@@ -591,6 +604,12 @@ export function ComponentSection({
   sourceCapabilities?: string[];
   /** Live component metadata used when a URL file stores only its route URL. */
   runtime?: RuntimeComponentDetails;
+  /** Request the existing localhost write-consent dialog before source writes. */
+  requestLocalhostWrite?: (opts: {
+    files: string[];
+    onGranted: LocalhostWriteConsentPayload["onGranted"];
+    onCancel?: () => void;
+  }) => void;
 }) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -844,6 +863,13 @@ export function ComponentSection({
           expectedValue?: string;
         },
   ) => {
+    const previousPreviewValue =
+      edit.kind === "attribute" ? edit.expectedValue : undefined;
+    const rollbackPreview = () => {
+      if (edit.kind === "attribute" && previousPreviewValue !== undefined) {
+        postComponentPropPreview(edit.attribute, previousPreviewValue);
+      }
+    };
     if (edit.kind === "attribute") {
       postComponentPropPreview(edit.attribute, edit.value);
     }
@@ -865,37 +891,70 @@ export function ComponentSection({
               : {}),
           }
         : undefined;
-    applyPropMutation.mutate(
-      {
-        designId,
-        nodeId,
-        ...(fileId ? { fileId } : {}),
-        edit:
-          edit.kind === "attribute"
-            ? {
-                kind: "attribute",
-                attribute: edit.attribute,
-                value: edit.value,
-              }
-            : edit,
-        ...(mutationSource ? { source: mutationSource } : {}),
-      },
-      {
+    const payload = {
+      designId,
+      nodeId,
+      ...(fileId ? { fileId } : {}),
+      edit:
+        edit.kind === "attribute"
+          ? {
+              kind: "attribute" as const,
+              attribute: edit.attribute,
+              value: edit.value,
+            }
+          : edit,
+      ...(mutationSource ? { source: mutationSource } : {}),
+    };
+    const submit = (retriedAfterConsent = false) => {
+      applyPropMutation.mutate(payload, {
         onSuccess: (result) => {
           const response = result as {
             content?: unknown;
             fileId?: unknown;
             updatedAt?: unknown;
             conflict?: unknown;
+            ctaRequired?: unknown;
+            persisted?: unknown;
             error?: unknown;
+            source?: {
+              connectionId?: unknown;
+              path?: unknown;
+              versionHash?: unknown;
+            };
+            result?: { status?: unknown; message?: unknown };
           };
-          if (response.conflict) {
+          const resultStatus = response.result?.status;
+          if (
+            response.conflict ||
+            response.ctaRequired ||
+            response.persisted === false ||
+            (typeof resultStatus === "string" && resultStatus !== "applied")
+          ) {
+            rollbackPreview();
             toast.error(
               typeof response.error === "string"
                 ? response.error
-                : "This file changed since this component prop edit was prepared. Refresh and try again.",
+                : t("designEditor.toasts.componentCreateFailed"),
             );
             return;
+          }
+          const source = response.source;
+          if (runtime?.local && typeof source?.versionHash === "string") {
+            queryClient.setQueryData(
+              [
+                "action",
+                "read-local-file",
+                {
+                  designId,
+                  connectionId: runtime.local.connectionId,
+                  path: runtime.local.path,
+                },
+              ],
+              (previous: { versionHash?: string } | undefined) => ({
+                ...previous,
+                versionHash: source.versionHash,
+              }),
+            );
           }
           if (
             typeof response.fileId === "string" &&
@@ -916,14 +975,36 @@ export function ComponentSection({
             );
           }
         },
+        onError: (error: unknown) => {
+          if (
+            !retriedAfterConsent &&
+            runtime?.local &&
+            requestLocalhostWrite &&
+            isLocalhostWriteConsentError(error)
+          ) {
+            requestLocalhostWrite({
+              files: [runtime.local.path],
+              onGranted: () => submit(true),
+              onCancel: rollbackPreview,
+            });
+            return;
+          }
+          rollbackPreview();
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : t("designEditor.toasts.componentCreateFailed"),
+          );
+        },
         onSettled: () => {
           void queryClient.invalidateQueries({
             queryKey: ["action", "get-design"],
           });
           void queryClient.invalidateQueries({ queryKey: detailsKey });
         },
-      },
-    );
+      });
+    };
+    submit();
   };
 
   useEffect(() => {

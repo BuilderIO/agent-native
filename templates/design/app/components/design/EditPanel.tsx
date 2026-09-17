@@ -190,6 +190,7 @@ import {
 } from "./inspector";
 import { IconText } from "./inspector/design-icons";
 import { type GlslShaderPanelContext } from "./inspector/GlslShaderPanel";
+import type { LocalhostWriteConsentPayload } from "./LocalhostWriteConsentDialog";
 import { getActiveScreenIframeId } from "./multi-screen/iframe-targeting";
 import type { ScreenHeightMode } from "./multi-screen/screen-height";
 import {
@@ -456,6 +457,12 @@ interface EditPanelProps {
   componentNodeId?: string;
   /** Runtime component metadata for URL-backed React selections. */
   componentRuntime?: RuntimeComponentDetails;
+  /** Request the existing localhost write-consent dialog before source writes. */
+  requestLocalhostWrite?: (opts: {
+    files: string[];
+    onGranted: LocalhostWriteConsentPayload["onGranted"];
+    onCancel?: () => void;
+  }) => void;
   /** True when the selected component node has reached the accepted source. */
   componentDetailsReady?: boolean;
   /** True when the selected linked component instance stores local overrides. */
@@ -2432,6 +2439,7 @@ export const EditPanel = memo(function EditPanel({
   reviewCommentsCount = 0,
   componentNodeId,
   componentRuntime,
+  requestLocalhostWrite,
   componentDetailsReady = true,
   componentInstanceHasLocalOverrides = false,
   onResetComponentInstanceOverrides,
@@ -3068,6 +3076,7 @@ export const EditPanel = memo(function EditPanel({
                   componentDetailsReady={componentDetailsReady}
                   nodeId={componentNodeId}
                   runtime={componentRuntime}
+                  requestLocalhostWrite={requestLocalhostWrite}
                   hasLocalOverrides={componentInstanceHasLocalOverrides}
                   swapPickerRequest={componentSwapPickerRequest}
                   onResetOverrides={

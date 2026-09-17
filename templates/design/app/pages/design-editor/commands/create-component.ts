@@ -58,6 +58,12 @@ export interface CreateComponentActionResult {
     versionHash: string;
     updatedAt: string;
   }>;
+  source?: {
+    kind: "local-file";
+    connectionId: string;
+    path: string;
+    versionHash: string;
+  };
   updatedAt?: string;
 }
 

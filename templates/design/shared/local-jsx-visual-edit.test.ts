@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import { planLocalJsxVisualEdit } from "./local-jsx-visual-edit.js";
 
-const anchor = { line: 3, column: 5, scope: "single-instance" as const };
+const anchor = {
+  line: 3,
+  column: 5,
+  positionPrecision: "authored" as const,
+  scope: "single-instance" as const,
+};
 
 describe("planLocalJsxVisualEdit", () => {
   it("previews a leaf text edit without changing surrounding JSX", () => {
@@ -180,6 +185,31 @@ describe("planLocalJsxVisualEdit", () => {
         intent: { kind: "attribute", name: "variant", value: "secondary" },
       }).result.status,
     ).toBe("needsAgent");
+  });
+
+  it("fails closed when source precision is absent or transformed", () => {
+    const content = 'export const Card = () => <Button variant="primary" />;';
+    for (const positionPrecision of [
+      undefined,
+      "unknown",
+      "transformed",
+    ] as const) {
+      expect(
+        planLocalJsxVisualEdit({
+          content,
+          anchor: {
+            line: 1,
+            column: 28,
+            ...(positionPrecision ? { positionPrecision } : {}),
+          },
+          intent: {
+            kind: "attribute",
+            name: "variant",
+            value: "secondary",
+          },
+        }).result.status,
+      ).toBe("needsAgent");
+    }
   });
 
   it.each(['bad"token', "bad{token}", "bad=value", "<script>"])(

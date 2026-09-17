@@ -236,11 +236,11 @@ export function planLocalJsxVisualEdit(args: {
   intent: LocalJsxLeafIntent;
 }): LocalJsxVisualEditResult {
   const { content, anchor, intent } = args;
-  if (anchor.positionPrecision === "transformed") {
+  if (anchor.positionPrecision !== "authored") {
     return fail(
       content,
       "needsAgent",
-      "The source anchor's line and column are the dev server's transformed coordinates (React 19 exposes no authored position), so they cannot be seeked in the authored file.",
+      "The source anchor does not have verified authored coordinates, so it cannot be seeked safely in the authored file.",
     );
   }
   if (

@@ -37,8 +37,8 @@ function PrimaryButton({ variant = "primary", children, ...props }) {
         type: "button",
         _debugSource: {
           fileName: "src/Component.jsx",
-          lineNumber: __LINE__,
-          columnNumber: __COLUMN__,
+          lineNumber: __HOST_LINE__,
+          columnNumber: __HOST_COLUMN__,
         },
         return: {
           type: PrimaryButton,
@@ -76,15 +76,24 @@ const root = document.getElementById("root");
 if (root) createRoot(root).render(<App />);
 `;
   const anchor = source.indexOf("<PrimaryButton");
-  if (anchor < 0) throw new Error("React fixture source anchor is missing");
+  const hostAnchor = source.indexOf("<button ref");
+  if (anchor < 0 || hostAnchor < 0)
+    throw new Error("React fixture source anchor is missing");
   const line = source.slice(0, anchor).split("\n").length;
   const previousNewline = source.lastIndexOf("\n", anchor - 1);
   const column = anchor - previousNewline;
+  const hostLine = source.slice(0, hostAnchor).split("\n").length;
+  const hostPreviousNewline = source.lastIndexOf("\n", hostAnchor - 1);
+  const hostColumn = hostAnchor - hostPreviousNewline;
   return source
     .split("__LINE__")
     .join(String(line))
     .split("__COLUMN__")
-    .join(String(column));
+    .join(String(column))
+    .split("__HOST_LINE__")
+    .join(String(hostLine))
+    .split("__HOST_COLUMN__")
+    .join(String(hostColumn));
 }
 
 async function bundleReactFixture(): Promise<void> {
@@ -597,15 +606,12 @@ test("promotes and edits a URL-backed React component through the live iframe", 
     "utf8",
   );
   const anchor = source.indexOf("<PrimaryButton");
+  const hostAnchor = source.indexOf("<button ref");
   if (anchor < 0) throw new Error("React fixture source anchor is missing");
   const line = source.slice(0, anchor).split("\n").length;
   const column = anchor - source.lastIndexOf("\n", anchor - 1);
-
-  const grant = await postAction(request, "grant-localhost-write-consent", {
-    connectionId,
-    designId,
-  });
-  expect(grant.rootPath).toBe(rootPath);
+  const hostLine = source.slice(0, hostAnchor).split("\n").length;
+  const hostColumn = hostAnchor - source.lastIndexOf("\n", hostAnchor - 1);
 
   await page.goto(appPath(`/design/${designId}?editorView=overview`), {
     waitUntil: "domcontentloaded",
@@ -649,8 +655,8 @@ test("promotes and edits a URL-backed React component through the live iframe", 
     framework: "react",
     method: "debug-source",
     sourceFile: "src/Component.jsx",
-    line,
-    column,
+    line: hostLine,
+    column: hostColumn,
   });
   expect(selection.componentAnnotation).toBeUndefined();
   expect(selection.runtimeComponent).toMatchObject({
@@ -658,6 +664,9 @@ test("promotes and edits a URL-backed React component through the live iframe", 
     framework: "react",
     instanceId: "react-button-1",
     writeCapability: "authored-jsx-literal",
+    sourceFile: "src/Component.jsx",
+    line,
+    column,
     props: [{ name: "variant", value: "primary" }],
   });
 
@@ -678,13 +687,26 @@ test("promotes and edits a URL-backed React component through the live iframe", 
       response.request().method() !== "OPTIONS",
   );
   await createForm.getByRole("button", { name: "Create", exact: true }).click();
-  const createHttpResponse = await createResponse;
-  expect(createHttpResponse.ok()).toBe(true);
+  await createResponse;
+  const consentDialog = page.getByRole("dialog");
+  await expect(consentDialog).toContainText("Allow file writes");
+  const retryCreateResponse = page.waitForResponse(
+    (response) =>
+      response.url().includes("/_agent-native/actions/create-component") &&
+      response.request().method() !== "OPTIONS",
+  );
+  await consentDialog.getByRole("button", { name: "Allow writes" }).click();
+  expect((await retryCreateResponse).ok()).toBe(true);
   await expect
     .poll(() =>
       fs.readFileSync(path.join(rootPath, "src", "Component.jsx"), "utf8"),
     )
     .toContain('data-agent-native-component="PrimaryButton"');
+  await expect
+    .poll(() =>
+      fs.readFileSync(path.join(rootPath, "src", "Component.jsx"), "utf8"),
+    )
+    .toContain('data-agent-native-prop-variant="primary"');
 
   await bundleReactFixture();
   await page.reload({ waitUntil: "domcontentloaded" });

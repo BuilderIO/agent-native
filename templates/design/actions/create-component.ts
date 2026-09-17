@@ -91,6 +91,13 @@ export interface CreateComponentSourceExpectation {
   expectedVersionHash?: string;
 }
 
+export interface CreateComponentLocalSourceReceipt {
+  kind: "local-file";
+  connectionId: string;
+  path: string;
+  versionHash: string;
+}
+
 interface LocalComponentSource extends LocalJsxSourceAnchor {
   connectionId: string;
   path: string;
@@ -399,6 +406,17 @@ export default defineAction({
           ctaRequired: true,
           ctaMessage:
             "Creating a component from this source requires an authored localhost JSX anchor.",
+        };
+      }
+
+      if (!localSource.expectedVersionHash) {
+        return {
+          designId,
+          sourceType,
+          persisted: false,
+          conflict: true,
+          error:
+            "Create Component requires the source version captured with the live selection. Refresh the selection and retry.",
         };
       }
 
