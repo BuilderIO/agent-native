@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { componentIndexId } from "../shared/component-model.js";
 import {
   renameLinkedComponentHtml,
   ComponentRenameAmbiguousError,
@@ -33,6 +34,15 @@ describe("renameLinkedComponentHtml", () => {
   it("exposes the typed legacy ambiguity error", () => {
     expect(new ComponentRenameAmbiguousError()).toBeInstanceOf(
       ComponentRenameAmbiguousError,
+    );
+  });
+
+  it("keeps component index ids deterministic across a rename", () => {
+    expect(componentIndexId("design-1", "Old Card")).toBe(
+      "ci_design-1_old_card",
+    );
+    expect(componentIndexId("design-1", "New Card")).toBe(
+      "ci_design-1_new_card",
     );
   });
 });

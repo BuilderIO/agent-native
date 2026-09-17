@@ -28,6 +28,7 @@ import { resolveSourceCapabilities } from "../shared/capability-resolver.js";
 import { buildCodeLayerProjection } from "../shared/code-layer.js";
 import type { CodeLayerSource } from "../shared/code-layer.js";
 import {
+  componentIndexId,
   detectInstances,
   buildDefinitions,
   type ComponentDefinition,
@@ -51,12 +52,6 @@ async function liveContent(
     // Collab reads are best-effort; SQL content is the fallback.
   }
   return storedContent;
-}
-
-function componentIndexId(designId: string, name: string): string {
-  // Stable deterministic id — same component name on the same design always
-  // maps to the same row so upsert is safe.
-  return `ci_${designId}_${name.toLowerCase().replace(/[^a-z0-9]/g, "_")}`;
 }
 
 // ─── Action ───────────────────────────────────────────────────────────────────

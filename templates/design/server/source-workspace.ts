@@ -9,7 +9,7 @@ import {
   type PreparedYDocMutationLease,
   withPreparedYDocMutation,
 } from "@agent-native/core/collab";
-import { getDbExec } from "@agent-native/core/db";
+import { getDbExec, type DbExec } from "@agent-native/core/db";
 import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 
@@ -727,6 +727,8 @@ export async function writeInlineSourceFilesBatch(args: {
    * Omit this for batches that intentionally touch only a subset of files.
    */
   expectedHtmlFileIds?: readonly string[];
+  /** Additional metadata mutation to commit with the source documents. */
+  afterFilesPersist?: (tx: DbExec, updatedAt: string) => Promise<void>;
 }): Promise<{
   files: Array<{
     id: string;
@@ -938,6 +940,10 @@ export async function writeInlineSourceFilesBatch(args: {
           }
 
           await lease.persist(tx, item.content);
+        }
+
+        if (args.afterFilesPersist) {
+          await args.afterFilesPersist(tx, updatedAt);
         }
 
         if (hasSqlChanges) {

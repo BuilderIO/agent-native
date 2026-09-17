@@ -44,6 +44,10 @@ export const COMPONENT_OVERRIDES_ATTR = "data-agent-native-component-overrides";
 /** Prefix for simple prop attributes stamped next to the component root. */
 export const COMPONENT_PROP_PREFIX = "data-agent-native-prop-";
 
+export function componentIndexId(designId: string, name: string): string {
+  return `ci_${designId}_${name.toLowerCase().replace(/[^a-z0-9]/g, "_")}`;
+}
+
 // ─── Extracted prop value ─────────────────────────────────────────────────────
 
 export interface ComponentPropValue {

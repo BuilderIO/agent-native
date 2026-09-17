@@ -138,9 +138,12 @@ export default defineAction({
     }
 
     const componentName = componentNameFor(node);
-    if (!componentName) {
+    const componentId =
+      node.dataAttributes[COMPONENT_ID_ATTR]?.trim() ||
+      node.dataAttributes[COMPONENT_REF_ATTR]?.trim();
+    if (!componentName && !componentId) {
       throw new Error(
-        `Node "${nodeId}" is not a component root (no data-agent-native-component attribute).`,
+        `Node "${nodeId}" is not a component root (no component name or linked identity).`,
       );
     }
 
@@ -174,21 +177,24 @@ export default defineAction({
     );
 
     const entries = scanComponentLibrary(filesForScan);
-    const componentId =
-      node.dataAttributes[COMPONENT_ID_ATTR]?.trim() ||
-      node.dataAttributes[COMPONENT_REF_ATTR]?.trim();
     const matches = componentId
       ? entries.filter(
           (entry) =>
             entry.componentId === componentId ||
             entry.componentRef === componentId,
         )
-      : entriesForComponent(entries, componentName);
+      : entriesForComponent(entries, componentName!);
 
     if (matches.length === 0) {
       // Shouldn't happen (the current node itself matches), but guard anyway.
       throw new Error(
-        `No instances of component "${componentName}" found across the design's files.`,
+        `No instances of component "${componentName ?? componentId}" found across the design's files.`,
+      );
+    }
+    const resolvedComponentName = componentName ?? matches[0]?.name;
+    if (!resolvedComponentName) {
+      throw new Error(
+        `Component identity "${componentId}" has no named canonical root.`,
       );
     }
 
@@ -206,7 +212,7 @@ export default defineAction({
       return {
         designId,
         nodeId,
-        componentName,
+        componentName: resolvedComponentName,
         sourceType,
         ctaRequired: false,
         isMain: true,
@@ -214,8 +220,8 @@ export default defineAction({
         navigated: false,
         note:
           matches.length === 1
-            ? `"${componentName}" has only one instance — this is it.`
-            : `This is the earliest instance of "${componentName}" across the design.`,
+            ? `"${resolvedComponentName}" has only one instance — this is it.`
+            : `This is the earliest instance of "${resolvedComponentName}" across the design.`,
       };
     }
 
@@ -233,7 +239,7 @@ export default defineAction({
     return {
       designId,
       nodeId,
-      componentName,
+      componentName: resolvedComponentName,
       sourceType,
       ctaRequired: false,
       isMain: false,

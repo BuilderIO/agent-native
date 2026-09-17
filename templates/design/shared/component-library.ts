@@ -26,7 +26,6 @@ import {
   COMPONENT_ID_ATTR,
   COMPONENT_REF_ATTR,
   componentNameFor,
-  isComponentInstance,
 } from "./component-model.js";
 
 export interface ComponentLibraryFile {
@@ -59,7 +58,12 @@ export interface ComponentLibraryEntry {
 export function scanComponentLibrary(
   files: ComponentLibraryFile[],
 ): ComponentLibraryEntry[] {
-  const entries: ComponentLibraryEntry[] = [];
+  const entries: Array<
+    Omit<ComponentLibraryEntry, "name"> & {
+      name?: string;
+    }
+  > = [];
+  const namesByIdentity = new Map<string, string>();
 
   for (const file of files) {
     const html = file.content ?? "";
@@ -77,9 +81,15 @@ export function scanComponentLibrary(
     });
 
     for (const node of projection.nodes) {
-      if (!isComponentInstance(node)) continue;
-      const name = componentNameFor(node);
-      if (!name) continue;
+      const name = componentNameFor(node) ?? undefined;
+      const componentId =
+        node.dataAttributes[COMPONENT_ID_ATTR]?.trim() || undefined;
+      const componentRef =
+        node.dataAttributes[COMPONENT_REF_ATTR]?.trim() || undefined;
+      if (!name && !componentId && !componentRef) continue;
+
+      if (name && componentId) namesByIdentity.set(componentId, name);
+      if (name && componentRef) namesByIdentity.set(componentRef, name);
 
       // `node.id` is an ephemeral id scoped to this one projection call — it
       // is NOT the same as the durable `data-agent-native-node-id` attribute
@@ -94,10 +104,8 @@ export function scanComponentLibrary(
 
       entries.push({
         name,
-        componentId:
-          node.dataAttributes[COMPONENT_ID_ATTR]?.trim() || undefined,
-        componentRef:
-          node.dataAttributes[COMPONENT_REF_ATTR]?.trim() || undefined,
+        componentId,
+        componentRef,
         fileId: file.id,
         filename: file.filename,
         nodeId,
@@ -106,7 +114,16 @@ export function scanComponentLibrary(
     }
   }
 
-  return entries;
+  return entries.flatMap((entry) => {
+    const name =
+      entry.name ??
+      (entry.componentRef
+        ? namesByIdentity.get(entry.componentRef)
+        : entry.componentId
+          ? namesByIdentity.get(entry.componentId)
+          : undefined);
+    return name ? [{ ...entry, name }] : [];
+  });
 }
 
 /**

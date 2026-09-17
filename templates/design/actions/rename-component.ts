@@ -20,6 +20,8 @@ import {
   COMPONENT_ID_ATTR,
   COMPONENT_NAME_ATTR,
   COMPONENT_REF_ATTR,
+  componentIndexId,
+  componentNameFor,
 } from "../shared/component-model.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
 
@@ -90,15 +92,18 @@ export default defineAction({
         live: await readLiveSourceFile(file),
       })),
     );
-    const hasCanonical = liveFiles.some(({ live }) =>
-      buildCodeLayerProjection(live.content).nodes.some(
+    const canonical = liveFiles
+      .flatMap(({ live }) => buildCodeLayerProjection(live.content).nodes)
+      .find(
         (node) =>
           node.dataAttributes[COMPONENT_ID_ATTR]?.trim() === componentId,
-      ),
-    );
-    if (!hasCanonical) {
+      );
+    const oldName = canonical ? componentNameFor(canonical) : null;
+    if (!oldName) {
       throw new ComponentRenameAmbiguousError();
     }
+    const oldIndexId = componentIndexId(designId, oldName);
+    const newIndexId = componentIndexId(designId, newName);
     const batches = liveFiles.map(({ file, live }) => ({
       file: { ...file, content: live.content },
       content: renameLinkedComponentHtml(live.content, componentId, newName)
@@ -118,6 +123,12 @@ export default defineAction({
         designId,
         files: batches,
         expectedHtmlFileIds: htmlFiles.map((file) => file.id),
+        afterFilesPersist: async (tx, updatedAt) => {
+          await tx.execute({
+            sql: "UPDATE component_index SET id = ?, name = ?, updated_at = ? WHERE id = ? AND design_id = ?",
+            args: [newIndexId, newName, updatedAt, oldIndexId, designId],
+          });
+        },
       });
       return {
         designId,

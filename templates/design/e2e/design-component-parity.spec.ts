@@ -94,6 +94,26 @@ async function action(
   return response.json();
 }
 
+async function readAction(
+  request: APIRequestContext,
+  name: string,
+  input: Record<string, string>,
+): Promise<any> {
+  const response = await request.get(
+    baseURL +
+      "/_agent-native/actions/" +
+      name +
+      "?" +
+      new URLSearchParams(input).toString(),
+  );
+  if (!response.ok()) {
+    throw new Error(
+      name + ": " + response.status() + " " + (await response.text()),
+    );
+  }
+  return response.json();
+}
+
 async function readDesign(
   request: APIRequestContext,
   designId: string,
@@ -234,27 +254,37 @@ function parentIdentity(html: string, nodeId: string): string | null {
   );
 }
 
-async function selectNodeById(page: Page, nodeId: string): Promise<void> {
+async function selectNodeById(
+  page: Page,
+  nodeId: string,
+  screenId?: string,
+): Promise<void> {
   await enterDirectMode(page);
   const selector = '[data-agent-native-node-id="' + nodeId + '"]';
-  const node = designFrame(page).locator(selector);
+  const node = designFrame(page, screenId).locator(selector);
   await expect(node).toBeVisible();
   await installBridge(page);
-  await page
-    .locator("iframe[data-design-preview-iframe]")
-    .last()
-    .evaluate((element, targetSelector) => {
-      (element as HTMLIFrameElement).contentWindow?.postMessage(
-        {
-          type: "select-element",
-          selector: targetSelector,
-          selectorCandidates: [targetSelector],
-        },
-        "*",
-      );
-    }, selector);
+  const iframe = screenId
+    ? page.locator(
+        'iframe[data-design-preview-iframe][data-screen-iframe-id="' +
+          screenId +
+          '"]',
+      )
+    : page.locator("iframe[data-design-preview-iframe]").last();
+  await iframe.evaluate((element, targetSelector) => {
+    (element as HTMLIFrameElement).contentWindow?.postMessage(
+      {
+        type: "select-element",
+        selector: targetSelector,
+        selectorCandidates: [targetSelector],
+      },
+      "*",
+    );
+  }, selector);
   await expect(
-    designFrame(page).locator('[data-agent-native-edit-overlay="selection"]'),
+    designFrame(page, screenId).locator(
+      '[data-agent-native-edit-overlay="selection"]',
+    ),
   ).toBeAttached();
 }
 
@@ -467,6 +497,16 @@ test("Design components preserve identity across inline and URL-backed React bou
     expect(parentIdentity(html, "card-button")).toBe("card-slot");
     expect(parentIdentity(html, referenceButtonId!)).toBe("card-slot");
 
+    const indexed = await action(request, "index-components", {
+      designId,
+      fileId: file.id,
+    });
+    expect(indexed.components).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "ReusableCard" }),
+      ]),
+    );
+
     const renamed = await action(request, "rename-component", {
       designId,
       componentId: id,
@@ -487,6 +527,39 @@ test("Design components preserve identity across inline and URL-backed React bou
       'data-agent-native-component="ReusableCard"',
     );
 
+    const details = await readAction(request, "get-component-details", {
+      designId,
+      nodeId: "card-main",
+      fileId: file.id,
+    });
+    expect(details).toMatchObject({
+      name: "RenamedCard",
+      instance: { name: "RenamedCard" },
+    });
+
+    const refOnlyFile = await action(request, "create-file", {
+      designId,
+      filename: "ref-only.html",
+      content:
+        '<main><section data-agent-native-node-id="ref-only" data-agent-native-component-ref="' +
+        id +
+        '"><h2 data-agent-native-layer-name="Ref-only title">Ref only</h2></section></main>',
+      fileType: "html",
+    });
+    const refOnlyFileId = refOnlyFile.id ?? refOnlyFile.data?.id ?? "";
+    expect(refOnlyFileId).toBeTruthy();
+    const refOnlyResolution = await action(request, "go-to-main-component", {
+      designId,
+      nodeId: "ref-only",
+      fileId: refOnlyFileId,
+    });
+    expect(refOnlyResolution).toMatchObject({
+      isMain: false,
+      componentName: "RenamedCard",
+      instanceCount: 3,
+      main: { nodeId: "card-main" },
+    });
+
     const mainResolution = await action(request, "go-to-main-component", {
       designId,
       nodeId: referenceId,
@@ -494,10 +567,10 @@ test("Design components preserve identity across inline and URL-backed React bou
     });
     expect(mainResolution).toMatchObject({
       isMain: false,
-      instanceCount: 2,
+      instanceCount: 3,
       main: { nodeId: "card-main" },
     });
-    await selectNodeById(page, referenceId);
+    await selectNodeById(page, referenceId, file.id);
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect(
       page.getByRole("button", { name: "Move", exact: true }),

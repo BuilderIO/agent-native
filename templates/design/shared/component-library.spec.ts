@@ -66,6 +66,38 @@ describe("scanComponentLibrary", () => {
       { nodeId: "ref", componentRef: "cmp-primary" },
     ]);
   });
+
+  it("resolves ref-only instances even when the canonical root appears later", () => {
+    const entries = scanComponentLibrary([
+      {
+        id: "f1",
+        designId: "d1",
+        filename: "instance.html",
+        content:
+          '<section data-agent-native-node-id="ref-only" data-agent-native-component-ref="cmp-card"></section>',
+      },
+      {
+        id: "f2",
+        designId: "d1",
+        filename: "main.html",
+        content:
+          '<section data-agent-native-node-id="main" data-agent-native-component="ReusableCard" data-agent-native-component-id="cmp-card"></section>',
+      },
+    ]);
+
+    expect(entries).toMatchObject([
+      {
+        nodeId: "ref-only",
+        name: "ReusableCard",
+        componentRef: "cmp-card",
+      },
+      {
+        nodeId: "main",
+        name: "ReusableCard",
+        componentId: "cmp-card",
+      },
+    ]);
+  });
 });
 
 describe("entriesForComponent", () => {
