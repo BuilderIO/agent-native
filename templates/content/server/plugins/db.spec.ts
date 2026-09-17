@@ -200,12 +200,42 @@ describe("content db.ts migration entries follow the naming convention", () => {
           ]),
         );
         if (variant === "inline-conversations") {
+          const attemptColumns = await db.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_name = 'comment_ai_attempts'",
+          );
+          expect(
+            attemptColumns.rows.map((row) => String(row.column_name)),
+          ).toEqual(
+            expect.arrayContaining([
+              "payload_json",
+              "run_id",
+              "model",
+              "error_code",
+              "error",
+            ]),
+          );
           const migrated = await db.execute(
             "SELECT thread_digest,base_revision FROM comment_ai_requests WHERE id = 'request'",
           );
           expect(migrated.rows[0]).toMatchObject({
             thread_digest: "digest",
             base_revision: "base",
+          });
+          await db.execute(
+            `UPDATE comment_ai_attempts
+              SET payload_json = '{"retained":true}', run_id = 'run', model = 'model',
+                  error_code = 'operation_failed', error = 'failure'
+              WHERE id = 'attempt'`,
+          );
+          const attempt = await db.execute(
+            "SELECT payload_json,run_id,model,error_code,error FROM comment_ai_attempts WHERE id = 'attempt'",
+          );
+          expect(attempt.rows[0]).toMatchObject({
+            payload_json: '{"retained":true}',
+            run_id: "run",
+            model: "model",
+            error_code: "operation_failed",
+            error: "failure",
           });
         }
       } finally {
