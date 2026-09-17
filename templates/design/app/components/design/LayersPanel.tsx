@@ -1619,6 +1619,7 @@ function LayersPanelImpl(
                     <button
                       key={screen.id}
                       type="button"
+                      data-screen-row
                       ref={(element) => {
                         if (element)
                           screenRowRefs.current.set(screen.id, element);
