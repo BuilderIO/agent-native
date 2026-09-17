@@ -484,8 +484,8 @@ type SmoothStreamingTextCacheEntry = {
 
 // Grouped message parts are rebuilt as tool calls arrive. A text part can
 // therefore be unmounted and mounted again even though its identity did not
-// change. Keep the reveal cursor outside that subtree so a structural update
-// continues from the current cursor instead of replaying the opening sentence.
+// change. Keep the reveal state outside that subtree so a structural update
+// continues from the current position instead of replaying the opening sentence.
 const smoothStreamingTextCache = new Map<
   string,
   SmoothStreamingTextCacheEntry
@@ -811,7 +811,6 @@ export function StreamingText({
   resetKey,
   statusType = "complete",
   animateStreaming = true,
-  caret = false,
   onRevealComplete,
 }: {
   text: string;
@@ -820,12 +819,6 @@ export function StreamingText({
   statusType?: string;
   /** Allow callers to opt out for static or deliberately chunk-native surfaces. */
   animateStreaming?: boolean;
-  /**
-   * Whether the agent is still producing this text right now. The caret is a
-   * state signal, not a decoration: callers pass their own liveness, never a
-   * property of the reveal animation.
-   */
-  caret?: boolean;
   onRevealComplete?: () => void;
 }) {
   const mdReady = useMarkdownReady();
@@ -873,13 +866,6 @@ export function StreamingText({
       ) : (
         <span style={{ whiteSpace: "pre-wrap" }}>{visibleText}</span>
       )}
-      {caret ? (
-        <span
-          aria-hidden="true"
-          className="agent-streaming-cursor"
-          data-agent-streaming-cursor="true"
-        />
-      ) : null}
     </div>
   );
 }
@@ -907,8 +893,7 @@ export function shouldAnimateMarkdownText({
   // The active-turn identity is deliberately retained after a run ends so a
   // late final chunk still animates. Without the `runActive` gate that makes
   // the finished turn's last message permanently "streaming": it never enters
-  // the fast settle drain, keeps re-animating on remount, and leaves the
-  // caret up long after the agent stopped.
+  // the fast settle drain and keeps re-animating on remount.
   const identityStreaming =
     activeMessageStreaming === true && runActive !== false;
   return (
@@ -917,44 +902,6 @@ export function shouldAnimateMarkdownText({
       (textStreaming &&
         (statusType === "running" || externalStreaming === true)))
   );
-}
-
-/**
- * The caret answers exactly one question: is the agent still producing this
- * answer? It is bound to run liveness, never to how far the reveal animation
- * has to go, so it is present for every moment of a live turn (including tool
- * calls and model latency) and gone the instant the turn ends.
- */
-export function shouldShowStreamingCaret({
-  isLastAssistantMessage,
-  isTrailingTextPart,
-  runActive,
-  externalStreaming,
-}: {
-  isLastAssistantMessage: boolean;
-  isTrailingTextPart: boolean;
-  runActive?: boolean;
-  externalStreaming?: boolean;
-}): boolean {
-  if (!isLastAssistantMessage || !isTrailingTextPart) return false;
-  return runActive === true || externalStreaming === true;
-}
-
-/**
- * True when `part` is the final content part of `message`, i.e. the point the
- * next token would land. A trailing tool call or reasoning cell owns the
- * running indicator itself, so the caret stays off the text above it.
- */
-export function isTrailingTextPartOfMessage(
-  message: unknown,
-  part: { text: string },
-): boolean {
-  const content = (message as { content?: unknown } | null)?.content;
-  if (!Array.isArray(content) || content.length === 0) return false;
-  const tail = content[content.length - 1] as
-    | { type?: unknown; text?: unknown }
-    | undefined;
-  return tail?.type === "text" && tail.text === part.text;
 }
 
 export function MarkdownText() {
@@ -985,12 +932,6 @@ export function MarkdownText() {
           activeStreamingIdentity,
         ),
         runActive,
-      })}
-      caret={shouldShowStreamingCaret({
-        isLastAssistantMessage,
-        isTrailingTextPart: isTrailingTextPartOfMessage(message, textPart),
-        runActive,
-        externalStreaming,
       })}
       resetKey={message.id}
       statusType={statusType}

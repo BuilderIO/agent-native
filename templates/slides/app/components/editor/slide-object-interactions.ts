@@ -1650,6 +1650,90 @@ function normalizeSlideObjectRoots(elements: HTMLElement[]): HTMLElement[] {
   );
 }
 
+function hasVisibleBorder(element: HTMLElement): boolean {
+  const computed = window.getComputedStyle(element);
+  return [
+    [
+      computed.borderTopStyle,
+      computed.borderTopWidth,
+      element.style.borderTopStyle,
+      element.style.borderTopWidth,
+    ],
+    [
+      computed.borderRightStyle,
+      computed.borderRightWidth,
+      element.style.borderRightStyle,
+      element.style.borderRightWidth,
+    ],
+    [
+      computed.borderBottomStyle,
+      computed.borderBottomWidth,
+      element.style.borderBottomStyle,
+      element.style.borderBottomWidth,
+    ],
+    [
+      computed.borderLeftStyle,
+      computed.borderLeftWidth,
+      element.style.borderLeftStyle,
+      element.style.borderLeftWidth,
+    ],
+  ].some(([computedStyle, computedWidth, inlineStyle, inlineWidth]) => {
+    const useComputed = computedStyle !== "" || computedWidth !== "";
+    const style = useComputed ? computedStyle : inlineStyle;
+    const width = useComputed ? computedWidth : inlineWidth;
+    return (
+      Number.parseFloat(width || "0") > 0 &&
+      style !== "" &&
+      style !== "none" &&
+      style !== "hidden"
+    );
+  });
+}
+
+function hasIndependentlyPositionedDescendant(element: HTMLElement): boolean {
+  return Array.from(element.querySelectorAll<HTMLElement>("*")).some(
+    (descendant) => {
+      const computedPosition = window.getComputedStyle(descendant).position;
+      const position = computedPosition || descendant.style.position;
+      return position === "absolute" || position === "fixed";
+    },
+  );
+}
+
+/** Promote selected leaves to a bordered container when its full content is selected. */
+export function resolveSlideObjectMoveRoots(
+  elements: HTMLElement[],
+  selectedIds: ReadonlySet<string>,
+  boundary?: HTMLElement,
+): HTMLElement[] {
+  const roots = normalizeSlideObjectRoots(elements).map((element) => {
+    let current: HTMLElement | null = element;
+    let promotedRoot: HTMLElement | null = null;
+    while (current && current !== boundary) {
+      const leaves = Array.from(
+        current.querySelectorAll<HTMLElement>("[data-builder-id]"),
+      ).filter((descendant) => !descendant.querySelector("[data-builder-id]"));
+      const computedPosition = window.getComputedStyle(current).position;
+      const position = computedPosition || current.style.position;
+      if (
+        hasVisibleBorder(current) &&
+        (position === "absolute" ||
+          !hasIndependentlyPositionedDescendant(current)) &&
+        leaves.length > 0 &&
+        leaves.every((leaf) => {
+          const id = leaf.getAttribute("data-builder-id");
+          return id !== null && selectedIds.has(id);
+        })
+      ) {
+        promotedRoot = current;
+      }
+      current = current.parentElement;
+    }
+    return promotedRoot ?? element;
+  });
+  return normalizeSlideObjectRoots(roots);
+}
+
 export const SLIDE_OBJECT_GROUP_CLASS = "fmd-slide-group";
 
 export function isSlideObjectGroup(element: HTMLElement): boolean {

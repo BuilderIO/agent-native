@@ -186,6 +186,7 @@ import {
   resolveSlideObjectContainingBlock,
   resolveSlideObjectGroupRoot,
   resolveSlideObjectInsertionContainingBlock,
+  resolveSlideObjectMoveRoots,
   resizeSlideObjectMembers,
   resizeTransformedSlideObject,
   scaleSlideObjectGroupMembers,
@@ -6006,12 +6007,7 @@ export default function SlideEditor({
             ) as HTMLElement | null,
         )
         .filter((el): el is HTMLElement => el !== null);
-      const roots = elements.filter(
-        (element) =>
-          !elements.some(
-            (candidate) => candidate !== element && candidate.contains(element),
-          ),
-      );
+      const roots = resolveSlideObjectMoveRoots(elements, ids, slideContent);
       if (roots.length === 0) return;
 
       // Capture the viewport before promotion. A normal-flow element becomes
