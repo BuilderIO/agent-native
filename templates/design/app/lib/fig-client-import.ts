@@ -16,8 +16,14 @@
 import { callAction } from "@agent-native/core/client/hooks";
 
 import { decodeFig } from "../../server/lib/fig-file-decoder.js";
+import type { DecodedFig } from "../../server/lib/fig-file-decoder.js";
 import { bytesToBase64 } from "../../shared/fig-bytes.js";
-import { convertDecodedFigToEditableHtml } from "../../shared/fig-to-frames.js";
+import {
+  convertDecodedFigToEditableHtml,
+  inspectDecodedFig,
+  shouldWarnForFigImport,
+  type FigImportSummary,
+} from "../../shared/fig-to-frames.js";
 import type { ImportResult } from "./design-import";
 
 export interface FigClientImportProgress {
@@ -29,8 +35,18 @@ export interface FigClientImportProgress {
 export interface FigClientImportOptions {
   designId: string;
   file: File;
+  decoded?: DecodedFig;
+  selection?: ReadonlySet<string>;
   onProgress?: (progress: FigClientImportProgress) => void;
 }
+
+export interface PreparedFigImport {
+  file: File;
+  decoded: DecodedFig;
+  summary: FigImportSummary;
+}
+
+export { shouldWarnForFigImport };
 
 function mimeForExt(ext: string): string {
   if (ext === "jpg") return "image/jpeg";
@@ -49,9 +65,11 @@ export async function importFigInBrowser(
   options: FigClientImportOptions,
 ): Promise<ImportResult> {
   const { designId, file, onProgress } = options;
-  onProgress?.({ phase: "decoding" });
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  const decoded = decodeFig(bytes);
+  let decoded = options.decoded;
+  if (!decoded) {
+    onProgress?.({ phase: "decoding" });
+    decoded = decodeFig(new Uint8Array(await file.arrayBuffer()));
+  }
 
   let uploaded = 0;
   const total = decoded.images.length;
@@ -62,6 +80,7 @@ export async function importFigInBrowser(
     ownerEmail: "",
     // The action wraps the document; nothing to do here.
     normalizeHtml: (content: string) => content,
+    selection: options.selection,
     uploader: async ({ data, filename, mimeType }) => {
       const url = (await callAction("upload-image", {
         data: `data:${mimeType ?? mimeForExt("")};base64,${bytesToBase64(
@@ -103,4 +122,13 @@ export async function importFigInBrowser(
     ...saved,
     unresolvedImageRefCount: converted.stats.unresolvedImageRefCount,
   };
+}
+
+export async function prepareFigImport(
+  file: File,
+  onProgress?: (progress: FigClientImportProgress) => void,
+): Promise<PreparedFigImport> {
+  onProgress?.({ phase: "decoding" });
+  const decoded = decodeFig(new Uint8Array(await file.arrayBuffer()));
+  return { file, decoded, summary: inspectDecodedFig(decoded) };
 }

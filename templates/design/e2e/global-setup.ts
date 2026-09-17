@@ -15,6 +15,7 @@ import { e2eBaseURL } from "./base-url";
  */
 
 export const E2E_EMAIL = "e2e+autoz@local.test";
+export const E2E_MENTION_EMAIL = "alice+e2e@local.test";
 export const E2E_PASSWORD = "password-e2e-1234";
 export const SEED_TITLE = "E2E Seed Design";
 
@@ -81,7 +82,7 @@ export const FIXTURE_HTML = `<!doctype html>
         <div style="padding:8px;border:1px solid #3f3f46;border-radius:10px">
           <div style="padding:8px;border:1px solid #52525b;border-radius:8px">
             <div style="padding:8px;border:1px solid #71717a;border-radius:6px">
-              <button style="padding:10px 18px;border-radius:8px;border:0;background:#f59e0b;color:#111827;font-size:14px">Deep Layer Button</button>
+              <button data-agent-native-node-id="e2e-deep-layer-button" data-agent-native-layer-name="Deep Layer Button" style="padding:10px 18px;border-radius:8px;border:0;background:#f59e0b;color:#111827;font-size:14px">Deep Layer Button</button>
             </div>
           </div>
         </div>
@@ -169,6 +170,135 @@ export async function seedComponentVariantMetadata(
   }
 }
 
+async function seedMentionMember(
+  browser: import("@playwright/test").Browser,
+  ownerContext: import("@playwright/test").BrowserContext,
+  baseURL: string,
+): Promise<void> {
+  const memberSearch = encodeURIComponent(E2E_MENTION_EMAIL);
+  const membersURL = `${baseURL}/_agent-native/org/members?limit=25&offset=0&search=${memberSearch}`;
+  const existingMembers = await ownerContext.request.get(membersURL);
+  if (!existingMembers.ok()) {
+    throw new Error(
+      `list organization members failed: ${existingMembers.status()} ${await existingMembers.text()}`,
+    );
+  }
+  const existingPayload = await existingMembers.json();
+  if (
+    Array.isArray(existingPayload?.members) &&
+    existingPayload.members.some(
+      (member: { email?: unknown }) =>
+        String(member.email ?? "").toLowerCase() === E2E_MENTION_EMAIL,
+    )
+  ) {
+    return;
+  }
+
+  const invitation = await ownerContext.request.post(
+    `${baseURL}/_agent-native/org/invitations`,
+    {
+      data: { email: E2E_MENTION_EMAIL, role: "member" },
+      headers: { "Content-Type": "application/json" },
+    },
+  );
+  let invitationId: string | undefined;
+  if (invitation.ok()) {
+    invitationId = String((await invitation.json())?.id ?? "") || undefined;
+  } else if (invitation.status() !== 409) {
+    throw new Error(
+      `invite mention member failed: ${invitation.status()} ${await invitation.text()}`,
+    );
+  }
+
+  if (!invitationId) {
+    const pending = await ownerContext.request.get(
+      `${baseURL}/_agent-native/org/invitations`,
+    );
+    if (!pending.ok()) {
+      throw new Error(
+        `list pending invitations failed: ${pending.status()} ${await pending.text()}`,
+      );
+    }
+    const pendingPayload = await pending.json();
+    invitationId =
+      String(
+        pendingPayload?.invitations?.find(
+          (item: { email?: unknown }) =>
+            String(item.email ?? "").toLowerCase() === E2E_MENTION_EMAIL,
+        )?.id ?? "",
+      ) || undefined;
+  }
+
+  const memberContext = await browser.newContext();
+  try {
+    const registration = await memberContext.request.post(
+      `${baseURL}/_agent-native/auth/register`,
+      {
+        data: {
+          email: E2E_MENTION_EMAIL,
+          password: E2E_PASSWORD,
+        },
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+    if (!registration.ok() && registration.status() !== 409) {
+      throw new Error(
+        `mention member registration failed: ${registration.status()} ${await registration.text()}`,
+      );
+    }
+
+    const login = await memberContext.request.post(
+      `${baseURL}/_agent-native/auth/login`,
+      {
+        data: {
+          email: E2E_MENTION_EMAIL,
+          password: E2E_PASSWORD,
+        },
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+    if (!login.ok()) {
+      throw new Error(
+        `mention member login failed: ${login.status()} ${await login.text()}`,
+      );
+    }
+
+    if (invitationId) {
+      const acceptance = await memberContext.request.post(
+        `${baseURL}/_agent-native/org/invitations/${encodeURIComponent(invitationId)}/accept`,
+        {
+          data: {},
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+      if (!acceptance.ok() && acceptance.status() !== 404) {
+        throw new Error(
+          `accept mention member invitation failed: ${acceptance.status()} ${await acceptance.text()}`,
+        );
+      }
+    }
+  } finally {
+    await memberContext.close();
+  }
+
+  const members = await ownerContext.request.get(membersURL);
+  if (!members.ok()) {
+    throw new Error(
+      `verify mention member failed: ${members.status()} ${await members.text()}`,
+    );
+  }
+  const payload = await members.json();
+  if (
+    !Array.isArray(payload?.members) ||
+    !payload.members.some(
+      (member: { email?: unknown }) =>
+        String(member.email ?? "").toLowerCase() === E2E_MENTION_EMAIL,
+    )
+  ) {
+    throw new Error(`mention member ${E2E_MENTION_EMAIL} was not provisioned`);
+  }
+}
+
 export default async function globalSetup(config: FullConfig) {
   const baseURL =
     (config.projects[0]?.use?.baseURL as string | undefined) ?? e2eBaseURL();
@@ -229,6 +359,7 @@ export default async function globalSetup(config: FullConfig) {
         `create-design did not return an id: ${JSON.stringify(created)}`,
       );
     }
+    await seedMentionMember(browser, context, baseURL);
     await postAction(context.request, baseURL, "create-file", {
       designId,
       filename: "index.html",

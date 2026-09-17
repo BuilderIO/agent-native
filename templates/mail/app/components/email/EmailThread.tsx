@@ -68,7 +68,7 @@ import {
   useSettings,
   useUpdateSettings,
   useEmailTracking,
-  unsuppressThread,
+  releaseSuppressionClaims,
 } from "@/hooks/use-emails";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -709,14 +709,27 @@ export function EmailThread({
 
     for (const t of targets) onArchived?.(t.id);
 
+    const suppressionToken = archiveEmail.createSuppressionToken();
+    const restorableThreadIds = new Set<string>();
     const undo = () => {
-      for (const key of threadKeys) unsuppressThread(key);
-      for (const t of targets)
-        unarchiveEmail.mutate({
-          id: t.id,
-          accountEmail: t.accountEmail,
-          threadId: t.threadId || t.id,
-        });
+      for (const target of targets) {
+        const key = target.threadId || target.id;
+        if (
+          releaseSuppressionClaims(
+            key,
+            archiveEmail.getSuppressionIds(suppressionToken, key),
+          )
+        )
+          restorableThreadIds.add(key);
+      }
+      for (const t of targets) {
+        if (restorableThreadIds.has(t.threadId || t.id))
+          unarchiveEmail.mutate({
+            id: t.id,
+            accountEmail: t.accountEmail,
+            threadId: t.threadId || t.id,
+          });
+      }
       void queryClient.invalidateQueries({ queryKey: ["emails"] });
     };
     const consumeUndo = setUndoAction(undo);
@@ -738,6 +751,7 @@ export function EmailThread({
         accountEmail: t.accountEmail,
         removeLabel: labelParam || undefined,
         threadId: t.threadId || t.id,
+        suppressionToken,
       });
     }
     setSelectedIds?.(new Set());
@@ -772,14 +786,27 @@ export function EmailThread({
 
     if (targets.length === 0) return;
 
+    const suppressionToken = trashEmail.createSuppressionToken();
+    const restorableThreadIds = new Set<string>();
     const undo = () => {
-      for (const key of threadKeys) unsuppressThread(key);
-      for (const t of targets)
-        untrashEmail.mutate({
-          id: t.id,
-          accountEmail: t.accountEmail,
-          threadId: t.threadId || t.id,
-        });
+      for (const target of targets) {
+        const key = target.threadId || target.id;
+        if (
+          releaseSuppressionClaims(
+            key,
+            trashEmail.getSuppressionIds(suppressionToken, key),
+          )
+        )
+          restorableThreadIds.add(key);
+      }
+      for (const t of targets) {
+        if (restorableThreadIds.has(t.threadId || t.id))
+          untrashEmail.mutate({
+            id: t.id,
+            accountEmail: t.accountEmail,
+            threadId: t.threadId || t.id,
+          });
+      }
       void queryClient.invalidateQueries({ queryKey: ["emails"] });
     };
     const consumeUndo = setUndoAction(undo);
@@ -799,6 +826,7 @@ export function EmailThread({
         id: t.id,
         accountEmail: t.accountEmail,
         threadId: t.threadId || t.id,
+        suppressionToken,
       });
     setSelectedIds?.(new Set());
   }, [

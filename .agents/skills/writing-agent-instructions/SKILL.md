@@ -202,9 +202,10 @@ is in. Write the intent and let the model apply it:
 
 When documenting version history, restore, or audit trails, use actions for
 full restorable snapshots (`list-<resource>-versions`,
-`get-<resource>-version`, `restore-<resource>-version`). Do not copy legacy
-raw-route version panels, such as document-version `/api/*` helpers, into new
-features. The Plans version-history pattern is the preferred model.
+`get-<resource>-version`, `restore-<resource>-version`,
+`delete-<resource>-version`). Do not copy legacy raw-route version panels,
+such as document-version `/api/*` helpers, into new features. The Plans
+version-history pattern is the preferred model.
 
 ## SKILL.md frontmatter must say what AND when
 

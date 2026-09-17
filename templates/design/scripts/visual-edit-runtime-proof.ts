@@ -151,7 +151,7 @@ async function main() {
         typeof opened?.designId === "string" ? opened.designId : undefined;
       const urlPath = typeof opened?.urlPath === "string" ? opened.urlPath : "";
       if (!urlPath) throw new Error("open-visual-edit returned no editor URL");
-      targetUrl = `${designUrl}${urlPath}&view=overview&zoom=18`;
+      targetUrl = `${designUrl}${urlPath}&editorView=overview&zoom=18`;
     }
 
     await page.goto(targetUrl, { waitUntil: "domcontentloaded" });

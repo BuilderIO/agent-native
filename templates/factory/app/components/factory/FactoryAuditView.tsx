@@ -112,6 +112,8 @@ type FactoryAuditRun = {
   startedAt: number;
   finishedAt: number | null;
   error: string | null;
+  promptVersion?: number | null;
+  executionPromptHash?: string | null;
   counts: FactoryAuditCounts;
   inbox?: FactoryAuditItem[];
   work?: FactoryAuditItem[];
@@ -460,6 +462,24 @@ function AuditRunDetail({
 
   return (
     <>
+      {run.promptVersion || run.executionPromptHash ? (
+        <p className="text-xs text-muted-foreground">
+          {run.promptVersion
+            ? t("factoryRoute.auditRunPromptVersion", {
+                version: run.promptVersion,
+              })
+            : null}
+          {run.promptVersion && run.executionPromptHash ? (
+            <span aria-hidden="true"> · </span>
+          ) : null}
+          {run.executionPromptHash
+            ? t("factoryRoute.auditRunPromptHash", {
+                hash: run.executionPromptHash.slice(0, 8),
+              })
+            : null}
+        </p>
+      ) : null}
+
       {run.threadId ? (
         <Button variant="outline" size="sm" asChild>
           <a

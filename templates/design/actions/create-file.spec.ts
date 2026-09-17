@@ -467,7 +467,7 @@ describe("create-file: canvas placement and landing URL", () => {
       height: 1024,
     });
     expect(result.urlPath).toBe(
-      `/design/design-1?view=overview&screen=${result.id}`,
+      `/design/design-1?editorView=overview&screen=${result.id}`,
     );
   });
 
