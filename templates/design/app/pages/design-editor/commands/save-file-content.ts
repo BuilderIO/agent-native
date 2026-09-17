@@ -189,6 +189,9 @@ export function runSaveFileContent(
         if (failureKind === "conflict") {
           // Roll back our optimistic bytes before the refetch can race ahead.
           rollbackPendingLocalFileContent(pending.id, pending.content);
+          if (latestFileSaveForUnloadRef.current[pending.id] === pending) {
+            delete latestFileSaveForUnloadRef.current[pending.id];
+          }
         }
         void queryClient.invalidateQueries({
           queryKey: ["action", "get-design"],

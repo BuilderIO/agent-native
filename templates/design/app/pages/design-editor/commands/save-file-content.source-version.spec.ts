@@ -326,6 +326,55 @@ describe("runSaveFileContent source version", () => {
     }
   });
 
+  it("clears a rejected latest save snapshot when it is still current", async () => {
+    const pending: FileContentSaveRequest = {
+      id: "screen-rejected-save",
+      content: "<main>rejected local snapshot</main>",
+      syncCollab: true,
+      operationSource: "tab-a",
+      operationRevision: 1,
+      expectedVersionHash: "stale-base-hash",
+    };
+    const rollbackPendingLocalFileContent = vi.fn();
+    const latestFileSaveForUnloadRef: SaveFileContentArgs["latestFileSaveForUnloadRef"] =
+      {
+        current: { [pending.id]: pending },
+      };
+    const fileSaveChainsRef: SaveFileContentArgs["fileSaveChainsRef"] = {
+      current: {},
+    };
+    const args: SaveFileContentArgs = {
+      acknowledgeOutboxEntry: vi.fn(async () => {}),
+      canEditDesignRef: { current: true },
+      createFileSaveOutboxEntry: vi.fn(() => null),
+      fileSaveChainsRef,
+      journalOutboxEntry: vi.fn(async () => true),
+      latestFileSaveForUnloadRef,
+      rollbackPendingLocalFileContent,
+      markPendingLocalFileContent: vi.fn(),
+      queryClient: { invalidateQueries: vi.fn() } as unknown as QueryClient,
+      setPatchProof: vi.fn(),
+      t: (key) => key,
+      updateFileMutation: {
+        mutateAsync: vi.fn(async () => {
+          const error = new Error("source file changed; re-read the file");
+          Object.assign(error, { status: 409 });
+          throw error;
+        }),
+      } as unknown as SaveFileContentArgs["updateFileMutation"],
+      warnChangesWillRetry: vi.fn(),
+    };
+
+    runSaveFileContent(args, pending);
+    await fileSaveChainsRef.current[pending.id];
+
+    expect(rollbackPendingLocalFileContent).toHaveBeenCalledWith(
+      pending.id,
+      pending.content,
+    );
+    expect(latestFileSaveForUnloadRef.current[pending.id]).toBeUndefined();
+  });
+
   it("drops a queued identity migration when a newer user save takes priority", async () => {
     const id = "screen-migration";
     const raw = '<main><button id="duplicate">Before</button></main>';

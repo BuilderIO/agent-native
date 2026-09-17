@@ -622,7 +622,6 @@ export function VisualScrubInput({
       source: "scrub" as const,
       expression: restoredText,
       phase: "preview" as const,
-      ...(dragRef.current.altKey ? { altKey: true } : {}),
     };
     if (onTextCommit) {
       onTextCommit(restoredText, meta);
@@ -631,12 +630,10 @@ export function VisualScrubInput({
       onChange(restoredValue, {
         source: "scrub",
         phase: "preview",
-        ...(dragRef.current.altKey ? { altKey: true } : {}),
       });
       onChange(restoredValue, {
         source: "scrub",
         phase: "cancel",
-        ...(dragRef.current.altKey ? { altKey: true } : {}),
       });
     }
   };
