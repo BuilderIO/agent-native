@@ -1305,6 +1305,44 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(listAgentChatContext()).toEqual([]);
   });
 
+  it("restores dismissed resource context when the target slide changes", async () => {
+    const baseScope = {
+      type: "deck" as const,
+      id: "deck-1",
+      label: "This Slide",
+      context: "Current slide id: slide-1.",
+      contextVersion: "deck-1|slide-1|1",
+    };
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat storageKey="bridge-test" scope={baseScope} />,
+      );
+      await Promise.resolve();
+    });
+
+    removeAgentChatContextItem("agent-current-resource-context");
+
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          scope={{
+            ...baseScope,
+            context: "Current slide id: slide-2.",
+            contextVersion: "deck-1|slide-2|2",
+          }}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    expect(listAgentChatContext()).toEqual([
+      expect.objectContaining({
+        context: expect.stringContaining("Current slide id: slide-2."),
+      }),
+    ]);
+  });
+
   it("passes an app context namespace to the active composer", async () => {
     await act(async () => {
       root.render(

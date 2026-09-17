@@ -6333,7 +6333,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   nextTitle,
                   nextPreview,
                   newMessageCount,
-                  { ignoreConflicts: true },
                 );
                 // Scope updates piggyback on the PUT — the client uses this
                 // path for detach and for claiming a legacy unscoped thread.

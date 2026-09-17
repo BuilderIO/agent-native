@@ -1745,12 +1745,14 @@ export function resolveAssistantChatSuggestionInputs(
 
 export function resolveAssistantChatSubmitIntent({
   isRunning,
+  isSubmissionInFlight = false,
   requestedIntent,
 }: {
   isRunning: boolean;
+  isSubmissionInFlight?: boolean;
   requestedIntent?: ComposerSubmitIntent;
 }): ComposerSubmitIntent {
-  if (isRunning) return "queued";
+  if (isRunning || isSubmissionInFlight) return "queued";
   return requestedIntent ?? "immediate";
 }
 
@@ -3267,6 +3269,8 @@ const AssistantChatInner = forwardRef<
   });
   const isRunningRef = useRef(isRunning);
   isRunningRef.current = isRunning;
+  const submissionInFlightRef = useRef(0);
+  const submissionTailRef = useRef(Promise.resolve());
   const chatHistoryListQuery = useActionQuery<unknown>(
     (chatHistory?.list.action ?? "list-resource-versions") as never,
     chatHistory?.list.args as never,
@@ -3513,6 +3517,7 @@ const AssistantChatInner = forwardRef<
   const resumeFollowingRef = useRef<() => void>(() => {});
 
   const markOptimisticRunning = useCallback(() => {
+    isRunningRef.current = true;
     setOptimisticRunning(true);
     if (typeof window === "undefined") return;
     window.dispatchEvent(
@@ -5641,6 +5646,7 @@ const AssistantChatInner = forwardRef<
   const stopActiveRun = useCallback(
     (options?: { preserveQueuedMessages?: boolean }) => {
       setForceStopped(true);
+      isRunningRef.current = false;
       setOptimisticRunning(false);
       setHasActiveServerRun(false);
       setPendingReconnectRecovery(null);
@@ -5825,287 +5831,315 @@ const AssistantChatInner = forwardRef<
       actionScope?: AgentActionScope,
     ) => {
       if (isAgentChatSubmitCancelled(submitMessageId)) return false;
-      const visibleSubmitSequence = hideUserMessage
-        ? null
-        : ++visibleSubmitSequenceRef.current;
-      const runningAtSubmitStart = isRunning;
-      const activeRunAtSubmitStart = getActiveRun();
-      const activeRunIdAtSubmitStart = activeRunMatchesThread(
-        activeRunAtSubmitStart,
-        threadId,
-      )
-        ? (activeRunAtSubmitStart?.runId ?? null)
-        : null;
-      const stoppedRunAtSubmitStart = userStoppedRunRef.current;
-      if (!preserveReconnectAutoRecoveryBudget) {
-        reconnectAutoRecoveryCountRef.current = 0;
-      }
-      materializeFrozenReconnectContent();
-      setShowContinue(false);
-      setLoopLimitInfo(null);
-      setRunErrorInfo(null);
-      setDismissedRunErrorKey(null);
-      setDismissedProviderAuthErrorKey(null);
-      setComposerError(null);
-      // Selection context attached via Cmd+I is one-shot — clear it as soon
-      // as the user actually sends a message so it can't be re-used.
-      clearPendingSelection();
-      const submitted = includeComposerContext
-        ? buildComposerContextSubmission(text)
-        : { text, includesContext: false };
-      const submittedText = submitted.text;
-      let queuedAttachments: Awaited<
-        ReturnType<typeof serializeQueuedAttachments>
-      >;
+      const wasSubmissionInFlight = submissionInFlightRef.current > 0;
+      submissionInFlightRef.current += 1;
+      const previousSubmission = submissionTailRef.current;
+      let releaseSubmission!: () => void;
+      const currentSubmission = new Promise<void>((resolve) => {
+        releaseSubmission = resolve;
+      });
+      submissionTailRef.current = previousSubmission.then(
+        () => currentSubmission,
+      );
+      await previousSubmission;
       try {
-        queuedAttachments = await serializeQueuedAttachments(attachments);
-      } catch (err) {
-        const msg = formatAttachmentError(
-          err,
-          t("agentChat.composer.attachmentError"),
-        );
-        setComposerError(msg);
-        reportAgentChatSubmitResult(submitMessageId, false, "attachment-error");
-        return false;
-      }
-      if (isAgentChatSubmitCancelled(submitMessageId)) return false;
-      const imageAttachments = createAgentImageAttachments(images);
-      const allAttachments = [
-        ...(queuedAttachments ?? []),
-        ...(imageAttachments ?? []),
-      ];
+        const visibleSubmitSequence = hideUserMessage
+          ? null
+          : ++visibleSubmitSequenceRef.current;
+        const runningAtSubmitStart = isRunning;
+        const activeRunAtSubmitStart = getActiveRun();
+        const activeRunIdAtSubmitStart = activeRunMatchesThread(
+          activeRunAtSubmitStart,
+          threadId,
+        )
+          ? (activeRunAtSubmitStart?.runId ?? null)
+          : null;
+        const stoppedRunAtSubmitStart = userStoppedRunRef.current;
+        if (!preserveReconnectAutoRecoveryBudget) {
+          reconnectAutoRecoveryCountRef.current = 0;
+        }
+        materializeFrozenReconnectContent();
+        setShowContinue(false);
+        setLoopLimitInfo(null);
+        setRunErrorInfo(null);
+        setDismissedRunErrorKey(null);
+        setDismissedProviderAuthErrorKey(null);
+        setComposerError(null);
+        // Selection context attached via Cmd+I is one-shot — clear it as soon
+        // as the user actually sends a message so it can't be re-used.
+        clearPendingSelection();
+        const submitted = includeComposerContext
+          ? buildComposerContextSubmission(text)
+          : { text, includesContext: false };
+        const submittedText = submitted.text;
+        let queuedAttachments: Awaited<
+          ReturnType<typeof serializeQueuedAttachments>
+        >;
+        try {
+          queuedAttachments = await serializeQueuedAttachments(attachments);
+        } catch (err) {
+          const msg = formatAttachmentError(
+            err,
+            t("agentChat.composer.attachmentError"),
+          );
+          setComposerError(msg);
+          reportAgentChatSubmitResult(
+            submitMessageId,
+            false,
+            "attachment-error",
+          );
+          return false;
+        }
+        if (isAgentChatSubmitCancelled(submitMessageId)) return false;
+        const imageAttachments = createAgentImageAttachments(images);
+        const allAttachments = [
+          ...(queuedAttachments ?? []),
+          ...(imageAttachments ?? []),
+        ];
 
-      // ── Body-size guard (Fix 3) ─────────────────────────────────────
-      // Estimate the total serialized attachment payload. If it exceeds the
-      // Vercel/Netlify body limit, progressively re-compress images until
-      // the payload fits, then reject the largest remaining file if still over.
-      let messageAttachments = allAttachments;
-      {
-        const allPayloadStrings = getAttachmentBodyStrings(allAttachments);
-        if (
-          estimateAttachmentBodyBytes(allPayloadStrings) >
-          MAX_ESTIMATED_BODY_BYTES
-        ) {
-          // Re-compress image attachments more aggressively.
-          const recompressed: typeof allAttachments = [];
-          for (const att of allAttachments) {
-            if (
-              att.type === "image" &&
-              att.content.length === 1 &&
-              att.content[0].type === "image"
-            ) {
-              // Find the original File from the queued attachments input.
-              const rawAtt = (attachments ?? []).find(
-                (r) => (r as any).id === att.id,
-              ) as { file?: File } | undefined;
-              const rawFile = rawAtt?.file;
-              if (rawFile && typeof document !== "undefined") {
-                try {
-                  const recompressedUrl = await transcodeImageToDataURL(
-                    rawFile,
-                    {
-                      maxDimension: AGGRESSIVE_MAX_IMAGE_DIMENSION,
-                      jpegQuality: AGGRESSIVE_JPEG_QUALITY,
-                    },
-                  );
-                  recompressed.push({
-                    ...att,
-                    content: [{ type: "image", image: recompressedUrl }],
-                  });
-                  continue;
-                } catch {
-                  // coercion-ok: recompression is best-effort; the final size check
-                  // rejects the original when it still does not fit.
-                  // Could not recompress — keep the original and let the
-                  // final size estimate decide whether it still fits.
-                }
-              }
-            }
-            recompressed.push(att);
-          }
-          // Re-estimate after recompression.
-          const recompressedPayloadStrings =
-            getAttachmentBodyStrings(recompressed);
+        // ── Body-size guard (Fix 3) ─────────────────────────────────────
+        // Estimate the total serialized attachment payload. If it exceeds the
+        // Vercel/Netlify body limit, progressively re-compress images until
+        // the payload fits, then reject the largest remaining file if still over.
+        let messageAttachments = allAttachments;
+        {
+          const allPayloadStrings = getAttachmentBodyStrings(allAttachments);
           if (
-            estimateAttachmentBodyBytes(recompressedPayloadStrings) >
+            estimateAttachmentBodyBytes(allPayloadStrings) >
             MAX_ESTIMATED_BODY_BYTES
           ) {
-            // Find the largest attachment and reject it.
-            let largestIdx = -1;
-            let largestSize = 0;
-            for (let i = 0; i < recompressed.length; i++) {
-              const attachmentSize = estimateAttachmentBodyBytes(
-                getAttachmentBodyStrings([recompressed[i]]),
-              );
-              if (attachmentSize > largestSize) {
-                largestSize = attachmentSize;
-                largestIdx = i;
+            // Re-compress image attachments more aggressively.
+            const recompressed: typeof allAttachments = [];
+            for (const att of allAttachments) {
+              if (
+                att.type === "image" &&
+                att.content.length === 1 &&
+                att.content[0].type === "image"
+              ) {
+                // Find the original File from the queued attachments input.
+                const rawAtt = (attachments ?? []).find(
+                  (r) => (r as any).id === att.id,
+                ) as { file?: File } | undefined;
+                const rawFile = rawAtt?.file;
+                if (rawFile && typeof document !== "undefined") {
+                  try {
+                    const recompressedUrl = await transcodeImageToDataURL(
+                      rawFile,
+                      {
+                        maxDimension: AGGRESSIVE_MAX_IMAGE_DIMENSION,
+                        jpegQuality: AGGRESSIVE_JPEG_QUALITY,
+                      },
+                    );
+                    recompressed.push({
+                      ...att,
+                      content: [{ type: "image", image: recompressedUrl }],
+                    });
+                    continue;
+                  } catch {
+                    // coercion-ok: recompression is best-effort; the final size check
+                    // rejects the original when it still does not fit.
+                    // Could not recompress — keep the original and let the
+                    // final size estimate decide whether it still fits.
+                  }
+                }
+              }
+              recompressed.push(att);
+            }
+            // Re-estimate after recompression.
+            const recompressedPayloadStrings =
+              getAttachmentBodyStrings(recompressed);
+            if (
+              estimateAttachmentBodyBytes(recompressedPayloadStrings) >
+              MAX_ESTIMATED_BODY_BYTES
+            ) {
+              // Find the largest attachment and reject it.
+              let largestIdx = -1;
+              let largestSize = 0;
+              for (let i = 0; i < recompressed.length; i++) {
+                const attachmentSize = estimateAttachmentBodyBytes(
+                  getAttachmentBodyStrings([recompressed[i]]),
+                );
+                if (attachmentSize > largestSize) {
+                  largestSize = attachmentSize;
+                  largestIdx = i;
+                }
+              }
+              if (largestIdx >= 0) {
+                const rejected = recompressed[largestIdx];
+                setComposerError(
+                  `"${rejected.name}" makes the message too large to send (combined attachments must be under ${(MAX_ESTIMATED_BODY_BYTES / 1024 / 1024).toFixed(1)} MB). Remove it or use a smaller file.`,
+                );
+                reportAgentChatSubmitResult(
+                  submitMessageId,
+                  false,
+                  "attachment-too-large",
+                );
+                return false;
               }
             }
-            if (largestIdx >= 0) {
-              const rejected = recompressed[largestIdx];
-              setComposerError(
-                `"${rejected.name}" makes the message too large to send (combined attachments must be under ${(MAX_ESTIMATED_BODY_BYTES / 1024 / 1024).toFixed(1)} MB). Remove it or use a smaller file.`,
-              );
-              reportAgentChatSubmitResult(
-                submitMessageId,
-                false,
-                "attachment-too-large",
-              );
-              return false;
-            }
+            messageAttachments = recompressed;
           }
-          messageAttachments = recompressed;
         }
-      }
-      // ── End body-size guard ──────────────────────────────────────────
-      if (isAgentChatSubmitCancelled(submitMessageId)) return false;
-      const acceptedVisibleSubmit =
-        visibleSubmitSequence !== null &&
-        visibleSubmitSequence >= latestAcceptedVisibleSubmitSequenceRef.current;
-      if (visibleSubmitSequence !== null && acceptedVisibleSubmit) {
-        latestAcceptedVisibleSubmitSequenceRef.current = visibleSubmitSequence;
-      }
-      // Snapshot the exec mode at enqueue time when the caller didn't
-      // pass an explicit override. Without this, a plan-mode message that
-      // sits in the queue runs as 'act' if the user flips the global toggle
-      // before the queue flushes — turning a read-only message into a write.
-      const effectiveRequestMode: AgentRequestMode | undefined =
-        requestMode ??
-        (execMode === "plan"
-          ? "plan"
-          : execMode === "build"
-            ? "act"
-            : undefined);
-      // Same reasoning for the model picker — see `QueuedMessage.model`.
-      const modelSnapshot = {
-        model: selectedModel,
-        engine: selectedEngine,
-        effort: selectedEffort,
-      };
-      const effectiveContinuationTurnId =
-        continuationTurnId ??
-        (actionScope ? generateAgentChatTurnId() : undefined);
-      const liveIsRunning = isRunningRef.current;
-      const activeRunNow = getActiveRun();
-      const sameActiveRun =
-        activeRunIdAtSubmitStart !== null &&
-        activeRunMatchesThread(activeRunNow, threadId) &&
-        activeRunNow?.runId === activeRunIdAtSubmitStart;
-      const interruptActiveRun =
-        runningAtSubmitStart &&
-        liveIsRunning &&
-        intent === "immediate" &&
-        sameActiveRun;
-      const queueForActiveRun =
-        liveIsRunning && (intent === "immediate" || intent === "queued");
-      if (acceptedVisibleSubmit && !liveIsRunning && !engineSetupRequired) {
-        resetRetainedTextStreamingState(effectiveContinuationTurnId);
-      }
-      if (interruptActiveRun) {
-        // Explicit interrupt path: abort the active server run, then let the
-        // auto-dequeue path append this message once the run is clear. Normal
-        // composer sends while running resolve to "queued" before reaching here.
-        applyLocalQueuedMessages((prev) => [
-          ...prev,
-          {
-            id:
-              typeof crypto !== "undefined" && crypto.randomUUID
-                ? crypto.randomUUID()
-                : `q-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-            text: submittedText,
-            images,
-            attachments:
-              messageAttachments.length > 0 ? messageAttachments : undefined,
-            references,
-            requestMode: effectiveRequestMode,
-            recoveryAction,
-            trackInRunsTray,
-            hideUserMessage,
-            approvedToolCalls,
-            ...(effectiveContinuationTurnId
-              ? { turnId: effectiveContinuationTurnId }
-              : {}),
-            ...(usageLabel ? { usageLabel } : {}),
-            ...(actionScope ? { actionScope } : {}),
-            ...modelSnapshot,
-          },
-        ]);
-        stopActiveRunRef.current({ preserveQueuedMessages: true });
-      } else if (engineSetupRequired || queueForActiveRun) {
-        applyLocalQueuedMessages((prev) => [
-          ...prev,
-          {
-            id:
-              typeof crypto !== "undefined" && crypto.randomUUID
-                ? crypto.randomUUID()
-                : `q-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-            text: submittedText,
-            images,
-            attachments:
-              messageAttachments.length > 0 ? messageAttachments : undefined,
-            references,
-            requestMode: effectiveRequestMode,
-            recoveryAction,
-            trackInRunsTray,
-            hideUserMessage,
-            approvedToolCalls,
-            ...(effectiveContinuationTurnId
-              ? { turnId: effectiveContinuationTurnId }
-              : {}),
-            ...(usageLabel ? { usageLabel } : {}),
-            ...(actionScope ? { actionScope } : {}),
-            ...modelSnapshot,
-          },
-        ]);
-      } else {
-        markOptimisticRunning();
-        try {
-          appendThreadMessage({
-            role: "user",
-            content: [{ type: "text", text: submittedText }],
-            ...(messageAttachments.length > 0
-              ? { attachments: messageAttachments }
-              : {}),
-            ...createUserMessageRunConfig(
+        // ── End body-size guard ──────────────────────────────────────────
+        if (isAgentChatSubmitCancelled(submitMessageId)) return false;
+        const acceptedVisibleSubmit =
+          visibleSubmitSequence !== null &&
+          visibleSubmitSequence >=
+            latestAcceptedVisibleSubmitSequenceRef.current;
+        if (visibleSubmitSequence !== null && acceptedVisibleSubmit) {
+          latestAcceptedVisibleSubmitSequenceRef.current =
+            visibleSubmitSequence;
+        }
+        // Snapshot the exec mode at enqueue time when the caller didn't
+        // pass an explicit override. Without this, a plan-mode message that
+        // sits in the queue runs as 'act' if the user flips the global toggle
+        // before the queue flushes — turning a read-only message into a write.
+        const effectiveRequestMode: AgentRequestMode | undefined =
+          requestMode ??
+          (execMode === "plan"
+            ? "plan"
+            : execMode === "build"
+              ? "act"
+              : undefined);
+        // Same reasoning for the model picker — see `QueuedMessage.model`.
+        const modelSnapshot = {
+          model: selectedModel,
+          engine: selectedEngine,
+          effort: selectedEffort,
+        };
+        const effectiveContinuationTurnId =
+          continuationTurnId ??
+          (actionScope ? generateAgentChatTurnId() : undefined);
+        const liveIsRunning = isRunningRef.current;
+        const activeRunNow = getActiveRun();
+        const sameActiveRun =
+          activeRunIdAtSubmitStart !== null &&
+          activeRunMatchesThread(activeRunNow, threadId) &&
+          activeRunNow?.runId === activeRunIdAtSubmitStart;
+        const interruptActiveRun =
+          !wasSubmissionInFlight &&
+          runningAtSubmitStart &&
+          liveIsRunning &&
+          intent === "immediate" &&
+          sameActiveRun;
+        const queueForActiveRun =
+          wasSubmissionInFlight ||
+          (liveIsRunning && (intent === "immediate" || intent === "queued"));
+        if (acceptedVisibleSubmit && !liveIsRunning && !engineSetupRequired) {
+          resetRetainedTextStreamingState(effectiveContinuationTurnId);
+        }
+        if (interruptActiveRun) {
+          // Explicit interrupt path: abort the active server run, then let the
+          // auto-dequeue path append this message once the run is clear. Normal
+          // composer sends while running resolve to "queued" before reaching here.
+          applyLocalQueuedMessages((prev) => [
+            ...prev,
+            {
+              id:
+                typeof crypto !== "undefined" && crypto.randomUUID
+                  ? crypto.randomUUID()
+                  : `q-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+              text: submittedText,
+              images,
+              attachments:
+                messageAttachments.length > 0 ? messageAttachments : undefined,
               references,
-              effectiveRequestMode,
+              requestMode: effectiveRequestMode,
               recoveryAction,
               trackInRunsTray,
-              approvedToolCalls,
-              undefined,
               hideUserMessage,
-              undefined,
-              effectiveContinuationTurnId,
-              usageLabel,
-              actionScope,
-            ),
-          } as Parameters<typeof threadRuntime.append>[0]);
-        } catch (error) {
-          setOptimisticRunning(false);
-          reportAgentChatSubmitResult(submitMessageId, false, "append-failed");
-          throw error;
+              approvedToolCalls,
+              ...(effectiveContinuationTurnId
+                ? { turnId: effectiveContinuationTurnId }
+                : {}),
+              ...(usageLabel ? { usageLabel } : {}),
+              ...(actionScope ? { actionScope } : {}),
+              ...modelSnapshot,
+            },
+          ]);
+          stopActiveRunRef.current({ preserveQueuedMessages: true });
+        } else if (engineSetupRequired || queueForActiveRun) {
+          applyLocalQueuedMessages((prev) => [
+            ...prev,
+            {
+              id:
+                typeof crypto !== "undefined" && crypto.randomUUID
+                  ? crypto.randomUUID()
+                  : `q-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+              text: submittedText,
+              images,
+              attachments:
+                messageAttachments.length > 0 ? messageAttachments : undefined,
+              references,
+              requestMode: effectiveRequestMode,
+              recoveryAction,
+              trackInRunsTray,
+              hideUserMessage,
+              approvedToolCalls,
+              ...(effectiveContinuationTurnId
+                ? { turnId: effectiveContinuationTurnId }
+                : {}),
+              ...(usageLabel ? { usageLabel } : {}),
+              ...(actionScope ? { actionScope } : {}),
+              ...modelSnapshot,
+            },
+          ]);
+        } else {
+          markOptimisticRunning();
+          try {
+            appendThreadMessage({
+              role: "user",
+              content: [{ type: "text", text: submittedText }],
+              ...(messageAttachments.length > 0
+                ? { attachments: messageAttachments }
+                : {}),
+              ...createUserMessageRunConfig(
+                references,
+                effectiveRequestMode,
+                recoveryAction,
+                trackInRunsTray,
+                approvedToolCalls,
+                undefined,
+                hideUserMessage,
+                undefined,
+                effectiveContinuationTurnId,
+                usageLabel,
+                actionScope,
+              ),
+            } as Parameters<typeof threadRuntime.append>[0]);
+          } catch (error) {
+            setOptimisticRunning(false);
+            reportAgentChatSubmitResult(
+              submitMessageId,
+              false,
+              "append-failed",
+            );
+            throw error;
+          }
         }
+        // The turn is now either queued behind the active run or already a
+        // visible message — either way it has reached the chat. This is
+        // intentionally reported before the agent's response resolves: a
+        // caller like sendToAgentChatAndConfirm only needs to know the submit
+        // wasn't silently dropped, not whether the run itself later succeeds.
+        // A visible submit is explicit user intent to see the new turn. Reattach
+        // following only after the message was queued/appended successfully;
+        // hidden reconnect recovery turns must leave the user's viewport alone.
+        if (!hideUserMessage) resumeFollowingRef.current();
+        reportAgentChatSubmitResult(submitMessageId, true);
+        // A queued immediate submit can abort the previous run after it is
+        // accepted. Preserve that newer stop marker while clearing the old one.
+        if (userStoppedRunRef.current === stoppedRunAtSubmitStart) {
+          userStoppedRunRef.current = null;
+        }
+        if (submitted.includesContext) {
+          updateComposerContextItems(() => []);
+        }
+        return true;
+      } finally {
+        releaseSubmission();
+        submissionInFlightRef.current -= 1;
       }
-      // The turn is now either queued behind the active run or already a
-      // visible message — either way it has reached the chat. This is
-      // intentionally reported before the agent's response resolves: a
-      // caller like sendToAgentChatAndConfirm only needs to know the submit
-      // wasn't silently dropped, not whether the run itself later succeeds.
-      // A visible submit is explicit user intent to see the new turn. Reattach
-      // following only after the message was queued/appended successfully;
-      // hidden reconnect recovery turns must leave the user's viewport alone.
-      if (!hideUserMessage) resumeFollowingRef.current();
-      reportAgentChatSubmitResult(submitMessageId, true);
-      // A queued immediate submit can abort the previous run after it is
-      // accepted. Preserve that newer stop marker while clearing the old one.
-      if (userStoppedRunRef.current === stoppedRunAtSubmitStart) {
-        userStoppedRunRef.current = null;
-      }
-      if (submitted.includesContext) {
-        updateComposerContextItems(() => []);
-      }
-      return true;
     },
     [
       applyLocalQueuedMessages,
@@ -7490,7 +7524,17 @@ const AssistantChatInner = forwardRef<
                                         attachments,
                                         undefined,
                                         resolveAssistantChatSubmitIntent({
-                                          isRunning,
+                                          isRunning:
+                                            isRunning ||
+                                            isRunningRef.current ||
+                                            isRuntimeRunningRef.current ||
+                                            isAutoResumingRef.current ||
+                                            activeRunMatchesThread(
+                                              getActiveRun(),
+                                              threadId,
+                                            ),
+                                          isSubmissionInFlight:
+                                            submissionInFlightRef.current > 0,
                                           requestedIntent: options?.intent,
                                         }),
                                         undefined,
@@ -7502,7 +7546,11 @@ const AssistantChatInner = forwardRef<
                                         );
                                       }
                                     }}
-                                    willQueue={engineSetupRequired || isRunning}
+                                    willQueue={
+                                      engineSetupRequired ||
+                                      isRunning ||
+                                      submissionInFlightRef.current > 0
+                                    }
                                     onSlashCommand={onSlashCommand}
                                     execMode={execMode}
                                     onExecModeChange={onExecModeChange}

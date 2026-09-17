@@ -9,6 +9,10 @@ export interface ChatThreadScope {
   label?: string;
   /** Composer context key used by ambient resource context adapters. */
   contextKey?: string;
+  /** Bounded, transient context for the current resource view. */
+  context?: string;
+  /** Changes when the current resource target changes, including selection. */
+  contextVersion?: string;
 }
 
 export interface ChatThreadSummary {
@@ -97,6 +101,12 @@ const ACTIVE_THREAD_KEY = "agent-chat-active-thread";
 const THREADS_UPDATED_EVENT = "agent-chat:threads-updated";
 const THREADS_PAGE_SIZE = 50;
 const CLIENT_DRAFT_THREAD_PREFIX = "agent-chat-client-draft-thread:";
+const MAX_THREAD_SAVE_RETRIES = 3;
+const THREAD_SAVE_RETRYABLE_STATUSES = new Set([408, 409, 429]);
+
+function shouldRetryThreadSave(status: number): boolean {
+  return status >= 500 || THREAD_SAVE_RETRYABLE_STATUSES.has(status);
+}
 
 function clientDraftThreadKey(id: string): string {
   return `${CLIENT_DRAFT_THREAD_PREFIX}${encodeURIComponent(id)}`;
@@ -1382,17 +1392,19 @@ export function useChatThreads(
           { preserveUserTitle },
         );
         const payload = { ...threadDataPayload, title };
-        let response = await fetch(
-          withChatThreadScope(
-            `${apiUrl}/threads/${encodeURIComponent(id)}`,
-            historyScope,
-          ),
-          {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-          },
-        );
+        const putThread = () =>
+          fetch(
+            withChatThreadScope(
+              `${apiUrl}/threads/${encodeURIComponent(id)}`,
+              historyScope,
+            ),
+            {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload),
+            },
+          );
+        let response = await putThread();
         // A passive realtime-voice transcript can be the first content in a
         // client-created thread, so no agent run has created its SQL row yet.
         // Materialize that row idempotently and retry the same full save.
@@ -1409,18 +1421,20 @@ export function useChatThreads(
               }),
             },
           );
-          if (!created.ok) return;
-          response = await fetch(
-            withChatThreadScope(
-              `${apiUrl}/threads/${encodeURIComponent(id)}`,
-              historyScope,
-            ),
-            {
-              method: "PUT",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(payload),
-            },
+          if (!created.ok && created.status !== 409) return;
+          response = await putThread();
+        }
+        for (
+          let retry = 0;
+          !response.ok &&
+          shouldRetryThreadSave(response.status) &&
+          retry < MAX_THREAD_SAVE_RETRIES;
+          retry++
+        ) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, Math.min(250, 50 * (retry + 1))),
           );
+          response = await putThread();
         }
         if (!response.ok) return;
         serverConfirmedThreadIdsRef.current.add(id);

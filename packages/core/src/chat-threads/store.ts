@@ -1114,9 +1114,12 @@ export async function updateThreadData(
 
   if (lastConflict) {
     if (options.ignoreConflicts) return;
-    throw new Error(
+    const error = new Error(
       `Failed to update chat thread ${id} after concurrent write conflicts.`,
-    );
+    ) as Error & { statusCode?: number; statusMessage?: string };
+    error.statusCode = 409;
+    error.statusMessage = error.message;
+    throw error;
   }
 }
 
