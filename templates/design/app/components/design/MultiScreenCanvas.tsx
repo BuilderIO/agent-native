@@ -7702,16 +7702,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         );
       };
       const handleMouseUp = (ev: MouseEvent) => {
-        // The board iframe covers the overview surface, so geometry hit
-        // testing can report a stale screen while the rendered card is still
-        // visibly elsewhere. The card under the release owns the drop.
-        const screenCard = surfaceRef.current?.ownerDocument
-          .elementFromPoint(ev.clientX, ev.clientY)
-          ?.closest<HTMLElement>("[data-screen-card]");
+        // The host selection box sits above every Screen and follows the
+        // moving board object, so DOM hit testing sees the chrome instead of
+        // the card underneath it. Resolve the release in board-space geometry
+        // so selection chrome cannot steal a board-to-screen drop.
         const droppedOnScreen = Boolean(
-          screenCard
-            ?.closest<HTMLElement>("[data-frame-id]")
-            ?.getAttribute("data-frame-id"),
+          getFrameEntryAtPoint(getCanvasPoint(ev.clientX, ev.clientY)),
         );
         if (droppedOnScreen) {
           // The host owns board-to-screen drops. Cancel the iframe gesture
@@ -7744,6 +7740,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       boardFileId,
       boardSurfaceRenderGeometry,
       finishDrag,
+      getCanvasPoint,
+      getFrameEntryAtPoint,
       installDragListeners,
       readOnly,
     ],

@@ -11185,7 +11185,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var dragElOffsetScaleX = ancestorScale(dragEl, "x");
       var dragElOffsetScaleY = ancestorScale(dragEl, "y");
       if (!isGroupDrag) {
-        postCrossScreenDrag("start", dragEl, e, {
+        postCrossScreenDrag("start", dragEl, pointerStartParam || e, {
           duplicate: duplicatedForDrag
         });
       }

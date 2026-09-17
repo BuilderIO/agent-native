@@ -15803,7 +15803,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var dragElOffsetScaleX = ancestorScale(dragEl, "x");
     var dragElOffsetScaleY = ancestorScale(dragEl, "y");
     if (!isGroupDrag) {
-      postCrossScreenDrag("start", dragEl, e, {
+      postCrossScreenDrag("start", dragEl, pointerStartParam || e, {
         duplicate: duplicatedForDrag,
       });
     }

@@ -1171,15 +1171,34 @@ test.describe("parity: Tutorial 5 - overview canvas (outside any screen) and cro
     // text's actual DOM parent (the screen's own <body>) instead of a real
     // wrapper frame, and "dragging the button frame out of the screen" was
     // actually dragging the screen's own root — which can never leave it.
-    // The just-placed text stays selected after placeText commits, so
-    // Cmd+Alt+G applies directly without a redundant reselect (re-clicking
-    // an already-selected node does not always refire element-select).
+    // Clear the creation selection so selectByText observes a real transition
+    // after the debounced publication settles.
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(200);
+    await selectByText(page, "Save");
     const primary = process.platform === "darwin" ? "Meta" : "Control";
     await page.keyboard.press(`${primary}+Alt+g`);
     await page.waitForTimeout(400);
     let html = await fileContent(page, "index.html");
     const buttonFrameId = (await parentIdOf(page, html, textId))!;
     expect(buttonFrameId).toBeTruthy();
+    expect(layerNameOf(html, buttonFrameId!)).toBe("Frame");
+
+    // Frame selection wraps the text at its intrinsic size. Give the wrapper
+    // real background area so the drag starts on the frame, not its text leaf.
+    const widthInput = page.getByLabel("W size in pixels");
+    const heightInput = page.getByLabel("H size in pixels");
+    await widthInput.fill("120");
+    await widthInput.press("Enter");
+    await heightInput.fill("48");
+    await heightInput.press("Enter");
+    await expect
+      .poll(async () => {
+        const nextHtml = await fileContent(page, "index.html");
+        const style = styleOf(nextHtml, buttonFrameId!);
+        return style.width === "120px" && style.height === "48px";
+      })
+      .toBe(true);
 
     const target = homeScreenCard(page)
       .locator("iframe[data-design-preview-iframe]")
