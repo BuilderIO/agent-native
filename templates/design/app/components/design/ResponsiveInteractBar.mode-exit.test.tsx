@@ -102,6 +102,9 @@ describe("ResponsiveInteractBar mode exits", () => {
     expect(markup).toContain(
       'aria-hidden="true" class="invisible flex shrink-0 items-center pl-1"',
     );
+    expect(markup).toMatch(
+      /<button class="[^"]*h-7[^"]*shrink-0[^"]*gap-1\.5[^"]*px-2[^"]*!text-\[12px\][^"]*" disabled="" tabindex="-1">/,
+    );
     expect(markup).toContain("Exit responsive preview");
   });
 

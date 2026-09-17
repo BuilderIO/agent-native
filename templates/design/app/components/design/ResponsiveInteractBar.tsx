@@ -409,10 +409,16 @@ export function ResponsiveInteractBar({
           aria-hidden="true"
           className="invisible flex shrink-0 items-center pl-1"
         >
-          <span className="flex h-7 items-center gap-1.5 rounded-md px-2 !text-[12px]">
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled
+            tabIndex={-1}
+            className="h-7 shrink-0 gap-1.5 rounded-md px-2 !text-[12px]"
+          >
             <IconX className="size-4" />
             {t("designEditor.responsiveInteract.exit")}
-          </span>
+          </Button>
         </div>
       )}
     </div>
