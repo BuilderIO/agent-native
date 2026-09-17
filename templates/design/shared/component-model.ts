@@ -240,12 +240,12 @@ export function instanceFromNode(
   const stableNodeId = stableComponentNodeId(node);
 
   return {
-    instanceId: stableComponentNodeId(node),
+    instanceId: stableNodeId,
     name,
     props: extractProps(node),
     alpineData,
     selector: node.selector,
-    nodeId: stableComponentNodeId(node),
+    nodeId: stableNodeId,
     componentIndexId,
     componentId: node.dataAttributes[COMPONENT_ID_ATTR]?.trim() || undefined,
     componentRef: node.dataAttributes[COMPONENT_REF_ATTR]?.trim() || undefined,

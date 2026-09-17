@@ -44,7 +44,6 @@ import {
   componentNameFor,
   componentNodeIdMatches,
   extractProps,
-  stableComponentNodeId,
   type ComponentInstance,
   instanceFromNode,
 } from "../shared/component-model.js";
