@@ -52,7 +52,7 @@ interface SidebarProps {
 }
 
 function threadTitle(thread: ChatThreadSummary, untitledLabel: string) {
-  return thread.title || thread.preview || untitledLabel;
+  return thread.title || untitledLabel;
 }
 
 function threadUpdatedAt(thread: ChatThreadSummary) {

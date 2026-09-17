@@ -2202,6 +2202,7 @@ function SizingMenuItem({
 }) {
   return (
     <DropdownMenuItem
+      data-design-sizing-menu-item={label}
       disabled={disabled}
       onSelect={onSelect}
       className="gap-2 pl-2 pr-2 text-[12px]"

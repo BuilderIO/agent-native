@@ -7310,6 +7310,129 @@ describe("createAgentChatAdapter", () => {
     expect(last.content.at(-1).text).toContain("Working and done");
   });
 
+  it("deduplicates a replayed tool event when a background response resumes on a new run", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let requestTurnId = "";
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        requestTurnId = (JSON.parse(init.body as string) as { turnId: string })
+          .turnId;
+        // Simulate the Netlify background response ending after the first
+        // persisted event. The follow-up run replays that event with a new
+        // stream cursor, but the same source eventId.
+        return backgroundSseResponse(
+          [
+            {
+              type: "tool_start",
+              id: "get-deck-1",
+              seq: 0,
+              eventId: "run-bg-source:0",
+              tool: "get-deck",
+              input: { deckId: "deck-1" },
+            },
+          ],
+          "run-bg-source",
+        );
+      }
+      if (url.includes("/runs/active")) {
+        return jsonResponse({
+          active: true,
+          runId: "run-bg-replay",
+          threadId: "thread-bg-replay",
+          turnId: requestTurnId,
+          status: "running",
+          dispatchMode: "background-processing",
+          heartbeatAt: Date.now(),
+          lastProgressAt: Date.now(),
+        });
+      }
+      if (url.includes("/runs/run-bg-replay/events")) {
+        return backgroundSseResponse(
+          [
+            {
+              type: "tool_start",
+              id: "get-deck-1",
+              seq: 0,
+              eventId: "run-bg-source:0",
+              tool: "get-deck",
+              input: { deckId: "deck-1" },
+            },
+            {
+              type: "tool_done",
+              id: "get-deck-1",
+              seq: 1,
+              eventId: "run-bg-replay:0",
+              tool: "get-deck",
+              result: '{"slides":8}',
+            },
+            {
+              type: "text",
+              seq: 2,
+              eventId: "run-bg-replay:1",
+              text: "The deck has 8 slides.",
+            },
+            {
+              type: "done",
+              seq: 3,
+              eventId: "run-bg-replay:2",
+            },
+          ],
+          "run-bg-replay",
+        );
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-bg-replay",
+      threadId: "thread-bg-replay",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "get the deck" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    const results = await promise;
+    const last = results.at(-1) as any;
+    const toolCalls = last.content.filter(
+      (part: any) => part.type === "tool-call",
+    );
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      expect.stringContaining("/runs/run-bg-replay/events?after=0"),
+      expect.any(Object),
+    );
+    expect(toolCalls).toHaveLength(1);
+    expect(toolCalls[0]).toMatchObject({
+      toolName: "get-deck",
+      result: '{"slides":8}',
+    });
+    expect(last.status).toEqual({ type: "complete", reason: "stop" });
+  });
+
   it("continues a followed background run whose done event follows completed tool work", async () => {
     vi.useFakeTimers();
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });

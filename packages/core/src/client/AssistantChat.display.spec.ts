@@ -2416,6 +2416,118 @@ describe("settleInterruptedAssistantToolCallsInRepo", () => {
       reason: "error",
     });
   });
+
+  it("keeps explicitly stopped tool activity neutral", () => {
+    const repo = {
+      messages: [
+        {
+          message: {
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "tool-1",
+                toolName: "query",
+                args: {},
+                activity: true,
+                result: "Stopped before this action started.",
+                outcome: "unknown",
+              },
+              {
+                type: "tool-call",
+                toolCallId: "tool-2",
+                toolName: "patch",
+                args: {},
+                result: "Interrupted before this tool returned a result.",
+                outcome: "unknown",
+              },
+            ],
+            status: { type: "running" },
+          },
+        },
+      ],
+    };
+
+    const settled = settleInterruptedAssistantToolCallsInRepo(repo, {
+      userStopped: true,
+    });
+    const tools = settled.repo.messages[0].message.content as Array<{
+      result?: unknown;
+      outcome?: unknown;
+    }>;
+
+    expect(tools).toEqual([
+      expect.objectContaining({ result: "" }),
+      expect.objectContaining({ result: "" }),
+    ]);
+    expect(tools[0]?.outcome).toBeUndefined();
+    expect(tools[1]?.outcome).toBeUndefined();
+    expect(settled.repo.messages[0].message).toMatchObject({
+      status: { type: "complete", reason: "stop" },
+      metadata: { custom: { userStopped: true } },
+    });
+  });
+
+  it("scopes a user stop to the active logical turn", () => {
+    const repo = {
+      messages: [
+        {
+          message: {
+            role: "assistant",
+            metadata: { custom: { runId: "old-run", turnId: "old-turn" } },
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "old-tool",
+                toolName: "query",
+                args: {},
+                activity: true,
+              },
+            ],
+            status: { type: "running" },
+          },
+        },
+        {
+          message: {
+            role: "assistant",
+            metadata: {
+              custom: { runId: "successor-run", turnId: "active-turn" },
+            },
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "active-tool",
+                toolName: "patch",
+                args: {},
+                activity: true,
+              },
+            ],
+            status: { type: "running" },
+          },
+        },
+      ],
+    };
+
+    const settled = settleInterruptedAssistantToolCallsInRepo(repo, {
+      userStopped: true,
+      runId: "successor-run",
+      turnId: "active-turn",
+    });
+    const oldMessage = settled.repo.messages[0].message;
+    const activeMessage = settled.repo.messages[1].message;
+
+    expect(oldMessage).toMatchObject({ status: { type: "running" } });
+    expect(oldMessage.metadata).not.toMatchObject({
+      custom: { userStopped: true },
+    });
+    expect(oldMessage.content[0]).toMatchObject({ activity: true });
+    expect(activeMessage).toMatchObject({
+      status: { type: "complete", reason: "stop" },
+      metadata: { custom: { userStopped: true } },
+    });
+    expect(activeMessage.content[0]).toMatchObject({ result: "" });
+    expect(settled.changed).toBe(true);
+  });
 });
 
 describe("resolveAssistantChatRunningStatusLabel", () => {
@@ -2725,6 +2837,10 @@ describe("chat submit and stop hardening", () => {
     expect(chatSource).toContain("ExternalUserStoppedRunContext.Provider");
     expect(messageSource).toContain("ExternalUserStoppedRunContext");
     expect(messageSource).toContain("(externalUserStopped && isLast)");
+    expect(messageSource).toContain(
+      "const messageIsRunning = isLast && chatRunning && !isUserStoppedRun;",
+    );
+    expect(messageSource).toContain("running={messageIsRunning}");
   });
 
   it("wires reconnect ownership into the inner chat and rejects stale callbacks", () => {
@@ -2732,9 +2848,9 @@ describe("chat submit and stop hardening", () => {
       encoding: "utf8",
     });
 
-    expect(source).toContain(
-      "useReconnectReaderOwner(\n    reconnectRunIdRef,\n    reconnectAbortRef,\n  )",
-    );
+    expect(source).toContain("useReconnectReaderOwner(");
+    expect(source).toContain("releaseReconnectOwnership,");
+    expect(source).toContain("threadId,\n  );");
     expect(source).toContain("!reconnectOwnerMountedRef.current ||");
     expect(source).toContain(
       "if (reconnectRunIdRef.current !== runId) return;",
@@ -2783,15 +2899,23 @@ describe("chat submit and stop hardening", () => {
     expect(helperSource).toContain("applyLocalQueuedMessages(() => [])");
     expect(helperSource).toContain("setPendingReconnectRecovery(null)");
     expect(helperSource).toContain("resetRunningActivity()");
-    expect(helperSource).toContain("includeActivity: true");
-    expect(helperSource).toContain("settleVisibleInterruptedTools()");
-    expect(helperSource).toContain("markVisibleRunStopped()");
-    expect(
-      helperSource.indexOf("settleVisibleInterruptedTools()"),
-    ).toBeLessThan(helperSource.indexOf("threadRuntime.cancelRun()"));
-    expect(helperSource.indexOf("markVisibleRunStopped()")).toBeLessThan(
-      helperSource.indexOf("threadRuntime.cancelRun()"),
+    expect(source).toContain("includeActivity: true");
+    expect(helperSource).toContain(
+      "settleVisibleInterruptedTools(runIdToAbort, turnIdToAbort)",
     );
+    expect(helperSource).toContain(
+      "markVisibleRunStopped(runIdToAbort, turnIdToAbort)",
+    );
+    expect(
+      helperSource.indexOf(
+        "settleVisibleInterruptedTools(runIdToAbort, turnIdToAbort)",
+      ),
+    ).toBeLessThan(helperSource.indexOf("threadRuntime.cancelRun()"));
+    expect(
+      helperSource.indexOf(
+        "markVisibleRunStopped(runIdToAbort, turnIdToAbort)",
+      ),
+    ).toBeLessThan(helperSource.indexOf("threadRuntime.cancelRun()"));
     expect(helperSource).toContain("getPendingTurn(threadId)");
     expect(helperSource).toContain("clearPendingTurnIfMatches(");
     expect(helperSource).toContain("/runs/turn/${encodeURIComponent(");
@@ -3008,7 +3132,8 @@ describe("waitForThreadRunToClear", () => {
       "const reconnectAfterSeq = resolveReconnectAfterSeq(threadId, runId)",
     );
     expect(helperSource).toContain("if (!sseRes.ok || !sseRes.body)");
-    expect(helperSource).toContain("{ preparingActionState }");
+    expect(helperSource).toContain("preparingActionState,");
+    expect(helperSource).toContain("seenEventSeqs,");
     expect(helperSource).toContain(
       "reconnectTimedOut && abortCtrl.signal.aborted",
     );
@@ -3049,7 +3174,7 @@ describe("waitForThreadRunToClear", () => {
     );
   });
 
-  it("does not freeze tail-only reconnect snapshots when stopped", () => {
+  it("drops reconnect snapshots when the user stops", () => {
     const source = readFileSync("src/client/AssistantChat.tsx", {
       encoding: "utf8",
     });
@@ -3067,9 +3192,9 @@ describe("waitForThreadRunToClear", () => {
     expect(reconnectSource).toContain(
       "reconnectTailOnlyRef.current = afterSeq > 0",
     );
-    expect(stopSource).toContain("!reconnectTailOnlyRef.current");
-    expect(stopSource).toContain("reconnectCanMaterializeRef.current");
-    expect(stopSource).toContain("reconnectContent.length > 0");
+    expect(stopSource).toContain("setReconnectContent([])");
+    expect(stopSource).toContain("reconnectCanMaterializeRef.current = false");
+    expect(stopSource).not.toContain("setReconnectFrozen(true)");
     expect(stopSource).toContain("reconnectTailOnlyRef.current = false");
   });
 
@@ -3193,7 +3318,7 @@ describe("waitForThreadRunToClear", () => {
     expect(materializeSource).toContain("return;");
   });
 
-  it("keeps stopped fresh reconnect content materializable", () => {
+  it("does not materialize reconnect content after a user stop", () => {
     const source = readFileSync("src/client/AssistantChat.tsx", {
       encoding: "utf8",
     });
@@ -3203,21 +3328,12 @@ describe("waitForThreadRunToClear", () => {
       stopStart,
     );
     const stopSource = source.slice(stopStart, stopEnd);
-    const freezeStart = stopSource.indexOf("if (shouldFreezeReconnectContent)");
-    const elseStart = stopSource.indexOf("} else {", freezeStart);
-    const freezeBranch = stopSource.slice(freezeStart, elseStart);
-
     expect(stopStart).toBeGreaterThan(-1);
     expect(stopEnd).toBeGreaterThan(stopStart);
-    expect(stopSource).toContain("!reconnectTailOnlyRef.current");
-    expect(stopSource).toContain("reconnectCanMaterializeRef.current");
-    expect(stopSource).toContain("reconnectContent.length > 0");
-    expect(freezeStart).toBeGreaterThan(-1);
-    expect(elseStart).toBeGreaterThan(freezeStart);
-    expect(freezeBranch).toContain("setReconnectFrozen(true)");
-    expect(freezeBranch).not.toContain(
-      "reconnectCanMaterializeRef.current = false",
-    );
+    expect(stopSource).toContain("setReconnectFrozen(false)");
+    expect(stopSource).toContain("setReconnectContent([])");
+    expect(stopSource).toContain("reconnectCanMaterializeRef.current = false");
+    expect(stopSource).not.toContain("shouldFreezeReconnectContent");
   });
 
   it("keeps no-progress fresh reconnect content materializable", () => {
@@ -3383,6 +3499,17 @@ describe("shouldShowReconnectOverlay", () => {
         reconnectFrozen: true,
       }),
     ).toBe(true);
+  });
+
+  it("hides a reader as soon as another logical-turn owner takes over", () => {
+    expect(
+      shouldShowReconnectOverlay({
+        isRuntimeRunning: false,
+        isReconnecting: true,
+        reconnectFrozen: false,
+        reconnectOwnsStream: false,
+      }),
+    ).toBe(false);
   });
 
   it("stays hidden when there is nothing to reconnect", () => {
