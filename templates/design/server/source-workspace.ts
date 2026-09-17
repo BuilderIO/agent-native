@@ -417,6 +417,57 @@ export function readPreparedSourceText(
   }
 }
 
+/**
+ * Lock and validate the durable collaboration row represented by a prepared
+ * lease. Preparing the Y.Doc happens before the design transaction can take
+ * its SQL locks, so the lease's base version must be checked again at the
+ * final boundary instead of trusting its cached snapshot.
+ */
+export async function lockPreparedSourceCollaboration(
+  transaction: DbExec,
+  fileId: string,
+  lease: Pick<PreparedYDocMutationLease, "baseVersion">,
+): Promise<{ hasState: boolean; needsSeed: boolean }> {
+  let result: { rows: unknown[] };
+  try {
+    result = (await transaction.execute({
+      sql: "SELECT yjs_state, text_snapshot, version FROM _collab_docs WHERE doc_id = ? FOR UPDATE",
+      args: [fileId],
+    })) as { rows: unknown[] };
+  } catch {
+    throw new SourceWorkspaceEditConflictError(
+      "Could not verify a source file's live version. Re-read the design and retry.",
+    );
+  }
+
+  const row = result.rows[0] as
+    | { yjs_state?: unknown; text_snapshot?: unknown; version?: unknown }
+    | undefined;
+  if (!row) {
+    if (lease.baseVersion !== null) {
+      throw new SourceWorkspaceEditConflictError(
+        "The source file's live collaboration document changed while it was being read. Re-read the design and retry.",
+      );
+    }
+    return { hasState: false, needsSeed: true };
+  }
+
+  const version = Number(row.version);
+  if (
+    typeof row.yjs_state !== "string" ||
+    typeof row.text_snapshot !== "string" ||
+    !Number.isSafeInteger(version) ||
+    version !== lease.baseVersion
+  ) {
+    throw new SourceWorkspaceEditConflictError(
+      "The source file's live collaboration document changed while it was being read. Re-read the design and retry.",
+    );
+  }
+
+  const hasState = row.yjs_state.length > 0;
+  return { hasState, needsSeed: !hasState };
+}
+
 export async function prepareInlineSourceEdit(args: {
   file: SourceWorkspaceFile;
   currentContent?: string;
@@ -490,8 +541,18 @@ export async function writeInlineSourceFile(args: {
       if (!currentFile || currentFile.designId !== args.designId) {
         throw new Error("Source file not found.");
       }
+      let hasCollaborationState = false;
+      try {
+        hasCollaborationState = await hasCollabState(args.file.id);
+      } catch {
+        throw new SourceWorkspaceEditConflictError(
+          "Could not verify a source file's live version. Re-read the design and retry.",
+        );
+      }
+      const needsCollabSeed =
+        !hasCollaborationState || lease.baseVersion === null;
       let liveContent = readPreparedSourceText(lease);
-      if (lease.baseVersion === null) {
+      if (needsCollabSeed) {
         liveContent = currentFile.content ?? "";
         applyTextToYDoc(lease.doc, "content", liveContent, "agent");
       }
@@ -615,7 +676,7 @@ export async function writeInlineSourceFile(args: {
       const changed = args.content !== current.content;
       const updatedAt = new Date().toISOString();
       if (!changed && !identityOnly) {
-        if (lease.baseVersion === null) {
+        if (needsCollabSeed) {
           try {
             await lease.persist(
               getDesignSourceMutationExec(tx),
@@ -980,8 +1041,8 @@ export async function writeInlineSourceFilesBatch(args: {
       }
 
       await transaction(async (tx) => {
+        await lockDesignSourceMutation(tx, args.designId);
         if (args.expectedHtmlFileIds !== undefined) {
-          await lockDesignSourceMutation(tx, args.designId);
           const currentHtmlFiles = await tx.execute({
             sql: "SELECT id FROM design_files WHERE design_id = ? AND LOWER(file_type) = 'html' ORDER BY id FOR UPDATE",
             args: [args.designId],

@@ -79,6 +79,7 @@ const harness = vi.hoisted(() => {
   });
   const lease = {
     doc: {},
+    baseVersion: null as number | null,
     persist: vi.fn(async (_transaction: unknown, text: string) => {
       events.push("collab-seed");
       persistedSnapshots.push(text);
@@ -105,6 +106,53 @@ const harness = vi.hoisted(() => {
     setPreparedText: (text: string) => {
       preparedText = text;
     },
+    setLeaseBaseVersion: (version: number | null) => {
+      lease.baseVersion = version;
+    },
+    lockPreparedSourceCollaboration: vi.fn(
+      async (
+        transaction: { execute(query: unknown): Promise<{ rows: unknown[] }> },
+        fileId: string,
+        preparedLease: { baseVersion: number | null },
+      ) => {
+        const result = await transaction.execute({
+          sql: "SELECT yjs_state, text_snapshot, version FROM _collab_docs WHERE doc_id = ? FOR UPDATE",
+          args: [fileId],
+        });
+        const row = result.rows[0] as
+          | {
+              yjs_state?: unknown;
+              text_snapshot?: unknown;
+              version?: unknown;
+            }
+          | undefined;
+        if (!row) {
+          if (preparedLease.baseVersion !== null) {
+            const error = new Error("stale prepared lease") as Error & {
+              statusCode?: number;
+            };
+            error.statusCode = 409;
+            throw error;
+          }
+          return { hasState: false, needsSeed: true };
+        }
+        const version = Number(row.version);
+        if (
+          typeof row.yjs_state !== "string" ||
+          typeof row.text_snapshot !== "string" ||
+          !Number.isSafeInteger(version) ||
+          version !== preparedLease.baseVersion
+        ) {
+          const error = new Error("stale prepared lease") as Error & {
+            statusCode?: number;
+          };
+          error.statusCode = 409;
+          throw error;
+        }
+        const hasState = row.yjs_state.length > 0;
+        return { hasState, needsSeed: !hasState };
+      },
+    ),
     setPersistError: (error: unknown) => {
       persistError = error;
     },
@@ -180,6 +228,7 @@ vi.mock("../server/source-workspace.js", () => ({
     readonly statusCode = 409;
   },
   designSourceMutationLockKey: harness.designSourceMutationLockKey,
+  lockPreparedSourceCollaboration: harness.lockPreparedSourceCollaboration,
   readPreparedSourceText: () => harness.getPreparedText(),
   withPreparedSourceFileMutation: harness.withPreparedSourceFileMutation,
   withSourceFileWriteLock: harness.withSourceFileWriteLock,
@@ -234,6 +283,7 @@ describe("index-components source ordering", () => {
     harness.persistedSnapshots.length = 0;
     harness.projectionInputs.length = 0;
     harness.resetPreparedText();
+    harness.setLeaseBaseVersion(null);
     harness.setPersistError(undefined);
     harness.applyTextToYDoc.mockClear();
     harness.lease.persist.mockClear();
@@ -317,9 +367,11 @@ describe("index-components source ordering", () => {
         {
           yjs_state: "state-v2",
           text_snapshot: "<main>stale SQL snapshot</main>",
+          version: 0,
         },
       ],
     );
+    harness.setLeaseBaseVersion(0);
     harness.setPreparedText(
       '<main data-agent-native-component="Card"><span /></main>',
     );
@@ -328,6 +380,85 @@ describe("index-components source ordering", () => {
     expect(harness.projectionInputs).toEqual([
       '<main data-agent-native-component="Card"><span /></main>',
     ]);
+  });
+
+  it("rejects a prepared projection when the durable collaboration version advanced", async () => {
+    harness.selectResults.push(
+      [{ id: "file-1" }],
+      [
+        {
+          id: "file-1",
+          designId: "design-1",
+          filename: "index.html",
+          content: "<main></main>",
+        },
+      ],
+    );
+    harness.executeResults.push(
+      [
+        {
+          id: "file-1",
+          designId: "design-1",
+          filename: "index.html",
+          content: "<main></main>",
+        },
+      ],
+      [
+        {
+          yjs_state: "state-v3",
+          text_snapshot: "<main>peer edit</main>",
+          version: 3,
+        },
+      ],
+    );
+    harness.setLeaseBaseVersion(2);
+    harness.setPreparedText(
+      '<main data-agent-native-component="StaleLease"></main>',
+    );
+
+    await expect(
+      action.run({ designId: "design-1", fileId: "file-1" }),
+    ).rejects.toMatchObject({ statusCode: 409 });
+    expect(harness.projectionInputs).toEqual([]);
+    expect(harness.events).not.toContain("index-upsert");
+  });
+
+  it("seeds an existing empty collaboration row before projecting", async () => {
+    const html = '<main data-agent-native-component="Card"></main>';
+    harness.selectResults.push(
+      [{ id: "file-1" }],
+      [
+        {
+          id: "file-1",
+          designId: "design-1",
+          filename: "index.html",
+          content: html,
+        },
+      ],
+    );
+    harness.executeResults.push(
+      [
+        {
+          id: "file-1",
+          designId: "design-1",
+          filename: "index.html",
+          content: html,
+        },
+      ],
+      [{ yjs_state: "", text_snapshot: "", version: 4 }],
+    );
+    harness.setLeaseBaseVersion(4);
+
+    await action.run({ designId: "design-1", fileId: "file-1" });
+
+    expect(harness.applyTextToYDoc).toHaveBeenCalledWith(
+      harness.lease.doc,
+      "content",
+      html,
+      "agent",
+    );
+    expect(harness.persistedSnapshots).toEqual([html]);
+    expect(harness.projectionInputs).toEqual([html]);
   });
 
   it("persists authored selectors instead of generated projection ids", async () => {
@@ -428,8 +559,9 @@ describe("index-components source ordering", () => {
           content: '<main data-agent-native-component="Card"></main>',
         },
       ],
-      [{ yjs_state: "state", text_snapshot: null }],
+      [{ yjs_state: "state", text_snapshot: null, version: 0 }],
     );
+    harness.setLeaseBaseVersion(0);
 
     await expect(
       action.run({ designId: "design-1", fileId: "file-1" }),
