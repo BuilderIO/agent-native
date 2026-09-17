@@ -7,6 +7,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Booking links reject unsafe validation rules without freezing the booking page
 - Booking link time-zone arrows now scroll to earlier and later times.
 
 ## 2026-09-15

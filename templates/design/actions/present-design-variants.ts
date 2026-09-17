@@ -15,12 +15,12 @@ import "../server/db/index.js"; // ensure registerShareableResource runs
 import { getDb, schema } from "../server/db/index.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
+import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
 import {
   mergeCanvasFramePlacements,
   nextFreeCanvasRowY,
   type CanvasFramePlacement,
 } from "../shared/canvas-frames.js";
-import { isUniqueConstraintViolation } from "../shared/db-conflict.js";
 import { getOverviewScreenFileIds } from "../shared/design-files.js";
 import { assertDesignHtmlWellFormed } from "../shared/html-integrity.js";
 import { widthToPrefix } from "../shared/responsive-classes.js";
@@ -204,8 +204,6 @@ interface VariantScreen {
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
-
-const MAX_FILENAME_INSERT_ATTEMPTS = 5;
 
 /**
  * True only when `rawSet` proves none of its screens has ever been removed by
@@ -496,9 +494,16 @@ async function deleteVariantSetsByIds(
   });
 
   if (removedFileIds.length > 0) {
-    await db
-      .delete(schema.designFiles)
-      .where(inArray(schema.designFiles.id, removedFileIds));
+    await withDesignSourceMutationTransaction(designId, async (tx) => {
+      await tx
+        .delete(schema.designFiles)
+        .where(
+          and(
+            eq(schema.designFiles.designId, designId),
+            inArray(schema.designFiles.id, removedFileIds),
+          ),
+        );
+    });
 
     // Closes the small window between the metadata prune above and the
     // physical row delete: mirrors delete-file.ts's before/delete/after
@@ -992,46 +997,45 @@ export default defineAction({
 
     const db = getDb();
     const now = new Date().toISOString();
-    const existingFiles = await db
-      .select()
-      .from(schema.designFiles)
-      .where(eq(schema.designFiles.designId, designId));
-    const usedFilenames = new Set(existingFiles.map((file) => file.filename));
-    const screenFileIds = getOverviewScreenFileIds(existingFiles);
     const variantSetId = nanoid();
-    const screens: VariantScreen[] = [];
+    let screenFileIds: string[] = [];
+    const screenContents = new Map<string, string>();
+    const screens = await withDesignSourceMutationTransaction(
+      designId,
+      async (tx) => {
+        const existingFiles = await tx
+          .select()
+          .from(schema.designFiles)
+          .where(eq(schema.designFiles.designId, designId));
+        const usedFilenames = new Set(
+          existingFiles.map((file) => file.filename),
+        );
+        screenFileIds = getOverviewScreenFileIds(existingFiles);
+        const createdScreens: VariantScreen[] = [];
 
-    for (let index = 0; index < variants.length; index += 1) {
-      const variant = variants[index]!;
-      const label = variant.label.trim() || optionName(index);
-      const slug = slugify(label, `option-${index + 1}`);
-      let filename = uniqueFilename(`variant-${slug}.html`, usedFilenames);
-      let fileId = nanoid();
-      const providedContent = variant.content?.trim();
-      const initialSize = inferVariantSize(variant, prompt);
-      const rawContent =
-        providedContent ||
-        fallbackVariantContent(variant, index, prompt, initialSize);
-      const { width, height } = providedContent
-        ? inferVariantSize({ ...variant, content: rawContent })
-        : initialSize;
-      // Stamp missing data-agent-native-node-id attributes before persisting
-      // so each variant screen is fully addressable by id-keyed editor
-      // operations as soon as it lands on the overview board.
-      const content = annotateScreenHtmlForPersist(rawContent, "html");
+        for (let index = 0; index < variants.length; index += 1) {
+          const variant = variants[index]!;
+          const label = variant.label.trim() || optionName(index);
+          const slug = slugify(label, `option-${index + 1}`);
+          const filename = uniqueFilename(
+            `variant-${slug}.html`,
+            usedFilenames,
+          );
+          const fileId = nanoid();
+          const providedContent = variant.content?.trim();
+          const initialSize = inferVariantSize(variant, prompt);
+          const rawContent =
+            providedContent ||
+            fallbackVariantContent(variant, index, prompt, initialSize);
+          const { width, height } = providedContent
+            ? inferVariantSize({ ...variant, content: rawContent })
+            : initialSize;
+          // Stamp missing data-agent-native-node-id attributes before
+          // persisting so each variant screen is fully addressable by
+          // id-keyed editor operations as soon as it lands on the board.
+          const content = annotateScreenHtmlForPersist(rawContent, "html");
 
-      // `usedFilenames` is a snapshot taken once at the top of run(), so a
-      // concurrent present-design-variants call (an agent retry after a
-      // timeout is the common trigger) can independently compute the same
-      // (designId, filename) pair and win the insert first. The
-      // `design_files_design_filename_unique_idx` unique index (see
-      // server/plugins/db.ts) turns the loser's insert into a constraint
-      // error instead of a silently duplicated screen; recover by refreshing
-      // the real filename list from the DB, picking a fresh unique name, and
-      // retrying — bounded so a persistent non-race failure still surfaces.
-      for (let attempt = 0; ; attempt += 1) {
-        try {
-          await db.insert(schema.designFiles).values({
+          await tx.insert(schema.designFiles).values({
             id: fileId,
             designId,
             filename,
@@ -1040,34 +1044,26 @@ export default defineAction({
             createdAt: now,
             updatedAt: now,
           });
-          break;
-        } catch (err) {
-          if (
-            !isUniqueConstraintViolation(err) ||
-            attempt >= MAX_FILENAME_INSERT_ATTEMPTS
-          ) {
-            throw err;
-          }
-          const freshFiles = await db
-            .select({ filename: schema.designFiles.filename })
-            .from(schema.designFiles)
-            .where(eq(schema.designFiles.designId, designId));
-          for (const file of freshFiles) usedFilenames.add(file.filename);
-          filename = uniqueFilename(`variant-${slug}.html`, usedFilenames);
-          fileId = nanoid();
-        }
-      }
-      await seedFromText(fileId, content);
+          usedFilenames.add(filename);
+          screenContents.set(fileId, content);
 
-      screens.push({
-        id: fileId,
-        variantId: variant.id,
-        label,
-        filename,
-        width,
-        height,
-      });
-    }
+          createdScreens.push({
+            id: fileId,
+            variantId: variant.id,
+            label,
+            filename,
+            width,
+            height,
+          });
+        }
+        return createdScreens;
+      },
+    );
+    await Promise.all(
+      screens.map((screen) =>
+        seedFromText(screen.id, screenContents.get(screen.id)!),
+      ),
+    );
 
     // Presenting options should not silently reconfigure the design. When it
     // does, the overview paints an extra preview beside EVERY primary frame

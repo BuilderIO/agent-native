@@ -37,12 +37,14 @@ import {
   seedFromText,
 } from "@agent-native/core/collab";
 import { closeDbExec, getDbExec } from "@agent-native/core/db";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 import { sourceContentHash } from "../shared/source-workspace.js";
-import { getDb } from "./db/index.js";
+import { getDb, schema } from "./db/index.js";
 import {
+  withDesignSourceMutationTransaction,
   writeInlineSourceFilesBatch,
+  withSourceFileWriteLock,
   type SourceWorkspaceFile,
 } from "./source-workspace.js";
 
@@ -189,6 +191,146 @@ afterAll(async () => {
 });
 
 describe("writeInlineSourceFilesBatch", () => {
+  it("serializes design-file insert and delete membership mutations", async () => {
+    let releaseInsert!: () => void;
+    let inserted!: () => void;
+    const insertEntered = new Promise<void>((resolve) => {
+      inserted = resolve;
+    });
+    const insertRelease = new Promise<void>((resolve) => {
+      releaseInsert = resolve;
+    });
+
+    const insertRun = withDesignSourceMutationTransaction(
+      DESIGN_ID,
+      async (tx) => {
+        await tx.insert(schema.designFiles).values({
+          id: "membership-insert",
+          designId: DESIGN_ID,
+          filename: "inserted.html",
+          content: "<main>inserted</main>",
+          fileType: "html",
+          createdAt: BASE_TIME,
+          updatedAt: BASE_TIME,
+        });
+        inserted();
+        await insertRelease;
+      },
+    );
+    await insertEntered;
+
+    let deleteEntered = false;
+    const deleteRun = withDesignSourceMutationTransaction(
+      DESIGN_ID,
+      async (tx) => {
+        deleteEntered = true;
+        await tx
+          .delete(schema.designFiles)
+          .where(eq(schema.designFiles.id, DESTINATION_ID));
+      },
+    );
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(deleteEntered).toBe(false);
+
+    releaseInsert();
+    await Promise.all([insertRun, deleteRun]);
+    expect(await persistedFiles()).toEqual([
+      { id: SOURCE_ID, content: SOURCE_BASE, updated_at: BASE_TIME },
+      {
+        id: "membership-insert",
+        content: "<main>inserted</main>",
+        updated_at: BASE_TIME,
+      },
+    ]);
+  });
+
+  it("keeps a content snapshot inside the design mutation lock", async () => {
+    let releaseFirst!: () => void;
+    let snapshotTaken!: () => void;
+    const firstRelease = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const firstSnapshot = new Promise<void>((resolve) => {
+      snapshotTaken = resolve;
+    });
+
+    const firstRun = withDesignSourceMutationTransaction(
+      DESIGN_ID,
+      async (tx) => {
+        const [captured] = await tx
+          .select({ content: schema.designFiles.content })
+          .from(schema.designFiles)
+          .where(eq(schema.designFiles.id, SOURCE_ID))
+          .limit(1);
+        expect(captured?.content).toBe(SOURCE_BASE);
+        snapshotTaken();
+        await firstRelease;
+        await tx
+          .update(schema.designFiles)
+          .set({ content: SOURCE_NEXT })
+          .where(eq(schema.designFiles.id, SOURCE_ID));
+      },
+    );
+    await firstSnapshot;
+
+    let secondEntered = false;
+    const secondRun = withDesignSourceMutationTransaction(
+      DESIGN_ID,
+      async (tx) => {
+        secondEntered = true;
+        await tx
+          .update(schema.designFiles)
+          .set({ content: DESTINATION_NEXT })
+          .where(eq(schema.designFiles.id, SOURCE_ID));
+      },
+    );
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(secondEntered).toBe(false);
+
+    releaseFirst();
+    await Promise.all([firstRun, secondRun]);
+    const [winner] = await execute(
+      "SELECT content FROM design_files WHERE id = ?",
+      [SOURCE_ID],
+    ).then((result) => result.rows);
+    expect(winner).toEqual({ content: DESTINATION_NEXT });
+  });
+
+  it("serializes index-first and rename-first critical sections on one source file", async () => {
+    const run = async (fileId: string, first: string, second: string) => {
+      const order: string[] = [];
+      let enterFirst!: () => void;
+      let releaseFirst!: () => void;
+      const firstEntered = new Promise<void>((resolve) => {
+        enterFirst = resolve;
+      });
+      const firstRelease = new Promise<void>((resolve) => {
+        releaseFirst = resolve;
+      });
+
+      const firstRun = withSourceFileWriteLock(fileId, async () => {
+        order.push(first);
+        enterFirst();
+        await firstRelease;
+      });
+      await firstEntered;
+
+      const secondRun = withSourceFileWriteLock(fileId, async () => {
+        order.push(second);
+      });
+      expect(order).toEqual([first]);
+
+      releaseFirst();
+      await Promise.all([firstRun, secondRun]);
+      expect(order).toEqual([first, second]);
+    };
+
+    await run("lock-order-index-first", "index", "rename");
+    await run("lock-order-rename-first", "rename", "index");
+  });
+
   it.each(["sql-ahead", "live-ahead"] as const)(
     "rejects a destination whose %s is newer than the captured base before writing",
     async (newerSide) => {

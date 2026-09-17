@@ -245,7 +245,10 @@ import {
   failPendingTextCapture,
   registerPendingTextHostCommit,
 } from "@/components/design/design-canvas/pending-text-capture";
-import { trace } from "@/components/design/design-trace";
+import {
+  recordDesignPerformance,
+  trace,
+} from "@/components/design/design-trace";
 import { DesignCanvas } from "@/components/design/DesignCanvas";
 import { DesignEditorSkeleton } from "@/components/design/DesignEditorSkeleton";
 import {
@@ -651,6 +654,7 @@ import { runIframeContextMenu } from "./design-editor/commands/iframe-context-me
 import { runImportFigmaClipboardIntoDesign } from "./design-editor/commands/import-figma-clipboard-into-design";
 import {
   coalesceMarqueeSelectionHistory,
+  runMarqueeSelectionCancellation,
   runLayerMarqueeSelectionChange,
 } from "./design-editor/commands/layer-marquee-selection-change";
 import { runLayerMove } from "./design-editor/commands/layer-move";
@@ -2557,8 +2561,9 @@ function DesignEditor() {
   const historySourceReaderRef = useRef<(screenId: string) => string>(() => {
     throw new Error("History source reader is not initialized");
   });
-  const captureCurrentSelection = (): GeometryHistorySelection =>
-    captureHistorySelectionFromOwners(
+  const captureCurrentSelection = (): GeometryHistorySelection => {
+    recordDesignPerformance("captureCurrentSelection");
+    return captureHistorySelectionFromOwners(
       {
         overviewSelectedScreenIds: [...overviewSelectedScreenIdsRef.current],
         selectedLayerIds: [...selectedLayerIdsStateRef.current],
@@ -2567,6 +2572,7 @@ function DesignEditor() {
       codeLayerOwnerByNodeIdRef.current,
       (screenId) => historySourceReaderRef.current(screenId),
     );
+  };
   // Restores a previously captured selection snapshot via the existing
   // setters — DesignEditor owns all of this selection state, so no canvas
   // component needs to change for the restore to reflect on screen (the
@@ -2732,8 +2738,16 @@ function DesignEditor() {
     },
     [clearRedoStacks, restoreSelectionSnapshot, syncUndoRedoState],
   );
+  // A live marquee keeps this start snapshot until its final report. Any
+  // non-marquee selection is a new interaction boundary and must retire it.
+  const marqueeSelectionHistoryBeforeRef =
+    useRef<GeometryHistorySelection | null>(null);
+  const marqueeSelectedElementBeforeRef = useRef<ElementInfo | null>(null);
   const recordSelectionHistoryAroundChange = useCallback(
     (run: () => void) => {
+      marqueeSelectionHistoryBeforeRef.current = null;
+      marqueeSelectedElementBeforeRef.current = null;
+      lastMarqueeSelectionSignatureRef.current = null;
       if (viewModeRef.current !== "overview") {
         run();
         return;
@@ -2750,13 +2764,41 @@ function DesignEditor() {
   // wrapping every one of those calls in recordSelectionHistoryAroundChange
   // recorded one undo step per tick instead of Figma's "one drag = one undo
   // step". MultiScreenCanvas.tsx's marquee now tags exactly one call per
-  // gesture `final: true` (the mouseup report); coalesceMarqueeSelectionHistory
-  // remembers the selection from the gesture's FIRST tick and only the final
-  // tick actually pushes a history entry, spanning the whole drag.
-  const marqueeSelectionHistoryBeforeRef =
-    useRef<GeometryHistorySelection | null>(null);
+  // gesture `final: true` (the mouseup report); keep only the first and final
+  // snapshots on this path while interim updates stay live and unflushed.
   const recordMarqueeSelectionHistoryAroundChange = useCallback(
-    (run: () => void, intent: { source?: string; final?: boolean }) => {
+    (
+      run: () => void,
+      intent: {
+        source?: string;
+        final?: boolean;
+        cancelled?: boolean;
+        restoreHostSelection?: boolean;
+        resetHistory?: boolean;
+      },
+    ) => {
+      if (intent.source === "marquee" && intent.cancelled) {
+        const before = marqueeSelectionHistoryBeforeRef.current;
+        const selectedElementBefore = marqueeSelectedElementBeforeRef.current;
+        marqueeSelectionHistoryBeforeRef.current = null;
+        marqueeSelectedElementBeforeRef.current = null;
+        lastMarqueeSelectionSignatureRef.current = null;
+        runMarqueeSelectionCancellation({
+          before,
+          flushSync,
+          restoreHostSelection: intent.restoreHostSelection === true,
+          restoreSelectionSnapshot,
+          run,
+          selectedElementBefore,
+          setSelectedElement,
+        });
+        return;
+      }
+      if (intent.source === "marquee" && intent.resetHistory) {
+        marqueeSelectionHistoryBeforeRef.current = null;
+        marqueeSelectedElementBeforeRef.current = null;
+        lastMarqueeSelectionSignatureRef.current = null;
+      }
       // Only an actual marquee drag spans multiple calls needing
       // coalescing (see coalesceMarqueeSelectionHistory's doc comment); a
       // drill-in/pick click (source: "pointer") reported through this same
@@ -2766,11 +2808,26 @@ function DesignEditor() {
         return;
       }
       if (viewModeRef.current !== "overview") {
+        marqueeSelectionHistoryBeforeRef.current = null;
+        marqueeSelectedElementBeforeRef.current = null;
+        lastMarqueeSelectionSignatureRef.current = null;
         run();
         return;
       }
-      const before = captureCurrentSelection();
+      recordDesignPerformance("marqueeSelectionChange");
+      if (intent.final !== true) {
+        if (marqueeSelectionHistoryBeforeRef.current === null) {
+          lastMarqueeSelectionSignatureRef.current = null;
+          marqueeSelectionHistoryBeforeRef.current = captureCurrentSelection();
+          marqueeSelectedElementBeforeRef.current = selectedElementRef.current;
+        }
+        run();
+        return;
+      }
+      const before =
+        marqueeSelectionHistoryBeforeRef.current ?? captureCurrentSelection();
       flushSync(run);
+      recordDesignPerformance("marqueeFinalSelectionChange");
       const after = captureCurrentSelection();
       const entry = coalesceMarqueeSelectionHistory(
         marqueeSelectionHistoryBeforeRef,
@@ -2779,8 +2836,14 @@ function DesignEditor() {
         after,
       );
       if (entry) pushSelectionHistoryEntry(entry.before, entry.after);
+      marqueeSelectedElementBeforeRef.current = null;
+      lastMarqueeSelectionSignatureRef.current = null;
     },
-    [pushSelectionHistoryEntry, recordSelectionHistoryAroundChange],
+    [
+      pushSelectionHistoryEntry,
+      recordSelectionHistoryAroundChange,
+      restoreSelectionSnapshot,
+    ],
   );
   useEffect(() => {
     pendingVisualStyleEditsRef.current = pendingVisualStyleEdits;
@@ -8967,6 +9030,7 @@ function DesignEditor() {
       }
       const cached = cache.get(screenId);
       if (cached && cached.contentRef === content) return cached.projection;
+      recordDesignPerformance("buildCodeLayerProjection");
       const projection = buildCodeLayerProjection(content, {
         source: codeLayerSourceForScreen(screenId),
       });
@@ -16352,56 +16416,54 @@ function DesignEditor() {
   }, [embedded, handleToggleKeyboardShortcuts]);
 
   // ── Editor hotkeys ─────────────────────────────────────────────────────────
-  const handleEscapeHotkey = useCallback(
-    () =>
-      recordSelectionHistoryAroundChange(() =>
-        runEscapeHotkey({
-          activeBreakpointWidthStateRef,
-          activeTool,
-          cancelActiveEditorDrag,
-          drawMode,
-          enterOverviewFromZoom,
-          focusedAnnotationSending,
-          handleBreakpointBarSelect,
-          handleCloseKeyboardShortcuts,
-          handleExitFocusedDrawMode,
-          handleExitOverviewDrawMode,
-          keyboardShortcutsOpen,
-          mode,
-          overviewAnnotationSending,
-          pinMode,
-          selectedElement,
-          setActiveTool,
-          setDrawMode,
-          setHoveredElement,
-          setMode,
-          setOverviewClearSelectionRequest,
-          setOverviewSelectedScreenIds,
-          setPinMode,
-          setSelectedElement,
-          setSelectedLayerIdsState,
-          viewMode,
-        }),
-      ),
-    [
-      activeTool,
-      cancelActiveEditorDrag,
-      drawMode,
-      enterOverviewFromZoom,
-      focusedAnnotationSending,
-      handleBreakpointBarSelect,
-      keyboardShortcutsOpen,
-      handleCloseKeyboardShortcuts,
-      handleExitFocusedDrawMode,
-      handleExitOverviewDrawMode,
-      mode,
-      overviewAnnotationSending,
-      pinMode,
-      recordSelectionHistoryAroundChange,
-      selectedElement,
-      viewMode,
-    ],
-  );
+  const handleEscapeHotkey = useCallback(() => {
+    recordSelectionHistoryAroundChange(() =>
+      runEscapeHotkey({
+        activeBreakpointWidthStateRef,
+        activeTool,
+        cancelActiveEditorDrag,
+        drawMode,
+        enterOverviewFromZoom,
+        focusedAnnotationSending,
+        handleBreakpointBarSelect,
+        handleCloseKeyboardShortcuts,
+        handleExitFocusedDrawMode,
+        handleExitOverviewDrawMode,
+        keyboardShortcutsOpen,
+        mode,
+        overviewAnnotationSending,
+        pinMode,
+        selectedElement,
+        setActiveTool,
+        setDrawMode,
+        setHoveredElement,
+        setMode,
+        setOverviewClearSelectionRequest,
+        setOverviewSelectedScreenIds,
+        setPinMode,
+        setSelectedElement,
+        setSelectedLayerIdsState,
+        viewMode,
+      }),
+    );
+  }, [
+    activeTool,
+    cancelActiveEditorDrag,
+    drawMode,
+    enterOverviewFromZoom,
+    focusedAnnotationSending,
+    handleBreakpointBarSelect,
+    keyboardShortcutsOpen,
+    handleCloseKeyboardShortcuts,
+    handleExitFocusedDrawMode,
+    handleExitOverviewDrawMode,
+    mode,
+    overviewAnnotationSending,
+    pinMode,
+    recordSelectionHistoryAroundChange,
+    selectedElement,
+    viewMode,
+  ]);
 
   // T22: Enter with a selected TEXT layer in single mode begins inline
   // editing on it (Figma: Enter drills into the selected layer), reusing the
@@ -22402,14 +22464,16 @@ function DesignEditor() {
     ],
   );
   const renderScreenContent = useCallback<OverviewScreenRenderer>(
-    (screen, metadata, geometry, options) =>
-      renderEditableScreenContent(
+    (screen, metadata, geometry, options) => {
+      recordDesignPerformance("renderScreenContent");
+      return renderEditableScreenContent(
         screen,
         metadata,
         geometry,
         undefined,
         options,
-      ),
+      );
+    },
     [renderEditableScreenContent],
   );
   const renderBreakpointContent = useCallback<OverviewBreakpointRenderer>(

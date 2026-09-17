@@ -147,6 +147,16 @@ import { LinkHoverPreview } from "./LinkHoverPreview";
 import { SlashCommandMenu } from "./SlashCommandMenu";
 import { TableHoverControls } from "./TableHoverControls";
 
+function compareDocumentBodyRevisions(
+  first: string,
+  second: string,
+): number | null {
+  const firstMatch = /^body:(0|[1-9]\d*):/.exec(first);
+  const secondMatch = /^body:(0|[1-9]\d*):/.exec(second);
+  if (!firstMatch || !secondMatch) return null;
+  return Number(firstMatch[1]) - Number(secondMatch[1]);
+}
+
 /**
  * Override the paragraph node's markdown serialization so that empty
  * paragraphs survive round-trips. Without this, prosemirror-markdown
@@ -3648,6 +3658,7 @@ export function VisualEditor({
     contentRevision: propsPredateAcknowledgedRestore
       ? acknowledgedRestore!.contentRevision
       : contentRevision,
+    compareContentRevisions: compareDocumentBodyRevisions,
     acknowledgedLocalSnapshot,
     collabContentRevision: propsPredateAcknowledgedRestore
       ? null

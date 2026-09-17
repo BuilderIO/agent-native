@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import * as zlib from "node:zlib";
 
 import {
@@ -51,7 +52,7 @@ function kiwiContainer(chunks: Buffer[], version = 124): Buffer {
   ]);
 }
 
-function encodedHelloFig(): Buffer {
+function encodedHelloFig(extraChunks: Buffer[] = []): Buffer {
   const schema = parseSchema("message Message { string hello = 1; }");
   const compiled = compileSchema(schema) as {
     encodeMessage(value: { hello: string }): Uint8Array;
@@ -59,6 +60,7 @@ function encodedHelloFig(): Buffer {
   return kiwiContainer([
     Buffer.from(encodeBinarySchema(schema)),
     Buffer.from(compiled.encodeMessage({ hello: "world" })),
+    ...extraChunks,
   ]);
 }
 
@@ -142,6 +144,30 @@ describe("bounded .fig decoding", () => {
     expect(decoded.version).toBe(124);
     expect(decoded.document).toEqual({ hello: "world" });
   });
+
+  it("lets browser-local decoding skip only the raw upload ceiling", () => {
+    const fig = encodedHelloFig();
+
+    expect(() => decodeFig(fig, { maxFileBytes: fig.byteLength - 1 })).toThrow(
+      /too large/,
+    );
+    expect(decodeFig(fig, { maxFileBytes: null }).document).toEqual({
+      hello: "world",
+    });
+  });
+
+  it("decodes valid browser-local containers above the server upload ceiling", () => {
+    const fig = encodedHelloFig([
+      randomBytes(25 * 1024 * 1024),
+      randomBytes(25 * 1024 * 1024),
+    ]);
+
+    expect(fig.byteLength).toBeGreaterThan(50 * 1024 * 1024);
+    expect(() => decodeFig(fig)).toThrow(/too large/);
+    expect(decodeFig(fig, { maxFileBytes: null }).document).toEqual({
+      hello: "world",
+    });
+  }, 30_000);
 
   it("rejects malformed and over-complex containers before rendering", () => {
     expect(() => decodeFig(Buffer.from("not-a-fig"))).toThrow(/fig-kiwi/i);

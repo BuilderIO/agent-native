@@ -9,6 +9,7 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { designSourceMutationLockKey } from "../server/source-workspace.js";
 import { isProbablyHtmlDocumentContent } from "../shared/html-content.js";
 import {
   renameFilenamePreservingExtension,
@@ -180,15 +181,9 @@ export default defineAction({
       for (let attempt = 0; attempt < MAX_RENAME_ATTEMPTS; attempt += 1) {
         try {
           return await db.transaction(async (tx) => {
-            {
-              await (
-                tx as unknown as {
-                  execute: (query: unknown) => Promise<unknown>;
-                }
-              ).execute(
-                sql`LOCK TABLE design_files IN SHARE ROW EXCLUSIVE MODE`,
-              );
-            }
+            await tx.execute(
+              sql`SELECT pg_advisory_xact_lock(hashtextextended(${designSourceMutationLockKey(scopedFile.designId)}, 0::bigint))`,
+            );
 
             const [design] = await tx
               .select({ updatedAt: schema.designs.updatedAt })
@@ -209,7 +204,8 @@ export default defineAction({
                 updatedAt: schema.designFiles.updatedAt,
               })
               .from(schema.designFiles)
-              .where(eq(schema.designFiles.designId, scopedFile.designId));
+              .where(eq(schema.designFiles.designId, scopedFile.designId))
+              .for("update");
             const target = currentFiles.find((file) => file.id === id);
             if (!target) throw new Error(`Screen not found: ${id}`);
             if (target.fileType !== "html") {

@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Mail are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-17
+
+### Fixed
+
+- Mail undo keeps newer thread actions intact
+
 ## 2026-09-16
 
 ### Fixed

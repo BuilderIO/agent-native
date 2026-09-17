@@ -14,10 +14,12 @@ const mocks = vi.hoisted(() => {
   const txSelectChain = {
     from: vi.fn(),
     where: vi.fn(),
+    for: vi.fn(),
     limit: vi.fn(),
   };
   txSelectChain.from.mockReturnValue(txSelectChain);
   txSelectChain.where.mockReturnValue(txSelectChain);
+  txSelectChain.for.mockReturnValue(txSelectChain);
 
   const txDeleteChain = { where: vi.fn() };
   const txUpdateChain = { set: vi.fn(), where: vi.fn() };
@@ -27,6 +29,7 @@ const mocks = vi.hoisted(() => {
     select: vi.fn(() => txSelectChain),
     delete: vi.fn(() => txDeleteChain),
     update: vi.fn(() => txUpdateChain),
+    execute: vi.fn().mockResolvedValue({ rows: [] }),
   };
 
   const db = {
@@ -90,6 +93,7 @@ describe("delete-file", () => {
     mocks.fileSelectChain.limit.mockResolvedValue([
       { id: "file-b", designId: "design_123" },
     ]);
+    mocks.txSelectChain.limit.mockResolvedValue([{ content: undefined }]);
     mocks.designData = {
       canvasFrames: {
         "file-a": { x: 0 },
@@ -179,7 +183,7 @@ describe("delete-file", () => {
     });
 
     expect(result).toEqual({ id: "file-b", deleted: true });
-    expect(mocks.db.delete).toHaveBeenCalled();
+    expect(mocks.tx.delete).toHaveBeenCalled();
   });
 
   it("deletes the file and prunes stale board metadata", async () => {
@@ -191,7 +195,7 @@ describe("delete-file", () => {
       "design_123",
       "editor",
     );
-    expect(mocks.db.delete).toHaveBeenCalled();
+    expect(mocks.tx.delete).toHaveBeenCalled();
     expect(mocks.mutateDesignData).toHaveBeenCalledTimes(2);
 
     const data = mocks.designData;

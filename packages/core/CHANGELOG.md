@@ -51,6 +51,72 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.182.1
+
+### Patch Changes
+
+- ffafd84: Add `compileUserRegex`, `testUserRegex`, and `analyzeRegexSource` to
+  `@agent-native/core/shared` for evaluating regular expressions that come from an
+  agent or an end user rather than from source.
+
+  `new RegExp(source).test(value)` is not a bounded operation, and JavaScript has
+  no way to time a match out once V8 is inside it. A pattern an LLM routinely
+  writes to mean "at least two words" — `^([A-Za-z]+\s?)+$` — is 17 characters,
+  compiles cleanly, and backtracks exponentially: a 26-character non-matching
+  value already costs ~750 ms and the cost doubles with every further character.
+  Stored on a form field it froze the respondent's tab and, because the same
+  pattern was re-checked on submit, the request handler's event loop with it.
+  Capping the input length does not help, because the blowup is reached well
+  inside any sane cap.
+
+  `analyzeRegexSource` recognises the ambiguity signatures that cause
+  super-linear backtracking (nested and adjacent overlapping repetition, nullable
+  parts under an unbounded repeat, overlapping single-atom alternatives) and
+  refuses those patterns instead of running them. Patterns it clears are still
+  evaluated against a capped input. `testUserRegex` returns a tri-state result so
+  "did not match" and "was not evaluated" stay distinguishable — collapsing the
+  second into the first is how an unenforceable rule silently becomes an
+  enforced-looking one.
+
+- c40c9e0: Prevent Builder connect popups from racing their refreshed signed URL navigation.
+- 4dcc031: Let the agent render the Builder connect card on the first request in local
+  dev. `connect-builder` is registered in every registry that receives the
+  browser tools, but its name reached the first-request tool list only through
+  the hosted-only handoff, so a local `npx` app answered "connect Builder for me"
+  with no tool and no chip while the composer and setup card still offered
+  "Connect Builder.io".
+- 5ede9f7: Keep editor recovery bases stable and combine non-overlapping concurrent edits before asking the user to recover a draft.
+  Keep optional Node SQLite cache code from breaking Cloudflare Pages bundles.
+- b6857ea: Improve Design review comments with Figma-style reactions, filtering, reopen and undo controls, image attachments, mentions, and movable canvas pins.
+- d157801: `pnpm action db-query` now forwards to the running local dev server instead
+  of failing when PGlite's single-process lock is already held by `pnpm dev`.
+  The forwarded query runs through the same validation and row scoping as the
+  in-process path, using the caller's resolved identity, and falls back to
+  opening the database directly when no dev server is running or a custom
+  `--db` directory is given.
+- 88b143c: Fix chat stream replay, stop-state, and historical tool activity status.
+- 07ff903: Prevent duplicate workspace user group names, keep failed group deletions visible until they can be retried, and keep headless scaffolds installable against the published Amplitude dependency set.
+- 166b6cd: Use generated LLM titles for chat tabs instead of displaying the full prompt.
+- 34054a0: Lazy-seed collaborative documents on first access instead of scanning source tables during every serverless cold start.
+- Release all public npm packages with a patch version bump.
+- c884b5c: Align first-run onboarding capability requirements and recommendations across apps.
+- d3a010a: Limit Sentry source-map cleanup to files emitted by the current Vite build, preserve maps shipped with bundled dependencies, and bind uploads to the build ID embedded in the resolved client bundle.
+- 092e16a: Make image upload actions retryable and clean up provider objects after interrupted browser imports.
+- 75b8639: Prevent aborted WebMCP mutations from running after approval is shown.
+- 7587d7e: Remove the chat streaming cursor and prevent completed responses from replaying
+  their reveal animation when a new message is submitted.
+- f463754: Keep keyboard @ mentions in the comment composer and preserve selected mentions through Design draft and reply submissions.
+- 29f4316: Keep fresh multi-app workspace scaffolds on the verified Sentry bundler plugin version and supported pnpm release so installs do not resolve unavailable registry tarballs or ignore workspace policy. Keep generated shadcn guidance honest about which lint configuration is present.
+- 2b387a1: Serialize same-database boot migrations so authentication cannot race schema setup.
+- c503f47: Keep concurrent chat submissions on one durable thread head and retry transient thread saves so newer user turns remain visible and ordered.
+- Updated dependencies [5ede9f7]
+- Updated dependencies
+- Updated dependencies [ffafd84]
+- Updated dependencies [424d0cd]
+  - @agent-native/toolkit@0.20.4
+  - @agent-native/agentkit@0.2.4
+  - @agent-native/recap-cli@0.5.34
+
 ## 0.182.0
 
 ### Minor Changes
@@ -2931,11 +2997,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
   on every attempt — 24 identical "Missing Authentication header" 401s in a day.
 - Updated dependencies [a2f21dc]
   - @agent-native/toolkit@0.16.6
-
-## 0.163.4
-
-### Patch Changes
-
-- 0860ba4: Keep the Vite "dev server is restarting" page polling until Nitro answers instead of stopping after five 1-second reloads during a multi-minute first boot.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

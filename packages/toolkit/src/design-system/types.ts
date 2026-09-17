@@ -61,6 +61,8 @@ export interface ActionButtonProps
   children?: ReactNode;
   intent?: DesignSystemIntent;
   emphasis?: DesignSystemEmphasis;
+  /** Requests an inset focus ring when the button uses ghost emphasis. */
+  inset?: boolean;
   size?: DesignSystemSize;
   pending?: boolean;
   disabled?: boolean;

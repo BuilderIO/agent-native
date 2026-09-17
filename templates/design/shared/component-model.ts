@@ -49,6 +49,10 @@ export function stableComponentNodeId(node: CodeLayerNode): string {
   return node.dataAttributes["data-agent-native-node-id"]?.trim() || node.id;
 }
 
+export function componentIndexId(designId: string, name: string): string {
+  return `ci_${designId}_${name.toLowerCase().replace(/[^a-z0-9]/g, "_")}`;
+}
+
 // ─── Extracted prop value ─────────────────────────────────────────────────────
 
 export interface ComponentPropValue {
@@ -233,6 +237,7 @@ export function instanceFromNode(
   const alpineDataRaw = node.attributes["x-data"];
   const alpineData =
     typeof alpineDataRaw === "string" ? alpineDataRaw : undefined;
+  const stableNodeId = stableComponentNodeId(node);
 
   return {
     instanceId: stableComponentNodeId(node),

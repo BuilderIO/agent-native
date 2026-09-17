@@ -1,5 +1,15 @@
 # @agent-native/toolkit
 
+## 0.20.4
+
+### Patch Changes
+
+- 5ede9f7: Keep editor recovery bases stable and combine non-overlapping concurrent edits before asking the user to recover a draft.
+  Keep optional Node SQLite cache code from breaking Cloudflare Pages bundles.
+- Release all public npm packages with a patch version bump.
+- ffafd84: Keep tall dialog content inside the viewport with internal vertical scrolling.
+- 424d0cd: Add `sortFontFamilyOptions` to alphabetize font family picker options (keeping "Inherit" pinned first), and use it in the Design and Slides typography font pickers.
+
 ## 0.20.3
 
 ### Patch Changes

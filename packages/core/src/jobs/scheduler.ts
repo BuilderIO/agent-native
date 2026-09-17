@@ -212,6 +212,18 @@ async function processRecurringJobsWithLease(
 ): Promise<void> {
   subscribeToJobsResourceEvents();
 
+  // Upload receipts are framework-owned temporary state, so the same durable
+  // scheduler sweep that runs on serverless hosts also expires abandoned
+  // provider objects. The cleanup is internally throttled and never blocks
+  // recurring jobs when a provider or database is unavailable.
+  try {
+    const { runUploadReceiptCleanupOnce } =
+      await import("../file-upload/actions/upload-image.js");
+    await runUploadReceiptCleanupOnce();
+  } catch (error) {
+    console.error("[recurring-jobs] Upload receipt cleanup failed:", error);
+  }
+
   // Skip if we recently confirmed there are no job resources to run.
   const nowMs = Date.now();
   // Write a global heartbeat before the resource scan. A slow or failed scan

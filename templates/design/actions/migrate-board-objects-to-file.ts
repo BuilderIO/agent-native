@@ -42,6 +42,7 @@ import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
   readLiveSourceFile,
+  withDesignSourceMutationTransaction,
   writeInlineSourceFile,
 } from "../server/source-workspace.js";
 import {
@@ -226,15 +227,17 @@ export default defineAction({
       });
     } else {
       try {
-        await db.insert(schema.designFiles).values({
-          id: boardFileId,
-          designId,
-          filename: BOARD_FILENAME,
-          fileType: "html",
-          content: boardHtml,
-          createdAt: now,
-          updatedAt: now,
-        });
+        await withDesignSourceMutationTransaction(designId, (tx) =>
+          tx.insert(schema.designFiles).values({
+            id: boardFileId,
+            designId,
+            filename: BOARD_FILENAME,
+            fileType: "html",
+            content: boardHtml,
+            createdAt: now,
+            updatedAt: now,
+          }),
+        );
       } catch (error) {
         const [concurrentBoardFile] = await db
           .select({ id: schema.designFiles.id })
