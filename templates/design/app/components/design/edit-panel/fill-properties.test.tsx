@@ -268,6 +268,35 @@ describe("FillProperties base row — image layer prop wiring", () => {
     expect(shouldUseTextFill(el, el.computedStyles)).toBe(false);
   });
 
+  it("keeps layered text clips on the text-fill path", () => {
+    const el = element({
+      tagName: "span",
+      textContent: "Listen now",
+      computedStyles: {
+        color: "transparent",
+        backgroundColor: "rgb(0 0 0 / 0)",
+        backgroundImage:
+          "linear-gradient(red, blue), linear-gradient(black, white)",
+        backgroundClip: "text, border-box",
+      },
+    });
+
+    expect(shouldUseTextFill(el, el.computedStyles)).toBe(true);
+  });
+
+  it("recognizes fully transparent modern computed colors", () => {
+    const el = element({
+      tagName: "span",
+      textContent: "Listen now",
+      computedStyles: {
+        color: "#111827",
+        backgroundColor: "rgb(0 0 0 / 0)",
+      },
+    });
+
+    expect(shouldUseTextFill(el, el.computedStyles)).toBe(true);
+  });
+
   it("offers gradient layers but not image paints for a text fill selection", () => {
     const el = element({
       tagName: "span",

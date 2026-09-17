@@ -155,10 +155,13 @@ export function shouldUseTextFill(
   styles: Record<string, string>,
 ): boolean {
   const hasVisibleBackgroundImage =
-    splitCssLayers(styles.backgroundImage).length > 0;
+    splitCssLayers(styles.backgroundImage || "").length > 0;
+  const hasTextBackgroundClip = splitCssLayers(
+    styles.backgroundClip || "",
+  ).some((clip) => clip.trim().toLowerCase() === "text");
   return (
     isTextElement(element) &&
-    (styles.backgroundClip === "text" ||
+    (hasTextBackgroundClip ||
       (!colorHasVisibleAlpha(styles.backgroundColor) &&
         !hasVisibleBackgroundImage))
   );

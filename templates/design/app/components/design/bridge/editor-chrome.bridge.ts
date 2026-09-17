@@ -3147,15 +3147,19 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     paintCs: CSSStyleDeclaration,
     strokeCs: CSSStyleDeclaration = paintCs,
   ) {
+    var backgroundClip = cs.backgroundClip;
+    var webkitBackgroundClip = cs.getPropertyValue("-webkit-background-clip");
+    if (
+      !/(^|,)\s*text\s*(,|$)/i.test(backgroundClip) &&
+      /(^|,)\s*text\s*(,|$)/i.test(webkitBackgroundClip)
+    ) {
+      backgroundClip = webkitBackgroundClip;
+    }
     return {
       color: cs.color,
       backgroundColor: cs.backgroundColor,
       backgroundImage: cs.backgroundImage,
-      backgroundClip:
-        cs.backgroundClip === "text" ||
-        cs.getPropertyValue("-webkit-background-clip") === "text"
-          ? "text"
-          : cs.backgroundClip,
+      backgroundClip,
       backgroundPosition: cs.backgroundPosition,
       backgroundRepeat: cs.backgroundRepeat,
       backgroundSize: cs.backgroundSize,
