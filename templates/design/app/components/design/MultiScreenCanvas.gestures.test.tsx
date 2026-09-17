@@ -361,6 +361,151 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     );
   });
 
+  it("waits for every intersected screen reply before finalizing a marquee", async () => {
+    const onLayerMarqueeSelectionChange = vi.fn();
+    const screens = [
+      { id: "screen-a", filename: "screen-a.html", content: "" },
+      { id: "screen-b", filename: "screen-b.html", content: "" },
+    ];
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={screens}
+          zoom={100}
+          activeTool="move"
+          geometryById={{
+            "screen-a": { x: 0, y: 0, width: 320, height: 240 },
+            "screen-b": { x: 400, y: 0, width: 320, height: 240 },
+          }}
+          metadataById={{
+            "screen-a": { width: 1440, height: 900 },
+            "screen-b": { width: 1440, height: 900 },
+          }}
+          renderScreenContent={(screen) => (
+            <iframe data-screen-iframe-id={screen.id} />
+          )}
+          onPick={() => {}}
+          onLayerMarqueeSelectionChange={onLayerMarqueeSelectionChange}
+        />,
+      );
+    });
+
+    const surface = container.querySelector<HTMLElement>('[tabindex="-1"]');
+    const screenA = container.querySelector<HTMLIFrameElement>(
+      'iframe[data-screen-iframe-id="screen-a"]',
+    );
+    const screenB = container.querySelector<HTMLIFrameElement>(
+      'iframe[data-screen-iframe-id="screen-b"]',
+    );
+    const world = container.querySelector<HTMLElement>(
+      "[data-multi-screen-canvas-world]",
+    );
+    expect(surface).not.toBeNull();
+    expect(screenA?.contentWindow).not.toBeNull();
+    expect(screenB?.contentWindow).not.toBeNull();
+    expect(world).not.toBeNull();
+
+    const transform = world!.style.transform.match(
+      /translate\(([-\d.]+)px,\s*([-\d.]+)px\)\s*scale\(([-\d.]+)\)/,
+    );
+    expect(transform).not.toBeNull();
+    const [, panX, panY, scale] = transform!;
+    const clientPointForCanvas = (x: number, y: number) => ({
+      clientX: Number(panX) + (SURFACE_PADDING + x) * Number(scale),
+      clientY: Number(panY) + (SURFACE_PADDING + y) * Number(scale),
+    });
+    const origin = clientPointForCanvas(100, -20);
+    const end = clientPointForCanvas(600, 100);
+    let delayedReply: { correlationId: string; payload: unknown[] } | null =
+      null;
+    const candidate = (sourceId: string) => ({
+      tagName: "article",
+      sourceId,
+      boundingRect: { x: 500, y: 100, width: 100, height: 100 },
+    });
+    const postMessageSpies = [screenA!, screenB!].map((iframe) =>
+      vi
+        .spyOn(iframe.contentWindow!, "postMessage")
+        .mockImplementation((message: unknown) => {
+          if (
+            !message ||
+            typeof message !== "object" ||
+            (message as { type?: string }).type !==
+              "agent-native:collect-selectable-rects"
+          ) {
+            return;
+          }
+          const data = message as { correlationId: string };
+          if (iframe === screenA) {
+            window.dispatchEvent(
+              new MessageEvent("message", {
+                data: {
+                  type: "agent-native:selectable-rects-result",
+                  correlationId: data.correlationId,
+                  payload: [candidate("screen-a-layer")],
+                },
+                source: screenA!.contentWindow,
+              }),
+            );
+          } else {
+            delayedReply = {
+              correlationId: data.correlationId,
+              payload: [candidate("screen-b-layer")],
+            };
+          }
+        }),
+    );
+
+    try {
+      await act(async () => {
+        dispatchMouse(surface!, "mousedown", origin.clientX, origin.clientY);
+        dispatchMouse(window, "mousemove", end.clientX, end.clientY);
+        await nextAnimationFrame();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(delayedReply).not.toBeNull();
+
+      await act(async () => {
+        dispatchMouse(window, "mouseup", end.clientX, end.clientY);
+        await Promise.resolve();
+      });
+
+      expect(
+        onLayerMarqueeSelectionChange.mock.calls.some(
+          ([, intent]) => intent?.final === true,
+        ),
+      ).toBe(false);
+
+      await act(async () => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            data: {
+              type: "agent-native:selectable-rects-result",
+              correlationId: delayedReply!.correlationId,
+              payload: delayedReply!.payload,
+            },
+            source: screenB!.contentWindow,
+          }),
+        );
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      const finalCalls = onLayerMarqueeSelectionChange.mock.calls.filter(
+        ([, intent]) => intent?.final === true,
+      );
+      expect(finalCalls).toHaveLength(1);
+      expect(
+        finalCalls[0]?.[0].map(
+          (item: { info: { sourceId?: string } }) => item.info.sourceId,
+        ),
+      ).toEqual(["screen-a-layer", "screen-b-layer"]);
+    } finally {
+      postMessageSpies.forEach((spy) => spy.mockRestore());
+    }
+  });
+
   it("caches the surface rect across marquee move frames", async () => {
     const onLayerMarqueeSelectionChange = vi.fn();
     await act(async () => {

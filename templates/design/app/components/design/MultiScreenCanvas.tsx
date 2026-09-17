@@ -4713,6 +4713,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       // opposite case — transient, and worth retrying — which is why the reply
       // distinguishes the two reasons.
       const timedOutScreenIds = new Set<string>();
+      // A mouseup can arrive while one of the intersected iframes is still
+      // answering. Keep the collection work alive until every request started
+      // by this gesture settles so the one final report sees the full hit set.
+      const pendingMarqueeCollections: Array<Promise<void>> = [];
+      let marqueeReleased = false;
       // Figma parity: one marquee drag is one undo step. Every tick below
       // reports its hit-set as it changes, but the host only records
       // selection history for the report tagged `final` — see
@@ -4783,27 +4788,29 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         if (newIds.length === 0) return;
         const requestIds = new Set(newIds);
         newIds.forEach((id) => collectingScreenIds.add(id));
-        void collectLayerMarqueeCandidates(requestIds, deepSelect).then(
-          (result) => {
-            const unanswered = new Set(
-              result.unanswered.map((entry) => entry.screenId),
-            );
-            result.unanswered.forEach((entry) => {
-              if (entry.reason === "timeout")
-                timedOutScreenIds.add(entry.screenId);
-            });
-            newIds.forEach((id) => {
-              collectingScreenIds.delete(id);
-              // A screen that never answered is not "collected" — leave it out
-              // so growing the rect over it asks again instead of treating the
-              // silence as an empty screen for the rest of the gesture.
-              if (!unanswered.has(id)) collectedScreenIds.add(id);
-            });
-            if (dragState.current !== marqueeState) return;
-            layerCandidates = [...layerCandidates, ...result.candidates];
-            reportLayerSelection(latestRect);
-          },
-        );
+        const collection = collectLayerMarqueeCandidates(
+          requestIds,
+          deepSelect,
+        ).then((result) => {
+          const unanswered = new Set(
+            result.unanswered.map((entry) => entry.screenId),
+          );
+          result.unanswered.forEach((entry) => {
+            if (entry.reason === "timeout")
+              timedOutScreenIds.add(entry.screenId);
+          });
+          newIds.forEach((id) => {
+            collectingScreenIds.delete(id);
+            // A screen that never answered is not "collected" — leave it out
+            // so growing the rect over it asks again instead of treating the
+            // silence as an empty screen for the rest of the gesture.
+            if (!unanswered.has(id)) collectedScreenIds.add(id);
+          });
+          if (dragState.current !== marqueeState) return;
+          layerCandidates = [...layerCandidates, ...result.candidates];
+          if (!marqueeReleased) reportLayerSelection(latestRect);
+        });
+        pendingMarqueeCollections.push(collection);
       };
       dragState.current = marqueeState;
       setMarquee({ ...originCanvas, width: 0, height: 0 });
@@ -4826,6 +4833,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       const handleMouseMove = (ev: MouseEvent) => {
         const state = dragState.current;
         if (!state || state.type !== "marquee") return;
+        if (marqueeReleased) return;
         const nextPoint = getCanvasPointFromCachedRect(ev.clientX, ev.clientY);
         const rect = normalizeRectFromPoints(state.originCanvas, nextPoint);
         latestRect = rect;
@@ -4911,6 +4919,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         // coalesceMarqueeSelectionHistory), so skipping it on some paths
         // would leak the NEXT gesture's "before" into this one's.
         if (state?.type === "marquee") {
+          marqueeReleased = true;
           if (shouldClearSelectionOnEmptyCanvasClick(state)) {
             updateSelectedIds(() => []);
             updateSelectedDraftIds(() => []);
@@ -4920,9 +4929,16 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               shiftKey: false,
               final: true,
             });
+            finishDrag();
           } else {
-            reportLayerSelection(latestRect, true);
+            const finalRect = latestRect;
+            void Promise.allSettled(pendingMarqueeCollections).then(() => {
+              if (dragState.current !== marqueeState) return;
+              reportLayerSelection(finalRect, true);
+              finishDrag();
+            });
           }
+          return;
         }
         finishDrag();
       };
