@@ -808,6 +808,7 @@ export async function insertRun(
     });
   };
   if (!client.transaction) {
+    await lockContinuationOrder(client, threadId, logicalTurnId);
     await insert(
       client,
       explicitContinuationOrder ??
@@ -816,10 +817,7 @@ export async function insertRun(
     return;
   }
   await client.transaction(async (tx) => {
-    await tx.execute({
-      sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
-      args: [`agent-native:run-order:${threadId}:${logicalTurnId}`],
-    });
+    await lockContinuationOrder(tx, threadId, logicalTurnId);
     await insert(
       tx,
       explicitContinuationOrder ??
@@ -838,11 +836,27 @@ function normalizeContinuationOrder(
   return value;
 }
 
+function continuationOrderLockKey(threadId: string, turnId: string): string {
+  return `agent-native:run-order:${threadId}:${turnId}`;
+}
+
+async function lockContinuationOrder(
+  db: DbExec,
+  threadId: string,
+  turnId: string,
+): Promise<void> {
+  await db.execute({
+    sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
+    args: [continuationOrderLockKey(threadId, turnId)],
+  });
+}
+
 async function nextContinuationOrder(
   db: DbExec,
   threadId: string,
   turnId: string,
 ): Promise<number> {
+  await lockContinuationOrder(db, threadId, turnId);
   const { rows } = await db.execute({
     sql: `SELECT MAX(continuation_order) AS max_order
           FROM agent_runs
@@ -1338,6 +1352,11 @@ export async function tryClaimRunSlot(
       sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
       args: [`agent-native:run-slot:${threadId}`],
     });
+    // Serialize the active-run checks with every other insertion path for this
+    // logical turn. Without this, an insertRun transaction can commit while a
+    // claimant is waiting on this lock, after the claimant already checked
+    // for an active row, and both rows can become live.
+    await lockContinuationOrder(tx, threadId, turnId);
     const abortMarker = await tx.execute({
       sql: `SELECT id FROM agent_runs WHERE thread_id = ? AND turn_id = ? AND dispatch_mode = 'turn-abort' AND status = 'aborted' LIMIT 1`,
       args: [threadId, turnId],
@@ -2028,22 +2047,15 @@ async function attemptStaleRunRecovery(
   const turnId = row.turn_id ?? runId;
   const startedAt = Number(row.started_at) || 0;
 
-  // Serialize every per-turn decision below — the newer-run race check, the
-  // ledger budget, the successor cap and the insert — behind one lock: two
-  // concurrent reapers for the same turn could otherwise both pass the
-  // newer-run check, then serialize here and both insert (the first successor
-  // is still `running`, so the stale-count cap would not see it). On the transactional path `db` is
-  // the caller's open `tx` (see `reapSingleStaleRun`), so this lock is held
-  // until that transaction commits and a second reaper's acquire blocks
-  // until the first reaper's COUNT+INSERT are already visible to it. On the
+  // Serialize every per-turn decision below - the newer-run race check, the
+  // ledger budget, the successor cap and the insert - behind the same lock
+  // used by every other continuation insertion path. On the transactional
+  // path `db` is the caller's open `tx` (see `reapSingleStaleRun`), so this
+  // lock is held until that transaction commits and a second reaper's acquire
+  // blocks until the first reaper's COUNT+INSERT are visible to it. On the
   // documented non-transactional fallback path `db` has no open transaction,
-  // so this statement autocommits and the lock releases immediately — that
-  // path's own accepted two-successor race (see its comment above) already
-  // covers this gap, so this is a no-op there rather than a fix.
-  await db.execute({
-    sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
-    args: [`agent-native:stale-recovery:${turnId}`],
-  });
+  // so this statement autocommits and the lock releases immediately.
+  await lockContinuationOrder(db, threadId, turnId);
 
   const { rows: newerRows } = await db.execute({
     sql: `SELECT id FROM agent_runs WHERE turn_id = ? AND id != ? AND started_at > ? LIMIT 1`,

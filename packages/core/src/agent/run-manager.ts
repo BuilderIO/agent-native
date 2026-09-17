@@ -2486,9 +2486,11 @@ function streamRunEvent(
 function streamEventWithIdentity(
   runId: string,
   event: AgentChatEvent | Record<string, unknown>,
-  seq: number,
+  seq?: number,
 ): Record<string, unknown> {
-  return { ...event, seq, eventId: runEventIdentity(runId, seq) };
+  return seq === undefined
+    ? { ...event }
+    : { ...event, seq, eventId: runEventIdentity(runId, seq) };
 }
 
 /** In-memory subscription (same isolate, fast path) */
@@ -2701,7 +2703,7 @@ function subscribeFromSQL(
         try {
           controller.enqueue(
             encoder.encode(
-              `data: ${JSON.stringify(streamEventWithIdentity(runId, event, lastSeq))}\n\n`,
+              `data: ${JSON.stringify(streamEventWithIdentity(runId, event))}\n\n`,
             ),
           );
         } catch {}

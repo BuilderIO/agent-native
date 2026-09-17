@@ -14,17 +14,22 @@ type OwnerRecord = {
 
 function ReconnectOwnerHarness({
   id,
+  threadId,
   onReady,
   onCleanup,
 }: {
   id: string;
+  threadId?: string;
   onReady: (record: OwnerRecord) => void;
-  onCleanup?: (runId: string | null) => void;
+  onCleanup?: (runId: string | null, threadId?: string | null) => void;
 }) {
   const runIdRef = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
-  const mountedRef = useReconnectReaderOwner(runIdRef, abortRef, () =>
-    onCleanup?.(runIdRef.current),
+  const mountedRef = useReconnectReaderOwner(
+    runIdRef,
+    abortRef,
+    (ownerThreadId) => onCleanup?.(runIdRef.current, ownerThreadId),
+    threadId,
   );
 
   useEffect(() => {
@@ -110,5 +115,38 @@ describe("useReconnectReaderOwner", () => {
     act(() => root.unmount());
     rootUnmounted = true;
     expect(cleanupRunId).toBe("run-cleanup");
+  });
+
+  it("releases the old thread when the owner changes threads in place", () => {
+    let cleanupThreadId: string | null | undefined;
+    const onReady = () => {};
+
+    act(() => {
+      root.render(
+        <ReconnectOwnerHarness
+          id="run-thread-one"
+          threadId="thread-one"
+          onReady={onReady}
+          onCleanup={(_runId, threadId) => {
+            cleanupThreadId = threadId;
+          }}
+        />,
+      );
+    });
+
+    act(() => {
+      root.render(
+        <ReconnectOwnerHarness
+          id="run-thread-two"
+          threadId="thread-two"
+          onReady={onReady}
+          onCleanup={(_runId, threadId) => {
+            cleanupThreadId = threadId;
+          }}
+        />,
+      );
+    });
+
+    expect(cleanupThreadId).toBe("thread-one");
   });
 });

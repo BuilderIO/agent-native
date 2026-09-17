@@ -3036,6 +3036,47 @@ describe("run manager soft timeout", () => {
     expect(output).not.toContain("run_subscription_poll_failed");
   });
 
+  it("keeps the exact SQL cursor after a recoverable poll failure", async () => {
+    vi.mocked(getRunEventsSince)
+      .mockClear()
+      .mockRejectedValueOnce(new Error("transient pool timeout"))
+      .mockResolvedValueOnce([
+        {
+          seq: 4,
+          eventData: JSON.stringify({ type: "text", text: "cursor-safe" }),
+        },
+        { seq: 5, eventData: JSON.stringify({ type: "done" }) },
+      ]);
+
+    const stream = subscribeToRun("run-sql-cursor-safe", 4);
+    const reader = stream!.getReader();
+    const decoder = new TextDecoder();
+
+    await vi.waitFor(() => expect(getRunEventsSince).toHaveBeenCalledTimes(1));
+    await vi.advanceTimersByTimeAsync(SQL_SUBSCRIPTION_RETRY_BASE_MS);
+
+    const chunks: string[] = [];
+    for (let i = 0; i < 2; i++) {
+      const next = await reader.read();
+      if (next.done) break;
+      chunks.push(decoder.decode(next.value));
+    }
+
+    expect(getRunEventsSince).toHaveBeenNthCalledWith(
+      1,
+      "run-sql-cursor-safe",
+      4,
+    );
+    expect(getRunEventsSince).toHaveBeenNthCalledWith(
+      2,
+      "run-sql-cursor-safe",
+      4,
+    );
+    expect(chunks.join("")).toContain(
+      '"text":"cursor-safe","seq":4,"eventId":"run-sql-cursor-safe:4"',
+    );
+  });
+
   it("fails a SQL subscription loudly after bounded consecutive polling failures", async () => {
     const capture = vi.fn();
     const unregister = registerErrorCaptureProvider(
@@ -3076,6 +3117,24 @@ describe("run manager soft timeout", () => {
         '"errorCode":"run_subscription_poll_failed"',
       );
       expect(chunks.join("")).toContain('"recoverable":true');
+      const failure = chunks
+        .join("")
+        .split("data: ")
+        .map((chunk) => chunk.split("\n", 1)[0])
+        .map((chunk) => {
+          try {
+            return JSON.parse(chunk) as Record<string, unknown>;
+          } catch {
+            return null;
+          }
+        })
+        .find((event) => event?.errorCode === "run_subscription_poll_failed");
+      expect(failure).toEqual(
+        expect.not.objectContaining({ seq: expect.anything() }),
+      );
+      expect(failure).toEqual(
+        expect.not.objectContaining({ eventId: expect.anything() }),
+      );
       expect(capture).toHaveBeenCalledWith(
         expect.any(Error),
         expect.objectContaining({

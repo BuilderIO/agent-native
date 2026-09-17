@@ -2848,9 +2848,9 @@ describe("chat submit and stop hardening", () => {
       encoding: "utf8",
     });
 
-    expect(source).toContain(
-      "useReconnectReaderOwner(\n    reconnectRunIdRef,\n    reconnectAbortRef,\n    releaseReconnectOwnership,\n  )",
-    );
+    expect(source).toContain("useReconnectReaderOwner(");
+    expect(source).toContain("releaseReconnectOwnership,");
+    expect(source).toContain("threadId,\n  );");
     expect(source).toContain("!reconnectOwnerMountedRef.current ||");
     expect(source).toContain(
       "if (reconnectRunIdRef.current !== runId) return;",

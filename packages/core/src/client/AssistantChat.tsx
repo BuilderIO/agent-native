@@ -3178,23 +3178,29 @@ const AssistantChatInner = forwardRef<
   const reconnectAbortRef = useRef<AbortController | null>(null);
   const reconnectOwnershipTokenRef = useRef<symbol | null>(null);
   const reconnectAutoRecoveryCountRef = useRef(0);
-  const releaseReconnectOwnership = useCallback(() => {
-    const runId = reconnectRunIdRef.current;
-    const token = reconnectOwnershipTokenRef.current;
-    if (threadId && runId && token) {
-      releaseRunStream(
-        threadId,
-        runId,
-        token,
-        reconnectTurnIdRef.current ?? undefined,
-      );
-    }
-    reconnectOwnershipTokenRef.current = null;
-  }, [threadId]);
+  const releaseReconnectOwnership = useCallback(
+    (ownerThreadId?: string | null) => {
+      const releaseThreadId =
+        ownerThreadId === undefined ? threadId : ownerThreadId;
+      const runId = reconnectRunIdRef.current;
+      const token = reconnectOwnershipTokenRef.current;
+      if (releaseThreadId && runId && token) {
+        releaseRunStream(
+          releaseThreadId,
+          runId,
+          token,
+          reconnectTurnIdRef.current ?? undefined,
+        );
+      }
+      reconnectOwnershipTokenRef.current = null;
+    },
+    [threadId],
+  );
   const reconnectOwnerMountedRef = useReconnectReaderOwner(
     reconnectRunIdRef,
     reconnectAbortRef,
     releaseReconnectOwnership,
+    threadId,
   );
   const [pendingReconnectRecovery, setPendingReconnectRecovery] =
     useState<PendingReconnectRecovery | null>(null);

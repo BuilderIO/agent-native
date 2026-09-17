@@ -399,14 +399,19 @@ export function admitSSEEvent(
   seenEventSeqs?: Set<number>,
   seenEventIds?: Set<string>,
 ): boolean {
-  if (event.eventId && seenEventIds) {
-    if (seenEventIds.has(event.eventId)) return false;
-    seenEventIds.add(event.eventId);
-    return true;
-  }
-  if (event.seq === undefined || !seenEventSeqs) return true;
-  if (seenEventSeqs.has(event.seq)) return false;
-  seenEventSeqs.add(event.seq);
+  // During a rolling deploy, the same durable frame can arrive once from an
+  // old worker with only `seq` and again from a new worker with `seq` plus
+  // `eventId`. Check both identities before recording either one so the
+  // metadata added by the new worker cannot turn that replay into a second
+  // tool call.
+  const alreadySeenById = Boolean(
+    event.eventId && seenEventIds?.has(event.eventId),
+  );
+  const alreadySeenBySeq =
+    event.seq !== undefined && seenEventSeqs?.has(event.seq);
+  if (alreadySeenById || alreadySeenBySeq) return false;
+  if (event.eventId && seenEventIds) seenEventIds.add(event.eventId);
+  if (event.seq !== undefined && seenEventSeqs) seenEventSeqs.add(event.seq);
   return true;
 }
 

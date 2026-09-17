@@ -4,6 +4,7 @@ import { RUN_NO_PROGRESS_HARD_TIMEOUT_MS } from "../app-config/run-lifecycle-inv
 import { subscribeChatFirstOpenApp } from "./chat-first.js";
 import {
   AgentAutoContinueSignal,
+  admitSSEEvent,
   processEvent,
   readSSEStream,
   readSSEStreamRaw,
@@ -15,6 +16,42 @@ import {
   settleInterruptedToolCalls,
   type ContentPart,
 } from "./sse-event-processor.js";
+
+describe("SSE event admission across deploy versions", () => {
+  it("deduplicates an old seq-only frame followed by its identified replay", () => {
+    const seenSeqs = new Set<number>();
+    const seenIds = new Set<string>();
+
+    expect(
+      admitSSEEvent({ type: "tool_start", seq: 5 }, seenSeqs, seenIds),
+    ).toBe(true);
+    expect(
+      admitSSEEvent(
+        { type: "tool_start", seq: 5, eventId: "run-1:5" },
+        seenSeqs,
+        seenIds,
+      ),
+    ).toBe(false);
+  });
+
+  it("records both identities for new frames so either replay shape is safe", () => {
+    const seenSeqs = new Set<number>();
+    const seenIds = new Set<string>();
+
+    expect(
+      admitSSEEvent(
+        { type: "tool_done", seq: 6, eventId: "run-1:6" },
+        seenSeqs,
+        seenIds,
+      ),
+    ).toBe(true);
+    expect(seenSeqs).toEqual(new Set([6]));
+    expect(seenIds).toEqual(new Set(["run-1:6"]));
+    expect(
+      admitSSEEvent({ type: "tool_done", seq: 6 }, seenSeqs, seenIds),
+    ).toBe(false);
+  });
+});
 
 function commentOnlyStream(delayMs: number): ReadableStream<Uint8Array> {
   let timer: ReturnType<typeof setTimeout> | undefined;
