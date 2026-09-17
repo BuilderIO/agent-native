@@ -72,16 +72,20 @@ describe("removal undo claim ownership", () => {
       const end = hookSource.indexOf("export function", start + 1);
       const hook = hookSource.slice(start, end === -1 ? undefined : end);
 
-      expect(hook).toContain("claims.current.set");
-      expect(hook).toContain("return { ...mutation, getSuppressionId }");
-      expect(hook.indexOf("claims.current.set")).toBeLessThan(
+      expect(hook).toContain("recordSuppressionClaim");
+      expect(hook).toContain("suppressionToken");
+      expect(hook).toContain(
+        "return { ...mutation, createSuppressionToken, getSuppressionIds }",
+      );
+      expect(hook.indexOf("recordSuppressionClaim")).toBeLessThan(
         hook.indexOf("await Promise.all"),
       );
     }
     for (const source of [listSource, threadSource]) {
       expect(source).not.toContain("unsuppressThread");
       expect(source).toContain("releaseSuppression");
-      expect(source).toContain("getSuppressionId");
+      expect(source).toContain("createSuppressionToken");
+      expect(source).toContain("getSuppressionIds");
     }
   });
 });
@@ -790,8 +794,8 @@ describe("inbox-thread cache rollback on mutation error", () => {
     const end = source.indexOf("export function useSaveDraft()", start);
     const hook = source.slice(start, end);
 
-    expect(hook).toContain("accountEmails?: string");
-    expect(hook).toContain("threadIds?: string");
+    expect(source).toContain("accountEmails?: string");
+    expect(source).toContain("threadIds?: string");
     expect(hook).toContain("accountEmails,");
     expect(hook).toContain("threadIds,");
     expect(hook).toContain('callAction("move-email", {');

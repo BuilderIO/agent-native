@@ -709,10 +709,16 @@ export function EmailThread({
 
     for (const t of targets) onArchived?.(t.id);
 
+    const suppressionToken = archiveEmail.createSuppressionToken();
     const undo = () => {
       for (const target of targets) {
         const key = target.threadId || target.id;
-        releaseSuppression(key, archiveEmail.getSuppressionId(key));
+        for (const suppressionId of archiveEmail.getSuppressionIds(
+          suppressionToken,
+          key,
+        )) {
+          releaseSuppression(key, suppressionId);
+        }
       }
       for (const t of targets)
         unarchiveEmail.mutate({
@@ -741,6 +747,7 @@ export function EmailThread({
         accountEmail: t.accountEmail,
         removeLabel: labelParam || undefined,
         threadId: t.threadId || t.id,
+        suppressionToken,
       });
     }
     setSelectedIds?.(new Set());
@@ -775,10 +782,16 @@ export function EmailThread({
 
     if (targets.length === 0) return;
 
+    const suppressionToken = trashEmail.createSuppressionToken();
     const undo = () => {
       for (const target of targets) {
         const key = target.threadId || target.id;
-        releaseSuppression(key, trashEmail.getSuppressionId(key));
+        for (const suppressionId of trashEmail.getSuppressionIds(
+          suppressionToken,
+          key,
+        )) {
+          releaseSuppression(key, suppressionId);
+        }
       }
       for (const t of targets)
         untrashEmail.mutate({
@@ -805,6 +818,7 @@ export function EmailThread({
         id: t.id,
         accountEmail: t.accountEmail,
         threadId: t.threadId || t.id,
+        suppressionToken,
       });
     setSelectedIds?.(new Set());
   }, [

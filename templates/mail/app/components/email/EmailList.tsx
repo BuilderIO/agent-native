@@ -731,13 +731,19 @@ export function EmailList({
       }
       for (const id of emailIds) onArchived?.(id);
 
+      const suppressionToken =
+        targets.length > 1
+          ? bulkArchiveEmails.createSuppressionToken()
+          : archiveEmail.createSuppressionToken();
       const undo = () => {
-        const getSuppressionId =
+        const getSuppressionIds =
           targets.length > 1
-            ? bulkArchiveEmails.getSuppressionId
-            : archiveEmail.getSuppressionId;
+            ? bulkArchiveEmails.getSuppressionIds
+            : archiveEmail.getSuppressionIds;
         for (const key of threadKeys) {
-          releaseSuppression(key, getSuppressionId(key));
+          for (const id of getSuppressionIds(suppressionToken, key)) {
+            releaseSuppression(key, id);
+          }
         }
         queryClient.setQueriesData<InfiniteEmails>(
           { queryKey: ["emails"] },
@@ -780,6 +786,7 @@ export function EmailList({
             threadId: t.latestMessage.threadId || t.latestMessage.id,
           })),
           removeLabel: labelParam || undefined,
+          suppressionToken,
         });
       } else {
         // Single-item shortcut (e.g. `e` on the focused row) keeps its
@@ -790,6 +797,7 @@ export function EmailList({
             accountEmail: t.latestMessage.accountEmail,
             removeLabel: labelParam || undefined,
             threadId: t.latestMessage.threadId || t.latestMessage.id,
+            suppressionToken,
           });
         }
       }
@@ -854,13 +862,19 @@ export function EmailList({
         snapshots.push(...emails.filter((e) => (e.threadId || e.id) === key));
       }
 
+      const suppressionToken =
+        targets.length > 1
+          ? bulkTrashEmails.createSuppressionToken()
+          : trashEmail.createSuppressionToken();
       const undo = () => {
-        const getSuppressionId =
+        const getSuppressionIds =
           targets.length > 1
-            ? bulkTrashEmails.getSuppressionId
-            : trashEmail.getSuppressionId;
+            ? bulkTrashEmails.getSuppressionIds
+            : trashEmail.getSuppressionIds;
         for (const key of threadKeys) {
-          releaseSuppression(key, getSuppressionId(key));
+          for (const id of getSuppressionIds(suppressionToken, key)) {
+            releaseSuppression(key, id);
+          }
         }
         queryClient.setQueriesData<InfiniteEmails>(
           { queryKey: ["emails"] },
@@ -896,15 +910,17 @@ export function EmailList({
         // Bulk selection: one action call, bounded-concurrency on the server
         // (Gmail has no batch trash endpoint) instead of N parallel mutate()
         // calls each with their own optimistic cache write/rollback.
-        bulkTrashEmails.mutate(
-          targets.map((t) => ({
+        bulkTrashEmails.mutate({
+          targets: targets.map((t) => ({
             id: t.latestMessage.id,
             accountEmail: t.latestMessage.accountEmail,
             threadId: t.latestMessage.threadId || t.latestMessage.id,
           })),
-        );
+          suppressionToken,
+        });
       } else {
-        for (const ref of emailRefs) trashEmail.mutate(ref);
+        for (const ref of emailRefs)
+          trashEmail.mutate({ ...ref, suppressionToken });
       }
       setSelectedIds(new Set());
     },
@@ -1540,8 +1556,14 @@ export function EmailList({
       const snapshots = emails.filter((e) => (e.threadId || e.id) === tid);
       onArchived?.(id);
 
+      const suppressionToken = archiveEmail.createSuppressionToken();
       const undo = () => {
-        releaseSuppression(tid, archiveEmail.getSuppressionId(tid));
+        for (const suppressionId of archiveEmail.getSuppressionIds(
+          suppressionToken,
+          tid,
+        )) {
+          releaseSuppression(tid, suppressionId);
+        }
         queryClient.setQueriesData<InfiniteEmails>(
           { queryKey: ["emails"] },
           (old) => {
@@ -1572,6 +1594,7 @@ export function EmailList({
         accountEmail: thread.latestMessage.accountEmail,
         removeLabel: labelParam || undefined,
         threadId: tid,
+        suppressionToken,
       });
     },
     [

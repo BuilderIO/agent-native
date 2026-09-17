@@ -18,7 +18,7 @@ import {
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 
 import { useAccountFilter } from "@/hooks/use-account-filter";
@@ -480,16 +480,28 @@ export function releaseSuppression(threadId: string, id: number | undefined) {
   notifySuppressionListeners();
 }
 
+export type SuppressionClaimToken = {
+  readonly ids: Map<string, number[]>;
+};
+
+function recordSuppressionClaim(
+  token: SuppressionClaimToken | undefined,
+  threadId: string,
+  id: number,
+) {
+  if (!token) return;
+  const ids = token.ids.get(threadId) ?? [];
+  ids.push(id);
+  token.ids.set(threadId, ids);
+}
+
 function useSuppressionClaims() {
-  const claims = useRef(new Map<string, number>());
   return {
-    claims,
-    getSuppressionId: (threadId: string) => {
-      const id = claims.current.get(threadId);
-      return id !== undefined && suppressedThreads.get(threadId)?.has(id)
-        ? id
-        : undefined;
-    },
+    createSuppressionToken: (): SuppressionClaimToken => ({ ids: new Map() }),
+    getSuppressionIds: (token: SuppressionClaimToken, threadId: string) =>
+      (token.ids.get(threadId) ?? []).filter((id) =>
+        suppressedThreads.get(threadId)?.has(id),
+      ),
   };
 }
 
@@ -1519,22 +1531,25 @@ export function useToggleStar() {
   });
 }
 
+interface ArchiveEmailVars {
+  id: string;
+  accountEmail?: string;
+  removeLabel?: string;
+  threadId?: string;
+  suppressionToken?: SuppressionClaimToken;
+}
+
 export function useArchiveEmail() {
   const qc = useQueryClient();
   const t = useT();
-  const { claims, getSuppressionId } = useSuppressionClaims();
+  const { createSuppressionToken, getSuppressionIds } = useSuppressionClaims();
   const mutation = useMutation({
     mutationFn: ({
       id,
       accountEmail,
       removeLabel,
       threadId,
-    }: {
-      id: string;
-      accountEmail?: string;
-      removeLabel?: string;
-      threadId?: string;
-    }) =>
+    }: ArchiveEmailVars) =>
       gmailMutationQueue.enqueue("archive", {
         id,
         accountEmail,
@@ -1545,12 +1560,8 @@ export function useArchiveEmail() {
       id,
       removeLabel,
       threadId: hintedThreadId,
-    }: {
-      id: string;
-      accountEmail?: string;
-      removeLabel?: string;
-      threadId?: string;
-    }) => {
+      suppressionToken,
+    }: ArchiveEmailVars) => {
       const target = qc
         .getQueriesData<InfiniteEmails>({ queryKey: ["emails"] })
         .flatMap(([, data]) => flattenInfiniteEmails(data))
@@ -1564,7 +1575,7 @@ export function useArchiveEmail() {
         views: ["inbox", "unread"],
         label: removeLabel,
       });
-      claims.current.set(threadId, suppressionId);
+      recordSuppressionClaim(suppressionToken, threadId, suppressionId);
       await Promise.all([
         qc.cancelQueries({ queryKey: ["emails"] }),
         cancelInboxThreadsQueries(qc),
@@ -1594,13 +1605,14 @@ export function useArchiveEmail() {
         () => settleInboxMutationIfObserved(qc, context?.inboxMutationId),
       ),
   });
-  return { ...mutation, getSuppressionId };
+  return { ...mutation, createSuppressionToken, getSuppressionIds };
 }
 
 export interface EmailAccountRef {
   id: string;
   accountEmail?: string;
   threadId?: string;
+  suppressionToken?: SuppressionClaimToken;
 }
 
 export function useUnarchiveEmail() {
@@ -1674,11 +1686,15 @@ export function useUntrashEmail() {
 
 export function useTrashEmail() {
   const qc = useQueryClient();
-  const { claims, getSuppressionId } = useSuppressionClaims();
+  const { createSuppressionToken, getSuppressionIds } = useSuppressionClaims();
   const mutation = useMutation({
     mutationFn: ({ id, accountEmail, threadId }: EmailAccountRef) =>
       gmailMutationQueue.enqueue("trash", { id, accountEmail, threadId }),
-    onMutate: async ({ id, threadId: hintedThreadId }: EmailAccountRef) => {
+    onMutate: async ({
+      id,
+      threadId: hintedThreadId,
+      suppressionToken,
+    }: EmailAccountRef) => {
       const previous = qc.getQueriesData<InfiniteEmails>({
         queryKey: ["emails"],
       });
@@ -1694,7 +1710,7 @@ export function useTrashEmail() {
       const suppressionId = suppressThread(threadId, "trash", {
         onlyIn: "trash",
       });
-      claims.current.set(threadId, suppressionId);
+      recordSuppressionClaim(suppressionToken, threadId, suppressionId);
       await Promise.all([
         qc.cancelQueries({ queryKey: ["emails"] }),
         cancelInboxThreadsQueries(qc),
@@ -1721,7 +1737,7 @@ export function useTrashEmail() {
         () => settleInboxMutationIfObserved(qc, context?.inboxMutationId),
       ),
   });
-  return { ...mutation, getSuppressionId };
+  return { ...mutation, createSuppressionToken, getSuppressionIds };
 }
 
 export interface BulkEmailTarget {
@@ -1807,6 +1823,7 @@ function reconcilePartialInboxMutation(
 interface BulkArchiveVars {
   targets: BulkEmailTarget[];
   removeLabel?: string;
+  suppressionToken?: SuppressionClaimToken;
 }
 
 /**
@@ -1817,14 +1834,18 @@ interface BulkArchiveVars {
 export function useBulkArchiveEmails() {
   const qc = useQueryClient();
   const t = useT();
-  const { claims, getSuppressionId } = useSuppressionClaims();
+  const { createSuppressionToken, getSuppressionIds } = useSuppressionClaims();
   const mutation = useMutation({
     mutationFn: ({ targets, removeLabel }: BulkArchiveVars) =>
       enqueueBulkGmailMutation("archive", targets, (target) => ({
         ...target,
         removeLabel,
       })).then(() => `Queued archive for ${targets.length} email(s)`),
-    onMutate: async ({ targets, removeLabel }: BulkArchiveVars) => {
+    onMutate: async ({
+      targets,
+      removeLabel,
+      suppressionToken,
+    }: BulkArchiveVars) => {
       const allEmails = qc
         .getQueriesData<InfiniteEmails>({ queryKey: ["emails"] })
         .flatMap(([, data]) => flattenInfiniteEmails(data));
@@ -1846,7 +1867,11 @@ export function useBulkArchiveEmails() {
           views: ["inbox", "unread"],
           label: removeLabel,
         });
-        claims.current.set(threadId, suppressionIds[threadId]);
+        recordSuppressionClaim(
+          suppressionToken,
+          threadId,
+          suppressionIds[threadId],
+        );
       }
       await Promise.all([
         qc.cancelQueries({ queryKey: ["emails"] }),
@@ -1897,17 +1922,22 @@ export function useBulkArchiveEmails() {
         () => settleInboxMutationIfObserved(qc, context?.inboxMutationId),
       ),
   });
-  return { ...mutation, getSuppressionId };
+  return { ...mutation, createSuppressionToken, getSuppressionIds };
 }
 
 /** Bulk trash: one action call with server-side bounded Gmail work. */
+interface BulkTrashVars {
+  targets: BulkEmailTarget[];
+  suppressionToken?: SuppressionClaimToken;
+}
+
 export function useBulkTrashEmails() {
   const qc = useQueryClient();
-  const { claims, getSuppressionId } = useSuppressionClaims();
+  const { createSuppressionToken, getSuppressionIds } = useSuppressionClaims();
   const mutation = useMutation({
-    mutationFn: (targets: BulkEmailTarget[]) =>
+    mutationFn: ({ targets }: BulkTrashVars) =>
       enqueueBulkGmailMutation("trash", targets, (target) => target),
-    onMutate: async (targets: BulkEmailTarget[]) => {
+    onMutate: async ({ targets, suppressionToken }: BulkTrashVars) => {
       const allEmails = qc
         .getQueriesData<InfiniteEmails>({ queryKey: ["emails"] })
         .flatMap(([, data]) => flattenInfiniteEmails(data));
@@ -1928,7 +1958,11 @@ export function useBulkTrashEmails() {
         suppressionIds[threadId] = suppressThread(threadId, "trash", {
           onlyIn: "trash",
         });
-        claims.current.set(threadId, suppressionIds[threadId]);
+        recordSuppressionClaim(
+          suppressionToken,
+          threadId,
+          suppressionIds[threadId],
+        );
       }
       await Promise.all([
         qc.cancelQueries({ queryKey: ["emails"] }),
@@ -1972,7 +2006,7 @@ export function useBulkTrashEmails() {
         () => settleInboxMutationIfObserved(qc, context?.inboxMutationId),
       ),
   });
-  return { ...mutation, getSuppressionId };
+  return { ...mutation, createSuppressionToken, getSuppressionIds };
 }
 
 /** Bulk star/unstar: queued + batched Gmail modify, one optimistic override. */
@@ -2183,9 +2217,20 @@ export function useBulkMarkRead() {
   });
 }
 
+interface MoveEmailVars {
+  id: string;
+  label: string;
+  removeLabel?: string;
+  accountEmail?: string;
+  accountEmails?: string;
+  threadId?: string;
+  threadIds?: string;
+  suppressionToken?: SuppressionClaimToken;
+}
+
 export function useMoveEmail() {
   const qc = useQueryClient();
-  const { claims, getSuppressionId } = useSuppressionClaims();
+  const { createSuppressionToken, getSuppressionIds } = useSuppressionClaims();
   const mutation = useMutation({
     mutationFn: async ({
       id,
@@ -2195,15 +2240,7 @@ export function useMoveEmail() {
       accountEmails,
       threadId,
       threadIds,
-    }: {
-      id: string;
-      label: string;
-      removeLabel?: string;
-      accountEmail?: string;
-      accountEmails?: string;
-      threadId?: string;
-      threadIds?: string;
-    }) => {
+    }: MoveEmailVars) => {
       const result = await callAction("move-email", {
         id,
         label,
@@ -2217,7 +2254,7 @@ export function useMoveEmail() {
         throw new MoveEmailPartialFailure(result);
       return result;
     },
-    onMutate: async ({ id, removeLabel }) => {
+    onMutate: async ({ id, removeLabel, suppressionToken }: MoveEmailVars) => {
       const cached = qc.getQueriesData<InfiniteEmails>({
         queryKey: ["emails"],
       });
@@ -2249,7 +2286,11 @@ export function useMoveEmail() {
           views: ["inbox", "unread"],
           label: removeLabel,
         });
-        claims.current.set(threadId, suppressionIds[threadId]);
+        recordSuppressionClaim(
+          suppressionToken,
+          threadId,
+          suppressionIds[threadId],
+        );
       }
       await Promise.all([
         qc.cancelQueries({ queryKey: ["emails"] }),
@@ -2292,7 +2333,7 @@ export function useMoveEmail() {
         () => settleInboxMutationIfObserved(qc, context?.inboxMutationId),
       ),
   });
-  return { ...mutation, getSuppressionId };
+  return { ...mutation, createSuppressionToken, getSuppressionIds };
 }
 
 export class MoveEmailPartialFailure extends Error {

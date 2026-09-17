@@ -105,7 +105,8 @@ vi.mock("@/hooks/use-emails", () => {
   const mutation = () => ({
     mutate: vi.fn(),
     mutateAsync: vi.fn(),
-    getSuppressionId: vi.fn(),
+    createSuppressionToken: vi.fn(() => ({ ids: new Map() })),
+    getSuppressionIds: vi.fn(() => []),
   });
   return {
     EMPTY_LABELS: [],
@@ -121,7 +122,8 @@ vi.mock("@/hooks/use-emails", () => {
     useTrashEmail: () => ({
       mutate: mocks.trash,
       mutateAsync: vi.fn(),
-      getSuppressionId: vi.fn(),
+      createSuppressionToken: vi.fn(() => ({ ids: new Map() })),
+      getSuppressionIds: vi.fn(() => []),
     }),
     useUntrashEmail: mutation,
     useBulkArchiveEmails: mutation,
@@ -355,11 +357,14 @@ describe("EmailList keyboard navigation interactions", () => {
     render(<Harness />);
     press(key, shiftKey);
 
-    expect(mocks.trash).toHaveBeenCalledWith({
-      id: "first",
-      accountEmail: "synthetic@example.test",
-      threadId: "thread-first",
-    });
+    expect(mocks.trash).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "first",
+        accountEmail: "synthetic@example.test",
+        threadId: "thread-first",
+        suppressionToken: expect.any(Object),
+      }),
+    );
   });
 
   it("does not wrap a one-row list and keeps an empty list free of focused rows", () => {
