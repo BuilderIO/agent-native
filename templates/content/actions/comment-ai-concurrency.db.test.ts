@@ -26,6 +26,8 @@ let getDb: typeof import("../server/db/index.js").getDb;
 let schema: typeof import("../server/db/schema.js");
 let commentAi: typeof import("../server/lib/comment-ai.js");
 let applyRequest: typeof import("./apply-comment-ai-request.js").default;
+let addComment: typeof import("./add-comment.js").default;
+let commentIdForIdempotency: typeof import("./add-comment.js").commentIdForIdempotency;
 let replyRequest: typeof import("./reply-to-comment-ai-request.js").default;
 
 const asUser = <T>(run: () => Promise<T>) =>
@@ -100,6 +102,9 @@ beforeAll(async () => {
   await plugin(undefined as never);
   commentAi = await import("../server/lib/comment-ai.js");
   applyRequest = (await import("./apply-comment-ai-request.js")).default;
+  const addCommentModule = await import("./add-comment.js");
+  addComment = addCommentModule.default;
+  commentIdForIdempotency = addCommentModule.commentIdForIdempotency;
   replyRequest = (await import("./reply-to-comment-ai-request.js")).default;
 }, 60_000);
 
@@ -803,6 +808,119 @@ describe("operation-scoped refresh and commits", () => {
       errorCode: "target_deleted",
     });
     expect(root?.resolved).toBe(0);
+  });
+
+  it("resumes receipt and resolve after a verified edit without spending another reasoning attempt", async () => {
+    const started = await asUser(() =>
+      commentAi.startCommentAiRequest(startArgs(OP_A, ROOT_A, "apply-resolve")),
+    );
+    const first = await runOperation(OP_A, started.agentThreadId, async () => {
+      const request = await commentAi.requireCommentAiRequest("apply-resolve");
+      return commentAi.beginCommentAiAttempt(request);
+    });
+    const payload = {
+      edits: [{ find: "Alpha one", replace: "Alpha recovered" }],
+      summary: "Changed Alpha once",
+    };
+    await runOperation(OP_A, started.agentThreadId, () =>
+      commentAi.retainCommentAiAttemptPayload(
+        first.request,
+        first.attempt!.id,
+        { attemptId: first.attempt!.id, ...payload },
+      ),
+    );
+    const receiptId = commentIdForIdempotency(
+      OWNER,
+      DOCUMENT_ID,
+      `comment-ai:${OP_A}:receipt`,
+    );
+    await runOperation(OP_A, started.agentThreadId, () =>
+      addComment.run(
+        {
+          documentId: DOCUMENT_ID,
+          threadId: ROOT_A,
+          parentId: ROOT_A,
+          content: payload.summary,
+          clientOperationId: receiptId,
+        },
+        { caller: "tool", userEmail: OWNER },
+      ),
+    );
+    await getDb().transaction(async (tx) => {
+      await tx
+        .update(schema.documents)
+        .set({ content: "Alpha recovered. Beta two.", bodyRevision: 2 })
+        .where(eq(schema.documents.id, DOCUMENT_ID));
+      await tx
+        .update(schema.commentAiAttempts)
+        .set({ status: "needs-review", errorCode: "operation_failed" })
+        .where(eq(schema.commentAiAttempts.id, first.attempt!.id));
+      await tx
+        .update(schema.commentAiRequests)
+        .set({
+          status: "needs-review",
+          attemptCount: 2,
+          resultJson: JSON.stringify({
+            editApplied: true,
+            commentId: receiptId,
+          }),
+          errorCode: "operation_failed",
+        })
+        .where(eq(schema.commentAiRequests.id, OP_A));
+    });
+
+    const resumed = await runOperation(
+      OP_A,
+      started.agentThreadId,
+      async () => {
+        const request =
+          await commentAi.requireCommentAiRequest("apply-resolve");
+        return commentAi.beginCommentAiAttempt(request);
+      },
+    );
+    expect(resumed.attempt?.id).toBe(first.attempt?.id);
+    expect(resumed.request).toMatchObject({
+      status: "running",
+      attemptCount: 2,
+      resultJson: JSON.stringify({ editApplied: true, commentId: receiptId }),
+    });
+
+    const completed = await runOperation(OP_A, started.agentThreadId, () =>
+      applyRequest.run(
+        { attemptId: resumed.attempt!.id, ...payload },
+        { caller: "tool", userEmail: OWNER },
+      ),
+    );
+    expect(completed).toMatchObject({
+      status: "resolved",
+      attemptCount: 2,
+      result: {
+        editApplied: true,
+        commentId: receiptId,
+        resolved: true,
+      },
+    });
+    const [document] = await getDb()
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, DOCUMENT_ID));
+    expect(document.content).toBe("Alpha recovered. Beta two.");
+    expect(document.bodyRevision).toBe(2);
+    const receipts = await getDb()
+      .select()
+      .from(schema.documentComments)
+      .where(
+        and(
+          eq(schema.documentComments.threadId, ROOT_A),
+          eq(schema.documentComments.parentId, ROOT_A),
+        ),
+      );
+    expect(receipts).toHaveLength(1);
+    expect(receipts[0]).toMatchObject({
+      id: completed.result?.commentId,
+      content: payload.summary,
+      resolved: 1,
+    });
   });
 });
 

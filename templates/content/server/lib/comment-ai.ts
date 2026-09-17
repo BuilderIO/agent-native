@@ -792,6 +792,42 @@ export async function beginCommentAiAttempt(request: RequestRow) {
         .from(schema.commentAiAttempts)
         .where(eq(schema.commentAiAttempts.id, locked.activeAttemptId))
         .limit(1);
+      const retainedResult = serializeCommentAiRequest(locked).result;
+      if (
+        locked.intent === "apply-resolve" &&
+        !terminalSuccess(locked.status) &&
+        locked.status !== "cancelled" &&
+        active &&
+        retainedResult?.editApplied &&
+        active.payloadJson &&
+        active.threadDigest === threadDigest
+      ) {
+        const [resumedAttempt] = await tx
+          .update(schema.commentAiAttempts)
+          .set({
+            status: "reasoning",
+            errorCode: null,
+            error: null,
+            updatedAt: now,
+          })
+          .where(eq(schema.commentAiAttempts.id, active.id))
+          .returning();
+        const [resumedRequest] = await tx
+          .update(schema.commentAiRequests)
+          .set({
+            status: "running",
+            errorCode: null,
+            error: null,
+            updatedAt: now,
+          })
+          .where(eq(schema.commentAiRequests.id, locked.id))
+          .returning();
+        return {
+          request: resumedRequest,
+          attempt: resumedAttempt,
+          source,
+        };
+      }
       if (
         active &&
         active.sourceRevision === sourceRevision &&
