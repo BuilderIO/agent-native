@@ -42,7 +42,6 @@ export async function saveDocumentWithRebase({
   };
 }): Promise<RebasedDocumentSaveResult> {
   let attemptedBase = base;
-  const draft = content;
   let candidate = content;
   const conflict = (): RebasedDocumentSaveResult => {
     const current = owner?.current();
