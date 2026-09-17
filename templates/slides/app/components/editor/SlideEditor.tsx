@@ -2966,8 +2966,8 @@ export default function SlideEditor({
   useEffect(() => {
     setSelectedImg(null);
     setImageOverlay(null);
-    syncSelectionToAppState(null);
-  }, [slide.id]);
+    syncSelectionToAppState(buildSelectionState("canvas", []));
+  }, [buildSelectionState, slide.id]);
 
   // Content reconciliation can replace the DOM node behind an open overlay.
   useEffect(() => {
@@ -3419,20 +3419,12 @@ export default function SlideEditor({
     if (editingEl || multiSelection.size > 0 || selectedElementSelector) {
       return;
     }
-    if (drawMode || pinMode || textBoxMode || shapeType) {
-      syncSelectionToAppState(buildSelectionState("canvas", []));
-    } else {
-      syncSelectionToAppState(null);
-    }
+    syncSelectionToAppState(buildSelectionState("canvas", []));
   }, [
     buildSelectionState,
-    drawMode,
     editingEl,
     multiSelection.size,
-    pinMode,
     selectedElementSelector,
-    shapeType,
-    textBoxMode,
   ]);
 
   const getPlaceholderTarget = useCallback(
@@ -3603,14 +3595,15 @@ export default function SlideEditor({
     };
   }, [multiSelection, refreshMultiSelectionRects]);
 
-  // Clear multi-selection when slide changes (and clear app state too)
+  // Clear multi-selection when slide changes, but keep the new slide as the
+  // agent's target even when no element is selected.
   useLayoutEffect(() => {
     setMultiSelection(new Set());
     setMultiSelectionRects(new Map());
     setChipAnchorRect(null);
     clearSelectedElement();
-    syncSelectionToAppState(null);
-  }, [clearSelectedElement, slide.id]);
+    syncSelectionToAppState(buildSelectionState("canvas", []));
+  }, [buildSelectionState, clearSelectedElement, slide.id]);
 
   const deleteSelectedElements = useCallback(
     (resolvedSelection?: readonly HTMLElement[]) => {

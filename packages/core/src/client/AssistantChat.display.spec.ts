@@ -686,6 +686,16 @@ describe("resolveAssistantChatSubmitIntent", () => {
       }),
     ).toBe("immediate");
   });
+
+  it("queues a submit while an earlier submit is still being prepared", () => {
+    expect(
+      resolveAssistantChatSubmitIntent({
+        isRunning: false,
+        isSubmissionInFlight: true,
+        requestedIntent: "immediate",
+      }),
+    ).toBe("queued");
+  });
 });
 
 describe("hoistQueuedMessageToFront", () => {
@@ -1916,7 +1926,7 @@ describe("missing agent engine setup", () => {
     expect(source).toContain("onDismiss={");
     expect(source).toContain("onRetry={");
     expect(source).toMatch(
-      /willQueue=\{\s*engineSetupRequired \|\| isRunning\s*\}/,
+      /willQueue=\{\s*engineSetupRequired \|\|\s*isRunning \|\|/,
     );
     expect(source).toContain("<BuilderSetupCard");
     expect(source).toContain('"agentChat.setup.connectPlaceholder"');
@@ -1956,9 +1966,8 @@ describe("missing agent engine setup", () => {
     const submitSource = source.slice(submitStart, submitEnd);
 
     expect(dequeueSource).toContain("engineSetupRequired");
-    expect(submitSource).toContain(
-      'engineSetupRequired || (isRunning && intent === "queued")',
-    );
+    expect(submitSource).toContain("engineSetupRequired");
+    expect(submitSource).toContain('submitIsRunning && intent === "queued"');
     expect(submitSource).not.toContain(
       'reportAgentChatSubmitResult(submitMessageId, false, "missing-engine");',
     );

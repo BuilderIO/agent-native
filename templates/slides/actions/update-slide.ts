@@ -44,6 +44,10 @@ import {
   deckRevisionWhere,
   nextDeckRevision,
 } from "./_deck-write.js";
+import {
+  getCurrentRequestBrowserTabId,
+  readAppStateForCurrentTab,
+} from "./_tab-state.js";
 import { isAgentPatchCaller, withDeckLock } from "./patch-deck.js";
 
 function deckDeepLink(deckId: string): string {
@@ -569,6 +573,29 @@ export default defineAction({
       });
     }
     await assertAccess("deck", deckId, "editor");
+
+    const browserTabId = getCurrentRequestBrowserTabId();
+    if (browserTabId) {
+      const currentSelection = await readAppStateForCurrentTab(
+        "slides-selection",
+        { fallbackToGlobal: false },
+      );
+      const currentSlideId =
+        currentSelection?.deckId === deckId &&
+        typeof currentSelection.slideId === "string"
+          ? currentSelection.slideId
+          : null;
+      if (currentSlideId && currentSlideId !== slideId) {
+        fail(
+          `The Slides editor is currently on slide ${currentSlideId}, but this edit targets ${slideId}. Re-read view-screen and use its current or selection slide ID; no write was made.`,
+          {
+            errorCode: "slide_target_not_current",
+            statusCode: 409,
+            details: { deckId, currentSlideId, requestedSlideId: slideId },
+          },
+        );
+      }
+    }
 
     // ─── Read-modify-write under the shared per-deck lock ───────────────────
     //
