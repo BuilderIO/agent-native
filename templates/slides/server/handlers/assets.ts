@@ -112,6 +112,56 @@ function hasExpectedImageSignature(ext: string, data: Uint8Array): boolean {
   return false;
 }
 
+function decodeXmlReferences(source: string): string {
+  const namedReferences: Record<string, string> = {
+    amp: "&",
+    apos: "'",
+    gt: ">",
+    lt: "<",
+    quot: '"',
+  };
+  return source.replace(
+    /&#x([0-9a-f]+);|&#([0-9]+);|&([a-z]+);/gi,
+    (
+      match,
+      hex: string | undefined,
+      decimal: string | undefined,
+      named: string | undefined,
+    ) => {
+      const codePoint = hex
+        ? Number.parseInt(hex, 16)
+        : decimal
+          ? Number.parseInt(decimal, 10)
+          : undefined;
+      if (
+        codePoint !== undefined &&
+        codePoint <= 0x10ffff &&
+        !(codePoint >= 0xd800 && codePoint <= 0xdfff)
+      ) {
+        return String.fromCodePoint(codePoint);
+      }
+      return named ? (namedReferences[named.toLowerCase()] ?? match) : match;
+    },
+  );
+}
+
+function decodeCssEscapes(source: string): string {
+  return source.replace(
+    /\\([0-9a-f]{1,6})(?:[ \t\r\n\f])?|\\([^\r\n])/gi,
+    (match, hex: string | undefined, character: string | undefined) => {
+      if (!hex) return character ?? match;
+      const codePoint = Number.parseInt(hex, 16);
+      if (
+        codePoint > 0x10ffff ||
+        (codePoint >= 0xd800 && codePoint <= 0xdfff)
+      ) {
+        return match;
+      }
+      return String.fromCodePoint(codePoint);
+    },
+  );
+}
+
 export function isSafeSvg(data: Uint8Array): boolean {
   let source: string;
   try {
@@ -121,8 +171,10 @@ export function isSafeSvg(data: Uint8Array): boolean {
     return false;
   }
   source = source.replace(/^\uFEFF/, "").trim();
+  const normalizedSource = decodeCssEscapes(decodeXmlReferences(source));
   const forbidden = [
     /<\s*(?:script|foreignObject|iframe|object|embed|link|audio|video|animate|set|discard)\b/i,
+    /<\s*\/?[a-z_][\w.-]*:[a-z_][\w.-]*\b/i,
     /<!\s*(?:DOCTYPE|ENTITY)\b/i,
     /<\?xml-stylesheet\b/i,
     /\son[a-z][a-z0-9:_-]*\s*=/i,
@@ -130,9 +182,9 @@ export function isSafeSvg(data: Uint8Array): boolean {
     /\b(?:expression|behavior|-moz-binding)\s*\(/i,
     /@import\b/i,
   ];
-  if (forbidden.some((pattern) => pattern.test(source))) return false;
+  if (forbidden.some((pattern) => pattern.test(normalizedSource))) return false;
 
-  for (const match of source.matchAll(
+  for (const match of normalizedSource.matchAll(
     /(?:href|xlink:href)\s*=\s*(?:(['"])(.*?)\1|([^\s>]+))/gi,
   )) {
     const target = (match[2] ?? match[3] ?? match[4] ?? "").trim();
@@ -144,7 +196,9 @@ export function isSafeSvg(data: Uint8Array): boolean {
       return false;
     }
   }
-  for (const match of source.matchAll(/url\(\s*(["']?)(.*?)\1\s*\)/gi)) {
+  for (const match of normalizedSource.matchAll(
+    /url\(\s*(["']?)(.*?)\1\s*\)/gi,
+  )) {
     const target = match[2]?.trim() ?? "";
     if (
       target &&

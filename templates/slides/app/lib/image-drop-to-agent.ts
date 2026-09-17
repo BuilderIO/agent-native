@@ -134,10 +134,12 @@ export function canInlineImageFile(file: File): boolean {
 
 export function canInlineImageDataUrl(dataUrl: string): boolean {
   const match = /^data:(image\/[^;]+);base64,(.*)$/is.exec(dataUrl);
+  const mediaType = match?.[1]?.trim().toLowerCase();
   return Boolean(
     match &&
-    match[1].toLowerCase() !== "image/svg+xml" &&
-    match[2].length + `data:${match[1]};base64,`.length <=
+    mediaType &&
+    mediaType !== "image/svg+xml" &&
+    match[2].length + `data:${mediaType};base64,`.length <=
       MAX_INLINE_IMAGE_BASE64_CHARS,
   );
 }

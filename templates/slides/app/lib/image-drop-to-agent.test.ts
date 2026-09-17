@@ -35,6 +35,7 @@ describe("inline image size boundary", () => {
       ),
     ).toBe(false);
     expect(canInlineImageDataUrl("data:image/svg+xml;base64,abc")).toBe(false);
+    expect(canInlineImageDataUrl("data:image/svg+xml ;base64,abc")).toBe(false);
   });
 });
 

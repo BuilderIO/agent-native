@@ -79,6 +79,30 @@ describe("uploaded asset validation", () => {
         ),
       }),
     ).toBe(false);
+    expect(
+      canSaveAsUploadedAsset({
+        originalName: "namespaced-script.svg",
+        data: Buffer.from(
+          '<svg xmlns:s="http://www.w3.org/2000/svg"><s:script /></svg>',
+        ),
+      }),
+    ).toBe(false);
+    expect(
+      canSaveAsUploadedAsset({
+        originalName: "encoded-css.svg",
+        data: Buffer.from(
+          "<svg><style>&#64;import&#32;url&#40;https://example.com/style.css&#41;;</style></svg>",
+        ),
+      }),
+    ).toBe(false);
+    expect(
+      canSaveAsUploadedAsset({
+        originalName: "escaped-css.svg",
+        data: Buffer.from(
+          "<svg><style>u\\72l(https://example.com/style.css){}</style></svg>",
+        ),
+      }),
+    ).toBe(false);
   });
 
   it("normalizes SVG MIME before sending it to the upload provider", async () => {
