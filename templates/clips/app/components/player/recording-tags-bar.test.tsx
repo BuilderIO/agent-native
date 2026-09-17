@@ -8,9 +8,9 @@ import { RecordingTagsBar } from "./recording-tags-bar";
 
 const mocks = vi.hoisted(() => ({
   calls: [] as { recordingId: string; tag: string; op: string }[],
-  // Writes stay unsettled until a test settles them, so `pending` is actually
-  // non-zero while assertions run. A mock that resolves synchronously makes
-  // the reconciling effect untestable — the whole point of this suite.
+  // Writes stay unsettled until a test settles them, so an assertion can run
+  // while one is genuinely in flight. A mock that resolves synchronously makes
+  // every ordering question in this component untestable.
   inflight: [] as {
     promise: Promise<unknown>;
     resolve: () => void;
@@ -60,17 +60,14 @@ vi.mock("@/components/library/tag-input", () => ({
     value: string[];
     onChange: (next: string[]) => void;
   }) => (
-    <div
+    <button
+      type="button"
       data-testid="tag-input"
       data-value={value.join(",")}
-      data-next={JSON.stringify(value)}
-      onClick={(event) => {
-        const next = (event.target as HTMLElement).dataset.emit;
-        if (next) onChange(JSON.parse(next));
-      }}
-    >
-      <button type="button" data-testid="emit" data-emit="[]" />
-    </div>
+      onClick={(event) =>
+        onChange(JSON.parse((event.target as HTMLElement).dataset.emit ?? "[]"))
+      }
+    />
   ),
 }));
 
@@ -105,13 +102,19 @@ function render(props: Partial<React.ComponentProps<typeof RecordingTagsBar>>) {
   });
 }
 
-/** Drive TagInput's onChange with the next tag array. */
-function emit(next: string[]) {
-  const button =
-    container.querySelector<HTMLButtonElement>("[data-testid=emit]")!;
+/**
+ * Drive TagInput's onChange with the next tag array, then let the per-tag
+ * queue dispatch: even the first write goes through a promise chain, so it
+ * reaches the action a microtask after the click.
+ */
+async function emit(next: string[]) {
+  const button = container.querySelector<HTMLButtonElement>(
+    "[data-testid=tag-input]",
+  )!;
   button.dataset.emit = JSON.stringify(next);
-  act(() => {
+  await act(async () => {
     button.click();
+    await Promise.resolve();
   });
 }
 
@@ -121,12 +124,12 @@ function shown() {
     ?.getAttribute("data-value");
 }
 
-async function settleAll() {
-  const inflight = [...mocks.inflight];
-  mocks.inflight.length = 0;
+/** Settle writes currently in flight and let any queued work dispatch. */
+async function settle(count = mocks.inflight.length) {
+  const batch = mocks.inflight.splice(0, count);
   await act(async () => {
-    for (const entry of inflight) entry.resolve();
-    await Promise.all(inflight.map((entry) => entry.promise));
+    for (const entry of batch) entry.resolve();
+    await Promise.all(batch.map((entry) => entry.promise));
   });
 }
 
@@ -145,105 +148,162 @@ describe("RecordingTagsBar", () => {
 
   it("adds one tag at a time rather than replacing the set", async () => {
     render({ canEdit: true, tags: ["alpha"] });
-    emit(["alpha", "beta"]);
+    await emit(["alpha", "beta"]);
 
     expect(mocks.calls).toEqual([
       { recordingId: "rec_1", tag: "beta", op: "add" },
     ]);
-    await settleAll();
+    await settle();
   });
 
   it("removes a tag with a remove operation", async () => {
     render({ canEdit: true, tags: ["alpha", "beta"] });
-    emit(["alpha"]);
+    await emit(["alpha"]);
 
     expect(mocks.calls).toEqual([
       { recordingId: "rec_1", tag: "beta", op: "remove" },
     ]);
-    await settleAll();
+    await settle();
   });
 
-  it("holds an in-flight edit against a refetch that reports the old set", async () => {
+  it("keeps a successful edit while the refetch has not landed", async () => {
     render({ canEdit: true, tags: ["alpha"] });
-    emit(["alpha", "beta"]);
+    await emit(["alpha", "beta"]);
     expect(shown()).toBe("alpha,beta");
 
-    // A refetch already in flight when the edit began still reports the old
-    // set. It must not roll the edit back while the write is unsettled.
+    // The write succeeds but invalidation has not returned yet, so the prop is
+    // still the pre-edit set. The tag must not blink out.
+    await settle();
+    expect(shown()).toBe("alpha,beta");
+
+    // It survives further stale renders too.
     render({ canEdit: true, tags: ["alpha"] });
     expect(shown()).toBe("alpha,beta");
 
-    // Once the write settles and the server agrees, the server value is what
-    // is adopted — including a value skipped while the write was pending.
-    await settleAll();
+    // Once the server agrees, the overlay is forgotten and the prop rules.
     render({ canEdit: true, tags: ["alpha", "beta"] });
     expect(shown()).toBe("alpha,beta");
   });
 
-  it("adopts a server value that arrived while a write was pending", async () => {
+  it("lets a change made elsewhere through once our edit is confirmed", async () => {
     render({ canEdit: true, tags: ["alpha"] });
-    emit(["alpha", "beta"]);
+    await emit(["alpha", "beta"]);
+    await settle();
 
-    // A tag added elsewhere lands while our write is still unsettled.
-    render({ canEdit: true, tags: ["alpha", "gamma"] });
+    render({ canEdit: true, tags: ["alpha", "beta"] });
     expect(shown()).toBe("alpha,beta");
 
-    // Draining the queue must re-run reconciliation, not strand that value.
-    await settleAll();
-    expect(shown()).toBe("alpha,gamma");
+    // Someone else removes beta. The intention has been forgotten, so our
+    // overlay must not resurrect it.
+    render({ canEdit: true, tags: ["alpha"] });
+    expect(shown()).toBe("alpha");
   });
 
-  it("resets to the new recording when the id changes mid-write", async () => {
+  it("queues opposing writes for the same tag instead of racing them", async () => {
     render({ canEdit: true, tags: ["alpha"] });
-    emit(["alpha", "beta"]);
-    expect(shown()).toBe("alpha,beta");
+    await emit([]); // remove alpha
+    await emit(["alpha"]); // re-add it before the remove has settled
 
-    // The route reuses this component across recordings, so a switch must not
-    // leave the previous recording's tags on screen.
-    render({ canEdit: true, recordingId: "rec_2", tags: ["other"] });
-    expect(shown()).toBe("other");
+    // Only the first is dispatched; the second waits its turn, so the server
+    // cannot apply them in the opposite order.
+    expect(mocks.calls).toEqual([
+      { recordingId: "rec_1", tag: "alpha", op: "remove" },
+    ]);
+    expect(shown()).toBe("alpha");
 
-    emit(["other", "new"]);
-    expect(mocks.calls[mocks.calls.length - 1]).toEqual({
-      recordingId: "rec_2",
-      tag: "new",
-      op: "add",
+    await settle(1);
+    expect(mocks.calls).toEqual([
+      { recordingId: "rec_1", tag: "alpha", op: "remove" },
+      { recordingId: "rec_1", tag: "alpha", op: "add" },
+    ]);
+    await settle();
+  });
+
+  it("ignores a stale failure from a recording switched away from", async () => {
+    render({ canEdit: true, tags: [] });
+    await emit(["shared"]); // write for rec_1, unsettled
+
+    // rec_2 legitimately has a tag of the same name.
+    render({ canEdit: true, recordingId: "rec_2", tags: ["shared"] });
+    expect(shown()).toBe("shared");
+
+    const stale = mocks.inflight.splice(0, 1)[0];
+    await act(async () => {
+      stale.reject(new Error("nope"));
+      await Promise.allSettled([stale.promise]);
     });
-    await settleAll();
+
+    expect(shown()).toBe("shared");
   });
 
-  it("reverts only the failed tag and reports it", async () => {
+  it("a stale failure must not roll back the new recording's own edit", async () => {
+    render({ canEdit: true, tags: [] });
+    await emit(["shared"]); // rec_1 write for "shared", unsettled
+
+    // The same tag name is then added on a different recording.
+    render({ canEdit: true, recordingId: "rec_2", tags: [] });
+    await emit(["shared"]);
+    expect(shown()).toBe("shared");
+
+    // rec_1's write fails. It must not cancel rec_2's pending intention just
+    // because the tag happens to be spelled the same.
+    const stale = mocks.inflight.splice(0, 1)[0];
+    await act(async () => {
+      stale.reject(new Error("nope"));
+      await Promise.allSettled([stale.promise]);
+    });
+
+    expect(shown()).toBe("shared");
+  });
+
+  it("ignores a stale completion while the new recording has its own edit", async () => {
+    render({ canEdit: true, tags: [] });
+    await emit(["old"]); // rec_1 write, unsettled
+
+    render({ canEdit: true, recordingId: "rec_2", tags: ["keepme"] });
+    await emit(["keepme", "fresh"]); // rec_2 write, unsettled
+    expect(shown()).toBe("keepme,fresh");
+
+    const stale = mocks.inflight.splice(0, 1)[0];
+    await act(async () => {
+      stale.resolve();
+      await Promise.allSettled([stale.promise]);
+    });
+
+    expect(shown()).toBe("keepme,fresh");
+  });
+
+  it("rolls back only the failed tag", async () => {
     render({ canEdit: true, tags: ["alpha"] });
-    emit(["alpha", "beta"]);
-    emit(["alpha", "beta", "gamma"]);
+    await emit(["alpha", "beta"]);
+    await emit(["alpha", "beta", "gamma"]);
     expect(shown()).toBe("alpha,beta,gamma");
 
-    // Fail beta while gamma is still unsettled: reverting to the whole server
-    // set here would also wipe gamma, which is going to succeed.
-    const [betaWrite] = mocks.inflight;
+    const beta = mocks.inflight.splice(0, 1)[0];
     await act(async () => {
-      betaWrite.reject(new Error("nope"));
-      await Promise.allSettled([betaWrite.promise]);
+      beta.reject(new Error("nope"));
+      await Promise.allSettled([beta.promise]);
     });
 
     expect(mocks.toastError).toHaveBeenCalled();
     expect(shown()).toBe("alpha,gamma");
-
-    mocks.inflight.splice(0, 1);
-    await settleAll();
+    await settle();
   });
 
-  it("refuses an over-long tag instead of sending it", () => {
+  it("refuses an over-long tag instead of sending it", async () => {
     render({ canEdit: true, tags: [] });
-    emit(["x".repeat(65)]);
+    await emit(["x".repeat(65)]);
 
     expect(mocks.calls).toEqual([]);
     expect(mocks.toastError).toHaveBeenCalled();
   });
 
-  it("passes cached suggestions to the input", () => {
-    mocks.suggestions = ["alpha", "beta"];
-    render({ canEdit: true, tags: [] });
-    expect(container.querySelector("[data-testid=tag-input]")).not.toBeNull();
+  it("shows the new recording immediately on switch", async () => {
+    render({ canEdit: true, tags: ["alpha"] });
+    await emit(["alpha", "beta"]);
+    expect(shown()).toBe("alpha,beta");
+
+    render({ canEdit: true, recordingId: "rec_2", tags: ["other"] });
+    expect(shown()).toBe("other");
   });
 });

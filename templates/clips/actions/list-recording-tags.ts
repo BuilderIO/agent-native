@@ -20,7 +20,7 @@
 
 import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -28,6 +28,10 @@ import {
   getActiveOrganizationId,
   ownerEmailMatches,
 } from "../server/lib/recordings.js";
+
+// The dropdown shows a handful at a time; a whole workspace vocabulary beyond
+// this is a filter problem, not an autocomplete one.
+const MAX_SUGGESTIONS = 500;
 
 export default defineAction({
   description:
@@ -50,17 +54,20 @@ export default defineAction({
     ];
     if (orgId) where.push(eq(schema.recordings.organizationId, orgId));
 
-    const visible = await db
-      .select({ id: schema.recordings.id })
-      .from(schema.recordings)
-      .where(and(...where));
-    const ids = visible.map((row) => row.id);
-    if (!ids.length) return { tags: [] };
-
+    // DISTINCT in the database, joined rather than fetched in two steps: the
+    // caller only needs the vocabulary, so pulling one row per tag-per-
+    // recording — and an IN list the size of the library — is waste on any
+    // sizeable history. Bounded as well, since this only feeds a dropdown.
     const rows = await db
-      .select({ tag: schema.recordingTags.tag })
+      .selectDistinct({ tag: schema.recordingTags.tag })
       .from(schema.recordingTags)
-      .where(inArray(schema.recordingTags.recordingId, ids));
+      .innerJoin(
+        schema.recordings,
+        eq(schema.recordings.id, schema.recordingTags.recordingId),
+      )
+      .where(and(...where))
+      .orderBy(asc(schema.recordingTags.tag))
+      .limit(MAX_SUGGESTIONS);
 
     // De-duplicate case-insensitively but return the first spelling seen, so
     // the suggestion matches what is actually on the recordings rather than a
