@@ -20,7 +20,7 @@ export function resolveDesignOpenPath({
     // `designEditorCommandFromSearchParams`, which reads these same two
     // query params on the `/design/:id` route itself.
     return params.screen
-      ? `/design/${params.designId}?view=overview&screen=${params.screen}`
+      ? `/design/${params.designId}?editorView=overview&screen=${params.screen}`
       : `/design/${params.designId}`;
   }
   // `editor`/unknown with no id: there is no bare `/editor` route — send to

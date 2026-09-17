@@ -6,7 +6,7 @@ import {
 } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
-import { FIXTURE_HTML, seedComponentVariantMetadata } from "./global-setup";
+import { FIXTURE_HTML } from "./global-setup";
 import { designFrame, gotoEditor, selectByText } from "./helpers";
 
 test.describe.configure({ mode: "serial" });
@@ -196,7 +196,6 @@ test.beforeAll(async ({ request }, workerInfo) => {
     fileType: "css",
   });
   await postAction(request, "index-components", { designId });
-  await seedComponentVariantMetadata(designId);
 });
 
 test.afterAll(async ({ request }) => {
@@ -209,30 +208,22 @@ test.beforeEach(async ({ page }) => {
   await page.getByRole("tab", { name: "Design", exact: true }).click();
 });
 
-test("Inspect Code shows the opening tag and copyable selected HTML", async ({
-  page,
-}) => {
+test("Inspect Code shows copyable selected HTML content", async ({ page }) => {
   await selectByText(page, "Alpha Button", { screenId: fileId });
   await page.getByRole("button", { name: "Inspect code", exact: true }).click();
 
   await expect(page.getByText("Inspect code", { exact: true })).toBeVisible();
-  await expect(
-    page
-      .locator("code")
-      .filter({
-        hasText: /^<button>\s+\.\.\.\s+<\/button>$/,
-      })
-      .first(),
-  ).toBeVisible();
   const inspectCode = page
     .locator("pre")
     .filter({ hasText: "<button>" })
     .first();
+  await expect(inspectCode).toBeVisible();
+  await expect(inspectCode).toContainText("Alpha Button");
+  await expect(inspectCode).not.toContainText("...");
   await expect(inspectCode).not.toContainText("data-agent-native-");
   await expect(inspectCode).not.toContainText("style=");
-  await expect(
-    page.getByRole("button", { name: "Copy", exact: true }),
-  ).toBeEnabled();
+  const copyButton = page.getByRole("button", { name: "Copy", exact: true });
+  await expect(copyButton).toBeEnabled();
 });
 
 test("component boolean and text prop controls persist through reload", async ({
@@ -308,6 +299,48 @@ test("component boolean and text prop controls persist through reload", async ({
     .locator("input")
     .first();
   await expect(reloadedLabelInput).toHaveValue("Updated label");
+});
+
+test("component duplicate preserves instance identity through undo and redo", async ({
+  page,
+  request,
+}) => {
+  await selectByText(page, "Widget Surface", { screenId: fileId });
+  const frame = designFrame(page, fileId);
+  const instances = () =>
+    frame.locator('[data-agent-native-component="E2EWidget"]');
+  const persistedInstances = async () =>
+    (await fileContent(request)).match(
+      /data-agent-native-component="E2EWidget"/g,
+    )?.length ?? 0;
+
+  await expect(instances()).toHaveCount(1);
+  const originalId = await instances()
+    .first()
+    .getAttribute("data-agent-native-node-id");
+  expect(originalId).toBe("e2e-widget-button");
+
+  await page.keyboard.press("ControlOrMeta+d");
+  await expect(instances()).toHaveCount(2);
+  const duplicatedIds = await instances().evaluateAll((elements) =>
+    elements.map((element) =>
+      element.getAttribute("data-agent-native-node-id"),
+    ),
+  );
+  expect(new Set(duplicatedIds).size).toBe(2);
+  await expect.poll(persistedInstances).toBe(2);
+
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(instances()).toHaveCount(1);
+  await expect.poll(persistedInstances).toBe(1);
+
+  await page.keyboard.press("ControlOrMeta+Shift+z");
+  await expect(instances()).toHaveCount(2);
+  await expect.poll(persistedInstances).toBe(2);
+  await expect(instances().first()).toHaveAttribute(
+    "data-agent-native-layer-name",
+    "E2E Widget Button",
+  );
 });
 
 test("run-design-audit scopes findings to the requested file", async ({

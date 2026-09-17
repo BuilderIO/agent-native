@@ -10,12 +10,13 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 import { AgentKitClient } from "../client/index.js";
-import type { AgentTransport } from "../protocol/index.js";
+import type { AgentEvent, AgentTransport } from "../protocol/index.js";
 import { AgentChat } from "./chat.js";
 import {
   AgentKitChat,
   type AgentKitComposerProps,
   AgentMessagePartView,
+  resolveAgentMessageRequestId,
   safeAgentHref,
   safeAgentImageSrc,
 } from "./components.js";
@@ -24,6 +25,47 @@ import {
   type AgentRunFailureRenderProps,
 } from "./context.js";
 import { AgentKitRoot } from "./root.js";
+
+describe("AgentMessageActions request IDs", () => {
+  it("prefers an explicit request ID and never uses the local message ID", () => {
+    expect(
+      resolveAgentMessageRequestId(
+        {
+          id: "local-message-id",
+          role: "assistant",
+          parts: [],
+          metadata: {
+            custom: { requestId: "request-1", runId: "run-1" },
+          },
+        },
+        [],
+      ),
+    ).toBe("request-1");
+  });
+
+  it("resolves the server run ID from the message lifecycle event", () => {
+    const event = {
+      id: "event-1",
+      threadId: "thread-1",
+      runId: "run-1",
+      sequence: 1,
+      occurredAt: "2026-09-16T00:00:00.000Z",
+      type: "message.completed",
+      message: {
+        id: "assistant-1",
+        role: "assistant",
+        parts: [],
+      },
+    } satisfies AgentEvent;
+
+    expect(
+      resolveAgentMessageRequestId(
+        { id: "assistant-1", role: "assistant", parts: [] },
+        [event],
+      ),
+    ).toBe("run-1");
+  });
+});
 
 describe("AgentKitChat", () => {
   it("renders the complete reference surface from one managed component", () => {

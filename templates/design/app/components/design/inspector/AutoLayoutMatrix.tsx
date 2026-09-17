@@ -128,6 +128,35 @@ export interface AutoLayoutPadding {
   left: number;
 }
 
+const OPPOSITE_PADDING_SIDE: Record<
+  keyof AutoLayoutPadding,
+  keyof AutoLayoutPadding
+> = {
+  top: "bottom",
+  right: "left",
+  bottom: "top",
+  left: "right",
+};
+
+type PaddingChangeMeta = {
+  source: ScrubInputChangeMeta["source"];
+  phase: ScrubInputChangeMeta["phase"];
+  altKey?: boolean;
+};
+
+/** Apply Figma's Alt/Option mirror to one unlinked padding side. */
+export function mirrorPaddingChange(
+  padding: AutoLayoutPadding,
+  side: keyof AutoLayoutPadding,
+  meta?: PaddingChangeMeta,
+): AutoLayoutPadding {
+  if (!meta?.altKey) return padding;
+  return {
+    ...padding,
+    [OPPOSITE_PADDING_SIDE[side]]: padding[side],
+  };
+}
+
 export interface AutoLayoutMatrixValue {
   direction: AutoLayoutDirection;
   wrap: AutoLayoutWrap;
@@ -423,6 +452,14 @@ export function AutoLayoutMatrix({
   const verticalPaddingMixed = Boolean(
     value.paddingMixed?.top || value.paddingMixed?.bottom,
   );
+
+  const updatePadding = (
+    side: keyof AutoLayoutPadding,
+    padding: AutoLayoutPadding,
+    meta?: PaddingChangeMeta,
+  ) => {
+    onPaddingChange(mirrorPaddingChange(padding, side, meta), meta);
+  };
 
   const activeFlow = getFlowOption(value);
   const isBlock = activeFlow === "normal";
@@ -731,7 +768,8 @@ export function AutoLayoutMatrix({
                     value={horizontalPaddingValue}
                     mixed={horizontalPaddingMixed}
                     onChange={(next, meta) =>
-                      onPaddingChange(
+                      updatePadding(
+                        "left",
                         {
                           top: value.padding.top,
                           bottom: value.padding.bottom,
@@ -752,7 +790,8 @@ export function AutoLayoutMatrix({
                     value={verticalPaddingValue}
                     mixed={verticalPaddingMixed}
                     onChange={(next, meta) =>
-                      onPaddingChange(
+                      updatePadding(
+                        "top",
                         {
                           top: next,
                           bottom: next,
@@ -788,7 +827,11 @@ export function AutoLayoutMatrix({
                         value={value.padding.top}
                         mixed={value.paddingMixed?.top}
                         onChange={(next, meta) =>
-                          onPaddingChange({ ...value.padding, top: next }, meta)
+                          updatePadding(
+                            "top",
+                            { ...value.padding, top: next },
+                            meta,
+                          )
                         }
                         disabled={disabled}
                       />
@@ -804,7 +847,8 @@ export function AutoLayoutMatrix({
                         value={value.padding.right}
                         mixed={value.paddingMixed?.right}
                         onChange={(next, meta) =>
-                          onPaddingChange(
+                          updatePadding(
+                            "right",
                             { ...value.padding, right: next },
                             meta,
                           )
@@ -819,7 +863,8 @@ export function AutoLayoutMatrix({
                         value={value.padding.bottom}
                         mixed={value.paddingMixed?.bottom}
                         onChange={(next, meta) =>
-                          onPaddingChange(
+                          updatePadding(
+                            "bottom",
                             { ...value.padding, bottom: next },
                             meta,
                           )
@@ -838,7 +883,8 @@ export function AutoLayoutMatrix({
                         value={value.padding.left}
                         mixed={value.paddingMixed?.left}
                         onChange={(next, meta) =>
-                          onPaddingChange(
+                          updatePadding(
+                            "left",
                             { ...value.padding, left: next },
                             meta,
                           )
@@ -1945,7 +1991,7 @@ export function SizingField({
     ? "Mixed"
     : resolvedSize == null
       ? ""
-      : String(Math.round(resolvedSize));
+      : String(roundToOneDecimal(resolvedSize));
 
   const addMinLabel = isWidth ? labels.addMinWidth : labels.addMinHeight;
   const addMaxLabel = isWidth ? labels.addMaxWidth : labels.addMaxHeight;
@@ -1958,7 +2004,7 @@ export function SizingField({
   const openEditor = (kind: "min" | "max") => {
     // Commit immediately so the shown row always reflects real state and
     // persists across selection changes, remounts, and parent re-renders.
-    const seed = Math.max(0, Math.round(resolvedSize ?? 0));
+    const seed = Math.max(0, roundToOneDecimal(resolvedSize ?? 0));
     const seedValue = kind === "min" ? seed : seed || 1;
     onMinMaxChange?.(sizingAxis, kind, seedValue);
   };
@@ -2250,7 +2296,9 @@ function ConstraintSubRow({
         icon={icon}
         prefix="icon"
         value={value}
-        onChange={(next, meta) => onChange(Math.max(0, Math.round(next)), meta)}
+        onChange={(next, meta) =>
+          onChange(Math.max(0, roundToOneDecimal(next)), meta)
+        }
         unit="px"
         min={0}
         step={1}

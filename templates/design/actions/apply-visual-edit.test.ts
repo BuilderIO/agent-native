@@ -50,6 +50,8 @@ const mocks = vi.hoisted(() => {
   const db = {
     select: vi.fn(() => fileSelectChain),
     update: vi.fn(() => updateChain),
+    execute: vi.fn().mockResolvedValue({ rows: [] }),
+    transaction: vi.fn(async (callback) => callback(db)),
   };
 
   // Shared with the @agent-native/core/collab mock below: writeInlineSourceFile

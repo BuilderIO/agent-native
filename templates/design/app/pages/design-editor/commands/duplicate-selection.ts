@@ -5,7 +5,10 @@ import { toast } from "sonner";
 import * as Y from "yjs";
 
 import { trace } from "@/components/design/design-trace";
-import type { ElementInfo } from "@/components/design/types";
+import type {
+  ElementInfo,
+  RuntimeStructureInsertRequest,
+} from "@/components/design/types";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
 import {
   extractLayerPosition,
@@ -13,6 +16,7 @@ import {
   insertClonedHtmlLayer,
   insertClonedHtmlLayers,
   planLinkedComponentStructureClone,
+  prepareClonedHtmlLayersForLiveInsert,
   type ComponentCloneBatchContext,
   type LinkedComponentStructureClonePlan,
 } from "@/pages/design-editor/clone-and-pen-edit";
@@ -28,6 +32,7 @@ import {
   mapAcceptedSelectionNode,
   projectAcceptedSource,
 } from "@/pages/design-editor/commands/selection-publication";
+import { isStandaloneHttpUrl } from "@/pages/design-editor/editor-state";
 import type { GeometryHistorySelection } from "@/pages/design-editor/history";
 import type { DesignFile } from "@/pages/design-editor/types";
 
@@ -147,10 +152,16 @@ export interface DuplicateSelectionArgs {
     nodeIdMap: Map<string, string>,
     targetFileId: string,
   ) => void;
+  runtimeStructureInsertRevisionRef?: RefObject<number>;
   selectionBefore?: GeometryHistorySelection;
   selectedCanvasSelector: string;
   selectedElement: ElementInfo | null;
   selectedLayerIdsState: string[];
+  setRuntimeStructureInsertRequest?: Dispatch<
+    SetStateAction<
+      (RuntimeStructureInsertRequest & { screenId: string }) | null
+    >
+  >;
   setOverviewSelectedScreenIds: Dispatch<SetStateAction<string[]>>;
   setSelectedElement: Dispatch<SetStateAction<ElementInfo | null>>;
   setSelectedLayerIdsState: Dispatch<SetStateAction<string[]>>;
@@ -174,10 +185,12 @@ export function runDuplicateSelection({
   lastDuplicateTransformRef,
   overviewSelectedScreenIds,
   remapMotionTracksForClone,
+  runtimeStructureInsertRevisionRef,
   selectionBefore,
   selectedCanvasSelector,
   selectedElement,
   selectedLayerIdsState,
+  setRuntimeStructureInsertRequest,
   setOverviewSelectedScreenIds,
   setSelectedElement,
   setSelectedLayerIdsState,
@@ -262,6 +275,68 @@ export function runDuplicateSelection({
         ? lastDuplicateTransformRef.current
         : null;
     const nextDuplicateRootNodeIds: string[] = [];
+
+    // A localhost screen stores its route URL, while the selected layer only
+    // exists in the running iframe. Reusing the design-file clone path here
+    // would ask the URL string for an HTML projection and silently turn Cmd+D
+    // into a no-op. Prepare the runtime snapshots for the same one-shot bridge
+    // insert lifecycle used by paste so the clone gets a fresh identity and
+    // participates in pending-edit undo/redo.
+    if (
+      activeFile &&
+      isStandaloneHttpUrl(activeFile.content ?? "") &&
+      snapshots.every((snapshot) => snapshot.sourceFileId === activeFile.id)
+    ) {
+      const sourcePositions = snapshots.map((snapshot) =>
+        extractLayerPosition(snapshot.html),
+      );
+      const prepared = prepareClonedHtmlLayersForLiveInsert(
+        activeFile.content ?? "",
+        snapshots.map((snapshot) => snapshot.html),
+        {
+          stripRootPosition: true,
+          positions: sourcePositions.map((position) =>
+            position
+              ? {
+                  x: position.x + (repeatTransform?.dx ?? 0),
+                  y: position.y + (repeatTransform?.dy ?? 0),
+                  space: "layout" as const,
+                }
+              : undefined,
+          ),
+        },
+      );
+      if (
+        prepared &&
+        runtimeStructureInsertRevisionRef &&
+        setRuntimeStructureInsertRequest
+      ) {
+        const anchorSelector =
+          selectedElement?.runtimeSelector ??
+          selectedCanvasSelector ??
+          selectedElement?.selector;
+        const anchorSourceId =
+          selectedElement?.runtimeSourceId ?? selectedElement?.sourceId;
+        const hasAnchor = Boolean(anchorSelector);
+        runtimeStructureInsertRevisionRef.current += 1;
+        setRuntimeStructureInsertRequest({
+          requestId: runtimeStructureInsertRevisionRef.current,
+          screenId: activeFile.id,
+          html: prepared.htmlFragments[0]!,
+          additionalHtml: prepared.htmlFragments.slice(1),
+          anchor: hasAnchor
+            ? { selector: anchorSelector!, sourceId: anchorSourceId }
+            : { selector: "body" },
+          placement: hasAnchor ? "after" : "inside",
+        });
+        lastDuplicateTransformRef.current = {
+          rootNodeIds: [...prepared.rootNodeIds].sort(),
+          dx: repeatTransform?.dx ?? 0,
+          dy: repeatTransform?.dy ?? 0,
+        };
+        return;
+      }
+    }
 
     const sortedSnapshotsByFile = new Map(
       files.map((file) => [

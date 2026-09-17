@@ -178,6 +178,20 @@ const DRAG_THRESHOLD = 3;
 // One postMessage round trip into an iframe. 80ms was tuned on a warm local
 // dev server; a cold hosted screen or a large generated document blows it, and
 // a late reply is dropped as if the screen held nothing selectable.
+
+function serializeMarqueeHostSelection(
+  activeId: string | null | undefined,
+  selectedElementScreenId: string | null | undefined,
+  selectedLayerSelectorGroupsByScreen: Record<string, string[][]>,
+): string {
+  return JSON.stringify([
+    activeId ?? null,
+    selectedElementScreenId ?? null,
+    Object.entries(selectedLayerSelectorGroupsByScreen)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([screenId, groups]) => [screenId, groups]),
+  ]);
+}
 // A drill-in narrows the collect to the pointer's containment chain and answers
 // in ~100ms, but an area query (the marquee) still builds info for every
 // candidate on the screen, which measures near a second on a large generated
@@ -953,7 +967,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   useEffect(() => {
     selectedElementScreenIdRef.current = selectedElementScreenId;
   }, [selectedElementScreenId]);
+  const marqueeHostSelectionRevisionRef = useRef("");
+  marqueeHostSelectionRevisionRef.current = serializeMarqueeHostSelection(
+    activeId,
+    selectedElementScreenId,
+    selectedLayerSelectorGroupsByScreen,
+  );
   const dragState = useRef<DragState | null>(null);
+  const marqueeLifecycleRef = useRef(0);
   const dragCleanup = useRef<(() => void) | null>(null);
   const boardElementResizeCancel = useRef<((pressedAt: number) => void) | null>(
     null,
@@ -4585,6 +4606,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         applyViewToDomRef.current();
         recomputePenPointerForViewChangeRef.current();
       } else if (state.type === "marquee") {
+        marqueeLifecycleRef.current += 1;
+        onLayerMarqueeSelectionChange?.([], {
+          source: "marquee",
+          cancelled: true,
+          restoreHostSelection: true,
+        });
         updateSelectedIds(() => state.baseSelectedIds);
         updateSelectedDraftIds(() => state.baseSelectedDraftIds);
       } else if (state.type === "pen-node") {
@@ -4628,6 +4655,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     finishDrag,
     getResolvedMetadata,
     scaleScreenContents,
+    onLayerMarqueeSelectionChange,
     updateDraftPrimitives,
     updateFrameGeometry,
     updateSelectedDraftIds,
@@ -4732,6 +4760,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       // finding) — a plain marquee stops at each screen's current container
       // scope's direct children.
       const deepSelect = e.metaKey || e.ctrlKey;
+      const marqueeToken = ++marqueeLifecycleRef.current;
       let latestRect = normalizeRectFromPoints(originCanvas, originCanvas);
       let layerCandidates: CanvasLayerMarqueeCandidate[] = [];
       let lastLayerSelectionSignature: string | null = null;
@@ -4768,6 +4797,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       // opposite case — transient, and worth retrying — which is why the reply
       // distinguishes the two reasons.
       const timedOutScreenIds = new Set<string>();
+      // A mouseup can arrive while one of the intersected iframes is still
+      // answering. Keep the collection work alive until every request started
+      // by this gesture settles so the one final report sees the full hit set.
+      const pendingMarqueeCollections: Array<Promise<void>> = [];
+      let marqueeReleased = false;
       // Figma parity: one marquee drag is one undo step. Every tick below
       // reports its hit-set as it changes, but the host only records
       // selection history for the report tagged `final` — see
@@ -4781,7 +4815,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         // after a new marquee has already begun. Type alone is insufficient —
         // both gestures are `marquee`; require this exact gesture object so a
         // stale reply cannot flash/replace the new gesture's layer selection.
-        if (state !== marqueeState) return;
+        if (
+          state !== marqueeState ||
+          marqueeLifecycleRef.current !== marqueeToken
+        )
+          return;
         const selection = layerCandidates
           .filter(
             (candidate) =>
@@ -4838,27 +4876,33 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         if (newIds.length === 0) return;
         const requestIds = new Set(newIds);
         newIds.forEach((id) => collectingScreenIds.add(id));
-        void collectLayerMarqueeCandidates(requestIds, deepSelect).then(
-          (result) => {
-            const unanswered = new Set(
-              result.unanswered.map((entry) => entry.screenId),
-            );
-            result.unanswered.forEach((entry) => {
-              if (entry.reason === "timeout")
-                timedOutScreenIds.add(entry.screenId);
-            });
-            newIds.forEach((id) => {
-              collectingScreenIds.delete(id);
-              // A screen that never answered is not "collected" — leave it out
-              // so growing the rect over it asks again instead of treating the
-              // silence as an empty screen for the rest of the gesture.
-              if (!unanswered.has(id)) collectedScreenIds.add(id);
-            });
-            if (dragState.current !== marqueeState) return;
-            layerCandidates = [...layerCandidates, ...result.candidates];
-            reportLayerSelection(latestRect);
-          },
-        );
+        const collection = collectLayerMarqueeCandidates(
+          requestIds,
+          deepSelect,
+        ).then((result) => {
+          const unanswered = new Set(
+            result.unanswered.map((entry) => entry.screenId),
+          );
+          result.unanswered.forEach((entry) => {
+            if (entry.reason === "timeout")
+              timedOutScreenIds.add(entry.screenId);
+          });
+          newIds.forEach((id) => {
+            collectingScreenIds.delete(id);
+            // A screen that never answered is not "collected" — leave it out
+            // so growing the rect over it asks again instead of treating the
+            // silence as an empty screen for the rest of the gesture.
+            if (!unanswered.has(id)) collectedScreenIds.add(id);
+          });
+          if (
+            dragState.current !== marqueeState ||
+            marqueeLifecycleRef.current !== marqueeToken
+          )
+            return;
+          layerCandidates = [...layerCandidates, ...result.candidates];
+          if (!marqueeReleased) reportLayerSelection(latestRect);
+        });
+        pendingMarqueeCollections.push(collection);
       };
       dragState.current = marqueeState;
       setMarquee({ ...originCanvas, width: 0, height: 0 });
@@ -4869,8 +4913,17 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           source: "marquee",
           additive: false,
           shiftKey: false,
+          resetHistory: true,
         });
         lastLayerSelectionSignature = "";
+      } else {
+        onLayerMarqueeSelectionChange?.([], {
+          source: "marquee",
+          additive: true,
+          shiftKey: true,
+          cancelled: true,
+          resetHistory: true,
+        });
       }
       setIsDragging(true);
       // Seed collection with whatever the zero-size origin rect already
@@ -4881,6 +4934,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       const handleMouseMove = (ev: MouseEvent) => {
         const state = dragState.current;
         if (!state || state.type !== "marquee") return;
+        if (marqueeReleased) return;
         const nextPoint = getCanvasPointFromCachedRect(ev.clientX, ev.clientY);
         const rect = normalizeRectFromPoints(state.originCanvas, nextPoint);
         latestRect = rect;
@@ -4966,6 +5020,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         // coalesceMarqueeSelectionHistory), so skipping it on some paths
         // would leak the NEXT gesture's "before" into this one's.
         if (state?.type === "marquee") {
+          marqueeReleased = true;
           if (shouldClearSelectionOnEmptyCanvasClick(state)) {
             updateSelectedIds(() => []);
             updateSelectedDraftIds(() => []);
@@ -4975,9 +5030,30 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               shiftKey: false,
               final: true,
             });
+            finishDrag();
           } else {
-            reportLayerSelection(latestRect, true);
+            const finalRect = latestRect;
+            const releasedSelectionRevision = `${selectedIdsRef.current.join(",")}\u001e${selectedDraftIdsRef.current.join(",")}\u001e${marqueeHostSelectionRevisionRef.current}`;
+            void Promise.allSettled(pendingMarqueeCollections).then(() => {
+              if (
+                dragState.current !== marqueeState ||
+                marqueeLifecycleRef.current !== marqueeToken
+              )
+                return;
+              const currentSelectionRevision = `${selectedIdsRef.current.join(",")}\u001e${selectedDraftIdsRef.current.join(",")}\u001e${marqueeHostSelectionRevisionRef.current}`;
+              if (currentSelectionRevision !== releasedSelectionRevision) {
+                onLayerMarqueeSelectionChange?.([], {
+                  source: "marquee",
+                  cancelled: true,
+                });
+                finishDrag();
+                return;
+              }
+              reportLayerSelection(finalRect, true);
+              finishDrag();
+            });
           }
+          return;
         }
         finishDrag();
       };
@@ -10525,7 +10601,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       creationPreview.geometry.width > 0 &&
       creationPreview.geometry.height > 0 ? (
         <span
-          className="pointer-events-none absolute z-40 -translate-x-1/2 translate-y-1 rounded bg-[var(--design-editor-accent-color)] px-1.5 py-0.5 text-[10px] font-medium leading-none text-[var(--design-editor-accent-contrast-color)] shadow-sm"
+          className="pointer-events-none absolute z-40 -translate-x-1/2 translate-y-1 rounded-full bg-[var(--design-editor-accent-color)] px-2 py-1 text-[11px] font-semibold leading-none text-[var(--design-editor-accent-contrast-color)] shadow-sm"
           style={{
             left:
               pan.x +

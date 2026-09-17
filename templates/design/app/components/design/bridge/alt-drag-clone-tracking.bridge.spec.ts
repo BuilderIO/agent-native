@@ -213,7 +213,7 @@ describe("Alt-drag clone cursor tracking", () => {
       const page = await browser.newPage();
       await install(page, "free", freeDragFixture);
       const source = await rectOf(page, "free");
-      const grabPoint = { x: source.left + 12, y: source.top + 14 };
+      const grabPoint = { x: source.left + 32, y: source.top + 26 };
       await page.evaluate(() => {
         const originalPostMessage = window.postMessage.bind(window);
         (
@@ -258,8 +258,8 @@ describe("Alt-drag clone cursor tracking", () => {
       };
       expect(start.iframeX).toBeCloseTo(grabPoint.x, 0);
       expect(start.iframeY).toBeCloseTo(grabPoint.y, 0);
-      expect(start.pointerOffset?.x).toBeCloseTo(12, 0);
-      expect(start.pointerOffset?.y).toBeCloseTo(14, 0);
+      expect(start.pointerOffset?.x).toBeCloseTo(32, 0);
+      expect(start.pointerOffset?.y).toBeCloseTo(26, 0);
 
       await page.mouse.up();
       await page.keyboard.up("Alt");

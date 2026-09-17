@@ -40,6 +40,7 @@ export interface AgentRunState {
   id: RunId;
   status: AgentRunStatus;
   lastSequence: number;
+  activeMessageId?: string;
   startedAt?: string;
   completedAt?: string;
   usage?: AgentUsage;
@@ -153,6 +154,7 @@ function appendMessageText(
     parts: [],
     status: "streaming",
   };
+  if (existing?.status === "complete") return messages;
   const parts = [...message.parts];
   const last = parts.at(-1);
   if (last?.type === type) {
@@ -170,7 +172,11 @@ function appendMessageText(
         : { type: "reasoning", text, visibility: "summary" },
     );
   }
-  return upsertMessage(messages, { ...message, parts, status: "streaming" });
+  return upsertMessage(messages, {
+    ...message,
+    parts,
+    status: message.status === "complete" ? "complete" : "streaming",
+  });
 }
 
 function updateRun(
@@ -198,6 +204,207 @@ function updateActiveRuns(
     activeRunIds: active
       ? Array.from(new Set([...thread.activeRunIds, runId]))
       : thread.activeRunIds.filter((id) => id !== runId),
+  };
+}
+
+type AgentTerminalRunStatus = "completed" | "failed" | "cancelled";
+
+function isTerminalRunStatus(
+  status: AgentRunStatus,
+): status is AgentTerminalRunStatus {
+  return ["completed", "failed", "cancelled"].includes(status);
+}
+
+function isTerminalItemStatus(status: string | undefined): boolean {
+  return (
+    status === "completed" || status === "failed" || status === "cancelled"
+  );
+}
+
+function wouldReopenTerminalItem(
+  currentStatus: string | undefined,
+  nextStatus: string | undefined,
+): boolean {
+  return (
+    isTerminalItemStatus(currentStatus) && !isTerminalItemStatus(nextStatus)
+  );
+}
+
+function isTerminalRunEvent(event: AgentEvent): boolean {
+  return (
+    event.type === "run.completed" ||
+    event.type === "run.failed" ||
+    event.type === "run.cancelled" ||
+    (event.type === "run.status" && isTerminalRunStatus(event.status))
+  );
+}
+
+function isExpectedTerminalFollowup(
+  status: AgentTerminalRunStatus,
+  event: AgentEvent,
+): boolean {
+  return (
+    (status === "completed" && event.type === "run.completed") ||
+    (status === "failed" && event.type === "run.failed") ||
+    (status === "cancelled" && event.type === "run.cancelled")
+  );
+}
+
+/**
+ * A terminal run is authoritative even when an upstream adapter omitted the
+ * individual completion events. Keeping its last projected work active would
+ * strand the transcript in a working state forever.
+ */
+export function settleRunProjection(
+  thread: AgentThreadState,
+  runId: RunId,
+  status: AgentTerminalRunStatus,
+  completedAt: string,
+  activeMessageId?: string,
+): AgentThreadState {
+  const messageIds = new Set<string>();
+  if (activeMessageId) messageIds.add(activeMessageId);
+  const toolIds = new Set<string>();
+  const activityIds = new Set<string>();
+  const taskIds = new Set<string>();
+  const taskGroupIds = new Set<string>();
+  const actionIds = new Set<string>();
+  for (const event of thread.events) {
+    if (event.runId !== runId) continue;
+    switch (event.type) {
+      case "message.created":
+      case "message.completed":
+        messageIds.add(event.message.id);
+        break;
+      case "message.delta":
+      case "reasoning.delta":
+        messageIds.add(event.messageId);
+        break;
+      case "tool.started":
+      case "tool.updated":
+        toolIds.add(event.toolCall.id);
+        break;
+      case "tool.delta":
+        toolIds.add(event.toolCallId);
+        break;
+      case "activity.started":
+      case "activity.updated":
+      case "activity.completed":
+        activityIds.add(event.activity.id);
+        break;
+      case "task.created":
+      case "task.updated":
+      case "task.completed":
+        taskIds.add(event.task.id);
+        break;
+      case "task-group.created":
+      case "task-group.updated":
+      case "task-group.completed":
+        taskGroupIds.add(event.taskGroup.id);
+        break;
+      case "action.started":
+        actionIds.add(event.invocation.id);
+        break;
+      case "action.completed":
+      case "action.failed":
+        actionIds.add(event.result.invocationId);
+        break;
+      default:
+        break;
+    }
+  }
+  const settleStatus = <
+    T extends { status: "running" | AgentTerminalRunStatus },
+  >(
+    item: T,
+  ): T => (item.status === "running" ? { ...item, status } : item);
+  const settleTaskStatus = <T extends { status: AgentTask["status"] }>(
+    item: T,
+  ): T =>
+    ["pending", "running", "awaiting_input"].includes(item.status)
+      ? { ...item, status }
+      : item;
+  const terminalActionStatus =
+    status === "completed"
+      ? "completed"
+      : status === "cancelled"
+        ? "cancelled"
+        : "failed";
+  const terminalActionError =
+    terminalActionStatus === "failed"
+      ? {
+          code: "run_terminated",
+          message: "The run ended before the action reported a result.",
+        }
+      : undefined;
+  return {
+    ...thread,
+    messages: thread.messages.map((message) =>
+      message.status === "streaming" && messageIds.has(message.id)
+        ? { ...message, status: status === "completed" ? "complete" : "error" }
+        : message,
+    ),
+    tools: Object.fromEntries(
+      Object.entries(thread.tools).map(([id, tool]) => [
+        id,
+        toolIds.has(id) || tool.runId === runId ? settleStatus(tool) : tool,
+      ]),
+    ),
+    activities: Object.fromEntries(
+      Object.entries(thread.activities).map(([id, activity]) => [
+        id,
+        activityIds.has(id) || activity.runId === runId
+          ? {
+              ...settleStatus(activity),
+              completedAt: activity.completedAt ?? completedAt,
+            }
+          : activity,
+      ]),
+    ),
+    tasks: Object.fromEntries(
+      Object.entries(thread.tasks).map(([id, task]) => [
+        id,
+        taskIds.has(id) || task.runId === runId
+          ? {
+              ...settleTaskStatus(task),
+              completedAt: task.completedAt ?? completedAt,
+            }
+          : task,
+      ]),
+    ),
+    taskGroups: Object.fromEntries(
+      Object.entries(thread.taskGroups).map(([id, taskGroup]) => [
+        id,
+        (taskGroupIds.has(id) || taskGroup.runId === runId) &&
+        taskGroup.status !== undefined &&
+        ["pending", "running", "awaiting_input"].includes(taskGroup.status)
+          ? {
+              ...taskGroup,
+              status,
+              completedAt: taskGroup.completedAt ?? completedAt,
+            }
+          : taskGroup,
+      ]),
+    ),
+    actions: Object.fromEntries(
+      Object.entries(thread.actions).map(([id, action]) => {
+        if (!actionIds.has(id) && action.invocation?.runId !== runId) {
+          return [id, action];
+        }
+        if (action.result || !action.invocation) return [id, action];
+        return [
+          id,
+          {
+            ...action,
+            result: {
+              invocationId: action.invocation.id,
+              status: terminalActionStatus,
+              ...(terminalActionError ? { error: terminalActionError } : {}),
+            },
+          },
+        ];
+      }),
+    ),
   };
 }
 
@@ -235,6 +442,21 @@ export function reduceAgentEvent(
   thread: AgentThreadState,
   event: AgentEvent,
 ): AgentThreadState {
+  const currentRun = thread.runs[event.runId];
+  const hasTerminalEvent = thread.events.some(
+    (candidate) =>
+      candidate.runId === event.runId && isTerminalRunEvent(candidate),
+  );
+  if (
+    currentRun &&
+    isTerminalRunStatus(currentRun.status) &&
+    !isExpectedTerminalFollowup(currentRun.status, event) &&
+    (currentRun.status !== "failed" || hasTerminalEvent)
+  ) {
+    // Once a terminal lifecycle event has been accepted, late work events are
+    // stale replay and must not reopen a settled transcript item.
+    return thread;
+  }
   const admission = classifyAgentEvent(thread, event);
   if (admission.status === "foreign" || admission.status === "duplicate") {
     return thread;
@@ -260,13 +482,22 @@ export function reduceAgentEvent(
         ...updateActiveRuns(next, event.runId, true),
       };
     case "run.status": {
-      const active = !["completed", "failed", "cancelled"].includes(
-        event.status,
-      );
-      return {
-        ...updateRun(next, event.runId, { status: event.status }),
-        ...updateActiveRuns(next, event.runId, active),
+      const terminal = isTerminalRunStatus(event.status);
+      const updated = {
+        ...updateRun(next, event.runId, {
+          status: event.status,
+          ...(terminal ? { completedAt: event.occurredAt } : {}),
+        }),
+        ...updateActiveRuns(next, event.runId, !terminal),
       };
+      return terminal
+        ? settleRunProjection(
+            updated,
+            event.runId,
+            event.status as AgentTerminalRunStatus,
+            event.occurredAt,
+          )
+        : updated;
     }
     case "agent.registered":
     case "agent.updated":
@@ -301,37 +532,88 @@ export function reduceAgentEvent(
         agentInteractions: [...next.agentInteractions, event.interaction],
       };
     case "run.completed":
-      return {
-        ...updateRun(next, event.runId, {
-          status: "completed",
-          completedAt: event.occurredAt,
-          usage: event.usage,
-        }),
-        ...updateActiveRuns(next, event.runId, false),
-      };
+      return settleRunProjection(
+        {
+          ...updateRun(next, event.runId, {
+            status: "completed",
+            completedAt: event.occurredAt,
+            usage: event.usage,
+          }),
+          ...updateActiveRuns(next, event.runId, false),
+        },
+        event.runId,
+        "completed",
+        event.occurredAt,
+      );
     case "run.failed":
-      return {
-        ...updateRun(next, event.runId, {
-          status: "failed",
-          completedAt: event.occurredAt,
-          error: event.error,
-        }),
-        ...updateActiveRuns(next, event.runId, false),
-      };
+      return settleRunProjection(
+        {
+          ...updateRun(next, event.runId, {
+            status: "failed",
+            completedAt: event.occurredAt,
+            error: event.error,
+          }),
+          ...updateActiveRuns(next, event.runId, false),
+        },
+        event.runId,
+        "failed",
+        event.occurredAt,
+      );
     case "run.cancelled":
-      return {
-        ...updateRun(next, event.runId, {
-          status: "cancelled",
-          completedAt: event.occurredAt,
-        }),
-        ...updateActiveRuns(next, event.runId, false),
-      };
-    case "message.created":
+      return settleRunProjection(
+        {
+          ...updateRun(next, event.runId, {
+            status: "cancelled",
+            completedAt: event.occurredAt,
+          }),
+          ...updateActiveRuns(next, event.runId, false),
+        },
+        event.runId,
+        "cancelled",
+        event.occurredAt,
+      );
+    case "message.created": {
+      const current = next.messages.find(
+        (message) => message.id === event.message.id,
+      );
+      if (current?.status === "complete") return next;
+      // A reconnect can deliver a delta before the lifecycle marker. Do not
+      // let the late marker erase text or reasoning already accepted.
+      if (current?.status === "streaming" && current.parts.length > 0) {
+        return {
+          ...next,
+          messages: upsertMessage(next.messages, {
+            ...event.message,
+            ...current,
+            status: "streaming",
+          }),
+        };
+      }
       return {
         ...next,
         messages: upsertMessage(next.messages, event.message),
       };
-    case "message.completed":
+    }
+    case "message.completed": {
+      const current = next.messages.find(
+        (message) => message.id === event.message.id,
+      );
+      if (current?.status === "complete") return next;
+      if (
+        current?.status === "streaming" &&
+        current.parts.length > 0 &&
+        event.message.parts.length === 0
+      ) {
+        return {
+          ...next,
+          messages: upsertMessage(next.messages, {
+            ...current,
+            ...event.message,
+            parts: current.parts,
+            status: event.message.status ?? "complete",
+          }),
+        };
+      }
       return {
         ...next,
         messages: upsertMessage(next.messages, {
@@ -339,6 +621,7 @@ export function reduceAgentEvent(
           status: event.message.status ?? "complete",
         }),
       };
+    }
     case "message.delta":
       return {
         ...next,
@@ -362,13 +645,31 @@ export function reduceAgentEvent(
       };
     case "tool.started":
     case "tool.updated":
+      if (
+        wouldReopenTerminalItem(
+          next.tools[event.toolCall.id]?.status,
+          event.toolCall.status,
+        )
+      ) {
+        return next;
+      }
       return {
         ...next,
         tools: { ...next.tools, [event.toolCall.id]: event.toolCall },
       };
     case "tool.delta": {
-      const current = next.tools[event.toolCallId];
-      if (!current) return next;
+      const current =
+        next.tools[event.toolCallId] ??
+        ({
+          id: event.toolCallId,
+          name:
+            typeof event.metadata?.toolName === "string"
+              ? event.metadata.toolName
+              : event.toolCallId,
+          status: "running",
+          runId: event.runId,
+        } satisfies AgentToolCall);
+      if (isTerminalItemStatus(current.status)) return next;
       const input =
         event.inputTextDelta === undefined
           ? current.input
@@ -388,6 +689,14 @@ export function reduceAgentEvent(
     case "activity.started":
     case "activity.updated":
     case "activity.completed":
+      if (
+        wouldReopenTerminalItem(
+          next.activities[event.activity.id]?.status,
+          event.activity.status,
+        )
+      ) {
+        return next;
+      }
       return {
         ...next,
         activities: {
@@ -398,6 +707,14 @@ export function reduceAgentEvent(
     case "task.created":
     case "task.updated":
     case "task.completed":
+      if (
+        wouldReopenTerminalItem(
+          next.tasks[event.task.id]?.status,
+          event.task.status,
+        )
+      ) {
+        return next;
+      }
       return {
         ...next,
         tasks: {
@@ -408,6 +725,14 @@ export function reduceAgentEvent(
     case "task-group.created":
     case "task-group.updated":
     case "task-group.completed":
+      if (
+        wouldReopenTerminalItem(
+          next.taskGroups[event.taskGroup.id]?.status,
+          event.taskGroup.status,
+        )
+      ) {
+        return next;
+      }
       return {
         ...next,
         taskGroups: {
@@ -499,6 +824,7 @@ export function reduceAgentEvent(
     case "suggestions.updated":
       return { ...next, suggestions: event.suggestions };
     case "action.started":
+      if (next.actions[event.invocation.id]?.result) return next;
       return {
         ...next,
         actions: {

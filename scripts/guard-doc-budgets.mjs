@@ -43,7 +43,13 @@ const BUDGETS = {
   // and adding nothing the action's own screenCount/health response didn't
   // already confirm. Added one instruction to stop after the action response
   // and defer browser automation to an actual reported problem.
-  ".agents/skills/visual-edit/SKILL.md": 3610,
+  // Raised 3610 -> 3710 on 2026-09-17: a new page-local `open-visual-edit`
+  // WebMCP tool lets a browser-capable host skip the hosted MCP
+  // connector/OAuth and local dev-session email guessing entirely (the
+  // browser tab's own signed-in session is the credential). Documented as
+  // the preferred path, with the existing CLI/action flow kept as the
+  // fallback for headless hosts.
+  ".agents/skills/visual-edit/SKILL.md": 3710,
 };
 
 const listOnly = process.argv.includes("--list");

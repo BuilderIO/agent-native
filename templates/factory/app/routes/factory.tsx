@@ -24,6 +24,7 @@ import { toast } from "sonner";
 
 import { CreateFactoryAutomationView } from "@/components/factory/CreateFactoryAutomationView";
 import {
+  applyAutomationSnapshotToDraft,
   automationEditorConfigKey,
   canSaveFactoryAutomation,
   dispatchIntegrationsHref,
@@ -42,10 +43,12 @@ import {
   type AutomationSource,
   type FactoryAutomationConnections,
   type FactoryAutomationFormState,
+  type FactoryAutomationVersionSnapshot,
 } from "@/components/factory/factory-automation-form";
 import { FactoryAgentsView } from "@/components/factory/FactoryAgentsView";
 import { FactoryAuditView } from "@/components/factory/FactoryAuditView";
 import { FactoryAutomationFields } from "@/components/factory/FactoryAutomationFields";
+import { FactoryAutomationVersionPicker } from "@/components/factory/FactoryAutomationVersionPicker";
 import {
   FactoryCanvas,
   type FactoryCanvasGraph,
@@ -150,6 +153,9 @@ type FactoryAutomation = {
   inboxLimit?: number;
   workLimit?: number;
   guardrails?: string;
+  skillAlignment?: string | null;
+  promptVersion?: number;
+  configSavedAt?: string | null;
   runs?: FactoryAutomationRun[] | null;
   pastRuns?: FactoryAutomationRun[] | null;
 };
@@ -1103,6 +1109,9 @@ function AutomationsView({
       // instead of treating the draft as still-unsaved forever.
       syncedConfigKeyRef.current = null;
       await automationsQuery.refetch();
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "list-factory-automation-versions"],
+      });
       toast.success(t("factoryRoute.automationSaved"));
     } catch (error) {
       toast.error(
@@ -1117,6 +1126,28 @@ function AutomationsView({
     return (
       syncedConfigKeyRef.current === null ||
       automationEditorConfigKey(current) !== syncedConfigKeyRef.current
+    );
+  }
+
+  function discardAutomationChanges() {
+    if (!selected) return;
+    const baseline = draftForAutomation(selected);
+    syncedConfigKeyRef.current = automationEditorConfigKey(baseline);
+    draftRef.current = baseline;
+    setDraft(baseline);
+  }
+
+  function applyVersionSnapshotToDraft(
+    snapshot: FactoryAutomationVersionSnapshot,
+  ) {
+    if (!draft) return;
+    const nextDraft = applyAutomationSnapshotToDraft(draft, snapshot);
+    draftRef.current = nextDraft;
+    setDraft(nextDraft);
+    toast.message(
+      t("factoryRoute.automationVersionAppliedToDraft", {
+        promptVersion: snapshot.promptVersion,
+      }),
     );
   }
 
@@ -1282,12 +1313,57 @@ function AutomationsView({
           }
           className="grid min-w-0 content-start gap-6"
         >
+          {draft && draftHasUnsavedEdits(draft) ? (
+            <div className="sticky top-0 z-10 -mt-2 bg-background pt-2">
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/70 bg-card px-4 py-3 shadow-sm">
+                <span className="text-sm font-medium text-foreground">
+                  {t("factoryRoute.automationUnsavedChanges")}
+                </span>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={discardAutomationChanges}
+                    disabled={saveMutation.isPending}
+                  >
+                    {t("factoryRoute.automationDiscardChanges")}
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={() => void saveAutomation()}
+                    disabled={
+                      saveMutation.isPending ||
+                      draft.canUpdate === false ||
+                      !canSaveFactoryAutomation(
+                        automationToForm(draft),
+                        connections,
+                      )
+                    }
+                  >
+                    {saveMutation.isPending && (
+                      <IconLoader2 className="animate-spin" />
+                    )}
+                    {t("factoryRoute.saveAutomation")}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ) : null}
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-lg font-semibold">
               {t("factoryRoute.automationEditorTitle")}
             </h2>
             {draft ? (
-              <div className="flex shrink-0 gap-2">
+              <div className="flex shrink-0 items-center gap-2">
+                {draft.canUpdate !== false ? (
+                  <FactoryAutomationVersionPicker
+                    resourceId={draft.id}
+                    savedPromptVersion={selected?.promptVersion ?? 1}
+                    savedConfigSavedAt={selected?.configSavedAt}
+                    onSelectCurrentSaved={discardAutomationChanges}
+                    onSelectSnapshot={applyVersionSnapshotToDraft}
+                  />
+                ) : null}
                 <Button
                   type="button"
                   variant="outline"
@@ -1309,24 +1385,6 @@ function AutomationsView({
                   )}
                   <IconPlayerPlay className="size-4" />
                   {t("factoryRoute.runNow")}
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={() => void saveAutomation()}
-                  disabled={
-                    saveMutation.isPending ||
-                    draft.canUpdate === false ||
-                    !canSaveFactoryAutomation(
-                      automationToForm(draft),
-                      connections,
-                    )
-                  }
-                >
-                  {saveMutation.isPending && (
-                    <IconLoader2 className="animate-spin" />
-                  )}
-                  {t("factoryRoute.saveAutomation")}
                 </Button>
               </div>
             ) : null}
@@ -1385,6 +1443,7 @@ function AutomationsView({
                 showGuardrails
                 showPrompt
                 guardrails={draft.guardrails ?? ""}
+                skillAlignment={draft.skillAlignment}
                 disabled={draft.canUpdate === false}
                 modelControl={
                   <SettingsRow

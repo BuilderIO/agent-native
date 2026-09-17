@@ -1,4 +1,5 @@
 import type { ElementInfo } from "../types";
+import { getBreakpointIframeId } from "./iframe-targeting";
 
 /**
  * Ask a screen's bridge to re-measure one element. An inspector commit never
@@ -93,4 +94,24 @@ export function designPreviewWindows(): Window[] {
   ]
     .map((iframe) => iframe.contentWindow)
     .filter((w): w is Window => Boolean(w));
+}
+
+/** Only the active screen/breakpoint may answer a layer-panel measurement. */
+export function designPreviewWindowsForScreen(
+  screenId: string,
+  breakpointWidth?: number,
+): Window[] {
+  if (typeof document === "undefined") return [];
+  const iframeId =
+    breakpointWidth === undefined
+      ? screenId
+      : getBreakpointIframeId(screenId, breakpointWidth);
+  const escaped =
+    typeof CSS !== "undefined" && CSS.escape
+      ? CSS.escape(iframeId)
+      : iframeId.replace(/(["\\])/g, "\\$1");
+  const iframe = document.querySelector<HTMLIFrameElement>(
+    `iframe[data-screen-iframe-id="${escaped}"]`,
+  );
+  return iframe?.contentWindow ? [iframe.contentWindow] : [];
 }

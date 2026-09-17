@@ -1,26 +1,9 @@
 /**
  * go-to-main-component — Figma's "Go to main component".
  *
- * DESIGN NOTE — mapping onto this codebase's data model: there is no
- * persisted "main component" concept anywhere here. A component is just a
- * name (`data-agent-native-component="Name"`) that happens to be stamped on
- * more than one element; every instance is an independently-duplicated copy
- * of HTML (see `shared/component-model.ts`, `component_index` schema — it
- * stores props/variants/runtime-selectors metadata, never a canonical
- * definition). A true "main component" would require a data-model addition
- * (e.g. an `isMain`/definition pointer on `component_index`) — out of scope
- * here; flagged for a follow-up if promoting a specific instance as
- * authoritative becomes a real need.
- *
- * Closest tractable equivalent: treat the EARLIEST instance of the same
- * component name — scanning every design file in `createdAt` order, document
- * order within each file — as the "main" analogue, mirroring the common case
- * where a component's original occurrence predates its copies. If the given
- * instance already IS that earliest one, this returns `isMain: true` instead
- * of navigating (nothing to jump to). Otherwise it writes a `navigate`
- * app-state command (same mechanism as `navigate` / `open-component-source`)
- * so the editor selects the target instance, including switching design
- * files when the main instance lives on a different screen.
+ * A canonical linked component has a persisted opaque id on its main root and
+ * references. Resolve that id first. Legacy name-only annotations still use
+ * the earliest same-name instance as their compatibility fallback.
  *
  * Navigation-only + inline/Alpine designs only (real-app sources return a
  * CTA). Because this writes the transient `navigate` application-state
@@ -43,6 +26,8 @@ import {
   scanComponentLibrary,
 } from "../shared/component-library.js";
 import {
+  COMPONENT_ID_ATTR,
+  COMPONENT_REF_ATTR,
   componentNameFor,
   componentNodeIdMatches,
 } from "../shared/component-model.js";
@@ -66,12 +51,11 @@ async function liveContent(
 export default defineAction({
   description:
     "Resolve the 'main' instance of a component (Figma's Go to main " +
-    "component). This codebase has no separate component-definition markup " +
-    "— components are structurally duplicated HTML matched by name — so the " +
-    "earliest instance found across the design's files stands in for the " +
-    "main component. Returns isMain=true when the given instance already IS " +
-    "that earliest one; otherwise navigates the editor to it (which may " +
-    "switch design files).",
+    "component). Canonical linked components resolve by their persisted " +
+    "component id; legacy name-only annotations fall back to the earliest " +
+    "same-name instance across the design's files. Returns isMain=true when " +
+    "the selected instance is already the main; otherwise navigates the " +
+    "editor to it.",
   schema: z.object({
     designId: z.string().describe("Design project ID"),
     nodeId: z
@@ -154,9 +138,12 @@ export default defineAction({
     }
 
     const componentName = componentNameFor(node);
-    if (!componentName) {
+    const componentId =
+      node.dataAttributes[COMPONENT_ID_ATTR]?.trim() ||
+      node.dataAttributes[COMPONENT_REF_ATTR]?.trim();
+    if (!componentName && !componentId) {
       throw new Error(
-        `Node "${nodeId}" is not a component root (no data-agent-native-component attribute).`,
+        `Node "${nodeId}" is not a component root (no component name or linked identity).`,
       );
     }
 
@@ -190,16 +177,31 @@ export default defineAction({
     );
 
     const entries = scanComponentLibrary(filesForScan);
-    const matches = entriesForComponent(entries, componentName);
+    const matches = componentId
+      ? entries.filter(
+          (entry) =>
+            entry.componentId === componentId ||
+            entry.componentRef === componentId,
+        )
+      : entriesForComponent(entries, componentName!);
 
     if (matches.length === 0) {
       // Shouldn't happen (the current node itself matches), but guard anyway.
       throw new Error(
-        `No instances of component "${componentName}" found across the design's files.`,
+        `No instances of component "${componentName ?? componentId}" found across the design's files.`,
+      );
+    }
+    const resolvedComponentName = componentName ?? matches[0]?.name;
+    if (!resolvedComponentName) {
+      throw new Error(
+        `Component identity "${componentId}" has no named canonical root.`,
       );
     }
 
-    const main = matches[0];
+    const main = componentId
+      ? (matches.find((entry) => entry.componentId === componentId) ??
+        matches[0])
+      : matches[0];
     // Compare against the caller's own stable `nodeId` param (a durable
     // data-agent-native-node-id), not `node.id` (an ephemeral id scoped to
     // this projection call) — `scanComponentLibrary` resolves the same
@@ -210,7 +212,7 @@ export default defineAction({
       return {
         designId,
         nodeId,
-        componentName,
+        componentName: resolvedComponentName,
         sourceType,
         ctaRequired: false,
         isMain: true,
@@ -218,8 +220,8 @@ export default defineAction({
         navigated: false,
         note:
           matches.length === 1
-            ? `"${componentName}" has only one instance — this is it.`
-            : `This is the earliest instance of "${componentName}" across the design.`,
+            ? `"${resolvedComponentName}" has only one instance — this is it.`
+            : `This is the earliest instance of "${resolvedComponentName}" across the design.`,
       };
     }
 
@@ -237,7 +239,7 @@ export default defineAction({
     return {
       designId,
       nodeId,
-      componentName,
+      componentName: resolvedComponentName,
       sourceType,
       ctaRequired: false,
       isMain: false,

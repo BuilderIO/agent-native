@@ -141,6 +141,49 @@
     }
     sendDiagnosticNavigation(data.url);
   });
+
+  window.addEventListener("message", (event) => {
+    if (event.source !== window || event.origin !== window.location.origin) {
+      return;
+    }
+    const data = event.data as
+      | {
+          source?: unknown;
+          kind?: unknown;
+          token?: unknown;
+          email?: unknown;
+          clipsBaseUrl?: unknown;
+        }
+      | undefined;
+    if (
+      data?.source !== "clips-auth-bridge" ||
+      data.kind !== "session" ||
+      typeof data.token !== "string" ||
+      typeof data.clipsBaseUrl !== "string"
+    ) {
+      return;
+    }
+    chrome.runtime.sendMessage(
+      {
+        type: "CLIPS_AUTH_SESSION",
+        token: data.token,
+        ...(typeof data.email === "string" ? { email: data.email } : {}),
+        clipsBaseUrl: data.clipsBaseUrl,
+      },
+      (response?: { ok?: boolean; error?: string }) => {
+        void chrome.runtime.lastError;
+        window.postMessage(
+          {
+            source: "clips-auth-bridge",
+            kind: "session-result",
+            ok: response?.ok === true,
+            ...(response?.error ? { error: response.error } : {}),
+          },
+          window.location.origin,
+        );
+      },
+    );
+  });
   window.postMessage(
     { source: "clips-diagnostic-history", kind: "request-token" },
     "*",

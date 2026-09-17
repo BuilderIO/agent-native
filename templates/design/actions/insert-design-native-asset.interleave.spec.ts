@@ -205,6 +205,8 @@ vi.mock("../server/db/index.js", () => {
         },
       }),
     }),
+    execute: () => Promise.resolve({ rows: [] }),
+    transaction: async (fn: (tx: typeof db) => Promise<void>) => fn(db),
   };
   return { getDb: () => db, schema };
 });

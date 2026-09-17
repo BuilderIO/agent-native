@@ -52,7 +52,7 @@ async function requireSession(
   return { session: auth.context as AuthedSlidesSession, error: null };
 }
 
-function isRasterAssetExtension(ext: string): boolean {
+function isImageAssetExtension(ext: string): boolean {
   return new Set([
     ".jpg",
     ".jpeg",
@@ -61,11 +61,22 @@ function isRasterAssetExtension(ext: string): boolean {
     ".webp",
     ".avif",
     ".ico",
+    ".svg",
   ]).has(ext);
 }
 
 function ascii(data: Uint8Array, start: number, end: number): string {
   return Buffer.from(data.subarray(start, end)).toString("ascii");
+}
+
+export function hasExpectedSvgSignature(data: Uint8Array): boolean {
+  const head = Buffer.from(
+    data.subarray(0, Math.min(data.length, 8192)),
+  ).toString("utf8");
+  const normalized = head.replace(/^\uFEFF/, "").trimStart();
+  return /^(?:(?:\s|<!--[\s\S]*?-->|<\?xml\b[\s\S]*?\?>))*<svg(?:\s|\/?>)/i.test(
+    normalized,
+  );
 }
 
 function hasExpectedImageSignature(ext: string, data: Uint8Array): boolean {
@@ -98,16 +109,127 @@ function hasExpectedImageSignature(ext: string, data: Uint8Array): boolean {
   if (ext === ".avif") {
     return ascii(data, 4, 12).includes("ftyp");
   }
+  if (ext === ".svg") {
+    return hasExpectedSvgSignature(data);
+  }
   return false;
+}
+
+function decodeXmlReferences(source: string): string {
+  const namedReferences: Record<string, string> = {
+    amp: "&",
+    apos: "'",
+    gt: ">",
+    lt: "<",
+    quot: '"',
+  };
+  return source.replace(
+    /&#x([0-9a-f]+);|&#([0-9]+);|&([a-z]+);/gi,
+    (
+      match,
+      hex: string | undefined,
+      decimal: string | undefined,
+      named: string | undefined,
+    ) => {
+      const codePoint = hex
+        ? Number.parseInt(hex, 16)
+        : decimal
+          ? Number.parseInt(decimal, 10)
+          : undefined;
+      if (
+        codePoint !== undefined &&
+        codePoint <= 0x10ffff &&
+        !(codePoint >= 0xd800 && codePoint <= 0xdfff)
+      ) {
+        return String.fromCodePoint(codePoint);
+      }
+      return named ? (namedReferences[named.toLowerCase()] ?? match) : match;
+    },
+  );
+}
+
+function decodeCssEscapes(source: string): string {
+  return source
+    .replace(/\\(?:\r\n|[\r\n\f])/g, "")
+    .replace(
+      /\\([0-9a-f]{1,6})(?:[ \t\r\n\f])?|\\([^\r\n])/gi,
+      (match, hex: string | undefined, character: string | undefined) => {
+        if (!hex) return character ?? match;
+        const codePoint = Number.parseInt(hex, 16);
+        if (
+          codePoint > 0x10ffff ||
+          (codePoint >= 0xd800 && codePoint <= 0xdfff)
+        ) {
+          return match;
+        }
+        return String.fromCodePoint(codePoint);
+      },
+    );
+}
+
+export function isSafeSvg(data: Uint8Array): boolean {
+  let source: string;
+  try {
+    source = new TextDecoder("utf-8", { fatal: true }).decode(data);
+  } catch {
+    // coercion-ok: malformed UTF-8 must reject SVG validation.
+    return false;
+  }
+  source = source.replace(/^\uFEFF/, "").trim();
+  const normalizedSource = decodeCssEscapes(
+    decodeXmlReferences(source),
+  ).replace(/\/\*[\s\S]*?\*\//g, "");
+  const forbidden = [
+    /<\s*(?:script|foreignObject|iframe|object|embed|link|audio|video|animate(?:Transform|Motion|Color)?|set|discard)\b/i,
+    /<\s*\/?[a-z_][\w.-]*:[a-z_][\w.-]*\b/i,
+    /<!\s*(?:DOCTYPE|ENTITY)\b/i,
+    /<\?xml-stylesheet\b/i,
+    /\bxml:base\s*=/i,
+    /\son[a-z][a-z0-9:_-]*\s*=/i,
+    /\b(?:javascript|vbscript)\s*:/i,
+    /\b(?:expression|behavior|-moz-binding)\s*\(/i,
+    /@import\b/i,
+    /\b(?:image|(?:-webkit-)?image-set)\s*\(/i,
+  ];
+  if (forbidden.some((pattern) => pattern.test(normalizedSource))) return false;
+
+  for (const match of normalizedSource.matchAll(
+    /(?:href|xlink:href)\s*=\s*(?:(['"])(.*?)\1|([^\s>]+))/gi,
+  )) {
+    const target = (match[2] ?? match[3] ?? match[4] ?? "").trim();
+    if (
+      target &&
+      !target.startsWith("#") &&
+      !/^data:image\/(?:png|jpeg|gif|webp);base64,/i.test(target)
+    ) {
+      return false;
+    }
+  }
+  for (const match of normalizedSource.matchAll(
+    /url\(\s*(["']?)(.*?)\1\s*\)/gi,
+  )) {
+    const target = match[2]?.trim() ?? "";
+    if (
+      target &&
+      !target.startsWith("#") &&
+      !/^data:image\/(?:png|jpeg|gif|webp);base64,/i.test(target)
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 export function canSaveAsUploadedAsset(args: {
   originalName: string;
   data: Uint8Array;
 }): boolean {
+  const ext = path.extname(args.originalName).toLowerCase();
   return (
     args.data.length <= MAX_ASSET_FILE_SIZE &&
-    isRasterAssetExtension(path.extname(args.originalName).toLowerCase())
+    isImageAssetExtension(ext) &&
+    (ext !== ".svg" ||
+      (hasExpectedImageSignature(ext, args.data) && isSafeSvg(args.data)))
   );
 }
 
@@ -133,22 +255,26 @@ export async function uploadImageAsset(args: {
   }
 
   const ext = path.extname(args.originalName).toLowerCase();
-  // SVG is excluded — it can embed <script> tags and execute when served
-  // as image/svg+xml from the same origin.
-  if (!isRasterAssetExtension(ext)) {
+  if (!isImageAssetExtension(ext)) {
     throw new Error(
-      "Only raster image files are allowed (jpg, png, gif, webp, avif, ico)",
+      "Only image files are allowed (jpg, png, gif, webp, avif, ico, svg)",
     );
   }
   if (!hasExpectedImageSignature(ext, args.data)) {
     throw new Error("Uploaded image bytes do not match file extension");
   }
 
+  if (ext === ".svg" && !isSafeSvg(args.data)) {
+    throw new Error("SVG contains active content or external references");
+  }
+
+  const mimeType = ext === ".svg" ? "image/svg+xml" : args.type;
+
   const result = await runWithRequestContext({ userEmail: args.email }, () =>
     uploadFile({
       data: args.data,
       filename: args.originalName,
-      mimeType: args.type,
+      mimeType,
       ownerEmail: args.email,
     }),
   );
@@ -164,7 +290,7 @@ export async function uploadImageAsset(args: {
   const asset: UploadedAsset = {
     url: result.url,
     filename: args.originalName,
-    type: args.type || "application/octet-stream",
+    type: mimeType || "application/octet-stream",
     size: args.data.length,
     provider: result.provider,
   };

@@ -1005,6 +1005,12 @@ export const CLOUDFLARE_WORKER_NODE_BUILTIN_STUB_MODULES: Record<
     "moveCursor",
   ]),
   repl: cloudflareNodeBuiltinStubSource("repl", ["start"]),
+  sqlite: cloudflareNodeBuiltinStubSource("sqlite", [
+    "DatabaseSync",
+    "StatementSync",
+    "backup",
+    "constants",
+  ]),
   sys: cloudflareNodeBuiltinStubSource("sys", [
     "debug",
     "deprecate",
@@ -3073,6 +3079,7 @@ const NODE_BUILTINS = [
   "stream",
   "stream/web",
   "string_decoder",
+  "sqlite",
   "sys",
   "timers",
   "tls",
