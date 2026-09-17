@@ -39,9 +39,12 @@ test("comments toolbar opens an anchored composer", async ({ page }) => {
   await composer.press("@");
   const mentionMenu = page.getByRole("menu", { name: "Mention someone" });
   await expect(mentionMenu).toBeVisible();
+  await expect(composer).toHaveValue("Browser parity check @");
+  await composer.type("Ali");
+  await expect(composer).toHaveValue("Browser parity check @Ali");
   await expect(
     mentionMenu.getByRole("textbox", { name: "Mention someone" }),
-  ).toHaveValue("");
+  ).toHaveValue("Ali");
   await expect(mentionMenu.getByRole("menuitem").first()).toBeVisible();
   await mentionMenu.getByRole("menuitem").first().click();
   await expect(composer).toHaveValue(/Browser parity check @.+/);

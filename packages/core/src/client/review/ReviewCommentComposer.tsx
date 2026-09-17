@@ -172,7 +172,7 @@ export function ReviewCommentComposer({
         textarea.setSelectionRange(nextCaret, nextCaret);
       });
     }
-    updateValue(nextValue);
+    onChange(nextValue);
     const nextMentions = mentions.filter((current) =>
       nextValue.includes(`@${current.label}`),
     );
@@ -283,15 +283,21 @@ export function ReviewCommentComposer({
             onEscape();
             return;
           }
+          const triggerIndex =
+            event.currentTarget.selectionStart ?? value.length;
+          const previousCharacter = value[triggerIndex - 1];
+          const isComposing = event.nativeEvent.isComposing;
+          const isImeKey = event.nativeEvent.keyCode === 229;
           if (
             mentionOptions.length > 0 &&
             event.key === "@" &&
+            !isComposing &&
+            !isImeKey &&
             !event.metaKey &&
             !event.ctrlKey &&
-            !event.altKey
+            !event.altKey &&
+            !/[\p{L}\p{N}_]/u.test(previousCharacter ?? "")
           ) {
-            const triggerIndex =
-              event.currentTarget.selectionStart ?? value.length;
             const selectionEnd =
               event.currentTarget.selectionEnd ?? triggerIndex;
             event.preventDefault();
@@ -302,6 +308,12 @@ export function ReviewCommentComposer({
             mentionTokenEndRef.current = triggerIndex + 1;
             setMentionSearch("");
             setMentionMenuOpen(true);
+            requestAnimationFrame(() => {
+              const textarea = textareaRef.current;
+              if (!textarea) return;
+              textarea.focus();
+              textarea.setSelectionRange(triggerIndex + 1, triggerIndex + 1);
+            });
           }
           if (submitOnEnter && event.key === "Enter" && !event.shiftKey) {
             event.preventDefault();
