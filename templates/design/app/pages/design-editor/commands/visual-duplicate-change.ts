@@ -252,6 +252,7 @@ export function runVisualDuplicateChange(
   applyLocalContentUpdate(nextContent, {
     refreshPreview: false,
     forcePreviewFullDocument: true,
+    historyBeforeContent: baseContent,
     // Covers the write landing on the NON-Yjs local fallback stack (the
     // Yjs UndoManager isn't ready yet — e.g. `!isSynced` right after a
     // fresh page load). The stampYjsUndoSelection call below covers the

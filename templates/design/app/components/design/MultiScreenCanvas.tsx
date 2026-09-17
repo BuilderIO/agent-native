@@ -582,6 +582,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   getScreenMetadata,
   onDuplicate,
   geometryById,
+  geometryOverridesById,
   onGeometryChange,
   onGeometryCommit,
   onBreakpointContentHeightChange,
@@ -649,6 +650,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   gradientEditTarget,
   onDropFiles,
   cameraCommand,
+  suppressLineupRecenter,
+  preserveCameraOnScreenCountChange = false,
+  deferLineupZoomChange = false,
   chromeInsetLeft = 0,
   chromeInsetRight = 0,
 }: MultiScreenCanvasProps) {
@@ -680,6 +684,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const [surfaceSize, setSurfaceSize] = useState({ width: 0, height: 0 });
   const [frameGeometry, setFrameGeometry] = useState<FrameGeometryById>({});
   const frameGeometryRef = useRef(frameGeometry);
+  const renderedScreenIdsRef = useRef<Set<string>>(new Set());
   // Resize commits must start from what the user sees, including content-fit
   // height, because the parent pins the committed viewport dimensions.
   const renderedFrameGeometryRef = useRef<FrameGeometryById>({});
@@ -982,6 +987,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const lineupRecenterSuppressRef = useRef<LineupRecenterDuplicateArm | null>(
     null,
   );
+  const lastSuppressLineupRecenterNonceRef = useRef<number | null>(null);
   const lineupRecenterDeviceFrameRef = useRef(previewDeviceFrame);
   const lineupRecenterPrevCountRef = useRef<number | null>(null);
   const handledSelectAllRequestRef = useRef(selectAllRequest);
@@ -1095,9 +1101,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     id: string;
     geometry: FrameGeometry;
   }
-  /** Last claim value sent to the source iframe, so a move tick that changes
-   *  nothing does not spam postMessage. Reset when a drag ends. */
-  const crossScreenClaimSentRef = useRef<boolean | null>(null);
+  /** Last claim sent to the source iframe, so a move tick that changes
+   *  nothing does not spam postMessage. Keep the source id with it so a
+   *  cleared claim can be revoked after the payload is gone. */
+  const crossScreenClaimSentRef = useRef<{
+    sourceScreenId: string;
+    claimed: boolean;
+  } | null>(null);
   const crossScreenProxyTraceRef = useRef<string | null>(null);
   const crossScreenResolveTraceRef = useRef<string | null>(null);
   const [crossScreenGhost, setCrossScreenGhost] =
@@ -1709,7 +1719,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     zoomRef.current = canvasZoom;
   }, [canvasZoom]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     frameGeometryRef.current = frameGeometry;
   }, [frameGeometry]);
 
@@ -1918,7 +1928,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     zoom,
   ]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const selectableIds = new Set(selectableScreens.map((screen) => screen.id));
     // B5-9: see resolveFrameGeometrySync's doc comment — this used to notify
     // the parent (onGeometryChange -> queueFrameGeometrySave) with a brand
@@ -1958,6 +1968,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     updateFrameGeometryRefOnly,
     updateSelectedIds,
   ]);
+
+  useLayoutEffect(() => {
+    renderedScreenIdsRef.current = new Set(screens.map((screen) => screen.id));
+  }, [screens]);
 
   useEffect(() => {
     const previous = previousPreviewDeviceFrameRef.current;
@@ -2030,8 +2044,25 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     setTransformBadge(null);
   }, [clearSelectionRequest, updateSelectedDraftIds, updateSelectedIds]);
 
+  useEffect(() => {
+    if (
+      !suppressLineupRecenter ||
+      lastSuppressLineupRecenterNonceRef.current ===
+        suppressLineupRecenter.nonce
+    ) {
+      return;
+    }
+    lastSuppressLineupRecenterNonceRef.current = suppressLineupRecenter.nonce;
+    lineupRecenterSuppressRef.current = {
+      atMs: Date.now(),
+      fromCount: suppressLineupRecenter.fromCount,
+      addedCount: suppressLineupRecenter.addedCount,
+    };
+  }, [suppressLineupRecenter]);
+
   // Center the lineup when the screen footprint changes so new frames stay reachable.
   useEffect(() => {
+    if (preserveCameraOnScreenCountChange) return;
     const deviceFrameChanged =
       lineupRecenterDeviceFrameRef.current !== previewDeviceFrame;
     lineupRecenterDeviceFrameRef.current = previewDeviceFrame;
@@ -2166,8 +2197,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       totalHeight > 0
         ? Math.max(minFitScale, (rect.height - 96) / totalHeight)
         : scale;
-    const nextScale = Math.min(scale, widthFitScale, heightFitScale);
-    if (nextScale < scale) {
+    const nextScale = deferLineupZoomChange
+      ? scale
+      : Math.min(scale, widthFitScale, heightFitScale);
+    if (!deferLineupZoomChange && nextScale < scale) {
       const nextZoom = nextScale * 100;
       zoomRef.current = nextZoom;
       setCanvasZoom(nextZoom);
@@ -2192,7 +2225,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     };
     // Only on mount, screen-count or chrome-inset changes, or device-preview changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chromeInsetLeft, chromeInsetRight, previewDeviceFrame, screens.length]);
+  }, [
+    chromeInsetLeft,
+    chromeInsetRight,
+    preserveCameraOnScreenCountChange,
+    deferLineupZoomChange,
+    previewDeviceFrame,
+    screens.length,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -2556,9 +2596,30 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       crossScreenParentDragCleanupRef.current = null;
     };
 
+    const postCrossScreenClaim = (sourceScreenId: string, claimed: boolean) => {
+      const sourceScreen = screensRef.current.find(
+        (item) => item.id === sourceScreenId,
+      );
+      const iframeId = sourceScreen
+        ? getActiveScreenIframeId(sourceScreen)
+        : sourceScreenId;
+      findCanvasIframeForScreen(
+        surfaceRef.current,
+        iframeId,
+        boardFileId,
+      )?.contentWindow?.postMessage(
+        { type: "agent-native:cross-screen-claim", claimed },
+        "*",
+      );
+    };
+
     const clearCrossScreenDrag = () => {
       stopParentCrossScreenDrag();
       clearCrossScreenPreviewGuide();
+      const previousClaim = crossScreenClaimSentRef.current;
+      if (previousClaim?.claimed) {
+        postCrossScreenClaim(previousClaim.sourceScreenId, false);
+      }
       crossScreenClaimSentRef.current = null;
       crossScreenProxyTraceRef.current = null;
       crossScreenResolveTraceRef.current = null;
@@ -2897,22 +2958,15 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
      *  knows where the screens are, and the board surface iframe covers all of
      *  them, so without this both sides commit the same gesture. */
     const claimCrossScreenDrop = (sourceScreenId: string, claimed: boolean) => {
-      if (crossScreenClaimSentRef.current === claimed) return;
-      crossScreenClaimSentRef.current = claimed;
-      const sourceScreen = screensRef.current.find(
-        (item) => item.id === sourceScreenId,
-      );
-      const iframeId = sourceScreen
-        ? getActiveScreenIframeId(sourceScreen)
-        : sourceScreenId;
-      findCanvasIframeForScreen(
-        surfaceRef.current,
-        iframeId,
-        boardFileId,
-      )?.contentWindow?.postMessage(
-        { type: "agent-native:cross-screen-claim", claimed },
-        "*",
-      );
+      const previousClaim = crossScreenClaimSentRef.current;
+      if (
+        previousClaim?.sourceScreenId === sourceScreenId &&
+        previousClaim.claimed === claimed
+      ) {
+        return;
+      }
+      crossScreenClaimSentRef.current = { sourceScreenId, claimed };
+      postCrossScreenClaim(sourceScreenId, claimed);
     };
 
     const updateCrossScreenTargetFromBoardPoint = (
@@ -3465,6 +3519,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         // every screen frame, so board-origin drags must still be checked
         // against screen drop targets while technically "inside" the source.
         if (pointerInsideSourceIframe && !sourceIsBoard) {
+          claimCrossScreenDrop(sourceScreenId, false);
           clearCrossScreenPreviewGuide();
           setCrossScreenGhost(null);
           setCrossScreenTarget(null);
@@ -6715,6 +6770,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               mode: "alt-drag",
               screen: target.screen,
               canvasPosition,
+              preserveCamera: true,
               canvasOffset: {
                 x: dropCanvasPosition.x - canvasPosition.x,
                 y: dropCanvasPosition.y - canvasPosition.y,
@@ -7635,6 +7691,133 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       boardSurfaceRenderGeometry,
       finishDrag,
       getCanvasPoint,
+      installDragListeners,
+      readOnly,
+    ],
+  );
+
+  const beginBoardElementDrag = useCallback(
+    (e: React.MouseEvent) => {
+      if (readOnly) return;
+      if (e.button !== 0) return;
+      if (!boardFileId || !boardSurfaceRenderGeometry) return;
+      const iframe = findCanvasIframeForScreen(
+        surfaceRef.current,
+        boardFileId,
+        boardFileId,
+      );
+      const iframeDoc = iframe?.contentWindow?.document;
+      if (!iframeDoc) {
+        dndHostLog("board-move:no-iframe", { boardFileId });
+        return;
+      }
+      const selectionOverlay = iframeDoc.querySelector<HTMLElement>(
+        '[data-agent-native-edit-overlay="selection"]',
+      );
+      if (!selectionOverlay) {
+        dndHostLog("board-move:no-selection-overlay", { boardFileId });
+        return;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+
+      const toIframePoint = (clientX: number, clientY: number) =>
+        boardPointToBoardSurfaceLocalPoint(
+          getCanvasPoint(clientX, clientY),
+          boardSurfaceRenderGeometryRef.current ?? boardSurfaceRenderGeometry,
+        );
+      const dispatchAt = (
+        target: EventTarget,
+        type: string,
+        point: { x: number; y: number },
+        source: {
+          shiftKey: boolean;
+          altKey: boolean;
+          metaKey: boolean;
+          ctrlKey: boolean;
+        },
+        buttons: number,
+      ) => {
+        target.dispatchEvent(
+          new MouseEvent(type, {
+            clientX: point.x,
+            clientY: point.y,
+            shiftKey: source.shiftKey,
+            altKey: source.altKey,
+            metaKey: source.metaKey,
+            ctrlKey: source.ctrlKey,
+            buttons,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      };
+
+      setIsDragging(true);
+      dispatchAt(
+        selectionOverlay,
+        "mousedown",
+        toIframePoint(e.clientX, e.clientY),
+        e,
+        1,
+      );
+
+      const handleMouseMove = (ev: MouseEvent) => {
+        dispatchAt(
+          iframeDoc,
+          "mousemove",
+          toIframePoint(ev.clientX, ev.clientY),
+          ev,
+          1,
+        );
+      };
+      const cancelMove = (pressedAt: number) => {
+        iframe.contentWindow?.postMessage(
+          { type: "agent-native:cancel-active-drag", pressedAt },
+          "*",
+        );
+      };
+      const handleMouseUp = (ev: MouseEvent) => {
+        // The host selection box sits above every Screen and follows the
+        // moving board object, so DOM hit testing sees the chrome instead of
+        // the card underneath it. Resolve the release in board-space geometry
+        // so selection chrome cannot steal a board-to-screen drop.
+        const droppedOnScreen = Boolean(
+          getFrameEntryAtPoint(getCanvasPoint(ev.clientX, ev.clientY)),
+        );
+        if (droppedOnScreen) {
+          // The host owns board-to-screen drops. Cancel the iframe gesture
+          // after its cross-screen writer has taken the release.
+          cancelMove(performance.timeOrigin + performance.now());
+        } else {
+          // No screen owns this release, so let the board bridge commit its
+          // ordinary board-to-board move or duplicate.
+          iframe.contentWindow?.postMessage(
+            { type: "agent-native:cross-screen-claim", claimed: false },
+            "*",
+          );
+          dispatchAt(
+            iframeDoc,
+            "mouseup",
+            toIframePoint(ev.clientX, ev.clientY),
+            ev,
+            0,
+          );
+        }
+        finishDrag();
+      };
+      boardElementResizeCancel.current = cancelMove;
+      installDragListeners(handleMouseMove, handleMouseUp, () => {
+        cancelMove(performance.timeOrigin + performance.now());
+        finishDrag();
+      });
+    },
+    [
+      boardFileId,
+      boardSurfaceRenderGeometry,
+      finishDrag,
+      getCanvasPoint,
+      getFrameEntryAtPoint,
       installDragListeners,
       readOnly,
     ],
@@ -9051,6 +9234,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           mode: "alt-click",
           screen,
           canvasPosition,
+          preserveCamera: true,
           dropCanvasPosition: canvasPosition,
         });
         dispatched += 1;
@@ -9272,8 +9456,25 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     const next = renderedScreens.map((screen) => {
       nextIds.add(screen.id);
       const metadata = getResolvedMetadata(screen);
+      const geometryOverride = geometryOverridesById?.[screen.id];
+      const persistedGeometry = geometryById?.[screen.id];
+      const persistedGeometryIsComplete =
+        persistedGeometry &&
+        typeof persistedGeometry.x === "number" &&
+        typeof persistedGeometry.y === "number" &&
+        typeof persistedGeometry.width === "number" &&
+        typeof persistedGeometry.height === "number";
       const rawGeometry =
+        geometryOverride ??
+        (persistedGeometryIsComplete &&
+        (!frameGeometry[screen.id] ||
+          !renderedScreenIdsRef.current.has(screen.id))
+          ? (persistedGeometry as FrameGeometry)
+          : undefined) ??
         frameGeometry[screen.id] ??
+        (persistedGeometryIsComplete
+          ? (persistedGeometry as FrameGeometry)
+          : undefined) ??
         getInitialFrameGeometry(screenIndexById.get(screen.id) ?? 0, metadata);
       // Content-fit height, applied ONLY once the frame's own content has been
       // measured, and only for inline (srcdoc) screens — URL-backed
@@ -9334,6 +9535,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     return next;
   }, [
     frameGeometry,
+    geometryById,
+    geometryOverridesById,
     getResolvedMetadata,
     measuredIframeHeights,
     measuredIframeNaturalHeights,
@@ -10258,6 +10461,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             boardObject
             onStartResize={beginBoardElementResize}
             onStartRotate={() => {}}
+            onStartDrag={beginBoardElementDrag}
           />
         ) : null}
 

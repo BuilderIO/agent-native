@@ -1,5 +1,8 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
-import type { CanvasFrameGeometryById } from "@shared/canvas-frames";
+import type {
+  CanvasFrameGeometry,
+  CanvasFrameGeometryById,
+} from "@shared/canvas-frames";
 import type { QueryClient } from "@tanstack/react-query";
 import type { RefObject } from "react";
 import { toast } from "sonner";
@@ -21,6 +24,41 @@ import {
 import type { FileCreationHistoryEntry } from "@/pages/design-editor/history";
 import type { DesignFile } from "@/pages/design-editor/types";
 
+const DUPLICATE_SCREEN_GAP = 56;
+
+function isCompleteFrameGeometry(
+  geometry: CanvasFrameGeometry | undefined,
+): geometry is FrameGeometry {
+  return (
+    geometry !== undefined &&
+    [geometry.x, geometry.y, geometry.width, geometry.height].every(
+      (value) => typeof value === "number" && Number.isFinite(value),
+    )
+  );
+}
+
+export function getDuplicateScreenGeometry(
+  sourceGeometry: FrameGeometry,
+  occupiedGeometries: readonly FrameGeometry[],
+): FrameGeometry {
+  const rowBottom = sourceGeometry.y + sourceGeometry.height;
+  const rowGeometries = occupiedGeometries.filter(
+    (geometry) =>
+      geometry.y < rowBottom && geometry.y + geometry.height > sourceGeometry.y,
+  );
+  const x = Math.max(
+    sourceGeometry.x + sourceGeometry.width + DUPLICATE_SCREEN_GAP,
+    ...rowGeometries.map(
+      (geometry) => geometry.x + geometry.width + DUPLICATE_SCREEN_GAP,
+    ),
+  );
+  const z = Math.max(
+    sourceGeometry.z ?? 0,
+    ...occupiedGeometries.map((geometry) => geometry.z ?? 0),
+  );
+  return { ...sourceGeometry, x, y: sourceGeometry.y, z: z + 1 };
+}
+
 export interface DuplicateScreenArgs {
   canEditDesign: boolean;
   createFileAsync: ReturnType<
@@ -28,7 +66,14 @@ export interface DuplicateScreenArgs {
   >["mutateAsync"];
   designDataJsonRef: RefObject<Record<string, unknown>>;
   files: DesignFile[];
-  focusCreatedScreen: (screenId: string, geometry: FrameGeometry) => void;
+  focusCreatedScreen: (
+    screenId: string,
+    geometry: FrameGeometry,
+    options?: {
+      preserveCamera?: boolean;
+      suppressLineupRecenter?: boolean;
+    },
+  ) => void;
   id: string | undefined;
   liveFrameGeometryRef: RefObject<CanvasFrameGeometryById>;
   optimisticallyInsertCreatedFile: (args: {
@@ -71,6 +116,7 @@ export function runDuplicateScreen(
   screenId: string,
   request?: {
     canvasPosition?: { x: number; y: number };
+    preserveCamera?: boolean;
   },
 ) {
   if (!id || !canEditDesign) return;
@@ -86,15 +132,30 @@ export function runDuplicateScreen(
     width: sourceOverviewScreen?.width ?? 1280,
     height: sourceOverviewScreen?.height ?? 2560,
   });
+  const persistedGeometry = getCanvasFrameGeometry(designDataJsonRef.current);
+  const sourceGeometry =
+    [liveFrameGeometryRef.current[screenId], persistedGeometry[screenId]].find(
+      isCompleteFrameGeometry,
+    ) ?? fallbackGeometry;
+  const occupiedGeometries = overviewScreens
+    .filter((screen) => screen.id !== screenId)
+    .map(
+      (screen) =>
+        liveFrameGeometryRef.current[screen.id] ?? persistedGeometry[screen.id],
+    )
+    .filter(isCompleteFrameGeometry);
+  const adjacentGeometry = getDuplicateScreenGeometry(
+    sourceGeometry,
+    occupiedGeometries,
+  );
   const createdGeometry: FrameGeometry = request?.canvasPosition
     ? {
-        ...fallbackGeometry,
-        ...liveFrameGeometryRef.current[screenId],
+        ...sourceGeometry,
         x: request.canvasPosition.x,
         y: request.canvasPosition.y,
+        z: adjacentGeometry.z,
       }
-    : fallbackGeometry;
-
+    : adjacentGeometry;
   // Per-call mutate callbacks, not a promise, would silently strand every
   // duplicate but the last: a second mutate() detaches the observer from
   // the first mutation, so only the newest call's onSuccess ever runs.
@@ -104,7 +165,7 @@ export function runDuplicateScreen(
     content,
     fileType,
   } as any)
-    .then((result: any) => {
+    .then(async (result: any) => {
       const nextId = typeof result?.id === "string" ? result.id : null;
       // Refetch only when there is no created id to insert optimistically:
       // a whole-design refetch re-downloads every screen's HTML, which is
@@ -114,30 +175,19 @@ export function runDuplicateScreen(
           queryKey: ["action", "get-design"],
         });
       } else {
-        optimisticallyInsertCreatedFile({
-          fileId: nextId,
-          filename,
-          fileType,
-          content,
-          result,
-        });
         // Optimistic geometry keeps frame, selection, and camera agreeing
-        // before the refetch. Base it on the map writeFrameGeometrySnapshot
-        // diffs against, or a sibling duplicate's placement is deleted.
+        // before the refetch. Write it before the file enters `screens`, or
+        // the geometry-sync effect can render a fallback frame first and
+        // preserve that stale position over the requested drop point.
         writeFrameGeometrySnapshot({
           ...getCanvasFrameGeometry(designDataJsonRef.current),
           [nextId]: createdGeometry,
         });
-        focusCreatedScreen(nextId, createdGeometry);
-        recordFileCreationHistoryEntry({
-          filename,
-          content,
-          fileType,
-          geometry: createdGeometry,
-        });
-        // A duplicated localhost/fusion screen stays URL-backed only if its
-        // metadata comes along, and the carry must be path-addressed or it
-        // replaces a peer's metadata for every other screen.
+        // Carry screen dimensions/height mode for every duplicate so the new
+        // frame uses the same overview scale. Runtime metadata also keeps
+        // localhost/fusion duplicates URL-backed. The carry must be
+        // path-addressed or it replaces a peer's metadata for every other
+        // screen.
         const sourceMetadataById = getDesignDataRecord(
           designDataJsonRef.current,
           "screenMetadata",
@@ -147,29 +197,61 @@ export function runDuplicateScreen(
           screenId,
         );
         const sourceType = sourceMetadata.sourceType;
-        if (sourceType === "localhost" || sourceType === "fusion") {
-          const dataOperations: DesignDataOperation[] = [
-            {
-              op: "set",
-              path: ["screenMetadata", nextId],
-              value: { ...sourceMetadata },
-            },
-          ];
-          const sourceLocalhostScreensById = getDesignDataRecord(
-            designDataJsonRef.current,
-            "localhostScreens",
-          );
-          const sourceLocalhostScreen = getDesignDataRecord(
-            sourceLocalhostScreensById,
-            screenId,
-          );
-          if (Object.keys(sourceLocalhostScreen).length > 0) {
-            dataOperations.push({
-              op: "set",
-              path: ["localhostScreens", nextId],
-              value: { ...sourceLocalhostScreen },
-            });
-          }
+        const carriesRuntimeMetadata =
+          sourceType === "localhost" || sourceType === "fusion";
+        const metadataToCopy = carriesRuntimeMetadata
+          ? sourceMetadata
+          : Object.fromEntries(
+              [
+                "sourceType",
+                "width",
+                "height",
+                "heightPinned",
+                "heightMode",
+                "breakpointHeights",
+              ].flatMap((key) =>
+                key in sourceMetadata ? [[key, sourceMetadata[key]]] : [],
+              ),
+            );
+        const screenMetadata =
+          Object.keys(metadataToCopy).length > 0
+            ? { ...metadataToCopy }
+            : undefined;
+        const sourceLocalhostScreen = carriesRuntimeMetadata
+          ? getDesignDataRecord(
+              getDesignDataRecord(
+                designDataJsonRef.current,
+                "localhostScreens",
+              ),
+              screenId,
+            )
+          : {};
+        const localhostScreen =
+          Object.keys(sourceLocalhostScreen).length > 0
+            ? { ...sourceLocalhostScreen }
+            : undefined;
+        const dataOperations: DesignDataOperation[] = [
+          {
+            op: "set",
+            path: ["canvasFrames", nextId],
+            value: createdGeometry,
+          },
+        ];
+        if (screenMetadata) {
+          dataOperations.push({
+            op: "set",
+            path: ["screenMetadata", nextId],
+            value: screenMetadata,
+          });
+        }
+        if (localhostScreen) {
+          dataOperations.push({
+            op: "set",
+            path: ["localhostScreens", nextId],
+            value: localhostScreen,
+          });
+        }
+        if (dataOperations.length > 0) {
           const nextData = applyDesignDataOperations(
             designDataJsonRef.current,
             dataOperations,
@@ -182,12 +264,35 @@ export function runDuplicateScreen(
               return { ...old, data: JSON.stringify(nextData) };
             },
           );
-          void updateDesignAsync({ id, dataOperations } as any).catch(() => {
-            void queryClient.invalidateQueries({
+          try {
+            await updateDesignAsync({ id, dataOperations } as any);
+          } catch (error) {
+            await queryClient.invalidateQueries({
               queryKey: ["action", "get-design"],
             });
-          });
+            throw error;
+          }
         }
+        optimisticallyInsertCreatedFile({
+          fileId: nextId,
+          filename,
+          fileType,
+          content,
+          result,
+        });
+        focusCreatedScreen(nextId, createdGeometry, {
+          preserveCamera: request?.preserveCamera,
+          suppressLineupRecenter: request?.preserveCamera,
+        });
+        recordFileCreationHistoryEntry({
+          filename,
+          content,
+          fileType,
+          geometry: createdGeometry,
+          preserveCamera: request?.preserveCamera,
+          screenMetadata,
+          localhostScreen,
+        });
       }
       toast.success(t("designEditor.toasts.screenDuplicated"));
     })

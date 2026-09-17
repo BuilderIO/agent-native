@@ -171,12 +171,7 @@ async function zoomOutToBoardDropPoint(page: Page) {
           continue;
         }
         const hit = document.elementFromPoint(x, y);
-        if (
-          !hit ||
-          hit.closest(
-            '[data-design-chrome-region="left-panel"], [data-design-chrome-region="right-panel"]',
-          )
-        ) {
+        if (!hit || hit.closest("[data-design-chrome-region]")) {
           continue;
         }
         return {
@@ -820,17 +815,6 @@ test.describe("alt-drag duplicate (overview)", () => {
           x: labelBox.x + labelBox.width / 2,
           y: labelBox.y + labelBox.height / 2,
         },
-      );
-
-      console.log(
-        "DEBUG left-shell overlap:",
-        JSON.stringify({
-          labelBox,
-          shellVisible,
-          shellBox,
-          overlapsShell,
-          elementAtPoint,
-        }),
       );
 
       // Try the plain click (no force) as a real user would.

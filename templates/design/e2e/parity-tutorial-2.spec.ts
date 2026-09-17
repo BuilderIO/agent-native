@@ -98,10 +98,11 @@ async function fileContent(
   const record = await request
     .get(`${BASE_URL}/_agent-native/actions/get-design?id=${id}`)
     .then((r) => r.json());
-  return (
-    (record.files ?? []).find((f: any) => f.filename === filename)?.content ??
-    ""
-  );
+  const file = (record.files ?? []).find((f: any) => f.filename === filename);
+  if (typeof file?.content !== "string") {
+    throw new Error(`${filename} has no content`);
+  }
+  return file.content;
 }
 
 /**
@@ -809,9 +810,30 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
     const beforeNudgeMatch = new RegExp(
       `data-agent-native-node-id="${newChildId}"[^>]*style="([^"]*)"`,
     ).exec(html);
+    expect(
+      beforeNudgeMatch?.[1],
+      "dropped copy must have persisted authored style before nudge",
+    ).toBeTruthy();
     await page.keyboard.press("Shift+ArrowRight");
     await page.keyboard.press("Shift+ArrowDown");
-    await page.waitForTimeout(500);
+    await expect
+      .poll(
+        async () => {
+          const currentHtml = await fileContent(request, designId);
+          const currentMatch = new RegExp(
+            `data-agent-native-node-id="${newChildId}"[^>]*style="([^"]*)"`,
+          ).exec(currentHtml);
+          return (
+            typeof currentMatch?.[1] === "string" &&
+            currentMatch[1] !== beforeNudgeMatch?.[1]
+          );
+        },
+        {
+          timeout: 15_000,
+          message: "Shift+Arrow nudge must persist before the assertion",
+        },
+      )
+      .toBe(true);
     const htmlAfterNudge = await fileContent(request, designId);
     const afterNudgeMatch = new RegExp(
       `data-agent-native-node-id="${newChildId}"[^>]*style="([^"]*)"`,

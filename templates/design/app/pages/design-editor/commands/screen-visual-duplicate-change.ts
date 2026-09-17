@@ -33,6 +33,7 @@ export interface ScreenVisualDuplicateChangeArgs {
       forcePreviewFullDocument?: boolean;
       persist?: boolean;
       recordHistory?: boolean;
+      historyBeforeContent?: string;
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
     },
@@ -193,6 +194,9 @@ export function runScreenVisualDuplicateChange(
     });
     return false;
   }
-  applyFileContentUpdate(screenId, nextContent, { skipPreview: true });
+  applyFileContentUpdate(screenId, nextContent, {
+    skipPreview: true,
+    historyBeforeContent: baseContent,
+  });
   return true;
 }

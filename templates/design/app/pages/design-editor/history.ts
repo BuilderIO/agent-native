@@ -170,6 +170,9 @@ export interface FileCreationHistoryEntry {
   content: string;
   fileType: string;
   geometry?: CanvasFrameGeometry;
+  preserveCamera?: boolean;
+  screenMetadata?: Record<string, unknown>;
+  localhostScreen?: Record<string, unknown>;
 }
 
 export interface FileDeletionHistorySnapshot {

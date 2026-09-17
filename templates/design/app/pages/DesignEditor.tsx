@@ -1350,6 +1350,14 @@ function DesignEditor() {
     paddingScreenPx?: number;
   } | null>(null);
   const cameraCommandNonceRef = useRef(0);
+  const [suppressLineupRecenter, setSuppressLineupRecenter] = useState<{
+    fromCount: number;
+    addedCount: number;
+    nonce: number;
+  } | null>(null);
+  const suppressLineupRecenterNonceRef = useRef(0);
+  const [optimisticFrameGeometryById, setOptimisticFrameGeometryById] =
+    useState<Record<string, FrameGeometry>>({});
   const measuredScreenHeightByIdRef = useRef<Record<string, number>>({});
   const handleOverviewPrimaryContentHeightChange = useCallback(
     (screenId: string, heightPx: number) => {
@@ -3663,6 +3671,7 @@ function DesignEditor() {
     : isDesignData(designResult)
       ? designResult
       : null;
+  const overviewDataReady = shellMode || designResult !== undefined;
   const activeBreakpointStateVersion = useChangeVersion(
     id ? `app-state:design-active-breakpoint:${id}` : "",
   );
@@ -4204,6 +4213,7 @@ function DesignEditor() {
           acknowledgeOutboxEntry,
           canEditDesignRef,
           createFileSaveOutboxEntry,
+          designId: id,
           fileSaveChainsRef,
           journalOutboxEntry,
           latestFileSaveForUnloadRef,
@@ -4959,6 +4969,46 @@ function DesignEditor() {
     () => getCanvasFrameGeometry(designDataJson),
     [designDataJson],
   );
+  const displayedCanvasFrameGeometryById = useMemo(() => {
+    if (Object.keys(optimisticFrameGeometryById).length === 0) {
+      return canvasFrameGeometryById;
+    }
+    const next = { ...canvasFrameGeometryById };
+    for (const [screenId, geometry] of Object.entries(
+      optimisticFrameGeometryById,
+    )) {
+      const persisted = canvasFrameGeometryById[screenId];
+      const persistedGeometryIsComplete =
+        persisted &&
+        typeof persisted.x === "number" &&
+        typeof persisted.y === "number" &&
+        typeof persisted.width === "number" &&
+        typeof persisted.height === "number";
+      if (!persistedGeometryIsComplete) next[screenId] = geometry;
+    }
+    return next;
+  }, [canvasFrameGeometryById, optimisticFrameGeometryById]);
+  useEffect(() => {
+    setOptimisticFrameGeometryById((current) => {
+      let changed = false;
+      const next: Record<string, FrameGeometry> = {};
+      for (const [screenId, geometry] of Object.entries(current)) {
+        const persisted = canvasFrameGeometryById[screenId];
+        const persistedGeometryIsComplete =
+          persisted &&
+          typeof persisted.x === "number" &&
+          typeof persisted.y === "number" &&
+          typeof persisted.width === "number" &&
+          typeof persisted.height === "number";
+        if (persistedGeometryIsComplete) {
+          changed = true;
+        } else {
+          next[screenId] = geometry;
+        }
+      }
+      return changed ? next : current;
+    });
+  }, [canvasFrameGeometryById]);
   // Freshest live geometry for the geometry-undo freshness guard. Read from a
   // ref (not a render-time closure) so undo/redo compare against the geometry a
   // concurrent peer/agent may have just written, not the value captured when
@@ -6136,7 +6186,7 @@ function DesignEditor() {
       ? overviewZoomBasisScreen?.width
       : DEVICE_FRAME_VIEWPORTS[deviceFrame].width;
   const activeOverviewFrameWidth = overviewZoomBasisScreenId
-    ? canvasFrameGeometryById[overviewZoomBasisScreenId]?.width
+    ? displayedCanvasFrameGeometryById[overviewZoomBasisScreenId]?.width
     : undefined;
   const overviewZoomScale = getOverviewZoomScale({
     frameWidth: activeOverviewFrameWidth,
@@ -6182,6 +6232,12 @@ function DesignEditor() {
     getOverviewDisplayZoom(overviewCanvasZoom, overviewZoomScale),
   );
   const zoom = viewMode === "overview" ? overviewZoom : screenZoom;
+  const initialOverviewZoomValue = initialSearchParams.get("zoom");
+  const hasExplicitOverviewZoomCommand =
+    viewMode === "overview" &&
+    initialSearchParams.get("view") === "overview" &&
+    initialOverviewZoomValue !== null &&
+    Number.isFinite(Number(initialOverviewZoomValue));
   const setZoomForView = useCallback(
     (targetView: "single" | "overview", update: SetStateAction<number>) => {
       if (targetView === "overview") {
@@ -6258,12 +6314,15 @@ function DesignEditor() {
           setInteractDeviceName,
           setInteractDeviceSize,
           setMode,
+          setOverviewSelectedScreenIds,
           setPinMode,
           setScreenZoom,
           setSelectedElement,
           setSelectedLayerIdsState,
           setViewMode,
           setZoomForView,
+          pendingOverviewScreenSelectionRef,
+          overviewDataReady,
           viewModeRef,
           requestCameraFit: (camera) => {
             cameraCommandNonceRef.current += 1;
@@ -6281,6 +6340,7 @@ function DesignEditor() {
       files,
       id,
       overviewScreens,
+      overviewDataReady,
       setZoomForView,
     ],
   );
@@ -6394,8 +6454,19 @@ function DesignEditor() {
   );
 
   const focusCreatedScreen = useCallback(
-    (screenId: string, geometry: FrameGeometry) => {
+    (
+      screenId: string,
+      geometry: FrameGeometry,
+      options?: {
+        preserveCamera?: boolean;
+        suppressLineupRecenter?: boolean;
+      },
+    ) => {
       const plan = getCreatedScreenNavigationPlan({ screenId, geometry });
+      setOptimisticFrameGeometryById((current) => ({
+        ...current,
+        [screenId]: geometry,
+      }));
       pendingOverviewScreenSelectionRef.current = screenId;
       pendingOverviewLayerSelectionRef.current = null;
       clearPendingOverviewLayerSelectionTimer();
@@ -6408,13 +6479,26 @@ function DesignEditor() {
       setMode("edit");
       viewModeRef.current = plan.viewMode;
       setViewMode(plan.viewMode);
-      cameraCommandNonceRef.current += 1;
-      setCameraCommand({
-        ...plan.camera,
-        nonce: cameraCommandNonceRef.current,
-      });
+      if (options?.suppressLineupRecenter) {
+        const nonce = ++suppressLineupRecenterNonceRef.current;
+        setSuppressLineupRecenter((current) => {
+          const sameBatch = current?.fromCount === overviewScreens.length;
+          return {
+            fromCount: sameBatch ? current.fromCount : overviewScreens.length,
+            addedCount: sameBatch ? current.addedCount + 1 : 1,
+            nonce,
+          };
+        });
+      }
+      if (!options?.preserveCamera) {
+        cameraCommandNonceRef.current += 1;
+        setCameraCommand({
+          ...plan.camera,
+          nonce: cameraCommandNonceRef.current,
+        });
+      }
     },
-    [clearPendingOverviewLayerSelectionTimer],
+    [clearPendingOverviewLayerSelectionTimer, overviewScreens.length],
   );
 
   const handleDuplicateScreen = useCallback(
@@ -6422,6 +6506,7 @@ function DesignEditor() {
       screenId: string,
       request?: {
         canvasPosition?: { x: number; y: number };
+        preserveCamera?: boolean;
       },
     ) =>
       runDuplicateScreen(
@@ -15743,6 +15828,7 @@ function DesignEditor() {
         syncUndoRedoState,
         t,
         undoManagerRef,
+        updateDesignAsync,
         updateLiveScreenSnapshotContent,
         viewModeRef,
         writeFrameGeometrySnapshot,
@@ -15780,9 +15866,9 @@ function DesignEditor() {
       syncLiveScreenSnapshotPreview,
       syncUndoRedoState,
       t,
+      updateDesignAsync,
       updateLiveScreenSnapshotContent,
       writeFrameGeometrySnapshot,
-      t,
     ],
   );
 
@@ -19327,10 +19413,20 @@ function DesignEditor() {
 
   useEffect(() => {
     if (!id || files.length === 0) return;
+    const initialRouteScreen = initialRouteScreenTarget
+      ? findDesignFileByScreenTarget(files, initialRouteScreenTarget)
+      : undefined;
+    if (initialRouteScreenTarget && !initialRouteScreen && !activeFileId) {
+      return;
+    }
+    // Do not let the URL mirror replace a direct screen/zoom route with the
+    // pre-command default while the initial navigation command is still
+    // waiting for the target file. The command owns the first synchronized
+    // selection and zoom; once activeFileId reaches that target, normal URL
+    // mirroring resumes.
     if (
-      initialRouteScreenTarget &&
-      !findDesignFileByScreenTarget(files, initialRouteScreenTarget) &&
-      !activeFileId
+      initialRouteScreen &&
+      (activeFileId ?? activeFile?.id) !== initialRouteScreen.id
     ) {
       return;
     }
@@ -19343,7 +19439,7 @@ function DesignEditor() {
     const nextSearch = getDesignEditorStateUrlSearch({
       currentSearch: location.search,
       viewMode,
-      screenId: activeFile?.id ?? activeFileId,
+      screenId: activeFileId ?? activeFile?.id,
       leftPanel: activeLeftPanel,
       codeFileId: activeLeftPanel === "code" ? activeCodeFile?.fileId : null,
       codeFilename: activeLeftPanel === "code" ? activeCodeFile?.path : null,
@@ -25155,6 +25251,14 @@ function DesignEditor() {
                         zoom={overviewCanvasZoom}
                         onZoomChange={setExplicitOverviewCanvasZoom}
                         cameraCommand={cameraCommand}
+                        suppressLineupRecenter={suppressLineupRecenter}
+                        preserveCameraOnScreenCountChange={
+                          explicitOverviewCanvasZoom !== null
+                        }
+                        deferLineupZoomChange={
+                          hasExplicitOverviewZoomCommand &&
+                          explicitOverviewCanvasZoom === null
+                        }
                         chromeInsetLeft={chromeInsetLeft}
                         chromeInsetRight={chromeInsetRight}
                         activeId={activeFileId}
@@ -25201,7 +25305,8 @@ function DesignEditor() {
                         onScreenSelectionChange={
                           handleOverviewScreenSelectionChange
                         }
-                        geometryById={canvasFrameGeometryById}
+                        geometryById={displayedCanvasFrameGeometryById}
+                        geometryOverridesById={optimisticFrameGeometryById}
                         onGeometryChange={queueFrameGeometrySave}
                         onGeometryCommit={handleGeometryCommit}
                         onBreakpointContentHeightChange={

@@ -82,6 +82,7 @@ const messages = {
     createFolderError: "Falha ao criar",
     folderCreated: "Pasta criada",
     folderNamePlaceholder: "Nome da pasta",
+    breadcrumbBack: "Voltar para {{label}}",
   },
   empty: {
     library: {
