@@ -154,8 +154,9 @@ export function shouldUseTextFill(
   element: ElementInfo,
   styles: Record<string, string>,
 ): boolean {
-  const hasVisibleBackgroundImage =
-    splitCssLayers(styles.backgroundImage || "").length > 0;
+  const hasVisibleBackgroundImage = splitCssLayers(
+    styles.backgroundImage || "",
+  ).some((layer) => layer.trim().toLowerCase() !== "none");
   const hasTextBackgroundClip = splitCssLayers(
     styles.backgroundClip || "",
   ).some((clip) => clip.trim().toLowerCase() === "text");

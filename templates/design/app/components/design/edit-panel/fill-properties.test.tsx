@@ -297,6 +297,20 @@ describe("FillProperties base row — image layer prop wiring", () => {
     expect(shouldUseTextFill(el, el.computedStyles)).toBe(true);
   });
 
+  it("does not treat none-only background layers as visible paint", () => {
+    const el = element({
+      tagName: "span",
+      textContent: "Listen now",
+      computedStyles: {
+        color: "#111827",
+        backgroundColor: "rgb(0 0 0 / 0)",
+        backgroundImage: "none, none",
+      },
+    });
+
+    expect(shouldUseTextFill(el, el.computedStyles)).toBe(true);
+  });
+
   it("offers gradient layers but not image paints for a text fill selection", () => {
     const el = element({
       tagName: "span",
