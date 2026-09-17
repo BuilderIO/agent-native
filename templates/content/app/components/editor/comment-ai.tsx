@@ -49,7 +49,6 @@ const ACTIVE_STATUSES = new Set<CommentAiRequest["status"]>([
   "refreshing",
 ]);
 const ACTIVE_REQUEST_REFETCH_INTERVAL_MS = 1_500;
-const UNAVAILABLE_CONFIRMATION_COUNT = 3;
 
 export interface CommentAiContinuationState {
   operationId: string;
@@ -74,6 +73,20 @@ export interface CommentAiController {
   continue(request: CommentAiRequest, message: string): Promise<void>;
   stop(request: CommentAiRequest): Promise<void>;
   open(request: CommentAiRequest): void;
+}
+
+export function acknowledgeCommentAiContinuation(
+  current: Record<string, CommentAiContinuationState>,
+  requestId: string,
+  turnId: string,
+) {
+  const observed = current[requestId];
+  if (!observed || observed.turnId !== turnId || observed.status !== "queued")
+    return current;
+  return {
+    ...current,
+    [requestId]: { ...observed, status: "running" as const },
+  };
 }
 
 export function commentAiRequestsRefetchInterval(
@@ -115,15 +128,12 @@ function sessionReceipt(request: CommentAiRequest) {
 
 export function shouldReconcileCommentAiSnapshot(
   snapshot: BackgroundAgentSessionSnapshot,
-  consecutiveUnavailable: number,
 ) {
   if (snapshot.status === "queued" || snapshot.status === "running")
     return false;
-  if (snapshot.status !== "unavailable") return true;
-  return (
-    !snapshot.transportError &&
-    consecutiveUnavailable >= UNAVAILABLE_CONFIRMATION_COUNT
-  );
+  // An exact receipt can be temporarily invisible while dispatch or scoped
+  // authorization catches up. Absence alone must never manufacture failure.
+  return snapshot.status !== "unavailable";
 }
 
 export function useCommentAiRequests(
@@ -147,7 +157,6 @@ export function useCommentAiRequests(
   const mountedRef = useRef(true);
   const monitoredRequestsRef = useRef(new Set<string>());
   const monitoredContinuationsRef = useRef(new Set<string>());
-  const unavailableCountsRef = useRef(new Map<string, number>());
   const startingRef = useRef(new Set<string>());
   const [startingThreadIds, setStartingThreadIds] = useState<
     ReadonlySet<string>
@@ -235,18 +244,7 @@ export function useCommentAiRequests(
               retryDelay = Math.min(retryDelay * 2, 10_000);
               continue;
             }
-            const receiptKey = `${snapshot.threadId}\0${snapshot.turnId}`;
-            const unavailableCount =
-              snapshot.status === "unavailable" && !snapshot.transportError
-                ? (unavailableCountsRef.current.get(receiptKey) ?? 0) + 1
-                : 0;
-            if (unavailableCount > 0) {
-              unavailableCountsRef.current.set(receiptKey, unavailableCount);
-            } else {
-              unavailableCountsRef.current.delete(receiptKey);
-            }
-            if (shouldReconcileCommentAiSnapshot(snapshot, unavailableCount)) {
-              unavailableCountsRef.current.delete(receiptKey);
+            if (shouldReconcileCommentAiSnapshot(snapshot)) {
               await reconcile(
                 request,
                 receipt.turnId,
@@ -312,7 +310,6 @@ export function useCommentAiRequests(
       if (monitoredContinuationsRef.current.has(receipt.turnId)) return;
       monitoredContinuationsRef.current.add(receipt.turnId);
       let retryDelay = ACTIVE_REQUEST_REFETCH_INTERVAL_MS;
-      let consecutiveUnavailable = 0;
       try {
         for (;;) {
           await new Promise((resolve) => setTimeout(resolve, retryDelay));
@@ -329,14 +326,7 @@ export function useCommentAiRequests(
             retryDelay = Math.min(retryDelay * 2, 10_000);
             continue;
           }
-          consecutiveUnavailable =
-            snapshot.status === "unavailable" && !snapshot.transportError
-              ? consecutiveUnavailable + 1
-              : 0;
-          if (
-            snapshot.status !== "unavailable" ||
-            consecutiveUnavailable >= UNAVAILABLE_CONFIRMATION_COUNT
-          ) {
+          if (snapshot.status !== "unavailable") {
             updateContinuation(request.operationId, {
               ...receipt,
               status: snapshot.status,
@@ -345,9 +335,7 @@ export function useCommentAiRequests(
                 : {}),
             });
           }
-          if (
-            shouldReconcileCommentAiSnapshot(snapshot, consecutiveUnavailable)
-          ) {
+          if (shouldReconcileCommentAiSnapshot(snapshot)) {
             setTranscriptRevision((value) => value + 1);
             return;
           }
@@ -401,21 +389,36 @@ export function useCommentAiRequests(
         updateContinuation(request.operationId, continuation);
         void monitorContinuation(request, continuation);
         await handle.accepted;
-        updateContinuation(request.operationId, {
-          ...continuation,
-          status: "running",
-        });
+        setContinuationRecord((current) =>
+          acknowledgeCommentAiContinuation(
+            current,
+            request.operationId,
+            continuation!.turnId,
+          ),
+        );
       } catch (error) {
         if (continuation) {
-          updateContinuation(request.operationId, {
-            ...continuation,
-            error: error instanceof Error ? error.message : undefined,
+          setContinuationRecord((current) => {
+            const observed = current[request.operationId];
+            if (
+              !observed ||
+              observed.turnId !== continuation!.turnId ||
+              (observed.status !== "queued" && observed.status !== "running")
+            )
+              return current;
+            return {
+              ...current,
+              [request.operationId]: {
+                ...observed,
+                error: error instanceof Error ? error.message : undefined,
+              },
+            };
           });
         }
         throw error;
       }
     },
-    [monitorContinuation, updateContinuation],
+    [monitorContinuation, setContinuationRecord, updateContinuation],
   );
 
   const stop = useCallback<CommentAiController["stop"]>(

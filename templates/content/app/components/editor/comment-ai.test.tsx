@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 import {
+  acknowledgeCommentAiContinuation,
   commentAiRequestsRefetchInterval,
   shouldReconcileCommentAiSnapshot,
   CommentAiRequestStatus,
@@ -357,15 +358,42 @@ describe("comment AI session reconciliation", () => {
 
   it("keeps transport uncertainty recoverable", () => {
     expect(
-      shouldReconcileCommentAiSnapshot(
-        { ...snapshot, transportError: "acknowledgement timed out" },
-        10,
-      ),
+      shouldReconcileCommentAiSnapshot({
+        ...snapshot,
+        transportError: "acknowledgement timed out",
+      }),
     ).toBe(false);
   });
 
-  it("requires repeated authoritative absence before review", () => {
-    expect(shouldReconcileCommentAiSnapshot(snapshot, 2)).toBe(false);
-    expect(shouldReconcileCommentAiSnapshot(snapshot, 3)).toBe(true);
+  it("keeps an exact receipt recoverable through delayed visibility", () => {
+    for (let poll = 0; poll < 10; poll += 1) {
+      expect(shouldReconcileCommentAiSnapshot(snapshot)).toBe(false);
+    }
+    expect(
+      shouldReconcileCommentAiSnapshot({ ...snapshot, status: "completed" }),
+    ).toBe(true);
+  });
+
+  it("does not let a delayed acknowledgement downgrade a terminal turn", () => {
+    const completed = {
+      "request-1": {
+        operationId: "continuation-1",
+        threadId: "thread-1",
+        turnId: "turn-1",
+        status: "completed" as const,
+      },
+    };
+    expect(
+      acknowledgeCommentAiContinuation(completed, "request-1", "turn-1"),
+    ).toBe(completed);
+
+    const queued = {
+      "request-1": { ...completed["request-1"], status: "queued" as const },
+    };
+    expect(
+      acknowledgeCommentAiContinuation(queued, "request-1", "turn-1")[
+        "request-1"
+      ]?.status,
+    ).toBe("running");
   });
 });
