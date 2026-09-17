@@ -1095,6 +1095,9 @@ export function CommentAiConversation({
                 <span className="sr-only">
                   {agentDisplayName(request.model)}:{" "}
                 </span>
+                <div className="mb-0.5 text-[11px] font-medium text-muted-foreground">
+                  {commentAiModelLabel(request.model)}
+                </div>
                 <InlineMarkdown content={turn.assistantText} />
                 {turn.status === "incomplete" ? (
                   <div className="mt-1 text-xs text-destructive">
@@ -1108,6 +1111,13 @@ export function CommentAiConversation({
       ))}
     </div>
   );
+}
+
+export function commentAiModelLabel(model: string | null | undefined): string {
+  const normalized = model?.trim();
+  return normalized
+    ? `${agentDisplayName(normalized)} · ${normalized}`
+    : agentDisplayName(normalized);
 }
 
 export function CommentAiReplyTarget({ onCancel }: { onCancel: () => void }) {

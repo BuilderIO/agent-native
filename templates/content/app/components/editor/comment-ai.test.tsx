@@ -11,6 +11,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import {
   acknowledgeCommentAiContinuation,
   boundedContinuationContext,
+  commentAiModelLabel,
   commentAiRequestsRefetchInterval,
   shouldReconcileCommentAiSnapshot,
   shouldIgnoreContinuationAcceptanceError,
@@ -158,6 +159,13 @@ describe("comment AI controls", () => {
     );
     return onStart;
   }
+
+  it("shows the provider family and exact model for inline AI turns", () => {
+    expect(commentAiModelLabel("gpt-5-6-sol")).toBe("GPT · gpt-5-6-sol");
+    expect(commentAiModelLabel("claude-sonnet-4-5")).toBe(
+      "Claude · claude-sonnet-4-5",
+    );
+  });
 
   async function openMenu(trigger: HTMLButtonElement) {
     await act(async () => {
