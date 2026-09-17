@@ -361,7 +361,10 @@ describe("comment AI durable action binding", () => {
 
     expect(first).toEqual(second);
     expect(first).toMatchObject({
-      mode: "allowlist",
+      allowedActionNames: [
+        "get-comment-ai-context",
+        "reply-to-comment-ai-request",
+      ],
       actionScope: { kind: "content-comment-ai", requestId: OP_A },
     });
     expect(request.agentTurnId).toBe(TURN_ID);
@@ -449,7 +452,6 @@ describe("comment AI durable action binding", () => {
       }),
     );
     expect(surface).toMatchObject({
-      mode: "allowlist",
       allowedActionNames: [
         "get-comment-ai-context",
         "reply-to-comment-ai-request",
