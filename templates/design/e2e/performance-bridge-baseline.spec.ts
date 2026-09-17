@@ -26,6 +26,7 @@ type MarqueeProfilerReceipt = {
   elapsedMs: number | null;
   bridgeMessageCount: number;
   bridgeReplyCount: number;
+  bridgeReplyCountAtMouseup: number | null;
   finalSelectionChangeCount: number;
   finalSelectionIds: string[];
   firstBridgeMessageAt: number | null;
@@ -285,6 +286,7 @@ async function installMarqueeProfiler(page: Page): Promise<void> {
         finalMessageAt: number | null;
         messageCount: number;
         bridgeReplyCount: number;
+        bridgeReplyCountAtMouseup: number | null;
         finalMessageCount: number;
         finalSelectionIds: string[];
       };
@@ -297,9 +299,48 @@ async function installMarqueeProfiler(page: Page): Promise<void> {
       finalMessageAt: null,
       messageCount: 0,
       bridgeReplyCount: 0,
+      bridgeReplyCountAtMouseup: null,
       finalMessageCount: 0,
       finalSelectionIds: [],
     };
+    const delayedBridgeReplies = new WeakSet<object>();
+    let bridgeReplySequence = 0;
+    window.addEventListener(
+      "message",
+      (event) => {
+        const data = event.data as { type?: string } | null;
+        if (!data || data.type !== "agent-native:selectable-rects-result") {
+          return;
+        }
+        if (delayedBridgeReplies.has(data)) {
+          delayedBridgeReplies.delete(data);
+          return;
+        }
+        if (bridgeReplySequence++ === 0) return;
+        delayedBridgeReplies.add(data);
+        event.stopImmediatePropagation();
+        window.setTimeout(() => {
+          window.dispatchEvent(
+            new MessageEvent("message", {
+              data,
+              origin: event.origin,
+              source: event.source,
+            }),
+          );
+        }, 15000);
+      },
+      true,
+    );
+    window.addEventListener(
+      "mouseup",
+      () => {
+        const performance = win.__marqueePerformance;
+        if (performance && performance.bridgeReplyCountAtMouseup === null) {
+          performance.bridgeReplyCountAtMouseup = performance.bridgeReplyCount;
+        }
+      },
+      true,
+    );
     window.addEventListener("message", (event) => {
       const data = event.data as {
         type?: string;
@@ -424,18 +465,11 @@ async function performProfiledMarquee(
     await page.mouse.move(
       secondLastBox.x + secondLastBox.width + 12,
       secondLastBox.y + secondLastBox.height + 12,
-      { steps: 24 },
+      { steps: 8 },
     );
-    await page.waitForFunction(
-      () =>
-        ((
-          window as typeof window & {
-            __marqueePerformance?: { bridgeReplyCount?: number };
-          }
-        ).__marqueePerformance?.bridgeReplyCount ?? 0) >= 2,
-      undefined,
-      { timeout: 15_000 },
-    );
+    // Release while both screen collections can still be in flight. The
+    // second screen's response is delayed by the profiler above so this
+    // exercises the finishDrag boundary instead of synchronizing around it.
     await page.mouse.up();
   } finally {
     await page.keyboard.up(modifier);
@@ -454,6 +488,7 @@ async function readMarqueeProfiler(
         finalMessageAt: number | null;
         messageCount: number;
         bridgeReplyCount: number;
+        bridgeReplyCountAtMouseup: number | null;
         finalMessageCount: number;
         finalSelectionIds: string[];
       };
@@ -476,6 +511,7 @@ async function readMarqueeProfiler(
       elapsedMs: finalSelectionAt,
       bridgeMessageCount: marquee?.messageCount ?? 0,
       bridgeReplyCount: marquee?.bridgeReplyCount ?? 0,
+      bridgeReplyCountAtMouseup: marquee?.bridgeReplyCountAtMouseup ?? null,
       finalSelectionChangeCount: probe.marqueeFinalSelectionChange ?? 0,
       finalSelectionIds:
         finalSelectionIds.length > 0
@@ -773,9 +809,23 @@ test("collect selectable rects baseline on nested responsive screens", async ({
               }
             ).__designPerformanceProbe?.marqueeFinalSelectionChange ?? 0,
         ),
-      { timeout: 15_000 },
+      { timeout: 30_000 },
     )
     .toBe(1);
+  await expect
+    .poll(
+      () =>
+        page.evaluate(
+          () =>
+            (
+              window as typeof window & {
+                __marqueePerformance?: { bridgeReplyCount?: number };
+              }
+            ).__marqueePerformance?.bridgeReplyCount ?? 0,
+        ),
+      { timeout: 30_000 },
+    )
+    .toBeGreaterThanOrEqual(2);
   await page.waitForTimeout(500);
   const marqueeSelectionAfterRows = await page
     .locator('[aria-selected="true"]')
@@ -783,10 +833,11 @@ test("collect selectable rects baseline on nested responsive screens", async ({
   const marqueeProfiler = await readMarqueeProfiler(page);
   expect(marqueeProfiler.bridgeMessageCount).toBeGreaterThan(0);
   expect(marqueeProfiler.bridgeReplyCount).toBeGreaterThanOrEqual(2);
+  expect(marqueeProfiler.bridgeReplyCountAtMouseup).toBeLessThan(2);
   expect(marqueeProfiler.finalSelectionChangeCount).toBe(1);
   expect(marqueeProfiler.elapsedMs).toBeGreaterThan(0);
   expect(marqueeProfiler.finalSelectionAt).toBe(marqueeProfiler.elapsedMs);
-  expect(marqueeProfiler.finalSelectionIds.length).toBeGreaterThanOrEqual(20);
+  expect(marqueeProfiler.finalSelectionIds.length).toBeGreaterThanOrEqual(60);
   expect(marqueeProfiler.host.marqueeSelectionChange).toBeGreaterThan(1);
   expect(marqueeProfiler.host.marqueeFinalSelectionChange).toBe(1);
   expect(marqueeProfiler.host.captureCurrentSelection).toBeLessThanOrEqual(2);
