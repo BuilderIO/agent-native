@@ -13,11 +13,14 @@ import { buildSignInReturnHref } from "@agent-native/core/client/ui";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
   DndContext,
+  DragOverlay,
   closestCenter,
   PointerSensor,
   useSensor,
   useSensors,
-  DragEndEvent,
+  type DragEndEvent,
+  type DragStartEvent,
+  type Modifier,
 } from "@dnd-kit/core";
 import type { SlideCommentAnchor } from "@shared/slide-comment-anchor";
 import { hashSlideContent } from "@shared/slide-fit";
@@ -29,6 +32,7 @@ import {
   useEffect,
   type FormEvent,
 } from "react";
+import { createPortal } from "react-dom";
 import {
   useBlocker,
   useNavigate,
@@ -38,6 +42,7 @@ import {
 import { toast } from "sonner";
 
 import { SlideCommentsPanel } from "@/components/comments/SlideCommentsPanel";
+import SlideRenderer from "@/components/deck/SlideRenderer";
 import { AnimationsPanel } from "@/components/editor/AnimationsPanel";
 import AssetLibraryPanel from "@/components/editor/AssetLibraryPanel";
 import { DeckEditorSkeleton } from "@/components/editor/DeckEditorSkeleton";
@@ -217,6 +222,18 @@ export function getAltDragPlacement(
   };
 }
 
+export function constrainSlideDragToVerticalAxis(transform: {
+  x: number;
+  y: number;
+  scaleX: number;
+  scaleY: number;
+}) {
+  return { ...transform, x: 0 };
+}
+
+const verticalSlideDragModifier: Modifier = ({ transform }) =>
+  constrainSlideDragToVerticalAxis(transform);
+
 export function syncSlideContentSnapshots(
   slides: ReadonlyArray<Pick<Slide, "id" | "content">>,
   latestContent: Map<string, string>,
@@ -266,6 +283,10 @@ export default function DeckEditor() {
   const requestDeckAccessMutation = useRequestDeckAccess();
   const [activeSlideId, setActiveSlideId] = useState<string | null>(null);
   const [selectedSlideIds, setSelectedSlideIds] = useState<string[]>([]);
+  const [altDragState, setAltDragState] = useState<{
+    slideId: string;
+    width: number;
+  } | null>(null);
   const selectionAnchorSlideIdRef = useRef<string | null>(null);
   const [inlineEditActive, setInlineEditActive] = useState(false);
   const [addSlideGenerating, setAddSlideGenerating] = useState(false);
@@ -1020,6 +1041,25 @@ export default function DeckEditor() {
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
   );
 
+  const handleDragStart = useCallback((event: DragStartEvent) => {
+    if (!(event.activatorEvent as MouseEvent | undefined)?.altKey) {
+      setAltDragState(null);
+      return;
+    }
+    setAltDragState({
+      slideId: String(event.active.id),
+      width: event.active.rect.current.initial?.width || 160,
+    });
+  }, []);
+
+  const handleDragCancel = useCallback(() => {
+    setAltDragState(null);
+  }, []);
+
+  const altDragSlide = altDragState
+    ? deck?.slides.find((slide) => slide.id === altDragState.slideId)
+    : null;
+
   const handleReorderSlidesFromRail = useCallback(
     (
       activeSlideId: string,
@@ -1034,6 +1074,7 @@ export default function DeckEditor() {
 
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
+      setAltDragState(null);
       if (!deck || !id) return;
       const { active, over } = event;
       if (!over) return;
@@ -2663,7 +2704,10 @@ export default function DeckEditor() {
               <DndContext
                 sensors={sensors}
                 collisionDetection={closestCenter}
+                modifiers={[verticalSlideDragModifier]}
+                onDragStart={handleDragStart}
                 onDragEnd={handleDragEnd}
+                onDragCancel={handleDragCancel}
               >
                 <EditorSidebar
                   slides={deck.slides}
@@ -2717,8 +2761,38 @@ export default function DeckEditor() {
                   onNewSlideAfter={handleNewSlideAfter}
                   onDuplicateSlide={handleDuplicateSlideFromRail}
                   onReorderSlides={handleReorderSlidesFromRail}
+                  altDragSlideId={altDragState?.slideId}
                   onToggleSkipSlide={handleToggleSkipSlide}
                 />
+                {typeof document !== "undefined"
+                  ? createPortal(
+                      <DragOverlay dropAnimation={null} zIndex={1000}>
+                        {altDragSlide ? (
+                          <div
+                            aria-hidden="true"
+                            data-slide-drag-overlay="copy"
+                            className="pointer-events-none overflow-hidden rounded-lg border border-primary/50 bg-background p-1.5 shadow-2xl"
+                            style={{ width: altDragState?.width ?? 160 }}
+                          >
+                            <div
+                              className="overflow-hidden rounded border"
+                              style={{
+                                aspectRatio: `${getAspectRatioDims(deck.aspectRatio).width} / ${getAspectRatioDims(deck.aspectRatio).height}`,
+                              }}
+                            >
+                              <SlideRenderer
+                                slide={altDragSlide}
+                                aspectRatio={deck.aspectRatio}
+                                designSystem={designSystem}
+                                thumbnail
+                              />
+                            </div>
+                          </div>
+                        ) : null}
+                      </DragOverlay>,
+                      document.body,
+                    )
+                  : null}
               </DndContext>
             </div>
           </>

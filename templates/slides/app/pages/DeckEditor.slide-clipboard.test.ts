@@ -17,6 +17,7 @@ import {
 } from "../lib/slide-clipboard";
 import {
   isSlideClipboardStillArmed,
+  constrainSlideDragToVerticalAxis,
   getAltDragPlacement,
   SLIDE_CLIPBOARD_ARM_WINDOW_MS,
   syncSlideContentSnapshots,
@@ -170,6 +171,27 @@ describe("alt-drag slide placement", () => {
     expect(getAltDragPlacement(slides, "slide-1", "slide-3")).toEqual({
       afterSlideId: "slide-3",
     });
+  });
+
+  it("keeps slide drag transforms on the vertical axis", () => {
+    expect(
+      constrainSlideDragToVerticalAxis({
+        x: 48,
+        y: 24,
+        scaleX: 1,
+        scaleY: 1,
+      }),
+    ).toEqual({ x: 0, y: 24, scaleX: 1, scaleY: 1 });
+  });
+
+  it("uses an Alt-only drag overlay for the copied thumbnail", () => {
+    expect(deckEditorSource).toContain('data-slide-drag-overlay="copy"');
+    expect(deckEditorSource).toContain(
+      "altDragSlideId={altDragState?.slideId}",
+    );
+    expect(deckEditorSource).toContain(
+      "modifiers={[verticalSlideDragModifier]}",
+    );
   });
 });
 
