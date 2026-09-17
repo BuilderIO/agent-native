@@ -150,6 +150,20 @@ export function baseFillLayerSourceProps(
   };
 }
 
+export function shouldUseTextFill(
+  element: ElementInfo,
+  styles: Record<string, string>,
+): boolean {
+  const hasVisibleBackgroundImage =
+    splitCssLayers(styles.backgroundImage).length > 0;
+  return (
+    isTextElement(element) &&
+    (styles.backgroundClip === "text" ||
+      (!colorHasVisibleAlpha(styles.backgroundColor) &&
+        !hasVisibleBackgroundImage))
+  );
+}
+
 export function FillProperties({
   element,
   onStyleChange,
@@ -201,10 +215,7 @@ export function FillProperties({
   };
   // A DOM control can own text and a real box fill at once. Keep Typography
   // on the selection, but let Fill edit the visible background paint.
-  const isTextFillElement =
-    isTextElement(element) &&
-    (styles.backgroundClip === "text" ||
-      !colorHasVisibleAlpha(styles.backgroundColor));
+  const isTextFillElement = shouldUseTextFill(element, styles);
   const isVectorFillElement = isVectorShapeElement(element);
   const fillProperty = isTextFillElement
     ? "color"

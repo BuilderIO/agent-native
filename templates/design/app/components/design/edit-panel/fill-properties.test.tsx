@@ -29,7 +29,11 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 import type { ElementInfo } from "../types";
-import { baseFillLayerSourceProps, FillProperties } from "./fill-properties";
+import {
+  baseFillLayerSourceProps,
+  FillProperties,
+  shouldUseTextFill,
+} from "./fill-properties";
 
 (
   globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -247,12 +251,30 @@ describe("FillProperties base row — image layer prop wiring", () => {
     expect(markup).toContain('data-value="#0f766e"');
   });
 
+  it("uses a visible gradient for a text-bearing control with a transparent background color", () => {
+    const el = element({
+      tagName: "button",
+      hasOwnText: true,
+      textContent: "Listen now",
+      primitiveKind: undefined,
+      childElementCount: 0,
+      computedStyles: {
+        color: "#ffffff",
+        backgroundColor: "rgba(0, 0, 0, 0)",
+        backgroundImage: "linear-gradient(90deg, #0f766e, #14b8a6)",
+      },
+    });
+
+    expect(shouldUseTextFill(el, el.computedStyles)).toBe(false);
+  });
+
   it("offers gradient layers but not image paints for a text fill selection", () => {
     const el = element({
       tagName: "span",
       computedStyles: {
         color: "#000000",
         backgroundImage: "linear-gradient(red, blue)",
+        backgroundClip: "text",
         backgroundSize: "100% 100%",
         backgroundRepeat: "no-repeat",
         backgroundPosition: "center",
