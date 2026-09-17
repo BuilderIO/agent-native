@@ -31,6 +31,7 @@ import type { H3Event } from "h3";
 import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { getAppConfig } from "../app-config/index.js";
+import { getRuntimeDatabaseUrl } from "../db/client.js";
 import { resolveDevUserEmail } from "../scripts/dev-session.js";
 import { actionCallIsReadOnly, notifyActionChange } from "./action-change.js";
 import { isLoopbackRequest } from "./auth.js";
@@ -418,7 +419,14 @@ export function mountDevDbQueryForwardRoute(nitroApp: any): void {
       return runWithRequestContext({ userEmail, orgId }, async () => {
         try {
           const { runDbQuery } = await import("../scripts/db/query.js");
-          const result = await runDbQuery({ sql, sqlArgs, limit });
+          // Execute against the exact URL the discovery `databaseKey` was
+          // validated against (see `dev-query-proxy.ts`) rather than letting
+          // `runDbQuery` fall back to `getDatabaseUrl()` independently — a
+          // configured runtime/unpooled override would otherwise let the two
+          // resolvers disagree and this route would query a different
+          // database than the one whose lock it was granted access to.
+          const databaseUrl = getRuntimeDatabaseUrl("pglite:./data/pglite");
+          const result = await runDbQuery({ sql, sqlArgs, limit, databaseUrl });
           return { ok: true, rows: result.rows, sql: result.sql };
         } catch (error: any) {
           setResponseStatus(event, 500);

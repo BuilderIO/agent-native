@@ -485,6 +485,7 @@ describe("mountDevDbQueryForwardRoute", () => {
       sql: "SELECT id FROM items",
       sqlArgs: [1],
       limit: 100,
+      databaseUrl: "pglite:./data/pglite",
     });
   });
 

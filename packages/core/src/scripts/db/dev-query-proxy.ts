@@ -7,6 +7,8 @@
  * `dev-action-bridge.ts`).
  */
 
+import { Agent } from "undici";
+
 import {
   getRuntimeDatabaseUrl,
   isPgliteUrl,
@@ -54,8 +56,15 @@ export async function tryForwardDbQueryToDevServer(
   if (discovery.databaseKey !== databaseKey) return false;
 
   let response: Response;
+  // Vite's local HTTPS mode commonly uses a self-signed certificate. This
+  // dispatcher is created only after the strict loopback-origin check above,
+  // so certificate bypass cannot send the dev token to a remote host. Same
+  // pattern as `tryForwardToDevServer` (runner.ts).
+  const tlsDispatcher = discovery.origin.startsWith("https:")
+    ? new Agent({ connect: { rejectUnauthorized: false } })
+    : undefined;
   try {
-    response = await fetch(`${discovery.origin}${DEV_DB_QUERY_ROUTE}`, {
+    const request: RequestInit & { dispatcher?: Agent } = {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -70,8 +79,11 @@ export async function tryForwardDbQueryToDevServer(
         ...(options.params.length > 0 ? { params: options.params } : {}),
         ...(options.limit ? { limit: options.limit } : {}),
       }),
-    });
+      ...(tlsDispatcher ? { dispatcher: tlsDispatcher } : {}),
+    };
+    response = await fetch(`${discovery.origin}${DEV_DB_QUERY_ROUTE}`, request);
   } catch {
+    await tlsDispatcher?.destroy();
     // coercion-ok: a network failure here isn't hidden — it routes to the
     // in-process path below, which has its own explicit success/failure
     // signaling (including PGlite's own loud lock error). Same reasoning as
@@ -79,12 +91,16 @@ export async function tryForwardDbQueryToDevServer(
     return false;
   }
 
-  if (response.status === 404) return false;
+  if (response.status === 404) {
+    await tlsDispatcher?.close();
+    return false;
+  }
 
   if (response.status === 401 || response.status === 403) {
     const body = await response
       .json()
       .catch(() => ({ error: `HTTP ${response.status}` }));
+    await tlsDispatcher?.close();
     throw new Error(
       (body as { error?: string })?.error ?? `HTTP ${response.status}`,
     );
@@ -100,6 +116,7 @@ export async function tryForwardDbQueryToDevServer(
     rows?: Record<string, unknown>[];
     sql?: string;
   } | null;
+  await tlsDispatcher?.close();
 
   if (!body?.ok) {
     throw new Error(body?.error ?? "Invalid response from dev server.");

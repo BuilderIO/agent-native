@@ -16,11 +16,27 @@ vi.mock("../../db/client.js", () => ({
   isProcessAlive: (...args: unknown[]) => mockIsProcessAlive(...args),
 }));
 vi.mock("../../server/dev-action-bridge.js", () => ({
+  DEV_ACTION_ORG_HEADER: "x-agent-native-dev-org",
   DEV_ACTION_TOKEN_HEADER: "x-agent-native-dev-token",
+  DEV_ACTION_USER_HEADER: "x-agent-native-dev-user",
   DEV_DB_QUERY_ROUTE: "/_agent-native/dev/db-query",
   hashDatabaseKey: (...args: unknown[]) => mockHashDatabaseKey(...args),
-  isLoopbackDevActionOrigin: (origin: string) =>
-    origin === "http://127.0.0.1:5173",
+  isLoopbackDevActionOrigin: (origin: string) => {
+    try {
+      const url = new URL(origin);
+      return (
+        (url.protocol === "http:" || url.protocol === "https:") &&
+        (url.hostname === "127.0.0.1" ||
+          url.hostname === "localhost" ||
+          url.hostname === "[::1]") &&
+        url.pathname === "/" &&
+        !url.search &&
+        !url.hash
+      );
+    } catch {
+      return false;
+    }
+  },
   readDevActionDiscoveryFile: (...args: unknown[]) =>
     mockReadDevActionDiscoveryFile(...args),
 }));
@@ -125,6 +141,62 @@ describe("tryForwardDbQueryToDevServer", () => {
     });
     expect(forwarded).toBe(false);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each(["https://localhost:5173", "http://[::1]:5174"])(
+    "forwards to the printed loopback origin %s, with a TLS dispatcher only for https",
+    async (origin) => {
+      mockReadDevActionDiscoveryFile.mockReturnValue(liveDiscovery({ origin }));
+      mockIsProcessAlive.mockReturnValue(true);
+      fetchMock.mockResolvedValue({
+        status: 200,
+        json: async () => ({ ok: true, rows: [{ id: 1 }], sql: "SELECT 1" }),
+      });
+
+      const forwarded = await tryForwardDbQueryToDevServer({
+        sql: "SELECT 1",
+        params: [],
+        print,
+      });
+
+      expect(forwarded).toBe(true);
+      expect(fetchMock).toHaveBeenCalledWith(
+        `${origin}/_agent-native/dev/db-query`,
+        expect.objectContaining({
+          method: "POST",
+          ...(origin.startsWith("https:")
+            ? { dispatcher: expect.anything() }
+            : {}),
+        }),
+      );
+    },
+  );
+
+  it("forwards the caller's resolved user/org identity as headers", async () => {
+    mockReadDevActionDiscoveryFile.mockReturnValue(liveDiscovery());
+    mockIsProcessAlive.mockReturnValue(true);
+    fetchMock.mockResolvedValue({
+      status: 200,
+      json: async () => ({ ok: true, rows: [], sql: "SELECT 1" }),
+    });
+
+    await tryForwardDbQueryToDevServer({
+      sql: "SELECT 1",
+      params: [],
+      userEmail: "owner@example.test",
+      orgId: "org_1",
+      print,
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:5173/_agent-native/dev/db-query",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          "x-agent-native-dev-user": "owner@example.test",
+          "x-agent-native-dev-org": "org_1",
+        }),
+      }),
+    );
   });
 
   it("forwards matching PGlite queries to the dev server", async () => {
