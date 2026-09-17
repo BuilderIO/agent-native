@@ -393,6 +393,11 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     // start muted or the browser blocks autoplay with a NotAllowedError. The
     // share page (no autoplay) keeps full sound.
     const [muted, setMuted] = useState(() => !!autoPlay);
+    // True while the only reason we're muted is that autoplay-policy fallback,
+    // not a deliberate viewer choice. The viewer's first real gesture inside
+    // the player clears it and restores sound (see `unmuteAutoplayFallback`).
+    const autoMutedRef = useRef(!!autoPlay);
+    const lastAutoMutedRecordingIdRef = useRef(recordingId);
     const [speed, setSpeed] = useState(() =>
       readPlaybackSpeedPreference(defaultSpeed),
     );
@@ -983,6 +988,26 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       videoRef.current?.pause();
     }, [clearPlayAttemptWatchdog]);
 
+    // The viewer made a deliberate audio choice, so stop treating the mute as
+    // the autoplay-policy fallback. Called from every explicit mute/volume
+    // control as well as the gesture-driven unmute below.
+    const clearAutoMuted = useCallback(() => {
+      autoMutedRef.current = false;
+    }, []);
+
+    // Restore sound the first time the viewer engages an autoplay-muted clip
+    // (the Slack unfurl case): the embed had to start muted to satisfy the
+    // browser, but the tap/play is a real gesture that permits audio. Returns
+    // true when it consumed the gesture as an unmute.
+    const unmuteAutoplayFallback = useCallback(() => {
+      const v = videoRef.current;
+      if (!v || !autoMutedRef.current || !v.muted) return false;
+      v.muted = false;
+      setMuted(false);
+      autoMutedRef.current = false;
+      return true;
+    }, []);
+
     const togglePlayback = useCallback(() => {
       const v = videoRef.current;
       if (!v) return;
@@ -997,6 +1022,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         } catch {
           // Let the normal play attempt report a media error if the seek fails.
         }
+        unmuteAutoplayFallback();
         requestPlay();
         return;
       }
@@ -1004,11 +1030,21 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         pauseVideo();
         return;
       }
+      unmuteAutoplayFallback();
       requestPlay();
-    }, [isPlaying, pauseVideo, requestPlay]);
+    }, [isPlaying, pauseVideo, requestPlay, unmuteAutoplayFallback]);
 
     const activateVideoSurface = useCallback(
       (input: "mouse" | "touch") => {
+        // An autoplay-muted embed (Slack unfurl) is already playing silently.
+        // The viewer's first tap means "let me hear it", so unmute in place
+        // instead of pausing an otherwise-fine clip; later taps toggle play.
+        const v = videoRef.current;
+        if (v && !v.paused && !v.ended && unmuteAutoplayFallback()) {
+          bumpControls();
+          return;
+        }
+
         // Touch taps should behave like native mobile players: pause while
         // playing, resume while paused, and keep the chrome visible long
         // enough to expose the explicit controls. Embeds that explicitly hide
@@ -1022,7 +1058,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         togglePlayback();
         bumpControls();
       },
-      [bumpControls, hideChrome, togglePlayback],
+      [bumpControls, hideChrome, togglePlayback, unmuteAutoplayFallback],
     );
 
     const handlePlayerPointerDown = useCallback(
@@ -1178,6 +1214,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           if (videoRef.current) {
             videoRef.current.muted = !videoRef.current.muted;
             setMuted(videoRef.current.muted);
+            autoMutedRef.current = false;
           }
         },
         toggleCaptions: () => setCaptionsOn((v) => !v),
@@ -1333,6 +1370,14 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       playAttemptIdRef.current += 1;
       playAttemptPendingRef.current = false;
       autoPlayAttemptedSourceRef.current = "";
+      // Only re-arm the autoplay-muted marker for an actual recording change.
+      // A repaired/replaced media URL for the *same* recording changes
+      // `activeVideoSourceIdentity` too, and must not overwrite a mute choice
+      // the viewer already made on this clip.
+      if (lastAutoMutedRecordingIdRef.current !== recordingId) {
+        lastAutoMutedRecordingIdRef.current = recordingId;
+        autoMutedRef.current = !!autoPlay;
+      }
       clearPlayAttemptWatchdog();
       setCanPlay(false);
       setIsPlayPending(!!autoPlay);
@@ -2022,6 +2067,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 v.muted = false;
                 setMuted(false);
               }
+              clearAutoMuted();
               requestPlay();
             }}
             onSpeedChange={applySpeed}
@@ -2152,6 +2198,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                   v.muted = vol === 0;
                   setVolume(vol);
                   setMuted(vol === 0);
+                  clearAutoMuted();
                 }
               }}
               onToggleMute={() => {
@@ -2159,6 +2206,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 if (v) {
                   v.muted = !v.muted;
                   setMuted(v.muted);
+                  clearAutoMuted();
                 }
               }}
               onSpeedChange={(rate) => {

@@ -1,6 +1,7 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "activity.reasoning": "推理",
   "approval.alwaysAllow": "一律允許",
   "approval.alwaysAllowHint": "核准並一律允許這個完全相同的命令",
   "approval.alwaysAllowAction": "一律允許此動作",
@@ -719,6 +720,7 @@ const messages: AgentChatTranslation = {
   "status.preparing": "正在準備 {{activity}}...",
   "status.writing": "正在寫入 {{activity}}...",
   "status.stillGenerating": "仍在產生 {{activity}}",
+  "status.runningTool": "正在執行 {{activity}}",
   "tabs.allChats": "所有聊天",
   "tabs.closeTab": "關閉分頁",
   "tabs.main": "主要聊天",

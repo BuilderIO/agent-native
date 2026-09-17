@@ -132,9 +132,74 @@ describe("SlideEditor render-phase safety", () => {
       doubleClickStart,
     );
     const doubleClickBody = source.slice(doubleClickStart, doubleClickEnd);
-    expect(doubleClickBody).toContain("showImageOverlay(target);");
+    expect(doubleClickBody).toContain(
+      "findPersistedImageObject(resolvedTarget, slideContent)",
+    );
+    expect(doubleClickBody).toContain(
+      'imageOwner?.querySelector<HTMLElement>("img")',
+    );
+    expect(doubleClickBody).not.toContain(
+      'resolvedTarget.querySelector<HTMLElement>("img")',
+    );
+    expect(doubleClickBody).toContain(
+      "showImageOverlay(imageTarget ?? imagePlaceholder ?? resolvedTarget);",
+    );
+    expect(doubleClickBody.indexOf("const resolvedTarget")).toBeLessThan(
+      doubleClickBody.indexOf("const imageTarget"),
+    );
     expect(source).toContain(
-      "const block = findSmartBlock(target, slideContent);",
+      "const block = findSmartBlock(resolvedTarget, slideContent);",
+    );
+  });
+
+  it("keeps standalone transparent text boxes as canvas hit targets", () => {
+    const helperStart = source.indexOf("function resolveSlideCanvasHitTarget");
+    const helperEnd = source.indexOf(
+      "const PASTED_TEXT_STYLE_PROPERTIES",
+      helperStart,
+    );
+    const helperBody = source.slice(helperStart, helperEnd);
+
+    expect(helperBody).toContain("candidate instanceof HTMLElement");
+    expect(helperBody).toContain("candidate = candidate.parentElement;");
+    expect(helperBody).toContain("element !== slideContent");
+    expect(helperBody).toContain("return underlying ?? target;");
+  });
+
+  it("preserves wrapped images for double-click overlays", () => {
+    const doubleClickStart = source.indexOf("const handleSlideDoubleClick");
+    const doubleClickEnd = source.indexOf(
+      "const slideElementSelected =",
+      doubleClickStart,
+    );
+    const doubleClickBody = source.slice(doubleClickStart, doubleClickEnd);
+
+    expect(doubleClickBody).toContain(
+      "findPersistedImageObject(resolvedTarget, slideContent)",
+    );
+    expect(doubleClickBody).not.toContain(
+      'resolvedTarget.querySelector<HTMLElement>("img")',
+    );
+    expect(doubleClickBody).toContain(
+      "showImageOverlay(imageTarget ?? imagePlaceholder ?? resolvedTarget);",
+    );
+  });
+
+  it("keeps nested rich-text ranges in observer selection snapshots", () => {
+    const effectStart = source.indexOf(
+      "const editingElement = editingElRef.current;",
+    );
+    const effectEnd = source.indexOf(
+      "const positioningLayer = observedElement?.closest(",
+      effectStart,
+    );
+    const effectBody = source.slice(effectStart, effectEnd);
+
+    expect(effectBody).toContain(
+      "resolveSlideTextSelectionTarget(editingElement, slideContent)",
+    );
+    expect(effectBody).toContain(
+      "editingElement && resolvedEditingElement === element",
     );
   });
 

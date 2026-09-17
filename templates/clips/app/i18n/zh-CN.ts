@@ -78,6 +78,7 @@ const messages = {
     createFolderError: "创建失败",
     folderCreated: "文件夹已创建",
     folderNamePlaceholder: "文件夹名称",
+    breadcrumbBack: "返回 {{label}}",
   },
   empty: {
     library: {
