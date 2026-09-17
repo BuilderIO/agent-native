@@ -118,11 +118,15 @@ vi.mock("../server/source-workspace.js", () => ({
   SourceWorkspaceEditConflictError: class SourceWorkspaceEditConflictError extends Error {
     statusCode = 409;
   },
+  getDesignSourceMutationExec: () => ({ execute: vi.fn() }),
   readLiveSourceFile: async ({ content }: { content?: string | null }) => ({
     content: collabState.exists ? collabState.content : (content ?? ""),
     versionHash: "test-hash",
     language: "html",
   }),
+  readPreparedSourceText: (lease: {
+    doc: { getText: () => { toString: () => string } };
+  }) => lease.doc.getText().toString(),
   withSourceFileWriteLock: async <T>(
     _fileId: string,
     run: () => Promise<T>,

@@ -14,6 +14,7 @@ const harness = vi.hoisted(() => {
   const executeResults: unknown[][] = [];
   const projectionInputs: string[] = [];
   const persistedSnapshots: string[] = [];
+  let preparedText = "";
   let persistError: unknown;
   const CollabBaseVersionConflictError = class extends Error {
     readonly statusCode = 409;
@@ -64,7 +65,8 @@ const harness = vi.hoisted(() => {
                 : "execute",
       );
       if (sql.includes("pg_advisory_xact_lock")) return { rows: [] };
-      return { rows: executeResults.shift() ?? [] };
+      const rows = executeResults.shift() ?? [];
+      return { rows };
     }),
     insert: vi.fn(() => ({ values: vi.fn().mockResolvedValue(undefined) })),
     update: vi.fn(() => ({
@@ -85,13 +87,24 @@ const harness = vi.hoisted(() => {
   };
   return {
     CollabBaseVersionConflictError,
-    applyTextToYDoc: vi.fn(),
+    applyTextToYDoc: vi.fn(
+      (_doc: unknown, _fieldName: string, text: string) => {
+        preparedText = text;
+      },
+    ),
     db,
     events,
     executeResults,
     lease,
     persistedSnapshots,
     projectionInputs,
+    getPreparedText: () => preparedText,
+    resetPreparedText: () => {
+      preparedText = "";
+    },
+    setPreparedText: (text: string) => {
+      preparedText = text;
+    },
     setPersistError: (error: unknown) => {
       persistError = error;
     },
@@ -167,6 +180,7 @@ vi.mock("../server/source-workspace.js", () => ({
     readonly statusCode = 409;
   },
   designSourceMutationLockKey: harness.designSourceMutationLockKey,
+  readPreparedSourceText: () => harness.getPreparedText(),
   withPreparedSourceFileMutation: harness.withPreparedSourceFileMutation,
   withSourceFileWriteLock: harness.withSourceFileWriteLock,
 }));
@@ -219,6 +233,7 @@ describe("index-components source ordering", () => {
     harness.executeResults.length = 0;
     harness.persistedSnapshots.length = 0;
     harness.projectionInputs.length = 0;
+    harness.resetPreparedText();
     harness.setPersistError(undefined);
     harness.applyTextToYDoc.mockClear();
     harness.lease.persist.mockClear();
@@ -301,10 +316,12 @@ describe("index-components source ordering", () => {
       [
         {
           yjs_state: "state-v2",
-          text_snapshot:
-            '<main data-agent-native-component="Card"><span /></main>',
+          text_snapshot: "<main>stale SQL snapshot</main>",
         },
       ],
+    );
+    harness.setPreparedText(
+      '<main data-agent-native-component="Card"><span /></main>',
     );
 
     await action.run({ designId: "design-1", fileId: "file-1" });

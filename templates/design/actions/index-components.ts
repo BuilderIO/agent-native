@@ -29,6 +29,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 import {
+  readPreparedSourceText,
   SourceWorkspaceEditConflictError,
   designSourceMutationLockKey,
   withPreparedSourceFileMutation,
@@ -229,9 +230,7 @@ export default defineAction({
                   "Could not verify a source file's live version. Re-read the design and retry.",
                 );
               }
-              if (collabRow.yjs_state.length > 0) {
-                html = collabRow.text_snapshot;
-              } else {
+              if (collabRow.yjs_state.length === 0) {
                 needsCollabSeed = true;
               }
             }
@@ -253,6 +252,7 @@ export default defineAction({
                 throw error;
               }
             }
+            html = readPreparedSourceText(lease);
 
             const codeLayerSource: CodeLayerSource = {
               kind: "design-file",

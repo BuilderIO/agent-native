@@ -5,7 +5,6 @@ import {
   hasCollabState,
   type PreparedYDocMutationLease,
 } from "@agent-native/core/collab";
-import { getDbExec } from "@agent-native/core/db";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
@@ -14,7 +13,9 @@ import { getDb, schema } from "../server/db/index.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
   readLiveSourceFile,
+  readPreparedSourceText,
   SourceWorkspaceEditConflictError,
+  getDesignSourceMutationExec,
   withDesignSourceMutationTransaction,
   withPreparedSourceFileMutation,
   withSourceFileWriteLock,
@@ -342,7 +343,7 @@ export default defineAction({
 
           const persistedContentHash = sourceContentHash(persistedFile.content);
           persistedVersionHash = persistedContentHash;
-          let collabExists = lease !== undefined;
+          let collabExists = lease !== undefined && lease.baseVersion !== null;
           let liveContent: string;
           if (lease) {
             if (lease.baseVersion === null) {
@@ -353,7 +354,7 @@ export default defineAction({
                 "agent",
               );
             }
-            liveContent = lease.doc.getText("content").toString();
+            liveContent = readPreparedSourceText(lease);
           } else if (content !== undefined) {
             collabExists = await hasCollabState(id);
             liveContent = (
@@ -633,7 +634,7 @@ export default defineAction({
               );
             }
             applyTextToYDoc(lease.doc, "content", content, "agent");
-            await lease.persist(getDbExec(), content);
+            await lease.persist(getDesignSourceMutationExec(tx), content);
           }
           await tx
             .update(schema.designs)
@@ -656,8 +657,12 @@ export default defineAction({
       });
 
     try {
-      await (content !== undefined && syncCollab
-        ? withPreparedSourceFileMutation(id, "agent", runMutation)
+      await (content !== undefined
+        ? withPreparedSourceFileMutation(
+            id,
+            syncCollab ? "agent" : undefined,
+            runMutation,
+          )
         : withSourceFileWriteLock(id, runMutation));
     } catch (error) {
       if (error instanceof CollabBaseVersionConflictError) {
