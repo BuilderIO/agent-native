@@ -471,13 +471,30 @@ export function suppressThread(
   return id;
 }
 
-/** Drop one mutation's claim — used on mutation error rollback. */
-export function releaseSuppression(threadId: string, id: number | undefined) {
-  if (id === undefined) return;
+/** Drop one mutation's claim — used on mutation error rollback and undo. */
+export function releaseSuppression(
+  threadId: string,
+  id: number | undefined,
+): boolean {
+  if (id === undefined) return false;
   const entries = suppressedThreads.get(threadId);
-  if (!entries?.delete(id)) return;
-  if (entries.size === 0) suppressedThreads.delete(threadId);
+  if (!entries?.delete(id)) return false;
+  const isLastClaim = entries.size === 0;
+  if (isLastClaim) suppressedThreads.delete(threadId);
   notifySuppressionListeners();
+  return isLastClaim;
+}
+
+/** Release only the supplied claims and report whether the thread is clear. */
+export function releaseSuppressionClaims(
+  threadId: string,
+  ids: readonly number[],
+): boolean {
+  let isClear = false;
+  for (const id of ids) {
+    if (releaseSuppression(threadId, id)) isClear = true;
+  }
+  return isClear;
 }
 
 export type SuppressionClaimToken = {

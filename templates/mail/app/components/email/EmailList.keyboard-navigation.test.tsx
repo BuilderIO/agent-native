@@ -111,7 +111,7 @@ vi.mock("@/hooks/use-emails", () => {
   return {
     EMPTY_LABELS: [],
     MoveEmailPartialFailure: class MoveEmailPartialFailure extends Error {},
-    releaseSuppression: vi.fn(),
+    releaseSuppressionClaims: vi.fn(),
     useEmails: () => ({ data: [] }),
     useLabels: () => ({ data: [] }),
     useMarkRead: mutation,

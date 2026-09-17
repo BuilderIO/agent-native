@@ -58,7 +58,7 @@ import {
   EMPTY_LABELS,
   useMoveEmail,
   MoveEmailPartialFailure,
-  releaseSuppression,
+  releaseSuppressionClaims,
   type AccountError,
 } from "@/hooks/use-emails";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
@@ -740,30 +740,47 @@ export function EmailList({
           targets.length > 1
             ? bulkArchiveEmails.getSuppressionIds
             : archiveEmail.getSuppressionIds;
+        const restorableThreadIds = new Set<string>();
         for (const key of threadKeys) {
-          for (const id of getSuppressionIds(suppressionToken, key)) {
-            releaseSuppression(key, id);
-          }
+          if (
+            releaseSuppressionClaims(
+              key,
+              getSuppressionIds(suppressionToken, key),
+            )
+          )
+            restorableThreadIds.add(key);
         }
-        queryClient.setQueriesData<InfiniteEmails>(
-          { queryKey: ["emails"] },
-          (old) => {
-            if (!old) return old;
-            // Re-insert snapshots into the first page
-            const firstPage = old.pages[0];
-            const restored = [...(firstPage?.emails ?? []), ...snapshots].sort(
-              (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
-            );
-            return {
-              ...old,
-              pages: [
-                { ...firstPage, emails: restored },
-                ...old.pages.slice(1),
-              ],
-            };
-          },
+        const restorableSnapshots = snapshots.filter((email) =>
+          restorableThreadIds.has(email.threadId || email.id),
         );
-        for (const ref of emailRefs) unarchiveEmail.mutate(ref);
+        if (restorableSnapshots.length > 0) {
+          queryClient.setQueriesData<InfiniteEmails>(
+            { queryKey: ["emails"] },
+            (old) => {
+              if (!old) return old;
+              // Re-insert snapshots into the first page
+              const firstPage = old.pages[0];
+              const restored = [
+                ...(firstPage?.emails ?? []),
+                ...restorableSnapshots,
+              ].sort(
+                (a, b) =>
+                  new Date(b.date).getTime() - new Date(a.date).getTime(),
+              );
+              return {
+                ...old,
+                pages: [
+                  { ...firstPage, emails: restored },
+                  ...old.pages.slice(1),
+                ],
+              };
+            },
+          );
+        }
+        for (const ref of emailRefs) {
+          if (restorableThreadIds.has(ref.threadId || ref.id))
+            unarchiveEmail.mutate(ref);
+        }
       };
       const consumeUndo = setUndoAction(undo);
       const toastId = toast(
@@ -871,29 +888,46 @@ export function EmailList({
           targets.length > 1
             ? bulkTrashEmails.getSuppressionIds
             : trashEmail.getSuppressionIds;
+        const restorableThreadIds = new Set<string>();
         for (const key of threadKeys) {
-          for (const id of getSuppressionIds(suppressionToken, key)) {
-            releaseSuppression(key, id);
-          }
+          if (
+            releaseSuppressionClaims(
+              key,
+              getSuppressionIds(suppressionToken, key),
+            )
+          )
+            restorableThreadIds.add(key);
         }
-        queryClient.setQueriesData<InfiniteEmails>(
-          { queryKey: ["emails"] },
-          (old) => {
-            if (!old) return old;
-            const firstPage = old.pages[0];
-            const restored = [...(firstPage?.emails ?? []), ...snapshots].sort(
-              (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
-            );
-            return {
-              ...old,
-              pages: [
-                { ...firstPage, emails: restored },
-                ...old.pages.slice(1),
-              ],
-            };
-          },
+        const restorableSnapshots = snapshots.filter((email) =>
+          restorableThreadIds.has(email.threadId || email.id),
         );
-        for (const ref of emailRefs) untrashEmail.mutate(ref);
+        if (restorableSnapshots.length > 0) {
+          queryClient.setQueriesData<InfiniteEmails>(
+            { queryKey: ["emails"] },
+            (old) => {
+              if (!old) return old;
+              const firstPage = old.pages[0];
+              const restored = [
+                ...(firstPage?.emails ?? []),
+                ...restorableSnapshots,
+              ].sort(
+                (a, b) =>
+                  new Date(b.date).getTime() - new Date(a.date).getTime(),
+              );
+              return {
+                ...old,
+                pages: [
+                  { ...firstPage, emails: restored },
+                  ...old.pages.slice(1),
+                ],
+              };
+            },
+          );
+        }
+        for (const ref of emailRefs) {
+          if (restorableThreadIds.has(ref.threadId || ref.id))
+            untrashEmail.mutate(ref);
+        }
       };
       const consumeUndo = setUndoAction(undo);
       const toastId = toast(
@@ -1558,12 +1592,11 @@ export function EmailList({
 
       const suppressionToken = archiveEmail.createSuppressionToken();
       const undo = () => {
-        for (const suppressionId of archiveEmail.getSuppressionIds(
-          suppressionToken,
+        const shouldRestore = releaseSuppressionClaims(
           tid,
-        )) {
-          releaseSuppression(tid, suppressionId);
-        }
+          archiveEmail.getSuppressionIds(suppressionToken, tid),
+        );
+        if (!shouldRestore) return;
         queryClient.setQueriesData<InfiniteEmails>(
           { queryKey: ["emails"] },
           (old) => {

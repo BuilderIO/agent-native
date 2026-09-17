@@ -14,6 +14,7 @@ import {
   parseAccountErrorsHeader,
   rebasePinnedLabelsUpdate,
   releaseSuppression,
+  releaseSuppressionClaims,
   rollbackReadMutation,
   suppressThread,
 } from "./use-emails";
@@ -83,7 +84,7 @@ describe("removal undo claim ownership", () => {
     }
     for (const source of [listSource, threadSource]) {
       expect(source).not.toContain("unsuppressThread");
-      expect(source).toContain("releaseSuppression");
+      expect(source).toContain("releaseSuppressionClaims");
       expect(source).toContain("createSuppressionToken");
       expect(source).toContain("getSuppressionIds");
     }
@@ -680,11 +681,13 @@ describe("inbox-thread cache rollback on mutation error", () => {
     });
     const row = [makeEmail("msg-archive-mute", "thread-archive-mute")];
 
-    releaseSuppression("thread-archive-mute", archived);
+    expect(releaseSuppressionClaims("thread-archive-mute", [archived])).toBe(
+      false,
+    );
 
     expect(filterSuppressedThreads(row, "inbox")).toEqual([]);
 
-    releaseSuppression("thread-archive-mute", muted);
+    expect(releaseSuppressionClaims("thread-archive-mute", [muted])).toBe(true);
     expect(filterSuppressedThreads(row, "inbox")).toHaveLength(1);
   });
 
