@@ -107,7 +107,11 @@ export function isSlideCanvasShortcutTarget(
   activeElement: Element | null,
   canvas: HTMLElement | null,
 ): boolean {
-  return Boolean(activeElement && canvas?.contains(activeElement));
+  return Boolean(
+    activeElement &&
+    (canvas?.contains(activeElement) ||
+      activeElement === canvas?.ownerDocument.body),
+  );
 }
 
 /**
@@ -129,7 +133,9 @@ const RICH_TEXT_TABLE_TAGS = new Set([
 ]);
 
 function ownsRichTextLayer(element: HTMLElement): boolean {
-  return !RICH_TEXT_TABLE_TAGS.has(element.tagName) && isRichTextBlock(element);
+  return (
+    !RICH_TEXT_TABLE_TAGS.has(element.tagName) && canEnterRichTextEdit(element)
+  );
 }
 
 /**
@@ -137,7 +143,7 @@ function ownsRichTextLayer(element: HTMLElement): boolean {
  * round-trip, so edit the clicked text leaf without replacing the group.
  */
 function ownsRichTextEditingLayer(element: HTMLElement): boolean {
-  return ownsRichTextLayer(element) && !isSmartGroup(element);
+  return canEnterRichTextEdit(element) && !isSmartGroup(element);
 }
 
 /**
@@ -185,7 +191,12 @@ export function isTextLeaf(element: HTMLElement): boolean {
 
 /** A container made only of text leaves or nested text groups. */
 export function isSmartGroup(element: HTMLElement): boolean {
-  if (!element || isInlineTextElement(element) || element.tagName === "IMG") {
+  if (
+    !element ||
+    isInlineTextElement(element) ||
+    element.tagName === "IMG" ||
+    isSlideCanvasShell(element)
+  ) {
     return false;
   }
   if (element.classList.contains("fmd-img-placeholder")) return false;
@@ -236,10 +247,54 @@ export function isRichTextBlock(element: HTMLElement): boolean {
   );
 }
 
+const RICH_TEXT_PRESERVED_STYLE_PROPERTIES = new Set([
+  "color",
+  "font-family",
+  "font-size",
+  "font-style",
+  "font-weight",
+  "letter-spacing",
+  "line-height",
+  "min-height",
+  "text-align",
+  "text-decoration",
+]);
+
+/**
+ * Rich text can replace a block's children, so layout and decoration styles
+ * on a multi-leaf group must stay outside the editor boundary.
+ */
+function hasUnsafeRichTextDescendant(element: HTMLElement): boolean {
+  return [
+    element,
+    ...Array.from(element.querySelectorAll<HTMLElement>("*")),
+  ].some((descendant) => {
+    if (
+      descendant.hasAttribute("data-slide-object-id") ||
+      descendant.classList.contains("fmd-slide-group") ||
+      descendant.classList.contains("fmd-text-box")
+    ) {
+      return true;
+    }
+    for (let index = 0; index < descendant.style.length; index += 1) {
+      const property = descendant.style.item(index);
+      if (!RICH_TEXT_PRESERVED_STYLE_PROPERTIES.has(property)) return true;
+    }
+    return false;
+  });
+}
+
+function canEnterRichTextEdit(element: HTMLElement): boolean {
+  if (!isRichTextBlock(element)) return false;
+  // A single text layer keeps its outer style while its contents are edited.
+  if (isTextLeaf(element)) return true;
+  return !hasUnsafeRichTextDescendant(element);
+}
+
 export function shouldTraverseSlideLayerChildren(
   element: HTMLElement,
 ): boolean {
-  return !isRichTextBlock(element) || isSmartGroup(element);
+  return !canEnterRichTextEdit(element) || isSmartGroup(element);
 }
 
 /** Keep a semantic list inside its containing canvas text block while editing. */
@@ -294,11 +349,14 @@ export function findSmartBlock(
     }
     if (isTextLeaf(element)) {
       const list = findEnclosingList(element, root);
-      if (list) return resolveRichTextEditingBlock(list);
-      return resolveRichTextEditingBlock(element);
+      const block = resolveRichTextEditingBlock(list ?? element);
+      return canEnterRichTextEdit(block) ? block : element;
     }
-    if (isSmartGroup(element)) return element;
-    if (isRichTextBlock(element)) return resolveRichTextEditingBlock(element);
+    if (isSmartGroup(element) && canEnterRichTextEdit(element)) return element;
+    if (isRichTextBlock(element)) {
+      const block = resolveRichTextEditingBlock(element);
+      return canEnterRichTextEdit(block) ? block : null;
+    }
     element = element.parentElement;
   }
   return null;

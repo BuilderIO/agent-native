@@ -98,6 +98,10 @@ const messages: AgentChatTranslation = {
     "Reconnaissance vocale du navigateur ou conversion parole-texte",
   "onboarding.capability.voiceInput.why":
     "L’entrée vocale transforme les demandes parlées en texte ; la saisie reste toujours disponible.",
+  "onboarding.capability.embeddings.label": "Représentations vectorielles",
+  "onboarding.capability.embeddings.keySummary": "Clé Gemini, Cohere ou Voyage",
+  "onboarding.capability.embeddings.why":
+    "Les représentations vectorielles améliorent la recherche sémantique. La recherche par mots-clés fonctionne toujours sans elles.",
   "onboarding.capability.assetsImageGeneration.label": "Génération d’images",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Crédits Builder ou clé d’un fournisseur d’images",

@@ -236,6 +236,7 @@ import { SlideOverflowWarning } from "./SlideOverflowWarning";
 import {
   contentForSlideTextContainer,
   isSlideTextContainerTag,
+  normalizeSlideClipboardHtml,
   restoreSlideTextContainerContent,
   selectionOffsetsWithin,
   SlideRichTextEditor,
@@ -506,6 +507,29 @@ function getBuilderSelector(el: HTMLElement): string | null {
   const id = el.getAttribute("data-builder-id");
   if (id) return `[data-builder-id="${id}"]`;
   return null;
+}
+
+const PASTED_TEXT_STYLE_PROPERTIES = [
+  "color",
+  "font-family",
+  "font-size",
+  "font-style",
+  "font-weight",
+  "letter-spacing",
+  "line-height",
+  "text-align",
+  "text-decoration",
+] as const;
+
+function applyPastedTextPresentation(box: HTMLElement): void {
+  const source = Array.from(
+    box.querySelectorAll<HTMLElement>("h1, h2, h3, h4, h5, h6, p, li"),
+  ).find((element) => element.textContent?.trim());
+  if (!source) return;
+  for (const property of PASTED_TEXT_STYLE_PROPERTIES) {
+    const value = source.style.getPropertyValue(property);
+    if (value) box.style.setProperty(property, value);
+  }
 }
 
 /** Strip renderer/editor-only attributes from an HTML string before saving */
@@ -4669,8 +4693,8 @@ export default function SlideEditor({
     [designSystem?.typography.bodyFont, enterInlineEdit],
   );
 
-  const pastePlainTextAsTextBox = useCallback(
-    (text: string) => {
+  const pasteTextAsTextBox = useCallback(
+    (text: string, richHtml?: string) => {
       const canvas = containerRef.current
         ? ensureSlideTextBoxCanvas(containerRef.current)
         : null;
@@ -4721,10 +4745,17 @@ export default function SlideEditor({
         { x, y, width, height },
         target,
         false,
-        text,
+        richHtml ? ZERO_WIDTH_SPACE : text,
         false,
       );
       if (!box) return false;
+
+      if (richHtml) {
+        box.innerHTML = richHtml;
+        box.style.whiteSpace = "pre-wrap";
+        box.style.overflowWrap = "anywhere";
+        applyPastedTextPresentation(box);
+      }
 
       const slideHeight = containingBlock.offsetHeight;
       if (slideHeight > 0 && box.offsetHeight > slideHeight) {
@@ -4771,13 +4802,25 @@ export default function SlideEditor({
         return;
       }
 
+      const richHtml = e.clipboardData?.getData("text/html") ?? "";
       const text = e.clipboardData?.getData("text/plain") ?? "";
-      if (!text.trim() || !pastePlainTextAsTextBox(text)) return;
+      const normalizedRichHtml = richHtml
+        ? normalizeSlideClipboardHtml(richHtml)
+        : null;
+      if (
+        normalizedRichHtml &&
+        !readSlideObjectClipboardId(richHtml, document) &&
+        pasteTextAsTextBox(text, normalizedRichHtml)
+      ) {
+        e.preventDefault();
+        return;
+      }
+      if (!text.trim() || !pasteTextAsTextBox(text)) return;
       e.preventDefault();
     };
     window.addEventListener("paste", onPaste, true);
     return () => window.removeEventListener("paste", onPaste, true);
-  }, [pastePlainTextAsTextBox, readOnly]);
+  }, [pasteTextAsTextBox, readOnly]);
 
   const placeShapeAt = useCallback(
     (
@@ -7036,6 +7079,7 @@ export default function SlideEditor({
         targetIsEditableText: Boolean(
           editableTextBlock && !isSlideCanvasShell(editableTextBlock),
         ),
+        duplicateModifierActive: e.altKey,
       });
       if (
         dragTarget &&

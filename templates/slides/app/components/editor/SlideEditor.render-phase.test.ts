@@ -313,11 +313,14 @@ describe("SlideEditor render-phase safety", () => {
   });
 
   it("pastes plain clipboard text as a selected text box outside text editing", () => {
-    const pasteStart = source.indexOf("const pastePlainTextAsTextBox");
+    const pasteStart = source.indexOf("const pasteTextAsTextBox");
     const pasteEnd = source.indexOf("const placeShapeAt", pasteStart);
     const pasteBody = source.slice(pasteStart, pasteEnd);
 
     expect(pasteBody).toContain('getData("text/plain")');
+    expect(pasteBody).toContain('getData("text/html")');
+    expect(pasteBody).toContain("normalizeSlideClipboardHtml");
+    expect(pasteBody).toContain("applyPastedTextPresentation");
     expect(pasteBody).toContain("placeTextBoxAt(");
     expect(pasteBody).toContain("selectElementForStyling(box, selector)");
     expect(pasteBody).toContain(

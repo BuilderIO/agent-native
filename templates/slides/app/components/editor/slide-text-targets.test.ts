@@ -52,6 +52,7 @@ describe("slide text targets", () => {
     expect(isSlideCanvasShortcutTarget(toolbarButton, canvas)).toBe(false);
     expect(isSlideCanvasShortcutTarget(activeElement, null)).toBe(false);
     expect(isSlideCanvasShortcutTarget(null, canvas)).toBe(false);
+    expect(isSlideCanvasShortcutTarget(document.body, canvas)).toBe(true);
   });
 
   it("keeps inline style runs inside their containing text block", () => {
@@ -150,12 +151,47 @@ describe("slide text targets", () => {
 
     expect(shouldStampBuilderId(group)).toBe(true);
     expect(shouldStampBuilderId(text)).toBe(true);
+    expect(shouldTraverseSlideLayerChildren(group)).toBe(true);
     expect(findSmartBlock(text, root)).toBe(text);
-    expect(findSmartBlock(group, root)).toBe(group);
+    expect(findSmartBlock(group, root)).toBeNull();
     expect(group.style.display).toBe("flex");
     expect(group.querySelector(".stage-label")?.getAttribute("style")).toBe(
       "background:#ffb38a;color:#101820",
     );
+  });
+
+  it("does not promote a styled multi-leaf card into one rich-text editor", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `
+      <div class="fmd-slide">
+        <div class="metric-card" style="border:1px solid #1a1a1a;padding:20px;background:#0f0f0f">
+          <div class="metric" style="font-size:54px;color:#01c8f1;line-height:1">~66%</div>
+          <div style="font-size:17px;color:#e0e0d7;margin-top:8px">of inbound is from free tools</div>
+          <div style="font:13px monospace;color:#9a9997;margin-top:8px">33% blog</div>
+        </div>
+      </div>
+    `;
+
+    const card = root.querySelector(".metric-card") as HTMLElement;
+    const metric = root.querySelector(".metric") as HTMLElement;
+
+    expect(findSmartBlock(card, root)).toBeNull();
+    expect(findSmartBlock(metric, root)).toBe(metric);
+  });
+
+  it("does not treat the autofit renderer shell as editable text", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `
+      <div class="fmd-slide">
+        <div class="fmd-autofit-scale">
+          <p>First line</p>
+          <p>Second line</p>
+        </div>
+      </div>
+    `;
+
+    const autofit = root.querySelector(".fmd-autofit-scale") as HTMLElement;
+    expect(findSmartBlock(autofit, root)).toBeNull();
   });
 
   it("keeps nested smart-group leaves in the Layers tree", () => {
