@@ -206,6 +206,17 @@ describe("openingTagOf / truncateOpeningTag / elementHtmlPreview", () => {
     );
   });
 
+  it("preserves child content while stripping runtime attributes", () => {
+    expect(
+      elementHtmlPreview({
+        html: `<section title="Hero" data-agent-native-node-id="section"><h1 data-agent-native-layer-name="Title">Title</h1><p>Feature text</p></section>`,
+        tagName: "section",
+      }),
+    ).toBe(
+      `<section title="Hero">\n  <h1>Title</h1><p>Feature text</p>\n</section>`,
+    );
+  });
+
   it("builds a fallback opening tag from metadata when there is no HTML", () => {
     expect(
       elementHtmlPreview({

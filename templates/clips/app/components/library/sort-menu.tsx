@@ -35,7 +35,7 @@ export function SortMenu({ value, onChange }: SortMenuProps) {
             <Button
               variant="ghost"
               size="icon"
-              className="h-8 w-8 shrink-0 text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+              className="h-8 w-8 shrink-0 text-muted-foreground hover:bg-accent/40 hover:text-foreground focus-visible:ring-inset focus-visible:ring-offset-0"
               aria-label={LABELS[value]}
             >
               <IconArrowsSort className="h-3.5 w-3.5" />

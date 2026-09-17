@@ -20,6 +20,8 @@ const VOID_HTML_TAGS = new Set([
 ]);
 
 const INSPECT_CODE_MAX_INLINE_TAG_LENGTH = 48;
+const INSPECT_CODE_OPENING_TAG_PATTERN =
+  /<[a-zA-Z][\w:-]*(?:"[^"]*"|'[^']*'|[^'"<>])*\/?>/g;
 
 interface ParsedOpeningTag {
   tagName: string;
@@ -163,9 +165,16 @@ function fallbackOpeningTag(
   return `<${tag}${attrs.length ? ` ${attrs.join(" ")}` : ""}>`;
 }
 
+function formatInspectCodeMarkup(markup: string): string {
+  return markup.replace(INSPECT_CODE_OPENING_TAG_PATTERN, (openTag) =>
+    formatInspectCodeOpeningTag(openTag),
+  );
+}
+
 export function elementHtmlPreview(
   data: Pick<InspectCodeData, "html" | "tagName" | "id" | "classes">,
 ): string | null {
+  const sourceHtml = data.html?.trim();
   const openingTag = openingTagOf(data.html);
   const hasFallbackMetadata = Boolean(
     data.tagName?.trim() ||
@@ -182,7 +191,25 @@ export function elementHtmlPreview(
   if (isSelfClosingOpeningTag(previewOpeningTag, tagName)) {
     return previewOpeningTag;
   }
-  return `${previewOpeningTag}\n  ...\n</${tagName}>`;
+  const closingTag = sourceHtml
+    ? new RegExp(`</\\s*${tagName}\\s*>\\s*$`, "i").exec(sourceHtml)
+    : null;
+  if (
+    !sourceHtml ||
+    !openingTag ||
+    !sourceHtml.startsWith(openingTag) ||
+    !closingTag
+  ) {
+    return `${previewOpeningTag}\n  ...\n</${tagName}>`;
+  }
+  const innerHtml = sourceHtml
+    .slice(openingTag.length, closingTag.index)
+    .trim();
+  if (!innerHtml) return `${previewOpeningTag}</${tagName}>`;
+  const formattedInnerHtml = formatInspectCodeMarkup(innerHtml)
+    .trim()
+    .replace(/^/gm, "  ");
+  return `${previewOpeningTag}\n${formattedInnerHtml}\n</${tagName}>`;
 }
 
 type HtmlTokenKind = "plain" | "punctuation" | "tag" | "attribute" | "value";

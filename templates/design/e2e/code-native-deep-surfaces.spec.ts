@@ -209,30 +209,22 @@ test.beforeEach(async ({ page }) => {
   await page.getByRole("tab", { name: "Design", exact: true }).click();
 });
 
-test("Inspect Code shows the opening tag and copyable selected HTML", async ({
-  page,
-}) => {
+test("Inspect Code shows copyable selected HTML content", async ({ page }) => {
   await selectByText(page, "Alpha Button", { screenId: fileId });
   await page.getByRole("button", { name: "Inspect code", exact: true }).click();
 
   await expect(page.getByText("Inspect code", { exact: true })).toBeVisible();
-  await expect(
-    page
-      .locator("code")
-      .filter({
-        hasText: /^<button>\s+\.\.\.\s+<\/button>$/,
-      })
-      .first(),
-  ).toBeVisible();
   const inspectCode = page
     .locator("pre")
     .filter({ hasText: "<button>" })
     .first();
+  await expect(inspectCode).toBeVisible();
+  await expect(inspectCode).toContainText("Alpha Button");
+  await expect(inspectCode).not.toContainText("...");
   await expect(inspectCode).not.toContainText("data-agent-native-");
   await expect(inspectCode).not.toContainText("style=");
-  await expect(
-    page.getByRole("button", { name: "Copy", exact: true }),
-  ).toBeEnabled();
+  const copyButton = page.getByRole("button", { name: "Copy", exact: true });
+  await expect(copyButton).toBeEnabled();
 });
 
 test("component boolean and text prop controls persist through reload", async ({
