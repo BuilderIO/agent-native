@@ -174,6 +174,11 @@ const messages = {
     emptyTitle: "設定你的品牌識別",
     emptyDescription:
       "使用你的品牌顏色、字型和徽標建立設計系統。每個新簡報都會遵循你的視覺識別。",
+    tierLimitTitle: "已達到設計系統數量上限",
+    tierLimitDescription: "您已達到目前方案的設計系統數量上限。升級方案以建立更多。",
+    tierLimitDescriptionWithCount:
+      "您在 {{plan}} 方案中已使用 {{current}}/{{max}} 個設計系統。升級方案以建立更多。",
+    tierLimitUpgrade: "升級方案",
   },
   editorToolbar: {
     layoutTitle: "標題",
@@ -725,6 +730,7 @@ const messages = {
     websitePlaceholder: "example.com 或 Nike",
     add: "新增",
     githubRepository: "連接程式碼：GitHub 倉庫",
+    codeIndexingEnterpriseOnly: "程式碼與版本庫索引需要 Enterprise 方案",
     githubRef: "分支、標籤或提交（選用）",
     githubPaths: "檔案或資料夾，以逗號分隔（選用）",
     codeFiles: "連接程式碼檔案",
