@@ -598,6 +598,30 @@ describe("editable .fig conversion", () => {
     expect(result.stats.uploadedImageCount).toBe(1);
   });
 
+  it("renders a selected frame nested inside a section", () => {
+    const document = editableDocument();
+    document.nodeChanges[2]!.parentIndex = {
+      guid: { sessionID: 1, localID: 5 },
+      position: "a",
+    };
+    document.nodeChanges.splice(2, 0, {
+      guid: { sessionID: 1, localID: 5 },
+      parentIndex: {
+        guid: { sessionID: 1, localID: 2 },
+        position: "a",
+      },
+      type: "SECTION",
+      name: "Section",
+    });
+
+    const result = renderHtmlTemplates(document, {
+      selection: new Set(["1:3"]),
+    });
+
+    expect(result.frames).toHaveLength(1);
+    expect(result.frames[0]!.frameName).toBe("Card");
+  });
+
   it("imports multi-frame flows in left-to-right canvas order, not layer/creation order", async () => {
     // A designer can reorder or duplicate frames in the layers panel without
     // moving them on the canvas, so `parentIndex.position` (creation/z order)

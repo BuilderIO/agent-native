@@ -484,7 +484,7 @@ export default function Index() {
           id,
           title: finalTitle,
           projectType,
-          designSystemId: linkedDesignSystemId,
+          ...(designSystemId !== undefined ? { designSystemId } : {}),
         } as any)
         .then(() => {
           void queryClient.invalidateQueries({
@@ -551,7 +551,9 @@ export default function Index() {
       const trimmedPrompt = prompt.trim();
       const designSystemId =
         newDesignSystemId === undefined
-          ? resolveDefaultDesignSystemId()
+          ? designSystemsLoading
+            ? undefined
+            : resolveDefaultDesignSystemId()
           : newDesignSystemId;
 
       if (selectedTemplate && newDesignMode === "design") {
@@ -563,7 +565,7 @@ export default function Index() {
           const result = await createFromTemplateMutation.mutateAsync({
             templateId: selectedTemplate.id,
             title,
-            designSystemId,
+            ...(designSystemId !== undefined ? { designSystemId } : {}),
             ...(trimmedPrompt ? { prompt } : {}),
           });
           if (!result.id) {
@@ -721,6 +723,7 @@ export default function Index() {
       navigate,
       newDesignMode,
       newDesignSystemId,
+      designSystemsLoading,
       queryClient,
       resolveDefaultDesignSystemId,
       selectedTemplate,
@@ -735,7 +738,9 @@ export default function Index() {
 
     const designSystemId =
       newDesignSystemId === undefined
-        ? resolveDefaultDesignSystemId()
+        ? designSystemsLoading
+          ? undefined
+          : resolveDefaultDesignSystemId()
         : newDesignSystemId;
     const { id, ready } = createDesign(
       t("home.untitledDesign"),
@@ -758,6 +763,7 @@ export default function Index() {
     createDesign,
     navigate,
     newDesignSystemId,
+    designSystemsLoading,
     resolveDefaultDesignSystemId,
     t,
   ]);
