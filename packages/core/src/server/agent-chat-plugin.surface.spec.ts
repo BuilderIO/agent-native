@@ -271,7 +271,7 @@ describe("request-scoped action surface", () => {
     expect(start).toBeGreaterThan(-1);
     expect(end).toBeGreaterThan(start);
     expect(route).toContain(
-      'if (ownerContext.anonymous) return { title: "" };',
+      'if (titleOwnerContext.anonymous) return { title: "" };',
     );
     expect(route).toContain("runWithRequestContext");
     expect(route).toContain("const orgId = await getOrgIdFromEvent(event);");

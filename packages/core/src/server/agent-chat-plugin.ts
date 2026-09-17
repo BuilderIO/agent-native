@@ -5531,9 +5531,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             setResponseStatus(event, 405);
             return { error: "Method not allowed" };
           }
-          const ownerContext = await resolveOwnerContext(event);
-          if (ownerContext.anonymous) return { title: "" };
-          const ownerEmail = ownerContext.owner;
+          const titleOwnerContext = await resolveOwnerContext(event);
+          if (titleOwnerContext.anonymous) return { title: "" };
+          const ownerEmail = titleOwnerContext.owner;
 
           // Per-user rate limit: 10 calls / 60s. Prevents an authenticated
           // user from spamming the endpoint to exhaust shared Anthropic
