@@ -326,6 +326,7 @@ import {
 import { getBreakpointIframeId } from "@/components/design/multi-screen/iframe-targeting";
 import {
   designPreviewWindows,
+  designPreviewWindowsForScreen,
   requestSelectionMeasurement,
 } from "@/components/design/multi-screen/measure-selection";
 import { getCurrentBoardSelectionWorldBounds } from "@/components/design/multi-screen/overview-layout";
@@ -1048,12 +1049,18 @@ function pageHasWebMcpHost(): boolean {
   return hasNativeWebMcpHost();
 }
 
-function readRenderedLayerInfo(owner: {
-  fileId: string;
-  node: CodeLayerNode;
-}): ElementInfo | null {
+function readRenderedLayerInfo(
+  owner: {
+    fileId: string;
+    node: CodeLayerNode;
+  },
+  breakpointWidth?: number,
+): ElementInfo | null {
   const base = elementInfoFromCodeLayerNode(owner.node);
-  for (const preview of designPreviewWindows()) {
+  for (const preview of designPreviewWindowsForScreen(
+    owner.fileId,
+    breakpointWidth,
+  )) {
     try {
       const element = preview.document.querySelector(
         preferredCodeLayerSelector(owner.node),
@@ -1815,6 +1822,12 @@ function DesignEditor() {
   const renderedElementInfoByLayerKeyRef = useRef<Map<string, ElementInfo>>(
     new Map(),
   );
+  const renderedElementInfoRevisionRef = useRef(0);
+  const layerSelectionHydrationRevisionRef = useRef(0);
+  const invalidateRenderedElementInfo = useCallback(() => {
+    renderedElementInfoByLayerKeyRef.current.clear();
+    renderedElementInfoRevisionRef.current += 1;
+  }, []);
   const commitStylesToSelectedLayersRef = useRef<
     (
       styles: Record<string, string>,
@@ -2204,8 +2217,8 @@ function DesignEditor() {
   const activeBreakpointWidthStateRef = useRef<number | undefined>(undefined);
   useEffect(() => {
     activeBreakpointWidthStateRef.current = activeBreakpointWidthState;
-    renderedElementInfoByLayerKeyRef.current.clear();
-  }, [activeBreakpointWidthState]);
+    invalidateRenderedElementInfo();
+  }, [activeBreakpointWidthState, invalidateRenderedElementInfo]);
   // Item 9 — dedupe marker for the agent→UI `design-active-breakpoint:<id>`
   // consumption effect below: the `breakpointId` (or the literal "auto") this
   // tab most recently applied, whether it got there via the poll-driven
@@ -5680,7 +5693,7 @@ function DesignEditor() {
       // that commit cannot observe the previous frame's scope while React is
       // still scheduling the state update.
       activeBreakpointWidthStateRef.current = widthPx;
-      renderedElementInfoByLayerKeyRef.current.clear();
+      invalidateRenderedElementInfo();
       setActiveBreakpointWidthState(widthPx);
       if (!id) return;
       const bp = designBreakpoints.find((b) => b.widthPx === widthPx);
@@ -5692,7 +5705,12 @@ function DesignEditor() {
       lastAppliedActiveBreakpointIdRef.current = breakpointId;
       persistActiveBreakpoint(breakpointId, responsiveEditScopeRef.current);
     },
-    [id, designBreakpoints, persistActiveBreakpoint],
+    [
+      id,
+      designBreakpoints,
+      invalidateRenderedElementInfo,
+      persistActiveBreakpoint,
+    ],
   );
   const handleResponsiveEditScopeChange = useCallback(
     (scope: ResponsiveEditScope) => {
@@ -8955,7 +8973,7 @@ function DesignEditor() {
       ) {
         return { status: "refused" as const };
       }
-      return runApplyLocalContentUpdate(
+      const result = runApplyLocalContentUpdate(
         {
           acknowledgeAuthoritativeClipboardMutation,
           activeFile,
@@ -8996,6 +9014,8 @@ function DesignEditor() {
             ),
         },
       );
+      if (result.status === "accepted") invalidateRenderedElementInfo();
+      return result;
     },
     [
       sourceBaseForPublication,
@@ -9017,6 +9037,7 @@ function DesignEditor() {
       syncUndoRedoState,
       t,
       ydoc,
+      invalidateRenderedElementInfo,
     ],
   );
 
@@ -9041,7 +9062,7 @@ function DesignEditor() {
       if (options.persist !== false && !canApplyContentEdit(fileId)) {
         return { status: "refused" as const };
       }
-      return runApplyFileContentUpdate(
+      const result = runApplyFileContentUpdate(
         {
           acknowledgeAuthoritativeClipboardMutation,
           activeFile,
@@ -9075,6 +9096,8 @@ function DesignEditor() {
             ),
         },
       );
+      if (result.status === "accepted") invalidateRenderedElementInfo();
+      return result;
     },
     [
       sourceBaseForPublication,
@@ -9095,6 +9118,7 @@ function DesignEditor() {
       queueFileContentSave,
       recordContentHistoryEntry,
       t,
+      invalidateRenderedElementInfo,
     ],
   );
 
@@ -10926,11 +10950,7 @@ function DesignEditor() {
       setHoveredElement(null);
       setHoveredElementScreenId(null);
       setSelectedLayerIdsState([]);
-      for (const key of renderedElementInfoByLayerKeyRef.current.keys()) {
-        if (key.startsWith(`${screenId}:`)) {
-          renderedElementInfoByLayerKeyRef.current.delete(key);
-        }
-      }
+      invalidateRenderedElementInfo();
       if (viewModeRef.current === "overview") {
         setOverviewSelectedScreenIds([]);
         if (breakpointWidthPx !== undefined) {
@@ -10942,7 +10962,11 @@ function DesignEditor() {
       setActiveTool(resolveToolAfterSelection);
       setMode("edit");
     },
-    [clearPendingOverviewLayerSelectionTimer, handleBreakpointBarSelect],
+    [
+      clearPendingOverviewLayerSelectionTimer,
+      handleBreakpointBarSelect,
+      invalidateRenderedElementInfo,
+    ],
   );
 
   const handleElementSelect = useCallback(
@@ -11445,7 +11469,7 @@ function DesignEditor() {
         styles,
         options,
       );
-      renderedElementInfoByLayerKeyRef.current.clear();
+      invalidateRenderedElementInfo();
     },
     [
       activeFile,
@@ -11471,6 +11495,7 @@ function DesignEditor() {
       upsertMotionKeyframesFromStyles,
       ydoc,
       isSynced,
+      invalidateRenderedElementInfo,
     ],
   );
 
@@ -14919,6 +14944,7 @@ function DesignEditor() {
           codeLayerOwnerByNodeIdRef,
           commitVisualStyles,
           getFreshActiveContent,
+          invalidateRenderedElementInfo,
           renderedElementInfoByLayerKeyRef,
           reportRefusal: (reason) =>
             toast.error(
@@ -14944,6 +14970,7 @@ function DesignEditor() {
       canEditDesign,
       commitVisualStyles,
       getFreshActiveContent,
+      invalidateRenderedElementInfo,
       t,
       selectedElement,
       selectedLayerIdsState,
@@ -21153,13 +21180,47 @@ function DesignEditor() {
       },
     ) => {
       const hydrateRenderedLayerInfo = () => {
+        const hydrationRevision = ++layerSelectionHydrationRevisionRef.current;
+        const renderedRevision = renderedElementInfoRevisionRef.current;
+        const breakpointWidth = activeBreakpointWidthStateRef.current;
+        type RenderedLayerOwner = {
+          fileId: string;
+          node: CodeLayerNode;
+          tree: CodeLayerTreeNode[];
+          runtimeOnly: boolean;
+        };
+        const ownersToMeasure = new Map<string, RenderedLayerOwner>();
+        for (const layerId of ids) {
+          const owner = codeLayerOwnerByNodeId.get(layerId);
+          if (!owner || owner.runtimeOnly) continue;
+          ownersToMeasure.set(layerId, owner);
+          for (const siblingId of findCodeLayerSiblingOrder(owner.tree, layerId)
+            ?.siblingIds ?? []) {
+            const siblingOwner = codeLayerOwnerByNodeId.get(siblingId);
+            if (
+              siblingOwner &&
+              siblingOwner.fileId === owner.fileId &&
+              !siblingOwner.runtimeOnly
+            ) {
+              ownersToMeasure.set(siblingId, siblingOwner);
+            }
+          }
+        }
         const cache = (
-          owner: {
-            fileId: string;
-            node: CodeLayerNode;
-          },
+          layerId: string,
+          owner: RenderedLayerOwner,
           measured: ElementInfo,
         ) => {
+          const currentOwner = codeLayerOwnerByNodeId.get(layerId);
+          if (
+            layerSelectionHydrationRevisionRef.current !== hydrationRevision ||
+            renderedElementInfoRevisionRef.current !== renderedRevision ||
+            activeBreakpointWidthStateRef.current !== breakpointWidth ||
+            currentOwner?.fileId !== owner.fileId ||
+            currentOwner?.node.id !== owner.node.id
+          ) {
+            return;
+          }
           const stableId =
             owner.node.dataAttributes["data-agent-native-node-id"];
           renderedElementInfoByLayerKeyRef.current.set(
@@ -21173,21 +21234,23 @@ function DesignEditor() {
             );
           }
         };
-        for (const layerId of ids) {
-          const owner = codeLayerOwnerByNodeId.get(layerId);
-          if (!owner || owner.runtimeOnly) continue;
-          const synchronouslyMeasured = readRenderedLayerInfo(owner);
+        for (const [layerId, owner] of ownersToMeasure) {
+          const synchronouslyMeasured = readRenderedLayerInfo(
+            owner,
+            breakpointWidth,
+          );
           if (synchronouslyMeasured) {
-            cache(owner, synchronouslyMeasured);
+            cache(layerId, owner, synchronouslyMeasured);
             continue;
           }
           void requestSelectionMeasurement({
-            targetWindows: designPreviewWindows,
+            targetWindows: () =>
+              designPreviewWindowsForScreen(owner.fileId, breakpointWidth),
             screenId: owner.fileId,
             selector: preferredCodeLayerSelector(owner.node),
           }).then((measured) => {
             if (!measured) return;
-            cache(owner, measured);
+            cache(layerId, owner, measured);
           });
         }
       };
@@ -21232,10 +21295,13 @@ function DesignEditor() {
       files,
       focusDesignInspectorForSelection,
       getScreenContent,
+      activeBreakpointWidthStateRef,
       overviewSelectedScreenIds,
       recordSelectionHistoryAroundChange,
+      renderedElementInfoRevisionRef,
       renderedElementInfoByLayerKeyRef,
       selectedElement,
+      layerSelectionHydrationRevisionRef,
     ],
   );
 

@@ -174,6 +174,50 @@ describe("runChangeSelectedZIndex — a paint-order change must not move anythin
     expect(targetStyles()?.zIndex).toBe("10");
   });
 
+  it("uses the sibling's rendered breakpoint stack level", () => {
+    const content = `<div data-agent-native-node-id="wrap">
+<div data-agent-native-node-id="a" style="position:absolute;z-index:2"></div>
+<div data-agent-native-node-id="b" style="position:absolute"></div>
+</div>`;
+    const { args, commitVisualStyles, targetStyles } = multiHarness(
+      content,
+      ["a"],
+      {
+        rendered: {
+          a: { computedStyles: { position: "absolute", zIndex: "2" } },
+          b: { computedStyles: { position: "absolute", zIndex: "9" } },
+        },
+      },
+    );
+
+    runChangeSelectedZIndex(args, "forward");
+
+    expect(commitVisualStyles).toHaveBeenCalledOnce();
+    expect(targetStyles()?.zIndex).toBe("10");
+  });
+
+  it("does not treat an authored sibling z-index as painted when computed style is auto", () => {
+    const content = `<div data-agent-native-node-id="wrap">
+<div data-agent-native-node-id="a"></div>
+<div data-agent-native-node-id="b" style="z-index:9"></div>
+</div>`;
+    const { args, commitVisualStyles, targetStyles } = multiHarness(
+      content,
+      ["a"],
+      {
+        rendered: {
+          a: { computedStyles: { position: "static", zIndex: "auto" } },
+          b: { computedStyles: { position: "static", zIndex: "auto" } },
+        },
+      },
+    );
+
+    runChangeSelectedZIndex(args, "front");
+
+    expect(commitVisualStyles).toHaveBeenCalledOnce();
+    expect(targetStyles()?.zIndex).toBe("1");
+  });
+
   it("sends to back below static siblings, not to z-index 0", () => {
     const { args, applyLocalContentUpdate } = harness({
       computedStyles: { position: "static", zIndex: "auto" },
@@ -357,6 +401,7 @@ function multiHarness(
     ...options.selectedElement,
   } as ElementInfo;
   const reportRefusal = vi.fn();
+  const commitVisualStyles = vi.fn();
   const args = {
     activeBreakpointUpperBoundPx: options.activeBreakpointUpperBoundPx,
     activeBreakpointWidthStateRef: {
@@ -374,7 +419,7 @@ function multiHarness(
         ]),
       ),
     },
-    commitVisualStyles: vi.fn(),
+    commitVisualStyles,
     getFreshActiveContent: () => currentContent,
     renderedElementInfoByLayerKeyRef: { current: rendered },
     reportRefusal,
@@ -385,12 +430,20 @@ function multiHarness(
     selectedLayerIdsState: selectedNodes.map((node) => node.id),
     setSelectedElement: vi.fn(),
   } as unknown as Parameters<typeof runChangeSelectedZIndex>[0];
+  const targetStyles = () =>
+    commitVisualStyles.mock.calls.find(
+      ([, styles]) =>
+        "zIndex" in (styles as Record<string, string>) ||
+        "z-index" in (styles as Record<string, string>),
+    )?.[1] as Record<string, string> | undefined;
   return {
     args,
     applyLocalContentUpdate,
     currentContent: () => currentContent,
+    commitVisualStyles,
     reportRefusal,
     rendered,
+    targetStyles,
   };
 }
 
@@ -664,6 +717,27 @@ describe("runChangeSelectedZIndex — refusal is atomic and visible", () => {
     });
     expect(applyLocalContentUpdate).not.toHaveBeenCalled();
     expect(reportRefusal).toHaveBeenCalledWith("responsive-scope");
+  });
+
+  it("reorders a linked component root beside an outer sibling", () => {
+    const content = `<div data-agent-native-node-id="wrap">
+<section data-agent-native-node-id="main" data-agent-native-component-id="card" style="position:absolute"><div data-agent-native-node-id="child"></div></section>
+<div data-agent-native-node-id="outer" style="position:absolute"></div>
+</div>`;
+    const { args, applyLocalContentUpdate, reportRefusal } = multiHarness(
+      content,
+      ["main"],
+      { rendered: { main: { computedStyles: { position: "absolute" } } } },
+    );
+
+    const result = runChangeSelectedZIndex(args, "front");
+
+    expect(result).toEqual({ status: "applied" });
+    expect(reportRefusal).not.toHaveBeenCalled();
+    expect(applyLocalContentUpdate).toHaveBeenCalledOnce();
+    expect(
+      directChildNames(applyLocalContentUpdate.mock.calls[0]![0]!, "wrap"),
+    ).toEqual(["outer", "main"]);
   });
 
   it("stops positioned-descendant scans at an intermediate wrapper", () => {

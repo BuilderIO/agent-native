@@ -89,6 +89,7 @@ export interface ChangeSelectedZIndexArgs {
     },
   ) => void;
   getFreshActiveContent: () => string;
+  invalidateRenderedElementInfo?: () => void;
   renderedElementInfoByLayerKeyRef?: RefObject<Map<string, ElementInfo>>;
   reportRefusal?: (reason: ZOrderRefusal) => void;
   responsiveEditScopeRef?: RefObject<ResponsiveEditScope>;
@@ -267,10 +268,14 @@ function inFlowZIndexContext(
       selectedElement,
       renderedElementInfoByLayerKeyRef,
     );
-    const computed = Number.parseInt(info.computedStyles.zIndex ?? "", 10);
-    const declared = Number.isFinite(computed)
-      ? computed
-      : Number.parseInt(sibling.style["z-index"] ?? "", 10);
+    const computedValue = info.computedStyles.zIndex?.trim().toLowerCase();
+    const computed = Number.parseInt(computedValue ?? "", 10);
+    const declared =
+      computedValue === "auto"
+        ? Number.NaN
+        : Number.isFinite(computed)
+          ? computed
+          : Number.parseInt(sibling.style["z-index"] ?? "", 10);
     if (Number.isFinite(declared)) {
       siblingFloor = Math.min(siblingFloor, declared);
       siblingPaintLevels.push(declared);
@@ -408,6 +413,17 @@ function findNodeByDurableId(
   );
 }
 
+function intentTouchesLinkedComponentInternals(
+  intent: MoveNodeEditIntent,
+  projection: CodeLayerProjection,
+): boolean {
+  const targetId = intent.target.nodeId;
+  if (!targetId) return false;
+  const target = findNodeByDurableId(projection, targetId);
+  const root = target && linkedComponentRootForNode(target, projection);
+  return Boolean(root && root.id !== target.id);
+}
+
 function applyStyleWrites(
   content: string,
   projection: CodeLayerProjection,
@@ -456,6 +472,7 @@ function legacyStyleFallback(
 ): ChangeSelectedZIndexResult {
   const {
     commitVisualStyles,
+    invalidateRenderedElementInfo,
     renderedElementInfoByLayerKeyRef,
     selectedElement,
   } = args;
@@ -484,8 +501,18 @@ function legacyStyleFallback(
     },
     { elementInfo: selectedElement },
   );
-  renderedElementInfoByLayerKeyRef?.current.clear();
+  invalidateRenderedElementInfo?.();
+  if (!invalidateRenderedElementInfo)
+    renderedElementInfoByLayerKeyRef?.current.clear();
   return { status: "applied" };
+}
+
+function clearRenderedElementInfo(args: ChangeSelectedZIndexArgs): void {
+  if (args.invalidateRenderedElementInfo) {
+    args.invalidateRenderedElementInfo();
+    return;
+  }
+  args.renderedElementInfoByLayerKeyRef?.current.clear();
 }
 
 export function runChangeSelectedZIndex(
@@ -676,7 +703,7 @@ export function runChangeSelectedZIndex(
         ),
         { elementInfo: targets[0]!.info },
       );
-      renderedElementInfoByLayerKeyRef?.current.clear();
+      clearRenderedElementInfo(args);
       return { status: "applied" };
     }
     return refuse("linked-component");
@@ -703,7 +730,7 @@ export function runChangeSelectedZIndex(
         ),
         { elementInfo: target.info },
       );
-      renderedElementInfoByLayerKeyRef?.current.clear();
+      clearRenderedElementInfo(args);
       return { status: "applied" };
     }
   }
@@ -726,20 +753,22 @@ export function runChangeSelectedZIndex(
     }
   }
 
-  const linkedStructure =
-    intents.length > 0 &&
-    dispatchLinkedComponentStructure({
+  const linkedInternalIntents = intents.filter((intent) =>
+    intentTouchesLinkedComponentInternals(intent, initialProjection),
+  );
+  if (linkedInternalIntents.length > 0) {
+    const linkedStructure = dispatchLinkedComponentStructure({
       content: baseContent,
       source,
       intents,
       applyLinkedComponentEdit,
     });
-  if (linkedStructure) {
-    renderedElementInfoByLayerKeyRef?.current.clear();
-    return { status: "queued" };
-  }
-  if (linkedRoots.size > 0 && intents.length > 0)
+    if (linkedStructure) {
+      clearRenderedElementInfo(args);
+      return { status: "queued" };
+    }
     return refuse("linked-component");
+  }
 
   let nextContent = baseContent;
   let nextProjection = initialProjection;
@@ -769,7 +798,7 @@ export function runChangeSelectedZIndex(
     forcePreviewFullDocument: true,
   });
   if (publication.status !== "accepted") return refuse("publication");
-  renderedElementInfoByLayerKeyRef?.current.clear();
+  clearRenderedElementInfo(args);
 
   const primaryId = selectedLayerIdsState[selectedLayerIdsState.length - 1]!;
   const originalPrimary = nodeForId(
