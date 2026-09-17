@@ -30,6 +30,16 @@ import type { DesignFile } from "@/pages/design-editor/types";
 
 const DUPLICATE_SCREEN_GAP = 56;
 
+export interface DuplicateScreenRecoveryEntry {
+  sourceScreenId: string;
+  fileId?: string;
+  content?: string;
+  fileType?: DesignFile["fileType"];
+  geometry?: FrameGeometry;
+  screenMetadata?: Record<string, unknown>;
+  localhostScreen?: Record<string, unknown>;
+}
+
 function isCompleteFrameGeometry(
   geometry: CanvasFrameGeometry | undefined,
 ): geometry is FrameGeometry {
@@ -72,9 +82,7 @@ export interface DuplicateScreenArgs {
     typeof useActionMutation<undefined, undefined, "delete-file">
   >["mutateAsync"];
   designDataJsonRef: RefObject<Record<string, unknown>>;
-  duplicateRecoveryRef: RefObject<
-    Map<string, { sourceScreenId: string; fileId?: string }>
-  >;
+  duplicateRecoveryRef: RefObject<Map<string, DuplicateScreenRecoveryEntry>>;
   files: DesignFile[];
   focusCreatedScreen: (
     screenId: string,
@@ -153,6 +161,7 @@ export function runDuplicateScreen(
   const recoveryEntry = [...recoveries.entries()].find(
     ([, recovery]) => recovery.sourceScreenId === screenId,
   );
+  const recoveryState = recoveryEntry?.[1];
   const filename =
     recoveryEntry?.[0] ??
     nextDuplicatedFilename(
@@ -169,8 +178,10 @@ export function runDuplicateScreen(
     );
   const recoveredFileId = recoveryEntry?.[1].fileId;
   if (!recoveryEntry) pendingFilenames.add(filename);
-  const content = reassignDuplicatedNodeIds(source.content);
-  const fileType = normalizedDesignFileType(source.fileType);
+  const content =
+    recoveryState?.content ?? reassignDuplicatedNodeIds(source.content);
+  const fileType =
+    recoveryState?.fileType ?? normalizedDesignFileType(source.fileType);
   const sourceOverviewScreen = overviewScreens.find(
     (screen) => screen.id === screenId,
   );
@@ -194,14 +205,62 @@ export function runDuplicateScreen(
     sourceGeometry,
     occupiedGeometries,
   );
-  const createdGeometry: FrameGeometry = request?.canvasPosition
-    ? {
-        ...sourceGeometry,
-        x: request.canvasPosition.x,
-        y: request.canvasPosition.y,
-        z: adjacentGeometry.z,
-      }
-    : adjacentGeometry;
+  const createdGeometry: FrameGeometry =
+    recoveryState?.geometry ??
+    (request?.canvasPosition
+      ? {
+          ...sourceGeometry,
+          x: request.canvasPosition.x,
+          y: request.canvasPosition.y,
+          z: adjacentGeometry.z,
+        }
+      : adjacentGeometry);
+  // Carry screen dimensions/height mode for every duplicate so the new frame
+  // uses the same overview scale. Runtime metadata also keeps localhost/fusion
+  // duplicates URL-backed. The carry must be path-addressed or it replaces a
+  // peer's metadata for every other screen.
+  const sourceMetadataById = getDesignDataRecord(
+    designDataJsonRef.current,
+    "screenMetadata",
+  );
+  const sourceMetadata = getDesignDataRecord(sourceMetadataById, screenId);
+  const sourceType = sourceMetadata.sourceType;
+  const carriesRuntimeMetadata =
+    sourceType === "localhost" || sourceType === "fusion";
+  const metadataToCopy = carriesRuntimeMetadata
+    ? sourceMetadata
+    : Object.fromEntries(
+        [
+          "sourceType",
+          "width",
+          "height",
+          "heightPinned",
+          "heightMode",
+          "breakpointHeights",
+        ].flatMap((key) =>
+          key in sourceMetadata ? [[key, sourceMetadata[key]]] : [],
+        ),
+      );
+  const currentScreenMetadata =
+    Object.keys(metadataToCopy).length > 0 ? { ...metadataToCopy } : undefined;
+  const currentLocalhostScreen = carriesRuntimeMetadata
+    ? getDesignDataRecord(
+        getDesignDataRecord(designDataJsonRef.current, "localhostScreens"),
+        screenId,
+      )
+    : {};
+  const currentLocalhostMetadata =
+    Object.keys(currentLocalhostScreen).length > 0
+      ? { ...currentLocalhostScreen }
+      : undefined;
+  const screenMetadata =
+    recoveryState && "screenMetadata" in recoveryState
+      ? recoveryState.screenMetadata
+      : currentScreenMetadata;
+  const localhostScreen =
+    recoveryState && "localhostScreen" in recoveryState
+      ? recoveryState.localhostScreen
+      : currentLocalhostMetadata;
   // Per-call mutate callbacks, not a promise, would silently strand every
   // duplicate but the last: a second mutate() detaches the observer from
   // the first mutation, so only the newest call's onSuccess ever runs.
@@ -220,7 +279,14 @@ export function runDuplicateScreen(
       let result = rawResult;
       let nextId = createdFileIdFromResult(result);
       if (!nextId) {
-        recoveries.set(filename, { sourceScreenId: screenId });
+        recoveries.set(filename, {
+          sourceScreenId: screenId,
+          content,
+          fileType,
+          geometry: createdGeometry,
+          screenMetadata,
+          localhostScreen,
+        });
         const reconciled = await reconcileCreatedFile({
           queryClient,
           designId: id,
@@ -246,47 +312,6 @@ export function runDuplicateScreen(
         ...getCanvasFrameGeometry(designDataJsonRef.current),
         [nextId]: createdGeometry,
       });
-      // Carry screen dimensions/height mode for every duplicate so the new
-      // frame uses the same overview scale. Runtime metadata also keeps
-      // localhost/fusion duplicates URL-backed. The carry must be
-      // path-addressed or it replaces a peer's metadata for every other
-      // screen.
-      const sourceMetadataById = getDesignDataRecord(
-        designDataJsonRef.current,
-        "screenMetadata",
-      );
-      const sourceMetadata = getDesignDataRecord(sourceMetadataById, screenId);
-      const sourceType = sourceMetadata.sourceType;
-      const carriesRuntimeMetadata =
-        sourceType === "localhost" || sourceType === "fusion";
-      const metadataToCopy = carriesRuntimeMetadata
-        ? sourceMetadata
-        : Object.fromEntries(
-            [
-              "sourceType",
-              "width",
-              "height",
-              "heightPinned",
-              "heightMode",
-              "breakpointHeights",
-            ].flatMap((key) =>
-              key in sourceMetadata ? [[key, sourceMetadata[key]]] : [],
-            ),
-          );
-      const screenMetadata =
-        Object.keys(metadataToCopy).length > 0
-          ? { ...metadataToCopy }
-          : undefined;
-      const sourceLocalhostScreen = carriesRuntimeMetadata
-        ? getDesignDataRecord(
-            getDesignDataRecord(designDataJsonRef.current, "localhostScreens"),
-            screenId,
-          )
-        : {};
-      const localhostScreen =
-        Object.keys(sourceLocalhostScreen).length > 0
-          ? { ...sourceLocalhostScreen }
-          : undefined;
       const dataOperations: DesignDataOperation[] = [
         {
           op: "set",
@@ -366,6 +391,11 @@ export function runDuplicateScreen(
           recoveries.set(filename, {
             sourceScreenId: screenId,
             fileId: createdFileId,
+            content,
+            fileType,
+            geometry: createdGeometry,
+            screenMetadata,
+            localhostScreen,
           });
         } else {
           recoveries.delete(filename);

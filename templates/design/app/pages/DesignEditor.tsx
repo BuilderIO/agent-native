@@ -628,7 +628,10 @@ import { runDistributeSelection } from "./design-editor/commands/distribute-sele
 import { runDownloadAllScreensPdf } from "./design-editor/commands/download-all-screens-pdf";
 import { runDownloadPdf } from "./design-editor/commands/download-pdf";
 import { runDownloadSvg } from "./design-editor/commands/download-svg";
-import { runDuplicateScreen } from "./design-editor/commands/duplicate-screen";
+import {
+  runDuplicateScreen,
+  type DuplicateScreenRecoveryEntry,
+} from "./design-editor/commands/duplicate-screen";
 import { runDuplicateSelection } from "./design-editor/commands/duplicate-selection";
 import { runEditorPaste } from "./design-editor/commands/editor-paste";
 import { runEnterHotkey } from "./design-editor/commands/enter-hotkey";
@@ -2421,7 +2424,7 @@ function DesignEditor() {
   const fileCreationRedoStackRef = useRef<FileCreationHistoryEntry[]>([]);
   const pendingDuplicateFilenamesRef = useRef<Set<string>>(new Set());
   const duplicateRecoveryRef = useRef<
-    Map<string, { sourceScreenId: string; fileId?: string }>
+    Map<string, DuplicateScreenRecoveryEntry>
   >(new Map());
   const fileDeletionUndoStackRef = useRef<FileDeletionHistoryEntry[]>([]);
   const fileDeletionRedoStackRef = useRef<FileDeletionHistoryEntry[]>([]);

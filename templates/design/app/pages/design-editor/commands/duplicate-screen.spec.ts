@@ -144,6 +144,14 @@ describe("runDuplicateScreen", () => {
   });
 
   it("reuses a created row when cleanup fails", async () => {
+    const source = {
+      id: "source",
+      filename: "index.html",
+      fileType: "html",
+      content: '<main data-version="one"></main>',
+      createdAt: "",
+      updatedAt: "",
+    };
     const createFileAsync = vi.fn().mockResolvedValue({ id: "copy-1" });
     const deleteFileAsync = vi
       .fn()
@@ -157,6 +165,7 @@ describe("runDuplicateScreen", () => {
         createFileAsync as DuplicateScreenArgs["createFileAsync"],
       deleteFileAsync:
         deleteFileAsync as DuplicateScreenArgs["deleteFileAsync"],
+      files: [source],
       updateDesignAsync:
         updateDesignAsync as DuplicateScreenArgs["updateDesignAsync"],
     });
@@ -168,11 +177,15 @@ describe("runDuplicateScreen", () => {
       ),
     );
 
-    expect(args.duplicateRecoveryRef.current.get("index-copy.html")).toEqual({
-      sourceScreenId: "source",
-      fileId: "copy-1",
-    });
+    expect(args.duplicateRecoveryRef.current.get("index-copy.html")).toEqual(
+      expect.objectContaining({
+        sourceScreenId: "source",
+        fileId: "copy-1",
+        content: '<main data-version="one"></main>',
+      }),
+    );
 
+    source.content = '<main data-version="two"></main>';
     runDuplicateScreen(args, "source");
     await vi.waitFor(() =>
       expect(args.focusCreatedScreen).toHaveBeenCalledWith(
@@ -185,6 +198,11 @@ describe("runDuplicateScreen", () => {
     expect(createFileAsync).toHaveBeenCalledTimes(1);
     expect(deleteFileAsync).toHaveBeenCalledTimes(1);
     expect(args.recordFileCreationHistoryEntry).toHaveBeenCalledTimes(1);
+    expect(args.optimisticallyInsertCreatedFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: '<main data-version="one"></main>',
+      }),
+    );
     expect(args.duplicateRecoveryRef.current.size).toBe(0);
   });
 
@@ -220,9 +238,9 @@ describe("runDuplicateScreen", () => {
         expect.stringContaining("no persisted file could be reconciled"),
       ),
     );
-    expect(args.duplicateRecoveryRef.current.get("index-copy.html")).toEqual({
-      sourceScreenId: "source",
-    });
+    expect(args.duplicateRecoveryRef.current.get("index-copy.html")).toEqual(
+      expect.objectContaining({ sourceScreenId: "source" }),
+    );
 
     runDuplicateScreen(args, "source");
     await vi.waitFor(() =>

@@ -401,6 +401,7 @@ describe("redo — selection history after a file-deletion redo", () => {
     runRedo(args as unknown as Parameters<typeof runRedo>[0]);
 
     expect(args.fileCreationRedoStackRef.current).toHaveLength(1);
+    expect(args.redoOrderRef.current).toEqual(["file-created"]);
     expect(args.createFileMutation.mutateAsync).not.toHaveBeenCalled();
   });
 });

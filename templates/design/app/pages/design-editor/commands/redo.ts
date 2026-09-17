@@ -1471,6 +1471,14 @@ export function runRedo({
     while (!didRedo) {
       const preferred = redoOrderRef.current[redoOrderRef.current.length - 1];
       if (preferred !== "clipboard-paste") redoOrderRef.current.pop();
+      if (
+        preferred === "file-created" &&
+        !id &&
+        fileCreationRedoStackRef.current.length > 0
+      ) {
+        redoOrderRef.current.push(preferred);
+        break;
+      }
       didRedo = redoByOrder(preferred);
       if (contentReplayRefused) {
         if (preferred !== undefined && preferred !== "clipboard-paste")
