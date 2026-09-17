@@ -214,6 +214,8 @@ function AgentNativeWebMcpRegistration({
 }: {
   excludeActionNames?: readonly string[];
 }) {
+  const excludeActionNamesKey = JSON.stringify(excludeActionNames ?? []);
+
   useEffect(() => {
     // sessionBypass surfaces are token-authenticated MCP embeds; their host
     // may call tools immediately, so registration must not wait out the
@@ -231,7 +233,7 @@ function AgentNativeWebMcpRegistration({
     return () => {
       registration.stop();
     };
-  }, []);
+  }, [excludeActionNamesKey]);
   return null;
 }
 
@@ -244,6 +246,8 @@ function SessionGatedAgentNativeWebMcpRegistration({
   const registrationRef = useRef<ReturnType<
     typeof createAgentNativeServerActionWebMcpRegistration
   > | null>(null);
+  const registrationExcludeActionNamesKeyRef = useRef<string | null>(null);
+  const excludeActionNamesKey = JSON.stringify(excludeActionNames ?? []);
   useEffect(() => {
     // The manifest route requires a session, so registration starts only on
     // a confirmed session: a signed-out visitor (first visit, expired cookie)
@@ -258,9 +262,19 @@ function SessionGatedAgentNativeWebMcpRegistration({
       // the existing one alive until the session settles.
       registrationRef.current?.stop();
       registrationRef.current = null;
+      registrationExcludeActionNamesKeyRef.current = null;
       return;
     }
-    if (status !== "authenticated" || registrationRef.current) return;
+    if (
+      status !== "authenticated" ||
+      (registrationRef.current &&
+        registrationExcludeActionNamesKeyRef.current === excludeActionNamesKey)
+    ) {
+      return;
+    }
+    registrationRef.current?.stop();
+    registrationRef.current = null;
+    registrationExcludeActionNamesKeyRef.current = null;
     const cancel = scheduleAfterPaint(() => {
       const registration = createAgentNativeServerActionWebMcpRegistration({
         excludeActionNames,
@@ -271,17 +285,19 @@ function SessionGatedAgentNativeWebMcpRegistration({
         // loading.
       });
       registrationRef.current = registration;
+      registrationExcludeActionNamesKeyRef.current = excludeActionNamesKey;
     });
     return () => {
       cancel();
     };
     // Unmount stops exactly the registration this surface created, whether
     // it started or is still scheduled.
-  }, [status, excludeActionNames]);
+  }, [status, excludeActionNamesKey]);
   useEffect(
     () => () => {
       registrationRef.current?.stop();
       registrationRef.current = null;
+      registrationExcludeActionNamesKeyRef.current = null;
     },
     [],
   );
