@@ -23,8 +23,10 @@ import {
   IconCircleCheck,
   IconCode,
   IconCopy,
+  IconDotsVertical,
   IconFile,
   IconGitBranch,
+  IconId,
   IconMessage,
   IconPlugConnected,
   IconPlayerPause,
@@ -42,6 +44,7 @@ import {
   memo,
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -854,11 +857,17 @@ export function AgentActivityGroup({
       event.type === "activity.completed"
     ) {
       if (excludeAgentActivities && event.activity.agentId) continue;
-      activityMap.set(event.activity.id, event.activity);
+      activityMap.set(
+        event.activity.id,
+        thread.activities[event.activity.id] ?? event.activity,
+      );
       remember(event.activity.id, event.sequence);
     }
     if (event.type === "tool.started" || event.type === "tool.updated") {
-      toolMap.set(event.toolCall.id, event.toolCall);
+      toolMap.set(
+        event.toolCall.id,
+        thread.tools[event.toolCall.id] ?? event.toolCall,
+      );
       remember(event.toolCall.id, event.sequence);
     }
     if (event.type === "tool.delta") {
@@ -906,9 +915,9 @@ export function AgentActivityGroup({
       : undefined;
   const activelyWorking =
     throughSequence === undefined &&
-    run !== undefined &&
-    run.status === "running";
-  const visiblyRunning = throughSequence === undefined && running;
+    (run === undefined ? running : run.status === "running");
+  const visiblyRunning =
+    throughSequence === undefined && activelyWorking && running;
   const [elapsedAt, setElapsedAt] = useState<number>();
   useEffect(() => {
     if (!activelyWorking || !Number.isFinite(startedAt)) return;
@@ -924,7 +933,6 @@ export function AgentActivityGroup({
   const completedRunSummary =
     throughSequence !== undefined ||
     (afterSequence === undefined &&
-      !running &&
       run !== undefined &&
       ["completed", "failed", "cancelled"].includes(run.status));
   const [open, setOpen] = useState(visiblyRunning);
@@ -1192,7 +1200,7 @@ export function AgentTaskGroup({
       ids.push(event.task.id);
       firstSequence.set(event.task.id, event.sequence);
     }
-    tasks.set(event.task.id, event.task);
+    tasks.set(event.task.id, thread.tasks[event.task.id] ?? event.task);
   }
   const selectedIds = ids.filter((id) => {
     const sequence = firstSequence.get(id);
@@ -1710,11 +1718,46 @@ export function AgentMessagePartView({
   }
 }
 
+/** Resolves the stable server request identity without exposing local UI ids. */
+export function resolveAgentMessageRequestId(
+  message: AgentMessage,
+  events: readonly AgentEvent[],
+): RunId | undefined {
+  const metadata = message.metadata as
+    | (Record<string, unknown> & {
+        custom?: Record<string, unknown>;
+      })
+    | undefined;
+  for (const source of [metadata?.custom, metadata]) {
+    for (const key of ["requestId", "runId"]) {
+      const value = source?.[key];
+      if (typeof value === "string" && value) return value as RunId;
+    }
+  }
+
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index];
+    const matches =
+      (event.type === "message.created" ||
+        event.type === "message.completed") &&
+      event.message.id === message.id;
+    if (
+      matches ||
+      ((event.type === "message.delta" || event.type === "reasoning.delta") &&
+        event.messageId === message.id)
+    ) {
+      return event.runId;
+    }
+  }
+  return undefined;
+}
+
 export function AgentMessageActions({
   value: message,
   threadId,
 }: AgentKitRenderProps<AgentMessage>) {
   const { labels, onThreadForked } = useAgentKit();
+  const thread = useAgentThread(threadId);
   const feedbackCapability = useAgentCapability("feedback");
   const forkingCapability = useAgentCapability("threadForking");
   const control = useAgentKitControl(threadId);
@@ -1730,9 +1773,21 @@ export function AgentMessageActions({
     null,
   );
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [requestIdCopied, setRequestIdCopied] = useState(false);
+  const [actionModeOpen, setActionModeOpen] = useState(false);
+  const actionPanelId = useId();
+  const requestIdCopiedTimer = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const requestId = useMemo(
+    () => resolveAgentMessageRequestId(message, thread.events),
+    [message, thread.events],
+  );
   useEffect(
     () => () => {
       if (copiedTimer.current) clearTimeout(copiedTimer.current);
+      if (requestIdCopiedTimer.current)
+        clearTimeout(requestIdCopiedTimer.current);
     },
     [message.id],
   );
@@ -1749,6 +1804,21 @@ export function AgentMessageActions({
       control.submitFeedback(message.id, value),
     `${threadId}:${message.id}:feedback`,
   );
+  const requestIdAction = useAgentKitMutation(
+    async () => {
+      if (!requestId) throw new Error(labels.requestIdUnavailable);
+      if (!(await writeClipboardText(requestId))) {
+        throw new Error(labels.copyUnavailable);
+      }
+      setRequestIdCopied(true);
+      if (requestIdCopiedTimer.current)
+        clearTimeout(requestIdCopiedTimer.current);
+      requestIdCopiedTimer.current = setTimeout(() => {
+        setRequestIdCopied(false);
+      }, 1_400);
+    },
+    `${threadId}:${message.id}:request-id:${requestId ?? "unavailable"}`,
+  );
   const forkAction = useAgentKitMutation(async () => {
     const thread = await control.fork(message.id);
     onThreadForked?.(thread);
@@ -1764,61 +1834,148 @@ export function AgentMessageActions({
     }
   };
   const actionError =
-    copyAction.error ?? feedbackAction.error ?? forkAction.error;
+    copyAction.error ??
+    feedbackAction.error ??
+    requestIdAction.error ??
+    forkAction.error;
   return (
-    <div className="agentkit-message-actions">
-      <IconButton
-        label={copied ? labels.copied : labels.copy}
-        icon={
-          copied ? (
-            <IconCircleCheck aria-hidden="true" />
-          ) : (
-            <IconCopy aria-hidden="true" />
-          )
-        }
-        size="compact"
-        pending={copyAction.pending}
-        onPress={() => void copyAction.execute().catch(() => undefined)}
-      />
-      {message.role === "assistant" && feedbackCapability.visible ? (
+    <div
+      className="agentkit-message-actions"
+      data-action-mode={actionModeOpen ? "expanded" : "default"}
+    >
+      {message.role === "assistant" ? (
         <>
+          <div
+            className="agentkit-message-action-swap"
+            id={actionPanelId}
+            aria-live="polite"
+          >
+            <div
+              className="agentkit-message-action-group agentkit-message-action-group--default"
+              aria-hidden={actionModeOpen}
+            >
+              <IconButton
+                label={copied ? labels.copied : labels.copy}
+                icon={
+                  copied ? (
+                    <IconCircleCheck aria-hidden="true" />
+                  ) : (
+                    <IconCopy aria-hidden="true" />
+                  )
+                }
+                size="compact"
+                pending={copyAction.pending}
+                disabled={actionModeOpen}
+                onPress={() => void copyAction.execute().catch(() => undefined)}
+              />
+              {feedbackCapability.visible ? (
+                <>
+                  <IconButton
+                    label={labels.positiveFeedback}
+                    icon={<IconThumbUp aria-hidden="true" />}
+                    size="compact"
+                    aria-pressed={feedback === "positive"}
+                    pending={feedbackAction.pending && feedback === "positive"}
+                    disabled={
+                      actionModeOpen ||
+                      feedbackAction.pending ||
+                      !feedbackCapability.enabled
+                    }
+                    title={feedbackCapability.reason}
+                    onPress={() => void updateFeedback("positive")}
+                  />
+                  <IconButton
+                    label={labels.negativeFeedback}
+                    icon={<IconThumbDown aria-hidden="true" />}
+                    size="compact"
+                    aria-pressed={feedback === "negative"}
+                    pending={feedbackAction.pending && feedback === "negative"}
+                    disabled={
+                      actionModeOpen ||
+                      feedbackAction.pending ||
+                      !feedbackCapability.enabled
+                    }
+                    title={feedbackCapability.reason}
+                    onPress={() => void updateFeedback("negative")}
+                  />
+                </>
+              ) : null}
+            </div>
+            <div
+              className="agentkit-message-action-group agentkit-message-action-group--request-id"
+              aria-hidden={!actionModeOpen}
+            >
+              <IconButton
+                label={requestIdCopied ? labels.copied : labels.copyRequestId}
+                icon={
+                  requestIdCopied ? (
+                    <IconCircleCheck aria-hidden="true" />
+                  ) : (
+                    <IconId aria-hidden="true" />
+                  )
+                }
+                size="compact"
+                pending={requestIdAction.pending}
+                disabled={
+                  !actionModeOpen || !requestId || requestIdAction.pending
+                }
+                title={
+                  requestId
+                    ? requestIdCopied
+                      ? labels.copied
+                      : labels.copyRequestId
+                    : labels.requestIdUnavailable
+                }
+                onPress={() =>
+                  void requestIdAction.execute().catch(() => undefined)
+                }
+              />
+              {forkingCapability.visible && onThreadForked ? (
+                <IconButton
+                  label={labels.fork}
+                  icon={<IconGitBranch aria-hidden="true" />}
+                  size="compact"
+                  pending={forkAction.pending}
+                  disabled={!actionModeOpen || !forkingCapability.enabled}
+                  title={forkingCapability.reason}
+                  onPress={() =>
+                    void forkAction.execute().catch(() => undefined)
+                  }
+                />
+              ) : null}
+            </div>
+          </div>
           <IconButton
-            label={labels.positiveFeedback}
-            icon={<IconThumbUp aria-hidden="true" />}
+            label={labels.messageActions}
+            icon={<IconDotsVertical aria-hidden="true" />}
             size="compact"
-            aria-pressed={feedback === "positive"}
-            pending={feedbackAction.pending && feedback === "positive"}
-            disabled={feedbackAction.pending || !feedbackCapability.enabled}
-            title={feedbackCapability.reason}
-            onPress={() => void updateFeedback("positive")}
-          />
-          <IconButton
-            label={labels.negativeFeedback}
-            icon={<IconThumbDown aria-hidden="true" />}
-            size="compact"
-            aria-pressed={feedback === "negative"}
-            pending={feedbackAction.pending && feedback === "negative"}
-            disabled={feedbackAction.pending || !feedbackCapability.enabled}
-            title={feedbackCapability.reason}
-            onPress={() => void updateFeedback("negative")}
+            aria-expanded={actionModeOpen}
+            aria-controls={actionPanelId}
+            title={labels.messageActions}
+            onPress={() => {
+              setActionModeOpen((open) => {
+                const next = !open;
+                if (!next) setRequestIdCopied(false);
+                return next;
+              });
+            }}
           />
         </>
-      ) : null}
-      {message.role === "assistant" &&
-      forkingCapability.visible &&
-      onThreadForked ? (
-        <>
-          <IconButton
-            label={labels.fork}
-            icon={<IconGitBranch aria-hidden="true" />}
-            size="compact"
-            pending={forkAction.pending}
-            disabled={!forkingCapability.enabled}
-            title={forkingCapability.reason}
-            onPress={() => void forkAction.execute().catch(() => undefined)}
-          />
-        </>
-      ) : null}
+      ) : (
+        <IconButton
+          label={copied ? labels.copied : labels.copy}
+          icon={
+            copied ? (
+              <IconCircleCheck aria-hidden="true" />
+            ) : (
+              <IconCopy aria-hidden="true" />
+            )
+          }
+          size="compact"
+          pending={copyAction.pending}
+          onPress={() => void copyAction.execute().catch(() => undefined)}
+        />
+      )}
       {message.createdAt ? (
         <time dateTime={message.createdAt}>
           {new Date(message.createdAt).toLocaleTimeString([], {

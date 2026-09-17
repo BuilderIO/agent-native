@@ -493,6 +493,98 @@ describe("createAgentKitProtocolAdapter", () => {
     expect(withFeedback.capabilities?.feedback).toBe(true);
   });
 
+  it("closes omitted tool lifecycles before publishing a terminal run", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "tool-start",
+        toolCall: {
+          id: "tool-1",
+          name: "search",
+          input: { query: "agentkit" },
+        },
+      };
+      yield { type: "done", reason: "complete" };
+    }
+    const transport = createAgentKitProtocolAdapter(createRuntime(events));
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Search")],
+    });
+
+    const result = await drain(
+      transport.subscribeToRun({ threadId: "thread-1", runId }),
+    );
+    const toolUpdated = result.find((event) => event.type === "tool.updated");
+    expect(toolUpdated).toMatchObject({
+      toolCall: {
+        id: "tool-1",
+        name: "search",
+        input: { query: "agentkit" },
+        status: "completed",
+      },
+    });
+    expect(result.map((event) => event.type)).toEqual([
+      "run.started",
+      "run.status",
+      "tool.started",
+      "activity.started",
+      "tool.updated",
+      "activity.completed",
+      "run.status",
+      "run.completed",
+    ]);
+    expect(result.at(-1)?.type).toBe("run.completed");
+  });
+
+  it("does not append runtime events after a terminal marker", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield { type: "done", reason: "complete" };
+      yield { type: "status", message: "Late runtime update" };
+    }
+    const transport = createAgentKitProtocolAdapter(createRuntime(events));
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Finish")],
+    });
+
+    const result = await drain(
+      transport.subscribeToRun({ threadId: "thread-1", runId }),
+    );
+
+    expect(result.map((event) => event.type)).toEqual([
+      "run.started",
+      "run.status",
+      "run.status",
+      "run.completed",
+    ]);
+    expect(result.some((event) => event.type === "activity.updated")).toBe(
+      false,
+    );
+  });
+
+  it("retains usage reported before a completion marker without usage", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "usage",
+        usage: { inputTokens: 12, outputTokens: 7, totalTokens: 19 },
+      };
+      yield { type: "done", reason: "complete" };
+    }
+    const transport = createAgentKitProtocolAdapter(createRuntime(events));
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Summarize it")],
+    });
+
+    await drain(transport.subscribeToRun({ threadId: "thread-1", runId }));
+
+    await expect(
+      transport.getRun({ threadId: "thread-1", runId }),
+    ).resolves.toMatchObject({
+      usage: { inputTokens: 12, outputTokens: 7, totalTokens: 19 },
+    });
+  });
+
   it("preserves event capabilities but rejects operation claims without implementations", async () => {
     async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
       yield { type: "done", reason: "complete" };

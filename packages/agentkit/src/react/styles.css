@@ -667,6 +667,26 @@ body:has(> [data-agent-native-composer-popover="true"]) > .fixed.inset-0 {
   padding-inline-start: 1.25rem;
 }
 
+.agentkit-markdown ul {
+  list-style-type: disc;
+}
+
+.agentkit-markdown ol {
+  list-style-type: decimal;
+}
+
+.agentkit-markdown li::marker {
+  color: var(--agentkit-text-muted);
+}
+
+.agentkit-markdown ul ul {
+  list-style-type: circle;
+}
+
+.agentkit-markdown ol ol {
+  list-style-type: lower-alpha;
+}
+
 .agentkit-markdown li + li {
   margin-block-start: 0.25rem;
 }
@@ -722,6 +742,59 @@ body:has(> [data-agent-native-composer-popover="true"]) > .fixed.inset-0 {
 .agentkit-message:hover .agentkit-message-actions,
 .agentkit-message:focus-within .agentkit-message-actions {
   opacity: 1;
+}
+
+.agentkit-message-actions[data-action-mode="expanded"] {
+  opacity: 1;
+}
+
+.agentkit-message-action-swap {
+  display: grid;
+  min-inline-size: max-content;
+  grid-template-areas: "actions";
+  overflow: hidden;
+}
+
+.agentkit-message-action-group {
+  grid-area: actions;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.125rem;
+  transition:
+    opacity 180ms ease,
+    transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    visibility 0s linear 180ms;
+}
+
+.agentkit-message-action-group--default {
+  opacity: 1;
+  transform: translateX(0);
+  visibility: visible;
+}
+
+.agentkit-message-action-group--request-id {
+  opacity: 0;
+  transform: translateX(0.4rem);
+  pointer-events: none;
+  visibility: hidden;
+}
+
+.agentkit-message-actions[data-action-mode="expanded"]
+  .agentkit-message-action-group--default {
+  opacity: 0;
+  transform: translateX(-0.4rem);
+  pointer-events: none;
+  visibility: hidden;
+}
+
+.agentkit-message-actions[data-action-mode="expanded"]
+  .agentkit-message-action-group--request-id {
+  opacity: 1;
+  transform: translateX(0);
+  pointer-events: auto;
+  visibility: visible;
+  transition-delay: 0s;
 }
 
 .agentkit-message-actions button {
@@ -1435,6 +1508,7 @@ button.agentkit-object {
   }
 
   .agentkit-message-actions,
+  .agentkit-message-action-group,
   .agentkit-summary-chevron,
   .agentkit-disclosure-icon,
   .agentkit-reasoning-chevron,
