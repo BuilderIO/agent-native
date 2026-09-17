@@ -1,5 +1,19 @@
 # @agent-native/dispatch
 
+## 0.38.2
+
+### Patch Changes
+
+- ffafd84: Keep the Apps page readable when the hosted workspace registry denies a read. A
+  gateway authorization denial now falls back to the deployment-owned manifest
+  without persisting or reconciling unverified access rows.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [5ede9f7]
+- Updated dependencies
+- Updated dependencies [ffafd84]
+- Updated dependencies [424d0cd]
+  - @agent-native/toolkit@0.20.4
+
 ## 0.38.1
 
 ### Patch Changes
@@ -998,12 +1012,5 @@
 
 - Updated dependencies [a107169]
   - @agent-native/toolkit@0.13.5
-
-## 0.20.2
-
-### Patch Changes
-
-- 6071f7d: Provision and reuse the connected Builder workspace project automatically for hosted Turn Into App requests.
-- 6071f7d: Keep language selection in Settings instead of the Dispatch header.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

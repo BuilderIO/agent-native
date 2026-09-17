@@ -75,6 +75,17 @@ export interface DecodedFig {
   thumbnail: Uint8Array | null;
 }
 
+export interface DecodeFigOptions {
+  /** `null` removes only the raw-file cap for browser-local decoding. */
+  maxFileBytes?: number | null;
+}
+
+function maxFileBytes(options?: DecodeFigOptions): number | null {
+  return options?.maxFileBytes === undefined
+    ? MAX_FIG_FILE_BYTES
+    : options.maxFileBytes;
+}
+
 function sha1(buf: Uint8Array): string {
   return sha1Hex(buf);
 }
@@ -205,9 +216,15 @@ function decompressChunk(buf: Uint8Array): Uint8Array {
   return checkDecompressedSize(buf.slice());
 }
 
-export function decodeKiwiContainer(file: Uint8Array): DecodedFigKiwi {
-  if (file.length > MAX_FIG_FILE_BYTES) {
-    throw new Error(".fig file is too large (max 50 MB).");
+export function decodeKiwiContainer(
+  file: Uint8Array,
+  options?: DecodeFigOptions,
+): DecodedFigKiwi {
+  const fileLimit = maxFileBytes(options);
+  if (fileLimit !== null && file.length > fileLimit) {
+    throw new Error(
+      `.fig file is too large (max ${Math.round(fileLimit / 1024 / 1024)} MB).`,
+    );
   }
   if (
     !bytesEqual(file.subarray(0, 8), FIG_KIWI_MAGIC) &&
@@ -824,9 +841,15 @@ function assertSafeBinarySchemaShape(schemaBuf: Uint8Array): void {
 
 // Handles both modern fig-kiwi files and legacy zip-format archives.
 // `document` is null if kiwi decoding failed.
-export function decodeFig(file: Uint8Array): DecodedFig {
-  if (file.length > MAX_FIG_FILE_BYTES) {
-    throw new Error(".fig file is too large (max 50 MB).");
+export function decodeFig(
+  file: Uint8Array,
+  options?: DecodeFigOptions,
+): DecodedFig {
+  const fileLimit = maxFileBytes(options);
+  if (fileLimit !== null && file.length > fileLimit) {
+    throw new Error(
+      `.fig file is too large (max ${Math.round(fileLimit / 1024 / 1024)} MB).`,
+    );
   }
   if (isZip(file)) {
     const entries = readZip(file);
@@ -837,7 +860,7 @@ export function decodeFig(file: Uint8Array): DecodedFig {
     let version: number | undefined;
     let extraBlobs: Uint8Array[] = [];
     if (!canvasEntry) throw new Error(".fig zip is missing canvas.fig.");
-    const inner = decodeKiwiContainer(canvasEntry.data);
+    const inner = decodeKiwiContainer(canvasEntry.data, options);
     version = inner.version;
     extraBlobs = inner.blobs;
     const kiwiResult = decodeKiwiDocument(inner.schema, inner.document);
@@ -872,7 +895,7 @@ export function decodeFig(file: Uint8Array): DecodedFig {
     };
   }
 
-  const decoded = decodeKiwiContainer(file);
+  const decoded = decodeKiwiContainer(file, options);
   const kiwiResult = decodeKiwiDocument(decoded.schema, decoded.document);
   const images = collectImagesFromBlobs(decoded.blobs);
   const thumbnail = findThumbnail(decoded.document, decoded.blobs);

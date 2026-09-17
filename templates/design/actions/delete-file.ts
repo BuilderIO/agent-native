@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -10,6 +10,7 @@ import {
 } from "../server/lib/design-versions.js";
 import {
   affectedRowCount,
+  designSourceMutationLockKey,
   lockDesignFilesTable,
 } from "../server/source-workspace.js";
 import { isOverviewScreenFile } from "../shared/design-files.js";
@@ -177,6 +178,9 @@ export default defineAction({
     // history cannot capture a state that interleaves with the delete.
     const deleted = await withDesignVersionLock(file.designId, async () => {
       return db.transaction(async (tx) => {
+        await tx.execute(
+          sql`SELECT pg_advisory_xact_lock(hashtextextended(${designSourceMutationLockKey(file.designId)}, 0::bigint))`,
+        );
         await lockDesignFilesTable(tx);
         const currentFiles = await tx
           .select({

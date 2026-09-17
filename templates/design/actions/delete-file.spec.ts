@@ -14,15 +14,12 @@ const mocks = vi.hoisted(() => {
   const txSelectChain = {
     from: vi.fn(),
     where: vi.fn(),
-    limit: vi.fn(),
     for: vi.fn(),
+    limit: vi.fn(),
   };
   txSelectChain.from.mockReturnValue(txSelectChain);
   txSelectChain.where.mockReturnValue(txSelectChain);
-  txSelectChain.for.mockResolvedValue([
-    { id: "file-a", filename: "a.html", fileType: "html" },
-    { id: "file-b", filename: "b.html", fileType: "html" },
-  ]);
+  txSelectChain.for.mockReturnValue(txSelectChain);
   const txDesignSelectChain = {
     from: vi.fn(),
     where: vi.fn(),
@@ -42,6 +39,7 @@ const mocks = vi.hoisted(() => {
     ),
     delete: vi.fn(() => txDeleteChain),
     update: vi.fn(() => txUpdateChain),
+    execute: vi.fn().mockResolvedValue({ rows: [] }),
   };
 
   const db = {
@@ -116,7 +114,10 @@ vi.mock("../server/lib/design-versions.js", () => ({
 
 vi.mock("../server/source-workspace.js", () => ({
   affectedRowCount: mocks.affectedRowCount,
+  designSourceMutationLockKey: (designId: string) =>
+    `agent-native:design-source:${designId}`,
   lockDesignFilesTable: mocks.lockDesignFilesTable,
+  lockDesignSourceMutation: vi.fn(),
 }));
 
 import action from "./delete-file.js";
@@ -134,6 +135,7 @@ describe("delete-file", () => {
         content: "<main>Delete</main>",
       },
     ]);
+    mocks.txSelectChain.limit.mockResolvedValue([{ content: undefined }]);
     mocks.designData = {
       canvasFrames: {
         "file-a": { x: 0 },
@@ -337,7 +339,6 @@ describe("delete-file", () => {
       "editor",
     );
     expect(mocks.tx.delete).toHaveBeenCalled();
-
     const data = mocks.designData;
     expect(data.keepMe).toBe(true);
     expect(data.canvasFrames).toEqual({ "file-a": { x: 0 } });

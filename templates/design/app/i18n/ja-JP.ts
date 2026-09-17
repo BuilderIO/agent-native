@@ -4,6 +4,11 @@ const messages = {
   ...messagesByLocale["ja-JP"],
   designEditor: {
     ...messagesByLocale["ja-JP"].designEditor,
+    import: {
+      ...messagesByLocale["ja-JP"].designEditor.import,
+      figUploadDescriptionShort:
+        "ローカルインポート — Figma API の割り当てを使用しません。対応する埋め込み画像が含まれます。",
+    },
     componentInstances: {
       ...messagesByLocale["ja-JP"].designEditor.componentInstances,
       restore: "コンポーネントを復元",

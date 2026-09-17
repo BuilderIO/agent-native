@@ -63,6 +63,7 @@ vi.mock("@agent-native/core/sharing", () => ({
 vi.mock("nanoid", () => ({ nanoid: captureMocks.nanoid }));
 
 vi.mock("../source-workspace.js", () => ({
+  lockDesignSourceMutation: vi.fn(),
   withSourceFileWriteLock: async (
     _fileId: string,
     work: () => Promise<unknown>,

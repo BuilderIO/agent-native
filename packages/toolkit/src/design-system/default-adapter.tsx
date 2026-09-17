@@ -61,12 +61,19 @@ import {
   TooltipTrigger,
 } from "../ui/tooltip.js";
 import { cn } from "../utils.js";
-import type { DesignSystemComponents, MenuItem } from "./types.js";
+import type {
+  DesignSystemComponents,
+  DesignSystemEmphasis,
+  DesignSystemIntent,
+  MenuItem,
+} from "./types.js";
 
 function buttonVariant(
-  intent: "primary" | "neutral" | "danger" = "neutral",
-  emphasis: "solid" | "outline" | "ghost" = "solid",
+  intent: DesignSystemIntent = "neutral",
+  emphasis: DesignSystemEmphasis = "solid",
+  inset = false,
 ) {
+  if (inset && emphasis === "ghost") return "ghost-inset" as const;
   if (emphasis === "ghost") return "ghost" as const;
   if (emphasis === "outline") return "outline" as const;
   if (intent === "primary") return "default" as const;
@@ -84,6 +91,7 @@ const DefaultActionButton: DesignSystemComponents["ActionButton"] = ({
   children,
   intent,
   emphasis,
+  inset,
   size,
   pending,
   disabled,
@@ -99,7 +107,7 @@ const DefaultActionButton: DesignSystemComponents["ActionButton"] = ({
     {...props}
     ref={elementRef}
     type={type}
-    variant={buttonVariant(intent, emphasis)}
+    variant={buttonVariant(intent, emphasis, inset)}
     size={buttonSize(size)}
     disabled={disabled || pending}
     onClick={(event) => {

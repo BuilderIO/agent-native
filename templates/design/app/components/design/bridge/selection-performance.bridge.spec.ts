@@ -322,21 +322,22 @@ describe("a marquee drag does not rebuild element info every frame", () => {
       await page.mouse.up();
       await page.waitForTimeout(80);
 
-      const { finals, lastIsFinal, lastIds } = await page.evaluate(() => {
+      const { finals, lastIsFinal, lastInfos } = await page.evaluate(() => {
         const msgs = (
           window as unknown as {
             __marqueeMessages: Array<{
               intent?: { final?: boolean };
-              payload?: Array<{ sourceId?: string }>;
+              payload?: Array<{
+                sourceId?: string;
+                computedStyles?: Record<string, string>;
+              }>;
             }>;
           }
         ).__marqueeMessages;
         return {
           finals: msgs.filter((m) => m.intent?.final === true).length,
           lastIsFinal: msgs[msgs.length - 1]?.intent?.final === true,
-          lastIds: (msgs[msgs.length - 1]?.payload ?? []).map(
-            (p) => p.sourceId ?? "",
-          ),
+          lastInfos: msgs[msgs.length - 1]?.payload ?? [],
         };
       });
 
@@ -344,7 +345,14 @@ describe("a marquee drag does not rebuild element info every frame", () => {
       // mouseup report: the host records one undo step per gesture off it.
       expect(finals).toBe(1);
       expect(lastIsFinal).toBe(true);
-      expect(lastIds).toEqual(expect.arrayContaining(["card-0"]));
+      expect(lastInfos.map((info) => info.sourceId ?? "")).toEqual(
+        expect.arrayContaining(["card-0"]),
+      );
+      expect(
+        lastInfos.every(
+          (info) => Object.keys(info.computedStyles ?? {}).length > 0,
+        ),
+      ).toBe(true);
     } finally {
       await browser.close();
     }

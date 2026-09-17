@@ -4,6 +4,11 @@ const messages = {
   ...messagesByLocale["ko-KR"],
   designEditor: {
     ...messagesByLocale["ko-KR"].designEditor,
+    import: {
+      ...messagesByLocale["ko-KR"].designEditor.import,
+      figUploadDescriptionShort:
+        "로컬 가져오기 — Figma API 할당량을 사용하지 않습니다. 지원되는 포함 이미지가 포함됩니다.",
+    },
     componentInstances: {
       ...messagesByLocale["ko-KR"].designEditor.componentInstances,
       restore: "컴포넌트 복원",

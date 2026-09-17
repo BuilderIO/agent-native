@@ -1458,6 +1458,7 @@ export default defineAction({
 
       const workspace = await resolveSourceWorkspace(file.designId, {
         includeContent: true,
+        includeBoard: true,
       });
       if (workspace.sourceType !== "inline") {
         return noWrite(

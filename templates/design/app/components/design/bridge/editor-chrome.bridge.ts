@@ -9310,7 +9310,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     infoCache?: Map<Element, unknown> | null,
     lightInfoCache?: Map<Element, unknown> | null,
   ): void {
-    var primaryIndex = elements.length - 1;
     function lightInfo(el: Element): unknown {
       if (!lightInfoCache) return getLightElementInfo(el, true);
       var cached = lightInfoCache.get(el);
@@ -9324,12 +9323,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       {
         type: "agent-native:layer-marquee-selection",
         phase: "change",
-        payload: elements.map(function (el, index) {
-          // Live ticks only need identity and geometry. Defer the expensive
-          // computed-style/subtree snapshot to the final primary item, which
-          // is the element the host keeps as the inspector selection.
+        payload: elements.map(function (el) {
+          // Live ticks only need identity and geometry. On the settled report,
+          // every member needs its own computed state: z-order planning must not
+          // classify passive selections from authored source or the primary
+          // inspector payload.
           if (!final) return lightInfo(el);
-          if (index !== primaryIndex) return lightInfo(el);
           if (!infoCache) return getElementInfo(el);
           var cached = infoCache.get(el);
           if (cached === undefined) {

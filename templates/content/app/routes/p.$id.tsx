@@ -46,12 +46,14 @@ type PublicDocumentLoaderData =
       };
       agentAccessToken: string | null;
       basePath: string;
+      origin: string;
       unavailable?: undefined;
     }
   | {
       document: null;
       agentAccessToken: null;
       basePath: string;
+      origin: string;
       unavailable: { reason: "private"; id: string; basePath: string };
     };
 
@@ -80,6 +82,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
   const agentAccessToken = new URL(request.url).searchParams.get(
     AGENT_ACCESS_PARAM,
   );
+  const origin = new URL(request.url).origin;
 
   // This is a server loader; use the server-side base-path helper
   // (reads APP_BASE_PATH / VITE_APP_BASE_PATH at request time)
@@ -119,6 +122,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
         document: doc,
         agentAccessToken: tokenAccess ? agentAccessToken : null,
         basePath,
+        origin,
       },
       tokenAccess,
     );
@@ -137,6 +141,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
     document: null,
     agentAccessToken: null,
     basePath,
+    origin,
     unavailable: { reason: "private" as const, id, basePath },
   });
 }
@@ -156,6 +161,7 @@ export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
         },
         token: loaderData?.agentAccessToken,
         basePath: loaderData?.basePath,
+        origin: loaderData?.origin,
       })
     : null;
   return [
@@ -290,15 +296,18 @@ export function AgentReadableDocumentDiscovery({
   document,
   token,
   basePath,
+  origin,
 }: {
   document: { id: string; title?: string };
   token?: string | null;
   basePath?: string;
+  origin?: string;
 }) {
   const discovery = buildContentDocumentAgentDiscovery({
     document,
     token,
     basePath,
+    origin,
   });
   return (
     <>
@@ -307,7 +316,7 @@ export function AgentReadableDocumentDiscovery({
         dangerouslySetInnerHTML={{ __html: safeJsonForHtml(discovery) }}
       />
       <div className="hidden" aria-hidden="true">
-        {contentDocumentMcpInstructionText(document.id, { basePath })}
+        {contentDocumentMcpInstructionText(document.id, { basePath, origin })}
       </div>
     </>
   );
@@ -316,9 +325,11 @@ export function AgentReadableDocumentDiscovery({
 function PrivateDocumentNotice({
   id,
   basePath,
+  origin,
 }: {
   id?: string;
   basePath?: string;
+  origin?: string;
 }) {
   const t = useT();
   useEffect(() => {
@@ -335,7 +346,11 @@ function PrivateDocumentNotice({
   return (
     <main className="min-h-screen bg-background text-foreground">
       {id ? (
-        <AgentReadableDocumentDiscovery document={{ id }} basePath={basePath} />
+        <AgentReadableDocumentDiscovery
+          document={{ id }}
+          basePath={basePath}
+          origin={origin}
+        />
       ) : null}
       <section className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center px-6 text-center">
         <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-xl border border-border bg-muted text-muted-foreground">
@@ -362,6 +377,7 @@ export default function PublicDocumentPage() {
       <PrivateDocumentNotice
         id={data.unavailable?.id}
         basePath={data.unavailable?.basePath}
+        origin={data.origin}
       />
     );
   }
@@ -373,6 +389,7 @@ export default function PublicDocumentPage() {
         document={document}
         token={data.agentAccessToken}
         basePath={data.basePath}
+        origin={data.origin}
       />
       <div className="mx-auto flex max-w-3xl justify-end px-6 pt-5 sm:px-8">
         <button

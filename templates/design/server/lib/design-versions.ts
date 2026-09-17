@@ -17,7 +17,7 @@ import {
 } from "@agent-native/core/private-blob";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
-import { and, asc, desc, eq, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import {
@@ -27,6 +27,7 @@ import {
 import { getDb, schema } from "../db/index.js";
 import {
   affectedRowCount,
+  designSourceMutationLockKey,
   lockDesignFilesTable,
   withSourceFileWriteLock,
 } from "../source-workspace.js";
@@ -1023,6 +1024,9 @@ export async function restoreDesignVersion(args: {
       ],
       async () => {
         return db.transaction(async (tx) => {
+          await tx.execute(
+            sql`SELECT pg_advisory_xact_lock(hashtextextended(${designSourceMutationLockKey(args.designId)}, 0::bigint))`,
+          );
           await lockDesignFilesTable(tx);
           const lockedFiles = await tx
             .select()

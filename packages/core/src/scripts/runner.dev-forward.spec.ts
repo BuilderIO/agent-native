@@ -41,6 +41,22 @@ vi.mock("../server/dev-action-bridge.js", () => ({
   hashDatabaseKey: (...args: unknown[]) => mockHashDatabaseKey(...args),
   readDevActionDiscoveryFile: (...args: unknown[]) =>
     mockReadDevActionDiscoveryFile(...args),
+  isLoopbackDevActionOrigin: (origin: string) => {
+    try {
+      const url = new URL(origin);
+      return (
+        (url.protocol === "http:" || url.protocol === "https:") &&
+        (url.hostname === "127.0.0.1" ||
+          url.hostname === "localhost" ||
+          url.hostname === "[::1]") &&
+        url.pathname === "/" &&
+        !url.search &&
+        !url.hash
+      );
+    } catch {
+      return false;
+    }
+  },
 }));
 
 import { tryForwardToDevServer } from "./runner.js";

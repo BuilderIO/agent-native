@@ -104,7 +104,9 @@ const mocks = vi.hoisted(() => {
 
   const tx = {
     select,
+    insert,
     update,
+    execute: vi.fn().mockResolvedValue({ rows: [] }),
   };
 
   const transaction = vi.fn(async (fn: (tx: typeof tx) => Promise<void>) => {
@@ -863,7 +865,7 @@ describe("generate-design: new-file creation path", () => {
 
     const savedFileId = result.savedFiles[0]!.id;
     expect(result.urlPath).toBe(
-      `/design/design-1?view=overview&screen=${savedFileId}`,
+      `/design/design-1?editorView=overview&screen=${savedFileId}`,
     );
     const link = action.link?.({ args: {}, result });
     expect(link?.url).toContain(`screen=${savedFileId}`);

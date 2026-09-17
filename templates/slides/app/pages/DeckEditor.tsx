@@ -3054,7 +3054,7 @@ export default function DeckEditor() {
       <input
         ref={uploadInputRef}
         type="file"
-        accept="image/*"
+        accept="image/*,.svg"
         onChange={handleDirectUpload}
         className="hidden"
       />

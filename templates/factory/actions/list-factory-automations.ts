@@ -4,10 +4,11 @@ import { z } from "zod";
 
 import { readFactoryDefinition } from "../server/factory-graph/store.js";
 import {
-  buildGuardrailsText,
-  extractGuardrails,
+  normalizeUserPrompt,
+  previewAutomationInstructions,
+  readConfigSavedAt,
   readFactoryAutomationConfig,
-  stripInjectedAutomationBlocks,
+  readPromptVersion,
 } from "../server/lib/factory-automation-config.js";
 import { listFactoryAutomationDefinitions } from "../server/lib/factory-automation-resources.js";
 import {
@@ -47,12 +48,17 @@ export default defineAction({
           limit: 20,
         });
         const config = readFactoryAutomationConfig(resource.content, name);
-        const prompt = stripInjectedAutomationBlocks(resource.content);
         const factoryIdFromJob = readAutomationFactoryId(
           meta,
           resource.content,
           resource.path,
         );
+        const prompt = normalizeUserPrompt(resource.content);
+        const instructions = previewAutomationInstructions({
+          factoryId: factoryIdFromJob,
+          config,
+          automationName: name,
+        });
         return {
           id: resource.id,
           name,
@@ -84,9 +90,10 @@ export default defineAction({
           dailyMinute: config.dailyMinute,
           inboxLimit: config.inboxLimit,
           workLimit: config.workLimit,
-          guardrails:
-            extractGuardrails(resource.content) ||
-            buildGuardrailsText(factoryIdFromJob, config),
+          guardrails: instructions.guardrails,
+          skillAlignment: instructions.skillAlignment,
+          promptVersion: readPromptVersion(resource.content),
+          configSavedAt: readConfigSavedAt(resource.content),
           updatedAt:
             Number.isFinite(resource.updatedAt) && resource.updatedAt > 0
               ? new Date(resource.updatedAt).toISOString()

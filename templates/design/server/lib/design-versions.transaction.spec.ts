@@ -135,6 +135,10 @@ vi.mock("drizzle-orm", () => ({
   desc: (value: unknown) => ({ desc: value }),
   eq: (left: unknown, right: unknown) => ({ left, right }),
   isNull: (value: unknown) => ({ isNull: value }),
+  sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({
+    strings,
+    values,
+  }),
 }));
 
 vi.mock("nanoid", () => ({ nanoid: vi.fn(() => "restored-file-id") }));
@@ -142,6 +146,11 @@ vi.mock("nanoid", () => ({ nanoid: vi.fn(() => "restored-file-id") }));
 vi.mock("../source-workspace.js", () => ({
   affectedRowCount: (result: { rowCount?: unknown } | undefined) =>
     typeof result?.rowCount === "number" ? result.rowCount : undefined,
+  designSourceMutationLockKey: (designId: string) =>
+    `agent-native:design-source:${designId}`,
+  lockDesignSourceMutation: vi.fn(async () => {
+    state.events.push("advisory");
+  }),
   lockDesignFilesTable: vi.fn(async () => {
     state.events.push("table");
   }),
@@ -191,6 +200,7 @@ vi.mock("../db/index.js", () => {
       }),
     }),
     delete: () => ({ where: async () => ({ rowCount: 1 }) }),
+    execute: async () => ({ rows: [] }),
     transaction: async (
       callback: (tx: Record<string, unknown>) => Promise<unknown>,
     ) => {

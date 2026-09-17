@@ -53,15 +53,65 @@ describe("document save ownership after a rejected CAS", () => {
     expect(persist).toHaveBeenCalledTimes(1);
   });
 
-  it("preserves the draft until a server-only change reaches the live editor", async () => {
-    const localDraft = `${original} Peer suffix.`;
+  it("merges independent peer and local block edits before retrying", async () => {
+    const localDraft =
+      "Writers inspect changes.\nReaders retain context and annotations.";
+    const peerWinner = {
+      ...winner,
+      content: "Writers review changes.\nReaders retain context.",
+    };
+    const merged =
+      "Writers review changes.\nReaders retain context and annotations.";
+    const persisted = {
+      ...peerWinner,
+      content: merged,
+      updatedAt: "2026-09-09T00:00:03.000Z",
+    };
     const persist = vi
       .fn()
-      .mockResolvedValue({ conflict: true, document: winner });
+      .mockResolvedValueOnce({ conflict: true, document: peerWinner })
+      .mockResolvedValueOnce(persisted);
+    const confirm = vi.fn();
+
+    await expect(
+      saveDocumentWithRebase({
+        base,
+        content: localDraft,
+        persist,
+        owner: {
+          version: 1,
+          current: () => ({ version: 1, content: localDraft }),
+          confirm,
+        },
+      }),
+    ).resolves.toEqual({
+      status: "saved",
+      document: persisted,
+      content: merged,
+    });
+    expect(persist).toHaveBeenNthCalledWith(2, merged, {
+      content: peerWinner.content,
+      updatedAt: peerWinner.updatedAt,
+    });
+    expect(confirm).toHaveBeenCalledWith(merged);
+    expect(merged.match(/Writers review changes\./g)).toHaveLength(1);
+  });
+
+  it("combines a server-only change with a local suffix before retrying", async () => {
+    const localDraft = `${original} Peer suffix.`;
+    const merged = `${accepted} Peer suffix.`;
+    const persist = vi
+      .fn()
+      .mockResolvedValueOnce({ conflict: true, document: winner })
+      .mockResolvedValueOnce({ ...winner, content: merged });
     await expect(
       saveDocumentWithRebase({ base, content: localDraft, persist }),
-    ).resolves.toEqual({ status: "conflict", localDraft });
-    expect(persist).toHaveBeenCalledTimes(1);
+    ).resolves.toEqual({
+      status: "saved",
+      document: { ...winner, content: merged },
+      content: merged,
+    });
+    expect(persist).toHaveBeenCalledTimes(2);
   });
 
   it("does not mistake matching content for confirmation of an unsaved title", async () => {
@@ -103,6 +153,39 @@ describe("document save ownership after a rejected CAS", () => {
       saveDocumentWithRebase({ base, content: draft, persist }),
     ).resolves.toEqual({ status: "conflict", localDraft: draft });
     expect(persist).toHaveBeenCalledTimes(3);
+  });
+
+  it("retains the merged candidate when a later retry conflicts", async () => {
+    const localDraft =
+      "Writers inspect changes.\nReaders retain context and annotations.";
+    const peerWinner = {
+      ...winner,
+      content: "Writers review changes.\nReaders retain context.",
+    };
+    const merged =
+      "Writers review changes.\nReaders retain context and annotations.";
+    const laterWinner = {
+      ...peerWinner,
+      content: "Writers publish changes.\nReaders retain context.",
+      updatedAt: "2026-09-09T00:00:03.000Z",
+    };
+    const persist = vi
+      .fn()
+      .mockResolvedValueOnce({ conflict: true, document: peerWinner })
+      .mockResolvedValueOnce({ conflict: true, document: laterWinner });
+
+    await expect(
+      saveDocumentWithRebase({
+        base,
+        content: localDraft,
+        persist,
+        canRetry: () => persist.mock.calls.length < 2,
+      }),
+    ).resolves.toEqual({ status: "conflict", localDraft: merged });
+    expect(persist).toHaveBeenNthCalledWith(2, merged, {
+      content: peerWinner.content,
+      updatedAt: peerWinner.updatedAt,
+    });
   });
 
   it.each(["unknown-base", "changed-title"])(

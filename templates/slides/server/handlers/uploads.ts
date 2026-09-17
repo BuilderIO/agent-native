@@ -13,6 +13,7 @@ import {
   MAX_FIG_REFERENCE_FILE_BYTES,
   MAX_REFERENCE_FILE_BYTES,
   MAX_REFERENCE_FILES,
+  MAX_SVG_REFERENCE_FILE_BYTES,
   SLIDES_REFERENCE_FILE_ERROR_LABEL,
   isSlidesReferenceFileExtension,
 } from "../../shared/upload-types.js";
@@ -22,7 +23,12 @@ import {
   deleteUploadedReferenceBlob,
   storeUploadedReferenceBlob,
 } from "../lib/uploaded-reference-storage.js";
-import { canSaveAsUploadedAsset, uploadImageAsset } from "./assets.js";
+import {
+  canSaveAsUploadedAsset,
+  hasExpectedSvgSignature,
+  isSafeSvg,
+  uploadImageAsset,
+} from "./assets.js";
 import {
   resolveSlidesRequestAuth,
   withSlidesRequestContext,
@@ -31,6 +37,7 @@ import {
 export {
   MAX_FIG_REFERENCE_FILE_BYTES,
   MAX_REFERENCE_FILE_BYTES,
+  MAX_SVG_REFERENCE_FILE_BYTES,
 } from "../../shared/upload-types.js";
 const FIG_LOCAL_COPY_SIGNATURE = new Uint8Array([
   0x66, 0x69, 0x67, 0x2d, 0x6b, 0x69, 0x77, 0x69,
@@ -66,6 +73,9 @@ function ascii(data: Uint8Array, start: number, end: number): string {
 export function maxReferenceFileBytes(
   originalName: string | undefined,
 ): number {
+  if (path.extname(originalName ?? "").toLowerCase() === ".svg") {
+    return MAX_SVG_REFERENCE_FILE_BYTES;
+  }
   return path.extname(originalName ?? "").toLowerCase() === ".fig"
     ? MAX_FIG_REFERENCE_FILE_BYTES
     : MAX_REFERENCE_FILE_BYTES;
@@ -108,14 +118,7 @@ function hasExpectedSignature(ext: string, data: Uint8Array): boolean {
     return ascii(data, 0, 4) === "RIFF" && ascii(data, 8, 12) === "WEBP";
   }
   if (ext === ".svg") {
-    const head = Buffer.from(
-      data.subarray(0, Math.min(data.length, 8192)),
-    ).toString("utf8");
-    const normalized = head.replace(/^\uFEFF/, "").trimStart();
-    return (
-      /^<svg(?:\s|>)/i.test(normalized) ||
-      /^<\?xml\b[\s\S]{0,4096}<svg(?:\s|>)/i.test(normalized)
-    );
+    return hasExpectedSvgSignature(data);
   }
   return !data.subarray(0, 4096).includes(0);
 }
@@ -160,6 +163,10 @@ export async function saveUploadedReferenceFile(args: {
       `Unsupported file type. Allowed: ${SLIDES_REFERENCE_FILE_ERROR_LABEL}.`,
     );
   }
+  const maxBytes = maxReferenceFileBytes(args.originalName);
+  if (args.data.length > maxBytes) {
+    throw new Error(`File too large (max ${formatMaxFileSize(maxBytes)})`);
+  }
   const isDeclaredImage = [".png", ".jpg", ".jpeg", ".gif", ".webp"].includes(
     declaredExt,
   );
@@ -179,12 +186,18 @@ export async function saveUploadedReferenceFile(args: {
   if (!hasExpectedSignature(ext, args.data)) {
     throw new Error(`File contents do not match ${ext} upload type`);
   }
+  if (ext === ".svg" && !isSafeSvg(args.data)) {
+    throw new Error("SVG contains active content or external references");
+  }
   const assetOriginalName =
     ext === declaredExt
       ? args.originalName
       : `${path.basename(args.originalName, path.extname(args.originalName))}${ext}`;
   const resolvedType =
-    detectedImage?.mimeType ?? (args.type || "application/octet-stream");
+    detectedImage?.mimeType ??
+    (declaredExt === ".svg"
+      ? "image/svg+xml"
+      : args.type || "application/octet-stream");
   let uploadedPath: string;
   if (isHostedSlidesRuntime()) {
     let reference: string | null;

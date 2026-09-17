@@ -6941,7 +6941,6 @@ export const editorChromeBridgeScript: string = `"use strict";
       return a.left <= b.right && a.right >= b.left && a.top <= b.bottom && a.bottom >= b.top;
     }
     function postElementMarqueeSelect(elements, additive, e, final, infoCache, lightInfoCache) {
-      var primaryIndex = elements.length - 1;
       function lightInfo(el) {
         if (!lightInfoCache) return getLightElementInfo(el, true);
         var cached = lightInfoCache.get(el);
@@ -6955,9 +6954,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         {
           type: "agent-native:layer-marquee-selection",
           phase: "change",
-          payload: elements.map(function(el, index) {
+          payload: elements.map(function(el) {
             if (!final) return lightInfo(el);
-            if (index !== primaryIndex) return lightInfo(el);
             if (!infoCache) return getElementInfo(el);
             var cached = infoCache.get(el);
             if (cached === void 0) {

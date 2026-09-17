@@ -44,6 +44,10 @@ export const COMPONENT_OVERRIDES_ATTR = "data-agent-native-component-overrides";
 /** Prefix for simple prop attributes stamped next to the component root. */
 export const COMPONENT_PROP_PREFIX = "data-agent-native-prop-";
 
+export function componentIndexId(designId: string, name: string): string {
+  return `ci_${designId}_${name.toLowerCase().replace(/[^a-z0-9]/g, "_")}`;
+}
+
 // ─── Extracted prop value ─────────────────────────────────────────────────────
 
 export interface ComponentPropValue {
@@ -228,14 +232,16 @@ export function instanceFromNode(
   const alpineDataRaw = node.attributes["x-data"];
   const alpineData =
     typeof alpineDataRaw === "string" ? alpineDataRaw : undefined;
+  const stableNodeId =
+    node.dataAttributes["data-agent-native-node-id"]?.trim() || node.id;
 
   return {
-    instanceId: node.id,
+    instanceId: stableNodeId,
     name,
     props: extractProps(node),
     alpineData,
     selector: node.selector,
-    nodeId: node.id,
+    nodeId: stableNodeId,
     componentIndexId,
     componentId: node.dataAttributes[COMPONENT_ID_ATTR]?.trim() || undefined,
     componentRef: node.dataAttributes[COMPONENT_REF_ATTR]?.trim() || undefined,

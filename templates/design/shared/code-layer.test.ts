@@ -257,7 +257,8 @@ describe("code-layer projection", () => {
     expect(cardNode).toBeTruthy();
     expect(cardNode?.componentInstance).toBeDefined();
     expect(cardNode?.componentInstance?.name).toBe("HeroCard");
-    expect(cardNode?.componentInstance?.nodeId).toBe(cardNode?.id);
+    expect(cardNode?.componentInstance?.instanceId).toBe("hero-card-1");
+    expect(cardNode?.componentInstance?.nodeId).toBe("hero-card-1");
     expect(cardNode?.componentInstance?.selector).toBe(cardNode?.selector);
     expect(cardNode?.componentInstance?.alpineData).toBe("{ open: false }");
     expect(cardNode?.componentInstance?.props).toEqual(
