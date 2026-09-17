@@ -51,9 +51,13 @@ test("comments toolbar opens an anchored composer", async ({
     },
   });
 
-  const composer = page.locator('textarea[placeholder="Leave feedback…"]');
+  const draftForm = page
+    .locator('form:has(textarea[placeholder="Leave feedback…"])')
+    .first();
+  await expect(draftForm).toBeVisible();
+  const composer = draftForm.locator('textarea[placeholder="Leave feedback…"]');
   await expect(composer).toBeVisible();
-  const commentButton = page.getByRole("button", {
+  const commentButton = draftForm.getByRole("button", {
     name: "Comment",
     exact: true,
   });
@@ -75,12 +79,12 @@ test("comments toolbar opens an anchored composer", async ({
   await mentionMenu.getByRole("menuitem").first().click();
   await expect(composer).toHaveValue("Browser parity check @alice+e2e");
 
-  const tools = page.locator("[data-review-comment-tools]");
-  const emojiButton = page.getByRole("button", { name: "Add emoji" });
-  const mentionButton = page.getByRole("button", {
+  const tools = draftForm.locator("[data-review-comment-tools]");
+  const emojiButton = draftForm.getByRole("button", { name: "Add emoji" });
+  const mentionButton = draftForm.getByRole("button", {
     name: "Mention someone",
   });
-  const attachmentButton = page.getByRole("button", {
+  const attachmentButton = draftForm.getByRole("button", {
     name: "Attach image",
   });
   const commentButtonBox = await commentButton.boundingBox();
@@ -88,7 +92,7 @@ test("comments toolbar opens an anchored composer", async ({
   const emojiBox = await emojiButton.boundingBox();
   const mentionBox = await mentionButton.boundingBox();
   const attachmentBox = await attachmentButton.boundingBox();
-  const sendToAgent = page.getByRole("button", { name: "Send to agent" });
+  const sendToAgent = draftForm.getByRole("button", { name: "Send to agent" });
   const sendToAgentBox = await sendToAgent.boundingBox();
   for (const [label, box] of [
     ["comment button", commentButtonBox],

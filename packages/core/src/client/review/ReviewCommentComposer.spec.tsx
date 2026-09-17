@@ -303,6 +303,28 @@ describe("ReviewCommentComposer actions", () => {
     act(() =>
       document.querySelector<HTMLElement>('[role="menuitem"]')?.click(),
     );
+
+    act(() => {
+      root.render(
+        <ReviewCommentComposer
+          value="alice+"
+          onChange={onChange}
+          onSubmit={() => {}}
+          showCommentTools
+          mentionOptions={[mention]}
+        />,
+      );
+    });
+    const emailLocalPartTextarea =
+      container.querySelector<HTMLTextAreaElement>("textarea");
+    emailLocalPartTextarea!.setSelectionRange(6, 6);
+    const emailLocalPartEvent = new KeyboardEvent("keydown", {
+      key: "@",
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => emailLocalPartTextarea!.dispatchEvent(emailLocalPartEvent));
+    expect(emailLocalPartEvent.defaultPrevented).toBe(false);
   });
 
   it("replaces the full typed mention token", () => {

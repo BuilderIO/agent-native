@@ -357,6 +357,10 @@ export function ReviewCommentComposer({
           const triggerIndex =
             event.currentTarget.selectionStart ?? value.length;
           const previousCharacter = [...value.slice(0, triggerIndex)].pop();
+          const isEmailLocalPartBoundary =
+            /(?:^|\s)[^\s@]*[\p{L}\p{N}][^\s@]*[+-]$/u.test(
+              value.slice(0, triggerIndex),
+            );
           const isComposing = event.nativeEvent.isComposing;
           const isImeKey = event.nativeEvent.keyCode === 229;
           if (
@@ -367,6 +371,7 @@ export function ReviewCommentComposer({
             !event.metaKey &&
             !event.ctrlKey &&
             !event.altKey &&
+            !isEmailLocalPartBoundary &&
             !/[\p{L}\p{M}\p{N}_]/u.test(previousCharacter ?? "")
           ) {
             const selectionEnd =
