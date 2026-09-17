@@ -139,6 +139,7 @@ export interface CommentAiController {
     requestId?: string;
   }): Promise<void>;
   continue(request: CommentAiRequest, message: string): Promise<void>;
+  retry(request: CommentAiRequest): Promise<void>;
   resume(request: CommentAiRequest): Promise<void>;
   stop(request: CommentAiRequest): Promise<void>;
   open(request: CommentAiRequest): void;
@@ -684,6 +685,25 @@ export function useCommentAiRequests(
     [dispatchContinuation, t],
   );
 
+  const retryConversation = useCallback<CommentAiController["retry"]>(
+    (request) => {
+      const continuation = continuationRecordRef.current[request.operationId];
+      if (
+        (continuation?.status === "unavailable" && continuation.options) ||
+        dispatchRecoveryRecord[request.operationId]
+      ) {
+        return start({
+          threadId: request.threadId,
+          rootCommentId: request.rootCommentId,
+          intent: request.intent,
+          requestId: request.requestId,
+        });
+      }
+      return resumeConversation(request);
+    },
+    [dispatchRecoveryRecord, resumeConversation, start],
+  );
+
   const stop = useCallback<CommentAiController["stop"]>(
     async (request) => {
       setStoppingRequestIds((current) =>
@@ -769,6 +789,7 @@ export function useCommentAiRequests(
       transcriptRevision,
       start,
       continue: continueConversation,
+      retry: retryConversation,
       resume: resumeConversation,
       stop,
       open,
@@ -781,6 +802,7 @@ export function useCommentAiRequests(
       transcriptRevision,
       start,
       continueConversation,
+      retryConversation,
       resumeConversation,
       stop,
       open,

@@ -1448,7 +1448,7 @@ export function CommentsSidebar({
                 stopping={commentAi.stoppingRequestIds.has(
                   aiRequest.operationId,
                 )}
-                onRetry={() => commentAi.resume(aiRequest)}
+                onRetry={() => commentAi.retry(aiRequest)}
                 onReply={() => {
                   setAiReplyTarget(aiRequest.operationId);
                   onActivateThread?.(thread.threadId);

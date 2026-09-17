@@ -805,12 +805,7 @@ describe("comment AI controls", () => {
     root = createRoot(container);
     act(() => root.render(createElement(Probe)));
     await act(async () => {
-      await controller!.start({
-        threadId: base.threadId,
-        rootCommentId: base.rootCommentId,
-        intent: base.intent,
-        requestId: base.requestId,
-      });
+      await controller!.retry(base);
     });
 
     expect(api.callAction).not.toHaveBeenCalled();

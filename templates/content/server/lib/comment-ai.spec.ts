@@ -132,7 +132,7 @@ describe("comment AI request persistence", () => {
     );
   });
 
-  it("atomically reclaims a failed request once for concurrent retries", async () => {
+  it("does not redispatch a failed request on its already terminal agent turn", async () => {
     await asUser(OWNER, () => commentAi.startCommentAiRequest(startArgs()));
     await getDb()
       .update(schema.commentAiRequests)
@@ -143,8 +143,10 @@ describe("comment AI request persistence", () => {
         asUser(OWNER, () => commentAi.startCommentAiRequest(startArgs())),
       ),
     );
-    expect(retries.filter((result) => result.dispatch)).toHaveLength(1);
-    expect(retries.every((result) => result.status === "queued")).toBe(true);
+    expect(retries.every((result) => !result.dispatch)).toBe(true);
+    expect(retries.every((result) => result.status === "needs-review")).toBe(
+      true,
+    );
   });
 
   it("excludes only its deterministic receipt from source drift detection", async () => {
