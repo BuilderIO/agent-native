@@ -172,6 +172,10 @@ vi.mock("@agent-native/core/sharing", () => ({
   accessFilter: vi.fn().mockReturnValue(undefined),
 }));
 
+vi.mock("../server/lib/design-versions.js", () => ({
+  snapshotDesignBeforeAgentEdit: vi.fn().mockResolvedValue(null),
+}));
+
 // ---------------------------------------------------------------------------
 // Minimal fake Drizzle app-DB layer: one `design_files` table backing store,
 // supporting exactly the query shapes writeInlineSourceFile/

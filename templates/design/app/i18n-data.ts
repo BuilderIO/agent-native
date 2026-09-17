@@ -529,16 +529,6 @@ const enUS = {
       zoomToPreset: "Zoom to {{percent}}%",
       exit: "Exit responsive preview",
     },
-    screenDeletion: {
-      titleOne: "Delete this screen?",
-      titleMany: "Delete {{count}} screens?",
-      descriptionOne:
-        '"{{filename}}" and all of its responsive variants will be deleted. You can undo this while the editor remains open.',
-      descriptionMany:
-        "These screens and all of their responsive variants will be deleted. You can undo this while the editor remains open.",
-      cancel: "Cancel",
-      confirm: "Delete",
-    },
     motion: {
       dockLabel: "Motion dock",
       collapseDock: "Collapse motion dock",

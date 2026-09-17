@@ -12,6 +12,8 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
+  affectedRowCount,
+  lockDesignFilesTable,
   withDesignSourceMutationTransaction,
   withSourceFileWriteLock,
   writeInlineSourceFile,
@@ -42,17 +44,6 @@ function fileNotFound(id: string): Error & { statusCode?: number } {
   };
   err.statusCode = 404;
   return err;
-}
-
-function rowsAffected(result: unknown): number | undefined {
-  const candidate = result as {
-    rowsAffected?: unknown;
-    rowCount?: unknown;
-    changes?: unknown;
-  } | null;
-  const value =
-    candidate?.rowsAffected ?? candidate?.rowCount ?? candidate?.changes;
-  return typeof value === "number" ? value : undefined;
 }
 
 /**
@@ -313,6 +304,7 @@ export default defineAction({
 
     await withSourceFileWriteLock(id, () =>
       withDesignSourceMutationTransaction(file.designId, async (tx) => {
+        await lockDesignFilesTable(tx);
         for (let attempt = 0; attempt < 4; attempt += 1) {
           skippedStaleMirror = false;
           skippedStaleOperation = false;
@@ -552,11 +544,14 @@ export default defineAction({
               .where(and(eq(schema.designFiles.id, id), contentCasWhere));
           }
 
-          if (requiresContentCas && rowsAffected(updateResult) === 0) {
+          if (requiresContentCas && affectedRowCount(updateResult) === 0) {
             continue;
           }
 
-          if (requiresContentCas && rowsAffected(updateResult) === undefined) {
+          if (
+            requiresContentCas &&
+            affectedRowCount(updateResult) === undefined
+          ) {
             const [confirmed] = await tx
               .select({
                 content: schema.designFiles.content,

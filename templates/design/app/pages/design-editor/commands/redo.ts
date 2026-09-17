@@ -153,7 +153,9 @@ export interface RedoArgs {
   fileDeletionRedoStackRef: RefObject<FileDeletionHistoryEntry[]>;
   fileDeletionUndoStackRef: RefObject<FileDeletionHistoryEntry[]>;
   fileHistoryMutationPendingRef: RefObject<boolean>;
+  clearPendingHistory?: () => void;
   files: DesignFile[];
+  filesRef?: RefObject<DesignFile[]>;
   focusCreatedScreen: (screenId: string, geometry: FrameGeometry) => void;
   geometryRedoStackRef: RefObject<GeometryHistoryEntry[]>;
   geometryUndoStackRef: RefObject<GeometryHistoryEntry[]>;
@@ -335,7 +337,9 @@ export function runRedo({
   fileDeletionRedoStackRef,
   fileDeletionUndoStackRef,
   fileHistoryMutationPendingRef,
+  clearPendingHistory,
   files,
+  filesRef,
   focusCreatedScreen,
   geometryRedoStackRef,
   geometryUndoStackRef,
@@ -399,8 +403,9 @@ export function runRedo({
     selection: GeometryHistorySelection | undefined,
     replaySources: Record<string, string> = {},
   ) => {
+    const currentFiles = filesRef?.current ?? files;
     const actualSources = Object.fromEntries(
-      files.map((file) => [
+      currentFiles.map((file) => [
         file.id,
         replaySources[file.id] ?? getScreenContent(file.id),
       ]),
@@ -1226,6 +1231,7 @@ export function runRedo({
             ...redoOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
             "file-created",
           ];
+          clearPendingHistory?.();
           fileHistoryMutationPendingRef.current = false;
           syncUndoRedoState();
           toast.error(
@@ -1280,6 +1286,7 @@ export function runRedo({
             ...redoOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
             "file-deleted",
           ];
+          clearPendingHistory?.();
         }
         fileHistoryMutationPendingRef.current = false;
         syncUndoRedoState();

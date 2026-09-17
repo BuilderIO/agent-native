@@ -183,11 +183,6 @@ test("Undo restores deleted Screen metadata and variant membership", async ({
     await alphaLayer.locator("[data-layer-row-button]").click();
     await expect(alphaLayer).toHaveAttribute("aria-selected", "true");
 
-    await page.keyboard.press("Delete");
-    const deleteDialog = page.getByRole("alertdialog", {
-      name: "Delete this screen?",
-    });
-    await expect(deleteDialog).toBeVisible();
     const deleteResponsePromise = page.waitForResponse((response) => {
       const request = response.request();
       if (
@@ -198,7 +193,7 @@ test("Undo restores deleted Screen metadata and variant membership", async ({
       }
       return request.postDataJSON()?.id === alphaId;
     });
-    await deleteDialog.getByRole("button", { name: "Delete" }).click();
+    await page.keyboard.press("Delete");
     await expect(page.locator("[data-screen-shell]")).toHaveCount(1);
     const deleteResponse = await deleteResponsePromise;
     const deleteResponseText = await deleteResponse.text();

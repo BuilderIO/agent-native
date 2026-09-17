@@ -72,7 +72,10 @@ import {
   truncateOpeningTag,
   vscodeDeepLink,
 } from "./edit-panel/code-inspect-helpers";
-import { ComponentSection } from "./edit-panel/component-section";
+import {
+  ComponentSection,
+  type RuntimeComponentDetails,
+} from "./edit-panel/component-section";
 import {
   type DocumentColorSourceFile,
   type SelectionColorValue,
@@ -188,6 +191,7 @@ import {
 } from "./inspector";
 import { IconText } from "./inspector/design-icons";
 import { type GlslShaderPanelContext } from "./inspector/GlslShaderPanel";
+import type { LocalhostWriteConsentPayload } from "./LocalhostWriteConsentDialog";
 import { getActiveScreenIframeId } from "./multi-screen/iframe-targeting";
 import type { ScreenHeightMode } from "./multi-screen/screen-height";
 import {
@@ -452,6 +456,14 @@ interface EditPanelProps {
    * and an Edit component action.
    */
   componentNodeId?: string;
+  /** Runtime component metadata for URL-backed React selections. */
+  componentRuntime?: RuntimeComponentDetails;
+  /** Request the existing localhost write-consent dialog before source writes. */
+  requestLocalhostWrite?: (opts: {
+    files: string[];
+    onGranted: LocalhostWriteConsentPayload["onGranted"];
+    onCancel?: () => void;
+  }) => void;
   /** True when the selected component node has reached the accepted source. */
   componentDetailsReady?: boolean;
   /** True when the selected linked component instance stores local overrides. */
@@ -2429,6 +2441,8 @@ export const EditPanel = memo(function EditPanel({
   reviewCommentsPanelProps,
   reviewCommentsCount = 0,
   componentNodeId,
+  componentRuntime,
+  requestLocalhostWrite,
   componentDetailsReady = true,
   componentInstanceHasLocalOverrides = false,
   onResetComponentInstanceOverrides,
@@ -3064,6 +3078,8 @@ export const EditPanel = memo(function EditPanel({
                   activeFileUpdatedAt={activeFileUpdatedAt}
                   componentDetailsReady={componentDetailsReady}
                   nodeId={componentNodeId}
+                  runtime={componentRuntime}
+                  requestLocalhostWrite={requestLocalhostWrite}
                   hasLocalOverrides={componentInstanceHasLocalOverrides}
                   swapPickerRequest={componentSwapPickerRequest}
                   onResetOverrides={

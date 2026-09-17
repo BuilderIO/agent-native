@@ -77,6 +77,26 @@ vi.mock("@agent-native/core/sharing", () => ({
 // its own in-memory lock map, so there is no shared JS serialization. The SQL
 // CAS in update-file must be sufficient on its own.
 vi.mock("../server/source-workspace.js", () => ({
+  affectedRowCount: (result: unknown) => {
+    if (!result || typeof result !== "object") return undefined;
+    const candidate = result as {
+      rowsAffected?: unknown;
+      affectedRows?: unknown;
+      rowCount?: unknown;
+      count?: unknown;
+      changes?: unknown;
+      meta?: { changes?: unknown };
+    };
+    const value =
+      candidate.rowsAffected ??
+      candidate.affectedRows ??
+      candidate.rowCount ??
+      candidate.count ??
+      candidate.changes ??
+      candidate.meta?.changes;
+    return typeof value === "number" ? value : undefined;
+  },
+  lockDesignFilesTable: async () => {},
   withSourceFileWriteLock: async <T>(
     _fileId: string,
     run: () => Promise<T>,
