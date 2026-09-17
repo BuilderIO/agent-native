@@ -66,9 +66,10 @@ export function runLayerMarqueeSelectionChange(
   // PF10: MultiScreenCanvas reports the marquee hit-set on every
   // mousemove tick during a drag, not just on settle (see
   // reportLayerSelection in MultiScreenCanvas.tsx). Bail before any
-  // projection/canonicalization work when the reported set is identical
-  // to the last tick's — the common case while the marquee rect isn't
-  // currently crossing an element boundary.
+  // projection/canonicalization work when an interim reported set is
+  // identical to the last tick's — the common case while the marquee rect
+  // isn't currently crossing an element boundary. The final tick still runs
+  // so its canonical payload is never dropped.
   //
   // The dedup is ONLY applied to non-empty hit-sets. An empty hit-set (a
   // plain empty-space click, or dragging over blank canvas) is cheap to
@@ -83,7 +84,7 @@ export function runLayerMarqueeSelectionChange(
           `${item.screenId}:${item.info.sourceId ?? item.info.selector ?? ""}`,
       )
       .join("|") + `#${intent.additive ? "1" : "0"}`;
-  if (selection.length > 0) {
+  if (selection.length > 0 && intent.final !== true) {
     if (lastMarqueeSelectionSignatureRef.current === signature) return;
   }
   lastMarqueeSelectionSignatureRef.current = signature;

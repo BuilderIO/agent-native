@@ -2668,9 +2668,6 @@ function DesignEditor() {
         return;
       }
       recordDesignPerformance("marqueeSelectionChange");
-      if (intent.final === true) {
-        recordDesignPerformance("marqueeFinalSelectionChange");
-      }
       if (intent.final !== true) {
         if (marqueeSelectionHistoryBeforeRef.current === null) {
           marqueeSelectionHistoryBeforeRef.current = captureCurrentSelection();
@@ -2681,6 +2678,7 @@ function DesignEditor() {
       const before =
         marqueeSelectionHistoryBeforeRef.current ?? captureCurrentSelection();
       flushSync(run);
+      recordDesignPerformance("marqueeFinalSelectionChange");
       const after = captureCurrentSelection();
       const entry = coalesceMarqueeSelectionHistory(
         marqueeSelectionHistoryBeforeRef,
@@ -16049,56 +16047,56 @@ function DesignEditor() {
   }, [embedded, handleToggleKeyboardShortcuts]);
 
   // ── Editor hotkeys ─────────────────────────────────────────────────────────
-  const handleEscapeHotkey = useCallback(
-    () =>
-      recordSelectionHistoryAroundChange(() =>
-        runEscapeHotkey({
-          activeBreakpointWidthStateRef,
-          activeTool,
-          cancelActiveEditorDrag,
-          drawMode,
-          enterOverviewFromZoom,
-          focusedAnnotationSending,
-          handleBreakpointBarSelect,
-          handleCloseKeyboardShortcuts,
-          handleExitFocusedDrawMode,
-          handleExitOverviewDrawMode,
-          keyboardShortcutsOpen,
-          mode,
-          overviewAnnotationSending,
-          pinMode,
-          selectedElement,
-          setActiveTool,
-          setDrawMode,
-          setHoveredElement,
-          setMode,
-          setOverviewClearSelectionRequest,
-          setOverviewSelectedScreenIds,
-          setPinMode,
-          setSelectedElement,
-          setSelectedLayerIdsState,
-          viewMode,
-        }),
-      ),
-    [
-      activeTool,
-      cancelActiveEditorDrag,
-      drawMode,
-      enterOverviewFromZoom,
-      focusedAnnotationSending,
-      handleBreakpointBarSelect,
-      keyboardShortcutsOpen,
-      handleCloseKeyboardShortcuts,
-      handleExitFocusedDrawMode,
-      handleExitOverviewDrawMode,
-      mode,
-      overviewAnnotationSending,
-      pinMode,
-      recordSelectionHistoryAroundChange,
-      selectedElement,
-      viewMode,
-    ],
-  );
+  const handleEscapeHotkey = useCallback(() => {
+    marqueeSelectionHistoryBeforeRef.current = null;
+    lastMarqueeSelectionSignatureRef.current = null;
+    recordSelectionHistoryAroundChange(() =>
+      runEscapeHotkey({
+        activeBreakpointWidthStateRef,
+        activeTool,
+        cancelActiveEditorDrag,
+        drawMode,
+        enterOverviewFromZoom,
+        focusedAnnotationSending,
+        handleBreakpointBarSelect,
+        handleCloseKeyboardShortcuts,
+        handleExitFocusedDrawMode,
+        handleExitOverviewDrawMode,
+        keyboardShortcutsOpen,
+        mode,
+        overviewAnnotationSending,
+        pinMode,
+        selectedElement,
+        setActiveTool,
+        setDrawMode,
+        setHoveredElement,
+        setMode,
+        setOverviewClearSelectionRequest,
+        setOverviewSelectedScreenIds,
+        setPinMode,
+        setSelectedElement,
+        setSelectedLayerIdsState,
+        viewMode,
+      }),
+    );
+  }, [
+    activeTool,
+    cancelActiveEditorDrag,
+    drawMode,
+    enterOverviewFromZoom,
+    focusedAnnotationSending,
+    handleBreakpointBarSelect,
+    keyboardShortcutsOpen,
+    handleCloseKeyboardShortcuts,
+    handleExitFocusedDrawMode,
+    handleExitOverviewDrawMode,
+    mode,
+    overviewAnnotationSending,
+    pinMode,
+    recordSelectionHistoryAroundChange,
+    selectedElement,
+    viewMode,
+  ]);
 
   // T22: Enter with a selected TEXT layer in single mode begins inline
   // editing on it (Figma: Enter drills into the selected layer), reusing the

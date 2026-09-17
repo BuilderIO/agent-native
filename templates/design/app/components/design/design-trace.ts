@@ -15,10 +15,13 @@ declare global {
 }
 
 export function recordDesignPerformance(name: string, amount = 1): void {
-  if (typeof window === "undefined" || import.meta.env?.DEV !== true) return;
+  if (typeof window === "undefined") return;
   const probe = window.__designPerformanceProbe;
   if (!probe) return;
   probe[name] = (probe[name] ?? 0) + amount;
+  if (name === "marqueeFinalSelectionChange") {
+    probe.marqueeFinalSelectionAt = window.performance.now();
+  }
 }
 
 export type TraceArea =

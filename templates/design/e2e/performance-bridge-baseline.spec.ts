@@ -23,7 +23,7 @@ const EVIDENCE_DIR = path.resolve(
 );
 
 type MarqueeProfilerReceipt = {
-  elapsedMs: number;
+  elapsedMs: number | null;
   bridgeMessageCount: number;
   finalSelectionChangeCount: number;
   finalSelectionIds: string[];
@@ -448,19 +448,20 @@ async function readMarqueeProfiler(
     const finalSelectionIds = layerRows
       .map((row) => row.dataset.layerNodeId ?? "")
       .filter(Boolean);
+    const finalSelectionAt =
+      marquee && typeof probe.marqueeFinalSelectionAt === "number"
+        ? probe.marqueeFinalSelectionAt - marquee.startedAt
+        : null;
     return {
-      elapsedMs:
-        marquee?.finalMessageAt ??
-        performance.now() - (marquee?.startedAt ?? performance.now()),
+      elapsedMs: finalSelectionAt,
       bridgeMessageCount: marquee?.messageCount ?? 0,
-      finalSelectionChangeCount:
-        probe.marqueeFinalSelectionChange ?? marquee?.finalMessageCount ?? 0,
+      finalSelectionChangeCount: probe.marqueeFinalSelectionChange ?? 0,
       finalSelectionIds:
         finalSelectionIds.length > 0
           ? finalSelectionIds
           : (marquee?.finalSelectionIds ?? []),
       firstBridgeMessageAt: marquee?.firstMessageAt ?? null,
-      finalSelectionAt: marquee?.finalMessageAt ?? null,
+      finalSelectionAt,
       host: probe,
     };
   });
@@ -733,18 +734,6 @@ test("collect selectable rects baseline on nested responsive screens", async ({
       { timeout: 15_000 },
     )
     .toBe(1);
-  await page.evaluate(() => {
-    const win = window as typeof window & {
-      __marqueePerformance?: {
-        startedAt: number;
-        finalMessageAt: number | null;
-      };
-    };
-    const marquee = win.__marqueePerformance;
-    if (marquee) {
-      marquee.finalMessageAt ??= performance.now() - marquee.startedAt;
-    }
-  });
   await page.waitForTimeout(500);
   const marqueeSelectionAfterRows = await page
     .locator('[aria-selected="true"]')
@@ -752,6 +741,8 @@ test("collect selectable rects baseline on nested responsive screens", async ({
   const marqueeProfiler = await readMarqueeProfiler(page, fixture.fileIds[0]);
   expect(marqueeProfiler.bridgeMessageCount).toBeGreaterThan(0);
   expect(marqueeProfiler.finalSelectionChangeCount).toBe(1);
+  expect(marqueeProfiler.elapsedMs).toBeGreaterThan(0);
+  expect(marqueeProfiler.finalSelectionAt).toBe(marqueeProfiler.elapsedMs);
   expect(marqueeProfiler.finalSelectionIds.length).toBeGreaterThanOrEqual(20);
   expect(marqueeProfiler.host.marqueeSelectionChange).toBeGreaterThan(1);
   expect(marqueeProfiler.host.marqueeFinalSelectionChange).toBe(1);
