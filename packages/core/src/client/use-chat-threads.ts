@@ -167,7 +167,7 @@ async function fetchThreadById(
     const res = await fetch(
       `${apiUrl}/threads/${encodeURIComponent(id)}${query ? `?${query}` : ""}`,
     );
-    if (res.status === 404) return null;
+    if (res.status === 403 || res.status === 404) return null;
     if (!res.ok) return undefined;
     return (await res.json()) as ChatThreadSummary;
   } catch {
@@ -703,8 +703,35 @@ export function useChatThreads(
               ),
             )
           : loaded;
+        const explicitlyOpened = await Promise.all(
+          [...explicitlyOpenedThreadIdsRef.current]
+            .filter((id) => !visibleLoaded.some((thread) => thread.id === id))
+            .map(async (id) => ({
+              id,
+              thread: await fetchThreadById(apiUrl, id, null),
+            })),
+        );
+        if (requestId !== latestFetchRequestRef.current) return undefined;
+        const revalidatedExplicit = explicitlyOpened.flatMap(
+          ({ id, thread }) => {
+            if (thread === undefined) {
+              const retained = threadsRef.current.find(
+                (candidate) => candidate.id === id,
+              );
+              return retained ? [retained] : [];
+            }
+            if (!thread || thread.archivedAt) {
+              explicitlyOpenedThreadIdsRef.current.delete(id);
+              return [];
+            }
+            knownThreadScopesRef.current.set(thread.id, thread.scope ?? null);
+            serverConfirmedThreadIdsRef.current.add(thread.id);
+            return [thread];
+          },
+        );
+        const visibleWithExplicit = [...visibleLoaded, ...revalidatedExplicit];
         setThreads((prev) => {
-          const loadedIds = new Set(visibleLoaded.map((t) => t.id));
+          const loadedIds = new Set(visibleWithExplicit.map((t) => t.id));
           // Preserve any optimistic threads we've created this session that
           // haven't shown up in the server list yet — the server only learns
           // about a thread when the user actually sends a message and the
@@ -733,7 +760,7 @@ export function useChatThreads(
           // fields — the server probably hasn't observed the user's latest
           // send yet, and naively replacing makes the recent-chats list
           // visibly jump back to older timestamps right after a send.
-          const merged = visibleLoaded.map((server) => {
+          const merged = visibleWithExplicit.map((server) => {
             const local = prev.find((t) => t.id === server.id);
             if (!local) return server;
             const next = { ...server };
@@ -775,7 +802,7 @@ export function useChatThreads(
           }
           return [...locallyRetained, ...merged];
         });
-        return visibleLoaded;
+        return visibleWithExplicit;
       } catch {
         if (requestId !== latestFetchRequestRef.current) return undefined;
         if (!options?.append) {
@@ -1326,30 +1353,34 @@ export function useChatThreads(
   );
 
   const openThread = useCallback(
-    async (id: string): Promise<boolean> => {
-      let thread = threadsRef.current.find((candidate) => candidate.id === id);
-      if (!thread) {
-        const loaded = await fetchThreadById(apiUrl, id, null);
-        if (!loaded) return false;
-        thread = loaded;
-        knownThreadScopesRef.current.set(thread.id, thread.scope ?? null);
-        serverConfirmedThreadIdsRef.current.add(thread.id);
-        clearClientDraftThreadMarker(thread.id);
-        newlyCreatedRef.current.delete(thread.id);
-        setThreads((prev) =>
-          prev.some((candidate) => candidate.id === thread!.id)
-            ? prev.map((candidate) =>
-                candidate.id === thread!.id ? thread! : candidate,
-              )
-            : [thread!, ...prev],
-        );
+    async (id: string): Promise<"opened" | "missing" | "unavailable"> => {
+      const thread = await fetchThreadById(apiUrl, id, null);
+      if (thread === undefined) return "unavailable";
+      if (thread === null || thread.archivedAt) {
+        explicitlyOpenedThreadIdsRef.current.delete(id);
+        setThreads((prev) => prev.filter((candidate) => candidate.id !== id));
+        if (activeThreadIdRef.current === id) {
+          localStorage.removeItem(activeThreadKey);
+          localStorage.removeItem(activeThreadSeenKey);
+          setActiveThreadId(null);
+        }
+        return "missing";
       }
+      knownThreadScopesRef.current.set(thread.id, thread.scope ?? null);
+      serverConfirmedThreadIdsRef.current.add(thread.id);
+      clearClientDraftThreadMarker(thread.id);
+      newlyCreatedRef.current.delete(thread.id);
       explicitlyOpenedThreadIdsRef.current.add(id);
-      persistActiveThreadId(id);
-      setActiveThreadId(id);
-      return true;
+      setThreads((prev) =>
+        prev.some((candidate) => candidate.id === thread.id)
+          ? prev.map((candidate) =>
+              candidate.id === thread.id ? thread : candidate,
+            )
+          : [thread, ...prev],
+      );
+      return "opened";
     },
-    [apiUrl, persistActiveThreadId],
+    [activeThreadKey, activeThreadSeenKey, apiUrl],
   );
 
   const removeThread = useCallback(

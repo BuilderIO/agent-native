@@ -1074,6 +1074,7 @@ export function MultiTabAssistantChat({
   const [showHistory, setShowHistory] = useState(false);
   const [pageOverlayScrolled, setPageOverlayScrolled] = useState(false);
   const newThreadIds = useRef<Set<string>>(new Set());
+  const latestOpenThreadRequestRef = useRef(0);
 
   useEffect(() => {
     setPageOverlayScrolled(false);
@@ -2378,6 +2379,7 @@ export function MultiTabAssistantChat({
         typeof detail?.threadId === "string" ? detail.threadId : "";
       if (!detail || !threadId) return;
       if (!claimAgentChatOpenRequest(detail.openRequestId)) return;
+      const requestGeneration = ++latestOpenThreadRequestRef.current;
 
       const onlyIfActiveThreadId =
         typeof detail.onlyIfActiveThreadId === "string"
@@ -2392,18 +2394,6 @@ export function MultiTabAssistantChat({
         return;
       }
 
-      const prefill =
-        typeof detail.prefill === "string" ? detail.prefill.trim() : "";
-      if (prefill) {
-        const send = { message: prefill, submit: false };
-        const ref = chatRefs.current.get(threadId);
-        if (ref) {
-          setTimeout(() => deliverPendingSend(ref, send), 50);
-        } else {
-          pendingDeliveries.current.push({ threadId, send });
-        }
-      }
-
       if (detail?.newThread === true) {
         newThreadIds.current.add(threadId);
         void createThread(threadId).then((createdId) => {
@@ -2415,7 +2405,33 @@ export function MultiTabAssistantChat({
         });
         return;
       }
-      if (!(await openThread(threadId))) return;
+      const activeThreadBeforeLookup = activeThreadIdRef.current;
+      const openResult = await openThread(threadId);
+      if (openResult === "missing") {
+        cleanupClosedTab(threadId);
+        return;
+      }
+      if (openResult === "unavailable") return;
+      if (
+        requestGeneration !== latestOpenThreadRequestRef.current ||
+        activeThreadIdRef.current !== activeThreadBeforeLookup ||
+        (onlyIfActiveThreadId &&
+          activeThreadIdRef.current &&
+          activeThreadIdRef.current !== onlyIfActiveThreadId)
+      ) {
+        return;
+      }
+      const prefill =
+        typeof detail.prefill === "string" ? detail.prefill.trim() : "";
+      if (prefill) {
+        const send = { message: prefill, submit: false };
+        const ref = chatRefs.current.get(threadId);
+        if (ref) {
+          setTimeout(() => deliverPendingSend(ref, send), 50);
+        } else {
+          pendingDeliveries.current.push({ threadId, send });
+        }
+      }
       mountedTabsRef.current.add(threadId);
       setOpenTabIds((prev) =>
         prev.includes(threadId) ? prev : [...prev, threadId],
@@ -2426,7 +2442,13 @@ export function MultiTabAssistantChat({
     window.addEventListener("agent-chat:open-thread", handleOpenThread);
     return () =>
       window.removeEventListener("agent-chat:open-thread", handleOpenThread);
-  }, [createThread, openThread, switchThread, writeThreadUrl]);
+  }, [
+    cleanupClosedTab,
+    createThread,
+    openThread,
+    switchThread,
+    writeThreadUrl,
+  ]);
 
   const clearActiveTab = useCallback(() => {
     const tabIdToClear = activeThreadIdRef.current;

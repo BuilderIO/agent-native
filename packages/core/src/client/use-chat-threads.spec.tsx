@@ -390,6 +390,7 @@ describe("useChatThreads", () => {
   });
 
   it("opens an explicitly requested accessible thread outside isolated history", async () => {
+    let commentThreadAvailable = true;
     const documentThread: ChatThreadSummary = {
       id: "document-thread",
       title: "Document chat",
@@ -415,7 +416,9 @@ describe("useChatThreads", () => {
         return jsonResponse({ threads: [documentThread] });
       }
       if (url === "/chat/threads/comment-thread") {
-        return jsonResponse(commentThread);
+        return commentThreadAvailable
+          ? jsonResponse(commentThread)
+          : new Response(null, { status: 404 });
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
@@ -438,11 +441,10 @@ describe("useChatThreads", () => {
       await Promise.resolve();
     });
     await act(async () => {
-      expect(await hook!.openThread("comment-thread")).toBe(true);
+      expect(await hook!.openThread("comment-thread")).toBe("opened");
     });
 
     expect(fetchMock).toHaveBeenCalledWith("/chat/threads/comment-thread");
-    expect(hook!.activeThreadId).toBe("comment-thread");
     expect(hook!.threads.map((thread) => thread.id)).toContain(
       "comment-thread",
     );
@@ -453,6 +455,16 @@ describe("useChatThreads", () => {
       await Promise.resolve();
     });
     expect(hook!.threads.map((thread) => thread.id)).toContain(
+      "comment-thread",
+    );
+
+    commentThreadAvailable = false;
+    await act(async () => {
+      hook!.refreshThreads();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(hook!.threads.map((thread) => thread.id)).not.toContain(
       "comment-thread",
     );
   });
