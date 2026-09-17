@@ -1307,6 +1307,7 @@ const overrides = {
     aiConversationUnavailable: "此 AI 对话不可用。",
     aiFollowUpYou: "你",
     aiFollowUpIncomplete: "此回复未完成。",
+    sourceComment: "来源评论",
     resolve: "解决",
     resolved: "已解决（{{count}}）",
     reply: "回复...",

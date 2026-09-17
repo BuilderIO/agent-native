@@ -907,6 +907,7 @@ const overrides = {
     aiConversationUnavailable: "此 AI 對話無法使用。",
     aiFollowUpYou: "你",
     aiFollowUpIncomplete: "此回覆尚未完成。",
+    sourceComment: "來源留言",
     resolve: "解決",
     resolved: "已解決（{{count}}）",
     unanchored: "無法使用醒目提示",

@@ -12,6 +12,7 @@ import {
   acknowledgeCommentAiContinuation,
   commentAiRequestsRefetchInterval,
   shouldReconcileCommentAiSnapshot,
+  shouldIgnoreContinuationAcceptanceError,
   CommentAiRequestStatus,
   CommentAiThreadActions,
   type CommentAiController,
@@ -23,6 +24,7 @@ const api = vi.hoisted(() => ({
   refetch: vi.fn(),
   startBackgroundAgentSession: vi.fn(),
   getBackgroundAgentSessionStatus: vi.fn(),
+  cancelBackgroundAgentSession: vi.fn(),
   requests: [] as CommentAiRequest[],
   toastError: vi.fn(),
 }));
@@ -39,6 +41,8 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
     api.startBackgroundAgentSession(...args),
   getBackgroundAgentSessionStatus: (...args: unknown[]) =>
     api.getBackgroundAgentSessionStatus(...args),
+  cancelBackgroundAgentSession: (...args: unknown[]) =>
+    api.cancelBackgroundAgentSession(...args),
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
@@ -77,11 +81,28 @@ describe("comment AI controls", () => {
   let root: Root;
 
   beforeEach(() => {
+    const storage = new Map<string, string>();
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      value: {
+        clear: () => storage.clear(),
+        getItem: (key: string) => storage.get(key) ?? null,
+        removeItem: (key: string) => storage.delete(key),
+        setItem: (key: string, value: string) => storage.set(key, value),
+      },
+    });
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
     api.requests = [];
     api.refetch.mockResolvedValue(undefined);
+    api.cancelBackgroundAgentSession.mockResolvedValue(undefined);
+    api.getBackgroundAgentSessionStatus.mockResolvedValue({
+      operationId: "request-1",
+      threadId: "agent-thread-1",
+      turnId: "agent-turn-1",
+      status: "unavailable",
+    });
     api.startBackgroundAgentSession.mockReturnValue({
       operationId: "request-1",
       threadId: "agent-thread-1",
@@ -306,6 +327,342 @@ describe("comment AI controls", () => {
     expect(api.refetch).toHaveBeenCalledOnce();
   });
 
+  it("makes a rejected initial dispatch recoverable with the exact same tuple", async () => {
+    let controller: CommentAiController;
+    function Probe() {
+      controller = useCommentAiRequests("document-1", { enabled: true });
+      return null;
+    }
+    const options = {
+      message: "Handle the source comment",
+      instructions: "Hidden comment AI instructions",
+      operationId: "request-1",
+      threadId: "agent-thread-1",
+      scope: { type: "content-comment-ai", id: "request-1" },
+      actionScope: { kind: "content-comment-ai", requestId: "request-1" },
+    };
+    api.callAction.mockResolvedValue({
+      ...request({ status: "queued", error: null }),
+      dispatch: true,
+      prompt: options.message,
+      context: options.instructions,
+      actionScope: options.actionScope,
+      backgroundSession: {
+        operationId: options.operationId,
+        threadId: options.threadId,
+        scope: options.scope,
+        actionScope: options.actionScope,
+      },
+    });
+    api.startBackgroundAgentSession
+      .mockReturnValueOnce({
+        operationId: "request-1",
+        threadId: "agent-thread-1",
+        turnId: "background-turn-1",
+        accepted: Promise.reject(new Error("Failed to fetch")),
+        status: vi.fn().mockResolvedValue({
+          operationId: "request-1",
+          threadId: "agent-thread-1",
+          turnId: "background-turn-1",
+          status: "unavailable",
+        }),
+      })
+      .mockReturnValueOnce({
+        operationId: "request-1",
+        threadId: "agent-thread-1",
+        turnId: "background-turn-1",
+        accepted: Promise.resolve({
+          operationId: "request-1",
+          threadId: "agent-thread-1",
+          turnId: "background-turn-1",
+        }),
+        status: vi.fn(),
+      });
+    act(() => root.render(createElement(Probe)));
+
+    await act(async () => {
+      await controller!.start({
+        threadId: "thread-1",
+        rootCommentId: "comment-1",
+        intent: "suggest",
+        requestId: "request-1",
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    api.requests = [request({ status: "queued", error: null })];
+    act(() => root.render(createElement(Probe)));
+    expect(controller!.requests[0]).toMatchObject({
+      status: "needs-review",
+      errorCode: "operation_failed",
+      error: "Failed to fetch",
+    });
+
+    await act(async () => {
+      await controller!.start({
+        threadId: "thread-1",
+        rootCommentId: "comment-1",
+        intent: "suggest",
+        requestId: "request-1",
+      });
+    });
+
+    expect(api.callAction).toHaveBeenCalledOnce();
+    expect(api.startBackgroundAgentSession).toHaveBeenCalledTimes(2);
+    expect(api.startBackgroundAgentSession.mock.calls[1]?.[0]).toEqual(
+      api.startBackgroundAgentSession.mock.calls[0]?.[0],
+    );
+  });
+
+  it("does not downgrade a terminal turn when its acknowledgement rejects late", async () => {
+    let controller: CommentAiController;
+    function Probe() {
+      controller = useCommentAiRequests("document-1", { enabled: true });
+      return null;
+    }
+    api.callAction.mockResolvedValue({
+      ...request({ status: "queued", error: null }),
+      dispatch: true,
+      prompt: "Handle the source comment",
+      context: "Hidden comment AI instructions",
+      actionScope: { kind: "content-comment-ai", requestId: "request-1" },
+      backgroundSession: {
+        operationId: "request-1",
+        threadId: "agent-thread-1",
+        scope: { type: "content-comment-ai", id: "request-1" },
+        actionScope: { kind: "content-comment-ai", requestId: "request-1" },
+      },
+    });
+    api.startBackgroundAgentSession.mockReturnValue({
+      operationId: "request-1",
+      threadId: "agent-thread-1",
+      turnId: "background-turn-1",
+      accepted: Promise.reject(new Error("acknowledgement timed out")),
+      status: vi.fn().mockResolvedValue({
+        operationId: "request-1",
+        threadId: "agent-thread-1",
+        turnId: "background-turn-1",
+        status: "completed",
+      }),
+    });
+    act(() => root.render(createElement(Probe)));
+
+    await act(async () => {
+      await controller!.start({
+        threadId: "thread-1",
+        rootCommentId: "comment-1",
+        intent: "suggest",
+        requestId: "request-1",
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    api.requests = [
+      request({ status: "replied", errorCode: null, error: null }),
+    ];
+    act(() => root.render(createElement(Probe)));
+
+    expect(controller!.requests[0]?.status).toBe("replied");
+    expect(controller!.requests[0]?.errorCode).toBeNull();
+  });
+
+  it("replaces Working with an honest recoverable state after an early Stop 404", async () => {
+    let controller: CommentAiController;
+    function Probe() {
+      controller = useCommentAiRequests("document-1", { enabled: true });
+      return null;
+    }
+    api.callAction.mockResolvedValue({
+      ...request({ status: "queued", error: null }),
+      dispatch: true,
+      prompt: "Handle the source comment",
+      actionScope: { kind: "content-comment-ai", requestId: "request-1" },
+      backgroundSession: {
+        operationId: "request-1",
+        threadId: "agent-thread-1",
+        scope: { type: "content-comment-ai", id: "request-1" },
+        actionScope: { kind: "content-comment-ai", requestId: "request-1" },
+      },
+    });
+    api.startBackgroundAgentSession.mockReturnValue({
+      operationId: "request-1",
+      threadId: "agent-thread-1",
+      turnId: "background-turn-1",
+      accepted: new Promise(() => undefined),
+      status: vi.fn(),
+    });
+    api.cancelBackgroundAgentSession.mockRejectedValue(
+      new Error("Background agent session was rejected (HTTP 404)"),
+    );
+    act(() => root.render(createElement(Probe)));
+    await act(async () => {
+      await controller!.start({
+        threadId: "thread-1",
+        rootCommentId: "comment-1",
+        intent: "suggest",
+        requestId: "request-1",
+      });
+    });
+    api.requests = [
+      request({
+        status: "queued",
+        error: null,
+        agentThreadId: "agent-thread-1",
+        agentTurnId: "background-turn-1",
+      }),
+    ];
+    act(() => root.render(createElement(Probe)));
+
+    await expect(
+      act(async () => controller!.stop(controller!.requests[0]!)),
+    ).rejects.toThrow("HTTP 404");
+    act(() => root.render(createElement(Probe)));
+
+    expect(controller!.requests[0]).toMatchObject({
+      status: "needs-review",
+      errorCode: "operation_failed",
+      error: "Background agent session was rejected (HTTP 404)",
+    });
+  });
+
+  it("retries a rejected continuation after remount with its exact saved tuple", async () => {
+    let controller: CommentAiController;
+    function Probe() {
+      controller = useCommentAiRequests("document-1", { enabled: true });
+      return null;
+    }
+    const base = request({
+      status: "replied",
+      errorCode: null,
+      error: null,
+      agentThreadId: "agent-thread-1",
+      agentTurnId: "initial-turn-1",
+    });
+    api.requests = [base];
+    api.startBackgroundAgentSession
+      .mockReturnValueOnce({
+        operationId: "continuation-1",
+        threadId: "agent-thread-1",
+        turnId: "continuation-turn-1",
+        accepted: Promise.reject(new Error("Follow-up POST failed")),
+        status: vi.fn(),
+      })
+      .mockReturnValueOnce({
+        operationId: "continuation-1",
+        threadId: "agent-thread-1",
+        turnId: "continuation-turn-1",
+        accepted: Promise.resolve({
+          operationId: "continuation-1",
+          threadId: "agent-thread-1",
+          turnId: "continuation-turn-1",
+        }),
+        status: vi.fn(),
+      });
+    vi.spyOn(globalThis.crypto, "randomUUID").mockReturnValue("continuation-1");
+    act(() => root.render(createElement(Probe)));
+
+    await expect(
+      act(async () => controller!.continue(base, "What about accessibility?")),
+    ).rejects.toThrow("Follow-up POST failed");
+    act(() => root.render(createElement(Probe)));
+    expect(controller!.requests[0]).toMatchObject({
+      status: "needs-review",
+      error: "Follow-up POST failed",
+    });
+    await expect(
+      controller!.continue(base, "Accidentally submit another follow-up"),
+    ).rejects.toThrow("Follow-up POST failed");
+    expect(api.startBackgroundAgentSession).toHaveBeenCalledOnce();
+
+    act(() => root.unmount());
+    root = createRoot(container);
+    act(() => root.render(createElement(Probe)));
+    await act(async () => {
+      await controller!.start({
+        threadId: base.threadId,
+        rootCommentId: base.rootCommentId,
+        intent: base.intent,
+        requestId: base.requestId,
+      });
+    });
+
+    expect(api.callAction).not.toHaveBeenCalled();
+    expect(api.startBackgroundAgentSession).toHaveBeenCalledTimes(2);
+    expect(api.startBackgroundAgentSession.mock.calls[1]?.[0]).toEqual(
+      api.startBackgroundAgentSession.mock.calls[0]?.[0],
+    );
+    expect(api.startBackgroundAgentSession.mock.calls[1]?.[0]).toMatchObject({
+      message: "What about accessibility?",
+      operationId: "continuation-1",
+      threadId: "agent-thread-1",
+    });
+  });
+
+  it("keeps a monitor-observed terminal continuation when acceptance rejects before rerender", async () => {
+    vi.useFakeTimers();
+    let rejectAcceptance!: (error: Error) => void;
+    const accepted = new Promise<never>((_resolve, reject) => {
+      rejectAcceptance = reject;
+    });
+    let controller: CommentAiController;
+    function Probe() {
+      controller = useCommentAiRequests("document-1", { enabled: true });
+      return null;
+    }
+    const base = request({
+      status: "replied",
+      errorCode: null,
+      error: null,
+      agentThreadId: "agent-thread-1",
+      agentTurnId: "initial-turn-1",
+    });
+    api.requests = [base];
+    api.startBackgroundAgentSession.mockReturnValue({
+      operationId: "continuation-1",
+      threadId: "agent-thread-1",
+      turnId: "continuation-turn-1",
+      accepted,
+      status: vi.fn(),
+    });
+    api.getBackgroundAgentSessionStatus.mockResolvedValue({
+      operationId: "continuation-1",
+      threadId: "agent-thread-1",
+      turnId: "continuation-turn-1",
+      status: "completed",
+    });
+    vi.spyOn(globalThis.crypto, "randomUUID").mockReturnValue("continuation-1");
+    act(() => root.render(createElement(Probe)));
+
+    let continuationPromise!: Promise<Error | null>;
+    act(() => {
+      continuationPromise = controller!
+        .continue(base, "One more question")
+        .then(
+          () => null,
+          (error) => error as Error,
+        );
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_500);
+    });
+    expect(controller!.continuations.get(base.operationId)).toMatchObject({
+      operationId: "continuation-1",
+      turnId: "continuation-turn-1",
+      status: "completed",
+    });
+    await act(async () => {
+      rejectAcceptance(new Error("acknowledgement timed out"));
+      expect(await continuationPromise).toBeNull();
+    });
+    expect(
+      controller!.continuations.get(base.operationId)?.error,
+    ).toBeUndefined();
+    vi.useRealTimers();
+  });
+
   it("surfaces a failed request start and clears the starting state", async () => {
     let controller: CommentAiController;
     function Probe() {
@@ -386,6 +743,9 @@ describe("comment AI session reconciliation", () => {
     expect(
       acknowledgeCommentAiContinuation(completed, "request-1", "turn-1"),
     ).toBe(completed);
+    expect(
+      shouldIgnoreContinuationAcceptanceError(completed["request-1"], "turn-1"),
+    ).toBe(true);
 
     const queued = {
       "request-1": { ...completed["request-1"], status: "queued" as const },
@@ -395,5 +755,8 @@ describe("comment AI session reconciliation", () => {
         "request-1"
       ]?.status,
     ).toBe("running");
+    expect(
+      shouldIgnoreContinuationAcceptanceError(queued["request-1"], "turn-1"),
+    ).toBe(false);
   });
 });

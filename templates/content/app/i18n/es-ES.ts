@@ -1517,6 +1517,7 @@ const overrides = {
     aiConversationUnavailable: "Esta conversación de IA no está disponible.",
     aiFollowUpYou: "Tú",
     aiFollowUpIncomplete: "Esta respuesta terminó antes de completarse.",
+    sourceComment: "Comentario de origen",
     resolve: "Resolver",
     resolved: "Resueltos ({{count}})",
     reply: "Responder...",

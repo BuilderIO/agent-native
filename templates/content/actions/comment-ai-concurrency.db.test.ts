@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import { getDbExec } from "@agent-native/core/db";
 import { createThread, runWithRequestContext } from "@agent-native/core/server";
+import { backgroundAgentTurnIdForReceipt } from "@agent-native/core/shared";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
@@ -330,6 +331,7 @@ describe("comment AI operation isolation", () => {
 describe("comment AI durable action binding", () => {
   it("binds the initial generated turn before client acknowledgement and repeats idempotently", async () => {
     const agentThreadId = `agent-thread-${crypto.randomUUID()}`;
+    const agentTurnId = backgroundAgentTurnIdForReceipt(agentThreadId, OP_A);
     await createThread(OWNER, {
       id: agentThreadId,
       scope: { type: "content-comment-ai", id: OP_A },
@@ -344,7 +346,7 @@ describe("comment AI durable action binding", () => {
       ownerEmail: OWNER,
       threadId: agentThreadId,
       queuedMessageId: OP_A,
-      requestedTurnId: TURN_ID,
+      requestedTurnId: agentTurnId,
       actionScope: { kind: "content-comment-ai", requestId: OP_A },
     };
 
@@ -367,7 +369,7 @@ describe("comment AI durable action binding", () => {
       ],
       actionScope: { kind: "content-comment-ai", requestId: OP_A },
     });
-    expect(request.agentTurnId).toBe(TURN_ID);
+    expect(request.agentTurnId).toBe(agentTurnId);
   });
 
   it("rejects a tampered initial turn tuple before exposing tools", async () => {

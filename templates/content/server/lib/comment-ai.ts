@@ -7,6 +7,7 @@ import {
   getRequestUserEmail,
   getThread,
 } from "@agent-native/core/server";
+import { backgroundAgentTurnIdForReceipt } from "@agent-native/core/shared";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, asc, desc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -508,6 +509,24 @@ export async function startCommentAiRequest(args: {
       }
       request = await loadCommentAiRequest(winner.id);
     }
+  }
+
+  const agentTurnId = backgroundAgentTurnIdForReceipt(
+    request.agentThreadId!,
+    request.id,
+  );
+  if (!request.agentTurnId) {
+    const [bound] = await db
+      .update(schema.commentAiRequests)
+      .set({ agentTurnId, updatedAt: new Date().toISOString() })
+      .where(eq(schema.commentAiRequests.id, request.id))
+      .returning();
+    request = bound ?? (await loadCommentAiRequest(request.id));
+  } else if (request.agentTurnId !== agentTurnId) {
+    fail("This agent turn is not bound to the selected comment operation", {
+      statusCode: 409,
+      errorCode: "comment_ai_turn_conflict",
+    });
   }
 
   const intent = {

@@ -1238,6 +1238,7 @@ const overrides = {
     aiConversationUnavailable: "この AI 会話は利用できません。",
     aiFollowUpYou: "あなた",
     aiFollowUpIncomplete: "この返信は完了前に終了しました。",
+    sourceComment: "元のコメント",
     resolve: "解決",
     resolved: "解決済み（{{count}}）",
     reply: "返信...",

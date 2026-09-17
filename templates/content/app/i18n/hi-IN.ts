@@ -1213,6 +1213,7 @@ const overrides = {
     aiConversationUnavailable: "यह AI बातचीत उपलब्ध नहीं है।",
     aiFollowUpYou: "आप",
     aiFollowUpIncomplete: "यह जवाब पूरा होने से पहले समाप्त हो गया।",
+    sourceComment: "स्रोत टिप्पणी",
     resolve: "हल करें",
     resolved: "हल की गई ({{count}})",
     reply: "जवाब दें...",

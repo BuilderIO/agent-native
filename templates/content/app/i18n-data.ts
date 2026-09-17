@@ -1327,6 +1327,7 @@ const enUS = {
     aiConversationUnavailable: "This AI conversation is unavailable.",
     aiFollowUpYou: "You",
     aiFollowUpIncomplete: "This response ended before it finished.",
+    sourceComment: "Source comment",
     resolve: "Resolve",
     resolved: "Resolved ({{count}})",
     unanchored: "Highlight unavailable",

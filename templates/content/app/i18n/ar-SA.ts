@@ -1222,6 +1222,7 @@ const overrides = {
     aiConversationUnavailable: "محادثة الذكاء الاصطناعي هذه غير متاحة.",
     aiFollowUpYou: "أنت",
     aiFollowUpIncomplete: "انتهى هذا الرد قبل اكتماله.",
+    sourceComment: "التعليق المصدر",
     resolve: "حل",
     resolved: "تم حلها ({{count}})",
     reply: "رد...",

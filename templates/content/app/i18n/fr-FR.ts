@@ -1271,6 +1271,7 @@ const overrides = {
     aiConversationUnavailable: "Cette conversation IA est indisponible.",
     aiFollowUpYou: "Vous",
     aiFollowUpIncomplete: "Cette réponse s’est arrêtée avant la fin.",
+    sourceComment: "Commentaire source",
     resolve: "Résoudre",
     resolved: "Résolus ({{count}})",
     reply: "Répondre...",

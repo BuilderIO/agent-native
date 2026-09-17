@@ -1272,6 +1272,7 @@ const overrides = {
     aiConversationUnavailable: "Diese KI-Unterhaltung ist nicht verfügbar.",
     aiFollowUpYou: "Du",
     aiFollowUpIncomplete: "Diese Antwort wurde vorzeitig beendet.",
+    sourceComment: "Quellkommentar",
     resolve: "Erledigen",
     resolved: "Erledigt ({{count}})",
     reply: "Antworten...",

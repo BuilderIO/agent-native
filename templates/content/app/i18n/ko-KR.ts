@@ -1223,6 +1223,7 @@ const overrides = {
     aiConversationUnavailable: "이 AI 대화를 사용할 수 없습니다.",
     aiFollowUpYou: "나",
     aiFollowUpIncomplete: "이 답변은 완료되기 전에 종료되었습니다.",
+    sourceComment: "원본 댓글",
     resolve: "해결",
     resolved: "해결됨({{count}})",
     reply: "답글...",
