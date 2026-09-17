@@ -297,9 +297,13 @@ async function dragHostBoardSourceIntoNestedFrame(
   );
   if (alt) await page.keyboard.down("Alt");
   await page.mouse.down();
+  if (alt) {
+    // The host bridge starts lazily on the first move. Releasing Option before
+    // that move proves the duplicate decision belongs to press-time.
+    await page.keyboard.up("Alt");
+  }
   await page.mouse.move(release.x, release.y, { steps: 24 });
   await page.mouse.up();
-  if (alt) await page.keyboard.up("Alt");
   return release;
 }
 

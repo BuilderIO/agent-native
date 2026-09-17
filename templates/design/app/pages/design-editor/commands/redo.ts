@@ -28,6 +28,10 @@ import { writeCollabText } from "@/pages/design-editor/collab-sync";
 import type { LiveScreenSnapshot } from "@/pages/design-editor/command-types";
 import type { ApplyFileContentUpdateResult } from "@/pages/design-editor/commands/apply-file-content-update";
 import type { ApplyLocalContentUpdateResult } from "@/pages/design-editor/commands/apply-local-content-update";
+import {
+  createdFileIdFromResult,
+  reconcileCreatedFile,
+} from "@/pages/design-editor/commands/file-creation-recovery";
 import { prepareContentHistoryReplay } from "@/pages/design-editor/commands/prepare-content-history-replay";
 import type { DesignDataOperation } from "@/pages/design-editor/data-operations";
 import { applyDesignDataOperations } from "@/pages/design-editor/data-operations";
@@ -143,6 +147,9 @@ export interface RedoArgs {
   contentUndoStackRef: RefObject<ContentHistoryEntry[]>;
   createFileMutation: ReturnType<
     typeof useActionMutation<undefined, undefined, "create-file">
+  >;
+  deleteFileMutation: ReturnType<
+    typeof useActionMutation<undefined, undefined, "delete-file">
   >;
   deleteRuntimeElement: (
     selector?: string | null,
@@ -340,6 +347,7 @@ export function runRedo({
   contentUndoSelectionStackRef,
   contentUndoStackRef,
   createFileMutation,
+  deleteFileMutation,
   deleteRuntimeElement,
   designDataJsonRef,
   fileCreationRedoStackRef,
@@ -1156,15 +1164,17 @@ export function runRedo({
   };
   // U12: redo a screen create/duplicate by recreating the file with the
   // same filename/content/fileType and restoring its recorded geometry.
-  // This is async (createFileMutation), unlike every other redo path here,
-  // so it optimistically reports success immediately (mirrors
-  // handleAddScreen's own optimistic cache write) and surfaces a toast on
-  // failure instead of rolling the redo stacks back.
+  // This is async (createFileMutation), unlike every other redo path here, so
+  // keep history pending until both the file and its metadata persist.
   const redoFileCreation = () => {
     if (!canUseOverviewHistory) return false;
-    const entry = fileCreationRedoStackRef.current.pop();
+    const entry =
+      fileCreationRedoStackRef.current[
+        fileCreationRedoStackRef.current.length - 1
+      ];
     if (!entry) return false;
     if (!id) return false;
+    fileCreationRedoStackRef.current.pop();
     fileCreationUndoStackRef.current = [
       ...fileCreationUndoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
       entry,
@@ -1175,127 +1185,188 @@ export function runRedo({
     ];
     fileHistoryMutationPendingRef.current = true;
     syncUndoRedoState();
-    createFileMutation.mutate(
-      {
-        designId: id,
-        filename: entry.filename,
-        content: entry.content,
-        fileType: entry.fileType,
-      } as any,
-      {
-        onSuccess: (result: any) => {
-          const nextId = typeof result?.id === "string" ? result.id : null;
-          if (nextId) {
-            const geometry = {
-              ...getInitialFrameGeometry(overviewScreens.length, {
-                width: 1280,
-                height: 2560,
-              }),
-              ...entry.geometry,
-            };
-            writeFrameGeometrySnapshot({
-              ...getCanvasFrameGeometry(designDataJsonRef.current),
-              [nextId]: geometry,
-            });
-            const dataOperations: DesignDataOperation[] = [
-              ...(entry.screenMetadata
-                ? [
-                    {
-                      op: "set" as const,
-                      path: ["screenMetadata", nextId] as [string, ...string[]],
-                      value: entry.screenMetadata,
-                    },
-                  ]
-                : []),
-              ...(entry.localhostScreen
-                ? [
-                    {
-                      op: "set" as const,
-                      path: ["localhostScreens", nextId] as [
-                        string,
-                        ...string[],
-                      ],
-                      value: entry.localhostScreen,
-                    },
-                  ]
-                : []),
-            ];
-            if (dataOperations.length > 0) {
-              const nextData = applyDesignDataOperations(
-                designDataJsonRef.current,
-                dataOperations,
-              );
-              designDataJsonRef.current = nextData;
-              queryClient.setQueryData(
-                ["action", "get-design", { id }],
-                (old: any) => {
-                  if (!old || typeof old !== "object") return old;
-                  return { ...old, data: JSON.stringify(nextData) };
-                },
-              );
-              void updateDesignAsync({ id, dataOperations } as any).catch(
-                () => {
-                  void queryClient.invalidateQueries({
-                    queryKey: ["action", "get-design"],
-                  });
-                },
-              );
-            }
-            optimisticallyInsertCreatedFile({
-              fileId: nextId,
-              filename: entry.filename,
-              fileType: entry.fileType,
-              content: entry.content,
-              result,
-            });
-            focusCreatedScreen(nextId, geometry, {
-              preserveCamera: entry.preserveCamera,
-              suppressLineupRecenter: entry.preserveCamera,
-            });
-          }
-          fileHistoryMutationPendingRef.current = false;
-          syncUndoRedoState();
-          void queryClient.invalidateQueries({
-            queryKey: ["action", "get-design"],
+    const recoveryFileId = entry.recoveryFileId;
+    let retryRecoveryFileId = recoveryFileId;
+    let createdFileId: string | undefined;
+    const handleFailure = async (error: unknown) => {
+      let errorMessage =
+        error instanceof Error
+          ? error.message
+          : t("designEditor.toasts.screenDuplicateError");
+      const survivingFileId = createdFileId ?? recoveryFileId;
+      if (createdFileId) {
+        let cleanupFailed = false;
+        try {
+          await deleteFileMutation.mutateAsync({
+            id: createdFileId,
+            allowLockedLayers: true,
+          } as any);
+        } catch (cleanupError) {
+          const cleanupMessage =
+            cleanupError instanceof Error
+              ? cleanupError.message
+              : t("designEditor.toasts.screenDuplicateError");
+          errorMessage = `${errorMessage}; cleanup failed: ${cleanupMessage}`;
+          cleanupFailed = true;
+          retryRecoveryFileId = createdFileId;
+        }
+        if (!cleanupFailed) {
+          retryRecoveryFileId =
+            recoveryFileId === null ? undefined : recoveryFileId;
+        }
+      }
+      if (survivingFileId) {
+        const nextGeometry = {
+          ...getCanvasFrameGeometry(designDataJsonRef.current),
+        };
+        delete nextGeometry[survivingFileId];
+        writeFrameGeometrySnapshot(nextGeometry, {
+          replacePendingGeometrySave: true,
+        });
+      }
+      // The optimistic history move happened before the request. Put the
+      // entry back exactly where it came from so a failed redo remains
+      // retryable and does not leave a phantom undo operation behind.
+      if (
+        fileCreationUndoStackRef.current[
+          fileCreationUndoStackRef.current.length - 1
+        ] === entry
+      ) {
+        fileCreationUndoStackRef.current =
+          fileCreationUndoStackRef.current.slice(0, -1);
+      }
+      historyOrderRef.current = removeRecentUndoRedoOrderKinds(
+        historyOrderRef.current,
+        "file-created",
+        1,
+      );
+      const retryEntry =
+        retryRecoveryFileId === entry.recoveryFileId
+          ? entry
+          : { ...entry, recoveryFileId: retryRecoveryFileId };
+      fileCreationRedoStackRef.current = [
+        ...fileCreationRedoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+        retryEntry,
+      ];
+      redoOrderRef.current = [
+        ...redoOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+        "file-created",
+      ];
+      fileHistoryMutationPendingRef.current = false;
+      syncUndoRedoState();
+      await queryClient.invalidateQueries({
+        queryKey: ["action", "get-design"],
+      });
+      toast.error(errorMessage);
+    };
+    const createPromise =
+      recoveryFileId !== undefined
+        ? Promise.resolve(recoveryFileId ? { id: recoveryFileId } : {})
+        : createFileMutation.mutateAsync({
+            designId: id,
+            filename: entry.filename,
+            content: entry.content,
+            fileType: entry.fileType,
+          } as any);
+    void createPromise
+      .then(async (rawResult: any) => {
+        let result = rawResult;
+        let nextId = createdFileIdFromResult(result);
+        if (!nextId) {
+          retryRecoveryFileId = null;
+          const reconciled = await reconcileCreatedFile({
+            queryClient,
+            designId: id,
+            filename: entry.filename,
+            files,
           });
-        },
-        onError: (error: unknown) => {
-          // The optimistic history move happened before the request. Put the
-          // entry back exactly where it came from so a failed redo remains
-          // retryable and does not leave a phantom undo operation behind.
-          if (
-            fileCreationUndoStackRef.current[
-              fileCreationUndoStackRef.current.length - 1
-            ] === entry
-          ) {
-            fileCreationUndoStackRef.current =
-              fileCreationUndoStackRef.current.slice(0, -1);
+          if (reconciled) {
+            result = reconciled;
+            nextId = reconciled.id;
           }
-          historyOrderRef.current = removeRecentUndoRedoOrderKinds(
-            historyOrderRef.current,
-            "file-created",
-            1,
+        }
+        if (!nextId) {
+          throw new Error(
+            `Failed to recreate "${entry.filename}": create-file returned no id and no persisted file could be reconciled`,
           );
-          fileCreationRedoStackRef.current = [
-            ...fileCreationRedoStackRef.current.slice(
-              -(MAX_DESIGN_UNDO_STACK - 1),
-            ),
-            entry,
-          ];
-          redoOrderRef.current = [
-            ...redoOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
-            "file-created",
-          ];
-          fileHistoryMutationPendingRef.current = false;
-          syncUndoRedoState();
-          toast.error(
-            error instanceof Error
-              ? error.message
-              : t("designEditor.toasts.screenDuplicateError"),
+        }
+        if (recoveryFileId === undefined || recoveryFileId === null) {
+          createdFileId = nextId;
+        }
+        const geometry = {
+          ...getInitialFrameGeometry(overviewScreens.length, {
+            width: 1280,
+            height: 2560,
+          }),
+          ...entry.geometry,
+        };
+        writeFrameGeometrySnapshot({
+          ...getCanvasFrameGeometry(designDataJsonRef.current),
+          [nextId]: geometry,
+        });
+        const dataOperations: DesignDataOperation[] = [
+          ...(entry.screenMetadata
+            ? [
+                {
+                  op: "set" as const,
+                  path: ["screenMetadata", nextId] as [string, ...string[]],
+                  value: entry.screenMetadata,
+                },
+              ]
+            : []),
+          ...(entry.localhostScreen
+            ? [
+                {
+                  op: "set" as const,
+                  path: ["localhostScreens", nextId] as [string, ...string[]],
+                  value: entry.localhostScreen,
+                },
+              ]
+            : []),
+        ];
+        if (dataOperations.length > 0) {
+          const nextData = applyDesignDataOperations(
+            designDataJsonRef.current,
+            dataOperations,
           );
-        },
-      },
-    );
+          designDataJsonRef.current = nextData;
+          queryClient.setQueryData(
+            ["action", "get-design", { id }],
+            (old: any) => {
+              if (!old || typeof old !== "object") return old;
+              return { ...old, data: JSON.stringify(nextData) };
+            },
+          );
+          await updateDesignAsync({ id, dataOperations } as any);
+        }
+        optimisticallyInsertCreatedFile({
+          fileId: nextId,
+          filename: entry.filename,
+          fileType: entry.fileType,
+          content: entry.content,
+          result,
+        });
+        focusCreatedScreen(nextId, geometry, {
+          preserveCamera: entry.preserveCamera,
+          suppressLineupRecenter: entry.preserveCamera,
+        });
+        if (entry.recoveryFileId !== undefined) {
+          const undoIndex = fileCreationUndoStackRef.current.length - 1;
+          if (fileCreationUndoStackRef.current[undoIndex] === entry) {
+            const committedEntry = { ...entry };
+            delete committedEntry.recoveryFileId;
+            fileCreationUndoStackRef.current[undoIndex] = committedEntry;
+          }
+        }
+        fileHistoryMutationPendingRef.current = false;
+        syncUndoRedoState();
+        void queryClient.invalidateQueries({
+          queryKey: ["action", "get-design"],
+        });
+      })
+      .catch((error: unknown) => {
+        void handleFailure(error);
+      });
     return true;
   };
   const redoFileDeletion = () => {

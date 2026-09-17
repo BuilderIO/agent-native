@@ -7683,15 +7683,21 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         );
       };
 
+      const pressModifiers = {
+        shiftKey: e.shiftKey,
+        altKey: e.altKey,
+        metaKey: e.metaKey,
+        ctrlKey: e.ctrlKey,
+      };
       let bridgeDragStarted = false;
-      const startBridgeDrag = (source: MouseEvent) => {
+      const startBridgeDrag = () => {
         if (bridgeDragStarted) return;
         bridgeDragStarted = true;
         dispatchAt(
           selectionOverlay,
           "mousedown",
           toIframePoint(e.clientX, e.clientY),
-          source,
+          pressModifiers,
           1,
         );
       };
@@ -7699,7 +7705,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       setIsDragging(true);
 
       const handleMouseMove = (ev: MouseEvent) => {
-        startBridgeDrag(ev);
+        startBridgeDrag();
         dispatchAt(
           iframeDoc,
           "mousemove",

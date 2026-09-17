@@ -2419,6 +2419,10 @@ function DesignEditor() {
   // filename/content/fileType via createFileMutation.
   const fileCreationUndoStackRef = useRef<FileCreationHistoryEntry[]>([]);
   const fileCreationRedoStackRef = useRef<FileCreationHistoryEntry[]>([]);
+  const pendingDuplicateFilenamesRef = useRef<Set<string>>(new Set());
+  const duplicateRecoveryRef = useRef<
+    Map<string, { sourceScreenId: string; fileId?: string }>
+  >(new Map());
   const fileDeletionUndoStackRef = useRef<FileDeletionHistoryEntry[]>([]);
   const fileDeletionRedoStackRef = useRef<FileDeletionHistoryEntry[]>([]);
   // File deletion undo/redo recreates or removes SQL rows asynchronously.
@@ -2924,6 +2928,8 @@ function DesignEditor() {
     geometryRedoStackRef.current = [];
     fileCreationUndoStackRef.current = [];
     fileCreationRedoStackRef.current = [];
+    pendingDuplicateFilenamesRef.current.clear();
+    duplicateRecoveryRef.current.clear();
     fileDeletionUndoStackRef.current = [];
     fileDeletionRedoStackRef.current = [];
     fileHistoryMutationPendingRef.current = false;
@@ -6227,13 +6233,16 @@ function DesignEditor() {
         {
           canEditDesign,
           createFileAsync,
+          deleteFileAsync: deleteFileMutation.mutateAsync,
           designDataJsonRef,
+          duplicateRecoveryRef,
           files,
           focusCreatedScreen,
           id,
           liveFrameGeometryRef,
           optimisticallyInsertCreatedFile,
           overviewScreens,
+          pendingDuplicateFilenamesRef,
           queryClient,
           recordFileCreationHistoryEntry,
           t,
@@ -6246,6 +6255,7 @@ function DesignEditor() {
     [
       canEditDesign,
       createFileAsync,
+      deleteFileMutation,
       files,
       focusCreatedScreen,
       recordFileCreationHistoryEntry,
@@ -15254,6 +15264,7 @@ function DesignEditor() {
         contentUndoSelectionStackRef,
         contentUndoStackRef,
         createFileMutation,
+        deleteFileMutation,
         deleteRuntimeElement,
         designDataJsonRef,
         fileCreationRedoStackRef,
@@ -15331,6 +15342,7 @@ function DesignEditor() {
       applyLocalContentUpdate,
       canEditDesign,
       createFileMutation,
+      deleteFileMutation,
       deleteRuntimeElement,
       files,
       focusCreatedScreen,
