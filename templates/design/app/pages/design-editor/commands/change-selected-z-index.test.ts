@@ -128,7 +128,7 @@ describe("runChangeSelectedZIndex — a paint-order change must not move anythin
   });
 
   it("sends to back below static siblings, not to z-index 0", () => {
-    const { args, applyLocalContentUpdate, commitVisualStyles } = harness({
+    const { args, applyLocalContentUpdate } = harness({
       computedStyles: { position: "static", zIndex: "auto" },
     });
     runChangeSelectedZIndex(args, "back");
@@ -269,7 +269,6 @@ function multiHarness(
     activeBreakpointWidthPx?: number;
   } = {},
 ) {
-  const projection = buildCodeLayerProjection(content, { source });
   const selectedNodes = selectedNames.map((name) =>
     projectionNode(content, name),
   );
