@@ -283,6 +283,8 @@ jobs:
             project: chat
           - cluster: journeys
             project: journeys
+          - cluster: design
+            project: design
     env:
       BETA_E2E_APPS: ${{ needs.discover.outputs.apps }}
       BETA_E2E_GREP: ${{ inputs.grep || '' }}
