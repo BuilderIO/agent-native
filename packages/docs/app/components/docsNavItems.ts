@@ -438,19 +438,24 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             slug: "template-clips",
           },
           {
-            id: "template-clips-capture-everywhere",
-            labelKey: "clipsCaptureEverywhere",
-            slug: "template-clips-capture-everywhere",
+            id: "template-clips-features",
+            labelKey: "clipsFeatures",
+            slug: "template-clips-features",
           },
           {
-            id: "template-clips-ai-and-editing",
-            labelKey: "clipsAiAndEditing",
-            slug: "template-clips-ai-and-editing",
+            id: "template-clips-embed",
+            labelKey: "clipsEmbed",
+            slug: "template-clips-embed",
           },
           {
-            id: "template-clips-sharing-and-teams",
-            labelKey: "clipsSharingAndTeams",
-            slug: "template-clips-sharing-and-teams",
+            id: "template-clips-agent",
+            labelKey: "clipsAgent",
+            slug: "template-clips-agent",
+          },
+          {
+            id: "template-clips-integrations",
+            labelKey: "clipsIntegrations",
+            slug: "template-clips-integrations",
           },
           {
             id: "template-clips-developers",

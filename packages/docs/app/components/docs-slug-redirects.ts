@@ -73,6 +73,13 @@ export const DOCS_SLUG_REDIRECTS: Record<string, string> = {
   // Developer Guide).
   "template-slides-editing": "template-slides-features",
   "template-slides-design-and-media": "template-slides-features",
+  // Clips' Capture Everywhere, AI & Editing, and Sharing & Teams pages merged
+  // into one Features doc as part of the same five-page app-doc-format
+  // rework (Overview / Features / Talk to the Agent / Cross-App Use /
+  // Developer Guide).
+  "template-clips-capture-everywhere": "template-clips-features",
+  "template-clips-ai-and-editing": "template-clips-features",
+  "template-clips-sharing-and-teams": "template-clips-features",
 };
 
 /** True for a docs URL whose loader answers with a redirect, not a document. */
