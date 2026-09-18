@@ -372,6 +372,67 @@ describe("RecorderEngine streaming connection recovery", () => {
     expect(internals.uploadChunk).toHaveBeenCalledOnce();
   });
 
+  it("does not upload discarded streaming data when recovery settles after cancel", async () => {
+    vi.useFakeTimers();
+    const fakeWindow = Object.assign(new EventTarget(), {
+      setTimeout,
+      clearTimeout,
+    });
+    const fakeDocument = Object.assign(new EventTarget(), {
+      visibilityState: "visible",
+    });
+    vi.stubGlobal("window", fakeWindow);
+    vi.stubGlobal("document", fakeDocument);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response()),
+    );
+    const engine = makeEngine();
+    const source = new Blob([new Uint8Array(STREAM_CHUNK_BYTES)], {
+      type: "video/webm",
+    });
+    let resolveRecovery!: () => void;
+    const recoverStreamingDelivery = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveRecovery = resolve;
+        }),
+    );
+    const uploadChunk = vi.fn(async (_blob: Blob, _index: number) => ({
+      ok: true,
+    }));
+    const internals = engine as unknown as {
+      pendingStreamBlobs: Blob[];
+      pendingStreamBytes: number;
+      recorder: { state: RecordingState; stop: () => void } | null;
+      state: string;
+      uploadMode: "streaming" | "buffered";
+      streamingRecovery: { pause: () => void };
+      recoverStreamingDelivery: typeof recoverStreamingDelivery;
+      uploadChunk: typeof uploadChunk;
+    };
+    internals.pendingStreamBlobs = [source];
+    internals.pendingStreamBytes = source.size;
+    internals.recorder = { state: "recording", stop: vi.fn() };
+    internals.state = "recording";
+    internals.uploadMode = "streaming";
+    internals.recoverStreamingDelivery = recoverStreamingDelivery;
+    internals.uploadChunk = uploadChunk;
+
+    internals.streamingRecovery.pause();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(recoverStreamingDelivery).toHaveBeenCalledOnce();
+
+    await engine.cancel();
+    resolveRecovery();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(internals.pendingStreamBlobs).toEqual([]);
+    expect(internals.pendingStreamBytes).toBe(0);
+    expect(uploadChunk).not.toHaveBeenCalled();
+  });
+
   it("preserves the provider session reset signal on upload errors", async () => {
     vi.stubGlobal("window", { setTimeout, clearTimeout });
     vi.mocked(uploadChunkRequest).mockResolvedValueOnce(

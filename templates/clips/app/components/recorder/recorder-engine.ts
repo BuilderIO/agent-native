@@ -1879,7 +1879,10 @@ export class RecorderEngine {
   /** Cancel: release tracks immediately, then abort server-side, reset state. */
   async cancel(): Promise<void> {
     this.streamingRecoveryGeneration += 1;
+    this.streamingRecovery.reset();
     this.streamingUploadGeneration += 1;
+    this.pendingStreamBlobs = [];
+    this.pendingStreamBytes = 0;
     // Release local hardware FIRST — synchronously, before any await. This
     // lets callers fire-and-forget cancel() (e.g. when navigating away) and
     // know the camera/screen capture is fully torn down by the time the
