@@ -115,6 +115,7 @@ import {
 import {
   classifyBridgeRegistrationFailure,
   getDesignCanvasIframeSandbox,
+  getDesignCanvasIframeAllow,
   getSnapshotRetryDelayMs,
   isPreviewTokenStaleStatus,
   resolveLiveEditPreviewUrl,
@@ -2139,11 +2140,11 @@ export function DesignCanvas({
   //
   // A FAILED registration (most commonly Chrome's Local Network Access
   // permission blocking the fetch — see classifyBridgeRegistrationFailure)
-  // falls back the same way: the dev server itself is still reachable via a
-  // plain iframe navigation (unlike fetch/XHR, navigations aren't subject to
-  // that permission check), so showing it read-only beats hiding a working
-  // app behind an indefinite loading state. LocalNetworkAccessPrompt offers
-  // the way to actually enable editing from here.
+  // falls back the same way: the dev server URL remains the honest live
+  // fallback, although Chrome may gate this loopback iframe navigation behind
+  // the same Local Network Access permission. The iframe's explicit policy
+  // allows that prompt; LocalNetworkAccessPrompt offers the way to enable
+  // editing from here.
   const usingRawFallbackPreview =
     usesLiveEditInjectedBridge &&
     !liveEditExternalPreviewUrl &&
@@ -6050,6 +6051,7 @@ export function DesignCanvas({
             previewUrl: externalPreviewUrl,
             parentOrigin: browserOrigin ?? undefined,
           })}
+          allow={getDesignCanvasIframeAllow(externalPreviewUrl)}
           data-design-preview-iframe
           onLoad={(event) => {
             setPreviewFrameLoaded(true);
@@ -6111,6 +6113,7 @@ export function DesignCanvas({
             previewUrl: runtimeVerificationUrl,
             parentOrigin: browserOrigin,
           })}
+          allow={getDesignCanvasIframeAllow(runtimeVerificationUrl)}
           data-runtime-verification-iframe
           aria-hidden="true"
           tabIndex={-1}
