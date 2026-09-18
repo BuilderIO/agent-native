@@ -48,7 +48,10 @@ the next task.
 Start by refreshing the remote and reading the actual checkout:
 
 ```bash
-git fetch origin --quiet
+if ! git fetch origin --quiet; then
+  echo "Cannot refresh origin refs; stop before checking unpublished commits." >&2
+  exit 1
+fi
 git status --short
 git diff --stat
 git log --oneline -5
@@ -73,7 +76,7 @@ The behind count is information, not a reason to merge or rebase. Check
 GitHub's live mergeability before updating from origin/main.
 
 If git branch --show-current is empty, inspect git worktree list --porcelain
-and existing changes-* refs, then create an unused shipping branch in this
+and existing changes-\* refs, then create an unused shipping branch in this
 worktree only. Never use main, attach a branch checked out elsewhere, or move
 another worktree. This branch creation is authorized by the explicit /ship
 request.
