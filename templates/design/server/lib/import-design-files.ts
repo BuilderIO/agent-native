@@ -13,8 +13,11 @@ import {
   parseCanvasFrameGeometryById,
   type CanvasFramePlacement,
 } from "../../shared/canvas-frames.js";
+import { isOverviewScreenFile } from "../../shared/design-files.js";
 import {
   getResponsiveBreakpointWidths,
+  getResponsiveGroupHeight,
+  getResponsiveGroupRotatedBounds,
   getResponsiveGroupWidth,
   getScreenPreviewViewport,
   visibleBreakpointWidths,
@@ -137,11 +140,11 @@ function nextImportedFrameZ(currentCanvasFrames: unknown): number {
   return Math.max(currentFrameEntries.length, highestPersistedZ + 1);
 }
 
-function importedFramePaintedWidth(args: {
+function importedFramePaintedBounds(args: {
   frame: CanvasFramePlacement;
   metadata?: unknown;
   breakpointWidths: readonly number[];
-}): number {
+}): { x: number; y: number; width: number; height: number } {
   const frameWidth = positiveDimension(args.frame.width, DEFAULT_FRAME_WIDTH);
   const frameHeight = positiveDimension(
     args.frame.height,
@@ -154,11 +157,45 @@ function importedFramePaintedWidth(args: {
     { width: sourceWidth, height: sourceHeight },
     { width: frameWidth, height: frameHeight },
   ).scale;
-  return getResponsiveGroupWidth({
+  const visibleWidths = visibleBreakpointWidths(
+    args.breakpointWidths,
+    sourceWidth,
+  );
+  const groupWidth = getResponsiveGroupWidth({
     primaryWidth: frameWidth,
     scale,
-    visibleWidths: visibleBreakpointWidths(args.breakpointWidths, sourceWidth),
+    visibleWidths,
   });
+  const groupHeight = getResponsiveGroupHeight({
+    primaryHeight: frameHeight,
+    scale,
+    sourceWidth,
+    sourceHeight,
+    visibleWidths,
+    resolveBreakpointHeightPx: (widthPx) => {
+      const breakpointHeights = isRecord(metadataRecord.breakpointHeights)
+        ? metadataRecord.breakpointHeights
+        : {};
+      const height = breakpointHeights[String(widthPx)];
+      return typeof height === "number" && Number.isFinite(height) && height > 0
+        ? height
+        : undefined;
+    },
+  });
+  const x = args.frame.x ?? 0;
+  const y = args.frame.y ?? 0;
+  const rotation = args.frame.rotation ?? 0;
+  return rotation
+    ? getResponsiveGroupRotatedBounds({
+        x,
+        y,
+        primaryWidth: frameWidth,
+        primaryHeight: frameHeight,
+        groupWidth,
+        groupHeight,
+        rotation,
+      })
+    : { x, y, width: groupWidth, height: groupHeight };
 }
 
 function nextImportedFrameX(
@@ -166,6 +203,7 @@ function nextImportedFrameX(
   options: {
     screenMetadataByFileId?: unknown;
     breakpointWidths?: readonly number[];
+    overviewScreenFileIds?: ReadonlySet<string>;
   } = {},
 ): number {
   const currentFrames = Object.entries(
@@ -175,18 +213,22 @@ function nextImportedFrameX(
     ? options.screenMetadataByFileId
     : {};
   const breakpointWidths = options.breakpointWidths ?? [];
-  const right = currentFrames.reduce((maxRight, [fileId, frame]) => {
-    const x = frame.x ?? 0;
-    const width = importedFramePaintedWidth({
+  const screenFrames = options.overviewScreenFileIds
+    ? currentFrames.filter(([fileId]) =>
+        options.overviewScreenFileIds!.has(fileId),
+      )
+    : currentFrames;
+  const right = screenFrames.reduce((maxRight, [fileId, frame]) => {
+    const bounds = importedFramePaintedBounds({
       frame,
       metadata: metadataMap[fileId],
       breakpointWidths,
     });
-    return Number.isFinite(x) && Number.isFinite(width)
-      ? Math.max(maxRight, x + width)
+    return Number.isFinite(bounds.x) && Number.isFinite(bounds.width)
+      ? Math.max(maxRight, bounds.x + bounds.width)
       : maxRight;
   }, 0);
-  return currentFrames.length > 0 ? right + FRAME_GAP : 0;
+  return screenFrames.length > 0 ? right + FRAME_GAP : 0;
 }
 
 function stringFromState(value: unknown, key: string): string | undefined {
@@ -325,6 +367,7 @@ export async function saveImportedDesignFiles(
   const placements: CanvasFramePlacement[] = [];
   let placementsForPersistence: CanvasFramePlacement[] = placements;
   const metadataByFileId = new Map<string, Record<string, unknown>>();
+  const existingOverviewScreenFileIds = new Set<string>();
   let placedFrames:
     | Array<{
         fileId: string;
@@ -358,6 +401,11 @@ export async function saveImportedDesignFiles(
         .select()
         .from(schema.designFiles)
         .where(eq(schema.designFiles.designId, designId));
+      for (const file of existingFiles) {
+        if (isOverviewScreenFile(file)) {
+          existingOverviewScreenFileIds.add(file.id);
+        }
+      }
       const usedFilenames = new Set(existingFiles.map((file) => file.filename));
 
       for (let index = 0; index < input.files.length; index += 1) {
@@ -435,6 +483,7 @@ export async function saveImportedDesignFiles(
           height,
           heightMode: "fixed",
           ...file.source,
+          heightPinned: true,
         };
         metadataByFileId.set(fileId, source);
         savedFiles.push({
@@ -467,19 +516,16 @@ export async function saveImportedDesignFiles(
       let nextFrameX = nextImportedFrameX(current.canvasFrames, {
         screenMetadataByFileId: currentScreenMetadata,
         breakpointWidths,
+        overviewScreenFileIds: existingOverviewScreenFileIds,
       });
       placementsForPersistence = placements.map((placement, index) => {
         const x = placement.x ?? nextFrameX;
-        nextFrameX = Math.max(
-          nextFrameX,
-          x +
-            importedFramePaintedWidth({
-              frame: placement,
-              metadata: metadataByFileId.get(placement.fileId ?? ""),
-              breakpointWidths,
-            }) +
-            FRAME_GAP,
-        );
+        const bounds = importedFramePaintedBounds({
+          frame: { ...placement, x },
+          metadata: metadataByFileId.get(placement.fileId ?? ""),
+          breakpointWidths,
+        });
+        nextFrameX = Math.max(nextFrameX, bounds.x + bounds.width + FRAME_GAP);
         return {
           ...placement,
           x,

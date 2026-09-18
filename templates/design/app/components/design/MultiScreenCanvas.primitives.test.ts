@@ -373,6 +373,17 @@ describe("board surface pointer capture", () => {
     ).toBe(false);
   });
 
+  it("waits for a measured viewport before enabling the opaque board replica", () => {
+    expect(
+      shouldRenderBoardSurfaceStaticPreview({
+        zoom: 2,
+        hasSurfaceContent: true,
+        viewportGeometry: null,
+        renderGeometry: makeGeom(-4096, -4096, 8192, 8192),
+      }),
+    ).toBe(false);
+  });
+
   it("treats empty board documents as having no surface content", () => {
     expect(
       hasBoardSurfaceContent(

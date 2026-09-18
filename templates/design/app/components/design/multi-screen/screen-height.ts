@@ -8,6 +8,8 @@ export type ScreenHeightMode = "auto" | "fixed" | "hug";
 
 const IMPORTED_STATIC_SCREEN_SOURCE_TYPES = new Set([
   "creative-context-clone",
+  "creative-context-native-clone",
+  "fig-frame",
   "fig-upload",
   "figma-clipboard-local-kiwi",
   "figma-clipboard-rest",

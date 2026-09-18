@@ -1438,8 +1438,11 @@ export function DesignCanvas({
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const reviewCanvasId = useId();
   const zoomLayerRef = useRef<HTMLDivElement>(null);
+  const zoomSizeLayerRef = useRef<HTMLDivElement>(null);
   const zoomRef = useRef(zoom);
   const imperativeZoomRef = useRef<number | null>(null);
+  const zoomPropRef = useRef(zoom);
+  const zoomGestureGenerationRef = useRef(0);
   const zoomCommitTimerRef = useRef<number | null>(null);
   const applyZoomFrame = useCallback(
     (nextZoom: number) => {
@@ -1453,17 +1456,32 @@ export function DesignCanvas({
           centerInteractPreview,
         );
       }
+      const sizeLayer = zoomSizeLayerRef.current;
+      if (sizeLayer && centerInteractPreview) {
+        if (previewWidthPx === undefined) {
+          sizeLayer.style.removeProperty("width");
+        } else {
+          sizeLayer.style.width = `${previewWidthPx * (nextZoom / 100)}px`;
+        }
+        if (previewHeightPx === undefined) {
+          sizeLayer.style.removeProperty("height");
+        } else {
+          sizeLayer.style.height = `${previewHeightPx * (nextZoom / 100)}px`;
+        }
+      }
     },
-    [centerInteractPreview, deviceFrame],
+    [centerInteractPreview, deviceFrame, previewHeightPx, previewWidthPx],
   );
   const commitZoom = useCallback(
     (nextZoom: number) => {
+      if (nextZoom !== zoomRef.current) return;
       if (zoomCommitTimerRef.current !== null) {
         window.clearTimeout(zoomCommitTimerRef.current);
         zoomCommitTimerRef.current = null;
       }
       imperativeZoomRef.current = nextZoom;
       zoomRef.current = nextZoom;
+      zoomPropRef.current = nextZoom;
       onZoomChange?.(nextZoom);
     },
     [onZoomChange],
@@ -1471,11 +1489,18 @@ export function DesignCanvas({
   const scheduleZoomCommit = useCallback(
     (nextZoom: number) => {
       applyZoomFrame(nextZoom);
+      const generation = zoomGestureGenerationRef.current;
       if (zoomCommitTimerRef.current !== null) {
         window.clearTimeout(zoomCommitTimerRef.current);
       }
       zoomCommitTimerRef.current = window.setTimeout(() => {
         zoomCommitTimerRef.current = null;
+        if (
+          generation !== zoomGestureGenerationRef.current ||
+          zoomRef.current !== nextZoom
+        ) {
+          return;
+        }
         commitZoom(zoomRef.current);
       }, 120);
     },
@@ -2231,9 +2256,22 @@ export function DesignCanvas({
   const waitingForEditableExternalSnapshot = false;
   const waitingForLiveEditBridge =
     usesLiveEditInjectedBridge && !liveEditBridgeRegistered;
-  if (imperativeZoomRef.current === zoom) {
+  useLayoutEffect(() => {
+    if (zoomPropRef.current === zoom) return;
+    zoomPropRef.current = zoom;
+    if (imperativeZoomRef.current === zoom) {
+      imperativeZoomRef.current = null;
+      return;
+    }
+    if (zoomCommitTimerRef.current !== null) {
+      window.clearTimeout(zoomCommitTimerRef.current);
+      zoomCommitTimerRef.current = null;
+    }
     imperativeZoomRef.current = null;
-  }
+    zoomRef.current = zoom;
+    zoomGestureGenerationRef.current += 1;
+  }, [zoom]);
+  if (imperativeZoomRef.current === zoom) imperativeZoomRef.current = null;
   zoomRef.current = imperativeZoomRef.current ?? zoom;
   runtimeReplacementContentRef.current = runtimeReplacementContent;
   runtimeReplacementSourceRef.current =
@@ -5836,6 +5874,23 @@ export function DesignCanvas({
   const { width: iframeWidth, height: iframeHeight } =
     deviceDimensions[deviceFrame];
   const embeddedFrameFluid = embeddedFrame?.fluid === true;
+  // Non-fluid responsive previews scale their iframe viewport up to the
+  // displayed breakpoint card before the overview world applies its own
+  // camera transform. Retention must account for that inner scale; use the
+  // larger axis conservatively because one oversized axis is enough to stress
+  // Chromium's backing surface.
+  const embeddedFramePaintScale = embeddedFrame
+    ? Math.max(
+        1,
+        embeddedFrame.displayWidth / Math.max(1, embeddedFrame.viewportWidth),
+        embeddedFrame.displayHeight / Math.max(1, embeddedFrame.viewportHeight),
+      )
+    : 1;
+  const embeddedEditorPaintScale = Math.max(
+    1,
+    editorChromeScaleX,
+    editorChromeScaleY,
+  );
   const iframeBackgroundColor = getEmbeddedIframeBackgroundColor({
     embeddedFrameBackground,
     transparentBackground,
@@ -6162,21 +6217,16 @@ export function DesignCanvas({
             ...SCALED_IFRAME_PAINT_RETENTION_STYLE,
             ...getIframePaintRetentionStyle({
               viewportWidth: embeddedFrame
-                ? Math.max(
-                    embeddedFrame.viewportWidth,
-                    embeddedFrame.displayWidth,
-                  )
+                ? embeddedFrame.viewportWidth
                 : (previewWidthPx ?? Number.parseFloat(iframeWidth)),
               viewportHeight: embeddedFrame
-                ? Math.max(
-                    embeddedFrame.viewportHeight,
-                    embeddedFrame.displayHeight,
-                  )
+                ? embeddedFrame.viewportHeight
                 : (previewHeightPx ??
                   Number.parseFloat(iframeHeight ?? "900px")),
-              effectiveScale:
-                (embeddedFrame ? 1 : zoom / 100) *
-                Math.max(editorChromeScaleX, editorChromeScaleY),
+              effectiveScale: embeddedFrame
+                ? embeddedFramePaintScale * embeddedEditorPaintScale
+                : (zoom / 100) *
+                  Math.max(editorChromeScaleX, editorChromeScaleY),
             }),
           }}
           title={t("designEditor.designPreview")}
@@ -6582,6 +6632,7 @@ export function DesignCanvas({
           framed modes are centered inside the canvas with zoom applied. */}
       {centerInteractPreview ? (
         <div
+          ref={zoomSizeLayerRef}
           className="relative flex min-h-full min-w-full items-center justify-center"
           style={{ justifyContent: "safe center", alignItems: "safe center" }}
         >

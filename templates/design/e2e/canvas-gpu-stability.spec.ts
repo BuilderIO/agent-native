@@ -164,11 +164,23 @@ async function sample(page: Page, fileId: string) {
         ).__canvasGpuProfile
       : undefined;
     const rect = iframe?.getBoundingClientRect();
+    const host = window as Window & {
+      __canvasGpuIframeIdentity?: WeakMap<HTMLIFrameElement, string>;
+      __canvasGpuIframeIdentityCounter?: number;
+    };
+    host.__canvasGpuIframeIdentity ??= new WeakMap();
+    let iframeIdentity = iframe
+      ? host.__canvasGpuIframeIdentity.get(iframe)
+      : undefined;
+    if (iframe && !iframeIdentity) {
+      host.__canvasGpuIframeIdentityCounter =
+        (host.__canvasGpuIframeIdentityCounter ?? 0) + 1;
+      iframeIdentity = `iframe-${host.__canvasGpuIframeIdentityCounter}`;
+      host.__canvasGpuIframeIdentity.set(iframe, iframeIdentity);
+    }
     return {
       iframeCount: iframes.length,
-      iframeIdentity: iframe
-        ? `${iframe.dataset.screenIframeId ?? "board"}:${iframe.srcdoc.length}`
-        : null,
+      iframeIdentity: iframeIdentity ?? null,
       iframeReady: iframe?.contentDocument?.readyState ?? null,
       iframeRect: rect
         ? {
@@ -264,6 +276,9 @@ test("large canvas keeps its WebGL context and app viewport healthy through zoom
     expect(afterOverview.iframeReady).toBe("complete");
     expect(afterOverview.webglErrors).toEqual([]);
     expect(afterOverview.webglContextLost).toBe(0);
+    expect(afterOverview.webglFrames).toBeGreaterThan(
+      beforeOverview.webglFrames ?? 0,
+    );
     expect(afterOverview.appVisible).toBe(true);
     const overviewScreenshotBytes = await captureHealthScreenshot(
       page,
@@ -289,6 +304,9 @@ test("large canvas keeps its WebGL context and app viewport healthy through zoom
     expect(afterInteract.iframeReady).toBe("complete");
     expect(afterInteract.webglErrors).toEqual([]);
     expect(afterInteract.webglContextLost).toBe(0);
+    expect(afterInteract.webglFrames).toBeGreaterThan(
+      beforeInteract.webglFrames ?? 0,
+    );
     expect(afterInteract.appVisible).toBe(true);
     const interactScreenshotBytes = await captureHealthScreenshot(
       page,

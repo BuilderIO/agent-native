@@ -17,6 +17,10 @@ describe("screen height modes", () => {
   it("pins imported static screens unless they explicitly choose a mode", () => {
     expect(isImportedStaticScreenSource("figma-import")).toBe(true);
     expect(isImportedStaticScreenSource("html-upload")).toBe(true);
+    expect(isImportedStaticScreenSource("fig-frame")).toBe(true);
+    expect(isImportedStaticScreenSource("creative-context-native-clone")).toBe(
+      true,
+    );
     expect(isImportedStaticScreenSource("inline")).toBe(false);
     expect(resolveScreenHeightMode(undefined, false, "figma-import")).toBe(
       "fixed",

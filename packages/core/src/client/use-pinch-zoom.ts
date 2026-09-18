@@ -66,6 +66,19 @@ export function usePinchZoom({
   const setZoomRef = useRef(setZoom);
   const onZoomFrameRef = useRef(onZoomFrame);
   const onZoomEndRef = useRef(onZoomEnd);
+  const zoomPropRef = useRef(zoom);
+  const zoomGestureGenerationRef = useRef(0);
+  if (zoomPropRef.current !== zoom) {
+    zoomPropRef.current = zoom;
+    // A controlled zoom update is authoritative unless it is the value just
+    // painted by this gesture. Invalidate the settle timer when a preset,
+    // sync, or camera command arrives during the debounce window.
+    if (imperativeZoomRef.current !== zoom) {
+      imperativeZoomRef.current = null;
+      zoomRef.current = zoom;
+      zoomGestureGenerationRef.current += 1;
+    }
+  }
   // An unrelated render can land between two wheel frames. Keep the
   // imperative camera value until the owning state commit reaches this hook;
   // otherwise the next gesture frame would jump back to the stale prop.
@@ -113,8 +126,16 @@ export function usePinchZoom({
     const scheduleGestureEnd = () => {
       if (!onZoomFrameRef.current && !onZoomEndRef.current) return;
       if (settleTimerId !== null) window.clearTimeout(settleTimerId);
+      const generation = zoomGestureGenerationRef.current;
+      const expectedZoom = zoomRef.current;
       settleTimerId = window.setTimeout(() => {
         settleTimerId = null;
+        if (
+          generation !== zoomGestureGenerationRef.current ||
+          zoomRef.current !== expectedZoom
+        ) {
+          return;
+        }
         onZoomEndRef.current?.(zoomRef.current);
       }, 120);
     };

@@ -104,16 +104,11 @@ export function shouldRenderBoardSurfaceStaticPreview(args: {
   // The replica is opaque. Backing a layer that is not rendering just slabs the
   // board in its own colour, which reads as a themed background gone wrong.
   if (!args.hasSurfaceContent) return false;
-  if (args.viewportGeometry) {
-    return (
-      args.viewportGeometry.width > args.renderGeometry.width ||
-      args.viewportGeometry.height > args.renderGeometry.height
-    );
-  }
-  // ResizeObserver has not reported yet. The 5% fallback matches a 1229px
-  // viewport against the 24,576-world-pixel live cap and avoids one blank
-  // first paint at the minimum 2% zoom.
-  return args.zoom <= 5;
+  if (!args.viewportGeometry) return false;
+  return (
+    args.viewportGeometry.width > args.renderGeometry.width ||
+    args.viewportGeometry.height > args.renderGeometry.height
+  );
 }
 
 export function getBoardSurfaceStaticPreviewViewport(

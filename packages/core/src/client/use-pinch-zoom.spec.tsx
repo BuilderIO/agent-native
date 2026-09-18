@@ -343,4 +343,37 @@ describe("usePinchZoom", () => {
       vi.useRealTimers();
     }
   });
+
+  it("does not commit a gesture after a newer controlled zoom arrives", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const frames: number[] = [];
+      const settled: number[] = [];
+      const { scrollEl } = await renderHarness(100, {
+        onZoomFrame: (next) => frames.push(next),
+        onZoomEnd: (next) => settled.push(next),
+      });
+
+      dispatchWheel(scrollEl, { clientX: 200, clientY: 150, deltaY: -20 });
+      flushRaf();
+      expect(frames).toHaveLength(1);
+
+      await act(async () => {
+        root.render(
+          <Harness
+            zoom={240}
+            setZoom={() => {}}
+            onRef={() => {}}
+            onZoomFrame={(next) => frames.push(next)}
+            onZoomEnd={(next) => settled.push(next)}
+          />,
+        );
+      });
+      vi.advanceTimersByTime(120);
+
+      expect(settled).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

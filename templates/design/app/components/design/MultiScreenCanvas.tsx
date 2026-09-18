@@ -897,6 +897,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   ]);
   const showBoardStaticPreview = Boolean(
     boardFrameGeometry &&
+    boardViewportGeometry &&
     boardSurfaceRenderGeometry &&
     boardStaticPreviewContent &&
     shouldRenderBoardSurfaceStaticPreview({
