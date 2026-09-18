@@ -398,7 +398,7 @@ export function resolveFrameGeometrySync(args: {
   persistedGeometryById:
     | Record<string, Partial<FrameGeometry> | undefined>
     | undefined;
-  geometryOverridesById?: FrameGeometryById;
+  geometryOverridesById?: Record<string, FrameGeometry | undefined>;
 }): {
   next: FrameGeometryById;
   changed: boolean;

@@ -136,7 +136,7 @@ test("alt-dragging a selected frame drops a copy and leaves the original in plac
     const copyId = Object.keys(await frameOffsets(page)).find(
       (id) => id !== fileIds[0],
     );
-    expect(copyId).toBeDefined();
+    if (!copyId) throw new Error("Alt-drag did not create a duplicate frame");
     // Shell insertion and the geometry snapshot are separate React updates;
     // wait for the duplicate's translated frame before asserting its drop.
     await expect
