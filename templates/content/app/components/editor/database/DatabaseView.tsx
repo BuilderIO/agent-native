@@ -269,7 +269,6 @@ import {
   type PreviewDocumentSaveDeferred,
   type PreviewDocumentSaveSuccess,
 } from "../previewDocumentSaveController";
-import { databaseCanCreateItems, databaseCreateTarget } from "./create-target";
 import {
   ContentTableConstraintChip,
   ContentTableConstraintBar,
@@ -281,6 +280,7 @@ import {
   ContentTableToolbar,
   ContentTableToolbarButton,
 } from "./ContentTable";
+import { databaseCanCreateItems, databaseCreateTarget } from "./create-target";
 import {
   DatabaseColumnPresentation,
   ColumnPresentationMenuItems,
