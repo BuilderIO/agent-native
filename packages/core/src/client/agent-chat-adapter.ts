@@ -2441,7 +2441,21 @@ export function createAgentChatAdapter(
         if (threadId && runId) {
           releaseRunStream(threadId, runId, streamOwnershipToken, turnId);
         }
-        if (!ownsActiveRunState()) return;
+        const activeRun = getActiveRun();
+        const ownsActiveRun =
+          !activeRun ||
+          (!!threadId &&
+            !!runId &&
+            activeRun.threadId === threadId &&
+            activeRun.runId === runId);
+        if (!ownsActiveRun) {
+          // A different thread may own the global active-run pointer. The
+          // current tab still needs its terminal presentation cleanup, but a
+          // newer run in this thread must keep its running state intact.
+          if (!threadId || activeRun?.threadId === threadId) return;
+          publishTerminalChatUiStopped();
+          return;
+        }
         if (threadId && runId) {
           clearActiveRunIfMatches(threadId, runId);
         } else {
