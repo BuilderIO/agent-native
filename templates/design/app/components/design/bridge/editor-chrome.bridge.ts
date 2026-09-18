@@ -3397,6 +3397,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       CSSStyleSheet?: { prototype: object };
       Document?: { prototype: object };
       Element?: { prototype: object };
+      KeyframeEffect?: { prototype: object };
       ShadowRoot?: { prototype: object };
     };
     var success = true;
@@ -3414,6 +3415,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     };
     var styleSheetPrototype = portableWindow.CSSStyleSheet?.prototype;
     addMethod(portableWindow.Element?.prototype, "animate");
+    var keyframeEffectPrototype = portableWindow.KeyframeEffect?.prototype;
+    addMethod(keyframeEffectPrototype, "setKeyframes");
+    addMethod(keyframeEffectPrototype, "updateTiming");
     [
       "insertRule",
       "deleteRule",

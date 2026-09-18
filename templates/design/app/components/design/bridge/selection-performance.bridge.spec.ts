@@ -836,6 +836,124 @@ describe("large concurrent selectable-rects requests", () => {
     expect(result.portableLeaf).toBe(result.leaf);
   }, 60_000);
 
+  async function collectKeyframeEffectMutationCase(
+    mutation: "setKeyframes" | "updateTiming",
+  ): Promise<{
+    before: [string, number | null, number | null, number];
+    after: [string, number | null, number | null, number];
+    leaf: string;
+    portableLeaf: string | undefined;
+  }> {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 600, height: 300 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+        <div id="parent" data-agent-native-node-id="parent" style="position:relative;width:500px;height:220px">
+          <div id="child" data-agent-native-node-id="child" style="position:absolute;left:20px;top:20px;width:180px;height:80px">
+            <div id="leaf" data-agent-native-node-id="leaf" style="width:90px;height:40px"></div>
+          </div>
+        </div>
+      </body></html>`);
+      await page.evaluate((mutationMethod) => {
+        const child = document.querySelector<HTMLElement>("#child");
+        const leaf = document.querySelector<HTMLElement>("#leaf");
+        if (!child || !leaf)
+          throw new Error("keyframe effect fixture did not attach");
+        const animation = leaf.animate(
+          [{ color: "rgb(255, 0, 0)" }, { color: "rgb(0, 0, 255)" }],
+          { duration: 1000, fill: "both" },
+        );
+        animation.pause();
+        animation.currentTime = 500;
+        const effect = animation.effect;
+        if (!(effect instanceof KeyframeEffect)) {
+          throw new Error("keyframe effect fixture did not attach");
+        }
+        const state = () =>
+          [
+            animation.playState,
+            animation.currentTime,
+            animation.startTime,
+            animation.playbackRate,
+          ] as [string, number | null, number | null, number];
+        (
+          window as typeof window & {
+            __testKeyframeEffectBefore?: ReturnType<typeof state>;
+          }
+        ).__testKeyframeEffectBefore = state();
+        const nativeRect = child.getBoundingClientRect.bind(child);
+        let reads = 0;
+        child.getBoundingClientRect = () => {
+          const rect = nativeRect();
+          reads += 1;
+          // The parent snapshot cached the leaf before this overlapping child
+          // snapshot. These effect mutations leave the animation state intact.
+          if (reads === 2) {
+            if (mutationMethod === "setKeyframes") {
+              effect.setKeyframes([
+                { color: "rgb(0, 0, 255)" },
+                { color: "rgb(0, 0, 255)" },
+              ]);
+            } else {
+              effect.updateTiming({ duration: 2000 });
+            }
+          }
+          return rect;
+        };
+      }, mutation);
+      await page.addScriptTag({ content: hydratedBridge() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+      const payload = await collectSelectableRects(page, { deep: true });
+      const result = await page.evaluate(() => {
+        const leaf = document.querySelector<HTMLElement>("#leaf");
+        const animation = leaf?.getAnimations()[0];
+        const before = (
+          window as typeof window & {
+            __testKeyframeEffectBefore?: [
+              string,
+              number | null,
+              number | null,
+              number,
+            ];
+          }
+        ).__testKeyframeEffectBefore;
+        if (!leaf || !animation || !before) {
+          throw new Error("keyframe effect fixture state missing");
+        }
+        return {
+          before,
+          after: [
+            animation.playState,
+            animation.currentTime,
+            animation.startTime,
+            animation.playbackRate,
+          ] as [string, number | null, number | null, number],
+          leaf: getComputedStyle(leaf).color,
+        };
+      });
+      const childInfo = payload.find((info) => info.sourceId === "child");
+      return {
+        ...result,
+        portableLeaf: childInfo?.portableStyleSnapshot?.nodes?.find(
+          (node) => node.sourceId === "leaf",
+        )?.styles?.color,
+      };
+    } finally {
+      await browser.close();
+    }
+  }
+
+  (["setKeyframes", "updateTiming"] as const).forEach((mutation) => {
+    it(`invalidates cached styles after KeyframeEffect.${mutation}()`, async () => {
+      const result = await collectKeyframeEffectMutationCase(mutation);
+      expect(result.after).toEqual(result.before);
+      expect(result.portableLeaf).toBe(result.leaf);
+    }, 60_000);
+  });
+
   it("refreshes a descendant when an ancestor animation starts mid-request", async () => {
     const browser = await chromium.launch({ headless: true });
     try {

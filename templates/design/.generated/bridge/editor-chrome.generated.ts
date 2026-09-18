@@ -3121,6 +3121,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       };
       var styleSheetPrototype = portableWindow.CSSStyleSheet?.prototype;
       addMethod(portableWindow.Element?.prototype, "animate");
+      var keyframeEffectPrototype = portableWindow.KeyframeEffect?.prototype;
+      addMethod(keyframeEffectPrototype, "setKeyframes");
+      addMethod(keyframeEffectPrototype, "updateTiming");
       [
         "insertRule",
         "deleteRule",
