@@ -1053,6 +1053,11 @@ export function canonicalElementInfoForCodeLayerNode(
     sourceId: bridgeSourceIdForCodeLayerNode(node),
     selector: preferredCodeLayerSelector(node),
     classes: node.classes,
+    // Source projections are the authority for layer-panel selections. Keep
+    // their primitive marker when canonicalizing a live bridge payload so a
+    // drawn SVG stays on the vector inspector path even when the bridge
+    // payload omitted its optional primitiveKind field.
+    primitiveKind: node.dataAttributes["data-an-primitive"] || undefined,
     isGroup: node.dataAttributes["data-agent-native-group"] === "true",
     confidence: node.confidence,
     childElementCount: node.children.length,
