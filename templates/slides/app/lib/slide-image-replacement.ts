@@ -93,6 +93,69 @@ function findImageWithSource(
   );
 }
 
+function imageStructure(doc: Document): string {
+  const body = doc.body.cloneNode(true) as HTMLElement;
+  body.querySelectorAll("img").forEach((image, index) => {
+    image.replaceWith(`__slide-image-${index}__`);
+  });
+  return body.innerHTML;
+}
+
+/** Update only image sources when upload completion did not change slide HTML. */
+export function swapImageSourcesInPlace(
+  root: HTMLElement,
+  previousContent: string,
+  nextContent: string,
+): boolean {
+  const previousDoc = parseFragment(previousContent);
+  const nextDoc = parseFragment(nextContent);
+  const previousImages = Array.from(
+    previousDoc.body.querySelectorAll<HTMLImageElement>("img"),
+  );
+  const nextImages = Array.from(
+    nextDoc.body.querySelectorAll<HTMLImageElement>("img"),
+  );
+  if (
+    previousImages.length === 0 ||
+    previousImages.length !== nextImages.length
+  ) {
+    return false;
+  }
+
+  const nextSources = nextImages.map((image) => image.getAttribute("src"));
+  if (imageStructure(previousDoc) !== imageStructure(nextDoc)) return false;
+
+  const liveImages = Array.from(root.querySelectorAll<HTMLImageElement>("img"));
+  if (liveImages.length !== nextSources.length) return false;
+  liveImages.forEach((image, index) => {
+    const nextSource = nextSources[index];
+    if (nextSource === null) image.removeAttribute("src");
+    else image.setAttribute("src", nextSource);
+  });
+  return true;
+}
+
+/** Resolve after a hosted image is decoded, keeping the old preview visible. */
+export function prefetchImage(src: string): Promise<void> {
+  if (typeof Image === "undefined") return Promise.resolve();
+
+  return new Promise<void>((resolve) => {
+    const image = new Image();
+    const settle = () => resolve();
+    image.onload = () => {
+      if (typeof image.decode !== "function") {
+        settle();
+        return;
+      }
+      void Promise.resolve()
+        .then(() => image.decode())
+        .then(settle, settle);
+    };
+    image.onerror = settle;
+    image.src = src;
+  });
+}
+
 export function normalizeImageObjectPosition(
   value: string | null | undefined,
 ): ImageObjectPosition {

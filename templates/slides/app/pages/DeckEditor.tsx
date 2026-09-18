@@ -145,6 +145,7 @@ import {
   hasOptimisticImagePreview,
   imageFileLooksSupported,
   insertDroppedImageIntoSlideHtml,
+  prefetchImage,
   replaceOptimisticImagePreview,
   replaceImageTargetInSlideHtml,
   stripOptimisticImagePreviews,
@@ -1222,6 +1223,7 @@ export default function DeckEditor() {
 
       try {
         const newUrl = await uploadImageAsset(file);
+        await prefetchImage(newUrl);
         if (
           !pendingImagePreviewsRef.current.some(
             (preview) => preview.previewSrc === previewSrc,
