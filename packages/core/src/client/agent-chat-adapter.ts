@@ -2455,12 +2455,13 @@ export function createAgentChatAdapter(
         );
       };
       const settleTerminalChatRun = () => {
-        // A successor claims the surface before its response can publish an
-        // active run. Keep the old stream from clearing that successor's UI.
-        if (hasPendingSuccessorRequest()) return;
         if (threadId && runId) {
           releaseRunStream(threadId, runId, streamOwnershipToken, turnId);
         }
+        // A successor claims the surface before its response can publish an
+        // active run. Keep the old stream from clearing that successor's UI
+        // after releasing its completed stream ownership claim.
+        if (hasPendingSuccessorRequest()) return;
         const activeRun = getActiveRun();
         const ownsActiveRun =
           !activeRun ||
@@ -5181,6 +5182,7 @@ export function createAgentChatAdapter(
           }
         }
       } finally {
+        if (threadId) clearPendingTurnIfMatches(threadId, turnId);
         if (ownsActiveRunState()) {
           publishTerminalChatUiStopped();
         }

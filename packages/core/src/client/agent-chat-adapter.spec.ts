@@ -21,6 +21,11 @@ import {
   BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS,
   createAgentChatAdapter,
 } from "./agent-chat-adapter.js";
+import {
+  claimRunStream,
+  createRunStreamToken,
+  releaseRunStream,
+} from "./run-stream-ownership.js";
 import { SSE_NO_PROGRESS_TIMEOUT_MS } from "./sse-event-processor.js";
 
 const analyticsMock = vi.hoisted(() => ({
@@ -330,6 +335,39 @@ describe("createAgentChatAdapter", () => {
       "x-agent-native-browser-tab": "browser-pending",
     });
     expect(getPendingTurn("thread-pending")).toBeNull();
+  });
+
+  it("clears the pending turn when the request fails before a run id arrives", async () => {
+    vi.stubGlobal("sessionStorage", createMemoryStorage());
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url.includes("/runs/active?")) {
+          return new Response(null, { status: 404 });
+        }
+        return new Response("upstream failure", { status: 400 });
+      }),
+    );
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-pending-failure",
+      threadId: "thread-pending-failure",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Start a failing chat turn" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    expect(getPendingTurn("thread-pending-failure")).toBeNull();
   });
 
   it("falls back to the same-origin route when direct streaming cannot start", async () => {
@@ -7701,6 +7739,7 @@ describe("createAgentChatAdapter", () => {
   it("does not stop its tab while a successor request is still registering", async () => {
     vi.stubGlobal("sessionStorage", createMemoryStorage());
     const dispatchEvent = vi.fn();
+    const turnId = "current-turn";
     vi.stubGlobal("window", { dispatchEvent });
     vi.stubGlobal(
       "CustomEvent",
@@ -7759,6 +7798,7 @@ describe("createAgentChatAdapter", () => {
             content: [{ type: "text", text: "finish this" }],
           },
         ],
+        runConfig: { custom: { turnId } },
         abortSignal: new AbortController().signal,
       } as any),
     );
@@ -7769,6 +7809,11 @@ describe("createAgentChatAdapter", () => {
         detail: { isRunning: false, tabId: "chat-current" },
       }),
     );
+    const nextReader = createRunStreamToken("next-reader");
+    expect(
+      claimRunStream("current-thread", "run-current", nextReader, turnId),
+    ).toBe(true);
+    releaseRunStream("current-thread", "run-current", nextReader, turnId);
     clearPendingTurnIfMatches("successor-thread", "successor-turn");
   });
 
