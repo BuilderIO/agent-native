@@ -14,7 +14,7 @@ const SOURCE_EXTENSIONS = /\.(?:tsx?|jsx?|mjs|cjs)$/;
 const EXCLUDED_PATH =
   /(^|\/)(node_modules|dist|build|\.next|\.nuxt|\.output|\.cache|\.turbo|\.netlify|\.vercel|\.wrangler|coverage)(\/|$)/;
 export const EVENT_CALL =
-  /(?:^|[^\w$])(?:[\w$]+\??\.)*(trackEvent|track)\(\s*["'`]([^"'`]+)["'`]/g;
+  /(?:^|[^\w$])(?:[\w$]+\??\.)*?(trackEvent|track)(?:\?\.)?\(\s*["'`]([^"'`]+)["'`]/g;
 const RESERVED_EVENT_NAMES = new Set([
   "action.response",
   "app.first_action",
