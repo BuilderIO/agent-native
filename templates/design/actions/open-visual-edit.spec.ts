@@ -82,7 +82,7 @@ vi.mock("./navigate.js", () => ({
 }));
 
 import action, {
-  localVisualEditCapabilityPrincipal,
+  localVisualEditBridgePrincipal,
   localVisualEditWorkspacePrincipal,
 } from "./open-visual-edit.js";
 
@@ -626,11 +626,8 @@ describe("open-visual-edit", () => {
         bridgeToken: "bridge-token",
         bridgeAttestation: {
           challenge: "b".repeat(32),
-          signature: bridgeAttestationSignature(
-            "stored-write-token",
-            "b".repeat(32),
-          ),
-          previewToken: "stored-preview-token",
+          signature: bridgeAttestationSignature("bridge-token", "b".repeat(32)),
+          previewToken: "preview:bridge-token",
           manifest: {
             source: "agent-native-design-connect",
             sourceType: "localhost",
@@ -657,7 +654,7 @@ describe("open-visual-edit", () => {
 
     expect(mocks.runWithRequestContext).toHaveBeenCalledWith(
       expect.objectContaining({
-        userEmail: localVisualEditCapabilityPrincipal(capability),
+        userEmail: localVisualEditBridgePrincipal("bridge-token"),
       }),
       expect.any(Function),
     );
@@ -679,10 +676,10 @@ describe("open-visual-edit", () => {
           bridgeAttestation: {
             challenge: "c".repeat(32),
             signature: bridgeAttestationSignature(
-              "stored-write-token",
+              "bridge-token",
               "c".repeat(32),
             ),
-            previewToken: "stored-preview-token",
+            previewToken: "preview:bridge-token",
             manifest: {
               source: "agent-native-design-connect",
               sourceType: "localhost",
@@ -708,7 +705,7 @@ describe("open-visual-edit", () => {
       ),
     ).rejects.toThrow(/does not match the visual-edit target/);
 
-    expect(mocks.connectLocalhostRun).toHaveBeenCalledOnce();
+    expect(mocks.connectLocalhostRun).not.toHaveBeenCalled();
   });
 
   it("rejects a forged signed-out bridge attestation", async () => {
@@ -727,7 +724,7 @@ describe("open-visual-edit", () => {
           bridgeAttestation: {
             challenge,
             signature: "0".repeat(64),
-            previewToken: "stored-preview-token",
+            previewToken: "preview:bridge-token",
             manifest: {
               source: "agent-native-design-connect",
               sourceType: "localhost",
@@ -753,7 +750,7 @@ describe("open-visual-edit", () => {
       ),
     ).rejects.toThrow(/could not prove the local bridge/);
 
-    expect(mocks.connectLocalhostRun).toHaveBeenCalledOnce();
+    expect(mocks.connectLocalhostRun).not.toHaveBeenCalled();
   });
 
   it("rejects a signed-out CLI caller for a non-loopback target", async () => {

@@ -1,4 +1,4 @@
-import { callAction } from "@agent-native/core/client/hooks";
+import { callAction, useSession } from "@agent-native/core/client/hooks";
 import { defineClientAction } from "@agent-native/core/client/host";
 import {
   createAgentNativeWebMcpRegistration,
@@ -218,8 +218,13 @@ async function readVisualEditBridgeAttestation(
   }
 }
 
-export function createOpenVisualEditWebMcpActions() {
+export function createOpenVisualEditWebMcpActions(options?: {
+  isAuthenticated?: boolean;
+}) {
+  const isAuthenticated = options?.isAuthenticated ?? false;
   type BootstrapCapability = { token: string; challenge: string };
+  let sessionBridgeToken: string | undefined;
+  let sessionBridgeUrl: string | undefined;
   let bootstrapCapabilityPromise: Promise<BootstrapCapability> | undefined;
   let bootstrapCapabilityExpiresAt = 0;
   const clearBootstrapCapability = () => {
@@ -263,15 +268,37 @@ export function createOpenVisualEditWebMcpActions() {
     input: OpenVisualEditWebMcpInput,
     runtime: { signal?: AbortSignal },
   ) => {
+    if (isAuthenticated) {
+      return (await callAction("open-visual-edit", input, {
+        signal: runtime.signal,
+      })) as OpenVisualEditActionResult;
+    }
+    const effectiveInput =
+      !input.bridgeToken?.trim() && sessionBridgeToken
+        ? {
+            ...input,
+            bridgeToken: sessionBridgeToken,
+            bridgeUrl: input.bridgeUrl ?? sessionBridgeUrl,
+          }
+        : input;
+    const nextBridgeToken = effectiveInput.bridgeToken?.trim();
+    if (nextBridgeToken) {
+      if (nextBridgeToken !== sessionBridgeToken) {
+        sessionBridgeUrl = effectiveInput.bridgeUrl;
+      } else if (effectiveInput.bridgeUrl) {
+        sessionBridgeUrl = effectiveInput.bridgeUrl;
+      }
+      sessionBridgeToken = nextBridgeToken;
+    }
     const bootstrap = await getBootstrapCapability(runtime.signal);
     const bridgeAttestation = await readVisualEditBridgeAttestation(
-      input,
+      effectiveInput,
       bootstrap.challenge,
       runtime.signal,
     );
     const actionInput = bridgeAttestation
-      ? { ...input, bridgeAttestation }
-      : input;
+      ? { ...effectiveInput, bridgeAttestation }
+      : effectiveInput;
     let result: OpenVisualEditActionResult;
     try {
       result = (await callAction("open-visual-edit", actionInput, {
@@ -431,6 +458,8 @@ export function createOpenVisualEditWebMcpActions() {
  * resources.
  */
 export function OpenVisualEditWebMcp() {
+  const { session, isLoading: sessionLoading } = useSession();
+  const isAuthenticated = Boolean(session?.email);
   const [pendingApproval, setPendingApproval] =
     useState<PendingApproval | null>(null);
   const pendingApprovalRef = useRef<PendingApproval | null>(null);
@@ -474,7 +503,8 @@ export function OpenVisualEditWebMcp() {
     let registration:
       | ReturnType<typeof createAgentNativeWebMcpRegistration>
       | undefined;
-    const actions = createOpenVisualEditWebMcpActions();
+    if (sessionLoading) return;
+    const actions = createOpenVisualEditWebMcpActions({ isAuthenticated });
 
     const scheduleRetry = () => {
       if (disposed || retryTimer !== undefined) return;
@@ -520,7 +550,7 @@ export function OpenVisualEditWebMcp() {
       registration?.stop();
       resolveApproval(false);
     };
-  }, [requestApproval, resolveApproval]);
+  }, [isAuthenticated, requestApproval, resolveApproval, sessionLoading]);
 
   const approval = pendingApproval
     ? (pendingApproval.request.action.approval ??

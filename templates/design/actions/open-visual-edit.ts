@@ -30,6 +30,7 @@ import addLocalhostScreensAction, {
 } from "./add-localhost-screens.js";
 import connectLocalhostAction, {
   DEFAULT_BRIDGE_URL,
+  derivePreviewToken,
   normalizeBridgeUrl,
 } from "./connect-localhost.js";
 import createDesignAction from "./create-design.js";
@@ -210,13 +211,14 @@ export function localVisualEditWorkspacePrincipal(
   return `workspace+${workspaceId}@${LOCAL_VISUAL_EDIT_PRINCIPAL_DOMAIN}`;
 }
 
-export function localVisualEditCapabilityPrincipal(capability: string): string {
+export function localVisualEditBridgePrincipal(bridgeToken: string): string {
   const capabilityId = crypto
     .createHash("sha256")
-    .update(capability)
+    .update("bridge\0")
+    .update(bridgeToken)
     .digest("hex")
     .slice(0, 24);
-  return `capability+${capabilityId}@${LOCAL_VISUAL_EDIT_PRINCIPAL_DOMAIN}`;
+  return `bridge+${capabilityId}@${LOCAL_VISUAL_EDIT_PRINCIPAL_DOMAIN}`;
 }
 
 function isVisualEditBootstrapCapability(
@@ -549,15 +551,35 @@ export default defineAction({
   },
   run: async (args, ctx) => {
     const devServerUrl = normalizeBaseUrl(args.devServerUrl);
+    const requestUserEmail = getRequestUserEmail();
     const authCapability = getRequestAuthCapability();
-    const isPageBootstrap = isVisualEditBootstrapCapability(authCapability);
+    const isPageBootstrap =
+      !requestUserEmail && isVisualEditBootstrapCapability(authCapability);
     if (isPageBootstrap && !isSameOriginVisualEditBrowserRequest(ctx)) {
       fail(
         "Signed-out visual-edit bootstrap is available only from the same-origin Design page.",
         { errorCode: "signed_out_visual_edit_browser_required" },
       );
     }
+    if (isPageBootstrap && !args.bridgeToken?.trim()) {
+      fail(
+        "Signed-out visual-edit needs the token from the local bridge. Start `agent-native design connect`, then pass that token to the page tool.",
+        { errorCode: "signed_out_visual_edit_bridge_token_required" },
+      );
+    }
     const runForPrincipal = async () => {
+      if (isPageBootstrap) {
+        await attestAnonymousBridge({
+          bridgeAttestation: args.bridgeAttestation,
+          devServerUrl,
+          bridgeUrl: args.bridgeUrl,
+          rootPath: args.rootPath,
+          expectedChallenge: visualEditBootstrapChallenge(authCapability),
+          expectedBridgeToken: args.bridgeToken!,
+          expectedPreviewToken:
+            args.previewToken ?? derivePreviewToken(args.bridgeToken!),
+        });
+      }
       const routeManifest = args.routeManifest
         ? {
             ...args.routeManifest,
@@ -593,20 +615,6 @@ export default defineAction({
         previewToken: args.previewToken,
         status: "connected",
       });
-
-      if (isPageBootstrap) {
-        // Validate against the effective server-side connection credentials,
-        // not a token echoed by the browser request.
-        await attestAnonymousBridge({
-          bridgeAttestation: args.bridgeAttestation,
-          devServerUrl,
-          bridgeUrl: args.bridgeUrl,
-          rootPath: args.rootPath,
-          expectedChallenge: visualEditBootstrapChallenge(authCapability),
-          expectedBridgeToken: connection.bridgeToken,
-          expectedPreviewToken: connection.previewToken,
-        });
-      }
 
       let designId = args.designId;
       let createdDesign = false;
@@ -742,7 +750,7 @@ export default defineAction({
       return result as typeof result & { embedStartUrl?: string };
     };
 
-    if (getRequestUserEmail()) return runForPrincipal();
+    if (requestUserEmail) return runForPrincipal();
     if (
       (!isPageBootstrap && ctx?.caller !== "cli") ||
       (isPageBootstrap &&
@@ -766,7 +774,7 @@ export default defineAction({
       {
         ...(getRequestContext() ?? {}),
         userEmail: isPageBootstrap
-          ? localVisualEditCapabilityPrincipal(authCapability)
+          ? localVisualEditBridgePrincipal(args.bridgeToken!)
           : localVisualEditWorkspacePrincipal(args.rootPath ?? devServerUrl),
         orgId: undefined,
       },

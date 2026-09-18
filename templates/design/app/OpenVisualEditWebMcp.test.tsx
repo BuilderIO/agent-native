@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/client/hooks", () => ({
   callAction: mocks.callAction,
+  useSession: () => ({ session: null, isLoading: false }),
 }));
 
 vi.mock("@agent-native/core/client/host", () => ({
@@ -105,6 +106,35 @@ describe("OpenVisualEditWebMcp", () => {
     expect(action.schema.required).toEqual(["devServerUrl"]);
   });
 
+  it("uses the authenticated action path without issuing a bootstrap capability", async () => {
+    const [action] = createOpenVisualEditWebMcpActions({
+      isAuthenticated: true,
+    }) as unknown as Array<{
+      run: (
+        input: Record<string, unknown>,
+        runtime: unknown,
+      ) => Promise<unknown>;
+    }>;
+    const result = { designId: "design-1" };
+    mocks.callAction.mockResolvedValue(result);
+
+    await action.run(
+      { devServerUrl: "http://localhost:5173" },
+      { signal: undefined },
+    );
+
+    expect(mocks.callAction).toHaveBeenCalledWith(
+      "open-visual-edit",
+      { devServerUrl: "http://localhost:5173" },
+      { signal: undefined },
+    );
+    expect(mocks.callAction).not.toHaveBeenCalledWith(
+      "issue-visual-edit-bootstrap",
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
   it("accepts only loopback bridge origins in the browser", () => {
     expect(normalizeBrowserBridgeUrl("http://127.0.0.1:7331")).toBe(
       "http://127.0.0.1:7331",
@@ -147,21 +177,23 @@ describe("OpenVisualEditWebMcp", () => {
       });
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            source: "agent-native-design-connect",
-            sourceType: "localhost",
-            localOnly: true,
-            devServerUrl: "http://localhost:5173",
-            bridgeUrl: "http://127.0.0.1:7331",
-            rootPath: "/tmp/app",
-            attestation: {
-              challenge: "a".repeat(32),
-              signature: "a".repeat(64),
-            },
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
+      vi.fn().mockImplementation(() =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              source: "agent-native-design-connect",
+              sourceType: "localhost",
+              localOnly: true,
+              devServerUrl: "http://localhost:5173",
+              bridgeUrl: "http://127.0.0.1:7331",
+              rootPath: "/tmp/app",
+              attestation: {
+                challenge: "a".repeat(32),
+                signature: "a".repeat(64),
+              },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
         ),
       ),
     );

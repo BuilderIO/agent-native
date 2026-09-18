@@ -61,7 +61,13 @@ describe("issue-visual-edit-bootstrap", () => {
   it("rejects bootstrap calls without same-origin browser metadata", async () => {
     signEmbedSessionToken.mockClear();
     await expect(
-      action.run({}, { caller: "http", requestHeaders: new Headers() }),
+      action.run(
+        {},
+        {
+          caller: "frontend",
+          requestHeaders: new Headers({ "sec-fetch-site": "same-origin" }),
+        },
+      ),
     ).rejects.toThrow(/same-origin Design page/);
     expect(signEmbedSessionToken).not.toHaveBeenCalled();
   });

@@ -20,10 +20,9 @@ export function isSameOriginVisualEditBrowserRequest(
 
   const origin = headers.get("origin");
   const requestOrigin = getRequestContext()?.requestOrigin;
-  if (origin && requestOrigin) {
-    if (!URL.canParse(origin) || !URL.canParse(requestOrigin)) return false;
-    return new URL(origin).origin === new URL(requestOrigin).origin;
-  }
+  if (!origin || !requestOrigin) return false;
+  if (!URL.canParse(origin) || !URL.canParse(requestOrigin)) return false;
+  if (new URL(origin).origin !== new URL(requestOrigin).origin) return false;
 
-  return fetchSite === "same-origin" || fetchSite === "none";
+  return !fetchSite || fetchSite === "same-origin" || fetchSite === "none";
 }
