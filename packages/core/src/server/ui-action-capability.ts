@@ -9,7 +9,10 @@ import {
   setResponseStatus,
 } from "h3";
 
-import { getConfiguredAppBasePath } from "./app-base-path.js";
+import {
+  getConfiguredAppBasePath,
+  normalizeAppBasePath,
+} from "./app-base-path.js";
 import { getSession } from "./auth.js";
 import { getH3App } from "./framework-request-handler.js";
 import {
@@ -35,8 +38,8 @@ function isHttpsRequest(event: H3Event): boolean {
   return event.url?.protocol === "https:";
 }
 
-function capabilityCookiePath(): string {
-  return `${getConfiguredAppBasePath()}/_agent-native/actions`;
+function capabilityCookiePath(appBasePath?: string): string {
+  return `${normalizeAppBasePath(appBasePath ?? getConfiguredAppBasePath())}/_agent-native/actions`;
 }
 
 /** Verify the server-minted browser capability for an authenticated owner. */
@@ -60,7 +63,7 @@ export function hasUiActionCapability(
   }
 }
 
-async function issueUiActionCapability(event: H3Event) {
+async function issueUiActionCapability(event: H3Event, appBasePath?: string) {
   const session = await getSession(event);
   const ownerEmail = normalizedEmail(session?.email);
   if (!ownerEmail) {
@@ -78,7 +81,7 @@ async function issueUiActionCapability(event: H3Event) {
     sameSite: isHttpsRequest(event) ? "none" : "lax",
     secure: isHttpsRequest(event),
     ...(isHttpsRequest(event) ? { partitioned: true } : {}),
-    path: capabilityCookiePath(),
+    path: capabilityCookiePath(appBasePath),
     maxAge: UI_ACTION_CAPABILITY_TTL_SECONDS,
   });
   setResponseHeader(event, "Cache-Control", "no-store");
@@ -89,6 +92,7 @@ async function issueUiActionCapability(event: H3Event) {
 export function mountUiActionCapabilityRoute(
   nitroApp: any,
   routePrefix = "/_agent-native",
+  appBasePath?: string,
 ): void {
   if (
     !nitroApp ||
@@ -106,7 +110,7 @@ export function mountUiActionCapabilityRoute(
         setResponseStatus(event, 405);
         return { error: "Method not allowed. Use GET." };
       }
-      return issueUiActionCapability(event);
+      return issueUiActionCapability(event, appBasePath);
     }),
   );
 }

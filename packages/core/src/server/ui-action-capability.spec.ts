@@ -79,6 +79,19 @@ describe("UI action capability", () => {
     });
   });
 
+  it("uses the built app base path for the capability cookie", async () => {
+    const app = createApp();
+    mountUiActionCapabilityRoute(app, "/_agent-native", "/docs");
+
+    const response = await app.fetch(
+      new Request("https://example.test/_agent-native/ui-capability"),
+    );
+
+    expect(response.headers.get("set-cookie")).toContain(
+      "Path=/docs/_agent-native/actions",
+    );
+  });
+
   it("does not mint a capability without an authenticated session", async () => {
     mockGetSession.mockResolvedValue(null);
     const app = createApp();

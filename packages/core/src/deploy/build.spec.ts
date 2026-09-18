@@ -1029,11 +1029,12 @@ describe("generateWorkerEntry", { timeout: 15_000 }, () => {
       "hasUiActionCapability as hasGeneratedUiActionCapability",
     );
     expect(source).toContain(
-      "mountUiActionCapabilityRoute as mountGeneratedUiActionCapabilityRoute",
+      "isSameOriginRequest as isGeneratedSameOriginRequest",
     );
     expect(source).toContain(
-      "if (!userEmail || !hasGeneratedUiActionCapability(event, userEmail))",
+      "mountUiActionCapabilityRoute as mountGeneratedUiActionCapabilityRoute",
     );
+    expect(source).toContain("!isGeneratedSameOriginRequest(event)");
     expect(source).toContain(
       "resolveOrgIdForEmailViaEvent as resolveGeneratedOrgId",
     );
@@ -1058,7 +1059,27 @@ describe("generateWorkerEntry", { timeout: 15_000 }, () => {
       "const actionIsUiOnly = action_0.uiOnly === true;",
     );
     expect(dynamicSource).toContain(
-      "mountGeneratedUiActionCapabilityRoute(nitroApp);",
+      'mountGeneratedUiActionCapabilityRoute(nitroApp, "/_agent-native", "");',
+    );
+
+    const mountedSource = generateWorkerEntry(
+      [],
+      [],
+      [],
+      [
+        {
+          name: "mounted-delete-data",
+          absPath: "/tmp/mounted-delete-data.ts",
+          method: "post",
+          uiOnly: true,
+        },
+      ],
+      null,
+      [],
+      "/docs",
+    );
+    expect(mountedSource).toContain(
+      'mountGeneratedUiActionCapabilityRoute(nitroApp, "/_agent-native", "/docs");',
     );
   });
 

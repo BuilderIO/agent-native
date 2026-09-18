@@ -1320,7 +1320,7 @@ ${["post", "put", "delete"]
   getAppConfig as getAgentNativeAppConfig,
   getSsrAuthRedirectScript as getAgentNativeSsrAuthRedirectScript,
   resolveAppHomePath as resolveAgentNativeAppHomePath,
-${hasActions ? "  getSession as getGeneratedSession,\n  hasUiActionCapability as hasGeneratedUiActionCapability,\n  mountUiActionCapabilityRoute as mountGeneratedUiActionCapabilityRoute,\n  resolveOrgIdForEmailViaEvent as resolveGeneratedOrgId,\n  runWithRequestContext as runWithGeneratedRequestContext,\n" : ""}
+${hasActions ? "  getSession as getGeneratedSession,\n  hasUiActionCapability as hasGeneratedUiActionCapability,\n  isSameOriginRequest as isGeneratedSameOriginRequest,\n  mountUiActionCapabilityRoute as mountGeneratedUiActionCapabilityRoute,\n  resolveOrgIdForEmailViaEvent as resolveGeneratedOrgId,\n  runWithRequestContext as runWithGeneratedRequestContext,\n" : ""}
 } from "${EDGE_SERVER_ENTRYPOINT}";`,
   );
 
@@ -2129,7 +2129,7 @@ async function getHandler() {
   // framework defaults before later custom plugins get a chance to mark
   // themselves as provided.
 ${generatedPluginMarks.map((stem) => `  markGeneratedPluginProvided(nitroApp, ${JSON.stringify(stem)});`).join("\n")}
-${hasActions ? "  mountGeneratedUiActionCapabilityRoute(nitroApp);" : ""}
+${hasActions ? `  mountGeneratedUiActionCapabilityRoute(nitroApp, "/_agent-native", ${JSON.stringify(builtAppBasePath)});` : ""}
 ${pluginCalls.join("\n")}
 
 ${
@@ -2138,7 +2138,11 @@ ${
     const session = await getGeneratedSession(event);
     const userEmail =
       typeof session?.email === "string" ? session.email.trim().toLowerCase() : undefined;
-    if (!userEmail || !hasGeneratedUiActionCapability(event, userEmail)) {
+    if (
+      !userEmail ||
+      !isGeneratedSameOriginRequest(event) ||
+      !hasGeneratedUiActionCapability(event, userEmail)
+    ) {
       return null;
     }
     const orgId = (await resolveGeneratedOrgId(event, userEmail)) ?? undefined;

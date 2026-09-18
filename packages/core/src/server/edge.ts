@@ -79,6 +79,7 @@ export {
   type H3AppShim,
 } from "./framework-request-handler.js";
 export { runWithRequestContext } from "./request-context.js";
+export { isSameOriginRequest } from "./request-origin.js";
 export {
   hasUiActionCapability,
   mountUiActionCapabilityRoute,
