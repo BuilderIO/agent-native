@@ -2815,7 +2815,6 @@ export function AuthPage(props: AuthPageProps) {
               setTwoFactorCode(event.currentTarget.value.replace(/\D/g, ""))
             }
             required
-            autoFocus
           />
           <button
             type="submit"
