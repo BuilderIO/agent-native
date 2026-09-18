@@ -158,7 +158,10 @@ import type {
   TransformBadge,
   VectorEditOverlayState,
 } from "./multi-screen/types";
-import { SCALED_IFRAME_PAINT_RETENTION_STYLE } from "./scaled-iframe-paint";
+import {
+  getIframePaintRetentionStyle,
+  SCALED_IFRAME_PAINT_RETENTION_STYLE,
+} from "./scaled-iframe-paint";
 import {
   type ElementInfo,
   type ElementSelectionIntent,
@@ -316,6 +319,7 @@ import {
   getBoardSelectionWorldBounds,
   getBoardSurfaceRenderGeometry,
   getBoardSurfaceLayerStyle,
+  getBoardSurfaceStaticPreviewClip,
   getBoardSurfaceStaticPreviewViewport,
   isLineupShrinkOnlyChange,
   OVERVIEW_FRAME_WIDTH,
@@ -848,6 +852,16 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         ? getBoardSurfaceStaticPreviewViewport(boardFrameGeometry)
         : null,
     [boardFrameGeometry],
+  );
+  const boardStaticPreviewClip = useMemo(
+    () =>
+      boardFrameGeometry
+        ? getBoardSurfaceStaticPreviewClip({
+            logicalGeometry: boardFrameGeometry,
+            viewportGeometry: boardViewportGeometry,
+          })
+        : undefined,
+    [boardFrameGeometry, boardViewportGeometry],
   );
   // Both board layers must ask this one question: an empty <body> is a truthy
   // string, and the replica is opaque, so a string-only gate slabs the board.
@@ -9566,6 +9580,18 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       }
       if (!iframeId) return;
       const key = iframeId;
+      const breakpointMarker = "::bp-";
+      const markerIndex = key.lastIndexOf(breakpointMarker);
+      const screenId = markerIndex >= 0 ? key.slice(0, markerIndex) : key;
+      const measuredScreen = screensRef.current.find(
+        (screen) => screen.id === screenId,
+      );
+      if (
+        measuredScreen &&
+        getResolvedMetadata(measuredScreen).heightMode === "fixed"
+      ) {
+        return;
+      }
       const height = Math.round(data.height);
       const width =
         typeof data.width === "number" && Number.isFinite(data.width)
@@ -9590,10 +9616,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       );
       contentSizeSamplesRef.current[key] = sample;
       const acceptedHeight = sample.acceptedHeight;
-      const breakpointMarker = "::bp-";
-      const markerIndex = key.lastIndexOf(breakpointMarker);
       if (markerIndex >= 0) {
-        const screenId = key.slice(0, markerIndex);
         const widthPx = Number(
           key.slice(markerIndex + breakpointMarker.length),
         );
@@ -9636,7 +9659,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     };
     window.addEventListener("message", handleContentSize);
     return () => window.removeEventListener("message", handleContentSize);
-  }, []);
+  }, [getResolvedMetadata]);
 
   const canvasFrames = useMemo(() => {
     const cache = canvasFrameEntryCacheRef.current;
@@ -9807,16 +9830,15 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     );
     const candidates = canvasFrames.map(({ screen, metadata, geometry }) => ({
       id: screen.id,
-      geometry: getResponsiveScreenCullGeometry(
-        screen,
-        geometry,
-        (widthPx) =>
-          measuredIframeHeights[getBreakpointIframeId(screen.id, widthPx)] ??
-          getResponsiveBreakpointHeightPx(
-            { breakpointHeights: screen.breakpointHeights },
-            widthPx,
-          ),
-      ),
+      geometry: getResponsiveScreenCullGeometry(screen, geometry, (widthPx) => {
+        return metadata.heightMode === "fixed"
+          ? undefined
+          : (measuredIframeHeights[getBreakpointIframeId(screen.id, widthPx)] ??
+              getResponsiveBreakpointHeightPx(
+                { breakpointHeights: screen.breakpointHeights },
+                widthPx,
+              ));
+      }),
       // Count only the breakpoint frames actually mounted (the row filters
       // duplicates of the device width) so the iframe budget isn't
       // over-consumed, prematurely evicting visible frames.
@@ -10162,6 +10184,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       onDrop={handleCanvasDrop}
       style={{
         cursor: surfaceCursor,
+        isolation: "isolate",
         overscrollBehavior: "none",
         touchAction: "none",
       }}
@@ -10211,6 +10234,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               width: boardFrameGeometry.width,
               height: boardFrameGeometry.height,
               overflow: "hidden",
+              contain: "paint",
+              clipPath: boardStaticPreviewClip,
+              isolation: "isolate",
               pointerEvents: "none",
               background: "transparent",
               zIndex: 0,
@@ -10233,6 +10259,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                 transformOrigin: "top left",
                 background: CANVAS_BACKGROUND_VAR,
                 ...SCALED_IFRAME_PAINT_RETENTION_STYLE,
+                ...getIframePaintRetentionStyle({
+                  viewportWidth: boardStaticPreviewViewport.width,
+                  viewportHeight: boardStaticPreviewViewport.height,
+                  effectiveScale:
+                    (boardFrameGeometry.width /
+                      Math.max(1, boardStaticPreviewViewport.width)) *
+                    (canvasZoom / 100),
+                }),
               }}
             />
           </div>
@@ -12102,6 +12136,12 @@ const Screen = memo(function Screen({
           backgroundColor: "white",
           colorScheme: "light",
           ...SCALED_IFRAME_PAINT_RETENTION_STYLE,
+          ...getIframePaintRetentionStyle({
+            viewportWidth: previewViewport.viewportWidth,
+            viewportHeight: previewViewport.viewportHeight,
+            effectiveScale:
+              previewViewport.scale / Math.max(chromeScale, 0.001),
+          }),
         }}
         title={`${screen.filename} snapshot`}
       />
@@ -12469,6 +12509,12 @@ const Screen = memo(function Screen({
                   backgroundColor: "white",
                   colorScheme: "light",
                   ...SCALED_IFRAME_PAINT_RETENTION_STYLE,
+                  ...getIframePaintRetentionStyle({
+                    viewportWidth: previewViewport.viewportWidth,
+                    viewportHeight: previewViewport.viewportHeight,
+                    effectiveScale:
+                      previewViewport.scale / Math.max(chromeScale, 0.001),
+                  }),
                 }}
                 title={screen.filename}
               />
@@ -12857,13 +12903,15 @@ function BreakpointPreviewRow({
             naturalAspect,
             primaryScale,
             contentHeightPx:
-              measuredIframeHeights[
-                getBreakpointIframeId(screen.id, widthPx)
-              ] ??
-              getResponsiveBreakpointHeightPx(
-                { breakpointHeights: screen.breakpointHeights },
-                widthPx,
-              ),
+              metadata.heightMode === "fixed"
+                ? undefined
+                : (measuredIframeHeights[
+                    getBreakpointIframeId(screen.id, widthPx)
+                  ] ??
+                  getResponsiveBreakpointHeightPx(
+                    { breakpointHeights: screen.breakpointHeights },
+                    widthPx,
+                  )),
           });
         const isActive = activeBreakpointWidth === widthPx;
         const editableContent = bootDeferred
@@ -13267,6 +13315,11 @@ function BreakpointPreviewRow({
                       backgroundColor: "white",
                       colorScheme: "light",
                       ...SCALED_IFRAME_PAINT_RETENTION_STYLE,
+                      ...getIframePaintRetentionStyle({
+                        viewportWidth: widthPx,
+                        viewportHeight: naturalHeight,
+                        effectiveScale: scale / Math.max(chromeScale, 0.001),
+                      }),
                     }}
                     title={`${screen.filename} — ${breakpointLabel(widthPx)}`}
                   />

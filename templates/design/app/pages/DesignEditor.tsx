@@ -5647,6 +5647,7 @@ function DesignEditor() {
                 resolveScreenHeightMode(
                   metadata.heightMode,
                   metadata.heightPinned === true,
+                  metadata.sourceType,
                 ) !== "hug"
               ) {
                 if (beforeContent !== afterContent) {
@@ -15755,6 +15756,7 @@ function DesignEditor() {
           resolveScreenHeightMode(
             metadata.heightMode,
             metadata.heightPinned === true,
+            metadata.sourceType,
           ) === "fixed"
         ) {
           locallyPinnedHeightIdsRef.current.add(screenId);
@@ -20264,6 +20266,7 @@ function DesignEditor() {
       const previousMode = resolveScreenHeightMode(
         screenMetadata.heightMode,
         screenMetadata.heightPinned === true,
+        screenMetadata.sourceType,
       );
       const operations: DesignDataOperation[] = [];
       if (mode === "auto") {
@@ -25303,11 +25306,14 @@ function DesignEditor() {
                   // Overrides the themed canvas colour rather than a background
                   // shorthand, so every descendant reading the var follows.
                   style={
-                    canvasBackground
-                      ? ({
-                          "--design-editor-canvas-bg": canvasBackground,
-                        } as React.CSSProperties)
-                      : undefined
+                    {
+                      isolation: "isolate",
+                      ...(canvasBackground
+                        ? {
+                            "--design-editor-canvas-bg": canvasBackground,
+                          }
+                        : {}),
+                    } as React.CSSProperties
                   }
                   onPointerMove={handleCanvasPointerMove}
                   onClick={handleCanvasBackgroundClick}

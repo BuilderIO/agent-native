@@ -7,7 +7,11 @@ import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
 
 import { DesignCanvas } from "./DesignCanvas";
-import { SCALED_IFRAME_PAINT_RETENTION_STYLE } from "./scaled-iframe-paint";
+import {
+  getIframePaintRetentionStyle,
+  MAX_RETAINED_IFRAME_PAINT_AXIS_PX,
+  SCALED_IFRAME_PAINT_RETENTION_STYLE,
+} from "./scaled-iframe-paint";
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
@@ -138,5 +142,22 @@ describe("canvas iframe paint retention", () => {
     expect(SCALED_IFRAME_PAINT_RETENTION_STYLE.backfaceVisibility).toBe(
       "hidden",
     );
+  });
+
+  it("does not promote a large painted iframe into one GPU surface", () => {
+    expect(
+      getIframePaintRetentionStyle({
+        viewportWidth: 1440,
+        viewportHeight: MAX_RETAINED_IFRAME_PAINT_AXIS_PX + 1,
+        effectiveScale: 1,
+      }).backfaceVisibility,
+    ).toBe("visible");
+    expect(
+      getIframePaintRetentionStyle({
+        viewportWidth: 1440,
+        viewportHeight: MAX_RETAINED_IFRAME_PAINT_AXIS_PX + 1,
+        effectiveScale: 0.25,
+      }).backfaceVisibility,
+    ).toBe("hidden");
   });
 });

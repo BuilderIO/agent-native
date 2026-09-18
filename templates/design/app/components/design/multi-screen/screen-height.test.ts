@@ -13,6 +13,13 @@ describe("screen height modes", () => {
     expect(resolveScreenHeightMode(undefined, undefined)).toBe("auto");
   });
 
+  it("keeps imported static frames at their saved height", () => {
+    expect(resolveScreenHeightMode(undefined, false, "fig-frame")).toBe(
+      "fixed",
+    );
+    expect(resolveScreenHeightMode("auto", false, "fig-frame")).toBe("auto");
+  });
+
   it("preserves the existing device floor for automatic screens", () => {
     expect(
       resolveAutoFitScreenHeight({

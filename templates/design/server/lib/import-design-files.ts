@@ -390,6 +390,7 @@ export async function saveImportedDesignFiles(
           width,
           height,
           ...file.source,
+          heightMode: "fixed",
         };
         metadataByFileId.set(fileId, source);
         savedFiles.push({

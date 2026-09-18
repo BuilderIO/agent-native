@@ -6,11 +6,34 @@ import {
 
 export type ScreenHeightMode = "auto" | "fixed" | "hug";
 
+const IMPORTED_STATIC_SCREEN_SOURCE_TYPES = new Set([
+  "creative-context-clone",
+  "fig-frame",
+  "fig-upload",
+  "figma-clipboard-local-kiwi",
+  "figma-clipboard-rest",
+  "figma-import",
+  "figma-paste-html",
+  "html-import",
+  "html-string",
+  "html-upload",
+]);
+
+export function isImportedStaticScreenSource(sourceType: unknown): boolean {
+  return (
+    typeof sourceType === "string" &&
+    IMPORTED_STATIC_SCREEN_SOURCE_TYPES.has(sourceType.toLowerCase())
+  );
+}
+
 export function resolveScreenHeightMode(
   heightMode: unknown,
   heightPinned: boolean | undefined,
+  sourceType?: unknown,
 ): ScreenHeightMode {
+  if (heightMode === "auto") return "auto";
   if (heightMode === "fixed" || heightMode === "hug") return heightMode;
+  if (isImportedStaticScreenSource(sourceType)) return "fixed";
   return heightPinned === true ? "fixed" : "auto";
 }
 
