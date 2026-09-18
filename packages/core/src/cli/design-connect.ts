@@ -721,7 +721,10 @@ export async function prepareDesignConnectManifest(
 const BRIDGE_CORS_HEADERS = Symbol("agent-native-design-bridge-cors");
 const BRIDGE_EMBEDDED_DOCUMENT_HEADERS = {
   "cross-origin-resource-policy": "cross-origin",
-  "cross-origin-embedder-policy": "require-corp",
+  // Keep the preview cross-origin isolated while allowing anonymous third-party
+  // assets that cannot opt into CORP. Bridge resources carry previewToken, so
+  // they do not depend on cookies being sent by credentialless requests.
+  "cross-origin-embedder-policy": "credentialless",
 } as const;
 
 type CorsAwareResponse = ServerResponse & {
@@ -1437,9 +1440,12 @@ function addPreviewTokenToResourceUrl(
   const hashIndex = resourceUrl.indexOf("#");
   const path = hashIndex === -1 ? resourceUrl : resourceUrl.slice(0, hashIndex);
   const hash = hashIndex === -1 ? "" : resourceUrl.slice(hashIndex);
-  if (!path || /(?:[?&])previewToken=/.test(path)) return resourceUrl;
-  const separator = path.includes("?") ? "&" : "?";
-  return `${path}${separator}previewToken=${encodeURIComponent(previewToken)}${hash}`;
+  if (!path) return resourceUrl;
+  const queryIndex = path.indexOf("?");
+  const pathname = queryIndex === -1 ? path : path.slice(0, queryIndex);
+  const search = queryIndex === -1 ? "" : path.slice(queryIndex);
+  const withoutStaleToken = stripQueryPair(search, "previewToken");
+  return `${pathname}${appendQueryPair(withoutStaleToken, "previewToken", previewToken)}${hash}`;
 }
 
 function addOpaqueFrameCredentials(
@@ -1487,7 +1493,12 @@ function addOpaqueFrameCredentials(
     },
   );
   if (!previewToken) return withCredentialedResources;
-  const withInlineModuleTokens = withCredentialedResources.replace(
+  const withInlineStyleTokens = withCredentialedResources.replace(
+    /(<style\b[^>]*>)([\s\S]*?)(<\/style\s*>)/gi,
+    (_full, opening: string, body: string, closing: string) =>
+      `${opening}${addOpaqueFrameResourceTokens(body, previewToken)}${closing}`,
+  );
+  const withInlineModuleTokens = withInlineStyleTokens.replace(
     /(<script\b[^>]*\btype\s*=\s*["']module["'][^>]*>)([\s\S]*?)(<\/script\s*>)/gi,
     (_full, opening: string, body: string, closing: string) =>
       `${opening}${addOpaqueFrameJavaScriptResourceTokens(body, previewToken)}${closing}`,
@@ -1531,7 +1542,12 @@ function addOpaqueFrameResourceTokens(
   css: string,
   previewToken: string,
 ): string {
-  return css.replace(
+  const withImportTokens = css.replace(
+    /(@import\s+)(["'])([^"']+)\2/gi,
+    (_full, prefix: string, quote: string, resourceUrl: string) =>
+      `${prefix}${quote}${addPreviewTokenToResourceUrl(resourceUrl, previewToken)}${quote}`,
+  );
+  return withImportTokens.replace(
     /url\(\s*(["']?)([^"'()]+)\1\s*\)/gi,
     (full, quote: string, resourceUrl: string) => {
       const tokenizedResourceUrl = addPreviewTokenToResourceUrl(
@@ -1553,22 +1569,22 @@ function addOpaqueFrameJavaScriptResourceTokens(
     `${prefix}${quote}${addPreviewTokenToResourceUrl(resourceUrl, previewToken)}${quote}`;
   return source
     .replace(
-      /(\b(?:import|export)\s+[^;\n]*?\sfrom\s*)(["'])(\/(?:[^"']*))\2/g,
+      /(\b(?:import|export)\s+[^;\n]*?\sfrom\s*)(["'])((?:\/|\.{1,2}\/)(?:[^"']*))\2/g,
       (_full, prefix: string, quote: string, resourceUrl: string) =>
         rewrite(prefix, quote, resourceUrl),
     )
     .replace(
-      /(\bimport\s+)(["'])(\/(?:[^"']*))\2/g,
+      /(\bimport\s+)(["'])((?:\/|\.{1,2}\/)(?:[^"']*))\2/g,
       (_full, prefix: string, quote: string, resourceUrl: string) =>
         rewrite(prefix, quote, resourceUrl),
     )
     .replace(
-      /(\bimport\s*\(\s*)(["'])(\/(?:[^"']*))\2/g,
+      /(\bimport\s*\(\s*)(["'])((?:\/|\.{1,2}\/)(?:[^"']*))\2/g,
       (_full, prefix: string, quote: string, resourceUrl: string) =>
         rewrite(prefix, quote, resourceUrl),
     )
     .replace(
-      /(\bnew\s+URL\s*\(\s*)(["'])(\/(?:[^"']*))\2/g,
+      /(\bnew\s+URL\s*\(\s*)(["'])((?:\/|\.{1,2}\/)(?:[^"']*))\2/g,
       (_full, prefix: string, quote: string, resourceUrl: string) =>
         rewrite(prefix, quote, resourceUrl),
     )

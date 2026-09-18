@@ -580,7 +580,7 @@ describe("design connect bridge endpoints", () => {
         "cross-origin",
       );
       expect(liveEdit.headers["cross-origin-embedder-policy"]).toBe(
-        "require-corp",
+        "credentialless",
       );
 
       const recovery = await getText(
@@ -598,7 +598,7 @@ describe("design connect bridge endpoints", () => {
         "cross-origin",
       );
       expect(recovery.headers["cross-origin-embedder-policy"]).toBe(
-        "require-corp",
+        "credentialless",
       );
     } finally {
       await new Promise<void>((resolve) =>
@@ -1003,13 +1003,15 @@ describe("design connect bridge endpoints", () => {
           "cache-control": "no-store",
         });
         res.end(
-          "import '/src/dependency.ts'; window.__csrBooted = true; document.querySelector('#root').textContent = 'CSR booted';",
+          "import '/src/dependency.ts'; import './relative-dependency.ts'; import('../shared/chunk.js'); const worker = new URL('./worker.ts', import.meta.url); window.__csrBooted = true; document.querySelector('#root').textContent = 'CSR booted';",
         );
         return;
       }
       if (req.url?.startsWith("/src/styles.css")) {
         res.writeHead(200, { "content-type": "text/css; charset=utf-8" });
-        res.end(".app{background:url('/assets/app.woff2#font')}");
+        res.end(
+          "@import './reset.css'; .app{background:url('/assets/app.woff2#font')}",
+        );
         return;
       }
       if (req.url?.startsWith("/src/styles.module.js")) {
@@ -1023,7 +1025,7 @@ describe("design connect bridge endpoints", () => {
       }
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       res.end(
-        `<!doctype html><html><head><title>CSR</title></head><body><div id="root">Loading</div><img src="/assets/cover.png"><video controls src="/assets/preview.mp4"></video><script type="module" src="/src/main.ts"></script><script type="module">import "/@id/__x00__virtual:react-router/browser-manifest"; import "/@id/__x00__virtual:react-router/inject-hmr-runtime";</script></body></html>`,
+        `<!doctype html><html><head><title>CSR</title><style>@import './inline.css'; .hero{background:url('/assets/inline.png')}</style></head><body><div id="root">Loading</div><img src="/assets/cover.png"><img src="/assets/stale.png?previewToken=old&mode=dark"><img src="https://cdn.example.com/anonymous.png"><video controls src="/assets/preview.mp4"></video><script type="module" src="/src/main.ts"></script><script type="module">import "/@id/__x00__virtual:react-router/browser-manifest"; import "/@id/__x00__virtual:react-router/inject-hmr-runtime";</script></body></html>`,
       );
     });
     await new Promise<void>((resolve, reject) => {
@@ -1083,6 +1085,18 @@ describe("design connect bridge endpoints", () => {
         `/assets/preview.mp4?previewToken=${bridge.previewToken}`,
       );
       expect(html.body).toContain(
+        `/assets/inline.png?previewToken=${bridge.previewToken}`,
+      );
+      expect(html.body).toContain(
+        `./inline.css?previewToken=${bridge.previewToken}`,
+      );
+      expect(html.body).toContain(
+        `/assets/stale.png?mode=dark&previewToken=${bridge.previewToken}`,
+      );
+      expect(html.body).toContain(
+        `src="https://cdn.example.com/anonymous.png"`,
+      );
+      expect(html.body).toContain(
         `inject-hmr-runtime?previewToken=${bridge.previewToken}`,
       );
       expect(html.body).toContain(
@@ -1138,6 +1152,15 @@ describe("design connect bridge endpoints", () => {
       expect(module.body).toContain(
         `/src/dependency.ts?previewToken=${bridge.previewToken}`,
       );
+      expect(module.body).toContain(
+        `./relative-dependency.ts?previewToken=${bridge.previewToken}`,
+      );
+      expect(module.body).toContain(
+        `../shared/chunk.js?previewToken=${bridge.previewToken}`,
+      );
+      expect(module.body).toContain(
+        `./worker.ts?previewToken=${bridge.previewToken}`,
+      );
       expect(module.body).toContain("CSR booted");
 
       const manifestModule = await getText(
@@ -1166,6 +1189,9 @@ describe("design connect bridge endpoints", () => {
       expect(css.status).toBe(200);
       expect(css.body).toContain(
         `/assets/app.woff2?previewToken=${bridge.previewToken}#font`,
+      );
+      expect(css.body).toContain(
+        `./reset.css?previewToken=${bridge.previewToken}`,
       );
 
       const cssHead = await headText(
