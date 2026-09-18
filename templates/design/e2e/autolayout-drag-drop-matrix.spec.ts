@@ -256,12 +256,6 @@ async function selectionSourceId(
   return state.selectedElement?.sourceId ?? null;
 }
 
-async function designTrace(page: Page): Promise<string> {
-  return page
-    .evaluate(() => (window as any).__designTrace?.dump?.() ?? "(no trace)")
-    .catch(() => "(trace unavailable)");
-}
-
 async function settleReload(page: Page, screenId: string): Promise<void> {
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(
@@ -753,10 +747,6 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
             "hrow",
             cell.expected,
           );
-          console.log(
-            `[figma-autolayout-matrix] ${cell.name} PASS`,
-            result.during,
-          );
         } finally {
           await deleteDesign(request, design.id);
         }
@@ -819,10 +809,6 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
         "v-last",
         "v-middle",
       ]);
-      console.log("[figma-autolayout-matrix] V-3/S-1 PASS", {
-        during: result.during,
-        spacing,
-      });
     } finally {
       await deleteDesign(request, design.id);
     }
@@ -871,10 +857,6 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
       );
       const html = await fileHtml(request, design.id, design.primaryId);
       expect(html).toMatch(/id="nested-inner"[^>]*display:flex/);
-      console.log("[figma-autolayout-matrix] NEST-1/S-1 PASS", {
-        during: result.during,
-        geometry,
-      });
     } finally {
       await deleteDesign(request, design.id);
     }
@@ -919,10 +901,6 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
           await expect
             .poll(() => parentId(page, design.primaryId, cell.source))
             .toBe("mixed-target");
-          console.log(`[figma-autolayout-matrix] TYPE-${cell.source} PASS`, {
-            during: result.during,
-            details,
-          });
         } finally {
           await deleteDesign(request, design.id);
         }
@@ -986,10 +964,6 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
           if (cell.source === "fixed-source")
             expect(reloadedStyles.width).toBe(cell.expectedWidth);
           expect(reloadedStyles.authoredWidth).toBe(cell.expectedAuthoredWidth);
-          console.log(`[figma-autolayout-matrix] SIZE-${cell.source} PASS`, {
-            during: result.during,
-            styles,
-          });
         } finally {
           await deleteDesign(request, design.id);
         }
@@ -1081,10 +1055,6 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
               .toMatch(
                 /data-agent-native-node-id="ignore-source"[^>]*position:\s*absolute/,
               );
-            console.log(
-              `[figma-autolayout-matrix] ABS-2/MOD-1 ${modifier}/${timing} PASS`,
-              state,
-            );
           } finally {
             await deleteDesign(request, design.id);
           }
@@ -1134,26 +1104,12 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
           { timeout: 15_000 },
         )
         .toBe(2);
-      const hrowStart = html.indexOf('<section id="hrow"');
-      const hrowEnd = html.indexOf("</section>", hrowStart);
-      const persistedHrow =
-        hrowStart >= 0 && hrowEnd >= 0
-          ? html.slice(hrowStart, hrowEnd + "</section>".length)
-          : html;
-      console.log("[figma-autolayout-matrix] ROOT-1 persisted hrow", {
-        heldCount,
-        persistedHrow,
-      });
       await settleReload(page, design.primaryId);
       await expect(
         designFrame(page, design.primaryId).locator(
           '#hrow > [data-agent-native-layer-name="H Middle"]',
         ),
       ).toHaveCount(2);
-      console.log(
-        "[figma-autolayout-matrix] ROOT-1 Option-before-pointerdown PASS",
-        { heldCount },
-      );
     } finally {
       await deleteDesign(request, design.id);
     }
@@ -1381,6 +1337,22 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
       const cloneRedone = await linkedState();
       for (const instance of cloneRedone.instances)
         expect(instance.sourceNodeIds).toEqual(reorderedSourceNodeIds);
+      let redoneHtml = "";
+      await expect
+        .poll(
+          async () => {
+            redoneHtml = await fileHtml(request, design.id, design.primaryId);
+            return (
+              hasNode(redoneHtml, duplicatedCloneId) &&
+              hasNode(redoneHtml, "play-instance")
+            );
+          },
+          { timeout: 15_000 },
+        )
+        .toBe(true);
+      expect(redoneHtml).toContain(
+        `data-agent-native-component-ref="cmp-play"`,
+      );
       await settleReload(page, design.primaryId);
       const reloaded = await linkedState();
       expect(reloaded.main.children).toEqual(["play-badge", "play-label"]);
@@ -1395,10 +1367,6 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
       ).toBe(true);
       for (const instance of reloaded.instances)
         expect(instance.sourceNodeIds).toEqual(reorderedSourceNodeIds);
-      console.log("[figma-autolayout-matrix] LINKED-COMPONENT PASS", {
-        main: reloaded.main,
-        instances: reloaded.instances,
-      });
     } finally {
       await deleteDesign(request, design.id);
     }
@@ -1484,12 +1452,6 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
           const targetSnapshots = evidence.snapshots.filter((snapshot) =>
             snapshot.stage.startsWith("target-"),
           );
-          console.log("[figma-autolayout-matrix] SCREEN-ROOT oracle", {
-            fixture: cell.fixture,
-            belowThreshold,
-            lifted,
-            firstTarget: targetSnapshots[0],
-          });
           expect(belowThreshold?.source?.lifted).toBe(false);
           expect(lifted?.source?.lifted).toBe(true);
           expect(lifted?.source?.zIndex).toBe("2147483646");
@@ -1512,12 +1474,6 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
           expect(evidence.beforeReleaseHtml).toBe(evidence.initialHtml);
           expect(evidence.after.source?.lifted).toBe(false);
           expect(evidence.after.source?.zIndex).not.toBe("2147483646");
-          const afterIds = await rootChildIds(page, design.primaryId);
-          console.log("[figma-autolayout-matrix] SCREEN-ROOT after-release", {
-            fixture: cell.fixture,
-            afterIds,
-            sourceParent: await parentId(page, design.primaryId, cell.source),
-          });
           await expect
             .poll(() => rootChildIds(page, design.primaryId))
             .toEqual(cell.expected);
@@ -1527,19 +1483,6 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
             .toEqual(cell.expected);
           const html = await fileHtml(request, design.id, design.primaryId);
           expect(html).toContain(`data-agent-native-node-id="${cell.source}"`);
-          console.log(
-            `[figma-autolayout-matrix] SCREEN-ROOT/${cell.fixture} PASS`,
-            {
-              oracle: {
-                beforeReleaseUnchanged: true,
-                liftThreshold: lifted?.source,
-                targetGuideSamples: targetGuideSamples.length,
-                siblingReflow: cell.expectsSiblingReflow,
-                afterRelease: evidence.after.source,
-              },
-              expected: cell.expected,
-            },
-          );
         } finally {
           await deleteDesign(request, design.id);
         }
@@ -1589,10 +1532,6 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
             expect(values.html).toMatch(/grid-template-rows:/i);
             expect(values.html).toMatch(/grid-column:\s*span 2/i);
           }
-          console.log(`[figma-autolayout-matrix] GRID-TRACK/${fixture} PASS`, {
-            trackReadout,
-            values: { ...values, html: undefined },
-          });
           await page.keyboard.press("Escape");
         } finally {
           await deleteDesign(request, design.id);
@@ -1634,10 +1573,6 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
       await expect
         .poll(() => rootChildIds(page, design.primaryId))
         .toEqual(["root-a", "root-b", "root-c"]);
-      console.log("[figma-autolayout-matrix] SCREEN-ROOT undo/reload PASS", {
-        commandModifier: COMMAND,
-        order: ["root-a", "root-b", "root-c"],
-      });
     } finally {
       await deleteDesign(request, design.id);
     }
@@ -1714,16 +1649,6 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
             })),
           ),
       };
-      console.log(
-        "[figma-autolayout-matrix] CROSS held evidence",
-        heldEvidence,
-      );
-      if (heldEvidence.guide === 0) {
-        console.log(
-          "[figma-autolayout-matrix] CROSS trace",
-          await designTrace(page),
-        );
-      }
       // Cross-Screen uses the host drag ghost as its held overlay; the iframe
       // insertion guide is intentionally not mounted during that handoff.
       expect(heldEvidence.ghost).toBeGreaterThan(0);
@@ -1749,18 +1674,10 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
           };
         })
         .toEqual({ from: false, to: true });
-      console.log("[figma-autolayout-matrix] CROSS persisted HTML PASS", {
-        sourceHasNode: false,
-        targetHasNode: true,
-      });
       await settleReload(page, design.secondId!);
       await expect
         .poll(() => parentId(page, design.secondId!, "free-shape"))
         .toBe("cross-target");
-      console.log(
-        "[figma-autolayout-matrix] NEST-2 cross-container/cross-Screen PASS",
-        { guide: await guide.count() },
-      );
     } finally {
       await deleteDesign(request, design.id);
     }

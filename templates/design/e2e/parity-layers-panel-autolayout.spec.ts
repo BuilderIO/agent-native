@@ -163,6 +163,47 @@ function nodeOffset(html: string, nodeId: string): number {
   return html.indexOf(`data-agent-native-node-id="${nodeId}"`);
 }
 
+function nodeParentId(html: string, nodeId: string): string | null | undefined {
+  const voidTags = new Set([
+    "area",
+    "base",
+    "br",
+    "col",
+    "embed",
+    "hr",
+    "img",
+    "input",
+    "link",
+    "meta",
+    "param",
+    "source",
+    "track",
+    "wbr",
+  ]);
+  const tagPattern = /<\/?([a-z][^\s/>]*)(?:\s[^>]*)?>/gi;
+  const stack: Array<{ id: string | null; tag: string }> = [];
+  for (const match of html.matchAll(tagPattern)) {
+    const tag = match[0];
+    const tagName = match[1].toLowerCase();
+    if (tag.startsWith("</")) {
+      if (stack.at(-1)?.tag === tagName) stack.pop();
+      continue;
+    }
+    const nodeMatch = tag.match(
+      /data-agent-native-node-id=(?:"([^"]+)"|'([^']+)')/i,
+    );
+    const currentId = nodeMatch?.[1] ?? nodeMatch?.[2] ?? null;
+    if (currentId === nodeId) {
+      const parent = stack.at(-1);
+      return parent?.tag === "body" ? null : (parent?.id ?? null);
+    }
+    if (!voidTags.has(tagName) && !tag.endsWith("/>")) {
+      stack.push({ id: currentId, tag: tagName });
+    }
+  }
+  return undefined;
+}
+
 function nodeIsBefore(
   html: string,
   beforeId: string,
@@ -213,8 +254,7 @@ async function waitForPersistedHtml(
   designId: string,
   fileId: string,
   predicate: (html: string) => boolean,
-): Promise<{ html: string; latencyMs: number }> {
-  const startedAt = Date.now();
+): Promise<string> {
   let html = "";
   await expect
     .poll(
@@ -229,7 +269,7 @@ async function waitForPersistedHtml(
       },
     )
     .toBe(true);
-  return { html, latencyMs: Date.now() - startedAt };
+  return html;
 }
 
 function layersTree(page: Page): Locator {
@@ -293,9 +333,11 @@ async function nodeBox(page: Page, nodeId: string, screenId?: string) {
 async function parentId(page: Page, nodeId: string, screenId?: string) {
   return frame(page, screenId)
     .locator(`[data-agent-native-node-id="${nodeId}"]`)
-    .evaluate(
-      (node) =>
-        node.parentElement?.getAttribute("data-agent-native-node-id") ?? null,
+    .evaluate((node) =>
+      node.parentElement?.tagName === "BODY"
+        ? null
+        : (node.parentElement?.getAttribute("data-agent-native-node-id") ??
+          null),
     );
 }
 
@@ -317,29 +359,6 @@ async function heldPanelDrag(
   const sourceBox = await source.boundingBox();
   const targetBox = await target.boundingBox();
   if (!sourceBox || !targetBox) throw new Error("layer row has no box");
-  await page.evaluate(() => {
-    (
-      window as typeof window & { __panelDragEvents?: string[] }
-    ).__panelDragEvents = [];
-    for (const type of ["dragstart", "dragover", "drop", "dragend"] as const) {
-      document.addEventListener(
-        type,
-        (event) => {
-          const state = window as typeof window & {
-            __panelDragEvents?: string[];
-          };
-          const target =
-            event.target instanceof Element
-              ? event.target.closest<HTMLElement>('[role="treeitem"]')
-              : null;
-          state.__panelDragEvents?.push(
-            `${type}:${target?.textContent?.trim() ?? ""}:${(event as DragEvent).clientY}`,
-          );
-        },
-        true,
-      );
-    }
-  });
   const targetY =
     targetPosition === "leading"
       ? targetBox.y + 2
@@ -369,23 +388,8 @@ async function heldPanelDrag(
       ? ((await indicators.first().getAttribute("data-layer-drop-indicator")) ??
         "")
       : "";
-  const events = await page.evaluate(
-    () =>
-      (window as typeof window & { __panelDragEvents?: string[] })
-        .__panelDragEvents ?? [],
-  );
-  console.log("[layers-panel-autolayout] drag events", events);
   await onHeld?.();
   await page.mouse.up();
-  const postEvents = await page.evaluate(
-    () =>
-      (window as typeof window & { __panelDragEvents?: string[] })
-        .__panelDragEvents ?? [],
-  );
-  console.log(
-    "[layers-panel-autolayout] post-up drag events",
-    postEvents.slice(-4),
-  );
   return { indicator: { placement, count }, sourceBox, targetBox };
 }
 
@@ -432,7 +436,6 @@ test.describe("Layers-panel auto-layout parity", () => {
           );
         },
       );
-      console.log("[layers-panel-autolayout] held indicator", result.indicator);
       expect(result.indicator).toEqual({ placement: "before", count: 1 });
       await expect
         .poll(() => directChildren(page, "hrow"))
@@ -445,11 +448,7 @@ test.describe("Layers-panel auto-layout parity", () => {
           nodeIsBefore(html, "h-first", "h-last") &&
           nodeIsBefore(html, "h-last", "h-middle"),
       );
-      console.log(
-        "[layers-panel-autolayout] persisted move latency",
-        persisted.latencyMs,
-      );
-      expect(persisted.html).not.toEqual(original);
+      expect(persisted).not.toEqual(original);
 
       const mod = process.platform === "darwin" ? "Meta" : "Control";
       await page.keyboard.down(mod);
@@ -467,7 +466,7 @@ test.describe("Layers-panel auto-layout parity", () => {
           nodeIsInsideSection(html, "hrow", "h-last") &&
           nodeIsBefore(html, "h-middle", "h-last"),
       );
-      expect(undone.html).toEqual(original);
+      expect(undone).toEqual(original);
 
       await page.keyboard.down(mod);
       await page.keyboard.down("Shift");
@@ -530,10 +529,6 @@ test.describe("Layers-panel auto-layout parity", () => {
           nodeIsInsideSection(html, "nested-inner", "inner-first") &&
           nodeIsBefore(html, "inner-last", "inner-first"),
       );
-      console.log(
-        "[layers-panel-autolayout] nested persisted latency",
-        persisted.latencyMs,
-      );
       await expect(layerRow(page, "Inner First")).toHaveAttribute(
         "aria-selected",
         "true",
@@ -584,29 +579,27 @@ test.describe("Layers-panel auto-layout parity", () => {
         design.primaryId,
         (html) => nodeIsInsideSection(html, "nested-inner", "free-source"),
       );
-      console.log(
-        "[layers-panel-autolayout] nested reparent persisted latency",
-        persisted.latencyMs,
-      );
-
+      expect(nodeParentId(persisted, "free-source")).toBe("nested-inner");
       const mod = process.platform === "darwin" ? "Meta" : "Control";
       await page.keyboard.down(mod);
       await page.keyboard.press("z");
       await page.keyboard.up(mod);
-      await expect
-        .poll(() => parentId(page, "free-source"))
-        .toBeNull();
-      await waitForPersistedHtml(
+      await expect.poll(() => parentId(page, "free-source")).toBeNull();
+      const undone = await waitForPersistedHtml(
         request,
         design.id,
         design.primaryId,
         (html) =>
-          html !== persisted.html &&
+          html !== persisted &&
+          nodeParentId(html, "free-source") === null &&
           nodeOffset(html, "free-source") >= 0 &&
           nodeIsBefore(html, "nested-outer", "free-source") ===
             sourceWasAfterOuter &&
-          !nodeIsInsideSection(html, "nested-outer", "free-source") &&
-          !nodeIsInsideSection(html, "nested-inner", "free-source"),
+          nodeOffset(html, "nested-outer") >= 0,
+      );
+      expect(nodeParentId(undone, "free-source")).toBeNull();
+      expect(nodeIsBefore(undone, "nested-outer", "free-source")).toBe(
+        sourceWasAfterOuter,
       );
 
       await page.keyboard.down(mod);
@@ -617,9 +610,13 @@ test.describe("Layers-panel auto-layout parity", () => {
       await expect
         .poll(() => parentId(page, "free-source"))
         .toBe("nested-inner");
-      await waitForPersistedHtml(request, design.id, design.primaryId, (html) =>
-        nodeIsInsideSection(html, "nested-inner", "free-source"),
+      const redone = await waitForPersistedHtml(
+        request,
+        design.id,
+        design.primaryId,
+        (html) => nodeParentId(html, "free-source") === "nested-inner",
       );
+      expect(nodeParentId(redone, "free-source")).toBe("nested-inner");
 
       await page.reload();
       await expandAllLayers(page);
@@ -663,10 +660,6 @@ test.describe("Layers-panel auto-layout parity", () => {
         design.id,
         design.primaryId,
         (html) => nodeIsBefore(html, "v-last", "v-middle"),
-      );
-      console.log(
-        "[layers-panel-autolayout] vertical persisted latency",
-        persisted.latencyMs,
       );
       await expect(layerRow(page, "V Middle")).toHaveAttribute(
         "aria-selected",
@@ -715,7 +708,6 @@ test.describe("Layers-panel auto-layout parity", () => {
       await expect
         .poll(() => rootChildren(page, design.secondId!))
         .toContain("free-source");
-      const persistedStartedAt = Date.now();
       let persistedSource = "";
       let persistedDestination = "";
       await expect
@@ -741,11 +733,6 @@ test.describe("Layers-panel auto-layout parity", () => {
           },
         )
         .toEqual({ sourceHasNode: false, destinationHasNode: true });
-      console.log(
-        "[layers-panel-autolayout] Screen-root persisted latency",
-        Date.now() - persistedStartedAt,
-      );
-
       const mod = process.platform === "darwin" ? "Meta" : "Control";
       await page.keyboard.down(mod);
       await page.keyboard.press("z");
