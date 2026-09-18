@@ -1487,9 +1487,9 @@ const enUS = {
   },
   visualEdit: {
     eyebrow: "Visual edit",
-    title: "Inspect local app screens before you sign in",
+    title: "Start with /visual-edit",
     description:
-      "Open visual-edit without an account. Sign up only when you want to save designs, keep screen layouts, share with others, or generate new directions.",
+      "Install the skill in your coding agent, then use /visual-edit to inspect and edit a running local app.",
     saveCta: "Save",
     openDesign: "Open Design",
     templatesCta: "Browse templates",
@@ -11831,9 +11831,9 @@ const designVisualEditOverrides = {
   "zh-TW": {
     visualEdit: {
       eyebrow: "視覺編輯",
-      title: "登入前先檢查本機應用畫面",
+      title: "從 /visual-edit 開始",
       description:
-        "無需帳號即可開啟 visual-edit。只有在想儲存設計、保留畫面版面、與他人分享或生成新方向時才需要註冊。",
+        "在你的 coding agent 中安裝此 skill，然後使用 /visual-edit 檢視並編輯正在執行的本機應用程式。",
       saveCta: "儲存",
       openDesign: "開啟 Design",
       templatesCta: "瀏覽範本",
@@ -11847,9 +11847,9 @@ const designVisualEditOverrides = {
   "zh-CN": {
     visualEdit: {
       eyebrow: "视觉编辑",
-      title: "登录前检查本地应用屏幕",
+      title: "从 /visual-edit 开始",
       description:
-        "无需账号即可打开 visual-edit。只有在想保存设计、保留屏幕布局、与他人共享或生成新方向时才需要注册。",
+        "在你的 coding agent 中安装此 skill，然后使用 /visual-edit 检查并编辑正在运行的本地应用。",
       saveCta: "保存",
       openDesign: "打开 Design",
       templatesCta: "浏览模板",
@@ -11863,9 +11863,9 @@ const designVisualEditOverrides = {
   "es-ES": {
     visualEdit: {
       eyebrow: "Edicion visual",
-      title: "Inspecciona pantallas locales de la app antes de iniciar sesion",
+      title: "Empieza con /visual-edit",
       description:
-        "Abre visual-edit sin cuenta. Registrate solo cuando quieras guardar disenos, conservar layouts de pantalla, compartir con otros o generar nuevas direcciones.",
+        "Instala el skill en tu agente de codigo y usa /visual-edit para inspeccionar y editar una aplicacion local en ejecucion.",
       saveCta: "Guardar",
       openDesign: "Abrir Design",
       templatesCta: "Ver plantillas",
@@ -11879,9 +11879,9 @@ const designVisualEditOverrides = {
   "fr-FR": {
     visualEdit: {
       eyebrow: "Edition visuelle",
-      title: "Inspectez les ecrans locaux de l'app avant connexion",
+      title: "Commencez avec /visual-edit",
       description:
-        "Ouvrez visual-edit sans compte. Inscrivez-vous seulement pour enregistrer des designs, conserver les mises en page, partager ou generer de nouvelles directions.",
+        "Installez le skill dans votre agent de code, puis utilisez /visual-edit pour inspecter et modifier une application locale en cours d'execution.",
       saveCta: "Enregistrer",
       openDesign: "Ouvrir Design",
       templatesCta: "Parcourir les modeles",
@@ -11895,9 +11895,9 @@ const designVisualEditOverrides = {
   "de-DE": {
     visualEdit: {
       eyebrow: "Visuelle Bearbeitung",
-      title: "Lokale App-Bildschirme vor der Anmeldung pruefen",
+      title: "Mit /visual-edit beginnen",
       description:
-        "Oeffne visual-edit ohne Konto. Melde dich nur an, wenn du Designs speichern, Layouts behalten, teilen oder neue Richtungen generieren willst.",
+        "Installiere den Skill in deinem Coding-Agent und verwende dann /visual-edit, um eine laufende lokale App zu pruefen und zu bearbeiten.",
       saveCta: "Speichern",
       openDesign: "Design oeffnen",
       templatesCta: "Vorlagen durchsuchen",
@@ -11911,9 +11911,9 @@ const designVisualEditOverrides = {
   "ja-JP": {
     visualEdit: {
       eyebrow: "ビジュアル編集",
-      title: "サインイン前にローカルアプリ画面を確認",
+      title: "/visual-edit から始める",
       description:
-        "アカウントなしで visual-edit を開けます。デザイン保存、画面レイアウト保持、共有、新しい方向の生成が必要なときだけ登録します。",
+        "コーディングエージェントにスキルをインストールし、/visual-edit で実行中のローカルアプリを確認・編集します。",
       saveCta: "保存",
       openDesign: "Design を開く",
       templatesCta: "テンプレートを見る",
@@ -11927,9 +11927,9 @@ const designVisualEditOverrides = {
   "ko-KR": {
     visualEdit: {
       eyebrow: "시각 편집",
-      title: "로그인 전에 로컬 앱 화면 검사",
+      title: "/visual-edit로 시작하기",
       description:
-        "계정 없이 visual-edit를 열 수 있습니다. 디자인 저장, 화면 레이아웃 유지, 공유, 새 방향 생성을 원할 때만 가입하세요.",
+        "코딩 에이전트에 스킬을 설치한 다음 /visual-edit로 실행 중인 로컬 앱을 검사하고 편집하세요.",
       saveCta: "저장",
       openDesign: "Design 열기",
       templatesCta: "템플릿 둘러보기",
@@ -11943,9 +11943,9 @@ const designVisualEditOverrides = {
   "pt-BR": {
     visualEdit: {
       eyebrow: "Edicao visual",
-      title: "Inspecione telas locais do app antes de entrar",
+      title: "Comece com /visual-edit",
       description:
-        "Abra visual-edit sem conta. Cadastre-se apenas para salvar designs, manter layouts de tela, compartilhar ou gerar novas direcoes.",
+        "Instale o skill no seu agente de codigo e use /visual-edit para inspecionar e editar um app local em execucao.",
       saveCta: "Salvar",
       openDesign: "Abrir Design",
       templatesCta: "Ver modelos",
@@ -11959,9 +11959,9 @@ const designVisualEditOverrides = {
   "hi-IN": {
     visualEdit: {
       eyebrow: "विजुअल एडिट",
-      title: "Sign in से पहले local app screens जांचें",
+      title: "/visual-edit से शुरू करें",
       description:
-        "बिना account visual-edit खोलें। Designs save करने, screen layouts रखने, share करने या नई directions generate करने पर ही sign up करें।",
+        "अपने coding agent में skill install करें, फिर /visual-edit से चल रहे local app को देखें और edit करें।",
       saveCta: "सहेजें",
       openDesign: "Design खोलें",
       templatesCta: "Templates देखें",
@@ -11975,9 +11975,9 @@ const designVisualEditOverrides = {
   "ar-SA": {
     visualEdit: {
       eyebrow: "تحرير مرئي",
-      title: "افحص شاشات التطبيق المحلية قبل تسجيل الدخول",
+      title: "ابدأ بـ /visual-edit",
       description:
-        "افتح visual-edit بدون حساب. سجل فقط عندما تريد حفظ التصاميم أو الاحتفاظ بتخطيطات الشاشة أو المشاركة أو توليد اتجاهات جديدة.",
+        "ثبّت المهارة في وكيل البرمجة، ثم استخدم /visual-edit لفحص تطبيق محلي قيد التشغيل وتحريره.",
       saveCta: "حفظ",
       openDesign: "فتح Design",
       templatesCta: "تصفح القوالب",

@@ -1297,9 +1297,9 @@ const messages = {
   },
   visualEdit: {
     eyebrow: "視覺編輯",
-    title: "登入前先檢查本機應用畫面",
+    title: "從 /visual-edit 開始",
     description:
-      "無需帳號即可開啟 visual-edit。只有在想儲存設計、保留畫面版面、與他人分享或生成新方向時才需要註冊。",
+      "在你的 coding agent 中安裝此 skill，然後使用 /visual-edit 檢視並編輯正在執行的本機應用程式。",
     saveCta: "儲存",
     openDesign: "開啟 Design",
     templatesCta: "瀏覽範本",

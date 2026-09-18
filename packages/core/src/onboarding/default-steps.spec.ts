@@ -75,6 +75,26 @@ describe("default onboarding steps", () => {
     expect(canUseDeployCredentialFallbackForRequestMock).toHaveBeenCalled();
   });
 
+  it("surfaces optional System one setup alongside Builder and provider keys", async () => {
+    const step = await loadLlmStep();
+
+    expect(step.methods).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "jev-key",
+          label: "System one model (Jev)",
+          description: expect.stringContaining("Optional direct Jev API key"),
+          badge: "recommended",
+          kind: "form",
+          payload: expect.objectContaining({
+            writeScope: "user",
+            fields: [expect.objectContaining({ key: "JEV_API_KEY" })],
+          }),
+        }),
+      ]),
+    );
+  });
+
   it("keeps local single-tenant provider env setup working when fallback is allowed", async () => {
     vi.stubEnv("ANTHROPIC_API_KEY", "sk-test-example");
     canUseDeployCredentialFallbackForRequestMock.mockReturnValue(true);
