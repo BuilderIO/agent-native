@@ -511,6 +511,19 @@ function recordSuppressionClaim(
   token.ids.set(threadId, ids);
 }
 
+export function forgetSuppressionClaim(
+  token: SuppressionClaimToken | undefined,
+  threadId: string,
+  id: number | undefined,
+) {
+  if (!token || id === undefined) return;
+  const ids = token.ids.get(threadId);
+  if (!ids) return;
+  const remaining = ids.filter((value) => value !== id);
+  if (remaining.length === 0) token.ids.delete(threadId);
+  else token.ids.set(threadId, remaining);
+}
+
 function recordInboxMutationClaim(
   token: SuppressionClaimToken | undefined,
   threadId: string,
@@ -644,7 +657,13 @@ export function filterSuppressedThreads(
 // overwriting optimistic updates. We track local overrides here and apply them
 // in the list projection so the UI never flickers back to stale state.
 
-const optimisticOverrides = new Map<string, { props: Partial<EmailMessage> }>();
+type OptimisticProperty = "isRead" | "isStarred";
+type OptimisticOverride = {
+  props: Partial<EmailMessage>;
+  providerSnapshotFences: Partial<Record<OptimisticProperty, number>>;
+};
+
+const optimisticOverrides = new Map<string, OptimisticOverride>();
 const optimisticOverrideListeners = new Set<() => void>();
 let optimisticOverrideVersion = 0;
 
@@ -880,10 +899,20 @@ function refreshThreadAfterMutations(thread: {
 export function setOptimisticOverride(
   emailId: string,
   props: Partial<EmailMessage>,
+  providerSnapshotFence = nextEmailProviderSnapshotId,
 ) {
   const existing = optimisticOverrides.get(emailId);
   optimisticOverrides.set(emailId, {
     props: { ...(existing?.props ?? {}), ...props },
+    providerSnapshotFences: {
+      ...(existing?.providerSnapshotFences ?? {}),
+      ...(typeof props.isRead === "boolean"
+        ? { isRead: providerSnapshotFence }
+        : {}),
+      ...(typeof props.isStarred === "boolean"
+        ? { isStarred: providerSnapshotFence }
+        : {}),
+    },
   });
   notifyOptimisticOverrideListeners();
 }
@@ -902,14 +931,45 @@ function clearOptimisticOverrideProperty(
   const props = { ...existing.props };
   if (!(property in props)) return;
   delete props[property];
+  const providerSnapshotFences = { ...existing.providerSnapshotFences };
+  delete providerSnapshotFences[property as OptimisticProperty];
   if (Object.keys(props).length === 0) optimisticOverrides.delete(emailId);
-  else optimisticOverrides.set(emailId, { ...existing, props });
+  else optimisticOverrides.set(emailId, { props, providerSnapshotFences });
   notifyOptimisticOverrideListeners();
 }
 
-function reconcileOptimisticOverrides(emails: EmailMessage[]) {
+export function hasFreshOptimisticOverrideEvidence(
+  observed: unknown,
+  desired: unknown,
+  observedProviderSnapshotId: number,
+  providerSnapshotFence: number,
+): boolean {
+  return (
+    observedProviderSnapshotId > providerSnapshotFence &&
+    Object.is(observed, desired)
+  );
+}
+
+function reconcileOptimisticOverrides(
+  pages: ReadonlyArray<{
+    emails: EmailMessage[];
+    providerSnapshotId?: number;
+  }>,
+) {
   if (optimisticOverrides.size === 0) return;
-  const byId = new Map(emails.map((email) => [email.id, email]));
+  const byId = new Map<
+    string,
+    { email: EmailMessage; providerSnapshotId: number }
+  >();
+  for (const page of pages) {
+    const providerSnapshotId = page.providerSnapshotId ?? 0;
+    for (const email of page.emails) {
+      const existing = byId.get(email.id);
+      if (!existing || providerSnapshotId > existing.providerSnapshotId) {
+        byId.set(email.id, { email, providerSnapshotId });
+      }
+    }
+  }
   let changed = false;
 
   for (const [emailId, entry] of optimisticOverrides) {
@@ -917,14 +977,35 @@ function reconcileOptimisticOverrides(emails: EmailMessage[]) {
     if (!observed) continue;
     const props = { ...entry.props };
     for (const property of Object.keys(props) as Array<keyof EmailMessage>) {
-      if (Object.is(observed[property], props[property]))
+      if (
+        (property !== "isRead" && property !== "isStarred") ||
+        observed.providerSnapshotId <=
+          (entry.providerSnapshotFences[property] ?? -1)
+      ) {
+        continue;
+      }
+      if (
+        hasFreshOptimisticOverrideEvidence(
+          observed.email[property],
+          props[property],
+          observed.providerSnapshotId,
+          entry.providerSnapshotFences[property] ?? -1,
+        )
+      )
         delete props[property];
     }
     if (Object.keys(props).length === 0) {
       optimisticOverrides.delete(emailId);
       changed = true;
     } else if (Object.keys(props).length !== Object.keys(entry.props).length) {
-      optimisticOverrides.set(emailId, { props });
+      const providerSnapshotFences = { ...entry.providerSnapshotFences };
+      for (const property of Object.keys(entry.props) as Array<
+        keyof EmailMessage
+      >) {
+        if (!(property in props))
+          delete providerSnapshotFences[property as OptimisticProperty];
+      }
+      optimisticOverrides.set(emailId, { props, providerSnapshotFences });
       changed = true;
     }
   }
@@ -1210,10 +1291,7 @@ export function useEmails(
       return;
     lastProviderSnapshotId.current = providerSnapshotId;
     reconcileSuppressionEvidence(q.data.pages, view, label, search);
-    if (!search) {
-      const emails = q.data.pages.flatMap((page: EmailsPage) => page.emails);
-      reconcileOptimisticOverrides(emails);
-    }
+    if (!search) reconcileOptimisticOverrides(q.data.pages);
   }, [q.data, q.isPlaceholderData, view, search, label, providerSnapshotId]);
 
   const data = useMemo(() => {
@@ -1740,9 +1818,15 @@ export function useArchiveEmail() {
       ]);
       return { threadId, suppressionId, inboxMutationId };
     },
-    onError: (err, _vars, context) => {
-      if (context?.threadId)
+    onError: (err, variables, context) => {
+      if (context?.threadId) {
+        forgetSuppressionClaim(
+          variables.suppressionToken,
+          context.threadId,
+          context.suppressionId,
+        );
         releaseSuppression(context.threadId, context.suppressionId);
+      }
       if (context?.inboxMutationId) {
         forgetInboxMutation(qc, context.inboxMutationId);
       }
@@ -1891,9 +1975,15 @@ export function useTrashEmail() {
       ]);
       return { threadId, suppressionId, inboxMutationId };
     },
-    onError: (err, _id, context) => {
-      if (context?.threadId)
+    onError: (err, variables, context) => {
+      if (context?.threadId) {
+        forgetSuppressionClaim(
+          variables.suppressionToken,
+          context.threadId,
+          context.suppressionId,
+        );
         releaseSuppression(context.threadId, context.suppressionId);
+      }
       if (context?.inboxMutationId) {
         forgetInboxMutation(qc, context.inboxMutationId);
       }
@@ -2059,7 +2149,7 @@ export function useBulkArchiveEmails() {
         inboxMutationId,
       };
     },
-    onError: (err, _vars, context) => {
+    onError: (err, variables, context) => {
       if (err instanceof BulkGmailMutationFailure && context) {
         const failedThreadIds = new Set(
           err.failedIds.map((id) => context.threadIdsByEmailId[id] || id),
@@ -2067,8 +2157,14 @@ export function useBulkArchiveEmails() {
         const succeededThreadIds = new Set(
           err.succeededIds.map((id) => context.threadIdsByEmailId[id] || id),
         );
-        for (const threadId of failedThreadIds)
+        for (const threadId of failedThreadIds) {
+          forgetSuppressionClaim(
+            variables.suppressionToken,
+            threadId,
+            context.suppressionIds[threadId],
+          );
           releaseSuppression(threadId, context.suppressionIds[threadId]);
+        }
         reconcilePartialInboxMutation(qc, context, succeededThreadIds);
         toast.error(
           archiveFailureToastMessage(err, t("mail.toasts.archiveFailed")),
@@ -2076,6 +2172,11 @@ export function useBulkArchiveEmails() {
         return;
       }
       for (const threadId of context?.threadIds ?? []) {
+        forgetSuppressionClaim(
+          variables.suppressionToken,
+          threadId,
+          context?.suppressionIds[threadId],
+        );
         releaseSuppression(threadId, context?.suppressionIds[threadId]);
       }
       if (context?.inboxMutationId) {
@@ -2150,7 +2251,7 @@ export function useBulkTrashEmails() {
         inboxMutationId,
       };
     },
-    onError: (err, _vars, context) => {
+    onError: (err, variables, context) => {
       if (err instanceof BulkGmailMutationFailure && context) {
         const failedThreadIds = new Set(
           err.failedIds.map((id) => context.threadIdsByEmailId[id] || id),
@@ -2158,13 +2259,24 @@ export function useBulkTrashEmails() {
         const succeededThreadIds = new Set(
           err.succeededIds.map((id) => context.threadIdsByEmailId[id] || id),
         );
-        for (const threadId of failedThreadIds)
+        for (const threadId of failedThreadIds) {
+          forgetSuppressionClaim(
+            variables.suppressionToken,
+            threadId,
+            context.suppressionIds[threadId],
+          );
           releaseSuppression(threadId, context.suppressionIds[threadId]);
+        }
         reconcilePartialInboxMutation(qc, context, succeededThreadIds);
         toast.error(toError(err).message);
         return;
       }
       for (const threadId of context?.threadIds ?? []) {
+        forgetSuppressionClaim(
+          variables.suppressionToken,
+          threadId,
+          context?.suppressionIds[threadId],
+        );
         releaseSuppression(threadId, context?.suppressionIds[threadId]);
       }
       if (context?.inboxMutationId) {
@@ -2471,7 +2583,7 @@ export function useMoveEmail() {
         inboxMutationId,
       };
     },
-    onError: (error, _vars, context) => {
+    onError: (error, variables, context) => {
       if (!context) return;
       if (error instanceof MoveEmailPartialFailure) {
         const succeededThreadIds = new Set(
@@ -2480,14 +2592,26 @@ export function useMoveEmail() {
           ),
         );
         for (const threadId of context.threadIds) {
-          if (!succeededThreadIds.has(threadId))
+          if (!succeededThreadIds.has(threadId)) {
+            forgetSuppressionClaim(
+              variables.suppressionToken,
+              threadId,
+              context.suppressionIds[threadId],
+            );
             releaseSuppression(threadId, context.suppressionIds[threadId]);
+          }
         }
         reconcilePartialInboxMutation(qc, context, succeededThreadIds);
         return;
       }
-      for (const threadId of context.threadIds)
+      for (const threadId of context.threadIds) {
+        forgetSuppressionClaim(
+          variables.suppressionToken,
+          threadId,
+          context.suppressionIds[threadId],
+        );
         releaseSuppression(threadId, context.suppressionIds[threadId]);
+      }
       if (context.inboxMutationId) {
         forgetInboxMutation(qc, context.inboxMutationId);
       }

@@ -10,6 +10,7 @@ import {
   beginReadMutation,
   confirmReadMutation,
   clearOptimisticOverride,
+  forgetSuppressionClaim,
   filterSuppressedThreads,
   markExternalEmailRefresh,
   parseAccountErrorsHeader,
@@ -19,6 +20,7 @@ import {
   rollbackReadMutation,
   setOptimisticOverride,
   suppressThread,
+  hasFreshOptimisticOverrideEvidence,
 } from "./use-emails";
 
 function makeEmail(id: string, threadId: string): EmailMessage {
@@ -162,12 +164,20 @@ describe("filterSuppressedThreads", () => {
 });
 
 describe("optimistic property overrides", () => {
+  it("requires a provider request that started after the local mutation", () => {
+    expect(hasFreshOptimisticOverrideEvidence(true, true, 4, 4)).toBe(false);
+    expect(hasFreshOptimisticOverrideEvidence(true, true, 5, 4)).toBe(true);
+    expect(hasFreshOptimisticOverrideEvidence(false, true, 5, 4)).toBe(false);
+  });
+
   it("retires read and star overrides only after provider evidence", () => {
     const source = emailsHookSource();
 
     expect(source).not.toContain("OVERRIDE_DURATION");
     expect(source).toContain("reconcileOptimisticOverrides");
-    expect(source).toContain("Object.is(observed[property], props[property])");
+    expect(source).toContain("hasFreshOptimisticOverrideEvidence(");
+    expect(source).toContain("providerSnapshotFences");
+    expect(source).toContain("observed.providerSnapshotId <=");
 
     const threadHook = source.slice(
       source.indexOf("export function useThreadMessages("),
@@ -200,6 +210,24 @@ describe("suppression evidence", () => {
     expect(releaseSuppression(threadId, id)).toBe(true);
     expect(releaseSuppressionClaims(threadId, [id])).toBe(true);
     expect(releaseSuppressionClaims(threadId, [])).toBe(false);
+  });
+
+  it("removes failed claims from a still-visible Undo token", () => {
+    const threadId = "thread-failed-undo";
+    const id = suppressThread(threadId, "archive", {
+      views: ["inbox", "unread"],
+    });
+    const token = {
+      ids: new Map([[threadId, [id]]]),
+      inboxMutationIds: new Map<string, string[]>(),
+    };
+
+    forgetSuppressionClaim(token, threadId, id);
+    releaseSuppression(threadId, id);
+
+    expect(
+      releaseSuppressionClaims(threadId, token.ids.get(threadId) ?? []),
+    ).toBe(false);
   });
 });
 

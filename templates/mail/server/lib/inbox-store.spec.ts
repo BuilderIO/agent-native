@@ -206,7 +206,11 @@ describe("applyLocalLabelDelta", () => {
       "owner@example.com",
       "acct1@example.com",
       ["t1"],
-      { add: ["STARRED"], remove: ["UNREAD"] },
+      {
+        add: ["STARRED"],
+        remove: ["UNREAD"],
+        providerHistoryId: "12",
+      },
     );
 
     expect(dbState.updates).toHaveLength(1);
@@ -217,6 +221,9 @@ describe("applyLocalLabelDelta", () => {
     expect(set.isUnread).toBe(0);
     expect(set.isStarred).toBe(1);
     expect(set.localMutationAt).toEqual(expect.any(Number));
+    expect(set.localMutationHistoryId).toBe("12");
+    expect(set.localMutationFields).toEqual(expect.any(Number));
+    expect(set.unreadCount).toBe(0);
   });
 
   it("flips in_inbox to 0 when INBOX is removed (archive)", async () => {
@@ -235,6 +242,29 @@ describe("applyLocalLabelDelta", () => {
     );
 
     expect(dbState.updates[0].set.inInbox).toBe(0);
+  });
+
+  it("keeps overlapping local field claims and the newest provider fence", async () => {
+    dbState.threadRows = [
+      {
+        id: "owner@example.com:acct1@example.com:t1",
+        labelIdsJson: JSON.stringify(["INBOX"]),
+        messageIdsJson: JSON.stringify(["m1"]),
+        unreadCount: 0,
+        localMutationHistoryId: "20",
+        localMutationFields: 1,
+      },
+    ];
+
+    await applyLocalLabelDelta(
+      "owner@example.com",
+      "acct1@example.com",
+      ["t1"],
+      { add: ["UNREAD"], providerHistoryId: "10" },
+    );
+
+    expect(dbState.updates[0].set.localMutationFields).toBe(3);
+    expect(dbState.updates[0].set.localMutationHistoryId).toBe("20");
   });
 
   it("is a no-op for a thread that hasn't synced yet", async () => {
@@ -427,7 +457,13 @@ describe("sync write fences", () => {
 
     expect(dbState.conflictUpdates[0].setWhere).toMatchObject({ op: "sql" });
     expect(dbState.conflictUpdates[0].setWhere.strings.join(" ")).toContain(
-      "IS DISTINCT FROM",
+      "excluded.history_id",
+    );
+    expect(dbState.conflictUpdates[0].setWhere.strings.join(" ")).toContain(
+      "CAST(excluded.history_id AS NUMERIC)",
+    );
+    expect(dbState.conflictUpdates[0].setWhere.strings.join(" ")).toContain(
+      "unread_count",
     );
   });
 

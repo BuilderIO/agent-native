@@ -273,6 +273,14 @@ CREATE INDEX IF NOT EXISTS idx_mail_inbox_threads_owner_account ON mail_inbox_th
       name: "mail-inbox-local-mutation-fence",
       sql: `ALTER TABLE mail_inbox_threads ADD COLUMN IF NOT EXISTS local_mutation_at BIGINT`,
     },
+    {
+      version: 24,
+      name: "mail-inbox-mutation-evidence",
+      sql: `ALTER TABLE mail_inbox_threads
+ADD COLUMN IF NOT EXISTS local_mutation_history_id TEXT;
+ALTER TABLE mail_inbox_threads
+ADD COLUMN IF NOT EXISTS local_mutation_fields INTEGER`,
+    },
   ],
   { table: "mail_migrations" },
 );
