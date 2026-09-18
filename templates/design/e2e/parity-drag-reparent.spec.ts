@@ -929,10 +929,13 @@ test.describe("drag reparent parity", () => {
       { steps: 30 },
     );
     await page.waitForTimeout(500);
-    await expect(page.locator("[data-cross-screen-drop-guide]")).toBeVisible({
-      timeout: 5_000,
-    });
     const trace = await dumpTrace(page);
+    await expect
+      .poll(() => page.locator("[data-cross-screen-drop-guide]").isVisible(), {
+        timeout: 5_000,
+        message: `cross-screen target guide must remain visible while the pointer is held. Trace: ${trace.slice(-800)}`,
+      })
+      .toBe(true);
     await page.mouse.up();
 
     let screenOneHtml = "";
