@@ -457,16 +457,36 @@ test.describe("drag reparent parity", () => {
     const trace = await dumpTrace(page);
     const ghost = page.locator("[data-cross-screen-drag-ghost]");
     await expect(ghost).toBeVisible({ timeout: 5_000 });
-    const ghostBox = await ghost.boundingBox();
+    const ghostAtBoard = await ghost.boundingBox();
     expect(
-      ghostBox,
+      ghostAtBoard,
       `drag ghost geometry missing. Trace: ${trace.slice(-800)}`,
     ).not.toBeNull();
-    expect(ghostBox!.width).toBeGreaterThan(widget.width * 0.8);
-    expect(ghostBox!.height).toBeGreaterThan(widget.height * 0.8);
-    expect(ghostBox!.x + ghostBox!.width / 2).toBeCloseTo(boardPoint.x, 0);
-    expect(ghostBox!.y + ghostBox!.height / 2).toBeCloseTo(boardPoint.y, 0);
-
+    expect(ghostAtBoard!.width).toBeGreaterThan(widget.width * 0.8);
+    expect(ghostAtBoard!.height).toBeGreaterThan(widget.height * 0.8);
+    expect(ghostAtBoard!.x + ghostAtBoard!.width / 2).toBeCloseTo(
+      boardPoint.x,
+      0,
+    );
+    expect(ghostAtBoard!.y + ghostAtBoard!.height / 2).toBeCloseTo(
+      boardPoint.y,
+      0,
+    );
+    await page.mouse.move(boardPoint.x + 40, boardPoint.y + 24, { steps: 8 });
+    await page.waitForTimeout(250);
+    const ghostAtSecondPoint = await ghost.boundingBox();
+    expect(
+      ghostAtSecondPoint,
+      `the cross-screen drag ghost must remain rendered as the pointer moves. ` +
+        `Trace: ${trace.slice(-800)}`,
+    ).not.toBeNull();
+    expect(
+      Math.hypot(
+        ghostAtSecondPoint!.x - ghostAtBoard!.x,
+        ghostAtSecondPoint!.y - ghostAtBoard!.y,
+      ),
+      `the cross-screen drag ghost must follow the held pointer. Trace: ${trace.slice(-800)}`,
+    ).toBeGreaterThan(1);
     await page.mouse.up();
 
     let indexHtml = "";
@@ -494,7 +514,7 @@ test.describe("drag reparent parity", () => {
       `Widget must leave the screen document once dropped outside it on the board. Trace: ${trace.slice(-800)}`,
     ).toBe(false);
     expect(
-      boardHtml.includes("widget") || boardHtml.length > 0,
+      boardHtml.includes('data-agent-native-node-id="widget"'),
       `Widget dropped on the empty board must become a board object (checked __board__.html). Got boardHtml length=${boardHtml.length}`,
     ).toBe(true);
 

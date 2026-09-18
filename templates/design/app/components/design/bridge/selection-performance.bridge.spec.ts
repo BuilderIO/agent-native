@@ -27,6 +27,20 @@ function hydratedBridge(): string {
     .replace(/__INITIAL_SOURCE_HEAD__/g, '""');
 }
 
+function hydratedBridgeWithCssomCacheFactory(): string {
+  const script = hydratedBridge();
+  const marker = '    var shieldOverlay = document.createElement("div");';
+  const withFactory = script.replace(
+    marker,
+    `    window.__testCreatePortableStyleComputedStylesCache = createPortableStyleComputedStylesCache;
+${marker}`,
+  );
+  if (withFactory === script) {
+    throw new Error("CSSOM cache factory test hook insertion point changed");
+  }
+  return withFactory;
+}
+
 const CARDS = 60;
 const LARGE_CANDIDATES = 849;
 const LARGE_DOM_ELEMENTS = 883;
@@ -109,6 +123,17 @@ async function openBridgePage(page: Page) {
       window.__styleReads += 1;
       return rawGetComputedStyle(el, pseudo);
     };
+    window.__subtreeQueries = 0;
+    window.__subtreeNodes = 0;
+    var rawQuerySelectorAll = Element.prototype.querySelectorAll;
+    Element.prototype.querySelectorAll = function (selector) {
+      var result = rawQuerySelectorAll.call(this, selector);
+      if (selector === "*" && this !== document.body) {
+        window.__subtreeQueries += 1;
+        window.__subtreeNodes += result.length;
+      }
+      return result;
+    };
     window.__marqueeMessages = [];
     window.addEventListener("message", function (event) {
       if (event.data && event.data.type === "agent-native:layer-marquee-selection") {
@@ -122,10 +147,14 @@ async function openBridgePage(page: Page) {
 
 async function collectSelectableRects(
   page: Page,
-  options: { deep: boolean; atPoint?: { x: number; y: number } },
+  options: {
+    deep: boolean;
+    atPoint?: { x: number; y: number };
+    includePortableStyleSnapshot?: boolean;
+  },
 ): Promise<CollectedInfo[]> {
   return page.evaluate(
-    ([deep, atPoint]) =>
+    ([deep, atPoint, includePortableStyleSnapshot]) =>
       new Promise<CollectedInfo[]>((resolve) => {
         const id = `spec-${Math.random().toString(36).slice(2)}`;
         const onMessage = (event: MessageEvent) => {
@@ -149,12 +178,17 @@ async function collectSelectableRects(
             type: "agent-native:collect-selectable-rects",
             correlationId: id,
             deep,
+            includePortableStyleSnapshot,
             ...(atPoint ? { atPoint } : {}),
           },
           "*",
         );
       }),
-    [options.deep, options.atPoint ?? null] as const,
+    [
+      options.deep,
+      options.atPoint ?? null,
+      options.includePortableStyleSnapshot ?? true,
+    ] as const,
   );
 }
 
@@ -488,6 +522,77 @@ describe("selectable-rects collect is bounded by the point it was asked about", 
   }, 60_000);
 });
 
+describe("overview marquee selectable-rects collection", () => {
+  it("keeps computed state without paying for portable subtree snapshots", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 1000, height: 900 },
+      });
+      const errors: string[] = [];
+      page.on("pageerror", (error) => errors.push(error.message));
+      await openBridgePage(page);
+
+      const full = await collectSelectableRects(page, { deep: false });
+      const fullReads = await page.evaluate(
+        () =>
+          (window as typeof window & { __styleReads?: number }).__styleReads ??
+          0,
+      );
+      const fullSubtreeNodes = await page.evaluate(
+        () =>
+          (window as typeof window & { __subtreeNodes?: number })
+            .__subtreeNodes ?? 0,
+      );
+      await page.evaluate("window.__styleReads = 0;");
+      await page.evaluate(() => {
+        const win = window as typeof window & {
+          __subtreeQueries?: number;
+          __subtreeNodes?: number;
+        };
+        win.__subtreeQueries = 0;
+        win.__subtreeNodes = 0;
+      });
+      const lightweight = await collectSelectableRects(page, {
+        deep: false,
+        includePortableStyleSnapshot: false,
+      });
+      const lightweightReads = await page.evaluate(
+        () =>
+          (window as typeof window & { __styleReads?: number }).__styleReads ??
+          0,
+      );
+      const lightweightSubtreeNodes = await page.evaluate(
+        () =>
+          (window as typeof window & { __subtreeNodes?: number })
+            .__subtreeNodes ?? 0,
+      );
+
+      expect(errors, errors.join("\n")).toEqual([]);
+      expect(lightweight).toHaveLength(full.length);
+      expect(lightweight.length).toBeGreaterThan(20);
+      expect(fullSubtreeNodes).toBeGreaterThan(0);
+      expect(lightweightSubtreeNodes).toBe(0);
+      expect(lightweightReads).toBeGreaterThan(0);
+      expect(lightweightReads).toBeLessThan(fullReads);
+      expect(
+        lightweight.every(
+          (info) =>
+            Object.keys(info.computedStyles ?? {}).length > 0 &&
+            info.portableStyleSnapshot === undefined,
+        ),
+      ).toBe(true);
+      expect(
+        full.every(
+          (info) => (info.portableStyleSnapshot?.nodes?.length ?? 0) > 0,
+        ),
+      ).toBe(true);
+    } finally {
+      await browser.close();
+    }
+  }, 60_000);
+});
+
 describe("large concurrent selectable-rects requests", () => {
   it("keeps animated selected roots aligned after a mid-request mutation", async () => {
     const browser = await chromium.launch({ headless: true });
@@ -731,6 +836,288 @@ describe("large concurrent selectable-rects requests", () => {
     expect(result.portableLeaf).toBe(result.leaf);
   }, 60_000);
 
+  async function collectKeyframeEffectMutationCase(
+    mutation: "setKeyframes" | "updateTiming" | "replaceEffect",
+  ): Promise<{
+    before: [string, number | null, number | null, number];
+    after: [string, number | null, number | null, number];
+    leaf: string;
+    portableLeaf: string | undefined;
+  }> {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 600, height: 300 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+        <div id="parent" data-agent-native-node-id="parent" style="position:relative;width:500px;height:220px">
+          <div id="child" data-agent-native-node-id="child" style="position:absolute;left:20px;top:20px;width:180px;height:80px">
+            <div id="leaf" data-agent-native-node-id="leaf" style="width:90px;height:40px"></div>
+          </div>
+        </div>
+      </body></html>`);
+      await page.evaluate((mutationMethod) => {
+        const child = document.querySelector<HTMLElement>("#child");
+        const leaf = document.querySelector<HTMLElement>("#leaf");
+        if (!child || !leaf)
+          throw new Error("keyframe effect fixture did not attach");
+        const animation = leaf.animate(
+          [{ color: "rgb(255, 0, 0)" }, { color: "rgb(0, 0, 255)" }],
+          { duration: 1000, fill: "both" },
+        );
+        animation.pause();
+        animation.currentTime = 500;
+        const effect = animation.effect;
+        if (!(effect instanceof KeyframeEffect)) {
+          throw new Error("keyframe effect fixture did not attach");
+        }
+        const state = () =>
+          [
+            animation.playState,
+            animation.currentTime,
+            animation.startTime,
+            animation.playbackRate,
+          ] as [string, number | null, number | null, number];
+        (
+          window as typeof window & {
+            __testKeyframeEffectBefore?: ReturnType<typeof state>;
+          }
+        ).__testKeyframeEffectBefore = state();
+        const nativeRect = child.getBoundingClientRect.bind(child);
+        let reads = 0;
+        child.getBoundingClientRect = () => {
+          const rect = nativeRect();
+          reads += 1;
+          // The parent snapshot cached the leaf before this overlapping child
+          // snapshot. These effect mutations leave the animation state intact.
+          if (reads === 2) {
+            if (mutationMethod === "setKeyframes") {
+              effect.setKeyframes([
+                { color: "rgb(0, 0, 255)" },
+                { color: "rgb(0, 0, 255)" },
+              ]);
+            } else if (mutationMethod === "updateTiming") {
+              effect.updateTiming({ duration: 2000 });
+            } else {
+              animation.effect = new KeyframeEffect(
+                leaf,
+                [{ color: "rgb(0, 0, 255)" }, { color: "rgb(0, 0, 255)" }],
+                { duration: 1000, fill: "both" },
+              );
+            }
+          }
+          return rect;
+        };
+      }, mutation);
+      await page.addScriptTag({ content: hydratedBridge() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+      const payload = await collectSelectableRects(page, { deep: true });
+      const result = await page.evaluate(() => {
+        const leaf = document.querySelector<HTMLElement>("#leaf");
+        const animation = leaf?.getAnimations()[0];
+        const before = (
+          window as typeof window & {
+            __testKeyframeEffectBefore?: [
+              string,
+              number | null,
+              number | null,
+              number,
+            ];
+          }
+        ).__testKeyframeEffectBefore;
+        if (!leaf || !animation || !before) {
+          throw new Error("keyframe effect fixture state missing");
+        }
+        return {
+          before,
+          after: [
+            animation.playState,
+            animation.currentTime,
+            animation.startTime,
+            animation.playbackRate,
+          ] as [string, number | null, number | null, number],
+          leaf: getComputedStyle(leaf).color,
+        };
+      });
+      const childInfo = payload.find((info) => info.sourceId === "child");
+      return {
+        ...result,
+        portableLeaf: childInfo?.portableStyleSnapshot?.nodes?.find(
+          (node) => node.sourceId === "leaf",
+        )?.styles?.color,
+      };
+    } finally {
+      await browser.close();
+    }
+  }
+
+  (["setKeyframes", "updateTiming", "replaceEffect"] as const).forEach(
+    (mutation) => {
+      it(`invalidates cached styles after KeyframeEffect.${mutation}()`, async () => {
+        const result = await collectKeyframeEffectMutationCase(mutation);
+        expect(result.after).toEqual(result.before);
+        expect(result.portableLeaf).toBe(result.leaf);
+      }, 60_000);
+    },
+  );
+
+  it("refreshes a descendant when an ancestor animation starts mid-request", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 600, height: 300 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+        <div id="parent" data-agent-native-node-id="parent">
+          <div id="child" data-agent-native-node-id="child" style="color:rgb(255, 0, 0); width:180px; height:80px">
+            <div id="leaf" data-agent-native-node-id="leaf" style="width:90px; height:40px"></div>
+          </div>
+        </div>
+      </body></html>`);
+      await page.evaluate(() => {
+        const child = document.querySelector<HTMLElement>("#child");
+        if (!child)
+          throw new Error("mid-request animation fixture missing child");
+        // Create the animation before the bridge installs its CSSOM hooks, then
+        // cancel it so the request starts with no animation to observe. Calling
+        // play() later changes inherited styles without a DOM mutation.
+        const animation = child.animate(
+          [{ color: "rgb(255, 0, 0)" }, { color: "rgb(0, 0, 255)" }],
+          { duration: 1000, fill: "both" },
+        );
+        animation.cancel();
+        let rectReads = 0;
+        const nativeRect = child.getBoundingClientRect.bind(child);
+        child.getBoundingClientRect = () => {
+          const rect = nativeRect();
+          rectReads += 1;
+          if (rectReads === 2) {
+            animation.play();
+            animation.currentTime = 500;
+            animation.playbackRate = 0;
+          }
+          return rect;
+        };
+      });
+      await page.addScriptTag({ content: hydratedBridge() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+      const payload = await collectSelectableRects(page, { deep: true });
+      const live = await page.evaluate(() => ({
+        child: getComputedStyle(document.querySelector<HTMLElement>("#child")!)
+          .color,
+        leaf: getComputedStyle(document.querySelector<HTMLElement>("#leaf")!)
+          .color,
+        state: document.querySelector<HTMLElement>("#child")!.getAnimations()[0]
+          ?.playState,
+      }));
+      const childInfo = payload.find((info) => info.sourceId === "child");
+      const portableLeaf = childInfo?.portableStyleSnapshot?.nodes?.find(
+        (node) => node.sourceId === "leaf",
+      )?.styles?.color;
+      expect(live.child).toBe("rgb(128, 0, 128)");
+      expect(live.leaf).toBe(live.child);
+      expect(live.state).toBe("running");
+      expect(portableLeaf).toBe(live.leaf);
+    } finally {
+      await browser.close();
+    }
+  }, 60_000);
+
+  it("refreshes descendants when paused and finished animations seek mid-request", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 600, height: 420 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+        <div id="parent" data-agent-native-node-id="parent" style="position:relative;width:500px;height:360px">
+          <div id="paused-child" data-agent-native-node-id="paused-child" style="position:absolute;left:20px;top:20px;width:180px;height:80px;color:rgb(255,0,0)">
+            <div id="paused-leaf" data-agent-native-node-id="paused-leaf" style="width:90px;height:40px"></div>
+          </div>
+          <div id="finished-child" data-agent-native-node-id="finished-child" style="position:absolute;left:20px;top:140px;width:180px;height:80px;color:rgb(255,0,0)">
+            <div id="finished-leaf" data-agent-native-node-id="finished-leaf" style="width:90px;height:40px"></div>
+          </div>
+        </div>
+      </body></html>`);
+      await page.evaluate(() => {
+        const pausedChild =
+          document.querySelector<HTMLElement>("#paused-child");
+        const finishedChild =
+          document.querySelector<HTMLElement>("#finished-child");
+        if (!pausedChild || !finishedChild) {
+          throw new Error("paused animation fixture did not attach");
+        }
+        const pausedAnimation = pausedChild.animate(
+          [{ color: "rgb(255,0,0)" }, { color: "rgb(0,0,255)" }],
+          { duration: 1000, fill: "both" },
+        );
+        const finishedAnimation = finishedChild.animate(
+          [{ color: "rgb(255,0,0)" }, { color: "rgb(0,0,255)" }],
+          { duration: 1000, fill: "both" },
+        );
+        pausedAnimation.pause();
+        finishedAnimation.pause();
+        pausedAnimation.currentTime = 0;
+        finishedAnimation.currentTime = 0;
+        const mutations = new Map<HTMLElement, number>([
+          [pausedChild, 0],
+          [finishedChild, 0],
+        ]);
+        const mutateOnSecondRectRead = (
+          child: HTMLElement,
+          mutate: () => void,
+        ) => {
+          const nativeRect = child.getBoundingClientRect.bind(child);
+          child.getBoundingClientRect = () => {
+            const rect = nativeRect();
+            const reads = (mutations.get(child) ?? 0) + 1;
+            mutations.set(child, reads);
+            if (reads === 2) mutate();
+            return rect;
+          };
+        };
+        mutateOnSecondRectRead(pausedChild, () => {
+          pausedAnimation.currentTime = 500;
+        });
+        mutateOnSecondRectRead(finishedChild, () => {
+          finishedAnimation.finish();
+        });
+      });
+      await page.addScriptTag({ content: hydratedBridge() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+      const payload = await collectSelectableRects(page, { deep: true });
+      const live = await page.evaluate(() =>
+        ["paused", "finished"].map((kind) => {
+          const child = document.querySelector<HTMLElement>(`#${kind}-child`)!;
+          const leaf = document.querySelector<HTMLElement>(`#${kind}-leaf`)!;
+          return {
+            kind,
+            child: getComputedStyle(child).color,
+            leaf: getComputedStyle(leaf).color,
+            state: child.getAnimations()[0]?.playState,
+          };
+        }),
+      );
+      for (const item of live) {
+        const childInfo = payload.find(
+          (candidate) => candidate.sourceId === `${item.kind}-child`,
+        );
+        expect(childInfo).toBeDefined();
+        const portableLeaf = childInfo?.portableStyleSnapshot?.nodes?.find(
+          (node) => node.sourceId === `${item.kind}-leaf`,
+        )?.styles?.color;
+        expect(item.child).toBe(item.leaf);
+        expect(item.state).toBe(item.kind === "paused" ? "paused" : "finished");
+        expect(portableLeaf).toBe(item.leaf);
+      }
+    } finally {
+      await browser.close();
+    }
+  }, 60_000);
+
   it("refreshes a descendant when an ancestor transition changes an inherited style", async () => {
     const result = await collectAncestorMutationCase("transition");
     expect(result.portableLeaf).toBe(result.leaf);
@@ -750,16 +1137,19 @@ describe("large concurrent selectable-rects requests", () => {
         </div>
       </body></html>`);
       await page.evaluate(() => {
+        const child = document.querySelector<HTMLElement>("#child");
         const leaf = document.querySelector<HTMLElement>("#leaf");
-        if (!leaf) throw new Error("style mutation fixture did not attach");
-        const nativeGetAnimations = leaf.getAnimations.bind(leaf);
+        if (!child || !leaf)
+          throw new Error("style mutation fixture did not attach");
+        const nativeRect = child.getBoundingClientRect.bind(child);
         let reads = 0;
-        leaf.getAnimations = () => {
+        child.getBoundingClientRect = () => {
+          const rect = nativeRect();
           reads += 1;
           // The parent snapshot has already cached the leaf by the time the
-          // overlapping child snapshot reaches this second animation check.
+          // overlapping child snapshot reaches this second rect read.
           if (reads === 2) leaf.style.color = "rgb(0, 0, 255)";
-          return nativeGetAnimations();
+          return rect;
         };
       });
       await page.addScriptTag({ content: hydratedBridge() });
@@ -790,32 +1180,36 @@ describe("large concurrent selectable-rects requests", () => {
       await page.setContent(`<!doctype html><html><body style="margin:0">
         <div id="host" data-agent-native-node-id="host">
           <div id="parent" data-agent-native-node-id="parent" style="position:relative;width:500px;height:220px">
-            <div id="leaf" data-agent-native-node-id="leaf" style="width:90px;height:40px"></div>
+            <div id="child" data-agent-native-node-id="child" style="width:180px;height:80px">
+              <div id="leaf" data-agent-native-node-id="leaf" style="width:90px;height:40px"></div>
+            </div>
           </div>
         </div>
       </body></html>`);
       await page.evaluate(() => {
         const host = document.querySelector<HTMLElement>("#host");
+        const child = document.querySelector<HTMLElement>("#child");
         const leaf = document.querySelector<HTMLElement>("#leaf");
-        if (!host || !leaf)
+        if (!host || !child || !leaf)
           throw new Error("shadow style fixture did not attach");
         const shadow = host.attachShadow({ mode: "open" });
         shadow.innerHTML = `<style id="theme">slot { color: rgb(255, 0, 0); }</style><slot></slot>`;
         const slot = shadow.querySelector("slot");
         if (!slot) throw new Error("shadow style fixture slot did not attach");
-        const nativeGetAnimations = leaf.getAnimations.bind(leaf);
+        const nativeRect = child.getBoundingClientRect.bind(child);
         let reads = 0;
-        leaf.getAnimations = () => {
+        child.getBoundingClientRect = () => {
+          const rect = nativeRect();
           reads += 1;
           // The parent snapshot has already cached the leaf by the time the
-          // overlapping child snapshot reaches this second animation check.
+          // overlapping child snapshot reaches this second rect read.
           if (reads === 2) {
             const style = shadow.querySelector<HTMLStyleElement>("#theme");
             if (!style)
               throw new Error("shadow style fixture stylesheet missing");
             style.textContent = "slot { color: rgb(0, 0, 255); }";
           }
-          return nativeGetAnimations();
+          return rect;
         };
       });
       await page.addScriptTag({ content: hydratedBridge() });
@@ -831,13 +1225,143 @@ describe("large concurrent selectable-rects requests", () => {
           slot: getComputedStyle(slot).color,
         };
       });
-      const parentInfo = payload.find((info) => info.sourceId === "parent");
-      const portableLeaf = parentInfo?.portableStyleSnapshot?.nodes?.find(
+      const childInfo = payload.find((info) => info.sourceId === "child");
+      const portableLeaf = childInfo?.portableStyleSnapshot?.nodes?.find(
         (node) => node.sourceId === "leaf",
       )?.styles?.color;
       expect(live.leaf).toBe("rgb(0, 0, 255)");
       expect(live.slot).toBe(live.leaf);
       expect(portableLeaf).toBe(live.leaf);
+    } finally {
+      await browser.close();
+    }
+  }, 60_000);
+
+  it("invalidates cached styles after a stylesheet CSSOM mutation", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 600, height: 300 },
+      });
+      await page.setContent(`<!doctype html><html><head><style id="theme">
+        #leaf { color: rgb(255, 0, 0); }
+      </style></head><body style="margin:0">
+        <div id="parent" data-agent-native-node-id="parent" style="position:relative;width:500px;height:220px">
+          <div id="child" data-agent-native-node-id="child" style="position:absolute;left:20px;top:20px;width:180px;height:80px">
+            <div id="leaf" data-agent-native-node-id="leaf" style="width:90px;height:40px"></div>
+          </div>
+        </div>
+      </body></html>`);
+      await page.evaluate(() => {
+        const child = document.querySelector<HTMLElement>("#child");
+        const style = document.querySelector<HTMLStyleElement>("#theme");
+        const sheet = style?.sheet;
+        const rule = sheet?.cssRules[0];
+        if (!child || !sheet || !(rule instanceof CSSStyleRule)) {
+          throw new Error("CSSOM style fixture did not attach");
+        }
+        const nativeRect = child.getBoundingClientRect.bind(child);
+        let reads = 0;
+        child.getBoundingClientRect = () => {
+          const rect = nativeRect();
+          reads += 1;
+          // The parent snapshot has already cached the leaf by the time the
+          // overlapping child snapshot reaches this second rect read.
+          if (reads === 2) {
+            rule.style.setProperty("color", "rgb(0, 0, 255)");
+          }
+          return rect;
+        };
+      });
+      await page.addScriptTag({ content: hydratedBridge() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+      const payload = await collectSelectableRects(page, { deep: true });
+      const liveLeaf = await page.evaluate(
+        () =>
+          getComputedStyle(document.querySelector<HTMLElement>("#leaf")!).color,
+      );
+      const childInfo = payload.find((info) => info.sourceId === "child");
+      const portableLeaf = childInfo?.portableStyleSnapshot?.nodes?.find(
+        (node) => node.sourceId === "leaf",
+      )?.styles?.color;
+      expect(liveLeaf).toBe("rgb(0, 0, 255)");
+      expect(portableLeaf).toBe(liveLeaf);
+    } finally {
+      await browser.close();
+    }
+  }, 60_000);
+
+  it("keeps same-global CSSOM hook ownership through non-LIFO teardown", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 600, height: 300 },
+      });
+      await page.setContent(`<!doctype html><html><head><style id="theme">
+        #leaf { color: rgb(255, 0, 0); }
+      </style></head><body style="margin:0">
+        <div id="leaf" data-agent-native-node-id="leaf">Leaf</div>
+      </body></html>`);
+      await page.addScriptTag({
+        content: hydratedBridgeWithCssomCacheFactory(),
+      });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+      const result = await page.evaluate(() => {
+        const win = window as typeof window & {
+          __testCreatePortableStyleComputedStylesCache?: () => {
+            mutationGeneration: number;
+            mutationObserver: MutationObserver;
+            restoreCssomHooks: () => void;
+          };
+        };
+        const createCache = win.__testCreatePortableStyleComputedStylesCache;
+        const style = document.querySelector<HTMLStyleElement>("#theme");
+        const rule = style?.sheet?.cssRules[0];
+        if (!createCache || !(rule instanceof CSSStyleRule)) {
+          throw new Error("CSSOM cache factory fixture did not attach");
+        }
+        let owner: object = CSSStyleDeclaration.prototype;
+        while (
+          owner &&
+          !Object.prototype.hasOwnProperty.call(owner, "setProperty")
+        ) {
+          owner = Object.getPrototypeOf(owner) as object;
+        }
+        const original = Object.getOwnPropertyDescriptor(
+          owner,
+          "setProperty",
+        )?.value;
+        if (typeof original !== "function") {
+          throw new Error("CSSOM setProperty descriptor did not attach");
+        }
+        const first = createCache();
+        const second = createCache();
+        if (!first || !second) {
+          throw new Error("CSSOM cache factory returned no cache");
+        }
+        try {
+          const before = second.mutationGeneration;
+          // Releasing the older owner first used to restore the original
+          // descriptor and strand the newer wrapper/cache pair.
+          first.restoreCssomHooks();
+          rule.style.setProperty("color", "rgb(0, 0, 255)");
+          const after = second.mutationGeneration;
+          second.restoreCssomHooks();
+          const restored =
+            Object.getOwnPropertyDescriptor(owner, "setProperty")?.value ===
+            original;
+          return { invalidated: after > before, restored };
+        } finally {
+          first.mutationObserver.disconnect();
+          second.mutationObserver.disconnect();
+          first.restoreCssomHooks();
+          second.restoreCssomHooks();
+        }
+      });
+
+      expect(result).toEqual({ invalidated: true, restored: true });
     } finally {
       await browser.close();
     }
@@ -852,14 +1376,18 @@ describe("large concurrent selectable-rects requests", () => {
       await page.setContent(`<!doctype html><html><body style="margin:0">
         <div id="host" data-agent-native-node-id="host">
           <div id="parent" data-agent-native-node-id="parent" style="position:relative;width:500px;height:220px">
-            <div id="leaf" data-agent-native-node-id="leaf" style="width:90px;height:40px"></div>
+            <div id="child" data-agent-native-node-id="child" style="width:180px;height:80px">
+              <div id="leaf" data-agent-native-node-id="leaf" style="width:90px;height:40px"></div>
+            </div>
           </div>
         </div>
       </body></html>`);
       await page.evaluate(() => {
         const host = document.querySelector<HTMLElement>("#host");
+        const child = document.querySelector<HTMLElement>("#child");
         const leaf = document.querySelector<HTMLElement>("#leaf");
-        if (!host || !leaf) throw new Error("slot fixture did not attach");
+        if (!host || !child || !leaf)
+          throw new Error("slot fixture did not attach");
         const shadow = host.attachShadow({ mode: "open" });
         shadow.innerHTML = `<style>
           @keyframes tint { from { color: rgb(255, 0, 0); } to { color: rgb(0, 0, 255); } }
@@ -870,19 +1398,19 @@ describe("large concurrent selectable-rects requests", () => {
         if (!slot || !animation)
           throw new Error("slot animation did not attach");
         animation.currentTime = 0;
-        const nativeGetAnimations = leaf.getAnimations.bind(leaf);
+        const nativeRect = child.getBoundingClientRect.bind(child);
         let reads = 0;
-        leaf.getAnimations = () => {
+        child.getBoundingClientRect = () => {
+          const rect = nativeRect();
           reads += 1;
-          // The slot is the composed style parent of this light-DOM leaf.
-          // Start its inherited animation only after the first snapshot cached
-          // the leaf, so the overlapping snapshot must invalidate that entry.
+          // The parent snapshot has already cached the leaf by the time the
+          // overlapping child snapshot reaches this second rect read.
           if (reads === 2) {
             animation.play();
             animation.currentTime = 500;
             animation.playbackRate = 0;
           }
-          return nativeGetAnimations();
+          return rect;
         };
       });
       await page.addScriptTag({ content: hydratedBridge() });
@@ -899,8 +1427,8 @@ describe("large concurrent selectable-rects requests", () => {
           state: slot.getAnimations()[0]?.playState,
         };
       });
-      const parentInfo = payload.find((info) => info.sourceId === "parent");
-      const portableLeaf = parentInfo?.portableStyleSnapshot?.nodes?.find(
+      const childInfo = payload.find((info) => info.sourceId === "child");
+      const portableLeaf = childInfo?.portableStyleSnapshot?.nodes?.find(
         (node) => node.sourceId === "leaf",
       )?.styles?.color;
       expect(live.leaf).toBe("rgb(128, 0, 128)");

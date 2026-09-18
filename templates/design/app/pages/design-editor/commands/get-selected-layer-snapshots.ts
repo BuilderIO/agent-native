@@ -46,6 +46,7 @@ export interface GetSelectedLayerSnapshotsArgs {
   overviewScreens: OverviewScreen[];
   runtimeLayerSnapshotsById: Record<string, RuntimeLayerSnapshot>;
   selectedElement: ElementInfo | null;
+  selectedElementsByLayerId?: ReadonlyMap<string, ElementInfo>;
   selectedElementLayerId: string | null;
   selectedLayerIdsState: string[];
 }
@@ -60,6 +61,7 @@ export function runGetSelectedLayerSnapshots({
   overviewScreens,
   runtimeLayerSnapshotsById,
   selectedElement,
+  selectedElementsByLayerId,
   selectedElementLayerId,
   selectedLayerIdsState,
 }: GetSelectedLayerSnapshotsArgs) {
@@ -108,19 +110,23 @@ export function runGetSelectedLayerSnapshots({
           candidate.dataAttributes["data-agent-native-node-id"] === layerId,
       );
       if (!node?.source) continue;
+      const nodeSourceId = node.dataAttributes["data-agent-native-node-id"];
+      const selectedInfo =
+        selectedElementsByLayerId?.get(node.id) ??
+        (nodeSourceId
+          ? selectedElementsByLayerId?.get(nodeSourceId)
+          : undefined) ??
+        (selectedElementLayerId &&
+        (node.id === selectedElementLayerId ||
+          nodeSourceId === selectedElementLayerId)
+          ? selectedElement
+          : undefined);
       const html = content.slice(node.source.start, node.source.end);
-      const portableStyleSnapshot =
-        selectedElementLayerId &&
-        node.id === selectedElementLayerId &&
-        selectedElement?.portableStyleSnapshot
-          ? selectedElement.portableStyleSnapshot
-          : undefined;
+      const portableStyleSnapshot = selectedInfo?.portableStyleSnapshot
+        ? selectedInfo.portableStyleSnapshot
+        : undefined;
       const styleSnapshotCaptureFailed =
-        selectedElementLayerId &&
-        node.id === selectedElementLayerId &&
-        selectedElement?.styleSnapshotCaptureFailed
-          ? true
-          : undefined;
+        selectedInfo?.styleSnapshotCaptureFailed ? true : undefined;
       snapshots.push({
         html,
         rootNodeId: node.dataAttributes["data-agent-native-node-id"] ?? node.id,

@@ -3972,6 +3972,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
        *  for candidates whose box contains it — the drill-in/pick question —
        *  instead of for every selectable node on the screen. */
       atPoint?: Point | null,
+      /** Overview marquee hit-testing only needs identity, geometry, and the
+       *  selected element's computed state. Portable subtree snapshots are
+       *  still collected by direct selection and drill-in, where copy/paste
+       *  consumes them; skipping them here keeps a large overview drag from
+       *  blocking the preview thread before a hit-set exists. */
+      includePortableStyleSnapshot = true,
     ): Promise<SelectableRectsReply> => {
       const targetScreen = screensRef.current.find((s) => s.id === screenId);
       const iframeId = targetScreen
@@ -4034,6 +4040,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             type: "agent-native:collect-selectable-rects",
             correlationId,
             deep,
+            includePortableStyleSnapshot,
             ...(atPoint ? { atPoint } : {}),
           },
           "*",
@@ -4058,7 +4065,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
    *  selection-container scope (matching Figma's plain marquee), true
    *  reaches into nested descendants. Double-click drill-in and click-to-pick
    *  (`drillIntoScreenAtPoint`) always pass true — they need the full
-   *  descendant list to walk one level deeper per repeat click/click. */
+   *  descendant list to walk one level deeper per repeat click/click. The
+   *  overview marquee passes `includePortableStyleSnapshot: false` because
+   *  it needs hit geometry first; direct selection and drill-in keep the full
+   *  snapshot contract for copy/paste. */
   const collectLayerMarqueeCandidates = useCallback(
     async (
       screenIds?: Set<string>,
@@ -4067,6 +4077,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
        *  own local space so the bridge can skip building ElementInfo for
        *  candidates the containment chain would discard anyway. */
       atBoardPoint?: Point | null,
+      includePortableStyleSnapshot = true,
     ) => {
       const unanswered: Array<{
         screenId: string;
@@ -4108,6 +4119,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                   height: viewportHeight,
                 })
               : null,
+            includePortableStyleSnapshot,
           );
           if (reply.status !== "ok") {
             unanswered.push({ screenId: entry.id, reason: reply.reason });
@@ -4149,6 +4161,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                       },
                     )
                   : null,
+                includePortableStyleSnapshot,
               );
               if (reply.status !== "ok") {
                 unanswered.push({
@@ -4946,6 +4959,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         const collection = collectLayerMarqueeCandidates(
           requestIds,
           deepSelect,
+          null,
+          false,
         ).then((result) => {
           const unanswered = new Set(
             result.unanswered.map((entry) => entry.screenId),
@@ -5101,24 +5116,75 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           } else {
             const finalRect = latestRect;
             const releasedSelectionRevision = `${selectedIdsRef.current.join(",")}\u001e${selectedDraftIdsRef.current.join(",")}\u001e${marqueeHostSelectionRevisionRef.current}`;
-            void Promise.allSettled(pendingMarqueeCollections).then(() => {
-              if (
-                dragState.current !== marqueeState ||
-                marqueeLifecycleRef.current !== marqueeToken
-              )
-                return;
-              const currentSelectionRevision = `${selectedIdsRef.current.join(",")}\u001e${selectedDraftIdsRef.current.join(",")}\u001e${marqueeHostSelectionRevisionRef.current}`;
-              if (currentSelectionRevision !== releasedSelectionRevision) {
-                onLayerMarqueeSelectionChange?.([], {
-                  source: "marquee",
-                  cancelled: true,
-                });
+            void Promise.allSettled(pendingMarqueeCollections).then(
+              async () => {
+                if (
+                  dragState.current !== marqueeState ||
+                  marqueeLifecycleRef.current !== marqueeToken
+                )
+                  return;
+                const currentSelectionRevision = `${selectedIdsRef.current.join(",")}\u001e${selectedDraftIdsRef.current.join(",")}\u001e${marqueeHostSelectionRevisionRef.current}`;
+                if (currentSelectionRevision !== releasedSelectionRevision) {
+                  onLayerMarqueeSelectionChange?.([], {
+                    source: "marquee",
+                    cancelled: true,
+                  });
+                  finishDrag();
+                  return;
+                }
+                const selectedScreenIds = new Set(
+                  layerCandidates
+                    .filter(
+                      (candidate) =>
+                        (deepSelect ||
+                          !latestFullyEnclosedScreenIds.has(
+                            candidate.screenId,
+                          )) &&
+                        !enclosesMarqueeRect(candidate.geometry, finalRect) &&
+                        rotatedRectIntersects(
+                          finalRect,
+                          getLayerSelectableBounds(candidate.geometry),
+                          getFrameCenter(candidate.geometry),
+                          candidate.geometry.rotation ?? 0,
+                        ),
+                    )
+                    .map((candidate) => candidate.screenId),
+                );
+                if (selectedScreenIds.size > 0) {
+                  const full = await collectLayerMarqueeCandidates(
+                    selectedScreenIds,
+                    deepSelect,
+                  );
+                  const fullByIdentity = new Map(
+                    full.candidates.map((candidate) => [
+                      `${candidate.screenId}:${candidate.info.sourceId ?? candidate.info.pendingNodeId ?? candidate.info.selector ?? candidate.info.id ?? ""}`,
+                      candidate,
+                    ]),
+                  );
+                  layerCandidates = layerCandidates.map((candidate) => {
+                    const key = `${candidate.screenId}:${candidate.info.sourceId ?? candidate.info.pendingNodeId ?? candidate.info.selector ?? candidate.info.id ?? ""}`;
+                    return fullByIdentity.get(key) ?? candidate;
+                  });
+                }
+                if (
+                  dragState.current !== marqueeState ||
+                  marqueeLifecycleRef.current !== marqueeToken
+                ) {
+                  return;
+                }
+                const refreshedSelectionRevision = `${selectedIdsRef.current.join(",")}\u001e${selectedDraftIdsRef.current.join(",")}\u001e${marqueeHostSelectionRevisionRef.current}`;
+                if (refreshedSelectionRevision !== releasedSelectionRevision) {
+                  onLayerMarqueeSelectionChange?.([], {
+                    source: "marquee",
+                    cancelled: true,
+                  });
+                  finishDrag();
+                  return;
+                }
+                reportLayerSelection(finalRect, true);
                 finishDrag();
-                return;
-              }
-              reportLayerSelection(finalRect, true);
-              finishDrag();
-            });
+              },
+            );
           }
           return;
         }

@@ -332,7 +332,27 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
           ) {
             return;
           }
-          const data = message as { correlationId: string };
+          const data = message as {
+            correlationId: string;
+            includePortableStyleSnapshot?: boolean;
+          };
+          if (data.includePortableStyleSnapshot) {
+            window.dispatchEvent(
+              new MessageEvent("message", {
+                data: {
+                  type: "agent-native:selectable-rects-result",
+                  correlationId: data.correlationId,
+                  payload: [
+                    candidate(
+                      iframe === screenA ? "screen-a-layer" : "screen-b-layer",
+                    ),
+                  ],
+                },
+                source: iframe.contentWindow,
+              }),
+            );
+            return;
+          }
           if (iframe === screenA) {
             window.dispatchEvent(
               new MessageEvent("message", {
