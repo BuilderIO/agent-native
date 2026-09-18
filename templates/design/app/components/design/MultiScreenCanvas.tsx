@@ -2998,7 +2998,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       sourceScreenId: string,
     ) => {
       crossScreenLastBoardPointRef.current = boardPoint;
-      const target = getFrameEntryAtPoint(boardPoint);
+      const target = getFrameEntryAtPoint(boardPoint, {
+        excludeId: sourceScreenId,
+      });
       traceOnce(
         crossScreenResolveTraceRef,
         "drop",

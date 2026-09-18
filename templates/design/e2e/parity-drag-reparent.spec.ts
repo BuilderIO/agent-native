@@ -929,6 +929,9 @@ test.describe("drag reparent parity", () => {
       { steps: 30 },
     );
     await page.waitForTimeout(500);
+    await expect(page.locator("[data-cross-screen-drop-guide]")).toBeVisible({
+      timeout: 5_000,
+    });
     const trace = await dumpTrace(page);
     await page.mouse.up();
 
