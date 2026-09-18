@@ -413,6 +413,141 @@ describe("submit-content-database-form", () => {
     expect(items).toHaveLength(0);
   });
 
+  it("rejects a property identifier that collides with another property name", async () => {
+    const seeded = await seedFormDatabase();
+    const now = new Date().toISOString();
+    await getDb()
+      .insert(schema.documentPropertyDefinitions)
+      .values({
+        id: `collision_${Date.now()}`,
+        ownerEmail: OWNER,
+        databaseId: seeded.databaseId,
+        name: seeded.priorityId,
+        type: "text",
+        position: 99,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        submitForm.run({
+          databaseId: seeded.databaseId,
+          viewId: "request-form",
+          title: "Ambiguous property",
+          propertyEntries: [
+            { property: seeded.priorityId, value: "P1 — High" },
+          ],
+        }),
+      ),
+    ).rejects.toThrow("matches one property ID and another property name");
+  });
+
+  it("rejects a non-empty optional value that normalization would drop", async () => {
+    const seeded = await seedFormDatabase();
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        submitForm.run({
+          databaseId: seeded.databaseId,
+          viewId: "request-form",
+          title: "Invalid optional date",
+          propertyEntries: [
+            { property: "Description", value: "Keep valid fields." },
+            { property: "Priority", value: "P1 — High" },
+            { property: "Deadline", value: "not-a-date" },
+          ],
+        }),
+      ),
+    ).rejects.toThrow(
+      'Invalid value for "Deadline"; the supplied value could not be preserved as date',
+    );
+
+    const items = await getDb()
+      .select()
+      .from(schema.contentDatabaseItems)
+      .where(eq(schema.contentDatabaseItems.databaseId, seeded.databaseId));
+    expect(items).toHaveLength(0);
+  });
+
+  it.each([
+    ["invalid select array", "Priority", [42]],
+    ["invalid multi-select array", "Tags", [42]],
+  ])(
+    "rejects %s values that would be verified as empty",
+    async (_label, property, value) => {
+      const seeded = await seedFormDatabase();
+      if (property === "Priority") {
+        const [database] = await getDb()
+          .select({ viewConfigJson: schema.contentDatabases.viewConfigJson })
+          .from(schema.contentDatabases)
+          .where(eq(schema.contentDatabases.id, seeded.databaseId));
+        const viewConfig = JSON.parse(database.viewConfigJson);
+        viewConfig.views[0].formQuestions =
+          viewConfig.views[0].formQuestions.map(
+            (question: { key: string; required: boolean }) =>
+              question.key === seeded.priorityId
+                ? { ...question, required: false }
+                : question,
+          );
+        await getDb()
+          .update(schema.contentDatabases)
+          .set({ viewConfigJson: JSON.stringify(viewConfig) })
+          .where(eq(schema.contentDatabases.id, seeded.databaseId));
+      }
+      if (property === "Tags") {
+        const now = new Date().toISOString();
+        const tagsId = `tags_${Date.now()}`;
+        await getDb()
+          .insert(schema.documentPropertyDefinitions)
+          .values({
+            id: tagsId,
+            ownerEmail: OWNER,
+            databaseId: seeded.databaseId,
+            name: "Tags",
+            type: "multi_select",
+            optionsJson: serializePropertyOptions({
+              options: [{ id: "design", name: "Design", color: "blue" }],
+            }),
+            position: 98,
+            createdAt: now,
+            updatedAt: now,
+          });
+        const [database] = await getDb()
+          .select({ viewConfigJson: schema.contentDatabases.viewConfigJson })
+          .from(schema.contentDatabases)
+          .where(eq(schema.contentDatabases.id, seeded.databaseId));
+        const viewConfig = JSON.parse(database.viewConfigJson);
+        viewConfig.views[0].formQuestions.push({
+          key: tagsId,
+          enabled: true,
+          required: false,
+        });
+        await getDb()
+          .update(schema.contentDatabases)
+          .set({ viewConfigJson: JSON.stringify(viewConfig) })
+          .where(eq(schema.contentDatabases.id, seeded.databaseId));
+      }
+
+      await expect(
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          submitForm.run({
+            databaseId: seeded.databaseId,
+            viewId: "request-form",
+            title: "Invalid option value",
+            propertyEntries: [
+              { property: "Description", value: "Keep valid fields." },
+              ...(property === "Priority"
+                ? []
+                : [{ property: "Priority", value: "P1 — High" }]),
+              { property, value },
+            ],
+          }),
+        ),
+      ).rejects.toThrow("the supplied value could not be preserved");
+    },
+  );
+
   it("preserves an explicit empty map for compatible title-only callers", async () => {
     const seeded = await seedFormDatabase();
     const db = getDb();

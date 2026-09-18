@@ -54,6 +54,7 @@ const SLACK_DELIVERY_MARKER_PREFIX = "agent_native_terminal_";
 
 type SlackTokenIdentity = {
   teamId: string | null;
+  botId: string | null;
   appId: string | null;
   valid: boolean;
   expiresAt: number;
@@ -907,6 +908,13 @@ async function isSlackTokenForIncoming(
 
   const cached = slackTokenIdentityCache.get(token);
   if (cached && cached.expiresAt > Date.now()) {
+    if (cached.valid && apiAppId && !cached.appId && cached.botId) {
+      const bot = await slackJson(token, "bots.info", { bot: cached.botId });
+      const appId = slackIdentityValue(bot?.bot?.app_id);
+      if (!appId) return false;
+      cached.appId = appId;
+      slackTokenIdentityCache.set(token, cached);
+    }
     return (
       cached.valid &&
       (!teamId || cached.teamId === teamId) &&
@@ -930,6 +938,7 @@ async function isSlackTokenForIncoming(
 
   const identity: SlackTokenIdentity = {
     teamId: authTeamId,
+    botId,
     appId,
     valid,
     expiresAt:
@@ -2284,6 +2293,7 @@ function createSlackRunProgress(
         {
           channel,
           ts: streamTs,
+          session_status: "closed",
           chunks: [
             ...finalChunks,
             { type: "markdown_text", text: message.text || "Done." },
@@ -2305,6 +2315,7 @@ function createSlackRunProgress(
         {
           channel,
           ts: streamTs,
+          session_status: "closed",
           chunks: [
             {
               type: "markdown_text",

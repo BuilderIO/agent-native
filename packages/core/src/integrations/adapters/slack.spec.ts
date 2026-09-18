@@ -10,7 +10,7 @@ vi.mock("../installations-store.js", async (importOriginal) => ({
     installationStoreMocks.getActiveIntegrationInstallationByKey,
 }));
 
-import { slackAdapter } from "./slack.js";
+import { resolveSlackBotTokenForIncoming, slackAdapter } from "./slack.js";
 
 const originalNodeEnv = process.env.NODE_ENV;
 
@@ -817,6 +817,45 @@ describe("slackAdapter", () => {
     expect(calls).toEqual(["/api/auth.test", "/api/bots.info"]);
   });
 
+  it("hydrates a cached app-less token identity when a later event supplies an app id", async () => {
+    process.env.SLACK_BOT_TOKEN = "cache-hydration-token";
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        const path = new URL(url).pathname;
+        calls.push(path);
+        if (path.endsWith("/auth.test")) {
+          return new Response(
+            JSON.stringify({ ok: true, team_id: "T-CACHE", bot_id: "B-CACHE" }),
+          );
+        }
+        return new Response(
+          JSON.stringify({ ok: true, bot: { app_id: "A-CACHE" } }),
+        );
+      }),
+    );
+    const incoming = {
+      platform: "slack",
+      externalThreadId: "T-CACHE:D-CACHE:1.2",
+      text: "hello",
+      tenantId: "T-CACHE",
+      timestamp: 1,
+      platformContext: { teamId: "T-CACHE" },
+    } as const;
+
+    await expect(resolveSlackBotTokenForIncoming(incoming)).resolves.toBe(
+      "cache-hydration-token",
+    );
+    await expect(
+      resolveSlackBotTokenForIncoming({
+        ...incoming,
+        platformContext: { teamId: "T-CACHE", apiAppId: "A-CACHE" },
+      }),
+    ).resolves.toBe("cache-hydration-token");
+    expect(calls).toEqual(["/api/auth.test", "/api/bots.info"]);
+  });
+
   it("hydrates bounded thread context, reactions, file references, and trust", async () => {
     const calls: URL[] = [];
     vi.stubGlobal(
@@ -1116,6 +1155,7 @@ describe("slackAdapter", () => {
       body: {
         channel: "C123",
         ts: "999.000",
+        session_status: "closed",
         chunks: expect.arrayContaining([
           {
             type: "markdown_text",
@@ -1202,7 +1242,53 @@ describe("slackAdapter", () => {
     expect(
       requests.find((request) => request.method === "chat.stopStream"),
     ).toMatchObject({
-      body: expect.objectContaining({ ts: "999.003" }),
+      body: expect.objectContaining({
+        ts: "999.003",
+        session_status: "closed",
+      }),
+    });
+  });
+
+  it("closes a Slack stream session when terminal delivery fails", async () => {
+    const requests: Array<{ method: string; body: Record<string, any> }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = new URL(url).pathname.split("/").at(-1)!;
+        requests.push({
+          method,
+          body: init?.body ? JSON.parse(String(init.body)) : {},
+        });
+        return new Response(
+          JSON.stringify(
+            method === "chat.startStream"
+              ? { ok: true, ts: "999.004" }
+              : { ok: true },
+          ),
+        );
+      }),
+    );
+    const progress = await slackAdapter({
+      resolveBotToken: async () => "managed-token",
+    }).startRunProgress?.({
+      platform: "slack",
+      externalThreadId: "A123:T123:C123:111.222",
+      text: "build it",
+      senderId: "U123",
+      tenantId: "T123",
+      timestamp: 1,
+      platformContext: { channelId: "C123", threadTs: "111.222" },
+    });
+
+    await progress?.fail("The request failed.");
+
+    expect(
+      requests.find((request) => request.method === "chat.stopStream"),
+    ).toMatchObject({
+      body: expect.objectContaining({
+        ts: "999.004",
+        session_status: "closed",
+      }),
     });
   });
 

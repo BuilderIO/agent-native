@@ -152,14 +152,28 @@ function normalizeSubmittedPropertyValue(
   value: unknown,
 ): DocumentPropertyValue {
   const type = definition.type as DocumentPropertyType;
+  const explicitlyEmpty =
+    value === undefined ||
+    value === null ||
+    (typeof value === "string" && value.trim() === "") ||
+    (Array.isArray(value) && value.length === 0);
+  let normalized: DocumentPropertyValue;
   if (type === "select" || type === "status" || type === "multi_select") {
     const options = parsePropertyOptions(definition.optionsJson).options ?? [];
     const values = optionCandidates(value, type === "multi_select").map(
       (candidate) => resolveOption(candidate, options, definition.name),
     );
-    return type === "multi_select" ? [...new Set(values)] : (values[0] ?? null);
+    normalized =
+      type === "multi_select" ? [...new Set(values)] : (values[0] ?? null);
+  } else {
+    normalized = normalizePropertyValue(type, value);
   }
-  return normalizePropertyValue(type, value);
+  if (!explicitlyEmpty && isEmptyPropertyValue(normalized)) {
+    throw new Error(
+      `Invalid value for "${definition.name}"; the supplied value could not be preserved as ${type}.`,
+    );
+  }
+  return normalized;
 }
 
 function resolveSubmittedProperties(
@@ -180,6 +194,11 @@ function resolveSubmittedProperties(
   for (const [inputKey, inputValue] of submitted) {
     const exact = byId.get(inputKey);
     const named = byName.get(inputKey.trim().toLocaleLowerCase()) ?? [];
+    if (exact && named.some((definition) => definition.id !== exact.id)) {
+      throw new Error(
+        `Property identifier "${inputKey}" matches one property ID and another property name. Use an unambiguous property name or ID.`,
+      );
+    }
     if (!exact && named.length > 1) {
       throw new Error(
         `Property name "${inputKey}" is ambiguous. Use a property definition ID.`,
