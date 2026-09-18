@@ -95,15 +95,18 @@ durable run record. A clear bug means concrete
 broken behavior, reproducible failure, error, regression, stuck run, incorrect
 result, or a specific failing path with enough evidence to investigate. Feature
 requests, broad UX suggestions, vague questions, and incomplete context stay
-manual. Clips, Design, and Content are fully owner-managed: never react, tag
-Builder, auto-approve, or auto-merge those items. Slack clear bugs use the
+manual. Slack clear bugs use the
 thread-preserving dispatch-factory-item flow; GitHub issues and Sentry clear
 bugs tag @builderio-bot on a GitHub issue. Slack repeat reports must be clustered
 by underlying symptom, with one Builder thread for the cluster. After classifying an item, call dispatch-factory-item so the skip or
-dispatch is recorded. If a Slack parent already has eyes 👀, pass alreadyClaimed
+dispatch is recorded, passing risk and confidence on every call, including
+skips. dispatch-factory-item only tags Builder when clearBug is true, risk is
+low, and confidence is high; everything else is a skip. If a Slack parent
+already has eyes 👀, pass alreadyClaimed
 true (clearBug may be omitted or false) so started work is not rewritten to
 needs_manual. Otherwise pass clearBug true or false and a short reason. For
-Slack clear bugs with no 👀, pass reaction eyes — never dispatch without it.
+Slack items that clear the dispatch bar with no 👀, pass reaction eyes — never
+dispatch without it.
 Omit reaction on skips. Do not post
 Slack messages, reactions, or @mentions yourself; dispatch-factory-item owns
 the Builder ping. Use /address-feedback for the repository feedback workflow.
