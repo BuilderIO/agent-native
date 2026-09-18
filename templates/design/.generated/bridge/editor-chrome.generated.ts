@@ -12777,7 +12777,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             ev.clientY,
             groupOthers
           ) : null;
-          if (currentAutoLayoutTarget && ev.ctrlKey) {
+          if (currentAutoLayoutTarget && (ev.ctrlKey || ev.metaKey)) {
             currentAutoLayoutTarget = ignoreAutoLayoutForDropTarget(
               currentAutoLayoutTarget
             );
@@ -12907,7 +12907,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             ev.clientY,
             groupOthers
           );
-          if (finalAutoLayoutTarget && ev.ctrlKey) {
+          if (finalAutoLayoutTarget && (ev.ctrlKey || ev.metaKey)) {
             finalAutoLayoutTarget = ignoreAutoLayoutForDropTarget(
               finalAutoLayoutTarget
             );
