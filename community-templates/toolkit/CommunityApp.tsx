@@ -1,4 +1,5 @@
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { isEmbedAuthActive } from "@agent-native/core/client/host";
 import {
   IconArrowUpRight,
   IconBrandLinkedin,
@@ -113,7 +114,9 @@ export function CommunityApp({ template }: { template: Template }) {
   const [agentOpen, setAgentOpen] = useState(false);
   const [planStatus, setPlanStatus] = useState<"ready" | "staged">("ready");
   const canStageInHostChat =
-    typeof window !== "undefined" && window.parent !== window;
+    typeof window !== "undefined" &&
+    window.parent !== window &&
+    !isEmbedAuthActive();
 
   const selectedRecord = useMemo(() => {
     return (
