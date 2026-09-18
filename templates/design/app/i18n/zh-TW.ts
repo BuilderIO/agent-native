@@ -622,16 +622,6 @@ const messages = {
           "響應式編輯預設會影響此中斷點及更小尺寸。可在中斷點控制旁變更範圍。",
       },
     },
-    screenDeletion: {
-      titleOne: "刪除此畫面？",
-      titleMany: "刪除 {{count}} 個畫面？",
-      descriptionOne:
-        "將刪除「{{filename}}」及其所有響應式變體。編輯器保持開啟時可以復原。",
-      descriptionMany:
-        "將刪除這些畫面及其所有響應式變體。編輯器保持開啟時可以復原。",
-      cancel: "取消",
-      confirm: "刪除",
-    },
     motion: {
       dockLabel: "動態面板",
       collapseDock: "收起動態面板",
@@ -778,10 +768,22 @@ const messages = {
       figUploadDescription:
         "本機匯入，不使用 Figma API 配額。包含內嵌圖片。格式可能隨 Figma 版本變更。上限為 {{max}} MB。",
       figUploadDescriptionShort:
-        "本機匯入 — 不使用 Figma API 配額。包含內嵌圖片。",
+        "本機匯入 — 不使用 Figma API 配額。支援的內嵌圖片會一併匯入。",
+      figUploadImagesSkippedWarning:
+        "為符合瀏覽器上傳限制，已略過 {{count}} 張內嵌圖片。",
       chooseFigFile: "選擇 .fig 檔案",
       figUploadUploading: "上傳中 {{progress}}%",
       figUploadProcessing: "轉換中…",
+      figImportWarningTitle: "大型 .fig 匯入",
+      figImportWarningDescription:
+        "此檔案包含 {{frames}} 個畫框和 {{nodes}} 個圖層。全部匯入可能會讓編輯器變慢。請選擇需要的畫框。",
+      figImportFrameCount: "已選取 {{selected}} / {{total}} 個畫框",
+      figImportSelectAll: "全選",
+      figImportClearAll: "全部清除",
+      figImportCancel: "取消",
+      figImportSelected: "匯入已選取的 {{count}} 個",
+      figImportAll: "全部匯入",
+      figImportAnalyzing: "分析中…",
       figmaPasteBodyUnlimited:
         "不需要 Figma 權杖即可使用 — 幾何、版面和文字立即匯入。",
       figmaPasteBodyImages:

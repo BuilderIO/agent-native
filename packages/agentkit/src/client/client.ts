@@ -43,9 +43,18 @@ import {
   classifyAgentEvent,
   createAgentThreadState,
   reduceAgentEvent,
+  settleRunProjection,
   type AgentKitSnapshot,
+  type AgentRunState,
   type AgentThreadState,
 } from "./state.js";
+
+type TerminalRunState = AgentRunState & {
+  status: Extract<
+    AgentRunState["status"],
+    "completed" | "failed" | "cancelled"
+  >;
+};
 
 export interface AgentKitClientOptions {
   transport: AgentTransport;
@@ -113,6 +122,107 @@ export interface AgentRunHandle {
   runId: RunId;
   completed: Promise<void>;
   cancel(): Promise<void>;
+}
+
+function isTerminalRunEvent(event: AgentEvent): boolean {
+  return (
+    event.type === "run.completed" ||
+    event.type === "run.failed" ||
+    event.type === "run.cancelled" ||
+    (event.type === "run.status" &&
+      (event.status === "completed" ||
+        event.status === "failed" ||
+        event.status === "cancelled"))
+  );
+}
+
+function sameQueuedMessageIds(
+  first: AgentQueuedMessage[],
+  second: AgentQueuedMessage[],
+): boolean {
+  return (
+    first.length === second.length &&
+    first.every((message, index) => message.id === second[index]?.id)
+  );
+}
+
+interface QueuedMessageOverride {
+  messages: AgentQueuedMessage[];
+  removedIds: Set<string>;
+}
+
+function mergeQueuedMessageOverride(
+  override: QueuedMessageOverride,
+  durable: AgentQueuedMessage[],
+): AgentQueuedMessage[] {
+  const expectedIds = new Set(override.messages.map((message) => message.id));
+  const durableVisible = durable.filter(
+    (message) => !override.removedIds.has(message.id),
+  );
+  const merged = [...override.messages];
+  for (let index = 0; index < durableVisible.length; index += 1) {
+    const message = durableVisible[index];
+    if (expectedIds.has(message.id)) continue;
+    let nextExpectedIndex = -1;
+    for (
+      let nextIndex = index + 1;
+      nextIndex < durableVisible.length;
+      nextIndex += 1
+    ) {
+      const candidateIndex = merged.findIndex(
+        (current) => current.id === durableVisible[nextIndex]?.id,
+      );
+      if (candidateIndex >= 0) {
+        nextExpectedIndex = candidateIndex;
+        break;
+      }
+    }
+    if (nextExpectedIndex >= 0) {
+      merged.splice(nextExpectedIndex, 0, message);
+      continue;
+    }
+    let previousExpectedIndex = -1;
+    for (
+      let previousIndex = index - 1;
+      previousIndex >= 0;
+      previousIndex -= 1
+    ) {
+      const candidateIndex = merged.findIndex(
+        (current) => current.id === durableVisible[previousIndex]?.id,
+      );
+      if (candidateIndex >= 0) {
+        previousExpectedIndex = candidateIndex;
+        break;
+      }
+    }
+    if (previousExpectedIndex >= 0) {
+      merged.splice(previousExpectedIndex + 1, 0, message);
+    } else {
+      merged.push(message);
+    }
+  }
+  return merged;
+}
+
+function mergeRuntimeRecordMap<T>(
+  loaded: Record<string, T>,
+  baseline: Record<string, T>,
+  current: Record<string, T>,
+): Record<string, T> {
+  if (current === baseline) return loaded;
+  const merged = { ...loaded };
+  for (const id of Object.keys(baseline)) {
+    if (!Object.prototype.hasOwnProperty.call(current, id)) delete merged[id];
+  }
+  for (const [id, record] of Object.entries(current)) {
+    if (
+      !Object.prototype.hasOwnProperty.call(baseline, id) ||
+      baseline[id] !== record
+    ) {
+      merged[id] = record;
+    }
+  }
+  return merged;
 }
 
 export interface AgentThreadLease {
@@ -415,6 +525,11 @@ export class AgentKitClient implements AgentKitController {
   >();
   private readonly threadLoads = new Map<ThreadId, Promise<AgentThreadState>>();
   private readonly threadLeaseCounts = new Map<ThreadId, number>();
+  private readonly queuedMessageOverrides = new Map<
+    ThreadId,
+    QueuedMessageOverride
+  >();
+  private readonly queueMutationChains = new Map<ThreadId, Promise<void>>();
   private readonly queuePromotions = new Set<ThreadId>();
   private readonly requestAbortController = new AbortController();
   private capabilitiesLoad?: Promise<AgentCapabilities>;
@@ -561,7 +676,10 @@ export class AgentKitClient implements AgentKitController {
     if (existing) {
       return this.invokeRequest(requestContext, () => existing);
     }
-    const load = this.loadThreadProjection(threadId, requestContext);
+    // Durable projections can lag an accepted stream. Preserve the local
+    // cursor and event boundaries so refresh cannot reorder the transcript or
+    // turn the next streamed event into an artificial sequence gap.
+    const load = this.loadThreadProjection(threadId, requestContext, true);
     this.threadLoads.set(threadId, load);
     try {
       return await load;
@@ -570,6 +688,25 @@ export class AgentKitClient implements AgentKitController {
         this.threadLoads.delete(threadId);
       }
     }
+  }
+
+  private enqueueQueueMutation<T>(
+    threadId: ThreadId,
+    mutation: () => Promise<T>,
+  ): Promise<T> {
+    const previous =
+      this.queueMutationChains.get(threadId) ?? Promise.resolve();
+    const next = previous.then(mutation);
+    const settled = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.queueMutationChains.set(threadId, settled);
+    return next.finally(() => {
+      if (this.queueMutationChains.get(threadId) === settled) {
+        this.queueMutationChains.delete(threadId);
+      }
+    });
   }
 
   private async loadThreadProjection(
@@ -597,6 +734,22 @@ export class AgentKitClient implements AgentKitController {
       const runSnapshots = new Map(
         (snapshot?.runs ?? []).map((run) => [run.id, run] as const),
       );
+      const durableQueuedMessages = snapshot?.queuedMessages;
+      const queuedOverride = this.queuedMessageOverrides.get(threadId);
+      const queuedOverrideMessages = queuedOverride
+        ? durableQueuedMessages
+          ? mergeQueuedMessageOverride(queuedOverride, durableQueuedMessages)
+          : queuedOverride.messages
+        : undefined;
+      if (
+        queuedOverride &&
+        durableQueuedMessages &&
+        queuedOverrideMessages &&
+        sameQueuedMessageIds(queuedOverrideMessages, durableQueuedMessages) &&
+        queuedOverride.removedIds.size === 0
+      ) {
+        this.queuedMessageOverrides.delete(threadId);
+      }
       const missingRunIds = (snapshot?.activeRunIds ?? []).filter(
         (runId) => !runSnapshots.has(runId),
       );
@@ -664,36 +817,21 @@ export class AgentKitClient implements AgentKitController {
           queuedMessages,
         };
       }
-      if (preserveRuntimeProjection) {
-        const reconciliation = this.reconcileMessages(
-          baseline.messages,
-          thread.messages,
-        );
-        const runtimeProjection = this.remapThreadMessageReferences(
-          baseline,
-          reconciliation.idRemap,
-        );
-        const authoritative = {
-          thread: thread.thread,
-          messages: reconciliation.messages,
+      if (preserveRuntimeProjection && snapshot) {
+        const current = this.getThread(threadId);
+        thread = this.mergeLoadedThread(baseline, current, thread);
+        if (queuedOverrideMessages) {
           // Queue mutations are already optimistic and independently durable.
           // A completed-run snapshot can lag the accepted steer/remove write,
           // so it must not resurrect work the client has already promoted.
-          queuedMessages: baseline.queuedMessages,
-        };
-        thread = {
-          ...this.mergeLoadedThread(
-            createAgentThreadState(threadId),
-            runtimeProjection,
-            thread,
-          ),
-          ...authoritative,
-        };
+          thread = { ...thread, queuedMessages: queuedOverrideMessages };
+        }
       }
       const current = this.getThread(threadId);
       if (current !== baseline) {
         thread = this.mergeLoadedThread(baseline, current, thread);
       }
+      thread = this.settleTerminalThread(thread, snapshot);
       this.setThread(threadId, thread);
       this.setConnection("connected");
       for (const runId of thread.activeRunIds) {
@@ -835,8 +973,21 @@ export class AgentKitClient implements AgentKitController {
 
   public resubscribeRun(threadId: ThreadId, runId: RunId): Promise<void> {
     this.assertActive();
-    const status = this.getThread(threadId).runs[runId]?.status;
-    if (status && this.isTerminalStatus(status)) return Promise.resolve();
+    const thread = this.getThread(threadId);
+    const status = thread.runs[runId]?.status;
+    // A failed stream can be explicitly reattached to recover from a
+    // transient disconnect. Completed and cancelled runs have no live work to
+    // resume.
+    if (
+      status === "completed" ||
+      status === "cancelled" ||
+      (status === "failed" &&
+        thread.events.some(
+          (event) => event.runId === runId && isTerminalRunEvent(event),
+        ))
+    ) {
+      return Promise.resolve();
+    }
     const key = this.runKey(threadId, runId);
     const existing = this.consumers.get(key);
     if (existing) return existing;
@@ -1106,24 +1257,34 @@ export class AgentKitClient implements AgentKitController {
     if (!queueMessage) {
       throw new AgentKitCapabilityError("messageQueue");
     }
-    const result = await this.invokeRequest(requestContext, (context) =>
-      queueMessage(
-        {
-          threadId: input.threadId,
-          text: input.text,
-          attachments: input.attachments,
-          metadata: input.metadata,
-        },
-        context,
-      ),
-    );
-    this.assertActive();
-    const thread = this.getThread(input.threadId);
-    this.setThread(input.threadId, {
-      ...thread,
-      queuedMessages: [...thread.queuedMessages, result.message],
+    return this.enqueueQueueMutation(input.threadId, async () => {
+      this.assertActive();
+      const result = await this.invokeRequest(requestContext, (context) =>
+        queueMessage(
+          {
+            threadId: input.threadId,
+            text: input.text,
+            attachments: input.attachments,
+            metadata: input.metadata,
+          },
+          context,
+        ),
+      );
+      this.assertActive();
+      const thread = this.getThread(input.threadId);
+      this.setThread(input.threadId, {
+        ...thread,
+        queuedMessages: [...thread.queuedMessages, result.message],
+      });
+      const queueOverride = this.queuedMessageOverrides.get(input.threadId);
+      const removedIds = new Set(queueOverride?.removedIds);
+      removedIds.delete(result.message.id);
+      this.queuedMessageOverrides.set(input.threadId, {
+        messages: [...thread.queuedMessages, result.message],
+        removedIds,
+      });
+      return result.message;
     });
-    return result.message;
   }
 
   public async removeQueuedMessage(
@@ -1138,40 +1299,61 @@ export class AgentKitClient implements AgentKitController {
     if (!removeQueuedMessage) {
       throw new AgentKitCapabilityError("messageQueue");
     }
-    const previous = this.getThread(threadId);
-    const removedIndex = previous.queuedMessages.findIndex(
-      (message) => message.id === messageId,
-    );
-    const removed = previous.queuedMessages[removedIndex];
-    this.setThread(threadId, {
-      ...previous,
-      queuedMessages: previous.queuedMessages.filter(
-        (message) => message.id !== messageId,
-      ),
-    });
-    try {
-      await this.invokeRequest(requestContext, (context) =>
-        removeQueuedMessage({ threadId, messageId }, context),
-      );
+    return this.enqueueQueueMutation(threadId, async () => {
       this.assertActive();
-    } catch (error) {
-      if (this.disposed) throw error;
+      const previous = this.getThread(threadId);
+      const removedIndex = previous.queuedMessages.findIndex(
+        (message) => message.id === messageId,
+      );
+      const removed = previous.queuedMessages[removedIndex];
+      const previousOverride = this.queuedMessageOverrides.get(threadId);
       if (removed) {
-        const current = this.getThread(threadId);
-        if (
-          !current.queuedMessages.some((message) => message.id === messageId)
-        ) {
-          const queuedMessages = [...current.queuedMessages];
-          queuedMessages.splice(
-            Math.min(removedIndex, queuedMessages.length),
-            0,
-            removed,
-          );
-          this.setThread(threadId, { ...current, queuedMessages });
-        }
+        const queuedMessages = previous.queuedMessages.filter(
+          (message) => message.id !== messageId,
+        );
+        this.setThread(threadId, { ...previous, queuedMessages });
+        const removedIds = new Set(previousOverride?.removedIds);
+        removedIds.add(messageId);
+        this.queuedMessageOverrides.set(threadId, {
+          messages: queuedMessages,
+          removedIds,
+        });
       }
-      throw error;
-    }
+      try {
+        await this.invokeRequest(requestContext, (context) =>
+          removeQueuedMessage({ threadId, messageId }, context),
+        );
+        this.assertActive();
+      } catch (error) {
+        if (this.disposed) throw error;
+        if (removed) {
+          const current = this.getThread(threadId);
+          if (
+            !current.queuedMessages.some((message) => message.id === messageId)
+          ) {
+            const queuedMessages = [...current.queuedMessages];
+            queuedMessages.splice(
+              Math.min(removedIndex, queuedMessages.length),
+              0,
+              removed,
+            );
+            this.setThread(threadId, { ...current, queuedMessages });
+            const currentOverride = this.queuedMessageOverrides.get(threadId);
+            const removedIds = new Set(currentOverride?.removedIds);
+            removedIds.delete(messageId);
+            if (currentOverride || removedIds.size > 0) {
+              this.queuedMessageOverrides.set(threadId, {
+                messages: queuedMessages,
+                removedIds,
+              });
+            } else {
+              this.queuedMessageOverrides.delete(threadId);
+            }
+          }
+        }
+        throw error;
+      }
+    });
   }
 
   public async steerQueuedMessage(
@@ -1186,75 +1368,109 @@ export class AgentKitClient implements AgentKitController {
     if (!steerQueuedMessage) {
       throw new AgentKitCapabilityError("messageQueue");
     }
-    const previous = this.getThread(threadId);
-    const queued = previous.queuedMessages.find(
-      (message) => message.id === messageId,
-    );
-    if (!queued) throw new Error(`Unknown queued message: ${messageId}`);
-    const message: AgentMessage = {
-      id: queued.id,
-      role: "user",
-      createdAt: queued.createdAt,
-      status: "complete",
-      parts: [
-        { type: "text", text: queued.text },
-        ...(queued.attachments ?? []),
-      ],
-      metadata: queued.metadata,
-    };
-    const previousConnection = this.snapshot.connection;
-    const previousError = this.snapshot.error;
-    this.setThread(threadId, {
-      ...previous,
-      messages: [...previous.messages, message],
-      queuedMessages: previous.queuedMessages.filter(
-        (candidate) => candidate.id !== messageId,
-      ),
-      suggestions: [],
-    });
-    this.setConnection("connecting");
-    try {
-      const result = await this.invokeRequest(requestContext, (context) =>
-        steerQueuedMessage({ threadId, messageId }, context),
-      );
+    return this.enqueueQueueMutation(threadId, async () => {
       this.assertActive();
-      if (!result) {
-        this.setConnection("connected");
-        return;
-      }
-      if (result.capabilities) {
-        this.patch({
-          capabilities: result.capabilities,
-          capabilitiesStatus: "ready",
-        });
-      }
-      this.markRunStarted(threadId, result.runId);
-      const completed = this.consume(threadId, result.runId);
-      this.trackConsumer(threadId, result.runId, completed);
-      return {
-        runId: result.runId,
-        completed,
-        cancel: () => this.cancelRun(threadId, result.runId),
+      const previous = this.getThread(threadId);
+      const queued = previous.queuedMessages.find(
+        (message) => message.id === messageId,
+      );
+      if (!queued) throw new Error(`Unknown queued message: ${messageId}`);
+      const previousOverride = this.queuedMessageOverrides.get(threadId);
+      const message: AgentMessage = {
+        id: queued.id,
+        role: "user",
+        createdAt: queued.createdAt,
+        status: "complete",
+        parts: [
+          { type: "text", text: queued.text },
+          ...(queued.attachments ?? []),
+        ],
+        metadata: queued.metadata,
       };
-    } catch (error) {
-      if (this.disposed) throw error;
-      const current = this.getThread(threadId);
-      const queuedMessages = current.queuedMessages.some(
-        (candidate) => candidate.id === queued.id,
-      )
-        ? current.queuedMessages
-        : [queued, ...current.queuedMessages];
+      const previousConnection = this.snapshot.connection;
+      const previousError = this.snapshot.error;
       this.setThread(threadId, {
-        ...current,
-        messages: current.messages.filter(
-          (candidate) => candidate.id !== message.id,
+        ...previous,
+        messages: [...previous.messages, message],
+        queuedMessages: previous.queuedMessages.filter(
+          (candidate) => candidate.id !== messageId,
         ),
-        queuedMessages,
+        suggestions: [],
       });
-      this.patch({ connection: previousConnection, error: previousError });
-      this.report(error, "queue_steer_failed");
-      throw error;
-    }
+      const removedIds = new Set(previousOverride?.removedIds);
+      removedIds.add(messageId);
+      this.queuedMessageOverrides.set(threadId, {
+        messages: previous.queuedMessages.filter(
+          (candidate) => candidate.id !== messageId,
+        ),
+        removedIds,
+      });
+      this.setConnection("connecting");
+      try {
+        const result = await this.invokeRequest(requestContext, (context) =>
+          steerQueuedMessage({ threadId, messageId }, context),
+        );
+        this.assertActive();
+        if (!result) {
+          this.setConnection("connected");
+          return;
+        }
+        if (result.capabilities) {
+          this.patch({
+            capabilities: result.capabilities,
+            capabilitiesStatus: "ready",
+          });
+        }
+        this.markRunStarted(threadId, result.runId);
+        const completed = this.consume(threadId, result.runId);
+        this.trackConsumer(threadId, result.runId, completed);
+        return {
+          runId: result.runId,
+          completed,
+          cancel: () => this.cancelRun(threadId, result.runId),
+        };
+      } catch (error) {
+        if (this.disposed) throw error;
+        const current = this.getThread(threadId);
+        const queuedMessages = current.queuedMessages.some(
+          (candidate) => candidate.id === queued.id,
+        )
+          ? current.queuedMessages
+          : (() => {
+              const restored = [...current.queuedMessages];
+              restored.splice(
+                Math.min(
+                  previous.queuedMessages.indexOf(queued),
+                  restored.length,
+                ),
+                0,
+                queued,
+              );
+              return restored;
+            })();
+        this.setThread(threadId, {
+          ...current,
+          messages: current.messages.filter(
+            (candidate) => candidate.id !== message.id,
+          ),
+          queuedMessages,
+        });
+        const currentOverride = this.queuedMessageOverrides.get(threadId);
+        const restoredRemovedIds = new Set(currentOverride?.removedIds);
+        restoredRemovedIds.delete(messageId);
+        if (currentOverride || restoredRemovedIds.size > 0) {
+          this.queuedMessageOverrides.set(threadId, {
+            messages: queuedMessages,
+            removedIds: restoredRemovedIds,
+          });
+        } else {
+          this.queuedMessageOverrides.delete(threadId);
+        }
+        this.patch({ connection: previousConnection, error: previousError });
+        this.report(error, "queue_steer_failed");
+        throw error;
+      }
+    });
   }
 
   public async cancelRun(
@@ -1373,6 +1589,7 @@ export class AgentKitClient implements AgentKitController {
     );
     this.assertActive();
     this.stopThreadConsumers(threadId, "deleted");
+    this.queuedMessageOverrides.delete(threadId);
     const threads = { ...this.snapshot.threads };
     delete threads[threadId];
     this.patch({ threads });
@@ -1387,6 +1604,8 @@ export class AgentKitClient implements AgentKitController {
     }
     this.consumerAbortControllers.clear();
     this.threadLeaseCounts.clear();
+    this.queueMutationChains.clear();
+    this.queuedMessageOverrides.clear();
     this.patch({ connection: "offline" });
     this.listeners.clear();
     this.consumers.clear();
@@ -1472,11 +1691,7 @@ export class AgentKitClient implements AgentKitController {
             ) {
               interruptedForContinuation = false;
             }
-            if (
-              event.type === "run.completed" ||
-              event.type === "run.failed" ||
-              event.type === "run.cancelled"
-            ) {
+            if (isTerminalRunEvent(event)) {
               terminalEvent = event;
             }
           }
@@ -1495,7 +1710,11 @@ export class AgentKitClient implements AgentKitController {
             );
           }
           this.setConnection("connected");
-          if (terminalEvent.type === "run.completed") {
+          if (
+            terminalEvent.type === "run.completed" ||
+            (terminalEvent.type === "run.status" &&
+              terminalEvent.status === "completed")
+          ) {
             if (
               !this.threadLoads.has(threadId) &&
               (this.transport.getThreadSnapshot || this.transport.getThread)
@@ -1537,6 +1756,8 @@ export class AgentKitClient implements AgentKitController {
       ) {
         return;
       }
+      const runError = toError(error, "run_stream_failed");
+      this.markRunFailed(threadId, runId, runError);
       this.fail(error, "run_stream_failed");
       throw error;
     } finally {
@@ -1643,6 +1864,61 @@ export class AgentKitClient implements AgentKitController {
     );
   }
 
+  private settleTerminalThread(
+    thread: AgentThreadState,
+    snapshot?: AgentThreadSnapshot | null,
+  ): AgentThreadState {
+    const runs = Object.values(thread.runs);
+    const terminalRuns = runs.filter((run): run is TerminalRunState =>
+      this.isTerminalStatus(run.status),
+    );
+    const settled = terminalRuns.reduce(
+      (currentThread, run) =>
+        settleRunProjection(
+          currentThread,
+          run.id,
+          run.status,
+          run.completedAt ?? this.now(),
+          run.activeMessageId,
+        ),
+      thread,
+    );
+    if (
+      thread.activeRunIds.length > 0 ||
+      runs.some((run) => !this.isTerminalStatus(run.status))
+    ) {
+      return settled;
+    }
+
+    const snapshotHasNoActiveRuns =
+      snapshot?.activeRunIds?.length === 0 ||
+      (snapshot?.activeRunIds === undefined &&
+        snapshot?.runs !== undefined &&
+        snapshot.runs.length > 0 &&
+        snapshot.runs.every((run) => this.isTerminalStatus(run.status)));
+    if (!snapshotHasNoActiveRuns) return settled;
+
+    // A snapshot can outlive the event association for its assistant message.
+    // If any known run failed or was cancelled, settle an unassociated message
+    // as an error rather than presenting a partial response as successful.
+    const settledMessageStatus =
+      terminalRuns.length > 0 &&
+      terminalRuns.every((run) => run.status === "completed")
+        ? "complete"
+        : "error";
+    // Lifecycle events can age out independently of the message projection.
+    // Once the snapshot proves that no run remains active, any assistant
+    // message still marked streaming is stale rather than in-flight work.
+    return {
+      ...settled,
+      messages: settled.messages.map((message) =>
+        message.role === "assistant" && message.status === "streaming"
+          ? { ...message, status: settledMessageStatus }
+          : message,
+      ),
+    };
+  }
+
   private hydrateThread(
     snapshot: AgentThreadSnapshot,
     runs: AgentThreadState["runs"],
@@ -1689,7 +1965,7 @@ export class AgentKitClient implements AgentKitController {
     const currentActiveRunIds = activeRunIds.filter(
       (runId) => !this.isTerminalStatus(mergedRuns[runId]?.status ?? "running"),
     );
-    return {
+    const projected: AgentThreadState = {
       ...hydrated,
       thread: snapshot,
       // The snapshot projection is authoritative. The event log rebuilds all
@@ -1747,6 +2023,7 @@ export class AgentKitClient implements AgentKitController {
       artifacts: snapshot.artifacts ?? hydrated.artifacts,
       suggestions: snapshot.suggestions ?? hydrated.suggestions,
     };
+    return this.settleTerminalThread(projected, snapshot);
   }
 
   private async requireCapability(
@@ -1796,12 +2073,74 @@ export class AgentKitClient implements AgentKitController {
     current: AgentThreadState,
     loaded: AgentThreadState,
   ): AgentThreadState {
-    const runs =
-      current.runs === baseline.runs
-        ? loaded.runs
-        : this.mergeRuns(loaded.runs, current.runs);
+    const messagesChanged = current.messages !== baseline.messages;
+    const reconciliation =
+      loaded.messages.length > 0
+        ? this.reconcileMessages(current.messages, loaded.messages)
+        : undefined;
+    const hasMessageIdRemap = (reconciliation?.idRemap.size ?? 0) > 0;
+    // Keep the live projection as the winner only for identities accepted by
+    // a concurrent stream. A content match still needs the durable identity
+    // when the stream finished before this refresh established its baseline.
+    const live = reconciliation
+      ? this.remapThreadMessageReferences(current, reconciliation.idRemap)
+      : current;
+    const loadedSnapshot = loaded.thread as AgentThreadSnapshot | undefined;
+    const snapshotIncludes = (key: keyof AgentThreadSnapshot) =>
+      loadedSnapshot !== undefined &&
+      Object.prototype.hasOwnProperty.call(loadedSnapshot, key);
+    const snapshotIncludesRuntimeProjection = (
+      key: keyof AgentThreadSnapshot,
+    ) => snapshotIncludes(key) || snapshotIncludes("events");
+    const mergeRecordProjection = <T>(
+      loadedProjection: Record<string, T>,
+      baselineProjection: Record<string, T>,
+      currentProjection: Record<string, T>,
+      snapshotKey: keyof AgentThreadSnapshot,
+    ) =>
+      currentProjection === baselineProjection &&
+      !snapshotIncludesRuntimeProjection(snapshotKey)
+        ? currentProjection
+        : mergeRuntimeRecordMap(
+            loadedProjection,
+            baselineProjection,
+            currentProjection,
+          );
+    const mergeListProjection = <T extends { id: string }>(
+      loadedProjection: T[],
+      baselineProjection: T[],
+      currentProjection: T[],
+      snapshotKey: keyof AgentThreadSnapshot,
+    ) => {
+      if (
+        currentProjection === baselineProjection &&
+        !snapshotIncludesRuntimeProjection(snapshotKey)
+      ) {
+        return currentProjection;
+      }
+      if (currentProjection === baselineProjection) return loadedProjection;
+
+      const baselineById = new Map(
+        baselineProjection.map((item) => [item.id, item]),
+      );
+      const currentById = new Map(
+        currentProjection.map((item) => [item.id, item]),
+      );
+      const removedIds = new Set(
+        [...baselineById.keys()].filter((id) => !currentById.has(id)),
+      );
+      const changedItems = currentProjection.filter((item) => {
+        const baselineItem = baselineById.get(item.id);
+        return baselineItem === undefined || baselineItem !== item;
+      });
+      return this.mergeItemsById(
+        loadedProjection.filter((item) => !removedIds.has(item.id)),
+        changedItems,
+      );
+    };
+    const runs = this.mergeRuns(loaded.runs, live.runs);
     const activeRunIds = Array.from(
-      new Set([...loaded.activeRunIds, ...current.activeRunIds]),
+      new Set([...loaded.activeRunIds, ...live.activeRunIds]),
     ).filter(
       (runId) => !this.isTerminalStatus(runs[runId]?.status ?? "running"),
     );
@@ -1810,100 +2149,136 @@ export class AgentKitClient implements AgentKitController {
       thread:
         current.thread === baseline.thread ? loaded.thread : current.thread,
       messages:
-        current.messages === baseline.messages
-          ? loaded.messages
-          : this.mergeItemsById(loaded.messages, current.messages),
+        messagesChanged || hasMessageIdRemap
+          ? reconciliation!.messages
+          : loaded.messages.length > 0 || current.messages.length === 0
+            ? loaded.messages
+            : current.messages,
       queuedMessages:
-        current.queuedMessages === baseline.queuedMessages
-          ? loaded.queuedMessages
+        current.queuedMessages === baseline.queuedMessages &&
+        !snapshotIncludes("queuedMessages")
+          ? current.queuedMessages
           : this.mergeQueuedMessages(
               baseline.queuedMessages,
               loaded.queuedMessages,
-              current.queuedMessages,
+              live.queuedMessages,
             ),
       runs,
       activeRunIds,
-      events:
-        current.events === baseline.events
-          ? loaded.events
-          : this.mergeEvents(loaded.events, current.events),
-      agents:
-        current.agents === baseline.agents
-          ? loaded.agents
-          : { ...loaded.agents, ...current.agents },
-      agentInteractions:
-        current.agentInteractions === baseline.agentInteractions
-          ? loaded.agentInteractions
-          : this.mergeItemsById(
-              loaded.agentInteractions,
-              current.agentInteractions,
-            ),
-      activities:
-        current.activities === baseline.activities
-          ? loaded.activities
-          : { ...loaded.activities, ...current.activities },
-      tasks:
-        current.tasks === baseline.tasks
-          ? loaded.tasks
-          : { ...loaded.tasks, ...current.tasks },
-      tools:
-        current.tools === baseline.tools
-          ? loaded.tools
-          : { ...loaded.tools, ...current.tools },
-      approvals:
-        current.approvals === baseline.approvals
-          ? loaded.approvals
-          : current.approvals,
-      approvalRunIds:
-        current.approvalRunIds === baseline.approvalRunIds
-          ? loaded.approvalRunIds
-          : current.approvalRunIds,
-      connectionRequests:
-        current.connectionRequests === baseline.connectionRequests
-          ? loaded.connectionRequests
-          : { ...loaded.connectionRequests, ...current.connectionRequests },
-      connectionRequestRunIds:
-        current.connectionRequestRunIds === baseline.connectionRequestRunIds
-          ? loaded.connectionRequestRunIds
-          : {
-              ...loaded.connectionRequestRunIds,
-              ...current.connectionRequestRunIds,
-            },
-      artifacts:
-        current.artifacts === baseline.artifacts
-          ? loaded.artifacts
-          : this.mergeItemsById(loaded.artifacts, current.artifacts),
-      widgets:
-        current.widgets === baseline.widgets
-          ? loaded.widgets
-          : { ...loaded.widgets, ...current.widgets },
-      widgetMessageIds:
-        current.widgetMessageIds === baseline.widgetMessageIds
-          ? loaded.widgetMessageIds
-          : { ...loaded.widgetMessageIds, ...current.widgetMessageIds },
-      annotations:
-        current.annotations === baseline.annotations
-          ? loaded.annotations
-          : { ...loaded.annotations, ...current.annotations },
-      annotationMessageIds:
-        current.annotationMessageIds === baseline.annotationMessageIds
-          ? loaded.annotationMessageIds
-          : {
-              ...loaded.annotationMessageIds,
-              ...current.annotationMessageIds,
-            },
-      suggestions:
-        current.suggestions === baseline.suggestions
+      events: reconciliation
+        ? this.mergeEvents(loaded.events, live.events)
+        : current.events === baseline.events && !snapshotIncludes("events")
+          ? live.events
+          : current.events === baseline.events
+            ? loaded.events
+            : this.mergeEvents(loaded.events, live.events),
+      agents: mergeRecordProjection(
+        loaded.agents,
+        baseline.agents,
+        live.agents,
+        "agents",
+      ),
+      agentInteractions: mergeListProjection(
+        loaded.agentInteractions,
+        baseline.agentInteractions,
+        live.agentInteractions,
+        "interactions",
+      ),
+      activities: mergeRecordProjection(
+        loaded.activities,
+        baseline.activities,
+        live.activities,
+        "activities",
+      ),
+      tasks: mergeRecordProjection(
+        loaded.tasks,
+        baseline.tasks,
+        live.tasks,
+        "tasks",
+      ),
+      taskGroups: mergeRecordProjection(
+        loaded.taskGroups,
+        baseline.taskGroups,
+        live.taskGroups,
+        "taskGroups",
+      ),
+      tools: mergeRecordProjection(
+        loaded.tools,
+        baseline.tools,
+        live.tools,
+        "toolCalls",
+      ),
+      approvals: mergeRecordProjection(
+        loaded.approvals,
+        baseline.approvals,
+        live.approvals,
+        "approvals",
+      ),
+      approvalRunIds: mergeRecordProjection(
+        loaded.approvalRunIds,
+        baseline.approvalRunIds,
+        live.approvalRunIds,
+        "approvals",
+      ),
+      connectionRequests: mergeRecordProjection(
+        loaded.connectionRequests,
+        baseline.connectionRequests,
+        live.connectionRequests,
+        "connectionRequests",
+      ),
+      connectionRequestRunIds: mergeRecordProjection(
+        loaded.connectionRequestRunIds,
+        baseline.connectionRequestRunIds,
+        live.connectionRequestRunIds,
+        "connectionRequests",
+      ),
+      artifacts: mergeListProjection(
+        loaded.artifacts,
+        baseline.artifacts,
+        live.artifacts,
+        "artifacts",
+      ),
+      widgets: mergeRecordProjection(
+        loaded.widgets,
+        baseline.widgets,
+        live.widgets,
+        "widgets",
+      ),
+      widgetMessageIds: mergeRecordProjection(
+        loaded.widgetMessageIds,
+        baseline.widgetMessageIds,
+        live.widgetMessageIds,
+        "widgets",
+      ),
+      annotations: mergeRecordProjection(
+        loaded.annotations,
+        baseline.annotations,
+        live.annotations,
+        "annotations",
+      ),
+      annotationMessageIds: mergeRecordProjection(
+        loaded.annotationMessageIds,
+        baseline.annotationMessageIds,
+        live.annotationMessageIds,
+        "annotations",
+      ),
+      suggestions: snapshotIncludesRuntimeProjection("suggestions")
+        ? current.suggestions === baseline.suggestions
           ? loaded.suggestions
-          : current.suggestions,
-      actions:
-        current.actions === baseline.actions
-          ? loaded.actions
-          : { ...loaded.actions, ...current.actions },
-      uploads:
-        current.uploads === baseline.uploads
-          ? loaded.uploads
-          : { ...loaded.uploads, ...current.uploads },
+          : live.suggestions
+        : current.suggestions,
+      actions: mergeRecordProjection(
+        loaded.actions,
+        baseline.actions,
+        live.actions,
+        "events",
+      ),
+      uploads: mergeRecordProjection(
+        loaded.uploads,
+        baseline.uploads,
+        live.uploads,
+        "events",
+      ),
     };
   }
 
@@ -1960,9 +2335,7 @@ export class AgentKitClient implements AgentKitController {
     current: AgentMessage[],
     durable: AgentMessage[],
   ): { messages: AgentMessage[]; idRemap: Map<string, string> } {
-    if (durable.length === 0) {
-      return { messages: current, idRemap: new Map() };
-    }
+    if (durable.length === 0) return { messages: current, idRemap: new Map() };
     const durableIds = new Set(durable.map((message) => message.id));
     const currentIds = new Set(current.map((message) => message.id));
     const unmatchedContent = new Map<string, AgentMessage[]>();
@@ -1976,20 +2349,77 @@ export class AgentKitClient implements AgentKitController {
         message,
       ]);
     }
-    const optimistic: AgentMessage[] = [];
     const idRemap = new Map<string, string>();
-    for (const message of current) {
-      if (durableIds.has(message.id)) continue;
+    let hasMatchedMessage = false;
+    const liveMessages = current.map((message) => {
+      if (durableIds.has(message.id)) {
+        hasMatchedMessage = true;
+        return message;
+      }
       const key = this.messageContentKey(message);
       const matches = unmatchedContent.get(key);
       const durableMatch = matches?.shift();
       if (durableMatch) {
+        hasMatchedMessage = true;
         idRemap.set(message.id, durableMatch.id);
-      } else {
-        optimistic.push(message);
+        return durableMatch;
       }
+      return message;
+    });
+
+    if (!hasMatchedMessage) {
+      return { messages: [...durable, ...current], idRemap };
     }
-    return { messages: [...durable, ...optimistic], idRemap };
+
+    const presentIds = new Set(liveMessages.map((message) => message.id));
+    const messages = [...liveMessages];
+    for (let durableIndex = 0; durableIndex < durable.length; durableIndex++) {
+      const message = durable[durableIndex];
+      if (presentIds.has(message.id)) continue;
+      let insertBefore = -1;
+      for (
+        let nextIndex = durableIndex + 1;
+        nextIndex < durable.length;
+        nextIndex++
+      ) {
+        const nextId = durable[nextIndex]?.id;
+        if (!nextId) continue;
+        const candidateIndex = messages.findIndex(
+          (currentMessage) => currentMessage.id === nextId,
+        );
+        if (candidateIndex >= 0) {
+          insertBefore = candidateIndex;
+          break;
+        }
+      }
+      if (insertBefore >= 0) {
+        messages.splice(insertBefore, 0, message);
+      } else {
+        let previousDurableIndex = -1;
+        for (
+          let previousIndex = durableIndex - 1;
+          previousIndex >= 0;
+          previousIndex -= 1
+        ) {
+          const previousId = durable[previousIndex]?.id;
+          if (!previousId) continue;
+          const candidateIndex = messages.findIndex(
+            (currentMessage) => currentMessage.id === previousId,
+          );
+          if (candidateIndex >= 0) {
+            previousDurableIndex = candidateIndex;
+            break;
+          }
+        }
+        if (previousDurableIndex >= 0) {
+          messages.splice(previousDurableIndex + 1, 0, message);
+        } else {
+          messages.unshift(message);
+        }
+      }
+      presentIds.add(message.id);
+    }
+    return { messages, idRemap };
   }
 
   private remapThreadMessageReferences(
@@ -2097,18 +2527,40 @@ export class AgentKitClient implements AgentKitController {
 
   private mergeEvents(first: AgentEvent[], second: AgentEvent[]): AgentEvent[] {
     const merged = [...first];
-    const keys = new Set(
-      first.map(
-        (event) =>
-          `${event.threadId}\u0000${event.runId}\u0000${event.sequence}`,
-      ),
+    const indexByKey = new Map(
+      first.map((event, index) => [
+        `${event.threadId}\u0000${event.runId}\u0000${event.sequence}`,
+        index,
+      ]),
     );
     for (const event of second) {
       const key = `${event.threadId}\u0000${event.runId}\u0000${event.sequence}`;
-      if (!keys.has(key)) {
-        keys.add(key);
+      const existingIndex = indexByKey.get(key);
+      if (existingIndex === undefined) {
+        indexByKey.set(key, merged.length);
         merged.push(event);
+      } else {
+        // The second projection is the live stream. It may contain richer
+        // payloads than a snapshot captured before that event was persisted.
+        merged[existingIndex] = event;
       }
+    }
+
+    // Sequences are scoped to a run, so there is no valid global numeric sort.
+    // Keep cross-run interleaving stable while repairing each run's local
+    // order in the slots it already occupies.
+    const positionsByRun = new Map<string, number[]>();
+    merged.forEach((event, index) => {
+      const positions = positionsByRun.get(event.runId) ?? [];
+      positions.push(index);
+      positionsByRun.set(event.runId, positions);
+    });
+    for (const positions of positionsByRun.values()) {
+      const events = positions.map((index) => merged[index]);
+      events.sort((left, right) => left.sequence - right.sequence);
+      positions.forEach((index, position) => {
+        merged[index] = events[position];
+      });
     }
     return merged;
   }
@@ -2150,18 +2602,60 @@ export class AgentKitClient implements AgentKitController {
     const thread = this.getThread(threadId);
     const run = thread.runs[runId] ?? this.runState(runId);
     const activeRunIds = thread.activeRunIds.filter((id) => id !== runId);
-    this.setThread(threadId, {
-      ...thread,
-      runs: {
-        ...thread.runs,
-        [runId]: {
-          ...run,
-          status: "cancelled",
-          completedAt: this.now(),
+    const completedAt = this.now();
+    this.setThread(
+      threadId,
+      settleRunProjection(
+        {
+          ...thread,
+          runs: {
+            ...thread.runs,
+            [runId]: {
+              ...run,
+              status: "cancelled",
+              completedAt,
+            },
+          },
+          activeRunIds,
         },
-      },
-      activeRunIds,
-    });
+        runId,
+        "cancelled",
+        completedAt,
+        run.activeMessageId,
+      ),
+    );
+  }
+
+  private markRunFailed(
+    threadId: ThreadId,
+    runId: RunId,
+    error: AgentError,
+  ): void {
+    const thread = this.getThread(threadId);
+    const run = thread.runs[runId] ?? this.runState(runId);
+    const completedAt = this.now();
+    this.setThread(
+      threadId,
+      settleRunProjection(
+        {
+          ...thread,
+          runs: {
+            ...thread.runs,
+            [runId]: {
+              ...run,
+              status: "failed",
+              completedAt,
+              error,
+            },
+          },
+          activeRunIds: thread.activeRunIds.filter((id) => id !== runId),
+        },
+        runId,
+        "failed",
+        completedAt,
+        run.activeMessageId,
+      ),
+    );
   }
 
   private markRunStarted(threadId: ThreadId, runId: RunId): void {
@@ -2199,6 +2693,7 @@ export class AgentKitClient implements AgentKitController {
       completedAt: run?.completedAt,
       usage: run?.usage,
       error: run?.error,
+      activeMessageId: run?.activeMessageId,
     };
   }
 
@@ -2211,7 +2706,9 @@ export class AgentKitClient implements AgentKitController {
     };
   }
 
-  private isTerminalStatus(status: AgentRunSnapshot["status"]): boolean {
+  private isTerminalStatus(
+    status: AgentRunSnapshot["status"],
+  ): status is "completed" | "failed" | "cancelled" {
     return ["completed", "failed", "cancelled"].includes(status);
   }
 
@@ -2273,7 +2770,13 @@ export class AgentKitClient implements AgentKitController {
         receivedSequence: admission.receivedSequence,
       });
     }
-    this.setThread(event.threadId, reduceAgentEvent(thread, event));
+    const next = reduceAgentEvent(thread, event);
+    if (event.type === "queue.updated") {
+      // A replayed queue snapshot is the ordered server view. It supersedes
+      // the temporary protection used while a queue mutation catches up.
+      this.queuedMessageOverrides.delete(event.threadId);
+    }
+    this.setThread(event.threadId, next);
   }
 
   private setThread(threadId: ThreadId, thread: AgentThreadState): void {

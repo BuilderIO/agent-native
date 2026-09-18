@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import * as zlib from "node:zlib";
 
 import {
@@ -16,7 +17,11 @@ const fileUploadMocks = vi.hoisted(() => ({
 vi.mock("@agent-native/core/file-upload", () => fileUploadMocks);
 
 import { buildCodeLayerProjection } from "../../shared/code-layer.js";
-import { convertDecodedFigToEditableHtml as convertShared } from "../../shared/fig-to-frames.js";
+import {
+  convertDecodedFigToEditableHtml as convertShared,
+  inspectDecodedFig,
+  shouldWarnForFigImport,
+} from "../../shared/fig-to-frames.js";
 import {
   assertSafeDecodedFigDocument,
   decodeFig,
@@ -47,7 +52,7 @@ function kiwiContainer(chunks: Buffer[], version = 124): Buffer {
   ]);
 }
 
-function encodedHelloFig(): Buffer {
+function encodedHelloFig(extraChunks: Buffer[] = []): Buffer {
   const schema = parseSchema("message Message { string hello = 1; }");
   const compiled = compileSchema(schema) as {
     encodeMessage(value: { hello: string }): Uint8Array;
@@ -55,6 +60,7 @@ function encodedHelloFig(): Buffer {
   return kiwiContainer([
     Buffer.from(encodeBinarySchema(schema)),
     Buffer.from(compiled.encodeMessage({ hello: "world" })),
+    ...extraChunks,
   ]);
 }
 
@@ -138,6 +144,30 @@ describe("bounded .fig decoding", () => {
     expect(decoded.version).toBe(124);
     expect(decoded.document).toEqual({ hello: "world" });
   });
+
+  it("lets browser-local decoding skip only the raw upload ceiling", () => {
+    const fig = encodedHelloFig();
+
+    expect(() => decodeFig(fig, { maxFileBytes: fig.byteLength - 1 })).toThrow(
+      /too large/,
+    );
+    expect(decodeFig(fig, { maxFileBytes: null }).document).toEqual({
+      hello: "world",
+    });
+  });
+
+  it("decodes valid browser-local containers above the server upload ceiling", () => {
+    const fig = encodedHelloFig([
+      randomBytes(25 * 1024 * 1024),
+      randomBytes(25 * 1024 * 1024),
+    ]);
+
+    expect(fig.byteLength).toBeGreaterThan(50 * 1024 * 1024);
+    expect(() => decodeFig(fig)).toThrow(/too large/);
+    expect(decodeFig(fig, { maxFileBytes: null }).document).toEqual({
+      hello: "world",
+    });
+  }, 30_000);
 
   it("rejects malformed and over-complex containers before rendering", () => {
     expect(() => decodeFig(Buffer.from("not-a-fig"))).toThrow(/fig-kiwi/i);
@@ -526,6 +556,96 @@ describe("editable .fig conversion", () => {
     );
 
     expect(result.files).toHaveLength(2);
+  });
+
+  it("summarizes the document and warns before an oversized import", () => {
+    const decoded = {
+      format: "kiwi" as const,
+      document: twoFrameEditableDocument(),
+      images: [],
+      thumbnail: null,
+    };
+
+    const summary = inspectDecodedFig(decoded);
+
+    expect(summary).toMatchObject({
+      pageCount: 1,
+      frameCount: 2,
+      nodeCount: 5,
+      imageCount: 0,
+    });
+    expect(summary.frames.map((frame) => frame.frameName)).toEqual([
+      "Card",
+      "Banner",
+    ]);
+    expect(shouldWarnForFigImport(1024, summary)).toBe(false);
+    expect(shouldWarnForFigImport(10 * 1024 * 1024, summary)).toBe(true);
+  });
+
+  it("renders and uploads only selected frames and their images", async () => {
+    const document = twoFrameEditableDocument();
+    const card = document.nodeChanges[2]! as {
+      fillPaints?: unknown[];
+    };
+    card.fillPaints = [{ type: "IMAGE", image: { hash: "image-a" } }];
+    const banner = document.nodeChanges[4]! as {
+      fillPaints?: unknown[];
+    };
+    banner.fillPaints = [{ type: "IMAGE", image: { hash: "image-b" } }];
+    const uploader = vi.fn().mockResolvedValue({
+      url: "https://assets.example.com/selected.png",
+    });
+
+    const result = await convertShared(
+      {
+        format: "kiwi",
+        document,
+        images: [
+          { hash: "image-a", ext: "png", bytes: Buffer.from([1, 2, 3]) },
+          { hash: "image-b", ext: "png", bytes: Buffer.from([4, 5, 6]) },
+        ],
+        thumbnail: null,
+      },
+      {
+        originalName: "selected.fig",
+        ownerEmail: "example@example.com",
+        normalizeHtml: (content) => content,
+        selection: new Set(["1:3"]),
+        uploader,
+      },
+    );
+
+    expect(result.files).toHaveLength(1);
+    expect(result.files[0]!.preferredFrame?.title).toBe("Card");
+    expect(uploader).toHaveBeenCalledTimes(1);
+    expect(uploader).toHaveBeenCalledWith(
+      expect.objectContaining({ filename: "figma-image-a.png" }),
+    );
+    expect(result.stats.uploadedImageCount).toBe(1);
+  });
+
+  it("renders a selected frame nested inside a section", () => {
+    const document = editableDocument();
+    document.nodeChanges[2]!.parentIndex = {
+      guid: { sessionID: 1, localID: 5 },
+      position: "a",
+    };
+    document.nodeChanges.splice(2, 0, {
+      guid: { sessionID: 1, localID: 5 },
+      parentIndex: {
+        guid: { sessionID: 1, localID: 2 },
+        position: "a",
+      },
+      type: "SECTION",
+      name: "Section",
+    });
+
+    const result = renderHtmlTemplates(document, {
+      selection: new Set(["1:3"]),
+    });
+
+    expect(result.frames).toHaveLength(1);
+    expect(result.frames[0]!.frameName).toBe("Card");
   });
 
   it("imports multi-frame flows in left-to-right canvas order, not layer/creation order", async () => {

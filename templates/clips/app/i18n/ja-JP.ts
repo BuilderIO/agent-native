@@ -81,6 +81,7 @@ const messages = {
     createFolderError: "作成に失敗しました",
     folderCreated: "フォルダを作成しました",
     folderNamePlaceholder: "フォルダ名",
+    breadcrumbBack: "{{label}}に戻る",
   },
   empty: {
     library: {

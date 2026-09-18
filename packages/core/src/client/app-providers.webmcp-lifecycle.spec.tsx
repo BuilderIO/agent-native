@@ -107,6 +107,30 @@ describe("WebMCP registration lifecycle ownership", () => {
     expect(stops[0]).toHaveBeenCalledTimes(1);
   });
 
+  it("replaces a session-bypass registration when exclusions change", async () => {
+    act(() => {
+      root.render(
+        <AgentNativeWebMcpActionRegistration excludeActionNames={["first"]} />,
+      );
+    });
+    expect(registrationFactory).toHaveBeenCalledWith({
+      excludeActionNames: ["first"],
+    });
+
+    act(() => {
+      root.render(
+        <AgentNativeWebMcpActionRegistration excludeActionNames={["second"]} />,
+      );
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(stops[0]).toHaveBeenCalledTimes(1);
+    expect(registrationFactory).toHaveBeenLastCalledWith({
+      excludeActionNames: ["second"],
+    });
+  });
+
   it("keeps the session-gated registration alive through a transient revalidation and stops it on confirmed sign-out", async () => {
     act(() => {
       root.render(<AgentNativeWebMcpActionRegistration requireSession />);
@@ -143,6 +167,38 @@ describe("WebMCP registration lifecycle ownership", () => {
       root.render(<AgentNativeWebMcpActionRegistration requireSession />);
     });
     expect(stops[0]).toHaveBeenCalledTimes(1);
+  });
+
+  it("replaces a session-gated registration when exclusions change", async () => {
+    act(() => {
+      root.render(
+        <AgentNativeWebMcpActionRegistration
+          requireSession
+          excludeActionNames={["first"]}
+        />,
+      );
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    });
+    expect(registrationFactory).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      root.render(
+        <AgentNativeWebMcpActionRegistration
+          requireSession
+          excludeActionNames={["second"]}
+        />,
+      );
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    });
+    expect(stops[0]).toHaveBeenCalledTimes(1);
+    expect(registrationFactory).toHaveBeenCalledTimes(2);
+    expect(registrationFactory).toHaveBeenLastCalledWith({
+      excludeActionNames: ["second"],
+    });
   });
 
   it("stops the session-gated registration on unmount", async () => {

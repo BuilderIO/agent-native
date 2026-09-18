@@ -121,8 +121,11 @@ interface ProtocolRun {
   usage?: AgentUsage;
   metadata?: Record<string, unknown>;
   activeMessageId?: string;
+  activeMessageCompleted: boolean;
   actions: Map<string, AgentActionInvocation>;
+  activeTools: Map<string, AgentToolCall>;
   activeActivities: Map<string, AgentActivity>;
+  terminalAppendDepth: number;
   pumpPromise: Promise<void> | null;
   continuationPromise: Promise<void> | null;
   streamClosed: boolean;
@@ -131,6 +134,14 @@ interface ProtocolRun {
   pendingApprovalId?: string;
   pendingConnectionRequestId?: string;
   listeners: Set<() => void>;
+}
+
+function isTerminalRunStatus(
+  status: AgentRunStatus,
+): status is "completed" | "failed" | "cancelled" {
+  return (
+    status === "completed" || status === "failed" || status === "cancelled"
+  );
 }
 
 const TOOL_RESULT_MEDIA_TYPE = "application/x-agent-native-tool-result";
@@ -1346,14 +1357,7 @@ export function createAgentKitProtocolAdapter(
 
   function append(run: ProtocolRun, event: ProtocolEventInput): void {
     const lastType = run.events.at(-1)?.type;
-    if (
-      lastType === "run.completed" ||
-      lastType === "run.failed" ||
-      lastType === "run.cancelled"
-    ) {
-      return;
-    }
-    const terminalActivityStatus =
+    const terminalStatus =
       event.type === "run.completed" ||
       (event.type === "run.status" && event.status === "completed")
         ? "completed"
@@ -1364,20 +1368,36 @@ export function createAgentKitProtocolAdapter(
               (event.type === "run.status" && event.status === "cancelled")
             ? "cancelled"
             : undefined;
-    if (terminalActivityStatus && run.activeActivities.size > 0) {
-      const completedAt = event.occurredAt ?? now();
-      for (const activity of [...run.activeActivities.values()]) {
-        append(run, {
-          type: "activity.completed",
-          occurredAt: completedAt,
-          metadata: event.metadata,
-          activity: {
-            ...activity,
-            status: terminalActivityStatus,
-            completedAt,
-          },
-        });
+    const terminalFollowup =
+      run.terminal &&
+      lastType === "run.status" &&
+      ((run.status === "completed" && event.type === "run.completed") ||
+        (run.status === "failed" && event.type === "run.failed") ||
+        (run.status === "cancelled" && event.type === "run.cancelled"));
+    if (
+      lastType === "run.completed" ||
+      lastType === "run.failed" ||
+      lastType === "run.cancelled"
+    ) {
+      return;
+    }
+    if (
+      run.terminal &&
+      run.terminalAppendDepth === 0 &&
+      !terminalFollowup &&
+      !(terminalStatus && !isTerminalRunStatus(run.status))
+    ) {
+      return;
+    }
+    if (terminalStatus && run.terminalAppendDepth === 0) {
+      run.terminalAppendDepth = 1;
+      try {
+        appendTerminalFollowups(run, event, terminalStatus);
+        append(run, event);
+      } finally {
+        run.terminalAppendDepth = 0;
       }
+      return;
     }
     const { occurredAt: eventTime, ...payload } = event;
     const sequence = run.sequence + 1;
@@ -1393,6 +1413,12 @@ export function createAgentKitProtocolAdapter(
     } as AgentEvent;
     run.events.push(protocolEvent);
     if (
+      protocolEvent.type === "message.completed" &&
+      protocolEvent.message.id === run.activeMessageId
+    ) {
+      run.activeMessageCompleted = true;
+    }
+    if (
       protocolEvent.type === "activity.started" ||
       protocolEvent.type === "activity.updated" ||
       protocolEvent.type === "activity.completed"
@@ -1406,6 +1432,15 @@ export function createAgentKitProtocolAdapter(
         run.activeActivities.delete(protocolEvent.activity.id);
       }
     }
+    if (protocolEvent.type === "tool.started") {
+      run.activeTools.set(protocolEvent.toolCall.id, protocolEvent.toolCall);
+    } else if (protocolEvent.type === "tool.updated") {
+      if (protocolEvent.toolCall.status === "running") {
+        run.activeTools.set(protocolEvent.toolCall.id, protocolEvent.toolCall);
+      } else {
+        run.activeTools.delete(protocolEvent.toolCall.id);
+      }
+    }
     if (run.events.length > maxRetainedEvents) {
       run.events.splice(0, run.events.length - maxRetainedEvents);
       run.firstRetainedSequence = run.events[0]?.sequence ?? run.sequence + 1;
@@ -1413,19 +1448,35 @@ export function createAgentKitProtocolAdapter(
     let becameTerminal = false;
     if (protocolEvent.type === "run.status") {
       run.status = protocolEvent.status;
+      if (
+        protocolEvent.status === "completed" ||
+        protocolEvent.status === "failed" ||
+        protocolEvent.status === "cancelled"
+      ) {
+        run.completedAt = protocolEvent.occurredAt;
+        run.terminalAtMs = timeMs(protocolEvent.occurredAt);
+        run.actions.clear();
+        run.terminal = true;
+        becameTerminal = true;
+      }
     } else if (protocolEvent.type === "run.started") {
       run.startedAt = protocolEvent.occurredAt;
     } else if (protocolEvent.type === "run.completed") {
       run.status = "completed";
       run.completedAt = protocolEvent.occurredAt;
       run.terminalAtMs = timeMs(protocolEvent.occurredAt);
+      if (protocolEvent.usage !== undefined) {
+        run.usage = protocolEvent.usage;
+      }
       run.actions.clear();
+      run.terminal = true;
       becameTerminal = true;
     } else if (protocolEvent.type === "run.cancelled") {
       run.status = "cancelled";
       run.completedAt = protocolEvent.occurredAt;
       run.terminalAtMs = timeMs(protocolEvent.occurredAt);
       run.actions.clear();
+      run.terminal = true;
       becameTerminal = true;
     } else if (protocolEvent.type === "run.failed") {
       run.status = "failed";
@@ -1433,10 +1484,96 @@ export function createAgentKitProtocolAdapter(
       run.terminalAtMs = timeMs(protocolEvent.occurredAt);
       run.error = protocolEvent.error;
       run.actions.clear();
+      run.terminal = true;
       becameTerminal = true;
     }
     for (const listener of run.listeners) listener();
     if (becameTerminal) pruneRetainedRuns(run.terminalAtMs);
+  }
+
+  function appendTerminalFollowups(
+    run: ProtocolRun,
+    event: ProtocolEventInput,
+    terminalStatus: "completed" | "failed" | "cancelled",
+  ): void {
+    if (run.activeMessageId && !run.activeMessageCompleted) {
+      append(run, {
+        type: "message.completed",
+        occurredAt: event.occurredAt ?? now(),
+        metadata: event.metadata,
+        message: {
+          id: run.activeMessageId,
+          role: "assistant",
+          status: terminalStatus === "completed" ? "complete" : "error",
+          parts: [],
+        },
+      });
+    }
+    const terminalActivityStatus = terminalStatus;
+    const terminalToolStatus = terminalActivityStatus;
+    if (terminalToolStatus && run.activeTools.size > 0) {
+      const terminalError =
+        terminalToolStatus === "failed" &&
+        event.error &&
+        typeof event.error === "object"
+          ? (event.error as AgentError)
+          : undefined;
+      for (const tool of [...run.activeTools.values()]) {
+        append(run, {
+          type: "tool.updated",
+          occurredAt: event.occurredAt ?? now(),
+          metadata: event.metadata,
+          toolCall: {
+            ...tool,
+            status: terminalToolStatus,
+            ...(terminalError ? { error: terminalError } : {}),
+          },
+        });
+      }
+    }
+    if (terminalToolStatus && run.actions.size > 0) {
+      const actionStatus =
+        terminalToolStatus === "completed"
+          ? "completed"
+          : terminalToolStatus === "cancelled"
+            ? "cancelled"
+            : "failed";
+      const actionError =
+        actionStatus === "failed"
+          ? {
+              code: "run_terminated",
+              message: "The run ended before the action reported a result.",
+            }
+          : undefined;
+      for (const invocation of [...run.actions.values()]) {
+        append(run, {
+          type:
+            actionStatus === "completed" ? "action.completed" : "action.failed",
+          occurredAt: event.occurredAt ?? now(),
+          metadata: event.metadata,
+          result: {
+            invocationId: invocation.id,
+            status: actionStatus,
+            ...(actionError ? { error: actionError } : {}),
+          },
+        });
+      }
+    }
+    if (terminalActivityStatus && run.activeActivities.size > 0) {
+      const completedAt = event.occurredAt ?? now();
+      for (const activity of [...run.activeActivities.values()]) {
+        append(run, {
+          type: "activity.completed",
+          occurredAt: completedAt,
+          metadata: event.metadata,
+          activity: {
+            ...activity,
+            status: terminalActivityStatus,
+            completedAt,
+          },
+        });
+      }
+    }
   }
 
   function runtimeEventToProtocolEvents(
@@ -1450,6 +1587,7 @@ export function createAgentKitProtocolAdapter(
     switch (event.type) {
       case "message-start":
         run.activeMessageId = event.message.id;
+        run.activeMessageCompleted = false;
         return [
           {
             type: "message.created",
@@ -1458,6 +1596,8 @@ export function createAgentKitProtocolAdapter(
           },
         ];
       case "message-delta":
+        run.activeMessageId = event.messageId;
+        run.activeMessageCompleted = false;
         if (event.delta.type === "text") {
           return [
             {
@@ -1493,6 +1633,7 @@ export function createAgentKitProtocolAdapter(
         ];
       case "message-done":
         run.activeMessageId = event.message.id;
+        run.activeMessageCompleted = true;
         return [
           {
             type: "message.completed",
@@ -2291,8 +2432,11 @@ export function createAgentKitProtocolAdapter(
         lastAccessedAtMs: timeMs(),
         activeReaders: 0,
         metadata: runMetadata,
+        activeMessageCompleted: false,
         actions: new Map(),
+        activeTools: new Map(),
         activeActivities: new Map(),
+        terminalAppendDepth: 0,
         pumpPromise: null,
         continuationPromise: null,
         streamClosed: false,
@@ -2343,6 +2487,7 @@ export function createAgentKitProtocolAdapter(
         usage: run.usage,
         error: run.error,
         metadata: run.metadata,
+        activeMessageId: run.activeMessageId,
       };
     },
     async cancelRun(input) {
@@ -2374,18 +2519,8 @@ export function createAgentKitProtocolAdapter(
       }
       run.waitingForContinuation = false;
       run.pendingApprovalId = undefined;
-      if (streamWasClosed) {
-        const completedAt = now();
-        run.status = "cancelled";
-        run.completedAt = completedAt;
-        run.terminalAtMs = timeMs(completedAt);
-        run.actions.clear();
-        run.activeActivities.clear();
-        pruneRetainedRuns(run.terminalAtMs);
-      } else {
-        append(run, { type: "run.status", status: "cancelled" });
-        append(run, { type: "run.cancelled" });
-      }
+      append(run, { type: "run.status", status: "cancelled" });
+      append(run, { type: "run.cancelled" });
     },
     async dispose() {
       if (disposed) return;
@@ -2644,8 +2779,11 @@ export function createAgentKitProtocolAdapter(
           activeReaders: 0,
           metadata: replacementMetadata,
           activeMessageId: run.activeMessageId,
+          activeMessageCompleted: run.activeMessageCompleted,
           actions: new Map(run.actions),
+          activeTools: new Map(run.activeTools),
           activeActivities: new Map(run.activeActivities),
+          terminalAppendDepth: 0,
           pumpPromise: null,
           continuationPromise: null,
           streamClosed: false,
@@ -2734,8 +2872,6 @@ export function createAgentKitProtocolAdapter(
         run.waitingForContinuation = false;
         run.pendingConnectionRequestId = undefined;
         run.streamClosed = true;
-        run.terminal = true;
-        run.terminalAtMs = timeMs();
         append(run, { type: "run.status", status: "failed" });
         append(run, {
           type: "run.failed",

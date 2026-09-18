@@ -819,7 +819,14 @@ export function handleDesignHotkey(
   // backward (single-step reorder). Alt+Cmd+]/Alt+Cmd+[ are silent aliases
   // of the plain front/back commands (kept for muscle memory / older
   // bindings), NOT of forward/backward.
-  if (key === "]" || key === "[" || key === "}" || key === "{") {
+  if (
+    key === "]" ||
+    key === "[" ||
+    key === "}" ||
+    key === "{" ||
+    event.code === "BracketRight" ||
+    event.code === "BracketLeft"
+  ) {
     return runSharedCanvasCommand();
   }
 

@@ -43,6 +43,8 @@ mod util;
 mod whisper_model;
 mod whisper_speech;
 
+use std::time::Duration;
+
 use tauri::{Emitter, Manager};
 
 use clips::{position_popover, toggle_popover};
@@ -61,6 +63,12 @@ use util::{
 // `tauri.conf.json` tray config points at `icons/tray.png`, which the user
 // should replace with their real icon.
 pub(crate) const TRAY_PNG: &[u8] = include_bytes!("../icons/tray.png");
+
+const POPOVER_BLUR_GUARD: Duration = Duration::from_millis(1500);
+
+fn popover_blur_delay(elapsed: Duration) -> Option<Duration> {
+    (elapsed < POPOVER_BLUR_GUARD).then(|| POPOVER_BLUR_GUARD - elapsed)
+}
 
 fn present_popover(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("popover") {
@@ -480,7 +488,7 @@ pub fn run() {
             }
 
             // Hide the popover on blur so it feels like a real menu-bar popover.
-            // The 250ms guard is the important bit — during the tray-click
+            // The 1.5s guard is the important bit — during the tray-click
             // itself macOS briefly steals focus from the popover, which would
             // fire Focused(false) and hide the window we literally just showed.
             if let Some(window) = app.get_webview_window("popover") {
@@ -511,11 +519,37 @@ pub fn run() {
                         let shown_at = app_handle
                             .try_state::<PopoverShownAt>()
                             .and_then(|s| s.0.lock().ok().and_then(|g| *g));
-                        let elapsed_ms = shown_at
-                            .map(|t| t.elapsed().as_millis())
-                            .unwrap_or(u128::MAX);
-                        dlog!("[clips-tray] popover blur, elapsed_ms={}", elapsed_ms);
-                        if elapsed_ms >= 1500 {
+                        let elapsed = shown_at.map(|t| t.elapsed()).unwrap_or(Duration::MAX);
+                        dlog!(
+                            "[clips-tray] popover blur, elapsed_ms={}",
+                            elapsed.as_millis()
+                        );
+                        if let Some(delay) = popover_blur_delay(elapsed) {
+                            let Some(shown_at) = shown_at else {
+                                return;
+                            };
+                            let delayed_handle = handle.clone();
+                            let delayed_app_handle = app_handle.clone();
+                            tauri::async_runtime::spawn(async move {
+                                tokio::time::sleep(delay).await;
+                                let still_current = delayed_app_handle
+                                    .try_state::<PopoverShownAt>()
+                                    .and_then(|state| {
+                                        state.0.lock().ok().map(|guard| *guard == Some(shown_at))
+                                    })
+                                    .unwrap_or(false);
+                                if !still_current
+                                    || is_recording_active(&delayed_app_handle)
+                                    || !config::auto_hide_popover_enabled(&delayed_app_handle)
+                                    || delayed_handle.is_focused().unwrap_or(true)
+                                {
+                                    return;
+                                }
+                                let _ = delayed_handle.hide();
+                                clips::close_bubble_if_idle(&delayed_app_handle);
+                                let _ = delayed_app_handle.emit("clips:popover-visible", false);
+                            });
+                        } else {
                             let _ = handle.hide();
                             clips::close_bubble_if_idle(&app_handle);
                             let _ = app_handle.emit("clips:popover-visible", false);
@@ -622,4 +656,19 @@ pub fn run() {
                 mic_attribution::shutdown();
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{popover_blur_delay, POPOVER_BLUR_GUARD};
+    use std::time::Duration;
+
+    #[test]
+    fn retries_blur_until_guard_expires() {
+        assert_eq!(
+            popover_blur_delay(Duration::from_millis(400)),
+            Some(Duration::from_millis(1100))
+        );
+        assert_eq!(popover_blur_delay(POPOVER_BLUR_GUARD), None);
+    }
 }

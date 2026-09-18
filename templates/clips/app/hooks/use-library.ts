@@ -240,6 +240,33 @@ export function useFolders(
   return { data: { folders }, isLoading };
 }
 
+export interface FolderPathEntry {
+  id: string;
+  name: string;
+}
+
+/**
+ * Walks `parentId` from `folderId` up to the root, returning ancestors first
+ * and the folder itself last. Guards against a parentId cycle so a bad row
+ * can't hang the breadcrumb in an infinite loop.
+ */
+export function getFolderAncestorPath(
+  folders: readonly { id: string; name: string; parentId?: string | null }[],
+  folderId: string | undefined,
+): FolderPathEntry[] {
+  if (!folderId) return [];
+  const byId = new Map(folders.map((f) => [f.id, f]));
+  const path: FolderPathEntry[] = [];
+  const seen = new Set<string>();
+  let current = byId.get(folderId);
+  while (current && !seen.has(current.id)) {
+    seen.add(current.id);
+    path.unshift({ id: current.id, name: current.name });
+    current = current.parentId ? byId.get(current.parentId) : undefined;
+  }
+  return path;
+}
+
 export function useSpaces(
   organizationId?: string,
   options: { enabled?: boolean } = {},

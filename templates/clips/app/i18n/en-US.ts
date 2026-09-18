@@ -80,6 +80,7 @@ const messages = {
     createFolderError: "Create failed",
     folderCreated: "Folder created",
     folderNamePlaceholder: "Folder name",
+    breadcrumbBack: "Back to {{label}}",
   },
   empty: {
     library: {

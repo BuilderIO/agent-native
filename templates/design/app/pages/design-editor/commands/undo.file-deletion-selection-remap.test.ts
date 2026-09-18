@@ -67,6 +67,7 @@ function commonArgs(refs: ReturnType<typeof sharedRefs>) {
   const createFileMutation = {
     mutateAsync: vi.fn().mockResolvedValue({ id: "screen-a-2" }),
   };
+  const files = [{ id: "screen-b" }];
   return {
     activeEditorDragRef: { current: false },
     activeFile: { id: "screen-b" },
@@ -88,7 +89,8 @@ function commonArgs(refs: ReturnType<typeof sharedRefs>) {
     fileDeletionRedoStackRef: refs.fileDeletionRedoStackRef,
     fileDeletionUndoStackRef: refs.fileDeletionUndoStackRef,
     fileHistoryMutationPendingRef: { current: false },
-    files: [{ id: "screen-b" }],
+    files,
+    filesRef: { current: files },
     geometryRedoStackRef: { current: [] },
     geometryUndoStackRef: { current: [] },
     getFreshActiveContent: () => "",
@@ -172,6 +174,13 @@ describe("undo/redo — selection history after a file-deletion undo", () => {
     expect(refs.fileDeletionRedoStackRef.current[0]?.files[0]?.id).toBe(
       "screen-a-2",
     );
+    expect(args.optimisticallyInsertCreatedFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fileId: "screen-a-2",
+        filename: "A.html",
+        fileType: "html",
+      }),
+    );
     // The fix under test: the pure-selection entry recorded before the
     // delete must now point at the recreated screen, not the dead one.
     expect(refs.selectionUndoStackRef.current[0]?.before).toMatchObject({
@@ -186,8 +195,13 @@ describe("undo/redo — selection history after a file-deletion undo", () => {
     });
 
     // The recreated screen is now part of the live file projection used by
-    // subsequent selection-only history replay.
-    (args.files as unknown as { id: string }[]).push({ id: "screen-a-2" });
+    // subsequent selection-only history replay. The runUndo callback itself
+    // is intentionally still the pre-restore closure, so this ref models the
+    // render that publishes the recreated file before the next undo keypress.
+    args.filesRef!.current = [
+      ...(args.filesRef!.current as unknown as { id: string }[]),
+      { id: "screen-a-2" },
+    ];
 
     // Undo #2: walks back into the plain selection-change entry.
     runUndo(args as unknown as Parameters<typeof runUndo>[0]);

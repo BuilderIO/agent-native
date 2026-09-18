@@ -4856,8 +4856,9 @@ export function renderHtmlTemplates(
   const pages = selection
     ? allPages.filter((page) => {
         if (selection.has(guidKey(page.guid))) return true;
-        const children = childrenOf.get(guidKey(page.guid)) ?? [];
-        return children.some((c) => selection.has(guidKey(c.guid)));
+        return collectTopLevelFrames(page, childrenOf).some((frame) =>
+          selection.has(guidKey(frame.guid)),
+        );
       })
     : allPages;
 

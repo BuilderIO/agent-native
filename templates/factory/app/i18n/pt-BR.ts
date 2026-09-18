@@ -360,6 +360,8 @@ const messages = {
     auditBabysitCiBlocking: "CI bloqueante",
     auditBabysitVeto: "Veto",
     auditTrace: "Rastro",
+    auditRunPromptVersion: "Prompt v{{version}}",
+    auditRunPromptHash: "Hash {{hash}}",
     auditWhy: "Por quê",
     auditWhatHappened: "O que aconteceu",
     auditInspectedOnly: "Apenas inspecionado",
@@ -511,14 +513,13 @@ const messages = {
     automationWorkLimitDescription:
       "Quantos itens o agente trata por execução. Máximo 10.",
     automationGuardrails: "Proteções",
+    automationSkillAlignment: "Alinhamento de skill",
     automationGuardrailsDescription:
       "Injetados pelo Factory. O prompt não pode mudar estas regras.",
     automationGuardrailsSummary:
       "Adiciona até {{inbox}} · trabalha {{work}} por execução",
     automationGuardrailsPlaceholder:
       "O Factory vai injetar escopo e limites aqui.",
-    automationPromptDescription:
-      "O que esta execução deve fazer, além das regras acima.",
     automationDisplayNameDescription: "Mostrado na lista de automações.",
     automationModelDescription: "Modelo que este job agendado usa.",
     automationEnabledDescription: "Quando desligado, a agenda não dispara.",
@@ -545,6 +546,27 @@ const messages = {
     pastRuns: "Execuções anteriores",
     pastRunsEmpty: "Nenhuma execução registrada ainda.",
     saveAutomation: "Salvar",
+    automationUnsavedChanges: "Alterações de automação não salvas",
+    automationDiscardChanges: "Descartar",
+    automationCurrentSaved: "Atual (salvo)",
+    automationCurrentSavedShort: "Versão {{version}}",
+    automationNoSavedVersions: "Nenhuma versão salva",
+    automationVersionPickerLabel: "Versões",
+    automationVersionsLoading: "Carregando versões…",
+    automationVersionsLoadFailed:
+      "Não foi possível carregar o histórico de versões.",
+    automationVersionLoadFailed: "Não foi possível carregar essa versão.",
+    automationVersionAppliedToDraft:
+      "Versão v{{promptVersion}} carregada no rascunho. Salve para persistir.",
+    automationSavedVersion: "Versão {{version}}",
+    automationVersionRowDetail: "v{{promptVersion}} · salvo {{savedAt}}",
+    automationVersionDeleteLabel: "Excluir esta versão",
+    automationVersionDeleteTitle: "Excluir {{label}}?",
+    automationVersionDeleteWarning: "Isso não pode ser desfeito.",
+    automationVersionDeleteCancel: "Cancelar",
+    automationVersionDeleteConfirm: "Excluir versão",
+    automationVersionDeleted: "Versão excluída.",
+    automationVersionDeleteFailed: "Não foi possível excluir essa versão.",
     automationSaved: "Salvo",
     automationSaveFailed: "Não foi possível salvar a automação.",
     automationRunFailed: "Não foi possível executar a automação.",

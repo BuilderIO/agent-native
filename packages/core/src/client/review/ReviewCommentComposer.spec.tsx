@@ -117,6 +117,216 @@ describe("ReviewCommentComposer actions", () => {
     expect(onSubmit).toHaveBeenNthCalledWith(2, "agent");
   });
 
+  it("keeps a keyboard @ in the textarea while opening the picker", () => {
+    const mention = { label: "Alice", email: "alice@example.com" };
+    function Harness() {
+      const [value, setValue] = useState("");
+      const [mentions, setMentions] = useState<(typeof mention)[]>([]);
+      return (
+        <ReviewCommentComposer
+          value={value}
+          onChange={setValue}
+          onSubmit={() => {}}
+          mentions={mentions}
+          onMentionsChange={setMentions}
+          mentionOptions={[mention]}
+        />
+      );
+    }
+
+    act(() => root.render(<Harness />));
+    const textarea = container.querySelector<HTMLTextAreaElement>("textarea");
+    expect(textarea).toBeTruthy();
+    textarea!.setSelectionRange(0, 0);
+    const event = new KeyboardEvent("keydown", {
+      key: "@",
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => textarea!.dispatchEvent(event));
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(textarea!.value).toBe("@");
+    expect(textarea!.selectionStart).toBe(1);
+    expect(container.querySelector("[data-review-comment-tools]")).toBeNull();
+    expect(
+      container.querySelector('button[aria-label="Add emoji"]'),
+    ).toBeNull();
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(
+        Object.getPrototypeOf(textarea!),
+        "value",
+      )?.set;
+      setter?.call(textarea, "@Ali");
+      textarea!.setSelectionRange(4, 4);
+      textarea!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(
+      document.querySelector<HTMLInputElement>(
+        'input[aria-label="Mention someone"]',
+      )?.value,
+    ).toBe("Ali");
+    expect(textarea!.value).toBe("@Ali");
+    const aliceOption = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent?.includes("Alice"));
+    expect(aliceOption).toBeTruthy();
+    act(() => aliceOption?.click());
+  });
+
+  it("ignores composing @ keys and email address boundaries", () => {
+    const mention = { label: "Alice", email: "alice@example.com" };
+    const onChange = vi.fn();
+    act(() => {
+      root.render(
+        <ReviewCommentComposer
+          value=""
+          onChange={onChange}
+          onSubmit={() => {}}
+          mentionOptions={[mention]}
+        />,
+      );
+    });
+
+    const composingTextarea =
+      container.querySelector<HTMLTextAreaElement>("textarea");
+    expect(composingTextarea).toBeTruthy();
+    const composingEvent = new KeyboardEvent("keydown", {
+      key: "@",
+      bubbles: true,
+      cancelable: true,
+    });
+    Object.defineProperty(composingEvent, "isComposing", { value: true });
+    act(() => composingTextarea!.dispatchEvent(composingEvent));
+    expect(composingEvent.defaultPrevented).toBe(false);
+    expect(composingTextarea!.value).toBe("");
+    expect(onChange).not.toHaveBeenCalled();
+
+    const legacyComposingEvent = new KeyboardEvent("keydown", {
+      key: "@",
+      bubbles: true,
+      cancelable: true,
+    });
+    Object.defineProperty(legacyComposingEvent, "keyCode", { value: 229 });
+    act(() => composingTextarea!.dispatchEvent(legacyComposingEvent));
+    expect(legacyComposingEvent.defaultPrevented).toBe(false);
+    expect(composingTextarea!.value).toBe("");
+
+    act(() => {
+      root.render(
+        <ReviewCommentComposer
+          value="email"
+          onChange={onChange}
+          onSubmit={() => {}}
+          showCommentTools
+          mentionOptions={[mention]}
+        />,
+      );
+    });
+    const textarea = container.querySelector<HTMLTextAreaElement>("textarea");
+    expect(textarea).toBeTruthy();
+    textarea!.setSelectionRange(5, 5);
+    const emailEvent = new KeyboardEvent("keydown", {
+      key: "@",
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => textarea!.dispatchEvent(emailEvent));
+    expect(emailEvent.defaultPrevented).toBe(false);
+    expect(onChange).not.toHaveBeenCalled();
+
+    act(() => {
+      root.render(
+        <ReviewCommentComposer
+          value={"cafe\u0301"}
+          onChange={onChange}
+          onSubmit={() => {}}
+          showCommentTools
+          mentionOptions={[mention]}
+        />,
+      );
+    });
+    const combiningMarkTextarea =
+      container.querySelector<HTMLTextAreaElement>("textarea");
+    combiningMarkTextarea!.setSelectionRange(5, 5);
+    const combiningMarkEvent = new KeyboardEvent("keydown", {
+      key: "@",
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => combiningMarkTextarea!.dispatchEvent(combiningMarkEvent));
+    expect(combiningMarkEvent.defaultPrevented).toBe(false);
+
+    act(() => {
+      root.render(
+        <ReviewCommentComposer
+          value="𝒜"
+          onChange={onChange}
+          onSubmit={() => {}}
+          showCommentTools
+          mentionOptions={[mention]}
+        />,
+      );
+    });
+    const astralLetterTextarea =
+      container.querySelector<HTMLTextAreaElement>("textarea");
+    astralLetterTextarea!.setSelectionRange(2, 2);
+    const astralLetterEvent = new KeyboardEvent("keydown", {
+      key: "@",
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => astralLetterTextarea!.dispatchEvent(astralLetterEvent));
+    expect(astralLetterEvent.defaultPrevented).toBe(false);
+
+    act(() => {
+      root.render(
+        <ReviewCommentComposer
+          value="Hi,"
+          onChange={onChange}
+          onSubmit={() => {}}
+          showCommentTools
+          mentionOptions={[mention]}
+        />,
+      );
+    });
+    const punctuationTextarea =
+      container.querySelector<HTMLTextAreaElement>("textarea");
+    punctuationTextarea!.setSelectionRange(3, 3);
+    const punctuationEvent = new KeyboardEvent("keydown", {
+      key: "@",
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => punctuationTextarea!.dispatchEvent(punctuationEvent));
+    expect(punctuationEvent.defaultPrevented).toBe(true);
+    act(() =>
+      document.querySelector<HTMLElement>('[role="menuitem"]')?.click(),
+    );
+
+    act(() => {
+      root.render(
+        <ReviewCommentComposer
+          value="alice+"
+          onChange={onChange}
+          onSubmit={() => {}}
+          showCommentTools
+          mentionOptions={[mention]}
+        />,
+      );
+    });
+    const emailLocalPartTextarea =
+      container.querySelector<HTMLTextAreaElement>("textarea");
+    emailLocalPartTextarea!.setSelectionRange(6, 6);
+    const emailLocalPartEvent = new KeyboardEvent("keydown", {
+      key: "@",
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => emailLocalPartTextarea!.dispatchEvent(emailLocalPartEvent));
+    expect(emailLocalPartEvent.defaultPrevented).toBe(false);
+  });
+
   it("replaces the full typed mention token", () => {
     let submittedMentions: unknown;
     const mention = { label: "Alice", email: "alice@example.com" };

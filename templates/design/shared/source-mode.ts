@@ -117,6 +117,28 @@ export type ElementProvenanceFramework =
   | "angular"
   | "lwc";
 
+/**
+ * Runtime component boundary discovered by a framework bridge. This is
+ * deliberately separate from the durable component annotations used by the
+ * inline component model: the bridge can identify an unannotated React
+ * boundary before promotion, while promotion still writes the canonical
+ * `data-agent-native-component` marker.
+ */
+export interface RuntimeComponentIdentity {
+  componentId: string;
+  instanceId: string;
+  name: string;
+  framework: ElementProvenanceFramework;
+  sourceFile?: string;
+  line?: number;
+  column?: number;
+  method?: ElementProvenanceMethod;
+  ownerKey?: string;
+  props: Array<{ name: string; value: string }>;
+  writeCapability: "authored-jsx-literal" | "unsupported";
+  reason?: string;
+}
+
 export const ELEMENT_PROVENANCE_METHODS: readonly ElementProvenanceMethod[] = [
   "data-attribute",
   "debug-source",

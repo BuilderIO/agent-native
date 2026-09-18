@@ -1,6 +1,7 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "activity.reasoning": "추론",
   "approval.alwaysAllow": "항상 허용",
   "approval.alwaysAllowHint":
     "이 명령과 정확히 일치하는 명령을 승인하고 항상 허용합니다",
@@ -747,6 +748,7 @@ const messages: AgentChatTranslation = {
   "status.preparing": "{{activity}} 준비 중...",
   "status.writing": "{{activity}} 작성 중...",
   "status.stillGenerating": "{{activity}} 계속 생성 중",
+  "status.runningTool": "{{activity}} 실행 중",
   "tabs.allChats": "모든 채팅",
   "tabs.closeTab": "탭 닫기",
   "tabs.main": "메인",

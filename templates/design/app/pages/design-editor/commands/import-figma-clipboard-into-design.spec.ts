@@ -83,7 +83,9 @@ describe("a paste whose images could not come through", () => {
       "<figmeta>",
     );
 
-    expect(navigate).toHaveBeenCalledWith("/design/d1?view=overview&screen=f1");
+    expect(navigate).toHaveBeenCalledWith(
+      "/design/d1?editorView=overview&screen=f1",
+    );
   });
 
   it("keeps the overview route when the first imported file has no id", async () => {
@@ -99,6 +101,6 @@ describe("a paste whose images could not come through", () => {
       "<figmeta>",
     );
 
-    expect(navigate).toHaveBeenCalledWith("/design/d1?view=overview");
+    expect(navigate).toHaveBeenCalledWith("/design/d1?editorView=overview");
   });
 });

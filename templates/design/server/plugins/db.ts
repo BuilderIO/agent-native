@@ -419,13 +419,10 @@ CREATE INDEX IF NOT EXISTS design_versions_design_created_idx ON design_versions
  * swallowed so it can never fail boot.
  */
 /**
- * Best-effort unique index guarding against the add-localhost-screens
- * cross-request race: two concurrent calls placing the same localhost route
- * each see "no existing design_files row" from their own snapshot and both
- * insert a fresh row using the same deterministic filename for that route
- * (see actions/add-localhost-screens.ts). A unique index on
- * (design_id, filename) makes the losing insert fail instead of silently
- * creating an overlapping duplicate screen.
+ * Best-effort unique indexes guarding cross-request insert races. Two
+ * concurrent calls can each see "no existing design_files row" from their
+ * own snapshot. The filename index protects localhost placement; the
+ * operation-source index protects retryable browser imports.
  *
  * This intentionally does NOT live in `runDesignMigrations` above:
  * `CREATE UNIQUE INDEX` fails outright against any database that already
@@ -453,6 +450,18 @@ async function ensureDesignFilesUniqueIndex(): Promise<void> {
         "pre-existing duplicate (design_id, filename) rows from the " +
         "add-localhost-screens race predating this fix. New concurrent " +
         "inserts remain best-effort until the duplicates are cleaned up:",
+      err instanceof Error ? err.message : err,
+    );
+  }
+  try {
+    await getDbExec().execute(
+      `CREATE UNIQUE INDEX IF NOT EXISTS design_files_design_operation_source_unique_idx ON design_files (design_id, content_operation_source) WHERE content_operation_source LIKE 'fig-import:%'`,
+    );
+  } catch (err) {
+    console.warn(
+      "[db] design_files_design_operation_source_unique_idx not created — " +
+        "pre-existing duplicate operation sources may require cleanup before " +
+        "concurrent browser-import retries are fully serialized:",
       err instanceof Error ? err.message : err,
     );
   }

@@ -1,4 +1,4 @@
-import { writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import {
@@ -19,8 +19,21 @@ import {
 const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
 const EVIDENCE_DIR = path.resolve(
   import.meta.dirname,
-  "../../../.tmp/interaction-parity/closeout-20260915/performance",
+  "../../../.tmp/interaction-parity/closeout-20260916/performance",
 );
+
+type MarqueeProfilerReceipt = {
+  elapsedMs: number | null;
+  bridgeMessageCount: number;
+  bridgeReplyCount: number;
+  bridgeReplyCountAtMouseup: number | null;
+  finalSelectionChangeCount: number;
+  finalSelectionIds: string[];
+  firstBridgeMessageAt: number | null;
+  finalSelectionAt: number | null;
+  host: Record<string, number>;
+  bridge: Record<string, number>;
+};
 
 async function action(
   request: APIRequestContext,
@@ -37,8 +50,8 @@ async function action(
   return response.json();
 }
 
-function fixtureHtml(screenIndex: number): string {
-  const cards = Array.from({ length: 160 }, (_, index) => {
+function fixtureHtml(screenIndex: number, cardCount = 160): string {
+  const cards = Array.from({ length: cardCount }, (_, index) => {
     const id = `${screenIndex}-${index}`;
     return `<article data-agent-native-node-id="card-${id}" class="card" style="min-height:96px;padding:12px;border:1px solid #d7dce5;border-radius:12px;background:#fff;display:flex;flex-direction:column;gap:8px"><div data-agent-native-node-id="card-head-${id}" style="display:flex;justify-content:space-between;gap:8px"><strong data-agent-native-node-id="card-title-${id}">Card ${index + 1}</strong><span data-agent-native-node-id="card-badge-${id}" class="badge">Ready</span></div><p data-agent-native-node-id="card-copy-${id}" style="margin:0;color:#475569">Nested auto-layout content for performance profiling.</p></article>`;
   }).join("");
@@ -58,7 +71,7 @@ async function createFixture(request: APIRequestContext) {
     const file = await action(request, "create-file", {
       designId,
       filename: index === 0 ? "index.html" : `screen-${index + 1}.html`,
-      content: fixtureHtml(index),
+      content: fixtureHtml(index, index === 0 ? 160 : 12),
       fileType: "html",
     });
     const fileId = file.id ?? file.data?.id;
@@ -230,6 +243,353 @@ async function readLongTasks(page: Page) {
   });
 }
 
+async function installReactCommitProbe(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const win = window as typeof window & {
+      __REACT_DEVTOOLS_GLOBAL_HOOK__?: {
+        renderers?: Map<number, unknown>;
+        supportsFiber?: boolean;
+        inject?: (renderer: unknown) => number;
+        onScheduleFiberRoot?: (...args: unknown[]) => unknown;
+        onCommitFiberRoot?: (...args: unknown[]) => unknown;
+        onCommitFiberUnmount?: (...args: unknown[]) => unknown;
+      };
+      __designPerformanceProbe?: Record<string, number>;
+    };
+    const hook = win.__REACT_DEVTOOLS_GLOBAL_HOOK__ ?? {
+      renderers: new Map<number, unknown>(),
+      inject: (() => {
+        let nextId = 0;
+        return () => nextId++;
+      })(),
+      onScheduleFiberRoot: () => {},
+      onCommitFiberUnmount: () => {},
+    };
+    const originalOnCommit = hook.onCommitFiberRoot;
+    hook.onCommitFiberRoot = (...args: unknown[]) => {
+      const probe = win.__designPerformanceProbe;
+      if (probe) probe.reactCommits = (probe.reactCommits ?? 0) + 1;
+      return originalOnCommit?.apply(hook, args);
+    };
+    hook.supportsFiber = true;
+    win.__REACT_DEVTOOLS_GLOBAL_HOOK__ = hook;
+  });
+}
+
+async function installMarqueeProfiler(
+  page: Page,
+  delayedFileId: string,
+): Promise<void> {
+  await page.evaluate((targetFileId) => {
+    const win = window as typeof window & {
+      __designPerformanceProbe?: Record<string, number>;
+      __marqueePerformance?: {
+        startedAt: number;
+        firstMessageAt: number | null;
+        finalMessageAt: number | null;
+        messageCount: number;
+        bridgeReplyCount: number;
+        bridgeReplyCountAtMouseup: number | null;
+        finalMessageCount: number;
+        finalSelectionIds: string[];
+      };
+    };
+    win.__designPerformanceProbe = Object.create(null);
+    const startedAt = performance.now();
+    win.__marqueePerformance = {
+      startedAt,
+      firstMessageAt: null,
+      finalMessageAt: null,
+      messageCount: 0,
+      bridgeReplyCount: 0,
+      bridgeReplyCountAtMouseup: null,
+      finalMessageCount: 0,
+      finalSelectionIds: [],
+    };
+    const delayedBridgeReplies = new WeakSet<object>();
+    const delayedSource = document.querySelector<HTMLIFrameElement>(
+      `iframe[data-screen-iframe-id="${CSS.escape(targetFileId)}"]`,
+    )?.contentWindow;
+    if (!delayedSource)
+      throw new Error("delayed marquee iframe is unavailable");
+    const pendingBridgeReplies: Array<{
+      data: object;
+      origin: string;
+      source: MessageEventSource | null;
+    }> = [];
+    let marqueeReleased = false;
+    let releaseScheduled = false;
+    const releasePendingBridgeReplies = () => {
+      if (
+        !marqueeReleased ||
+        releaseScheduled ||
+        pendingBridgeReplies.length === 0
+      ) {
+        return;
+      }
+      releaseScheduled = true;
+      queueMicrotask(() => {
+        releaseScheduled = false;
+        const replies = pendingBridgeReplies.splice(0);
+        replies.forEach(({ data, origin, source }) => {
+          window.dispatchEvent(
+            new MessageEvent("message", { data, origin, source }),
+          );
+        });
+        releasePendingBridgeReplies();
+      });
+    };
+    window.addEventListener(
+      "message",
+      (event) => {
+        const data = event.data as { type?: string } | null;
+        if (!data || data.type !== "agent-native:selectable-rects-result") {
+          return;
+        }
+        if (delayedBridgeReplies.has(data)) {
+          delayedBridgeReplies.delete(data);
+          return;
+        }
+        if (event.source !== delayedSource) return;
+        event.stopImmediatePropagation();
+        delayedBridgeReplies.add(data);
+        pendingBridgeReplies.push({
+          data,
+          origin: event.origin,
+          source: event.source,
+        });
+        releasePendingBridgeReplies();
+      },
+      true,
+    );
+    window.addEventListener(
+      "mouseup",
+      () => {
+        marqueeReleased = true;
+        const performance = win.__marqueePerformance;
+        if (performance && performance.bridgeReplyCountAtMouseup === null) {
+          performance.bridgeReplyCountAtMouseup = performance.bridgeReplyCount;
+        }
+        releasePendingBridgeReplies();
+      },
+      true,
+    );
+    window.addEventListener("message", (event) => {
+      const data = event.data as {
+        type?: string;
+        payload?: Array<{ sourceId?: string }>;
+        intent?: { final?: boolean };
+      };
+      const performance = win.__marqueePerformance;
+      const isBridgeReply =
+        data?.type === "agent-native:selectable-rects-result";
+      const isDirectMarquee =
+        data?.type === "agent-native:layer-marquee-selection";
+      const isPreviewSource = [
+        ...document.querySelectorAll<HTMLIFrameElement>(
+          "iframe[data-screen-iframe-id]",
+        ),
+      ].some((frame) => frame.contentWindow === event.source);
+      if (
+        !performance ||
+        !isPreviewSource ||
+        (!isBridgeReply && !isDirectMarquee)
+      ) {
+        return;
+      }
+      const at = window.performance.now() - performance.startedAt;
+      performance.messageCount += 1;
+      performance.firstMessageAt ??= at;
+      if (isBridgeReply) performance.bridgeReplyCount += 1;
+      if (data.intent?.final !== true) return;
+      performance.finalMessageCount += 1;
+      performance.finalMessageAt = at;
+      performance.finalSelectionIds = Array.isArray(data.payload)
+        ? data.payload
+            .map((item) => item.sourceId)
+            .filter((sourceId): sourceId is string => Boolean(sourceId))
+        : [];
+    });
+  }, delayedFileId);
+
+  const iframes = await page
+    .locator("iframe[data-screen-iframe-id]")
+    .elementHandles();
+  for (const iframe of iframes) {
+    const frame = await iframe.contentFrame();
+    if (!frame) continue;
+    await frame.evaluate(() => {
+      const win = window as typeof window & {
+        __designBridgePerformance?: Record<string, number>;
+      };
+      const probe = {
+        domScans: 0,
+        computedStyleReads: 0,
+        subtreeNodes: 0,
+        subtreeQueries: 0,
+        layoutReads: 0,
+      };
+      win.__designBridgePerformance = probe;
+
+      const rawQuerySelectorAll = Element.prototype.querySelectorAll;
+      Element.prototype.querySelectorAll = function (
+        this: Element,
+        selectors: string,
+      ) {
+        const result = rawQuerySelectorAll.call(this, selectors);
+        if (selectors === "*") {
+          if (this === document.body) {
+            probe.domScans += 1;
+          } else {
+            probe.subtreeQueries += 1;
+            probe.subtreeNodes += result.length;
+          }
+        }
+        return result;
+      } as typeof Element.prototype.querySelectorAll;
+
+      const rawGetComputedStyle = window.getComputedStyle.bind(window);
+      window.getComputedStyle = function (element, pseudoElement) {
+        probe.computedStyleReads += 1;
+        return rawGetComputedStyle(element, pseudoElement);
+      };
+
+      const rawGetBoundingClientRect = Element.prototype.getBoundingClientRect;
+      Element.prototype.getBoundingClientRect = function () {
+        probe.layoutReads += 1;
+        return rawGetBoundingClientRect.call(this);
+      };
+    });
+  }
+}
+
+async function performProfiledMarquee(
+  page: Page,
+  fileId: string,
+  secondaryFileId: string,
+): Promise<void> {
+  const frame = page
+    .locator(`iframe[data-screen-iframe-id="${fileId}"]`)
+    .contentFrame();
+  const firstCard = frame.locator('[data-agent-native-node-id="card-0-0"]');
+  const secondFrame = page
+    .locator(`iframe[data-screen-iframe-id="${secondaryFileId}"]`)
+    .contentFrame();
+  const secondLastCard = secondFrame.locator(
+    '[data-agent-native-node-id="card-1-3"]',
+  );
+  const firstBox = await firstCard.boundingBox();
+  const secondLastBox = await secondLastCard.boundingBox();
+  const iframeBox = await page
+    .locator(`iframe[data-screen-iframe-id="${fileId}"]`)
+    .boundingBox();
+  if (!firstBox || !secondLastBox)
+    throw new Error("marquee fixture cards are hidden");
+  if (!iframeBox) throw new Error("marquee fixture iframe is hidden");
+  const startPoint = {
+    x: Math.max(8, iframeBox.x - 32),
+    y: Math.max(8, iframeBox.y - 96),
+  };
+  const modifier = process.platform === "darwin" ? "Meta" : "Control";
+  await page.keyboard.down(modifier);
+  try {
+    await page.mouse.move(startPoint.x, startPoint.y);
+    await page.mouse.down();
+    await page.mouse.move(
+      secondLastBox.x + secondLastBox.width + 12,
+      secondLastBox.y + secondLastBox.height + 12,
+      { steps: 8 },
+    );
+    // Release while both screen collections can still be in flight. The
+    // second screen's response is delayed by the profiler above so this
+    // exercises the finishDrag boundary instead of synchronizing around it.
+    await page.mouse.up();
+  } finally {
+    await page.keyboard.up(modifier);
+  }
+}
+
+async function readMarqueeProfiler(
+  page: Page,
+): Promise<MarqueeProfilerReceipt> {
+  const host = await page.evaluate(() => {
+    const win = window as typeof window & {
+      __designPerformanceProbe?: Record<string, number>;
+      __marqueePerformance?: {
+        startedAt: number;
+        firstMessageAt: number | null;
+        finalMessageAt: number | null;
+        messageCount: number;
+        bridgeReplyCount: number;
+        bridgeReplyCountAtMouseup: number | null;
+        finalMessageCount: number;
+        finalSelectionIds: string[];
+      };
+    };
+    const marquee = win.__marqueePerformance;
+    const probe = { ...(win.__designPerformanceProbe ?? {}) };
+    const layerRows = [
+      ...document.querySelectorAll<HTMLElement>(
+        '[role="treeitem"][aria-selected="true"] [data-layer-row-button][data-layer-node-id]',
+      ),
+    ];
+    const finalSelectionIds = layerRows
+      .map((row) => row.dataset.layerNodeId ?? "")
+      .filter(Boolean);
+    const finalSelectionAt =
+      marquee && typeof probe.marqueeFinalSelectionAt === "number"
+        ? probe.marqueeFinalSelectionAt - marquee.startedAt
+        : null;
+    return {
+      elapsedMs: finalSelectionAt,
+      bridgeMessageCount: marquee?.messageCount ?? 0,
+      bridgeReplyCount: marquee?.bridgeReplyCount ?? 0,
+      bridgeReplyCountAtMouseup: marquee?.bridgeReplyCountAtMouseup ?? null,
+      finalSelectionChangeCount: probe.marqueeFinalSelectionChange ?? 0,
+      finalSelectionIds:
+        finalSelectionIds.length > 0
+          ? finalSelectionIds
+          : (marquee?.finalSelectionIds ?? []),
+      firstBridgeMessageAt: marquee?.firstMessageAt ?? null,
+      finalSelectionAt,
+      host: probe,
+    };
+  });
+  const bridge = {
+    domScans: 0,
+    computedStyleReads: 0,
+    subtreeNodes: 0,
+    subtreeQueries: 0,
+    layoutReads: 0,
+  };
+  const iframes = await page
+    .locator("iframe[data-screen-iframe-id]")
+    .elementHandles();
+  for (const iframe of iframes) {
+    const frame = await iframe.contentFrame();
+    if (!frame) continue;
+    const sample = await frame.evaluate(() => {
+      const win = window as typeof window & {
+        __designBridgePerformance?: Record<string, number>;
+      };
+      const probe = win.__designBridgePerformance ?? {};
+      return {
+        domScans: probe.domScans ?? 0,
+        computedStyleReads: probe.computedStyleReads ?? 0,
+        subtreeNodes: probe.subtreeNodes ?? 0,
+        subtreeQueries: probe.subtreeQueries ?? 0,
+        layoutReads: probe.layoutReads ?? 0,
+      };
+    });
+    bridge.domScans += sample.domScans;
+    bridge.computedStyleReads += sample.computedStyleReads;
+    bridge.subtreeNodes += sample.subtreeNodes;
+    bridge.subtreeQueries += sample.subtreeQueries;
+    bridge.layoutReads += sample.layoutReads;
+  }
+  return { ...host, bridge };
+}
+
 async function selectFixtureNode(page: Page, fileId: string, nodeId: string) {
   await installBridge(page);
   const frame = page
@@ -314,6 +674,7 @@ test("collect selectable rects baseline on nested responsive screens", async ({
   request,
 }) => {
   const fixture = await createFixture(request);
+  await installReactCommitProbe(page);
   await gotoEditor(page, fixture.designId);
   const primaryIframe = page.locator(
     `iframe[data-screen-iframe-id="${fixture.fileIds[0]}"]`,
@@ -330,6 +691,7 @@ test("collect selectable rects baseline on nested responsive screens", async ({
     .locator("iframe[data-design-preview-iframe]")
     .count();
   if (iframeCount === 0) throw new Error("no design preview iframe mounted");
+  await mkdir(EVIDENCE_DIR, { recursive: true });
   const fixtureStats = await primaryFrame.locator("body").evaluate((body) => {
     let maxDepth = 0;
     let elementCount = 0;
@@ -464,6 +826,79 @@ test("collect selectable rects baseline on nested responsive screens", async ({
     .evaluateAll((rows) => rows.map((row) => row.textContent?.trim() ?? ""));
   expect(undoSelectionRows).toEqual(selectionBeforeRows);
 
+  const marqueeSelectionBeforeRows = await page
+    .locator('[aria-selected="true"]')
+    .evaluateAll((rows) => rows.map((row) => row.textContent?.trim() ?? ""));
+  await installMarqueeProfiler(page, fixture.fileIds[1]);
+  await performProfiledMarquee(page, fixture.fileIds[0], fixture.fileIds[1]);
+  await expect
+    .poll(
+      () =>
+        page.evaluate(
+          () =>
+            (
+              window as typeof window & {
+                __designPerformanceProbe?: Record<string, number>;
+              }
+            ).__designPerformanceProbe?.marqueeFinalSelectionChange ?? 0,
+        ),
+      { timeout: 30_000 },
+    )
+    .toBe(1);
+  await expect
+    .poll(
+      () =>
+        page.evaluate(
+          () =>
+            (
+              window as typeof window & {
+                __marqueePerformance?: { bridgeReplyCount?: number };
+              }
+            ).__marqueePerformance?.bridgeReplyCount ?? 0,
+        ),
+      { timeout: 30_000 },
+    )
+    .toBeGreaterThanOrEqual(2);
+  await page.waitForTimeout(500);
+  const marqueeSelectionAfterRows = await page
+    .locator('[aria-selected="true"]')
+    .evaluateAll((rows) => rows.map((row) => row.textContent?.trim() ?? ""));
+  const marqueeProfiler = await readMarqueeProfiler(page);
+  expect(marqueeProfiler.bridgeMessageCount).toBeGreaterThan(0);
+  expect(marqueeProfiler.bridgeReplyCount).toBeGreaterThanOrEqual(2);
+  expect(marqueeProfiler.bridgeReplyCountAtMouseup).toBeLessThan(2);
+  expect(marqueeProfiler.finalSelectionChangeCount).toBe(1);
+  expect(marqueeProfiler.elapsedMs).toBeGreaterThan(0);
+  expect(marqueeProfiler.finalSelectionAt).toBe(marqueeProfiler.elapsedMs);
+  expect(marqueeProfiler.finalSelectionIds.length).toBeGreaterThanOrEqual(60);
+  expect(marqueeProfiler.host.marqueeSelectionChange).toBeGreaterThan(1);
+  expect(marqueeProfiler.host.marqueeFinalSelectionChange).toBe(1);
+  expect(marqueeProfiler.host.captureCurrentSelection).toBeLessThanOrEqual(2);
+  expect(marqueeProfiler.host.buildCodeLayerProjection).toBeLessThanOrEqual(4);
+  expect(marqueeProfiler.host.reactCommits).toBeGreaterThan(0);
+  expect(marqueeProfiler.bridge.domScans).toBe(2);
+  expect(marqueeProfiler.bridge.subtreeNodes).toBeGreaterThan(0);
+  expect(marqueeSelectionAfterRows).not.toEqual(marqueeSelectionBeforeRows);
+  expect(marqueeSelectionAfterRows).toEqual(
+    expect.arrayContaining([
+      "Card 1",
+      "Ready",
+      "Nested auto-layout content for performance profiling.",
+    ]),
+  );
+  await page.keyboard.press(
+    process.platform === "darwin" ? "Meta+z" : "Control+z",
+  );
+  await expect
+    .poll(async () =>
+      page
+        .locator('[aria-selected="true"]')
+        .evaluateAll((rows) =>
+          rows.map((row) => row.textContent?.trim() ?? ""),
+        ),
+    )
+    .toEqual(marqueeSelectionBeforeRows);
+
   const longTasks = await readLongTasks(page);
   await page.context().tracing.stop({
     path: path.join(EVIDENCE_DIR, "bridge-baseline-trace.zip"),
@@ -509,6 +944,16 @@ test("collect selectable rects baseline on nested responsive screens", async ({
           bridgeMessageTypes: (await bridgeMessages(page)).map(
             (message) => message.type,
           ),
+        },
+        marqueeProfiler: {
+          ...marqueeProfiler,
+          selectionBeforeRows: marqueeSelectionBeforeRows,
+          selectionAfterRows: marqueeSelectionAfterRows,
+          undoSelectionRows: await page
+            .locator('[aria-selected="true"]')
+            .evaluateAll((rows) =>
+              rows.map((row) => row.textContent?.trim() ?? ""),
+            ),
         },
         longTasks,
         capturedAt: new Date().toISOString(),

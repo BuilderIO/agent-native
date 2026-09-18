@@ -173,6 +173,85 @@ export function useDocumentReconcileRecovery({
     [current, latestDraft, publish, retainLatest],
   );
 
+  const resolveAutomatically = useCallback(
+    async (
+      initialDraft: ReconcileRecoveryDraft,
+      base: ReconcileSaveBase,
+    ): Promise<boolean> => {
+      if (current.current || inFlight.current) {
+        generation.current += 1;
+        publish({
+          reason: current.current?.reason ?? "conflict",
+          ...initialDraft,
+          saving: false,
+        });
+        try {
+          if (callbacks.current.retain)
+            await callbacks.current.retain(initialDraft);
+        } catch {
+          const latest = current.current;
+          if (latest)
+            publish({ ...latest, reason: "save-failed", saving: false });
+        }
+        return false;
+      }
+      inFlight.current = true;
+      const started = generation.current;
+      let saveBase: ReconcileSaveBase | undefined = base;
+      let draft = initialDraft;
+      let attempts = 0;
+      try {
+        while (
+          generation.current === started &&
+          !current.current &&
+          attempts < 3
+        ) {
+          attempts += 1;
+          const identity = callbacks.current.getSaveIdentity();
+          const persisted = await callbacks.current.save(draft, saveBase);
+          if (generation.current !== started || current.current) {
+            await retainLatest();
+            return false;
+          }
+          if (!persisted) {
+            await retainLatest();
+            publish({
+              reason: "conflict",
+              ...latestDraft(),
+              saving: false,
+            });
+            return false;
+          }
+          if (callbacks.current.getSaveIdentity() === identity) return true;
+          draft = latestDraft();
+          saveBase = undefined;
+        }
+        await retainLatest();
+        if (generation.current === started && !current.current) {
+          publish({ reason: "conflict", ...latestDraft(), saving: false });
+        }
+        return false;
+      } catch {
+        if (generation.current === started && !current.current) {
+          try {
+            await retainLatest();
+          } catch {
+            // The visible recovery state remains the final fallback.
+          }
+          publish({
+            reason: "save-failed",
+            ...latestDraft(),
+            saving: false,
+          });
+        }
+        return false;
+      } finally {
+        inFlight.current = false;
+      }
+    },
+    [current, latestDraft, publish, retainLatest],
+  );
+
   const resolveChoice = useCallback(
     async (
       base: ReconcileSaveBase,
@@ -241,6 +320,7 @@ export function useDocumentReconcileRecovery({
     updateDraft,
     reportRetentionFailure,
     resolve,
+    resolveAutomatically,
     resolveChoice,
     release,
     current,

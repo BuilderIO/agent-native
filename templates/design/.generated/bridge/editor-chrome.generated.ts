@@ -1447,19 +1447,24 @@ export const editorChromeBridgeScript: string = `"use strict";
       "__reactInternalFiber$"
     ];
     function reactFiberOf(el) {
-      var keys = Object.keys(el);
+      var keys = Object.getOwnPropertyNames(el);
+      var fallback = null;
       for (var i = 0; i < keys.length; i += 1) {
         for (var j = 0; j < REACT_FIBER_KEY_PREFIXES.length; j += 1) {
           if (keys[i].indexOf(REACT_FIBER_KEY_PREFIXES[j]) === 0) {
-            return el[keys[i]];
+            var fiber = el[keys[i]];
+            if (!fallback) fallback = fiber;
+            if (fiber && fiber._debugSource) return fiber;
           }
         }
       }
-      return null;
+      return fallback;
     }
     function reactDebugProvenance(el) {
       var cached = reactDebugProvenanceCache?.get(el);
-      if (cached !== void 0) return cached;
+      if (cached !== void 0 && (cached.method === "debug-source" || cached.method === "debug-stack-remapped")) {
+        return cached;
+      }
       var leafFiber = reactFiberOf(el);
       if (!leafFiber) return { unavailableReason: "not-framework" };
       var elementLocation = fiberDebugLocation(leafFiber);
@@ -1935,10 +1940,8 @@ export const editorChromeBridgeScript: string = `"use strict";
           cloneNode.setAttribute("data-an-runtime-layer-remove", "true");
           continue;
         }
-        cloneNode.setAttribute(
-          "data-agent-native-node-id",
-          ensureRuntimeLayerNodeId(sourceNode)
-        );
+        var runtimeNodeId = ensureRuntimeLayerNodeId(sourceNode);
+        cloneNode.setAttribute("data-agent-native-node-id", runtimeNodeId);
         inlineSnapshotComputedStyle(sourceNode, cloneNode);
         var provenance = elementDebugProvenance(sourceNode);
         if (provenance.sourceFile) {
@@ -1958,6 +1961,25 @@ export const editorChromeBridgeScript: string = `"use strict";
           }
           if (provenance.component) {
             cloneNode.setAttribute("data-component-name", provenance.component);
+          }
+          var runtimeComponent = runtimeComponentIdentityForElement(
+            sourceNode,
+            provenance,
+            runtimeNodeId
+          );
+          if (runtimeComponent) {
+            cloneNode.setAttribute(
+              "data-agent-native-runtime-component-id",
+              runtimeComponent.componentId
+            );
+            cloneNode.setAttribute(
+              "data-agent-native-runtime-instance-id",
+              runtimeComponent.instanceId
+            );
+            cloneNode.setAttribute(
+              "data-agent-native-runtime-component-capability",
+              runtimeComponent.writeCapability
+            );
           }
           if (provenance.ownerSourceFile) {
             cloneNode.setAttribute(
@@ -2505,6 +2527,57 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!elementLooksLikeComponent(el) || !el || !el.getAttribute) return "";
       return layerNameForElement(el);
     }
+    function runtimeComponentPropsForElement(el) {
+      var props = [];
+      if (!el.attributes) return props;
+      for (var index = 0; index < el.attributes.length; index += 1) {
+        var attribute = el.attributes[index];
+        if (!attribute || attribute.name.indexOf("data-agent-native-prop-") !== 0)
+          continue;
+        var rawName = attribute.name.slice("data-agent-native-prop-".length);
+        if (!rawName) continue;
+        props.push({
+          name: rawName.replace(/-([a-z])/g, function(_match, letter) {
+            return String(letter).toUpperCase();
+          }),
+          value: attribute.value
+        });
+      }
+      return props;
+    }
+    function runtimeComponentIdentityForElement(el, provenance, instanceId) {
+      var name = provenance.component && provenance.component.trim();
+      var definitionSourceFile = provenance.sourceFile && provenance.sourceFile.trim();
+      var invocationSourceFile = provenance.ownerSourceFile && provenance.ownerSourceFile.trim();
+      var invocationLine = provenance.ownerLine;
+      var invocationColumn = provenance.ownerColumn;
+      var invocationMethod = provenance.ownerMethod;
+      if (!name || !definitionSourceFile || !provenance.framework || provenance.framework === "html" || !instanceId) {
+        return void 0;
+      }
+      var boundary = [
+        provenance.framework,
+        definitionSourceFile,
+        provenance.line || "",
+        provenance.column || "",
+        name
+      ].join("|");
+      var writable = provenance.framework === "react" && invocationSourceFile !== void 0 && invocationMethod !== void 0 && invocationMethod !== "debug-stack" && Number.isFinite(invocationLine) && Number.isFinite(invocationColumn);
+      return {
+        componentId: "runtime-component-" + runtimeLayerHash(boundary),
+        instanceId,
+        name,
+        framework: provenance.framework,
+        sourceFile: invocationSourceFile,
+        line: invocationLine,
+        column: invocationColumn,
+        method: invocationMethod,
+        ownerKey: provenance.ownerKey,
+        props: runtimeComponentPropsForElement(el),
+        writeCapability: writable ? "authored-jsx-literal" : "unsupported",
+        reason: writable ? void 0 : "The runtime did not expose a verified authored component invocation location."
+      };
+    }
     function isAutoLayoutDisplay(display) {
       return display === "flex" || display === "inline-flex" || display === "grid" || display === "inline-grid";
     }
@@ -2762,17 +2835,178 @@ export const editorChromeBridgeScript: string = `"use strict";
       width: true,
       height: true
     };
-    function collectPortableComputedStyles(el) {
+    var portableStyleMutationObserverOptions = {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      characterData: true
+    };
+    function portableStyleMutationAffectsCache(record) {
+      if (record.type === "attributes") {
+        return !(record.target instanceof Element && (record.attributeName === "data-an-pending-node-id" || isOverlayElement(record.target)));
+      }
+      if (record.type !== "childList") {
+        return !(record.target instanceof Node && record.target.parentElement && isOverlayElement(record.target.parentElement));
+      }
+      if (record.target instanceof Element && isOverlayElement(record.target)) {
+        return false;
+      }
+      var nodes = Array.prototype.slice.call(record.addedNodes).concat(Array.prototype.slice.call(record.removedNodes));
+      return nodes.length === 0 || nodes.some(function(node) {
+        return !(node instanceof Element && isOverlayElement(node) || node.parentElement && isOverlayElement(node.parentElement));
+      });
+    }
+    function portableStyleMutationGeneration(cache) {
+      try {
+        var records = cache.mutationObserver.takeRecords();
+        if (records.some(portableStyleMutationAffectsCache)) {
+          cache.mutationGeneration += 1;
+        }
+      } catch (_error) {
+        cache.mutationGeneration += 1;
+        dndLog("style:mutation-state-unreadable");
+      }
+      return cache.mutationGeneration;
+    }
+    function portableStyleObserveMutationRoot(cache, root) {
+      if (cache.observedMutationRoots.indexOf(root) !== -1) return true;
+      try {
+        cache.mutationObserver.observe(
+          root,
+          portableStyleMutationObserverOptions
+        );
+        cache.observedMutationRoots.push(root);
+        if (cache.observedMutationRoots.length > 1) {
+          cache.mutationGeneration += 1;
+        }
+        return true;
+      } catch (_error) {
+        cache.mutationGeneration += 1;
+        dndLog("style:mutation-root-unavailable");
+        return false;
+      }
+    }
+    function portableStyleObserveElementRoot(cache, el) {
+      try {
+        var shadowRoot = el.shadowRoot;
+        if (shadowRoot && !portableStyleObserveMutationRoot(cache, shadowRoot)) {
+          return false;
+        }
+        var getRootNode = el.getRootNode;
+        if (typeof getRootNode !== "function") return true;
+        var root = getRootNode.call(el);
+        if (!(root instanceof Node)) return false;
+        return portableStyleObserveMutationRoot(cache, root);
+      } catch (_error) {
+        cache.mutationGeneration += 1;
+        dndLog("style:mutation-root-read-failed", { tag: el.tagName });
+        return false;
+      }
+    }
+    function createPortableStyleComputedStylesCache() {
+      if (typeof MutationObserver === "undefined") return void 0;
+      var cache = {
+        entries: /* @__PURE__ */ new Map(),
+        mutationObserver: null,
+        mutationGeneration: 0,
+        observedMutationRoots: []
+      };
+      try {
+        var observer = new MutationObserver(function(records) {
+          if (records.some(portableStyleMutationAffectsCache)) {
+            cache.mutationGeneration += 1;
+          }
+        });
+        cache.mutationObserver = observer;
+        if (!portableStyleObserveMutationRoot(cache, document)) {
+          observer.disconnect();
+          return void 0;
+        }
+        return cache;
+      } catch (_error) {
+        dndLog("style:mutation-observer-unavailable");
+        return void 0;
+      }
+    }
+    function portableStyleAnimationParent(el) {
+      try {
+        var assignedSlot = el.assignedSlot;
+        if (assignedSlot instanceof Element) return assignedSlot;
+        if (el.parentElement) return el.parentElement;
+        var getRootNode = el.getRootNode;
+        if (typeof getRootNode !== "function") return null;
+        var root = getRootNode.call(el);
+        var host = root.host;
+        return host instanceof Element ? host : null;
+      } catch (_error) {
+        dndLog("style:animation-parent-read-failed", { tag: el.tagName });
+        return void 0;
+      }
+    }
+    function canReadPortableAnimationState(el) {
+      var animatedElement = el;
+      try {
+        var getAnimations = animatedElement.getAnimations;
+        if (typeof getAnimations !== "function") {
+          dndLog("style:animation-state-unreadable", { tag: el.tagName });
+          return false;
+        }
+        var animations = getAnimations.call(animatedElement);
+        if (!Array.isArray(animations)) {
+          dndLog("style:animation-state-unreadable", { tag: el.tagName });
+          return false;
+        }
+        for (var index = 0; index < animations.length; index += 1) {
+          var playState = animations[index]?.playState;
+          if (typeof playState !== "string") {
+            dndLog("style:animation-state-unreadable", { tag: el.tagName });
+            return false;
+          }
+          if (playState === "running" || playState === "pending") return false;
+        }
+        return true;
+      } catch (_error) {
+        dndLog("style:animation-state-read-failed", { tag: el.tagName });
+        return false;
+      }
+    }
+    function canReusePortableComputedStyles(el, cache) {
+      var current = el;
+      while (current) {
+        var parent = portableStyleAnimationParent(current);
+        if (parent === void 0) return false;
+        if (cache && (!portableStyleObserveElementRoot(cache, current) || parent && !portableStyleObserveElementRoot(cache, parent))) {
+          return false;
+        }
+        if (!canReadPortableAnimationState(current)) return false;
+        current = parent;
+      }
+      return true;
+    }
+    function collectPortableComputedStyles(el, cache, computedStyle) {
       if (!el) return {};
-      var cs = window.getComputedStyle(el);
+      var cacheSafe = !cache || canReusePortableComputedStyles(el, cache);
+      var cacheGeneration = cache ? portableStyleMutationGeneration(cache) : void 0;
+      var cached = cache?.entries.get(el);
+      if (cacheSafe && cached && cached.generation === cacheGeneration) {
+        return cached.styles;
+      }
+      var cacheFailure = function() {
+        var failureGeneration = cache ? portableStyleMutationGeneration(cache) : void 0;
+        if (cache && cacheSafe && failureGeneration === cacheGeneration) {
+          cache.entries.set(el, { generation: failureGeneration, styles: null });
+        }
+        return null;
+      };
+      var cs = computedStyle || window.getComputedStyle(el);
       var defaults = portableStyleTagDefaults(el);
-      if (!defaults) return null;
+      if (!defaults) return cacheFailure();
       var hostStyle = el.style;
       var styles = {};
       var typedElement = el;
       if (typeof typedElement.computedStyleMap !== "function") {
         dndLog("style:typed-om-unavailable", { tag: el.tagName });
-        return null;
+        return cacheFailure();
       }
       try {
         var typedStyles = typedElement.computedStyleMap();
@@ -2780,7 +3014,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           var typedValue = typedStyles.get(property);
           if (typedValue == null || !String(typedValue).trim()) {
             dndLog("style:typed-om-value-missing", { property });
-            return null;
+            return cacheFailure();
           }
           var size = String(typedValue).trim();
           if (size !== "auto" || hostStyle?.getPropertyValue(property)) {
@@ -2789,7 +3023,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
       } catch (_error) {
         dndLog("style:typed-om-read-failed", { tag: el.tagName });
-        return null;
+        return cacheFailure();
       }
       PORTABLE_STYLE_PROPERTIES.forEach(function(property2) {
         if (PORTABLE_STYLE_BOX_SIZE_PROPERTIES[property2]) return;
@@ -2808,9 +3042,13 @@ export const editorChromeBridgeScript: string = `"use strict";
           }
         }
       }
+      var finalGeneration = cache ? portableStyleMutationGeneration(cache) : void 0;
+      if (cache && cacheSafe && finalGeneration === cacheGeneration) {
+        cache.entries.set(el, { generation: finalGeneration, styles });
+      }
       return styles;
     }
-    function collectPortableStyleSnapshot(root) {
+    function collectPortableStyleSnapshot(root, cache, rootComputedStyle) {
       if (!root || isDocumentRootElement(root)) return void 0;
       var maxNodes = 5e3;
       var descendants = Array.prototype.slice.call(root.querySelectorAll("*"));
@@ -2841,7 +3079,11 @@ export const editorChromeBridgeScript: string = `"use strict";
           probeFailed = true;
           return;
         }
-        var styles = collectPortableComputedStyles(node);
+        var styles = collectPortableComputedStyles(
+          node,
+          node === root ? void 0 : cache,
+          node === root ? rootComputedStyle : void 0
+        );
         if (styles === null) {
           probeFailed = true;
           return;
@@ -3282,7 +3524,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         "--an-vector-stroke-position": el.getAttribute("data-an-vector-stroke-position") || ""
       };
     }
-    function getElementInfo(el) {
+    function getElementInfo(el, portableComputedStylesCache) {
       var cs = window.getComputedStyle(el);
       var paintCs = window.getComputedStyle(vectorPaintTarget(el) || el);
       var boundingRect = rectInfoForElement(el);
@@ -3320,6 +3562,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         alignItems: parentStyles.alignItems,
         justifyContent: parentStyles.justifyContent,
         gap: parentStyles.gap,
+        gridAutoFlow: parentStyles.gridAutoFlow,
         gridTemplateColumns: parentStyles.gridTemplateColumns,
         gridTemplateRows: parentStyles.gridTemplateRows,
         position: parentStyles.position
@@ -3356,10 +3599,21 @@ export const editorChromeBridgeScript: string = `"use strict";
         });
       }
       var provenance = elementDebugProvenance(el);
-      var portableStyleSnapshot = collectPortableStyleSnapshot(el);
+      var runtimeComponent = runtimeComponentIdentityForElement(
+        el,
+        provenance,
+        sourceId || runtimeSourceId || pendingNodeId || getSelector(el)
+      );
+      var portableStyleSnapshot = collectPortableStyleSnapshot(
+        el,
+        portableComputedStylesCache,
+        cs
+      );
       return {
         tagName: el.tagName.toLowerCase(),
         componentName: componentName || void 0,
+        componentAnnotation: explicitComponentNameForElement(el) || void 0,
+        runtimeComponent,
         id: el.id || void 0,
         sourceId,
         runtimeSelector: runtimeSelector || void 0,
@@ -3556,9 +3810,15 @@ export const editorChromeBridgeScript: string = `"use strict";
           return documentSpaceBoundsContainPoint(el, atPoint);
         });
       }
-      return targets.map(function(target) {
-        return getElementInfo(target);
-      });
+      portableStyleProbeDocument();
+      var portableComputedStylesCache = createPortableStyleComputedStylesCache();
+      try {
+        return targets.map(function(target) {
+          return getElementInfo(target, portableComputedStylesCache);
+        });
+      } finally {
+        portableComputedStylesCache?.mutationObserver.disconnect();
+      }
     }
     function documentSpaceBoundsContainPoint(el, point) {
       var bounds = selectableBounds(el);
@@ -6631,6 +6891,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       var key = e.key;
       var normalized = normalizedHotkeyChar(e);
       var primary = e.metaKey || e.ctrlKey;
+      var isArrangeBracketChord = (e.code === "BracketRight" || e.code === "BracketLeft") && (!primary && !e.altKey && !e.shiftKey || primary && !e.shiftKey || e.ctrlKey && !e.metaKey && !e.altKey && e.shiftKey);
+      if (isArrangeBracketChord) return true;
       if (key === "Escape" || key === "Enter") return true;
       if (key === " " && e.code === "Space") {
         return !primary && !e.altKey && !e.shiftKey;
@@ -6941,7 +7203,6 @@ export const editorChromeBridgeScript: string = `"use strict";
       return a.left <= b.right && a.right >= b.left && a.top <= b.bottom && a.bottom >= b.top;
     }
     function postElementMarqueeSelect(elements, additive, e, final, infoCache, lightInfoCache) {
-      var primaryIndex = elements.length - 1;
       function lightInfo(el) {
         if (!lightInfoCache) return getLightElementInfo(el, true);
         var cached = lightInfoCache.get(el);
@@ -6955,9 +7216,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         {
           type: "agent-native:layer-marquee-selection",
           phase: "change",
-          payload: elements.map(function(el, index) {
+          payload: elements.map(function(el) {
             if (!final) return lightInfo(el);
-            if (index !== primaryIndex) return lightInfo(el);
             if (!infoCache) return getElementInfo(el);
             var cached = infoCache.get(el);
             if (cached === void 0) {
@@ -11338,8 +11598,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       var gestureState = memberStates[groupEls.indexOf(gestureEl)] || memberStates[0];
       var originLeft = gestureState.originLeft;
       var originTop = gestureState.originTop;
-      var startX = e.clientX;
-      var startY = e.clientY;
+      var startX = pointerStartParam ? pointerStartParam.clientX : e.clientX;
+      var startY = pointerStartParam ? pointerStartParam.clientY : e.clientY;
       var dragEl = gestureEl;
       var gestureViewport = bridgeGestureViewport();
       var DRAG_THRESHOLD = 3;
@@ -11368,11 +11628,13 @@ export const editorChromeBridgeScript: string = `"use strict";
       bridgeMoveController.pointerDown({
         kind: "move",
         objectIds: [getSelector(gestureEl)],
-        // \`e\` is deliberately the event that actually began the legacy move
-        // lifecycle, not \`pointerStartParam\`: anchoring the controller at the
-        // pointerdown moves the element the extra threshold-crossing distance,
-        // which breaks the cross-screen drop's target resolution.
-        pointer: bridgeGesturePointer(e),
+        // Shield drags begin here after their threshold-crossing event. For an
+        // alt-drag, the clone must include the movement from the original press;
+        // plain shield drags keep their existing threshold-relative baseline so
+        // cross-screen target resolution is unchanged.
+        pointer: bridgeGesturePointer(
+          duplicatedForDrag && pointerStartParam ? { ...e, ...pointerStartParam } : e
+        ),
         viewport: gestureViewport,
         canvas: { width: gestureViewport.width, height: gestureViewport.height }
       });
@@ -11396,7 +11658,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var dragElOffsetScaleX = ancestorScale(dragEl, "x");
       var dragElOffsetScaleY = ancestorScale(dragEl, "y");
       if (!isGroupDrag) {
-        postCrossScreenDrag("start", dragEl, e, {
+        postCrossScreenDrag("start", dragEl, pointerStartParam || e, {
           duplicate: duplicatedForDrag
         });
       }
@@ -11476,7 +11738,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           currentAutoLayoutTarget = null;
           hideInsertionGuide();
         } else {
-          currentAutoLayoutTarget = !duplicatedForDrag && !bridgeSpaceKeyPressed ? autoLayoutInsertionTargetForPoint(
+          currentAutoLayoutTarget = !bridgeSpaceKeyPressed ? autoLayoutInsertionTargetForPoint(
             dragEl,
             ev.clientX,
             ev.clientY,
@@ -11576,6 +11838,8 @@ export const editorChromeBridgeScript: string = `"use strict";
             positionOverlay(selectionOverlay, selectedEl);
             postElementSelect(selectedEl);
             postCrossScreenDrag("cancel");
+          } else if (!isGroupDrag) {
+            postCrossScreenDrag("cancel");
           }
           return;
         }
@@ -11603,7 +11867,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           }
           return;
         }
-        if (ev && !duplicatedForDrag && !outsideOnDrop && !bridgeSpaceKeyPressed) {
+        if (ev && !outsideOnDrop && !bridgeSpaceKeyPressed) {
           var finalAutoLayoutTarget = autoLayoutInsertionTargetForPoint(
             dragEl,
             ev.clientX,
@@ -11633,7 +11897,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           postVisualDuplicateChange(
             originalSelectedEl,
             dragEl,
-            null,
+            currentAutoLayoutTarget,
             duplicatedSourceNodeIdMap
           );
           postCrossScreenDrag("cancel");
@@ -14970,6 +15234,9 @@ export const editorChromeBridgeScript: string = `"use strict";
           "aria-label",
           "class",
           "data-agent-native-component",
+          "data-agent-native-runtime-component-capability",
+          "data-agent-native-runtime-component-id",
+          "data-agent-native-runtime-instance-id",
           "data-agent-native-layer-name",
           "data-layer-name",
           "layer-name",

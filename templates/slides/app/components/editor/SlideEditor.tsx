@@ -229,6 +229,7 @@ import {
   isSmartGroup,
   isSlideCanvasShortcutTarget,
   isSlideTextEditingTarget,
+  resolveSlideTextSelectionTarget,
   shouldStampBuilderId,
   shouldTraverseSlideLayerChildren,
 } from "./slide-text-targets";
@@ -508,6 +509,89 @@ function getBuilderSelector(el: HTMLElement): string | null {
   const id = el.getAttribute("data-builder-id");
   if (id) return `[data-builder-id="${id}"]`;
   return null;
+}
+
+function isTransparentCssColor(value: string): boolean {
+  const normalized = value.replace(/\s+/g, "");
+  const components = normalized.split(",");
+  return (
+    normalized === "transparent" ||
+    (components.length === 4 && components[3] === "0)") ||
+    normalized.endsWith("/0)")
+  );
+}
+
+function isInvisibleEmptyTextBox(element: HTMLElement): boolean {
+  if (
+    !element.matches(".fmd-text-box[data-slide-object-id]") ||
+    element.textContent?.trim()
+  ) {
+    return false;
+  }
+  const computed = window.getComputedStyle(element);
+  const hasBorder = [
+    [computed.borderTopStyle, computed.borderTopWidth],
+    [computed.borderRightStyle, computed.borderRightWidth],
+    [computed.borderBottomStyle, computed.borderBottomWidth],
+    [computed.borderLeftStyle, computed.borderLeftWidth],
+  ].some(
+    ([style, width]) => style !== "none" && Number.parseFloat(width || "0") > 0,
+  );
+  const hasOutline =
+    computed.outlineStyle !== "none" &&
+    Number.parseFloat(computed.outlineWidth || "0") > 0;
+  return (
+    isTransparentCssColor(computed.backgroundColor) &&
+    !hasBorder &&
+    !hasOutline &&
+    computed.boxShadow === "none"
+  );
+}
+
+function resolveSlideCanvasHitTarget(
+  target: HTMLElement,
+  slideContent: HTMLElement,
+  clientX: number,
+  clientY: number,
+): HTMLElement {
+  const emptyTextBox = target.closest<HTMLElement>(
+    ".fmd-text-box[data-slide-object-id]",
+  );
+  if (
+    !emptyTextBox ||
+    !slideContent.contains(emptyTextBox) ||
+    !isInvisibleEmptyTextBox(emptyTextBox)
+  ) {
+    return target;
+  }
+  const underlying = document
+    .elementsFromPoint(clientX, clientY)
+    .map((element) => {
+      let candidate: Element | null = element;
+      while (
+        candidate &&
+        candidate !== slideContent &&
+        slideContent.contains(candidate)
+      ) {
+        if (
+          candidate instanceof HTMLElement &&
+          candidate.hasAttribute("data-builder-id")
+        ) {
+          return candidate;
+        }
+        candidate = candidate.parentElement;
+      }
+      return null;
+    })
+    .find(
+      (element): element is HTMLElement =>
+        element !== null &&
+        element !== emptyTextBox &&
+        !emptyTextBox.contains(element) &&
+        element !== slideContent &&
+        !isSlideCanvasShell(element),
+    );
+  return underlying ?? target;
 }
 
 const PASTED_TEXT_STYLE_PROPERTIES = [
@@ -2513,7 +2597,7 @@ export default function SlideEditor({
     // Selection and freeform promotion are separate operations. Merely ending
     // text editing must not turn a flow-layout block into an absolutely
     // positioned object, because that changes its available wrapping width.
-    const selector = getBuilderSelector(el);
+    const slideContent = getSlideContent();
 
     const session = richTextEditorSessionRef.current;
     if (session) {
@@ -2524,6 +2608,10 @@ export default function SlideEditor({
     const html = readCurrentSlideContentHtml();
     const disposed = disposeRichTextEditor();
     const selected = disposed?.element ?? el;
+    const selectionTarget = slideContent
+      ? resolveSlideTextSelectionTarget(selected, slideContent)
+      : selected;
+    const selector = getBuilderSelector(selectionTarget);
     editingElRef.current = null;
     richTextSelectionRef.current = null;
     window.getSelection()?.removeAllRanges();
@@ -2550,8 +2638,8 @@ export default function SlideEditor({
       selectedObjectIds: resolveSelectedElement() ? ["selected"] : [],
     });
     setEditingEl(null);
-    if (escape.action === "select-object" && selected && selector) {
-      selectElementForStyling(selected, selector);
+    if (escape.action === "select-object" && selectionTarget && selector) {
+      selectElementForStyling(selectionTarget, selector);
     } else if (escape.action === "clear-selection") {
       clearSelectedElement();
       syncSelectionToAppState(null);
@@ -2563,6 +2651,7 @@ export default function SlideEditor({
       (html === null ? undefined : hashSlideContent(html))
     );
   }, [
+    getSlideContent,
     readCurrentSlideContentHtml,
     disposeRichTextEditor,
     resolveSelectedElement,
@@ -2591,9 +2680,13 @@ export default function SlideEditor({
       const activeSession = richTextEditorSessionRef.current;
       if (activeSession?.element === el) return;
       if (activeSession) disposeRichTextEditor();
-      const selector = getBuilderSelector(el);
       const slideContent = getSlideContent();
       if (!slideContent) return;
+      const selectionTarget = resolveSlideTextSelectionTarget(el, slideContent);
+      const selector = getBuilderSelector(selectionTarget);
+      if (selector) {
+        selectElementForStyling(selectionTarget, selector, "editing");
+      }
       const nativeSelection = window.getSelection();
       const nativeRange =
         nativeSelection?.rangeCount === 1
@@ -2685,7 +2778,7 @@ export default function SlideEditor({
       );
       if (selector) {
         const item = selectionItemForElement(
-          el,
+          selectionTarget,
           selector,
           undefined,
           undefined,
@@ -2705,6 +2798,7 @@ export default function SlideEditor({
       handleRichTextEditorReady,
       onInlineEditStart,
       scheduleInlineEditDraftCapture,
+      selectElementForStyling,
       slide.content,
       slide.id,
     ],
@@ -2798,7 +2892,12 @@ export default function SlideEditor({
         editingEl,
         selection,
       );
-      const selector = selectedElementSelector ?? getBuilderSelector(editingEl);
+      const slideContent = getSlideContent();
+      const selectionTarget = slideContent
+        ? resolveSlideTextSelectionTarget(editingEl, slideContent)
+        : editingEl;
+      const selector =
+        selectedElementSelector ?? getBuilderSelector(selectionTarget);
       if (!selector) return;
       const snapshot = buildStyleSnapshot(
         editingEl,
@@ -2809,7 +2908,7 @@ export default function SlideEditor({
       syncSelectionToAppState(
         buildSelectionState("editing", [
           selectionItemForElement(
-            editingEl,
+            selectionTarget,
             selector,
             snapshot,
             undefined,
@@ -2823,7 +2922,7 @@ export default function SlideEditor({
     document.addEventListener("selectionchange", updateInspectorTextStyle);
     return () =>
       document.removeEventListener("selectionchange", updateInspectorTextStyle);
-  }, [editingEl, selectedElementSelector]);
+  }, [editingEl, getSlideContent, selectedElementSelector]);
 
   // Click-outside: exit inline edit mode
   useEffect(() => {
@@ -2886,10 +2985,16 @@ export default function SlideEditor({
         syncSelectionToAppState(null);
         return;
       }
+      const editingElement = editingElRef.current;
+      const slideContent = editingElement ? getSlideContent() : null;
+      const resolvedEditingElement =
+        editingElement && slideContent
+          ? resolveSlideTextSelectionTarget(editingElement, slideContent)
+          : editingElement;
       const inlineTextStyle =
-        editingElRef.current === element
+        editingElement && resolvedEditingElement === element
           ? getInlineTextStyleSnapshotForRange(
-              element,
+              editingElement,
               richTextSelectionRef.current,
             )
           : undefined;
@@ -2899,7 +3004,7 @@ export default function SlideEditor({
         inlineTextStyle,
       );
       const selectedText =
-        editingElRef.current === element
+        editingElement && resolvedEditingElement === element
           ? richTextSelectionRef.current?.toString()
           : undefined;
       const rect = element.getBoundingClientRect();
@@ -2961,6 +3066,7 @@ export default function SlideEditor({
   }, [
     buildSelectionState,
     clearSelectedElement,
+    getSlideContent,
     resolveSelectedElement,
     selectedElementPath,
     selectedElementSlideId,
@@ -6953,7 +7059,12 @@ export default function SlideEditor({
       if (e.button !== 0) return; // left click only
       const slideContent = getSlideContent();
       if (!slideContent) return;
-      const target = e.target as HTMLElement;
+      const target = resolveSlideCanvasHitTarget(
+        e.target as HTMLElement,
+        slideContent,
+        e.clientX,
+        e.clientY,
+      );
 
       if (shapeType) {
         e.preventDefault();
@@ -7441,8 +7552,15 @@ export default function SlideEditor({
       // don't select/style-edit.
       if (editingEl?.contains(e.target as Node)) return;
 
-      const target = e.target as HTMLElement;
       const slideContent = getSlideContent();
+      const target = slideContent
+        ? resolveSlideCanvasHitTarget(
+            e.target as HTMLElement,
+            slideContent,
+            e.clientX,
+            e.clientY,
+          )
+        : (e.target as HTMLElement);
 
       // --- Shift / Cmd / Ctrl click → toggle membership in the multi-selection
       const additive = e.shiftKey || e.metaKey || e.ctrlKey;
@@ -7520,9 +7638,12 @@ export default function SlideEditor({
             textEditable: true,
           }) === "edit"
         ) {
-          const blockSelector = getBuilderSelector(block);
+          const selectionTarget = resolveSlideTextSelectionTarget(
+            block,
+            slideContent,
+          );
+          const blockSelector = getBuilderSelector(selectionTarget);
           if (blockSelector) {
-            selectElementForStyling(block, blockSelector);
             enterSelectionMode("agentNative.enterStyleEditing", {
               selector: blockSelector,
             });
@@ -8108,12 +8229,34 @@ export default function SlideEditor({
       if (readOnly) return;
 
       const target = e.target as HTMLElement;
+      const slideContent = containerRef.current?.querySelector(
+        ".slide-content",
+      ) as HTMLElement | null;
+      const resolvedTarget = slideContent
+        ? resolveSlideCanvasHitTarget(
+            target,
+            slideContent,
+            e.clientX,
+            e.clientY,
+          )
+        : target;
+      const imageOwner =
+        slideContent && resolvedTarget !== slideContent
+          ? findPersistedImageObject(resolvedTarget, slideContent)
+          : null;
+      const imageTarget =
+        resolvedTarget.tagName === "IMG"
+          ? resolvedTarget
+          : imageOwner?.querySelector<HTMLElement>("img");
+      const imagePlaceholder = resolvedTarget.closest<HTMLElement>(
+        ".fmd-img-placeholder",
+      );
 
       // For images / placeholders, show overlay
-      if (target.tagName === "IMG" || target.closest(".fmd-img-placeholder")) {
+      if (imageTarget || imagePlaceholder) {
         e.preventDefault();
         e.stopPropagation();
-        showImageOverlay(target);
+        showImageOverlay(imageTarget ?? imagePlaceholder ?? resolvedTarget);
         return;
       }
 
@@ -8123,12 +8266,9 @@ export default function SlideEditor({
       if (!isHtmlSlide) return;
 
       // Find the nearest smart block (leaf OR group of leaves) and edit it.
-      const slideContent = containerRef.current?.querySelector(
-        ".slide-content",
-      ) as HTMLElement | null;
       if (!slideContent) return;
       stampBuilderIds(slideContent);
-      const block = findSmartBlock(target, slideContent);
+      const block = findSmartBlock(resolvedTarget, slideContent);
       if (!block) return;
 
       e.preventDefault();
