@@ -145,6 +145,32 @@ async function getText(
   });
 }
 
+async function headText(
+  url: string,
+  headers: Record<string, string> = {},
+): Promise<{ status: number; headers: http.IncomingHttpHeaders }> {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url);
+    const request = http.request(
+      {
+        hostname: parsed.hostname,
+        port: Number(parsed.port),
+        path: `${parsed.pathname}${parsed.search}`,
+        method: "HEAD",
+        headers,
+      },
+      (res) => {
+        res.resume();
+        res.on("end", () =>
+          resolve({ status: res.statusCode ?? 0, headers: res.headers }),
+        );
+      },
+    );
+    request.on("error", reject);
+    request.end();
+  });
+}
+
 const tmpRoots: string[] = [];
 const appUrlEnvKeys = [
   "AGENT_NATIVE_URL",
@@ -950,6 +976,17 @@ describe("design connect bridge endpoints", () => {
     const root = tmpDir();
     const devPort = await freePort();
     const devServer = http.createServer((req, res) => {
+      if (
+        req.url?.startsWith("/@id/__x00__virtual:react-router/browser-manifest")
+      ) {
+        res.writeHead(200, {
+          "content-type": "application/javascript; charset=utf-8",
+        });
+        res.end(
+          "const manifest={url:'/@id/__x00__virtual:react-router/browser-manifest',runtime:'/@id/__x00__virtual:react-router/inject-hmr-runtime',routes:{root:{module:'/app/root.tsx',clientActionModule:'/app/actions.ts'}}};",
+        );
+        return;
+      }
       if (req.url?.startsWith("/src/main.ts")) {
         if (req.headers.cookie || req.headers.authorization) {
           res.writeHead(400, { "content-type": "text/plain" });
@@ -966,7 +1003,7 @@ describe("design connect bridge endpoints", () => {
           "cache-control": "no-store",
         });
         res.end(
-          "window.__csrBooted = true; document.querySelector('#root').textContent = 'CSR booted';",
+          "import '/src/dependency.ts'; window.__csrBooted = true; document.querySelector('#root').textContent = 'CSR booted';",
         );
         return;
       }
@@ -986,7 +1023,7 @@ describe("design connect bridge endpoints", () => {
       }
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       res.end(
-        `<!doctype html><html><head><title>CSR</title></head><body><div id="root">Loading</div><script type="module" src="/src/main.ts"></script><script type="module">import "/@id/__x00__virtual:react-router/inject-hmr-runtime";</script></body></html>`,
+        `<!doctype html><html><head><title>CSR</title></head><body><div id="root">Loading</div><img src="/assets/cover.png"><video controls src="/assets/preview.mp4"></video><script type="module" src="/src/main.ts"></script><script type="module">import "/@id/__x00__virtual:react-router/browser-manifest"; import "/@id/__x00__virtual:react-router/inject-hmr-runtime";</script></body></html>`,
       );
     });
     await new Promise<void>((resolve, reject) => {
@@ -1037,10 +1074,22 @@ describe("design connect bridge endpoints", () => {
       expect(html.headers["content-type"]).toContain("text/html");
       expect(html.body).toContain(`<base href="${base}/">`);
       expect(html.body).toContain(
-        'src="/src/main.ts" crossorigin="use-credentials"',
+        `src="/src/main.ts?previewToken=${bridge.previewToken}" crossorigin="use-credentials"`,
+      );
+      expect(html.body).toContain(
+        `/assets/cover.png?previewToken=${bridge.previewToken}`,
+      );
+      expect(html.body).toContain(
+        `/assets/preview.mp4?previewToken=${bridge.previewToken}`,
       );
       expect(html.body).toContain(
         `inject-hmr-runtime?previewToken=${bridge.previewToken}`,
+      );
+      expect(html.body).toContain(
+        `browser-manifest?previewToken=${bridge.previewToken}`,
+      );
+      expect(html.body).toContain(
+        `<script type="importmap" data-agent-native-opaque-preview-imports>`,
       );
       expect(html.body).toContain("data-agent-native-opaque-preview-auth");
       expect(html.body).toContain(bridge.previewToken);
@@ -1057,18 +1106,23 @@ describe("design connect bridge endpoints", () => {
       );
       expect(interactHtml.status).toBe(200);
       expect(interactHtml.body).toContain(`<base href="${base}/">`);
-      expect(interactHtml.body).toContain('src="/src/main.ts"');
+      expect(interactHtml.body).toContain(
+        `src="/src/main.ts?previewToken=${bridge.previewToken}"`,
+      );
       expect(interactHtml.body).not.toContain(
         "agent-native:editor-chrome-ready",
       );
 
-      const module = await getText(`${base}/src/main.ts`, {
-        "sec-fetch-site": "cross-site",
-        "sec-fetch-dest": "script",
-        origin: "null",
-        cookie: `${previewSessionCookie}; pilot_session=must-not-forward`,
-        authorization: "Bearer example-must-not-forward",
-      });
+      const module = await getText(
+        `${base}/src/main.ts?previewToken=${bridge.previewToken}`,
+        {
+          "sec-fetch-site": "cross-site",
+          "sec-fetch-dest": "script",
+          origin: "null",
+          cookie: `${previewSessionCookie}; pilot_session=must-not-forward`,
+          authorization: "Bearer example-must-not-forward",
+        },
+      );
       expect(module.status).toBe(200);
       expect(module.headers["content-type"]).toContain(
         "application/javascript",
@@ -1081,7 +1135,28 @@ describe("design connect bridge endpoints", () => {
       expect(module.headers["cross-origin-resource-policy"]).toBe(
         "cross-origin",
       );
+      expect(module.body).toContain(
+        `/src/dependency.ts?previewToken=${bridge.previewToken}`,
+      );
       expect(module.body).toContain("CSR booted");
+
+      const manifestModule = await getText(
+        `${base}/@id/__x00__virtual:react-router/browser-manifest?previewToken=${bridge.previewToken}`,
+        { origin: "null" },
+      );
+      expect(manifestModule.status).toBe(200);
+      expect(manifestModule.body).toContain(
+        `/app/root.tsx?previewToken=${bridge.previewToken}`,
+      );
+      expect(manifestModule.body).toContain(
+        `/app/actions.ts?previewToken=${bridge.previewToken}`,
+      );
+      expect(manifestModule.body).toContain(
+        `/@id/__x00__virtual:react-router/browser-manifest?previewToken=${bridge.previewToken}`,
+      );
+      expect(manifestModule.body).toContain(
+        `/@id/__x00__virtual:react-router/inject-hmr-runtime?previewToken=${bridge.previewToken}`,
+      );
 
       const css = await getText(`${base}/src/styles.css`, {
         origin: "null",
@@ -1093,10 +1168,34 @@ describe("design connect bridge endpoints", () => {
         `/assets/app.woff2?previewToken=${bridge.previewToken}#font`,
       );
 
-      const cssModule = await getText(`${base}/src/styles.module.js`, {
-        cookie: previewSessionCookie,
-      });
+      const cssHead = await headText(
+        `${base}/src/styles.css?previewToken=${bridge.previewToken}`,
+        { origin: "null" },
+      );
+      expect(cssHead.status).toBe(200);
+      expect(cssHead.headers["content-length"]).toBe(
+        String(Buffer.byteLength(css.body)),
+      );
+      expect(cssHead.headers["cache-control"]).toBe("no-store");
+
+      const cookieOnlyCssModule = await getText(
+        `${base}/src/styles.module.js`,
+        {
+          origin: "null",
+          cookie: previewSessionCookie,
+        },
+      );
+      expect(cookieOnlyCssModule.status).toBe(200);
+      expect(
+        cookieOnlyCssModule.headers["access-control-allow-origin"],
+      ).toBeUndefined();
+
+      const cssModule = await getText(
+        `${base}/src/styles.module.js?previewToken=${bridge.previewToken}`,
+        { origin: "null" },
+      );
       expect(cssModule.status).toBe(200);
+      expect(cssModule.headers["access-control-allow-origin"]).toBe("null");
       expect(cssModule.body).toContain(
         `/assets/app.woff2?previewToken=${bridge.previewToken}#font`,
       );

@@ -740,11 +740,12 @@ function isLoopbackOrigin(parsed: URL): boolean {
 function isApprovedDesignOrigin(
   rawOrigin: string,
   configuredOrigins: ReadonlySet<string>,
+  opaquePreviewAuthorized = false,
 ): boolean {
-  // Sandboxed loopback preview documents have an opaque `null` origin. The
-  // bridge token still gates every preview/control response; this CORS grant
-  // only lets their module scripts and editor bridge boot under COEP.
-  if (rawOrigin === "null") return true;
+  // Sandboxed loopback preview documents have an opaque `null` origin. It is
+  // only approved when this request carries the non-cookie preview token;
+  // sibling opaque frames must not be able to spend this bridge's cookie.
+  if (rawOrigin === "null") return opaquePreviewAuthorized;
   let parsed: URL;
   try {
     parsed = new URL(rawOrigin);
@@ -770,11 +771,12 @@ function configureBridgeCors(
   req: IncomingMessage,
   res: ServerResponse,
   configuredOrigins: ReadonlySet<string>,
+  opaquePreviewAuthorized = false,
 ): boolean {
   const origin =
     typeof req.headers.origin === "string" ? req.headers.origin : "";
   const approved = origin
-    ? isApprovedDesignOrigin(origin, configuredOrigins)
+    ? isApprovedDesignOrigin(origin, configuredOrigins, opaquePreviewAuthorized)
     : false;
   (res as CorsAwareResponse)[BRIDGE_CORS_HEADERS] = approved
     ? {
@@ -833,6 +835,7 @@ function sendBytes(
   headers: Headers,
   contentLength = body.length,
   setCookieHeaders: string[] = [],
+  transformed = false,
 ) {
   const responseHeaders: Record<string, string | string[]> = {
     ...bridgeCorsHeaders(res),
@@ -849,9 +852,11 @@ function sendBytes(
     "etag",
     "last-modified",
   ]) {
+    if (transformed && name !== "content-type") continue;
     const value = headers.get(name);
     if (value) responseHeaders[name] = value;
   }
+  if (transformed) responseHeaders["cache-control"] = "no-store";
   res.writeHead(statusCode, responseHeaders);
   res.end(body);
 }
@@ -1422,44 +1427,102 @@ function addLiveEditBaseHref(html: string, href: string): string {
   return `<!DOCTYPE html><html><head>${baseTag}<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>${html}</body></html>`;
 }
 
+function addPreviewTokenToResourceUrl(
+  resourceUrl: string,
+  previewToken: string,
+): string {
+  if (!resourceUrl || /^(?:[a-z][a-z\d+.-]*:|\/\/|#)/i.test(resourceUrl)) {
+    return resourceUrl;
+  }
+  const hashIndex = resourceUrl.indexOf("#");
+  const path = hashIndex === -1 ? resourceUrl : resourceUrl.slice(0, hashIndex);
+  const hash = hashIndex === -1 ? "" : resourceUrl.slice(hashIndex);
+  if (!path || /(?:[?&])previewToken=/.test(path)) return resourceUrl;
+  const separator = path.includes("?") ? "&" : "?";
+  return `${path}${separator}previewToken=${encodeURIComponent(previewToken)}${hash}`;
+}
+
 function addOpaqueFrameCredentials(
   html: string,
   previewToken?: string,
 ): string {
   const withCredentialedResources = html.replace(
-    /<(script|link)\b([^>]*?)>/gi,
+    /<(script|link|img|audio|video|source|track|iframe)\b([^>]*?)>/gi,
     (fullTag, tagName: string, attributes: string) => {
       const resourceMatch = attributes.match(
-        /\b(?:src|href)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i,
+        /\b(src|href)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i,
       );
       const resourceUrl =
-        resourceMatch?.[1] ?? resourceMatch?.[2] ?? resourceMatch?.[3] ?? "";
+        resourceMatch?.[2] ?? resourceMatch?.[3] ?? resourceMatch?.[4] ?? "";
       if (!resourceUrl || /^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(resourceUrl)) {
         return fullTag;
       }
-      if (/\bcrossorigin\s*=/i.test(attributes)) {
-        return `<${tagName}${attributes.replace(
-          /\bcrossorigin\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/i,
-          'crossorigin="use-credentials"',
-        )}>`;
+      let nextAttributes = attributes;
+      if (previewToken) {
+        const tokenizedResourceUrl = addPreviewTokenToResourceUrl(
+          resourceUrl,
+          previewToken,
+        );
+        if (tokenizedResourceUrl !== resourceUrl) {
+          nextAttributes = nextAttributes.replace(
+            resourceMatch[0],
+            resourceMatch[0].replace(resourceUrl, tokenizedResourceUrl),
+          );
+        }
       }
-      return `<${tagName}${attributes} crossorigin="use-credentials">`;
+      if (
+        tagName.toLowerCase() === "script" ||
+        tagName.toLowerCase() === "link"
+      ) {
+        if (/\bcrossorigin\s*=/i.test(nextAttributes)) {
+          nextAttributes = nextAttributes.replace(
+            /\bcrossorigin\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/i,
+            'crossorigin="use-credentials"',
+          );
+        } else {
+          nextAttributes += ' crossorigin="use-credentials"';
+        }
+      }
+      return `<${tagName}${nextAttributes}>`;
     },
   );
   if (!previewToken) return withCredentialedResources;
+  const withInlineModuleTokens = withCredentialedResources.replace(
+    /(<script\b[^>]*\btype\s*=\s*["']module["'][^>]*>)([\s\S]*?)(<\/script\s*>)/gi,
+    (_full, opening: string, body: string, closing: string) =>
+      `${opening}${addOpaqueFrameJavaScriptResourceTokens(body, previewToken)}${closing}`,
+  );
   const hmrImport = "/@id/__x00__virtual:react-router/inject-hmr-runtime";
   const hmrImportWithToken = `${hmrImport}?previewToken=${encodeURIComponent(previewToken)}`;
-  const withHmrToken = withCredentialedResources
+  const withHmrToken = withInlineModuleTokens
     .replaceAll(`"${hmrImport}"`, `"${hmrImportWithToken}"`)
     .replaceAll(`'${hmrImport}'`, `'${hmrImportWithToken}'`);
   const previewTokenLiteral = JSON.stringify(previewToken).replace(
     /</g,
     "\\u003c",
   );
-  return injectDocumentMarkup(
+  const previewImportMap = JSON.stringify({
+    imports: {
+      "/@id/__x00__virtual:react-router/browser-manifest": `${hmrImport.replace(
+        "/inject-hmr-runtime",
+        "/browser-manifest",
+      )}?previewToken=${encodeURIComponent(previewToken)}`,
+      "/@id/__x00__virtual:react-router/hmr-runtime": `${hmrImport.replace(
+        "/inject-hmr-runtime",
+        "/hmr-runtime",
+      )}?previewToken=${encodeURIComponent(previewToken)}`,
+      "/@vite/client": `/@vite/client?previewToken=${encodeURIComponent(previewToken)}`,
+    },
+  });
+  const withImportMap = injectDocumentMarkup(
     withHmrToken,
+    `<script type="importmap" data-agent-native-opaque-preview-imports>${previewImportMap}</script>`,
+    { target: "head" },
+  );
+  return injectDocumentMarkup(
+    withImportMap,
     // coercion-ok: invalid browser-owned URLs stay unchanged in the frame.
-    String.raw`<script data-agent-native-opaque-preview-auth>(function(){var t=${previewTokenLiteral},o;try{o=new URL(document.baseURI).origin}catch(_){return}function u(v){try{var a=new URL(String(v),document.baseURI);if(a.origin!==o||a.searchParams.has("previewToken"))return null;a.searchParams.set("previewToken",t);return a.toString()}catch(_){return null}}function c(v){return String(v).replace(/url\(\s*(["']?)([^"'()]+)\1\s*\)/gi,function(h,q,v){var s=u(v);return s?"url("+q+s+q+")":h})}var f=window.fetch.bind(window);window.fetch=function(i,n){var v=i instanceof Request?i.url:i,s=u(v);return s?f(i instanceof Request?new Request(s,i):s,n):f(i,n)};var x=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,v){var s=u(v);return x.call(this,m,s||v,...Array.prototype.slice.call(arguments,2))};var p=Node.prototype.appendChild;Node.prototype.appendChild=function(n){if(n&&n.nodeType===1){var a=n.tagName==="SCRIPT"?"src":n.tagName==="LINK"?"href":n.tagName==="IMG"?"src":n.tagName==="IFRAME"?"src":null;if(a){var v=n.getAttribute(a),s=u(v);if(s)n.setAttribute(a,s)}else if(n.tagName==="STYLE"&&n.textContent){n.textContent=c(n.textContent)}}return p.call(this,n)};var e=window.EventSource;if(e){var E=function(v,n){return new e(u(v)||v,n)};E.prototype=e.prototype;window.EventSource=E}})();</script>`,
+    String.raw`<script data-agent-native-opaque-preview-auth>(function(){var t=${previewTokenLiteral},o;try{o=new URL(document.baseURI).origin}catch(_){return}function u(v){try{var a=new URL(String(v),document.baseURI);if(a.origin!==o||a.searchParams.has("previewToken"))return null;a.searchParams.set("previewToken",t);return a.toString()}catch(_){return null}}function c(v){return String(v).replace(/url\(\s*(["']?)([^"'()]+)\1\s*\)/gi,function(h,q,v){var s=u(v);return s?"url("+q+s+q+")":h})}var f=window.fetch.bind(window);window.fetch=function(i,n){var v=i instanceof Request?i.url:i,s=u(v);return s?f(i instanceof Request?new Request(s,i):s,n):f(i,n)};var x=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,v){var s=u(v);return x.call(this,m,s||v,...Array.prototype.slice.call(arguments,2))};var p=Node.prototype.appendChild;Node.prototype.appendChild=function(n){if(n&&n.nodeType===1){var a=n.tagName==="SCRIPT"?"src":n.tagName==="LINK"?"href":n.tagName==="IMG"?"src":n.tagName==="IFRAME"?"src":null;if(a){var v=n.getAttribute(a),s=u(v);if(s)n.setAttribute(a,s)}else if(n.tagName==="STYLE"&&n.textContent){n.textContent=c(n.textContent)}}return p.call(this,n)};var e=window.EventSource;if(e){var E=function(v,n){return new e(u(v)||v,n);};E.prototype=e.prototype;window.EventSource=E}})();</script>`,
     { target: "head" },
   );
 }
@@ -1471,18 +1534,54 @@ function addOpaqueFrameResourceTokens(
   return css.replace(
     /url\(\s*(["']?)([^"'()]+)\1\s*\)/gi,
     (full, quote: string, resourceUrl: string) => {
-      if (!resourceUrl || /^(?:[a-z][a-z\d+.-]*:|\/\/|#)/i.test(resourceUrl)) {
-        return full;
-      }
-      const hashIndex = resourceUrl.indexOf("#");
-      const path =
-        hashIndex === -1 ? resourceUrl : resourceUrl.slice(0, hashIndex);
-      const hash = hashIndex === -1 ? "" : resourceUrl.slice(hashIndex);
-      if (!path || /(?:[?&])previewToken=/.test(path)) return full;
-      const separator = path.includes("?") ? "&" : "?";
-      return `url(${quote}${path}${separator}previewToken=${encodeURIComponent(previewToken)}${hash}${quote})`;
+      const tokenizedResourceUrl = addPreviewTokenToResourceUrl(
+        resourceUrl,
+        previewToken,
+      );
+      return tokenizedResourceUrl === resourceUrl
+        ? full
+        : `url(${quote}${tokenizedResourceUrl}${quote})`;
     },
   );
+}
+
+function addOpaqueFrameJavaScriptResourceTokens(
+  source: string,
+  previewToken: string,
+): string {
+  const rewrite = (prefix: string, quote: string, resourceUrl: string) =>
+    `${prefix}${quote}${addPreviewTokenToResourceUrl(resourceUrl, previewToken)}${quote}`;
+  return source
+    .replace(
+      /(\b(?:import|export)\s+[^;\n]*?\sfrom\s*)(["'])(\/(?:[^"']*))\2/g,
+      (_full, prefix: string, quote: string, resourceUrl: string) =>
+        rewrite(prefix, quote, resourceUrl),
+    )
+    .replace(
+      /(\bimport\s+)(["'])(\/(?:[^"']*))\2/g,
+      (_full, prefix: string, quote: string, resourceUrl: string) =>
+        rewrite(prefix, quote, resourceUrl),
+    )
+    .replace(
+      /(\bimport\s*\(\s*)(["'])(\/(?:[^"']*))\2/g,
+      (_full, prefix: string, quote: string, resourceUrl: string) =>
+        rewrite(prefix, quote, resourceUrl),
+    )
+    .replace(
+      /(\bnew\s+URL\s*\(\s*)(["'])(\/(?:[^"']*))\2/g,
+      (_full, prefix: string, quote: string, resourceUrl: string) =>
+        rewrite(prefix, quote, resourceUrl),
+    )
+    .replace(
+      /((?:["']?)(?:module|clientActionModule|clientLoaderModule|clientMiddlewareModule|hydrateFallbackModule)(?:["']?)\s*:\s*)(["'])(\/(?:app|@id)\/[^"']*)\2/g,
+      (_full, prefix: string, quote: string, resourceUrl: string) =>
+        rewrite(prefix, quote, resourceUrl),
+    )
+    .replace(
+      /((?:["']?)(?:url|runtime)(?:["']?)\s*:\s*)(["'])(\/\@id\/__x00__virtual:react-router\/(?:browser-manifest|inject-hmr-runtime|hmr-runtime))\2/g,
+      (_full, prefix: string, quote: string, resourceUrl: string) =>
+        rewrite(prefix, quote, resourceUrl),
+    );
 }
 
 /**
@@ -2420,7 +2519,30 @@ export async function startDesignConnectBridge(
 
   const server = http.createServer(
     (req: IncomingMessage, res: ServerResponse) => {
-      const corsApproved = configureBridgeCors(req, res, configuredOrigins);
+      const requestUrl = new URL(req.url ?? "/", manifest.bridgeUrl);
+      const pathname = requestUrl.pathname;
+      const explicitPreviewToken =
+        readHeader(req, "x-design-preview-token") ||
+        requestUrl.searchParams.get("previewToken") ||
+        "";
+      const providedPreviewToken =
+        explicitPreviewToken ||
+        readRequestCookie(req, PREVIEW_SESSION_COOKIE_NAME) ||
+        "";
+      const previewTokenValid = constantTimeTokenMatches(
+        providedPreviewToken,
+        previewToken,
+      );
+      const explicitPreviewTokenValid = constantTimeTokenMatches(
+        explicitPreviewToken,
+        previewToken,
+      );
+      const corsApproved = configureBridgeCors(
+        req,
+        res,
+        configuredOrigins,
+        explicitPreviewTokenValid && readHeader(req, "origin") === "null",
+      );
       if (req.method === "OPTIONS") {
         sendJson(
           res,
@@ -2431,18 +2553,6 @@ export async function startDesignConnectBridge(
         );
         return;
       }
-
-      const requestUrl = new URL(req.url ?? "/", manifest.bridgeUrl);
-      const pathname = requestUrl.pathname;
-      const providedPreviewToken =
-        readHeader(req, "x-design-preview-token") ||
-        requestUrl.searchParams.get("previewToken") ||
-        readRequestCookie(req, PREVIEW_SESSION_COOKIE_NAME) ||
-        "";
-      const previewTokenValid = constantTimeTokenMatches(
-        providedPreviewToken,
-        previewToken,
-      );
       const rejectInvalidPreviewToken = (): boolean => {
         if (previewTokenValid) return false;
         sendJson(res, 401, {
@@ -3040,16 +3150,17 @@ export async function startDesignConnectBridge(
                 ? undefined
                 : await readPreviewProxyRequestBody(req);
             const cookieHeader = previewSessionCookies.headerFor(targetUrl);
+            const proxiedRequestHeaders = previewProxyRequestHeaders(
+              req,
+              manifest.devServerUrl,
+              cookieHeader,
+            );
             const proxied = await fetchPreviewProxyResource(
               manifest.devServerUrl,
               targetUrl,
               {
                 method,
-                headers: previewProxyRequestHeaders(
-                  req,
-                  manifest.devServerUrl,
-                  cookieHeader,
-                ),
+                headers: proxiedRequestHeaders,
                 body: requestBody,
               },
               previewSessionCookies,
@@ -3106,24 +3217,56 @@ export async function startDesignConnectBridge(
                     ),
                   )
                 : proxied.body;
-            const responseText = responseBody.toString("utf8");
+            const headStylesheetProbe =
+              method === "HEAD" &&
+              previewTokenValid &&
+              (contentType.includes("text/css") ||
+                contentType.includes("javascript"))
+                ? await fetchPreviewProxyResource(
+                    manifest.devServerUrl,
+                    targetUrl,
+                    { method: "GET", headers: proxiedRequestHeaders },
+                    previewSessionCookies,
+                  )
+                : undefined;
+            const resourceBody = headStylesheetProbe?.body ?? responseBody;
+            const responseText = resourceBody.toString("utf8");
             const opaqueFrameStylesheet =
               contentType.includes("text/css") ||
               (contentType.includes("javascript") &&
                 responseText.includes("__vite__css"));
-            const opaqueFrameResponseBody =
-              previewTokenValid && opaqueFrameStylesheet && method !== "HEAD"
-                ? Buffer.from(
-                    addOpaqueFrameResourceTokens(responseText, previewToken),
-                  )
-                : responseBody;
+            const opaqueFrameJavaScript = contentType.includes("javascript");
+            const shouldRewriteOpaqueFrameResources =
+              previewTokenValid &&
+              (opaqueFrameStylesheet || opaqueFrameJavaScript);
+            const rewrittenResourceText = opaqueFrameJavaScript
+              ? addOpaqueFrameJavaScriptResourceTokens(
+                  responseText,
+                  previewToken,
+                )
+              : responseText;
+            const opaqueFrameResponseBody = shouldRewriteOpaqueFrameResources
+              ? Buffer.from(
+                  opaqueFrameStylesheet
+                    ? addOpaqueFrameResourceTokens(
+                        rewrittenResourceText,
+                        previewToken,
+                      )
+                    : rewrittenResourceText,
+                )
+              : responseBody;
+            const advertisedContentLength =
+              method === "HEAD" && !shouldRewriteOpaqueFrameResources
+                ? Number(proxied.headers.get("content-length")) || 0
+                : opaqueFrameResponseBody.length;
             sendBytes(
               res,
               proxied.status,
               method === "HEAD" ? Buffer.alloc(0) : opaqueFrameResponseBody,
               proxied.headers,
-              opaqueFrameResponseBody.length,
+              advertisedContentLength,
               proxied.setCookieHeaders,
+              shouldRewriteOpaqueFrameResources,
             );
           } catch (err: unknown) {
             sendJson(
