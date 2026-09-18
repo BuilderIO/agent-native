@@ -244,6 +244,26 @@ describe("applyLocalLabelDelta", () => {
     expect(dbState.updates[0].set.inInbox).toBe(0);
   });
 
+  it("fences untrash label removal as an inbox and label mutation", async () => {
+    dbState.threadRows = [
+      {
+        id: "owner@example.com:acct1@example.com:t1",
+        labelIdsJson: JSON.stringify(["TRASH"]),
+      },
+    ];
+
+    await applyLocalLabelDelta(
+      "owner@example.com",
+      "acct1@example.com",
+      ["t1"],
+      { remove: ["TRASH"], providerHistoryId: "12" },
+    );
+
+    expect(dbState.updates[0].set.localMutationAt).toEqual(expect.any(Number));
+    expect(dbState.updates[0].set.localMutationHistoryId).toBe("12");
+    expect(dbState.updates[0].set.localMutationFields).toBe(17);
+  });
+
   it("keeps overlapping local field claims and the newest provider fence", async () => {
     dbState.threadRows = [
       {
@@ -281,7 +301,7 @@ describe("applyLocalLabelDelta", () => {
   });
 
   describe("scope: message", () => {
-    it("removing UNREAD decrements unread_count by only the targeted message ids", async () => {
+    it("defers message-scoped read aggregates without per-message labels", async () => {
       dbState.threadRows = [
         {
           id: "owner@example.com:acct1@example.com:t1",
@@ -299,14 +319,14 @@ describe("applyLocalLabelDelta", () => {
       );
 
       const { set } = dbState.updates[0];
-      expect(set.unreadCount).toBe(2);
-      expect(set.isUnread).toBe(1);
-      // Other messages in the thread are still unread — the union must keep
-      // UNREAD, not drop it just because one message was read.
+      expect(set.unreadCount).toBeUndefined();
+      expect(set.isUnread).toBeUndefined();
+      // The row has no per-message labels, so leave the aggregate untouched
+      // until the next exact thread sync.
       expect(JSON.parse(set.labelIdsJson)).toContain("UNREAD");
     });
 
-    it("marks the thread read once the last targeted unread message is cleared", async () => {
+    it("does not mark a message-scoped read as a thread-wide read", async () => {
       dbState.threadRows = [
         {
           id: "owner@example.com:acct1@example.com:t1",
@@ -324,12 +344,12 @@ describe("applyLocalLabelDelta", () => {
       );
 
       const { set } = dbState.updates[0];
-      expect(set.unreadCount).toBe(0);
-      expect(set.isUnread).toBe(0);
-      expect(JSON.parse(set.labelIdsJson)).not.toContain("UNREAD");
+      expect(set.unreadCount).toBeUndefined();
+      expect(set.isUnread).toBeUndefined();
+      expect(JSON.parse(set.labelIdsJson)).toContain("UNREAD");
     });
 
-    it("adding UNREAD increments unread_count and marks the thread unread", async () => {
+    it("does not invent an unread aggregate for a message-scoped mark-unread", async () => {
       dbState.threadRows = [
         {
           id: "owner@example.com:acct1@example.com:t1",
@@ -347,38 +367,9 @@ describe("applyLocalLabelDelta", () => {
       );
 
       const { set } = dbState.updates[0];
-      expect(set.unreadCount).toBe(1);
-      expect(set.isUnread).toBe(1);
-    });
-
-    it("marking a 1-message thread unread twice stays clamped at message_count (1)", async () => {
-      const row = {
-        id: "owner@example.com:acct1@example.com:t1",
-        labelIdsJson: JSON.stringify(["INBOX"]),
-        messageIdsJson: JSON.stringify(["m1"]),
-        unreadCount: 0,
-      };
-      dbState.threadRows = [row];
-
-      await applyLocalLabelDelta(
-        "owner@example.com",
-        "acct1@example.com",
-        ["t1"],
-        { add: ["UNREAD"], scope: "message", messageIds: ["m1"] },
-      );
-      expect(dbState.updates[0].set.unreadCount).toBe(1);
-
-      // Simulate the same "mark unread" mutation landing again (e.g. a
-      // duplicate call) before the next history sync rehydrates state.
-      row.unreadCount = dbState.updates[0].set.unreadCount;
-      await applyLocalLabelDelta(
-        "owner@example.com",
-        "acct1@example.com",
-        ["t1"],
-        { add: ["UNREAD"], scope: "message", messageIds: ["m1"] },
-      );
-
-      expect(dbState.updates[1].set.unreadCount).toBe(1);
+      expect(set.unreadCount).toBeUndefined();
+      expect(set.isUnread).toBeUndefined();
+      expect(JSON.parse(set.labelIdsJson)).not.toContain("UNREAD");
     });
 
     it("adding STARRED sets the thread flag immediately", async () => {
@@ -423,6 +414,9 @@ describe("applyLocalLabelDelta", () => {
       expect(JSON.parse(dbState.updates[0].set.labelIdsJson)).toContain(
         "STARRED",
       );
+      expect(dbState.updates[0].set.localMutationFields).toEqual(
+        expect.any(Number),
+      );
     });
   });
 });
@@ -457,14 +451,31 @@ describe("sync write fences", () => {
 
     expect(dbState.conflictUpdates[0].setWhere).toMatchObject({ op: "sql" });
     expect(dbState.conflictUpdates[0].setWhere.strings.join(" ")).toContain(
-      "excluded.history_id",
-    );
-    expect(dbState.conflictUpdates[0].setWhere.strings.join(" ")).toContain(
-      "CAST(excluded.history_id AS NUMERIC)",
+      "label_ids_json",
     );
     expect(dbState.conflictUpdates[0].setWhere.strings.join(" ")).toContain(
       "unread_count",
     );
+  });
+
+  it("drops the provider fence when a later mutation has no fence", async () => {
+    dbState.threadRows = [
+      {
+        id: "owner@example.com:acct1@example.com:t1",
+        labelIdsJson: JSON.stringify(["INBOX"]),
+        localMutationHistoryId: "20",
+        localMutationFields: 1,
+      },
+    ];
+
+    await applyLocalLabelDelta(
+      "owner@example.com",
+      "acct1@example.com",
+      ["t1"],
+      { remove: ["INBOX"] },
+    );
+
+    expect(dbState.updates[0].set.localMutationHistoryId).toBeNull();
   });
 
   it("does not let full-sync cleanup mark a locally updated row stale", async () => {

@@ -338,7 +338,11 @@ function backgroundRefresh(
       scheduleFlush();
       const prevJson = prev ? JSON.stringify(prev.messages) : "";
       const nextJson = JSON.stringify(result.messages);
-      if (prevJson !== nextJson) notify(threadId);
+      if (
+        prevJson !== nextJson ||
+        prev?.providerSnapshotId !== result.providerSnapshotId
+      )
+        notify(threadId);
       return result;
     })
     .catch(() => {

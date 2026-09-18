@@ -58,14 +58,20 @@ function freshCompleteInboxScope(
   fence: number,
 ): boolean {
   const pages = snapshots
-    .filter(([key]) => inboxQueryScope(key) === scope)
+    .filter(
+      ([key, data]) =>
+        inboxQueryScope(key) === scope &&
+        data !== undefined &&
+        data.clientSnapshotId > fence,
+    )
     .sort(([a], [b]) => inboxQueryOffset(a) - inboxQueryOffset(b));
   if (pages.length === 0) return false;
-  const total = pages[0][1]?.total;
+  const firstPage = pages.find(([key]) => inboxQueryOffset(key) === 0)?.[1];
+  const total = firstPage?.total;
   if (typeof total !== "number") return false;
   let covered = 0;
   for (const [key, data] of pages) {
-    if (!data || data.clientSnapshotId <= fence) return false;
+    if (!data) return false;
     const offset = inboxQueryOffset(key);
     if (offset > covered) return false;
     covered = Math.max(covered, offset + data.items.length);
@@ -506,21 +512,34 @@ export function settleInboxMutationIfObserved(
   const snapshots = snapshotInboxThreads(qc) as Array<
     [QueryKey, InboxQueryResult | undefined]
   >;
-  const items = snapshots.flatMap(([, data]) => data?.items ?? []);
-  const itemByThread = new Map(
-    items.map((item) => [threadKeyOf(item), item] as const),
-  );
 
   if (mutation.kind === "remove") {
-    if (mutation.observedThreadIds.length !== mutation.threadIds.length) {
-      return;
-    }
+    const freshItems = snapshots
+      .filter(
+        ([, data]) =>
+          data !== undefined &&
+          data.clientSnapshotId > mutation.providerSnapshotFence,
+      )
+      .flatMap(([, data]) => data?.items ?? []);
+    const freshThreadIds = new Set(freshItems.map(threadKeyOf));
+    const freshScopes = [
+      ...new Set(
+        snapshots
+          .filter(
+            ([, data]) =>
+              data !== undefined &&
+              data.clientSnapshotId > mutation.providerSnapshotFence,
+          )
+          .map(([key]) => inboxQueryScope(key)),
+      ),
+    ];
     for (const threadId of mutation.threadIds) {
-      if (itemByThread.has(threadId)) return;
+      if (freshThreadIds.has(threadId)) return;
       const scopes = mutation.observedQueryScopesByThread[threadId] ?? [];
+      const evidenceScopes = scopes.length > 0 ? scopes : freshScopes;
       if (
-        scopes.length === 0 ||
-        scopes.some(
+        evidenceScopes.length === 0 ||
+        evidenceScopes.some(
           (scope) =>
             !freshCompleteInboxScope(
               snapshots,

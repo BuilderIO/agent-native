@@ -633,7 +633,10 @@ function suppressionAffectsView(
   label: string | undefined,
 ): boolean {
   if (!removed) return true;
-  if (removed.onlyIn) return view !== removed.onlyIn;
+  // A final-location claim is only retired by evidence from that location.
+  // Absence from every other list is expected and says nothing about whether
+  // the destination list has caught up.
+  if (removed.onlyIn) return false;
   return (
     removed.views?.includes(view) === true ||
     (label !== undefined && removed.label === label)
@@ -655,6 +658,10 @@ function reconcileSuppressionEvidence(
       page.emails.map((email) => email.threadId || email.id),
     ),
   );
+  // A missing row is not removal evidence until the loaded cursor reaches the
+  // end. A reorder can move a still-present thread onto an unloaded page.
+  const hasExhaustiveResult =
+    pages.length > 0 && pages[pages.length - 1]?.nextPageToken === undefined;
   const releases: Array<[string, number]> = [];
 
   for (const [threadId, entries] of suppressedThreads) {
@@ -676,7 +683,9 @@ function reconcileSuppressionEvidence(
 
       const observedFinalLocation = entry.removed?.onlyIn === view && isPresent;
       const observedRemoval =
-        !isPresent && suppressionAffectsView(entry.removed, view, label);
+        hasExhaustiveResult &&
+        !isPresent &&
+        suppressionAffectsView(entry.removed, view, label);
       if (observedFinalLocation || observedRemoval)
         releases.push([threadId, id]);
     }
@@ -1493,9 +1502,9 @@ export function useMarkRead() {
       const previousThread = resolvedThreadId
         ? getCachedThread(resolvedThreadId)
         : undefined;
-      const previousReadState = previousThread?.find(
-        (message) => message.id === id,
-      )?.isRead;
+      const previousReadState =
+        previousThread?.find((message) => message.id === id)?.isRead ??
+        target?.isRead;
       const mutationVersion = beginReadMutation(
         id,
         previousReadState ?? target?.isRead,
@@ -1505,11 +1514,14 @@ export function useMarkRead() {
       // Message-scoped: this only touches one message, so the row's unread
       // count must move by ±1, not snap the whole thread to read/unread —
       // see adjustInboxThreadUnreadOptimistic's doc.
-      const inboxMutationId = adjustInboxThreadUnreadOptimistic(
-        qc,
-        resolvedThreadId ?? id,
-        isRead ? -1 : 1,
-      );
+      const inboxMutationId =
+        previousReadState !== undefined && previousReadState !== isRead
+          ? adjustInboxThreadUnreadOptimistic(
+              qc,
+              resolvedThreadId ?? id,
+              isRead ? -1 : 1,
+            )
+          : undefined;
       const restartThread = resolvedThreadId
         ? supersedeCachedThreadFetch(resolvedThreadId)
         : false;

@@ -190,6 +190,9 @@ describe("optimistic property overrides", () => {
     expect(threadHook).toContain("reconcileOptimisticOverrides");
     expect(threadHook).toContain("providerSnapshotId");
     expect(threadHook).toContain("applyOverrides(messages)");
+    expect(threadCacheSource()).toContain(
+      "prev?.providerSnapshotId !== result.providerSnapshotId",
+    );
   });
 });
 
@@ -202,6 +205,8 @@ describe("suppression evidence", () => {
     expect(source).toContain("if (search) return;");
     expect(source).toContain("q.isPlaceholderData");
     expect(source).toContain("page.suppressionFence < id");
+    expect(source).toContain("pages[pages.length - 1]?.nextPageToken");
+    expect(source).toContain("if (removed.onlyIn) return false;");
   });
 
   it("keeps an Undo claim addressable after evidence retires it", () => {

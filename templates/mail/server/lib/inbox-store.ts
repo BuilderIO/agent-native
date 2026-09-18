@@ -354,7 +354,6 @@ export async function applyLocalLabelDelta(
         id: schema.mailInboxThreads.id,
         labelIdsJson: schema.mailInboxThreads.labelIdsJson,
         messageIdsJson: schema.mailInboxThreads.messageIdsJson,
-        unreadCount: schema.mailInboxThreads.unreadCount,
         localMutationHistoryId: schema.mailInboxThreads.localMutationHistoryId,
         localMutationFields: schema.mailInboxThreads.localMutationFields,
       })
@@ -368,20 +367,26 @@ export async function applyLocalLabelDelta(
     const remove = new Set(delta.remove ?? []);
     const now = Date.now();
     const messageScoped = delta.scope === "message";
-    const targetMessageIds = new Set(delta.messageIds ?? []);
     let mutationFields = 0;
-    if (add.includes("INBOX") || add.includes("TRASH") || remove.has("INBOX"))
+    if (
+      add.includes("INBOX") ||
+      add.includes("TRASH") ||
+      remove.has("INBOX") ||
+      remove.has("TRASH")
+    )
       mutationFields |= LOCAL_MUTATION_INBOX;
     if (add.includes("UNREAD") || remove.has("UNREAD"))
       mutationFields |= LOCAL_MUTATION_UNREAD;
-    if (add.includes("STARRED") || (!messageScoped && remove.has("STARRED")))
+    if (add.includes("STARRED") || remove.has("STARRED"))
       mutationFields |= LOCAL_MUTATION_STARRED;
     if (add.includes("IMPORTANT") || remove.has("IMPORTANT"))
       mutationFields |= LOCAL_MUTATION_IMPORTANT;
     if (
       [...add, ...remove].some(
         (label) => !LOCAL_MUTATION_LABEL_NAMES.has(label),
-      )
+      ) ||
+      add.includes("TRASH") ||
+      remove.has("TRASH")
     )
       mutationFields |= LOCAL_MUTATION_LABELS;
     if (messageScoped && add.includes("STARRED"))
@@ -410,10 +415,13 @@ export async function applyLocalLabelDelta(
         (row.localMutationFields ?? 0) | mutationFields;
       if (localMutationFields > 0) {
         set.localMutationAt = now;
-        set.localMutationHistoryId = newestHistoryId(
-          row.localMutationHistoryId,
-          delta.providerHistoryId,
-        );
+        const providerHistoryId = numericHistoryId(delta.providerHistoryId);
+        const priorFields = row.localMutationFields ?? 0;
+        const priorFenceLost = priorFields > 0 && !row.localMutationHistoryId;
+        set.localMutationHistoryId =
+          providerHistoryId && !priorFenceLost
+            ? newestHistoryId(row.localMutationHistoryId, providerHistoryId)
+            : null;
         set.localMutationFields = localMutationFields;
       }
 
@@ -428,37 +436,10 @@ export async function applyLocalLabelDelta(
           set.unreadCount = labels.has("UNREAD") ? messageCount : 0;
         }
       } else {
-        // Only the targeted messages changed, so isUnread/unreadCount must
-        // come from that subset — not from whether UNREAD is anywhere in the
-        // thread's unioned label set, which reflects just the last-touched
-        // message.
-        const messageCount = parseJsonArray<string>(
-          row.messageIdsJson,
-          [],
-        ).length;
-        const matched = parseJsonArray<string>(row.messageIdsJson, []).filter(
-          (id) => targetMessageIds.has(id),
-        ).length;
-        // Clamp to [0, messageCount]: we don't track per-message read state,
-        // so a message-scope mark-unread can only bound the count, not know
-        // whether the targeted messages were already unread. Without the
-        // clamp, marking the same 1-message thread unread twice inflates
-        // unreadCount past messageCount. The next history sync (≤15s)
-        // rehydrates exact per-message state from Gmail.
-        const currentUnread = Math.min(row.unreadCount ?? 0, messageCount);
-        if (delta.remove?.includes("UNREAD")) {
-          const nextUnread = Math.max(0, currentUnread - matched);
-          set.unreadCount = nextUnread;
-          set.isUnread = nextUnread > 0 ? 1 : 0;
-          // Only drop UNREAD from the union once every unread message in the
-          // thread has been cleared — a partial read must not hide the rest.
-          if (nextUnread === 0) labels.delete("UNREAD");
-        } else if (delta.add?.includes("UNREAD")) {
-          const nextUnread = Math.min(messageCount, currentUnread + matched);
-          set.unreadCount = nextUnread;
-          set.isUnread = nextUnread > 0 ? 1 : 0;
-          labels.add("UNREAD");
-        }
+        // The row stores only aggregate read state, not labels per message.
+        // A message-scoped read delta therefore cannot safely adjust the
+        // aggregate (marking an already-read message read would decrement it
+        // again). Leave it for the next exact thread sync.
         if (delta.add?.includes("STARRED")) {
           set.isStarred = 1;
           labels.add("STARRED");
@@ -717,21 +698,13 @@ export async function upsertInboxThreadRows(
       },
       // A Gmail read started before a local mutation may return the old
       // labels after that mutation has already updated this row. Keep the
-      // newer local write until a later sync observation catches up. A fetch
-      // that started after the local write can still be stale, so the Gmail
-      // history id must also move before the marker is cleared. A history id
-      // can advance for an unrelated change, so the affected local fields
-      // must match too when the mutation did not return a provider fence.
+      // newer local write until a later sync observation catches up. A
+      // history id alone is not evidence that this row observed this
+      // mutation: Gmail history advances for unrelated changes too.
       setWhere: sql`
         excluded.synced_at > ${schema.mailInboxThreads.updatedAt}
         AND (
           ${schema.mailInboxThreads.localMutationAt} IS NULL
-          OR (
-            ${schema.mailInboxThreads.localMutationHistoryId} IS NOT NULL
-            AND excluded.history_id IS NOT NULL
-            AND CAST(excluded.history_id AS NUMERIC) >=
-              CAST(${schema.mailInboxThreads.localMutationHistoryId} AS NUMERIC)
-          )
           OR (
             ${schema.mailInboxThreads.localMutationFields} IS NOT NULL
             AND (
@@ -759,10 +732,6 @@ export async function upsertInboxThreadRows(
                 OR excluded.label_ids_json = ${schema.mailInboxThreads.labelIdsJson}
               )
             )
-          )
-          OR (
-            ${schema.mailInboxThreads.localMutationFields} IS NULL
-            AND excluded.history_id IS DISTINCT FROM ${schema.mailInboxThreads.historyId}
           )
         )
       `,

@@ -652,6 +652,61 @@ describe("synced inbox mutation consistency", () => {
     );
   });
 
+  it("settles a removal that started before Inbox had any cached target", () => {
+    const qc = new QueryClient();
+    const mutationId = removeInboxThreadsOptimistic(qc, new Set(["t1"]));
+
+    qc.setQueryData(
+      ["action", "list-inbox-threads", { tab: "important" }],
+      seedResult({
+        items: [seedResult().items[1]],
+        total: 1,
+        complete: true,
+        clientSnapshotId: 1,
+      }),
+    );
+    settleInboxMutationIfObserved(qc, mutationId);
+
+    expect(
+      applyInboxMutationOverlay(qc, {
+        ...seedResult(),
+        items: [seedResult().items[0]],
+      } as any).items,
+    ).toContainEqual(expect.objectContaining({ threadId: "t1" }));
+  });
+
+  it("ignores stale inactive pages when a fresh complete page proves removal", () => {
+    const qc = makeClient(seedResult());
+    qc.setQueryData(
+      ["action", "list-inbox-threads", { tab: "important", offset: 1 }],
+      seedResult({
+        items: [seedResult().items[0]],
+        total: 2,
+        complete: true,
+        clientSnapshotId: 0,
+      }),
+    );
+    const mutationId = removeInboxThreadsOptimistic(qc, new Set(["t1"]));
+
+    qc.setQueryData(
+      ["action", "list-inbox-threads", { tab: "important" }],
+      seedResult({
+        items: [seedResult().items[1]],
+        total: 1,
+        complete: true,
+        clientSnapshotId: 1,
+      }),
+    );
+    settleInboxMutationIfObserved(qc, mutationId);
+
+    expect(
+      applyInboxMutationOverlay(qc, {
+        ...seedResult(),
+        items: [seedResult().items[0]],
+      } as any).items,
+    ).toContainEqual(expect.objectContaining({ threadId: "t1" }));
+  });
+
   it("retires overlapping removals independently after fresh evidence", () => {
     const qc = makeClient(seedResult());
     const archiveId = removeInboxThreadsOptimistic(qc, new Set(["t1"]));
