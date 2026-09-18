@@ -73,6 +73,9 @@ tab visible while tools register, and read the title and first lines before
 work. Never enter, copy, or request passwords, cookies, tokens, or codes. The
 Design page intentionally supports signed-out loopback visual-edit; other
 pages that block tools behind sign-in require the user to sign in in that tab.
+If the browser exposes CDP permissions, grant \`local-network-access\` to
+\`https://design.agent-native.com\` before calling page tools; otherwise use the
+page's Connect button and let the browser's permission prompt complete.
 
 Use a native browser-session WebMCP bridge when the host provides one: list
 once with \`list-browser-session-webmcp-tools\` and run with
