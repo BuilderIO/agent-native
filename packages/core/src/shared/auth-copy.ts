@@ -60,7 +60,7 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     // No surface using this subtitle renders an account chooser: one email
     // field both registers and signs in. Naming a separate "create an account"
     // step sends new users hunting for a control that is not there.
-    welcomeSubtitle: "Continue to sign in or create your account",
+    welcomeSubtitle: "Sign in or create your account",
     email: "Email",
     emailPlaceholder: "you@example.com",
     legalPrefix: "By signing up, you accept our",

@@ -445,13 +445,11 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain("text-align: start;");
     expect(html).toContain('id="use-password-link"');
     expect(html).toContain('class="link-button auth-mode-link"');
-    expect(html).toContain(
-      'style="margin-top:0.75rem;font-size:0.75rem;text-align:start"',
-    );
+    expect(html).toContain('class="auth-mode-switch"');
     expect(html).toContain('id="back-to-magic-link"');
     expect(html).toContain('id="auth-tabs"');
     expect(html).toContain('data-i18n="magicLinkTitle">Welcome</h1>');
-    expect(html).toContain("Continue to sign in or create your account");
+    expect(html).toContain("Sign in or create your account");
     expect(html).toContain("Continue with email");
     expect(html).not.toContain("onclick=");
   });
@@ -707,7 +705,7 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain(
       "Your AI agent manages secrets, orchestrates other agents",
     );
-    expect(html).toContain("100% free and open source");
+    expect(html).toContain("FREE &amp; OPEN SOURCE");
     expect(html).toContain(
       `${AGENT_NATIVE_SOCIAL_IMAGE_PATH}?v=${AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER}`,
     );
