@@ -12606,7 +12606,6 @@ export const editorChromeBridgeScript: string = `"use strict";
         crossScreenDragMoveScheduled = true;
         window.requestAnimationFrame(flushCrossScreenDragMove);
       }
-      var lastMoveEvent = e;
       function activateLateDuplicate(ev) {
         if (duplicatedForDrag || isGroupDrag || !originalSelectedEl) return;
         var source = originalSelectedEl;
@@ -12675,7 +12674,6 @@ export const editorChromeBridgeScript: string = `"use strict";
         postElementSelect(selectedEl);
       }
       function onMove(ev) {
-        lastMoveEvent = ev;
         var controllerMove = bridgeMoveController.pointerMove(
           bridgeGesturePointer(ev)
         );

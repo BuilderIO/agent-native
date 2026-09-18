@@ -17943,7 +17943,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       crossScreenDragMoveScheduled = true;
       window.requestAnimationFrame(flushCrossScreenDragMove);
     }
-    var lastMoveEvent = e;
     function activateLateDuplicate(ev): void {
       if (duplicatedForDrag || isGroupDrag || !originalSelectedEl) return;
       var source = originalSelectedEl as HTMLElement;
@@ -18020,7 +18019,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       postElementSelect(selectedEl);
     }
     function onMove(ev) {
-      lastMoveEvent = ev;
       var controllerMove = bridgeMoveController.pointerMove(
         bridgeGesturePointer(ev),
       );
