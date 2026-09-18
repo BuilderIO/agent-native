@@ -451,7 +451,11 @@ function canvasSurfaceProjection(content: PlanContent) {
     if (!wireframe && !legacyWireframe) return [];
     return {
       label: frame.label ?? referencedBlock?.title ?? null,
-      surface: frame.surface ?? frame.wireframe?.surface ?? "desktop",
+      surface:
+        frame.surface ??
+        wireframe?.surface ??
+        legacyWireframe?.surface ??
+        "desktop",
       wireframe,
       legacyWireframe,
     };
@@ -791,10 +795,9 @@ export default defineAction({
         );
       }
     }
-    surfaceWarnings = surfaceParityWarnings(
-      normalizedContentAtLoad,
-      nextContent,
-    );
+    surfaceWarnings = nextContent
+      ? surfaceParityWarnings(normalizedContentAtLoad, nextContent)
+      : [];
     if (surfaceWarnings.length > 0 && !args.allowSurfaceMismatch) {
       throw new Error(surfaceWarnings.join(" "));
     }
