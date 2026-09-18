@@ -60,6 +60,7 @@ import {
 } from "./embed-session.js";
 import {
   getHttpRequestTelemetryId,
+  registerHttpRequestTelemetryActionRoute,
   setHttpRequestTelemetryActionName,
 } from "./http-response-telemetry.js";
 import { consumeOneTimeJti } from "./identity-sso-store.js";
@@ -494,6 +495,8 @@ function mountActionRoutesInternal(
     const method = options?.forcePost ? "POST" : (http?.method ?? "POST");
     const path = options?.forcePost ? name : (http?.path ?? name);
     const routePath = `${options?.routePrefix ?? ROUTE_PREFIX}/${path}`;
+    const routeTemplate = `${options?.routePrefix ?? ROUTE_PREFIX}/:action`;
+    registerHttpRequestTelemetryActionRoute(routePath, name, routeTemplate);
 
     // `requiresAuth: false` is the action's explicit contract that its own
     // run() can handle an anonymous request. The auth guard runs before this
@@ -517,7 +520,7 @@ function mountActionRoutesInternal(
     app.use(
       routePath,
       defineEventHandler(async (event) => {
-        setHttpRequestTelemetryActionName(event, name);
+        setHttpRequestTelemetryActionName(event, name, routeTemplate);
         const reqMethod = getMethod(event);
         const effectiveMethod =
           reqMethod === "HEAD" && method === "GET" ? "GET" : reqMethod;

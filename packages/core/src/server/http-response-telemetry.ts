@@ -18,8 +18,14 @@ import {
 } from "../db/request-telemetry.js";
 import { getDatabaseRuntimeFingerprint } from "../db/runtime-diagnostics.js";
 import { isMcpPublicPath } from "../mcp/route-paths.js";
-import { flushTrackingEvents } from "../observability/tracing.js";
+import {
+  createTrackingEventScope,
+  flushTrackingEvents,
+  type TrackingEventScope,
+} from "../observability/tracing.js";
 import { track } from "../tracking/index.js";
+import { getConfiguredAppBasePath } from "./app-base-path.js";
+import { getRequestContext } from "./request-context.js";
 
 const TELEMETRY_EVENT_NAME = "http.response";
 const REQUEST_ID_HEADER = "x-agent-native-request-id";
@@ -59,12 +65,33 @@ const processState =
 const REQUEST_TELEMETRY_KEY = Symbol.for(
   "@agent-native/core/http-response-telemetry.request",
 );
+const TRUSTED_ACTION_ROUTES_KEY = Symbol.for(
+  "@agent-native/core/http-response-telemetry.action-routes",
+);
+const REQUEST_TRACKING_SCOPE_KEY = Symbol.for(
+  "@agent-native/core/http-response-telemetry.tracking-scope",
+);
 const installedApps = new WeakSet<object>();
+
+interface TrustedActionRoute {
+  actionName: string;
+  routeTemplate: string;
+}
+
+type GlobalWithActionRoutes = typeof globalThis & {
+  [TRUSTED_ACTION_ROUTES_KEY]?: Map<string, TrustedActionRoute>;
+};
+const actionRouteGlobal = globalThis as GlobalWithActionRoutes;
+const trustedActionRoutes =
+  actionRouteGlobal[TRUSTED_ACTION_ROUTES_KEY] ??
+  (actionRouteGlobal[TRUSTED_ACTION_ROUTES_KEY] = new Map());
 
 interface HttpRequestTelemetryState {
   startedAt: number;
   requestId: string;
   actionName?: string;
+  routeTemplate?: string;
+  trackingScope: TrackingEventScope;
   processAgeAtStartMs: number;
   requestSequence: number;
   frameworkReadyWaitMs: number;
@@ -106,6 +133,51 @@ function requestPath(event: H3Event): string {
     String(event.node?.req?.url ?? event.path ?? "/").split("?")[0] ??
     "/";
   return raw || "/";
+}
+
+export function getOrCreateHttpRequestTrackingScope(
+  event: H3Event,
+): TrackingEventScope {
+  const context = event.context as Record<PropertyKey, unknown>;
+  const existing = context[REQUEST_TRACKING_SCOPE_KEY];
+  if (existing) return existing as TrackingEventScope;
+  const scope = createTrackingEventScope();
+  context[REQUEST_TRACKING_SCOPE_KEY] = scope;
+  return scope;
+}
+
+function normalizedRoutePath(pathname: string): string {
+  const normalized = pathname.startsWith("/") ? pathname : `/${pathname}`;
+  return normalized.replace(/\/+$/, "") || "/";
+}
+
+function trustedActionRouteForPath(
+  pathname: string,
+): TrustedActionRoute | undefined {
+  return trustedActionRoutes.get(normalizedRoutePath(pathname));
+}
+
+export function registerHttpRequestTelemetryActionRoute(
+  routePath: string,
+  actionName: string,
+  routeTemplate: string,
+): void {
+  const normalizedRoutePathValue = normalizedRoutePath(routePath);
+  const normalizedActionName = actionName.trim();
+  const normalizedRouteTemplate = normalizedRoutePath(routeTemplate);
+  if (!normalizedActionName || !normalizedRouteTemplate) return;
+  const route = {
+    actionName: normalizedActionName,
+    routeTemplate: normalizedRouteTemplate,
+  };
+  trustedActionRoutes.set(normalizedRoutePathValue, route);
+  const appBasePath = getConfiguredAppBasePath();
+  if (appBasePath) {
+    trustedActionRoutes.set(
+      normalizedRoutePath(`${appBasePath}${normalizedRoutePathValue}`),
+      route,
+    );
+  }
 }
 
 function normalizeSegment(segment: string): string {
@@ -268,7 +340,7 @@ async function emitTelemetry(
         ...(actionName
           ? {
               action_name: actionName,
-              route_template: "/_agent-native/actions/:action",
+              route_template: state.routeTemplate,
             }
           : {}),
         status_code: statusCode,
@@ -340,7 +412,7 @@ async function emitTelemetry(
       // Response telemetry is best-effort. Never perturb request handling.
     }
   }
-  await flushTrackingEvents();
+  await flushTrackingEvents(state.trackingScope);
 }
 
 function requestTelemetryState(
@@ -360,10 +432,14 @@ export function getHttpRequestTelemetryId(event: H3Event): string | undefined {
 export function setHttpRequestTelemetryActionName(
   event: H3Event,
   actionName: string,
+  routeTemplate = "/_agent-native/actions/:action",
 ): void {
   const state = requestTelemetryState(event);
   const normalized = actionName.trim();
-  if (state && normalized) state.actionName = normalized;
+  if (state && normalized) {
+    state.actionName = normalized;
+    state.routeTemplate ??= normalizedRoutePath(routeTemplate);
+  }
 }
 
 function appendServerTiming(
@@ -507,9 +583,22 @@ export function installHttpResponseTelemetryHooks(nitroApp: any): void {
   installedApps.add(nitroApp);
 
   hooks.hook("request", (event: H3Event) => {
+    const trackingScope = getOrCreateHttpRequestTrackingScope(event);
+    const requestContext = getRequestContext();
+    if (requestContext && requestContext.trackingScope === undefined) {
+      requestContext.trackingScope = trackingScope;
+    }
+    const trustedActionRoute = trustedActionRouteForPath(requestPath(event));
     const state: HttpRequestTelemetryState = {
       startedAt: Date.now(),
       requestId: randomUUID(),
+      ...(trustedActionRoute
+        ? {
+            actionName: trustedActionRoute.actionName,
+            routeTemplate: trustedActionRoute.routeTemplate,
+          }
+        : {}),
+      trackingScope,
       processAgeAtStartMs: Math.max(0, Math.round(process.uptime() * 1_000)),
       requestSequence: ++processState.requestSequence,
       frameworkReadyWaitMs: 0,

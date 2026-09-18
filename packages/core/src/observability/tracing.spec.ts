@@ -199,6 +199,7 @@ describe("tracing helper — test provider registered", () => {
         caller: "frontend",
         path: "/users/customer-secret",
         success: false,
+        status_code: 100001,
         duration_ms: 18,
       },
       "client",
@@ -213,8 +214,11 @@ describe("tracing helper — test provider registered", () => {
       ended: true,
     });
     expect(spans[0]?.attributes).not.toHaveProperty("agent.action");
+    expect(spans[0]?.attributes).not.toHaveProperty("agent.event_name");
     expect(spans[0]?.attributes).not.toHaveProperty("agent.outcome");
     expect(spans[0]?.attributes).not.toHaveProperty("http.route");
+    expect(spans[0]?.attributes).not.toHaveProperty("http.status_code");
+    expect(spans[0]?.attributes).not.toHaveProperty("http.status_class");
   });
 
   it("does not export client-provided string dimensions", async () => {

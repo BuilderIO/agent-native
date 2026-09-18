@@ -30,6 +30,7 @@ import { captureError } from "./capture-error.js";
 import { createCsrfMiddleware } from "./csrf.js";
 import { getDisabledDefaultPlugins } from "./default-plugins.js";
 import {
+  getOrCreateHttpRequestTrackingScope,
   installHttpResponseTelemetryHooks,
   recordFrameworkReadyWait,
 } from "./http-response-telemetry.js";
@@ -348,6 +349,7 @@ function registerRequestContextBoundary(nitroApp: any): void {
         isSyntheticTraffic: isSyntheticTrafficValue(
           getHeader(event, SYNTHETIC_TRAFFIC_HEADER),
         ),
+        trackingScope: getOrCreateHttpRequestTrackingScope(event),
       },
       () => next(),
     );

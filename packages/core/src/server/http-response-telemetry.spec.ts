@@ -10,6 +10,7 @@ import {
   installHttpResponseTelemetryHooks,
   normalizeHttpTelemetryPath,
   recordFrameworkReadyWait,
+  registerHttpRequestTelemetryActionRoute,
   setHttpRequestTelemetryActionName,
 } from "./http-response-telemetry.js";
 
@@ -268,6 +269,36 @@ describe("http response telemetry", () => {
 
     expect(tracked[0]?.properties).not.toHaveProperty("action_name");
     expect(tracked[0]?.properties).not.toHaveProperty("route_template");
+  });
+
+  it("uses registered action metadata before the route handler runs", async () => {
+    registerHttpRequestTelemetryActionRoute(
+      "/mcp/tool/protected-report",
+      "protected-report",
+      "/mcp/tool/:action",
+    );
+    const { requestHooks, responseHooks } = createHooks();
+    processState.requestSequence = 5;
+    const tracked: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "http-response-telemetry-test",
+      track(event) {
+        tracked.push(event);
+      },
+    });
+
+    const event = eventFor("/mcp/tool/protected-report");
+    await requestHooks[0](event);
+    await responseHooks[0](new Response("forbidden", { status: 401 }), event);
+
+    expect(tracked[0]).toMatchObject({
+      name: "http.response",
+      properties: {
+        action_name: "protected-report",
+        route_template: "/mcp/tool/:action",
+        status_code: 401,
+      },
+    });
   });
 
   it("does not recursively track analytics ingestion requests", async () => {

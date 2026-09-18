@@ -157,7 +157,12 @@ export function track(
     sessionId,
     occurredAt,
   });
-  queueTrackingEvent(name, trackedProperties, telemetryOrigin);
+  const trackingScope = getRequestContext()?.trackingScope;
+  if (trackingScope) {
+    queueTrackingEvent(name, trackedProperties, telemetryOrigin, trackingScope);
+  } else {
+    queueTrackingEvent(name, trackedProperties, telemetryOrigin);
+  }
 
   const lifecycle = legacyLifecycleEvent(name, trackedProperties);
   if (lifecycle) {

@@ -120,8 +120,15 @@ const TRACKING_SPAN_NAMES = new Map([
   ["$a2a_read_invoke", "a2a.read"],
 ]);
 export type TrackingEventOrigin = "client" | "server";
+export interface TrackingEventScope {
+  pending: Set<Promise<void>>;
+}
 
 const pendingTrackingEvents = new Set<Promise<void>>();
+
+export function createTrackingEventScope(): TrackingEventScope {
+  return { pending: new Set() };
+}
 
 function numericDuration(properties: Record<string, unknown>): number | null {
   const duration = properties.duration_ms;
@@ -160,7 +167,6 @@ function clientTrackingSpanAttributes(
   assignBoolean("agent.success", "success");
   assignBoolean("agent.sampled", "sampled");
   assignNumber("agent.sample_rate", "sample_rate");
-  assignNumber("http.status_code", "status_code");
   for (const key of [
     "duration_ms",
     "ttfb_ms",
@@ -176,7 +182,13 @@ function clientTrackingSpanAttributes(
   }
 
   const statusCode = properties.status_code;
-  if (typeof statusCode === "number" && Number.isFinite(statusCode)) {
+  if (
+    typeof statusCode === "number" &&
+    Number.isInteger(statusCode) &&
+    statusCode >= 100 &&
+    statusCode <= 599
+  ) {
+    attributes["http.status_code"] = statusCode;
     attributes["http.status_class"] = `${Math.floor(statusCode / 100)}xx`;
   }
   return attributes;
@@ -187,9 +199,8 @@ function trackingSpanAttributes(
   properties: Record<string, unknown>,
   origin?: TrackingEventOrigin,
 ): Record<string, string | number | boolean> {
-  const attributes: Record<string, string | number | boolean> = {
-    "agent.event_name": name,
-  };
+  const attributes: Record<string, string | number | boolean> =
+    origin === "client" ? {} : { "agent.event_name": name };
   if (origin) attributes["agent.telemetry_source"] = origin;
   if (origin === "client") {
     return {
@@ -287,17 +298,21 @@ export function queueTrackingEvent(
   name: string,
   properties: Record<string, unknown> = {},
   origin: TrackingEventOrigin = "server",
+  scope?: TrackingEventScope,
 ): void {
   const pending = recordTrackingEvent(name, properties, origin);
-  pendingTrackingEvents.add(pending);
+  const pendingEvents = scope?.pending ?? pendingTrackingEvents;
+  pendingEvents.add(pending);
   void pending.then(
-    () => pendingTrackingEvents.delete(pending),
-    () => pendingTrackingEvents.delete(pending),
+    () => pendingEvents.delete(pending),
+    () => pendingEvents.delete(pending),
   );
 }
 
-export async function flushTrackingEvents(): Promise<void> {
-  await Promise.allSettled([...pendingTrackingEvents]);
+export async function flushTrackingEvents(
+  scope?: TrackingEventScope,
+): Promise<void> {
+  await Promise.allSettled([...(scope?.pending ?? pendingTrackingEvents)]);
 }
 
 /**
