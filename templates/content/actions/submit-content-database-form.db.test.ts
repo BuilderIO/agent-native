@@ -211,6 +211,15 @@ describe("submit-content-database-form", () => {
         .where(eq(schema.documents.id, result.createdDocumentId)),
     ).resolves.toEqual([{ spaceId }]);
     expect(result.deepLink).toContain(result.createdDocumentId);
+    expect(result.submittedProperties).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "Description" }),
+        expect.objectContaining({ name: "Priority" }),
+        expect.objectContaining({ name: "Deadline" }),
+        expect.objectContaining({ name: "Requester" }),
+        expect.objectContaining({ name: "Internal notes" }),
+      ]),
+    );
 
     const db = getDb();
     const [document] = await db
@@ -256,6 +265,37 @@ describe("submit-content-database-form", () => {
         ),
       );
     expect(notes.content).toBe("Route through the web design queue.");
+  });
+
+  it("accepts model-safe property entries without dynamic object keys", async () => {
+    const seeded = await seedFormDatabase();
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      submitForm.run({
+        databaseId: seeded.databaseId,
+        viewId: "request-form",
+        title: "Explicit entry submission",
+        content: "Keep every supplied field.",
+        propertyEntries: [
+          { property: "Description", value: "Keep every supplied field." },
+          { property: "Priority", value: "P1 — High" },
+          { property: "Requester", value: "requester@example.com" },
+        ],
+      }),
+    );
+
+    expect(result.submittedProperties).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "Description" }),
+        expect.objectContaining({ name: "Priority" }),
+        expect.objectContaining({ name: "Requester" }),
+      ]),
+    );
+    expect(result.submittedContent).toBe(true);
+    const [createdDocument] = await getDb()
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, result.createdDocumentId));
+    expect(createdDocument?.content).toBe("Keep every supplied field.");
   });
 
   it("starts the canonical range at zero when legacy rows have negative positions", async () => {
@@ -346,6 +386,64 @@ describe("submit-content-database-form", () => {
       .from(schema.contentDatabaseItems)
       .where(eq(schema.contentDatabaseItems.databaseId, seeded.databaseId));
     expect(after).toHaveLength(before.length);
+  });
+
+  it("rejects duplicate model-safe entries before creating a row", async () => {
+    const seeded = await seedFormDatabase();
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        submitForm.run({
+          databaseId: seeded.databaseId,
+          viewId: "request-form",
+          title: "Duplicate intake fields",
+          propertyEntries: [
+            { property: "Description", value: "First description" },
+            { property: seeded.primaryBlocksId, value: "Second description" },
+            { property: "Priority", value: "P1 — High" },
+          ],
+        }),
+      ),
+    ).rejects.toThrow('Property "Description" was submitted more than once');
+
+    const items = await getDb()
+      .select()
+      .from(schema.contentDatabaseItems)
+      .where(eq(schema.contentDatabaseItems.databaseId, seeded.databaseId));
+    expect(items).toHaveLength(0);
+  });
+
+  it("preserves an explicit empty map for compatible title-only callers", async () => {
+    const seeded = await seedFormDatabase();
+    const db = getDb();
+    const [database] = await db
+      .select({ viewConfigJson: schema.contentDatabases.viewConfigJson })
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, seeded.databaseId));
+    const viewConfig = JSON.parse(database.viewConfigJson);
+    viewConfig.views[0].formQuestions = viewConfig.views[0].formQuestions.map(
+      (question: { key: string; required: boolean }) => ({
+        ...question,
+        required: question.key === "name",
+      }),
+    );
+    await db
+      .update(schema.contentDatabases)
+      .set({ viewConfigJson: JSON.stringify(viewConfig) })
+      .where(eq(schema.contentDatabases.id, seeded.databaseId));
+
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      submitForm.run({
+        databaseId: seeded.databaseId,
+        viewId: "request-form",
+        title: "Title-only submission",
+        propertyValues: {},
+      }),
+    );
+
+    expect(result.verified).toBe(true);
+    expect(result.submittedProperties).toEqual([]);
+    expect(result.submittedContent).toBe(false);
   });
 
   it("rejects unknown option labels before creating a row", async () => {

@@ -1053,6 +1053,8 @@ export interface SubmitContentDatabaseFormRequest {
   databaseId: string;
   viewId?: string;
   title?: string;
+  content?: string;
+  propertyEntries?: Array<{ property: string; value: unknown }>;
   propertyValues?: Record<string, unknown>;
 }
 
@@ -1063,6 +1065,8 @@ export interface SubmitContentDatabaseFormResponse {
   createdDocumentId: string;
   urlPath: string;
   deepLink: string;
+  submittedProperties: Array<{ propertyId: string; name: string }>;
+  submittedContent: boolean;
   verified: true;
 }
 

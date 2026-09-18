@@ -41,11 +41,32 @@ const submitContentDatabaseFormSchema = z.object({
     .optional()
     .describe("Form view ID; defaults to the active or first form view"),
   title: z.string().max(500).optional().describe("Row page title"),
+  content: z
+    .string()
+    .optional()
+    .describe(
+      "Row page body for narrative request details that are not represented by an enabled form property. Omit when a primary Blocks form field already carries the body.",
+    ),
+  propertyEntries: z
+    .array(
+      z.object({
+        property: z
+          .string()
+          .min(1)
+          .describe("Property definition ID or exact property name"),
+        value: z.unknown().describe("Value to submit for this property"),
+      }),
+    )
+    .min(1)
+    .optional()
+    .describe(
+      "Form values as explicit property/value entries. Include every enabled field value the user supplied. Select, status, and multi-select values may use option IDs or labels.",
+    ),
   propertyValues: z
     .record(z.string(), z.unknown())
     .optional()
     .describe(
-      "Form values keyed by property definition ID or exact property name. Select, status, and multi-select values may use option IDs or labels.",
+      "Compatibility map for programmatic callers. Agents should use propertyEntries because dynamic object keys may be discarded by model tool schemas. Omit both arguments only for a deliberately title-only submission.",
     ),
 });
 
@@ -144,7 +165,7 @@ function normalizeSubmittedPropertyValue(
 function resolveSubmittedProperties(
   definitions: PropertyDefinitionRow[],
   enabledPropertyIds: Set<string>,
-  submitted: Record<string, unknown>,
+  submitted: ReadonlyArray<readonly [string, unknown]>,
 ) {
   const byId = new Map(
     definitions.map((definition) => [definition.id, definition]),
@@ -156,7 +177,7 @@ function resolveSubmittedProperties(
   }
 
   const resolved = new Map<string, DocumentPropertyValue>();
-  for (const [inputKey, inputValue] of Object.entries(submitted)) {
+  for (const [inputKey, inputValue] of submitted) {
     const exact = byId.get(inputKey);
     const named = byName.get(inputKey.trim().toLocaleLowerCase()) ?? [];
     if (!exact && named.length > 1) {
@@ -222,8 +243,17 @@ export default defineAction({
     databaseId,
     viewId,
     title,
+    content,
+    propertyEntries,
     propertyValues,
   }): Promise<SubmitContentDatabaseFormResponse> => {
+    if (propertyEntries && propertyValues) {
+      throw new Error("Provide propertyEntries or propertyValues, not both.");
+    }
+    const submittedEntries: ReadonlyArray<readonly [string, unknown]> =
+      propertyEntries
+        ? propertyEntries.map(({ property, value }) => [property, value])
+        : Object.entries(propertyValues ?? {});
     const db = getDb();
     const [database] = await db
       .select()
@@ -286,7 +316,7 @@ export default defineAction({
     const values = resolveSubmittedProperties(
       definitions,
       enabledPropertyIds,
-      propertyValues ?? {},
+      submittedEntries,
     );
     const normalizedTitle = title?.trim() ?? "";
     const definitionById = new Map(
@@ -322,8 +352,17 @@ export default defineAction({
     const primaryContent = primaryBlocks
       ? values.get(primaryBlocks.id)
       : undefined;
+    if (
+      typeof primaryContent === "string" &&
+      content !== undefined &&
+      primaryContent !== content
+    ) {
+      throw new Error(
+        "Provide narrative body content either through the primary Blocks form field or content, not both.",
+      );
+    }
     const documentContent =
-      typeof primaryContent === "string" ? primaryContent : "";
+      typeof primaryContent === "string" ? primaryContent : (content ?? "");
     const standardValues = [...values.entries()].filter(([propertyId]) => {
       const definition = definitionById.get(propertyId);
       return (
@@ -557,6 +596,11 @@ export default defineAction({
       createdDocumentId: documentId,
       urlPath: `/page/${documentId}`,
       deepLink,
+      submittedProperties: [...values.keys()].map((propertyId) => ({
+        propertyId,
+        name: definitionById.get(propertyId)?.name ?? propertyId,
+      })),
+      submittedContent: content !== undefined || primaryContent !== undefined,
       verified: true,
     };
   },
