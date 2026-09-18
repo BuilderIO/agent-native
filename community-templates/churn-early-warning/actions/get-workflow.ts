@@ -30,6 +30,27 @@ const workflowSchema = z.object({
   ),
 });
 
+export async function readWorkflowState(): Promise<
+  WorkflowSnapshot["workflow"]
+> {
+  const stored = await readAppState(WORKFLOW_STATE_KEY);
+  if (stored === null) {
+    await writeAppState(
+      WORKFLOW_STATE_KEY,
+      workflow as unknown as Record<string, unknown>,
+    );
+    return workflow;
+  }
+
+  const parsed = workflowSchema.safeParse(stored);
+  if (!parsed.success) {
+    throw new Error(
+      "Stored workflow state is invalid. Reset workflow-data before retrying.",
+    );
+  }
+  return parsed.data;
+}
+
 export default defineAction({
   description:
     "Read the current workflow queue and selected item. The queue is stored in application state so the workspace and agent share the same data.",
@@ -37,16 +58,7 @@ export default defineAction({
   schema: z.object({}),
   http: { method: "GET" },
   run: async (): Promise<WorkflowSnapshot> => {
-    const stored = workflowSchema.safeParse(
-      await readAppState(WORKFLOW_STATE_KEY),
-    );
-    const currentWorkflow = stored.success ? stored.data : workflow;
-    if (!stored.success) {
-      await writeAppState(
-        WORKFLOW_STATE_KEY,
-        currentWorkflow as unknown as Record<string, unknown>,
-      );
-    }
+    const currentWorkflow = await readWorkflowState();
 
     const selection = await readAppState(SELECTION_STATE_KEY);
     const selectedId =

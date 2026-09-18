@@ -2,7 +2,7 @@ import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";
 
-import { workflow } from "../app/lib/workflow.js";
+import { readWorkflowState } from "./get-workflow.js";
 
 export default defineAction({
   description:
@@ -12,7 +12,8 @@ export default defineAction({
     id: z.string().min(1).describe("Workflow item id to select."),
   }),
   run: async ({ id }) => {
-    if (!workflow.items.some((item) => item.id === id)) {
+    const currentWorkflow = await readWorkflowState();
+    if (!currentWorkflow.items.some((item) => item.id === id)) {
       throw new Error(`Unknown workflow item: ${id}`);
     }
     await writeAppState("workflow-selection", { selectedId: id });

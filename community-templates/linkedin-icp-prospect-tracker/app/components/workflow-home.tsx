@@ -12,6 +12,7 @@ import {
   IconSparkles,
 } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -105,8 +106,17 @@ export function WorkflowHome({ workflow }: { workflow: WorkflowDefinition }) {
                       key={item.id}
                       type="button"
                       onClick={() => {
+                        const previousSelectedId = selectedId;
                         setSelectedId(item.id);
-                        selectItem.mutate({ id: item.id });
+                        selectItem.mutate(
+                          { id: item.id },
+                          {
+                            onError: () => {
+                              setSelectedId(previousSelectedId);
+                              toast.error("Could not save selection.");
+                            },
+                          },
+                        );
                       }}
                       className={cn(
                         "flex w-full items-start gap-3 px-5 py-4 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
