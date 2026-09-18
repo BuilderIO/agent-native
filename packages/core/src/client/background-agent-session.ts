@@ -5,6 +5,7 @@ import {
   type AgentChatScope,
 } from "../agent/types.js";
 import { appendAgentChatContextToMessage } from "../shared/agent-chat-context.js";
+import { backgroundAgentTurnIdForReceipt } from "../shared/background-agent-session.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import { requestAgentChatThreadOpen } from "./agent-chat.js";
 import { agentNativePath } from "./api-path.js";
@@ -76,19 +77,6 @@ function requiredId(value: string | undefined, prefix: string): string {
   return normalized || generateSessionId(prefix);
 }
 
-function turnIdForReceipt(threadId: string, operationId: string): string {
-  const input = `${threadId}\0${operationId}`;
-  let first = 0xcbf29ce484222325n;
-  let second = 0x84222325cbf29ce4n;
-  for (const byte of new TextEncoder().encode(input)) {
-    first = BigInt.asUintN(64, (first ^ BigInt(byte)) * 0x100000001b3n);
-    second = BigInt.asUintN(64, (second ^ BigInt(byte)) * 0x100000001b3n);
-  }
-  return `background-turn-${first.toString(16).padStart(16, "0")}${second
-    .toString(16)
-    .padStart(16, "0")}`;
-}
-
 class BackgroundAgentSessionHttpError extends Error {
   constructor(
     readonly status: number,
@@ -134,7 +122,7 @@ export function startBackgroundAgentSession(
 
   const operationId = requiredId(options.operationId, "background-operation");
   const threadId = requiredId(options.threadId, "background-thread");
-  const turnId = turnIdForReceipt(threadId, operationId);
+  const turnId = backgroundAgentTurnIdForReceipt(threadId, operationId);
   const actionScope =
     options.actionScope === undefined
       ? undefined

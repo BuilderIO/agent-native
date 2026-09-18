@@ -49,12 +49,14 @@ import {
   DEFAULT_VOICE_DICTATION_ENABLED,
   TiptapComposer,
   type ComposerAgentOption,
+  type ComposerTextSelection,
   type ComposerSubmitIntent,
   type TiptapComposerHandle,
   type TiptapComposerSubmitOptions,
 } from "./TiptapComposer.js";
 import type {
   AgentComposerLayoutVariant,
+  MentionItem,
   Reference,
   SkillResult,
   SlashCommand,
@@ -185,6 +187,14 @@ export interface PromptComposerProps {
   modelStatusChecksEnabled?: boolean;
   /** Called whenever the plain editor text changes. */
   onTextChange?: (text: string) => void;
+  mentionItems?: MentionItem[];
+  /** Include shared workspace mention search results. Default: true. */
+  includeDefaultMentionSearch?: boolean;
+  onReferencesChange?: (references: Reference[]) => void;
+  onEscape?: () => void;
+  onFocus?: () => void;
+  onBlur?: () => void;
+  onSelectionChange?: (selection: ComposerTextSelection) => void;
   /** Called whenever attached files change, before the composer is submitted. */
   onAttachmentsChange?: (files: PromptComposerFile[]) => void;
   /** Called whenever the composer resolves a model, engine, or effort choice. */
@@ -571,6 +581,13 @@ function PromptComposerInner({
   onModelSelectorOpenChange,
   modelStatusChecksEnabled,
   onTextChange,
+  mentionItems,
+  includeDefaultMentionSearch,
+  onReferencesChange,
+  onEscape,
+  onFocus,
+  onBlur,
+  onSelectionChange,
   onAttachmentsChange,
   onModelSelectionChange,
   onConnectProvider,
@@ -796,6 +813,13 @@ function PromptComposerInner({
           onSlashCommand={onSlashCommand}
           voiceEnabled={voiceEnabled}
           onTextChange={onTextChange}
+          mentionItems={mentionItems}
+          includeDefaultMentionSearch={includeDefaultMentionSearch}
+          onReferencesChange={onReferencesChange}
+          onEscape={onEscape}
+          onFocus={onFocus}
+          onBlur={onBlur}
+          onSelectionChange={onSelectionChange}
           draftScope={draftScope}
           selectedModel={composerModel}
           selectedEngine={composerEngine}

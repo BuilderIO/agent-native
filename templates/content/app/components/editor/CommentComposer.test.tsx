@@ -33,21 +33,21 @@ describe("CommentComposer", () => {
         }),
       );
     });
-    return container.querySelector("textarea") as HTMLTextAreaElement;
+    return container.querySelector(".ProseMirror") as HTMLElement;
   }
 
   it("freezes the draft while its mutation is pending", () => {
-    const textarea = render(true);
+    const editor = render(true);
 
-    expect(textarea.disabled).toBe(true);
-    expect(textarea.value).toBe("A durable draft");
+    expect(editor.getAttribute("contenteditable")).toBe("false");
+    expect(editor.textContent).toBe("A durable draft");
   });
 
   it("keeps the composer editable before submission", () => {
-    const textarea = render(false);
+    const editor = render(false);
 
-    expect(textarea.disabled).toBe(false);
-    expect(textarea.className).toContain("[field-sizing:content]");
-    expect(textarea.className).toContain("max-h-48");
+    expect(editor.getAttribute("contenteditable")).toBe("true");
+    expect(editor.className).toContain("agent-composer-prosemirror");
+    expect(editor.className).toContain("max-h-[10rem]");
   });
 });

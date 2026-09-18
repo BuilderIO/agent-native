@@ -9,6 +9,11 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import type { CommentThread } from "@/hooks/use-comments";
 
 import {
+  richEditor,
+  richEditorValue,
+  setRichEditorValue,
+} from "./comment-composer-test-utils";
+import {
   CommentDraftProvider,
   useCommentDraft,
   useCommentPanelSession,
@@ -56,6 +61,16 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   useAvatarUrl: () => null,
 }));
 vi.mock("@agent-native/core/client/agent-chat", () => ({
+  chatModelSelectionStorageKey: (scope: string) => `model:${scope}`,
+  useChatModels: () => ({
+    configuredModels: [],
+    selectionReady: false,
+    selectedModel: "",
+    selectedEngine: "",
+    selectedEffort: undefined,
+    unavailableSelection: null,
+    onModelChange: vi.fn(),
+  }),
   sendToAgentChat: vi.fn(),
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -217,15 +232,8 @@ describe("comment review interactions", () => {
       );
     });
   }
-  function type(text: string) {
-    const input = container.querySelector("textarea")!;
-    act(() => {
-      Object.getOwnPropertyDescriptor(
-        HTMLTextAreaElement.prototype,
-        "value",
-      )!.set!.call(input, text);
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-    });
+  async function type(text: string) {
+    await setRichEditorValue(richEditor(container)!, text);
   }
   it.each([
     ["inline", "one", false],
@@ -250,29 +258,27 @@ describe("comment review interactions", () => {
     },
   );
 
-  it("preserves a reply through dismissal, thread switches, and panel presentation remounts", () => {
+  it("preserves a reply through dismissal, thread switches, and panel presentation remounts", async () => {
     render("one");
-    type("Unsent detailed feedback");
+    await type("Unsent detailed feedback");
     act(() => {
-      container
-        .querySelector("textarea")!
-        .dispatchEvent(
-          new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
-        );
+      richEditor(container)!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
     });
     render("two");
-    type("Different draft");
+    await type("Different draft");
     render(null, undefined, "history");
     render("one");
-    expect(container.querySelector("textarea")!.value).toBe(
+    expect(richEditorValue(richEditor(container)!)).toBe(
       "Unsent detailed feedback",
     );
     render("two");
-    expect(container.querySelector("textarea")!.value).toBe("Different draft");
+    expect(richEditorValue(richEditor(container)!)).toBe("Different draft");
   });
   it("does not clear newer typing when an older reply settles", async () => {
     render("one");
-    type("First submitted draft");
+    await type("First submitted draft");
     act(() =>
       (
         container.querySelector(
@@ -281,22 +287,20 @@ describe("comment review interactions", () => {
       ).click(),
     );
     expect(actions.create).toHaveBeenCalledOnce();
-    type("Newer unsent draft");
+    await type("Newer unsent draft");
     await act(async () =>
       resolveCreate({
         id: "saved",
         threadId: "one",
       }),
     );
-    expect(container.querySelector("textarea")!.value).toBe(
-      "Newer unsent draft",
-    );
+    expect(richEditorValue(richEditor(container)!)).toBe("Newer unsent draft");
   });
   it.each([false, true])(
     "clears only the submitted revision after ambiguous reconciliation (new mentions: %s)",
     async (addMentions) => {
       render("one");
-      type("Hello @Reviewer");
+      await type("Hello @Reviewer");
       act(() =>
         (
           container.querySelector(
@@ -352,7 +356,7 @@ describe("comment review interactions", () => {
         pending: true,
         onPendingDone,
       });
-      type("Anchor A draft");
+      await type("Anchor A draft");
       await act(async () => {
         const submit = [...container.querySelectorAll("button")].find(
           (button) => button.textContent === "comments.submit",
@@ -364,12 +368,12 @@ describe("comment review interactions", () => {
         pending: true,
         onPendingDone,
       });
-      if (newer) type("Anchor B draft");
+      if (newer) await type("Anchor B draft");
       await act(async () =>
         resolveCreate({ id: "saved-a", threadId: "thread-a" }),
       );
       expect(onPendingDone).not.toHaveBeenCalled();
-      expect(container.querySelector("textarea")!.value).toBe(
+      expect(richEditorValue(richEditor(container)!)).toBe(
         newer ? "Anchor B draft" : "",
       );
     },
@@ -377,7 +381,7 @@ describe("comment review interactions", () => {
 
   it("reconciles the original submission without clearing a second submitted draft", async () => {
     render("one");
-    type("First draft");
+    await type("First draft");
     act(() =>
       (
         container.querySelector(
@@ -386,7 +390,7 @@ describe("comment review interactions", () => {
       ).click(),
     );
     const firstOperationId = actions.create.mock.calls[0][0].clientOperationId;
-    type("Second draft");
+    await type("Second draft");
     act(() =>
       (
         container.querySelector(
@@ -417,7 +421,7 @@ describe("comment review interactions", () => {
     )!;
     await act(async () => check.click());
     expect(actions.reconcile).toHaveBeenCalledWith("fixture", firstOperationId);
-    expect(container.querySelector("textarea")!.value).toBe("Second draft");
+    expect(richEditorValue(richEditor(container)!)).toBe("Second draft");
   });
 
   it("blocks replies immediately while resolution waits for cancellation", async () => {
@@ -429,7 +433,7 @@ describe("comment review interactions", () => {
         }),
     );
     render("one");
-    type("unsent reply");
+    await type("unsent reply");
     const resolve = [...container.querySelectorAll("button")].find(
       (button) => button.getAttribute("aria-label") === "comments.resolve",
     )!;
@@ -450,14 +454,14 @@ describe("comment review interactions", () => {
     expect(remountedSubmit.disabled).toBe(true);
     await act(async () => rejectResolution(new Error("resolution rejected")));
     expect(remountedSubmit.disabled).toBe(false);
-    expect(container.querySelector("textarea")!.value).toBe("unsent reply");
+    expect(richEditorValue(richEditor(container)!)).toBe("unsent reply");
   });
 
-  it("lets users clear their own reply text without extra controls", () => {
+  it("lets users clear their own reply text without extra controls", async () => {
     render("one");
-    type("Keep me");
+    await type("Keep me");
     render("two");
-    type("Discard me");
+    await type("Discard me");
     expect(
       [...container.querySelectorAll("button")].some(
         (button) =>
@@ -466,10 +470,10 @@ describe("comment review interactions", () => {
             button.textContent === "comments.reply"),
       ),
     ).toBe(false);
-    type("");
-    expect(container.querySelector("textarea")!.value).toBe("");
+    await type("");
+    expect(richEditorValue(richEditor(container)!)).toBe("");
     render("one");
-    expect(container.querySelector("textarea")!.value).toBe("Keep me");
+    expect(richEditorValue(richEditor(container)!)).toBe("Keep me");
   });
   it("shows resolved reply history without reopening and exposes Reopen", () => {
     const resolved = thread("one", true);
@@ -502,7 +506,7 @@ describe("comment review interactions", () => {
     render("one", [thread("one", true), thread("two", true)]);
     expect(container.querySelector('[data-thread-card="one"]')).not.toBeNull();
     expect(container.querySelector('[data-thread-card="two"]')).toBeNull();
-    expect(container.querySelector("textarea")).toBeNull();
+    expect(richEditor(container)).toBeNull();
     expect(
       container.querySelector('[aria-label="comments.reopen"]'),
     ).not.toBeNull();

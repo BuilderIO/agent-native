@@ -199,6 +199,14 @@ export const commentAiRequests = table(
     rootCommentId: text("root_comment_id").notNull(),
     fieldId: text("field_id").notNull(),
     intent: text("intent").notNull(),
+    submittedMode: text("submitted_mode").notNull().default("reply"),
+    instructions: text("instructions").notNull().default(""),
+    submittedProvider: text("submitted_provider"),
+    submittedModel: text("submitted_model"),
+    submittedEngine: text("submitted_engine"),
+    classificationThreadId: text("classification_thread_id"),
+    classificationTurnId: text("classification_turn_id"),
+    continuationOfRequestId: text("continuation_of_request_id"),
     status: text("status").notNull().default("queued"),
     threadDigest: text("thread_digest").notNull(),
     snapshotJson: text("snapshot_json").notNull(),
@@ -223,10 +231,14 @@ export const commentAiRequests = table(
   (request) => [
     uniqueIndex("comment_ai_requests_active_thread_idx")
       .on(request.documentId, request.threadId, request.requesterEmail)
-      .where(sql`${request.status} IN ('queued', 'running')`),
+      .where(
+        sql`${request.status} IN ('classifying', 'classified', 'queued', 'running')`,
+      ),
     uniqueIndex("comment_ai_requests_active_comment_idx")
       .on(request.documentId, request.rootCommentId)
-      .where(sql`${request.status} IN ('queued', 'running', 'refreshing')`),
+      .where(
+        sql`${request.status} IN ('classifying', 'classified', 'queued', 'running', 'refreshing')`,
+      ),
     index("comment_ai_requests_document_requester_idx").on(
       request.documentId,
       request.requesterEmail,

@@ -5,7 +5,8 @@ import {
   InlineMarkdown,
   type InlineMarkdownProtectedSpan,
 } from "@agent-native/core/client/markdown";
-import { IconDots } from "@tabler/icons-react";
+import type { TiptapComposerHandle } from "@agent-native/toolkit/composer";
+import { IconDots, IconExternalLink } from "@tabler/icons-react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -35,6 +36,11 @@ import {
 } from "@/hooks/use-comments";
 import type { MentionMember } from "@/hooks/use-mention-members";
 
+import {
+  AgentAvatar,
+  agentDisplayName,
+  compactAgentModelName,
+} from "./agent-identity";
 import { useCommentDraft } from "./comment-drafts";
 import { CommentComposer, type MentionEntry } from "./CommentComposer";
 
@@ -128,13 +134,16 @@ export function CommentAttributionBadge({ comment }: { comment: Comment }) {
   const sourceLabel = t(
     source === "mcp" ? "comments.aiSourceMcp" : "comments.aiSourceAgent",
   );
+  const modelLabel = comment.author_model
+    ? `${agentDisplayName(comment.author_model)} · ${comment.author_model}`
+    : null;
 
   return (
     <Tooltip open={open} onOpenChange={setOpen}>
       <TooltipTrigger asChild>
         <button
           type="button"
-          aria-label={`${attribution}. ${sourceLabel}`}
+          aria-label={`${attribution}. ${sourceLabel}${modelLabel ? `. ${modelLabel}` : ""}`}
           onClick={(event) => {
             event.preventDefault();
             event.stopPropagation();
@@ -157,6 +166,9 @@ export function CommentAttributionBadge({ comment }: { comment: Comment }) {
         <span className="grid gap-0.5">
           <span>{attribution}</span>
           <span className="text-muted-foreground">{sourceLabel}</span>
+          {modelLabel ? (
+            <span className="text-muted-foreground">{modelLabel}</span>
+          ) : null}
         </span>
       </TooltipContent>
     </Tooltip>
@@ -169,12 +181,16 @@ export function CommentEntry({
   currentUserEmail,
   canComment,
   members,
+  reserveThreadActions = false,
+  onOpenAiConversation,
 }: {
   comment: Comment;
   documentId: string;
   currentUserEmail?: string;
   canComment: boolean;
   members: MentionMember[];
+  reserveThreadActions?: boolean;
+  onOpenAiConversation?: () => void;
 }) {
   const t = useT();
   const { formatDate } = useFormatters();
@@ -185,13 +201,22 @@ export function CommentEntry({
     comment.parent_id ? `reply:${documentId}:${comment.thread_id}` : "pending",
   );
   const [editing, setEditing] = useState(false);
-  const initialDraft = { text: comment.content, mentions: comment.mentions };
+  const initialDraft = {
+    text: comment.content,
+    mentions: comment.mentions,
+    aiDraft: null,
+  };
   const draft = useCommentDraft(`edit:${comment.id}`, initialDraft);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const inputRef = useRef<TiptapComposerHandle>(null);
   const menuRef = useRef<HTMLButtonElement>(null);
   const pending = comment.mutation?.status === "pending";
   const showMutationStatus =
     comment.mutation?.kind !== "resolve" || !comment.parent_id;
+  const aiSource = getAiCommentSource(comment.submission_source);
+  const visibleAuthor =
+    aiSource && comment.author_model
+      ? `${agentDisplayName(comment.author_model)} · ${compactAgentModelName(comment.author_model)}`
+      : (comment.author_name ?? comment.author_email.split("@")[0]);
   const canEdit =
     canComment &&
     !!currentUserEmail &&
@@ -264,19 +289,26 @@ export function CommentEntry({
           event.stopPropagation();
       }}
     >
-      <div className="flex items-center gap-2 mb-1">
-        <CommentAvatar
-          email={comment.author_email}
-          name={comment.author_name ?? comment.author_email}
-        />
+      <div
+        className={`mb-1 flex items-center gap-2 ${reserveThreadActions ? "pr-16" : ""}`}
+        data-thread-actions-reserved={reserveThreadActions || undefined}
+      >
+        {aiSource ? (
+          <AgentAvatar model={comment.author_model} />
+        ) : (
+          <CommentAvatar
+            email={comment.author_email}
+            name={comment.author_name ?? comment.author_email}
+          />
+        )}
         <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground">
-          {comment.author_name ?? comment.author_email.split("@")[0]}
+          {visibleAuthor}
         </span>
         <CommentAttributionBadge comment={comment} />
-        <span className="text-xs text-muted-foreground">
+        <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">
           {formatDate(comment.created_at, { month: "short", day: "numeric" })}
         </span>
-        {canEdit && !editing && (
+        {(canEdit || onOpenAiConversation) && !editing && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
@@ -292,9 +324,17 @@ export function CommentEntry({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" data-comment-menu>
               <DropdownMenuGroup>
-                <DropdownMenuItem onSelect={() => setEditing(true)}>
-                  {t("comments.edit")}
-                </DropdownMenuItem>
+                {canEdit ? (
+                  <DropdownMenuItem onSelect={() => setEditing(true)}>
+                    {t("comments.edit")}
+                  </DropdownMenuItem>
+                ) : null}
+                {onOpenAiConversation ? (
+                  <DropdownMenuItem onSelect={onOpenAiConversation}>
+                    <IconExternalLink size={14} />
+                    {t("comments.aiOpenConversation")}
+                  </DropdownMenuItem>
+                ) : null}
               </DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>

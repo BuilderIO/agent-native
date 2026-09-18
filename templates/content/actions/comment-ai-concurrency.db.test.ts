@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import { getDbExec } from "@agent-native/core/db";
 import { createThread, runWithRequestContext } from "@agent-native/core/server";
+import { backgroundAgentTurnIdForReceipt } from "@agent-native/core/shared";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
@@ -25,6 +26,8 @@ let getDb: typeof import("../server/db/index.js").getDb;
 let schema: typeof import("../server/db/schema.js");
 let commentAi: typeof import("../server/lib/comment-ai.js");
 let applyRequest: typeof import("./apply-comment-ai-request.js").default;
+let addComment: typeof import("./add-comment.js").default;
+let commentIdForIdempotency: typeof import("./add-comment.js").commentIdForIdempotency;
 let replyRequest: typeof import("./reply-to-comment-ai-request.js").default;
 
 const asUser = <T>(run: () => Promise<T>) =>
@@ -99,6 +102,9 @@ beforeAll(async () => {
   await plugin(undefined as never);
   commentAi = await import("../server/lib/comment-ai.js");
   applyRequest = (await import("./apply-comment-ai-request.js")).default;
+  const addCommentModule = await import("./add-comment.js");
+  addComment = addCommentModule.default;
+  commentIdForIdempotency = addCommentModule.commentIdForIdempotency;
   replyRequest = (await import("./reply-to-comment-ai-request.js")).default;
 }, 60_000);
 
@@ -208,6 +214,32 @@ describe("comment AI operation isolation", () => {
     });
     expect(first.operationId).not.toBe(second.operationId);
     expect(first.agentThreadId).not.toBe(second.agentThreadId);
+  });
+
+  it("does not reclaim a terminal agent turn when the domain operation needs review", async () => {
+    const started = await asUser(() =>
+      commentAi.startCommentAiRequest(startArgs(OP_A, ROOT_A)),
+    );
+    await getDb()
+      .update(schema.commentAiRequests)
+      .set({
+        status: "needs-review",
+        errorCode: "operation_failed",
+        error: "Resolution acknowledgement was not saved",
+      })
+      .where(eq(schema.commentAiRequests.id, OP_A));
+
+    const replay = await asUser(() =>
+      commentAi.startCommentAiRequest(startArgs(OP_A, ROOT_A)),
+    );
+
+    expect(replay).toMatchObject({
+      operationId: OP_A,
+      agentThreadId: started.agentThreadId,
+      agentTurnId: started.agentTurnId,
+      status: "needs-review",
+      dispatch: false,
+    });
   });
 
   it("reconciles simultaneous starts for one comment into one active operation", async () => {
@@ -330,6 +362,7 @@ describe("comment AI operation isolation", () => {
 describe("comment AI durable action binding", () => {
   it("binds the initial generated turn before client acknowledgement and repeats idempotently", async () => {
     const agentThreadId = `agent-thread-${crypto.randomUUID()}`;
+    const agentTurnId = backgroundAgentTurnIdForReceipt(agentThreadId, OP_A);
     await createThread(OWNER, {
       id: agentThreadId,
       scope: { type: "content-comment-ai", id: OP_A },
@@ -344,7 +377,7 @@ describe("comment AI durable action binding", () => {
       ownerEmail: OWNER,
       threadId: agentThreadId,
       queuedMessageId: OP_A,
-      requestedTurnId: TURN_ID,
+      requestedTurnId: agentTurnId,
       actionScope: { kind: "content-comment-ai", requestId: OP_A },
     };
 
@@ -367,7 +400,7 @@ describe("comment AI durable action binding", () => {
       ],
       actionScope: { kind: "content-comment-ai", requestId: OP_A },
     });
-    expect(request.agentTurnId).toBe(TURN_ID);
+    expect(request.agentTurnId).toBe(agentTurnId);
   });
 
   it("rejects a tampered initial turn tuple before exposing tools", async () => {
@@ -775,6 +808,119 @@ describe("operation-scoped refresh and commits", () => {
       errorCode: "target_deleted",
     });
     expect(root?.resolved).toBe(0);
+  });
+
+  it("resumes receipt and resolve after a verified edit without spending another reasoning attempt", async () => {
+    const started = await asUser(() =>
+      commentAi.startCommentAiRequest(startArgs(OP_A, ROOT_A, "apply-resolve")),
+    );
+    const first = await runOperation(OP_A, started.agentThreadId, async () => {
+      const request = await commentAi.requireCommentAiRequest("apply-resolve");
+      return commentAi.beginCommentAiAttempt(request);
+    });
+    const payload = {
+      edits: [{ find: "Alpha one", replace: "Alpha recovered" }],
+      summary: "Changed Alpha once",
+    };
+    await runOperation(OP_A, started.agentThreadId, () =>
+      commentAi.retainCommentAiAttemptPayload(
+        first.request,
+        first.attempt!.id,
+        { attemptId: first.attempt!.id, ...payload },
+      ),
+    );
+    const receiptId = commentIdForIdempotency(
+      OWNER,
+      DOCUMENT_ID,
+      `comment-ai:${OP_A}:receipt`,
+    );
+    await runOperation(OP_A, started.agentThreadId, () =>
+      addComment.run(
+        {
+          documentId: DOCUMENT_ID,
+          threadId: ROOT_A,
+          parentId: ROOT_A,
+          content: payload.summary,
+          clientOperationId: receiptId,
+        },
+        { caller: "tool", userEmail: OWNER },
+      ),
+    );
+    await getDb().transaction(async (tx) => {
+      await tx
+        .update(schema.documents)
+        .set({ content: "Alpha recovered. Beta two.", bodyRevision: 2 })
+        .where(eq(schema.documents.id, DOCUMENT_ID));
+      await tx
+        .update(schema.commentAiAttempts)
+        .set({ status: "needs-review", errorCode: "operation_failed" })
+        .where(eq(schema.commentAiAttempts.id, first.attempt!.id));
+      await tx
+        .update(schema.commentAiRequests)
+        .set({
+          status: "needs-review",
+          attemptCount: 2,
+          resultJson: JSON.stringify({
+            editApplied: true,
+            commentId: receiptId,
+          }),
+          errorCode: "operation_failed",
+        })
+        .where(eq(schema.commentAiRequests.id, OP_A));
+    });
+
+    const resumed = await runOperation(
+      OP_A,
+      started.agentThreadId,
+      async () => {
+        const request =
+          await commentAi.requireCommentAiRequest("apply-resolve");
+        return commentAi.beginCommentAiAttempt(request);
+      },
+    );
+    expect(resumed.attempt?.id).toBe(first.attempt?.id);
+    expect(resumed.request).toMatchObject({
+      status: "running",
+      attemptCount: 2,
+      resultJson: JSON.stringify({ editApplied: true, commentId: receiptId }),
+    });
+
+    const completed = await runOperation(OP_A, started.agentThreadId, () =>
+      applyRequest.run(
+        { attemptId: resumed.attempt!.id, ...payload },
+        { caller: "tool", userEmail: OWNER },
+      ),
+    );
+    expect(completed).toMatchObject({
+      status: "resolved",
+      attemptCount: 2,
+      result: {
+        editApplied: true,
+        commentId: receiptId,
+        resolved: true,
+      },
+    });
+    const [document] = await getDb()
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, DOCUMENT_ID));
+    expect(document.content).toBe("Alpha recovered. Beta two.");
+    expect(document.bodyRevision).toBe(2);
+    const receipts = await getDb()
+      .select()
+      .from(schema.documentComments)
+      .where(
+        and(
+          eq(schema.documentComments.threadId, ROOT_A),
+          eq(schema.documentComments.parentId, ROOT_A),
+        ),
+      );
+    expect(receipts).toHaveLength(1);
+    expect(receipts[0]).toMatchObject({
+      id: completed.result?.commentId,
+      content: payload.summary,
+      resolved: 1,
+    });
   });
 });
 

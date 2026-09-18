@@ -22,7 +22,7 @@ proof_requirements:
   ]
 evidence: []
 superseded_by: null
-last_reviewed: "2026-07-29"
+last_reviewed: "2026-09-14"
 ---
 
 # Comments
@@ -42,11 +42,13 @@ A reviewer comments on two Blocks in a brief, replies with a Page reference, and
 - Anchors follow stable Block identity where possible and preserve historical target context after deletion rather than attaching to plausible new text.
 - Resolve, reopen, edit, reply, and notification operations use shared Actions and record attributable change.
 - Comments submitted through MCP or the in-app agent's Action tools retain the authenticated account as their author and separately persist their submission source. The UI and notifications identify them as posted via AI on that person's behalf; this describes submission, not a claim that AI wrote every word. Replies record their own source, edits preserve the original submission attribution, and historical comments without provenance remain unclassified.
-- References and embeds display the authoritative Page-owned thread; they do not clone or re-home it.
-- Ask AI presents an explicit intent before dispatch: Suggest changes, Reply in thread, or Apply changes and resolve. Suggest changes is the preferred editorial option and uses the existing suggested-edits availability and access rules.
-- Every AI request binds the authenticated requester, Page body, original root Comment and thread, submitted conversation, and revision. A scoped run can use only that intent's dedicated operation; targeting and write authority do not come from chat history or model-written arguments.
+- A structured `@AI` or connected-model mention in the Comment composer explicitly invokes AI. The inline model tile shows the selected provider and model, and AI Send offers Auto, Reply in thread, Suggest changes, or Apply changes and resolve. Auto resolves one of those three bounded intents before execution; Suggest changes uses the existing suggested-edits availability and access rules.
+- Every AI request binds the authenticated requester, Page body, original root Comment and thread, submitted conversation, revision, exact agent thread and initial turn. A scoped run can use only that intent's dedicated operation; targeting and write authority do not come from chat history or model-written arguments.
+- Each explicit AI Send keeps its source Comment, submitted mode, resolved intent, operation, agent thread, provider/model identity, and reasoning attempts distinct. Unrelated Page edits trigger a bounded contextual refresh or exact-target reanchor; changed feedback, ambiguous targets, and partial saves remain typed, recoverable states on the original thread.
+- Comment AI runs stay out of the active chat until a person explicitly opens them. Progress and the resulting response appear on the source Comment; an AI-addressed follow-up continues that exact agent thread, while a newly requested mutation starts a separately scoped operation. Open AI conversation reveals the exact authorized session with a Comment-specific prefill.
 - Reply adds an AI-attributed answer to the original thread without editing or resolving. Suggest creates a native proposal linked in both directions and leaves the original thread open, including after human acceptance. Apply-and-resolve verifies the saved edit and unchanged source conversation before resolving; conflicts and partial success remain available for review.
 - Retrying one request recovers its retained operation and result. It does not silently replace its intent, duplicate a reply or proposal, or reapply a saved edit. Unknown historical authorship is not retrospectively labeled AI.
+- References and embeds display the authoritative Page-owned thread; they do not clone or re-home it.
 
 ## Boundaries and non-goals
 
@@ -64,9 +66,13 @@ Given a Comment on a Block range, when the range and Block are deleted, then the
 
 Given a Page with a Comment thread is referenced or embedded elsewhere, when a viewer opens the thread from either occurrence, then they see the same Page-owned thread and access decision.
 
+### Keep concurrent AI work attached to its source
+
+Given AI is mentioned in two Comments while the Page is also edited, when both operations reason and commit, then each uses a distinct operation and agent thread, preserves its submitted mode and resolved intent, tolerates unrelated changes, and leaves any true source or target conflict open with a typed recovery state.
+
 ### Choose how AI handles feedback
 
-Given an open Page-body Comment and an unfinished human reply, opening and dismissing Ask AI preserves the draft and dispatches nothing. Choosing Reply adds one AI answer to that same thread. Choosing Suggest creates a reviewable proposal without changing accepted text. Only Apply changes and resolve may change accepted text and resolve, and only after both the saved revision and original feedback have been checked.
+Given an open Page-body Comment and an unfinished human reply, inserting or removing the AI mention tile preserves the draft and dispatches nothing. AI Send with Reply adds one AI answer to that same thread. Suggest creates a reviewable proposal without changing accepted text. Only Apply changes and resolve may change accepted text and resolve, and only after both the saved revision and original feedback have been checked. Auto must first persist a finite resolved intent and then obey the same boundaries.
 
 ### Recover partial AI work
 
@@ -84,6 +90,19 @@ refreshes. Behavioral coverage lives in `CommentsSidebar.interaction.test.tsx`,
 retention, responsive sizing, failed and overlapping mutations, and existing
 commenter/editor access. They do not establish the broader multi-Block,
 historical-deletion, notification, or embed contracts above.
+
+The action/runtime substrate now persists isolated Comment AI operations and
+attempt-specific Page and discussion bases. Database-backed concurrency coverage
+proves distinct operations across Comments, one active operation per source
+Comment across simultaneous starts, bounded reply refresh, disjoint apply commits,
+typed overlapping-target and discussion conflicts, idempotent receipts, lifecycle
+status reconciliation, and agent model attribution. The editor now starts these
+sessions without changing the active chat, keeps per-Comment progress and recovery
+state, renders attributed replies on the source thread, and allows an explicit
+same-thread continuation or handoff. Live local acceptance proved distinct hidden
+threads, concurrent loading, unchanged navigation, fresh retry identity, and
+recoverable failure UI; a successful model/tool completion and inline continuation
+remain required integration proof.
 
 ## Proof plan
 

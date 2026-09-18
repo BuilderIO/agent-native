@@ -17,6 +17,7 @@ import {
   IconHelpCircle,
 } from "@tabler/icons-react";
 import Placeholder from "@tiptap/extension-placeholder";
+import { TextSelection } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
@@ -94,6 +95,20 @@ export interface TiptapComposerHandle {
   insertText(text: string): void;
   setText(text: string): void;
   insertReference(ref: AgentComposerReference): void;
+  replaceReference(refType: string, ref: AgentComposerReference | null): void;
+  getSelection(): ComposerTextSelection | null;
+  setSelection(
+    start: number,
+    end?: number,
+    direction?: ComposerTextSelection["direction"],
+  ): void;
+  dismissPopover(): boolean;
+}
+
+export interface ComposerTextSelection {
+  start: number;
+  end: number;
+  direction: "forward" | "backward" | "none";
 }
 
 export type ComposerSubmitIntent = "immediate" | "queued";
@@ -181,7 +196,7 @@ function composerReferenceFromMentionItem(
   item: MentionItem,
 ): AgentComposerReference {
   return {
-    label: item.label,
+    label: item.referenceLabel ?? item.label,
     icon: item.icon || "file",
     media: item.media,
     source: item.source,
@@ -194,6 +209,18 @@ function composerReferenceFromMentionItem(
     clearsSlots: item.clearsSlots,
     relatedReferences: item.relatedReferences,
   };
+}
+
+export function findExactMentionItem(
+  items: MentionItem[],
+  query: string,
+): MentionItem | undefined {
+  const normalizedQuery = query.toLowerCase();
+  return items.find((item) =>
+    [item.label, ...(item.aliases ?? [])].some(
+      (candidate) => candidate.toLowerCase() === normalizedQuery,
+    ),
+  );
 }
 
 function mentionReferenceAttrs(ref: AgentComposerReference) {
@@ -792,6 +819,17 @@ export interface TiptapComposerProps {
   clearOnSubmit?: boolean;
   /** Called whenever the plain editor text changes. */
   onTextChange?: (text: string) => void;
+  /** Host-owned candidates shown before workspace mention search results. */
+  mentionItems?: MentionItem[];
+  /** Include shared workspace mention search results. Default: true. */
+  includeDefaultMentionSearch?: boolean;
+  /** Called when inline reference atoms are added, removed, or pasted. */
+  onReferencesChange?: (references: Reference[]) => void;
+  /** Called for Escape when no composer menu is open. */
+  onEscape?: () => void;
+  onFocus?: () => void;
+  onBlur?: () => void;
+  onSelectionChange?: (selection: ComposerTextSelection) => void;
   /** Custom action button (e.g. stop button) to render instead of the default send button. */
   actionButton?: React.ReactNode;
   /** Whether the default send action will wait behind existing work. */
@@ -2433,6 +2471,13 @@ export function TiptapComposer({
   extensionTools = false,
   interceptBuildRequestsForBuilder = false,
   onAttachmentError,
+  mentionItems: hostMentionItems = [],
+  includeDefaultMentionSearch = true,
+  onReferencesChange,
+  onEscape,
+  onFocus,
+  onBlur,
+  onSelectionChange,
 }: TiptapComposerProps) {
   const adapters = useComposerRuntimeAdapters();
   const t = adapters.translate!;
@@ -2448,6 +2493,7 @@ export function TiptapComposer({
   } | null>(null);
   const submitInFlightRef = useRef(false);
   const [editorHasText, setEditorHasText] = useState(false);
+  const [referenceRevision, setReferenceRevision] = useState(0);
   const [slotReferences, setSlotReferences] = useState<
     AgentComposerReference[]
   >([]);
@@ -2474,6 +2520,7 @@ export function TiptapComposer({
 
   // Refs for values accessed in handleKeyDown (ProseMirror doesn't re-bind)
   const popoverStateRef = useRef<PopoverState>(null);
+  const composingRef = useRef(false);
   const onAttachmentErrorRef = useRef(onAttachmentError);
   onAttachmentErrorRef.current = onAttachmentError;
   const execModeRef = useRef(execMode);
@@ -2485,11 +2532,18 @@ export function TiptapComposer({
 
   const { items: mentionItems, isLoading: mentionsLoading } = useMentionSearch(
     popover?.type === "@" ? popover.query : "",
-    popover?.type === "@",
+    includeDefaultMentionSearch && popover?.type === "@",
   );
   const filteredMentionItems = useMemo(
-    () => filterMentionItemsForSlots(mentionItems, slotReferences),
-    [mentionItems, slotReferences],
+    () =>
+      filterMentionItemsForSlots(
+        [...hostMentionItems, ...mentionItems].filter(
+          (item, index, items) =>
+            items.findIndex((candidate) => candidate.id === item.id) === index,
+        ),
+        slotReferences,
+      ),
+    [hostMentionItems, mentionItems, slotReferences],
   );
 
   const {
@@ -2657,17 +2711,27 @@ export function TiptapComposer({
       // Drive the send button's enabled state from the actual editor contents;
       // the composer runtime is only synced on submit, so its isEmpty lags.
       setEditorHasText(composerDocumentHasContent(ed.state.doc));
-      onTextChangeRef.current?.(ed.state.doc.textContent.trim());
+      onTextChangeRef.current?.(ed.getText({ blockSeparator: "\n" }).trim());
+      setReferenceRevision((revision) => revision + 1);
 
       scheduleComposerDraftPersist(ed);
     },
     onSelectionUpdate: ({ editor: ed }) => {
-      const { from, to } = ed.state.selection;
+      const { from, to, anchor, head } = ed.state.selection;
+      if (ed.isFocused)
+        onSelectionChange?.({
+          start: from,
+          end: to,
+          direction:
+            anchor === head ? "none" : anchor > head ? "backward" : "forward",
+        });
       if (selectedContextItemKeyRef.current && (from !== to || from > 1)) {
         selectedContextItemKeyRef.current = null;
         setSelectedContextItemKey(null);
       }
     },
+    onFocus,
+    onBlur,
     editorProps: {
       attributes: {
         "aria-label": ariaLabel ?? resolvedPlaceholder,
@@ -2677,6 +2741,34 @@ export function TiptapComposer({
         "data-agent-composer-slot": "editor-input",
         class:
           "agent-composer-prosemirror flex-1 resize-none bg-transparent text-sm text-foreground outline-none leading-[1.625rem] min-h-[3.25rem] max-h-[10rem] overflow-y-auto",
+      },
+      handleDOMEvents: {
+        compositionstart: () => {
+          composingRef.current = true;
+          return false;
+        },
+        compositionend: () => {
+          composingRef.current = false;
+          return false;
+        },
+        keydown: (_view, event) => {
+          if (event.key !== "Escape" || !event.defaultPrevented) return false;
+          if (
+            event.isComposing ||
+            event.keyCode === 229 ||
+            composingRef.current
+          ) {
+            event.stopPropagation();
+            return true;
+          }
+          if (popoverStateRef.current) {
+            closePopover();
+          } else {
+            onEscape?.();
+          }
+          event.stopPropagation();
+          return true;
+        },
       },
       handlePaste: (_view, event) => {
         const paste = readClipboardPaste(event.clipboardData);
@@ -2763,10 +2855,25 @@ export function TiptapComposer({
         });
       },
       handleKeyDown: (view, event) => {
+        if (event.isComposing || event.keyCode === 229) {
+          event.stopPropagation();
+          return false;
+        }
         const pop = popoverStateRef.current;
 
         // Handle popover keyboard nav
         if (pop) {
+          if (event.key === " " && pop.type === "@" && pop.query) {
+            const exact = findExactMentionItem(
+              mentionItemsRef.current,
+              pop.query,
+            );
+            if (exact) {
+              event.preventDefault();
+              selectMention(view, pop, exact);
+              return true;
+            }
+          }
           if (event.key === "ArrowUp") {
             event.preventDefault();
             popoverRef.current?.moveUp();
@@ -2882,6 +2989,13 @@ export function TiptapComposer({
           return true;
         }
 
+        if (event.key === "Escape" && onEscape) {
+          event.preventDefault();
+          event.stopPropagation();
+          onEscape();
+          return true;
+        }
+
         // Detect @ trigger — only when preceded by start-of-text, space, or newline
         // (not after alphanumeric chars, which would indicate an email address)
         if (event.key === "@") {
@@ -2966,8 +3080,9 @@ export function TiptapComposer({
   // correct immediately after a tab switch, not only after the next keystroke.
   useEffect(() => {
     if (!isComposerEditorUsable(editor) || !onTextChange) return;
-    onTextChange(editor.state.doc.textContent.trim());
-  }, [editor, onTextChange]);
+    const currentText = editor.getText({ blockSeparator: "\n" }).trim();
+    if (initialText === undefined) onTextChange(currentText);
+  }, [editor, initialText, onTextChange]);
 
   const insertReference = useCallback(
     (ref: AgentComposerReference) => {
@@ -3099,7 +3214,7 @@ export function TiptapComposer({
       if (!isComposerEditorUsable(editor)) return;
       editor.commands.setContent(plainTextToDoc(text));
       editor.commands.focus("end");
-      const trimmed = editor.state.doc.textContent.trim();
+      const trimmed = editor.getText({ blockSeparator: "\n" }).trim();
       setEditorHasText(trimmed.length > 0);
       setSlotReferences([]);
       composerRuntime.setText(trimmed);
@@ -3107,6 +3222,84 @@ export function TiptapComposer({
       flushComposerDraft();
     },
     insertReference,
+    replaceReference(refType, ref) {
+      if (!isComposerEditorUsable(editor)) return;
+      const positions: number[] = [];
+      editor.state.doc.descendants((node: any, pos: number) => {
+        if (
+          node.type.name === "mentionReference" &&
+          node.attrs.refType === refType
+        ) {
+          positions.push(pos);
+        }
+      });
+      if (positions.length === 0) {
+        if (ref) insertReference(ref);
+        return;
+      }
+      const referencePosition = positions[0]!;
+      const node = editor.state.doc.nodeAt(referencePosition);
+      if (!node) return;
+      const normalized = ref
+        ? (adapters.agentChat!.normalizeReference!(
+            ref,
+          ) as AgentComposerReference)
+        : null;
+      editor
+        .chain()
+        .focus()
+        .command(({ tr }) => {
+          for (const duplicatePosition of positions.slice(1).reverse()) {
+            const duplicate = tr.doc.nodeAt(duplicatePosition);
+            if (duplicate) {
+              tr.delete(
+                duplicatePosition,
+                duplicatePosition + duplicate.nodeSize,
+              );
+            }
+          }
+          if (normalized) {
+            tr.setNodeMarkup(
+              referencePosition,
+              undefined,
+              mentionReferenceAttrs(normalized),
+            );
+          } else {
+            tr.delete(referencePosition, referencePosition + node.nodeSize);
+          }
+          return true;
+        })
+        .run();
+    },
+    getSelection() {
+      if (!isComposerEditorUsable(editor)) return null;
+      const { from, to, anchor, head } = editor.state.selection;
+      return {
+        start: from,
+        end: to,
+        direction:
+          anchor === head ? "none" : anchor > head ? "backward" : "forward",
+      };
+    },
+    setSelection(start, end = start, direction = "none") {
+      if (!isComposerEditorUsable(editor)) return;
+      const maxPosition = editor.state.doc.content.size;
+      const boundedStart = Math.max(1, Math.min(start, maxPosition));
+      const boundedEnd = Math.max(1, Math.min(end, maxPosition));
+      const anchor = direction === "backward" ? boundedEnd : boundedStart;
+      const head = direction === "backward" ? boundedStart : boundedEnd;
+      editor.commands.focus();
+      editor.view.dispatch(
+        editor.state.tr.setSelection(
+          TextSelection.create(editor.state.doc, anchor, head),
+        ),
+      );
+    },
+    dismissPopover() {
+      if (!popoverStateRef.current) return false;
+      closePopover();
+      return true;
+    },
   }));
 
   const handleSelectMode = useCallback(
@@ -3421,6 +3614,16 @@ export function TiptapComposer({
     return { text, references };
   }, [editor, slotReferences]);
 
+  const referencesSignatureRef = useRef("");
+  useEffect(() => {
+    if (!onReferencesChange) return;
+    const references = extractComposerPayload().references;
+    const signature = JSON.stringify(references);
+    if (signature === referencesSignatureRef.current) return;
+    referencesSignatureRef.current = signature;
+    onReferencesChange(references);
+  }, [referenceRevision, extractComposerPayload, onReferencesChange]);
+
   const syncComposerRuntimeState = useCallback(
     (text: string, references: Reference[]) => {
       const requestMode =
@@ -3698,18 +3901,80 @@ export function TiptapComposer({
 
   // Helper functions that operate on the editor view directly
   // These are called from handleKeyDown which can't use React state
-  function selectMention(
-    _view: any,
+  function insertSelectedMention(
     pop: NonNullable<PopoverState>,
     item: MentionItem,
   ) {
     const ed = editor;
     if (!isComposerEditorUsable(ed)) return;
     const currentPos = ed.state.selection.from;
-    // startPos is after the trigger char, so -1 to include the @ or /
     const deleteFrom = Math.max(0, pop.startPos - 1);
-    ed.chain().focus().deleteRange({ from: deleteFrom, to: currentPos }).run();
-    insertReference(composerReferenceFromMentionItem(item));
+    const normalized = adapters.agentChat!.normalizeReference!(
+      composerReferenceFromMentionItem(item),
+    ) as AgentComposerReference | null;
+    if (!normalized) return;
+    if (normalized.slotKey) {
+      ed.chain()
+        .focus()
+        .deleteRange({ from: deleteFrom, to: currentPos })
+        .run();
+      insertReference(normalized);
+      return;
+    }
+    if (normalized.relatedReferences?.some((reference) => reference.slotKey)) {
+      setSlotReferences((current) =>
+        applySlotReferenceChanges(current, normalized.relatedReferences ?? []),
+      );
+    }
+    if (item.replaceExisting) {
+      let existingPosition: number | null = null;
+      ed.state.doc.descendants((node: any, pos: number) => {
+        if (
+          existingPosition === null &&
+          node.type.name === "mentionReference" &&
+          node.attrs.refType === normalized.refType
+        ) {
+          existingPosition = pos;
+          return false;
+        }
+      });
+      if (existingPosition !== null) {
+        const position = existingPosition;
+        ed.chain()
+          .focus()
+          .command(({ tr }) => {
+            tr.delete(deleteFrom, currentPos);
+            tr.setNodeMarkup(
+              tr.mapping.map(position),
+              undefined,
+              mentionReferenceAttrs(normalized),
+            );
+            tr.insertText(" ", tr.selection.from);
+            return true;
+          })
+          .run();
+        setEditorHasText(true);
+        return;
+      }
+    }
+    ed.chain()
+      .focus()
+      .deleteRange({ from: deleteFrom, to: currentPos })
+      .insertContent({
+        type: "mentionReference",
+        attrs: mentionReferenceAttrs(normalized),
+      })
+      .insertContent(" ")
+      .run();
+    setEditorHasText(true);
+  }
+
+  function selectMention(
+    _view: any,
+    pop: NonNullable<PopoverState>,
+    item: MentionItem,
+  ) {
+    insertSelectedMention(pop, item);
     popoverStateRef.current = null;
     setPopover(null);
   }
@@ -3754,18 +4019,11 @@ export function TiptapComposer({
   // Popover select handlers for click-based selection (from MentionPopover)
   const handleSelectMention = useCallback(
     (item: MentionItem) => {
-      if (!isComposerEditorUsable(editor) || !popover) return;
-      const currentPos = editor.state.selection.from;
-      const deleteFrom = Math.max(0, popover.startPos - 1);
-      editor
-        .chain()
-        .focus()
-        .deleteRange({ from: deleteFrom, to: currentPos })
-        .run();
-      insertReference(composerReferenceFromMentionItem(item));
+      if (!popover) return;
+      insertSelectedMention(popover, item);
       closePopover();
     },
-    [editor, popover, closePopover, insertReference],
+    [popover, closePopover, insertReference],
   );
 
   const handleSelectCommand = useCallback(
@@ -3809,6 +4067,7 @@ export function TiptapComposer({
     if (!isComposerEditorUsable(editor) || !popover) return;
 
     const updateHandler = () => {
+      if (composingRef.current) return;
       const pop = popoverStateRef.current;
       if (!pop) return;
       const { from } = editor.state.selection;
@@ -3854,11 +4113,12 @@ export function TiptapComposer({
 
   useEffect(() => {
     if (!isComposerEditorUsable(editor)) return;
+    if (initialText !== undefined) return;
     if (previousDraftKeyRef.current !== draftKey) return;
     if (composerText !== "") return;
     if (editor.isEmpty) return;
     editor.commands.clearContent();
-  }, [composerText, draftKey, editor]);
+  }, [composerText, draftKey, editor, initialText]);
 
   useEffect(() => {
     if (!isComposerEditorUsable(editor)) return;
@@ -3905,16 +4165,17 @@ export function TiptapComposer({
         editor.commands.focus("end");
         if (initialText !== undefined) initialTextKeyRef.current = key;
       } else if (initialText === undefined) {
-        onTextChangeRef.current?.(editor.state.doc.textContent.trim());
+        onTextChangeRef.current?.(
+          editor.getText({ blockSeparator: "\n" }).trim(),
+        );
         return;
       } else if (initialTextKeyRef.current !== key) {
         initialTextKeyRef.current = key;
         editor.commands.setContent(plainTextToDoc(initialText));
-        editor.commands.focus("end");
       } else {
         return;
       }
-      const trimmed = editor.state.doc.textContent.trim();
+      const trimmed = editor.getText({ blockSeparator: "\n" }).trim();
       setEditorHasText(composerDocumentHasContent(editor.state.doc));
       composerRuntime.setText(trimmed);
       onTextChangeRef.current?.(trimmed);

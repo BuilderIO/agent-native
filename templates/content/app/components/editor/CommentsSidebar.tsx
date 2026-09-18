@@ -1,3 +1,4 @@
+import { chatModelSelectionStorageKey } from "@agent-native/core/client/agent-chat";
 import { emailToColor } from "@agent-native/core/client/collab";
 import { useAvatarUrl } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
@@ -13,7 +14,7 @@ import type {
   ResourceSuggestion,
   SuggestionDecision,
 } from "@agent-native/core/review";
-import type { CommentAiIntent } from "@shared/comment-ai";
+import type { TiptapComposerHandle } from "@agent-native/toolkit/composer";
 import {
   IconCheck,
   IconArrowUp,
@@ -72,20 +73,28 @@ import {
 } from "@/hooks/use-mention-members";
 import { cn } from "@/lib/utils";
 
-import {
-  CommentAiThreadActions,
-  latestCommentAiRequest,
-  type CommentAiController,
-} from "./comment-ai";
 import type { CommentTextAnchor } from "./comment-anchors";
 import {
   useCommentDraft,
   useCommentDraftContext,
   useCommentPanelSession,
+  type CommentDraft,
 } from "./comment-drafts";
-import { CommentComposer, type MentionEntry } from "./CommentComposer";
+import {
+  CommentComposer,
+  type CommentAiDraft,
+  type CommentAiSubmitPayload,
+  type MentionEntry,
+} from "./CommentComposer";
 import { CommentEntry, CommentAttributionBadge } from "./CommentEntry";
 export { getAiCommentSource } from "./CommentEntry";
+import {
+  CommentAiConversation,
+  CommentAiRequestStatus,
+  latestCommentAiRequest,
+  startCommentAiSubmission,
+  type CommentAiController,
+} from "./comment-ai";
 import { ReviewCommentMenu, ReviewReactionList } from "./ReviewDiscussionTools";
 import type { DraftSuggestion } from "./suggestions/draft-session";
 import { SuggestionText } from "./SuggestionText";
@@ -405,7 +414,9 @@ export function preserveCommentReplyEscape(event: KeyboardEvent) {
   const target = event.target;
   if (
     event.key === "Escape" &&
-    target instanceof HTMLTextAreaElement &&
+    target instanceof HTMLElement &&
+    (target instanceof HTMLTextAreaElement ||
+      target.getAttribute("contenteditable") === "true") &&
     target === target.ownerDocument.activeElement &&
     target.closest("[data-comment-reply-composer]")
   ) {
@@ -505,14 +516,11 @@ export function useCommentReplyDrafts(
   );
   const update = (
     threadId: string,
-    change: (draft: { text: string; mentions: MentionEntry[] }) => {
-      text: string;
-      mentions: MentionEntry[];
-    },
+    change: (draft: CommentDraft) => CommentDraft,
   ) => {
     draftStore.updateDraft(
       `reply:${documentId}:${threadId}`,
-      { text: "", mentions: [] },
+      { text: "", mentions: [], aiDraft: null },
       change,
     );
   };
@@ -536,17 +544,26 @@ export function useCommentReplyDrafts(
       draftStore.drafts.get(`reply:${documentId}:${threadId}`) ?? {
         text: "",
         mentions: [],
+        aiDraft: null,
         revision: 0,
       },
-    setText: (threadId: string, text: string) =>
-      update(threadId, (draft) => ({ ...draft, text })),
+    setText: (threadId: string, text: string) => {
+      if (
+        text === "" &&
+        !draftStore.drafts.has(`reply:${documentId}:${threadId}`)
+      )
+        return;
+      update(threadId, (draft) => ({ ...draft, text }));
+    },
     addMention: (threadId: string, mention: MentionEntry) =>
       update(threadId, (draft) => ({
         ...draft,
         mentions: [...draft.mentions, mention],
       })),
+    setAiDraft: (threadId: string, aiDraft: CommentAiDraft | null) =>
+      update(threadId, (draft) => ({ ...draft, aiDraft })),
     clear: (threadId: string) =>
-      update(threadId, () => ({ text: "", mentions: [] })),
+      update(threadId, () => ({ text: "", mentions: [], aiDraft: null })),
   };
 }
 
@@ -668,8 +685,11 @@ interface CommentsSidebarOptions {
   onSelectedThreadChange?: (id: string | null) => void;
   onHoveredThreadChange?: (id: string | null) => void;
   currentUserEmail?: string;
+  currentUserOrgId?: string;
   canComment?: boolean;
   canResolve?: boolean;
+  canSuggest?: boolean;
+  commentAi?: CommentAiController;
   alignToAnchors?: boolean;
   forceVisible?: boolean;
   suggestions?: ResourceSuggestion[];
@@ -679,8 +699,6 @@ interface CommentsSidebarOptions {
   ) => Promise<ResourceSuggestion | null>;
   canDecideSuggestions?: boolean;
   decidingSuggestion?: boolean;
-  canSuggest?: boolean;
-  commentAi?: CommentAiController;
   onDecideSuggestion?: (
     suggestion: ResourceSuggestion,
     decision: SuggestionDecision,
@@ -702,6 +720,18 @@ type CommentsSidebarProps = CommentsSidebarOptions &
         onPendingDone?: never;
       }
   );
+
+export function commentAiModelStorageKey(
+  currentUserEmail?: string,
+  currentUserOrgId?: string,
+) {
+  const email = currentUserEmail?.trim().toLowerCase();
+  if (!email) return undefined;
+  const orgId = currentUserOrgId?.trim();
+  return chatModelSelectionStorageKey(
+    `content-comment-ai:${orgId ? `org:${orgId}` : "personal"}:${email}`,
+  );
+}
 
 export function CommentsSidebar({
   compact = false,
@@ -726,8 +756,11 @@ export function CommentsSidebar({
   onSelectedThreadChange,
   onHoveredThreadChange,
   currentUserEmail,
+  currentUserOrgId,
   canComment = true,
   canResolve = false,
+  canSuggest = false,
+  commentAi,
   alignToAnchors = true,
   forceVisible = false,
   suggestions = NO_SUGGESTIONS,
@@ -735,13 +768,15 @@ export function CommentsSidebar({
   onMaterializeDraft,
   canDecideSuggestions = false,
   decidingSuggestion = false,
-  canSuggest = false,
-  commentAi,
   onDecideSuggestion,
   visibleThreadId,
   presentation = "inline",
 }: CommentsSidebarProps) {
   const t = useT();
+  const aiModelStorageKey = commentAiModelStorageKey(
+    currentUserEmail,
+    currentUserOrgId,
+  );
   const { data: members = [] } = useMentionMembers();
   const createComment = useCreateComment({ email: currentUserEmail });
   const resolveComment = useResolveComment();
@@ -805,7 +840,7 @@ export function CommentsSidebar({
     presentation,
   ]);
   const sidebarRef = useRef<HTMLDivElement>(null);
-  const pendingInputRef = useRef<HTMLTextAreaElement>(null);
+  const pendingInputRef = useRef<TiptapComposerHandle>(null);
 
   const openThreads = useMemo(() => {
     if (presentation === "inline" && !alignToAnchors && activeSuggestionId)
@@ -981,51 +1016,23 @@ export function CommentsSidebar({
   const pendingFocus = pendingComment?.focus;
   useEffect(() => {
     if (!pendingFocus || presentation !== "inline") return;
-    const relinquishFocus = (event: FocusEvent) => {
-      if (event.target !== pendingInputRef.current) pendingFocus.current = null;
-    };
-    document.addEventListener("focusin", relinquishFocus);
     const timer = setTimeout(() => {
-      document.removeEventListener("focusin", relinquishFocus);
       const input = pendingInputRef.current;
       const saved = pendingFocus.current;
-      if (!input || !saved || input.closest("[inert]")) return;
-      input.focus({ preventScroll: true });
+      if (!input || !saved) return;
+      const active = document.activeElement;
+      if (
+        active &&
+        active !== document.body &&
+        active !== document.documentElement &&
+        active.isConnected
+      )
+        return;
+      input.focus();
       if (saved.start !== undefined && saved.end !== undefined)
-        input.setSelectionRange(saved.start, saved.end, saved.direction);
+        input.setSelection(saved.start, saved.end, saved.direction);
     }, 50);
-    return () => {
-      clearTimeout(timer);
-      document.removeEventListener("focusin", relinquishFocus);
-    };
-  }, [pendingFocus, presentation]);
-
-  useLayoutEffect(() => {
-    const input = pendingInputRef.current;
-    if (!input || !pendingFocus) return;
-    const capture = () => {
-      if (document.activeElement !== input) return;
-      pendingFocus.current = {
-        start: input.selectionStart,
-        end: input.selectionEnd,
-        direction: input.selectionDirection,
-      };
-    };
-    const blur = () => {
-      if (input.isConnected && !input.closest("[inert]"))
-        pendingFocus.current = null;
-    };
-    input.addEventListener("focus", capture);
-    input.addEventListener("select", capture);
-    input.addEventListener("input", capture);
-    input.addEventListener("blur", blur);
-    return () => {
-      capture();
-      input.removeEventListener("focus", capture);
-      input.removeEventListener("select", capture);
-      input.removeEventListener("input", capture);
-      input.removeEventListener("blur", blur);
-    };
+    return () => clearTimeout(timer);
   }, [pendingFocus, presentation]);
 
   const handlePendingSubmit = async () => {
@@ -1100,28 +1107,6 @@ export function CommentsSidebar({
     }
   };
 
-  const handleStartCommentAi = async (
-    thread: CommentThread,
-    intent: CommentAiIntent,
-    requestId?: string,
-  ) => {
-    if (!commentAi) return;
-    const root = thread.comments.find((comment) => comment.parent_id === null);
-    if (!root) return;
-    try {
-      await commentAi.start({
-        threadId: thread.threadId,
-        rootCommentId: root.id,
-        intent,
-        requestId,
-      });
-    } catch (error) {
-      toast.error(t("comments.aiFailed"), {
-        description: error instanceof Error ? error.message : undefined,
-      });
-    }
-  };
-
   const [threadPositions, setThreadPositions] = useState<
     Map<string, CommentThreadPosition>
   >(new Map());
@@ -1148,9 +1133,8 @@ export function CommentsSidebar({
     [],
   );
 
-  // Only the presence of a pending comment moves the lane; its draft text
-  // changes on every keystroke and must not re-key the anchor observers.
-  const hasPendingComment = !!pendingComment;
+  // Draft text changes on every keystroke; only presence moves the lane.
+  const hasPendingComment = Boolean(pendingComment);
   const recomputeOffsets = useCallback(() => {
     const container = scrollContainerRef?.current ?? null;
     if (!container || inlineThreads.length === 0) {
@@ -1198,7 +1182,7 @@ export function CommentsSidebar({
     setPendingOffset((prev) =>
       prev === nextPendingOffset ? prev : nextPendingOffset,
     );
-  }, [alignToAnchors, inlineThreads, hasPendingComment, scrollContainerRef]);
+  }, [alignToAnchors, hasPendingComment, inlineThreads, scrollContainerRef]);
 
   useEffect(() => {
     const container = scrollContainerRef?.current ?? null;
@@ -1314,93 +1298,153 @@ export function CommentsSidebar({
     thread: CommentThread,
     marginTop = 0,
     isActive = false,
-  ) => (
-    <ThreadView
-      key={thread.threadId}
-      replyDrafts={replyDrafts}
-      documentId={documentId}
-      thread={thread}
-      marginTop={marginTop}
-      isActive={isActive}
-      canExpand={canComment}
-      isExpanded={replyingThreadId === thread.threadId}
-      isSubmitting={
-        isResolving(thread.threadId) ||
-        ambiguousCreate(thread.threadId) ||
-        thread.comments.some(
-          (comment) => comment.mutation?.status === "pending",
-        )
+  ) => {
+    const aiRequest = commentAi
+      ? latestCommentAiRequest(commentAi.requests, thread.threadId)
+      : undefined;
+    const continuation = aiRequest
+      ? commentAi?.continuations.get(aiRequest.operationId)
+      : undefined;
+    const submitAi = async (selection: CommentAiSubmitPayload) => {
+      if (!commentAi || !thread.comments[0]) return;
+      const instructions = replyDrafts.get(thread.threadId).text.trim();
+      if (!instructions) return;
+      const submitted = replyDrafts.get(thread.threadId);
+      try {
+        const outcome = await startCommentAiSubmission(commentAi, {
+          threadId: thread.threadId,
+          rootCommentId: thread.comments[0].id,
+          submittedMode: selection.intent,
+          instructions,
+          provider: selection.provider,
+          model: selection.model,
+          engine: selection.engine,
+          priorRequest: aiRequest,
+        });
+        if (outcome === "confirmed-start") {
+          draftStore.clearIfUnchanged(
+            `reply:${documentId}:${thread.threadId}`,
+            submitted,
+          );
+        }
+      } catch (error) {
+        toast.error(t("empty.genericError"), {
+          description: error instanceof Error ? error.message : undefined,
+        });
       }
-      replyText={replyDrafts.get(thread.threadId).text}
-      onHoverChange={(hovered) =>
-        onHoveredThreadChange?.(hovered ? thread.threadId : null)
+    };
+    const stopAi = async () => {
+      if (!commentAi || !aiRequest) return;
+      try {
+        await commentAi.stop(aiRequest);
+      } catch (error) {
+        toast.error(t("empty.genericError"), {
+          description: error instanceof Error ? error.message : undefined,
+        });
       }
-      onExpand={() => {
-        if (createComment.isPending || replyingThreadId === thread.threadId)
-          return;
-        onActivateThread?.(thread.threadId);
-        scrollToCommentAnchor(
-          scrollContainerRef?.current ?? null,
-          threadPositions.get(thread.threadId)?.documentTop,
-        );
-        if (canComment) setReplyingThreadId(thread.threadId);
-      }}
-      onCollapse={() => {
-        if (createComment.isPending) return;
-        setReplyingThreadId(null);
-        onSelectedThreadChange?.(null);
-      }}
-      onReplyChange={(text) => replyDrafts.setText(thread.threadId, text)}
-      onReplyMentionAdd={(mention) =>
-        replyDrafts.addMention(thread.threadId, mention)
-      }
-      onHeightChange={handleThreadCardHeightChange}
-      members={members}
-      canComment={canComment && !thread.resolved}
-      canResolve={canResolve}
-      onSubmitReply={() => handleReply(thread.threadId)}
-      onResolve={() =>
-        thread.resolved ? handleReopen(thread) : handleResolve(thread)
-      }
-      resolved={Boolean(thread.resolved)}
-      renderEntry={(id) => (
-        <CommentEntry
-          comment={thread.comments.find((comment) => comment.id === id)!}
-          documentId={documentId}
-          currentUserEmail={currentUserEmail}
-          canComment={canComment}
-          members={members}
-        />
-      )}
-      threadActions={
-        <CommentAiThreadActions
-          aria-label={t("comments.askAi")}
-          request={latestCommentAiRequest(
-            commentAi?.requests ?? [],
-            thread.threadId,
-          )}
-          starting={commentAi?.startingThreadIds.has(thread.threadId) ?? false}
-          canSuggest={
-            canSuggest &&
-            thread.comments.some((comment) => comment.parent_id === null)
-          }
-          canReply={
-            canComment &&
-            !thread.resolved &&
-            thread.comments.some((comment) => comment.parent_id === null)
-          }
-          canApply={
-            canResolve &&
-            thread.comments.some((comment) => comment.parent_id === null)
-          }
-          onStart={(intent, requestId) =>
-            handleStartCommentAi(thread, intent, requestId)
-          }
-        />
-      }
-      t={t}
-    />
-  );
+    };
+    return (
+      <ThreadView
+        key={thread.threadId}
+        replyDrafts={replyDrafts}
+        documentId={documentId}
+        thread={thread}
+        marginTop={marginTop}
+        isActive={isActive}
+        canExpand={canComment}
+        isExpanded={replyingThreadId === thread.threadId}
+        isSubmitting={
+          isResolving(thread.threadId) ||
+          ambiguousCreate(thread.threadId) ||
+          thread.comments.some(
+            (comment) => comment.mutation?.status === "pending",
+          )
+        }
+        replyText={replyDrafts.get(thread.threadId).text}
+        aiDraft={replyDrafts.get(thread.threadId).aiDraft}
+        onHoverChange={(hovered) =>
+          onHoveredThreadChange?.(hovered ? thread.threadId : null)
+        }
+        onExpand={() => {
+          if (createComment.isPending || replyingThreadId === thread.threadId)
+            return;
+          onActivateThread?.(thread.threadId);
+          scrollToCommentAnchor(
+            scrollContainerRef?.current ?? null,
+            threadPositions.get(thread.threadId)?.documentTop,
+          );
+          if (canComment) setReplyingThreadId(thread.threadId);
+        }}
+        onCollapse={() => {
+          if (createComment.isPending) return;
+          setReplyingThreadId(null);
+          onSelectedThreadChange?.(null);
+        }}
+        onReplyChange={(text) => replyDrafts.setText(thread.threadId, text)}
+        onReplyMentionAdd={(mention) =>
+          replyDrafts.addMention(thread.threadId, mention)
+        }
+        onAiDraftChange={(aiDraft) =>
+          replyDrafts.setAiDraft(thread.threadId, aiDraft)
+        }
+        onHeightChange={handleThreadCardHeightChange}
+        members={members}
+        canComment={canComment && !thread.resolved}
+        canResolve={canResolve}
+        onSubmitReply={() => handleReply(thread.threadId)}
+        onResolve={() =>
+          thread.resolved ? handleReopen(thread) : handleResolve(thread)
+        }
+        resolved={Boolean(thread.resolved)}
+        renderEntry={(id) => (
+          <CommentEntry
+            comment={thread.comments.find((comment) => comment.id === id)!}
+            documentId={documentId}
+            currentUserEmail={currentUserEmail}
+            canComment={canComment}
+            members={members}
+            reserveThreadActions={id === thread.comments[0]?.id}
+            onOpenAiConversation={
+              id === thread.comments[0]?.id &&
+              aiRequest?.agentThreadId &&
+              aiRequest.agentTurnId &&
+              commentAi
+                ? () => commentAi.open(aiRequest)
+                : undefined
+            }
+          />
+        )}
+        feedback={
+          aiRequest && commentAi ? (
+            <>
+              {continuation ||
+              aiRequest.status === "replied" ||
+              aiRequest.status === "suggested" ||
+              aiRequest.status === "resolved" ? (
+                <CommentAiConversation
+                  request={aiRequest}
+                  revision={commentAi.transcriptRevision}
+                  continuation={continuation}
+                />
+              ) : null}
+              <CommentAiRequestStatus
+                request={aiRequest}
+                continuation={continuation}
+                stopping={commentAi.stoppingRequestIds.has(
+                  aiRequest.operationId,
+                )}
+                onRetry={() => commentAi.retry(aiRequest)}
+                onStop={stopAi}
+              />
+            </>
+          ) : undefined
+        }
+        onAiSubmit={commentAi ? submitAi : undefined}
+        aiModelStorageKey={commentAi ? aiModelStorageKey : undefined}
+        t={t}
+      />
+    );
+  };
 
   const renderSuggestionCard = (
     suggestion: ResourceSuggestion,
@@ -1624,7 +1668,10 @@ export function CommentsSidebar({
                 <HistoryThreadView
                   key={entry.thread.threadId}
                   thread={entry.thread}
-                  onOpen={() => onActivateThread?.(entry.thread.threadId)}
+                  onOpen={() => {
+                    onActivateThread?.(entry.thread.threadId);
+                    if (canComment) setReplyingThreadId(entry.thread.threadId);
+                  }}
                 />
               );
             })
@@ -1688,6 +1735,16 @@ export function CommentsSidebar({
             onSubmit={handlePendingSubmit}
             onEscape={() => {
               if (!pendingText.trim()) handlePendingCancel();
+            }}
+            onFocus={() => {
+              const selection = pendingInputRef.current?.getSelection();
+              if (selection && pendingFocus) pendingFocus.current = selection;
+            }}
+            onSelectionChange={(selection) => {
+              if (pendingFocus) pendingFocus.current = selection;
+            }}
+            onBlur={() => {
+              if (pendingFocus) pendingFocus.current = null;
             }}
             members={members}
             placeholder={t("comments.add")}
@@ -2337,17 +2394,21 @@ function ThreadView({
   isSubmitting,
   timeLabel,
   replyText,
+  aiDraft,
   members,
   onHoverChange,
   onExpand,
   onCollapse,
   onReplyChange,
   onReplyMentionAdd,
+  onAiDraftChange,
   onHeightChange,
   onSubmitReply,
   onResolve,
   canComment,
   canResolve,
+  onAiSubmit,
+  aiModelStorageKey,
   expandLabel,
   firstEntryBody,
   threadActions,
@@ -2380,17 +2441,21 @@ function ThreadView({
   isSubmitting: boolean;
   timeLabel?: string;
   replyText: string;
+  aiDraft?: CommentAiDraft | null;
   members: MentionMember[];
   onHoverChange: (hovered: boolean) => void;
   onExpand: () => void;
   onCollapse: () => void;
   onReplyChange: (text: string) => void;
   onReplyMentionAdd: (entry: MentionEntry) => void;
+  onAiDraftChange?: (draft: CommentAiDraft | null) => void;
   onHeightChange: (threadId: string, height: number) => void;
   onSubmitReply: () => void;
   onResolve: () => void;
   canComment: boolean;
   canResolve: boolean;
+  onAiSubmit?: (payload: CommentAiSubmitPayload) => void;
+  aiModelStorageKey?: string;
   expandLabel?: string;
   firstEntryBody?: ReactNode;
   threadActions?: ReactNode;
@@ -2400,7 +2465,7 @@ function ThreadView({
   renderCommentFooter?: (commentId: string) => ReactNode;
   t: ReturnType<typeof useT>;
 }) {
-  const replyInputRef = useRef<HTMLTextAreaElement>(null);
+  const replyInputRef = useRef<TiptapComposerHandle>(null);
   const cardRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -2411,54 +2476,18 @@ function ThreadView({
         if (
           !input ||
           !saved ||
-          input.closest("[inert]") ||
           saved?.documentId !== documentId ||
           saved.threadId !== thread.threadId
         )
           return;
-        input.focus({ preventScroll: true });
+        input.focus();
         if (saved.start !== undefined && saved.end !== undefined) {
-          input.setSelectionRange(saved.start, saved.end, saved.direction);
+          input.setSelection(saved.start, saved.end, saved.direction);
         }
       }, 50);
       return () => clearTimeout(timer);
     }
   }, [isExpanded, canComment]);
-
-  useLayoutEffect(() => {
-    const input = replyInputRef.current;
-    if (!input || !replyDrafts || !documentId) return;
-    const capture = () => {
-      if (document.activeElement !== input) return;
-      replyDrafts.focus.current = {
-        documentId,
-        threadId: thread.threadId,
-        start: input.selectionStart,
-        end: input.selectionEnd,
-        direction: input.selectionDirection,
-      };
-    };
-    const blur = () => {
-      if (
-        input.isConnected &&
-        !input.closest("[inert]") &&
-        replyDrafts.focus.current?.threadId === thread.threadId
-      ) {
-        replyDrafts.focus.current = null;
-      }
-    };
-    input.addEventListener("focus", capture);
-    input.addEventListener("select", capture);
-    input.addEventListener("input", capture);
-    input.addEventListener("blur", blur);
-    return () => {
-      if (replyDrafts.focus.current?.threadId === thread.threadId) capture();
-      input.removeEventListener("focus", capture);
-      input.removeEventListener("select", capture);
-      input.removeEventListener("input", capture);
-      input.removeEventListener("blur", blur);
-    };
-  }, [isExpanded, documentId, thread.threadId, replyDrafts?.focus]);
 
   useEffect(() => {
     const element = cardRef.current;
@@ -2603,49 +2632,77 @@ function ThreadView({
       {feedback}
       {/* Expanded: Notion-style reply input */}
       {isExpanded && canComment && !resolved && (
-        <div
-          data-comment-reply-composer
-          className="flex items-center gap-2 px-3 pb-3 pt-1"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <CommentAvatar
-            email={thread.comments[0]?.author_email}
-            name={
-              thread.comments[0]?.author_name ??
-              thread.comments[0]?.author_email
-            }
-            className="h-6 w-6 shrink-0 opacity-40"
-          />
-          <div className="flex-1 relative">
-            <CommentComposer
-              ref={replyInputRef}
-              value={replyText}
-              onChange={onReplyChange}
-              onMentionAdd={onReplyMentionAdd}
-              onSubmit={onSubmitReply}
-              onEscape={() => {
-                onCollapse();
-                requestAnimationFrame(() => cardRef.current?.focus());
-              }}
-              members={members}
-              placeholder={t("comments.reply")}
-              disabled={isSubmitting}
-              rows={1}
-              className="block w-full resize-none bg-transparent [font-family:inherit] text-[13px] leading-relaxed placeholder:text-muted-foreground/50 focus:outline-none pe-8"
+        <>
+          <div
+            data-comment-reply-composer
+            className="flex items-center gap-2 px-3 pb-3 pt-1"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <CommentAvatar
+              email={thread.comments[0]?.author_email}
+              name={
+                thread.comments[0]?.author_name ??
+                thread.comments[0]?.author_email
+              }
+              className="h-6 w-6 shrink-0 opacity-40"
             />
-            <div className="absolute right-1 bottom-0.5 flex items-center gap-0.5">
-              <button
-                type="button"
-                aria-label={t("comments.submit")}
-                onClick={onSubmitReply}
-                disabled={!replyText.trim() || isSubmitting}
-                className="p-1 rounded-full text-muted-foreground/40 hover:text-foreground disabled:opacity-30"
-              >
-                <IconArrowUp size={16} />
-              </button>
+            <div className="flex-1 relative">
+              <CommentComposer
+                ref={replyInputRef}
+                value={replyText}
+                onChange={onReplyChange}
+                onMentionAdd={onReplyMentionAdd}
+                onSubmit={onSubmitReply}
+                onAiSubmit={onAiSubmit}
+                aiDraft={aiDraft}
+                onAiDraftChange={onAiDraftChange}
+                aiModelStorageKey={aiModelStorageKey}
+                onEscape={() => {
+                  onCollapse();
+                  requestAnimationFrame(() => cardRef.current?.focus());
+                }}
+                onFocus={() => {
+                  const selection = replyInputRef.current?.getSelection();
+                  if (!selection || !replyDrafts || !documentId) return;
+                  replyDrafts.focus.current = {
+                    documentId,
+                    threadId: thread.threadId,
+                    ...selection,
+                  };
+                }}
+                onSelectionChange={(selection) => {
+                  if (!replyDrafts || !documentId) return;
+                  replyDrafts.focus.current = {
+                    documentId,
+                    threadId: thread.threadId,
+                    ...selection,
+                  };
+                }}
+                onBlur={() => {
+                  if (cardRef.current?.closest("[inert]")) return;
+                  if (replyDrafts?.focus.current?.threadId === thread.threadId)
+                    replyDrafts.focus.current = null;
+                }}
+                members={members}
+                placeholder={t("comments.reply")}
+                disabled={isSubmitting}
+                rows={1}
+                className="block w-full resize-none bg-transparent [font-family:inherit] text-[13px] leading-relaxed placeholder:text-muted-foreground/50 focus:outline-none pe-8"
+              />
+              <div className="absolute right-1 bottom-0.5 flex items-center gap-0.5">
+                <button
+                  type="button"
+                  aria-label={t("comments.submit")}
+                  onClick={onSubmitReply}
+                  disabled={!replyText.trim() || isSubmitting}
+                  className="p-1 rounded-full text-muted-foreground/40 hover:text-foreground disabled:opacity-30"
+                >
+                  <IconArrowUp size={16} />
+                </button>
+              </div>
             </div>
           </div>
-        </div>
+        </>
       )}
     </div>
   );

@@ -761,6 +761,7 @@ function DocumentCommentDraftProvider({
     <CommentDraftProvider
       documentId={documentId}
       currentUserEmail={session?.email}
+      currentUserOrgId={session?.orgId}
     >
       {children}
     </CommentDraftProvider>
@@ -1608,7 +1609,6 @@ function PageEditorSessionBody({
     useState(false);
   const [showCommentIndicators, setShowCommentIndicators] = useState(true);
   const canSuggest = canComment && document.canSuggest === true;
-  const commentAi = useCommentAiRequests(documentId, { enabled: canComment });
   const canDelete =
     !isLocalFileDocument &&
     !document.database?.systemRole &&
@@ -4097,6 +4097,10 @@ function PageEditorSessionBody({
   const [hoveredThreadId, setHoveredThreadId] = useState<string | null>(null);
   const [utilityPanelSheetContainer, setUtilityPanelSheetContainer] =
     useState<HTMLElement | null>(null);
+  const utilityPanelSheetCloseRef = useRef<HTMLButtonElement>(null);
+  const utilityPanelSheetTriggerRef = useRef<HTMLElement | null>(null);
+  const commentsHistoryTriggerRef = useRef<HTMLButtonElement>(null);
+  const utilityPanelFocusGenerationRef = useRef(0);
   const activeThreadId = hoveredThreadId ?? selectedThreadId;
   const replyDrafts = useCommentReplyDrafts(documentId, session?.email);
   const [pendingCommentTargetValid, setPendingCommentTargetValid] =
@@ -4151,6 +4155,9 @@ function PageEditorSessionBody({
   const { data: threads, isLoading: commentsLoading } = useComments(
     !isLocalFileDocument ? documentId : null,
   );
+  const commentAi = useCommentAiRequests(documentId, {
+    enabled: !isLocalFileDocument && canComment,
+  });
   const documentLayoutRef = useRef<HTMLDivElement>(null);
   const commentLaneRef = useRef<HTMLElement>(null);
   const anchoredCommentRef = useRef<HTMLElement>(null);
@@ -4321,6 +4328,15 @@ function PageEditorSessionBody({
 
   const handleUtilityPanelChange = useCallback(
     (nextPanel: DocumentUtilityPanel) => {
+      ++utilityPanelFocusGenerationRef.current;
+      const activeElement = globalThis.document.activeElement;
+      if (
+        nextPanel &&
+        activeElement instanceof HTMLElement &&
+        activeElement !== globalThis.document.body
+      ) {
+        utilityPanelSheetTriggerRef.current = activeElement;
+      }
       if (!nextPanel) replyDrafts.setOpenReply(null);
       setUtilityPanel(nextPanel);
       if (nextPanel === "comments") {
@@ -4789,8 +4805,11 @@ function PageEditorSessionBody({
       onSelectedThreadChange={setSelectedThreadId}
       onHoveredThreadChange={setHoveredThreadId}
       currentUserEmail={session?.email}
+      currentUserOrgId={session?.orgId}
       canComment={canComment}
       canResolve={canEdit}
+      canSuggest={canSuggest}
+      commentAi={commentAi}
       alignToAnchors={alignToAnchors}
       forceVisible
       suggestions={sidebarSuggestions}
@@ -4848,8 +4867,6 @@ function PageEditorSessionBody({
           },
         );
       }}
-      canSuggest={canSuggest}
-      commentAi={commentAi}
       visibleThreadId={visibleThreadId}
       presentation={presentation}
     />
@@ -4937,6 +4954,7 @@ function PageEditorSessionBody({
           ) : null}
           {hasUtilityRailSpace || inSheet ? (
             <button
+              ref={inSheet ? utilityPanelSheetCloseRef : undefined}
               type="button"
               className={cn(
                 "flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
@@ -5073,6 +5091,7 @@ function PageEditorSessionBody({
             commentsHistoryOpen={showCommentsHistoryDrawer}
             onUtilityPanelChange={handleUtilityPanelChange}
             showCommentsControl={canComment && !isLocalFileDocument}
+            commentsTriggerRef={commentsHistoryTriggerRef}
             onOpenBreadcrumbItem={
               host === "page" ? handleOpenToolbarBreadcrumb : undefined
             }
@@ -5721,11 +5740,10 @@ function PageEditorSessionBody({
         </aside>
 
         <Sheet
+          modal
           open={showUtilityPanelSheet}
           onOpenChange={(open) => {
-            if (!open) {
-              handleUtilityPanelChange(null);
-            }
+            if (!open) handleUtilityPanelChange(null);
           }}
         >
           <SheetContent
@@ -5733,12 +5751,38 @@ function PageEditorSessionBody({
             side="right"
             inert={!showUtilityPanelSheet || undefined}
             onOpenAutoFocus={(event) => {
-              if (hasFocusedCommentReply) event.preventDefault();
+              const activeElement = globalThis.document.activeElement;
+              if (
+                !utilityPanelSheetTriggerRef.current &&
+                activeElement instanceof HTMLElement &&
+                activeElement !== globalThis.document.body &&
+                !utilityPanelSheetContainer?.contains(activeElement)
+              ) {
+                utilityPanelSheetTriggerRef.current = activeElement;
+              }
+              event.preventDefault();
+              const focusedReply = hasFocusedCommentReply
+                ? utilityPanelSheetContainer?.querySelector<HTMLElement>(
+                    "[data-comment-reply-composer] textarea",
+                  )
+                : null;
+              (focusedReply ?? utilityPanelSheetCloseRef.current)?.focus();
             }}
             onCloseAutoFocus={(event) => {
-              if (hasInlineCommentSpace && hasFocusedCommentReply) {
-                event.preventDefault();
-              }
+              event.preventDefault();
+              if (hasInlineCommentSpace && hasFocusedCommentReply) return;
+              const focusGeneration = utilityPanelFocusGenerationRef.current;
+              const restoreTarget = utilityPanelSheetTriggerRef.current;
+              const fallbackTarget = commentsHistoryTriggerRef.current;
+              globalThis.setTimeout(() => {
+                if (utilityPanelFocusGenerationRef.current !== focusGeneration)
+                  return;
+                (restoreTarget?.isConnected
+                  ? restoreTarget
+                  : fallbackTarget
+                )?.focus();
+                utilityPanelSheetTriggerRef.current = null;
+              }, 0);
             }}
             className="flex min-h-0 w-[min(26rem,calc(100vw-1rem))] flex-col overflow-hidden p-0 data-[state=closed]:duration-[260ms] data-[state=open]:duration-[260ms] data-[state=closed]:ease-[var(--ease-drawer)] data-[state=open]:ease-[var(--ease-drawer)]"
             aria-describedby={undefined}
