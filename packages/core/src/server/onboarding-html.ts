@@ -2515,26 +2515,26 @@ ${marketingStyles}
     min-height: calc(100vh - 8.5rem);
   }
   .auth-marketing-home .app-name {
-    gap: 0.875rem;
+    gap: 0.7rem;
     margin: 0;
     color: var(--auth-marketing-foreground);
-    font: 600 2.25rem/1 "Geist", system-ui, sans-serif;
+    font: 600 1.8rem/1 "Geist", system-ui, sans-serif;
     letter-spacing: -0.04em;
   }
   .auth-marketing-home .app-name img.brand-mark {
     width: auto;
-    height: 1.9375rem;
+    height: 1.55rem;
     filter: grayscale(1) brightness(0) invert(1);
   }
   .auth-marketing-home .app-status-badge {
     display: inline-flex;
     align-items: center;
-    min-height: 2rem;
-    padding: 0.375rem 0.875rem;
+    min-height: 1.6rem;
+    padding: 0.3rem 0.7rem;
     border-radius: 999px;
     background: var(--auth-marketing-foreground);
     color: var(--auth-marketing-right-bg);
-    font: 600 1rem/1 "Geist Mono", ui-monospace, monospace;
+    font: 600 0.8rem/1 "Geist Mono", ui-monospace, monospace;
     letter-spacing: 0.02em;
     text-transform: uppercase;
   }
