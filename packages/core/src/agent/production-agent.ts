@@ -698,7 +698,7 @@ async function getJevContextCredentials(
   builderAuth: BuilderGatewayAuth | null;
 }> {
   const apiKey = await getOwnerJevApiKey(ownerEmail);
-  if (!apiKey || resolveDeployEnvironment() === "production") {
+  if (resolveDeployEnvironment() === "production") {
     return { apiKey, builderAuth: null };
   }
   try {

@@ -48,7 +48,13 @@ export async function rankJevCandidates(
 ): Promise<string[]> {
   const request = options.request.trim();
   const apiKey = options.apiKey?.trim();
-  if (!request || !apiKey || options.candidates.length === 0) return [];
+  if (
+    !request ||
+    (!apiKey && !options.builderAuth) ||
+    options.candidates.length === 0
+  ) {
+    return [];
+  }
 
   const candidates = shortlistJevCandidates(request, options.candidates);
   if (candidates.length === 0) return [];
@@ -256,7 +262,7 @@ type JevRequest = {
 };
 
 async function requestJev(options: {
-  apiKey: string;
+  apiKey?: string;
   builderAuth?: BuilderGatewayAuth | null;
   request: JevRequest;
 }): Promise<JevResponse> {
@@ -267,11 +273,16 @@ async function requestJev(options: {
         options.request,
       );
     } catch (error) {
+      if (!options.apiKey) throw error;
       console.warn(
         "[agent] Builder Jev proxy unavailable; falling back to the direct Jev API.",
         error instanceof Error ? error.message : "unknown error",
       );
     }
+  }
+
+  if (!options.apiKey) {
+    throw new Error("Builder Jev proxy is unavailable.");
   }
 
   const { choice, TypeSafeClient } = await import("@typesafe-ai/sdk");

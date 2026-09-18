@@ -166,7 +166,6 @@ describe("preloadJevTools", () => {
     );
 
     const result = await rankJevCandidates({
-      apiKey: "jev-test-key",
       builderAuth: {
         authorization: "Bearer builder-test-token",
         spaceId: "space-test",
