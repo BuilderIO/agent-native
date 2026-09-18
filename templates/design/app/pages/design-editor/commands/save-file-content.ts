@@ -142,7 +142,10 @@ export function runSaveFileContent(
   }: SaveFileContentArgs,
   pending: FileContentSaveRequest,
 ) {
-  if (!canEditDesignRef.current) return;
+  if (!canEditDesignRef.current) {
+    pending.onSaveSettled?.({ persisted: false });
+    return;
+  }
   markPendingLocalFileContent(
     pending.id,
     pending.content,
@@ -165,6 +168,7 @@ export function runSaveFileContent(
         latestFileSaveForUnloadRef.current[pending.id] !== pending
       ) {
         if (queuedOutboxEntry) await acknowledgeOutboxEntry(queuedOutboxEntry);
+        pending.onSaveSettled?.({ persisted: false });
         return;
       }
       try {
@@ -187,6 +191,7 @@ export function runSaveFileContent(
           latestFileSaveForUnloadRef.current[pending.id] !== pending
         ) {
           if (outboxEntry) await acknowledgeOutboxEntry(outboxEntry);
+          pending.onSaveSettled?.({ persisted: false });
           return;
         }
         const resultInfo = result as
@@ -291,6 +296,7 @@ export function runSaveFileContent(
               }
             : { ...prev, status };
         });
+        pending.onSaveSettled?.({ persisted: persistedContentMatches });
       } catch (error) {
         if (
           pending.identityMigrationSourceContent !== undefined &&
@@ -338,6 +344,7 @@ export function runSaveFileContent(
               }
             : prev,
         );
+        pending.onSaveSettled?.({ persisted: false });
       }
     });
   fileSaveChainsRef.current[pending.id] = current;

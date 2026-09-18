@@ -31,6 +31,7 @@ import {
 } from "@/pages/design-editor/code-layer-state";
 import { adaptAutoTextColorForCrossScreenNode } from "@/pages/design-editor/cross-screen-text-color";
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
+import type { FileContentSaveSettledHandler } from "@/pages/design-editor/editor-state";
 import {
   captureContentUndoStackTop,
   stampContentHistorySelectionAfter,
@@ -103,11 +104,13 @@ export interface CrossScreenElementDropArgs {
       refreshPreview?: boolean;
       skipPreview?: boolean;
       forcePreviewFullDocument?: boolean;
+      immediateSave?: boolean;
       persist?: boolean;
       recordHistory?: boolean;
       historyBeforeContent?: string;
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
+      onSaveSettled?: FileContentSaveSettledHandler;
     },
   ) => ApplyFileContentUpdateResult;
   boardFileId: string | undefined;
@@ -153,6 +156,95 @@ export interface CrossScreenElementDropArgs {
   setSelectedLayerIdsState: Dispatch<SetStateAction<string[]>>;
   t: (key: string, options?: Record<string, unknown>) => string;
   viewModeRef: RefObject<"single" | "overview">;
+}
+
+function createCrossScreenPublicationCoordinator({
+  applyFileContentUpdate,
+  getScreenContent,
+  t,
+}: {
+  applyFileContentUpdate: CrossScreenElementDropArgs["applyFileContentUpdate"];
+  getScreenContent: (screenId: string) => string;
+  t: (key: string, options?: Record<string, unknown>) => string;
+}) {
+  type Side = "source" | "target";
+  type State = {
+    acceptedContent: string;
+    fileId: string;
+    rollbackContent: string;
+    rollbackStarted: boolean;
+    status: "pending" | "persisted" | "failed";
+    submittedContent: string;
+  };
+
+  const states = new Map<Side, State>();
+
+  const compensatePersistedSide = (state: State) => {
+    if (state.rollbackStarted || state.status !== "persisted") return;
+    state.rollbackStarted = true;
+    const currentContent = getScreenContent(state.fileId);
+    if (
+      currentContent !== state.acceptedContent &&
+      currentContent !== state.submittedContent
+    ) {
+      toast.error(t("designEditor.toasts.saveConflict"));
+      return;
+    }
+    const rollback = applyFileContentUpdate(
+      state.fileId,
+      state.rollbackContent,
+      {
+        recordHistory: false,
+        refreshPreview: false,
+        forcePreviewFullDocument: true,
+        immediateSave: true,
+        historyBeforeContent: state.acceptedContent,
+      },
+    );
+    if (rollback.status !== "accepted") {
+      toast.error(t("designEditor.toasts.saveConflict"));
+    }
+  };
+
+  const reconcile = () => {
+    if (![...states.values()].some((state) => state.status === "failed")) {
+      return;
+    }
+    for (const state of states.values()) compensatePersistedSide(state);
+  };
+
+  const register = (
+    side: Side,
+    fileId: string,
+    submittedContent: string,
+    rollbackContent: string,
+  ) => {
+    const state: State = {
+      acceptedContent: submittedContent,
+      fileId,
+      rollbackContent,
+      rollbackStarted: false,
+      status: "pending",
+      submittedContent,
+    };
+    states.set(side, state);
+    return {
+      markAccepted: (acceptedContent: string) => {
+        state.acceptedContent = acceptedContent;
+      },
+      markRefused: () => {
+        state.status = "failed";
+        reconcile();
+      },
+      onSaveSettled: ({ persisted }: { persisted: boolean }) => {
+        if (state.status !== "pending") return;
+        state.status = persisted ? "persisted" : "failed";
+        reconcile();
+      },
+    };
+  };
+
+  return { register };
 }
 
 export function runCrossScreenElementDrop(
@@ -1038,6 +1130,17 @@ export function runCrossScreenElementDrop(
       after: nextDestContent,
     },
   ];
+  const publicationCoordinator = createCrossScreenPublicationCoordinator({
+    applyFileContentUpdate,
+    getScreenContent,
+    t,
+  });
+  const targetSave = publicationCoordinator.register(
+    "target",
+    targetScreenId,
+    nextDestContent,
+    rawDestContent,
+  );
   const targetPublication = applyFileContentUpdate(
     targetScreenId,
     nextDestContent,
@@ -1045,11 +1148,23 @@ export function runCrossScreenElementDrop(
       recordHistory: false,
       refreshPreview: false,
       forcePreviewFullDocument: true,
+      immediateSave: true,
       historyBeforeContent: rawDestContent,
+      onSaveSettled: targetSave.onSaveSettled,
     },
   );
-  if (targetPublication.status !== "accepted") return;
+  if (targetPublication.status !== "accepted") {
+    targetSave.markRefused();
+    return;
+  }
+  targetSave.markAccepted(targetPublication.content);
 
+  const sourceSave = publicationCoordinator.register(
+    "source",
+    sourceScreenId,
+    result.sourceHtml,
+    sourceContent,
+  );
   const sourcePublication = applyFileContentUpdate(
     sourceScreenId,
     result.sourceHtml,
@@ -1057,20 +1172,16 @@ export function runCrossScreenElementDrop(
       recordHistory: false,
       refreshPreview: false,
       forcePreviewFullDocument: true,
+      immediateSave: true,
       historyBeforeContent: sourceContent,
+      onSaveSettled: sourceSave.onSaveSettled,
     },
   );
   if (sourcePublication.status !== "accepted") {
-    const rollback = applyFileContentUpdate(targetScreenId, rawDestContent, {
-      recordHistory: false,
-      refreshPreview: false,
-      forcePreviewFullDocument: true,
-      historyBeforeContent: targetPublication.content,
-    });
-    if (rollback.status !== "accepted")
-      toast.error(t("designEditor.toasts.saveConflict"));
+    sourceSave.markRefused();
     return;
   }
+  sourceSave.markAccepted(sourcePublication.content);
 
   // History must replay the bytes the publisher accepted. Canonical identity
   // publication may stamp IDs into submitted HTML, and the post-action

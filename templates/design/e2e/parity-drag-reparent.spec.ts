@@ -513,7 +513,7 @@ test.describe("drag reparent parity", () => {
           );
           return (
             !indexHtml.includes('data-agent-native-node-id="widget"') &&
-            boardHtml.length > 0
+            boardHtml.includes('data-agent-native-node-id="widget"')
           );
         },
         {
@@ -541,7 +541,7 @@ test.describe("drag reparent parity", () => {
         const reloadedBoardHtml = await fileContent(page, id, "__board__.html");
         return (
           !reloadedIndexHtml.includes('data-agent-native-node-id="widget"') &&
-          reloadedBoardHtml.includes("widget")
+          reloadedBoardHtml.includes('data-agent-native-node-id="widget"')
         );
       })
       .toBe(true);
