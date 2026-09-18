@@ -14,7 +14,8 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
-  useT: () => (key: string) => key,
+  useT: () => (key: string, values?: { count?: number }) =>
+    key === "apollo.attendeeCount" ? `${key}:${values?.count}` : key,
 }));
 
 vi.mock("@/hooks/use-apollo", () => ({
@@ -86,5 +87,24 @@ describe("ResearchMeetingButton", () => {
     });
 
     expect(container.querySelector("button")).toBeTruthy();
+  });
+
+  it("counts only attendees included in the research request", () => {
+    act(() => {
+      root.render(
+        <ResearchMeetingButton
+          event={event([
+            {
+              email: "me@example.com",
+              self: true,
+              additionalGuests: 3,
+            },
+            { email: "guest@example.com", additionalGuests: 1 },
+          ])}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("apollo.attendeeCount:2");
   });
 });

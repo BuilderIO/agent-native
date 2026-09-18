@@ -201,7 +201,7 @@ export function ResearchMeetingButton({ event }: { event: CalendarEvent }) {
   const { send, codeRequiredDialog } = useSendToAgentChat();
 
   const attendees = (event.attendees ?? []).filter((a) => !a.self);
-  const attendeeCount = getCalendarGuestCount(event.attendees);
+  const attendeeCount = getCalendarGuestCount(attendees);
   if (attendees.length === 0) return null;
 
   const handleResearch = () => {
