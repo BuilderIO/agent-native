@@ -232,7 +232,10 @@ describe("public framework route prefix through the real request boundary", () =
       status: 200,
       contentType: expect.stringContaining("text/event-stream"),
     });
-    if (stream instanceof Response) await stream.body?.cancel();
+    // The stream has to be released either way: its heartbeat interval keeps
+    // the process alive until the reader goes away.
+    const streamBody = stream instanceof Response ? stream.body : stream;
+    if (streamBody instanceof ReadableStream) await streamBody.cancel();
 
     await corePluginDone;
   });
