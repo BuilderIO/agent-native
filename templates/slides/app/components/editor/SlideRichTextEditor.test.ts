@@ -89,6 +89,22 @@ describe("slide rich text normalization", () => {
     expect(html).toContain("<p></p>");
   });
 
+  it("keeps legacy bullet row layout while editing", () => {
+    const html = contentForSlideTextContainer(
+      "DIV",
+      '<div style="display:flex;align-items:baseline;gap:20px;font-size:22px"><span style="font-size:8px">●</span><span>First point</span></div>',
+    );
+    const wrapper = document.createElement("div");
+    wrapper.innerHTML = html;
+    const paragraph = wrapper.querySelector("p") as HTMLElement;
+
+    expect(paragraph).toBeTruthy();
+    expect(paragraph.style.display).toBe("flex");
+    expect(paragraph.style.alignItems).toBe("baseline");
+    expect(paragraph.style.gap).toBe("20px");
+    expect(paragraph.textContent).toBe("●First point");
+  });
+
   it("preserves explicit blank paragraphs as line breaks", () => {
     expect(
       normalizeSlideEditorContent("<p>First</p><p></p><p>Second</p>"),
@@ -151,6 +167,23 @@ describe("slide rich text normalization", () => {
       "8px",
     );
     expect((rows[0] as HTMLElement).style.gap).toBe("20px");
+  });
+
+  it("restores a single legacy bullet row after editing", () => {
+    const element = document.createElement("div");
+    const source =
+      '<span style="font-size:8px">●</span><span>First point</span>';
+    element.innerHTML = source;
+
+    restoreSlideTextContainerContent(
+      element,
+      '<ul><li style="display:flex;gap:20px"><p>Updated point</p></li></ul>',
+      source,
+    );
+
+    expect(element.querySelector(":scope > span")?.textContent).toBe("●");
+    expect(element.querySelectorAll(":scope > span")).toHaveLength(2);
+    expect(element.textContent).toBe("●Updated point");
   });
 
   it("keeps persisted semantic lists styled without an editor marker", () => {

@@ -37,7 +37,10 @@ import {
 } from "@/components/deck/ExcalidrawSlide";
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import type { SlideOverflowInfo } from "@/components/deck/SlideRenderer";
-import { ZERO_WIDTH_SPACE } from "@/components/editor/bullet-editing";
+import {
+  isBulletRow,
+  ZERO_WIDTH_SPACE,
+} from "@/components/editor/bullet-editing";
 import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
@@ -1233,6 +1236,7 @@ function ElementSelectionOutline({
   viewportRect,
   onResizeStart,
   onMoveStart,
+  allowBodyMove = true,
   onRotateStart,
 }: {
   rect: DOMRect;
@@ -1240,6 +1244,7 @@ function ElementSelectionOutline({
   viewportRect: DOMRect | null;
   onResizeStart?: (handle: ResizeHandle, e: React.PointerEvent) => void;
   onMoveStart?: (e: React.PointerEvent) => void;
+  allowBodyMove?: boolean;
   onRotateStart?: (e: React.PointerEvent) => void;
 }) {
   const pad = 2;
@@ -1293,7 +1298,7 @@ function ElementSelectionOutline({
               }}
             />
           ))}
-        {onMoveStart && (
+        {onMoveStart && allowBodyMove && (
           <span
             data-slide-group-move-handle="true"
             onPointerDown={onMoveStart}
@@ -2769,17 +2774,18 @@ export default function SlideEditor({
         el.contains(nativeRange.endContainer)
           ? selectionOffsetsWithin(el, nativeRange)
           : null;
-      const initialHtml = isSlideTextContainerTag(el.tagName)
-        ? contentForSlideTextContainer(
-            el.tagName,
-            el.outerHTML,
-            el.tagName === "LI" &&
-              (el.parentElement?.tagName === "OL" ||
-                el.parentElement?.tagName === "UL")
-              ? (el.parentElement.tagName as "OL" | "UL")
-              : undefined,
-          )
-        : el.innerHTML;
+      const initialHtml =
+        isSlideTextContainerTag(el.tagName) || isBulletRow(el)
+          ? contentForSlideTextContainer(
+              el.tagName,
+              el.outerHTML,
+              el.tagName === "LI" &&
+                (el.parentElement?.tagName === "OL" ||
+                  el.parentElement?.tagName === "UL")
+                ? (el.parentElement.tagName as "OL" | "UL")
+                : undefined,
+            )
+          : el.innerHTML;
       const path = elementPathFromRoot(slideContent, el);
       if (path.length === 0) return;
       const slideContentSnapshot = slideContent.cloneNode(true) as HTMLElement;
@@ -8896,6 +8902,9 @@ export default function SlideEditor({
           rect={selectedElementRect}
           frame={selectedElementFrame}
           viewportRect={selectionViewportRect}
+          allowBodyMove={Boolean(
+            selectedForDrag && !isRichTextBlock(selectedForDrag),
+          )}
           onMoveStart={
             !readOnly && isSelectedElementDraggable && selectedForDrag
               ? (e) => startElementDrag(e, selectedForDrag)

@@ -68,6 +68,7 @@ describe("SlideEditor transformed-object interactions", () => {
     expect(editorSource).toContain(
       "selectedElementRect && !multiSelectionBounds",
     );
+    expect(editorSource).toContain("allowBodyMove");
     expect(editorSource).toContain("richTextEditorRevision,");
   });
 

@@ -332,6 +332,7 @@ button[title="Open agent sidebar"] {
 
 /* Text editing keeps the shared selection chrome visible; only retain the
    text cursor on the active block. */
+.slide-content [data-slide-text-block="true"],
 .slide-content [data-editing-block="true"] {
   cursor: text;
 }

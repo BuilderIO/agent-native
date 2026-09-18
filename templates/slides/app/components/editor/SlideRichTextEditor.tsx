@@ -126,15 +126,27 @@ export function contentForSlideTextContainer(
   html: string,
   listTagName?: "OL" | "UL",
 ): string {
-  if (
-    !html ||
-    !isSlideTextContainerTag(tagName) ||
-    typeof DOMParser === "undefined"
-  ) {
+  if (!html || typeof DOMParser === "undefined") {
     return html;
   }
   const doc = new DOMParser().parseFromString(html, "text/html");
   const first = doc.body.firstElementChild;
+  const normalizedTagName = tagName.toUpperCase();
+  if (
+    normalizedTagName === "DIV" &&
+    doc.body.children.length === 1 &&
+    first?.tagName === "DIV" &&
+    first.firstElementChild &&
+    isBulletMarker(first.firstElementChild)
+  ) {
+    const source = first as HTMLElement;
+    const paragraph = doc.createElement("p");
+    syncSlideEditorBlockFormatting(source, paragraph);
+    copyLegacyRowLayoutStyles(source, paragraph);
+    paragraph.innerHTML = source.innerHTML;
+    return paragraph.outerHTML;
+  }
+  if (!isSlideTextContainerTag(tagName)) return html;
   if (
     doc.body.children.length !== 1 ||
     first?.tagName.toUpperCase() !== tagName.toUpperCase()
@@ -153,8 +165,12 @@ export function contentForSlideTextContainer(
     return paragraph.outerHTML;
   }
   if (tagName.toUpperCase() === "P") {
+    const source = first as HTMLElement;
     const paragraph = doc.createElement("p");
-    syncSlideEditorBlockFormatting(first as HTMLElement, paragraph);
+    syncSlideEditorBlockFormatting(source, paragraph);
+    if (source.firstElementChild && isBulletMarker(source.firstElementChild)) {
+      copyLegacyRowLayoutStyles(source, paragraph);
+    }
     paragraph.innerHTML = first.innerHTML;
     return paragraph.outerHTML;
   }
@@ -183,7 +199,10 @@ export function restoreSlideTextContainerContent(
 ): HTMLElement {
   html = restoreLegacyBulletRows(legacySourceHtml, html);
   if (!isSlideTextContainerTag(element.tagName)) {
-    element.innerHTML = html;
+    element.innerHTML =
+      element.tagName === "DIV" && legacySourceHtml
+        ? restoreLegacyBulletRowContent(legacySourceHtml, html)
+        : html;
     return element;
   }
   if (!html || typeof DOMParser === "undefined") {
@@ -648,6 +667,35 @@ function restoreLegacyBulletRows(
   const currentDocument = new DOMParser().parseFromString(html, "text/html");
   restoreLegacyBulletRowsInContainer(sourceDocument.body, currentDocument.body);
   return currentDocument.body.innerHTML;
+}
+
+function restoreLegacyBulletRowContent(
+  sourceHtml: string | undefined,
+  html: string,
+): string {
+  if (!sourceHtml || typeof DOMParser === "undefined") return html;
+  const restored = restoreLegacyBulletRows(sourceHtml, html);
+  if (restored !== html) return restored;
+  const sourceDocument = new DOMParser().parseFromString(
+    `<div>${sourceHtml}</div>`,
+    "text/html",
+  );
+  const sourceWrapper = sourceDocument.body.firstElementChild;
+  if (sourceWrapper?.tagName !== "DIV" || !isLegacyBulletRow(sourceWrapper)) {
+    return restored;
+  }
+  const wrappedRestored = restoreLegacyBulletRows(
+    `<div>${sourceHtml}</div>`,
+    html,
+  );
+  const restoredDocument = new DOMParser().parseFromString(
+    `<div>${wrappedRestored}</div>`,
+    "text/html",
+  );
+  const row = restoredDocument.body.firstElementChild?.firstElementChild;
+  return row?.tagName === "DIV" && isLegacyBulletRow(row)
+    ? row.innerHTML
+    : wrappedRestored;
 }
 
 function copyRowTextStyles(row: HTMLElement, item: HTMLElement): void {
