@@ -274,7 +274,8 @@ async function dragScreenNode(
   page.on("console", (message) => {
     if (
       message.text().includes("[drop:") ||
-      message.text().includes("[dnd:host:")
+      message.text().includes("[dnd:host:") ||
+      message.text().includes("[raw-cross-screen]")
     ) {
       logs.push(message.text());
     }
@@ -282,6 +283,22 @@ async function dragScreenNode(
   await page.evaluate(() => {
     window.__DESIGN_TRACE = true;
     window.__DND_DEBUG = true;
+    window.addEventListener(
+      "message",
+      (event) => {
+        if (event.data?.type !== "agent-native:cross-screen-drag") return;
+        console.log(
+          `[raw-cross-screen] ${JSON.stringify({
+            phase: event.data.phase,
+            iframeX: event.data.iframeX,
+            iframeY: event.data.iframeY,
+            viewportW: event.data.viewportW,
+            viewportH: event.data.viewportH,
+          })}`,
+        );
+      },
+      true,
+    );
   });
   await selectScreenNode(page, screenId, nodeId);
   const source = await boxFor(page, screenId, nodeId);
@@ -292,6 +309,7 @@ async function dragScreenNode(
         Array.from(
           document.querySelectorAll("[data-screen-iframe-id]"),
           (node) => {
+            const iframe = node as HTMLIFrameElement;
             const rect = node.getBoundingClientRect();
             return {
               id: node.getAttribute("data-screen-iframe-id"),
@@ -301,6 +319,15 @@ async function dragScreenNode(
                 width: rect.width,
                 height: rect.height,
               },
+              client: {
+                width: iframe.clientWidth,
+                height: iframe.clientHeight,
+              },
+              viewport: {
+                width: iframe.contentWindow?.innerWidth,
+                height: iframe.contentWindow?.innerHeight,
+              },
+              transform: getComputedStyle(iframe).transform,
             };
           },
         ),
