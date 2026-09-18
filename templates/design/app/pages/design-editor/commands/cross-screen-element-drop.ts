@@ -51,6 +51,7 @@ import {
 } from "../clone-and-pen-edit";
 import { prepareAcceptedSourceContent } from "../source-publication";
 import type { ApplyFileContentUpdateResult } from "./apply-file-content-update";
+import type { FileContentSaveCompletion } from "./save-file-content";
 import {
   mapAcceptedSelectionNode,
   projectAcceptedSource,
@@ -103,9 +104,12 @@ export interface CrossScreenElementDropArgs {
       refreshPreview?: boolean;
       skipPreview?: boolean;
       forcePreviewFullDocument?: boolean;
+      immediateSave?: boolean;
+      awaitSave?: boolean;
       persist?: boolean;
       recordHistory?: boolean;
       historyBeforeContent?: string;
+      sourceBaseContent?: string;
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
     },
@@ -125,7 +129,9 @@ export interface CrossScreenElementDropArgs {
     >
   >;
   designSourceType: "inline" | "localhost" | "fusion";
+  fileSaveOperationRevisionRef?: RefObject<Record<string, number>>;
   getScreenContent: (screenId: string) => string;
+  getCurrentSelectionFingerprint?: () => string;
   id: string | undefined;
   overviewScreens: OverviewScreen[];
   pendingOverviewLayerSelectionRef: RefObject<string | null>;
@@ -163,7 +169,9 @@ export function runCrossScreenElementDrop(
     clearPendingOverviewLayerSelectionTimer,
     codeLayerOwnerByNodeIdRef,
     designSourceType,
+    fileSaveOperationRevisionRef,
     getScreenContent,
+    getCurrentSelectionFingerprint,
     id,
     overviewScreens,
     pendingOverviewLayerSelectionRef,
@@ -1038,6 +1046,7 @@ export function runCrossScreenElementDrop(
       after: nextDestContent,
     },
   ];
+  const selectionFingerprintAtPublication = getCurrentSelectionFingerprint?.();
   const targetPublication = applyFileContentUpdate(
     targetScreenId,
     nextDestContent,
@@ -1045,7 +1054,9 @@ export function runCrossScreenElementDrop(
       recordHistory: false,
       refreshPreview: false,
       forcePreviewFullDocument: true,
+      immediateSave: true,
       historyBeforeContent: rawDestContent,
+      awaitSave: true,
     },
   );
   if (targetPublication.status !== "accepted") return;
@@ -1057,7 +1068,9 @@ export function runCrossScreenElementDrop(
       recordHistory: false,
       refreshPreview: false,
       forcePreviewFullDocument: true,
+      immediateSave: true,
       historyBeforeContent: sourceContent,
+      awaitSave: true,
     },
   );
   if (sourcePublication.status !== "accepted") {
@@ -1072,58 +1085,163 @@ export function runCrossScreenElementDrop(
     return;
   }
 
-  // History must replay the bytes the publisher accepted. Canonical identity
-  // publication may stamp IDs into submitted HTML, and the post-action
-  // selection snapshot must resolve against those same final documents.
-  crossScreenHistoryChanges[0].after = sourcePublication.content;
-  crossScreenHistoryChanges[1].after = targetPublication.content;
-  recordContentHistoryEntry({ changes: crossScreenHistoryChanges });
+  const saveOperationRevisionsAtPublication = {
+    [targetScreenId]: fileSaveOperationRevisionRef?.current[targetScreenId],
+    [sourceScreenId]: fileSaveOperationRevisionRef?.current[sourceScreenId],
+  };
+  const isCurrentPublication = (
+    fileId: string,
+    publication: Extract<ApplyFileContentUpdateResult, { status: "accepted" }>,
+  ) =>
+    getScreenContent(fileId) === publication.content &&
+    (fileSaveOperationRevisionRef === undefined ||
+      fileSaveOperationRevisionRef.current[fileId] ===
+        saveOperationRevisionsAtPublication[fileId]);
+  const canFinalizePublication = () =>
+    isCurrentPublication(targetScreenId, targetPublication) &&
+    isCurrentPublication(sourceScreenId, sourcePublication) &&
+    (selectionFingerprintAtPublication === undefined ||
+      selectionFingerprintAtPublication === getCurrentSelectionFingerprint?.());
 
-  // Switch active screen to the target and select the moved node; viewMode
-  // stays "overview" (no setViewMode call).
-  pendingOverviewScreenSelectionRef.current =
-    targetScreenId === boardFileId ? null : targetScreenId;
-  pendingOverviewLayerSelectionRef.current = destNodeAttrId;
-  clearPendingOverviewLayerSelectionTimer();
-  setActiveFileId(targetScreenId);
-  const submittedProjection = buildCodeLayerProjection(nextDestContent, {
-    source: { kind: "design-file", fileId: targetScreenId },
-  });
-  const movedNodeCandidate = submittedProjection.nodes.find(
-    (n) => n.dataAttributes["data-agent-native-node-id"] === destNodeAttrId,
-  );
-  const movedNodeFinal = mapAcceptedSelectionNode(
-    targetPublication,
-    projectAcceptedSource(targetPublication, {
-      kind: "design-file",
-      fileId: targetScreenId,
-    }),
-    movedNodeCandidate,
-  );
-  if (movedNodeFinal) {
-    setCreatedOverviewLayerSelection({
-      screenId: targetScreenId,
-      layerId: movedNodeFinal.id,
+  const finalizePublication = () => {
+    // Save completion is asynchronous. Do not append stale whole-document
+    // history or restore an old selection after a newer edit/navigation lands.
+    if (!canFinalizePublication()) return;
+    // History must replay the bytes the publisher accepted. Canonical identity
+    // publication may stamp IDs into submitted HTML, and the post-action
+    // selection snapshot must resolve against those same final documents.
+    crossScreenHistoryChanges[0].after = sourcePublication.content;
+    crossScreenHistoryChanges[1].after = targetPublication.content;
+    recordContentHistoryEntry({ changes: crossScreenHistoryChanges });
+
+    // Switch active screen to the target and select the moved node; viewMode
+    // stays "overview" (no setViewMode call).
+    pendingOverviewScreenSelectionRef.current =
+      targetScreenId === boardFileId ? null : targetScreenId;
+    pendingOverviewLayerSelectionRef.current = destNodeAttrId;
+    clearPendingOverviewLayerSelectionTimer();
+    setActiveFileId(targetScreenId);
+    const submittedProjection = buildCodeLayerProjection(nextDestContent, {
+      source: { kind: "design-file", fileId: targetScreenId },
     });
-    setSelectedLayerIdsState([movedNodeFinal.id]);
-    setSelectedElement(elementInfoFromCodeLayerNode(movedNodeFinal));
-    if (viewModeRef.current === "overview") {
-      setOverviewSelectedScreenIds(
-        targetScreenId === boardFileId ? [] : [targetScreenId],
-      );
+    const movedNodeCandidate = submittedProjection.nodes.find(
+      (n) => n.dataAttributes["data-agent-native-node-id"] === destNodeAttrId,
+    );
+    const movedNodeFinal = mapAcceptedSelectionNode(
+      targetPublication,
+      projectAcceptedSource(targetPublication, {
+        kind: "design-file",
+        fileId: targetScreenId,
+      }),
+      movedNodeCandidate,
+    );
+    if (movedNodeFinal) {
+      setCreatedOverviewLayerSelection({
+        screenId: targetScreenId,
+        layerId: movedNodeFinal.id,
+      });
+      setSelectedLayerIdsState([movedNodeFinal.id]);
+      setSelectedElement(elementInfoFromCodeLayerNode(movedNodeFinal));
+      if (viewModeRef.current === "overview") {
+        setOverviewSelectedScreenIds(
+          targetScreenId === boardFileId ? [] : [targetScreenId],
+        );
+      }
+      if (contentUndoStackRef && contentHistorySelectionAfterRef) {
+        stampContentHistorySelectionAfter(
+          contentUndoStackRef.current,
+          contentHistorySelectionAfterRef.current,
+          contentUndoStackTopBeforeMove,
+          {
+            activeFileId: targetScreenId,
+            overviewSelectedScreenIds:
+              targetScreenId === boardFileId ? [] : [targetScreenId],
+            selectedLayerIds: [movedNodeFinal.id],
+          },
+        );
+      }
     }
-    if (contentUndoStackRef && contentHistorySelectionAfterRef) {
-      stampContentHistorySelectionAfter(
-        contentUndoStackRef.current,
-        contentHistorySelectionAfterRef.current,
-        contentUndoStackTopBeforeMove,
-        {
-          activeFileId: targetScreenId,
-          overviewSelectedScreenIds:
-            targetScreenId === boardFileId ? [] : [targetScreenId],
-          selectedLayerIds: [movedNodeFinal.id],
-        },
-      );
+  };
+
+  const rollbackAfterSaveConflict = (
+    publication: typeof targetPublication,
+    fileId: string,
+    content: string,
+  ): Promise<FileContentSaveCompletion> => {
+    if (!isCurrentPublication(fileId, publication)) {
+      return Promise.resolve<FileContentSaveCompletion>("failed");
     }
+    const rollback = applyFileContentUpdate(fileId, content, {
+      recordHistory: false,
+      refreshPreview: false,
+      forcePreviewFullDocument: true,
+      historyBeforeContent: publication.content,
+      sourceBaseContent: publication.content,
+      immediateSave: true,
+      awaitSave: true,
+    });
+    if (rollback.status !== "accepted") {
+      return Promise.resolve<FileContentSaveCompletion>("failed");
+    }
+    return (
+      rollback.saveCompletion ??
+      Promise.resolve<FileContentSaveCompletion>("persisted")
+    );
+  };
+
+  const targetSave = targetPublication.saveCompletion;
+  const sourceSave = sourcePublication.saveCompletion;
+  if (!targetSave && !sourceSave) {
+    finalizePublication();
+    return;
   }
+
+  void Promise.allSettled([
+    targetSave ?? Promise.resolve<FileContentSaveCompletion>("persisted"),
+    sourceSave ?? Promise.resolve<FileContentSaveCompletion>("persisted"),
+  ]).then(async ([targetResult, sourceResult]) => {
+    const targetSaved =
+      targetResult.status === "fulfilled" && targetResult.value === "persisted";
+    const sourceSaved =
+      sourceResult.status === "fulfilled" && sourceResult.value === "persisted";
+    const retryableSave =
+      (targetResult.status === "fulfilled" &&
+        targetResult.value === "retryable") ||
+      (sourceResult.status === "fulfilled" &&
+        sourceResult.value === "retryable");
+    const saveFailed =
+      targetResult.status === "rejected" || sourceResult.status === "rejected";
+    if (targetSaved && sourceSaved) {
+      finalizePublication();
+      return;
+    }
+    if (retryableSave) return;
+    const rollbackResults: Promise<FileContentSaveCompletion>[] = [];
+    if (targetSaved && !sourceSaved) {
+      rollbackResults.push(
+        rollbackAfterSaveConflict(
+          targetPublication,
+          targetScreenId,
+          rawDestContent,
+        ),
+      );
+    }
+    if (sourceSaved && !targetSaved) {
+      rollbackResults.push(
+        rollbackAfterSaveConflict(
+          sourcePublication,
+          sourceScreenId,
+          sourceContent,
+        ),
+      );
+    }
+    if (
+      saveFailed ||
+      (await Promise.all(rollbackResults)).some(
+        (status) => status !== "persisted",
+      )
+    ) {
+      toast.error(t("designEditor.toasts.saveConflict"));
+    }
+  });
 }

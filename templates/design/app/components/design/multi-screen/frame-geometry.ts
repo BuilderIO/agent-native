@@ -1,5 +1,4 @@
 import {
-  BREAKPOINT_ADD_BUTTON_GAP_PX,
   BREAKPOINT_FRAME_GAP,
   deviceViewportFloorForWidth,
   getResponsiveGroupHeight,
@@ -17,7 +16,6 @@ const SCREEN_GAP = 56;
 const FRAME_LABEL_HEIGHT = 28;
 
 export {
-  BREAKPOINT_ADD_BUTTON_GAP_PX,
   BREAKPOINT_FRAME_GAP,
   deviceViewportFloorForWidth,
   getScreenPreviewViewport,
