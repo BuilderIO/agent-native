@@ -270,87 +270,8 @@ async function dragScreenNode(
   nodeId: string,
   destination: { x: number; y: number },
 ): Promise<{ guide: number; ghost: number; sourceVisible: number }> {
-  const logs: string[] = [];
-  page.on("console", (message) => {
-    if (
-      message.text().includes("[drop:") ||
-      message.text().includes("[dnd:host:") ||
-      message.text().includes("[raw-cross-screen]")
-    ) {
-      logs.push(message.text());
-    }
-  });
-  await page.evaluate(() => {
-    window.__DESIGN_TRACE = true;
-    window.__DND_DEBUG = true;
-    window.addEventListener(
-      "message",
-      (event) => {
-        if (event.data?.type !== "agent-native:cross-screen-drag") return;
-        console.log(
-          `[raw-cross-screen] ${JSON.stringify({
-            phase: event.data.phase,
-            iframeX: event.data.iframeX,
-            iframeY: event.data.iframeY,
-            viewportW: event.data.viewportW,
-            viewportH: event.data.viewportH,
-          })}`,
-        );
-      },
-      true,
-    );
-  });
   await selectScreenNode(page, screenId, nodeId);
   const source = await boxFor(page, screenId, nodeId);
-  console.log(`drag geometry ${JSON.stringify({ source, destination })}`);
-  console.log(
-    `frame geometry ${await page.evaluate(() =>
-      JSON.stringify(
-        Array.from(
-          document.querySelectorAll("[data-screen-iframe-id]"),
-          (node) => {
-            const iframe = node as HTMLIFrameElement;
-            const rect = node.getBoundingClientRect();
-            const frame = node.closest("[data-frame-id]") as HTMLElement | null;
-            const frameRect = frame?.getBoundingClientRect();
-            return {
-              id: node.getAttribute("data-screen-iframe-id"),
-              rect: {
-                x: rect.x,
-                y: rect.y,
-                width: rect.width,
-                height: rect.height,
-              },
-              client: {
-                width: iframe.clientWidth,
-                height: iframe.clientHeight,
-              },
-              viewport: {
-                width: iframe.contentWindow?.innerWidth,
-                height: iframe.contentWindow?.innerHeight,
-              },
-              transform: getComputedStyle(iframe).transform,
-              frame: frame
-                ? {
-                    id: frame.getAttribute("data-frame-id"),
-                    rect: frameRect
-                      ? {
-                          x: frameRect.x,
-                          y: frameRect.y,
-                          width: frameRect.width,
-                          height: frameRect.height,
-                        }
-                      : null,
-                    width: getComputedStyle(frame).width,
-                    height: getComputedStyle(frame).height,
-                  }
-                : null,
-            };
-          },
-        ),
-      ),
-    )}`,
-  );
   await page.mouse.move(
     source.x + source.width / 2,
     source.y + source.height / 2,
@@ -365,17 +286,9 @@ async function dragScreenNode(
   );
   await page.mouse.move(destination.x, destination.y, { steps: 30 });
   await page.waitForTimeout(500);
-  try {
-    await expect(page.locator("[data-cross-screen-drop-guide]")).toHaveCount(
-      1,
-      {
-        timeout: 5_000,
-      },
-    );
-  } catch (error) {
-    console.log(logs.join("\n"));
-    throw error;
-  }
+  await expect(page.locator("[data-cross-screen-drop-guide]")).toHaveCount(1, {
+    timeout: 5_000,
+  });
   const evidence = {
     guide: await page.locator("[data-cross-screen-drop-guide]").count(),
     ghost: await page.locator("[data-cross-screen-drag-ghost]").count(),
