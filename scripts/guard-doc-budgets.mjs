@@ -49,7 +49,11 @@ const BUDGETS = {
   // browser tab's own signed-in session is the credential). Documented as
   // the preferred path, with the existing CLI/action flow kept as the
   // fallback for headless hosts.
-  ".agents/skills/visual-edit/SKILL.md": 3710,
+  // Raised 3710 -> 4350 on 2026-09-18: the browser fallback now documents
+  // native/page WebMCP discovery, JavaScript-capable browser controllers,
+  // pending-call handling, and signed-in versus signed-out limits so hosts
+  // without the connector can launch and operate visual-edit safely.
+  ".agents/skills/visual-edit/SKILL.md": 4350,
 };
 
 const listOnly = process.argv.includes("--list");

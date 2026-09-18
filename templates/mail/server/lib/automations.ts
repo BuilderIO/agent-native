@@ -9,6 +9,10 @@ export function toApiRule(row: any): AutomationRule {
   if (kind !== "automation" && kind !== "ai-filter") {
     throw new Error(`Unknown automation rule kind: ${kind}`);
   }
+  const createdAt = Number(row.createdAt);
+  const updatedAt = Number(row.updatedAt);
+  const toDate = (value: number) =>
+    new Date(value < 10_000_000_000 ? value * 1_000 : value).toISOString();
   return {
     id: row.id,
     ownerEmail: row.ownerEmail,
@@ -18,8 +22,8 @@ export function toApiRule(row: any): AutomationRule {
     condition: row.condition,
     actions: JSON.parse(row.actions),
     enabled: row.enabled === 1 || row.enabled === true || row.enabled === "1",
-    createdAt: new Date(Number(row.createdAt)).toISOString(),
-    updatedAt: new Date(Number(row.updatedAt)).toISOString(),
+    createdAt: toDate(createdAt),
+    updatedAt: toDate(updatedAt),
   };
 }
 
@@ -51,7 +55,7 @@ export async function createAutomationRule(
     enabled?: boolean;
   },
 ): Promise<AutomationRule> {
-  const now = Date.now();
+  const now = Math.floor(Date.now() / 1_000);
   const rule = {
     id: nanoid(12),
     ownerEmail,
@@ -81,7 +85,9 @@ export async function updateAutomationRule(
     kind?: "automation" | "ai-filter";
   },
 ): Promise<AutomationRule> {
-  const updates: Record<string, any> = { updatedAt: Date.now() };
+  const updates: Record<string, any> = {
+    updatedAt: Math.floor(Date.now() / 1_000),
+  };
   if (patch.name !== undefined) updates.name = patch.name;
   if (patch.condition !== undefined) updates.condition = patch.condition;
   if (patch.actions !== undefined) {

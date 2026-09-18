@@ -232,6 +232,18 @@ describe("trackOnboardingEvent", () => {
 
     expect(trackEventMock).toHaveBeenCalledTimes(6);
   });
+
+  it("does not deduplicate role save retries", () => {
+    const properties = {
+      flow: "first_run",
+      step_id: "role",
+      role: "developer",
+    };
+    trackOnboardingEvent("onboarding_role_save_started", properties);
+    trackOnboardingEvent("onboarding_role_save_started", properties);
+
+    expect(trackEventMock).toHaveBeenCalledTimes(2);
+  });
 });
 
 // A focus or visibility event inside the after-paint window used to stack a

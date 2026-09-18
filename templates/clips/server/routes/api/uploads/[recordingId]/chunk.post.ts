@@ -18,7 +18,7 @@ import {
   writeAppState,
 } from "@agent-native/core/application-state";
 import { runWithRequestContext } from "@agent-native/core/server";
-import { track } from "@agent-native/core/tracking";
+import { classifyTrackingFailure, track } from "@agent-native/core/tracking";
 import { normalizeChunkUploadNumber } from "@shared/recording-core.js";
 import { MAX_UPLOAD_BYTES as MAX_RECORDING_UPLOAD_BYTES } from "@shared/upload-limits.js";
 import { and, eq } from "drizzle-orm";
@@ -196,6 +196,23 @@ function trackUploadBlockingFailure(
   } catch {
     // Best-effort analytics must never change upload behavior.
   }
+}
+
+function finalizeResultFailure(result: unknown): {
+  outcome: "cancelled" | "failed";
+  failure_type: "cancelled" | "storage_error" | "finalize_error";
+} {
+  const record =
+    result && typeof result === "object"
+      ? (result as Record<string, unknown>)
+      : {};
+  if (record.aborted === true || record.cancelled === true) {
+    return { outcome: "cancelled", failure_type: "cancelled" };
+  }
+  if (record.storageSetupRequired === true) {
+    return { outcome: "failed", failure_type: "storage_error" };
+  }
+  return { outcome: "failed", failure_type: "finalize_error" };
 }
 
 export async function handleRecordingChunk(
@@ -675,14 +692,25 @@ export async function handleRecordingChunk(
           videoUrl: (result as any)?.videoUrl,
         });
         if ((result as any)?.status === "failed") {
-          setResponseStatus(event, 409);
-          return {
-            ok: false,
-            finalized: false,
-            aborted: true,
-            status: "failed",
-            error: "Recording was cancelled before it finished saving.",
-          };
+          const failure = finalizeResultFailure(result);
+          trackUploadBlockingFailure(ownerEmail, {
+            stage: "finalize_recording",
+            outcome: failure.outcome,
+            failure_type: failure.failure_type,
+            upload_mode: "buffered",
+          });
+          if (failure.outcome === "cancelled") {
+            setResponseStatus(event, 409);
+            return {
+              ok: false,
+              finalized: false,
+              aborted: true,
+              status: "failed",
+              error: "Recording was cancelled before it finished saving.",
+            };
+          }
+          setResponseStatus(event, 500);
+          return { ok: false, finalized: false, ...result };
         }
         const waitingForStorage =
           (result as any)?.status === "waiting_storage" ||
@@ -786,10 +814,9 @@ export async function handleRecordingChunk(
         }
         trackUploadBlockingFailure(ownerEmail, {
           stage: "finalize_recording",
-          failureKind: "finalize_error",
-          recordingId,
-          uploadMode: "buffered",
-          errorMessage: err instanceof Error ? err.message : String(err),
+          outcome: "failed",
+          failure_type: classifyTrackingFailure(err),
+          upload_mode: "buffered",
         });
         const failed = await db
           .update(schema.recordings)
@@ -1245,14 +1272,25 @@ async function handleResumableChunk(
       buildFinalizeArgs(recordingId, mimeType, query, uploadGenerationId),
     );
     if ((result as any)?.status === "failed") {
-      setResponseStatus(event, 409);
-      return {
-        ok: false,
-        finalized: false,
-        aborted: true,
-        status: "failed",
-        error: "Recording was cancelled before it finished saving.",
-      };
+      const failure = finalizeResultFailure(result);
+      trackUploadBlockingFailure(ownerEmail, {
+        stage: "finalize_recording",
+        outcome: failure.outcome,
+        failure_type: failure.failure_type,
+        upload_mode: "resumable",
+      });
+      if (failure.outcome === "cancelled") {
+        setResponseStatus(event, 409);
+        return {
+          ok: false,
+          finalized: false,
+          aborted: true,
+          status: "failed",
+          error: "Recording was cancelled before it finished saving.",
+        };
+      }
+      setResponseStatus(event, 500);
+      return { ok: false, finalized: false, ...result };
     }
     const verificationPending =
       (result as any)?.status === "processing" &&
@@ -1344,10 +1382,9 @@ async function handleResumableChunk(
 
     trackUploadBlockingFailure(ownerEmail, {
       stage: "finalize_recording",
-      failureKind: "finalize_error",
-      recordingId,
-      uploadMode: "resumable",
-      errorMessage: err instanceof Error ? err.message : String(err),
+      outcome: "failed",
+      failure_type: classifyTrackingFailure(err),
+      upload_mode: "resumable",
     });
     const failureReason =
       err instanceof Error ? err.message : "Finalize failed";

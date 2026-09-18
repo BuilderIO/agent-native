@@ -11,6 +11,12 @@ import {
 } from "./registry.js";
 import type { TrackingEvent } from "./types.js";
 
+const mockQueueTrackingEvent = vi.hoisted(() => vi.fn());
+
+vi.mock("../observability/tracing.js", () => ({
+  queueTrackingEvent: mockQueueTrackingEvent,
+}));
+
 function captureEvents(): TrackingEvent[] {
   const events: TrackingEvent[] = [];
   registerTrackingProvider({
@@ -28,6 +34,7 @@ describe("tracking registry", () => {
     unregisterTrackingProvider("qa-rejecting-flush");
     unregisterTrackingProvider("qa-capture");
     unregisterTrackingProvider("qa-identify");
+    mockQueueTrackingEvent.mockClear();
     vi.restoreAllMocks();
   });
 
@@ -195,6 +202,34 @@ describe("tracking registry", () => {
 
     expect(events[0]?.userId).toBe("cron@example.com");
     expect(events[0]?.sessionId).toBeUndefined();
+  });
+
+  it("mirrors timing server events to the OTel bridge", () => {
+    captureEvents();
+
+    track("http.response", { duration_ms: 12, status_code: 200 });
+
+    expect(mockQueueTrackingEvent).toHaveBeenCalledWith(
+      "http.response",
+      expect.objectContaining({ duration_ms: 12, status_code: 200 }),
+      "server",
+    );
+  });
+
+  it("marks browser-forwarded events as client-originated", () => {
+    captureEvents();
+
+    track(
+      "action.response",
+      { duration_ms: 12, success: true },
+      { telemetryOrigin: "client" },
+    );
+
+    expect(mockQueueTrackingEvent).toHaveBeenCalledWith(
+      "action.response",
+      expect.objectContaining({ duration_ms: 12, success: true }),
+      "client",
+    );
   });
 
   it("lets an explicit session override the ambient request", async () => {

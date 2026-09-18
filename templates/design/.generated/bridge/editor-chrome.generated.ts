@@ -10909,7 +10909,10 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function applyRuntimeReorder(el, target) {
       if (!el || !target || !target.anchor || !target.anchor.parentElement)
-        return;
+        return false;
+      var previousParent = el.parentElement;
+      var previousNextSibling = el.nextElementSibling;
+      var previousInlineStyle = el.getAttribute("style");
       var desiredDropPoint = target.dropMode === "absolute-container" ? el.__agentNativeDesiredDropPoint ?? (function() {
         var rect = el.getBoundingClientRect();
         return { left: rect.left, top: rect.top };
@@ -10928,7 +10931,11 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
       }
       correctAbsoluteMemberClientPosition(el, desiredDropPoint);
-      publishSourceDocumentProvenance(void 0, true);
+      var runtimeMutationApplied = previousParent !== el.parentElement || previousNextSibling !== el.nextElementSibling || previousInlineStyle !== el.getAttribute("style");
+      if (runtimeMutationApplied) {
+        publishSourceDocumentProvenance(void 0, true);
+      }
+      return runtimeMutationApplied;
     }
     function postVisualStructureChange(el, target, origin, insertedHtml, replaced, replacementSnapshotHtml) {
       if (!el || !target || !target.anchor) return;
@@ -11020,12 +11027,13 @@ export const editorChromeBridgeScript: string = `"use strict";
         var prevNextSibling = member.nextSibling;
         var prevInlinePositionStyles = originInlineStylesFor ? originInlineStylesFor(member) : snapshotInlinePositionStyles(member);
         adaptAutoTextColorForNest(member, container);
-        applyRuntimeReorder(member, memberTarget);
-        postVisualStructureChange(member, memberTarget, {
-          prevParent,
-          prevNextSibling,
-          prevInlinePositionStyles
-        });
+        if (applyRuntimeReorder(member, memberTarget)) {
+          postVisualStructureChange(member, memberTarget, {
+            prevParent,
+            prevNextSibling,
+            prevInlinePositionStyles
+          });
+        }
         previous = member;
       }
       postElementMarqueeSelect(members, false, ev);
@@ -12443,16 +12451,21 @@ export const editorChromeBridgeScript: string = `"use strict";
               reorderEl,
               dropContainerForTarget(currentTarget)
             );
-            applyRuntimeReorder(reorderEl, currentTarget);
+            var runtimeMutationApplied = applyRuntimeReorder(
+              reorderEl,
+              currentTarget
+            );
             dndLog("commit:done", {
               el: getSelector(reorderEl),
               parent: reorderEl.parentElement ? getSelector(reorderEl.parentElement) : null
             });
-            postVisualStructureChange(reorderEl, currentTarget, {
-              prevParent,
-              prevNextSibling,
-              prevInlinePositionStyles
-            });
+            if (runtimeMutationApplied) {
+              postVisualStructureChange(reorderEl, currentTarget, {
+                prevParent,
+                prevNextSibling,
+                prevInlinePositionStyles
+              });
+            }
           }
           resetReorderModifierState2();
         };
@@ -12955,16 +12968,21 @@ export const editorChromeBridgeScript: string = `"use strict";
               dragEl,
               dropContainerForTarget(currentAutoLayoutTarget)
             );
-            applyRuntimeReorder(dragEl, currentAutoLayoutTarget);
+            var runtimeMutationApplied = applyRuntimeReorder(
+              dragEl,
+              currentAutoLayoutTarget
+            );
             dndLog("commit:free-nest", {
               el: getSelector(dragEl),
               target: dndTarget(currentAutoLayoutTarget)
             });
-            postVisualStructureChange(dragEl, currentAutoLayoutTarget, {
-              prevParent,
-              prevNextSibling,
-              prevInlinePositionStyles
-            });
+            if (runtimeMutationApplied) {
+              postVisualStructureChange(dragEl, currentAutoLayoutTarget, {
+                prevParent,
+                prevNextSibling,
+                prevInlinePositionStyles
+              });
+            }
           }
         } else {
           dndLog("commit:free-absolute", { count: memberStates.length });
@@ -15844,10 +15862,15 @@ export const editorChromeBridgeScript: string = `"use strict";
           prevNextSibling: runtimeSubject.nextSibling,
           prevInlinePositionStyles: snapshotInlinePositionStyles(runtimeSubject)
         };
-        applyRuntimeReorder(runtimeSubject, runtimeTarget);
+        var runtimeMutationApplied = applyRuntimeReorder(
+          runtimeSubject,
+          runtimeTarget
+        );
         selectedEl = runtimeSubject;
         positionOverlay(selectionOverlay, selectedEl);
-        postVisualStructureChange(runtimeSubject, runtimeTarget, runtimeOrigin);
+        if (runtimeMutationApplied) {
+          postVisualStructureChange(runtimeSubject, runtimeTarget, runtimeOrigin);
+        }
         return;
       }
       if (e.data.type === "runtime-structure-insert") {
@@ -15928,15 +15951,20 @@ export const editorChromeBridgeScript: string = `"use strict";
             prevNextSibling: existingInsertEl.nextSibling,
             prevInlinePositionStyles: snapshotInlinePositionStyles(existingInsertEl)
           };
-          applyRuntimeReorder(existingInsertEl, insertTarget);
+          var runtimeMutationApplied = applyRuntimeReorder(
+            existingInsertEl,
+            insertTarget
+          );
           selectedEl = existingInsertEl;
           positionOverlay(selectionOverlay, selectedEl);
           refreshOverlays();
-          postVisualStructureChange(
-            existingInsertEl,
-            insertTarget,
-            reinsertOrigin
-          );
+          if (runtimeMutationApplied) {
+            postVisualStructureChange(
+              existingInsertEl,
+              insertTarget,
+              reinsertOrigin
+            );
+          }
           return;
         }
         if (replaceInsertAnchor) {

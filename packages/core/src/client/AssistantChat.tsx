@@ -769,9 +769,13 @@ export async function waitForThreadRunToClear(
     const stored = getActiveRun();
     const sameStoredRun =
       stored?.threadId === threadId && stored.runId === info.runId;
+    const storedOwnerTabId = sameStoredRun ? stored?.tabId : undefined;
     setActiveRun({
       threadId,
       runId: info.runId,
+      // Waiting to reconnect does not transfer stream ownership. Preserve
+      // the current owner's surface until that surface actually claims it.
+      ...(storedOwnerTabId ? { tabId: storedOwnerTabId } : {}),
       ...(info.turnId ? { turnId: info.turnId } : {}),
       lastSeq: sameStoredRun ? stored.lastSeq : -1,
       ...(sameStoredRun && stored.activityTool
@@ -4038,6 +4042,7 @@ const AssistantChatInner = forwardRef<
       setActiveRun({
         threadId,
         runId,
+        ...(tabId ? { tabId } : {}),
         ...(reconnectTurnIdRef.current
           ? { turnId: reconnectTurnIdRef.current }
           : {}),
