@@ -2130,6 +2130,24 @@ export function DocumentSidebar({
   );
 
   const renderTrashSection = () => {
+    return (
+      <div className="mt-3 px-2 pt-2">
+        <Link
+          to="/trash"
+          className={cn(
+            "flex h-8 min-w-0 items-center gap-2 rounded-md px-2 text-sm text-muted-foreground hover:bg-accent/40 hover:text-foreground",
+            location.pathname.startsWith("/trash") &&
+              "bg-accent/60 text-foreground",
+          )}
+          onClick={onNavigate}
+        >
+          <IconTrash size={15} />
+          <span className="truncate">{t("sidebar.trash")}</span>
+        </Link>
+      </div>
+    );
+
+    /* i18n-copy-ignore legacy fallback retained until the dedicated route is proven */
     const collapsed = collapsedSections.trash;
 
     return (

@@ -349,12 +349,19 @@ describe("database row batch actions", () => {
     expect(result.duplicatedDocumentIds).toHaveLength(2);
     await expect(
       db
-        .select({ spaceId: schema.documents.spaceId })
+        .select({
+          spaceId: schema.documents.spaceId,
+          createdBy: schema.documents.createdBy,
+          updatedBy: schema.documents.updatedBy,
+        })
         .from(schema.documents)
         .where(
           inArray(schema.documents.id, result.duplicatedDocumentIds ?? []),
         ),
-    ).resolves.toEqual([{ spaceId }, { spaceId }]);
+    ).resolves.toEqual([
+      { spaceId, createdBy: OWNER, updatedBy: OWNER },
+      { spaceId, createdBy: OWNER, updatedBy: OWNER },
+    ]);
     expect(result.duplicatedItemId).toBe(result.duplicatedItemIds?.[0]);
     expect(result.duplicatedDocumentId).toBe(result.duplicatedDocumentIds?.[0]);
     expect(result.duplicatedItems?.map((item) => item.id)).toEqual(
@@ -519,6 +526,14 @@ describe("database row batch actions", () => {
       id: single.duplicatedItemId,
       document: { id: single.duplicatedDocumentId },
     });
+    const [singleDocument] = await db
+      .select({
+        createdBy: schema.documents.createdBy,
+        updatedBy: schema.documents.updatedBy,
+      })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, single.duplicatedDocumentId!));
+    expect(singleDocument).toEqual({ createdBy: OWNER, updatedBy: OWNER });
 
     const batch = await runWithRequestContext({ userEmail: OWNER }, () =>
       duplicateDatabaseItemsAction.run({

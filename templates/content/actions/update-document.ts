@@ -16,6 +16,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { commitCanonicalDocumentBodyMutation } from "../server/lib/canonical-document-body-mutation.js";
+import {
+  documentEditAttribution,
+  requireDocumentRequestActor,
+} from "../server/lib/document-attribution.js";
 import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
 import { propagateDocumentTitle } from "../server/lib/document-title-propagation.js";
 import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
@@ -453,6 +457,7 @@ export default defineAction({
 
     const db = getDb();
     const requestUserEmail = getRequestUserEmail();
+    const actor = requireDocumentRequestActor(ctx);
     if (args.isFavorite !== undefined && !requestUserEmail) {
       throw new Error("no authenticated user");
     }
@@ -641,6 +646,9 @@ export default defineAction({
           updates.bodyRevision = historyBefore.bodyRevision + 1;
         }
         if (lockedIconChanged) updates.icon = args.icon;
+        if (lockedTitleChanged || lockedContentChanged) {
+          Object.assign(updates, documentEditAttribution(actor));
+        }
         const primaryBlocksFields = lockedContentChanged
           ? await lockPrimaryBlocksFields(
               tx as unknown as ReturnType<typeof getDb>,

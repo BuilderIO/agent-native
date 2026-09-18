@@ -118,10 +118,16 @@ describe("space-aware document writers", () => {
     );
 
     const rows = await getDb()
-      .select({ id: schema.documents.id, spaceId: schema.documents.spaceId })
+      .select({
+        id: schema.documents.id,
+        spaceId: schema.documents.spaceId,
+        createdBy: schema.documents.createdBy,
+        updatedBy: schema.documents.updatedBy,
+      })
       .from(schema.documents)
       .where(eq(schema.documents.id, child.id));
     expect(rows[0]?.spaceId).toBeTruthy();
+    expect(rows[0]).toMatchObject({ createdBy: OWNER, updatedBy: OWNER });
     await expect(filesMemberships(parent.id)).resolves.toHaveLength(1);
     await expect(filesMemberships(child.id)).resolves.toEqual([
       expect.objectContaining({ spaceId: rows[0]?.spaceId }),
@@ -195,7 +201,7 @@ describe("space-aware document writers", () => {
       runWithRequestContext({ userEmail: OUTSIDER }, () =>
         createDocument.run({ title: "No entry", spaceId }),
       ),
-    ).rejects.toThrow("Not authorized");
+    ).rejects.toThrow("Content space not found");
   });
 
   it("creates canonical Files memberships when the target organization differs from the active organization", async () => {

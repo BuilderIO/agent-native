@@ -420,44 +420,14 @@ describe("document sidebar layout", () => {
     expect(reorder).toContain("event.preventDefault()");
   });
 
-  it("keeps a unified page and database Trash lifecycle visible in the sidebar", () => {
+  it("links the unified Trash lifecycle from the sidebar", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
     const messages = readSidebarSource("../../i18n-data.ts");
 
-    expect(sidebar).toContain("useTrashedContentDatabases");
-    expect(sidebar).toContain("useTrashedDocuments");
-    expect(sidebar).toContain("useDeleteContentDatabase");
-    expect(sidebar).toContain("useRestoreContentDatabase");
-    expect(sidebar).toContain("const trashItems =");
-    expect(sidebar).toContain("const trashedPageItems =");
-    expect(sidebar).toContain("const handleRestoreDocument = useCallback");
-    expect(sidebar).toContain(
-      "const handlePermanentDeleteDocument = useCallback",
-    );
-    expect(sidebar).toContain("const handleRestoreDatabase = useCallback");
-    expect(sidebar).toContain(
-      "const handlePermanentDeleteDatabase = useCallback",
-    );
     expect(sidebar).toContain("const renderTrashSection = () =>");
-    expect(sidebar).toContain("trash: true");
-    expect(sidebar).toContain("value?.trash ?? true");
-    expect(sidebar).toContain("TRASH_COLLAPSED_DEFAULT_MIGRATION_KEY");
-    expect(sidebar).toContain('toggleSection("trash")');
+    expect(sidebar).toContain('to="/trash"');
+    expect(sidebar).toContain('location.pathname.startsWith("/trash")');
     expect(sidebar).toContain("<IconTrash");
-    expect(sidebar).toContain("group-hover/trash:opacity-0");
-    expect(sidebar).toContain("group-hover/trash:opacity-100");
-    expect(sidebar).toContain('className="px-2"');
-    expect(sidebar).toContain("handleRestoreDatabase(database.databaseId)");
-    expect(sidebar).toContain("handlePermanentDeleteDatabase");
-    expect(sidebar).toContain("handleRestoreDocument(document.documentId)");
-    expect(sidebar).toContain("handlePermanentDeleteDocument");
-    expect(sidebar).toContain("database.documentId");
-    expect(sidebar).toContain("database.canPermanentlyDelete");
-    expect(sidebar).toContain("deletedDocument?.database");
-    expect(sidebar).toContain("deleteContentDatabase.mutateAsync");
-    expect(sidebar).toContain("databaseId: deletedDocument.database.id");
-    expect(sidebar).toContain('t("sidebar.restoreDatabase")');
-    expect(sidebar).toContain('t("sidebar.deletePermanently")');
     expect(sidebar).toContain("{renderTrashSection()}");
 
     expect(messages).toContain('trash: "Trash"');

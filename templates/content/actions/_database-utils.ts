@@ -231,7 +231,7 @@ type DatabaseMembershipRow = {
 
 type DocumentListRow = Omit<
   typeof schema.documents.$inferSelect,
-  "content" | "collabBodyRevision"
+  "content" | "collabBodyRevision" | "createdBy" | "updatedBy"
 >;
 
 // Database grids render row metadata and properties. Fetching the document body
@@ -255,6 +255,9 @@ export const contentDatabaseListDocumentSelection = {
   sourceUpdatedAt: schema.documents.sourceUpdatedAt,
   trashedAt: schema.documents.trashedAt,
   trashRootId: schema.documents.trashRootId,
+  trashedBy: schema.documents.trashedBy,
+  trashOrigin: schema.documents.trashOrigin,
+  trashParentId: schema.documents.trashParentId,
   visibility: schema.documents.visibility,
   ownerEmail: schema.documents.ownerEmail,
   orgId: schema.documents.orgId,
