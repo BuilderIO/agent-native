@@ -89,6 +89,7 @@ type FactoryAuditItem = {
   babysitAgentMatched?: boolean | null;
   babysitBotThreadSummaries?: string[] | null;
   babysitHumanThreadSummaries?: string[] | null;
+  gitHubTerminal?: "merged" | "closed" | "draft" | null;
 };
 
 type FactoryAuditTraceStep = {
@@ -111,6 +112,8 @@ type FactoryAuditRun = {
   startedAt: number;
   finishedAt: number | null;
   error: string | null;
+  promptVersion?: number | null;
+  executionPromptHash?: string | null;
   counts: FactoryAuditCounts;
   inbox?: FactoryAuditItem[];
   work?: FactoryAuditItem[];
@@ -135,9 +138,11 @@ type FactoryAuditResponse = {
 export function FactoryAuditView({
   factoryId,
   refreshToken = 0,
+  onFetchingChange,
 }: {
   factoryId: string;
   refreshToken?: number;
+  onFetchingChange?: (isFetching: boolean) => void;
 }) {
   const t = useT();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -199,6 +204,10 @@ export function FactoryAuditView({
     if (refreshToken === 0) return;
     void refetchAudit();
   }, [refreshToken, refetchAudit]);
+
+  useEffect(() => {
+    onFetchingChange?.(auditQuery.isFetching);
+  }, [auditQuery.isFetching, onFetchingChange]);
 
   function setAuditFilter(key: "automation" | "range", value: string) {
     setCursor(null);
@@ -453,6 +462,24 @@ function AuditRunDetail({
 
   return (
     <>
+      {run.promptVersion || run.executionPromptHash ? (
+        <p className="text-xs text-muted-foreground">
+          {run.promptVersion
+            ? t("factoryRoute.auditRunPromptVersion", {
+                version: run.promptVersion,
+              })
+            : null}
+          {run.promptVersion && run.executionPromptHash ? (
+            <span aria-hidden="true"> · </span>
+          ) : null}
+          {run.executionPromptHash
+            ? t("factoryRoute.auditRunPromptHash", {
+                hash: run.executionPromptHash.slice(0, 8),
+              })
+            : null}
+        </p>
+      ) : null}
+
       {run.threadId ? (
         <Button variant="outline" size="sm" asChild>
           <a
@@ -1005,8 +1032,15 @@ function formatItemRowHint(
   t: ReturnType<typeof useT>,
 ): string {
   const parts = [formatItemOutcome(item.outcome, t)];
-  if (item.firstSeenThisRun) parts.push(t("factoryRoute.auditNewThisRun"));
-  else if (item.listedStatus || item.builderAlreadyStarted) {
+  if (item.gitHubTerminal === "merged") {
+    parts.push(t("factoryRoute.auditMergedOnGitHub"));
+  } else if (item.gitHubTerminal === "closed") {
+    parts.push(t("factoryRoute.auditClosedOnGitHub"));
+  } else if (item.gitHubTerminal === "draft") {
+    parts.push(t("factoryRoute.auditDraftOnGitHub"));
+  } else if (item.firstSeenThisRun) {
+    parts.push(t("factoryRoute.auditNewThisRun"));
+  } else if (item.listedStatus || item.builderAlreadyStarted) {
     parts.push(t("factoryRoute.auditSeenBefore"));
   }
   if (item.builderAlreadyStarted && item.outcome === "left") {

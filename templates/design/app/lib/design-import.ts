@@ -41,6 +41,8 @@ export interface ImportResult {
   unresolvedImages?: number;
   /** Set by .fig file upload: number of IMAGE fills not in the embedded blobs (need Figma API to resolve). */
   unresolvedImageRefCount?: number;
+  /** Set by the browser .fig importer when transport-sized embedded images are skipped. */
+  skippedEmbeddedImageCount?: number;
   /** Set by import-figma-clipboard when it fell back: why the REST match didn't happen. */
   matchStatus?: "matched" | "ambiguous" | "none" | "error";
   rateLimitRetryAfter?: number;
@@ -318,6 +320,7 @@ export interface DesignClipboardLayerEntry {
   sourceParentNodeId?: string;
   sourceFileId: string;
   portableStyleSnapshot?: PortableStyleSnapshot;
+  styleSnapshotCaptureFailed?: boolean;
   managedStyleSnapshot?: DesignClipboardManagedStyleSnapshot;
 }
 
@@ -413,6 +416,8 @@ function validateDesignClipboardPayload(
       (entry.rootNodeId !== undefined && !clipboardString(entry.rootNodeId)) ||
       (entry.sourceParentNodeId !== undefined &&
         !clipboardString(entry.sourceParentNodeId)) ||
+      (entry.styleSnapshotCaptureFailed !== undefined &&
+        typeof entry.styleSnapshotCaptureFailed !== "boolean") ||
       (entry.portableStyleSnapshot !== undefined &&
         !isPortableClipboardStyleSnapshot(entry.portableStyleSnapshot)) ||
       (entry.managedStyleSnapshot !== undefined &&

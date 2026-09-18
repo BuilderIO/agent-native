@@ -256,7 +256,6 @@ const TEMPLATE_DIRS = [
   "templates/design",
   "templates/dispatch",
   "templates/forms",
-  "templates/macros",
   "templates/mail",
   "templates/slides",
   "templates/chat",

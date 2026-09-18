@@ -35,6 +35,32 @@ const PAGE = `<!doctype html><html><head><style>
   </ul>
 </body></html>`;
 
+async function seedAlpineLookup(
+  page: import("@playwright/test").Page,
+  selector: string,
+  repeatedSourceId?: string,
+) {
+  await page.evaluate(
+    ({ selector, repeatedSourceId }) => {
+      const template = document.querySelector<HTMLTemplateElement>(selector)!;
+      const rows = Array.from(template.parentElement!.children).filter(
+        (child) =>
+          child !== template &&
+          child.tagName === "LI" &&
+          (!repeatedSourceId ||
+            child.getAttribute("data-agent-native-node-id") ===
+              repeatedSourceId),
+      );
+      (
+        template as HTMLTemplateElement & {
+          _x_lookup: Map<number, Element>;
+        }
+      )._x_lookup = new Map(rows.map((row, index) => [index, row]));
+    },
+    { selector, repeatedSourceId },
+  );
+}
+
 async function withPage<T>(
   run: (page: import("@playwright/test").Page) => Promise<T>,
   options: { textEditing?: boolean } = {},
@@ -45,6 +71,7 @@ async function withPage<T>(
       viewport: { width: 480, height: 480 },
     });
     await page.setContent(PAGE);
+    await seedAlpineLookup(page, "ul > template[x-for]", "an-row");
     await page.addScriptTag({ content: hydrated(options.textEditing) });
     await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
     await page.evaluate(() => {
@@ -55,9 +82,14 @@ async function withPage<T>(
         if (data?.type !== "element-select") return;
         const payload = data.payload as {
           selector?: string;
+          sourceId?: string;
           repeat?: unknown;
         };
-        seen.push({ selector: payload?.selector, repeat: payload?.repeat });
+        seen.push({
+          selector: payload?.selector,
+          sourceId: payload?.sourceId,
+          repeat: payload?.repeat,
+        });
       });
     });
     return await run(page);
@@ -101,6 +133,7 @@ async function clickRow(
 
 interface Pick {
   selector?: string;
+  sourceId?: string;
   repeat?: {
     sourceSelector: string;
     instanceCount: number;
@@ -203,7 +236,7 @@ it(
         itemIndex: 2,
         textBinding: "",
         keyExpression: "",
-        itemKey: "",
+        itemKey: "2",
       });
       expect(staticRow.repeat).toBeUndefined();
     });
@@ -426,6 +459,64 @@ it(
   },
 );
 
+it(
+  "programmatic text edit follows the selected repeat item",
+  { timeout: 60_000 },
+  async () => {
+    await withPage(
+      async (page) => {
+        const label = page.locator("ul > li:nth-of-type(2) span");
+        const box = (await label.boundingBox())!;
+        await page.keyboard.down("Meta");
+        await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+        await page.keyboard.up("Meta");
+        await page.waitForFunction(
+          () => (window as never as { __picks: unknown[] }).__picks.length > 0,
+        );
+        const [pick] = (await picks(page)).slice(-1);
+        expect(pick).toMatchObject({
+          sourceId: "an-label",
+          repeat: {
+            sourceSelector: '[data-agent-native-node-id="an-label"]',
+            itemIndex: 1,
+          },
+        });
+
+        await page.evaluate(
+          (repeat) => {
+            window.postMessage(
+              {
+                type: "begin-text-edit",
+                nodeId: "an-label",
+                force: true,
+                repeat,
+              },
+              "*",
+            );
+          },
+          {
+            sourceSelector: pick!.repeat!.sourceSelector,
+            itemIndex: pick!.repeat!.itemIndex,
+          },
+        );
+        await page.waitForSelector(
+          "ul > li:nth-of-type(2) span[data-agent-native-text-editing]",
+        );
+        await page.keyboard.type("!");
+
+        expect(
+          await page
+            .locator("ul > li > span")
+            .evaluateAll((labels) =>
+              labels.slice(0, 2).map((label) => label.textContent),
+            ),
+        ).toEqual(["row one", "row two!"]);
+      },
+      { textEditing: true },
+    );
+  },
+);
+
 /** A generated screen with no stamped ids anywhere — the common case. */
 const UNSTAMPED = `<!doctype html><html><head><style>
   html,body{margin:0;padding:0}
@@ -450,6 +541,7 @@ it(
         viewport: { width: 480, height: 320 },
       });
       await page.setContent(UNSTAMPED);
+      await seedAlpineLookup(page, "ul > template[x-for]");
       await page.addScriptTag({ content: hydrated() });
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
       await page.evaluate(() => {

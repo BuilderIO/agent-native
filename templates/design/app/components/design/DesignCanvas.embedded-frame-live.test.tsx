@@ -16,6 +16,125 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
 describe("DesignCanvas live embedded-frame offset", () => {
+  it("preserves canvas focus and never steals focus from editable preview frames", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const onTextEditingStateChange = vi.fn();
+    let siblingIframe: HTMLIFrameElement | null = null;
+
+    try {
+      await act(async () =>
+        root.render(
+          <DesignCanvas
+            content="<!doctype html><html><body></body></html>"
+            contentKey="board-text-edit-focus"
+            screenId="board-file"
+            zoom={100}
+            deviceFrame="none"
+            interactMode={false}
+            editMode
+            boardSurface
+            registerRuntimeBridge={false}
+            embeddedFrame={{
+              viewportWidth: 800,
+              viewportHeight: 600,
+              displayWidth: 800,
+              displayHeight: 600,
+              fluid: true,
+            }}
+            onElementSelect={() => {}}
+            onElementHover={() => {}}
+            onTextEditingStateChange={onTextEditingStateChange}
+            tweakValues={{}}
+          />,
+        ),
+      );
+
+      const iframe = container.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      const scrollSurface =
+        container.querySelector<HTMLElement>('[tabindex="-1"]');
+      expect(iframe?.contentWindow).toBeTruthy();
+      expect(scrollSurface).not.toBeNull();
+
+      const enterCanvas = async () =>
+        act(async () =>
+          scrollSurface!.dispatchEvent(
+            new MouseEvent("mouseover", {
+              bubbles: true,
+              relatedTarget: document.body,
+            }),
+          ),
+        );
+
+      await enterCanvas();
+      expect(document.activeElement).toBe(scrollSurface);
+
+      const ownDocument = iframe!.contentDocument!;
+      const ownEditable = ownDocument.createElement("p");
+      ownEditable.setAttribute("contenteditable", "true");
+      ownEditable.setAttribute("data-agent-native-text-editing", "true");
+      ownDocument.body.append(ownEditable);
+      ownEditable.focus();
+      iframe!.focus();
+      expect(ownDocument.activeElement).toBe(ownEditable);
+      expect(document.activeElement).toBe(iframe);
+
+      // The child marks and focuses its editable before its state message
+      // reaches DesignCanvas. The DOM check must cover this short race window.
+      await enterCanvas();
+      expect(document.activeElement).toBe(iframe);
+
+      siblingIframe = document.createElement("iframe");
+      document.body.append(siblingIframe);
+      const siblingEditable = siblingIframe.contentDocument!.createElement("p");
+      siblingEditable.setAttribute("contenteditable", "true");
+      siblingEditable.setAttribute("data-agent-native-text-editing", "true");
+      siblingIframe.contentDocument!.body.append(siblingEditable);
+      siblingEditable.focus();
+      siblingIframe.focus();
+      expect(siblingIframe.contentDocument!.activeElement).toBe(
+        siblingEditable,
+      );
+      expect(document.activeElement).toBe(siblingIframe);
+
+      await enterCanvas();
+      expect(document.activeElement).toBe(siblingIframe);
+
+      iframe!.focus();
+      expect(document.activeElement).toBe(iframe);
+
+      await act(async () =>
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            data: {
+              type: "text-editing-state",
+              active: true,
+              selector: '[data-agent-native-node-id="text-probe"]',
+              sourceId: "text-probe",
+              hasRange: false,
+            },
+            origin: window.location.origin,
+            source: iframe!.contentWindow,
+          }),
+        ),
+      );
+      expect(onTextEditingStateChange).toHaveBeenCalledWith(
+        expect.objectContaining({ active: true, sourceId: "text-probe" }),
+      );
+
+      await enterCanvas();
+
+      expect(document.activeElement).toBe(iframe);
+    } finally {
+      await act(async () => root.unmount());
+      siblingIframe?.remove();
+      container.remove();
+    }
+  });
+
   it("keeps review overlays out of single-screen pan gestures", async () => {
     const container = document.createElement("div");
     document.body.append(container);

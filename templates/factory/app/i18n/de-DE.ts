@@ -121,7 +121,10 @@ const messages = {
         stuck: "Festgefahren",
         clean: "Sauber",
         ineligible: "Nicht berechtigt",
+        merged: "Auf GitHub gemergt",
         reopened: "Nach Update erneut geöffnet",
+        mergeable_as_of:
+          "Mergebar; Factory pingt Builder auf diesem Branch nicht erneut.",
       },
       slack: {
         claimed: "Übernommen",
@@ -354,6 +357,8 @@ const messages = {
     auditBabysitCiBlocking: "Blockierende CI",
     auditBabysitVeto: "Veto",
     auditTrace: "Spur",
+    auditRunPromptVersion: "Prompt v{{version}}",
+    auditRunPromptHash: "Hash {{hash}}",
     auditWhy: "Warum",
     auditWhatHappened: "Was passiert ist",
     auditInspectedOnly: "Nur geprüft",
@@ -376,6 +381,9 @@ const messages = {
     auditSkipped: "{{count}} übersprungen",
     auditStartedCount: "{{count}} gestartet",
     auditSeenBefore: "Schon gesehen",
+    auditMergedOnGitHub: "Auf GitHub gemergt",
+    auditClosedOnGitHub: "Auf GitHub geschlossen",
+    auditDraftOnGitHub: "Entwurf auf GitHub",
     auditNewThisRun: "Neu",
     auditAlreadyStarted: "Bereits gestartet",
     historyTab: "Verlauf",
@@ -506,13 +514,12 @@ const messages = {
     automationWorkLimitDescription:
       "Wie viele Einträge der Agent pro Lauf bearbeitet. Maximal 10.",
     automationGuardrails: "Leitplanken",
+    automationSkillAlignment: "Skill-Ausrichtung",
     automationGuardrailsDescription:
       "Von Factory eingefügt. Der Prompt kann diese Regeln nicht ändern.",
     automationGuardrailsSummary:
       "Fügt bis zu {{inbox}} hinzu · bearbeitet {{work}} pro Lauf",
     automationGuardrailsPlaceholder: "Factory fügt hier Scope und Limits ein.",
-    automationPromptDescription:
-      "Was dieser Lauf tun soll, zusätzlich zu den Leitplanken oben.",
     automationDisplayNameDescription:
       "Wird in der Automatisierungsliste angezeigt.",
     automationModelDescription: "Modell, das dieser geplante Job verwendet.",
@@ -540,6 +547,29 @@ const messages = {
     pastRuns: "Vergangene Läufe",
     pastRunsEmpty: "Noch keine Läufe aufgezeichnet.",
     saveAutomation: "Speichern",
+    automationUnsavedChanges: "Nicht gespeicherte Automatisierungsänderungen",
+    automationDiscardChanges: "Verwerfen",
+    automationCurrentSaved: "Aktuell (gespeichert)",
+    automationCurrentSavedShort: "Version {{version}}",
+    automationNoSavedVersions: "Keine gespeicherten Versionen",
+    automationVersionPickerLabel: "Versionen",
+    automationVersionsLoading: "Versionen werden geladen…",
+    automationVersionsLoadFailed:
+      "Versionsverlauf konnte nicht geladen werden.",
+    automationVersionLoadFailed: "Diese Version konnte nicht geladen werden.",
+    automationVersionAppliedToDraft:
+      "Version v{{promptVersion}} in den Entwurf geladen. Speichern, um zu übernehmen.",
+    automationSavedVersion: "Version {{version}}",
+    automationVersionRowDetail: "v{{promptVersion}} · gespeichert {{savedAt}}",
+    automationVersionDeleteLabel: "Diese Version löschen",
+    automationVersionDeleteTitle: "{{label}} löschen?",
+    automationVersionDeleteWarning:
+      "Dies kann nicht rückgängig gemacht werden.",
+    automationVersionDeleteCancel: "Abbrechen",
+    automationVersionDeleteConfirm: "Version löschen",
+    automationVersionDeleted: "Version gelöscht.",
+    automationVersionDeleteFailed:
+      "Diese Version konnte nicht gelöscht werden.",
     automationSaved: "Gespeichert",
     automationSaveFailed:
       "Die Automatisierung konnte nicht gespeichert werden.",

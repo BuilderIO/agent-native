@@ -19,6 +19,7 @@ import {
   type EqualGapGuide,
   getCameraForBounds,
   getFrameGroupBounds,
+  getFrameGroupSizeBounds,
   getNudgeDelta,
   getPanForZoomToCursor,
   getResizeCursorForHandle,
@@ -32,6 +33,7 @@ import {
   screenToCanvasPoint,
   type ArrowNudgeKey,
 } from "@shared/canvas-math";
+import { parseCssColorExtended } from "@shared/color-utils";
 import { resolveLayoutGridSnapStep } from "@shared/layout-grid";
 import {
   appendPenNode,
@@ -55,6 +57,10 @@ import {
   type PenNode,
   type PenPath,
 } from "@shared/pen-path";
+import {
+  readSourceNodeProvenance,
+  type SourceNodeProvenance,
+} from "@shared/preview-source-provenance";
 import {
   getResponsiveBreakpointHeightPx,
   MAX_SANE_FRAME_DIMENSION_PX,
@@ -90,6 +96,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { ReviewCanvasPins } from "@/components/visual-editor/ReviewCanvasPins";
 import { prettyScreenName } from "@/lib/screen-names";
 import { cn } from "@/lib/utils";
 
@@ -105,6 +112,10 @@ import {
   resolveStableContentSizeSample,
   type ContentSizeSample,
 } from "./design-canvas/content-size-report";
+import {
+  getDesignCanvasIframeSandbox,
+  useBrowserOrigin,
+} from "./design-canvas/external-preview";
 import { appendHitTestResponder } from "./design-canvas/hit-test";
 import { withLocalRuntimes } from "./design-canvas/local-runtime";
 import { roundGeo, trace, type TraceArea } from "./design-trace";
@@ -143,9 +154,11 @@ import type {
   ResolvedScreenMetadata,
   ScreenContentCacheEntry,
   ScreenFile,
+  ScreenProjectionNodeIdentity,
   TransformBadge,
   VectorEditOverlayState,
 } from "./multi-screen/types";
+import { SCALED_IFRAME_PAINT_RETENTION_STYLE } from "./scaled-iframe-paint";
 import { type ElementInfo, type PortableStyleSnapshot } from "./types";
 
 /**
@@ -165,7 +178,26 @@ const DRAG_THRESHOLD = 3;
 // One postMessage round trip into an iframe. 80ms was tuned on a warm local
 // dev server; a cold hosted screen or a large generated document blows it, and
 // a late reply is dropped as if the screen held nothing selectable.
-const SELECTABLE_RECTS_REPLY_TIMEOUT_MS = 400;
+
+function serializeMarqueeHostSelection(
+  activeId: string | null | undefined,
+  selectedElementScreenId: string | null | undefined,
+  selectedLayerSelectorGroupsByScreen: Record<string, string[][]>,
+): string {
+  return JSON.stringify([
+    activeId ?? null,
+    selectedElementScreenId ?? null,
+    Object.entries(selectedLayerSelectorGroupsByScreen)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([screenId, groups]) => [screenId, groups]),
+  ]);
+}
+// A drill-in narrows the collect to the pointer's containment chain and answers
+// in ~100ms, but an area query (the marquee) still builds info for every
+// candidate on the screen, which measures near a second on a large generated
+// document. Giving up at 400ms there did not make the marquee faster — it made
+// in-screen layers unselectable while the abandoned pass still ran.
+const SELECTABLE_RECTS_REPLY_TIMEOUT_MS = 2_000;
 // A drop-guide preview may flicker if a reply is late; a commit may not guess.
 // Resolving the commit's anchor from a timeout changes where the layer lands.
 const HIT_TEST_PREVIEW_TIMEOUT_MS = 250;
@@ -241,6 +273,7 @@ import {
   getBoardSurfaceRenderContent,
   getBoardSurfaceStaticPreviewContent,
   hasBoardSurfaceContent,
+  shouldRenderEmptyBoardReviewCanvas,
 } from "./multi-screen/board-surface-html";
 import {
   getDraftCreationTool,
@@ -276,6 +309,7 @@ import {
 import {
   boardPointToBoardSurfaceLocalPoint,
   boardSurfaceLocalPointToBoardPoint,
+  getBoardSelectionWorldBounds,
   getBoardSurfaceRenderGeometry,
   getBoardSurfaceLayerStyle,
   getBoardSurfaceStaticPreviewViewport,
@@ -287,6 +321,7 @@ import {
   SURFACE_PADDING,
   type LineupRecenterDuplicateArm,
 } from "./multi-screen/overview-layout";
+import { persistBoardDraftPrimitive } from "./multi-screen/persist-board-draft-primitive";
 import {
   getCachedScreenContentNode,
   getPreviewUrl,
@@ -342,12 +377,14 @@ import {
   isPortableStyleSnapshot,
 } from "./multi-screen/cross-screen-drop";
 import {
+  admitBootBudget,
   clampFrameGeometryToViewport,
   computeBoundedScreenCullState,
   getScreenContentCullState,
   getOverscannedViewportCanvasBounds,
   isFrameWithinOverscannedViewport,
   type OverscannedViewportBounds,
+  type LiveScreenBootStatus,
   type ScreenCullTier,
 } from "./multi-screen/culling";
 import {
@@ -376,7 +413,6 @@ import {
   BREAKPOINT_ADD_BUTTON_GAP_PX,
   BREAKPOINT_FRAME_GAP,
   cloneFrameGeometryById,
-  deviceViewportFloorForWidth,
   findTopFrameEntryAtPoint,
   frameGeometryWithOverrides,
   frameStyleLeftTop,
@@ -418,7 +454,18 @@ import {
   resolveNodeScreenId,
   type PrimitiveDropTarget,
 } from "./multi-screen/primitive-drop-target";
-import type { AlignmentGuide, CanvasFrameEntry } from "./multi-screen/types";
+import { resolveAutoFitScreenHeight } from "./multi-screen/screen-height";
+import {
+  clampScreenFrameSize,
+  readScreenSizeConstraints,
+  screenSizeConstraintsToFrameBounds,
+} from "./multi-screen/screen-sizing";
+import type {
+  AlignmentGuide,
+  CanvasFrameEntry,
+  KScaleStyleChange,
+  KScaleStyleChangesByFrameId,
+} from "./multi-screen/types";
 import { vectorEditCanvasToLocalPoint } from "./multi-screen/vector-edit-geometry";
 import {
   accumulateZoomFactor,
@@ -498,6 +545,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   zoom,
   activeId,
   selectedScreenIds,
+  exportPreviewScreenId = null,
   selectedElementScreenId = null,
   hiddenScreenIds = EMPTY_SCREEN_IDS,
   lockedScreenIds = EMPTY_SCREEN_IDS,
@@ -511,18 +559,35 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   directlyHoveredScreenId,
   previewDeviceFrame = "none",
   activeTool,
+  reviewResourceId,
+  reviewPinMode = false,
+  reviewCommentsHidden = false,
+  reviewCanPost = false,
+  reviewCanResolve = false,
+  reviewTargetId,
+  reviewFocusRequest,
+  reviewCurrentUserEmail,
+  onExitReviewPinMode,
+  onDispatchCommentToAgent,
+  onSendThreadToAgent,
+  reviewSendingThreadId,
+  reviewDesignTitle,
   toolProps,
   onActiveToolChange,
+  onCommentPin,
   onPick,
   onEdit,
   metadataById,
+  screenRootComputedStylesById,
   getScreenMetadata,
   onDuplicate,
   geometryById,
+  geometryOverridesById,
   onGeometryChange,
   onGeometryCommit,
   onBreakpointContentHeightChange,
   onPrimaryContentHeightChange,
+  onScreenContentNaturalHeightChange,
   onCreatePrimitive,
   onPrimitiveCreated,
   onPrimitiveReparent,
@@ -534,6 +599,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   layoutGrids,
   onZoomChange,
   renderScreenContent,
+  screenSnapshotsById,
   renderBreakpointContent,
   onScreenSelectionChange,
   selectAllRequest,
@@ -549,6 +615,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   selectedLayerSelectorGroupsByScreen = EMPTY_SELECTED_LAYER_SELECTOR_GROUPS_BY_SCREEN,
   onCrossScreenElementDrop,
   boardFileId,
+  boardCodeLayerSource,
   canvasBackground,
   boardFileContent,
   boardFrameGeometry,
@@ -556,6 +623,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   boardEditMode = false,
   boardIsActive = false,
   onBoardElementSelect,
+  onBoardSelectionWorldBoundsChange,
   onBoardElementMarqueeSelect,
   onBoardElementHover,
   onBoardElementClear,
@@ -568,18 +636,23 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   boardClearSelectionRequest,
   boardSelectedSelector,
   boardSelectedSelectorCandidates,
+  boardSelectedSourceId,
   boardHoveredSelector,
   boardHoveredSelectorCandidates,
   boardLockedSelectors,
   boardHiddenSelectors,
   onBoardVisualStructureChange,
   onBoardVisualStyleChange,
+  onBoardVisualStyleBatchChange,
   onBoardVisualDuplicateChange,
   onBoardTextContentChange,
   vectorEdit,
   gradientEditTarget,
   onDropFiles,
   cameraCommand,
+  suppressLineupRecenter,
+  preserveCameraOnScreenCountChange = false,
+  deferLineupZoomChange = false,
   chromeInsetLeft = 0,
   chromeInsetRight = 0,
 }: MultiScreenCanvasProps) {
@@ -590,6 +663,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const panRef = useRef(pan);
   const [canvasZoom, setCanvasZoom] = useState(zoom);
   const zoomRef = useRef(zoom);
+  const previousControlledZoomRef = useRef(zoom);
+  const controlledZoomRevisionRef = useRef(0);
+  if (previousControlledZoomRef.current !== zoom) {
+    previousControlledZoomRef.current = zoom;
+    controlledZoomRevisionRef.current += 1;
+  }
   const lastReportedZoomRef = useRef(zoom);
   const lineupRecenterCameraRef = useRef({
     x: panRef.current.x,
@@ -605,6 +684,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const [surfaceSize, setSurfaceSize] = useState({ width: 0, height: 0 });
   const [frameGeometry, setFrameGeometry] = useState<FrameGeometryById>({});
   const frameGeometryRef = useRef(frameGeometry);
+  const renderedScreenIdsRef = useRef<Set<string>>(new Set());
   // Resize commits must start from what the user sees, including content-fit
   // height, because the parent pins the committed viewport dimensions.
   const renderedFrameGeometryRef = useRef<FrameGeometryById>({});
@@ -613,6 +693,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const [measuredIframeHeights, setMeasuredIframeHeights] = useState<
     Record<string, number>
   >({});
+  const [measuredIframeNaturalHeights, setMeasuredIframeNaturalHeights] =
+    useState<Record<string, number>>({});
   const contentSizeSamplesRef = useRef<Record<string, ContentSizeSample>>({});
   const liveFrameDragPositionsRef = useRef(
     new Map<string, { left: number; top: number }>(),
@@ -627,6 +709,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     onBreakpointContentHeightChange,
   );
   const onPrimaryContentHeightChangeRef = useRef(onPrimaryContentHeightChange);
+  const onScreenContentNaturalHeightChangeRef = useRef(
+    onScreenContentNaturalHeightChange,
+  );
   const onNudgeSelectionRef = useRef(onNudgeSelection);
   const nudgeAmountsRef = useRef(nudgeAmounts);
   const layoutGridsRef = useRef(layoutGrids);
@@ -766,6 +851,18 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     ? boardFileContent
     : undefined;
   const boardHasSurfaceContent = boardSurfaceHtml !== undefined;
+  const boardReviewGeometry = boardSurfaceRenderGeometry ?? {
+    x: 0,
+    y: 0,
+    width: 8192,
+    height: 8192,
+  };
+  const renderEmptyBoardReviewCanvas = shouldRenderEmptyBoardReviewCanvas({
+    hasSurfaceContent: boardHasSurfaceContent,
+    reviewPinMode,
+    reviewCommentsHidden,
+    reviewTargetId,
+  });
   const boardStaticPreviewContent = useMemo(() => {
     if (
       !boardFrameGeometry ||
@@ -803,8 +900,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       id: boardFileId,
       filename: "__board__.html",
       content: boardFileContent,
+      codeLayerSource: boardCodeLayerSource,
     });
-  }, [boardFileContent, boardFileId]);
+  }, [boardCodeLayerSource, boardFileContent, boardFileId]);
   useEffect(() => {
     cancelPendingStaticBoardSelection();
   }, [cancelPendingStaticBoardSelection, canvasZoom, pan.x, pan.y]);
@@ -869,8 +967,18 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   useEffect(() => {
     selectedElementScreenIdRef.current = selectedElementScreenId;
   }, [selectedElementScreenId]);
+  const marqueeHostSelectionRevisionRef = useRef("");
+  marqueeHostSelectionRevisionRef.current = serializeMarqueeHostSelection(
+    activeId,
+    selectedElementScreenId,
+    selectedLayerSelectorGroupsByScreen,
+  );
   const dragState = useRef<DragState | null>(null);
+  const marqueeLifecycleRef = useRef(0);
   const dragCleanup = useRef<(() => void) | null>(null);
+  const boardElementResizeCancel = useRef<((pressedAt: number) => void) | null>(
+    null,
+  );
   const duplicateCleanup = useRef<(() => void) | null>(null);
   // Armed by a duplicate commit (alt-drag drop or Cmd+D) so the
   // lineup-recenter effect keeps the camera still when the
@@ -879,6 +987,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const lineupRecenterSuppressRef = useRef<LineupRecenterDuplicateArm | null>(
     null,
   );
+  const lastSuppressLineupRecenterNonceRef = useRef<number | null>(null);
   const lineupRecenterDeviceFrameRef = useRef(previewDeviceFrame);
   const lineupRecenterPrevCountRef = useRef<number | null>(null);
   const handledSelectAllRequestRef = useRef(selectAllRequest);
@@ -992,9 +1101,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     id: string;
     geometry: FrameGeometry;
   }
-  /** Last claim value sent to the source iframe, so a move tick that changes
-   *  nothing does not spam postMessage. Reset when a drag ends. */
-  const crossScreenClaimSentRef = useRef<boolean | null>(null);
+  /** Last claim sent to the source iframe, so a move tick that changes
+   *  nothing does not spam postMessage. Keep the source id with it so a
+   *  cleared claim can be revoked after the payload is gone. */
+  const crossScreenClaimSentRef = useRef<{
+    sourceScreenId: string;
+    claimed: boolean;
+  } | null>(null);
   const crossScreenProxyTraceRef = useRef<string | null>(null);
   const crossScreenResolveTraceRef = useRef<string | null>(null);
   const [crossScreenGhost, setCrossScreenGhost] =
@@ -1036,6 +1149,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const crossScreenDragMsgRef = useRef<{
     selector: string;
     sourceId?: string;
+    sourceProvenance?: SourceNodeProvenance;
     sourcePointerOffset?: Point;
     sourceElementSize?: { width: number; height: number };
     sourceHtmlSnapshot?: string;
@@ -1117,6 +1231,16 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   // caller re-passing the same command object) never re-run the fit — only a
   // genuine nonce change should move the camera.
   const lastCameraCommandNonceRef = useRef<number | null>(null);
+  // A camera command writes the imperative camera before its controlled zoom
+  // reaches this component. Keep that write distinct from the automatic
+  // lineup fit so a stale controlled prop cannot undo a pending command on an
+  // unrelated screen/selection render.
+  const lastCameraCommandZoomRef = useRef<number | null>(null);
+  const lastCameraCommandControlledZoomRef = useRef<number | null>(null);
+  const pendingCameraCommandZoomRevisionRef = useRef<{
+    nonce: number;
+    revision: number;
+  } | null>(null);
   const pendingChromeSettleRef = useRef(false);
   const chromeSettleTimerRef = useRef<number | null>(null);
   const [chromeSettling, setChromeSettling] = useState(false);
@@ -1130,6 +1254,91 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const liveScreenIdsRef = useRef<Set<string>>(new Set());
   const lastVisibleEpochByScreenIdRef = useRef<Map<string, number>>(new Map());
   const cullAccessEpochRef = useRef(0);
+  const bootStatusByScreenIdRef = useRef<Map<string, LiveScreenBootStatus>>(
+    new Map(),
+  );
+  const bootFrameCountByScreenIdRef = useRef<Map<string, number>>(new Map());
+  const bootReadyFrameIdsByScreenIdRef = useRef<Map<string, Set<string>>>(
+    new Map(),
+  );
+  const bootTimeoutByScreenIdRef = useRef<Map<string, number>>(new Map());
+  const bootStartCallbackByFrameIdRef = useRef<Map<string, () => void>>(
+    new Map(),
+  );
+  const bridgeReadyCallbackByFrameIdRef = useRef<Map<string, () => void>>(
+    new Map(),
+  );
+  const [bootStatusRevision, setBootStatusRevision] = useState(0);
+  const markScreenBootReady = useCallback(
+    (screenId: string, frameId?: string) => {
+      const status = bootStatusByScreenIdRef.current.get(screenId);
+      if (status === "ready") return;
+      if (frameId !== undefined) {
+        const readyFrameIds =
+          bootReadyFrameIdsByScreenIdRef.current.get(screenId) ?? new Set();
+        readyFrameIds.add(frameId);
+        bootReadyFrameIdsByScreenIdRef.current.set(screenId, readyFrameIds);
+        if (
+          readyFrameIds.size <
+          (bootFrameCountByScreenIdRef.current.get(screenId) ?? 1)
+        ) {
+          return;
+        }
+      }
+      const timeoutId = bootTimeoutByScreenIdRef.current.get(screenId);
+      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+      bootTimeoutByScreenIdRef.current.delete(screenId);
+      bootStatusByScreenIdRef.current.set(screenId, "ready");
+      setBootStatusRevision((revision) => revision + 1);
+    },
+    [],
+  );
+  const markScreenBootStart = useCallback(
+    (screenId: string, frameId?: string) => {
+      const status = bootStatusByScreenIdRef.current.get(screenId);
+      if (!status) return;
+      const readyFrameIds =
+        bootReadyFrameIdsByScreenIdRef.current.get(screenId) ?? new Set();
+      const frameWasReady = frameId
+        ? readyFrameIds.delete(frameId)
+        : readyFrameIds.size > 0;
+      if (!frameId) readyFrameIds.clear();
+      bootReadyFrameIdsByScreenIdRef.current.set(screenId, readyFrameIds);
+      if (status === "booting" && !frameWasReady) return;
+      const timeoutId = bootTimeoutByScreenIdRef.current.get(screenId);
+      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+      const nextTimeoutId = window.setTimeout(
+        () => markScreenBootReady(screenId),
+        8_000,
+      );
+      bootTimeoutByScreenIdRef.current.set(screenId, nextTimeoutId);
+      bootStatusByScreenIdRef.current.set(screenId, "booting");
+      setBootStatusRevision((revision) => revision + 1);
+    },
+    [markScreenBootReady],
+  );
+  const getScreenBootStartCallback = useCallback(
+    (screenId: string, frameId = "primary") => {
+      const callbackKey = `${screenId}\0${frameId}`;
+      const existing = bootStartCallbackByFrameIdRef.current.get(callbackKey);
+      if (existing) return existing;
+      const callback = () => markScreenBootStart(screenId, frameId);
+      bootStartCallbackByFrameIdRef.current.set(callbackKey, callback);
+      return callback;
+    },
+    [markScreenBootStart],
+  );
+  const getScreenBootReadyCallback = useCallback(
+    (screenId: string, frameId = "primary") => {
+      const callbackKey = `${screenId}\0${frameId}`;
+      const existing = bridgeReadyCallbackByFrameIdRef.current.get(callbackKey);
+      if (existing) return existing;
+      const callback = () => markScreenBootReady(screenId, frameId);
+      bridgeReadyCallbackByFrameIdRef.current.set(callbackKey, callback);
+      return callback;
+    },
+    [markScreenBootReady],
+  );
   const wheelGestureFilteredIframesRef = useRef<HTMLElement[]>([]);
   // Paint suppression is resolved imperatively against the live camera, so its
   // inputs live in refs readable from applyViewToDom's render-free tick.
@@ -1151,7 +1360,40 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         lastVisibleEpochByScreenIdRef.current.delete(id);
       }
     }
+    for (const id of bootStatusByScreenIdRef.current.keys()) {
+      if (liveScreenIds.has(id)) continue;
+      const timeoutId = bootTimeoutByScreenIdRef.current.get(id);
+      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+      bootTimeoutByScreenIdRef.current.delete(id);
+      bootStatusByScreenIdRef.current.delete(id);
+      bootFrameCountByScreenIdRef.current.delete(id);
+      bootReadyFrameIdsByScreenIdRef.current.delete(id);
+      for (const key of bootStartCallbackByFrameIdRef.current.keys()) {
+        if (key.startsWith(`${id}\0`)) {
+          bootStartCallbackByFrameIdRef.current.delete(key);
+        }
+      }
+      for (const key of bridgeReadyCallbackByFrameIdRef.current.keys()) {
+        if (key.startsWith(`${id}\0`)) {
+          bridgeReadyCallbackByFrameIdRef.current.delete(key);
+        }
+      }
+    }
   }, [screens]);
+  useEffect(
+    () => () => {
+      for (const timeoutId of bootTimeoutByScreenIdRef.current.values()) {
+        window.clearTimeout(timeoutId);
+      }
+      bootTimeoutByScreenIdRef.current.clear();
+      bootStatusByScreenIdRef.current.clear();
+      bootFrameCountByScreenIdRef.current.clear();
+      bootReadyFrameIdsByScreenIdRef.current.clear();
+      bootStartCallbackByFrameIdRef.current.clear();
+      bridgeReadyCallbackByFrameIdRef.current.clear();
+    },
+    [],
+  );
 
   // Track the pannable surface's own on-screen size for culling's viewport
   // bounds (getOverscannedViewportCanvasBounds). Only the surface's *size*
@@ -1317,10 +1559,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     onBreakpointContentHeightChangeRef.current =
       onBreakpointContentHeightChange;
   }, [onBreakpointContentHeightChange]);
-
   useEffect(() => {
     onPrimaryContentHeightChangeRef.current = onPrimaryContentHeightChange;
   }, [onPrimaryContentHeightChange]);
+  useEffect(() => {
+    onScreenContentNaturalHeightChangeRef.current =
+      onScreenContentNaturalHeightChange;
+  }, [onScreenContentNaturalHeightChange]);
 
   useEffect(() => {
     onNudgeSelectionRef.current = onNudgeSelection;
@@ -1474,7 +1719,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     zoomRef.current = canvasZoom;
   }, [canvasZoom]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     frameGeometryRef.current = frameGeometry;
   }, [frameGeometry]);
 
@@ -1541,6 +1786,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     selectedDraftIdsRef.current = selectedDraftIds;
   }, [selectedDraftIds]);
 
+  // This synchronization belongs to a changed controlled zoom value. A
+  // screen/selection change can also expose a stale controlled prop after the
+  // automatic lineup fit, so keep the legacy reconciliation triggers while a
+  // pending camera command explicitly owns its imperative zoom.
   useEffect(() => {
     // zoomRef.current is the canvas's own last-known zoom, kept in sync
     // synchronously by every internal zoom path (wheel/pinch commitView,
@@ -1552,6 +1801,35 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     // Only compensate when this is a genuinely external change (toolbar
     // buttons, keyboard shortcuts) that never touched zoomRef/panRef.
     const previousZoom = zoomRef.current;
+    const pendingCameraZoom = lastCameraCommandZoomRef.current;
+    const pendingCameraControlledZoom =
+      lastCameraCommandControlledZoomRef.current;
+    if (pendingCameraZoom !== null && zoom === pendingCameraZoom) {
+      lastCameraCommandZoomRef.current = null;
+      lastCameraCommandControlledZoomRef.current = null;
+      if (zoom === previousZoom) return;
+      // The command already applied the matching pan imperatively. Reconcile
+      // the controlled zoom without applying a second anchor compensation.
+      setCanvasZoom(zoom);
+      zoomRef.current = zoom;
+      lastReportedZoomRef.current = zoom;
+      recomputePenPointerForViewChangeRef.current();
+      return;
+    }
+    if (
+      pendingCameraZoom !== null &&
+      cameraCommand &&
+      lastCameraCommandNonceRef.current === cameraCommand.nonce &&
+      zoom === pendingCameraControlledZoom
+    ) {
+      // The command owns the camera until its zoom reaches the controlled
+      // prop. An unrelated render must not replay that stale prop.
+      return;
+    }
+    if (pendingCameraZoom !== null) {
+      lastCameraCommandZoomRef.current = null;
+      lastCameraCommandControlledZoomRef.current = null;
+    }
     if (zoom === previousZoom) return;
     // External zoom changes otherwise anchor at world origin (0,0) since
     // only canvasZoom is updated here — content visibly jumps diagonally
@@ -1641,9 +1919,16 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     // P18: an externally-driven zoom change (toolbar/keyboard) also moves
     // the canvas-space mapping the pen ghost preview was computed from.
     recomputePenPointerForViewChangeRef.current();
-  }, [zoom, activeId, renderedScreens, selectedIds]);
+  }, [
+    activeId,
+    cameraCommand,
+    recomputePenPointerForViewChangeRef,
+    renderedScreens,
+    selectedIds,
+    zoom,
+  ]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const selectableIds = new Set(selectableScreens.map((screen) => screen.id));
     // B5-9: see resolveFrameGeometrySync's doc comment — this used to notify
     // the parent (onGeometryChange -> queueFrameGeometrySave) with a brand
@@ -1683,6 +1968,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     updateFrameGeometryRefOnly,
     updateSelectedIds,
   ]);
+
+  useLayoutEffect(() => {
+    renderedScreenIdsRef.current = new Set(screens.map((screen) => screen.id));
+  }, [screens]);
 
   useEffect(() => {
     const previous = previousPreviewDeviceFrameRef.current;
@@ -1755,8 +2044,25 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     setTransformBadge(null);
   }, [clearSelectionRequest, updateSelectedDraftIds, updateSelectedIds]);
 
+  useEffect(() => {
+    if (
+      !suppressLineupRecenter ||
+      lastSuppressLineupRecenterNonceRef.current ===
+        suppressLineupRecenter.nonce
+    ) {
+      return;
+    }
+    lastSuppressLineupRecenterNonceRef.current = suppressLineupRecenter.nonce;
+    lineupRecenterSuppressRef.current = {
+      atMs: Date.now(),
+      fromCount: suppressLineupRecenter.fromCount,
+      addedCount: suppressLineupRecenter.addedCount,
+    };
+  }, [suppressLineupRecenter]);
+
   // Center the lineup when the screen footprint changes so new frames stay reachable.
   useEffect(() => {
+    if (preserveCameraOnScreenCountChange) return;
     const deviceFrameChanged =
       lineupRecenterDeviceFrameRef.current !== previewDeviceFrame;
     lineupRecenterDeviceFrameRef.current = previewDeviceFrame;
@@ -1891,8 +2197,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       totalHeight > 0
         ? Math.max(minFitScale, (rect.height - 96) / totalHeight)
         : scale;
-    const nextScale = Math.min(scale, widthFitScale, heightFitScale);
-    if (nextScale < scale) {
+    const nextScale = deferLineupZoomChange
+      ? scale
+      : Math.min(scale, widthFitScale, heightFitScale);
+    if (!deferLineupZoomChange && nextScale < scale) {
       const nextZoom = nextScale * 100;
       zoomRef.current = nextZoom;
       setCanvasZoom(nextZoom);
@@ -1915,9 +2223,16 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       y: nextPan.y,
       zoom: zoomRef.current,
     };
-    // Only on mount, screen-count changes, or device-preview changes.
+    // Only on mount, screen-count or chrome-inset changes, or device-preview changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [previewDeviceFrame, screens.length]);
+  }, [
+    chromeInsetLeft,
+    chromeInsetRight,
+    preserveCameraOnScreenCountChange,
+    deferLineupZoomChange,
+    previewDeviceFrame,
+    screens.length,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -2281,9 +2596,30 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       crossScreenParentDragCleanupRef.current = null;
     };
 
+    const postCrossScreenClaim = (sourceScreenId: string, claimed: boolean) => {
+      const sourceScreen = screensRef.current.find(
+        (item) => item.id === sourceScreenId,
+      );
+      const iframeId = sourceScreen
+        ? getActiveScreenIframeId(sourceScreen)
+        : sourceScreenId;
+      findCanvasIframeForScreen(
+        surfaceRef.current,
+        iframeId,
+        boardFileId,
+      )?.contentWindow?.postMessage(
+        { type: "agent-native:cross-screen-claim", claimed },
+        "*",
+      );
+    };
+
     const clearCrossScreenDrag = () => {
       stopParentCrossScreenDrag();
       clearCrossScreenPreviewGuide();
+      const previousClaim = crossScreenClaimSentRef.current;
+      if (previousClaim?.claimed) {
+        postCrossScreenClaim(previousClaim.sourceScreenId, false);
+      }
       crossScreenClaimSentRef.current = null;
       crossScreenProxyTraceRef.current = null;
       crossScreenResolveTraceRef.current = null;
@@ -2392,6 +2728,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           window.clearTimeout(timer);
           window.removeEventListener("message", hitListener);
           const result: CrossScreenHitTestResult = {
+            targetAnchorProvenance: readSourceNodeProvenance(
+              ev.data.targetAnchorProvenance,
+            ),
             anchorNodeId:
               typeof ev.data.anchorNodeId === "string"
                 ? ev.data.anchorNodeId
@@ -2619,22 +2958,15 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
      *  knows where the screens are, and the board surface iframe covers all of
      *  them, so without this both sides commit the same gesture. */
     const claimCrossScreenDrop = (sourceScreenId: string, claimed: boolean) => {
-      if (crossScreenClaimSentRef.current === claimed) return;
-      crossScreenClaimSentRef.current = claimed;
-      const sourceScreen = screensRef.current.find(
-        (item) => item.id === sourceScreenId,
-      );
-      const iframeId = sourceScreen
-        ? getActiveScreenIframeId(sourceScreen)
-        : sourceScreenId;
-      findCanvasIframeForScreen(
-        surfaceRef.current,
-        iframeId,
-        boardFileId,
-      )?.contentWindow?.postMessage(
-        { type: "agent-native:cross-screen-claim", claimed },
-        "*",
-      );
+      const previousClaim = crossScreenClaimSentRef.current;
+      if (
+        previousClaim?.sourceScreenId === sourceScreenId &&
+        previousClaim.claimed === claimed
+      ) {
+        return;
+      }
+      crossScreenClaimSentRef.current = { sourceScreenId, claimed };
+      postCrossScreenClaim(sourceScreenId, claimed);
     };
 
     const updateCrossScreenTargetFromBoardPoint = (
@@ -2703,6 +3035,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       payload: {
         selector: string;
         sourceId?: string;
+        sourceProvenance?: SourceNodeProvenance;
         sourcePointerOffset?: Point;
         sourceHtmlSnapshot?: string;
         duplicate?: boolean;
@@ -2776,6 +3109,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         }).then(
           ({
             anchorNodeId,
+            targetAnchorProvenance,
             pendingNodeId,
             anchorSelector,
             placement,
@@ -2789,6 +3123,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             onCrossScreenElementDropRef.current?.({
               sourceSelector: payload.selector,
               sourceNodeId: payload.sourceId,
+              sourceProvenance: payload.sourceProvenance,
+              targetAnchorProvenance,
               sourceScreenId,
               targetScreenId: targetCandidate.id,
               targetAnchorNodeId: anchorNodeId,
@@ -2825,6 +3161,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       }).then(
         ({
           anchorNodeId,
+          targetAnchorProvenance,
           pendingNodeId,
           anchorSelector,
           placement,
@@ -2842,6 +3179,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           onCrossScreenElementDropRef.current?.({
             sourceSelector: payload.selector,
             sourceNodeId: payload.sourceId,
+            sourceProvenance: payload.sourceProvenance,
+            targetAnchorProvenance,
             sourceScreenId,
             targetScreenId: targetCandidate.id,
             targetAnchorNodeId: anchorNodeId,
@@ -2902,6 +3241,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         screenId?: string;
         selector?: string;
         sourceId?: string;
+        sourceProvenance?: unknown;
         iframeX?: number;
         iframeY?: number;
         viewportW?: number;
@@ -2913,6 +3253,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         duplicate?: boolean;
         sourceCloneHtml?: string;
       };
+      const sourceProvenance = readSourceNodeProvenance(msg.sourceProvenance);
       const sourcePointerOffset = isFinitePoint(msg.pointerOffset)
         ? msg.pointerOffset
         : undefined;
@@ -2987,6 +3328,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         crossScreenDragMsgRef.current = {
           selector: msg.selector ?? "",
           sourceId: msg.sourceId,
+          sourceProvenance,
           sourcePointerOffset,
           sourceElementSize,
           sourceHtmlSnapshot,
@@ -3054,6 +3396,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           const payload = crossScreenDragMsgRef.current ?? {
             selector: msg.selector ?? "",
             sourceId: msg.sourceId,
+            sourceProvenance,
             sourcePointerOffset,
             sourceElementSize,
             sourceHtmlSnapshot,
@@ -3123,8 +3466,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         // override it; only fall back to a move-supplied offset on the rare
         // path where "start" itself didn't have one yet.
         crossScreenDragMsgRef.current = {
-          selector: selector ?? "",
-          sourceId: sourceId ?? crossScreenDragMsgRef.current?.sourceId,
+          selector: crossScreenDragMsgRef.current?.selector ?? selector ?? "",
+          sourceId: crossScreenDragMsgRef.current
+            ? crossScreenDragMsgRef.current.sourceId
+            : sourceId,
+          sourceProvenance: crossScreenDragMsgRef.current
+            ? crossScreenDragMsgRef.current.sourceProvenance
+            : sourceProvenance,
           sourcePointerOffset:
             crossScreenDragMsgRef.current?.sourcePointerOffset ??
             sourcePointerOffset,
@@ -3171,6 +3519,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         // every screen frame, so board-origin drags must still be checked
         // against screen drop targets while technically "inside" the source.
         if (pointerInsideSourceIframe && !sourceIsBoard) {
+          claimCrossScreenDrop(sourceScreenId, false);
           clearCrossScreenPreviewGuide();
           setCrossScreenGhost(null);
           setCrossScreenTarget(null);
@@ -3211,6 +3560,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         const payload = crossScreenDragMsgRef.current ?? {
           selector: msg.selector ?? "",
           sourceId: msg.sourceId,
+          sourceProvenance,
           sourcePointerOffset,
           sourceElementSize,
           sourceHtmlSnapshot,
@@ -3302,12 +3652,16 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const [boardSelectionRect, setBoardSelectionRect] = useState<{
     rect: { left: number; top: number; width: number; height: number };
     rotationDeg: number;
+    sourceId: string;
   } | null>(null);
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
+      const isBoundsOnly =
+        event.data?.type === "agent-native:board-selection-bounds";
       if (
         !event.data ||
-        event.data.type !== "agent-native:board-selection-rect"
+        (event.data.type !== "agent-native:board-selection-rect" &&
+          !isBoundsOnly)
       ) {
         return;
       }
@@ -3332,6 +3686,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         return;
       }
       const msg = event.data as {
+        screenId?: string;
+        selector?: string;
+        sourceId?: string;
+        memberSelectors?: unknown;
+        memberSourceIds?: unknown;
+        contentOffsetX?: number;
+        contentOffsetY?: number;
         rect: {
           left: number;
           top: number;
@@ -3340,13 +3701,82 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         } | null;
         rotationDeg?: number;
       };
-      setBoardSelectionRect(
-        msg.rect ? { rect: msg.rect, rotationDeg: msg.rotationDeg ?? 0 } : null,
-      );
+      if (!isBoundsOnly) {
+        setBoardSelectionRect(
+          msg.rect && msg.sourceId
+            ? {
+                rect: msg.rect,
+                rotationDeg: msg.rotationDeg ?? 0,
+                sourceId: msg.sourceId,
+              }
+            : null,
+        );
+      }
+      if (!msg.rect) {
+        onBoardSelectionWorldBoundsChange?.(null);
+        return;
+      }
+      const rectValues = [
+        msg.rect.left,
+        msg.rect.top,
+        msg.rect.width,
+        msg.rect.height,
+        msg.rotationDeg ?? 0,
+        msg.contentOffsetX,
+        msg.contentOffsetY,
+      ];
+      const memberSelectors = isBoundsOnly
+        ? Array.isArray(msg.memberSelectors) &&
+          msg.memberSelectors.length > 0 &&
+          msg.memberSelectors.every(
+            (selector) => typeof selector === "string" && selector.length > 0,
+          )
+          ? (msg.memberSelectors as string[])
+          : null
+        : undefined;
+      const memberSourceIds = isBoundsOnly
+        ? Array.isArray(msg.memberSourceIds) &&
+          msg.memberSourceIds.length > 0 &&
+          msg.memberSourceIds.every(
+            (sourceId) => typeof sourceId === "string" && sourceId.length > 0,
+          )
+          ? (msg.memberSourceIds as string[])
+          : null
+        : undefined;
+      if (
+        !boardFileId ||
+        msg.screenId !== boardFileId ||
+        !msg.selector ||
+        (isBoundsOnly &&
+          (!memberSelectors ||
+            !memberSourceIds ||
+            memberSelectors.length !== memberSourceIds.length)) ||
+        !rectValues.every(Number.isFinite) ||
+        msg.rect.width <= 0 ||
+        msg.rect.height <= 0
+      ) {
+        onBoardSelectionWorldBoundsChange?.(null);
+        return;
+      }
+      onBoardSelectionWorldBoundsChange?.({
+        screenId: boardFileId,
+        selector: msg.selector,
+        ...(memberSelectors ? { memberSelectors } : {}),
+        ...(memberSourceIds ? { memberSourceIds } : {}),
+        worldBounds: getBoardSelectionWorldBounds({
+          rect: msg.rect,
+          rotationDeg: msg.rotationDeg,
+          contentOffsetX: msg.contentOffsetX!,
+          contentOffsetY: msg.contentOffsetY!,
+        }),
+      });
     };
     window.addEventListener("message", handleMessage);
-    return () => window.removeEventListener("message", handleMessage);
-  }, [boardFileId]);
+    return () => {
+      window.removeEventListener("message", handleMessage);
+      onBoardSelectionWorldBoundsChange?.(null);
+    };
+  }, [boardFileId, onBoardSelectionWorldBoundsChange]);
 
   const deleteSelectedItems = useCallback(() => {
     if (readOnly) return false;
@@ -3478,7 +3908,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     | { status: "unanswered"; reason: "no-iframe" | "timeout" };
 
   const requestSelectableElementInfos = useCallback(
-    (screenId: string, deep: boolean): Promise<SelectableRectsReply> => {
+    (
+      screenId: string,
+      deep: boolean,
+      /** Screen-local point. When given, the bridge only builds ElementInfo
+       *  for candidates whose box contains it — the drill-in/pick question —
+       *  instead of for every selectable node on the screen. */
+      atPoint?: Point | null,
+    ): Promise<SelectableRectsReply> => {
       const targetScreen = screensRef.current.find((s) => s.id === screenId);
       const iframeId = targetScreen
         ? getActiveScreenIframeId(targetScreen)
@@ -3540,6 +3977,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             type: "agent-native:collect-selectable-rects",
             correlationId,
             deep,
+            ...(atPoint ? { atPoint } : {}),
           },
           "*",
         );
@@ -3565,7 +4003,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
    *  (`drillIntoScreenAtPoint`) always pass true — they need the full
    *  descendant list to walk one level deeper per repeat click/click. */
   const collectLayerMarqueeCandidates = useCallback(
-    async (screenIds?: Set<string>, deep = false) => {
+    async (
+      screenIds?: Set<string>,
+      deep = false,
+      /** Board-space point for a drill-in/pick. Converted into each frame's
+       *  own local space so the bridge can skip building ElementInfo for
+       *  candidates the containment chain would discard anyway. */
+      atBoardPoint?: Point | null,
+    ) => {
       const unanswered: Array<{
         screenId: string;
         reason: "no-iframe" | "timeout";
@@ -3573,7 +4018,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       const frameEntries = getSelectableFrameEntries().filter(
         (entry) => !screenIds || screenIds.has(entry.id),
       );
-      const frameCandidates = await Promise.all(
+      // Started, not awaited: the board request must not queue behind the
+      // screens' round-trips. A single slow screen would otherwise burn the
+      // whole reply timeout before the board — whose own iframe is ready —
+      // is even asked, and a marquee that ends in the meantime drops it.
+      const frameCandidatesPromise = Promise.all(
         frameEntries.map(async (entry) => {
           const screen = screensRef.current.find(
             (item) => item.id === entry.id,
@@ -3585,12 +4034,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           const metadata = getResolvedMetadata(screen);
           const viewportWidth = iframe?.clientWidth || metadata.width;
           const viewportHeight = iframe?.clientHeight || metadata.height;
-          const reply = await requestSelectableElementInfos(entry.id, deep);
-          if (reply.status !== "ok") {
-            unanswered.push({ screenId: entry.id, reason: reply.reason });
-            return [] as CanvasLayerMarqueeCandidate[];
-          }
-          const infos = reply.infos;
           // entry.geometry.height trails the measured auto-height, and an
           // independent y-scale off it squashes every child rect.
           const contentScale =
@@ -3599,6 +4042,21 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             ...entry.geometry,
             height: viewportHeight * contentScale,
           };
+          const reply = await requestSelectableElementInfos(
+            entry.id,
+            deep,
+            atBoardPoint
+              ? boardPointToScreenLocalPoint(atBoardPoint, renderedFrame, {
+                  width: viewportWidth,
+                  height: viewportHeight,
+                })
+              : null,
+          );
+          if (reply.status !== "ok") {
+            unanswered.push({ screenId: entry.id, reason: reply.reason });
+            return [] as CanvasLayerMarqueeCandidate[];
+          }
+          const infos = reply.infos;
           return infos.map((info) => ({
             screenId: entry.id,
             info,
@@ -3616,14 +4074,24 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           }));
         }),
       );
-      const boardCandidates =
+      const boardCandidatesPromise =
         boardFileId &&
         boardSurfaceRenderGeometry &&
         (!screenIds || screenIds.has(boardFileId))
-          ? await (async () => {
+          ? (async () => {
               const reply = await requestSelectableElementInfos(
                 boardFileId,
                 deep,
+                atBoardPoint
+                  ? boardPointToScreenLocalPoint(
+                      atBoardPoint,
+                      boardSurfaceRenderGeometry,
+                      {
+                        width: boardSurfaceRenderGeometry.width,
+                        height: boardSurfaceRenderGeometry.height,
+                      },
+                    )
+                  : null,
               );
               if (reply.status !== "ok") {
                 unanswered.push({
@@ -3651,7 +4119,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                 frameGeometry: boardSurfaceRenderGeometry,
               }));
             })()
-          : [];
+          : Promise.resolve([] as CanvasLayerMarqueeCandidate[]);
+      const [frameCandidates, boardCandidates] = await Promise.all([
+        frameCandidatesPromise,
+        boardCandidatesPromise,
+      ]);
       if (unanswered.length > 0) {
         dndHostLog("overview:selectable-rects-unanswered", { unanswered });
       }
@@ -3689,40 +4161,42 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       // Deep: drill-in/pick must see nested descendants to walk one level
       // further per repeat click — unlike a marquee, which stops at the
       // current container scope's direct children by default.
-      void collectLayerMarqueeCandidates(new Set([id]), true).then((result) => {
-        if (drillInRequestRef.current !== requestId) return;
-        if (result.unanswered.length > 0) {
-          // The screen never answered, so "nothing under the pointer" is not
-          // knowable. Keep the current selection instead of clearing it.
-          return;
-        }
-        const candidates = result.candidates;
-        const target =
-          mode === "pick"
-            ? resolvePickTargetAtPoint({ candidates, screenId: id, point })
-            : resolveDrillInTarget({
-                candidates,
-                screenId: id,
-                point,
-                previousKey,
-              });
-        if (!target) {
-          // Nothing selectable under the pointer (e.g. an empty frame). Leave
-          // the frame itself selected rather than falling back to Interact.
-          drillInTargetRef.current = null;
-          return;
-        }
-        drillInTargetRef.current = {
-          screenId: id,
-          key: drillInCandidateKey(target),
-        };
-        updateSelectedDraftIds(() => []);
-        updateSelectedIds(() => []);
-        onLayerMarqueeSelectionChange?.(
-          [{ screenId: target.screenId, info: target.info }],
-          { source: "pointer" },
-        );
-      });
+      void collectLayerMarqueeCandidates(new Set([id]), true, point).then(
+        (result) => {
+          if (drillInRequestRef.current !== requestId) return;
+          if (result.unanswered.length > 0) {
+            // The screen never answered, so "nothing under the pointer" is not
+            // knowable. Keep the current selection instead of clearing it.
+            return;
+          }
+          const candidates = result.candidates;
+          const target =
+            mode === "pick"
+              ? resolvePickTargetAtPoint({ candidates, screenId: id, point })
+              : resolveDrillInTarget({
+                  candidates,
+                  screenId: id,
+                  point,
+                  previousKey,
+                });
+          if (!target) {
+            // Nothing selectable under the pointer (e.g. an empty frame). Leave
+            // the frame itself selected rather than falling back to Interact.
+            drillInTargetRef.current = null;
+            return;
+          }
+          drillInTargetRef.current = {
+            screenId: id,
+            key: drillInCandidateKey(target),
+          };
+          updateSelectedDraftIds(() => []);
+          updateSelectedIds(() => []);
+          onLayerMarqueeSelectionChange?.(
+            [{ screenId: target.screenId, info: target.info }],
+            { source: "pointer" },
+          );
+        },
+      );
     },
     [
       collectLayerMarqueeCandidates,
@@ -3810,6 +4284,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                 id: boardFileId,
                 filename: "__board__.html",
                 content: boardFileContent,
+                codeLayerSource: boardCodeLayerSource,
               },
             ]
           : screensRef.current;
@@ -3865,6 +4340,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       activeId,
       boardFileContent,
       boardFileId,
+      boardCodeLayerSource,
       boardFrameGeometry,
       getResolvedMetadata,
     ],
@@ -3880,12 +4356,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                 id: boardFileId,
                 filename: "__board__.html",
                 content: boardFileContent,
+                codeLayerSource: boardCodeLayerSource,
               },
             ]
           : screensRef.current;
       return resolveNodeScreenId(nodeId, screensForPrimitiveLookup);
     },
-    [boardFileContent, boardFileId],
+    [boardCodeLayerSource, boardFileContent, boardFileId],
   );
 
   const finishDrag = useCallback(() => {
@@ -3907,14 +4384,55 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     setDragCursor(null);
     primitiveDropTargetRef.current = null;
     setPrimitiveDropTarget(null);
+    boardElementResizeCancel.current = null;
     dragCleanup.current?.();
   }, []);
+
+  const scaleScreenContents = useCallback(
+    (
+      screenId: string,
+      factor: number,
+      phase: "begin" | "preview" | "commit" | "cancel" | "accept",
+    ): KScaleStyleChange[] | null => {
+      const screen = screensRef.current.find((entry) => entry.id === screenId);
+      if (!screen) return null;
+      const iframe = findCanvasIframeForScreen(
+        surfaceRef.current,
+        getActiveScreenIframeId(screen),
+        boardFileId,
+      );
+      const targetWindow = iframe?.contentWindow as
+        | (Window & {
+            __designCanvasScaleContents?: (
+              scale: number,
+              operation: "begin" | "preview" | "commit" | "cancel" | "accept",
+            ) => KScaleStyleChange[];
+          })
+        | null
+        | undefined;
+      if (!targetWindow) return null;
+      try {
+        return typeof targetWindow.__designCanvasScaleContents === "function"
+          ? targetWindow.__designCanvasScaleContents(factor, phase)
+          : null;
+      } catch (error) {
+        // Remote preview frames are cross-origin and cannot expose editor
+        // source operations to the overview canvas.
+        if (error instanceof DOMException && error.name === "SecurityError") {
+          return null;
+        }
+        throw error;
+      }
+    },
+    [boardFileId],
+  );
 
   // Keep the finishDragRef in sync so board-object callbacks declared before
   // finishDrag can call it via the ref without a TDZ forward-reference issue.
   finishDragRef.current = finishDrag;
 
-  const cancelActiveDrag = useCallback(() => {
+  // oxfmt-ignore
+  const cancelActiveDrag = useCallback((pressedAt?: number) => {
     let cancelled = false;
     const state = dragState.current;
 
@@ -4031,6 +4549,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
     if (state) {
       cancelled = true;
+      if (state.type === "resize" && state.scaleContents) {
+        state.targetIds.forEach((screenId) => {
+          scaleScreenContents(screenId, 1, "cancel");
+        });
+      }
       if (
         state.type === "move" ||
         state.type === "resize" ||
@@ -4083,6 +4606,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         applyViewToDomRef.current();
         recomputePenPointerForViewChangeRef.current();
       } else if (state.type === "marquee") {
+        marqueeLifecycleRef.current += 1;
+        onLayerMarqueeSelectionChange?.([], {
+          source: "marquee",
+          cancelled: true,
+          restoreHostSelection: true,
+        });
         updateSelectedIds(() => state.baseSelectedIds);
         updateSelectedDraftIds(() => state.baseSelectedDraftIds);
       } else if (state.type === "pen-node") {
@@ -4110,6 +4639,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       duplicateCleanup.current();
     }
 
+    if (!cancelled && boardElementResizeCancel.current) {
+      cancelled = true;
+      boardElementResizeCancel.current(
+        pressedAt ?? performance.timeOrigin + performance.now(),
+      );
+    }
+
     if (cancelled || dragCleanup.current) {
       finishDrag();
       return true;
@@ -4118,6 +4654,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   }, [
     finishDrag,
     getResolvedMetadata,
+    scaleScreenContents,
+    onLayerMarqueeSelectionChange,
     updateDraftPrimitives,
     updateFrameGeometry,
     updateSelectedDraftIds,
@@ -4128,7 +4666,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
-      if (cancelActiveDrag()) {
+      const cancelled = cancelActiveDrag(
+        performance.timeOrigin + event.timeStamp,
+      );
+      if (cancelled) {
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
@@ -4200,12 +4741,26 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       // Supersede any in-flight drill-in: its reply must not overwrite this
       // gesture's selection (see drillInRequestRef).
       drillInRequestRef.current += 1;
-      const originCanvas = getCanvasPoint(e.clientX, e.clientY);
+      // The surface itself does not move during a marquee gesture. Cache its
+      // rect once so every rAF only reads the live pan/zoom refs and does not
+      // force a host layout read after the previous tick's canvas updates.
+      const cachedSurfaceRect = surfaceRef.current?.getBoundingClientRect();
+      const getCanvasPointFromCachedRect = (clientX: number, clientY: number) =>
+        cachedSurfaceRect
+          ? screenToCanvasPoint(
+              { x: clientX, y: clientY },
+              { ...panRef.current, zoom: zoomRef.current },
+              { x: cachedSurfaceRect.left, y: cachedSurfaceRect.top },
+              SURFACE_PADDING,
+            )
+          : getCanvasPoint(clientX, clientY);
+      const originCanvas = getCanvasPointFromCachedRect(e.clientX, e.clientY);
       // Cmd/Ctrl-held marquee reaches into nested descendants, mirroring the
       // in-iframe marquee's own deep-select modifier (marquee-container-first
       // finding) — a plain marquee stops at each screen's current container
       // scope's direct children.
       const deepSelect = e.metaKey || e.ctrlKey;
+      const marqueeToken = ++marqueeLifecycleRef.current;
       let latestRect = normalizeRectFromPoints(originCanvas, originCanvas);
       let layerCandidates: CanvasLayerMarqueeCandidate[] = [];
       let lastLayerSelectionSignature: string | null = null;
@@ -4235,6 +4790,18 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       // in flight or done.
       const collectedScreenIds = new Set<string>();
       const collectingScreenIds = new Set<string>();
+      // A screen that answered too slowly once will answer too slowly again:
+      // the collect runs on the iframe's own single thread, so re-asking every
+      // tick queues another full pass behind the one we already gave up on and
+      // makes the rest of the drag progressively worse. "No iframe yet" is the
+      // opposite case — transient, and worth retrying — which is why the reply
+      // distinguishes the two reasons.
+      const timedOutScreenIds = new Set<string>();
+      // A mouseup can arrive while one of the intersected iframes is still
+      // answering. Keep the collection work alive until every request started
+      // by this gesture settles so the one final report sees the full hit set.
+      const pendingMarqueeCollections: Array<Promise<void>> = [];
+      let marqueeReleased = false;
       // Figma parity: one marquee drag is one undo step. Every tick below
       // reports its hit-set as it changes, but the host only records
       // selection history for the report tagged `final` — see
@@ -4248,7 +4815,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         // after a new marquee has already begun. Type alone is insufficient —
         // both gestures are `marquee`; require this exact gesture object so a
         // stale reply cannot flash/replace the new gesture's layer selection.
-        if (state !== marqueeState) return;
+        if (
+          state !== marqueeState ||
+          marqueeLifecycleRef.current !== marqueeToken
+        )
+          return;
         const selection = layerCandidates
           .filter(
             (candidate) =>
@@ -4285,7 +4856,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       };
       const collectForIntersectedScreens = (hitIds: string[]) => {
         const newIds = hitIds.filter(
-          (id) => !collectedScreenIds.has(id) && !collectingScreenIds.has(id),
+          (id) =>
+            !collectedScreenIds.has(id) &&
+            !collectingScreenIds.has(id) &&
+            !timedOutScreenIds.has(id),
         );
         // The board spans the whole surface, so include it once anything
         // intersects (or immediately, for the initial zero-size rect) rather
@@ -4294,30 +4868,41 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           boardFileId &&
           boardFrameGeometry &&
           !collectedScreenIds.has(boardFileId) &&
-          !collectingScreenIds.has(boardFileId)
+          !collectingScreenIds.has(boardFileId) &&
+          !timedOutScreenIds.has(boardFileId)
         ) {
           newIds.push(boardFileId);
         }
         if (newIds.length === 0) return;
         const requestIds = new Set(newIds);
         newIds.forEach((id) => collectingScreenIds.add(id));
-        void collectLayerMarqueeCandidates(requestIds, deepSelect).then(
-          (result) => {
-            const unanswered = new Set(
-              result.unanswered.map((entry) => entry.screenId),
-            );
-            newIds.forEach((id) => {
-              collectingScreenIds.delete(id);
-              // A screen that never answered is not "collected" — leave it out
-              // so growing the rect over it asks again instead of treating the
-              // silence as an empty screen for the rest of the gesture.
-              if (!unanswered.has(id)) collectedScreenIds.add(id);
-            });
-            if (dragState.current !== marqueeState) return;
-            layerCandidates = [...layerCandidates, ...result.candidates];
-            reportLayerSelection(latestRect);
-          },
-        );
+        const collection = collectLayerMarqueeCandidates(
+          requestIds,
+          deepSelect,
+        ).then((result) => {
+          const unanswered = new Set(
+            result.unanswered.map((entry) => entry.screenId),
+          );
+          result.unanswered.forEach((entry) => {
+            if (entry.reason === "timeout")
+              timedOutScreenIds.add(entry.screenId);
+          });
+          newIds.forEach((id) => {
+            collectingScreenIds.delete(id);
+            // A screen that never answered is not "collected" — leave it out
+            // so growing the rect over it asks again instead of treating the
+            // silence as an empty screen for the rest of the gesture.
+            if (!unanswered.has(id)) collectedScreenIds.add(id);
+          });
+          if (
+            dragState.current !== marqueeState ||
+            marqueeLifecycleRef.current !== marqueeToken
+          )
+            return;
+          layerCandidates = [...layerCandidates, ...result.candidates];
+          if (!marqueeReleased) reportLayerSelection(latestRect);
+        });
+        pendingMarqueeCollections.push(collection);
       };
       dragState.current = marqueeState;
       setMarquee({ ...originCanvas, width: 0, height: 0 });
@@ -4328,8 +4913,17 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           source: "marquee",
           additive: false,
           shiftKey: false,
+          resetHistory: true,
         });
         lastLayerSelectionSignature = "";
+      } else {
+        onLayerMarqueeSelectionChange?.([], {
+          source: "marquee",
+          additive: true,
+          shiftKey: true,
+          cancelled: true,
+          resetHistory: true,
+        });
       }
       setIsDragging(true);
       // Seed collection with whatever the zero-size origin rect already
@@ -4340,7 +4934,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       const handleMouseMove = (ev: MouseEvent) => {
         const state = dragState.current;
         if (!state || state.type !== "marquee") return;
-        const nextPoint = getCanvasPoint(ev.clientX, ev.clientY);
+        if (marqueeReleased) return;
+        const nextPoint = getCanvasPointFromCachedRect(ev.clientX, ev.clientY);
         const rect = normalizeRectFromPoints(state.originCanvas, nextPoint);
         latestRect = rect;
         if (
@@ -4425,6 +5020,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         // coalesceMarqueeSelectionHistory), so skipping it on some paths
         // would leak the NEXT gesture's "before" into this one's.
         if (state?.type === "marquee") {
+          marqueeReleased = true;
           if (shouldClearSelectionOnEmptyCanvasClick(state)) {
             updateSelectedIds(() => []);
             updateSelectedDraftIds(() => []);
@@ -4434,9 +5030,30 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               shiftKey: false,
               final: true,
             });
+            finishDrag();
           } else {
-            reportLayerSelection(latestRect, true);
+            const finalRect = latestRect;
+            const releasedSelectionRevision = `${selectedIdsRef.current.join(",")}\u001e${selectedDraftIdsRef.current.join(",")}\u001e${marqueeHostSelectionRevisionRef.current}`;
+            void Promise.allSettled(pendingMarqueeCollections).then(() => {
+              if (
+                dragState.current !== marqueeState ||
+                marqueeLifecycleRef.current !== marqueeToken
+              )
+                return;
+              const currentSelectionRevision = `${selectedIdsRef.current.join(",")}\u001e${selectedDraftIdsRef.current.join(",")}\u001e${marqueeHostSelectionRevisionRef.current}`;
+              if (currentSelectionRevision !== releasedSelectionRevision) {
+                onLayerMarqueeSelectionChange?.([], {
+                  source: "marquee",
+                  cancelled: true,
+                });
+                finishDrag();
+                return;
+              }
+              reportLayerSelection(finalRect, true);
+              finishDrag();
+            });
           }
+          return;
         }
         finishDrag();
       };
@@ -4488,7 +5105,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     (
       draft: DraftPrimitive,
       preferredFrameId?: string,
-      options?: { nextTool?: "move" | "pen" },
+      options?: {
+        nextTool?: "move" | "pen";
+        reparentTargetIdentity?: ScreenProjectionNodeIdentity;
+      },
     ): PersistedDraftPrimitive | null => {
       const targetFrame = getTargetFrameForDraft(draft, preferredFrameId);
 
@@ -4506,17 +5126,15 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             width: 1,
             height: 1,
           });
-          const persisted = handler(boardPrimitive, options);
-          if (!persisted) return null;
           // Return the board file id so the caller can run the same selection
           // and text-edit activation path used by regular screen primitives.
-          return {
-            frameId: boardFileId ?? "__board__",
-            nodeId:
-              (typeof persisted === "string"
-                ? persisted
-                : boardPrimitive.nodeId) ?? draft.id,
-          };
+          return persistBoardDraftPrimitive({
+            boardFileId,
+            draftId: draft.id,
+            primitive: boardPrimitive,
+            handler,
+            options,
+          });
         }
         return null;
       }
@@ -4556,15 +5174,31 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         targetFrame.geometry,
         measuredMetadata,
       );
-      const persisted = onCreatePrimitive(targetFrame.id, localPrimitive);
+      const persisted = onCreatePrimitive(
+        targetFrame.id,
+        localPrimitive,
+        options?.reparentTargetIdentity
+          ? { reparentTargetIdentity: options.reparentTargetIdentity }
+          : undefined,
+      );
       if (!persisted) {
         return null;
       }
+      const persistedNodeId =
+        typeof persisted === "string"
+          ? persisted
+          : typeof persisted === "object"
+            ? persisted.nodeId
+            : localPrimitive.nodeId;
       return {
         frameId: targetFrame.id,
-        nodeId:
-          (typeof persisted === "string" ? persisted : localPrimitive.nodeId) ??
-          draft.id,
+        nodeId: persistedNodeId ?? draft.id,
+        ...(typeof persisted === "object"
+          ? {
+              preparedTargetNodeId: persisted.preparedTargetNodeId,
+              preparedTargetIdentity: persisted.preparedTargetIdentity,
+            }
+          : {}),
       };
     },
     [
@@ -5580,17 +6214,27 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               draftId: string;
               frameId: string;
               nodeId: string;
+              preparedTargetNodeId?: string;
+              preparedTargetIdentity?: ScreenProjectionNodeIdentity;
             }> = [];
+            let preparedReparentTargetIdentity = dropTarget.targetIdentity;
             draftPrimitivesRef.current.forEach((draft) => {
               if (!state.targetIds.includes(draft.id)) return;
               // Persist into the target's screen (not just any containing frame)
-              const result = persistDraftPrimitive(draft, dropTarget.screenId);
+              const result = persistDraftPrimitive(draft, dropTarget.screenId, {
+                reparentTargetIdentity: preparedReparentTargetIdentity,
+              });
               if (result) {
                 persisted.push({
                   draftId: draft.id,
                   frameId: result.frameId,
                   nodeId: result.nodeId,
+                  preparedTargetNodeId: result.preparedTargetNodeId,
+                  preparedTargetIdentity: result.preparedTargetIdentity,
                 });
+                preparedReparentTargetIdentity =
+                  result.preparedTargetIdentity ??
+                  preparedReparentTargetIdentity;
               }
             });
 
@@ -5612,8 +6256,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                 onPrimitiveReparentRef.current?.({
                   sourceNodeId: entry.nodeId,
                   sourceScreenId: entry.frameId,
-                  targetNodeId: dropTarget.anchorNodeId ?? dropTarget.nodeId,
+                  targetNodeId:
+                    entry.preparedTargetNodeId ??
+                    dropTarget.anchorNodeId ??
+                    dropTarget.nodeId,
                   targetScreenId: dropTarget.screenId,
+                  targetIdentity:
+                    entry.preparedTargetIdentity ?? dropTarget.targetIdentity,
+                  preparedTargetNodeId: entry.preparedTargetNodeId,
                   placement: dropTarget.placement ?? "inside",
                 });
               });
@@ -6120,6 +6770,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               mode: "alt-drag",
               screen: target.screen,
               canvasPosition,
+              preserveCamera: true,
               canvasOffset: {
                 x: dropCanvasPosition.x - canvasPosition.x,
                 y: dropCanvasPosition.y - canvasPosition.y,
@@ -6153,6 +6804,49 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     ],
   );
 
+  const handleFrameClick = useCallback(
+    (id: string, e: React.MouseEvent<HTMLElement> | MouseEvent) => {
+      e.stopPropagation();
+      if (lockedScreenIdSet.has(id)) return;
+      if (suppressNextPick.current) {
+        suppressNextPick.current = false;
+        return;
+      }
+      // Supersede any in-flight drill-in: its reply must not overwrite this pick.
+      drillInRequestRef.current += 1;
+
+      if (e.shiftKey) {
+        updateSelectedDraftIds(() => []);
+        const currentSelectedIds = selectedIdsRef.current;
+        const nextSelectedIds = currentSelectedIds.includes(id)
+          ? currentSelectedIds.filter((selectedId) => selectedId !== id)
+          : [...currentSelectedIds, id];
+        updateSelectedIds(() => nextSelectedIds);
+        const nextPrimaryId =
+          nextSelectedIds.length === 0
+            ? null
+            : nextSelectedIds.includes(id)
+              ? id
+              : (nextSelectedIds[nextSelectedIds.length - 1] ?? null);
+        if (nextPrimaryId && nextPrimaryId !== activeId) {
+          onPick(nextPrimaryId);
+        }
+        return;
+      }
+
+      updateSelectedDraftIds(() => []);
+      updateSelectedIds(() => [id]);
+      onPick(id);
+    },
+    [
+      activeId,
+      lockedScreenIdSet,
+      onPick,
+      updateSelectedDraftIds,
+      updateSelectedIds,
+    ],
+  );
+
   const beginFrameDrag = useCallback(
     (id: string, e: React.MouseEvent) => {
       if (readOnly) return;
@@ -6163,6 +6857,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         beginDuplicateGesture(id, e);
         return;
       }
+      if (e.shiftKey && !selectedIdsRef.current.includes(id)) return;
       e.preventDefault();
       e.stopPropagation();
       // Frame mousedowns stop propagation, so they never reach handleMouseDown.
@@ -6411,20 +7106,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         setEqualGapGuides(snap.spacingGuides);
         setProximityMeasurements(snap.measurements);
 
-        // Resize shows a W x H badge and rotate shows a degrees badge — move
-        // was the one transform with no live feedback at all. Show the
-        // primary frame's new (rounded) position, matching resize/rotate's
-        // convention of displaying the current absolute value rather than a
-        // delta.
-        const primaryOrigin = state.originFrames[state.primaryId];
-        if (primaryOrigin) {
-          showTransformFeedback(
-            `${Math.round(primaryOrigin.x + dx + snap.dx)}, ${Math.round(primaryOrigin.y + dy + snap.dy)}`,
-            ev.clientX,
-            ev.clientY,
-          );
-        }
-
         // When all dragged ids are committed primitive nodeIds (not screen
         // frames), check for a container primitive drop target to highlight.
         const currentFrameIds = Object.keys(frameGeometryRef.current);
@@ -6452,21 +7133,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           updateFrameGeometry((current) =>
             frameGeometryWithOverrides(current, state.originFrames),
           );
-          if (wasAlreadySelected && ev.shiftKey) {
-            // This overlay sits above the frame body and owns the mousedown,
-            // so a no-move Shift release never reaches handleFrameClick's
-            // own toggle underneath — replicate it here instead, or a
-            // selected Screen could never be shift-clicked back out.
-            const nextSelectedIds = selectedIdsRef.current.filter(
-              (selectedId) => selectedId !== id,
-            );
-            updateSelectedIds(() => nextSelectedIds);
-            const nextPrimaryId =
-              nextSelectedIds[nextSelectedIds.length - 1] ?? null;
-            if (nextPrimaryId && nextPrimaryId !== activeId) {
-              onPick(nextPrimaryId);
-            }
-          } else if (wasAlreadySelected && !ev.shiftKey) {
+          if (ev.shiftKey) {
+            handleFrameClick(id, ev);
+            suppressNextPick.current = true;
+          } else if (wasAlreadySelected) {
             drillIntoScreenAtPoint(id, ev.clientX, ev.clientY, "pick");
           }
         }
@@ -6488,6 +7158,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                 sourceScreenId,
                 targetNodeId: dropTarget.anchorNodeId ?? dropTarget.nodeId,
                 targetScreenId: dropTarget.screenId,
+                targetIdentity: dropTarget.targetIdentity,
                 placement: dropTarget.placement ?? "inside",
               });
               suppressNextPick.current = true;
@@ -6527,12 +7198,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       finishDrag,
       getCanvasPoint,
       getCurrentFrameEntries,
+      handleFrameClick,
       installDragListeners,
       lockedScreenIdSet,
       onPick,
       readOnly,
       resolvePrimitiveScreenId,
-      showTransformFeedback,
       updateFrameGeometry,
       updateFrameGeometryRefOnly,
       updatePrimitiveDropTarget,
@@ -6570,6 +7241,23 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       if (!originBounds || originEntries.length === 0) return;
       updateSelectedIds((current) => (current.includes(id) ? current : [id]));
 
+      let scaleContents = effectiveToolRef.current === "scale";
+      const scaleContentTargets: string[] = [];
+      if (scaleContents) {
+        for (const entry of originEntries) {
+          if (scaleScreenContents(entry.id, 1, "begin") === null) {
+            scaleContents = false;
+            break;
+          }
+          scaleContentTargets.push(entry.id);
+        }
+        if (!scaleContents) {
+          scaleContentTargets.forEach((screenId) => {
+            scaleScreenContents(screenId, 1, "cancel");
+          });
+        }
+      }
+
       dragState.current = {
         type: "resize",
         originClient: { x: e.clientX, y: e.clientY },
@@ -6579,6 +7267,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         originBounds: frameBoundsToGeometry(originBounds),
         targetIds: originEntries.map((entry) => entry.id),
         handle,
+        scaleContents,
         hasMoved: false,
       };
       setIsDragging(true);
@@ -6620,7 +7309,16 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           id: targetId,
           geometry: state.originFrames[targetId],
         }));
-
+        const frameSizeBoundsById = Object.fromEntries(
+          originEntries.map((entry) => [
+            entry.id,
+            screenSizeConstraintsToFrameBounds(
+              readScreenSizeConstraints(
+                screenRootComputedStylesById?.[entry.id],
+              ),
+            ),
+          ]),
+        );
         // K-scale (Figma "Scale" tool) parity for screen frames: a screen's
         // rendered content already scales proportionally (instead of
         // reflowing) whenever its resized box keeps the SAME aspect ratio as
@@ -6632,8 +7330,15 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         // get Figma-consistent "scale contents, don't reflow" behavior for
         // screens — no metadata/DesignEditor changes needed. A normal resize
         // (tool !== "scale") is completely unaffected.
-        const scaleK = effectiveToolRef.current === "scale";
+        const scaleK = state.scaleContents;
         const lockAspectRatio = ev.shiftKey || scaleK;
+        const resizeOptions = {
+          preserveAspectRatio: lockAspectRatio,
+          resizeFromCenter: ev.altKey,
+          minWidth: 1,
+          minHeight: 1,
+          frameSizeBoundsById,
+        };
 
         // A single rotated frame needs rotation-aware resize math: the handle
         // follows the frame's own rotated axes (matching how the handles
@@ -6669,12 +7374,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                 zoom: zoomRef.current,
                 bypass: ev.metaKey || ev.ctrlKey,
                 preserveAspectRatio: lockAspectRatio,
+                ...frameSizeBoundsById[singleRotatedFrame.id],
+                resizeFromCenter: ev.altKey,
               },
               {
-                preserveAspectRatio: lockAspectRatio,
-                resizeFromCenter: ev.altKey,
-                minWidth: 1,
-                minHeight: 1,
+                ...resizeOptions,
+                ...frameSizeBoundsById[singleRotatedFrame.id],
               },
             );
           updateFrameGeometryPreview((current) => ({
@@ -6684,6 +7389,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               ...resizedGeometry,
             },
           }));
+          if (state.scaleContents) {
+            scaleScreenContents(
+              singleRotatedFrame.id,
+              resizedGeometry.width /
+                Math.max(1, singleRotatedFrame.geometry.width),
+              "preview",
+            );
+          }
           setAlignmentGuides(rotatedSnapGuides);
           showTransformFeedback(
             `${Math.round(resizedGeometry.width)} x ${Math.round(resizedGeometry.height)}`,
@@ -6699,12 +7412,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           state.handle,
           dx,
           dy,
-          {
-            preserveAspectRatio: lockAspectRatio,
-            resizeFromCenter: ev.altKey,
-            minWidth: 1,
-            minHeight: 1,
-          },
+          resizeOptions,
+        );
+        const groupSizeBounds = getFrameGroupSizeBounds(
+          originEntries,
+          state.originBounds,
+          resizeOptions,
         );
         const snap = computeResizeSnap(
           resized.bounds,
@@ -6716,6 +7429,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             thresholdScreenPx: DEFAULT_SNAP_THRESHOLD_SCREEN_PX,
             zoom: zoomRef.current,
             bypass: ev.metaKey || ev.ctrlKey,
+            ...groupSizeBounds,
+            resizeFromCenter: ev.altKey,
             // Snapping x and y independently can each pull toward a
             // different sibling edge, which would distort a shift-held or
             // K-scale (aspect-locked) resize away from its ratio — see
@@ -6732,6 +7447,16 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           state.originBounds,
           snap.frame,
         );
+        if (state.scaleContents) {
+          resizedEntries.forEach((entry) => {
+            scaleScreenContents(
+              entry.id,
+              entry.geometry.width /
+                Math.max(1, state.originFrames[entry.id].width),
+              "preview",
+            );
+          });
+        }
         updateFrameGeometryPreview((current) => {
           const next = { ...current };
           resizedEntries.forEach((entry) => {
@@ -6760,12 +7485,58 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         }
         if (state?.type === "resize" && state.hasMoved) {
           const after = cloneFrameGeometryById(frameGeometryRef.current);
-          setFrameGeometry(after);
-          onGeometryChangeRef.current?.(after);
-          onGeometryCommitRef.current?.(
-            frameGeometryWithOverrides(after, state.originFrames),
-            after,
-          );
+          const kScaleStyleChangesByFrameId: KScaleStyleChangesByFrameId = {};
+          let missingKScaleTarget = false;
+          if (state.scaleContents) {
+            state.targetIds.forEach((screenId) => {
+              const origin = state.originFrames[screenId];
+              const finalGeometry = after[screenId];
+              if (!origin || !finalGeometry) {
+                missingKScaleTarget = true;
+                return;
+              }
+              const changes = scaleScreenContents(
+                screenId,
+                finalGeometry.width / Math.max(1, origin.width),
+                "commit",
+              );
+              if (changes === null) {
+                missingKScaleTarget = true;
+                return;
+              }
+              kScaleStyleChangesByFrameId[screenId] = changes;
+            });
+          }
+          const before = frameGeometryWithOverrides(after, state.originFrames);
+          const committed = missingKScaleTarget
+            ? false
+            : onGeometryCommitRef.current?.(
+                before,
+                after,
+                Object.keys(kScaleStyleChangesByFrameId).length > 0
+                  ? { kScaleStyleChangesByFrameId }
+                  : undefined,
+              );
+          if (committed === false) {
+            if (state.scaleContents) {
+              state.targetIds.forEach((screenId) =>
+                scaleScreenContents(screenId, 1, "cancel"),
+              );
+            }
+            setFrameGeometry(before);
+            onGeometryChangeRef.current?.(before);
+            updateFrameGeometryPreview((current) =>
+              frameGeometryWithOverrides(current, state.originFrames),
+            );
+          } else {
+            setFrameGeometry(after);
+            onGeometryChangeRef.current?.(after);
+            if (state.scaleContents) {
+              state.targetIds.forEach((screenId) =>
+                scaleScreenContents(screenId, 1, "accept"),
+              );
+            }
+          }
         }
         finishDrag();
       };
@@ -6784,6 +7555,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       updateSelectedIds,
       frameGeometryCenter,
       resolveSnapStepForTargets,
+      screenRootComputedStylesById,
+      scaleScreenContents,
     ],
   );
 
@@ -6901,14 +7674,15 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         );
         finishDrag();
       };
-      installDragListeners(handleMouseMove, handleMouseUp, () => {
-        dispatchAt(
-          iframeDoc,
-          "mouseup",
-          toIframePoint(e.clientX, e.clientY),
-          e,
-          0,
+      const cancelResize = (pressedAt: number) => {
+        iframe.contentWindow?.postMessage(
+          { type: "agent-native:cancel-active-drag", pressedAt },
+          "*",
         );
+      };
+      boardElementResizeCancel.current = cancelResize;
+      installDragListeners(handleMouseMove, handleMouseUp, () => {
+        cancelResize(performance.timeOrigin + performance.now());
         finishDrag();
       });
     },
@@ -6917,6 +7691,133 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       boardSurfaceRenderGeometry,
       finishDrag,
       getCanvasPoint,
+      installDragListeners,
+      readOnly,
+    ],
+  );
+
+  const beginBoardElementDrag = useCallback(
+    (e: React.MouseEvent) => {
+      if (readOnly) return;
+      if (e.button !== 0) return;
+      if (!boardFileId || !boardSurfaceRenderGeometry) return;
+      const iframe = findCanvasIframeForScreen(
+        surfaceRef.current,
+        boardFileId,
+        boardFileId,
+      );
+      const iframeDoc = iframe?.contentWindow?.document;
+      if (!iframeDoc) {
+        dndHostLog("board-move:no-iframe", { boardFileId });
+        return;
+      }
+      const selectionOverlay = iframeDoc.querySelector<HTMLElement>(
+        '[data-agent-native-edit-overlay="selection"]',
+      );
+      if (!selectionOverlay) {
+        dndHostLog("board-move:no-selection-overlay", { boardFileId });
+        return;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+
+      const toIframePoint = (clientX: number, clientY: number) =>
+        boardPointToBoardSurfaceLocalPoint(
+          getCanvasPoint(clientX, clientY),
+          boardSurfaceRenderGeometryRef.current ?? boardSurfaceRenderGeometry,
+        );
+      const dispatchAt = (
+        target: EventTarget,
+        type: string,
+        point: { x: number; y: number },
+        source: {
+          shiftKey: boolean;
+          altKey: boolean;
+          metaKey: boolean;
+          ctrlKey: boolean;
+        },
+        buttons: number,
+      ) => {
+        target.dispatchEvent(
+          new MouseEvent(type, {
+            clientX: point.x,
+            clientY: point.y,
+            shiftKey: source.shiftKey,
+            altKey: source.altKey,
+            metaKey: source.metaKey,
+            ctrlKey: source.ctrlKey,
+            buttons,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      };
+
+      setIsDragging(true);
+      dispatchAt(
+        selectionOverlay,
+        "mousedown",
+        toIframePoint(e.clientX, e.clientY),
+        e,
+        1,
+      );
+
+      const handleMouseMove = (ev: MouseEvent) => {
+        dispatchAt(
+          iframeDoc,
+          "mousemove",
+          toIframePoint(ev.clientX, ev.clientY),
+          ev,
+          1,
+        );
+      };
+      const cancelMove = (pressedAt: number) => {
+        iframe.contentWindow?.postMessage(
+          { type: "agent-native:cancel-active-drag", pressedAt },
+          "*",
+        );
+      };
+      const handleMouseUp = (ev: MouseEvent) => {
+        // The host selection box sits above every Screen and follows the
+        // moving board object, so DOM hit testing sees the chrome instead of
+        // the card underneath it. Resolve the release in board-space geometry
+        // so selection chrome cannot steal a board-to-screen drop.
+        const droppedOnScreen = Boolean(
+          getFrameEntryAtPoint(getCanvasPoint(ev.clientX, ev.clientY)),
+        );
+        if (droppedOnScreen) {
+          // The host owns board-to-screen drops. Cancel the iframe gesture
+          // after its cross-screen writer has taken the release.
+          cancelMove(performance.timeOrigin + performance.now());
+        } else {
+          // No screen owns this release, so let the board bridge commit its
+          // ordinary board-to-board move or duplicate.
+          iframe.contentWindow?.postMessage(
+            { type: "agent-native:cross-screen-claim", claimed: false },
+            "*",
+          );
+          dispatchAt(
+            iframeDoc,
+            "mouseup",
+            toIframePoint(ev.clientX, ev.clientY),
+            ev,
+            0,
+          );
+        }
+        finishDrag();
+      };
+      boardElementResizeCancel.current = cancelMove;
+      installDragListeners(handleMouseMove, handleMouseUp, () => {
+        cancelMove(performance.timeOrigin + performance.now());
+        finishDrag();
+      });
+    },
+    [
+      boardFileId,
+      boardSurfaceRenderGeometry,
+      finishDrag,
+      getCanvasPoint,
+      getFrameEntryAtPoint,
       installDragListeners,
       readOnly,
     ],
@@ -7245,49 +8146,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     ],
   );
 
-  const handleFrameClick = useCallback(
-    (id: string, e: React.MouseEvent<HTMLElement>) => {
-      e.stopPropagation();
-      if (lockedScreenIdSet.has(id)) return;
-      if (suppressNextPick.current) {
-        suppressNextPick.current = false;
-        return;
-      }
-      // Supersede any in-flight drill-in: its reply must not overwrite this pick.
-      drillInRequestRef.current += 1;
-
-      if (e.shiftKey) {
-        updateSelectedDraftIds(() => []);
-        const currentSelectedIds = selectedIdsRef.current;
-        const nextSelectedIds = currentSelectedIds.includes(id)
-          ? currentSelectedIds.filter((selectedId) => selectedId !== id)
-          : [...currentSelectedIds, id];
-        updateSelectedIds(() => nextSelectedIds);
-        const nextPrimaryId =
-          nextSelectedIds.length === 0
-            ? null
-            : nextSelectedIds.includes(id)
-              ? id
-              : (nextSelectedIds[nextSelectedIds.length - 1] ?? null);
-        if (nextPrimaryId && nextPrimaryId !== activeId) {
-          onPick(nextPrimaryId);
-        }
-        return;
-      }
-
-      updateSelectedDraftIds(() => []);
-      updateSelectedIds(() => [id]);
-      onPick(id);
-    },
-    [
-      activeId,
-      lockedScreenIdSet,
-      onPick,
-      updateSelectedDraftIds,
-      updateSelectedIds,
-    ],
-  );
-
   const handleFrameInteract = useCallback(
     (id: string, e: React.MouseEvent<HTMLElement>) => {
       e.preventDefault();
@@ -7352,6 +8210,16 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       // for non-left clicks, silently disabling Figma's middle-mouse pan.
       if (shouldBeginCanvasPan({ button: e.button, tool })) {
         beginPan(e);
+        return;
+      }
+      if (e.button === 0 && tool === "comment") {
+        const canvasPoint = getCanvasPoint(e.clientX, e.clientY);
+        const frameAtPoint = getFrameEntryAtPoint(canvasPoint);
+        if (!onFrame && !frameAtPoint) {
+          e.preventDefault();
+          e.stopPropagation();
+          onCommentPin?.(canvasPoint);
+        }
         return;
       }
       if (vectorEdit) {
@@ -7458,7 +8326,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       boardSurfaceRenderGeometry,
       claimKeyboardFocus,
       getCanvasPoint,
+      getFrameEntryAtPoint,
       localActiveTool,
+      onCommentPin,
       setAltHoverMeasurement,
       showBoardStaticPreview,
       toggleVectorNodeType,
@@ -7687,6 +8557,34 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   applyViewToDomRef.current = applyViewToDom;
   scheduleViewCommitRef.current = scheduleViewCommit;
 
+  const focusBoardReviewPoint = useCallback(
+    (point: Point): boolean => {
+      const surface = surfaceRef.current;
+      const rect = surface?.getBoundingClientRect();
+      if (!rect || rect.width <= 0 || rect.height <= 0) return false;
+      const scale = Math.max(0.0001, canvasZoom / 100);
+      const leftInset = Math.min(rect.width, Math.max(0, chromeInsetLeft));
+      const rightInset = Math.min(rect.width, Math.max(0, chromeInsetRight));
+      const centerX = (leftInset + rect.width - rightInset) / 2;
+      const centerY = rect.height / 2;
+      const next = {
+        x: centerX - (SURFACE_PADDING + point.x) * scale,
+        y: centerY - (SURFACE_PADDING + point.y) * scale,
+      };
+      panRef.current = next;
+      lineupRecenterCameraRef.current = {
+        x: next.x,
+        y: next.y,
+        zoom: canvasZoom,
+      };
+      setPan(next);
+      applyViewToDomRef.current();
+      scheduleViewCommitRef.current();
+      return true;
+    },
+    [canvasZoom, chromeInsetLeft, chromeInsetRight],
+  );
+
   // Imperative camera command (Figma's Shift+1/Shift+2 zoom-to-fit /
   // zoom-to-selection). MultiScreenCanvas owns pan internally, so this is the
   // one external control path for pan+zoom together: the caller passes
@@ -7698,8 +8596,20 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   // settled wheel/pinch gesture uses — one `applyViewToDom` + one
   // `scheduleViewCommit`, not a fresh render-per-frame loop.
   useEffect(() => {
-    if (!cameraCommand) return;
+    if (!cameraCommand) {
+      pendingCameraCommandZoomRevisionRef.current = null;
+      return;
+    }
     if (lastCameraCommandNonceRef.current === cameraCommand.nonce) return;
+
+    const pendingCommandRevision =
+      pendingCameraCommandZoomRevisionRef.current?.nonce === cameraCommand.nonce
+        ? pendingCameraCommandZoomRevisionRef.current.revision
+        : controlledZoomRevisionRef.current;
+    pendingCameraCommandZoomRevisionRef.current = {
+      nonce: cameraCommand.nonce,
+      revision: pendingCommandRevision,
+    };
 
     let cancelled = false;
     let retryFrame: number | null = null;
@@ -7716,6 +8626,16 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       }
       const rect = surfaceRef.current?.getBoundingClientRect();
       if (!rect || rect.width <= 0 || rect.height <= 0) return false;
+      // If the user changed the controlled zoom while this command waited for
+      // the overview surface to become measurable, that newer action owns the
+      // camera. Acknowledge the stale fit without applying it or scheduling a
+      // delayed commit that could overwrite the user's zoom.
+      if (controlledZoomRevisionRef.current !== pendingCommandRevision) {
+        lastCameraCommandNonceRef.current = cameraCommand.nonce;
+        pendingCameraCommandZoomRevisionRef.current = null;
+        resizeObserver?.disconnect();
+        return true;
+      }
       // Fit against the width actually free of the left/right chrome
       // overlays (see chromeInsetLeft/Right's doc), then shift the result
       // right by chromeInsetLeft — getCameraForBounds centers within
@@ -7742,6 +8662,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       );
       camera.x += chromeInsetLeft;
       zoomRef.current = camera.zoom;
+      lastCameraCommandZoomRef.current = camera.zoom;
+      lastCameraCommandControlledZoomRef.current = zoom;
       panRef.current = { x: camera.x, y: camera.y };
       applyViewToDom();
       scheduleViewCommit();
@@ -7750,6 +8672,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       // command during the brief zero-size overview remount caused by active
       // screen URL synchronization.
       lastCameraCommandNonceRef.current = cameraCommand.nonce;
+      pendingCameraCommandZoomRevisionRef.current = null;
       resizeObserver?.disconnect();
       return true;
     };
@@ -8120,7 +9043,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           };
         });
         updateFrameGeometry(() => next);
-        onGeometryCommitRef.current?.(before, cloneFrameGeometryById(next));
+        onGeometryCommitRef.current?.(before, cloneFrameGeometryById(next), {
+          source: "keyboard",
+        });
       }
       if (targetDraftIds.length > 0) {
         updateDraftPrimitives((current) =>
@@ -8309,6 +9234,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           mode: "alt-click",
           screen,
           canvasPosition,
+          preserveCamera: true,
           dropCanvasPosition: canvasPosition,
         });
         dispatched += 1;
@@ -8463,6 +9389,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         data.viewportHeight > 0
           ? Math.round(data.viewportHeight)
           : 0;
+      const naturalHeight =
+        typeof data.naturalHeight === "number" &&
+        Number.isFinite(data.naturalHeight) &&
+        data.naturalHeight > 0 && // i18n-ignore positive numeric height validation
+        data.naturalHeight <= MAX_SANE_FRAME_DIMENSION_PX
+          ? Math.round(data.naturalHeight)
+          : null;
       const sample = resolveStableContentSizeSample(
         contentSizeSamplesRef.current[key],
         { height, viewportHeight, width },
@@ -8489,6 +9422,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         }
       } else if (screensRef.current.some((screen) => screen.id === key)) {
         onPrimaryContentHeightChangeRef.current?.(key, acceptedHeight);
+        onScreenContentNaturalHeightChangeRef.current?.(key, naturalHeight);
       }
       setMeasuredIframeHeights((prev) => {
         const current = prev[key];
@@ -8498,6 +9432,18 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           return prev;
         }
         return { ...prev, [key]: acceptedHeight };
+      });
+      setMeasuredIframeNaturalHeights((prev) => {
+        const current = prev[key];
+        if (naturalHeight === null) {
+          if (current === undefined) return prev;
+          const next = { ...prev };
+          delete next[key];
+          return next;
+        }
+        if (current !== undefined && Math.abs(current - naturalHeight) <= 1)
+          return prev;
+        return { ...prev, [key]: naturalHeight };
       });
     };
     window.addEventListener("message", handleContentSize);
@@ -8510,8 +9456,25 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     const next = renderedScreens.map((screen) => {
       nextIds.add(screen.id);
       const metadata = getResolvedMetadata(screen);
+      const geometryOverride = geometryOverridesById?.[screen.id];
+      const persistedGeometry = geometryById?.[screen.id];
+      const persistedGeometryIsComplete =
+        persistedGeometry &&
+        typeof persistedGeometry.x === "number" &&
+        typeof persistedGeometry.y === "number" &&
+        typeof persistedGeometry.width === "number" &&
+        typeof persistedGeometry.height === "number";
       const rawGeometry =
+        geometryOverride ??
+        (persistedGeometryIsComplete &&
+        (!frameGeometry[screen.id] ||
+          !renderedScreenIdsRef.current.has(screen.id))
+          ? (persistedGeometry as FrameGeometry)
+          : undefined) ??
         frameGeometry[screen.id] ??
+        (persistedGeometryIsComplete
+          ? (persistedGeometry as FrameGeometry)
+          : undefined) ??
         getInitialFrameGeometry(screenIndexById.get(screen.id) ?? 0, metadata);
       // Content-fit height, applied ONLY once the frame's own content has been
       // measured, and only for inline (srcdoc) screens — URL-backed
@@ -8522,22 +9485,31 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       // natural metadata width (not the resizable box width, which would flip
       // the responsive scale on resize) and only grows; never shrinks a larger
       // user-set height.
-      const measuredPrimaryHeight = measuredIframeHeights[screen.id];
+      const measuredPrimaryHeight =
+        metadata.heightMode === "hug"
+          ? measuredIframeNaturalHeights[screen.id]
+          : measuredIframeHeights[screen.id];
       const isInlineScreen = !(
         metadata.previewUrl ?? getPreviewUrl(screen.content)
       );
+      const sizeConstraints = readScreenSizeConstraints(
+        screenRootComputedStylesById?.[screen.id],
+      );
       const autoHeight =
-        isInlineScreen && measuredPrimaryHeight && !metadata.heightPinned
-          ? Math.max(
-              deviceViewportFloorForWidth(metadata.width),
-              rawGeometry.height ?? 0,
-              measuredPrimaryHeight,
-            )
+        isInlineScreen && measuredPrimaryHeight
+          ? resolveAutoFitScreenHeight({
+              mode: metadata.heightMode ?? "auto",
+              width: metadata.width,
+              currentHeight: rawGeometry.height ?? 0,
+              measuredHeight: measuredPrimaryHeight,
+              sizeConstraints,
+            })
           : (rawGeometry.height ?? 0);
-      const geometry =
+      const sizedGeometry =
         !autoHeight || autoHeight === rawGeometry.height
           ? rawGeometry
           : { ...rawGeometry, height: autoHeight };
+      const geometry = clampScreenFrameSize(sizedGeometry, sizeConstraints);
       const prior = cache.get(screen.id);
       if (
         prior &&
@@ -8563,10 +9535,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     return next;
   }, [
     frameGeometry,
+    geometryById,
+    geometryOverridesById,
     getResolvedMetadata,
     measuredIframeHeights,
+    measuredIframeNaturalHeights,
     renderedScreens,
     screenIndexById,
+    screenRootComputedStylesById,
   ]);
   useLayoutEffect(() => {
     renderedFrameGeometryRef.current = Object.fromEntries(
@@ -8686,6 +9662,90 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     protectedLiveScreenIds,
     surfaceSize,
   ]);
+  const liveBootFrameCountByScreenId = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const { screen, metadata } of canvasFrames) {
+      if (!isRunningAppSourceType(metadata.source)) continue;
+      counts.set(
+        screen.id,
+        1 +
+          visibleBreakpointWidths(screen.breakpointWidths, metadata.width)
+            .length,
+      );
+    }
+    return counts;
+  }, [canvasFrames, screenCullTierById]);
+  bootFrameCountByScreenIdRef.current = liveBootFrameCountByScreenId;
+  const liveBootCandidates = useMemo(
+    () =>
+      Array.from(liveScreenIdsRef.current).filter((screenId) =>
+        liveBootFrameCountByScreenId.has(screenId),
+      ),
+    [liveBootFrameCountByScreenId, screenCullTierById],
+  );
+  const bootAdmittedScreenIds = useMemo(
+    () =>
+      admitBootBudget({
+        candidates: liveBootCandidates,
+        bootStatusById: bootStatusByScreenIdRef.current,
+        costById: liveBootFrameCountByScreenId,
+        protectedIds: protectedLiveScreenIds,
+      }),
+    [
+      bootStatusRevision,
+      liveBootCandidates,
+      liveBootFrameCountByScreenId,
+      protectedLiveScreenIds,
+    ],
+  );
+  useEffect(() => {
+    let changed = false;
+    for (const screenId of bootAdmittedScreenIds) {
+      if (bootStatusByScreenIdRef.current.has(screenId)) continue;
+      bootStatusByScreenIdRef.current.set(screenId, "booting");
+      bootReadyFrameIdsByScreenIdRef.current.set(screenId, new Set());
+      const timeoutId = window.setTimeout(
+        () => markScreenBootReady(screenId),
+        8_000,
+      );
+      bootTimeoutByScreenIdRef.current.set(screenId, timeoutId);
+      changed = true;
+    }
+    if (changed) setBootStatusRevision((revision) => revision + 1);
+  }, [bootAdmittedScreenIds, markScreenBootReady]);
+  useEffect(() => {
+    let changed = false;
+    for (const screenId of bootStatusByScreenIdRef.current.keys()) {
+      if (liveScreenIdsRef.current.has(screenId)) continue;
+      const timeoutId = bootTimeoutByScreenIdRef.current.get(screenId);
+      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+      bootTimeoutByScreenIdRef.current.delete(screenId);
+      bootStatusByScreenIdRef.current.delete(screenId);
+      bootReadyFrameIdsByScreenIdRef.current.delete(screenId);
+      changed = true;
+    }
+    if (changed) setBootStatusRevision((revision) => revision + 1);
+  }, [screenCullTierById]);
+  const bootDeferredScreenIds = useMemo(
+    () =>
+      new Set(
+        canvasFrames
+          .filter(
+            ({ screen, metadata }) =>
+              isRunningAppSourceType(metadata.source) &&
+              liveScreenIdsRef.current.has(screen.id) &&
+              liveBootFrameCountByScreenId.has(screen.id) &&
+              !bootAdmittedScreenIds.has(screen.id),
+          )
+          .map(({ screen }) => screen.id),
+      ),
+    [
+      bootAdmittedScreenIds,
+      canvasFrames,
+      liveBootFrameCountByScreenId,
+      screenCullTierById,
+    ],
+  );
   // No dependency array on purpose: any render can mount, unmount, or reorder a
   // screen's content wrapper, and a wrapper React just mounted carries none of
   // the suppression state this owns.
@@ -8705,6 +9765,19 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         ? activeId
         : canvasFrames[0]?.screen.id),
     [activeId, canvasFrames, selectedIds],
+  );
+  const vectorEditOverlayZIndex = useMemo(
+    () =>
+      canvasFrames.reduce(
+        (highest, { screen, geometry }) =>
+          Math.max(
+            highest,
+            (geometry.z ?? 0) +
+              (screen.id === topScreenId ? TOP_SCREEN_Z_BOOST : 0),
+          ),
+        DRAFT_PREVIEW_Z,
+      ) + 1,
+    [canvasFrames, topScreenId],
   );
   // PF16: previously this reordered canvasFrames so the top screen's keyed
   // entry moved to the end of the array. Since screens are keyed by
@@ -8754,8 +9827,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       // mounts a live DesignCanvas/iframe per screen). Evicted screens skip
       // mounting too, but their cache entry remains so a revisit can reuse the
       // already-created React node without regenerating screen content.
-      const tier = screenCullTierById.get(screen.id) ?? "visible";
+      const baseTier = screenCullTierById.get(screen.id) ?? "visible";
+      const tier =
+        screen.id === exportPreviewScreenId &&
+        (baseTier === "placeholder" || baseTier === "evicted")
+          ? "culled"
+          : baseTier;
       if (tier === "placeholder" || tier === "evicted") return;
+      if (bootDeferredScreenIds.has(screen.id)) return;
       next.set(
         screen.id,
         getCachedScreenContentNode(
@@ -8764,6 +9843,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           metadata,
           geometry,
           renderScreenContent,
+          isRunningAppSourceType(metadata.source)
+            ? {
+                onBootReady: getScreenBootReadyCallback(screen.id),
+                onBootStart: getScreenBootStartCallback(screen.id),
+              }
+            : undefined,
         ),
       );
     });
@@ -8772,7 +9857,15 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       new Set(canvasFrames.map(({ screen }) => screen.id)),
     );
     return next;
-  }, [canvasFrames, renderScreenContent, screenCullTierById]);
+  }, [
+    canvasFrames,
+    exportPreviewScreenId,
+    bootDeferredScreenIds,
+    getScreenBootReadyCallback,
+    getScreenBootStartCallback,
+    renderScreenContent,
+    screenCullTierById,
+  ]);
   // PF19: filters/maps over canvasFrames + a getFrameGroupBounds pass — cheap
   // for a handful of screens, but this runs on every render (hover, hint
   // text, unrelated state), not just selection changes. Memoize keyed on the
@@ -8841,11 +9934,16 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     selectedDraftEntries.length === 1 && !selectedDraftGroupBounds
       ? selectedDraftEntries[0]
       : null;
-  const boardSelectionBoxVisible = shouldRenderBoardSelectionBox({
-    boardSelectionRect,
-    boardIsActive,
-    boardSurfaceRenderGeometry,
-  });
+  const boardSelectionBoxVisible =
+    (boardFileId
+      ? (selectedLayerSelectorGroupsByScreen[boardFileId]?.length ?? 0)
+      : 0) <= 1 &&
+    boardSelectionRect?.sourceId === boardSelectedSourceId &&
+    shouldRenderBoardSelectionBox({
+      boardSelectionRect,
+      boardIsActive,
+      boardSurfaceRenderGeometry,
+    });
   const rootSelectedEntryCount =
     selectedFrameEntries.length + selectedDraftEntries.length;
   const showPassiveRootSelectionBoxes = rootSelectedEntryCount > 1;
@@ -8864,8 +9962,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   return (
     <div
       ref={surfaceRef}
+      data-multi-screen-canvas-surface
       tabIndex={-1}
-      className="relative h-full w-full select-none overflow-hidden outline-none"
+      className="relative h-full w-full select-none overflow-clip outline-none"
       onMouseDownCapture={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseLeave={() => setAltHoverMeasurement(null)}
@@ -8945,6 +10044,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                 transform: `scale(${boardFrameGeometry.width / boardStaticPreviewViewport.width}, ${boardFrameGeometry.height / boardStaticPreviewViewport.height})`,
                 transformOrigin: "top left",
                 background: CANVAS_BACKGROUND_VAR,
+                ...SCALED_IFRAME_PAINT_RETENTION_STYLE,
               }}
             />
           </div>
@@ -8997,6 +10097,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               >
                 <DesignCanvas
                   content={boardRenderContent}
+                  authoredSourceContent={boardFileContent}
                   contentKey={boardContentKey}
                   runtimeReplacementContent={boardRenderContent}
                   runtimeReplacementKey={`${boardFileId}:layers:${boardLayerSignature}`}
@@ -9027,11 +10128,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                   }
                   readOnly={readOnly}
                   clearSelectionRequest={boardClearSelectionRequest}
-                  selectedSelector={
-                    boardIsActive ? (boardSelectedSelector ?? null) : null
-                  }
+                  selectedSelector={boardSelectedSelector ?? null}
                   selectedSelectorCandidates={
-                    boardIsActive ? (boardSelectedSelectorCandidates ?? []) : []
+                    boardSelectedSelectorCandidates ?? []
                   }
                   selectedSelectorGroups={
                     selectedLayerSelectorGroupsByScreen[boardFileId] ?? []
@@ -9063,29 +10162,101 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                   onIframeContextMenu={onBoardIframeContextMenu}
                   onVisualStructureChange={onBoardVisualStructureChange}
                   onVisualStyleChange={onBoardVisualStyleChange}
+                  onVisualStyleBatchChange={onBoardVisualStyleBatchChange}
                   onVisualDuplicateChange={onBoardVisualDuplicateChange}
                   onTextContentChange={onBoardTextContentChange}
                   onTextEditingStateChange={onBoardTextEditingStateChange}
                   onElementDblClickText={onBoardElementDblClickText}
+                  pinMode={reviewPinMode}
+                  commentPinsHidden={reviewCommentsHidden}
+                  onExitPinMode={onExitReviewPinMode}
+                  designId={reviewResourceId}
+                  reviewCanPost={reviewCanPost}
+                  reviewCanResolve={reviewCanResolve}
+                  reviewTargetId={reviewTargetId ?? null}
+                  reviewBoardGeometry={boardGeo}
+                  onReviewFocusBoardPoint={focusBoardReviewPoint}
+                  reviewCurrentUserEmail={reviewCurrentUserEmail}
+                  reviewFocusRequest={reviewFocusRequest}
+                  onDispatchCommentToAgent={onDispatchCommentToAgent}
+                  onSendThreadToAgent={onSendThreadToAgent}
+                  reviewSendingThreadId={reviewSendingThreadId}
+                  designTitle={reviewDesignTitle}
+                  commentContextId={
+                    reviewResourceId
+                      ? `${reviewResourceId}:${boardFileId}`
+                      : undefined
+                  }
                   tweakValues={{}}
                 />
               </div>
             );
           })()}
 
+        {renderEmptyBoardReviewCanvas &&
+        boardFileId &&
+        boardFileContent !== undefined &&
+        reviewResourceId ? (
+          <div
+            data-board-review-canvas
+            style={{
+              ...getBoardSurfaceLayerStyle({
+                geometry: boardReviewGeometry,
+                interactive: false,
+              }),
+              zIndex: 1,
+            }}
+          >
+            <ReviewCanvasPins
+              active={reviewPinMode}
+              hidden={reviewCommentsHidden}
+              onClose={() => onExitReviewPinMode?.()}
+              canvasSelector="[data-board-review-canvas]"
+              resourceType="design"
+              resourceId={reviewResourceId}
+              targetId={reviewTargetId ?? null}
+              boardGeometry={boardReviewGeometry}
+              canPost={reviewCanPost ?? false}
+              canResolve={reviewCanResolve ?? false}
+              currentUserEmail={reviewCurrentUserEmail}
+              focusRequest={reviewFocusRequest}
+              onFocusBoardPoint={focusBoardReviewPoint}
+              onDispatchCommentToAgent={onDispatchCommentToAgent}
+              onSendThreadToAgent={onSendThreadToAgent}
+              sendingThreadId={reviewSendingThreadId}
+            />
+          </div>
+        ) : null}
+
         {canvasFrames.map(({ screen, metadata, geometry }) => {
+          const baseCullTier = screenCullTierById.get(screen.id) ?? "visible";
+          const isExportPreview = screen.id === exportPreviewScreenId;
+          const cullTier =
+            isExportPreview &&
+            (baseCullTier === "placeholder" || baseCullTier === "evicted")
+              ? "culled"
+              : baseCullTier;
           return (
             <Screen
               key={screen.id}
               layoutGridBoardSize={layoutGridBoardSizeById[screen.id] ?? 0}
               screen={screen}
               metadata={metadata}
+              screenRootComputedStylesById={screenRootComputedStylesById}
+              screenRootComputedStyles={
+                screenRootComputedStylesById?.[screen.id]
+              }
               geometry={geometry}
               measuredIframeHeights={measuredIframeHeights}
               locked={lockedScreenIdSet.has(screen.id)}
               screenContent={screenContentById.get(screen.id)}
+              bootDeferred={bootDeferredScreenIds.has(screen.id)}
+              snapshotHtml={screenSnapshotsById?.[screen.id]?.html}
               renderBreakpointContent={renderBreakpointContent}
-              cullTier={screenCullTierById.get(screen.id) ?? "visible"}
+              getBootReadyCallback={getScreenBootReadyCallback}
+              getBootStartCallback={getScreenBootStartCallback}
+              cullTier={cullTier}
+              isExportPreview={isExportPreview}
               isActive={screen.id === activeId}
               isTopScreen={screen.id === topScreenId}
               // BP-DEEP v2 item 3 — while a breakpoint sub-frame is the
@@ -9206,6 +10377,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           <VectorEditOverlay
             vectorEdit={vectorEdit}
             chromeScale={chromeScale}
+            zIndex={vectorEditOverlayZIndex}
           />
         ) : null}
 
@@ -9289,6 +10461,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             boardObject
             onStartResize={beginBoardElementResize}
             onStartRotate={() => {}}
+            onStartDrag={beginBoardElementDrag}
           />
         ) : null}
 
@@ -9428,7 +10601,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       creationPreview.geometry.width > 0 &&
       creationPreview.geometry.height > 0 ? (
         <span
-          className="pointer-events-none absolute z-40 -translate-x-1/2 translate-y-1 rounded bg-[var(--design-editor-accent-color)] px-1.5 py-0.5 text-[10px] font-medium leading-none text-[var(--design-editor-accent-contrast-color)] shadow-sm"
+          className="pointer-events-none absolute z-40 -translate-x-1/2 translate-y-1 rounded-full bg-[var(--design-editor-accent-color)] px-2 py-1 text-[11px] font-semibold leading-none text-[var(--design-editor-accent-contrast-color)] shadow-sm"
           style={{
             left:
               pan.x +
@@ -10062,9 +11235,11 @@ function isPoint(point: Point | undefined): point is Point {
 function VectorEditOverlay({
   vectorEdit,
   chromeScale,
+  zIndex,
 }: {
   vectorEdit: VectorEditOverlayState;
   chromeScale: number;
+  zIndex: number;
 }) {
   const { path, originCanvas } = vectorEdit;
   // Render in canvas space: every local point is offset by the path's
@@ -10094,12 +11269,13 @@ function VectorEditOverlay({
       // space *outside* this box still reaches the surface as a background
       // click (which exits vector edit mode) via CSS containment rather than
       // per-element listeners.
-      className="pointer-events-auto absolute z-[95]"
+      className="pointer-events-auto absolute"
       style={{
         left: SURFACE_PADDING + geometry.x,
         top: SURFACE_PADDING + geometry.y,
         width: geometry.width,
         height: geometry.height,
+        zIndex,
       }}
     >
       <svg
@@ -10456,6 +11632,25 @@ function screenDisplayName(
   return metadata.title ?? prettyScreenName(screen.filename);
 }
 
+function screenRootRequiresTransparentHost(
+  styles?: Record<string, string>,
+): boolean {
+  if (!styles) return false;
+  const background = parseCssColorExtended(styles.backgroundColor ?? "");
+  if (background && background.a < 1) return true;
+  const opacity = Number.parseFloat(styles.opacity ?? "1");
+  if (Number.isFinite(opacity) && opacity < 1) return true;
+  return [
+    styles.borderRadius,
+    styles.borderTopLeftRadius,
+    styles.borderTopRightRadius,
+    styles.borderBottomRightRadius,
+    styles.borderBottomLeftRadius,
+  ].some((value) =>
+    Boolean(value && !/^0(?:px|%)?(?:\s+0(?:px|%)?){0,3}$/i.test(value)),
+  );
+}
+
 /** Standard Tailwind breakpoint widths, mobile-first (base / md: / lg: / xl:). */
 const STANDARD_BREAKPOINT_WIDTHS = [390, 768, 1280] as const;
 
@@ -10487,6 +11682,8 @@ function nextBreakpointWidth(
 interface ScreenProps {
   screen: ScreenFile;
   metadata: ResolvedScreenMetadata;
+  screenRootComputedStylesById?: Record<string, Record<string, string>>;
+  screenRootComputedStyles?: Record<string, string>;
   geometry: FrameGeometry;
   /** Measured content heights by [data-screen-iframe-id]; drives breakpoint
    * frame auto-height. */
@@ -10519,7 +11716,11 @@ interface ScreenProps {
   chromeScale: number;
   chromeSettling: boolean;
   screenContent?: ReactNode;
+  bootDeferred: boolean;
+  snapshotHtml?: string;
   renderBreakpointContent?: MultiScreenCanvasProps["renderBreakpointContent"];
+  getBootReadyCallback?: (screenId: string, frameId: string) => () => void;
+  getBootStartCallback?: (screenId: string, frameId: string) => () => void;
   /** Overview viewport culling tier (PF22) — see computeScreenCullTier.
    *  "visible": render screenContent normally. "culled": screenContent (if
    *  any) stays mounted but is hidden from paint (visibility/
@@ -10528,6 +11729,7 @@ interface ScreenProps {
    *  browsing context; render lightweight chrome while the cached content
    *  descriptor is retained for an evicted screen's revisit. */
   cullTier: ScreenCullTier;
+  isExportPreview: boolean;
   onPick: (id: string, e: React.MouseEvent<HTMLElement>) => void;
   /** Explicit Interact entry — the frame label's own button and the frame-label
    *  row. Deliberately NOT the frame body's double-click: see onEnterFrame. */
@@ -10574,6 +11776,8 @@ const Screen = memo(function Screen({
   layoutGridBoardSize = 0,
   screen,
   metadata,
+  screenRootComputedStylesById,
+  screenRootComputedStyles,
   geometry,
   measuredIframeHeights,
   locked,
@@ -10602,8 +11806,13 @@ const Screen = memo(function Screen({
   onStartResize,
   onStartRotate,
   screenContent,
+  bootDeferred,
+  snapshotHtml,
   renderBreakpointContent,
+  getBootReadyCallback,
+  getBootStartCallback,
   cullTier,
+  isExportPreview,
   onAddBreakpoint,
   breakpointMutationPending = false,
   onActiveBreakpointChange,
@@ -10612,8 +11821,10 @@ const Screen = memo(function Screen({
   onEditBreakpoint,
 }: ScreenProps) {
   const t = useT();
+  const browserOrigin = useBrowserOrigin();
   const display = screenDisplayName(screen, metadata);
   const previewUrl = metadata.previewUrl ?? getPreviewUrl(screen.content);
+  const externalPreviewPendingOrigin = Boolean(previewUrl && !browserOrigin);
   const previewViewport = getScreenPreviewViewport(metadata, geometry);
   const suppressNextClick = useRef(false);
   // Overview viewport culling (PF22): mounting only. Unmounting a culled screen
@@ -10674,11 +11885,39 @@ const Screen = memo(function Screen({
     // content-fit. The editable DesignCanvas path injects its own reporter.
     return injectSessionReplayIframeBootstrap(
       appendContentSizeReporter(
-        appendHitTestResponder(withLocalRuntimes(screen.content)),
+        appendHitTestResponder(
+          withLocalRuntimes(screen.content),
+          screen.content,
+        ),
       ),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen.content]);
+
+  const deferredSnapshot =
+    cullTier === "visible" && bootDeferred && snapshotHtml ? (
+      <iframe
+        data-screen-snapshot
+        aria-hidden="true"
+        tabIndex={-1}
+        sandbox=""
+        srcDoc={snapshotHtml}
+        className="pointer-events-none border-0"
+        style={{
+          width: previewViewport.viewportWidth,
+          height: previewViewport.viewportHeight,
+          transform:
+            previewViewport.scale === 1
+              ? undefined
+              : `scale(${previewViewport.scale})`,
+          transformOrigin: "top left",
+          backgroundColor: "white",
+          colorScheme: "light",
+          ...SCALED_IFRAME_PAINT_RETENTION_STYLE,
+        }}
+        title={`${screen.filename} snapshot`}
+      />
+    ) : null;
 
   const updateDirectHover = useCallback((next: boolean) => {
     setDirectlyHovered((current) => (current === next ? current : next));
@@ -10756,6 +11995,9 @@ const Screen = memo(function Screen({
             // through to this row's onClick and steals selection back from the
             // new duplicate.
             suppressNextClick.current = true;
+          } else if (e.shiftKey && !isSelected) {
+            e.stopPropagation();
+            return;
           }
           // Shift falls through to onStartFrameDrag like a plain press: it
           // arms a frame drag (axis-constrained past the threshold) and, on
@@ -10908,6 +12150,9 @@ const Screen = memo(function Screen({
             suppressNextClick.current = false;
             if (e.altKey) {
               suppressNextClick.current = true;
+            } else if (e.shiftKey && !isSelected) {
+              e.stopPropagation();
+              return;
             }
             // Shift falls through like a plain press — see the label row's
             // mousedown above.
@@ -10935,6 +12180,11 @@ const Screen = memo(function Screen({
         style={{
           width: geometry.width,
           height: geometry.height,
+          backgroundColor: screenRootRequiresTransparentHost(
+            screenRootComputedStyles,
+          )
+            ? "transparent"
+            : undefined,
           cursor: penActive || creationToolActive ? "crosshair" : "pointer",
           touchAction: "none",
         }}
@@ -10950,6 +12200,19 @@ const Screen = memo(function Screen({
           )}
           style={{
             pointerEvents: screenContentInteractive ? "auto" : "none",
+            backgroundColor: screenRootRequiresTransparentHost(
+              screenRootComputedStyles,
+            )
+              ? "transparent"
+              : undefined,
+            borderRadius: screenRootComputedStyles?.borderRadius,
+            borderTopLeftRadius: screenRootComputedStyles?.borderTopLeftRadius,
+            borderTopRightRadius:
+              screenRootComputedStyles?.borderTopRightRadius,
+            borderBottomRightRadius:
+              screenRootComputedStyles?.borderBottomRightRadius,
+            borderBottomLeftRadius:
+              screenRootComputedStyles?.borderBottomLeftRadius,
           }}
         >
           {!shouldMountContent ? (
@@ -10967,8 +12230,21 @@ const Screen = memo(function Screen({
                 {display}
               </span>
             </div>
+          ) : bootDeferred ? (
+            (deferredSnapshot ?? (
+              <div
+                data-screen-placeholder
+                aria-hidden="true"
+                className="flex h-full w-full items-center justify-center bg-muted/40 text-muted-foreground"
+              >
+                <span className="max-w-[80%] truncate px-2 text-center !text-[11px] font-medium">
+                  {display}
+                </span>
+              </div>
+            ))
           ) : (
-            (screenContent ?? (
+            (screenContent ??
+            (externalPreviewPendingOrigin ? null : (
               <iframe
                 {...{
                   [SESSION_REPLAY_IFRAME_ATTRIBUTE]: previewUrl
@@ -10978,11 +12254,18 @@ const Screen = memo(function Screen({
                 data-screen-iframe-id={screen.id}
                 src={previewUrl}
                 srcDoc={previewUrl ? undefined : srcdocWithHitTest}
-                sandbox="allow-scripts"
+                sandbox={getDesignCanvasIframeSandbox({
+                  externalPreview: Boolean(previewUrl),
+                  readOnly: true,
+                  previewUrl,
+                  parentOrigin: browserOrigin ?? undefined,
+                })}
                 // Visible includes the generous overscan band, so eager load
                 // here prewarms the document before it crosses the raw
                 // viewport edge. Warm hidden iframes are already loaded.
-                loading={cullTier === "visible" ? "eager" : "lazy"}
+                loading={
+                  isExportPreview || cullTier === "visible" ? "eager" : "lazy"
+                }
                 className="pointer-events-none border-0"
                 style={{
                   width: previewViewport.viewportWidth,
@@ -10997,16 +12280,11 @@ const Screen = memo(function Screen({
                   transformOrigin: "top left",
                   backgroundColor: "white",
                   colorScheme: "light",
-                  // Prevent the browser from discarding the composited layer at
-                  // fractional zoom levels, which causes the iframe to go black.
-                  // backface-visibility:hidden forces the browser to keep the
-                  // backing store alive even when the effective scale is very small
-                  // (e.g. 0.25 iframe scale × 0.5 canvas zoom = 0.125 total).
-                  backfaceVisibility: "hidden",
+                  ...SCALED_IFRAME_PAINT_RETENTION_STYLE,
                 }}
                 title={screen.filename}
               />
-            ))
+            )))
           )}
           {layoutGridBoardSize > 0 ? (
             <span
@@ -11093,12 +12371,16 @@ const Screen = memo(function Screen({
           previewUrl={previewUrl}
           srcdocWithHitTest={srcdocWithHitTest}
           metadata={metadata}
+          screenRootComputedStylesById={screenRootComputedStylesById}
           renderBreakpointContent={renderBreakpointContent}
+          getBootReadyCallback={getBootReadyCallback}
+          getBootStartCallback={getBootStartCallback}
           activeBreakpointWidth={screen.activeBreakpointWidth}
           isScreenSelected={isSelected}
           penActive={penActive}
           creationToolActive={creationToolActive}
           cullTier={cullTier}
+          bootDeferred={bootDeferred}
           chromeScale={chromeScale}
           chromeSettling={chromeSettling}
           onPick={onPick}
@@ -11153,14 +12435,25 @@ function sameBreakpointMeasuredHeights(
 function areScreenPropsEqual(prev: ScreenProps, next: ScreenProps) {
   return (
     prev.screen === next.screen &&
+    prev.screenRootComputedStyles === next.screenRootComputedStyles &&
+    sameScreenRootComputedStylesById(
+      prev.screen,
+      prev.screenRootComputedStylesById,
+      next.screenRootComputedStylesById,
+    ) &&
     sameBreakpointMeasuredHeights(
       prev.screen,
       prev.measuredIframeHeights,
       next.measuredIframeHeights,
     ) &&
     prev.screenContent === next.screenContent &&
+    prev.bootDeferred === next.bootDeferred &&
+    prev.snapshotHtml === next.snapshotHtml &&
     prev.renderBreakpointContent === next.renderBreakpointContent &&
+    prev.getBootReadyCallback === next.getBootReadyCallback &&
+    prev.getBootStartCallback === next.getBootStartCallback &&
     prev.cullTier === next.cullTier &&
+    prev.isExportPreview === next.isExportPreview &&
     sameResolvedMetadata(prev.metadata, next.metadata) &&
     sameFrameGeometry(prev.geometry, next.geometry) &&
     prev.isActive === next.isActive &&
@@ -11195,6 +12488,21 @@ function areScreenPropsEqual(prev: ScreenProps, next: ScreenProps) {
     prev.onRemoveBreakpoint === next.onRemoveBreakpoint &&
     prev.onChangeBreakpointWidth === next.onChangeBreakpointWidth &&
     prev.onEditBreakpoint === next.onEditBreakpoint
+  );
+}
+
+function sameScreenRootComputedStylesById(
+  screen: ScreenFile,
+  prev: Record<string, Record<string, string>> | undefined,
+  next: Record<string, Record<string, string>> | undefined,
+): boolean {
+  if (prev === next) return true;
+  if (!prev || !next) return false;
+  if (prev[screen.id] !== next[screen.id]) return false;
+  return (screen.breakpointWidths ?? []).every(
+    (widthPx) =>
+      prev[getBreakpointIframeId(screen.id, widthPx)] ===
+      next[getBreakpointIframeId(screen.id, widthPx)],
   );
 }
 
@@ -11237,12 +12545,16 @@ function BreakpointPreviewRow({
   previewUrl,
   srcdocWithHitTest,
   metadata,
+  screenRootComputedStylesById,
   renderBreakpointContent,
+  getBootReadyCallback,
+  getBootStartCallback,
   activeBreakpointWidth,
   isScreenSelected,
   penActive,
   creationToolActive,
   cullTier,
+  bootDeferred,
   chromeScale,
   chromeSettling,
   onPick,
@@ -11278,7 +12590,10 @@ function BreakpointPreviewRow({
    */
   srcdocWithHitTest: string;
   metadata: ResolvedScreenMetadata;
+  screenRootComputedStylesById?: Record<string, Record<string, string>>;
   renderBreakpointContent?: MultiScreenCanvasProps["renderBreakpointContent"];
+  getBootReadyCallback?: ScreenProps["getBootReadyCallback"];
+  getBootStartCallback?: ScreenProps["getBootStartCallback"];
   activeBreakpointWidth: number | undefined;
   /** Whether the OWNING screen (base frame) is the current selection —
    *  mirrors `Screen`'s own `isSelected`, used so a breakpoint frame's chrome
@@ -11290,6 +12605,7 @@ function BreakpointPreviewRow({
    *  previews stay iframe-free, warm offscreen previews remain mounted but
    *  hidden, and visible previews render normally. */
   cullTier: ScreenCullTier;
+  bootDeferred: boolean;
   chromeScale: number;
   chromeSettling: boolean;
   /** BP-DEEP item 5 — click-to-target: picking a breakpoint frame picks its
@@ -11321,6 +12637,8 @@ function BreakpointPreviewRow({
   canEdit?: boolean;
 }) {
   const t = useT();
+  const browserOrigin = useBrowserOrigin();
+  const externalPreviewPendingOrigin = Boolean(previewUrl && !browserOrigin);
   const frameActionLabel = t("designEditor.modes.interact");
   const primaryWidthPx = metadata.width ?? primaryGeometry.width;
   const breakpointWidths = visibleBreakpointWidths(
@@ -11360,13 +12678,23 @@ function BreakpointPreviewRow({
               ),
           });
         const isActive = activeBreakpointWidth === widthPx;
-        const editableContent = renderBreakpointContent?.(screen, metadata, {
-          widthPx,
-          viewportHeight: naturalHeight,
-          displayWidth: frameWidth,
-          displayHeight: frameHeight,
-          active: isActive,
-        });
+        const editableContent = bootDeferred
+          ? undefined
+          : renderBreakpointContent?.(screen, metadata, {
+              widthPx,
+              viewportHeight: naturalHeight,
+              displayWidth: frameWidth,
+              displayHeight: frameHeight,
+              active: isActive,
+              onBootReady: getBootReadyCallback?.(
+                screen.id,
+                `breakpoint:${widthPx}`,
+              ),
+              onBootStart: getBootStartCallback?.(
+                screen.id,
+                `breakpoint:${widthPx}`,
+              ),
+            });
         const currentOffsetX = offsetX;
         offsetX += frameWidth + BREAKPOINT_FRAME_GAP;
         const showBreakpointWidth =
@@ -11389,6 +12717,11 @@ function BreakpointPreviewRow({
           isActive,
           menuOpen: menuOpenForWidth === widthPx,
         });
+        const rootStyles =
+          screenRootComputedStylesById?.[
+            getBreakpointIframeId(screen.id, widthPx)
+          ];
+        const transparentHost = screenRootRequiresTransparentHost(rootStyles);
 
         return (
           <div
@@ -11432,7 +12765,7 @@ function BreakpointPreviewRow({
               }}
               onMouseDown={(e) => {
                 if (e.button !== 0 || penActive || creationToolActive) return;
-                if (e.shiftKey) {
+                if (e.shiftKey && !isScreenSelected) {
                   e.stopPropagation();
                   return;
                 }
@@ -11545,15 +12878,19 @@ function BreakpointPreviewRow({
                                 widthDraft,
                                 breakpointWidths.filter((w) => w !== widthPx),
                               );
+                              if (nextWidthPx === null) return;
                               setMenuOpenForWidth(null);
-                              if (
-                                nextWidthPx !== null &&
-                                nextWidthPx !== widthPx
-                              ) {
+                              if (nextWidthPx !== widthPx) {
                                 onChangeBreakpointWidth(widthPx, nextWidthPx);
                               }
                             }}
-                            className="h-6 px-1.5 !text-[11px] tabular-nums"
+                            aria-invalid={
+                              parseBreakpointWidthInput(
+                                widthDraft,
+                                breakpointWidths.filter((w) => w !== widthPx),
+                              ) === null
+                            }
+                            className="h-6 px-1.5 !text-[11px] tabular-nums aria-invalid:border-destructive"
                             aria-label={t(
                               "designEditor.breakpointBar.changeWidth",
                             )}
@@ -11600,7 +12937,11 @@ function BreakpointPreviewRow({
                 "group/artboard relative block cursor-pointer overflow-visible bg-background text-left outline-none transition-colors",
                 "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
               )}
-              style={{ width: frameWidth, height: frameHeight }}
+              style={{
+                width: frameWidth,
+                height: frameHeight,
+                backgroundColor: transparentHost ? "transparent" : undefined,
+              }}
               onClick={(e) => {
                 e.stopPropagation();
                 activateThisFrame(e);
@@ -11617,7 +12958,7 @@ function BreakpointPreviewRow({
               }}
               onMouseDown={(e) => {
                 if (e.button !== 0 || penActive || creationToolActive) return;
-                if (e.shiftKey) {
+                if (e.shiftKey && !isScreenSelected) {
                   e.stopPropagation();
                   return;
                 }
@@ -11663,8 +13004,16 @@ function BreakpointPreviewRow({
                 data-screen-content
                 data-cull-tier={cullTier}
                 className="relative block h-full w-full overflow-hidden rounded-[inherit] bg-white ring-1 ring-inset ring-border"
+                style={{
+                  backgroundColor: transparentHost ? "transparent" : undefined,
+                  borderRadius: rootStyles?.borderRadius,
+                  borderTopLeftRadius: rootStyles?.borderTopLeftRadius,
+                  borderTopRightRadius: rootStyles?.borderTopRightRadius,
+                  borderBottomRightRadius: rootStyles?.borderBottomRightRadius,
+                  borderBottomLeftRadius: rootStyles?.borderBottomLeftRadius,
+                }}
               >
-                {!shouldMountContent ? (
+                {!shouldMountContent || bootDeferred ? (
                   <div
                     data-breakpoint-placeholder
                     aria-hidden="true"
@@ -11676,7 +13025,7 @@ function BreakpointPreviewRow({
                   </div>
                 ) : editableContent ? (
                   editableContent
-                ) : (
+                ) : externalPreviewPendingOrigin ? null : (
                   <iframe
                     // Distinct id per breakpoint sub-frame — the primary iframe
                     // above uses the bare screen id, so without a suffix here
@@ -11698,7 +13047,22 @@ function BreakpointPreviewRow({
                     }}
                     src={previewUrl}
                     srcDoc={previewUrl ? undefined : srcdocWithHitTest}
-                    sandbox="allow-scripts"
+                    sandbox={getDesignCanvasIframeSandbox({
+                      externalPreview: Boolean(previewUrl),
+                      readOnly: true,
+                      previewUrl,
+                      parentOrigin: browserOrigin ?? undefined,
+                    })}
+                    onLoad={() => {
+                      getBootStartCallback?.(
+                        screen.id,
+                        `breakpoint:${widthPx}`,
+                      )?.();
+                      getBootReadyCallback?.(
+                        screen.id,
+                        `breakpoint:${widthPx}`,
+                      )?.();
+                    }}
                     loading={cullTier === "visible" ? "eager" : "lazy"}
                     className="pointer-events-none border-0"
                     style={{
@@ -11714,7 +13078,7 @@ function BreakpointPreviewRow({
                       transformOrigin: "top left",
                       backgroundColor: "white",
                       colorScheme: "light",
-                      backfaceVisibility: "hidden",
+                      ...SCALED_IFRAME_PAINT_RETENTION_STYLE,
                     }}
                     title={`${screen.filename} — ${breakpointLabel(widthPx)}`}
                   />
@@ -11956,7 +13320,7 @@ function PassiveSelectionBox({
             <span
               key={config.handle}
               data-passive-resize-handle={config.handle}
-              className="pointer-events-none absolute z-20 rounded-[2px] border border-[var(--design-editor-accent-color)] bg-[var(--design-editor-accent-contrast-color)] shadow"
+              className="pointer-events-none absolute z-20 rounded-none border border-[var(--design-editor-accent-color)] bg-[var(--design-editor-accent-contrast-color)] shadow"
               style={cornerHandleStyle(
                 config.handle,
                 config.cursor,
@@ -12079,7 +13443,7 @@ function ResizeHandles({
   if (!enabled) return null;
 
   const visibleHandleClass = cn(
-    "pointer-events-auto absolute z-20 rounded-[2px] border border-[var(--design-editor-accent-color)] bg-[var(--design-editor-accent-contrast-color)] shadow transition-opacity",
+    "pointer-events-auto absolute z-20 rounded-none border border-[var(--design-editor-accent-color)] bg-[var(--design-editor-accent-contrast-color)] shadow transition-opacity",
     active
       ? "opacity-100"
       : cn(

@@ -155,7 +155,11 @@ export async function runLoomImportJob({
 
   let media: Awaited<ReturnType<typeof downloadLoomVideo>> | null = null;
   try {
-    media = await downloadLoomVideo({ loomId, shareUrl });
+    media = await downloadLoomVideo({
+      loomId,
+      shareUrl,
+      expectedDurationMs: recording.durationMs,
+    });
     console.log("[loom-import] download complete", {
       recordingId,
       bytes: media.sizeBytes,
@@ -164,10 +168,13 @@ export async function runLoomImportJob({
   } catch (err) {
     // Loom's public player can work even when the viewer's role cannot export MP4.
     if (err instanceof LoomVideoUnavailableError) {
-      console.warn("[loom-import] MP4 unavailable; keeping Loom embed", {
-        recordingId,
-        loomId,
-      });
+      console.warn(
+        "[loom-import] MP4 unavailable or could not be verified; keeping Loom embed",
+        {
+          recordingId,
+          loomId,
+        },
+      );
     } else {
       return failLoomImport(
         recordingId,

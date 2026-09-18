@@ -79,6 +79,7 @@ const messages = {
     createFolderError: "فشل الإنشاء",
     folderCreated: "تم إنشاء المجلد",
     folderNamePlaceholder: "اسم المجلد",
+    breadcrumbBack: "العودة إلى {{label}}",
   },
   empty: {
     library: {
@@ -651,6 +652,7 @@ const messages = {
     organizationFallback: "المؤسسة",
     saving: "جارٍ الحفظ…",
     save: "حفظ",
+    saved: "تم الحفظ",
   },
   downloadRoute: {
     pageTitle: "تحميل Clips Desktop",
@@ -1844,6 +1846,13 @@ const messages = {
     capturedFrom: "تم الالتقاط من {{source}}",
     browserCapture: "التقاط المتصفح",
     views: "طرق عرض التشخيص",
+    timeline: "الخط الزمني",
+    navigation: "التنقل",
+    click: "نقرة",
+    input: "إدخال",
+    scroll: "تمرير",
+    requestStarted: "بدء الطلب",
+    responseReceived: "تم استلام الاستجابة",
     issues: "المشكلات",
     consoleSource: "وحدة التحكم",
     networkSource: "الشبكة",

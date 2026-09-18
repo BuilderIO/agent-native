@@ -18,6 +18,7 @@
  * — it can be bundled into the serverless function alongside `mountMCP`.
  */
 
+import "../authorization/check-action.js";
 import type {
   CallToolResult,
   InputRequiredResult,
@@ -1188,7 +1189,7 @@ function safeUiSegment(value: string | undefined, fallback: string): string {
 
 // ChatGPT and Claude cache MCP App resource HTML by `ui://` URI. Bump this
 // when the shared shell changes in a way that must invalidate host caches.
-const MCP_APP_RESOURCE_SHELL_VERSION = "shell-v64";
+const MCP_APP_RESOURCE_SHELL_VERSION = "shell-v65";
 
 function legacyDefaultMcpAppUri(config: MCPConfig, actionName: string): string {
   const app = safeUiSegment(config.appId ?? config.name, "agent-native");

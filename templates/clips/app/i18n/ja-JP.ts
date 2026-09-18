@@ -81,6 +81,7 @@ const messages = {
     createFolderError: "作成に失敗しました",
     folderCreated: "フォルダを作成しました",
     folderNamePlaceholder: "フォルダ名",
+    breadcrumbBack: "{{label}}に戻る",
   },
   empty: {
     library: {
@@ -659,6 +660,7 @@ const messages = {
     organizationFallback: "組織",
     saving: "保存中…",
     save: "保存",
+    saved: "保存済み",
   },
   downloadRoute: {
     pageTitle: "ダウンロード",
@@ -1869,6 +1871,13 @@ const messages = {
     capturedFrom: "{{source}} から取得",
     browserCapture: "ブラウザキャプチャ",
     views: "診断ビュー",
+    timeline: "タイムライン",
+    navigation: "ナビゲーション",
+    click: "クリック",
+    input: "入力",
+    scroll: "スクロール",
+    requestStarted: "リクエスト開始",
+    responseReceived: "レスポンス受信",
     issues: "問題",
     consoleSource: "コンソール",
     networkSource: "ネットワーク",

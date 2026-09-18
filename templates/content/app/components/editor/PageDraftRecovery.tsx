@@ -1,14 +1,17 @@
+import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { useT } from "@agent-native/core/client/i18n";
 import type { Document } from "@shared/api";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type ReactNode } from "react";
+import { useNavigate } from "react-router";
+import { toast } from "sonner";
 
 import { QueryErrorState } from "@/components/QueryErrorState";
-import { Button } from "@/components/ui/button";
 import {
   documentQueryFilter,
   isDocumentUpdateConflict,
   usePreviewDocumentDraft,
+  useResolvePreviewDocumentDraft,
   useUpdateDocument,
   useUpdatePreviewDocumentDraft,
 } from "@/hooks/use-documents";
@@ -16,6 +19,9 @@ import { isDocumentCreationPending } from "@/lib/optimistic-document";
 
 import { documentBodyHydrationIsPending } from "./body-hydration";
 import { DocumentEditorSkeleton } from "./DocumentEditorSkeleton";
+import { RecoveryComparison } from "./RecoveryComparison";
+
+type DraftRecoveryFailure = "conflict" | "error";
 
 export function PageDraftRecovery({
   document,
@@ -25,6 +31,7 @@ export function PageDraftRecovery({
   children: ReactNode;
 }) {
   const t = useT();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   // Optimistic creation navigates to /page/<id> before create-document commits,
   // so while that mark is set the row does not exist yet. Querying then fails
@@ -39,6 +46,7 @@ export function PageDraftRecovery({
   });
   const update = useUpdateDocument();
   const updateDraft = useUpdatePreviewDocumentDraft();
+  const resolveDraft = useResolvePreviewDocumentDraft();
   const [releasedDocumentId, setReleasedDocumentId] = useState<string | null>(
     null,
   );
@@ -46,13 +54,16 @@ export function PageDraftRecovery({
     if (drafts.data?.draft === null) setReleasedDocumentId(document.id);
   }, [document.id, drafts.data]);
   const [busy, setBusy] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [failure, setFailure] = useState<DraftRecoveryFailure | null>(null);
+  const [conflictDocument, setConflictDocument] = useState<Document | null>(
+    null,
+  );
   const draft = drafts.data?.draft;
 
   async function settleDraft(restore: boolean) {
     if (!draft || busy) return;
     setBusy(true);
-    setFailed(false);
+    setFailure(null);
     try {
       if (
         restore &&
@@ -69,11 +80,12 @@ export function PageDraftRecovery({
           loadedUpdatedAt: draft.baseDocumentUpdatedAt,
           loadedContentWasEmpty: draft.loadedContentWasEmpty === 1,
         });
-        if (
-          isDocumentUpdateConflict(saved) ||
-          saved.content !== draft.content ||
-          saved.title !== draft.title
-        ) {
+        if (isDocumentUpdateConflict(saved)) {
+          setFailure("conflict");
+          setConflictDocument(saved.document);
+          return;
+        }
+        if (saved.content !== draft.content || saved.title !== draft.title) {
           throw new Error("Draft restoration was not confirmed.");
         }
       }
@@ -91,7 +103,49 @@ export function PageDraftRecovery({
       await queryClient.refetchQueries(documentQueryFilter(document.id));
       await drafts.refetch();
     } catch {
-      setFailed(true);
+      setFailure("error");
+      await drafts.refetch();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function resolveConflict(
+    choice: "keep_mine" | "use_saved" | "save_separately",
+  ) {
+    if (!draft || busy) return;
+    setBusy(true);
+    setFailure(null);
+    try {
+      const result = await resolveDraft.mutateAsync({
+        choice,
+        documentId: document.id,
+        expectedDraftVersion: draft.version,
+        expectedDraftTitle: draft.title,
+        expectedDraftContent: draft.content,
+        expectedDocumentUpdatedAt:
+          conflictDocument?.updatedAt ?? document.updatedAt,
+      });
+      if (result.status === "document_conflict") {
+        setFailure("conflict");
+        setConflictDocument(result.document ?? null);
+        return;
+      }
+      if (choice === "use_saved")
+        toast.success(t("editor.previewDraftSavedToHistory"));
+      if (choice === "save_separately")
+        toast.success(t("editor.previewDraftSavedSeparately"), {
+          action: result.urlPath
+            ? {
+                label: t("editor.previewDraftOpenSavedPage"),
+                onClick: () => void navigate(result.urlPath!),
+              }
+            : undefined,
+        });
+      await queryClient.refetchQueries(documentQueryFilter(document.id));
+      await drafts.refetch();
+    } catch {
+      setFailure("error");
       await drafts.refetch();
     } finally {
       setBusy(false);
@@ -108,39 +162,34 @@ export function PageDraftRecovery({
     );
   if (!drafts.data) return <DocumentEditorSkeleton title={document.title} />;
   if (!draft) return children;
+  const savedVersion = conflictDocument ?? document;
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-6">
-      <h2 className="text-sm font-semibold">
-        {t("editor.previewDraftRecovery")}
-      </h2>
-      <div className="rounded-md border p-3">
-        <p className="font-medium break-words">{draft.title}</p>
-        <pre className="mt-2 whitespace-pre-wrap break-words text-sm">
-          {draft.content}
-        </pre>
-      </div>
-      {failed ? (
-        <p role="alert" className="text-sm text-destructive">
-          {t("empty.genericError")}
-        </p>
-      ) : null}
-      <div className="flex flex-wrap gap-2">
-        <Button
-          size="sm"
-          disabled={busy || documentBodyHydrationIsPending(document)}
-          onClick={() => void settleDraft(true)}
-        >
-          {t("editor.restorePreviewDraft")}
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={busy}
-          onClick={() => void settleDraft(false)}
-        >
-          {t("editor.discardPreviewDraft")}
-        </Button>
-      </div>
-    </div>
+    <RecoveryComparison
+      mine={{ title: draft.title, content: draft.content }}
+      saved={{ title: savedVersion.title, content: savedVersion.content }}
+      busy={busy}
+      keepMineDisabled={documentBodyHydrationIsPending(document)}
+      failure={
+        failure === "conflict"
+          ? t("editor.previewDraftConflict")
+          : failure === "error"
+            ? t("empty.genericError")
+            : null
+      }
+      onKeepMine={() => {
+        if (documentBodyHydrationIsPending(document)) return;
+        if (failure === "conflict" || draft.deferredReason === "conflict")
+          void resolveConflict("keep_mine");
+        else void settleDraft(true);
+      }}
+      onUseSaved={() => void resolveConflict("use_saved")}
+      onSaveSeparately={() => void resolveConflict("save_separately")}
+      onCopy={() => {
+        void writeClipboardText(draft.content).then((copied) => {
+          if (copied) toast.success(t("editor.unsavedTextCopied"));
+          else toast.error(t("editor.toolbar.clipboardAccessUnavailable"));
+        });
+      }}
+    />
   );
 }

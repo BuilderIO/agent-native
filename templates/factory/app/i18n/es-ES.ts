@@ -121,7 +121,10 @@ const messages = {
         stuck: "Atascado",
         clean: "Limpio",
         ineligible: "No elegible",
+        merged: "Fusionado en GitHub",
         reopened: "Reabierto tras actualización",
+        mergeable_as_of:
+          "Mergeable; Factory no volverá a pingear a Builder en esta rama.",
       },
       slack: {
         claimed: "Reclamado",
@@ -360,6 +363,8 @@ const messages = {
     auditBabysitCiBlocking: "CI bloqueante",
     auditBabysitVeto: "Veto",
     auditTrace: "Rastro",
+    auditRunPromptVersion: "Prompt v{{version}}",
+    auditRunPromptHash: "Hash {{hash}}",
     auditWhy: "Por qué",
     auditWhatHappened: "Qué ocurrió",
     auditInspectedOnly: "Solo inspeccionado",
@@ -382,6 +387,9 @@ const messages = {
     auditSkipped: "{{count}} omitidos",
     auditStartedCount: "{{count}} iniciados",
     auditSeenBefore: "Ya visto",
+    auditMergedOnGitHub: "Fusionado en GitHub",
+    auditClosedOnGitHub: "Cerrado en GitHub",
+    auditDraftOnGitHub: "Borrador en GitHub",
     auditNewThisRun: "Nuevo",
     auditAlreadyStarted: "Ya iniciado",
     historyTab: "Historial",
@@ -510,14 +518,13 @@ const messages = {
     automationWorkLimitDescription:
       "Cuántos elementos trata el agente por ejecución. Máximo 10.",
     automationGuardrails: "Protecciones",
+    automationSkillAlignment: "Alineación de skill",
     automationGuardrailsDescription:
       "Inyectado por Factory. El prompt no puede cambiar estas reglas.",
     automationGuardrailsSummary:
       "Añade hasta {{inbox}} · trabaja {{work}} por ejecución",
     automationGuardrailsPlaceholder:
       "Factory inyectará el alcance y los límites aquí.",
-    automationPromptDescription:
-      "Qué debe hacer esta ejecución, además de las reglas de arriba.",
     automationDisplayNameDescription:
       "Se muestra en la lista de automatizaciones.",
     automationModelDescription: "Modelo que usa este trabajo programado.",
@@ -547,6 +554,27 @@ const messages = {
     pastRuns: "Ejecuciones anteriores",
     pastRunsEmpty: "Aún no hay ejecuciones registradas.",
     saveAutomation: "Guardar",
+    automationUnsavedChanges: "Cambios de automatización sin guardar",
+    automationDiscardChanges: "Descartar",
+    automationCurrentSaved: "Actual (guardado)",
+    automationCurrentSavedShort: "Versión {{version}}",
+    automationNoSavedVersions: "No hay versiones guardadas",
+    automationVersionPickerLabel: "Versiones",
+    automationVersionsLoading: "Cargando versiones…",
+    automationVersionsLoadFailed:
+      "No se pudo cargar el historial de versiones.",
+    automationVersionLoadFailed: "No se pudo cargar esa versión.",
+    automationVersionAppliedToDraft:
+      "Versión v{{promptVersion}} cargada en el borrador. Guarda para persistir.",
+    automationSavedVersion: "Versión {{version}}",
+    automationVersionRowDetail: "v{{promptVersion}} · guardado {{savedAt}}",
+    automationVersionDeleteLabel: "Eliminar esta versión",
+    automationVersionDeleteTitle: "¿Eliminar {{label}}?",
+    automationVersionDeleteWarning: "Esto no se puede deshacer.",
+    automationVersionDeleteCancel: "Cancelar",
+    automationVersionDeleteConfirm: "Eliminar versión",
+    automationVersionDeleted: "Versión eliminada.",
+    automationVersionDeleteFailed: "No se pudo eliminar esa versión.",
     automationSaved: "Guardado",
     automationSaveFailed: "No se pudo guardar la automatización.",
     automationRunFailed: "No se pudo ejecutar la automatización.",

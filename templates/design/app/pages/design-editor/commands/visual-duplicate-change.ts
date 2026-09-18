@@ -8,7 +8,11 @@ import type * as Y from "yjs";
 
 import type { ElementInfo } from "@/components/design/types";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
-import { insertClonedHtmlLayer } from "@/pages/design-editor/clone-and-pen-edit";
+import {
+  planLinkedComponentStructureClone,
+  insertClonedHtmlLayer,
+  type ComponentCloneBatchContext,
+} from "@/pages/design-editor/clone-and-pen-edit";
 import {
   bridgeSourceIdForCodeLayerNode,
   codeLayerSelectorAliases,
@@ -22,10 +26,16 @@ import {
   stampYjsUndoSelection,
   type YjsUndoSelectionSnapshot,
 } from "@/pages/design-editor/history";
+import type { GeometryHistorySelection } from "@/pages/design-editor/history";
+import { captureHistorySelectionSources } from "@/pages/design-editor/history-identity";
 import type { DesignFile } from "@/pages/design-editor/types";
+
+import type { ApplyLinkedComponentEdit } from "./linked-component-structure";
 
 export interface VisualDuplicateChangeArgs {
   activeFile: DesignFile;
+  applyLinkedComponentEdit?: ApplyLinkedComponentEdit;
+  componentLinks?: ComponentCloneBatchContext;
   applyLocalContentUpdate: (
     nextContent: string,
     options?: {
@@ -43,6 +53,11 @@ export interface VisualDuplicateChangeArgs {
   ) => void;
   canEditDesign: boolean;
   getFreshActiveContent: () => string;
+  remapMotionTracksForClone?: (
+    nodeIdMap: Map<string, string>,
+    targetFileId: string,
+  ) => void;
+  selectionBefore?: GeometryHistorySelection;
   selectedElement: ElementInfo | null;
   selectedLayerIdsState: string[];
   setSelectedElement: Dispatch<SetStateAction<ElementInfo | null>>;
@@ -72,9 +87,13 @@ export function isCodeLayerNodeOrDescendant(
 export function runVisualDuplicateChange(
   {
     activeFile,
+    applyLinkedComponentEdit,
+    componentLinks,
     applyLocalContentUpdate,
     canEditDesign,
     getFreshActiveContent,
+    remapMotionTracksForClone,
+    selectionBefore,
     selectedElement,
     selectedLayerIdsState,
     setSelectedElement,
@@ -87,15 +106,24 @@ export function runVisualDuplicateChange(
   elementInfo?: ElementInfo,
   details?: {
     sourceId?: string;
+    sourceNodeIdMap?: readonly (readonly [string, string])[] | null;
     anchorSelector?: string;
     anchorSourceId?: string;
     placement?: "before" | "after" | "inside";
   },
 ) {
+  let structureUnsupported = false;
+  const onUnsupportedStructure = () => {
+    structureUnsupported = true;
+    toast.error(
+      t("designEditor.componentInstances.linkedStructureUnsupported"),
+    );
+  };
   if (!canEditDesign) return false;
   if (!activeFile) return false;
   const baseContent = getFreshActiveContent();
-  const projection = buildCodeLayerProjection(baseContent);
+  const source = { kind: "design-file" as const, fileId: activeFile.id };
+  const projection = buildCodeLayerProjection(baseContent, { source });
   const targetInfo = elementInfo
     ? {
         ...elementInfo,
@@ -134,7 +162,8 @@ export function runVisualDuplicateChange(
   const effectivePlacement = anchorNestedInTarget
     ? "after"
     : (details?.placement ?? "after");
-  const nextContent = insertClonedHtmlLayer(baseContent, cloneHtml, {
+  const cloneOptions = {
+    onUnsupportedStructure,
     targetSelectors: targetNode
       ? codeLayerSelectorAliases(targetNode)
       : [selector],
@@ -145,7 +174,53 @@ export function runVisualDuplicateChange(
         : undefined,
     placement: effectivePlacement,
     preserveIncomingNodeIds: true,
-  });
+    componentLinks: componentLinks
+      ? {
+          ...componentLinks,
+          sourceNodeIdMaps: [details?.sourceNodeIdMap],
+        }
+      : undefined,
+  };
+  const linkedPlan = applyLinkedComponentEdit
+    ? planLinkedComponentStructureClone(baseContent, [cloneHtml], cloneOptions)
+    : null;
+  if (linkedPlan && applyLinkedComponentEdit) {
+    const linkedSelectionBefore =
+      targetNode && selectionBefore
+        ? captureHistorySelectionSources(
+            {
+              ...selectionBefore,
+              activeFileId: activeFile.id,
+              selectedLayerIds: [targetNode.id],
+            },
+            {
+              ...selectionBefore.sourceContentByFileId,
+              [activeFile.id]: baseContent,
+            },
+          )
+        : selectionBefore;
+    applyLinkedComponentEdit(
+      activeFile.id,
+      linkedPlan.targetNodeId,
+      {
+        kind: "structure",
+        before: linkedPlan.mainBefore,
+        after: linkedPlan.mainAfter,
+        selectionNodeIds: linkedPlan.selectionNodeIds,
+      },
+      linkedSelectionBefore,
+      remapMotionTracksForClone
+        ? () => remapMotionTracksForClone(linkedPlan.nodeIdMap, activeFile.id)
+        : undefined,
+    );
+    return true;
+  }
+  const nextContent = insertClonedHtmlLayer(
+    baseContent,
+    cloneHtml,
+    cloneOptions,
+  );
+  if (structureUnsupported) return false;
   if (!nextContent) {
     toast.error(t("designEditor.toasts.layerMoveFailed"), {
       duration: 4000,
@@ -177,6 +252,7 @@ export function runVisualDuplicateChange(
   applyLocalContentUpdate(nextContent, {
     refreshPreview: false,
     forcePreviewFullDocument: true,
+    historyBeforeContent: baseContent,
     // Covers the write landing on the NON-Yjs local fallback stack (the
     // Yjs UndoManager isn't ready yet — e.g. `!isSynced` right after a
     // fresh page load). The stampYjsUndoSelection call below covers the
@@ -189,7 +265,7 @@ export function runVisualDuplicateChange(
     undoStackTopBeforeDuplicate,
     selectionBeforeDuplicate,
   );
-  const nextProjection = buildCodeLayerProjection(nextContent);
+  const nextProjection = buildCodeLayerProjection(nextContent, { source });
   const nextNode = elementInfo
     ? resolveCodeLayerNodeFromElementInfo(nextProjection, elementInfo)
     : null;

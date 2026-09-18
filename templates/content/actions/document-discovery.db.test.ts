@@ -2,7 +2,9 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { closeDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
+import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const TEST_DB_PATH = join(
@@ -79,11 +81,445 @@ beforeAll(async () => {
   }
 }, 60_000);
 
-afterAll(() => {
+afterAll(async () => {
+  await closeDbExec();
   rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 describe("bounded document discovery", () => {
+  it("matches case-insensitively while treating wildcard input literally", async () => {
+    await getDb().insert(schema.documents).values({
+      id: "search-literal",
+      ownerEmail: OWNER,
+      title: "Literal 100%_ Match",
+    });
+    const result = await asUser(OWNER, () =>
+      searchDocuments.run({
+        query: "literal 100%_ match",
+        searchFields: "title",
+        limit: 8,
+        offset: 0,
+      }),
+    );
+    expect(result.documents.map((doc) => doc.id)).toEqual(["search-literal"]);
+    const ordinary = await asUser(OWNER, () =>
+      searchDocuments.run({
+        query: "BOUNDED DOCUMENT",
+        searchFields: "title",
+        limit: 8,
+        offset: 0,
+      }),
+    );
+    expect(ordinary.pagination.totalItems).toBe(203);
+  });
+
+  it("supports quoted phrases, exclusions, OR, intitle:, and implicit AND", async () => {
+    await getDb()
+      .insert(schema.documents)
+      .values([
+        {
+          id: "search-bool-phrase",
+          ownerEmail: OWNER,
+          title: "Launch plan",
+          content: "The status hub report is new.",
+        },
+        {
+          id: "search-bool-scatter",
+          ownerEmail: OWNER,
+          title: "Scattered words",
+          content: "status report with hub later.",
+        },
+        {
+          id: "search-bool-draft",
+          ownerEmail: OWNER,
+          title: "Drafted",
+          content: "status hub with draft edits.",
+        },
+        {
+          id: "search-bool-memo",
+          ownerEmail: OWNER,
+          title: "Reminder",
+          content: "a memo without other words.",
+        },
+      ]);
+    const ids = (result: { documents: { id: string }[] }) =>
+      result.documents.map((doc) => doc.id).sort();
+    const run = (query: string, extra?: Record<string, unknown>) =>
+      asUser(OWNER, () =>
+        searchDocuments.run({ query, limit: 20, offset: 0, ...extra }),
+      );
+
+    expect(ids(await run('"status hub"'))).toEqual([
+      "search-bool-draft",
+      "search-bool-phrase",
+    ]);
+    expect(ids(await run("status hub"))).toEqual([
+      "search-bool-draft",
+      "search-bool-phrase",
+      "search-bool-scatter",
+    ]);
+    expect(ids(await run("status -draft"))).toEqual([
+      "search-bool-phrase",
+      "search-bool-scatter",
+    ]);
+    expect(ids(await run('status -"hub with"'))).toEqual([
+      "search-bool-phrase",
+      "search-bool-scatter",
+    ]);
+    expect(ids(await run("draft OR memo"))).toEqual([
+      "search-bool-draft",
+      "search-bool-memo",
+    ]);
+    expect(ids(await run('"status hub" OR memo'))).toEqual([
+      "search-bool-draft",
+      "search-bool-memo",
+      "search-bool-phrase",
+    ]);
+    expect(ids(await run("intitle:plan"))).toEqual(["search-bool-phrase"]);
+    expect(ids(await run('"plan launch"'))).toEqual([]);
+    expect((await run("-")).documents).toEqual([]);
+  });
+
+  it("anchors deep-match snippets at the matching context, not the head", async () => {
+    await getDb()
+      .insert(schema.documents)
+      .values({
+        id: "search-deep-window",
+        ownerEmail: OWNER,
+        title: "Deep window",
+        content: `STARK-HEAD ${"filler ".repeat(1000)}abyssal-giraffe-sonata buried deep`,
+      });
+    const plain = await asUser(OWNER, () =>
+      searchDocuments.run({
+        query: "abyssal-giraffe-sonata",
+        limit: 10,
+        offset: 0,
+      }),
+    );
+    const quoted = await asUser(OWNER, () =>
+      searchDocuments.run({
+        query: '"abyssal-giraffe-sonata"',
+        limit: 10,
+        offset: 0,
+      }),
+    );
+    for (const result of [plain, quoted]) {
+      expect(result.documents.map((doc) => doc.id)).toEqual([
+        "search-deep-window",
+      ]);
+      expect(result.documents[0]?.snippet).toContain("abyssal-giraffe-sonata");
+      expect(result.documents[0]?.snippet).not.toContain("STARK-HEAD");
+    }
+  });
+
+  it("maps a non-null snippet needle for title and body matches with a null body", async () => {
+    await getDb().execute(
+      sql`alter table ${schema.documents} alter column content drop not null`,
+    );
+    await getDb().execute(sql`
+      insert into ${schema.documents} (id, owner_email, title, content) values
+        ('search-null-body', ${OWNER}, 'Nullable body match', null),
+        ('search-populated-body', ${OWNER}, 'Companion page', 'prefix nullable body match suffix')
+    `);
+
+    const result = await asUser(OWNER, () =>
+      searchDocuments.run({
+        query: "Nullable body match",
+        searchFields: "all",
+        limit: 20,
+        offset: 0,
+      }),
+    );
+    const byId = new Map(
+      result.documents.map((document) => [document.id, document]),
+    );
+
+    expect(byId.get("search-null-body")).toMatchObject({
+      snippet: "",
+      contentLength: 0,
+    });
+    expect(byId.get("search-populated-body")).toMatchObject({
+      snippet: "prefix nullable body match suffix",
+      contentLength: 33,
+    });
+  });
+
+  it("selects the earliest present eligible body needle per result", async () => {
+    const filler = "filler ".repeat(1000);
+    await getDb()
+      .insert(schema.documents)
+      .values([
+        {
+          id: "search-body-needle-choice",
+          ownerEmail: OWNER,
+          title: "Needle choice title",
+          content: `STARK-HEAD ${filler}earlier-body then later-query`,
+        },
+        {
+          id: "search-body-negative",
+          ownerEmail: OWNER,
+          title: "Negative phrase candidate",
+          content: `${filler}positive phrase without the excluded wording`,
+        },
+        {
+          id: "search-body-title-fallback",
+          ownerEmail: OWNER,
+          title: "Title fallback marker",
+          content: `BOUNDED-HEAD ${filler}deep-tail-marker`,
+        },
+      ]);
+    const run = (query: string, extra?: Record<string, unknown>) =>
+      asUser(OWNER, () =>
+        searchDocuments.run({ query, limit: 20, offset: 0, ...extra }),
+      );
+
+    const missingLeftOr = await run(
+      "missing-left OR later-query OR earlier-body",
+    );
+    expect(missingLeftOr.documents).toHaveLength(1);
+    expect(missingLeftOr.documents[0]?.snippet).toContain("earlier-body");
+    expect(missingLeftOr.documents[0]?.snippet).toContain("later-query");
+    expect(missingLeftOr.documents[0]?.snippet).not.toContain("STARK-HEAD");
+
+    const intitleFirst = await run('intitle:"Needle choice" "later-query"');
+    expect(intitleFirst.documents).toHaveLength(1);
+    expect(intitleFirst.documents[0]?.snippet).toContain("later-query");
+    expect(intitleFirst.documents[0]?.snippet).not.toContain("STARK-HEAD");
+
+    const withNegativePhrase = await run(
+      '"positive phrase" -"never present negative"',
+    );
+    expect(withNegativePhrase.documents.map((doc) => doc.id)).toEqual([
+      "search-body-negative",
+    ]);
+    expect(withNegativePhrase.documents[0]?.snippet).toContain(
+      "positive phrase",
+    );
+
+    const titleOnly = await run("Title fallback marker", {
+      searchFields: "title",
+    });
+    expect(titleOnly.documents[0]?.snippet).toContain("BOUNDED-HEAD");
+    expect(titleOnly.documents[0]?.snippet).not.toContain("deep-tail-marker");
+    const exactTitle = await asUser(OWNER, () =>
+      searchDocuments.run({
+        exactTitle: "Title fallback marker",
+        limit: 20,
+        offset: 0,
+      }),
+    );
+    expect(exactTitle.documents[0]?.snippet).toContain("BOUNDED-HEAD");
+    expect(exactTitle.documents[0]?.snippet).not.toContain("deep-tail-marker");
+  });
+
+  it("handles many parameterized body needles without changing selection", async () => {
+    const absentTerms = Array.from(
+      { length: 100 },
+      (_, index) => `absent-${index}`,
+    );
+    await getDb()
+      .insert(schema.documents)
+      .values({
+        id: "search-many-body-needles",
+        ownerEmail: OWNER,
+        title: "Many body needles",
+        content: `STARK-HEAD ${"filler ".repeat(1000)}earliest-present then later-present`,
+      });
+
+    const result = await asUser(OWNER, () =>
+      searchDocuments.run({
+        query: [...absentTerms, "later-present", "earliest-present"].join(
+          " OR ",
+        ),
+        limit: 20,
+        offset: 0,
+      }),
+    );
+
+    expect(result.documents.map((doc) => doc.id)).toEqual([
+      "search-many-body-needles",
+    ]);
+    expect(result.documents[0]?.snippet).toContain("earliest-present");
+    expect(result.documents[0]?.snippet).toContain("later-present");
+    expect(result.documents[0]?.snippet).not.toContain("STARK-HEAD");
+  });
+
+  it("keeps SQL-looking, quoted, and backslash body needles parameterized", async () => {
+    const needle = String.raw`x'); DROP TABLE documents; -- \path_100%`;
+    await getDb()
+      .insert(schema.documents)
+      .values({
+        id: "search-sql-looking-needle",
+        ownerEmail: OWNER,
+        title: "Parameterized needle",
+        content: `STARK-HEAD ${"filler ".repeat(1000)}${needle} remains text`,
+      });
+
+    const result = await asUser(OWNER, () =>
+      searchDocuments.run({
+        query: `"${needle}"`,
+        limit: 20,
+        offset: 0,
+      }),
+    );
+
+    expect(result.documents.map((doc) => doc.id)).toEqual([
+      "search-sql-looking-needle",
+    ]);
+    expect(result.documents[0]?.snippet).toContain(needle);
+    expect(result.documents[0]?.snippet).not.toContain("STARK-HEAD");
+  });
+
+  it("compares modified-date bounds as timestamps rather than text", async () => {
+    await getDb().insert(schema.documents).values({
+      id: "search-space-timestamp",
+      ownerEmail: OWNER,
+      title: "Space timestamp",
+      content: "needle payload timestamp",
+      updatedAt: "2026-01-15 10:30:00+00",
+    });
+    const result = await asUser(OWNER, () =>
+      searchDocuments.run({
+        query: "needle payload timestamp",
+        modifiedAfter: "2026-01-01T00:00:00.000Z",
+        modifiedBefore: "2026-02-01T00:00:00.000Z",
+        limit: 20,
+        offset: 0,
+      }),
+    );
+    expect(result.documents.map((doc) => doc.id)).toContain(
+      "search-space-timestamp",
+    );
+  });
+
+  it("filters title and modified date before pagination and returns authorized parent context", async () => {
+    const first = await asUser(OWNER, () =>
+      searchDocuments.run({
+        query: "Bounded document",
+        searchFields: "title",
+        spaceId: SPACE_ID,
+        modifiedAfter: "2020-01-01T00:00:00.000Z",
+        modifiedBefore: "2100-01-01T00:00:00.000Z",
+        documentType: "page",
+        limit: 8,
+        offset: 0,
+      }),
+    );
+    const later = await asUser(OWNER, () =>
+      searchDocuments.run({
+        query: "Bounded document",
+        searchFields: "title",
+        spaceId: SPACE_ID,
+        modifiedAfter: "2020-01-01T00:00:00.000Z",
+        modifiedBefore: "2100-01-01T00:00:00.000Z",
+        documentType: "page",
+        limit: 8,
+        offset: first.pagination.nextOffset!,
+      }),
+    );
+    expect(first.pagination.totalItems).toBe(203);
+    expect(later.documents).toHaveLength(8);
+    expect(
+      later.documents.some((doc) =>
+        first.documents.some((prior) => prior.id === doc.id),
+      ),
+    ).toBe(false);
+    expect(first.documents[0]).toMatchObject({
+      parentTitle: "Discovery parent",
+      documentType: "page",
+    });
+    const bodyOnly = await asUser(OWNER, () =>
+      searchDocuments.run({
+        query: "needle payload",
+        searchFields: "title",
+        limit: 8,
+        offset: 0,
+      }),
+    );
+    expect(bodyOnly.pagination.totalItems).toBe(0);
+    const future = await asUser(OWNER, () =>
+      searchDocuments.run({
+        query: "Bounded document",
+        modifiedAfter: "2100-01-01T00:00:00.000Z",
+        limit: 8,
+        offset: 0,
+      }),
+    );
+    expect(future.pagination.totalItems).toBe(0);
+  });
+
+  it("does not disclose a private parent through an independently visible child", async () => {
+    await getDb().insert(schema.documents).values({
+      id: "search-shared-child",
+      parentId: PARENT_ID,
+      ownerEmail: OUTSIDER,
+      title: "Independent child match",
+      content: "child excerpt",
+      visibility: "private",
+    });
+    const result = await asUser(OUTSIDER, () =>
+      searchDocuments.run({
+        query: "Independent child match",
+        limit: 8,
+        offset: 0,
+      }),
+    );
+    expect(result.documents).toHaveLength(1);
+    expect(result.documents[0]).toMatchObject({
+      parentId: null,
+      parentTitle: null,
+      snippet: "child excerpt",
+    });
+    expect(JSON.stringify(result)).not.toContain("Discovery parent");
+    expect(JSON.stringify(result)).not.toContain(PARENT_ID);
+  });
+
+  it("counts and paginates hidden and database matches in the Action", async () => {
+    await getDb()
+      .insert(schema.documents)
+      .values([
+        {
+          id: "search-hidden",
+          ownerEmail: OWNER,
+          title: "Kind needle hidden",
+          hideFromSearch: 1,
+        },
+        {
+          id: "search-kind-page",
+          ownerEmail: OWNER,
+          title: "Kind needle page",
+        },
+        {
+          id: "search-kind-db",
+          ownerEmail: OWNER,
+          title: "Kind needle database",
+        },
+      ]);
+    await getDb().insert(schema.contentDatabases).values({
+      id: "search-kind-database",
+      documentId: "search-kind-db",
+      ownerEmail: OWNER,
+      title: "Kind needle database",
+    });
+    const all = await asUser(OWNER, () =>
+      searchDocuments.run({ query: "Kind needle", limit: 8, offset: 0 }),
+    );
+    expect(all.pagination.totalItems).toBe(2);
+    const database = await asUser(OWNER, () =>
+      searchDocuments.run({
+        query: "Kind needle",
+        documentType: "database",
+        limit: 8,
+        offset: 0,
+      }),
+    );
+    expect(database.pagination.totalItems).toBe(1);
+    expect(database.documents[0]).toMatchObject({
+      id: "search-kind-db",
+      documentType: "database",
+    });
+  });
+
   it("returns explicit continuation metadata through a terminal list page", async () => {
     const first = await asUser(OWNER, () =>
       listDocuments.run({ parentId: PARENT_ID, limit: 100, offset: 0 }),

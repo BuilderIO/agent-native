@@ -98,10 +98,11 @@ async function fileContent(
   const record = await request
     .get(`${BASE_URL}/_agent-native/actions/get-design?id=${id}`)
     .then((r) => r.json());
-  return (
-    (record.files ?? []).find((f: any) => f.filename === filename)?.content ??
-    ""
-  );
+  const file = (record.files ?? []).find((f: any) => f.filename === filename);
+  if (typeof file?.content !== "string") {
+    throw new Error(`${filename} has no content`);
+  }
+  return file.content;
 }
 
 /**
@@ -344,77 +345,47 @@ async function screenCardBox(page: Page) {
   return box;
 }
 
-/**
- * Text tool: click the toolbar, click a page-px point, wait for real
- * contenteditable focus, type, Escape. Occasionally the click's focus
- * transition is a race under load — a re-render can steal a just-granted
- * focus back before the first keystroke lands, saving a text node with no
- * content at all (verified false starts, not a garbled/partial result:
- * either the whole thing lands or the node stays empty). Retries the whole
- * gesture at the same point rather than failing the step, mirroring
- * drawBoardShapeAndWaitStable's identical retry-on-miss pattern above.
- */
-async function typeCanvasTextWithRetry(
+/** Create text in one native click-to-edit gesture and require the first
+ * gesture to focus and commit it. A retry would hide a missed initial focus. */
+async function typeCanvasTextOnce(
   page: Page,
   request: APIRequestContext,
   designId: string,
   pageX: number,
   pageY: number,
   text: string,
-  attempts = 3,
 ): Promise<void> {
   const textToolButton = page.locator(
     '[data-design-bottom-toolbar] button[aria-label="Text"]',
   );
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    await textToolButton.click();
-    await expect(textToolButton).toHaveAttribute("aria-pressed", "true");
-    await page.mouse.click(pageX, pageY);
-    const focused = await page
-      .waitForFunction(
-        () => {
-          for (const iframe of Array.from(
-            document.querySelectorAll("iframe"),
-          ) as HTMLIFrameElement[]) {
-            const doc = iframe.contentDocument;
-            if (
-              doc?.activeElement?.getAttribute("contenteditable") === "true"
-            ) {
-              return true;
-            }
-          }
-          return false;
-        },
-        { timeout: 8_000 },
-      )
-      .then(() => true)
-      .catch(() => false);
-    if (focused) {
-      await page.waitForTimeout(150);
-      await page.keyboard.type(text);
-    }
-    await page.keyboard.press("Escape");
-    // The save queue can wait up to 400ms before issuing the persist RPC —
-    // poll for the committed text instead of racing it with one fixed sleep.
-    const committed = await expect
-      .poll(
-        async () =>
-          (await fileContent(request, designId)).includes(`>${text}<`),
-        { timeout: 2_000 },
-      )
-      .toBe(true)
-      .then(() => true)
-      .catch(() => false);
-    if (committed) return;
-    // Escape after a truly empty text primitive can leave a dangling
-    // draft node behind — undo it before the next attempt's click drafts
-    // another one on top.
-    if (!focused) await page.keyboard.press(`${PRIMARY}+z`);
-    await page.waitForTimeout(300);
-  }
-  throw new Error(
-    `text "${text}" never landed in the document after ${attempts} attempts`,
+  await textToolButton.click();
+  await expect(textToolButton).toHaveAttribute("aria-pressed", "true");
+  await page.mouse.click(pageX, pageY);
+  await page.waitForFunction(
+    () => {
+      for (const iframe of Array.from(
+        document.querySelectorAll("iframe"),
+      ) as HTMLIFrameElement[]) {
+        const doc = iframe.contentDocument;
+        if (doc?.activeElement?.getAttribute("contenteditable") === "true") {
+          return true;
+        }
+      }
+      return false;
+    },
+    undefined,
+    { timeout: 8_000 },
   );
+  await page.waitForTimeout(150);
+  await page.keyboard.type(text);
+  await page.keyboard.press("Escape");
+  // Poll persistence rather than racing the queued save RPC.
+  await expect
+    .poll(
+      async () => (await fileContent(request, designId)).includes(`>${text}<`),
+      { timeout: 10_000 },
+    )
+    .toBe(true);
 }
 
 /** Draw with the Frame/Screen tool at content-px coordinates inside the
@@ -839,9 +810,30 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
     const beforeNudgeMatch = new RegExp(
       `data-agent-native-node-id="${newChildId}"[^>]*style="([^"]*)"`,
     ).exec(html);
+    expect(
+      beforeNudgeMatch?.[1],
+      "dropped copy must have persisted authored style before nudge",
+    ).toBeTruthy();
     await page.keyboard.press("Shift+ArrowRight");
     await page.keyboard.press("Shift+ArrowDown");
-    await page.waitForTimeout(500);
+    await expect
+      .poll(
+        async () => {
+          const currentHtml = await fileContent(request, designId);
+          const currentMatch = new RegExp(
+            `data-agent-native-node-id="${newChildId}"[^>]*style="([^"]*)"`,
+          ).exec(currentHtml);
+          return (
+            typeof currentMatch?.[1] === "string" &&
+            currentMatch[1] !== beforeNudgeMatch?.[1]
+          );
+        },
+        {
+          timeout: 15_000,
+          message: "Shift+Arrow nudge must persist before the assertion",
+        },
+      )
+      .toBe(true);
     const htmlAfterNudge = await fileContent(request, designId);
     const afterNudgeMatch = new RegExp(
       `data-agent-native-node-id="${newChildId}"[^>]*style="([^"]*)"`,
@@ -889,7 +881,7 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
     // inside the screen, and index.html stayed completely empty. Clamp to a
     // point that is always inside the screen's actual rendered height.
     const titleClickY = Math.min(260, box.height / box.scale - 40);
-    await typeCanvasTextWithRetry(
+    await typeCanvasTextOnce(
       page,
       request,
       designId,
@@ -972,7 +964,7 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
     // Build album-art (in-screen frame) and a metadata-text text node
     // quickly via the same gestures as the previous test, then run the
     // higher-level wrap.
-    await drawInScreenFrame(page, { x: 40, y: 60 }, { x: 220, y: 200 });
+    await drawInScreenFrame(page, { x: 40, y: 30 }, { x: 220, y: 120 });
     // The freshly drawn frame is left selected — read its LAYERS-PANEL id
     // straight off the selection instead of regex-extracting the raw
     // data-agent-native-node-id from HTML (the two never coincide, see
@@ -983,16 +975,14 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
     await renameLayerRowById(page, albumArtId, "album-art");
 
     const box = await screenBox(page);
-    // See the steps 7-8 test's identical clamp: a blank design's screen can
-    // render shorter than the literal 260 content-px Figma step calls for,
-    // sending this click past the screen card onto the board instead.
-    const metaTextClickY = Math.min(260, box.height / box.scale - 40);
-    await typeCanvasTextWithRetry(
+    // Click near the rendered screen's bottom edge so the text stays outside
+    // the smaller album-art frame on both native and bounded screen sizes.
+    await typeCanvasTextOnce(
       page,
       request,
       designId,
-      box.x + 60 * box.scale,
-      box.y + metaTextClickY * box.scale,
+      box.x + box.width / 2,
+      box.y + box.height - 20,
       "metatext",
     );
     // The typed text node is left selected — read its real layers-panel id
@@ -1050,14 +1040,16 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
     html = await fileContent(request, designId);
     expect(
       html,
-      "Fill sizing on album-art should author flex-grow/width 100% rather than a fixed px width",
-    ).toMatch(/flex(-grow)?:\s*1|width:\s*100%/);
+      "Fill sizing on album-art should author stretch/auto sizing rather than a fixed px width",
+    ).toMatch(
+      /(?:flex(-grow)?:\s*1|width:\s*(?:100%|auto)[\s\S]*align-self:\s*stretch)/,
+    );
 
     // Step 11: min/max width on the "card" frame.
     await expandAllLayers(page);
     await selectLayerRowById(page, cardId!);
     const widthCaret = page
-      .locator('button[aria-label*="sizing mode" i]')
+      .locator('button[aria-label*="sizing mode" i], button[aria-label^="W "]')
       .first();
     await expect(widthCaret).toBeVisible({ timeout: 10_000 });
     await widthCaret.click();

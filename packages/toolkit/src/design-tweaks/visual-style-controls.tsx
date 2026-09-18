@@ -28,8 +28,10 @@ export {
 export {
   formatScrubValue,
   getScrubStepFromEvent,
+  normalizeScrubMixedExpression,
   normalizeScrubNumber,
   parseScrubExpression,
+  parseScrubRelativeExpression,
   roundScrubDragValue,
   scrubSnapsToInteger,
   SCRUB_DRAG_THRESHOLD_PX,
@@ -39,6 +41,7 @@ export {
   type ScrubDragState,
   type ScrubDragTick,
   type ScrubExpressionOptions,
+  type ScrubRelativeExpression,
 } from "./scrub-input-utils.js";
 
 export type VisualControlValue = string | number | boolean;

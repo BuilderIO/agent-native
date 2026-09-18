@@ -24,6 +24,7 @@ Em um novo diretório, comece pelo modelo de Chat:
 ```bash
 npx --yes @agent-native/core@latest create my-app --standalone --template chat
 cd my-app
+corepack enable
 pnpm install
 ```
 
@@ -71,6 +72,7 @@ No diretório local `my-app`, abra `actions/hello.ts` no editor de código:
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
+// One action powers every app surface: UI, agent, HTTP, MCP, A2A, and CLI.
 export default defineAction({
   description: "Return a friendly greeting.",
   schema: z.object({

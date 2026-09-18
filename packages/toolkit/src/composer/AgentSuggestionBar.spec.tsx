@@ -66,6 +66,7 @@ describe("AgentSuggestionBar", () => {
     expect(bar?.getAttribute("aria-label")).toBe("Next actions");
     expect(buttons).toHaveLength(2);
     expect(bar?.className).toContain("py-2");
+    expect(bar?.className).toContain("min-w-0");
     expect(buttons[0]?.className).toContain("rounded-full");
     expect(buttons[0]?.className).toContain("whitespace-nowrap");
     expect(buttons[0]?.className).not.toContain("max-w-");
@@ -73,10 +74,11 @@ describe("AgentSuggestionBar", () => {
       "truncate",
     );
     expect(buttons[0]?.className).toContain("bg-muted/55");
-    expect(
-      container.querySelector('[data-agent-suggestion-scroller="true"]')
-        ?.className,
-    ).not.toContain("mask-image");
+    const scroller = container.querySelector(
+      '[data-agent-suggestion-scroller="true"]',
+    );
+    expect(scroller?.className).toContain("min-w-0");
+    expect(scroller?.className).not.toContain("mask-image");
 
     act(() => buttons[0]?.click());
     expect(onSelect).toHaveBeenCalledWith(suggestion);

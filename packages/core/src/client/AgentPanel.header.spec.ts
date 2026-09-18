@@ -76,8 +76,8 @@ describe("AgentPanel header tab visibility", () => {
     ).toBe(0);
   });
 
-  it("hides sidebar chat tabs until a second main tab is open", () => {
-    expect(shouldShowAgentPanelSidebarChatTabs([chatTab("main")])).toBe(false);
+  it("shows sidebar chat tabs when a main tab is open", () => {
+    expect(shouldShowAgentPanelSidebarChatTabs([chatTab("main")])).toBe(true);
     expect(
       shouldShowAgentPanelSidebarChatTabs([
         chatTab("main"),
@@ -401,6 +401,7 @@ describe("AgentPanel mode and full-view visibility", () => {
   it("hides mode buttons in the sidebar and shows them on the full page", () => {
     expect(shouldShowAgentPanelModeButtons(true)).toBe(false);
     expect(shouldShowAgentPanelModeButtons(false)).toBe(true);
+    expect(shouldShowAgentPanelModeButtons(false, true)).toBe(false);
   });
 
   it("shows the full-view action for resources when a page href exists", () => {
@@ -709,6 +710,12 @@ describe("AgentPanel header overflow actions", () => {
     expect(overflowMenu).toContain("activeTabMessageCount <= 0");
     expect(source).toContain("defaultOpen={onCollapse && shareFromMenuOpen}");
     expect(source).toContain("onCollapse ? setShareFromMenuOpen : undefined");
+    // Regression: without the "timeout" timing, the animation-frame handoff
+    // races with the dropdown's own close/focus-restore cycle and the share
+    // popover never opens (same failure mode fixed for "All chats" in #4644).
+    expect(overflowMenu).toContain(
+      'setShareFromMenuOpen(true),\n                        "timeout"',
+    );
   });
 
   it("keeps chat headers persistent while switching app surfaces", () => {
@@ -729,7 +736,10 @@ describe("AgentPanel header overflow actions", () => {
     expect(source).toContain("if (open && !showWhenOpen) return null");
     expect(source).toContain("aria-pressed={open}");
     expect(source).toContain('data-state={open ? "open" : "closed"}');
-    expect(source).toContain("IconLayoutSidebarRight");
+    expect(source).toContain(
+      "{icon ?? <IconLayoutSidebarRight size={18} aria-hidden />}",
+    );
+    expect(source).not.toContain("IconLayoutSidebarRightExpand");
     expect(source).toContain("{onCollapse && showCollapseButton && (");
     expect(source).toContain("showCollapseButton={showCollapseButton}");
   });

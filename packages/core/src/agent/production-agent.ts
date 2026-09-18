@@ -10,6 +10,7 @@ import {
 } from "h3";
 import type { EventHandler as H3EventHandler } from "h3";
 
+import "../authorization/check-action.js";
 import { parseA2AAgentActivityPart } from "../a2a/activity.js";
 import type { A2AConnectionRequestMetadata, Task } from "../a2a/types.js";
 import {
@@ -38,6 +39,11 @@ import { isReadOnlyShellCommand } from "../coding-tools/index.js";
 import type { AgentNativeHarnessSetting } from "../config.js";
 import { getDbExec, isTransientDatabaseError } from "../db/client.js";
 import { extensionIdFromPathname } from "../extensions/path.js";
+import {
+  describeAttachmentBytesVerdict,
+  reconcileImageBytes,
+  reconcilePdfBytes,
+} from "../file-upload/attachment-bytes.js";
 import {
   formatBase64CharBudget,
   MAX_INLINE_FILE_BASE64_CHARS,
@@ -193,12 +199,13 @@ import {
   getRun,
   abortRun,
   abortRunDurably,
+  abortTurnByRefDurably,
   abortTurnDurably,
   tryClaimRunSlot,
   isHostedRuntime,
   resolveRunSoftTimeoutMs,
   resolveRunToolTimeoutCeilingMs,
-  endsAfterCompletedToolWithoutAssistantFinal,
+  endsAfterToolResultWithoutAssistantFinal,
   endsDuringActionPreparation,
 } from "./run-manager.js";
 import type { ActiveRun } from "./run-manager.js";
@@ -248,7 +255,9 @@ import {
   searchToolRegistry,
   TOOL_SEARCH_ACTION_NAME,
 } from "./tool-search.js";
-import type {
+import {
+  normalizeAgentActionScope,
+  type AgentActionScope,
   ActionTool,
   AgentNativeJsonSchema,
   AgentChatAttachment,
@@ -761,6 +770,8 @@ export type { ActionRunContext, ActionCaller } from "../action.js";
 export interface ActionEntry {
   tool: ActionTool;
   run: (args: any, context?: import("../action.js").ActionRunContext) => any;
+  /** Declarative action access contract, preserved from defineAction. */
+  access?: import("../authorization/check-action.js").ActionAccessConfig;
   fileMutationProof?: (args: unknown) => AgentFileMutationProof | undefined;
   /** Standard Schema input validator when declared through defineAction. */
   schema?: unknown;
@@ -892,6 +903,7 @@ export type AgentExecutionMode = "act" | "plan";
 
 export interface AgentActionSurface {
   allowedActionNames: readonly string[];
+  actionScope?: AgentActionScope;
 }
 
 export interface DefaultAgentActionSurface {
@@ -904,7 +916,11 @@ export type AgentActionSurfaceResolution =
 
 type NormalizedAgentActionSurface =
   | DefaultAgentActionSurface
-  | { mode: "allowlist"; allowedActionNames: string[] };
+  | {
+      mode: "allowlist";
+      allowedActionNames: string[];
+      actionScope?: AgentActionScope;
+    };
 
 export interface AgentActionSurfaceDetails {
   event: any;
@@ -913,6 +929,9 @@ export interface AgentActionSurfaceDetails {
   threadId?: string;
   mode: AgentExecutionMode;
   internalContinuation: boolean;
+  requestedTurnId?: string;
+  queuedMessageId?: string;
+  actionScope?: Readonly<AgentActionScope>;
   availableActionNames: readonly string[];
 }
 
@@ -965,6 +984,9 @@ export function normalizeAgentActionSurfaceResolution(
   return {
     mode: "allowlist",
     allowedActionNames: [...new Set(allowedActionNames)],
+    ...(hasOwn(value, "actionScope")
+      ? { actionScope: normalizeAgentActionScope(value.actionScope) }
+      : {}),
   };
 }
 
@@ -972,6 +994,7 @@ export type PersistedActionSurface =
   | {
       orgId: string | null;
       allowedActionNames: string[];
+      actionScope?: AgentActionScope;
     }
   | {
       orgId: string | null;
@@ -1003,7 +1026,18 @@ export function readPersistedActionSurface(
     return { orgId: null, allowedActionNames: [] };
   }
   const allowedActionNames = readPersistedAllowedActionNames(surface) ?? [];
-  return { orgId, allowedActionNames };
+  if (!hasOwn(surface, "actionScope")) return { orgId, allowedActionNames };
+  try {
+    return {
+      orgId,
+      allowedActionNames,
+      actionScope: normalizeAgentActionScope(
+        (surface as Record<string, unknown>).actionScope,
+      ),
+    };
+  } catch {
+    return { orgId: null, allowedActionNames: [] };
+  }
 }
 
 export function filterActionsByAllowedNames(
@@ -2034,11 +2068,35 @@ export function buildUserContentWithAttachments(opts: {
         continue;
       }
       if (match && isSupportedImageMediaType(match[1])) {
-        userContent.push({
-          type: "image",
-          data: match[2],
-          mediaType: match[1],
+        // The label comes from the browser, which derives it from the file
+        // extension, so it is a guess. The provider validates the bytes and
+        // rejects the WHOLE request when the two disagree, taking every other
+        // attachment and the user's text down with it. Trust the bytes.
+        const verdict = reconcileImageBytes({
+          base64: match[2],
+          declared: match[1],
         });
+        if (verdict.kind === "ok") {
+          userContent.push({
+            type: "image",
+            data: match[2],
+            mediaType: verdict.mediaType,
+          });
+        } else {
+          const label = att.name ? `"${att.name}"` : "An image";
+          const uploadedHint = uploadedUrl
+            ? ` It is available at ${uploadedUrl}; use that URL for embedding/reference if the task does not require vision analysis.`
+            : "";
+          const logName = att.name ?? "(unnamed)";
+          console.warn(
+            `[attachments] dropped image block name=${logName} declared=${match[1]} verdict=${verdict.kind} base64Chars=${match[2].length}`,
+          );
+          textAttachments.push(
+            `[${label} could not be sent for vision analysis because ${describeAttachmentBytesVerdict(verdict)}.` +
+              uploadedHint +
+              ` Tell the user which file it was and what is wrong with it; do not describe its contents, and do not blame file storage or a size limit.]`,
+          );
+        }
       } else {
         // The client sent an image in an unsupported format (HEIC, TIFF, AVIF,
         // etc.). Inject a short text placeholder so the model knows the image
@@ -2080,6 +2138,29 @@ export function buildUserContentWithAttachments(opts: {
             : `[${label} exceeds the ${limit} per-file limit for inline reading, so you cannot read its contents. This is a size limit, not a storage-configuration problem. Tell the user the file is over the ${limit} limit and ask for a smaller one.]`,
         );
         continue;
+      }
+      if (filePart.mediaType === "application/pdf") {
+        // Only PDF survives as a real document block downstream, and the
+        // provider rejects the request outright when those bytes are not a
+        // PDF, which is routine for a DOCX saved under a `.pdf` name.
+        const verdict = reconcilePdfBytes({
+          base64: filePart.data,
+          declared: filePart.mediaType,
+        });
+        if (verdict.kind !== "ok") {
+          const label = att.name ? `"${att.name}"` : "A file";
+          const logName = att.name ?? "(unnamed)";
+          console.warn(
+            `[attachments] dropped document block name=${logName} verdict=${verdict.kind} base64Chars=${filePart.data.length}`,
+          );
+          const why = describeAttachmentBytesVerdict(verdict);
+          textAttachments.push(
+            uploadedUrl
+              ? `[${label} could not be read as a PDF because ${why}. It was uploaded to ${uploadedUrl}; use that URL for reference. Tell the user the file is not a readable PDF.]`
+              : `[${label} could not be read as a PDF because ${why}. Tell the user which file it was and what is wrong with it; do not describe its contents.]`,
+          );
+          continue;
+        }
       }
       userContent.push(filePart);
       continue;
@@ -4903,6 +4984,10 @@ export async function runAgentLoop(opts: {
   ownerEmail?: string | null;
   orgId?: string | null;
   appId?: string;
+  /** One-turn authorization snapshot prepared by the request transport. */
+  appAuthorization?:
+    | import("../org/app-roles.js").AppAuthorizationContext
+    | null;
   /** Action invocation attribution. Defaults to the normal agent tool loop. */
   actionCaller?: ActionCaller;
   /** Trusted trigger lineage for automation-dispatched action calls. */
@@ -5036,6 +5121,29 @@ export async function runAgentLoop(opts: {
   );
   const activeToolNames = new Set(tools.map((tool) => tool.name));
   let activeTools = tools;
+  let appAuthorizationPromise:
+    | Promise<import("../org/app-roles.js").AppAuthorizationContext | null>
+    | undefined;
+  const resolveTurnAppAuthorization = (
+    userEmail: string | undefined,
+    orgId: string | null,
+  ) => {
+    if (!appAuthorizationPromise) {
+      appAuthorizationPromise =
+        opts.appAuthorization !== undefined
+          ? Promise.resolve(opts.appAuthorization)
+          : opts.appId && userEmail && orgId
+            ? import("../org/app-roles.js").then(
+                ({ resolveAppAuthorizationContext }) =>
+                  resolveAppAuthorizationContext(opts.appId!, {
+                    userEmail,
+                    orgId,
+                  }),
+              )
+            : Promise.resolve(null);
+    }
+    return appAuthorizationPromise;
+  };
 
   let expandedToolSchemaBytes = 0;
   let reportedExpandedToolSchemaBytes = false;
@@ -7061,11 +7169,27 @@ export async function runAgentLoop(opts: {
           const timeoutSignal = AbortSignal.timeout(toolTimeoutMs);
           const actionUserEmail = opts.ownerEmail ?? getRequestUserEmail();
           const actionOrgId = opts.orgId ?? getRequestOrgId() ?? null;
+          const appAuthorization = await resolveTurnAppAuthorization(
+            actionUserEmail ?? undefined,
+            actionOrgId,
+          );
           const actionContext = {
             send,
             userEmail: actionUserEmail ?? undefined,
             orgId: actionOrgId,
             appId: opts.appId,
+            ...(appAuthorization
+              ? {
+                  appRoles: appAuthorization.roles,
+                  appPermissions: Object.entries(appAuthorization.permissions)
+                    .filter(([, roles]) =>
+                      roles.some((role) =>
+                        appAuthorization.roles.includes(role),
+                      ),
+                    )
+                    .map(([permission]) => permission),
+                }
+              : {}),
             caller: opts.actionCaller ?? "tool",
             automation: opts.automation,
             networkProtocol: opts.networkProtocol,
@@ -7877,7 +8001,7 @@ export function backgroundContinuationReasonForRun(
     );
   }
   if (
-    endsAfterCompletedToolWithoutAssistantFinal(run) ||
+    endsAfterToolResultWithoutAssistantFinal(run) ||
     endsDuringActionPreparation(run)
   ) {
     return "stream_ended";
@@ -8035,7 +8159,7 @@ export async function runAgentLoopWithMainChatInternalContinuations(
 function endsAtContinuationBoundary(run: ActiveRun): boolean {
   return (
     endsAtInternalContinuationBoundary(run) ||
-    endsAfterCompletedToolWithoutAssistantFinal(run) ||
+    endsAfterToolResultWithoutAssistantFinal(run) ||
     endsDuringActionPreparation(run)
   );
 }
@@ -8048,7 +8172,7 @@ function endsAtContinuationBoundary(run: ActiveRun): boolean {
  * Forward progress inside ONE chunk, read from the events it actually emitted:
  * assistant text or tool activity. Same evidence the agent-teams no-progress
  * budget counts (`agent-teams.ts`), and the same events
- * `endsAfterCompletedToolWithoutAssistantFinal` reads to tell an unfinished
+ * `endsAfterToolResultWithoutAssistantFinal` reads to tell an unfinished
  * turn from a finished one.
  */
 function chunkMadeForwardProgress(run: ActiveRun): boolean {
@@ -9532,6 +9656,22 @@ export function createProductionAgentHandler(
       delete body[AGENT_CHAT_BACKGROUND_RUN_FIELD];
       delete body.__resolvedActionSurface;
     }
+    let requestedActionScope: AgentActionScope | undefined;
+    if (hasOwn(body, "actionScope")) {
+      try {
+        requestedActionScope = normalizeAgentActionScope(body.actionScope);
+        body.actionScope = requestedActionScope;
+      } catch (error) {
+        setResponseStatus(event, 400);
+        return {
+          error: error instanceof Error ? error.message : "Invalid actionScope",
+        };
+      }
+    }
+    if (requestedActionScope && !options.resolveActionSurface) {
+      setResponseStatus(event, 400);
+      return { error: "actionScope requires resolveActionSurface" };
+    }
     // DIAGNOSTIC-ONLY: progressive per-stage hang localizer for the bg worker.
     // The worker's runId is available EARLY on the marker (the general `runId`
     // var resolves much later), so capture it now and emit the LAST setup stage
@@ -9716,6 +9856,14 @@ export function createProductionAgentHandler(
       const persistedSurface = isBackgroundWorker
         ? readPersistedActionSurface(body, "__resolvedActionSurface")
         : undefined;
+      if (
+        isBackgroundWorker &&
+        requestedActionScope &&
+        (!persistedSurface || !("actionScope" in persistedSurface))
+      ) {
+        setResponseStatus(event, 400);
+        return { error: "Resolved actionScope is required for continuation" };
+      }
       const surface =
         persistedSurface !== undefined
           ? persistedSurface
@@ -9726,13 +9874,33 @@ export function createProductionAgentHandler(
               threadId,
               mode: requestMode,
               internalContinuation: Boolean(internalContinuation),
+              ...(typeof requestTurnId === "string" && requestTurnId.trim()
+                ? { requestedTurnId: requestTurnId.trim() }
+                : {}),
+              ...(typeof queuedMessageId === "string" && queuedMessageId.trim()
+                ? { queuedMessageId: queuedMessageId.trim() }
+                : {}),
+              ...(requestedActionScope
+                ? { actionScope: requestedActionScope }
+                : {}),
               availableActionNames: Object.keys(availableRequestActions),
             });
       const normalizedSurface = normalizeAgentActionSurfaceResolution(surface);
+      if (
+        requestedActionScope &&
+        (normalizedSurface.mode === "default" || !normalizedSurface.actionScope)
+      ) {
+        throw new Error(
+          "resolveActionSurface must return actionScope for a scoped request",
+        );
+      }
       const runCtx = ensureRequestRunContext();
       if (normalizedSurface.mode === "default") {
         useDefaultRequestActionSurface = true;
-        if (runCtx) delete runCtx.allowedActionNames;
+        if (runCtx) {
+          delete runCtx.allowedActionNames;
+          delete runCtx.actionScope;
+        }
         if (!isBackgroundWorker) {
           body.__resolvedActionSurface = {
             orgId: getRequestOrgId() ?? null,
@@ -9751,11 +9919,21 @@ export function createProductionAgentHandler(
           );
         }
         const allowedNames = Object.keys(surfacedRequestActions);
-        if (runCtx) runCtx.allowedActionNames = allowedNames;
+        if (runCtx) {
+          runCtx.allowedActionNames = allowedNames;
+          if (normalizedSurface.actionScope) {
+            runCtx.actionScope = normalizedSurface.actionScope;
+          } else {
+            delete runCtx.actionScope;
+          }
+        }
         if (!isBackgroundWorker) {
           body.__resolvedActionSurface = {
             orgId: getRequestOrgId() ?? null,
             allowedActionNames: allowedNames,
+            ...(normalizedSurface.actionScope
+              ? { actionScope: normalizedSurface.actionScope }
+              : {}),
           };
         }
       }
@@ -10536,6 +10714,9 @@ export function createProductionAgentHandler(
           ? { dispatchPayload: JSON.stringify(body) }
           : {}),
       });
+      if (slot.turnAborted) {
+        return { ok: true, stopped: true };
+      }
       if (slot.completedRunId) {
         const stream = await replayCompletedTurn(threadId, effectiveTurnId);
         if (!stream) {
@@ -11615,6 +11796,9 @@ export function createProductionAgentHandler(
           },
           ownerEmail,
           orgId: getRequestOrgId() ?? null,
+          ...(options.appId && getRequestOrgId()
+            ? { appAuthorization: getRequestRunContext()?.appAuthorization }
+            : {}),
           attachments: requestAttachments,
           reasoningEffort,
           // The interactive chat turn needs real completion headroom — the
@@ -11894,6 +12078,7 @@ export {
   getRun,
   abortRun,
   abortRunDurably,
+  abortTurnByRefDurably,
   abortTurnDurably,
   subscribeToRun,
 };

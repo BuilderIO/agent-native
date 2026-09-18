@@ -1,3 +1,4 @@
+import { createElement } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const resultQueue = vi.hoisted(() => ({ current: [] as unknown[][] }));
@@ -53,7 +54,9 @@ vi.mock("../../server/db", () => ({
   },
 }));
 
-import { loader } from "../routes/p.$id";
+import { renderToStaticMarkup } from "react-dom/server";
+
+import { AgentReadableDocumentDiscovery, loader, meta } from "../routes/p.$id";
 
 function requestFor(id = "doc-1", token?: string) {
   const url = new URL(`https://content.example.test/p/${id}`);
@@ -84,6 +87,50 @@ describe("public document route", () => {
     mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: false });
   });
 
+  it("emits hidden MCP guidance without adding an accessible control", () => {
+    const html = renderToStaticMarkup(
+      createElement(AgentReadableDocumentDiscovery, {
+        document: { id: "doc-1", title: "Launch notes" },
+        basePath: "/content",
+        origin: "https://content.example.test",
+      }),
+    );
+
+    expect(html).toContain('class="hidden"');
+    expect(html).toContain('aria-hidden="true"');
+    expect(html).toContain("https://content.example.test/content/mcp/connect");
+    expect(html).toContain("get-document");
+    expect(html).toContain("tell-user-to-connect");
+    expect(html).toContain("Do not ask the user to paste");
+    expect(html).toContain("make it public");
+    expect(html).toContain("change sharing permissions");
+    expect(html).not.toContain("button");
+  });
+
+  it("advertises the agent context endpoint for private share pages", () => {
+    const descriptors = meta({
+      loaderData: {
+        document: null,
+        agentAccessToken: null,
+        basePath: "/content",
+        origin: "https://content.example.test",
+        unavailable: {
+          reason: "private",
+          id: "doc-1",
+          basePath: "/content",
+        },
+      },
+    } as never);
+
+    expect(descriptors).toContainEqual({
+      tagName: "link",
+      rel: "alternate",
+      type: "application/agent-native+json",
+      href: "/content/api/document-agent-context.json?id=doc-1",
+      title: "Agent-readable Content document",
+    });
+  });
+
   it("serves a public document without private loader headers", async () => {
     resultQueue.current = [documentRows("public")];
 
@@ -96,6 +143,7 @@ describe("public document route", () => {
       },
       agentAccessToken: null,
       basePath: "",
+      origin: "https://content.example.test",
     });
     expect((result as any).type).not.toBe("DataWithResponseInit");
     expect(where).toHaveBeenCalledWith({ column: "id_col", value: "doc-1" });
@@ -120,6 +168,7 @@ describe("public document route", () => {
       document: { id: "doc-1", title: "Launch notes" },
       agentAccessToken: "tok+1",
       basePath: "",
+      origin: "https://content.example.test",
     });
   });
 });

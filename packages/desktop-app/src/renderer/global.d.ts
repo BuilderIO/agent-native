@@ -1185,10 +1185,6 @@ interface ElectronWebviewElement extends HTMLElement {
   getWebContentsId(): number;
   getURL(): string;
   getTitle(): string;
-  canGoBack(): boolean;
-  canGoForward(): boolean;
-  goBack(): void;
-  goForward(): void;
   openDevTools(): void;
   executeJavaScript(code: string, userGesture?: boolean): Promise<unknown>;
   findInPage(

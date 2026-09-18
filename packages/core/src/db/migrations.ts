@@ -9,41 +9,42 @@ import {
 } from "./client.js";
 import { isMigrationAuthorizedRuntime } from "./migration-runtime.js";
 
-// Core plugins share one direct connection while boot-time DDL is running.
+// Core plugins must serialize boot-time DDL for each database. The same
+// database can be reached through multiple Vite module runners, so keep this
+// registry on globalThis rather than in module scope.
 type MigrationLockRegistry = Map<string, Promise<void>>;
 
 const migrationGlobal = globalThis as typeof globalThis & {
-  __agentNativePgliteMigrationLocks?: MigrationLockRegistry;
+  __agentNativeMigrationLocks?: MigrationLockRegistry;
 };
-const pgliteMigrationLocks =
-  (migrationGlobal.__agentNativePgliteMigrationLocks ??= new Map<
-    string,
-    Promise<void>
-  >());
+const migrationLocks = (migrationGlobal.__agentNativeMigrationLocks ??= new Map<
+  string,
+  Promise<void>
+>());
 
 // A PGlite process lock owns the persistent directory before this in-process
-// mutex serializes the shared client's boot-time DDL.
-async function withPgliteMigrationLock<T>(
+// mutex serializes the shared client's boot-time DDL. Postgres needs the same
+// in-process mutex because Vite can start multiple migration runners against
+// one database before any bookkeeping table exists.
+async function withMigrationLock<T>(
   url: string,
   run: () => Promise<T>,
 ): Promise<T> {
-  if (!isPgliteUrl(url)) return run();
-
-  const previous = pgliteMigrationLocks.get(url) ?? Promise.resolve();
+  const previous = migrationLocks.get(url) ?? Promise.resolve();
   let release!: () => void;
   const current = new Promise<void>((resolve) => {
     release = resolve;
   });
   const queued = previous.then(() => current);
-  pgliteMigrationLocks.set(url, queued);
+  migrationLocks.set(url, queued);
 
   await previous;
   try {
     return await run();
   } finally {
     release();
-    if (pgliteMigrationLocks.get(url) === queued) {
-      pgliteMigrationLocks.delete(url);
+    if (migrationLocks.get(url) === queued) {
+      migrationLocks.delete(url);
     }
   }
 }
@@ -439,6 +440,5 @@ export function runMigrations(
       }
     }
   };
-  return async () =>
-    withPgliteMigrationLock(getMigrationDatabaseUrl(), migrate);
+  return async () => withMigrationLock(getMigrationDatabaseUrl(), migrate);
 }

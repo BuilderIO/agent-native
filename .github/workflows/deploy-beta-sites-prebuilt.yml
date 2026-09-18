@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       source_ref:
-        description: Exact current main SHA to publish; blank uses the latest main
+        description: Optional main SHA to publish; blank uses the latest main
         required: false
         type: string
         default: ""
@@ -61,14 +61,6 @@ jobs:
               ref: 'heads/main',
             })).data.object.sha;
             const sourceSha = requested || (context.eventName === 'push' ? context.sha : mainSha);
-            if (
-              requested &&
-              context.eventName === 'workflow_dispatch' &&
-              sourceSha.toLowerCase() !== mainSha.toLowerCase()
-            ) {
-              core.setFailed('Manual beta source_ref must equal current main ' + mainSha + '.');
-              return;
-            }
             if (requested) {
               const comparison = await github.rest.repos.compareCommits({
                 owner: context.repo.owner,

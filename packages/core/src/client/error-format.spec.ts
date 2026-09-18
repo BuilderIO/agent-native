@@ -19,6 +19,8 @@ function interpolate(
     "agentChat.errorMessages.providerAuthentication":
       "Der Modellanbieter hat den gespeicherten API-Schlüssel abgelehnt.",
     "agentChat.errorMessages.errorPrefix": "Fehler: {{message}}",
+    "agentChat.errorMessages.creditsLimitReached":
+      "Du hast dein KI-Credit-Limit erreicht.",
     "agentChat.errorMessages.openBuilderSpaceSettings":
       "Builder-Space-Einstellungen öffnen",
     "agentChat.errorMessages.startNewChat": "Neuen Chat starten",
@@ -54,15 +56,28 @@ describe("formatChatErrorText", () => {
     ).toContain(`[Open Builder space settings](${BUILDER_SPACE_SETTINGS_URL})`);
   });
 
-  it("keeps quota errors on the billing CTA", () => {
+  it("shows quota copy and an upgrade CTA without error language", () => {
+    const text = formatChatErrorText(
+      "Monthly credits limit reached.",
+      agentNativeUpgradeUrl,
+      "credits-limit-monthly",
+    );
+
+    expect(text).toBe(
+      `You've reached your AI credits limit.\n\n[Upgrade at builder.io](${agentNativeUpgradeUrl})`,
+    );
+    expect(text).not.toMatch(/error|!/i);
+  });
+
+  it("treats a bare HTTP 402 as a credit limit", () => {
     expect(
       formatChatErrorText(
-        "Monthly credits limit reached.",
+        "Payment Required",
         agentNativeUpgradeUrl,
-        "credits-limit-monthly",
+        "http_402",
       ),
     ).toBe(
-      `Error: Monthly credits limit reached.\n\n[Upgrade at builder.io](${agentNativeUpgradeUrl})`,
+      `You've reached your AI credits limit.\n\n[Upgrade at builder.io](${agentNativeUpgradeUrl})`,
     );
   });
 
@@ -195,7 +210,6 @@ describe("formatChatErrorText", () => {
       "builder_model_unauthorized",
       "email_verification_required",
       "provider_config_error",
-      "credits-limit-reached",
       "rate_limit_exceeded",
       "gateway_not_enabled",
       "too_many_concurrent_requests",
@@ -225,6 +239,24 @@ describe("formatChatErrorText", () => {
         ).toBe(`Error: ${GATEWAY_UNAVAILABLE_VISITOR_MESSAGE}`);
       });
     }
+
+    it("shows the safe quota recovery for a visitor", () => {
+      expect(
+        normalizeChatError(
+          GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
+          "credits-limit-monthly",
+        ),
+      ).toEqual({ message: "You've reached your AI credits limit." });
+      expect(
+        formatChatErrorText(
+          GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
+          agentNativeUpgradeUrl,
+          "credits-limit-monthly",
+        ),
+      ).toBe(
+        `You've reached your AI credits limit.\n\n[Upgrade at builder.io](${agentNativeUpgradeUrl})`,
+      );
+    });
 
     it("still maps the same codes for an owner-facing message", () => {
       expect(
@@ -374,6 +406,78 @@ describe("Builder gateway internal-error envelope", () => {
         "builder_gateway_internal_error",
       ),
     ).toEqual({ message: GATEWAY_UNAVAILABLE_VISITOR_MESSAGE });
+  });
+
+  // The gateway emits this same envelope on its `invalid_request` stop lane,
+  // which never reaches `canonicalizeBuilderGatewayErrorCode`. Keying the copy
+  // on the code alone left the raw apology plus a bare hex id as the whole
+  // user-visible error.
+  it("is recognized by its envelope on any accompanying code", () => {
+    const reported =
+      "Sorry, this was caused by an internal error. " +
+      "ERROR ID: 64e08217e3f547c1a20311ef7cfecacf";
+    const normalized = normalizeChatError(reported, "invalid_request");
+
+    expect(normalized.message).not.toContain("ERROR ID");
+    expect(normalized.message).toContain("model gateway");
+    expect(normalized.details).toBe(reported);
+  });
+
+  it("does not claim a gateway internal error for unrelated prose", () => {
+    const normalized = normalizeChatError(
+      "Sorry, this was caused by an internal error.",
+      "invalid_request",
+    );
+
+    expect(normalized.message).not.toContain("model gateway");
+  });
+});
+
+describe("malformed provider request", () => {
+  it("names the attachment when a file part is rejected", () => {
+    const raw =
+      "Invalid 'input[0].content[1].file_url': string too long. " +
+      "Expected a string with maximum length 1048576, but got a string with length 3145728 instead.";
+    const normalized = normalizeChatError(raw, "invalid_request");
+
+    expect(normalized.message).not.toBe(raw);
+    expect(normalized.message.toLowerCase()).toContain("attached file");
+    expect(normalized.details).toBe(raw);
+  });
+
+  it("names the attachment when a media type is rejected", () => {
+    const raw =
+      "Invalid MIME type. Expected one of application/pdf, but got application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    const normalized = normalizeChatError(raw, "invalid_request_error");
+
+    expect(normalized.message.toLowerCase()).toContain("attached file");
+    expect(normalized.details).toBe(raw);
+  });
+
+  it("falls back to a generic malformed-request line without an attachment hint", () => {
+    const raw = "messages: final assistant content cannot end with whitespace";
+    const normalized = normalizeChatError(raw, "invalid_request");
+
+    expect(normalized.message).not.toBe(raw);
+    expect(normalized.message.toLowerCase()).not.toContain("attached file");
+    expect(normalized.message.toLowerCase()).toContain("rejected");
+    expect(normalized.details).toBe(raw);
+  });
+
+  it("keeps the visitor-rewritten message opaque", () => {
+    expect(
+      normalizeChatError(
+        GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
+        "invalid_request",
+      ),
+    ).toEqual({ message: GATEWAY_UNAVAILABLE_VISITOR_MESSAGE });
+  });
+
+  it("leaves a context-overflow invalid_request to the overflow lane", () => {
+    const raw = "prompt is too long: 250000 tokens > 200000 maximum";
+    const normalized = normalizeChatError(raw, "invalid_request_error");
+
+    expect(normalized.message).toBe(raw);
   });
 });
 

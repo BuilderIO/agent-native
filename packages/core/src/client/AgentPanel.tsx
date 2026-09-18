@@ -27,7 +27,7 @@ import {
   IconMessageDots,
   IconTerminal2,
   IconLayoutSidebarRightCollapse,
-  IconLayoutSidebarRightExpand,
+  IconLayoutSidebarRight,
   IconLayoutGrid,
   IconCheck,
   IconPlus,
@@ -583,7 +583,7 @@ export function shouldShowAgentPanelChatTabBar(
 export function shouldShowAgentPanelSidebarChatTabs(
   tabs: MultiTabAssistantChatHeaderProps["tabs"],
 ) {
-  return tabs.filter((tab) => !tab.parentThreadId).length > 1;
+  return tabs.some((tab) => !tab.parentThreadId);
 }
 
 export function shouldShowAgentPanelPageNewChatButton(
@@ -614,8 +614,11 @@ export function shouldShowAgentPanelCliTabBar(cliTabs: string[]) {
   return cliTabs.length > 1;
 }
 
-export function shouldShowAgentPanelModeButtons(isSidebar: boolean) {
-  return !isSidebar;
+export function shouldShowAgentPanelModeButtons(
+  isSidebar: boolean,
+  chatOnly = false,
+) {
+  return !isSidebar && !chatOnly;
 }
 
 export function shouldShowAgentPanelFullViewAction(
@@ -1722,11 +1725,12 @@ function AgentPanelInner({
                         event,
                         closeHeaderMenuForOverlay,
                         () => setShareFromMenuOpen(true),
+                        "timeout",
                       )
                     }
                   >
                     <IconShare3 size={14} className="shrink-0" />
-                    Share
+                    {t("agentChat.share.share", { defaultValue: "Share" })}
                   </DropdownMenuItem>
                 );
               })()}
@@ -2120,7 +2124,7 @@ function AgentPanelInner({
               return (
                 <div
                   key={tab.id}
-                  className="relative flex shrink-0 items-center"
+                  className="agent-tab-group relative flex shrink-0 items-center"
                 >
                   <div
                     role="tab"
@@ -2176,7 +2180,10 @@ function AgentPanelInner({
             cliTabs.map((id, index) => {
               const isActive = mode === "cli" && id === activeCliTab;
               return (
-                <div key={id} className="relative flex shrink-0 items-center">
+                <div
+                  key={id}
+                  className="agent-tab-group relative flex shrink-0 items-center"
+                >
                   <div
                     role="tab"
                     tabIndex={0}
@@ -2254,7 +2261,10 @@ function AgentPanelInner({
                       (tab.id === focusParentId &&
                         activeTab?.parentThreadId === tab.id);
                     return (
-                      <div key={tab.id} className="relative shrink-0">
+                      <div
+                        key={tab.id}
+                        className="agent-tab-group relative shrink-0"
+                      >
                         <div
                           role="button"
                           tabIndex={0}
@@ -2301,7 +2311,10 @@ function AgentPanelInner({
                     );
                   })}
                 </div>
-              ) : shouldShowAgentPanelModeButtons(Boolean(onCollapse)) ? (
+              ) : shouldShowAgentPanelModeButtons(
+                  Boolean(onCollapse),
+                  chatOnly,
+                ) ? (
                 renderModeButtons(mode)
               ) : null}
             </div>
@@ -2353,7 +2366,10 @@ function AgentPanelInner({
                                 (tab.id === focusParentId &&
                                   activeTab?.parentThreadId === tab.id);
                               return (
-                                <div key={tab.id} className="relative shrink-0">
+                                <div
+                                  key={tab.id}
+                                  className="agent-tab-group relative shrink-0"
+                                >
                                   <div
                                     role="button"
                                     tabIndex={0}
@@ -2402,7 +2418,10 @@ function AgentPanelInner({
                               );
                             })
                           : cliTabs.map((id, i) => (
-                              <div key={id} className="relative shrink-0">
+                              <div
+                                key={id}
+                                className="agent-tab-group relative shrink-0"
+                              >
                                 <div
                                   role="button"
                                   tabIndex={0}
@@ -2477,7 +2496,10 @@ function AgentPanelInner({
                           Main
                         </div>
                         {childTabs.map((tab) => (
-                          <div key={tab.id} className="relative shrink-0">
+                          <div
+                            key={tab.id}
+                            className="agent-tab-group relative shrink-0"
+                          >
                             <div
                               role="button"
                               tabIndex={0}
@@ -2563,7 +2585,7 @@ function AgentPanelInner({
       <AgentPanelSettingsNavigation onOpenSettings={onOpenSettings} />
       <div
         className={cn(
-          "agent-panel-root agent-kit-density flex flex-1 flex-col min-h-0 h-full antialiased",
+          "agent-panel-root agent-kit-density flex flex-1 flex-col min-h-0 min-w-0 h-full antialiased",
           className,
         )}
         style={{
@@ -2581,7 +2603,8 @@ function AgentPanelInner({
         <style
           dangerouslySetInnerHTML={{
             __html:
-              ".agent-tab-close{opacity:0}.agent-tab:hover .agent-tab-close{opacity:1}" +
+              ".agent-tab-close{opacity:0;pointer-events:none}" +
+              ".agent-tab-group:hover .agent-tab-close,.agent-tab-close:focus-visible{opacity:1;pointer-events:auto}" +
               ".agent-tabs-scroll{scrollbar-width:none;-ms-overflow-style:none;}" +
               ".agent-tabs-scroll::-webkit-scrollbar{display:none;}" +
               `[data-agent-fullscreen='true'] .agent-thread-content,` +
@@ -3521,6 +3544,8 @@ export interface AgentSidebarProps {
   suppressFirstRunOnboarding?: boolean;
   /** Pin how much model reasoning the chat shows. Omit to let the reader choose. */
   thinkingDisplay?: AssistantChatProps["thinkingDisplay"];
+  /** Show the composer's model and effort picker. Defaults to true. */
+  showModelSelector?: AssistantChatProps["showModelSelector"];
   /** Keep the sidebar on chat mode. Defaults to true for embedded app sidebars. */
   chatOnly?: boolean;
 }
@@ -3593,6 +3618,7 @@ export function AgentSidebar({
   agentPageHref,
   suppressFirstRunOnboarding = false,
   thinkingDisplay,
+  showModelSelector,
   chatOnly = true,
 }: AgentSidebarProps) {
   const resolvedBrowserTabId =
@@ -4461,6 +4487,7 @@ export function AgentSidebar({
             threadUrlSync={threadUrlSync}
             agentPageHref={agentPageHref}
             thinkingDisplay={thinkingDisplay}
+            showModelSelector={showModelSelector}
             chatOnly={chatOnly}
           />
           <ExternalAgentNudge variant="sidebar" />
@@ -4650,12 +4677,7 @@ export function AgentToggleButton({
             className,
           )}
         >
-          {icon ??
-            (open ? (
-              <IconLayoutSidebarRightCollapse size={18} aria-hidden />
-            ) : (
-              <IconLayoutSidebarRightExpand size={18} aria-hidden />
-            ))}
+          {icon ?? <IconLayoutSidebarRight size={18} aria-hidden />}
         </button>
       }
       content={t("agentPanel.toggleAgent")}

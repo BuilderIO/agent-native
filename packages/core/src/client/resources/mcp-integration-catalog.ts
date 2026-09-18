@@ -9,6 +9,9 @@ import {
   normalizeMcpUrl,
 } from "../../shared/mcp-provider-hosts.js";
 import { mergeDefinitionsById } from "../../shared/merge-by-id.js";
+import { agentNativePath } from "../api-path.js";
+import { openOAuthPopup } from "../oauth-popup.js";
+import { markMcpConnectionPending } from "./mcp-connection-refresh.js";
 import { mcpIntegrationLogo } from "./mcp-integration-logos.js";
 
 export type McpIntegrationAuthMode = "none" | "headers" | "oauth";
@@ -96,6 +99,8 @@ export interface McpOAuthStartParams {
   description: string;
   scope: "user" | "org";
   returnUrl: string;
+  trackingFlow?: "first_run";
+  trackingIntegrationId?: string;
 }
 
 export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
@@ -613,13 +618,19 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     useCase: "repositories, issues, pull requests, code, engineering analytics",
     useCaseKey: "mcpIntegrations.catalog.github.useCase",
     url: "https://api.githubcopilot.com/mcp/",
-    authMode: "oauth",
-    connectionMode: "manual",
-    availability: "provider-setup",
-    verification: "restricted",
+    // GitHub's authorization server (https://github.com/login/oauth) advertises
+    // no registration_endpoint and no Client ID Metadata Documents, so the
+    // Connect button could never mint a client. A personal access token on the
+    // Authorization header is the connection GitHub actually accepts.
+    authMode: "headers",
+    connectionMode: "headers",
+    availability: "ready",
+    verification: "preflight-only",
     logoUrl: mcpIntegrationLogo("github"),
-    docsUrl: "https://github.com/github/github-mcp-server",
+    docsUrl:
+      "https://github.com/github/github-mcp-server/blob/main/docs/remote-server.md",
     setupNoteKey: "mcpIntegrations.catalog.github.setupNote",
+    headerPlaceholder: "Authorization: Bearer <github-token>",
     keywords: ["git", "repositories", "issues", "pull requests", "code"],
   },
   {
@@ -808,7 +819,11 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
   },
   {
     id: "builder-cms",
-    name: "Builder.io",
+    // Not plain "Builder.io": onboarding connects a Builder.io *account* for
+    // model credits one screen earlier, and a row labelled "Builder.io —
+    // Connect" right after reads as that account failing to connect. This is
+    // the separate Publish content grant.
+    name: "Builder.io Publish",
     provider: "builder",
     description: "Search Builder Publish and Hybrid Space content.",
     descriptionKey: "mcpIntegrations.catalog.builder.description",
@@ -995,6 +1010,8 @@ export function buildMcpOAuthStartUrl({
   description,
   scope,
   returnUrl,
+  trackingFlow,
+  trackingIntegrationId,
 }: McpOAuthStartParams): string {
   const params = new URLSearchParams({
     name,
@@ -1004,17 +1021,26 @@ export function buildMcpOAuthStartUrl({
     // keep a personal scope off a server that only accepts a workspace one.
     scope: mcpUrlRequiresOrganizationScope(url) ? "org" : scope,
     return: returnUrl,
+    ...(trackingFlow ? { tracking_flow: trackingFlow } : {}),
+    ...(trackingIntegrationId
+      ? { tracking_integration_id: trackingIntegrationId }
+      : {}),
   });
-  return `/_agent-native/mcp/servers/oauth/start?${params.toString()}`;
+  return `${agentNativePath("/_agent-native/mcp/servers/oauth/start")}?${params.toString()}`;
 }
 
 export function navigateToMcpOAuthStart(url: string): boolean {
   if (typeof window === "undefined") return false;
   try {
-    const popup = window.open("about:blank", "_blank");
+    const popup = openOAuthPopup({
+      initialUrl: url,
+      features: "width=640,height=760",
+    });
     if (!popup) return false;
     popup.opener = null;
-    popup.location.replace(url);
+    // The callback redirects the popup, not this window, so this marker is the
+    // only thing that tells the opener its cached server list is now suspect.
+    markMcpConnectionPending();
     return true;
   } catch (error) {
     console.error("Failed to open MCP OAuth popup.", error);

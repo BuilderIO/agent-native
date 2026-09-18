@@ -4,6 +4,10 @@ import {
 } from "@agent-native/core/resources/metadata";
 
 import {
+  AGENT_IMPORT_ERROR_CODES,
+  failAgentImport,
+} from "./agent-import-errors.js";
+import {
   buildSimpleAgentContent,
   normalizeImportedAgent,
   slugifyAgentName,
@@ -13,6 +17,48 @@ import {
 export const AGENT_PACK_MAX_FILES = 80;
 export const AGENT_PACK_MAX_FILE_BYTES = 200_000;
 export const AGENT_PACK_MAX_TOTAL_BYTES = 2_000_000;
+
+/** Extensions a single-file agent profile import can parse. */
+export const AGENT_PROFILE_FILE_EXTENSIONS = [
+  ".md",
+  ".markdown",
+  ".json",
+  ".txt",
+] as const;
+
+/** Extensions an agent pack keeps; everything else in a folder is skipped. */
+export const AGENT_PACK_FILE_EXTENSIONS = [
+  ...AGENT_PROFILE_FILE_EXTENSIONS,
+  ".yaml",
+  ".yml",
+  ".csv",
+  ".html",
+  ".xml",
+  ".toml",
+  ".ts",
+  ".tsx",
+  ".js",
+  ".mjs",
+  ".py",
+  ".sh",
+] as const;
+
+export const AGENT_PROFILE_FILE_ACCEPT =
+  AGENT_PROFILE_FILE_EXTENSIONS.join(",");
+export const AGENT_PACK_FILE_ACCEPT = AGENT_PACK_FILE_EXTENSIONS.join(",");
+
+function hasExtension(path: string, extensions: readonly string[]): boolean {
+  const name = path.replaceAll("\\", "/").split("/").pop()?.toLowerCase() ?? "";
+  return extensions.some((extension) => name.endsWith(extension));
+}
+
+export function isImportableAgentProfileFile(path: string): boolean {
+  return hasExtension(path, AGENT_PROFILE_FILE_EXTENSIONS);
+}
+
+export function isImportableAgentPackFile(path: string): boolean {
+  return hasExtension(path, AGENT_PACK_FILE_EXTENSIONS);
+}
 
 const IGNORED_PACK_FILES = new Set([
   ".ds_store",
@@ -52,10 +98,16 @@ function normalizePackPath(value: string): string {
     .join("/")
     .trim();
   if (!normalized || normalized.startsWith("/") || normalized.includes("..")) {
-    throw new Error(`Invalid agent pack path: ${value}`);
+    failAgentImport(
+      `Invalid agent pack path: ${value}`,
+      AGENT_IMPORT_ERROR_CODES.pathInvalid,
+    );
   }
   if (normalized.length > 240) {
-    throw new Error(`Agent pack path is too long: ${value}`);
+    failAgentImport(
+      `Agent pack path is too long: ${value}`,
+      AGENT_IMPORT_ERROR_CODES.pathInvalid,
+    );
   }
   return normalized;
 }
@@ -128,11 +180,15 @@ export function normalizeAgentPack(
   inputFiles: AgentPackFileInput[],
 ): NormalizedAgentPack {
   if (inputFiles.length === 0) {
-    throw new Error("Choose an agent file or folder with at least one file.");
+    failAgentImport(
+      "Choose an agent file or folder with at least one file.",
+      AGENT_IMPORT_ERROR_CODES.inputInvalid,
+    );
   }
   if (inputFiles.length > AGENT_PACK_MAX_FILES) {
-    throw new Error(
+    failAgentImport(
       `Agent packs can contain at most ${AGENT_PACK_MAX_FILES} files.`,
+      AGENT_IMPORT_ERROR_CODES.payloadTooLarge,
     );
   }
 
@@ -140,17 +196,28 @@ export function normalizeAgentPack(
     inputFiles.map((file) => {
       const path = normalizePackPath(file.path);
       if (shouldIgnorePackPath(path)) {
-        throw new Error(
+        failAgentImport(
           `Remove ignored or private path from the pack: ${path}`,
+          AGENT_IMPORT_ERROR_CODES.pathInvalid,
         );
       }
       if (typeof file.content !== "string") {
-        throw new Error(`Agent pack file is not text: ${path}`);
+        failAgentImport(
+          `Agent pack file is not text: ${path}`,
+          AGENT_IMPORT_ERROR_CODES.inputInvalid,
+        );
+      }
+      if (!isImportableAgentPackFile(path)) {
+        failAgentImport(
+          `Agent packs only accept text files (${AGENT_PACK_FILE_EXTENSIONS.join(", ")}). Remove ${path}.`,
+          AGENT_IMPORT_ERROR_CODES.inputInvalid,
+        );
       }
       const size = Buffer.byteLength(file.content, "utf8");
       if (size > AGENT_PACK_MAX_FILE_BYTES) {
-        throw new Error(
+        failAgentImport(
           `${path} is too large. Keep text files under ${Math.round(AGENT_PACK_MAX_FILE_BYTES / 1024)} KB.`,
+          AGENT_IMPORT_ERROR_CODES.payloadTooLarge,
         );
       }
       return { path, content: file.content };
@@ -162,8 +229,9 @@ export function normalizeAgentPack(
     0,
   );
   if (totalBytes > AGENT_PACK_MAX_TOTAL_BYTES) {
-    throw new Error(
+    failAgentImport(
       `Agent packs can contain at most ${Math.round(AGENT_PACK_MAX_TOTAL_BYTES / 1_000_000)} MB of text.`,
+      AGENT_IMPORT_ERROR_CODES.payloadTooLarge,
     );
   }
 
@@ -174,8 +242,9 @@ export function normalizeAgentPack(
         profileScore(b) - profileScore(a) || a.path.localeCompare(b.path),
     )[0];
   if (!profileFile) {
-    throw new Error(
-      "An agent pack needs an agent.md, CLAUDE.md, or Markdown profile file.",
+    failAgentImport(
+      "An agent pack needs an agent.md, CLAUDE.md, or Markdown profile file. Select a folder that includes one of these, not a data file like a CSV.",
+      AGENT_IMPORT_ERROR_CODES.profileMissing,
     );
   }
 

@@ -540,20 +540,39 @@ describe("runMigrations – Postgres steady-state (no pending migrations)", () =
     exitSpy.mockRestore();
   });
 
-  it("shares one direct exec across concurrent runners in the same boot window", async () => {
-    // Both pooled execs report current = 0 → both have pending migrations
+  it("serializes concurrent Postgres runners for the same database", async () => {
+    // Both pooled execs report current = 0 → both have pending migrations.
+    // The callbacks must not overlap: on a fresh database, concurrent DDL and
+    // bookkeeping probes can let auth mount before the schema it needs exists.
     const pooledExec = makeExec([{ v: 0 }]);
     vi.mocked(getDbExec).mockReturnValue(pooledExec);
     vi.mocked(getMigrationDatabaseUrl).mockReturnValue("postgres://direct");
 
-    const sharedDirectExec = makeExec([{ v: 0 }]);
-    vi.mocked(createDbExec).mockResolvedValue(sharedDirectExec);
+    const directExec = makeExec([{ v: 0 }]);
+    vi.mocked(createDbExec).mockResolvedValue(directExec);
+
+    let activeMigrations = 0;
+    let maxActiveMigrations = 0;
+    const run = async () => {
+      activeMigrations++;
+      maxActiveMigrations = Math.max(maxActiveMigrations, activeMigrations);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      activeMigrations--;
+    };
 
     const m1 = [
-      { version: 1, sql: "CREATE TABLE shared_a (id BIGINT PRIMARY KEY)" },
+      {
+        version: 1,
+        sql: "CREATE TABLE shared_a (id BIGINT PRIMARY KEY)",
+        run,
+      },
     ];
     const m2 = [
-      { version: 1, sql: "CREATE TABLE shared_b (id BIGINT PRIMARY KEY)" },
+      {
+        version: 1,
+        sql: "CREATE TABLE shared_b (id BIGINT PRIMARY KEY)",
+        run,
+      },
     ];
 
     const plugin1 = runMigrations(m1, { table: "shared_a_migrations" });
@@ -562,10 +581,9 @@ describe("runMigrations – Postgres steady-state (no pending migrations)", () =
     // Run both plugins concurrently
     await Promise.all([plugin1(null), plugin2(null)]);
 
-    // createDbExec must have been called exactly once (shared exec)
-    expect(createDbExec).toHaveBeenCalledTimes(1);
-    // close() must be called exactly once (last releaser)
-    expect(sharedDirectExec.close).toHaveBeenCalledTimes(1);
+    expect(maxActiveMigrations).toBe(1);
+    expect(createDbExec).toHaveBeenCalledTimes(2);
+    expect(directExec.close).toHaveBeenCalledTimes(2);
   });
 });
 

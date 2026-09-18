@@ -495,13 +495,19 @@
 }
 
 .design-inspector-grid[data-inspector-layout="pair-flow"] {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  column-gap: var(--design-baseline-unit);
+  grid-template-columns:
+    minmax(0, 1fr) calc(var(--design-baseline-unit) * 2)
+    minmax(0, 1fr);
 }
 
 .design-inspector-grid[data-inspector-layout="pair-flow"]
-  > [data-inspector-grid-cell] {
-  grid-column: auto !important;
+  > [data-inspector-grid-cell]:nth-child(odd) {
+  grid-column: 1 !important;
+}
+
+.design-inspector-grid[data-inspector-layout="pair-flow"]
+  > [data-inspector-grid-cell]:nth-child(even) {
+  grid-column: 3 !important;
 }
 
 .design-inspector-grid[data-inspector-layout="action-pair"],

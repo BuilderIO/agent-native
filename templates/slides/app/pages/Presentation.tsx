@@ -1,4 +1,4 @@
-import { callAction } from "@agent-native/core/client/hooks";
+import { callActionWithRetry } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import { useEffect, useState } from "react";
@@ -50,7 +50,7 @@ export default function Presentation() {
 
     let cancelled = false;
     setFallbackState("loading");
-    callAction<Deck>("get-deck", { id }, { method: "GET" })
+    callActionWithRetry<Deck>("get-deck", { id }, { method: "GET" })
       .then((data) => {
         if (!cancelled) {
           setFallbackDeck(data);

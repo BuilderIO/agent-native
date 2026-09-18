@@ -38,7 +38,13 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-import { InspectorGrid, InspectorGridCell } from "../edit-panel/inspector-grid";
+import {
+  INSPECTOR_GRID_ACTION_PAIR_SPAN,
+  INSPECTOR_GRID_PAIR_GUTTER_SPAN,
+  INSPECTOR_GRID_PAIR_SPAN,
+  InspectorGrid,
+  InspectorGridCell,
+} from "../edit-panel/inspector-grid";
 import type {
   AlignmentHorizontal,
   AlignmentMatrixValue,
@@ -62,7 +68,11 @@ import {
   IconSizingRemove,
   IconSizingVariable,
 } from "./design-icons";
-import { ScrubInput, type ScrubInputChangeMeta } from "./ScrubInput";
+import {
+  ScrubInput,
+  type ScrubInputChangeMeta,
+  type ScrubInputProps,
+} from "./ScrubInput";
 
 export type AutoLayoutDirection = "horizontal" | "vertical";
 export type AutoLayoutWrap = "nowrap" | "wrap";
@@ -86,6 +96,15 @@ export interface AutoLayoutGridValue {
   rowsMixed?: boolean;
   columnGapMixed?: boolean;
   rowGapMixed?: boolean;
+  /**
+   * Set when the axis is authored outside the inspector — a stylesheet rule,
+   * a class, or an implicit grid track — so only its track COUNT is known,
+   * not its sizing. A count edit while this is set and sizing is still
+   * "custom" is refused (nothing written) rather than committed as a
+   * fabricated fill/hug/fixed template over whatever is really authored.
+   */
+  columnSizingUnknown?: boolean;
+  rowSizingUnknown?: boolean;
 }
 
 /** Round to one decimal place — matches the `precision={1}` ScrubInput fields
@@ -107,6 +126,35 @@ export interface AutoLayoutPadding {
   right: number;
   bottom: number;
   left: number;
+}
+
+const OPPOSITE_PADDING_SIDE: Record<
+  keyof AutoLayoutPadding,
+  keyof AutoLayoutPadding
+> = {
+  top: "bottom",
+  right: "left",
+  bottom: "top",
+  left: "right",
+};
+
+type PaddingChangeMeta = {
+  source: ScrubInputChangeMeta["source"];
+  phase: ScrubInputChangeMeta["phase"];
+  altKey?: boolean;
+};
+
+/** Apply Figma's Alt/Option mirror to one unlinked padding side. */
+export function mirrorPaddingChange(
+  padding: AutoLayoutPadding,
+  side: keyof AutoLayoutPadding,
+  meta?: PaddingChangeMeta,
+): AutoLayoutPadding {
+  if (!meta?.altKey) return padding;
+  return {
+    ...padding,
+    [OPPOSITE_PADDING_SIDE[side]]: padding[side],
+  };
 }
 
 export interface AutoLayoutMatrixValue {
@@ -303,6 +351,7 @@ export interface AutoLayoutMatrixProps {
     Record<AutoLayoutSizingAxis, AutoLayoutSizing[]>
   >;
   showChildLayoutControls?: boolean;
+  showSizingControls?: boolean;
   labels?: Partial<AutoLayoutMatrixLabels>;
   disabled?: boolean;
   className?: string;
@@ -378,6 +427,7 @@ export function AutoLayoutMatrix({
   onChildSizeChange,
   availableChildSizing,
   showChildLayoutControls = true,
+  showSizingControls = true,
   labels,
   disabled = false,
   className,
@@ -402,6 +452,14 @@ export function AutoLayoutMatrix({
   const verticalPaddingMixed = Boolean(
     value.paddingMixed?.top || value.paddingMixed?.bottom,
   );
+
+  const updatePadding = (
+    side: keyof AutoLayoutPadding,
+    padding: AutoLayoutPadding,
+    meta?: PaddingChangeMeta,
+  ) => {
+    onPaddingChange(mirrorPaddingChange(padding, side, meta), meta);
+  };
 
   const activeFlow = getFlowOption(value);
   const isBlock = activeFlow === "normal";
@@ -532,94 +590,96 @@ export function AutoLayoutMatrix({
         ) : null}
 
         {/* ── Resizing ── */}
-        <InspectorGrid
-          className="design-sidebar-property-grid items-start"
-          layout="label-action-pair"
-        >
-          <InspectorGridCell span={28}>
-            <ControlLabel>
-              {"Resizing" /* i18n-ignore design inspector label */}
-            </ControlLabel>
-          </InspectorGridCell>
-          <InspectorGridCell span={11}>
-            <SizingField
-              axis="W"
-              sizingAxis="horizontal"
-              value={value.childSizing.horizontal}
-              resolvedSize={value.resolvedSize?.horizontal}
-              mixed={Boolean(value.mixedSize?.horizontal)}
-              minMax={value.childMinMax?.horizontal}
-              options={resolveSizingOptions(
-                availableChildSizing?.horizontal,
-                value.childSizing.horizontal,
-              )}
-              labels={copy}
-              disabled={disabled}
-              onChange={(next) => onChildSizingChange("horizontal", next)}
-              onSizeChange={
-                onChildSizeChange
-                  ? (px, meta) => onChildSizeChange("horizontal", px, meta)
-                  : undefined
-              }
-              onMinMaxChange={onChildMinMaxChange}
-              onApplyVariable={onApplyVariable}
-            />
-          </InspectorGridCell>
-          <InspectorGridCell span={1} ariaHidden />
-          <InspectorGridCell span={11}>
-            <SizingField
-              axis="H"
-              sizingAxis="vertical"
-              value={value.childSizing.vertical}
-              resolvedSize={value.resolvedSize?.vertical}
-              mixed={Boolean(value.mixedSize?.vertical)}
-              minMax={value.childMinMax?.vertical}
-              options={resolveSizingOptions(
-                availableChildSizing?.vertical,
-                value.childSizing.vertical,
-              )}
-              labels={copy}
-              disabled={disabled}
-              onChange={(next) => onChildSizingChange("vertical", next)}
-              onSizeChange={
-                onChildSizeChange
-                  ? (px, meta) => onChildSizeChange("vertical", px, meta)
-                  : undefined
-              }
-              onMinMaxChange={onChildMinMaxChange}
-              onApplyVariable={onApplyVariable}
-            />
-          </InspectorGridCell>
-          <InspectorGridCell span={1} ariaHidden />
-          <InspectorGridCell span={4} className="flex justify-center">
-            {canResizeToFit ? (
-              /* Resize-to-fit only applies when both axes have measurable content. */
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    disabled={disabled}
-                    aria-label={
-                      "Resize to fit" /* i18n-ignore inspector tooltip */
-                    }
-                    onClick={() => {
-                      onChildSizingChange("horizontal", "hug");
-                      onChildSizingChange("vertical", "hug");
-                    }}
-                    className="size-6 rounded-md text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground"
-                  >
-                    <IconArrowsDiagonalMinimize2 className="size-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {"Resize to fit" /* i18n-ignore inspector tooltip */}
-                </TooltipContent>
-              </Tooltip>
-            ) : null}
-          </InspectorGridCell>
-        </InspectorGrid>
+        {showSizingControls ? (
+          <InspectorGrid
+            className="design-sidebar-property-grid items-start"
+            layout="label-action-pair"
+          >
+            <InspectorGridCell span={28}>
+              <ControlLabel>
+                {"Resizing" /* i18n-ignore design inspector label */}
+              </ControlLabel>
+            </InspectorGridCell>
+            <InspectorGridCell span={11}>
+              <SizingField
+                axis="W"
+                sizingAxis="horizontal"
+                value={value.childSizing.horizontal}
+                resolvedSize={value.resolvedSize?.horizontal}
+                mixed={Boolean(value.mixedSize?.horizontal)}
+                minMax={value.childMinMax?.horizontal}
+                options={resolveSizingOptions(
+                  availableChildSizing?.horizontal,
+                  value.childSizing.horizontal,
+                )}
+                labels={copy}
+                disabled={disabled}
+                onChange={(next) => onChildSizingChange("horizontal", next)}
+                onSizeChange={
+                  onChildSizeChange
+                    ? (px, meta) => onChildSizeChange("horizontal", px, meta)
+                    : undefined
+                }
+                onMinMaxChange={onChildMinMaxChange}
+                onApplyVariable={onApplyVariable}
+              />
+            </InspectorGridCell>
+            <InspectorGridCell span={1} ariaHidden />
+            <InspectorGridCell span={11}>
+              <SizingField
+                axis="H"
+                sizingAxis="vertical"
+                value={value.childSizing.vertical}
+                resolvedSize={value.resolvedSize?.vertical}
+                mixed={Boolean(value.mixedSize?.vertical)}
+                minMax={value.childMinMax?.vertical}
+                options={resolveSizingOptions(
+                  availableChildSizing?.vertical,
+                  value.childSizing.vertical,
+                )}
+                labels={copy}
+                disabled={disabled}
+                onChange={(next) => onChildSizingChange("vertical", next)}
+                onSizeChange={
+                  onChildSizeChange
+                    ? (px, meta) => onChildSizeChange("vertical", px, meta)
+                    : undefined
+                }
+                onMinMaxChange={onChildMinMaxChange}
+                onApplyVariable={onApplyVariable}
+              />
+            </InspectorGridCell>
+            <InspectorGridCell span={1} ariaHidden />
+            <InspectorGridCell span={4} className="flex justify-center">
+              {canResizeToFit ? (
+                /* Resize-to-fit only applies when both axes have measurable content. */
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      disabled={disabled}
+                      aria-label={
+                        "Resize to fit" /* i18n-ignore inspector tooltip */
+                      }
+                      onClick={() => {
+                        onChildSizingChange("horizontal", "hug");
+                        onChildSizingChange("vertical", "hug");
+                      }}
+                      className="size-6 rounded-md text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground"
+                    >
+                      <IconArrowsDiagonalMinimize2 className="size-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {"Resize to fit" /* i18n-ignore inspector tooltip */}
+                  </TooltipContent>
+                </Tooltip>
+              ) : null}
+            </InspectorGridCell>
+          </InspectorGrid>
+        ) : null}
 
         {showChildLayoutControls &&
         !isBlock &&
@@ -637,8 +697,8 @@ export function AutoLayoutMatrix({
         ) : null}
 
         {showChildLayoutControls && !isBlock && activeFlow !== "grid" ? (
-          <InspectorGrid className="items-start">
-            <InspectorGridCell span={28}>
+          <InspectorGrid className="items-start" layout="pair-flow">
+            <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
               <div className="design-sidebar-property-group">
                 <div className="flex items-center justify-between gap-2">
                   <ControlLabel>
@@ -661,7 +721,7 @@ export function AutoLayoutMatrix({
               </div>
             </InspectorGridCell>
 
-            <InspectorGridCell span={28}>
+            <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
               <div className="design-sidebar-property-group">
                 <ControlLabel>{copy.gap}</ControlLabel>
                 <GapField
@@ -708,7 +768,8 @@ export function AutoLayoutMatrix({
                     value={horizontalPaddingValue}
                     mixed={horizontalPaddingMixed}
                     onChange={(next, meta) =>
-                      onPaddingChange(
+                      updatePadding(
+                        "left",
                         {
                           top: value.padding.top,
                           bottom: value.padding.bottom,
@@ -729,7 +790,8 @@ export function AutoLayoutMatrix({
                     value={verticalPaddingValue}
                     mixed={verticalPaddingMixed}
                     onChange={(next, meta) =>
-                      onPaddingChange(
+                      updatePadding(
+                        "top",
                         {
                           top: next,
                           bottom: next,
@@ -757,27 +819,36 @@ export function AutoLayoutMatrix({
               /* Unlinked state: expand to 4 separate T / R / B / L fields */
               <InspectorGrid className="items-center" layout="field-action">
                 <InspectorGridCell span={24}>
-                  <InspectorGrid className="items-center" layout="pair-flow">
-                    <InspectorGridCell span={14}>
+                  <InspectorGrid className="items-center" layout="pair">
+                    <InspectorGridCell span={INSPECTOR_GRID_ACTION_PAIR_SPAN}>
                       <PaddingField
                         icon={IconBorderTop}
                         ariaLabel={copy.paddingTop}
                         value={value.padding.top}
                         mixed={value.paddingMixed?.top}
                         onChange={(next, meta) =>
-                          onPaddingChange({ ...value.padding, top: next }, meta)
+                          updatePadding(
+                            "top",
+                            { ...value.padding, top: next },
+                            meta,
+                          )
                         }
                         disabled={disabled}
                       />
                     </InspectorGridCell>
-                    <InspectorGridCell span={14}>
+                    <InspectorGridCell
+                      span={INSPECTOR_GRID_PAIR_GUTTER_SPAN}
+                      ariaHidden
+                    />
+                    <InspectorGridCell span={INSPECTOR_GRID_ACTION_PAIR_SPAN}>
                       <PaddingField
                         icon={IconBorderRight}
                         ariaLabel={copy.paddingRight}
                         value={value.padding.right}
                         mixed={value.paddingMixed?.right}
                         onChange={(next, meta) =>
-                          onPaddingChange(
+                          updatePadding(
+                            "right",
                             { ...value.padding, right: next },
                             meta,
                           )
@@ -785,14 +856,15 @@ export function AutoLayoutMatrix({
                         disabled={disabled}
                       />
                     </InspectorGridCell>
-                    <InspectorGridCell span={14}>
+                    <InspectorGridCell span={INSPECTOR_GRID_ACTION_PAIR_SPAN}>
                       <PaddingField
                         icon={IconBorderBottom}
                         ariaLabel={copy.paddingBottom}
                         value={value.padding.bottom}
                         mixed={value.paddingMixed?.bottom}
                         onChange={(next, meta) =>
-                          onPaddingChange(
+                          updatePadding(
+                            "bottom",
                             { ...value.padding, bottom: next },
                             meta,
                           )
@@ -800,14 +872,19 @@ export function AutoLayoutMatrix({
                         disabled={disabled}
                       />
                     </InspectorGridCell>
-                    <InspectorGridCell span={14}>
+                    <InspectorGridCell
+                      span={INSPECTOR_GRID_PAIR_GUTTER_SPAN}
+                      ariaHidden
+                    />
+                    <InspectorGridCell span={INSPECTOR_GRID_ACTION_PAIR_SPAN}>
                       <PaddingField
                         icon={IconBorderLeft}
                         ariaLabel={copy.paddingLeft}
                         value={value.padding.left}
                         mixed={value.paddingMixed?.left}
                         onChange={(next, meta) =>
-                          onPaddingChange(
+                          updatePadding(
+                            "left",
                             { ...value.padding, left: next },
                             meta,
                           )
@@ -948,7 +1025,18 @@ function GridControls({
             columns={value.columns}
             rows={value.rows}
             mixed={Boolean(value.columnsMixed || value.rowsMixed)}
-            disabled={locked}
+            // A custom axis (unknown, or a known non-uniform inline
+            // template) has no count-preserving write to make — see
+            // gridTemplatePatchForChange's "custom" skip — so the combined
+            // matrix is unreachable while either axis is custom or unknown;
+            // the sizing pickers in the popover stay enabled as the
+            // recovery path.
+            disabled={
+              locked ||
+              Boolean(value.columnSizingUnknown || value.rowSizingUnknown) ||
+              value.columnSizing === "custom" ||
+              value.rowSizing === "custom"
+            }
             onChange={(columns, rows, meta) => update({ columns, rows }, meta)}
           />
         </InspectorGridCell>
@@ -1033,6 +1121,7 @@ function GridTrackMatrix({
             <button
               key={`${cellColumn}:${cellRow}`}
               type="button"
+              disabled={disabled}
               aria-label={
                 `${cellColumn} × ${cellRow}` /* i18n-ignore design inspector label */
               }
@@ -1099,8 +1188,8 @@ function GridGapField({
       precision={0}
       disabled={disabled}
       className="min-w-0 gap-0 rounded-md bg-[var(--design-editor-control-bg)]"
-      labelClassName="h-7 w-6 shrink-0 justify-center gap-0 rounded-l-md rounded-r-none text-muted-foreground [&>span]:hidden"
-      inputClassName="h-7 border-0 bg-transparent px-1 !text-[11px] shadow-none focus-visible:ring-0"
+      labelClassName="h-6 w-6 shrink-0 justify-center gap-0 rounded-l-md rounded-r-none text-muted-foreground [&>span]:hidden"
+      inputClassName="h-6 border-0 bg-transparent px-1 !text-[11px] shadow-none focus-visible:ring-0"
     />
   );
 }
@@ -1155,7 +1244,16 @@ function GridAdvancedPopover({
             min={1}
             max={24}
             onChange={(columns, meta) => update({ columns }, meta)}
-            disabled={disabled}
+            // A custom axis — unknown (stylesheet-authored) or a known
+            // non-uniform inline template — has no count-preserving write
+            // to make (see gridTemplatePatchForChange), so the count field
+            // stays disabled either way; the sizing picker below is the
+            // recovery path.
+            disabled={
+              disabled ||
+              Boolean(value.columnSizingUnknown) ||
+              value.columnSizing === "custom"
+            }
           />
           <GridNumberField
             label={"Rows" /* i18n-ignore design inspector label */}
@@ -1164,7 +1262,11 @@ function GridAdvancedPopover({
             min={1}
             max={24}
             onChange={(rows, meta) => update({ rows }, meta)}
-            disabled={disabled}
+            disabled={
+              disabled ||
+              Boolean(value.rowSizingUnknown) ||
+              value.rowSizing === "custom"
+            }
           />
         </div>
         <div className="grid grid-cols-2 gap-1.5">
@@ -1172,7 +1274,15 @@ function GridAdvancedPopover({
             label={"Column sizing" /* i18n-ignore design inspector label */}
             value={value.columnSizing}
             fixedSize={value.columnSize}
-            disabled={disabled}
+            // A mixed multi-selection has no shared count to write a sizing
+            // pick against (see gridTemplatePatchForChange) — the only
+            // recovery is selecting elements individually. A plain
+            // stylesheet-unknown axis (not mixed) stays enabled: picking a
+            // sizing there is exactly how the user resolves it.
+            disabled={
+              disabled ||
+              Boolean(value.columnsMixed && value.columnSizingUnknown)
+            }
             onChange={(columnSizing) => update({ columnSizing })}
             onFixedSizeChange={(columnSize, meta) =>
               update({ columnSize }, meta)
@@ -1182,7 +1292,9 @@ function GridAdvancedPopover({
             label={"Row sizing" /* i18n-ignore design inspector label */}
             value={value.rowSizing}
             fixedSize={value.rowSize}
-            disabled={disabled}
+            disabled={
+              disabled || Boolean(value.rowsMixed && value.rowSizingUnknown)
+            }
             onChange={(rowSizing) => update({ rowSizing })}
             onFixedSizeChange={(rowSize, meta) => update({ rowSize }, meta)}
           />
@@ -1306,7 +1418,7 @@ function GridTrackPicker({
 }
 
 /**
- * Compact 3×3 alignment grid (no border box). Inactive cells show a faint dot;
+ * Compact 3×3 alignment grid. Inactive cells show a faint dot;
  * the active cell shows accent bars oriented by flow — horizontal bars for a
  * vertical flow, vertical bars for a horizontal flow (editor convention).
  * When `onDistribute` is provided, two distribute buttons (H + V) are rendered
@@ -1331,7 +1443,7 @@ function CompactAlignmentMatrix({
     <div
       className={cn("space-y-1", disabled && "pointer-events-none opacity-40")}
     >
-      <div className={cn("grid w-fit grid-cols-3 rounded-md")}>
+      <div className="grid w-full max-w-[92px] grid-cols-3 rounded-md bg-[var(--design-editor-control-bg)] p-1">
         {ALIGNMENT_CELLS.map((cell) => {
           const active =
             !mixed &&
@@ -1351,7 +1463,7 @@ function CompactAlignmentMatrix({
                 })
               }
               className={cn(
-                "flex size-[22px] items-center justify-center rounded-[3px] transition-colors",
+                "flex h-4 min-w-0 w-full items-center justify-center rounded-[3px] transition-colors",
                 "hover:bg-[var(--design-editor-control-bg)]",
               )}
             >
@@ -1797,6 +1909,10 @@ export interface SizingFieldProps {
   /** Currently-set min/max constraints (px). */
   minMax?: SizingFieldMinMax;
   options?: AutoLayoutSizing[];
+  /** Optional Auto mode used by root frames with intrinsic sizing. */
+  autoMode?: { active: boolean; label: string; onSelect: () => void };
+  /** Hide constraints and variables when this field represents a frame size. */
+  showAdvancedOptions?: boolean;
   /** Optional label overrides; English defaults are used for any omitted key. */
   labels?: Partial<AutoLayoutMatrixLabels>;
   disabled: boolean;
@@ -1845,6 +1961,8 @@ export function SizingField({
   mixed = false,
   minMax,
   options = SIZING_OPTIONS,
+  autoMode,
+  showAdvancedOptions = true,
   labels: labelOverrides,
   disabled,
   onChange,
@@ -1865,14 +1983,15 @@ export function SizingField({
 
   // design rule: when Fixed, show ONLY the numeric value + chevron (no word).
   // When Hug / Fill, show value + the mode word.
-  const showWord = value !== "fixed";
+  const showWord = Boolean(autoMode?.active) || value !== "fixed";
+  const modeLabel = autoMode?.active ? autoMode.label : labels[value];
   // An unmeasurable size prints nothing rather than a stale number: the mode
   // word alone is true, "437" next to it is not.
   const sizeText = mixed
     ? "Mixed"
     : resolvedSize == null
       ? ""
-      : String(Math.round(resolvedSize));
+      : String(roundToOneDecimal(resolvedSize));
 
   const addMinLabel = isWidth ? labels.addMinWidth : labels.addMinHeight;
   const addMaxLabel = isWidth ? labels.addMaxWidth : labels.addMaxHeight;
@@ -1885,7 +2004,7 @@ export function SizingField({
   const openEditor = (kind: "min" | "max") => {
     // Commit immediately so the shown row always reflects real state and
     // persists across selection changes, remounts, and parent re-renders.
-    const seed = Math.max(0, Math.round(resolvedSize ?? 0));
+    const seed = Math.max(0, roundToOneDecimal(resolvedSize ?? 0));
     const seedValue = kind === "min" ? seed : seed || 1;
     onMinMaxChange?.(sizingAxis, kind, seedValue);
   };
@@ -1901,14 +2020,14 @@ export function SizingField({
       <SizingMenuItem
         icon={<IconSizingFixed />}
         label={labels.fixed}
-        active={value === "fixed"}
+        active={!autoMode?.active && value === "fixed"}
         onSelect={() => onChange("fixed")}
       />
       {canHug ? (
         <SizingMenuItem
           icon={<IconSizingHug />}
           label={labels.hugContents}
-          active={value === "hug"}
+          active={!autoMode?.active && value === "hug"}
           onSelect={() => onChange("hug")}
         />
       ) : null}
@@ -1916,13 +2035,21 @@ export function SizingField({
         <SizingMenuItem
           icon={<IconSizingFill />}
           label={labels.fillContainer}
-          active={value === "fill"}
+          active={!autoMode?.active && value === "fill"}
           onSelect={() => onChange("fill")}
+        />
+      ) : null}
+      {autoMode ? (
+        <SizingMenuItem
+          icon={<IconSizingFixed />}
+          label={autoMode.label}
+          active={autoMode.active}
+          onSelect={autoMode.onSelect}
         />
       ) : null}
 
       {/* ── Min / Max ── */}
-      {onMinMaxChange ? (
+      {showAdvancedOptions && onMinMaxChange ? (
         <>
           <DropdownMenuSeparator />
           <SizingMenuItem
@@ -1943,13 +2070,17 @@ export function SizingField({
       ) : null}
 
       {/* ── Variable ── */}
-      <DropdownMenuSeparator />
-      <SizingMenuItem
-        icon={<IconSizingVariable />}
-        label={labels.applyVariable}
-        disabled={!onApplyVariable}
-        onSelect={() => onApplyVariable?.(sizingAxis)}
-      />
+      {showAdvancedOptions ? (
+        <>
+          <DropdownMenuSeparator />
+          <SizingMenuItem
+            icon={<IconSizingVariable />}
+            label={labels.applyVariable}
+            disabled={!onApplyVariable}
+            onSelect={() => onApplyVariable?.(sizingAxis)}
+          />
+        </>
+      ) : null}
     </DropdownMenuContent>
   );
 
@@ -1996,7 +2127,7 @@ export function SizingField({
                 <DropdownMenuTrigger asChild>
                   <button
                     type="button"
-                    aria-label={`${axis} sizing mode — ${labels[value]}`}
+                    aria-label={`${axis} sizing mode — ${modeLabel}`}
                     disabled={disabled}
                     className={cn(
                       "flex h-6 w-6 shrink-0 items-center justify-center rounded-r-md",
@@ -2009,7 +2140,7 @@ export function SizingField({
                 </DropdownMenuTrigger>
               </TooltipTrigger>
               <TooltipContent>
-                {`${axis} · ${labels[value]} — click to change sizing mode`}
+                {`${axis} · ${modeLabel} — click to change sizing mode`}
               </TooltipContent>
             </Tooltip>
           </div>
@@ -2026,7 +2157,7 @@ export function SizingField({
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
-                  aria-label={`${axis} ${sizeText} ${labels[value]}`}
+                  aria-label={`${axis} ${sizeText} ${modeLabel}`}
                   disabled={disabled}
                   className={cn(
                     "flex h-6 w-full items-center gap-1 overflow-hidden rounded-md px-1.5",
@@ -2050,7 +2181,7 @@ export function SizingField({
                   {/* Mode word (Hug/Fill only) */}
                   {showWord ? (
                     <span className="shrink-0 truncate text-muted-foreground">
-                      {labels[value]}
+                      {modeLabel}
                     </span>
                   ) : null}
                   {/* Caret */}
@@ -2060,7 +2191,7 @@ export function SizingField({
                 </button>
               </DropdownMenuTrigger>
             </TooltipTrigger>
-            <TooltipContent>{`${axis} · ${labels[value]} — click to change sizing mode`}</TooltipContent>
+            <TooltipContent>{`${axis} · ${modeLabel} — click to change sizing mode`}</TooltipContent>
           </Tooltip>
           {dropdownContent}
         </DropdownMenu>
@@ -2070,6 +2201,7 @@ export function SizingField({
       {hasMin ? (
         <ConstraintSubRow
           label={minLabel}
+          icon={IconSizingMin}
           value={minValue ?? 0}
           disabled={disabled}
           removeLabel={labels.removeConstraint}
@@ -2084,6 +2216,7 @@ export function SizingField({
       {hasMax ? (
         <ConstraintSubRow
           label={maxLabel}
+          icon={IconSizingMax}
           value={maxValue ?? 0}
           disabled={disabled}
           removeLabel={labels.removeConstraint}
@@ -2115,6 +2248,7 @@ function SizingMenuItem({
 }) {
   return (
     <DropdownMenuItem
+      data-design-sizing-menu-item={label}
       disabled={disabled}
       onSelect={onSelect}
       className="gap-2 pl-2 pr-2 text-[12px]"
@@ -2130,9 +2264,10 @@ function SizingMenuItem({
   );
 }
 
-/** Inline min/max constraint editor row with a remove (×) affordance. */
+/** Inline min/max constraint editor row with a compact remove affordance. */
 function ConstraintSubRow({
   label,
+  icon,
   value,
   disabled,
   removeLabel,
@@ -2140,6 +2275,7 @@ function ConstraintSubRow({
   onRemove,
 }: {
   label: string;
+  icon: NonNullable<ScrubInputProps["icon"]>;
   value: number;
   disabled: boolean;
   removeLabel: string;
@@ -2157,15 +2293,19 @@ function ConstraintSubRow({
       <ScrubInput
         label={label}
         ariaLabel={label}
+        icon={icon}
+        prefix="icon"
         value={value}
-        onChange={(next, meta) => onChange(Math.max(0, Math.round(next)), meta)}
+        onChange={(next, meta) =>
+          onChange(Math.max(0, roundToOneDecimal(next)), meta)
+        }
         unit="px"
         min={0}
         step={1}
         precision={1}
         disabled={disabled}
         className="min-w-0 flex-1 gap-0"
-        labelClassName="hidden"
+        labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none px-0 text-muted-foreground [&>span]:sr-only"
         inputClassName="h-5 border-0 bg-transparent px-1 !text-[11px] shadow-none focus-visible:ring-0"
       />
       <Tooltip>
@@ -2178,10 +2318,11 @@ function ConstraintSubRow({
             className={cn(
               "flex h-6 w-5 shrink-0 items-center justify-center rounded-r-md",
               "text-muted-foreground hover:text-foreground",
+              "focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color,hsl(var(--primary)))]",
               "disabled:pointer-events-none disabled:opacity-40",
             )}
           >
-            <IconSizingRemove />
+            <IconSizingRemove className="size-3" />
           </button>
         </TooltipTrigger>
         <TooltipContent>{removeLabel}</TooltipContent>

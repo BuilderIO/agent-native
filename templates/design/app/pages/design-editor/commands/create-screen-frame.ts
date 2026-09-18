@@ -11,15 +11,16 @@ import {
   blankScreenHtml,
   nextBlankScreenFilename,
 } from "@/pages/design-editor/canvas-primitive-insert";
+import { getCanvasFrameGeometry } from "@/pages/design-editor/design-data-geometry-utils";
 import type { FileCreationHistoryEntry } from "@/pages/design-editor/history";
 import type { DesignFile } from "@/pages/design-editor/types";
 
 export interface CreateScreenFrameArgs {
   canEditDesign: boolean;
-  canvasFrameGeometryById: CanvasFrameGeometryById;
   createFileMutation: ReturnType<
     typeof useActionMutation<undefined, undefined, "create-file">
   >;
+  designDataJsonRef: RefObject<Record<string, unknown>>;
   files: DesignFile[];
   focusCreatedScreen: (screenId: string, geometry: FrameGeometry) => void;
   id: string | undefined;
@@ -43,8 +44,8 @@ export interface CreateScreenFrameArgs {
 export function runCreateScreenFrame(
   {
     canEditDesign,
-    canvasFrameGeometryById,
     createFileMutation,
+    designDataJsonRef,
     files,
     focusCreatedScreen,
     id,
@@ -94,7 +95,7 @@ export function runCreateScreenFrame(
           // the device floor and content-fit pass immediately override it.
           writeFrameGeometrySnapshot(
             {
-              ...canvasFrameGeometryById,
+              ...getCanvasFrameGeometry(designDataJsonRef.current),
               [nextId]: nextGeometry,
             },
             {

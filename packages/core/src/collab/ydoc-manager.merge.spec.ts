@@ -489,7 +489,7 @@ describe("ydoc-manager seedFromText guard", () => {
     docA.getText("content").insert(0, "user typed this");
     await manager.applyUpdate(docId, Y.encodeStateAsUpdate(docA), "tabA");
 
-    // A late autoSeed pass (startup race) tries to seed the original markdown.
+    // A second lazy seed attempt tries to seed the original markdown.
     await manager.seedFromText(docId, "stale original markdown", "content");
 
     // The user's live content must NOT be clobbered by the seed.

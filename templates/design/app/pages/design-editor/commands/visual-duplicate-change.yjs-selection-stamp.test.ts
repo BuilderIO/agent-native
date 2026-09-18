@@ -25,6 +25,7 @@ import { runVisualDuplicateChange } from "./visual-duplicate-change";
  * original from `targetNode` instead.
  */
 const CONTENT = `<!doctype html><html><body><div id="rect" data-agent-native-node-id="rect"></div></body></html>`;
+const SOURCE = { kind: "design-file" as const, fileId: "file-1" };
 
 function baseArgs(overrides: {
   undoManagerRef: { current: { undoStack: any[] } };
@@ -53,10 +54,11 @@ function baseArgs(overrides: {
 }
 
 function expectedOriginalSelection() {
-  const projection = buildCodeLayerProjection(CONTENT);
+  const projection = buildCodeLayerProjection(CONTENT, { source: SOURCE });
   const rectNode = projection.nodes.find(
     (node) => node.dataAttributes["data-agent-native-node-id"] === "rect",
-  )!;
+  );
+  if (!rectNode) throw new Error("Original rect fixture node is missing");
   return {
     selectedElement: elementInfoFromCodeLayerNode(rectNode),
     selectedLayerIds: [rectNode.id],
@@ -83,7 +85,9 @@ describe("runVisualDuplicateChange — stamps the pre-duplicate (original) selec
     );
 
     const newItem = undoManagerRef.current.undoStack[1]!;
-    expect(readYjsUndoSelection(newItem)).toEqual(expectedOriginalSelection());
+    const originalSelection = expectedOriginalSelection();
+    expect(originalSelection.selectedElement.sourceId).toBe("rect");
+    expect(readYjsUndoSelection(newItem)).toEqual(originalSelection);
     expect(readYjsUndoSelection(priorItem)).toBeUndefined();
   });
 

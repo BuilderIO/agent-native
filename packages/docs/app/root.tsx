@@ -35,9 +35,11 @@ import {
   useNavigate,
   useRouteError,
   useLocation,
+  useRevalidator,
   type LoaderFunctionArgs,
 } from "react-router";
 
+import { getGithubStarCount } from "../server/lib/github-star-count.server";
 import { hasDocBlockSyntax } from "./components/doc-block-detection";
 import {
   DEFAULT_DOCS_LOCALE,
@@ -64,6 +66,7 @@ import appCss from "./global.css?url";
 
 const SITE_URL = "https://www.agent-native.com";
 const LOCALE_INIT_SCRIPT_SELECTOR = "script[data-agent-native-locale-init]";
+const GITHUB_STAR_REVALIDATION_DELAY_MS = 1_500;
 
 const LazyAgentSidebar = lazy(async () => {
   const { AgentSidebar } = await import("@agent-native/core/client/agent-chat");
@@ -133,11 +136,15 @@ async function initialMessagesForLocale(locale: DocsLocale) {
 export async function loader({ request, url }: LoaderFunctionArgs) {
   const requestUrl = url ?? new URL(request.url);
   const locale = resolveLayoutLocale(requestUrl.pathname);
+  const [messages, starCount] = await Promise.all([
+    initialMessagesForLocale(locale),
+    getGithubStarCount(),
+  ]);
   return {
     locale,
     preference: { locale },
-    messages: await initialMessagesForLocale(locale),
-    starCount: null,
+    messages,
+    starCount,
   };
 }
 
@@ -218,6 +225,27 @@ function useRootLocaleData() {
   return isRootLocaleData(rootMatch?.loaderData)
     ? rootMatch.loaderData
     : fallbackRootLocaleData(location.pathname);
+}
+
+function GithubStarCountRevalidator({
+  starCount,
+}: {
+  starCount: number | null;
+}) {
+  const { revalidate } = useRevalidator();
+  const scheduledRef = useRef(false);
+
+  useEffect(() => {
+    if (starCount !== null || scheduledRef.current) return;
+    scheduledRef.current = true;
+    const timer = window.setTimeout(
+      () => revalidate(),
+      GITHUB_STAR_REVALIDATION_DELAY_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [revalidate, starCount]);
+
+  return null;
 }
 
 export const links = () => [
@@ -322,6 +350,7 @@ function DocsChrome({ children }: { children: React.ReactNode }) {
       onClick={handleClick}
     >
       <ScrollManager />
+      <GithubStarCountRevalidator starCount={starCount} />
       <SnackbarProvider>
         <SiteHeader starCount={starCount} />
         {children}

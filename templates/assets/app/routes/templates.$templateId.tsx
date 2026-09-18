@@ -89,6 +89,7 @@ import {
   IMAGE_CATEGORIES,
   IMAGE_MODELS,
   IMAGE_SIZES,
+  MAX_ASSET_UPLOAD_BATCH_BYTES,
   PRESET_REFERENCE_ROLES,
   supportedAspectRatiosForModel,
   type AspectRatio,
@@ -899,6 +900,10 @@ export default function TemplateEditorRoute() {
       return;
     }
     const file = files[0];
+    if (file.size > MAX_ASSET_UPLOAD_BATCH_BYTES) {
+      toast.error(t("brandKitDetail.couldNotUploadReferenceImage"));
+      return;
+    }
     const localPreviewUrl = URL.createObjectURL(file);
     const body = new FormData();
     body.append("libraryId", libraryId);
@@ -963,6 +968,14 @@ export default function TemplateEditorRoute() {
       target === "mask" ? skeletonMaskUploadPending : skeletonUploadPending;
     if (!files?.length || !libraryId || readOnly || pending) return;
     const file = files[0];
+    if (file.size > MAX_ASSET_UPLOAD_BATCH_BYTES) {
+      toast.error(
+        target === "mask"
+          ? t("brandKitDetail.couldNotUploadSkeletonMask")
+          : t("brandKitDetail.couldNotUploadSkeletonImage"),
+      );
+      return;
+    }
     const localPreviewUrl = URL.createObjectURL(file);
     const body = new FormData();
     body.append("libraryId", libraryId);

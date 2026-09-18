@@ -22,13 +22,21 @@ export const GRID_COLUMNS = 3;
 // the same total width, which showed up as the lines not quite lining up
 // with the real feature grid's dividers beneath them. Using the same grid
 // technique in both places means they round the same way.
+//
+// The gap matters too, not just the track count: the card grids draw their
+// dividers as a 1px gap, so their tracks split the width that is left after
+// the gaps are taken out. Without the same gap here the tracks are ~0.7px
+// wider and the two sets of lines land just off each other, which reads as a
+// doubled, darker line where a section meets the grid below it. The line is
+// then drawn on the far side of the gap (border-left pulled back over it) so
+// it sits in the gap rather than beside it.
 function GridLines({ gridLines }: { gridLines: "all" | "edges" }) {
   const columns = gridLines === "all" ? GRID_COLUMNS : 1;
   return (
     <div
       aria-hidden="true"
       className={[
-        "pointer-events-none absolute inset-y-0 left-1/2 z-0 box-border grid w-full max-w-site -translate-x-1/2",
+        "pointer-events-none absolute inset-y-0 left-1/2 z-0 box-border grid w-full max-w-site -translate-x-1/2 gap-px",
         "border-x border-solid border-[var(--b-border-subtle)]",
         columns === GRID_COLUMNS ? "grid-cols-3" : "grid-cols-1",
       ].join(" ")}
@@ -37,8 +45,8 @@ function GridLines({ gridLines }: { gridLines: "all" | "edges" }) {
         <div
           key={i}
           className={
-            i < columns - 1
-              ? "border-r border-solid border-[var(--b-border-subtle)]"
+            i > 0
+              ? "-ml-px border-l border-solid border-[var(--b-border-subtle)]"
               : undefined
           }
         />
