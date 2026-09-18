@@ -131,6 +131,7 @@ describe("ShareDialog primitive normalization", () => {
   it("keeps the tab row below the dialog close control", async () => {
     await renderDialog(vi.fn(), {
       shareUrl: "https://share.example.test/doc-1",
+      embedUrl: "https://embed.example.test/doc-1",
     });
 
     expect(
