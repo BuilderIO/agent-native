@@ -750,16 +750,19 @@ describe("large concurrent selectable-rects requests", () => {
         </div>
       </body></html>`);
       await page.evaluate(() => {
+        const child = document.querySelector<HTMLElement>("#child");
         const leaf = document.querySelector<HTMLElement>("#leaf");
-        if (!leaf) throw new Error("style mutation fixture did not attach");
-        const nativeGetAnimations = leaf.getAnimations.bind(leaf);
+        if (!child || !leaf)
+          throw new Error("style mutation fixture did not attach");
+        const nativeRect = child.getBoundingClientRect.bind(child);
         let reads = 0;
-        leaf.getAnimations = () => {
+        child.getBoundingClientRect = () => {
+          const rect = nativeRect();
           reads += 1;
           // The parent snapshot has already cached the leaf by the time the
-          // overlapping child snapshot reaches this second animation check.
+          // overlapping child snapshot reaches this second rect read.
           if (reads === 2) leaf.style.color = "rgb(0, 0, 255)";
-          return nativeGetAnimations();
+          return rect;
         };
       });
       await page.addScriptTag({ content: hydratedBridge() });
@@ -790,32 +793,36 @@ describe("large concurrent selectable-rects requests", () => {
       await page.setContent(`<!doctype html><html><body style="margin:0">
         <div id="host" data-agent-native-node-id="host">
           <div id="parent" data-agent-native-node-id="parent" style="position:relative;width:500px;height:220px">
-            <div id="leaf" data-agent-native-node-id="leaf" style="width:90px;height:40px"></div>
+            <div id="child" data-agent-native-node-id="child" style="width:180px;height:80px">
+              <div id="leaf" data-agent-native-node-id="leaf" style="width:90px;height:40px"></div>
+            </div>
           </div>
         </div>
       </body></html>`);
       await page.evaluate(() => {
         const host = document.querySelector<HTMLElement>("#host");
+        const child = document.querySelector<HTMLElement>("#child");
         const leaf = document.querySelector<HTMLElement>("#leaf");
-        if (!host || !leaf)
+        if (!host || !child || !leaf)
           throw new Error("shadow style fixture did not attach");
         const shadow = host.attachShadow({ mode: "open" });
         shadow.innerHTML = `<style id="theme">slot { color: rgb(255, 0, 0); }</style><slot></slot>`;
         const slot = shadow.querySelector("slot");
         if (!slot) throw new Error("shadow style fixture slot did not attach");
-        const nativeGetAnimations = leaf.getAnimations.bind(leaf);
+        const nativeRect = child.getBoundingClientRect.bind(child);
         let reads = 0;
-        leaf.getAnimations = () => {
+        child.getBoundingClientRect = () => {
+          const rect = nativeRect();
           reads += 1;
           // The parent snapshot has already cached the leaf by the time the
-          // overlapping child snapshot reaches this second animation check.
+          // overlapping child snapshot reaches this second rect read.
           if (reads === 2) {
             const style = shadow.querySelector<HTMLStyleElement>("#theme");
             if (!style)
               throw new Error("shadow style fixture stylesheet missing");
             style.textContent = "slot { color: rgb(0, 0, 255); }";
           }
-          return nativeGetAnimations();
+          return rect;
         };
       });
       await page.addScriptTag({ content: hydratedBridge() });
@@ -831,13 +838,68 @@ describe("large concurrent selectable-rects requests", () => {
           slot: getComputedStyle(slot).color,
         };
       });
-      const parentInfo = payload.find((info) => info.sourceId === "parent");
-      const portableLeaf = parentInfo?.portableStyleSnapshot?.nodes?.find(
+      const childInfo = payload.find((info) => info.sourceId === "child");
+      const portableLeaf = childInfo?.portableStyleSnapshot?.nodes?.find(
         (node) => node.sourceId === "leaf",
       )?.styles?.color;
       expect(live.leaf).toBe("rgb(0, 0, 255)");
       expect(live.slot).toBe(live.leaf);
       expect(portableLeaf).toBe(live.leaf);
+    } finally {
+      await browser.close();
+    }
+  }, 60_000);
+
+  it("invalidates cached styles after a stylesheet CSSOM mutation", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 600, height: 300 },
+      });
+      await page.setContent(`<!doctype html><html><head><style id="theme">
+        #leaf { color: rgb(255, 0, 0); }
+      </style></head><body style="margin:0">
+        <div id="parent" data-agent-native-node-id="parent" style="position:relative;width:500px;height:220px">
+          <div id="child" data-agent-native-node-id="child" style="position:absolute;left:20px;top:20px;width:180px;height:80px">
+            <div id="leaf" data-agent-native-node-id="leaf" style="width:90px;height:40px"></div>
+          </div>
+        </div>
+      </body></html>`);
+      await page.evaluate(() => {
+        const child = document.querySelector<HTMLElement>("#child");
+        const style = document.querySelector<HTMLStyleElement>("#theme");
+        const sheet = style?.sheet;
+        const rule = sheet?.cssRules[0];
+        if (!child || !sheet || !(rule instanceof CSSStyleRule)) {
+          throw new Error("CSSOM style fixture did not attach");
+        }
+        const nativeRect = child.getBoundingClientRect.bind(child);
+        let reads = 0;
+        child.getBoundingClientRect = () => {
+          const rect = nativeRect();
+          reads += 1;
+          // The parent snapshot has already cached the leaf by the time the
+          // overlapping child snapshot reaches this second rect read.
+          if (reads === 2) {
+            rule.style.setProperty("color", "rgb(0, 0, 255)");
+          }
+          return rect;
+        };
+      });
+      await page.addScriptTag({ content: hydratedBridge() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+      const payload = await collectSelectableRects(page, { deep: true });
+      const liveLeaf = await page.evaluate(
+        () =>
+          getComputedStyle(document.querySelector<HTMLElement>("#leaf")!).color,
+      );
+      const childInfo = payload.find((info) => info.sourceId === "child");
+      const portableLeaf = childInfo?.portableStyleSnapshot?.nodes?.find(
+        (node) => node.sourceId === "leaf",
+      )?.styles?.color;
+      expect(liveLeaf).toBe("rgb(0, 0, 255)");
+      expect(portableLeaf).toBe(liveLeaf);
     } finally {
       await browser.close();
     }
@@ -852,14 +914,18 @@ describe("large concurrent selectable-rects requests", () => {
       await page.setContent(`<!doctype html><html><body style="margin:0">
         <div id="host" data-agent-native-node-id="host">
           <div id="parent" data-agent-native-node-id="parent" style="position:relative;width:500px;height:220px">
-            <div id="leaf" data-agent-native-node-id="leaf" style="width:90px;height:40px"></div>
+            <div id="child" data-agent-native-node-id="child" style="width:180px;height:80px">
+              <div id="leaf" data-agent-native-node-id="leaf" style="width:90px;height:40px"></div>
+            </div>
           </div>
         </div>
       </body></html>`);
       await page.evaluate(() => {
         const host = document.querySelector<HTMLElement>("#host");
+        const child = document.querySelector<HTMLElement>("#child");
         const leaf = document.querySelector<HTMLElement>("#leaf");
-        if (!host || !leaf) throw new Error("slot fixture did not attach");
+        if (!host || !child || !leaf)
+          throw new Error("slot fixture did not attach");
         const shadow = host.attachShadow({ mode: "open" });
         shadow.innerHTML = `<style>
           @keyframes tint { from { color: rgb(255, 0, 0); } to { color: rgb(0, 0, 255); } }
@@ -870,19 +936,19 @@ describe("large concurrent selectable-rects requests", () => {
         if (!slot || !animation)
           throw new Error("slot animation did not attach");
         animation.currentTime = 0;
-        const nativeGetAnimations = leaf.getAnimations.bind(leaf);
+        const nativeRect = child.getBoundingClientRect.bind(child);
         let reads = 0;
-        leaf.getAnimations = () => {
+        child.getBoundingClientRect = () => {
+          const rect = nativeRect();
           reads += 1;
-          // The slot is the composed style parent of this light-DOM leaf.
-          // Start its inherited animation only after the first snapshot cached
-          // the leaf, so the overlapping snapshot must invalidate that entry.
+          // The parent snapshot has already cached the leaf by the time the
+          // overlapping child snapshot reaches this second rect read.
           if (reads === 2) {
             animation.play();
             animation.currentTime = 500;
             animation.playbackRate = 0;
           }
-          return nativeGetAnimations();
+          return rect;
         };
       });
       await page.addScriptTag({ content: hydratedBridge() });
@@ -899,8 +965,8 @@ describe("large concurrent selectable-rects requests", () => {
           state: slot.getAnimations()[0]?.playState,
         };
       });
-      const parentInfo = payload.find((info) => info.sourceId === "parent");
-      const portableLeaf = parentInfo?.portableStyleSnapshot?.nodes?.find(
+      const childInfo = payload.find((info) => info.sourceId === "child");
+      const portableLeaf = childInfo?.portableStyleSnapshot?.nodes?.find(
         (node) => node.sourceId === "leaf",
       )?.styles?.color;
       expect(live.leaf).toBe("rgb(128, 0, 128)");

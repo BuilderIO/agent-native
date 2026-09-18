@@ -2903,13 +2903,209 @@ export const editorChromeBridgeScript: string = `"use strict";
         return false;
       }
     }
+    function portableStylePropertyDescriptor(target, property) {
+      var current = target;
+      while (current) {
+        var descriptor = Object.getOwnPropertyDescriptor(current, property);
+        if (descriptor) return { owner: current, descriptor };
+        var prototype = Object.getPrototypeOf(current);
+        current = prototype && prototype !== Object.prototype ? prototype : null;
+      }
+      return void 0;
+    }
+    function portableStyleCssomDeclarationChanged(receiver) {
+      try {
+        return receiver.parentRule !== null;
+      } catch (_error) {
+        return true;
+      }
+    }
+    function portableStyleWrapCssomMethod(cache, target, property, shouldInvalidate) {
+      var found2 = portableStylePropertyDescriptor(target, property);
+      if (!found2 || typeof found2.descriptor.value !== "function") return true;
+      var original = found2.descriptor.value;
+      var wrapped = function(...args) {
+        if (!shouldInvalidate || shouldInvalidate(this)) {
+          cache.mutationGeneration += 1;
+        }
+        var result = original.apply(this, args);
+        if (property === "replace" && result) {
+          try {
+            var then = result.then;
+            if (typeof then === "function") {
+              then.call(
+                result,
+                function() {
+                  cache.mutationGeneration += 1;
+                },
+                function() {
+                  cache.mutationGeneration += 1;
+                }
+              );
+            }
+          } catch (_error) {
+            cache.mutationGeneration += 1;
+          }
+        }
+        return result;
+      };
+      try {
+        Object.defineProperty(found2.owner, property, {
+          ...found2.descriptor,
+          value: wrapped
+        });
+      } catch (_error) {
+        dndLog("style:cssom-hook-install-failed", { property });
+        return false;
+      }
+      return function() {
+        try {
+          Object.defineProperty(found2.owner, property, found2.descriptor);
+        } catch (_error) {
+          dndLog("style:cssom-hook-restore-failed", { property });
+        }
+      };
+    }
+    function portableStyleWrapCssomSetter(cache, target, property, shouldInvalidate) {
+      var found2 = portableStylePropertyDescriptor(target, property);
+      if (!found2 || typeof found2.descriptor.set !== "function") return true;
+      var original = found2.descriptor.set;
+      var wrapped = function(value) {
+        if (!shouldInvalidate || shouldInvalidate(this)) {
+          cache.mutationGeneration += 1;
+        }
+        original.call(this, value);
+      };
+      try {
+        Object.defineProperty(found2.owner, property, {
+          ...found2.descriptor,
+          set: wrapped
+        });
+      } catch (_error) {
+        dndLog("style:cssom-hook-install-failed", { property });
+        return false;
+      }
+      return function() {
+        try {
+          Object.defineProperty(found2.owner, property, found2.descriptor);
+        } catch (_error) {
+          dndLog("style:cssom-hook-restore-failed", { property });
+        }
+      };
+    }
+    function portableStyleWrapCssomSetters(cache, target, shouldInvalidate, restorers) {
+      if (!target) return true;
+      var current = target;
+      while (current && current !== Object.prototype) {
+        var properties = Object.getOwnPropertyNames(current);
+        for (var index = 0; index < properties.length; index += 1) {
+          var property = properties[index];
+          if (property === "constructor") continue;
+          var result = portableStyleWrapCssomSetter(
+            cache,
+            current,
+            property,
+            shouldInvalidate
+          );
+          if (result === false) return false;
+          if (result !== true) restorers.push(result);
+        }
+        var prototype = Object.getPrototypeOf(current);
+        current = prototype && prototype !== Object.prototype ? prototype : null;
+      }
+      return true;
+    }
+    function portableStyleInstallCssomHooks(cache) {
+      var restorers = [];
+      var portableWindow = window;
+      var success = true;
+      var addMethod = function(target, property) {
+        if (!success || !target) return;
+        var result = portableStyleWrapCssomMethod(cache, target, property);
+        if (result === false) success = false;
+        else if (result !== true) restorers.push(result);
+      };
+      var addSetter = function(target, property) {
+        if (!success || !target) return;
+        var result = portableStyleWrapCssomSetter(cache, target, property);
+        if (result === false) success = false;
+        else if (result !== true) restorers.push(result);
+      };
+      var styleSheetPrototype = portableWindow.CSSStyleSheet?.prototype;
+      addMethod(portableWindow.Element?.prototype, "animate");
+      [
+        "insertRule",
+        "deleteRule",
+        "replace",
+        "replaceSync",
+        "addRule",
+        "removeRule"
+      ].forEach(function(property) {
+        addMethod(styleSheetPrototype, property);
+      });
+      addSetter(portableWindow.Document?.prototype, "adoptedStyleSheets");
+      addSetter(portableWindow.ShadowRoot?.prototype, "adoptedStyleSheets");
+      var styleDeclarationPrototype = portableWindow.CSSStyleDeclaration?.prototype;
+      if (success && styleDeclarationPrototype) {
+        var setPropertyResult = portableStyleWrapCssomMethod(
+          cache,
+          styleDeclarationPrototype,
+          "setProperty",
+          portableStyleCssomDeclarationChanged
+        );
+        if (setPropertyResult === false) success = false;
+        else if (setPropertyResult !== true) restorers.push(setPropertyResult);
+        var removePropertyResult = portableStyleWrapCssomMethod(
+          cache,
+          styleDeclarationPrototype,
+          "removeProperty",
+          portableStyleCssomDeclarationChanged
+        );
+        if (removePropertyResult === false) success = false;
+        else if (removePropertyResult !== true)
+          restorers.push(removePropertyResult);
+      }
+      if (success && !portableStyleWrapCssomSetters(
+        cache,
+        styleDeclarationPrototype,
+        portableStyleCssomDeclarationChanged,
+        restorers
+      )) {
+        success = false;
+      }
+      if (success && !portableStyleWrapCssomSetters(
+        cache,
+        styleSheetPrototype,
+        void 0,
+        restorers
+      )) {
+        success = false;
+      }
+      if (!success) {
+        for (var restoreIndex = restorers.length - 1; restoreIndex >= 0; restoreIndex -= 1) {
+          restorers[restoreIndex]();
+        }
+        return false;
+      }
+      cache.restoreCssomHooks = function() {
+        for (var restoreIndex2 = restorers.length - 1; restoreIndex2 >= 0; restoreIndex2 -= 1) {
+          restorers[restoreIndex2]();
+        }
+        restorers = [];
+      };
+      return true;
+    }
     function createPortableStyleComputedStylesCache() {
       if (typeof MutationObserver === "undefined") return void 0;
       var cache = {
         entries: /* @__PURE__ */ new Map(),
         mutationObserver: null,
         mutationGeneration: 0,
-        observedMutationRoots: []
+        observedMutationRoots: [],
+        animationStates: /* @__PURE__ */ new Map(),
+        animationSafety: /* @__PURE__ */ new Map(),
+        restoreCssomHooks: function() {
+        }
       };
       try {
         var observer = new MutationObserver(function(records) {
@@ -2922,8 +3118,14 @@ export const editorChromeBridgeScript: string = `"use strict";
           observer.disconnect();
           return void 0;
         }
+        if (!portableStyleInstallCssomHooks(cache)) {
+          observer.disconnect();
+          return void 0;
+        }
         return cache;
       } catch (_error) {
+        cache.mutationObserver.disconnect();
+        cache.restoreCssomHooks();
         dndLog("style:mutation-observer-unavailable");
         return void 0;
       }
@@ -2943,45 +3145,111 @@ export const editorChromeBridgeScript: string = `"use strict";
         return void 0;
       }
     }
-    function canReadPortableAnimationState(el) {
+    function canReadPortableAnimationState(el, cache) {
+      var cached = cache?.animationStates.get(el);
+      if (cached && cached.generation === cache?.mutationGeneration) {
+        return cached.safe;
+      }
+      var safe = true;
+      var cacheable = true;
       var animatedElement = el;
       try {
         var getAnimations = animatedElement.getAnimations;
         if (typeof getAnimations !== "function") {
           dndLog("style:animation-state-unreadable", { tag: el.tagName });
-          return false;
-        }
-        var animations = getAnimations.call(animatedElement);
-        if (!Array.isArray(animations)) {
-          dndLog("style:animation-state-unreadable", { tag: el.tagName });
-          return false;
-        }
-        for (var index = 0; index < animations.length; index += 1) {
-          var playState = animations[index]?.playState;
-          if (typeof playState !== "string") {
+          safe = false;
+        } else {
+          var animations = getAnimations.call(animatedElement);
+          if (!Array.isArray(animations)) {
             dndLog("style:animation-state-unreadable", { tag: el.tagName });
-            return false;
+            safe = false;
+          } else {
+            cacheable = animations.length === 0;
+            for (var index = 0; index < animations.length; index += 1) {
+              var playState = animations[index]?.playState;
+              if (typeof playState !== "string") {
+                dndLog("style:animation-state-unreadable", {
+                  tag: el.tagName
+                });
+                safe = false;
+                break;
+              }
+              if (playState === "running" || playState === "pending") {
+                safe = false;
+                break;
+              }
+            }
           }
-          if (playState === "running" || playState === "pending") return false;
         }
-        return true;
       } catch (_error) {
         dndLog("style:animation-state-read-failed", { tag: el.tagName });
-        return false;
+        safe = false;
       }
+      if (cache) {
+        if (cacheable || !safe) {
+          cache.animationStates.set(el, {
+            generation: cache.mutationGeneration,
+            safe
+          });
+        } else {
+          cache.animationStates.delete(el);
+        }
+      }
+      return safe;
     }
     function canReusePortableComputedStyles(el, cache) {
-      var current = el;
-      while (current) {
-        var parent = portableStyleAnimationParent(current);
-        if (parent === void 0) return false;
-        if (cache && (!portableStyleObserveElementRoot(cache, current) || parent && !portableStyleObserveElementRoot(cache, parent))) {
-          return false;
+      if (!cache) {
+        var uncachedCurrent = el;
+        while (uncachedCurrent) {
+          if (!canReadPortableAnimationState(uncachedCurrent)) return false;
+          var uncachedParent = portableStyleAnimationParent(uncachedCurrent);
+          if (uncachedParent === void 0) return false;
+          uncachedCurrent = uncachedParent;
         }
-        if (!canReadPortableAnimationState(current)) return false;
+        return true;
+      }
+      var path = [];
+      var current = el;
+      var safe = true;
+      var volatile = false;
+      while (current) {
+        if (!portableStyleObserveElementRoot(cache, current)) {
+          safe = false;
+          break;
+        }
+        var parent = portableStyleAnimationParent(current);
+        if (parent === void 0) {
+          safe = false;
+          break;
+        }
+        if (parent && !portableStyleObserveElementRoot(cache, parent)) {
+          safe = false;
+          break;
+        }
+        var cachedSafety = cache.animationSafety.get(current);
+        if (cachedSafety && cachedSafety.generation === cache.mutationGeneration && cachedSafety.parent === parent) {
+          safe = cachedSafety.safe;
+          break;
+        }
+        path.push({ element: current, parent });
+        if (!canReadPortableAnimationState(current, cache)) {
+          safe = false;
+          break;
+        }
+        if (!cache.animationStates.has(current)) volatile = true;
         current = parent;
       }
-      return true;
+      var generation = cache.mutationGeneration;
+      if (!volatile) {
+        for (var index = path.length - 1; index >= 0; index -= 1) {
+          cache.animationSafety.set(path[index].element, {
+            generation,
+            safe,
+            parent: path[index].parent
+          });
+        }
+      }
+      return safe;
     }
     function collectPortableComputedStyles(el, cache, computedStyle) {
       if (!el) return {};
@@ -3817,7 +4085,10 @@ export const editorChromeBridgeScript: string = `"use strict";
           return getElementInfo(target, portableComputedStylesCache);
         });
       } finally {
-        portableComputedStylesCache?.mutationObserver.disconnect();
+        if (portableComputedStylesCache) {
+          portableComputedStylesCache.mutationObserver.disconnect();
+          portableComputedStylesCache.restoreCssomHooks();
+        }
       }
     }
     function documentSpaceBoundsContainPoint(el, point) {

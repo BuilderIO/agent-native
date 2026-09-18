@@ -2976,11 +2976,20 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     styles: Record<string, string> | null;
   };
 
+  type PortableStyleAnimationStateCacheEntry = {
+    generation: number;
+    safe: boolean;
+    parent?: Element | null;
+  };
+
   type PortableStyleComputedStylesCache = {
     entries: Map<Element, PortableStyleCacheEntry>;
     mutationObserver: MutationObserver;
     mutationGeneration: number;
     observedMutationRoots: Node[];
+    animationStates: Map<Element, PortableStyleAnimationStateCacheEntry>;
+    animationSafety: Map<Element, PortableStyleAnimationStateCacheEntry>;
+    restoreCssomHooks: () => void;
   };
 
   var portableStyleMutationObserverOptions = {
@@ -3088,6 +3097,259 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
   }
 
+  function portableStylePropertyDescriptor(
+    target: object,
+    property: string,
+  ): { owner: object; descriptor: PropertyDescriptor } | undefined {
+    var current: object | null = target;
+    while (current) {
+      var descriptor = Object.getOwnPropertyDescriptor(current, property);
+      if (descriptor) return { owner: current, descriptor: descriptor };
+      var prototype = Object.getPrototypeOf(current);
+      current =
+        prototype && prototype !== Object.prototype
+          ? (prototype as object)
+          : null;
+    }
+    return undefined;
+  }
+
+  function portableStyleCssomDeclarationChanged(receiver: unknown): boolean {
+    try {
+      // Inline style writes are already covered by MutationObserver. A rule's
+      // declaration has a parentRule and is invisible to that observer.
+      return (receiver as { parentRule?: unknown }).parentRule !== null;
+    } catch (_error) {
+      return true;
+    }
+  }
+
+  function portableStyleWrapCssomMethod(
+    cache: PortableStyleComputedStylesCache,
+    target: object,
+    property: string,
+    shouldInvalidate?: (receiver: unknown) => boolean,
+  ): true | false | (() => void) {
+    var found = portableStylePropertyDescriptor(target, property);
+    if (!found || typeof found.descriptor.value !== "function") return true;
+    var original = found.descriptor.value as (
+      this: unknown,
+      ...args: unknown[]
+    ) => unknown;
+    var wrapped = function (this: unknown, ...args: unknown[]) {
+      if (!shouldInvalidate || shouldInvalidate(this)) {
+        cache.mutationGeneration += 1;
+      }
+      var result = original.apply(this, args);
+      if (property === "replace" && result) {
+        try {
+          var then = (result as { then?: unknown }).then;
+          if (typeof then === "function") {
+            then.call(
+              result,
+              function () {
+                cache.mutationGeneration += 1;
+              },
+              function () {
+                cache.mutationGeneration += 1;
+              },
+            );
+          }
+        } catch (_error) {
+          cache.mutationGeneration += 1;
+        }
+      }
+      return result;
+    };
+    try {
+      Object.defineProperty(found.owner, property, {
+        ...found.descriptor,
+        value: wrapped,
+      });
+    } catch (_error) {
+      dndLog("style:cssom-hook-install-failed", { property: property });
+      return false;
+    }
+    return function () {
+      try {
+        Object.defineProperty(found.owner, property, found.descriptor);
+      } catch (_error) {
+        dndLog("style:cssom-hook-restore-failed", { property: property });
+      }
+    };
+  }
+
+  function portableStyleWrapCssomSetter(
+    cache: PortableStyleComputedStylesCache,
+    target: object,
+    property: string,
+    shouldInvalidate?: (receiver: unknown) => boolean,
+  ): true | false | (() => void) {
+    var found = portableStylePropertyDescriptor(target, property);
+    if (!found || typeof found.descriptor.set !== "function") return true;
+    var original = found.descriptor.set as (
+      this: unknown,
+      value: unknown,
+    ) => void;
+    var wrapped = function (this: unknown, value: unknown) {
+      if (!shouldInvalidate || shouldInvalidate(this)) {
+        cache.mutationGeneration += 1;
+      }
+      original.call(this, value);
+    };
+    try {
+      Object.defineProperty(found.owner, property, {
+        ...found.descriptor,
+        set: wrapped,
+      });
+    } catch (_error) {
+      dndLog("style:cssom-hook-install-failed", { property: property });
+      return false;
+    }
+    return function () {
+      try {
+        Object.defineProperty(found.owner, property, found.descriptor);
+      } catch (_error) {
+        dndLog("style:cssom-hook-restore-failed", { property: property });
+      }
+    };
+  }
+
+  function portableStyleWrapCssomSetters(
+    cache: PortableStyleComputedStylesCache,
+    target: object | undefined,
+    shouldInvalidate: ((receiver: unknown) => boolean) | undefined,
+    restorers: Array<() => void>,
+  ): boolean {
+    if (!target) return true;
+    var current: object | null = target;
+    while (current && current !== Object.prototype) {
+      var properties = Object.getOwnPropertyNames(current);
+      for (var index = 0; index < properties.length; index += 1) {
+        var property = properties[index];
+        if (property === "constructor") continue;
+        var result = portableStyleWrapCssomSetter(
+          cache,
+          current,
+          property,
+          shouldInvalidate,
+        );
+        if (result === false) return false;
+        if (result !== true) restorers.push(result);
+      }
+      var prototype = Object.getPrototypeOf(current);
+      current =
+        prototype && prototype !== Object.prototype
+          ? (prototype as object)
+          : null;
+    }
+    return true;
+  }
+
+  function portableStyleInstallCssomHooks(
+    cache: PortableStyleComputedStylesCache,
+  ): boolean {
+    var restorers: Array<() => void> = [];
+    var portableWindow = window as typeof window & {
+      CSSStyleDeclaration?: { prototype: object };
+      CSSStyleSheet?: { prototype: object };
+      Document?: { prototype: object };
+      Element?: { prototype: object };
+      ShadowRoot?: { prototype: object };
+    };
+    var success = true;
+    var addMethod = function (target: object | undefined, property: string) {
+      if (!success || !target) return;
+      var result = portableStyleWrapCssomMethod(cache, target, property);
+      if (result === false) success = false;
+      else if (result !== true) restorers.push(result);
+    };
+    var addSetter = function (target: object | undefined, property: string) {
+      if (!success || !target) return;
+      var result = portableStyleWrapCssomSetter(cache, target, property);
+      if (result === false) success = false;
+      else if (result !== true) restorers.push(result);
+    };
+    var styleSheetPrototype = portableWindow.CSSStyleSheet?.prototype;
+    addMethod(portableWindow.Element?.prototype, "animate");
+    [
+      "insertRule",
+      "deleteRule",
+      "replace",
+      "replaceSync",
+      "addRule",
+      "removeRule",
+    ].forEach(function (property) {
+      addMethod(styleSheetPrototype, property);
+    });
+    addSetter(portableWindow.Document?.prototype, "adoptedStyleSheets");
+    addSetter(portableWindow.ShadowRoot?.prototype, "adoptedStyleSheets");
+    var styleDeclarationPrototype =
+      portableWindow.CSSStyleDeclaration?.prototype;
+    if (success && styleDeclarationPrototype) {
+      var setPropertyResult = portableStyleWrapCssomMethod(
+        cache,
+        styleDeclarationPrototype,
+        "setProperty",
+        portableStyleCssomDeclarationChanged,
+      );
+      if (setPropertyResult === false) success = false;
+      else if (setPropertyResult !== true) restorers.push(setPropertyResult);
+      var removePropertyResult = portableStyleWrapCssomMethod(
+        cache,
+        styleDeclarationPrototype,
+        "removeProperty",
+        portableStyleCssomDeclarationChanged,
+      );
+      if (removePropertyResult === false) success = false;
+      else if (removePropertyResult !== true)
+        restorers.push(removePropertyResult);
+    }
+    if (
+      success &&
+      !portableStyleWrapCssomSetters(
+        cache,
+        styleDeclarationPrototype,
+        portableStyleCssomDeclarationChanged,
+        restorers,
+      )
+    ) {
+      success = false;
+    }
+    if (
+      success &&
+      !portableStyleWrapCssomSetters(
+        cache,
+        styleSheetPrototype,
+        undefined,
+        restorers,
+      )
+    ) {
+      success = false;
+    }
+    if (!success) {
+      for (
+        var restoreIndex = restorers.length - 1;
+        restoreIndex >= 0;
+        restoreIndex -= 1
+      ) {
+        restorers[restoreIndex]();
+      }
+      return false;
+    }
+    cache.restoreCssomHooks = function () {
+      for (
+        var restoreIndex = restorers.length - 1;
+        restoreIndex >= 0;
+        restoreIndex -= 1
+      ) {
+        restorers[restoreIndex]();
+      }
+      restorers = [];
+    };
+    return true;
+  }
+
   function createPortableStyleComputedStylesCache():
     | PortableStyleComputedStylesCache
     | undefined {
@@ -3097,6 +3359,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       mutationObserver: null as unknown as MutationObserver,
       mutationGeneration: 0,
       observedMutationRoots: [],
+      animationStates: new Map<
+        Element,
+        PortableStyleAnimationStateCacheEntry
+      >(),
+      animationSafety: new Map<
+        Element,
+        PortableStyleAnimationStateCacheEntry
+      >(),
+      restoreCssomHooks: function () {},
     };
     try {
       var observer = new MutationObserver(function (records) {
@@ -3109,8 +3380,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         observer.disconnect();
         return undefined;
       }
+      if (!portableStyleInstallCssomHooks(cache)) {
+        observer.disconnect();
+        return undefined;
+      }
       return cache;
     } catch (_error) {
+      cache.mutationObserver.disconnect();
+      cache.restoreCssomHooks();
       dndLog("style:mutation-observer-unavailable");
       return undefined;
     }
@@ -3136,7 +3413,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
   }
 
-  function canReadPortableAnimationState(el: Element): boolean {
+  function canReadPortableAnimationState(
+    el: Element,
+    cache?: PortableStyleComputedStylesCache,
+  ): boolean {
+    var cached = cache?.animationStates.get(el);
+    if (cached && cached.generation === cache?.mutationGeneration) {
+      return cached.safe;
+    }
+    var safe = true;
+    var cacheable = true;
     var animatedElement = el as Element & {
       getAnimations?: () => Array<{ playState?: string }>;
     };
@@ -3144,50 +3430,107 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var getAnimations = animatedElement.getAnimations;
       if (typeof getAnimations !== "function") {
         dndLog("style:animation-state-unreadable", { tag: el.tagName });
-        return false;
-      }
-      var animations = getAnimations.call(animatedElement);
-      if (!Array.isArray(animations)) {
-        dndLog("style:animation-state-unreadable", { tag: el.tagName });
-        return false;
-      }
-      for (var index = 0; index < animations.length; index += 1) {
-        var playState = animations[index]?.playState;
-        if (typeof playState !== "string") {
+        safe = false;
+      } else {
+        var animations = getAnimations.call(animatedElement);
+        if (!Array.isArray(animations)) {
           dndLog("style:animation-state-unreadable", { tag: el.tagName });
-          return false;
+          safe = false;
+        } else {
+          cacheable = animations.length === 0;
+          for (var index = 0; index < animations.length; index += 1) {
+            var playState = animations[index]?.playState;
+            if (typeof playState !== "string") {
+              dndLog("style:animation-state-unreadable", {
+                tag: el.tagName,
+              });
+              safe = false;
+              break;
+            }
+            if (playState === "running" || playState === "pending") {
+              safe = false;
+              break;
+            }
+          }
         }
-        if (playState === "running" || playState === "pending") return false;
       }
-      return true;
     } catch (_error) {
       dndLog("style:animation-state-read-failed", { tag: el.tagName });
-      return false;
+      safe = false;
     }
+    if (cache) {
+      if (cacheable || !safe) {
+        cache.animationStates.set(el, {
+          generation: cache.mutationGeneration,
+          safe: safe,
+        });
+      } else {
+        cache.animationStates.delete(el);
+      }
+    }
+    return safe;
   }
 
   function canReusePortableComputedStyles(
     el: Element,
     cache?: PortableStyleComputedStylesCache,
   ): boolean {
-    // Computed inherited values can change while only an ancestor is
-    // animated. Recheck the whole style parent chain on every cache lookup;
-    // caching this answer would make a mid-request animation invisible.
-    var current: Element | null = el;
-    while (current) {
-      var parent = portableStyleAnimationParent(current);
-      if (parent === undefined) return false;
-      if (
-        cache &&
-        (!portableStyleObserveElementRoot(cache, current) ||
-          (parent && !portableStyleObserveElementRoot(cache, parent)))
-      ) {
-        return false;
+    if (!cache) {
+      var uncachedCurrent: Element | null = el;
+      while (uncachedCurrent) {
+        if (!canReadPortableAnimationState(uncachedCurrent)) return false;
+        var uncachedParent = portableStyleAnimationParent(uncachedCurrent);
+        if (uncachedParent === undefined) return false;
+        uncachedCurrent = uncachedParent;
       }
-      if (!canReadPortableAnimationState(current)) return false;
+      return true;
+    }
+    var path: Array<{ element: Element; parent: Element | null }> = [];
+    var current: Element | null = el;
+    var safe = true;
+    var volatile = false;
+    while (current) {
+      if (!portableStyleObserveElementRoot(cache, current)) {
+        safe = false;
+        break;
+      }
+      var parent = portableStyleAnimationParent(current);
+      if (parent === undefined) {
+        safe = false;
+        break;
+      }
+      if (parent && !portableStyleObserveElementRoot(cache, parent)) {
+        safe = false;
+        break;
+      }
+      var cachedSafety = cache.animationSafety.get(current);
+      if (
+        cachedSafety &&
+        cachedSafety.generation === cache.mutationGeneration &&
+        cachedSafety.parent === parent
+      ) {
+        safe = cachedSafety.safe;
+        break;
+      }
+      path.push({ element: current, parent: parent });
+      if (!canReadPortableAnimationState(current, cache)) {
+        safe = false;
+        break;
+      }
+      if (!cache.animationStates.has(current)) volatile = true;
       current = parent;
     }
-    return true;
+    var generation = cache.mutationGeneration;
+    if (!volatile) {
+      for (var index = path.length - 1; index >= 0; index -= 1) {
+        cache.animationSafety.set(path[index].element, {
+          generation: generation,
+          safe: safe,
+          parent: path[index].parent,
+        });
+      }
+    }
+    return safe;
   }
 
   function collectPortableComputedStyles(
@@ -4364,7 +4707,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         return getElementInfo(target, portableComputedStylesCache);
       });
     } finally {
-      portableComputedStylesCache?.mutationObserver.disconnect();
+      if (portableComputedStylesCache) {
+        portableComputedStylesCache.mutationObserver.disconnect();
+        portableComputedStylesCache.restoreCssomHooks();
+      }
     }
   }
 
