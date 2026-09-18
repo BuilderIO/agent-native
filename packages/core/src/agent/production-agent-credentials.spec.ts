@@ -129,4 +129,12 @@ describe("getOwnerApiKey", () => {
 
     expect(mockReadAppSecret).toHaveBeenCalledTimes(2);
   });
+
+  it("uses a valid deployment Jev key when no scoped key is saved", async () => {
+    vi.stubEnv("JEV_API_KEY", "deployment-jev-key");
+
+    await expect(getOwnerJevApiKey("owner@example.com")).resolves.toBe(
+      "deployment-jev-key",
+    );
+  });
 });

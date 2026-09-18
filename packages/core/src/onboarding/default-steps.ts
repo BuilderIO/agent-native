@@ -87,7 +87,7 @@ const JEV_KEY_METHOD: OnboardingMethod = {
     "Optional direct Jev API key for smarter tool and skill selection. Builder-managed Jev may be available through Connect Builder, so both are not required.",
   badge: "recommended",
   payload: {
-    writeScope: "workspace",
+    writeScope: "user",
     fields: [
       {
         key: "JEV_API_KEY",

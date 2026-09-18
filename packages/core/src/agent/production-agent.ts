@@ -687,8 +687,27 @@ export async function getOwnerJevApiKey(
       lookupFailed = true;
     },
   });
-  if (!lookupFailed) writeOptionalKeyCache(cacheKey, value);
-  return value;
+  if (value) {
+    if (!lookupFailed) writeOptionalKeyCache(cacheKey, value);
+    return value;
+  }
+
+  const deployKey = canUseDeployCredentialFallbackForRequest("JEV_API_KEY")
+    ? readDeployCredentialEnv("JEV_API_KEY")?.trim()
+    : undefined;
+  if (
+    deployKey &&
+    !(await getProviderCredentialAuthFailure({
+      key: "JEV_API_KEY",
+      value: deployKey,
+    }))
+  ) {
+    if (!lookupFailed) writeOptionalKeyCache(cacheKey, deployKey);
+    return deployKey;
+  }
+
+  if (!lookupFailed) writeOptionalKeyCache(cacheKey, undefined);
+  return undefined;
 }
 
 async function getJevContextCredentials(
@@ -10675,6 +10694,8 @@ export function createProductionAgentHandler(
         request: requestMessage,
         apiKey: jevContextCredentials.apiKey,
         builderAuth: jevContextCredentials.builderAuth,
+        owner: ownerEmail ?? getRequestUserEmail(),
+        orgId: getRequestOrgId(),
         compact: options.jevContextCompact,
         maxChars: jevContextMaxChars,
       }),

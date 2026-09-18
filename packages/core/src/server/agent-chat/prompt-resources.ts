@@ -156,7 +156,7 @@ const PROMPT_SUMMARY_DESCRIPTION_MAX_CHARS = 180;
 const JEV_CONTEXT_ITEM_MAX_CHARS = 10_000;
 const JEV_CONTEXT_TOTAL_MAX_CHARS = 24_000;
 const JEV_CONTEXT_PREFIX =
-  "<jev-prefetched-context>\nJev ranked these bundled skills for this task. Mandatory AGENTS.md instructions remain authoritative. Treat these sources as task-specific guidance and use the existing tools to read anything else you need.\n\n";
+  "<jev-prefetched-context>\nJev ranked these skills for this task. Mandatory AGENTS.md instructions remain authoritative. Treat these sources as task-specific guidance and use the existing tools to read anything else you need.\n\n";
 const JEV_CONTEXT_SUFFIX = "\n</jev-prefetched-context>";
 const JEV_CONTEXT_SEPARATOR = "\n\n";
 const JEV_CONTEXT_WRAPPER_OVERHEAD_CHARS =
@@ -719,7 +719,7 @@ async function loadInstructionResourcesForPrompt(
 
 interface ResourceSkillPromptEntry {
   resource: ResourceMeta;
-  full: Resource | null;
+  full: Resource;
   name: string;
   description: string;
   scope: string;
@@ -871,9 +871,13 @@ async function loadResourceIndexForPrompt(
   }
 }
 
-async function collectJevPromptCandidates(): Promise<JevPromptCandidate[]> {
-  // Do not send SQL resource names, paths, or descriptions to Jev. They are
-  // user-authored metadata and can contain customer/project information.
+async function collectJevPromptCandidates(
+  owner?: string,
+  orgId?: string | null,
+): Promise<JevPromptCandidate[]> {
+  // Keep the external catalog bounded and metadata-only. Resource access is
+  // resolved before candidates are created; raw skill bodies stay local until
+  // Jev selects one for the agent prompt.
   const candidates: JevPromptCandidate[] = [];
   let nextId = 0;
   const add = (
@@ -919,6 +923,20 @@ async function collectJevPromptCandidates(): Promise<JevPromptCandidate[]> {
     );
   }
 
+  if (owner) {
+    const { entries } = await loadResourceSkillPromptEntries(owner, orgId);
+    for (const entry of entries) {
+      add({
+        kind: "skill",
+        name: entry.name,
+        description: entry.description,
+        scope: entry.scope,
+        path: entry.resource.path,
+        content: entry.full.content,
+      });
+    }
+  }
+
   return candidates;
 }
 
@@ -927,6 +945,8 @@ export async function preloadJevContextForPrompt(options: {
   request: string;
   apiKey?: string;
   builderAuth?: BuilderGatewayAuth | null;
+  owner?: string | null;
+  orgId?: string | null;
   compact?: boolean;
   maxChars?: number;
 }): Promise<string> {
@@ -936,7 +956,10 @@ export async function preloadJevContextForPrompt(options: {
     return "";
   }
 
-  const candidates = await collectJevPromptCandidates();
+  const candidates = await collectJevPromptCandidates(
+    options.owner ?? undefined,
+    options.orgId,
+  );
   const selectedIds = await rankJevCandidates({
     request,
     apiKey,

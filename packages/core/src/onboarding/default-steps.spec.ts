@@ -87,6 +87,7 @@ describe("default onboarding steps", () => {
           badge: "recommended",
           kind: "form",
           payload: expect.objectContaining({
+            writeScope: "user",
             fields: [expect.objectContaining({ key: "JEV_API_KEY" })],
           }),
         }),
