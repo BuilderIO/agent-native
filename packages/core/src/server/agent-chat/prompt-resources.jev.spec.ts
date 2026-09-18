@@ -104,13 +104,21 @@ describe("preloadJevContextForPrompt", () => {
         id: "resource-skill-1",
         owner: "user@example.com",
         path: "skills/customer-research.md",
+        metadata: JSON.stringify({
+          name: "customer-research",
+          description: "Research customer needs.",
+          scope: "both",
+        }),
       },
     ]);
     mocks.resourceGet.mockResolvedValue({
       content:
         "---\nname: customer-research\ndescription: Research customer needs.\nscope: both\n---\n# Customer research\n\nUse the customer research workflow.",
     });
-    mocks.rankJevCandidates.mockResolvedValue(["context-1"]);
+    mocks.rankJevCandidates.mockImplementation(async () => {
+      expect(mocks.resourceGet).not.toHaveBeenCalled();
+      return ["context-1"];
+    });
 
     const result = await preloadJevContextForPrompt({
       request: "research this customer",
@@ -123,7 +131,7 @@ describe("preloadJevContextForPrompt", () => {
     expect(mocks.resourceListAccessible).toHaveBeenCalledWith(
       "user@example.com",
       "skills/",
-      { orgId: "org-1" },
+      { orgId: "org-1", limit: 20 },
     );
     expect(mocks.rankJevCandidates).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -135,6 +143,10 @@ describe("preloadJevContextForPrompt", () => {
         ]),
       }),
     );
+    expect(mocks.resourceGet).toHaveBeenCalledWith("resource-skill-1", {
+      orgId: "org-1",
+      userEmail: "user@example.com",
+    });
   });
 
   it("keeps the Jev wrapper inside an explicit context budget", async () => {
