@@ -67,6 +67,7 @@ const ROOT_FRAME_ID = "root-frame";
 const ROOT_FRAME_NAME = "Root frame";
 const NESTED_FRAME_ID = "nested-frame";
 const BOARD_SOURCE_ID = "board-source";
+const URL_BACKED_TARGET_URL = "https://example.com/beta-design-target";
 
 interface StyleSnapshot {
   backgroundColor: string;
@@ -154,6 +155,15 @@ async function directChildIds(
     },
     { html: source, id: parentId },
   );
+}
+
+async function topLevelNodeIds(page: Page, source: string): Promise<string[]> {
+  return page.evaluate((html) => {
+    const document = new DOMParser().parseFromString(html, "text/html");
+    return Array.from(document.body.children)
+      .map((child) => child.getAttribute("data-agent-native-node-id"))
+      .filter((nodeId): nodeId is string => Boolean(nodeId));
+  }, source);
 }
 
 async function parseSource(
@@ -367,6 +377,43 @@ async function createNestedDropFixture(
   }
 
   return designId;
+}
+
+async function addUrlBackedDropTarget(
+  page: Page,
+  designId: string,
+): Promise<string> {
+  const created = await postAction(page, "create-file", {
+    designId,
+    filename: "url-target.html",
+    content: URL_BACKED_TARGET_URL,
+    fileType: "html",
+  });
+  const screenId = String(created?.id ?? created?.data?.id ?? "");
+  if (!screenId) throw new Error("create-file returned no URL target id");
+
+  await postAction(page, "update-design", {
+    id: designId,
+    dataOperations: [
+      {
+        op: "set",
+        path: ["screenMetadata", screenId],
+        value: {
+          sourceType: "url",
+          url: URL_BACKED_TARGET_URL,
+          title: "URL-backed target",
+          width: 800,
+          height: 600,
+        },
+      },
+      {
+        op: "set",
+        path: ["canvasFrames", screenId],
+        value: { x: 1900, y: 0, width: 800, height: 600, z: 2 },
+      },
+    ],
+  });
+  return screenId;
 }
 
 async function cleanupTest(options: {
@@ -648,6 +695,93 @@ test.describe("authenticated beta Design interactions", () => {
     }
   });
 
+  test("report path: URL-backed target keeps its route and source ownership bounded", async ({
+    browser,
+  }) => {
+    const { context, page, appErrors } = await openAuthedPage(browser);
+    let designId = "";
+    let primaryFailure = false;
+    try {
+      await page.route(URL_BACKED_TARGET_URL, async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: "text/html",
+          body: `<!doctype html><html><body style="margin:0;width:800px;height:600px;background:#e2e8f0"><section data-agent-native-node-id="external-target" style="position:absolute;left:80px;top:80px;width:360px;height:240px;background:#94a3b8"></section></body></html>`,
+        });
+      });
+      designId = await createNestedDropFixture(page, (id) => {
+        designId = id;
+      });
+      const urlTargetId = await addUrlBackedDropTarget(page, designId);
+      await openEditor(page, designId, ROOT_FRAME_ID);
+      await page.keyboard.press("Shift+1");
+
+      const source = boardFrame(page).locator(
+        `[data-agent-native-node-id="${BOARD_SOURCE_ID}"]`,
+      );
+      const urlTarget = page.locator(
+        `${PREVIEW}[data-screen-iframe-id="${urlTargetId}"]`,
+      );
+      await expect(source).toBeVisible({ timeout: 30_000 });
+      await expect(urlTarget).toBeVisible({ timeout: 30_000 });
+      const sourceBox = (await source.boundingBox())!;
+      const targetBox = (await urlTarget.boundingBox())!;
+      const beforeBoard = await readSource(page, designId, "__board__.html");
+      const beforeInline = await readSource(page, designId);
+      const beforeBoardOrder = await topLevelNodeIds(page, beforeBoard);
+      const beforeInlineNestedOrder = await directChildIds(
+        page,
+        beforeInline,
+        NESTED_FRAME_ID,
+      );
+
+      await page.mouse.move(sourceBox.x + 18, sourceBox.y + 11);
+      await page.mouse.down();
+      await page.mouse.move(sourceBox.x + 6, sourceBox.y + 11, { steps: 4 });
+      await page.mouse.move(
+        targetBox.x + targetBox.width / 2,
+        targetBox.y + targetBox.height / 2,
+        { steps: 24 },
+      );
+      await expect(page.locator("[data-cross-screen-drag-ghost]")).toBeVisible({
+        timeout: 10_000,
+      });
+      await page.mouse.up();
+
+      await expect
+        .poll(async () => {
+          const afterBoard = await readSource(page, designId, "__board__.html");
+          return topLevelNodeIds(page, afterBoard);
+        })
+        .toEqual(beforeBoardOrder);
+      await expect
+        .poll(async () =>
+          directChildIds(
+            page,
+            await readSource(page, designId),
+            NESTED_FRAME_ID,
+          ),
+        )
+        .toEqual(beforeInlineNestedOrder);
+      await expect
+        .poll(() => readSource(page, designId, "url-target.html"), {
+          timeout: 20_000,
+        })
+        .toBe(URL_BACKED_TARGET_URL);
+    } catch (error) {
+      primaryFailure = true;
+      throw error;
+    } finally {
+      await cleanupTest({
+        context,
+        page,
+        designId,
+        appErrors,
+        primaryFailure,
+      });
+    }
+  });
+
   test("report path: Option-dragging a root frame preserves source and selects the copy", async ({
     browser,
   }) => {
@@ -814,23 +948,22 @@ test.describe("authenticated beta Design interactions", () => {
       const afterImages = splitCssList(afterRendered.backgroundImage);
       expect(afterRendered.backgroundColor).toBe("rgba(0, 0, 0, 0)");
       expect(afterImages.slice(0, 2)).toEqual(beforeImages);
-      expect(afterImages.at(-1)).toMatch(/^linear-gradient/i);
+      expect(afterImages[afterImages.length - 1]).toMatch(/^linear-gradient/i);
       expect(splitCssList(afterRendered.backgroundSize).slice(0, 2)).toEqual(
         splitCssList(beforeRendered.backgroundSize),
       );
-      expect(splitCssList(afterRendered.backgroundSize).at(-1)).toBe("auto");
+      const afterSizes = splitCssList(afterRendered.backgroundSize);
+      expect(afterSizes[afterSizes.length - 1]).toBe("auto");
       expect(splitCssList(afterRendered.backgroundRepeat).slice(0, 2)).toEqual(
         splitCssList(beforeRendered.backgroundRepeat),
       );
-      expect(splitCssList(afterRendered.backgroundRepeat).at(-1)).toBe(
-        "no-repeat",
-      );
+      const afterRepeats = splitCssList(afterRendered.backgroundRepeat);
+      expect(afterRepeats[afterRepeats.length - 1]).toBe("no-repeat");
       expect(
         splitCssList(afterRendered.backgroundPosition).slice(0, 2),
       ).toEqual(splitCssList(beforeRendered.backgroundPosition));
-      expect(splitCssList(afterRendered.backgroundPosition).at(-1)).toBe(
-        "0% 0%",
-      );
+      const afterPositions = splitCssList(afterRendered.backgroundPosition);
+      expect(afterPositions[afterPositions.length - 1]).toBe("0% 0%");
 
       await expect
         .poll(async () => {
