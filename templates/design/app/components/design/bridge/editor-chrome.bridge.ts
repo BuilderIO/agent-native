@@ -3552,6 +3552,20 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
   }
 
+  var portableStyleAnimationEffectIds = new WeakMap<object, number>();
+  var nextPortableStyleAnimationEffectId = 1;
+
+  function portableStyleAnimationEffectId(
+    effect: object | null,
+  ): number | null {
+    if (!effect) return null;
+    var id = portableStyleAnimationEffectIds.get(effect);
+    if (id !== undefined) return id;
+    id = nextPortableStyleAnimationEffectId++;
+    portableStyleAnimationEffectIds.set(effect, id);
+    return id;
+  }
+
   function readPortableAnimationState(
     el: Element,
   ): PortableStyleAnimationState | undefined {
@@ -3561,6 +3575,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         currentTime?: unknown;
         startTime?: unknown;
         playbackRate?: unknown;
+        effect?: {
+          getKeyframes?: () => unknown;
+          getTiming?: () => unknown;
+          composite?: unknown;
+          iterationComposite?: unknown;
+          target?: unknown;
+        } | null;
       }>;
     };
     try {
@@ -3593,6 +3614,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             animation.currentTime,
             animation.startTime,
             animation.playbackRate,
+            portableStyleAnimationEffectId(animation.effect ?? null),
+            animation.effect &&
+              JSON.stringify({
+                keyframes: animation.effect.getKeyframes?.(),
+                timing: animation.effect.getTiming?.(),
+                composite: animation.effect.composite,
+                iterationComposite: animation.effect.iterationComposite,
+                target: animation.effect.target,
+              }),
           ]
             .map(function (value) {
               if (value === null) return "null";

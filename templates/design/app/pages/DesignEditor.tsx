@@ -1857,9 +1857,6 @@ function DesignEditor() {
     [],
   );
   const selectedLayerTargetsRef = useRef<SelectedLayerTarget[]>([]);
-  const selectedLayerSnapshotInfoByIdRef = useRef<Map<string, ElementInfo>>(
-    new Map(),
-  );
   const renderedElementInfoByLayerKeyRef = useRef<Map<string, ElementInfo>>(
     new Map(),
   );
@@ -13069,8 +13066,19 @@ function DesignEditor() {
     (
       selectedElementOverride?: ElementInfo | null,
       selectedElementsByLayerId?: ReadonlyMap<string, ElementInfo>,
-    ) =>
-      runGetSelectedLayerSnapshots({
+    ) => {
+      const renderedInfos = new Map(
+        selectedLayerTargetsRef.current.map((target) => [
+          target.layerId,
+          renderedElementInfoByLayerKeyRef.current.get(
+            `${target.fileId}:${target.layerId}`,
+          ) ?? target.elementInfo,
+        ]),
+      );
+      if (selectedElementLayerId && selectedElement) {
+        renderedInfos.set(selectedElementLayerId, selectedElement);
+      }
+      return runGetSelectedLayerSnapshots({
         activeFile,
         designSourceType,
         files,
@@ -13083,11 +13091,11 @@ function DesignEditor() {
           selectedElementOverride === undefined
             ? selectedElement
             : selectedElementOverride,
-        selectedElementsByLayerId:
-          selectedElementsByLayerId ?? selectedLayerSnapshotInfoByIdRef.current,
+        selectedElementsByLayerId: selectedElementsByLayerId ?? renderedInfos,
         selectedElementLayerId,
         selectedLayerIdsState,
-      }),
+      });
+    },
     [
       activeFile,
       designSourceType,
@@ -19561,67 +19569,6 @@ function DesignEditor() {
   useLayoutEffect(() => {
     selectedLayerTargetsRef.current = selectedLayerTargets;
   }, [selectedLayerTargets]);
-
-  useEffect(() => {
-    const selectedElementsByLayerId = new Map(
-      selectedLayerTargets.map((target) => [
-        target.layerId,
-        target.elementInfo,
-      ]),
-    );
-    if (selectedElementLayerId && selectedElement) {
-      selectedElementsByLayerId.set(selectedElementLayerId, selectedElement);
-    }
-    selectedLayerSnapshotInfoByIdRef.current = selectedElementsByLayerId;
-    void Promise.all(
-      [...selectedElementsByLayerId].map(async ([layerId, element]) => {
-        if (
-          element.portableStyleSnapshot !== undefined ||
-          element.styleSnapshotCaptureFailed === true
-        ) {
-          return;
-        }
-        const target = selectedLayerTargets.find(
-          (candidate) => candidate.layerId === layerId,
-        );
-        const screenId =
-          element.sourceLayerIdentity?.screenId ??
-          target?.fileId ??
-          activeFile?.id ??
-          activeFileId;
-        const selector = element.runtimeSelector ?? element.selector ?? null;
-        const measured =
-          screenId && selector
-            ? await requestSelectionMeasurement({
-                targetWindows: () =>
-                  designPreviewWindowsForScreen(
-                    screenId,
-                    activeBreakpointWidthStateRef.current,
-                    boardFileId,
-                  ),
-                screenId,
-                selector,
-              })
-            : null;
-        if (
-          selectedLayerSnapshotInfoByIdRef.current !== selectedElementsByLayerId
-        ) {
-          return;
-        }
-        selectedElementsByLayerId.set(
-          layerId,
-          measured ?? { ...element, styleSnapshotCaptureFailed: true },
-        );
-      }),
-    );
-  }, [
-    activeFile?.id,
-    activeFileId,
-    boardFileId,
-    selectedElement,
-    selectedElementLayerId,
-    selectedLayerTargets,
-  ]);
 
   const selectedBoardCanvasSelectorCandidates = useMemo(() => {
     const boardTarget = [...selectedLayerTargets]

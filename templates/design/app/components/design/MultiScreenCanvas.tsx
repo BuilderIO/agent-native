@@ -5049,24 +5049,66 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           } else {
             const finalRect = latestRect;
             const releasedSelectionRevision = `${selectedIdsRef.current.join(",")}\u001e${selectedDraftIdsRef.current.join(",")}\u001e${marqueeHostSelectionRevisionRef.current}`;
-            void Promise.allSettled(pendingMarqueeCollections).then(() => {
-              if (
-                dragState.current !== marqueeState ||
-                marqueeLifecycleRef.current !== marqueeToken
-              )
-                return;
-              const currentSelectionRevision = `${selectedIdsRef.current.join(",")}\u001e${selectedDraftIdsRef.current.join(",")}\u001e${marqueeHostSelectionRevisionRef.current}`;
-              if (currentSelectionRevision !== releasedSelectionRevision) {
-                onLayerMarqueeSelectionChange?.([], {
-                  source: "marquee",
-                  cancelled: true,
-                });
+            void Promise.allSettled(pendingMarqueeCollections).then(
+              async () => {
+                if (
+                  dragState.current !== marqueeState ||
+                  marqueeLifecycleRef.current !== marqueeToken
+                )
+                  return;
+                const currentSelectionRevision = `${selectedIdsRef.current.join(",")}\u001e${selectedDraftIdsRef.current.join(",")}\u001e${marqueeHostSelectionRevisionRef.current}`;
+                if (currentSelectionRevision !== releasedSelectionRevision) {
+                  onLayerMarqueeSelectionChange?.([], {
+                    source: "marquee",
+                    cancelled: true,
+                  });
+                  finishDrag();
+                  return;
+                }
+                const selectedScreenIds = new Set(
+                  layerCandidates
+                    .filter(
+                      (candidate) =>
+                        (deepSelect ||
+                          !latestFullyEnclosedScreenIds.has(
+                            candidate.screenId,
+                          )) &&
+                        !enclosesMarqueeRect(candidate.geometry, finalRect) &&
+                        rotatedRectIntersects(
+                          finalRect,
+                          getLayerSelectableBounds(candidate.geometry),
+                          getFrameCenter(candidate.geometry),
+                          candidate.geometry.rotation ?? 0,
+                        ),
+                    )
+                    .map((candidate) => candidate.screenId),
+                );
+                if (selectedScreenIds.size > 0) {
+                  const full = await collectLayerMarqueeCandidates(
+                    selectedScreenIds,
+                    deepSelect,
+                  );
+                  const fullByIdentity = new Map(
+                    full.candidates.map((candidate) => [
+                      `${candidate.screenId}:${candidate.info.sourceId ?? candidate.info.pendingNodeId ?? candidate.info.selector ?? candidate.info.id ?? ""}`,
+                      candidate,
+                    ]),
+                  );
+                  layerCandidates = layerCandidates.map((candidate) => {
+                    const key = `${candidate.screenId}:${candidate.info.sourceId ?? candidate.info.pendingNodeId ?? candidate.info.selector ?? candidate.info.id ?? ""}`;
+                    return fullByIdentity.get(key) ?? candidate;
+                  });
+                }
+                if (
+                  dragState.current !== marqueeState ||
+                  marqueeLifecycleRef.current !== marqueeToken
+                ) {
+                  return;
+                }
+                reportLayerSelection(finalRect, true);
                 finishDrag();
-                return;
-              }
-              reportLayerSelection(finalRect, true);
-              finishDrag();
-            });
+              },
+            );
           }
           return;
         }

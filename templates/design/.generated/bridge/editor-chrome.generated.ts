@@ -3235,6 +3235,16 @@ export const editorChromeBridgeScript: string = `"use strict";
         return void 0;
       }
     }
+    var portableStyleAnimationEffectIds = /* @__PURE__ */ new WeakMap();
+    var nextPortableStyleAnimationEffectId = 1;
+    function portableStyleAnimationEffectId(effect) {
+      if (!effect) return null;
+      var id = portableStyleAnimationEffectIds.get(effect);
+      if (id !== void 0) return id;
+      id = nextPortableStyleAnimationEffectId++;
+      portableStyleAnimationEffectIds.set(effect, id);
+      return id;
+    }
     function readPortableAnimationState(el) {
       var animatedElement = el;
       try {
@@ -3266,7 +3276,15 @@ export const editorChromeBridgeScript: string = `"use strict";
               playState,
               animation.currentTime,
               animation.startTime,
-              animation.playbackRate
+              animation.playbackRate,
+              portableStyleAnimationEffectId(animation.effect ?? null),
+              animation.effect && JSON.stringify({
+                keyframes: animation.effect.getKeyframes?.(),
+                timing: animation.effect.getTiming?.(),
+                composite: animation.effect.composite,
+                iterationComposite: animation.effect.iterationComposite,
+                target: animation.effect.target
+              })
             ].map(function(value) {
               if (value === null) return "null";
               if (value === void 0) return "undefined";

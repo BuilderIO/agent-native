@@ -837,7 +837,7 @@ describe("large concurrent selectable-rects requests", () => {
   }, 60_000);
 
   async function collectKeyframeEffectMutationCase(
-    mutation: "setKeyframes" | "updateTiming",
+    mutation: "setKeyframes" | "updateTiming" | "replaceEffect",
   ): Promise<{
     before: [string, number | null, number | null, number];
     after: [string, number | null, number | null, number];
@@ -896,8 +896,14 @@ describe("large concurrent selectable-rects requests", () => {
                 { color: "rgb(0, 0, 255)" },
                 { color: "rgb(0, 0, 255)" },
               ]);
-            } else {
+            } else if (mutationMethod === "updateTiming") {
               effect.updateTiming({ duration: 2000 });
+            } else {
+              animation.effect = new KeyframeEffect(
+                leaf,
+                [{ color: "rgb(0, 0, 255)" }, { color: "rgb(0, 0, 255)" }],
+                { duration: 1000, fill: "both" },
+              );
             }
           }
           return rect;
@@ -946,13 +952,15 @@ describe("large concurrent selectable-rects requests", () => {
     }
   }
 
-  (["setKeyframes", "updateTiming"] as const).forEach((mutation) => {
-    it(`invalidates cached styles after KeyframeEffect.${mutation}()`, async () => {
-      const result = await collectKeyframeEffectMutationCase(mutation);
-      expect(result.after).toEqual(result.before);
-      expect(result.portableLeaf).toBe(result.leaf);
-    }, 60_000);
-  });
+  (["setKeyframes", "updateTiming", "replaceEffect"] as const).forEach(
+    (mutation) => {
+      it(`invalidates cached styles after KeyframeEffect.${mutation}()`, async () => {
+        const result = await collectKeyframeEffectMutationCase(mutation);
+        expect(result.after).toEqual(result.before);
+        expect(result.portableLeaf).toBe(result.leaf);
+      }, 60_000);
+    },
+  );
 
   it("refreshes a descendant when an ancestor animation starts mid-request", async () => {
     const browser = await chromium.launch({ headless: true });
