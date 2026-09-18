@@ -1,6 +1,8 @@
 pr=5356
 owner_thread=01a0b48d-8bf5-7e41-a537-40db4aeefd19
-version=21
-expires_at=1789754971
+version=22
+expires_at=0
+released=true
+released_at=1789754709
 observed_legacy_heartbeat=absent
 legacy_retired=true
