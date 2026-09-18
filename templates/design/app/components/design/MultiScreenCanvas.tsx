@@ -3474,6 +3474,36 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           return;
         }
 
+        // Once the pointer leaves the source iframe, its local coordinates
+        // become negative or otherwise out of range. The parent window drag
+        // listener has the real board point then; stale iframe coordinates
+        // must not clear a valid board target.
+        if (
+          sourceScreenId !== boardFileId &&
+          !isPointerInsideSourceIframe({
+            iframeX,
+            iframeY,
+            viewportW,
+            viewportH,
+          })
+        ) {
+          const previewPoint =
+            crossScreenLastBoardPointRef.current ??
+            boardPointFromDragMessage(
+              sourceScreenId,
+              iframeX,
+              iframeY,
+              viewportW,
+              viewportH,
+            );
+          if (previewPoint) {
+            setCrossScreenGhost(
+              buildCrossScreenGhost(previewPoint, sourceScreenId),
+            );
+          }
+          return;
+        }
+
         // Remember the latest drag payload for use on "end".
         //
         // Pointer-offset pin fix: the bridge recomputes `pointerOffset` on

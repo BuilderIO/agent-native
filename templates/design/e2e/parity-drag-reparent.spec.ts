@@ -466,6 +466,7 @@ test.describe("drag reparent parity", () => {
     expect(ghostBox!.height).toBeGreaterThan(0);
     expect(ghostBox!.x + ghostBox!.width / 2).toBeCloseTo(boardPoint.x, 0);
     expect(ghostBox!.y + ghostBox!.height / 2).toBeCloseTo(boardPoint.y, 0);
+
     await page.mouse.up();
 
     let indexHtml = "";
