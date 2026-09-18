@@ -108,9 +108,8 @@ test.describe.serial("public visual edit", () => {
       ).toBeVisible();
       await expect(
         signedOut.page
-          .getByRole("link", {
-            name: /sign up free to save/i,
-          })
+          .locator("main a")
+          .filter({ hasText: /^sign up$/i })
           .first(),
       ).toBeVisible();
       await assertNoRuntimeErrors(signedOut);
@@ -375,8 +374,7 @@ test.describe.serial("public visual edit", () => {
     await expectReturnUrl(
       browser,
       "/visual-edit",
-      (page) =>
-        page.getByRole("link", { name: /sign up free to save/i }).first(),
+      (page) => page.getByRole("link", { name: /^sign up$/i }).first(),
       "/visual-edit?intent=save",
     );
   });
@@ -528,9 +526,7 @@ test.describe.serial("public visual edit", () => {
       // Button asChild wraps an <a href>, so the CTA's role is link — the
       // sibling /visual-edit test queries it the same way.
       await expect(
-        signedOut.page
-          .getByRole("link", { name: /sign up free to save/i })
-          .first(),
+        signedOut.page.getByRole("link", { name: /^sign up$/i }).first(),
       ).toBeVisible();
       // A read-only visitor DOES get a Share control — it is a sign-in CTA
       // rendered as `<Button asChild><a>`, so it carries role "link", not
@@ -617,7 +613,7 @@ test.describe.serial("public visual edit", () => {
       (page) =>
         page
           .getByRole("link")
-          .filter({ hasText: /sign up free to save/i })
+          .filter({ hasText: /^sign up$/i })
           .first(),
       appReturnPath(`/design/${designId}?intent=save`),
     );

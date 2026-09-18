@@ -845,7 +845,7 @@ const messages = {
     clickToRename: "點選重新命名",
     collaborators: "協作者",
     share: "分享",
-    signUpToSave: "註冊以儲存",
+    signUpToSave: "註冊",
     signUpToSaveDescription: "登入即可儲存這個設計的可編輯副本。",
     signUpToShare: "註冊以分享",
     shareEditorLink: "編輯器連結",

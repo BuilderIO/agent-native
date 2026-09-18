@@ -763,7 +763,7 @@ const enUS = {
     clickToRename: "Click to rename",
     collaborators: "Collaborators",
     share: "Share",
-    signUpToSave: "Sign up free to save",
+    signUpToSave: "Sign up",
     signUpToSaveDescription:
       "Sign up for a free account to save designs, screen layouts, and generate new ones.",
     signUpToShare: "Sign up to share",
@@ -11528,7 +11528,7 @@ const designPublicShareOverrides = {
   "zh-TW": {
     designEditor: {
       share: "分享",
-      signUpToSave: "註冊以儲存",
+      signUpToSave: "註冊",
       signUpToSaveDescription:
         "註冊免費帳號即可儲存設計、畫面版面，並產生新的方向。",
       signUpToShare: "註冊以分享",
@@ -11557,7 +11557,7 @@ const designPublicShareOverrides = {
   "zh-CN": {
     designEditor: {
       share: "分享",
-      signUpToSave: "注册以保存",
+      signUpToSave: "注册",
       signUpToSaveDescription:
         "注册免费帐户即可保存设计和屏幕布局，并生成新的方向。",
       signUpToShare: "注册以共享",
@@ -11587,7 +11587,7 @@ const designPublicShareOverrides = {
   "es-ES": {
     designEditor: {
       share: "Compartir",
-      signUpToSave: "Registrarse para guardar",
+      signUpToSave: "Registrarse",
       signUpToSaveDescription:
         "Crea una cuenta gratis para guardar diseños, diseños de pantalla y generar nuevas direcciones.",
       signUpToShare: "Registrarse para compartir",
@@ -11617,7 +11617,7 @@ const designPublicShareOverrides = {
   "fr-FR": {
     designEditor: {
       share: "Partager",
-      signUpToSave: "S'inscrire pour enregistrer",
+      signUpToSave: "S'inscrire",
       signUpToSaveDescription:
         "Creez un compte gratuit pour enregistrer des designs, des mises en page et generer de nouvelles directions.",
       signUpToShare: "S'inscrire pour partager",
@@ -11647,7 +11647,7 @@ const designPublicShareOverrides = {
   "de-DE": {
     designEditor: {
       share: "Teilen",
-      signUpToSave: "Zum Speichern registrieren",
+      signUpToSave: "Registrieren",
       signUpToSaveDescription:
         "Erstelle ein kostenloses Konto, um Designs und Screen-Layouts zu speichern und neue Richtungen zu generieren.",
       signUpToShare: "Zum Teilen registrieren",
@@ -11678,7 +11678,7 @@ const designPublicShareOverrides = {
   "ja-JP": {
     designEditor: {
       share: "共有",
-      signUpToSave: "登録して保存",
+      signUpToSave: "登録",
       signUpToSaveDescription:
         "無料アカウントを作成して、デザインや画面レイアウトを保存し、新しい案を生成できます。",
       signUpToShare: "登録して共有",
@@ -11708,7 +11708,7 @@ const designPublicShareOverrides = {
   "ko-KR": {
     designEditor: {
       share: "공유",
-      signUpToSave: "가입하고 저장",
+      signUpToSave: "가입",
       signUpToSaveDescription:
         "무료 계정을 만들어 디자인과 화면 레이아웃을 저장하고 새 방향을 생성하세요.",
       signUpToShare: "가입하고 공유",
@@ -11738,7 +11738,7 @@ const designPublicShareOverrides = {
   "pt-BR": {
     designEditor: {
       share: "Compartilhar",
-      signUpToSave: "Criar conta para salvar",
+      signUpToSave: "Criar conta",
       signUpToSaveDescription:
         "Crie uma conta gratis para salvar designs, layouts de tela e gerar novas direcoes.",
       signUpToShare: "Criar conta para compartilhar",
@@ -11768,7 +11768,7 @@ const designPublicShareOverrides = {
   "hi-IN": {
     designEditor: {
       share: "साझा करें",
-      signUpToSave: "सहेजने के लिए साइन अप करें",
+      signUpToSave: "साइन अप करें",
       signUpToSaveDescription:
         "designs, screen layouts सहेजने और नए options generate करने के लिए free account बनाएं।",
       signUpToShare: "साझा करने के लिए sign up करें",
@@ -11798,7 +11798,7 @@ const designPublicShareOverrides = {
   "ar-SA": {
     designEditor: {
       share: "مشاركة",
-      signUpToSave: "سجل للحفظ",
+      signUpToSave: "سجل",
       signUpToSaveDescription:
         "انشئ حسابا مجانيا لحفظ التصاميم وتخطيطات الشاشة وانشاء اتجاهات جديدة.",
       signUpToShare: "سجل للمشاركة",

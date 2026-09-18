@@ -6087,6 +6087,7 @@ export function DesignCanvas({
           style={{
             background: iframeBackgroundColor,
             backgroundColor: iframeBackgroundColor,
+            pointerEvents: usingRawFallbackPreview ? "none" : undefined,
             ...SCALED_IFRAME_PAINT_RETENTION_STYLE,
           }}
           title={t("designEditor.designPreview")}

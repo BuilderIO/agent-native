@@ -115,6 +115,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
       "iframe[data-design-preview-iframe]",
     );
     expect(liveIframe?.hasAttribute("srcdoc")).toBe(false);
+    expect(liveIframe?.style.pointerEvents).toBe("");
 
     await act(async () => {
       liveIframe?.dispatchEvent(new Event("load"));
@@ -179,6 +180,11 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
       ).toHaveLength(1);
       expect(container.textContent).toContain("Reconnect this screen");
     });
+    expect(
+      container.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      )?.style.pointerEvents,
+    ).toBe("none");
 
     await new Promise((resolve) => window.setTimeout(resolve, 1800));
     expect(

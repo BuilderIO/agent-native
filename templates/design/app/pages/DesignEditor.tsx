@@ -24068,6 +24068,130 @@ function DesignEditor() {
       </DropdownMenu>
     );
 
+  const publishWaitlistControl = (
+    <Popover
+      open={hostEmbeddedEditor ? false : publishWaitlistPopoverOpen}
+      onOpenChange={(open) => {
+        setPublishWaitlistPopoverOpen(open);
+        setPublishWaitlistPopoverView("actions");
+        if (open) {
+          setPublishWaitlistError(null);
+        }
+      }}
+    >
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              className={cn(
+                "h-[var(--design-row-height)] cursor-pointer gap-[var(--design-baseline-half)] rounded-md px-[var(--design-baseline-unit)] text-foreground hover:bg-accent hover:text-foreground",
+                hostEmbeddedEditor && "hidden",
+              )}
+              aria-label={"Preview or publish app" /* i18n-ignore */}
+            >
+              <IconPlayerPlay className="size-5" />
+              <IconChevronDown className="size-3 opacity-70" />
+            </Button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent>
+          {"Preview or publish app" /* i18n-ignore */}
+        </TooltipContent>
+      </Tooltip>
+      <PopoverContent
+        align="end"
+        sideOffset={8}
+        className="z-[100010] w-72 space-y-3 p-3"
+      >
+        {publishWaitlistPopoverView === "actions" ? (
+          <div className="space-y-1">
+            <Button
+              variant="ghost"
+              className="h-9 w-full justify-start gap-2 px-2 text-sm"
+              onClick={() => {
+                handleOpenDesignPreview();
+                setPublishWaitlistPopoverOpen(false);
+              }}
+              disabled={!activeScreenPreviewUrl && !activeContent.trim()}
+            >
+              <IconPlayerPlay className="size-4" />
+              {t("designEditor.designPreview")}
+            </Button>
+            <Button
+              variant="ghost"
+              className="h-9 w-full justify-start gap-2 px-2 text-sm"
+              onClick={() => setPublishWaitlistPopoverView("waitlist")}
+            >
+              <IconArrowUpRight className="size-4" />
+              {"Publish app" /* i18n-ignore */}
+            </Button>
+          </div>
+        ) : (
+          <>
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-foreground">
+                {
+                  publishWaitlistJoined
+                    ? "You're on the waitlist" /* i18n-ignore */
+                    : "Publish app" /* i18n-ignore */
+                }
+              </p>
+              <p className="text-xs leading-5 text-muted-foreground">
+                {
+                  publishWaitlistJoined
+                    ? "We'll follow up when app publishing is ready for your workspace." /* i18n-ignore */
+                    : isSignedIn
+                      ? "Publish directly from Design is opening soon. Want early access?" /* i18n-ignore */
+                      : "Publish directly from Design is opening soon. Sign in to join the waitlist." /* i18n-ignore */
+                }
+              </p>
+            </div>
+            {publishWaitlistError ? (
+              <p role="alert" className="text-xs text-destructive">
+                {publishWaitlistError}
+              </p>
+            ) : null}
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 cursor-pointer"
+                onClick={() => setPublishWaitlistPopoverOpen(false)}
+              >
+                {
+                  publishWaitlistJoined
+                    ? "Done" /* i18n-ignore */
+                    : "Not now" /* i18n-ignore */
+                }
+              </Button>
+              {!publishWaitlistJoined && (
+                <Button
+                  size="sm"
+                  className="h-8 cursor-pointer"
+                  onClick={() => void handleJoinPublishWaitlist()}
+                  disabled={joiningPublishWaitlist}
+                >
+                  {joiningPublishWaitlist ? (
+                    <>
+                      <Spinner className="mr-1.5 size-3.5" />
+                      {"Joining" /* i18n-ignore */}
+                    </>
+                  ) : isSignedIn ? (
+                    "Add me to waitlist" /* i18n-ignore */
+                  ) : (
+                    "Sign in to join" /* i18n-ignore */
+                  )}
+                </Button>
+              )}
+            </div>
+          </>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+
   // ── Right sidebar actions ──────────────────────────────────────────────────
   const rightSidebarActions = (
     <div
@@ -24080,24 +24204,27 @@ function DesignEditor() {
       >
         <div className="flex min-w-0 flex-1 items-center gap-[var(--design-baseline-half)]">
           {hostEmbeddedEditor ? null : (
-            <PresenceBar
-              activeUsers={[
-                ...(currentUser ? [currentUser] : []),
-                ...(activeUsers ?? []),
-              ]}
-              agentPresent={agentPresent}
-              agentActive={agentActive}
-              currentUserEmail={currentUser?.email}
-              showCurrentUser
-              followingEmail={followingEmail}
-              onAvatarClick={handleAvatarClick}
-              disableAgentClick
-              className="shrink-0"
-            />
+            <>
+              <PresenceBar
+                activeUsers={[
+                  ...(currentUser ? [currentUser] : []),
+                  ...(activeUsers ?? []),
+                ]}
+                agentPresent={agentPresent}
+                agentActive={agentActive}
+                currentUserEmail={currentUser?.email}
+                showCurrentUser
+                followingEmail={followingEmail}
+                onAvatarClick={handleAvatarClick}
+                disableAgentClick
+                className="shrink-0"
+              />
+              {sessionResolved && !isSignedIn ? publishWaitlistControl : null}
+            </>
           )}
         </div>
 
-        {/* Not shrink-0: the signed-out CTA ("Sign up free to save") is a
+        {/* Not shrink-0: the signed-out CTA ("Sign up") is a
             nowrap label wide enough to push this row past the right rail's
             edge on its own, and a shrink-0 row has no way to give that space
             back — it just overflows the panel. */}
@@ -24122,127 +24249,7 @@ function DesignEditor() {
                 : t("review.applyFeedback", { count: reviewAgentQueueCount })}
             </Button>
           ) : null}
-          <Popover
-            open={hostEmbeddedEditor ? false : publishWaitlistPopoverOpen}
-            onOpenChange={(open) => {
-              setPublishWaitlistPopoverOpen(open);
-              setPublishWaitlistPopoverView("actions");
-              if (open) {
-                setPublishWaitlistError(null);
-              }
-            }}
-          >
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className={cn(
-                      "h-[var(--design-row-height)] cursor-pointer gap-[var(--design-baseline-half)] rounded-md px-[var(--design-baseline-unit)] text-foreground hover:bg-accent hover:text-foreground",
-                      hostEmbeddedEditor && "hidden",
-                    )}
-                    aria-label={"Preview or publish app" /* i18n-ignore */}
-                  >
-                    <IconPlayerPlay className="size-5" />
-                    <IconChevronDown className="size-3 opacity-70" />
-                  </Button>
-                </PopoverTrigger>
-              </TooltipTrigger>
-              <TooltipContent>
-                {"Preview or publish app" /* i18n-ignore */}
-              </TooltipContent>
-            </Tooltip>
-            <PopoverContent
-              align="end"
-              sideOffset={8}
-              className="z-[100010] w-72 space-y-3 p-3"
-            >
-              {publishWaitlistPopoverView === "actions" ? (
-                <div className="space-y-1">
-                  <Button
-                    variant="ghost"
-                    className="h-9 w-full justify-start gap-2 px-2 text-sm"
-                    onClick={() => {
-                      handleOpenDesignPreview();
-                      setPublishWaitlistPopoverOpen(false);
-                    }}
-                    disabled={!activeScreenPreviewUrl && !activeContent.trim()}
-                  >
-                    <IconPlayerPlay className="size-4" />
-                    {t("designEditor.designPreview")}
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    className="h-9 w-full justify-start gap-2 px-2 text-sm"
-                    onClick={() => setPublishWaitlistPopoverView("waitlist")}
-                  >
-                    <IconArrowUpRight className="size-4" />
-                    {"Publish app" /* i18n-ignore */}
-                  </Button>
-                </div>
-              ) : (
-                <>
-                  <div className="space-y-1">
-                    <p className="text-sm font-medium text-foreground">
-                      {
-                        publishWaitlistJoined
-                          ? "You're on the waitlist" /* i18n-ignore */
-                          : "Publish app" /* i18n-ignore */
-                      }
-                    </p>
-                    <p className="text-xs leading-5 text-muted-foreground">
-                      {
-                        publishWaitlistJoined
-                          ? "We'll follow up when app publishing is ready for your workspace." /* i18n-ignore */
-                          : isSignedIn
-                            ? "Publish directly from Design is opening soon. Want early access?" /* i18n-ignore */
-                            : "Publish directly from Design is opening soon. Sign in to join the waitlist." /* i18n-ignore */
-                      }
-                    </p>
-                  </div>
-                  {publishWaitlistError ? (
-                    <p role="alert" className="text-xs text-destructive">
-                      {publishWaitlistError}
-                    </p>
-                  ) : null}
-                  <div className="flex justify-end gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-8 cursor-pointer"
-                      onClick={() => setPublishWaitlistPopoverOpen(false)}
-                    >
-                      {
-                        publishWaitlistJoined
-                          ? "Done" /* i18n-ignore */
-                          : "Not now" /* i18n-ignore */
-                      }
-                    </Button>
-                    {!publishWaitlistJoined && (
-                      <Button
-                        size="sm"
-                        className="h-8 cursor-pointer"
-                        onClick={() => void handleJoinPublishWaitlist()}
-                        disabled={joiningPublishWaitlist}
-                      >
-                        {joiningPublishWaitlist ? (
-                          <>
-                            <Spinner className="mr-1.5 size-3.5" />
-                            {"Joining" /* i18n-ignore */}
-                          </>
-                        ) : isSignedIn ? (
-                          "Add me to waitlist" /* i18n-ignore */
-                        ) : (
-                          "Sign in to join" /* i18n-ignore */
-                        )}
-                      </Button>
-                    )}
-                  </div>
-                </>
-              )}
-            </PopoverContent>
-          </Popover>
+          {!sessionResolved || isSignedIn ? publishWaitlistControl : null}
 
           {hostEmbeddedEditor ? null : canRenderAuthenticatedShare ? (
             <ShareButton
