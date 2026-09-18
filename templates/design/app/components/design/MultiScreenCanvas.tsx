@@ -414,7 +414,6 @@ import {
 } from "./multi-screen/drill-in";
 import {
   angleBetween,
-  BREAKPOINT_ADD_BUTTON_GAP_PX,
   BREAKPOINT_FRAME_GAP,
   cloneFrameGeometryById,
   findTopFrameEntryAtPoint,
@@ -13298,12 +13297,8 @@ function BreakpointPreviewRow({
           // the top: 0 + scaled-label-row comment above), and the button
           // itself is size-7 (28px), so subtract half of that.
           //
-          // Gap: offsetX already includes BREAKPOINT_FRAME_GAP after the last
-          // card, then add a chrome-scaled inset so the constant-size "+" never
-          // sits flush against the frame edge at any zoom. transformOrigin is
-          // left-center so chromeScale grows the button away from the frame.
           style={{
-            left: offsetX + BREAKPOINT_ADD_BUTTON_GAP_PX * chromeScale,
+            left: offsetX,
             top:
               FRAME_LABEL_HEIGHT * chromeScale +
               primaryGeometry.height / 2 -
