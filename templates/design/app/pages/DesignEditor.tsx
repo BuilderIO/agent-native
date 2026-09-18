@@ -1432,6 +1432,15 @@ function DesignEditor() {
   >(null);
   const deepSelectGuidanceCountsRef = useRef(new Map<string, number>());
   const deepSelectGuidanceKeyRef = useRef<string | null>(null);
+  const deepSelectGuidanceDesignIdRef = useRef(id);
+  useEffect(() => {
+    if (deepSelectGuidanceDesignIdRef.current === id) return;
+    // React Router can reuse this editor instance across design routes; the
+    // visible hint belongs to the old design and must not cross that boundary.
+    deepSelectGuidanceDesignIdRef.current = id;
+    deepSelectGuidanceKeyRef.current = null;
+    setDeepSelectGuidanceKey(null);
+  }, [id]);
   const maybeShowDeepSelectGuidance = useCallback(
     (
       screenId: string,
