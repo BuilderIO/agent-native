@@ -45,7 +45,18 @@ function iframeElements(source: string): string[] {
     });
 }
 
-async function renderEmbeddedDesignCanvas() {
+async function renderEmbeddedDesignCanvas(
+  args: {
+    embeddedFrame?: {
+      viewportWidth: number;
+      viewportHeight: number;
+      displayWidth: number;
+      displayHeight: number;
+      fluid?: boolean;
+    };
+    zoom?: number;
+  } = {},
+) {
   const container = document.createElement("div");
   document.body.append(container);
   const root = createRoot(container);
@@ -55,18 +66,20 @@ async function renderEmbeddedDesignCanvas() {
         content="<!doctype html><html><body><div>VERDE</div></body></html>"
         contentKey="overview-screen"
         screenId="screen-1"
-        zoom={29}
+        zoom={args.zoom ?? 29}
         deviceFrame="none"
         interactMode={false}
         editMode
         registerRuntimeBridge={false}
-        embeddedFrame={{
-          viewportWidth: 1280,
-          viewportHeight: 6400,
-          displayWidth: 1280,
-          displayHeight: 6400,
-          fluid: true,
-        }}
+        embeddedFrame={
+          args.embeddedFrame ?? {
+            viewportWidth: 1280,
+            viewportHeight: 6400,
+            displayWidth: 1280,
+            displayHeight: 6400,
+            fluid: true,
+          }
+        }
         onElementSelect={() => {}}
         onElementHover={() => {}}
         tweakValues={{}}
@@ -94,6 +107,26 @@ describe("canvas iframe paint retention", () => {
       // once an ancestor scale shrinks it far enough, and a fully-loaded
       // screen paints as a blank white or solid black frame.
       expect(iframe!.style.backfaceVisibility).toBe("hidden");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("uses the non-uniform embedded-frame height when limiting paint retention", async () => {
+    const { container, cleanup } = await renderEmbeddedDesignCanvas({
+      embeddedFrame: {
+        viewportWidth: 1440,
+        viewportHeight: 1440,
+        displayWidth: 1440,
+        displayHeight: 5000,
+      },
+      zoom: 100,
+    });
+    try {
+      const iframe = container.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      expect(iframe?.style.backfaceVisibility).toBe("visible");
     } finally {
       cleanup();
     }

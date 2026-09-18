@@ -17,6 +17,16 @@ describe("screen height modes", () => {
     expect(resolveScreenHeightMode(undefined, false, "fig-frame")).toBe(
       "fixed",
     );
+    expect(resolveScreenHeightMode(undefined, false, "creative-context")).toBe(
+      "fixed",
+    );
+    expect(
+      resolveScreenHeightMode(
+        undefined,
+        false,
+        "creative-context-native-clone",
+      ),
+    ).toBe("fixed");
     expect(resolveScreenHeightMode("auto", false, "fig-frame")).toBe("auto");
   });
 

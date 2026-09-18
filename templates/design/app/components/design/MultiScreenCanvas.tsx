@@ -1246,6 +1246,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const worldRef = useRef<HTMLDivElement>(null);
   const pixelGridRef = useRef<HTMLDivElement>(null);
   const marqueeOverlayRef = useRef<HTMLSpanElement>(null);
+  const boardStaticPreviewRef = useRef<HTMLDivElement>(null);
   const viewCommitTimerRef = useRef<number | null>(null);
   // Tracks the last-applied cameraCommand.nonce so repeated renders (or a
   // caller re-passing the same command object) never re-run the fit — only a
@@ -8657,6 +8658,26 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         String(nextScale > 0 ? 1 / nextScale : 1),
       );
     }
+    const boardStaticPreview = boardStaticPreviewRef.current;
+    const currentSurfaceSize = surfaceSizeRef.current;
+    const boardViewportGeometryDuringGesture =
+      boardFrameGeometry &&
+      currentSurfaceSize.width > 0 &&
+      currentSurfaceSize.height > 0
+        ? {
+            x: -p.x / nextScale - SURFACE_PADDING,
+            y: -p.y / nextScale - SURFACE_PADDING,
+            width: currentSurfaceSize.width / nextScale,
+            height: currentSurfaceSize.height / nextScale,
+          }
+        : undefined;
+    if (boardStaticPreview && boardFrameGeometry) {
+      boardStaticPreview.style.clipPath =
+        getBoardSurfaceStaticPreviewClip({
+          logicalGeometry: boardFrameGeometry,
+          viewportGeometry: boardViewportGeometryDuringGesture,
+        }) ?? "";
+    }
     const grid = pixelGridRef.current;
     if (grid) {
       grid.style.backgroundPosition = `${p.x}px ${p.y}px`;
@@ -8679,7 +8700,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     // Same tick as the transform: a screen this move brings on screen must
     // paint in the frame it becomes visible, not at the debounced commit.
     syncScreenPaintSuppression();
-  }, [syncScreenPaintSuppression]);
+  }, [boardFrameGeometry, syncScreenPaintSuppression]);
 
   const startChromeSettle = useCallback(() => {
     if (chromeSettleTimerRef.current !== null) {
@@ -10225,6 +10246,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         boardStaticPreviewViewport &&
         boardStaticPreviewContent ? (
           <div
+            ref={boardStaticPreviewRef}
             data-board-static-preview
             aria-hidden="true"
             style={{

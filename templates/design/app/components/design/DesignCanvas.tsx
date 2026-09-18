@@ -5767,6 +5767,14 @@ export function DesignCanvas({
   const { width: iframeWidth, height: iframeHeight } =
     deviceDimensions[deviceFrame];
   const embeddedFrameFluid = embeddedFrame?.fluid === true;
+  const embeddedFramePaintScaleX =
+    embeddedFrame && !embeddedFrameFluid
+      ? embeddedFrame.displayWidth / Math.max(1, embeddedFrame.viewportWidth)
+      : 1;
+  const embeddedFramePaintScaleY =
+    embeddedFrame && !embeddedFrameFluid
+      ? embeddedFrame.displayHeight / Math.max(1, embeddedFrame.viewportHeight)
+      : 1;
   const iframeBackgroundColor = getEmbeddedIframeBackgroundColor({
     embeddedFrameBackground,
     transparentBackground,
@@ -6100,7 +6108,10 @@ export function DesignCanvas({
                 embeddedFrame?.viewportHeight ??
                 previewHeightPx ??
                 Number.parseFloat(iframeHeight ?? "900px"),
-              effectiveScale: (zoom / 100) * editorChromeScaleX,
+              effectiveScale:
+                (zoom / 100) * editorChromeScaleX * embeddedFramePaintScaleX,
+              effectiveScaleY:
+                (zoom / 100) * editorChromeScaleY * embeddedFramePaintScaleY,
             }),
           }}
           title={t("designEditor.designPreview")}
