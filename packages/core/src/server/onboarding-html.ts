@@ -1235,18 +1235,22 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     });
   const hasMarketing = !!marketing && !simplifiedAuth;
   const marketingWasResolvedFromCatalog = !opts.marketing;
+  const isFirstPartyMarketing =
+    marketing?.learnMoreUrl?.startsWith("https://agent-native.com/apps/") ??
+    false;
   const marketingSlug = marketingWasResolvedFromCatalog
     ? resolveBuiltInMarketingSlug(marketing, {
         requestHost: opts.requestHost,
         requestPath: opts.requestPath,
       })
     : undefined;
-  const marketingPresentation = marketingWasResolvedFromCatalog
-    ? resolveBuiltInAuthMarketingPresentation(marketing, {
-        requestHost: opts.requestHost,
-        requestPath: opts.requestPath,
-      })
-    : undefined;
+  const marketingPresentation =
+    marketingWasResolvedFromCatalog || isFirstPartyMarketing
+      ? resolveBuiltInAuthMarketingPresentation(marketing, {
+          requestHost: opts.requestHost,
+          requestPath: opts.requestPath,
+        })
+      : undefined;
   const localizedMarketingCopy: Record<string, AuthMarketingLocaleCopy> = {};
   if (marketingSlug) {
     for (const [locale, copyBySlug] of Object.entries(

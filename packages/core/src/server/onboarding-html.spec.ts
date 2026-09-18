@@ -629,6 +629,25 @@ describe("getOnboardingHtml", () => {
     expect(html).not.toContain("var rootLocale =");
   });
 
+  it("uses the shared presentation copy for first-party template marketing", () => {
+    const html = getOnboardingHtml({
+      marketing: {
+        appName: "Clips",
+        tagline: "The template's existing public tagline.",
+        learnMoreUrl: "https://agent-native.com/apps/clips",
+      },
+    });
+
+    const pageData = readAuthPageData(html);
+    expect(pageData.marketing?.authHeadline).toBe(
+      "Show it. Say it.\nLet your agent take it from here.",
+    );
+    expect(pageData.marketing?.authDescription).toBe(
+      "Screen recordings built for people and agents.",
+    );
+    expect(pageData.marketingLocales).toEqual({});
+  });
+
   it("keeps custom marketing that reuses a built-in app name out of built-in localized copy", () => {
     const html = getOnboardingHtml({
       requestHost: "app.example.com",
