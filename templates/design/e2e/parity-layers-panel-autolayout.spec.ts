@@ -178,13 +178,34 @@ function nodeIsInsideSection(
   sectionId: string,
   nodeId: string,
 ): boolean {
-  const sectionOffset = nodeOffset(html, sectionId);
-  const childOffset = nodeOffset(html, nodeId);
-  if (sectionOffset < 0 || childOffset < 0 || childOffset <= sectionOffset) {
-    return false;
+  let inTargetSection = false;
+  let targetSectionDepth = 0;
+  const tagPattern = /<\/?([a-z][^\s/>]*)(?:\s[^>]*)?>/gi;
+  for (const match of html.matchAll(tagPattern)) {
+    const tag = match[0];
+    const tagName = match[1].toLowerCase();
+    const isClosing = tag.startsWith("</");
+    if (isClosing) {
+      if (inTargetSection && tagName === "section") {
+        targetSectionDepth -= 1;
+        if (targetSectionDepth === 0) inTargetSection = false;
+      }
+      continue;
+    }
+    const nodeMatch = tag.match(
+      /data-agent-native-node-id=(?:"([^"]+)"|'([^']+)')/i,
+    );
+    const currentNodeId = nodeMatch?.[1] ?? nodeMatch?.[2];
+    if (inTargetSection && currentNodeId === nodeId) return true;
+    if (tagName !== "section" || /\/\s*>$/.test(tag)) continue;
+    if (currentNodeId === sectionId) {
+      inTargetSection = true;
+      targetSectionDepth = 1;
+    } else if (inTargetSection) {
+      targetSectionDepth += 1;
+    }
   }
-  const sectionEnd = html.indexOf("</section>", sectionOffset);
-  return sectionEnd > childOffset;
+  return false;
 }
 
 async function waitForPersistedHtml(
@@ -533,7 +554,7 @@ test.describe("Layers-panel auto-layout parity", () => {
       const before = await directChildren(page, "nested-inner");
       expect(before).toEqual(["inner-first", "inner-last"]);
       const sourceParentBefore = await parentId(page, "free-source");
-      expect(sourceParentBefore).toBeTruthy();
+      expect(sourceParentBefore).toBeNull();
       const original = await fileHtml(request, design.id, design.primaryId);
       const sourceWasAfterOuter = nodeIsBefore(
         original,
@@ -574,7 +595,7 @@ test.describe("Layers-panel auto-layout parity", () => {
       await page.keyboard.up(mod);
       await expect
         .poll(() => parentId(page, "free-source"))
-        .toBe(sourceParentBefore);
+        .toBeNull();
       await waitForPersistedHtml(
         request,
         design.id,

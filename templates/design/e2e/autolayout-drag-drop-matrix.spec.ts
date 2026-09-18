@@ -239,6 +239,10 @@ async function fileHtml(
   return file.content;
 }
 
+function hasNode(html: string, nodeId: string): boolean {
+  return html.includes(`data-agent-native-node-id="${nodeId}"`);
+}
+
 async function selectionSourceId(
   request: APIRequestContext,
 ): Promise<string | null> {
@@ -1327,6 +1331,26 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
       ).toBe(true);
       for (const instance of duplicated.instances)
         expect(instance.sourceNodeIds).toEqual(reorderedSourceNodeIds);
+      const duplicatedClone = duplicated.instances.find(
+        (instance) => instance.cloneRoot === "true",
+      );
+      if (!duplicatedClone?.nodeId)
+        throw new Error("linked component clone has no node id");
+      const duplicatedCloneId = duplicatedClone.nodeId;
+      let duplicatedHtml = "";
+      await expect
+        .poll(
+          async () => {
+            duplicatedHtml = await fileHtml(
+              request,
+              design.id,
+              design.primaryId,
+            );
+            return hasNode(duplicatedHtml, duplicatedCloneId);
+          },
+          { timeout: 15_000 },
+        )
+        .toBe(true);
       await page.keyboard.press(`${COMMAND}+z`);
       await expect
         .poll(async () => (await linkedState()).instances.length)
@@ -1336,6 +1360,20 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
       expect(cloneUndone.instances[0]?.sourceNodeIds).toEqual(
         reorderedSourceNodeIds,
       );
+      let undoneHtml = "";
+      await expect
+        .poll(
+          async () => {
+            undoneHtml = await fileHtml(request, design.id, design.primaryId);
+            return (
+              undoneHtml !== duplicatedHtml &&
+              !hasNode(undoneHtml, duplicatedCloneId) &&
+              hasNode(undoneHtml, "play-instance")
+            );
+          },
+          { timeout: 15_000 },
+        )
+        .toBe(true);
       await page.keyboard.press(`${COMMAND}+Shift+z`);
       await expect
         .poll(async () => (await linkedState()).instances.length)
