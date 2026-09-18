@@ -10,16 +10,16 @@ that became the design by accident.
 
 Before writing UI, capture these decisions in the app's `DESIGN.md`:
 
-| Decision             | What to record                                                      |
-| -------------------- | ------------------------------------------------------------------- |
-| Product mode         | `operate`, `read`, `persuade`, or `experience`                      |
-| Audience and cadence | Who uses it, how often, and under what conditions                   |
-| Visual world         | A short name and the feeling it creates                             |
-| Palette family       | The semantic accent family and neutral undertone                    |
-| Type treatment       | Sans-first, editorial contrast, or display-led emphasis             |
+| Decision             | What to record                                                    |
+| -------------------- | ----------------------------------------------------------------- |
+| Product mode         | `operate`, `read`, `persuade`, or `experience`                    |
+| Audience and cadence | Who uses it, how often, and under what conditions                 |
+| Visual world         | A short name and the feeling it creates                           |
+| Palette family       | The semantic accent family and neutral undertone                  |
+| Type treatment       | Sans-first, editorial contrast, or display-led emphasis           |
 | Composition          | Focused workbench, list/detail, document, canvas, or guided steps |
-| Shape language       | Quiet corners, crisp geometry, or soft utility surfaces             |
-| Anti-references      | Defaults this app must not drift toward                             |
+| Shape language       | Quiet corners, crisp geometry, or soft utility surfaces           |
+| Anti-references      | Defaults this app must not drift toward                           |
 
 `DESIGN.md` is a portable design contract, not a license to bypass the app's
 tokens or component system. If the app already has a brand system, document it
