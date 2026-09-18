@@ -97,6 +97,51 @@ describe("primitive drop target authored layout fallback", () => {
     ).toMatchObject({ localLeft: 100, localWidth: 180 });
   });
 
+  it("uses an auto flex basis from in-flow content before distributing Fill space", () => {
+    const screen = {
+      id: "auto-basis-screen",
+      filename: "auto-basis-screen.html",
+      content: `<!doctype html><html><body>
+        <div data-agent-native-node-id="parent" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:300px;height:100px;display:flex;gap:10px">
+          <div data-agent-native-node-id="content" data-an-primitive="frame" style="flex:0 1 auto;height:20px">
+            <div data-agent-native-node-id="content-child" data-an-primitive="rectangle" style="width:80px;height:20px"></div>
+          </div>
+          <div data-agent-native-node-id="fill" data-an-primitive="frame" style="flex:1 1 0px;height:20px"></div>
+        </div>
+      </body></html>`,
+    };
+
+    expect(
+      parsePrimitivesFromScreen(screen).find(
+        (primitive) => primitive.nodeId === "content",
+      ),
+    ).toMatchObject({ localWidth: 80 });
+    expect(
+      parsePrimitivesFromScreen(screen).find(
+        (primitive) => primitive.nodeId === "fill",
+      ),
+    ).toMatchObject({ localLeft: 90, localWidth: 210 });
+  });
+
+  it("uses the row flex gap for both positioning and Fill allocation", () => {
+    const screen = {
+      id: "axis-gap-screen",
+      filename: "axis-gap-screen.html",
+      content: `<!doctype html><html><body>
+        <div data-agent-native-node-id="parent" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:300px;height:100px;display:flex;gap:10px 20px">
+          <div data-agent-native-node-id="fixed" data-an-primitive="rectangle" style="width:80px;height:20px"></div>
+          <div data-agent-native-node-id="fill" data-an-primitive="frame" style="flex:1 1 0px;height:20px"></div>
+        </div>
+      </body></html>`,
+    };
+
+    expect(
+      parsePrimitivesFromScreen(screen).find(
+        (primitive) => primitive.nodeId === "fill",
+      ),
+    ).toMatchObject({ localLeft: 100, localWidth: 200 });
+  });
+
   it("leaves grid descendants to the live bridge instead of using whole-grid bounds", () => {
     const screen = {
       id: "grid-fallback-screen",

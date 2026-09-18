@@ -8131,6 +8131,7 @@ function DesignEditor() {
       metadata?: {
         originalStyles?: Record<string, string>;
         interactionState?: InteractionState;
+        pendingUndoGestureId?: string;
         preserveSelection?: boolean;
       },
     ) =>
@@ -12679,6 +12680,14 @@ function DesignEditor() {
             ? activeCanvasSourceType
             : designSourceType));
       if (isRunningAppSourceType(sourceType)) {
+        const pendingUndoGestureId =
+          changes.length > 1
+            ? pendingVisualStyleGestureIdForPhase(
+                pendingLiveStyleGestureStateRef.current,
+                undefined,
+                true,
+              )
+            : undefined;
         changes.forEach(
           ({
             selector,
@@ -12694,6 +12703,7 @@ function DesignEditor() {
               elementInfo,
               {
                 originalStyles,
+                pendingUndoGestureId,
                 preserveSelection,
               },
             );
@@ -12738,6 +12748,7 @@ function DesignEditor() {
       getFreshActiveContent,
       getScreenContent,
       overviewScreens,
+      pendingVisualStyleGestureIdForPhase,
       recordPendingVisualStyleEdit,
       t,
     ],

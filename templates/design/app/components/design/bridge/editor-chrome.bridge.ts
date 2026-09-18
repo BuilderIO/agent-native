@@ -9016,7 +9016,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }> = [];
     drag.originalStyles.forEach(function (item) {
       if (item.property !== property) return;
-      var range = authoredGridTrackRange(item.value) || item.range;
+      var authoredRange = authoredGridTrackRange(item.value);
+      if (item.value.trim() && !authoredRange) {
+        // ponytail: preserve named/span placements until line remapping exists.
+        return;
+      }
+      var range = authoredRange || item.range;
       var mapped: number[] = [];
       for (var original = range.start; original < range.end; original += 1) {
         if (originalToNext[original] !== undefined) {
@@ -9210,6 +9215,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (event.stopImmediatePropagation) event.stopImmediatePropagation();
     var property = axis === "row" ? "gridRow" : "gridColumn";
     var children = visibleLayoutChildren(selectedEl);
+    var cssProperty = gridTrackCssProperty(property);
+    if (
+      children.some(function (child) {
+        return child.style.getPropertyPriority(cssProperty) === "important";
+      })
+    ) {
+      // ponytail: reject !important tracks until batch/source persistence carries priority.
+      return;
+    }
     var originalStyles: NonNullable<typeof gridTrackDrag>["originalStyles"] =
       [];
     children.forEach(function (child) {
@@ -9220,7 +9234,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       );
       if (!range) return;
       var style = child.style;
-      var cssProperty = gridTrackCssProperty(property);
       originalStyles.push({
         el: child,
         property,

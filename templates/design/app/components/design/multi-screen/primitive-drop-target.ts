@@ -275,7 +275,9 @@ type InlineNumericProperty =
   | "marginRight"
   | "marginTop"
   | "marginBottom"
-  | "gap";
+  | "gap"
+  | "rowGap"
+  | "columnGap";
 
 type AuthoredSizeAxis = "x" | "y";
 type AuthoredSizeCache = Map<
@@ -371,6 +373,16 @@ function flexMainAxis(parent: Element): AuthoredSizeAxis | null {
   return (style.flexDirection || "row").startsWith("column") ? "y" : "x";
 }
 
+function flexMainAxisGap(parent: Element, axis: AuthoredSizeAxis) {
+  const style = (parent as HTMLElement).style;
+  const axisProperty = axis === "x" ? "columnGap" : "rowGap";
+  if (style[axisProperty].trim()) return inlineNumber(parent, axisProperty);
+  const shorthand = style.gap.trim().split(/\s+/).filter(Boolean);
+  const value = shorthand[axis === "x" ? Math.min(1, shorthand.length - 1) : 0];
+  const parsed = Number.parseFloat(value || "");
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function parentContentSize(
   parent: Element,
   axis: AuthoredSizeAxis,
@@ -396,6 +408,8 @@ function flexItemBaseSize(
   element: Element,
   axis: AuthoredSizeAxis,
   reference: number,
+  cache: AuthoredSizeCache,
+  visiting: Set<Element>,
 ) {
   const basis = flexBasis(element, reference);
   if (basis !== null) return basis;
@@ -412,7 +426,7 @@ function flexItemBaseSize(
       axis === "x" ? "width" : "height"
     ];
   }
-  return 0;
+  return intrinsicContentSize(element, axis, cache, visiting);
 }
 
 function flexAvailableSize(
@@ -427,13 +441,13 @@ function flexAvailableSize(
   const children = Array.from(parent.children).filter(
     (child) => !isOutOfFlow(child),
   );
-  const gap = inlineNumber(parent, "gap");
+  const gap = flexMainAxisGap(parent, axis);
   let fixed = Math.max(0, children.length - 1) * gap;
   let growTotal = 0;
   let growBase = 0;
   for (const child of children) {
     const grow = flexGrow(child);
-    const base = flexItemBaseSize(child, axis, available);
+    const base = flexItemBaseSize(child, axis, available, cache, visiting);
     const leadingMargin = inlineNumber(
       child,
       axis === "x" ? "marginLeft" : "marginTop",
@@ -451,7 +465,7 @@ function flexAvailableSize(
   }
   if (growTotal <= 0) return 0;
   return (
-    flexItemBaseSize(element, axis, available) +
+    flexItemBaseSize(element, axis, available, cache, visiting) +
     Math.max(0, available - fixed - growBase) * (flexGrow(element) / growTotal)
   );
 }
@@ -549,7 +563,7 @@ function authoredElementSize(
             visiting,
           );
         } else if (mainAxis === axis) {
-          size = flexBasis(element, reference);
+          size = flexItemBaseSize(element, axis, reference, cache, visiting);
         } else if (mainAxis !== axis || parentIsGrid) {
           const alignSelf =
             style.alignSelf || parentStyle.alignItems || "stretch";
@@ -708,11 +722,11 @@ export function authoredElementPosition(
         inlineNumber(parent, "borderTopWidth");
       const siblings: Element[] = Array.from(parent.children);
       const index = siblings.indexOf(cursor);
-      const gap = inlineNumber(parent, "gap");
       const display = parentStyle.display;
       const isFlex = display === "flex" || display === "inline-flex";
       const isRow =
         isFlex && !(parentStyle.flexDirection || "row").startsWith("column");
+      const gap = isFlex ? flexMainAxisGap(parent, isRow ? "x" : "y") : 0;
       if (isFlex) {
         if (isRow) x += inlineNumber(cursor, "marginLeft");
         else y += inlineNumber(cursor, "marginTop");

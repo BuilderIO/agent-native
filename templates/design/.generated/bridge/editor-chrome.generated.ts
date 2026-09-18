@@ -6745,7 +6745,11 @@ export const editorChromeBridgeScript: string = `"use strict";
       var changes = [];
       drag.originalStyles.forEach(function(item) {
         if (item.property !== property) return;
-        var range = authoredGridTrackRange(item.value) || item.range;
+        var authoredRange = authoredGridTrackRange(item.value);
+        if (item.value.trim() && !authoredRange) {
+          return;
+        }
+        var range = authoredRange || item.range;
         var mapped = [];
         for (var original = range.start; original < range.end; original += 1) {
           if (originalToNext[original] !== void 0) {
@@ -6902,6 +6906,12 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (event.stopImmediatePropagation) event.stopImmediatePropagation();
       var property = axis === "row" ? "gridRow" : "gridColumn";
       var children = visibleLayoutChildren(selectedEl);
+      var cssProperty = gridTrackCssProperty(property);
+      if (children.some(function(child) {
+        return child.style.getPropertyPriority(cssProperty) === "important";
+      })) {
+        return;
+      }
       var originalStyles = [];
       children.forEach(function(child) {
         var range = gridTrackRangeForRect(
@@ -6911,7 +6921,6 @@ export const editorChromeBridgeScript: string = `"use strict";
         );
         if (!range) return;
         var style = child.style;
-        var cssProperty = gridTrackCssProperty(property);
         originalStyles.push({
           el: child,
           property,
