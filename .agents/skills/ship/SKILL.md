@@ -48,15 +48,16 @@ the next task.
 Start by refreshing the remote and reading the actual checkout:
 
 ```bash
-git fetch origin main --quiet
+git fetch origin --quiet
 git status --short
 git diff --stat
 git log --oneline -5
 git rev-list --count HEAD..origin/main
 ```
 
-Also inspect the current branch's unpushed commits. Prefer the branch-specific
-remote ref; before the first push, use the remote-aware fallback:
+The all-origin fetch refreshes both `origin/main` and the current branch's
+tracking ref before comparing unpublished work. Inspect the current branch's
+unpushed commits with the remote-aware fallback:
 
 ```bash
 if git show-ref --verify --quiet "refs/remotes/origin/$(git branch --show-current)"; then
@@ -105,8 +106,10 @@ checks, or a babysit timer never creates a publish commit.
 
 Open or update one ready PR for the current branch immediately after the first
 push. Use a factual title and body. Do not create a second PR from a worktree.
-Do not tag, assign, mention, or comment on the PR unless the user explicitly
-requested that communication.
+Do not tag, assign, mention, or leave proactive comments on the PR unless the
+user explicitly requested that communication. A factual reply needed to
+document a review fix or terminal disposition is allowed when the babysit
+gate requires it.
 
 Keep these claims separate in the PR and final report:
 
@@ -176,11 +179,12 @@ origin/main, not a detached merged checkout.
 
 ## Deployment boundary
 
-Merges trigger the prebuilt beta publisher and the docs production workflow
-where their path filters match. Other production promotion is manual. Do not
-wait for Netlify Git-connected builds, clear a Netlify lock by hand, or claim
-beta or production is live from a green PR. Use /ship-and-monitor when the user
-asks for post-merge beta, docs, release-tail, or manual-production proof.
+Merges trigger the prebuilt beta publisher on every push to `main`. The docs
+production workflow runs only when its path filters match. Other production
+promotion is manual. Do not wait for Netlify Git-connected builds, clear a
+Netlify lock by hand, or claim beta or production is live from a green PR. Use
+/ship-and-monitor when the user asks for post-merge beta, docs, release-tail,
+or manual-production proof.
 
 ## Final report
 

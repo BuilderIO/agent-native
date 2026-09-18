@@ -53,23 +53,25 @@ feature can do. It should show only:
 
 - where the user is and the current state;
 - the content or input needed for the current job;
-- one obvious next action.
+- for an actionable job, one obvious next action; for a read-only, overview,
+  monitoring, or experience surface, the next decision or focal result.
 
-Use one primary action and at most two visible secondary actions. Put rare,
-advanced, destructive, diagnostic, history, and provider controls in a menu,
-disclosure, focused dialog, or later step. If a task has more than four visible
-choices, group or stage them before styling it. If setup, results, feedback,
-history, and advanced configuration all appear together, the information
-architecture is wrong - separate the states.
+On actionable surfaces, use one primary action and at most two visible
+secondary actions. Put rare, advanced, destructive, diagnostic, history, and
+provider controls in a menu, disclosure, focused dialog, or later step. If a
+task has more than four visible choices, group or stage them before styling it.
+If setup, results, feedback, history, and advanced configuration all appear
+together, the information architecture is wrong - separate the states.
 
 Prefer one visible input group for one job. If several fields are genuinely
 required, keep them in one focused form or stage them; do not expose separate
 setup, feedback, and configuration forms on the same default surface.
 
-Every visible element must earn one of three jobs: orient, show work/state, or
-enable the next decision. Remove or disclose anything else. More visible UI is
-not more capability; routes, actions, menus, keyboard commands, and the agent
-surface can preserve capability without competing in the first viewport.
+Every visible element must earn one of four jobs: orient, show work/state,
+provide required input, or enable the next decision. Remove or disclose
+anything else. More visible UI is not more capability; routes, actions, menus,
+keyboard commands, and the agent surface can preserve capability without
+competing in the first viewport.
 
 Do not add a new input, button, icon, badge, card, or sentence merely because a
 capability exists. First ask whether an existing row action, menu, composer,
