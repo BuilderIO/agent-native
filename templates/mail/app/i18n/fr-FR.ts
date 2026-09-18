@@ -452,6 +452,8 @@ const messages = {
     aiFilter: {
       title: "Filtre IA",
       subtitle: "Un libellé réversible qui apprend de vos décisions.",
+      rulesTitle: "Règles",
+      newRule: "Nouvelle règle",
       lunaBadge: "Luna si disponible",
       toggle: "Activer le filtre IA",
       autoFilterTitle: "Filtrer automatiquement avec une confiance élevée",
@@ -519,6 +521,7 @@ const messages = {
       previewTitle: "Prévisualiser les emails récents",
       previewDescription:
         "Examinez les 20 derniers messages de la boîte de réception avant d’activer une règle. Les emails archivés ou archivés automatiquement ne sont jamais évalués.",
+      previewScope: "Boîte de réception uniquement · e-mails archivés exclus",
       previewButton: "Lancer la prévisualisation",
       previewRunning: "Vérification des emails récents…",
       jevBadge: "Jev",
