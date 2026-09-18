@@ -103,6 +103,7 @@ export interface CrossScreenElementDropArgs {
       refreshPreview?: boolean;
       skipPreview?: boolean;
       forcePreviewFullDocument?: boolean;
+      immediateSave?: boolean;
       persist?: boolean;
       recordHistory?: boolean;
       historyBeforeContent?: string;
@@ -1045,6 +1046,7 @@ export function runCrossScreenElementDrop(
       recordHistory: false,
       refreshPreview: false,
       forcePreviewFullDocument: true,
+      immediateSave: true,
       historyBeforeContent: rawDestContent,
     },
   );
@@ -1057,73 +1059,130 @@ export function runCrossScreenElementDrop(
       recordHistory: false,
       refreshPreview: false,
       forcePreviewFullDocument: true,
+      immediateSave: true,
       historyBeforeContent: sourceContent,
     },
   );
-  if (sourcePublication.status !== "accepted") {
-    const rollback = applyFileContentUpdate(targetScreenId, rawDestContent, {
+
+  const restoreFile = (
+    fileId: string,
+    content: string,
+    acceptedContent: string,
+  ) => {
+    const rollback = applyFileContentUpdate(fileId, content, {
       recordHistory: false,
       refreshPreview: false,
       forcePreviewFullDocument: true,
-      historyBeforeContent: targetPublication.content,
+      immediateSave: true,
+      historyBeforeContent: acceptedContent,
     });
-    if (rollback.status !== "accepted")
+    if (rollback.status !== "accepted") {
       toast.error(t("designEditor.toasts.saveConflict"));
+    }
+  };
+
+  if (sourcePublication.status !== "accepted") {
+    const targetPersistence = targetPublication.persistence;
+    if (!targetPersistence) {
+      restoreFile(targetScreenId, rawDestContent, targetPublication.content);
+    } else {
+      void targetPersistence.then((result) => {
+        if (result.status === "persisted" || result.status === "retrying") {
+          restoreFile(
+            targetScreenId,
+            rawDestContent,
+            targetPublication.content,
+          );
+        }
+      });
+    }
     return;
   }
 
-  // History must replay the bytes the publisher accepted. Canonical identity
-  // publication may stamp IDs into submitted HTML, and the post-action
-  // selection snapshot must resolve against those same final documents.
-  crossScreenHistoryChanges[0].after = sourcePublication.content;
-  crossScreenHistoryChanges[1].after = targetPublication.content;
-  recordContentHistoryEntry({ changes: crossScreenHistoryChanges });
+  const finalizeMove = () => {
+    // History must replay the bytes the publisher accepted. Canonical identity
+    // publication may stamp IDs into submitted HTML, and the post-action
+    // selection snapshot must resolve against those same final documents.
+    crossScreenHistoryChanges[0].after = sourcePublication.content;
+    crossScreenHistoryChanges[1].after = targetPublication.content;
+    recordContentHistoryEntry({ changes: crossScreenHistoryChanges });
 
-  // Switch active screen to the target and select the moved node; viewMode
-  // stays "overview" (no setViewMode call).
-  pendingOverviewScreenSelectionRef.current =
-    targetScreenId === boardFileId ? null : targetScreenId;
-  pendingOverviewLayerSelectionRef.current = destNodeAttrId;
-  clearPendingOverviewLayerSelectionTimer();
-  setActiveFileId(targetScreenId);
-  const submittedProjection = buildCodeLayerProjection(nextDestContent, {
-    source: { kind: "design-file", fileId: targetScreenId },
-  });
-  const movedNodeCandidate = submittedProjection.nodes.find(
-    (n) => n.dataAttributes["data-agent-native-node-id"] === destNodeAttrId,
-  );
-  const movedNodeFinal = mapAcceptedSelectionNode(
-    targetPublication,
-    projectAcceptedSource(targetPublication, {
-      kind: "design-file",
-      fileId: targetScreenId,
-    }),
-    movedNodeCandidate,
-  );
-  if (movedNodeFinal) {
-    setCreatedOverviewLayerSelection({
-      screenId: targetScreenId,
-      layerId: movedNodeFinal.id,
+    // Switch active screen to the target and select the moved node; viewMode
+    // stays "overview" (no setViewMode call).
+    pendingOverviewScreenSelectionRef.current =
+      targetScreenId === boardFileId ? null : targetScreenId;
+    pendingOverviewLayerSelectionRef.current = destNodeAttrId;
+    clearPendingOverviewLayerSelectionTimer();
+    setActiveFileId(targetScreenId);
+    const submittedProjection = buildCodeLayerProjection(nextDestContent, {
+      source: { kind: "design-file", fileId: targetScreenId },
     });
-    setSelectedLayerIdsState([movedNodeFinal.id]);
-    setSelectedElement(elementInfoFromCodeLayerNode(movedNodeFinal));
-    if (viewModeRef.current === "overview") {
-      setOverviewSelectedScreenIds(
-        targetScreenId === boardFileId ? [] : [targetScreenId],
-      );
+    const movedNodeCandidate = submittedProjection.nodes.find(
+      (n) => n.dataAttributes["data-agent-native-node-id"] === destNodeAttrId,
+    );
+    const movedNodeFinal = mapAcceptedSelectionNode(
+      targetPublication,
+      projectAcceptedSource(targetPublication, {
+        kind: "design-file",
+        fileId: targetScreenId,
+      }),
+      movedNodeCandidate,
+    );
+    if (movedNodeFinal) {
+      setCreatedOverviewLayerSelection({
+        screenId: targetScreenId,
+        layerId: movedNodeFinal.id,
+      });
+      setSelectedLayerIdsState([movedNodeFinal.id]);
+      setSelectedElement(elementInfoFromCodeLayerNode(movedNodeFinal));
+      if (viewModeRef.current === "overview") {
+        setOverviewSelectedScreenIds(
+          targetScreenId === boardFileId ? [] : [targetScreenId],
+        );
+      }
+      if (contentUndoStackRef && contentHistorySelectionAfterRef) {
+        stampContentHistorySelectionAfter(
+          contentUndoStackRef.current,
+          contentHistorySelectionAfterRef.current,
+          contentUndoStackTopBeforeMove,
+          {
+            activeFileId: targetScreenId,
+            overviewSelectedScreenIds:
+              targetScreenId === boardFileId ? [] : [targetScreenId],
+            selectedLayerIds: [movedNodeFinal.id],
+          },
+        );
+      }
     }
-    if (contentUndoStackRef && contentHistorySelectionAfterRef) {
-      stampContentHistorySelectionAfter(
-        contentUndoStackRef.current,
-        contentHistorySelectionAfterRef.current,
-        contentUndoStackTopBeforeMove,
-        {
-          activeFileId: targetScreenId,
-          overviewSelectedScreenIds:
-            targetScreenId === boardFileId ? [] : [targetScreenId],
-          selectedLayerIds: [movedNodeFinal.id],
-        },
-      );
-    }
+  };
+
+  const targetPersistence = targetPublication.persistence;
+  const sourcePersistence = sourcePublication.persistence;
+  if (!targetPersistence && !sourcePersistence) {
+    finalizeMove();
+    return;
   }
+
+  const persisted = Promise.resolve({ status: "persisted" } as const);
+  void Promise.all([
+    targetPersistence ?? persisted,
+    sourcePersistence ?? persisted,
+  ]).then(([targetResult, sourceResult]) => {
+    const targetFailed =
+      targetResult.status === "conflict" || targetResult.status === "failed";
+    const sourceFailed =
+      sourceResult.status === "conflict" || sourceResult.status === "failed";
+    if (sourceFailed && !targetFailed) {
+      restoreFile(targetScreenId, rawDestContent, targetPublication.content);
+    }
+    if (targetFailed && !sourceFailed) {
+      restoreFile(sourceScreenId, sourceContent, sourcePublication.content);
+    }
+    if (
+      targetResult.status === "persisted" &&
+      sourceResult.status === "persisted"
+    ) {
+      finalizeMove();
+    }
+  });
 }

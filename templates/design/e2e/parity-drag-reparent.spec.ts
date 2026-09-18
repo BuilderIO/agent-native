@@ -495,9 +495,9 @@ test.describe("drag reparent parity", () => {
       `Widget must leave the screen document once dropped outside it on the board. Trace: ${trace.slice(-800)}`,
     ).toBe(false);
     expect(
-      boardHtml.includes("widget") || boardHtml.length > 0,
+      boardHtml,
       `Widget dropped on the empty board must become a board object (checked __board__.html). Got boardHtml length=${boardHtml.length}`,
-    ).toBe(true);
+    ).toContain('data-agent-native-node-id="widget"');
 
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect(
@@ -509,7 +509,7 @@ test.describe("drag reparent parity", () => {
         const reloadedBoardHtml = await fileContent(page, id, "__board__.html");
         return (
           !reloadedIndexHtml.includes('data-agent-native-node-id="widget"') &&
-          reloadedBoardHtml.includes("widget")
+          reloadedBoardHtml.includes('data-agent-native-node-id="widget"')
         );
       })
       .toBe(true);

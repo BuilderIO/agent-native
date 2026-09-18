@@ -17,7 +17,10 @@ import { designSaveErrorMessage } from "@/pages/design-editor/save-failure";
 import { prepareAcceptedSourceContent } from "@/pages/design-editor/source-publication";
 import type { DesignFile } from "@/pages/design-editor/types";
 
-import type { ApplyLocalContentUpdateResult } from "./apply-local-content-update";
+import type {
+  ApplyLocalContentUpdateResult,
+  FileContentPersistence,
+} from "./apply-local-content-update";
 
 export type ApplyFileContentUpdateResult =
   | ApplyLocalContentUpdateResult
@@ -80,7 +83,7 @@ export interface ApplyFileContentUpdateArgs {
       immediate?: boolean;
       identityMigrationSourceContent?: string;
     },
-  ) => void;
+  ) => FileContentPersistence | undefined;
   files: DesignFile[];
   getScreenContent: (screenId: string) => string;
   id: string | undefined;
@@ -237,10 +240,11 @@ export function runApplyFileContentUpdate(
       TAB_ID,
     );
   }
+  let persistence: FileContentPersistence | undefined;
   if (options.persist === false && !needsIdentityMigration) {
     cancelQueuedFileContentSave(fileId);
   } else {
-    queueFileContentSave(fileId, acceptedContent, {
+    persistence = queueFileContentSave(fileId, acceptedContent, {
       expectedVersionHash: sourceContentHash(
         needsIdentityMigration
           ? nextContent
@@ -255,5 +259,6 @@ export function runApplyFileContentUpdate(
     status: "accepted",
     content: acceptedContent,
     nodeIdMap: prepared.nodeIdMap,
+    persistence,
   };
 }

@@ -61,7 +61,7 @@ export interface ApplyLocalContentUpdateArgs {
       immediate?: boolean;
       identityMigrationSourceContent?: string;
     },
-  ) => void;
+  ) => FileContentPersistence | undefined;
   recordContentHistoryEntry: (
     entry: ContentHistoryEntry,
     selectedLayerIdsOverride?: string[],
@@ -90,8 +90,16 @@ export type ApplyLocalContentUpdateResult =
       status: "accepted";
       content: string;
       nodeIdMap: ReadonlyMap<string, string>;
+      persistence?: FileContentPersistence;
     }
   | { status: "refused" };
+
+export type FileContentPersistenceResult =
+  | { status: "persisted" }
+  | { status: "conflict" }
+  | { status: "retrying" }
+  | { status: "failed" };
+export type FileContentPersistence = Promise<FileContentPersistenceResult>;
 
 export function runApplyLocalContentUpdate(
   {
@@ -350,10 +358,11 @@ export function runApplyLocalContentUpdate(
       );
     }
   }
+  let persistence: FileContentPersistence | undefined;
   if (options.persist === false && !needsIdentityMigration) {
     cancelQueuedFileContentSave(activeFile.id);
   } else {
-    queueFileContentSave(activeFile.id, nextContent, {
+    persistence = queueFileContentSave(activeFile.id, nextContent, {
       expectedVersionHash: sourceContentHash(
         needsIdentityMigration
           ? inputContent
@@ -368,5 +377,6 @@ export function runApplyLocalContentUpdate(
     status: "accepted",
     content: nextContent,
     nodeIdMap: prepared.nodeIdMap,
+    persistence,
   };
 }

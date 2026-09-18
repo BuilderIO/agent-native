@@ -20,6 +20,11 @@ import {
   patchProofStatusAfterPersistedSave,
 } from "@/pages/design-editor/save-failure";
 
+import type {
+  FileContentPersistence,
+  FileContentPersistenceResult,
+} from "./apply-local-content-update";
+
 export interface SaveFileContentArgs {
   acknowledgeOutboxEntry: (entry: DesignSaveOutboxEntry) => Promise<void>;
   canEditDesignRef: RefObject<boolean>;
@@ -141,8 +146,10 @@ export function runSaveFileContent(
     warnChangesWillRetry,
   }: SaveFileContentArgs,
   pending: FileContentSaveRequest,
-) {
-  if (!canEditDesignRef.current) return;
+): FileContentPersistence {
+  if (!canEditDesignRef.current) {
+    return Promise.resolve({ status: "failed" });
+  }
   markPendingLocalFileContent(
     pending.id,
     pending.content,
@@ -155,7 +162,7 @@ export function runSaveFileContent(
   );
   if (queuedOutboxEntry) void journalOutboxEntry(queuedOutboxEntry);
   const previous = fileSaveChainsRef.current[pending.id] ?? Promise.resolve();
-  const current = previous
+  const current: FileContentPersistence = previous
     .catch(() => {})
     .then(async () => {
       // An identity migration is disposable. Never send a queued old snapshot
@@ -165,7 +172,7 @@ export function runSaveFileContent(
         latestFileSaveForUnloadRef.current[pending.id] !== pending
       ) {
         if (queuedOutboxEntry) await acknowledgeOutboxEntry(queuedOutboxEntry);
-        return;
+        return { status: "failed" } satisfies FileContentPersistenceResult;
       }
       try {
         const expectedVersionHash = pending.expectedVersionHash;
@@ -187,7 +194,7 @@ export function runSaveFileContent(
           latestFileSaveForUnloadRef.current[pending.id] !== pending
         ) {
           if (outboxEntry) await acknowledgeOutboxEntry(outboxEntry);
-          return;
+          return { status: "failed" } satisfies FileContentPersistenceResult;
         }
         const resultInfo = result as
           | {
@@ -291,6 +298,9 @@ export function runSaveFileContent(
               }
             : { ...prev, status };
         });
+        return {
+          status: persistedContentMatches ? "persisted" : "conflict",
+        } satisfies FileContentPersistenceResult;
       } catch (error) {
         if (
           pending.identityMigrationSourceContent !== undefined &&
@@ -298,7 +308,7 @@ export function runSaveFileContent(
         ) {
           if (queuedOutboxEntry)
             await acknowledgeOutboxEntry(queuedOutboxEntry);
-          return;
+          return { status: "failed" } satisfies FileContentPersistenceResult;
         }
         // The queued source hash stays paired with its content until the
         // editor adopts a fresh source and creates a new save request.
@@ -338,12 +348,22 @@ export function runSaveFileContent(
               }
             : prev,
         );
+        return {
+          status:
+            failureKind === "conflict"
+              ? "conflict"
+              : failureKind === "offline"
+                ? "retrying"
+                : "failed",
+        } satisfies FileContentPersistenceResult;
       }
     });
-  fileSaveChainsRef.current[pending.id] = current;
-  void current.finally(() => {
-    if (fileSaveChainsRef.current[pending.id] === current) {
+  const chain = current.then(() => undefined);
+  fileSaveChainsRef.current[pending.id] = chain;
+  void chain.finally(() => {
+    if (fileSaveChainsRef.current[pending.id] === chain) {
       delete fileSaveChainsRef.current[pending.id];
     }
   });
+  return current;
 }
