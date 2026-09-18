@@ -795,16 +795,16 @@ describe("Chromium reparent matrix", () => {
       </body></html>`);
       await installBridge(page);
 
-      // Drop on the second item in row 1. A Y-only wrapped-flex resolver
-      // ties every item in that row and anchors against A, while the visual
-      // two-dimensional resolver must keep the source after B.
-      await dragCenterTo(page, "#source", { x: 430, y: 117 });
+      // Drop on the second item in row 2. A Y-only wrapped-flex resolver
+      // ties every item in that row and anchors against C, while the visual
+      // two-dimensional resolver must keep the source after D.
+      await dragCenterTo(page, "#source", { x: 430, y: 179 });
       const result = await page.locator("#wrap").evaluate((wrap) => ({
         order: Array.from(wrap.children).map((child) => child.id),
         sourcePosition: getComputedStyle(document.querySelector("#source")!)
           .position,
       }));
-      expect(result.order).toEqual(["a", "b", "source", "c", "d"]);
+      expect(result.order).toEqual(["a", "b", "c", "d", "source"]);
       expect(result.sourcePosition).not.toBe("absolute");
       await page.close();
     },
