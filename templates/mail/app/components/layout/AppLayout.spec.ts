@@ -111,6 +111,14 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain('key: "/",\n      shift: "either",');
   });
 
+  it("lets the thread own Escape when search is inactive", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain(
+      'key: "Escape",\n      shouldHandle: () => Boolean(activeSearchQuery || searchFocused),',
+    );
+  });
+
   it("keeps global triage mutations scoped to the focused mailbox account", () => {
     const source = appLayoutSource();
 

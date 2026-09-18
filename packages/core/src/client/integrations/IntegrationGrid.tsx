@@ -1,3 +1,4 @@
+import { Badge } from "@agent-native/toolkit/ui/badge";
 import { IconDots, IconPlus } from "@tabler/icons-react";
 import type { ReactNode } from "react";
 
@@ -92,13 +93,16 @@ export function IntegrationGrid({
               </span>
               <div className="min-w-0 flex-1">
                 <div className="flex min-w-0 items-center gap-2">
-                  <h3 className="truncate text-sm font-medium text-foreground">
+                  <h3 className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
                     {item.name}
                   </h3>
                   {item.badge ? (
-                    <span className="shrink-0 rounded-full border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                    <Badge
+                      variant="default"
+                      className="h-5 shrink-0 rounded-md border-primary/80 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.5px] shadow-sm"
+                    >
                       {item.badge}
-                    </span>
+                    </Badge>
                   ) : null}
                   {item.status ? (
                     <span
