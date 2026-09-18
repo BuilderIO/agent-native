@@ -72,6 +72,50 @@ describe("preloadJevTools", () => {
     expect(systemOne).not.toHaveBeenCalled();
   });
 
+  it("prefetches tools through the Builder proxy without a direct key", async () => {
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "beta");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            answers: {
+              best_tool: {
+                choice: "search-customers",
+                probabilities: { "search-customers": 0.9, "send-email": 0.1 },
+              },
+            },
+          }),
+          { status: 200 },
+        ),
+      ),
+    );
+    const initialTools = [tool("tool-search", "Find tools")];
+
+    const result = await preloadJevTools({
+      request: "Find customer records",
+      builderAuth: { authorization: "Bearer builder-test-token" },
+      registry: {
+        "search-customers": action("Search customer records"),
+        "send-email": action("Send an email"),
+      },
+      initialTools,
+      availableTools: [
+        ...initialTools,
+        tool("search-customers", "Search customer records"),
+        tool("send-email", "Send an email"),
+      ],
+    });
+
+    expect(result.map((item) => item.name)).toEqual([
+      "search-customers",
+      "send-email",
+      "tool-search",
+    ]);
+    expect(typeSafeClient).not.toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalled();
+  });
+
   it("puts Jev's highest-probability deferred tools before the curated set", async () => {
     systemOne.mockResolvedValue({
       answers: {

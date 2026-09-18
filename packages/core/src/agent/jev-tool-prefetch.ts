@@ -188,7 +188,9 @@ export async function preloadJevTools(
 ): Promise<EngineTool[]> {
   const request = options.request.trim();
   const apiKey = options.apiKey?.trim();
-  if (!request || !apiKey) return options.initialTools;
+  if (!request || (!apiKey && !options.builderAuth)) {
+    return options.initialTools;
+  }
 
   const activeNames = new Set(options.initialTools.map((tool) => tool.name));
   const availableByName = new Map(
