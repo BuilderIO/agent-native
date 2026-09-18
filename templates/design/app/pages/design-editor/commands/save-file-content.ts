@@ -141,8 +141,8 @@ export function runSaveFileContent(
     warnChangesWillRetry,
   }: SaveFileContentArgs,
   pending: FileContentSaveRequest,
-) {
-  if (!canEditDesignRef.current) return;
+): Promise<boolean> {
+  if (!canEditDesignRef.current) return Promise.resolve(false);
   markPendingLocalFileContent(
     pending.id,
     pending.content,
@@ -165,7 +165,7 @@ export function runSaveFileContent(
         latestFileSaveForUnloadRef.current[pending.id] !== pending
       ) {
         if (queuedOutboxEntry) await acknowledgeOutboxEntry(queuedOutboxEntry);
-        return;
+        return false;
       }
       try {
         const expectedVersionHash = pending.expectedVersionHash;
@@ -187,7 +187,7 @@ export function runSaveFileContent(
           latestFileSaveForUnloadRef.current[pending.id] !== pending
         ) {
           if (outboxEntry) await acknowledgeOutboxEntry(outboxEntry);
-          return;
+          return false;
         }
         const resultInfo = result as
           | {
@@ -291,6 +291,7 @@ export function runSaveFileContent(
               }
             : { ...prev, status };
         });
+        return persistedContentMatches;
       } catch (error) {
         if (
           pending.identityMigrationSourceContent !== undefined &&
@@ -298,7 +299,7 @@ export function runSaveFileContent(
         ) {
           if (queuedOutboxEntry)
             await acknowledgeOutboxEntry(queuedOutboxEntry);
-          return;
+          return false;
         }
         // The queued source hash stays paired with its content until the
         // editor adopts a fresh source and creates a new save request.
@@ -338,12 +339,15 @@ export function runSaveFileContent(
               }
             : prev,
         );
+        return false;
       }
     });
-  fileSaveChainsRef.current[pending.id] = current;
+  const chain = current.then(() => {});
+  fileSaveChainsRef.current[pending.id] = chain;
   void current.finally(() => {
-    if (fileSaveChainsRef.current[pending.id] === current) {
+    if (fileSaveChainsRef.current[pending.id] === chain) {
       delete fileSaveChainsRef.current[pending.id];
     }
   });
+  return current.then((result) => result === true);
 }

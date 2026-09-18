@@ -77,6 +77,25 @@ describe("application-state script-helpers", () => {
       );
       expect(mockAppStateGet).toHaveBeenCalledWith("fresh@test.com", "key");
     });
+
+    it("uses a verified capability as the session ID for anonymous requests", async () => {
+      delete process.env.AGENT_USER_EMAIL;
+
+      const { readAppState } = await import("./script-helpers.js");
+      const { runWithRequestContext } =
+        await import("../server/request-context.js");
+      mockAppStateGet.mockResolvedValue(null);
+
+      await runWithRequestContext(
+        { authCapability: "capability:visual-edit:design:design_1" },
+        () => readAppState("key"),
+      );
+
+      expect(mockAppStateGet).toHaveBeenCalledWith(
+        "capability:capability:visual-edit:design:design_1",
+        "key",
+      );
+    });
   });
 
   describe("readAppState", () => {

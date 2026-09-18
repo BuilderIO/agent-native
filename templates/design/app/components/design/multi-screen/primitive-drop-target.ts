@@ -62,11 +62,14 @@ export interface ParsedScreenPrimitive {
   /**
    * Set when this primitive is itself an auto-layout (flex/grid) container,
    * to the flow axis new children are inserted along ("x" for a row flex/
-   * multi-column grid, "y" for column flex/single-column grid). Undefined
-   * for plain absolute/canvas-frame containers, which only ever accept an
-   * "inside" (append) drop.
+   * multi-column grid, "y" for column flex/single-column grid). Wrapped flex
+   * containers keep their main axis here while insertion distance also uses
+   * the cross axis. Undefined for plain absolute/canvas-frame containers,
+   * which only ever accept an "inside" (append) drop.
    */
   autoLayoutAxis?: CrossScreenDropAxis;
+  /** Wrapped flex containers choose the nearest child by two-dimensional distance. */
+  autoLayoutWrapped?: boolean;
 }
 
 function primitiveMatchesNodeId(
@@ -95,10 +98,8 @@ function computeAutoLayoutAxis(style: {
 }): CrossScreenDropAxis | undefined {
   if (style.display === "flex" || style.display === "inline-flex") {
     const direction = style.flexDirection || "row";
-    const wraps =
-      style.flexWrap === "wrap" || style.flexWrap === "wrap-reverse";
     const isRow = direction.startsWith("row");
-    return isRow && !wraps ? "x" : "y";
+    return isRow ? "x" : "y";
   }
   if (style.display === "grid" || style.display === "inline-grid") {
     const columns = (style.gridTemplateColumns || "")
@@ -111,7 +112,8 @@ function computeAutoLayoutAxis(style: {
 
 /**
  * Resolves a between-children flow-insert slot inside `container` from a
- * screen-local drop point — the nearest child (by flow-axis center) becomes
+ * screen-local drop point — the nearest child (by flow-axis center, or
+ * two-dimensional visual distance for wrapped flex) becomes
  * the anchor with before/after placement, exactly mirroring hit-test.bridge.
  * ts's nearestChildInsertionTarget so overview-canvas drag-drop and in-iframe
  * cross-screen drag-drop produce the same Figma-style insertion behavior.
@@ -151,7 +153,12 @@ export function findAutoLayoutInsertionAnchor(
         ? sibling.localLeft + sibling.localWidth / 2
         : sibling.localTop + sibling.localHeight / 2;
     const pointer = axis === "x" ? localPoint.x : localPoint.y;
-    const distance = Math.abs(pointer - center);
+    const distance = container.autoLayoutWrapped
+      ? Math.hypot(
+          localPoint.x - (sibling.localLeft + sibling.localWidth / 2),
+          localPoint.y - (sibling.localTop + sibling.localHeight / 2),
+        )
+      : Math.abs(pointer - center);
     if (distance < bestDistance) {
       bestDistance = distance;
       best = sibling;
@@ -515,6 +522,9 @@ export function parsePrimitivesFromScreen(
         flexWrap: style.flexWrap,
         gridTemplateColumns: style.gridTemplateColumns,
       });
+      const autoLayoutWrapped =
+        (style.display === "flex" || style.display === "inline-flex") &&
+        (style.flexWrap === "wrap" || style.flexWrap === "wrap-reverse");
 
       // Nearest ancestor primitive id, used to resolve direct children of a
       // container for auto-layout before/after anchor resolution — see
@@ -542,6 +552,7 @@ export function parsePrimitivesFromScreen(
         localHeight: height,
         isContainer,
         autoLayoutAxis,
+        ...(autoLayoutWrapped ? { autoLayoutWrapped: true } : {}),
       });
     });
   } catch {

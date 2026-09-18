@@ -216,6 +216,8 @@ export interface ClientActionCallOptions {
   signal?: AbortSignal;
   /** Override the default 60s fetch timeout for long-running actions. */
   timeoutMs?: number;
+  /** Additional same-origin headers for a narrowly scoped capability call. */
+  headers?: Record<string, string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -283,6 +285,8 @@ export interface ActionFetchOptions {
   serializedBody?: string;
   /** Omit the tab echo-suppression tag for imperative callers. */
   includeRequestSource?: boolean;
+  /** Additional same-origin headers for a narrowly scoped capability call. */
+  headers?: Record<string, string>;
 }
 
 type InternalActionFetchOptions = ActionFetchOptions & {
@@ -366,6 +370,7 @@ async function performActionFetch<T>(
           "X-Request-Source": browserTabId,
         }
       : {}),
+    ...(options?.headers ?? {}),
   };
   const compatibilityVersion = clientCompatibilityVersion();
   if (compatibilityVersion) {
@@ -778,6 +783,7 @@ export function callAction<
     signal: options.signal,
     timeoutMs: options.timeoutMs,
     includeRequestSource: false,
+    headers: options.headers,
   });
 }
 

@@ -4333,7 +4333,7 @@ function DesignEditor() {
         identityMigrationSourceContent?: string;
       },
     ) => {
-      if (!canEditDesignRef.current) return;
+      if (!canEditDesignRef.current) return Promise.resolve(false);
       const queuedIdentityMigration = pendingFileSavesRef.current[fileId];
       const latestIdentityMigration =
         latestFileSaveForUnloadRef.current[fileId];
@@ -4383,8 +4383,7 @@ function DesignEditor() {
           delete fileSaveTimersRef.current[fileId];
         }
         delete pendingFileSavesRef.current[fileId];
-        saveFileContent(pending);
-        return;
+        return saveFileContent(pending);
       }
       pendingFileSavesRef.current[fileId] = pending;
       const timer = fileSaveTimersRef.current[fileId];
@@ -9511,6 +9510,7 @@ function DesignEditor() {
         skipPreview?: boolean;
         forcePreviewFullDocument?: boolean;
         immediateSave?: boolean;
+        awaitSave?: boolean;
         persist?: boolean;
         recordHistory?: boolean;
         historyBeforeContent?: string;
@@ -9604,6 +9604,7 @@ function DesignEditor() {
         skipPreview?: boolean;
         forcePreviewFullDocument?: boolean;
         immediateSave?: boolean;
+        awaitSave?: boolean;
         persist?: boolean;
         recordHistory?: boolean;
         historyBeforeContent?: string;
@@ -13197,8 +13198,22 @@ function DesignEditor() {
 
   // ── Clipboard copy and paste ───────────────────────────────────────────────
   const getSelectedLayerSnapshots = useCallback(
-    () =>
-      runGetSelectedLayerSnapshots({
+    (
+      selectedElementOverride?: ElementInfo | null,
+      selectedElementsByLayerId?: ReadonlyMap<string, ElementInfo>,
+    ) => {
+      const renderedInfos = new Map(
+        selectedLayerTargetsRef.current.map((target) => [
+          target.layerId,
+          renderedElementInfoByLayerKeyRef.current.get(
+            `${target.fileId}:${target.layerId}`,
+          ) ?? target.elementInfo,
+        ]),
+      );
+      if (selectedElementLayerId && selectedElement) {
+        renderedInfos.set(selectedElementLayerId, selectedElement);
+      }
+      return runGetSelectedLayerSnapshots({
         activeFile,
         designSourceType,
         files,
@@ -13207,10 +13222,15 @@ function DesignEditor() {
         liveScreenSnapshotsById,
         overviewScreens,
         runtimeLayerSnapshotsById,
-        selectedElement,
+        selectedElement:
+          selectedElementOverride === undefined
+            ? selectedElement
+            : selectedElementOverride,
+        selectedElementsByLayerId: selectedElementsByLayerId ?? renderedInfos,
         selectedElementLayerId,
         selectedLayerIdsState,
-      }),
+      });
+    },
     [
       activeFile,
       designSourceType,

@@ -1088,6 +1088,62 @@ describe("runCrossScreenElementDrop real publication refusal", () => {
     expect(result.selectionEvents).toEqual([]);
   });
 
+  it("compensates a completed destination save when the source save conflicts later", async () => {
+    const sourceContent = `<!doctype html><html><body><button data-agent-native-node-id="moving">Move</button></body></html>`;
+    const destinationContent = `<!doctype html><html><body><main data-agent-native-node-id="target-root"></main></body></html>`;
+    const calls: Array<{ fileId: string; content: string }> = [];
+    let resolveTarget!: (saved: boolean) => void;
+    let resolveSource!: (saved: boolean) => void;
+    const targetSave = new Promise<boolean>((resolve) => {
+      resolveTarget = resolve;
+    });
+    const sourceSave = new Promise<boolean>((resolve) => {
+      resolveSource = resolve;
+    });
+    let publicationCount = 0;
+    const result = runStoredCrossScreenDrop({
+      sourceContent,
+      destinationContent,
+      publish: (fileId, content) => {
+        calls.push({ fileId, content });
+        publicationCount += 1;
+        const publication = acceptFixture(fileId, content);
+        if (publicationCount === 1) {
+          return { ...publication, saveCompletion: targetSave };
+        }
+        if (publicationCount === 2) {
+          return { ...publication, saveCompletion: sourceSave };
+        }
+        return { ...publication, saveCompletion: Promise.resolve(true) };
+      },
+      drop: {
+        sourceSelector: '[data-agent-native-node-id="moving"]',
+        sourceNodeId: "moving",
+        sourceProvenance: { uniqueNodeId: "moving" },
+        sourceScreenId: "source",
+        targetScreenId: "target",
+        targetAnchorNodeId: "target-root",
+        targetAnchorSelector: '[data-agent-native-node-id="target-root"]',
+        targetAnchorProvenance: { uniqueNodeId: "target-root" },
+        targetAnchorPlacement: "inside",
+      },
+    });
+
+    expect(result.historyEntries).toEqual([]);
+    resolveTarget(true);
+    resolveSource(false);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(calls.map(({ fileId }) => fileId)).toEqual([
+      "target",
+      "source",
+      "target",
+    ]);
+    expect(calls[2]?.content).toBe(destinationContent);
+    expect(result.historyEntries).toEqual([]);
+    expect(result.selectionEvents).toEqual([]);
+  });
+
   it("records no duplicate history or selection when the real writer rejects Alpine content", () => {
     const sourceInput = `<!doctype html><html><head>
       <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.0/dist/cdn.min.js"></script>
