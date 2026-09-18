@@ -8,6 +8,7 @@ import {
   __setAgentTraceRuntimeForTests,
   __setAgentTracerForTests,
   endAgentSpan,
+  recordTrackingEvent,
   startAgentSpan,
   withAgentSpanContext,
 } from "./tracing.js";
@@ -20,6 +21,7 @@ import {
 interface RecordedSpan {
   name: string;
   attributes: Record<string, string | number | boolean>;
+  startTime?: unknown;
   status?: { code: number; message?: string };
   exceptions: Array<{ name?: string; message: string }>;
   ended: boolean;
@@ -30,11 +32,15 @@ function createTestTracer() {
   const tracer = {
     startSpan(
       name: string,
-      options?: { attributes?: Record<string, string | number | boolean> },
+      options?: {
+        attributes?: Record<string, string | number | boolean>;
+        startTime?: unknown;
+      },
     ): AgentSpan {
       const recorded: RecordedSpan = {
         name,
         attributes: { ...(options?.attributes ?? {}) },
+        startTime: options?.startTime,
         exceptions: [],
         ended: false,
       };
@@ -137,6 +143,81 @@ describe("tracing helper — test provider registered", () => {
     expect(spans[0].status?.message).toBe("Error: failed");
     expect(spans[0].exceptions).toEqual([{ message: "Error: failed" }]);
     expect(spans[0].ended).toBe(true);
+  });
+
+  it("mirrors timing tracking events into low-cardinality OTel spans", async () => {
+    const { tracer, spans } = createTestTracer();
+    __setAgentTracerForTests(tracer as any);
+
+    await recordTrackingEvent(
+      "http.response",
+      {
+        source: "server",
+        action_name: "list-visual-plans",
+        method: "GET",
+        path: "/_agent-native/actions/list-visual-plans",
+        status_code: 200,
+        duration_ms: 42,
+        request_id: "request-1",
+      },
+      "server",
+    );
+
+    expect(spans[0]).toMatchObject({
+      name: "http.server",
+      attributes: {
+        "agent.event_name": "http.response",
+        "agent.source": "server",
+        "agent.telemetry_source": "server",
+        "agent.action": "list-visual-plans",
+        "http.method": "GET",
+        "http.route": "/_agent-native/actions/list-visual-plans",
+        "http.status_code": 200,
+        "agent.duration_ms": 42,
+        "agent.request_id": "request-1",
+      },
+      status: { code: SPAN_STATUS_OK },
+      ended: true,
+    });
+    expect(spans[0]?.startTime).toEqual(expect.any(Number));
+  });
+
+  it("marks client transport failures as OTel errors", async () => {
+    const { tracer, spans } = createTestTracer();
+    __setAgentTracerForTests(tracer as any);
+
+    await recordTrackingEvent(
+      "action.response",
+      {
+        action: "get-deck",
+        outcome: "network-error",
+        success: false,
+        duration_ms: 18,
+      },
+      "client",
+    );
+
+    expect(spans[0]).toMatchObject({
+      name: "action.client",
+      attributes: {
+        "agent.action": "get-deck",
+        "agent.outcome": "network-error",
+        "agent.success": false,
+      },
+      status: { code: SPAN_STATUS_ERROR },
+      ended: true,
+    });
+  });
+
+  it("does not turn ordinary analytics events into spans", async () => {
+    const { tracer, spans } = createTestTracer();
+    __setAgentTracerForTests(tracer as any);
+
+    await recordTrackingEvent("share_link_copied", {
+      resource_id: "resource-1",
+    });
+
+    expect(spans).toHaveLength(0);
   });
 
   it("installs a span as the active context for child spans", async () => {

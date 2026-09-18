@@ -121,7 +121,11 @@ describe("http response telemetry", () => {
     expect(telemetry?.properties).toMatchObject({
       status_code: 201,
       path: "/_agent-native/actions/list-visual-plans",
+      action_name: "list-visual-plans",
       measurement: "nitro_request",
+      sample_rate: 1,
+      sample_weight: 1,
+      sampled: false,
       framework_ready_wait_ms: 12,
       db_operation_count: 2,
       db_query_count: 1,
@@ -145,6 +149,40 @@ describe("http response telemetry", () => {
     expect(response.headers.get("x-agent-native-request-id")).toBe(
       telemetry?.properties?.request_id,
     );
+  });
+
+  it("weights sampled warm action responses", async () => {
+    vi.stubEnv("AGENT_NATIVE_HTTP_TELEMETRY_SAMPLE_RATE", "0.25");
+    processState.requestSequence = 5;
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0.1);
+    try {
+      const { requestHooks, responseHooks } = createHooks();
+      const tracked: TrackingEvent[] = [];
+      registerTrackingProvider({
+        name: "http-response-telemetry-test",
+        track(event) {
+          tracked.push(event);
+        },
+      });
+
+      const event = eventFor(
+        "/_agent-native/actions/list-transactional-email-ai-requests",
+      );
+      await requestHooks[0](event);
+      await responseHooks[0](new Response("{}"), event);
+
+      expect(tracked[0]).toMatchObject({
+        name: "http.response",
+        properties: {
+          action_name: "list-transactional-email-ai-requests",
+          sample_rate: 0.25,
+          sample_weight: 4,
+          sampled: true,
+        },
+      });
+    } finally {
+      randomSpy.mockRestore();
+    }
   });
 
   it("always tracks 4xx action routes when success sampling is disabled", async () => {

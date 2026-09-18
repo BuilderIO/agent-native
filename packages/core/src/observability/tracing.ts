@@ -43,7 +43,10 @@ export const SPAN_STATUS_ERROR = 2;
 interface AgentTracer {
   startSpan(
     name: string,
-    options?: { attributes?: Record<string, string | number | boolean> },
+    options?: {
+      attributes?: Record<string, string | number | boolean>;
+      startTime?: unknown;
+    },
     context?: unknown,
   ): AgentSpan;
 }
@@ -103,6 +106,137 @@ function pruneAttributes(
   return out;
 }
 
+const TRACKING_SPAN_NAMES = new Set([
+  "action.response",
+  "action_completed",
+  "action_failed",
+  "http.response",
+]);
+const TRACKING_TIMING_NAME_PATTERN =
+  /(?:duration|latency|performance|request|response|timing)/i;
+type TrackingEventOrigin = "client" | "server";
+
+function numericDuration(properties: Record<string, unknown>): number | null {
+  const duration = properties.duration_ms;
+  return typeof duration === "number" &&
+    Number.isFinite(duration) &&
+    duration >= 0
+    ? duration
+    : null;
+}
+
+function trackingAttributeValue(
+  value: unknown,
+): string | number | boolean | undefined {
+  return typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+    ? value
+    : undefined;
+}
+
+function trackingSpanAttributes(
+  name: string,
+  properties: Record<string, unknown>,
+  origin?: TrackingEventOrigin,
+): Record<string, string | number | boolean> {
+  const attributes: Record<string, string | number | boolean> = {
+    "agent.event_name": name,
+  };
+  if (origin) attributes["agent.telemetry_source"] = origin;
+  const assign = (attribute: string, key: string, value = properties[key]) => {
+    const normalized = trackingAttributeValue(value);
+    if (normalized !== undefined) attributes[attribute] = normalized;
+  };
+
+  assign("agent.source", "source");
+  assign("agent.action", "action_name", properties.action);
+  assign("agent.action_source", "action_source");
+  assign("agent.caller", "caller");
+  assign("agent.outcome", "outcome");
+  assign("agent.success", "success");
+  assign("agent.request_id", "request_id");
+  assign("agent.sample_rate", "sample_rate");
+  assign("agent.sampled", "sampled");
+  assign("http.method", "method");
+  assign("http.route", "path");
+  assign("http.status_code", "status_code");
+  assign("http.status_class", "status_class");
+  assign("agent.duration_ms", "duration_ms");
+  assign("agent.ttfb_ms", "ttfb_ms");
+  assign("agent.body_ms", "body_ms");
+  assign("agent.server_duration_ms", "server_duration_ms");
+  assign("agent.network_overhead_ms", "network_overhead_ms");
+  assign("agent.framework_ready_wait_ms", "framework_ready_wait_ms");
+  assign("agent.db_operation_wall_ms", "db_operation_wall_ms");
+  assign("agent.db_operation_count", "db_operation_count");
+  assign("agent.cold_start", "cold_start");
+  return attributes;
+}
+
+function trackingSpanName(name: string): string {
+  if (name === "action.response") return "action.client";
+  if (name === "action_completed" || name === "action_failed") {
+    return "action.server";
+  }
+  if (name === "http.response") return "http.server";
+  return `agent.telemetry.${name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ".")}`;
+}
+
+function trackingSpanStatus(
+  properties: Record<string, unknown>,
+): "success" | "error" {
+  if (properties.success === false) return "error";
+  const statusCode = properties.status_code;
+  if (typeof statusCode === "number" && statusCode >= 400) return "error";
+  const outcome = properties.outcome;
+  return typeof outcome === "string" &&
+    /(?:cancel|error|fail|network|timeout)/i.test(outcome)
+    ? "error"
+    : "success";
+}
+
+/**
+ * Mirror timing-bearing tracking events into OTel without exporting analytics
+ * clicks or user content as spans. The tracking event remains the aggregate
+ * metrics path; this is only a best-effort trace/debug signal.
+ */
+export async function recordTrackingEvent(
+  name: string,
+  properties: Record<string, unknown> = {},
+  origin?: TrackingEventOrigin,
+): Promise<void> {
+  const normalizedName = name.trim();
+  const durationMs = numericDuration(properties);
+  if (
+    !normalizedName ||
+    durationMs === null ||
+    (!TRACKING_SPAN_NAMES.has(normalizedName) &&
+      !TRACKING_TIMING_NAME_PATTERN.test(normalizedName))
+  ) {
+    return;
+  }
+
+  try {
+    const span = await startAgentSpan(
+      trackingSpanName(normalizedName),
+      trackingSpanAttributes(normalizedName, properties, origin),
+      null,
+      Date.now() - durationMs,
+    );
+    endAgentSpan(span, {
+      status: trackingSpanStatus(properties),
+      endTime: Date.now(),
+    });
+    // coercion-ok: optional OTel export must never affect analytics or request handling.
+  } catch {
+    // Optional OTel export must never affect analytics or request handling.
+  }
+}
+
 /**
  * Start a span. When OTel isn't installed (or no provider is registered) this
  * returns `null` and the caller simply skips span bookkeeping — there is no
@@ -112,6 +246,7 @@ export async function startAgentSpan(
   name: string,
   attributes: Record<string, string | number | boolean | null | undefined> = {},
   parentSpan: AgentSpan | null = null,
+  startTime?: unknown,
 ): Promise<AgentSpan | null> {
   const runtime = await resolveRuntime();
   if (!runtime) return null;
@@ -131,6 +266,7 @@ export async function startAgentSpan(
       name,
       {
         attributes: pruneAttributes(attributes),
+        ...(startTime === undefined ? {} : { startTime }),
       },
       parentContext,
     );

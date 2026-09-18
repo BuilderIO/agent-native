@@ -130,6 +130,19 @@ export function normalizeHttpTelemetryPath(pathname: string): string {
     .join("/");
 }
 
+function actionNameForPath(pathname: string): string | undefined {
+  const prefix = "/_agent-native/actions/";
+  const normalized = pathname.replace(/\/+$/, "");
+  if (!normalized.startsWith(prefix)) return undefined;
+  const actionPath = normalized.slice(prefix.length);
+  if (!actionPath || actionPath.includes("/")) return undefined;
+  try {
+    return decodeURIComponent(actionPath);
+  } catch {
+    return actionPath;
+  }
+}
+
 function statusClass(statusCode: number): string {
   if (!Number.isFinite(statusCode) || statusCode < 100) return "unknown";
   return `${Math.floor(statusCode / 100)}xx`;
@@ -168,32 +181,48 @@ function organizationForHost(host: string | undefined): string | undefined {
     : undefined;
 }
 
-function shouldTrack(
+interface TrackingDecision {
+  track: boolean;
+  sampleRate: number;
+  sampled: boolean;
+}
+
+function trackingDecision(
   pathname: string,
   statusCode: number,
   state: HttpRequestTelemetryState,
-): boolean {
-  if (shouldDisableTelemetry()) return false;
-  if (isTrackingIngestPath(pathname)) return false;
-  if (pathname.startsWith("/api/analytics/replay")) return false;
-  if (statusCode >= 500) return true;
+): TrackingDecision {
+  if (shouldDisableTelemetry()) {
+    return { track: false, sampleRate: 0, sampled: false };
+  }
+  if (isTrackingIngestPath(pathname)) {
+    return { track: false, sampleRate: 0, sampled: false };
+  }
+  if (pathname.startsWith("/api/analytics/replay")) {
+    return { track: false, sampleRate: 0, sampled: false };
+  }
+  if (statusCode >= 500) {
+    return { track: true, sampleRate: 1, sampled: false };
+  }
   if (
     statusCode >= 400 &&
     statusCode < 500 &&
     /(?:^|\/)_agent-native\/actions(?:\/|$)/.test(pathname)
   ) {
-    return true;
+    return { track: true, sampleRate: 1, sampled: false };
   }
-  if (state.requestSequence === 1) return true;
-  if (state.startupDb) return true;
-  if (Date.now() - state.startedAt >= SLOW_REQUEST_MS) return true;
+  if (state.requestSequence === 1 || state.startupDb) {
+    return { track: true, sampleRate: 1, sampled: false };
+  }
+  if (Date.now() - state.startedAt >= SLOW_REQUEST_MS) {
+    return { track: true, sampleRate: 1, sampled: false };
+  }
   if (state.db.errorCount > 0 || state.db.timeoutCount > 0) {
-    return true;
+    return { track: true, sampleRate: 1, sampled: false };
   }
   const rate = sampleRate();
-  if (rate <= 0) return false;
-  if (rate >= 1) return true;
-  return Math.random() < rate;
+  if (rate <= 0) return { track: false, sampleRate: rate, sampled: true };
+  return { track: Math.random() < rate, sampleRate: rate, sampled: true };
 }
 
 function responseStatusCode(event: H3Event, response?: Response): number {
@@ -232,10 +261,12 @@ function emitTelemetry(
 ): void {
   const statusCode = responseStatusCode(event, response);
   const pathname = requestPath(event);
-  if (!shouldTrack(pathname, statusCode, state)) return;
+  const decision = trackingDecision(pathname, statusCode, state);
+  if (!decision.track) return;
 
   try {
     const host = hostForEvent(event);
+    const actionName = actionNameForPath(pathname);
     const db = getDatabaseRuntimeFingerprint();
     track(TELEMETRY_EVENT_NAME, {
       source: "server",
@@ -245,8 +276,12 @@ function emitTelemetry(
       method: getMethod(event),
       path: normalizeHttpTelemetryPath(pathname),
       route_kind: routeKind(pathname),
+      ...(actionName ? { action_name: actionName } : {}),
       status_code: statusCode,
       status_class: statusClass(statusCode),
+      sample_rate: decision.sampleRate,
+      sample_weight: 1 / decision.sampleRate,
+      sampled: decision.sampled,
       duration_ms: Math.max(0, Date.now() - state.startedAt),
       request_id: state.requestId,
       measurement: "nitro_request",

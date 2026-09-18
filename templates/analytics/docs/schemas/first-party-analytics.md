@@ -104,6 +104,29 @@ Events are stored in `analytics_events`. Common query columns include:
 | `url`, `path`, `hostname`, `referrer` | Page context                                           |
 | `properties`, `context`               | Original JSON objects                                  |
 
+## Server action response telemetry
+
+`event_name = 'http.response'` is the server-observed request outcome. Action
+routes include `route_kind = 'framework'`, an `action_name`, the HTTP
+`status_code`, `duration_ms`, and a server-generated `request_id`. Join that
+ID with `action.response` when you need to compare the browser attempt with
+what the server actually completed.
+
+Errors, slow requests, startup requests, and database failures are retained
+with `sampled = false` and `sample_rate = 1`. Fast requests may be sampled;
+use `sample_weight = 1 / sample_rate` for aggregate counts. This event is a
+server transport measurement, not a user-level operation: retries and
+background polling remain separate requests. Mutation user outcomes are
+represented by the server-side `action_started`, `action_completed`, and
+`action_failed` events.
+
+When a host has an OpenTelemetry provider, timing-bearing events are mirrored
+as best-effort spans: `action.client` for browser action responses,
+`http.server` for server responses, and `action.server` for mutation outcomes.
+Other events are mirrored only when their name indicates timing or performance
+and they carry `duration_ms`; ordinary clicks and content-bearing events stay
+in analytics rather than becoming spans.
+
 ## LLM observability events
 
 Core emits LLM usage, explicit user feedback, and optional inferred message
