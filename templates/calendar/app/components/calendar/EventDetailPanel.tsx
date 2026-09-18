@@ -160,7 +160,9 @@ export function EventDetailPanel({
   const titleInputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
+  const isEditingTitleRef = useRef(false);
   const onCloseRef = useRef(onClose);
+  isEditingTitleRef.current = isEditingTitle;
   onCloseRef.current = onClose;
   const updateEvent = useUpdateEvent();
   const [selectedAccountEmail, setSelectedAccountEmail] = useState(
@@ -219,13 +221,17 @@ export function EventDetailPanel({
     }
   }, [isEditingTitle]);
 
+  const restoreFocus = useCallback(() => {
+    const previousFocus = previousFocusRef.current;
+    previousFocusRef.current = null;
+    if (previousFocus?.isConnected) {
+      requestAnimationFrame(() => previousFocus.focus());
+    }
+  }, []);
+
   useEffect(() => {
     if (!isOpen) {
-      const previousFocus = previousFocusRef.current;
-      previousFocusRef.current = null;
-      if (previousFocus?.isConnected) {
-        requestAnimationFrame(() => previousFocus.focus());
-      }
+      restoreFocus();
       return;
     }
 
@@ -241,6 +247,12 @@ export function EventDetailPanel({
 
     const handleKeyDown = (keyboardEvent: KeyboardEvent) => {
       if (keyboardEvent.key === "Escape") {
+        if (
+          isEditingTitleRef.current &&
+          keyboardEvent.target === titleInputRef.current
+        ) {
+          return;
+        }
         keyboardEvent.preventDefault();
         onCloseRef.current();
         return;
@@ -268,8 +280,9 @@ export function EventDetailPanel({
     panel.addEventListener("keydown", handleKeyDown);
     return () => {
       panel.removeEventListener("keydown", handleKeyDown);
+      restoreFocus();
     };
-  }, [isOpen]);
+  }, [isOpen, restoreFocus]);
 
   const handleSaveDescription = useCallback(() => {
     if (!event) return;
@@ -489,7 +502,14 @@ export function EventDetailPanel({
         )}
         role={isOpen ? "dialog" : undefined}
         aria-modal={isOpen ? "true" : undefined}
-        aria-labelledby={isOpen ? "calendar-event-detail-title" : undefined}
+        aria-labelledby={
+          isOpen && !isEditingTitle ? "calendar-event-detail-title" : undefined
+        }
+        aria-label={
+          isOpen && isEditingTitle
+            ? getWorkingLocationTitle(event, workingLocationLabels)
+            : undefined
+        }
         tabIndex={-1}
       >
         <div className="calendar-event-detail-panel-inner flex h-full w-full flex-col border-l border-border bg-card">
@@ -537,6 +557,7 @@ export function EventDetailPanel({
                 {isEditingTitle && !isWorkingLocation && !isOverlay ? (
                   <input
                     ref={titleInputRef}
+                    id="calendar-event-detail-title"
                     value={editingTitle}
                     onChange={(e) => setEditingTitle(e.target.value)}
                     onKeyDown={(e) => {

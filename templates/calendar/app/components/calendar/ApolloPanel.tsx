@@ -1,6 +1,6 @@
 import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
-import { getCalendarGuestCount, type CalendarEvent } from "@shared/api";
+import type { CalendarEvent } from "@shared/api";
 import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 
@@ -201,7 +201,7 @@ export function ResearchMeetingButton({ event }: { event: CalendarEvent }) {
   const { send, codeRequiredDialog } = useSendToAgentChat();
 
   const attendees = (event.attendees ?? []).filter((a) => !a.self);
-  const attendeeCount = getCalendarGuestCount(event.attendees);
+  const attendeeCount = attendees.length;
   if (attendeeCount === 0) return null;
 
   const handleResearch = () => {
