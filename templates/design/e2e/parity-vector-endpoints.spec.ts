@@ -352,6 +352,21 @@ test("vector endpoint controls cover all styles, swap, paint inheritance, histor
         strokeWidth: "6px",
       });
     await expect(vector).toBeVisible();
+
+    // Removing one endpoint must use the structural rewrite too: the
+    // explicit `none` value persists while only that side's marker reference
+    // and definition disappear.
+    await selectVector(page, "endpoint-line");
+    await chooseEndpoint(page, "End", "None");
+    await expect
+      .poll(async () => liveEndpoints(page, "endpoint-line"))
+      .toMatchObject({
+        end: null,
+        style: { end: "none" },
+      });
+    const removedSource = await source(request, designId, fileId);
+    expect(removedSource).toMatch(/--an-vector-end-point:\s*none/);
+    expect(removedSource).not.toContain(expectedUrl("endpoint-line", "end"));
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }

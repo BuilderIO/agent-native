@@ -5074,11 +5074,22 @@ function applyStyleRemoveEdit(
   route: StyleEditTargetRoute,
 ): { content: string; capability: EditCapability } | PatchResultStatus {
   const property = normalizeStyleProperty(intent.property);
-  if (
-    !property ||
-    property === "--an-vector-stroke-position" ||
-    (route.kind !== "ordinary" && route.kind !== "vector-paint")
-  ) {
+  if (!property || property === "--an-vector-stroke-position") {
+    return "unsupported";
+  }
+  if (isVectorEndpointProperty(property)) {
+    const content = applyVectorEndpointEdit(html, element, property, "none");
+    if (content === "unsupported") return content;
+    return {
+      content,
+      capability: {
+        kind: "style",
+        properties: [property],
+        confidence: 0.9,
+      },
+    };
+  }
+  if (route.kind !== "ordinary" && route.kind !== "vector-paint") {
     return "unsupported";
   }
 
@@ -5975,6 +5986,11 @@ function applyBreakpointStyleEdit(
 ): { content: string; capability: EditCapability } | PatchResultStatus {
   const property = normalizeStyleProperty(intent.property);
   if (!property) return "unsupported";
+  // Endpoint choices change SVG marker definitions and shape attributes as a
+  // unit. A media-scoped custom property cannot express that structural
+  // rewrite, so reject the write instead of persisting a value that renders
+  // without its marker DOM.
+  if (isVectorEndpointProperty(property)) return "unsupported";
   if (!Number.isFinite(intent.maxWidthPx) || intent.maxWidthPx <= 0) {
     return "unsupported";
   }

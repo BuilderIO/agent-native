@@ -637,6 +637,57 @@ describe("code layer projection of a drawn vector", () => {
       '<circle cx="5" cy="5" r="4" fill="context-stroke"/>',
     );
   });
+
+  it("removes endpoint styles through the structural marker rewrite", () => {
+    const base =
+      '<svg data-agent-native-node-id="line-1" data-an-primitive="line"><path d="M 0 5 L 80 5"/></svg>';
+    const withEndpoints = applyVisualEdit(
+      applyVisualEdit(base, {
+        kind: "style",
+        target: { nodeId: "line-1" },
+        property: "--an-vector-start-point",
+        value: "diamond",
+      }).content,
+      {
+        kind: "style",
+        target: { nodeId: "line-1" },
+        property: "--an-vector-end-point",
+        value: "circle",
+      },
+    );
+    expect(withEndpoints.result.status).toBe("applied");
+
+    const removed = applyVisualEdit(withEndpoints.content, {
+      kind: "style",
+      target: { nodeId: "line-1" },
+      property: "--an-vector-end-point",
+      operation: "remove",
+    } as EditIntent);
+
+    expect(removed.result.status).toBe("applied");
+    expect(removed.content).toContain("--an-vector-end-point: none");
+    expect(removed.content).not.toContain("marker-end=");
+    expect(removed.content).not.toContain("line-1-vector-marker-end");
+    expect(removed.content).toContain(
+      'marker-start="url(#line-1-vector-marker-start)"',
+    );
+  });
+
+  it("rejects responsive endpoint edits without mutating source or marker DOM", () => {
+    const content =
+      '<svg data-agent-native-node-id="line-1" data-an-primitive="line"><path d="M 0 5 L 80 5"/></svg>';
+    const patch = applyVisualEdit(content, {
+      kind: "breakpoint-style",
+      target: { nodeId: "line-1" },
+      maxWidthPx: 809,
+      property: "--an-vector-end-point",
+      value: "circle",
+    } as EditIntent);
+
+    expect(patch.result.status).toBe("unsupported");
+    expect(patch.content).toBe(content);
+    expect(patch.content).not.toContain("data-agent-native-breakpoints");
+  });
 });
 
 describe("applyVisualEdit vector paint", () => {

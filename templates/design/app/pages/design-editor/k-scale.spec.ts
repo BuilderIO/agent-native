@@ -128,6 +128,21 @@ describe("applyKScaleStyleChanges", () => {
     ).toMatchObject({ status: "failed", selector: expect.any(String) });
   });
 
+  it("rejects responsive vector endpoint writes before cleaning scoped source", () => {
+    const content =
+      '<html><head></head><body><svg data-agent-native-node-id="line-1" data-an-primitive="line"><path d="M 0 5 L 80 5"/></svg></body></html>';
+    const patch = applyScopedVisualStyleEdit({
+      content,
+      target: { nodeId: "line-1" },
+      property: "--an-vector-end-point",
+      value: "circle",
+      upperBoundPx: 809,
+    });
+
+    expect(patch.result.status).toBe("unsupported");
+    expect(patch.content).toBe(content);
+  });
+
   it("rejects conflicting writes to one target without returning partial content", () => {
     expect(
       applyKScaleStyleChanges(HTML, [

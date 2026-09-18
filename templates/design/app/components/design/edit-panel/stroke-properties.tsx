@@ -410,6 +410,7 @@ export function StrokeProperties({
         element={element}
         onStyleChange={onStyleChange}
         onStylesChange={onStylesChange}
+        breakpointOverrideContext={breakpointOverrideContext}
       />
     );
   }
@@ -955,10 +956,12 @@ function VectorStrokeProperties({
   element,
   onStyleChange,
   onStylesChange,
+  breakpointOverrideContext,
 }: {
   element: ElementInfo;
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
+  breakpointOverrideContext?: BreakpointOverrideFieldContext;
 }) {
   const t = useT();
   const styles = element.computedStyles;
@@ -981,7 +984,10 @@ function VectorStrokeProperties({
     : "center";
   const supportsEndpointControls =
     element.tagName?.toLowerCase() === "svg" &&
-    isVectorEndpointPrimitiveKind(element.primitiveKind);
+    isVectorEndpointPrimitiveKind(element.primitiveKind) &&
+    // Marker choices require a structural SVG rewrite. Keep them out of a
+    // responsive scope until the marker DOM can be scoped with the value.
+    breakpointOverrideContext?.activeWidthPx == null;
 
   return (
     <PanelSection
