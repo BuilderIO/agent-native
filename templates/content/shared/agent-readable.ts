@@ -13,18 +13,28 @@ export const DOCUMENT_AGENT_CONTEXT_ENDPOINT =
 export const CONTENT_MCP_ENDPOINT = "/mcp";
 export const CONTENT_MCP_CONNECT_ENDPOINT = "/mcp/connect";
 export const CONTENT_DOCUMENT_READ_ACTION = "get-document";
-export const CONTENT_MCP_PROHIBITED_FALLBACKS = [
-  "ask-user-to-paste-document",
-  "ask-user-to-make-document-public",
-  "ask-user-to-change-sharing",
-] as const;
+export const CONTENT_MCP_SETUP_DOCUMENTATION_URL =
+  "https://www.agent-native.com/docs/external-agents/#private-content-links" as const;
+
+export type ContentDocumentAccessState =
+  | "public"
+  | "authorized"
+  | "authentication-required";
 
 function absoluteAgentAccessUrl(path: string, origin?: string): string {
   return origin ? new URL(path, origin).toString() : path;
 }
 
-function missingContentMcpMessage(connectionUrl: string): string {
-  return `This private Content document requires the Content MCP server. Connect it at ${connectionUrl}, authenticate, then ask me to retry.`;
+function contentDocumentAccessSummary(
+  accessState: ContentDocumentAccessState,
+): string {
+  if (accessState === "public") {
+    return "This document is available through its public Content share page.";
+  }
+  if (accessState === "authorized") {
+    return "This private document is available through this authorized Content share page.";
+  }
+  return "This Content document is private. Authenticated access is available through the Content MCP integration.";
 }
 
 export interface ContentDocumentMcpGuidance {
@@ -35,18 +45,29 @@ export interface ContentDocumentMcpGuidance {
     name: typeof CONTENT_DOCUMENT_READ_ACTION;
     arguments: { id: string };
   };
-  whenToolUnavailable: {
-    action: "tell-user-to-connect";
+  access: {
+    state: ContentDocumentAccessState;
+    summary: string;
+    authenticationRequired: boolean;
+    anonymousHttp: "readable" | "authorized" | "denied";
+    mcpAccountPermission: "not-required" | "not-evaluated";
+    authorization: "connected-account-existing-permissions";
+    setupDocumentationUrl: typeof CONTENT_MCP_SETUP_DOCUMENTATION_URL;
     connectionUrl: string;
-    message: string;
+    missingConnectionPath:
+      | "not-required"
+      | "add-remote-server-authenticate-enable-and-retry";
   };
-  prohibitedFallbacks: typeof CONTENT_MCP_PROHIBITED_FALLBACKS;
   instructions: string;
 }
 
 export function buildContentDocumentMcpGuidance(
   documentId: string,
-  options: { basePath?: string; origin?: string } = {},
+  options: {
+    basePath?: string;
+    origin?: string;
+    accessState?: ContentDocumentAccessState;
+  } = {},
 ): ContentDocumentMcpGuidance {
   const basePath = normalizeAgentAccessBasePath(options.basePath);
   const mcpUrl = absoluteAgentAccessUrl(
@@ -57,7 +78,30 @@ export function buildContentDocumentMcpGuidance(
     toAgentAccessUrl(CONTENT_MCP_CONNECT_ENDPOINT, { basePath }),
     options.origin,
   );
-  const message = missingContentMcpMessage(mcpConnectUrl);
+  const accessState = options.accessState ?? "authentication-required";
+  const summary = contentDocumentAccessSummary(accessState);
+  const access = {
+    state: accessState,
+    summary,
+    authenticationRequired: accessState === "authentication-required",
+    anonymousHttp:
+      accessState === "public"
+        ? "readable"
+        : accessState === "authorized"
+          ? "authorized"
+          : "denied",
+    mcpAccountPermission:
+      accessState === "authentication-required"
+        ? "not-evaluated"
+        : "not-required",
+    authorization: "connected-account-existing-permissions" as const,
+    setupDocumentationUrl: CONTENT_MCP_SETUP_DOCUMENTATION_URL,
+    connectionUrl: mcpConnectUrl,
+    missingConnectionPath:
+      accessState === "authentication-required"
+        ? "add-remote-server-authenticate-enable-and-retry"
+        : "not-required",
+  };
   return {
     preferredTransport: "mcp",
     mcpUrl,
@@ -66,22 +110,40 @@ export function buildContentDocumentMcpGuidance(
       name: CONTENT_DOCUMENT_READ_ACTION,
       arguments: { id: documentId },
     },
-    whenToolUnavailable: {
-      action: "tell-user-to-connect",
-      connectionUrl: mcpConnectUrl,
-      message,
-    },
-    prohibitedFallbacks: CONTENT_MCP_PROHIBITED_FALLBACKS,
-    instructions: `Use contextUrl first. If it reports that the document is private, use an authenticated Content MCP tool and call get-document with id; the host may prefix the tool name. If no Content MCP tool is available, tell the user exactly: ${JSON.stringify(message)} Do not ask the user to paste the document, make it public, or change sharing permissions.`,
+    access,
+    instructions: contentDocumentMcpInstructionText(documentId, {
+      basePath,
+      origin: options.origin,
+      accessState,
+    }),
   };
 }
 
 export function contentDocumentMcpInstructionText(
   documentId: string,
-  options: { basePath?: string; origin?: string } = {},
+  options: {
+    basePath?: string;
+    origin?: string;
+    accessState?: ContentDocumentAccessState;
+  } = {},
 ): string {
-  const guidance = buildContentDocumentMcpGuidance(documentId, options);
-  return `Agent access: if an authenticated Content MCP tool is available, call ${guidance.readAction.name} with id ${JSON.stringify(documentId)}. If no Content MCP tool is available, tell the user exactly: ${JSON.stringify(guidance.whenToolUnavailable.message)} Do not ask the user to paste the document, make it public, or change sharing permissions.`;
+  const basePath = normalizeAgentAccessBasePath(options.basePath);
+  const mcpUrl = absoluteAgentAccessUrl(
+    toAgentAccessUrl(CONTENT_MCP_ENDPOINT, { basePath }),
+    options.origin,
+  );
+  const mcpConnectUrl = absoluteAgentAccessUrl(
+    toAgentAccessUrl(CONTENT_MCP_CONNECT_ENDPOINT, { basePath }),
+    options.origin,
+  );
+  const summary = contentDocumentAccessSummary(
+    options.accessState ?? "authentication-required",
+  );
+  const privateAccessFacts =
+    options.accessState === "authentication-required" || !options.accessState
+      ? " This response establishes only that anonymous HTTP access is unavailable; the connected account's document permission has not been evaluated. For an MCP-capable agent without a Content connection, the normal access path is for the user to add this instance as a remote MCP server, authenticate, enable the connection or its tools, and retry the original document request. Only an authenticated get-document denial establishes that the connected account lacks document permission."
+      : "";
+  return `Content access information: ${summary}${privateAccessFacts} Content MCP server: ${mcpUrl}. Connection setup for this Content instance: ${mcpConnectUrl}. Official Agent-Native setup documentation: ${CONTENT_MCP_SETUP_DOCUMENTATION_URL}. Document access uses the connected account's existing permissions. Content MCP read action: ${CONTENT_DOCUMENT_READ_ACTION} with id ${JSON.stringify(documentId)}.`;
 }
 
 export function buildContentPublicDocumentPath(documentId: string): string {
@@ -110,11 +172,13 @@ export function buildContentDocumentAgentDiscovery({
   token,
   basePath,
   origin,
+  accessState,
 }: {
   document: { id: string; title?: string };
   token?: string | null;
   basePath?: string;
   origin?: string;
+  accessState: ContentDocumentAccessState;
 }): AgentReadableResourceDiscovery & ContentDocumentMcpGuidance {
   const discovery = buildAgentReadableResourceDiscovery({
     resourceType: "document",
@@ -127,10 +191,15 @@ export function buildContentDocumentAgentDiscovery({
     instructions: buildContentDocumentMcpGuidance(document.id, {
       basePath,
       origin,
+      accessState,
     }).instructions,
   });
   return {
     ...discovery,
-    ...buildContentDocumentMcpGuidance(document.id, { basePath, origin }),
+    ...buildContentDocumentMcpGuidance(document.id, {
+      basePath,
+      origin,
+      accessState,
+    }),
   };
 }

@@ -162,6 +162,11 @@ export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
         token: loaderData?.agentAccessToken,
         basePath: loaderData?.basePath,
         origin: loaderData?.origin,
+        accessState: loaderData?.unavailable
+          ? "authentication-required"
+          : loaderData?.document?.visibility === "public"
+            ? "public"
+            : "authorized",
       })
     : null;
   return [
@@ -297,17 +302,20 @@ export function AgentReadableDocumentDiscovery({
   token,
   basePath,
   origin,
+  accessState,
 }: {
   document: { id: string; title?: string };
   token?: string | null;
   basePath?: string;
   origin?: string;
+  accessState: "public" | "authorized" | "authentication-required";
 }) {
   const discovery = buildContentDocumentAgentDiscovery({
     document,
     token,
     basePath,
     origin,
+    accessState,
   });
   return (
     <>
@@ -316,7 +324,11 @@ export function AgentReadableDocumentDiscovery({
         dangerouslySetInnerHTML={{ __html: safeJsonForHtml(discovery) }}
       />
       <div className="hidden" aria-hidden="true">
-        {contentDocumentMcpInstructionText(document.id, { basePath, origin })}
+        {contentDocumentMcpInstructionText(document.id, {
+          basePath,
+          origin,
+          accessState,
+        })}
       </div>
     </>
   );
@@ -350,6 +362,7 @@ function PrivateDocumentNotice({
           document={{ id }}
           basePath={basePath}
           origin={origin}
+          accessState="authentication-required"
         />
       ) : null}
       <section className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center px-6 text-center">
@@ -390,6 +403,7 @@ export default function PublicDocumentPage() {
         token={data.agentAccessToken}
         basePath={data.basePath}
         origin={data.origin}
+        accessState={document.visibility === "public" ? "public" : "authorized"}
       />
       <div className="mx-auto flex max-w-3xl justify-end px-6 pt-5 sm:px-8">
         <button
