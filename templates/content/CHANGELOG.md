@@ -3,11 +3,68 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-16
+
+### Fixed
+
+- Content now combines non-overlapping edits from another tab or agent automatically, while recovery choices stay attached to the exact draft and saved page version you reviewed.
+
+## 2026-09-15
+
+### Fixed
+
+- Google sign-in and Notion connections now open reliably in embedded browsers
+
+## 2026-09-14
+
+### Improved
+
+- Search is now available from the Content sidebar, with clearer date filters and keyboard-friendly calendar navigation.
+
+### Fixed
+
+- Pages created in agent conversations now appear in navigation and open when they are ready.
+- Cmd+K now opens the command menu while writing in a page.
+- The block drag-handle menu now always opens beside the block instead of sometimes jumping to the corner of the window.
+- Pasting a checklist from Notion or GitHub now keeps its checkboxes instead of turning into plain bullets.
+- Asking the agent about Notion no longer reports "not connected" when the Notion MCP server is connected — it now names the account connection and the MCP connection separately.
+
+## 2026-09-13
+
+### Fixed
+
+- Tables now export as real tables. Downloading a page as PDF or HTML keeps rows, columns, header rows, header columns, and cell line breaks instead of flattening the table into plain text. Callouts, toggles, and column layouts survive the same export path, and printed tables repeat their header row across page breaks.
+- Suggestion previews and highlights stay aligned when editing text near lists.
+
+## 2026-09-12
+
+### Improved
+
+- Search with quoted phrases, exclusions, OR, and intitle: operators, search all workspaces, pick a modified date from the calendar, and see snippets anchored at the matching sentence deep inside long pages.
+
+### Fixed
+
+- Setting up Notion from a document now opens the Integrations settings, where Notion can actually be connected.
+
+### Changed
+
+- Databases are now called **collections** across Content — same pages, views, and sharing, friendlier name.
+
+## 2026-09-10
+
+### Fixed
+
+- Opening a page link your account cannot read now lands on a page you can open and says why, instead of stopping on a "Document unavailable" screen — so a brand-new account no longer arrives on a dead end after signing up.
+
 ## 2026-09-09
 
 ### Added
 
 - Connected agents can set up ordinary databases, configure fields and table views, and recover them from Trash with verified results.
+
+### Improved
+
+- Search pages and databases with scoped filters, result previews, and keyboard navigation across result pages.
 
 ### Fixed
 

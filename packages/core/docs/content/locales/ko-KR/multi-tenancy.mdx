@@ -9,7 +9,7 @@ description: "모든 에이전트 기반 앱은 구성이 필요 없는 조직, 
 
 ## 무료로 얻는 것 {#free}
 
-새로운 `npx @agent-native/core@latest create` 비계에는 이미 다음이 포함되어 있습니다:
+새로운 `npx --yes @agent-native/core@latest create` 비계에는 이미 다음이 포함되어 있습니다:
 
 - **사용자 등록 및 로그인** — [Authentication](/docs/authentication)를 참조하세요.
 - **조직** — 사용자는 조직을 만들고 이메일로 구성원을 초대합니다. 각 조직은 완전히 격리된 테넌트입니다.
@@ -122,3 +122,7 @@ CRM, 프로젝트 추적기, 지원 받은 편지함 또는 모든 팀 도구에
 - [**Authentication**](/docs/authentication#organizations) — 세션, 소셜 제공자 및 조직 관리 표면
 - [**Security — Data Scoping**](/docs/security#data-scoping) — SQL 수준 격리, `ownableColumns()` 계약 및 액세스 가드
 - [**Multi-App Workspace**](/docs/multi-app-workspace) — 공유 인증 및 RBAC로 하나의 monorepo에서 여러 Agent-Native 앱을 호스팅합니다
+
+## 격리 모델
+
+서버 읽기와 쓰기에는 `accessFilter()`와 `assertAccess()`를 사용하세요. 에이전트 SQL 범위 지정은 소유 가능한 테이블에 임시 필터 뷰를 만듭니다. `pnpm guards`에 범위 없는 쿼리 검사가 포함됩니다. RLS는 현재 활성 적용 계층이 아니며 1.0 이후 강화 항목으로 계획되어 있습니다. [관리 배포](/docs/administered-deployments)를 참고하세요.

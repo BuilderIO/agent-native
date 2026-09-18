@@ -100,6 +100,16 @@ const editDocumentSchema = z.object({
     .describe(
       "JSON array of {find, replace} objects for a snapshot-stable batch; use instead of find/replace.",
     ),
+  initializeContent: z
+    .string()
+    .min(1)
+    .refine((value) => value.trim().length > 0, {
+      message: "initializeContent must contain non-whitespace content.",
+    })
+    .optional()
+    .describe(
+      "Exact Markdown containing non-whitespace content, used only to initialize a literally empty document body; mutually exclusive with find, replace, and edits.",
+    ),
   contextPackId: z
     .string()
     .optional()
@@ -211,7 +221,7 @@ async function resolveEditCreativeContext(args: {
 
 export default defineAction({
   description:
-    "Surgically edit an existing document's Markdown with exact search-and-replace operations. Prefer this over update-document when preserving the rest of the document; every find string must match exactly once in the immutable base. First call get-document, then pass its baseRevision and a caller-generated idempotencyKey.",
+    "Edit an existing document's Markdown with exact search-and-replace operations, or initialize a literally empty body with initializeContent. Every find string must match exactly once in the immutable base. First call get-document, then pass its baseRevision and a caller-generated idempotencyKey.",
   deferLoading: false,
   mcpTool: true,
   agentInputSchema: externalEditDocumentSchema,
@@ -228,9 +238,24 @@ export default defineAction({
     const isAgentCaller =
       ctx?.caller === "tool" || ctx?.caller === "mcp" || ctx?.caller === "a2a";
 
-    let edits: TextEdit[];
+    let edits: TextEdit[] = [];
+    const initializesBody = args.initializeContent !== undefined;
 
-    if (Array.isArray(args.edits)) {
+    if (
+      initializesBody &&
+      (args.find !== undefined ||
+        args.replace !== undefined ||
+        args.edits !== undefined)
+    ) {
+      throw new ActionContractError(
+        "initializeContent is mutually exclusive with find, replace, and edits.",
+        { errorCode: "DOCUMENT_EDIT_MODE_CONFLICT", statusCode: 400 },
+      );
+    }
+
+    if (initializesBody) {
+      edits = [];
+    } else if (Array.isArray(args.edits)) {
       edits = args.edits;
     } else if (args.edits !== undefined) {
       throw new Error("--edits must be a JSON array");
@@ -238,7 +263,10 @@ export default defineAction({
       if (!args.find) throw new Error("--find cannot be empty");
       edits = [{ find: args.find, replace: args.replace ?? "" }];
     } else {
-      throw new Error("Either --find or --edits is required");
+      throw new ActionContractError(
+        "One of initializeContent, find, or edits is required.",
+        { errorCode: "DOCUMENT_EDIT_MODE_REQUIRED", statusCode: 400 },
+      );
     }
 
     const access = await assertAccess("document", id, "editor");
@@ -248,11 +276,17 @@ export default defineAction({
       ctx?.caller === "mcp" ||
       ctx?.caller === "webmcp" ||
       ctx?.caller === "a2a";
-    if (isExternalCaller) {
+    if (isExternalCaller || initializesBody) {
       if (!args.baseRevision || !args.idempotencyKey) {
         throw new ActionContractError(
           "External document edits require baseRevision and idempotencyKey from get-document.",
           { errorCode: "DOCUMENT_EDIT_PROTOCOL_REQUIRED", statusCode: 400 },
+        );
+      }
+      if (!ctx) {
+        throw new ActionContractError(
+          "Revisioned document edits require an authenticated caller context.",
+          { errorCode: "CALLER_SCOPE_REQUIRED", statusCode: 401 },
         );
       }
       const isLinkedLocalSource =
@@ -270,11 +304,14 @@ export default defineAction({
           },
         );
       }
+      const mutation = initializesBody
+        ? { initializeContent: args.initializeContent as string }
+        : { edits };
       const result = await mutateDocumentBody({
         documentId: id,
         baseRevision: args.baseRevision,
         idempotencyKey: args.idempotencyKey,
-        edits,
+        ...mutation,
         creativeContextDigest: {
           contextPackId: args.contextPackId ?? null,
           contextModeOverride: args.contextModeOverride ?? null,
@@ -295,7 +332,10 @@ export default defineAction({
           edit: {
             descriptor: {
               kind: "text",
-              quote: edits[0]?.replace.slice(0, 80) ?? "",
+              quote:
+                args.initializeContent?.slice(0, 80) ??
+                edits?.[0]?.replace.slice(0, 80) ??
+                "",
             },
             label: existing.title || undefined,
           },
@@ -312,7 +352,7 @@ export default defineAction({
             output_id: id,
             output_type: "document",
             edit_count: result.applied,
-            refine_type: "exact_replace",
+            refine_type: initializesBody ? "full_update" : "exact_replace",
           },
           ctx,
         );

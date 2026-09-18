@@ -10,9 +10,11 @@ import { ClipsBriefOutputsMock } from "../components/template-landing/ClipsBrief
 import { ClipsInvestigateBugMock } from "../components/template-landing/ClipsInvestigateBugMock";
 import { ClipsLibraryMock } from "../components/template-landing/ClipsLibraryMock";
 import { templates, trackEvent } from "../components/TemplateCard";
+import { AppStatusBadge } from "../components/website-redesign/ds/app-status-badge";
 import { Button } from "../components/website-redesign/ds/button";
 import { ContentCard } from "../components/website-redesign/ds/content-card";
 import { FaqAccordion } from "../components/website-redesign/ds/faq-accordion";
+import { LogoMark } from "../components/website-redesign/ds/logo-mark";
 import {
   GridInner,
   PageSection,
@@ -156,8 +158,12 @@ export default function ClipsTemplate() {
         <TemplateHero
           title={t("templateLanding.clips.heroTitle")}
           eyebrow={
-            <span className="text-[var(--fg-secondary)]">
-              {t("templateLanding.clips.heroEyebrow")}
+            <span className="inline-flex items-center gap-2 text-[var(--fg)]">
+              <LogoMark className="size-6" />
+              <span className="font-sans text-[20px] font-bold tracking-tight">
+                {t("templateLanding.clips.heroEyebrow")}
+              </span>
+              <AppStatusBadge appId="clips" />
             </span>
           }
           customizeTemplate={template}

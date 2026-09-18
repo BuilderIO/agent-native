@@ -30,10 +30,17 @@ import type { H3Event } from "h3";
 
 import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
+import { getAppConfig } from "../app-config/index.js";
+import { getRuntimeDatabaseUrl } from "../db/client.js";
 import { resolveDevUserEmail } from "../scripts/dev-session.js";
 import { actionCallIsReadOnly, notifyActionChange } from "./action-change.js";
 import { isLoopbackRequest } from "./auth.js";
 import { resolveDeployEnvironment } from "./deploy-environment.js";
+import {
+  DEV_ACTION_DISCOVERY_PATH,
+  type DevActionDiscovery,
+  readDevActionDiscoveryFile,
+} from "./dev-action-discovery.js";
 import { getH3App } from "./framework-request-handler.js";
 import {
   getRequestOrgId,
@@ -42,22 +49,117 @@ import {
 } from "./request-context.js";
 
 export const DEV_ACTION_ROUTE = "/_agent-native/dev/action";
+export const DEV_DB_QUERY_ROUTE = "/_agent-native/dev/db-query";
 export const DEV_ACTION_TOKEN_HEADER = "x-agent-native-dev-token";
 export const DEV_ACTION_USER_HEADER = "x-agent-native-dev-user";
 export const DEV_ACTION_ORG_HEADER = "x-agent-native-dev-org";
 
-const DISCOVERY_PATH = path.join(".agent-native", "dev-server.json");
-
-export interface DevActionDiscovery {
-  origin: string;
-  pid: number;
-  token: string;
-  databaseKey: string;
-}
+export { readDevActionDiscoveryFile } from "./dev-action-discovery.js";
 
 /** Hash a resolved `DATABASE_URL` so the discovery file never carries the raw connection string. */
 export function hashDatabaseKey(databaseUrl: string): string {
   return crypto.createHash("sha256").update(databaseUrl).digest("hex");
+}
+
+/**
+ * True when `origin` is a loopback address the discovery file could only
+ * have been written by a server on this machine. Discovery files record the
+ * URL Vite prints — `localhost` on the default wildcard bind; older dev
+ * servers recorded the 127.0.0.1 literal. Both are loopback labels for the
+ * same local server.
+ */
+export function isLoopbackDevActionOrigin(origin: string): boolean {
+  try {
+    const url = new URL(origin);
+    return (
+      (url.protocol === "http:" || url.protocol === "https:") &&
+      (url.hostname === "127.0.0.1" ||
+        url.hostname === "localhost" ||
+        url.hostname === "[::1]") &&
+      url.pathname === "/" &&
+      !url.search &&
+      !url.hash
+    );
+  } catch {
+    // coercion-ok: an unparseable origin is simply not a dev server to trust.
+    return false;
+  }
+}
+
+const DEV_ACTION_HANDOFF_KEYS = ["embedStartUrl", "startUrl"] as const;
+const DEV_ACTION_HANDOFF_PATH = "/_agent-native/embed/start";
+
+function withoutDevActionHandoffSecrets(
+  value: unknown,
+  ancestors = new WeakSet<object>(),
+): unknown {
+  if (!value || typeof value !== "object") return value;
+  if (ancestors.has(value)) return "[Circular]";
+  ancestors.add(value);
+  try {
+    if (Array.isArray(value)) {
+      return value.map((child) =>
+        withoutDevActionHandoffSecrets(child, ancestors),
+      );
+    }
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(
+          ([key]) => !DEV_ACTION_HANDOFF_KEYS.some((name) => name === key),
+        )
+        .map(([key, child]) => [
+          key,
+          withoutDevActionHandoffSecrets(child, ancestors),
+        ]),
+    );
+  } finally {
+    ancestors.delete(value);
+  }
+}
+
+function isLoopbackAppUrl(value: string): URL | undefined {
+  if (!URL.canParse(value)) return undefined;
+  const url = new URL(value);
+  const hostname = url.hostname.toLowerCase();
+  if (
+    (url.protocol !== "http:" && url.protocol !== "https:") ||
+    (hostname !== "localhost" &&
+      hostname !== "127.0.0.1" &&
+      hostname !== "::1" &&
+      hostname !== "[::1]")
+  ) {
+    return undefined;
+  }
+  return url;
+}
+
+export function isValidDevActionHandoffUrl(
+  value: unknown,
+  loopbackAppUrl = getAppConfig().app.url,
+): value is string {
+  if (typeof value !== "string") return false;
+  if (value.startsWith(`${DEV_ACTION_HANDOFF_PATH}?`)) return true;
+  const appUrl = loopbackAppUrl ? isLoopbackAppUrl(loopbackAppUrl) : undefined;
+  if (!appUrl) return false;
+  if (!URL.canParse(value)) return false;
+  const candidate = new URL(value);
+  return (
+    candidate.origin === appUrl.origin &&
+    candidate.pathname === DEV_ACTION_HANDOFF_PATH &&
+    candidate.search.length > 1
+  );
+}
+
+/** Read the private browser handoff without making it part of action output. */
+export function devActionHandoffUrl(result: unknown): string | undefined {
+  if (!result || typeof result !== "object") return undefined;
+  for (const key of DEV_ACTION_HANDOFF_KEYS) {
+    const value = (result as Record<string, unknown>)[key];
+    if (isValidDevActionHandoffUrl(value)) {
+      return value;
+    }
+  }
+  return undefined;
 }
 
 // Module-level state must survive independent instances of this module: the
@@ -93,7 +195,7 @@ export function writeDevActionDiscoveryFile(
 ): void {
   const token = crypto.randomBytes(32).toString("hex");
   devBridgeProcess.__agentNativeDevActionToken = token;
-  const filePath = path.join(appRoot, DISCOVERY_PATH);
+  const filePath = path.join(appRoot, DEV_ACTION_DISCOVERY_PATH);
   const discovery: DevActionDiscovery = {
     origin,
     pid: process.pid,
@@ -132,7 +234,7 @@ export function removeDevActionDiscoveryFile(appRoot: string): void {
   const current = readDevActionDiscoveryFile(appRoot);
   if (!current || current.pid !== process.pid) return;
   try {
-    fs.unlinkSync(path.join(appRoot, DISCOVERY_PATH));
+    fs.unlinkSync(path.join(appRoot, DEV_ACTION_DISCOVERY_PATH));
   } catch (error) {
     if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") {
       console.warn(
@@ -141,54 +243,6 @@ export function removeDevActionDiscoveryFile(appRoot: string): void {
       );
     }
   }
-}
-
-/**
- * Read the discovery file for a CLI forward attempt. Returns `undefined`
- * ("no usable dev server") for every failure mode — missing file, unreadable
- * file, malformed JSON, wrong shape — logging unexpected ones so a broken
- * file doesn't look identical to "no dev server running" during debugging.
- */
-export function readDevActionDiscoveryFile(
-  appRoot: string,
-): DevActionDiscovery | undefined {
-  const filePath = path.join(appRoot, DISCOVERY_PATH);
-  let raw: string;
-  try {
-    raw = fs.readFileSync(filePath, "utf8");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") {
-      console.warn(
-        "[agent-native] could not read dev action discovery file:",
-        error,
-      );
-    }
-    return undefined;
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (error) {
-    console.warn(
-      "[agent-native] dev action discovery file is not valid JSON:",
-      error,
-    );
-    return undefined;
-  }
-  const candidate = parsed as Partial<DevActionDiscovery> | null;
-  if (
-    !candidate ||
-    typeof candidate.origin !== "string" ||
-    !Number.isInteger(candidate.pid) ||
-    typeof candidate.token !== "string" ||
-    typeof candidate.databaseKey !== "string"
-  ) {
-    console.warn(
-      "[agent-native] dev action discovery file has an unexpected shape; ignoring it",
-    );
-    return undefined;
-  }
-  return candidate as DevActionDiscovery;
 }
 
 function timingSafeTokenEqual(a: string, b: string): boolean {
@@ -208,6 +262,9 @@ export interface MountDevActionForwardRouteOptions {
  * 404 when `name` isn't in this server's action registry (the CLI falls
  * back to running in-process — e.g. a core script like `db-query` that was
  * never mounted here), and 401 for every auth/production/loopback failure.
+ * A private `devHandoffUrl` may accompany a successful result so the CLI can
+ * open a one-time browser handoff that the action intentionally hides from
+ * enumerable/MCP output.
  */
 export function mountDevActionForwardRoute(
   nitroApp: any,
@@ -267,6 +324,13 @@ export function mountDevActionForwardRoute(
         setResponseStatus(event, 404);
         return { ok: false, error: `Action "${name}" not found.` };
       }
+      if (entry.uiOnly === true) {
+        setResponseStatus(event, 403);
+        return {
+          ok: false,
+          error: "This action can only be called from the signed-in app UI.",
+        };
+      }
       const params = (body?.input ?? {}) as Record<string, unknown>;
       const userEmail =
         getHeader(event, DEV_ACTION_USER_HEADER) ||
@@ -286,7 +350,91 @@ export function mountDevActionForwardRoute(
           if (!actionCallIsReadOnly(entry, params, false)) {
             await notifyActionChange({ actionName: name }).catch(() => {});
           }
-          return { ok: true, result };
+          const devHandoffUrl = devActionHandoffUrl(result);
+          return {
+            ok: true,
+            result: withoutDevActionHandoffSecrets(result),
+            ...(devHandoffUrl ? { devHandoffUrl } : {}),
+          };
+        } catch (error: any) {
+          setResponseStatus(event, 500);
+          return { ok: false, error: error?.message ?? String(error) };
+        }
+      });
+    }),
+  );
+}
+
+/**
+ * Mount `POST /_agent-native/dev/db-query`, the loopback-only endpoint
+ * `pnpm action db-query` forwards to instead of opening PGlite a second time
+ * while this server already holds it open. Same auth model as
+ * `mountDevActionForwardRoute`: dev-only, loopback-only, per-process token —
+ * see the module comment at the top of this file for the full protocol.
+ *
+ * Runs the query through `runDbQuery` (`scripts/db/query.ts`), the exact
+ * same validation and row-scoping the CLI applies running in-process, so a
+ * forwarded read returns the same rows the CLI would have returned locally —
+ * not the unscoped, full-database access the `/db-admin/*` routes expose.
+ */
+export function mountDevDbQueryForwardRoute(nitroApp: any): void {
+  getH3App(nitroApp).use(
+    DEV_DB_QUERY_ROUTE,
+    defineEventHandler(async (event: H3Event) => {
+      if (resolveDeployEnvironment() === "production") {
+        setResponseStatus(event, 401);
+        return { ok: false, error: "Not available outside local development." };
+      }
+      if (!isLoopbackRequest(event)) {
+        setResponseStatus(event, 401);
+        return {
+          ok: false,
+          error: "This endpoint only accepts loopback requests.",
+        };
+      }
+      const expectedToken = resolveExpectedDevActionToken();
+      const providedToken = getHeader(event, DEV_ACTION_TOKEN_HEADER);
+      if (
+        !expectedToken ||
+        !providedToken ||
+        !timingSafeTokenEqual(providedToken, expectedToken)
+      ) {
+        setResponseStatus(event, 401);
+        return { ok: false, error: "Invalid or missing dev token." };
+      }
+
+      // coercion-ok: an unparseable body isn't distinguished from a
+      // well-formed one missing `sql` — both fail the same explicit
+      // "must include SQL" check right below with a 500.
+      const body = (await readBody(event).catch(() => null)) as {
+        sql?: unknown;
+        params?: unknown;
+        limit?: unknown;
+      } | null;
+      const sql = body?.sql;
+      if (typeof sql !== "string") {
+        setResponseStatus(event, 500);
+        return { ok: false, error: "Request body must include SQL." };
+      }
+      const sqlArgs = Array.isArray(body?.params) ? body.params : [];
+      const limit = typeof body?.limit === "number" ? body.limit : undefined;
+      const userEmail =
+        getHeader(event, DEV_ACTION_USER_HEADER) ||
+        (await resolveDevUserEmail());
+      const orgId = getHeader(event, DEV_ACTION_ORG_HEADER) || undefined;
+
+      return runWithRequestContext({ userEmail, orgId }, async () => {
+        try {
+          const { runDbQuery } = await import("../scripts/db/query.js");
+          // Execute against the exact URL the discovery `databaseKey` was
+          // validated against (see `dev-query-proxy.ts`) rather than letting
+          // `runDbQuery` fall back to `getDatabaseUrl()` independently — a
+          // configured runtime/unpooled override would otherwise let the two
+          // resolvers disagree and this route would query a different
+          // database than the one whose lock it was granted access to.
+          const databaseUrl = getRuntimeDatabaseUrl("pglite:./data/pglite");
+          const result = await runDbQuery({ sql, sqlArgs, limit, databaseUrl });
+          return { ok: true, rows: result.rows, sql: result.sql };
         } catch (error: any) {
           setResponseStatus(event, 500);
           return { ok: false, error: error?.message ?? String(error) };

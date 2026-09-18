@@ -1069,6 +1069,7 @@ export function NavContent({
     <ChatFirstAppsRail
       apps={chatFirstApps}
       activeAppId={chatFirstActiveAppId}
+      activeTab={chatFirstActivePrimaryTab}
       collapsed={collapsed}
       loading={chatFirstAppsLoading}
       error={chatFirstAppsError}
@@ -1209,6 +1210,7 @@ export function NavContent({
     <>
       <AppSidebarHeader
         brandName={DISPATCH_SIDEBAR_LABEL}
+        appId="dispatch"
         brandHref={dispatchNavLinkTarget("/overview")}
         collapsed={collapsed}
       />

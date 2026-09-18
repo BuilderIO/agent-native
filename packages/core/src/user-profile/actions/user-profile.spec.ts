@@ -47,6 +47,8 @@ const updateProfile = (await import("./update-user-profile.js")).default;
 const getAuthMethods = (await import("./get-auth-methods.js")).default;
 const setPassword = (await import("./set-password.js")).default;
 const changePassword = (await import("./change-password.js")).default;
+const requestPrivacyRight = (await import("./request-privacy-right.js"))
+  .default;
 
 describe("user profile actions", () => {
   beforeEach(() => {
@@ -163,6 +165,79 @@ describe("user profile actions", () => {
       ),
     ).rejects.toThrow();
     expect(updateUserProfileMock).not.toHaveBeenCalled();
+  });
+
+  it("records privacy requests only from Account settings", async () => {
+    const state: Record<string, unknown> = {};
+    mutateUserSettingMock.mockImplementation(
+      async (
+        _email: string,
+        _key: string,
+        updater: (
+          current: Record<string, unknown> | null,
+        ) => Record<string, unknown> | Promise<Record<string, unknown>>,
+      ) => {
+        const next = await updater(state);
+        Object.keys(state).forEach((key) => delete state[key]);
+        Object.assign(state, next);
+        return next;
+      },
+    );
+    const context = {
+      caller: "frontend" as const,
+      userEmail: "alice@example.com",
+    };
+
+    const first = await requestPrivacyRight.run(
+      { requestType: "deletion" },
+      context,
+    );
+    expect(first).toMatchObject({
+      requestType: "deletion",
+      status: "pending",
+      requestedAt: expect.any(Number),
+    });
+    await expect(
+      requestPrivacyRight.run({ requestType: "deletion" }, context),
+    ).resolves.toEqual(first);
+    expect(mutateUserSettingMock).toHaveBeenCalledWith(
+      "alice@example.com",
+      "privacy-rights-requests",
+      expect.any(Function),
+    );
+    expect(requestPrivacyRight.agentTool).toBe(false);
+    expect(requestPrivacyRight.mcpTool).toBe(false);
+    expect(requestPrivacyRight.toolCallable).toBe(false);
+    expect(requestPrivacyRight.uiOnly).toBe(true);
+
+    await expect(
+      requestPrivacyRight.run(
+        { requestType: "access" },
+        { caller: "tool", userEmail: "alice@example.com" },
+      ),
+    ).rejects.toThrow(
+      "This action can only be called from the signed-in app UI.",
+    );
+    expect(mutateUserSettingMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("fails loudly when the stored privacy request state is invalid", async () => {
+    mutateUserSettingMock.mockImplementation(
+      async (
+        _email: string,
+        _key: string,
+        updater: (
+          current: Record<string, unknown> | null,
+        ) => Record<string, unknown> | Promise<Record<string, unknown>>,
+      ) => updater({ deletion: { status: "complete" } }),
+    );
+
+    await expect(
+      requestPrivacyRight.run(
+        { requestType: "deletion" },
+        { caller: "frontend", userEmail: "alice@example.com" },
+      ),
+    ).rejects.toThrow();
   });
 
   it("requires authentication", async () => {

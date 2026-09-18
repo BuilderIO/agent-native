@@ -10,6 +10,7 @@ import {
   getCodeAgentWorktreeRecoveryState,
   groupCodeAgentModelOptions,
   normalizeModelSelection,
+  resolveCodeAgentsPrimaryTab,
   resolveNewSessionExtensionComposerState,
   shouldShowCodeAgentCredentialCallout,
   shouldCloseWatchedChatFirstSession,
@@ -677,5 +678,45 @@ describe("chat-first session watch bounds", () => {
         watchedRunPresent: true,
       }),
     ).toBe(false);
+  });
+});
+
+describe("resolveCodeAgentsPrimaryTab", () => {
+  it("activates Search while its panel owns the main area", () => {
+    expect(
+      resolveCodeAgentsPrimaryTab({
+        chatFirstMainKind: "code",
+        searchPanelOpen: true,
+        hostActiveTab: "new-chat",
+      }),
+    ).toBe("search");
+  });
+
+  it("keeps the host tab when the search panel is closed", () => {
+    expect(
+      resolveCodeAgentsPrimaryTab({
+        chatFirstMainKind: "code",
+        searchPanelOpen: false,
+        hostActiveTab: "scheduled",
+      }),
+    ).toBe("scheduled");
+  });
+
+  it("releases Search when another surface takes the main area", () => {
+    expect(
+      resolveCodeAgentsPrimaryTab({
+        chatFirstMainKind: "agent",
+        searchPanelOpen: true,
+      }),
+    ).toBeUndefined();
+  });
+
+  it("resolves no tab when nothing owns the rail", () => {
+    expect(
+      resolveCodeAgentsPrimaryTab({
+        chatFirstMainKind: "code",
+        searchPanelOpen: false,
+      }),
+    ).toBeUndefined();
   });
 });

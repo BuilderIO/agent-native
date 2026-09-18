@@ -78,6 +78,7 @@ const messages = {
     createFolderError: "建立失敗",
     folderCreated: "資料夾已建立",
     folderNamePlaceholder: "資料夾名稱",
+    breadcrumbBack: "返回 {{label}}",
   },
   empty: {
     library: {
@@ -621,6 +622,7 @@ const messages = {
     organizationFallback: "組織",
     saving: "儲存…",
     save: "節省",
+    saved: "已儲存",
   },
   downloadRoute: {
     pageTitle: "下載 Clips Desktop",
@@ -1756,6 +1758,13 @@ const messages = {
     capturedFrom: "擷取自 {{source}}",
     browserCapture: "瀏覽器擷取",
     views: "診斷檢視",
+    timeline: "時間軸",
+    navigation: "導覽",
+    click: "點擊",
+    input: "輸入",
+    scroll: "捲動",
+    requestStarted: "請求已發出",
+    responseReceived: "已收到回應",
     issues: "問題",
     consoleSource: "主控台",
     networkSource: "網路",

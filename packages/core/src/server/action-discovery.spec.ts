@@ -434,6 +434,7 @@ describe("action discovery", () => {
         "share-resource",
         "unshare-resource",
         "set-resource-visibility",
+        "offboard-member",
       ]) {
         expect(registry[name], `${name} should be merged`).toBeDefined();
         expect(
@@ -441,6 +442,16 @@ describe("action discovery", () => {
           `${name} must keep toolCallable:false`,
         ).toBe(false);
       }
+      expect(registry["offboard-member"].agentTool).toBe(false);
+      expect(registry["offboard-member"].mcpTool).toBe(false);
+      await expect(
+        registry["offboard-member"].run(
+          { email: "alice@example.com", transferTo: "bob@example.com" },
+          { caller: "tool", userEmail: "alice@example.com" },
+        ),
+      ).rejects.toThrow(
+        "This action can only be called from the signed-in app UI.",
+      );
     },
     CORE_ACTION_DISCOVERY_TIMEOUT_MS,
   );
@@ -538,10 +549,12 @@ describe("action discovery", () => {
       "reply-review-comment",
       "resolve-review-thread",
       "delete-review-comment",
+      "update-review-comment",
       "consume-review-feedback",
       "get-review-feedback",
       "set-review-status",
       "send-review-thread-to-agent",
+      "set-review-threads-unread",
     ]) {
       expect(registry[name], `${name} should be merged`).toBeDefined();
     }

@@ -78,6 +78,7 @@ const {
   reapUnclaimedBackgroundRun,
   getRunById,
   getRunByThread,
+  getCurrentTurnRunEventsForThread,
   reapIfStale,
   setRunInFlightMarker,
   IN_FLIGHT_RUN_STALE_GRACE_MS,
@@ -128,6 +129,36 @@ async function readInFlightSince(runId: string): Promise<number | null> {
 }
 
 describe("foreground self-chain — pre-inserted successor vs racing client continuation", () => {
+  it("orders replay events by continuation position when chunk timestamps tie", async () => {
+    const { thread } = ids();
+    const turn = `${thread}-turn`;
+    const firstChunk = `${turn}-first`;
+    const laterChunk = `${turn}-later`;
+    await insertRun(laterChunk, thread, turn, { continuationOrder: 1 });
+    await insertRun(firstChunk, thread, turn, { continuationOrder: 0 });
+    const eventAt = 1_000;
+    await pglite
+      .prepare(
+        `INSERT INTO agent_run_events (run_id, seq, event_at, event_data) VALUES (?, ?, ?, ?), (?, ?, ?, ?)`,
+      )
+      .run(
+        laterChunk,
+        0,
+        eventAt,
+        JSON.stringify({ type: "text", text: "later" }),
+        firstChunk,
+        0,
+        eventAt,
+        JSON.stringify({ type: "text", text: "first" }),
+      );
+
+    const events = await getCurrentTurnRunEventsForThread(thread, turn);
+    expect(events.map((entry) => entry.runId)).toEqual([
+      firstChunk,
+      laterChunk,
+    ]);
+  });
+
   it("tryClaimRunSlot refuses the client's continuation POST while the UNCLAIMED successor holds the slot", async () => {
     const { chunk0, successor, thread } = ids();
     await insertRun(chunk0, thread, "turn-1");

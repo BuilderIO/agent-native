@@ -28,26 +28,14 @@ export function forwardDesktopNavigationShortcutInput(
 
   const key = input.key.toLowerCase();
   const isNumericShortcut = !input.shift && !input.alt && /^[1-9]$/.test(key);
-  const isBracketLeft =
-    input.code === "BracketLeft" || key === "[" || key === "{";
-  const isBracketRight =
-    input.code === "BracketRight" || key === "]" || key === "}";
-  const isBracketShortcut =
-    Boolean(input.shift) && !input.alt && (isBracketLeft || isBracketRight);
   const isSettingsShortcut = isDesktopSettingsShortcut(input);
-  if (!isNumericShortcut && !isBracketShortcut && !isSettingsShortcut) {
+  if (!isNumericShortcut && !isSettingsShortcut) {
     return false;
   }
 
   event.preventDefault();
   send({
-    key: isSettingsShortcut
-      ? ","
-      : isNumericShortcut
-        ? key
-        : isBracketLeft
-          ? "["
-          : "]",
+    key: isSettingsShortcut ? "," : key,
     code: input.code,
     shiftKey: Boolean(input.shift),
     altKey: Boolean(input.alt),

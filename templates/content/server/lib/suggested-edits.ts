@@ -20,6 +20,7 @@ import {
   persistBlocksFieldIdentity,
 } from "../../actions/_blocks-field-identity.js";
 import { documentRevisionToken } from "../../actions/_document-edit-mutation.js";
+import { commentIdForIdempotency } from "../../actions/add-comment.js";
 import {
   SUPPORTED_SUGGESTION_BLOCKS,
   SUPPORTED_SUGGESTION_MARKS,
@@ -30,6 +31,7 @@ import { contentSuggestionPath } from "../../shared/suggestion-link.js";
 import { resolveMarkdownSuggestionRange } from "../../shared/suggestion-rebase.js";
 import { schema } from "../db/index.js";
 import { commitCanonicalDocumentBodyMutation } from "./canonical-document-body-mutation.js";
+import { commentThreadDigest } from "./comment-ai.js";
 
 export const CONTENT_DOCUMENT_SUGGESTION_ADAPTER = "content.document-markdown";
 
@@ -212,6 +214,44 @@ type SuggestionDocumentJson = {
   content?: SuggestionDocumentJson[];
 };
 
+const SUPPORTED_SUGGESTION_INLINE_NODES = new Set(["hardBreak"]);
+
+function unsupportedNotionSpanAttrs(
+  attrs: Record<string, unknown> | undefined,
+) {
+  const { underline: _underline, ...remaining } = attrs ?? {};
+  const unsupported = Object.fromEntries(
+    Object.entries(remaining).filter(
+      ([name, value]) =>
+        value !== null && (name !== "attrsJson" || value !== "{}"),
+    ),
+  );
+  return Object.keys(unsupported).length ? unsupported : null;
+}
+
+function unsupportedRawNotionSpanAttrs(markdown: string) {
+  return Array.from(markdown.matchAll(/<span\b([^>]*)>/gi)).flatMap(
+    ([, source]) => {
+      const attrs = Object.fromEntries(
+        Array.from(
+          source!.matchAll(
+            /([^\s=/>]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g,
+          ),
+        )
+          .map(([, name, doubleQuoted, singleQuoted, unquoted]) => [
+            name!.toLowerCase(),
+            doubleQuoted ?? singleQuoted ?? unquoted ?? "",
+          ])
+          .filter(
+            ([name]) =>
+              !["color", "bg_color", "underline", "href"].includes(name),
+          ),
+      );
+      return Object.keys(attrs).length ? [attrs] : [];
+    },
+  );
+}
+
 function parseSuggestionMarkdown(markdown: string) {
   contentEditorSchema ??= createContentEditorStructuralSchema();
   return contentEditorSchema.nodeFromJSON(nfmToDoc(markdown));
@@ -219,11 +259,16 @@ function parseSuggestionMarkdown(markdown: string) {
 
 function unsupportedSuggestionStructure(
   node: SuggestionDocumentJson,
-  path: number[] = [],
+  path: string[] = [],
   result: unknown[] = [],
 ): unknown[] {
   if (node.type === "text") {
     for (const mark of node.marks ?? []) {
+      if (mark.type === "notionSpan") {
+        const attrs = unsupportedNotionSpanAttrs(mark.attrs);
+        if (attrs) result.push({ path, mark: { type: mark.type, attrs } });
+        continue;
+      }
       if (
         !SUPPORTED_SUGGESTION_MARKS.has(
           mark.type as Parameters<typeof SUPPORTED_SUGGESTION_MARKS.has>[0],
@@ -236,26 +281,72 @@ function unsupportedSuggestionStructure(
   }
   if (
     node.type !== "doc" &&
+    !SUPPORTED_SUGGESTION_INLINE_NODES.has(node.type ?? "") &&
     !SUPPORTED_SUGGESTION_BLOCKS.has(node.type ?? "")
   ) {
     result.push({ path, node });
     return result;
   }
-  for (const [index, child] of (node.content ?? []).entries()) {
-    unsupportedSuggestionStructure(child, [...path, index], result);
+  for (const child of node.content ?? []) {
+    unsupportedSuggestionStructure(child, [...path, node.type ?? ""], result);
   }
   return result;
+}
+
+/**
+ * The two sides with the edit's own span cut out — the part of the Page the
+ * suggestion leaves alone. Comparing each side against this, rather than
+ * against each other, is what separates "the edit moved or rewrote an
+ * unsupported node" from "an untouched image sits after a block the edit added
+ * or removed".
+ */
+function unchangedSurround(before: string, after: string): string {
+  let prefix = 0;
+  while (
+    prefix < before.length &&
+    prefix < after.length &&
+    before[prefix] === after[prefix]
+  ) {
+    prefix += 1;
+  }
+  let suffix = 0;
+  const maxSuffix = Math.min(before.length, after.length) - prefix;
+  while (
+    suffix < maxSuffix &&
+    before[before.length - suffix - 1] === after[after.length - suffix - 1]
+  ) {
+    suffix += 1;
+  }
+  return `${before.slice(0, prefix)}${before.slice(before.length - suffix)}`;
+}
+
+function unsupportedStructureKey(markdown: string): string {
+  return JSON.stringify(
+    unsupportedSuggestionStructure(
+      parseSuggestionMarkdown(markdown).toJSON() as SuggestionDocumentJson,
+    ),
+  );
 }
 
 function validateSuggestionStructure(
   beforeMarkdown: string,
   afterMarkdown: string,
 ) {
-  const before = parseSuggestionMarkdown(beforeMarkdown);
   const after = parseSuggestionMarkdown(afterMarkdown);
+  const surround = unsupportedStructureKey(
+    unchangedSurround(beforeMarkdown, afterMarkdown),
+  );
   if (
-    JSON.stringify(unsupportedSuggestionStructure(before.toJSON())) !==
-    JSON.stringify(unsupportedSuggestionStructure(after.toJSON()))
+    unsupportedStructureKey(beforeMarkdown) !== surround ||
+    unsupportedStructureKey(afterMarkdown) !== surround
+  ) {
+    throw new Error(
+      "Content v1 suggestions cannot add or change unsupported structures",
+    );
+  }
+  if (
+    JSON.stringify(unsupportedRawNotionSpanAttrs(beforeMarkdown)) !==
+    JSON.stringify(unsupportedRawNotionSpanAttrs(afterMarkdown))
   ) {
     throw new Error(
       "Content v1 suggestions cannot add or change unsupported structures",
@@ -319,6 +410,70 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
             sourcePath: row.source_path,
           }
         : undefined;
+      const commentAiRequestId = input.metadata?.commentAiRequestId;
+      if (typeof commentAiRequestId === "string") {
+        const request = (
+          await transaction.execute({
+            sql: `SELECT id,document_id,thread_id,requester_email,thread_digest
+                  FROM comment_ai_requests
+                  WHERE id = ? AND document_id = ? AND requester_email = ? AND intent = 'suggest'
+                  FOR UPDATE`,
+            args: [
+              commentAiRequestId,
+              input.resourceId,
+              typeof input.ctx?.userEmail === "string"
+                ? input.ctx.userEmail
+                : "",
+            ],
+          })
+        ).rows[0];
+        if (!request)
+          throw new Error("The bound comment AI request is unavailable");
+        const comments = (
+          await transaction.execute({
+            sql: `SELECT id,parent_id,content,resolved,quoted_text,anchor_prefix,anchor_suffix,anchor_start_offset
+                  FROM document_comments
+                  WHERE document_id = ? AND thread_id = ?
+                  FOR UPDATE`,
+            args: [request.document_id, request.thread_id],
+          })
+        ).rows.map((comment) => ({
+          id: String(comment.id),
+          parentId:
+            comment.parent_id == null ? null : String(comment.parent_id),
+          content: String(comment.content),
+          resolved: Number(comment.resolved),
+          quotedText:
+            comment.quoted_text == null ? null : String(comment.quoted_text),
+          anchorPrefix:
+            comment.anchor_prefix == null
+              ? null
+              : String(comment.anchor_prefix),
+          anchorSuffix:
+            comment.anchor_suffix == null
+              ? null
+              : String(comment.anchor_suffix),
+          anchorStartOffset:
+            comment.anchor_start_offset == null
+              ? null
+              : Number(comment.anchor_start_offset),
+        }));
+        const receiptId = commentIdForIdempotency(
+          String(request.requester_email),
+          String(request.document_id),
+          `comment-ai:${commentAiRequestId}:receipt`,
+        );
+        if (
+          commentThreadDigest(
+            comments.filter((comment) => comment.id !== receiptId),
+          ) !== request.thread_digest
+        ) {
+          fail("The comment changed before this suggestion was committed.", {
+            statusCode: 409,
+            errorCode: "suggestion_conflict",
+          });
+        }
+      }
     }
     if (!document) throw new Error("Document access context is unavailable");
     if (document.trashedAt)

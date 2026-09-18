@@ -9,7 +9,7 @@ description: "يعد كل تطبيق أصلي للوكيل متعدد المست
 
 ## ما تحصل عليه مجانًا {#free}
 
-يتم بالفعل شحن سقالة `npx @agent-native/core@latest create` جديدة مع:
+يتم بالفعل شحن سقالة `npx --yes @agent-native/core@latest create` جديدة مع:
 
 - **تسجيل المستخدم وتسجيل الدخول** — راجع [Authentication](/docs/authentication).
 - **المؤسسات** — يقوم المستخدمون بإنشاء المؤسسات ودعوة الأعضاء عبر البريد الإلكتروني. تعتبر كل مؤسسة مستأجرًا معزولًا تمامًا.
@@ -122,3 +122,7 @@ description: "يعد كل تطبيق أصلي للوكيل متعدد المست
 - [**Authentication**](/docs/authentication#organizations) — الجلسات ومقدمو الخدمات الاجتماعية وسطح إدارة المؤسسة
 - [**Security — Data Scoping**](/docs/security#data-scoping) — العزل على مستوى SQL وعقد `ownableColumns()` ووحدات حماية الوصول
 - [**Multi-App Workspace**](/docs/multi-app-workspace) — استضافة العديد من تطبيقات Agent-Native في monorepo واحد مع مصادقة مشتركة وRBAC
+
+## نموذج العزل
+
+استخدم `accessFilter()` و`assertAccess()` لقراءات وكتابات الخادم. ينشئ نطاق SQL الخاص بالوكيل طرق عرض مؤقتة ومفلترة للجداول القابلة للملكية. يتضمن `pnpm guards` فحص الاستعلامات غير المقيدة. لا يستخدم الإطار حاليا RLS، وهو مخطط كتعزيز بعد الإصدار 1.0. راجع [النشر المُدار](/docs/administered-deployments).

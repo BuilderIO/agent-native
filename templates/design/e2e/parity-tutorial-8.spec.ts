@@ -134,6 +134,48 @@ async function selectLayerByName(
   await page.waitForTimeout(500);
 }
 
+async function selectLayerInScreen(
+  page: Page,
+  screenId: string,
+  layerName: string,
+): Promise<void> {
+  const rows = layersTree(page).locator('[role="treeitem"]');
+  const rowIndex = await rows.evaluateAll(
+    (elements, { screenId: wantedScreenId, layerName: wantedLayerName }) => {
+      let inScreen = false;
+      for (let index = 0; index < elements.length; index += 1) {
+        const row = elements[index]!;
+        if (row.getAttribute("aria-level") === "1") {
+          inScreen =
+            row.querySelector(
+              `[data-layer-row-button][data-layer-node-id="${wantedScreenId}"]`,
+            ) !== null;
+        }
+        if (
+          inScreen &&
+          Array.from(row.querySelectorAll("span[title]"))
+            .map((span) => span.getAttribute("title"))
+            .includes(wantedLayerName)
+        ) {
+          return index;
+        }
+      }
+      return -1;
+    },
+    { screenId, layerName },
+  );
+  if (rowIndex < 0) {
+    throw new Error(
+      `no layer ${layerName} found under screen ${screenId} in the Layers tree`,
+    );
+  }
+  await rows
+    .nth(rowIndex)
+    .locator("[data-layer-row-button][data-layer-node-id]")
+    .click({ force: true });
+  await page.waitForTimeout(500);
+}
+
 async function dump(page: Page) {
   return page.evaluate(() => (window as any).__designTrace?.dump?.() ?? null);
 }
@@ -189,25 +231,45 @@ async function pickFrameMode(page: Page, mode: "Frame" | "Screen") {
   await page.waitForTimeout(400);
 }
 
+async function boardHtml(request: APIRequestContext, designId: string) {
+  return fileContent(request, designId, "__board__.html");
+}
+
+/**
+ * Draw a board-level frame outside any screen and wait for it to persist.
+ * Board objects render inside the board's own same-origin iframe stamped
+ * only with data-agent-native-node-id (shared/board-file.ts) — no
+ * `data-board-object-id` attribute exists anywhere in the app, so poll the
+ * persisted __board__.html source (as boardHtml already reads elsewhere in
+ * this file) for a new frame marker instead of a host-page DOM count.
+ */
 async function drawBoardFrame(
   page: Page,
+  request: APIRequestContext,
+  designId: string,
   from: { x: number; y: number },
   to: { x: number; y: number },
 ) {
-  const boardObjects = page.locator("[data-board-object-id]");
-  const countBefore = await boardObjects.count();
+  const countBefore = (
+    (await boardHtml(request, designId)).match(/data-an-primitive="frame"/g) ??
+    []
+  ).length;
   await pickFrameMode(page, "Frame");
   await page.mouse.move(from.x, from.y);
   await page.mouse.down();
   await page.mouse.move(to.x, to.y, { steps: 16 });
   await page.mouse.up();
   await expect
-    .poll(() => boardObjects.count(), { timeout: 10_000 })
+    .poll(
+      async () =>
+        (
+          (await boardHtml(request, designId)).match(
+            /data-an-primitive="frame"/g,
+          ) ?? []
+        ).length,
+      { timeout: 10_000 },
+    )
     .toBeGreaterThan(countBefore);
-}
-
-async function boardHtml(request: APIRequestContext, designId: string) {
-  return fileContent(request, designId, "__board__.html");
 }
 
 test.describe("tutorial 8 — assemble your portfolio pages", () => {
@@ -253,9 +315,15 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
     // Draw two free-floating board frames representing finished components
     // ("Button", "Footer") sitting on the Designs page, outside any screen.
     const p1 = await emptyBoardPoint(page);
-    await drawBoardFrame(page, p1, { x: p1.x + 120, y: p1.y + 80 });
+    await drawBoardFrame(page, request, designId, p1, {
+      x: p1.x + 120,
+      y: p1.y + 80,
+    });
     const p2 = await emptyBoardPoint(page, { x: 260, y: 0 });
-    await drawBoardFrame(page, p2, { x: p2.x + 120, y: p2.y + 80 });
+    await drawBoardFrame(page, request, designId, p2, {
+      x: p2.x + 120,
+      y: p2.y + 80,
+    });
     const boardBefore = await boardHtml(request, designId);
     const frameCountBefore = (
       boardBefore.match(/data-an-primitive="frame"/g) ?? []
@@ -323,7 +391,10 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
     ]));
     await gotoEditor(page, designId);
     const p1 = await emptyBoardPoint(page);
-    await drawBoardFrame(page, p1, { x: p1.x + 140, y: p1.y + 100 });
+    await drawBoardFrame(page, request, designId, p1, {
+      x: p1.x + 140,
+      y: p1.y + 100,
+    });
 
     const world = page.locator("[data-multi-screen-canvas-world]");
     const worldBox = (await world.boundingBox())!;
@@ -407,7 +478,7 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
         {
           op: "set",
           path: ["canvasFrames", navFileId],
-          value: { x: 1800, y: 0, width: 1440, height: 400, z: 1 },
+          value: { x: -1600, y: 0, width: 1440, height: 400, z: 1 },
         },
         {
           op: "set",
@@ -438,7 +509,11 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
     const sourceEl = sourceFrame
       .contentFrame()
       .locator('[data-agent-native-node-id="nav-root"]');
+    const sourceDragEl = sourceFrame
+      .contentFrame()
+      .locator('[data-agent-native-node-id="nav-word"]');
     await expect(sourceEl).toBeVisible();
+    await expect(sourceDragEl).toBeVisible();
     // Overview layout settles asynchronously with no discrete event — poll
     // the source box until two consecutive reads agree.
     let lastSourceBox: { x: number; y: number } | null = null;
@@ -457,33 +532,21 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
         { timeout: 10_000 },
       )
       .toBe(true);
-    const sourceBox = (await sourceEl.boundingBox())!;
+    const sourceDragBox = (await sourceDragEl.boundingBox())!;
     const targetBox = (await targetFrame.boundingBox())!;
 
-    // Drill in (Figma-style: first click selects the screen root, so we
-    // double-click to reach the nested nav element), then Alt-drag a copy
-    // of the "Navigation instance" onto the Home page.
-    await page.mouse.dblclick(
-      sourceBox.x + sourceBox.width / 2,
-      sourceBox.y + sourceBox.height / 2,
-    );
+    // Select the nested node from Layers before the drag. At 25% zoom the
+    // 80px navigation bar is only 20 CSS pixels tall, so a center double-click
+    // can land on the screen shell rather than the node's selection overlay.
+    await expandAllLayers(page);
+    await selectLayerByName(page, "Navigation");
     await page.waitForTimeout(500);
-    await page.mouse.click(
-      sourceBox.x + sourceBox.width / 2,
-      sourceBox.y + sourceBox.height / 2,
-    );
-    await page.waitForTimeout(800);
     await page.mouse.move(
-      sourceBox.x + sourceBox.width / 2,
-      sourceBox.y + sourceBox.height / 2,
+      sourceDragBox.x + sourceDragBox.width / 2,
+      sourceDragBox.y + sourceDragBox.height / 2,
     );
     await page.keyboard.down("Alt");
     await page.mouse.down();
-    await page.mouse.move(
-      sourceBox.x + sourceBox.width / 2 + 20,
-      sourceBox.y + sourceBox.height / 2 + 20,
-      { steps: 6 },
-    );
     await page.mouse.move(
       targetBox.x + targetBox.width * 0.5,
       targetBox.y + targetBox.height * 0.2,
@@ -530,7 +593,7 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
     // parity-tutorial-7.spec.ts.
     await gotoEditor(page, designId);
     await expandAllLayers(page);
-    await selectLayerByName(page, "Navigation");
+    await selectLayerInScreen(page, homeFileId, "Navigation");
     await focusCanvas(page);
     await page.evaluate(() => (window as any).__designTrace?.clear?.());
     await page.keyboard.press("Shift+A");

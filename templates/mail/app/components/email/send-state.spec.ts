@@ -20,6 +20,9 @@ describe("send feedback contract", () => {
     expect(source).toMatch(
       /toast\(t\("mail\.toasts\.messageSent"\), \{\s+id: sendingToastId,/,
     );
+    expect(source).toContain("shouldMarkReplyDoneAfterSend(");
+    expect(source).toContain("archiveEmail.mutate({");
+    expect(source).toContain("markDoneAfterSend && draftSnapshot.replyToId");
     expect(source).not.toContain('toast("Message sent."');
     expect(source.indexOf("onDiscard(sendingId);")).toBeGreaterThan(
       source.indexOf(".then((result) => {"),
@@ -33,6 +36,9 @@ describe("send feedback contract", () => {
     expect(source).toContain("if (cancelled || dispatchStarted) return;");
     expect(source).toContain("dispatchStarted = true;");
     expect(source).toContain('toast(t("mail.toasts.messageSent"), {');
+    expect(source).toContain("shouldMarkReplyDoneAfterSend(");
+    expect(source).toContain("archiveEmail.mutate({");
+    expect(source).toContain("markDoneAfterSend && draftSnapshot.replyToId");
     expect(source).not.toContain('toast("Message sent."');
   });
 });

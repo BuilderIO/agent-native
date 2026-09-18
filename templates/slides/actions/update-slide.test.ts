@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockAssertAccess = vi.fn();
 const mockNotifyClients = vi.fn();
+const mockGetCurrentRequestBrowserTabId = vi.fn(() => null);
+const mockReadAppStateForCurrentTab = vi.fn(async () => null);
 
 // Captured by the Drizzle `update().set()` mock so tests can assert on the
 // persisted deck JSON + bumped updatedAt.
@@ -72,6 +74,7 @@ vi.mock("drizzle-orm", () => ({
 vi.mock("@agent-native/core/server", () => ({
   buildDeepLink: ({ params }: { params: { deckId: string } }) =>
     `/deck/${params.deckId}`,
+  withConfiguredAppBasePath: (baseUrl: string) => baseUrl,
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
@@ -110,6 +113,12 @@ vi.mock("@agent-native/core/collab", () => ({
   agentTouchDocument: (...args: unknown[]) => mockAgentTouchDocument(...args),
 }));
 
+vi.mock("./_tab-state.js", () => ({
+  getCurrentRequestBrowserTabId: () => mockGetCurrentRequestBrowserTabId(),
+  readAppStateForCurrentTab: (...args: unknown[]) =>
+    mockReadAppStateForCurrentTab(...args),
+}));
+
 // Real per-deck lock just runs the fn; passthrough keeps the unit test focused
 // on update-slide's own read-modify-write logic.
 vi.mock("./patch-deck.js", () => ({
@@ -129,6 +138,7 @@ vi.mock("../server/lib/deck-versions.js", () => ({
   deckVersionChatContextFromAction: vi.fn(() => undefined),
 }));
 
+import { hashSlideContent } from "../shared/slide-fit";
 import { nextDeckRevision } from "./_deck-write";
 import action from "./update-slide";
 
@@ -147,6 +157,8 @@ beforeEach(() => {
       slides: [{ id: "slide-1", content: "<div>Old</div>" }],
     }),
   };
+  mockGetCurrentRequestBrowserTabId.mockReturnValue(null);
+  mockReadAppStateForCurrentTab.mockResolvedValue(null);
 });
 
 describe("update-slide", () => {
@@ -232,6 +244,53 @@ describe("update-slide", () => {
           descriptor: { kind: "paths", paths: ["slides.slide-1"] },
         }),
       }),
+    );
+  });
+
+  it("rejects a stale browser-tab target before writing", async () => {
+    mockGetCurrentRequestBrowserTabId.mockReturnValue("tab-1");
+    mockReadAppStateForCurrentTab.mockResolvedValue({
+      deckId: "deck-1",
+      slideId: "slide-2",
+      slideIndex: 1,
+      items: [{ selectedText: "Old" }],
+    });
+
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        edits: [{ find: "Old", replace: "New" }],
+      }),
+    ).rejects.toThrow("selected Slides target is on slide slide-2");
+
+    expect(mockReadAppStateForCurrentTab).toHaveBeenCalledWith(
+      "slides-selection",
+      { fallbackToGlobal: false },
+    );
+    expect(lastUpdateSet).toBeUndefined();
+    expect(mockNotifyClients).not.toHaveBeenCalled();
+  });
+
+  it("allows an explicit named edit to a non-current slide", async () => {
+    mockGetCurrentRequestBrowserTabId.mockReturnValue("tab-1");
+    mockReadAppStateForCurrentTab.mockResolvedValue({
+      deckId: "deck-1",
+      slideId: "slide-2",
+      slideIndex: 1,
+      items: [{ selectedText: "Old" }],
+    });
+
+    const result = await action.run({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      edits: [{ find: "Old", replace: "New", expectedMatches: 1 }],
+      baseContentHash: hashSlideContent("<div>Old</div>"),
+    });
+
+    expect(result).toMatchObject({ ok: true, applied: true });
+    expect(JSON.parse(lastUpdateSet!.data as string).slides[0].content).toBe(
+      "<div>New</div>",
     );
   });
 
@@ -396,6 +455,215 @@ describe("update-slide", () => {
 
     expect(lastUpdateSet).toBeUndefined();
     expect(mockNotifyClients).not.toHaveBeenCalled();
+  });
+
+  // A style request fans out one call per slide, so every call is in flight
+  // before the first rejection lands and the run's across-arguments breaker
+  // ends the turn. The rejection has to carry the accepted call, not just the
+  // rule, or the model never gets a chance to correct itself.
+  it("answers a styleOnly legacy find/replace with the edits call that would work", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      slides: [
+        {
+          id: "slide-1",
+          content:
+            '<div class="fmd-slide" style="background:#111111"><h1>Headline</h1></div>',
+        },
+      ],
+    });
+
+    const rejection = await action
+      .run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        styleOnly: true,
+        find: "background:#111111",
+        replace: "background:#f4f0e8",
+      })
+      .then(
+        () => undefined,
+        (error: Error) => error,
+      );
+
+    expect(rejection?.message).toContain('must use the structured "edits"');
+    expect(rejection?.message).toContain(
+      '[{"find":"background:#111111","replace":"background:#f4f0e8","occurrence":1}]',
+    );
+    expect(lastUpdateSet).toBeUndefined();
+
+    // The suggestion is only worth anything if it is a call the action
+    // accepts, so replay the payload the rejection handed back instead of a
+    // hand-written equivalent.
+    const suggested = JSON.parse(
+      rejection!.message.slice(
+        rejection!.message.indexOf('[{"find"'),
+        rejection!.message.lastIndexOf("]") + 1,
+      ),
+    );
+    const result = await action.run({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      styleOnly: true,
+      edits: suggested,
+    });
+
+    expect(result).toMatchObject({ ok: true, applied: true });
+    expect(JSON.parse(lastUpdateSet!.data as string).slides[0].content).toBe(
+      '<div class="fmd-slide" style="background:#f4f0e8"><h1>Headline</h1></div>',
+    );
+  });
+
+  // The legacy find path replaces the first match; the edits path refuses an
+  // ambiguous literal outright. A declaration repeated on the slide is the case
+  // where a careless conversion swaps one rejection for another.
+  it("suggests an edits call that still works when the declaration repeats", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      slides: [
+        {
+          id: "slide-1",
+          content:
+            '<div class="fmd-slide" style="background:#111111"><div style="background:#111111"><h1>Headline</h1></div></div>',
+        },
+      ],
+    });
+
+    const rejection = await action
+      .run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        styleOnly: true,
+        find: "background:#111111",
+        replace: "background:#f4f0e8",
+      })
+      .then(
+        () => undefined,
+        (error: Error) => error,
+      );
+
+    const suggested = JSON.parse(
+      rejection!.message.slice(
+        rejection!.message.indexOf('[{"find"'),
+        rejection!.message.lastIndexOf("]") + 1,
+      ),
+    );
+    const result = await action.run({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      styleOnly: true,
+      edits: suggested,
+    });
+
+    expect(result).toMatchObject({ ok: true, applied: true });
+    // First match only, exactly as the rejected legacy call would have done.
+    expect(JSON.parse(lastUpdateSet!.data as string).slides[0].content).toBe(
+      '<div class="fmd-slide" style="background:#f4f0e8"><div style="background:#111111"><h1>Headline</h1></div></div>',
+    );
+  });
+
+  it("refuses to route a styleOnly change through objectId", async () => {
+    const rejection = await action
+      .run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        styleOnly: true,
+        objectId: "slide-object-7",
+        replace: "<span>x</span>",
+      })
+      .then(
+        () => undefined,
+        (error: Error) => error,
+      );
+
+    // objectId only swaps inner content, so echoing it back would hand over a
+    // call that cannot reach the element's own style attribute.
+    expect(rejection?.message).toContain('cannot go through "objectId"');
+    expect(rejection?.message).not.toContain('"objectId":"slide-object-7"');
+    expect(rejection?.message).toContain("get-deck (slideId, compact=false)");
+    expect(lastUpdateSet).toBeUndefined();
+  });
+
+  it("points a styleOnly fullContent attempt at a targeted read instead of echoing it", async () => {
+    const rejection = await action
+      .run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        styleOnly: true,
+        fullContent: '<div class="fmd-slide">rewritten</div>',
+      })
+      .then(
+        () => undefined,
+        (error: Error) => error,
+      );
+
+    expect(rejection?.message).toContain("get-deck (slideId, compact=false)");
+    expect(rejection?.message).not.toContain("rewritten");
+    expect(lastUpdateSet).toBeUndefined();
+  });
+
+  it("does not echo an oversized legacy payload back into the rejection", async () => {
+    const huge = "a".repeat(5000);
+    const rejection = await action
+      .run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        styleOnly: true,
+        find: huge,
+        replace: "background:#f4f0e8",
+      })
+      .then(
+        () => undefined,
+        (error: Error) => error,
+      );
+
+    expect(rejection?.message).not.toContain(huge);
+    expect(rejection?.message).toContain("get-deck (slideId, compact=false)");
+    expect(rejection!.message.length).toBeLessThan(1000);
+  });
+
+  it("does not suggest an unusable edits entry for an empty legacy find", async () => {
+    const rejection = await action
+      .run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        styleOnly: true,
+        find: "",
+        replace: "background:#f4f0e8",
+      })
+      .then(
+        () => undefined,
+        (error: Error) => error,
+      );
+
+    // An empty find cannot become a valid edits entry — applySlideContentEdits
+    // rejects it outright — so the generic read-first hint is the only honest
+    // answer here.
+    expect(rejection?.message).not.toContain('"find":""');
+    expect(rejection?.message).toContain("get-deck (slideId, compact=false)");
+    expect(lastUpdateSet).toBeUndefined();
+  });
+
+  it("teaches styleOnly and the edits requirement in the agent-facing schema", () => {
+    const styleOnly = (
+      action.schema as unknown as {
+        shape: Record<string, { description?: string }>;
+      }
+    ).shape.styleOnly;
+
+    expect(styleOnly.description).toContain("edits");
+    expect(styleOnly.description).toContain('"occurrence":1');
+    expect(styleOnly.description).not.toContain('"expectedMatches":1');
+
+    // The advertised tool description is the only styleOnly guidance a model
+    // gets before its first call, and a style request gets exactly one batch
+    // before the across-arguments breaker ends the turn.
+    const advertised = action.tool.description ?? "";
+    expect(advertised).toContain("styleOnly=true");
+    expect(advertised).toContain('"occurrence":1');
+    expect(advertised).not.toContain('"expectedMatches":1');
+    expect(advertised).toContain("match slide 1");
+    expect(advertised).toContain(".fmd-slide");
   });
 
   it("rejects style-only edits that change slide structure", async () => {

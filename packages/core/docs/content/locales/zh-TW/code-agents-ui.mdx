@@ -154,16 +154,15 @@ codex login status
 桌面和 CLI 讀取 `codex login status` 並執行 `codex exec`，因此它們
 重用您安裝的 Codex CLI 的任何 ChatGPT 訂閱或 API 金鑰驗證
 報告。這與使用的 `@ai-sdk/harness-codex` 包是分開的
-[Harness Agents](/docs/harness-agents)；線束轉接器可以複製本機
-僅當 `codexCliAuth: true` 為時，Codex CLI 才授權進入可信沙箱
-顯式啟用。
+[Harness Agents](/docs/harness-agents)；該轉接器現在會在主機上解析支援的原生訂閱
+憑證，不需要將本機驗證檔案複製到沙箱中。
 
 ## 瀏覽器主機
 
 舊的隱藏 `code` 範本已被刪除。要建置瀏覽器託管的程式碼表面，請建立一個普通應用程式並使用主機實現掛載共用 UI 包：
 
 ```bash
-npx @agent-native/core@latest create my-code-ui --template chat
+npx --yes @agent-native/core@latest create my-code-ui --template chat
 cd my-code-ui
 pnpm add @agent-native/code-agents-ui
 pnpm install

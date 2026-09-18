@@ -73,7 +73,10 @@ describe("DesignCanvas spacing overlay bridge", () => {
   });
 
   it("updates mirrored padding drag affordances when Alt changes", () => {
-    expect(source).toContain("function updateSpacingDragMirrorState");
+    expect(source).toContain("function updateSpacingDragState");
+    expect(source).toContain(
+      "updateSpacingDragState(!!ev.altKey, !!ev.shiftKey)",
+    );
     expect(source).toContain(
       'document.addEventListener("keydown", onKey, true)',
     );
@@ -117,7 +120,7 @@ describe("DesignCanvas text editing bridge", () => {
 
   it("treats Escape as an unfocus/commit gesture for inline text", () => {
     expect(source).toMatch(
-      /if \(ev\.key === "Escape"\) \{\s*ev\.preventDefault\(\);\s*finish\(true\);\s*target\.blur\(\);\s*return;\s*\}/,
+      /if \(\s*ev\.key === "Escape" \|\|\s*\(ev\.key === "Enter" && metaOrCtrl && !ev\.altKey && !ev\.shiftKey\)\s*\) \{\s*ev\.preventDefault\(\);\s*ev\.stopPropagation\(\);\s*finish\(true\);\s*target\.blur\(\);\s*return;\s*\}/,
     );
   });
 

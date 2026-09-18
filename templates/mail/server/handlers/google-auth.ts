@@ -10,6 +10,7 @@ import {
   hasWorkspaceProviderOAuthCredentials,
   resolveOAuthRedirectUri,
   encodeOAuthState,
+  wrapNetlifyPreviewGoogleOAuthState,
   decodeOAuthState,
   logOAuthStateDecodeFailure,
   ensureGoogleAuthIdentity,
@@ -53,15 +54,17 @@ const OAUTH_STATE_APP_ID = process.env.APP_NAME || "mail";
 const UNVERIFIED_EMAIL_ACCOUNT_MESSAGE =
   "This email has an unverified password account. Verify that account before signing in with Google, then try again.";
 
-async function syncGoogleSignInIdentity(email: string): Promise<void> {
+async function syncGoogleSignInIdentity(
+  email: string,
+): Promise<boolean | undefined> {
   let client;
   try {
     client = await getClient(email);
   } catch (error) {
     console.warn("[auth] Google profile client lookup failed:", error);
-    return;
+    return undefined;
   }
-  if (!client) return;
+  if (!client) return undefined;
   let profile: any;
   try {
     profile = await googleFetch(
@@ -70,11 +73,11 @@ async function syncGoogleSignInIdentity(email: string): Promise<void> {
     );
   } catch (error) {
     console.warn("[auth] Google profile lookup failed:", error);
-    return;
+    return undefined;
   }
   const accountId = typeof profile?.id === "string" ? profile.id.trim() : "";
-  if (!accountId) return;
-  await ensureGoogleAuthIdentity({
+  if (!accountId) return undefined;
+  return ensureGoogleAuthIdentity({
     email,
     accountId,
     name: typeof profile.name === "string" ? profile.name : undefined,
@@ -157,7 +160,13 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
   try {
     const q = getQuery(event);
     const method = getMethod(event);
-    const redirectUri = resolveOAuthRedirectUri(event);
+    const redirectUri = resolveOAuthRedirectUri(
+      event,
+      "/_agent-native/google/callback",
+      {
+        useNetlifyPreviewGoogleOAuthRelay: true,
+      },
+    );
     if (!redirectUri) {
       setResponseStatus(event, 400);
       return {
@@ -216,7 +225,8 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
       desktopVerifierHash,
       desktopBrowserBindingHash,
     });
-    const url = await getAuthUrl(undefined, redirectUri, state, owner);
+    const oauthState = wrapNetlifyPreviewGoogleOAuthState(event, state);
+    const url = await getAuthUrl(undefined, redirectUri, oauthState, owner);
     if (q.redirect === "1") {
       return oauthRedirectResponse(url);
     }
@@ -301,6 +311,7 @@ export const handleGoogleCallback = defineEventHandler(
       const email = await exchangeCode(code, undefined, redirectUri, owner);
       const isAddAccount =
         addAccount || (owner !== undefined && email !== owner);
+      let isNewUser: boolean | undefined;
       track(
         "account_connected",
         {
@@ -312,7 +323,9 @@ export const handleGoogleCallback = defineEventHandler(
         },
         { userId: owner ?? email },
       );
-      if (!isAddAccount) await syncGoogleSignInIdentity(email);
+      if (!isAddAccount) {
+        isNewUser = await syncGoogleSignInIdentity(email);
+      }
 
       // 2b. Auto-populate display name in settings if not set
       try {
@@ -364,6 +377,10 @@ export const handleGoogleCallback = defineEventHandler(
         : await createOAuthSession(event, email, {
             hasProductionSession,
             desktop,
+            trackSignup: {
+              authProvider: "google",
+              isNewUser,
+            },
           });
 
       if (flowId && sessionToken) {
@@ -411,7 +428,11 @@ export const getGoogleAddAccountUrl = defineEventHandler(
     try {
       const q = getQuery(event);
       const method = getMethod(event);
-      const redirectUri = resolveOAuthRedirectUri(event);
+      const redirectUri = resolveOAuthRedirectUri(
+        event,
+        "/_agent-native/google/add-account/callback",
+        { useNetlifyPreviewGoogleOAuthRelay: true },
+      );
       if (!redirectUri) {
         setResponseStatus(event, 400);
         return {
@@ -460,10 +481,15 @@ export const getGoogleAddAccountUrl = defineEventHandler(
         desktopVerifierHash,
         desktopBrowserBindingHash,
       });
+      const oauthState = wrapNetlifyPreviewGoogleOAuthState(
+        event,
+        state,
+        "/_agent-native/google/add-account/callback",
+      );
       const url = await getAuthUrl(
         undefined,
         redirectUri,
-        state,
+        oauthState,
         session.email,
       );
       if (q.redirect === "1") {

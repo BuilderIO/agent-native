@@ -548,6 +548,12 @@ vi.mock("@agent-native/core/db", () => ({
 }));
 
 vi.mock("@agent-native/core/db/schema", () => ({
+  boolean: (name: string) => ({
+    name,
+    notNull: () => ({
+      default: () => ({ name }),
+    }),
+  }),
   createSharesTable: (name: string) => ({ __tableName: name }),
   integer: (name: string) => ({
     name,

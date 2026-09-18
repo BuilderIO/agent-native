@@ -1107,6 +1107,30 @@ export const runContentMigrations = runMigrations(
     },
     {
       version: 93,
+      name: "content-comment-ai-requests-and-actor",
+      sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS actor_kind TEXT;
+      CREATE TABLE IF NOT EXISTS comment_ai_requests (
+        id TEXT PRIMARY KEY, owner_email TEXT NOT NULL, requester_email TEXT NOT NULL,
+        document_id TEXT NOT NULL, thread_id TEXT NOT NULL, root_comment_id TEXT NOT NULL,
+        field_id TEXT NOT NULL, intent TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'queued',
+        thread_digest TEXT NOT NULL, snapshot_json TEXT NOT NULL, base_revision TEXT NOT NULL,
+        suggestion_revision TEXT NOT NULL, run_id TEXT, agent_thread_id TEXT,
+        result_json TEXT, payload_json TEXT, error TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS comment_ai_requests_document_requester_idx
+        ON comment_ai_requests (document_id, requester_email)`,
+    },
+    {
+      version: 94,
+      name: "content-comment-ai-active-thread-index",
+      sql: `CREATE UNIQUE INDEX IF NOT EXISTS comment_ai_requests_active_thread_idx
+        ON comment_ai_requests (document_id, thread_id, requester_email)
+        WHERE status IN ('queued', 'running')`,
+    },
+    {
+      version: 95,
       name: "content-trash-attribution-and-query-indexes",
       sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS trashed_by TEXT;
         ALTER TABLE documents ADD COLUMN IF NOT EXISTS trash_origin TEXT;
@@ -1115,7 +1139,7 @@ export const runContentMigrations = runMigrations(
         CREATE INDEX IF NOT EXISTS documents_trash_group_idx ON documents (trash_root_id, parent_id)`,
     },
     {
-      version: 94,
+      version: 96,
       name: "content-trash-purge-ledger",
       sql: `CREATE TABLE IF NOT EXISTS content_trash_purge_plans (
         id TEXT PRIMARY KEY, actor_email TEXT NOT NULL, org_id TEXT, mode TEXT NOT NULL,
@@ -1148,7 +1172,7 @@ export const runContentMigrations = runMigrations(
       CREATE INDEX IF NOT EXISTS content_trash_purge_operations_plan_idx ON content_trash_purge_operations (plan_id)`,
     },
     {
-      version: 95,
+      version: 97,
       name: "content-trash-purge-frozen-dependencies",
       sql: `ALTER TABLE content_trash_purge_plan_items ADD COLUMN IF NOT EXISTS expected_parent_id TEXT;
         ALTER TABLE content_trash_purge_plan_items ADD COLUMN IF NOT EXISTS space_id TEXT;
@@ -1156,12 +1180,12 @@ export const runContentMigrations = runMigrations(
         ALTER TABLE content_trash_purge_plan_items ADD COLUMN IF NOT EXISTS survivor_effect TEXT`,
     },
     {
-      version: 96,
+      version: 98,
       name: "content-trash-purge-scope-fingerprint",
       sql: `ALTER TABLE content_trash_purge_plan_items ADD COLUMN IF NOT EXISTS expected_scope_fingerprint TEXT NOT NULL DEFAULT ''`,
     },
     {
-      version: 97,
+      version: 99,
       name: "content-document-actor-attribution",
       sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS created_by TEXT;
         ALTER TABLE documents ADD COLUMN IF NOT EXISTS updated_by TEXT;

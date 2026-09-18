@@ -17,7 +17,6 @@ const CALLER_OWNS_PREVIEW_COMMANDS = [
   "overview-primitive-reparent",
   "screen-text-content-change",
   "screen-visual-duplicate-change",
-  "screen-visual-structure-change",
   "screen-visual-style-change",
   "text-content-change",
   "visual-structure-change",
@@ -50,8 +49,11 @@ describe("host-computed edits must not suppress the canvas repaint", () => {
       ),
       "utf8",
     );
+    expect(bridge).toMatch(
+      /var requiresFullDocumentMorph =\s*Boolean\(forceFullDocument\) \|\| hasSourceProvenance;/,
+    );
     expect(bridge).toContain(
-      "!forceFullDocument &&\n      nextHeadHtml === currentHeadHtml &&",
+      "!requiresFullDocumentMorph &&\n      nextHeadHtml === currentHeadHtml &&",
     );
   });
 
@@ -76,6 +78,15 @@ describe("host-computed edits must not suppress the canvas repaint", () => {
       expect(commandSource(name)).toContain("skipPreview: true");
     },
   );
+
+  it("keeps the screen structure wrapper on the shared caller-owned preview path", () => {
+    expect(commandSource("screen-visual-structure-change")).toContain(
+      "runVisualStructureChange",
+    );
+    expect(commandSource("visual-structure-change")).toContain(
+      "skipPreview: true",
+    );
+  });
 
   it("reports a skipped preview as skipped rather than applied", () => {
     const applySource = commandSource("apply-local-content-update");

@@ -90,6 +90,8 @@ const databaseMessages = {
     "Collection rows and local properties were kept intact.",
   failedToAttachSource: "Failed to attach source",
   failedToCreateRow: "Failed to create row",
+  pageCreatedCollectionRefreshFailed:
+    "The page was created, but this collection could not refresh. Reload to see it.",
   failedToDeleteRow: "Failed to delete row",
   failedToDeleteSelectedRows: "Failed to delete selected rows",
   failedToDuplicateEverySelectedRow: "Failed to duplicate every selected row",
@@ -828,7 +830,7 @@ const editorToolbarMessages = {
   searchNotionPages: "Search Notion pages...",
   setUpNotion: "Set up Notion",
   setUpNotionFirst:
-    "Set up Notion in the sidebar first - click the Notion icon.",
+    "Set up Notion first - open Settings, then Integrations, and connect Notion.",
   setUpNotionToSync: "Set up Notion to sync this document.",
   pasteNotionPageUrlOrId: "Paste a Notion page URL or page ID.",
   pasteNotionPageUrlOrIdToLink:
@@ -992,7 +994,26 @@ const enUS = {
   root: {
     commandContent: "Content",
     commandSearchDocuments: "Search documents",
+    searchSince: "Since {{date}}",
+    searchModifiedSince: "Modified since {{date}}",
     commandSearchHeading: "Search",
+    searchScope: "Scope",
+    searchAllWorkspaces: "All workspaces",
+    searchFields: "Search fields",
+    searchAllText: "All text",
+    searchTitleOnly: "Title only",
+    searchType: "Object type",
+    searchAllTypes: "All types",
+    searchDate: "Modified date",
+    searchAnyDate: "Any date",
+    searchPastWeek: "Past week",
+    searchPastMonth: "Past month",
+    searchPrevious: "Previous results",
+    searchNext: "Next results",
+    searchRetry: "Try again",
+    searchScopeUnavailable: "Search scope is unavailable.",
+    searchModified: "Modified {{date}}",
+    searchSourceUpdated: "Source updated {{date}}",
     commandSearchPlaceholder: "Search documents and collections...",
     commandSearchLoading: "Searching...",
     commandSearchError: "Search is unavailable right now.",
@@ -1134,6 +1155,16 @@ const enUS = {
     registryBlockUnreadable: "Persisted block source is unreadable.",
     blocksFieldRevisionConflict:
       "This Blocks field changed elsewhere. Your edit wasn't saved; the latest version is now shown.",
+    reconcileConflict:
+      "This page changed elsewhere. Your edits aren’t saved yet.",
+    reconcileFailed:
+      "The latest changes couldn’t be combined. Your edits aren’t saved yet.",
+    reconcileSaveFailed: "Your edits couldn’t be saved. Review and try again.",
+    reconcileSaving: "Saving your edits…",
+    reconcileReview: "Review changes",
+    reconcileReviewStale:
+      "The saved version changed again. Review the latest text before saving.",
+    reconcileRefresh: "Review latest version",
     couldNotReadLocalSourceFile: "Could not read local source file",
     couldNotSaveLocalFile: "Could not save local file",
     localFileChangedWithUnsavedEdits:
@@ -1145,7 +1176,21 @@ const enUS = {
     useDiskVersion: "Use disk version",
     keepLocalDraft: "Keep my version",
     previewDraftRecovery: "Unsaved page draft",
+    previewDraftCompare: "Choose which version to keep",
+    previewDraftYourEdits: "Your edits",
+    previewDraftSavedVersion: "Saved version",
+    previewDraftKeepMine: "Keep my version",
+    previewDraftUseSaved: "Use saved version",
+    previewDraftSaveSeparately: "Save mine as a separate page",
+    previewDraftSavedToHistory: "Your edits were saved to Version History",
+    previewDraftSavedSeparately: "Your edits were saved as a separate page",
+    previewDraftOpenSavedPage: "Open page",
+    previewDraftMoreOptions: "More options",
+    previewDraftViewFullVersions: "View full versions",
+    previewDraftShowChanges: "Show changes",
     restorePreviewDraft: "Restore draft",
+    previewDraftConflict:
+      "This draft conflicts with a newer page version. It was not restored.",
     pageSaveBeforeNavigationFailed:
       "Your latest page edits could not be saved. Try again before leaving this page.",
     discardPreviewDraft: "Discard draft",
@@ -1217,6 +1262,7 @@ const enUS = {
     historyCheckpointAfter: "After",
     historyCheckpointBefore: "Before",
     historyCheckpointLegacy: "Saved",
+    historyCheckpointRecovery: "Recovered draft",
     historyCheckpointLoadError: "Could not load checkpoints.",
     historyDetailLoadError: "Could not load this checkpoint.",
     historyGroupAgent: "Agent run",
@@ -1301,6 +1347,22 @@ const enUS = {
     cancel: "Cancel",
     submit: "Comment",
     askAi: "Ask AI",
+    aiBadge: "AI",
+    aiSuggestChanges: "Suggest changes",
+    aiUnavailable: "Unavailable",
+    aiReplyInThread: "Reply in thread",
+    aiApplyAndResolve: "Apply changes and resolve",
+    aiPromptSuggest: "Suggest changes for this comment.",
+    aiPromptReply: "Reply to this comment.",
+    aiPromptApplyResolve: "Apply changes for this comment and resolve it.",
+    aiWorking: "AI is working…",
+    aiReplied: "AI replied",
+    aiSuggestionReady: "Review suggestion",
+    aiChangesApplied: "Changes applied",
+    aiNeedsReview: "Needs review",
+    aiFailed: "AI request failed",
+    retry: "Retry",
+    sourceComment: "Source comment",
     resolve: "Resolve",
     resolved: "Resolved ({{count}})",
     unanchored: "Highlight unavailable",
@@ -1619,7 +1681,6 @@ const removeLinkMessagesByLocale = {
   "hi-IN": "लिंक हटाएँ",
   "ar-SA": "إزالة الرابط",
 };
-
 export interface ContentLocaleBundle {
   rawLiterals: PartialMessages;
   comments: PartialMessages["comments"];

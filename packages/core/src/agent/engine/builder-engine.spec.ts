@@ -1206,7 +1206,11 @@ describe("createBuilderEngine", () => {
         expect(stop?.reason).toBe("error");
         expect(stop?.error).toBe(GATEWAY_UNAVAILABLE_VISITOR_MESSAGE);
         expect(stop?.errorCode).toBeTruthy();
-        expect(stop?.upgradeUrl).toBeUndefined();
+        expect(stop?.upgradeUrl).toBe(
+          rejection.label === "credits-limit"
+            ? AGENT_NATIVE_UPGRADE_URL
+            : undefined,
+        );
       });
     }
 
@@ -1248,6 +1252,7 @@ describe("createBuilderEngine", () => {
       expect(stop?.reason).toBe("error");
       expect(stop?.error).toBe(GATEWAY_UNAVAILABLE_VISITOR_MESSAGE);
       expect(stop?.errorCode).toBe("credits-limit-reached");
+      expect(stop?.upgradeUrl).toBe(AGENT_NATIVE_UPGRADE_URL);
     });
 
     it("preserves Retry-After on a credits-lane visitor stop", async () => {

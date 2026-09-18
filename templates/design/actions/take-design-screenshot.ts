@@ -40,7 +40,6 @@
  */
 
 import { defineAction } from "@agent-native/core/action";
-import { getText, hasCollabState } from "@agent-native/core/collab";
 import { uploadFile } from "@agent-native/core/file-upload";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { accessFilter } from "@agent-native/core/sharing";
@@ -49,6 +48,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { isAllowedFigmaSvgRenderRequest } from "../server/lib/design-to-figma-svg.js";
+import { readLiveSourceFile } from "../server/source-workspace.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 
 // ---------------------------------------------------------------------------
@@ -204,15 +204,17 @@ async function liveContent(
   fileId: string,
   storedContent: string,
 ): Promise<string> {
-  try {
-    if (await hasCollabState(fileId)) {
-      const live = await getText(fileId, "content");
-      if (typeof live === "string") return live;
-    }
-  } catch {
-    // SQL content is the deterministic fallback.
-  }
-  return storedContent;
+  return (
+    await readLiveSourceFile({
+      id: fileId,
+      designId: "",
+      filename: "index.html",
+      fileType: "html",
+      content: storedContent,
+      createdAt: null,
+      updatedAt: null,
+    })
+  ).content;
 }
 
 // ---------------------------------------------------------------------------

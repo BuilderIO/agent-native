@@ -21,6 +21,14 @@ function jsonResponse(data: unknown): Response {
   });
 }
 
+// The initial Builder status read is deferred past first paint; the fallback
+// timer bounds that wait at 250ms, so settling past it is deterministic.
+async function flushAfterPaint() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  });
+}
+
 function setUserAgent(userAgent: string) {
   Object.defineProperty(window.navigator, "userAgent", {
     value: userAgent,
@@ -101,13 +109,27 @@ function BuilderStatusProbe() {
 
 function createPopupStub() {
   const doc = document.implementation.createHTMLDocument("popup");
+  const listeners = new Map<string, EventListener>();
+  const addEventListener = vi.fn(
+    (type: string, listener: EventListenerOrEventListenerObject) => {
+      if (typeof listener === "function") listeners.set(type, listener);
+    },
+  );
+  const removeEventListener = vi.fn(
+    (type: string, listener: EventListenerOrEventListenerObject) => {
+      if (listeners.get(type) === listener) listeners.delete(type);
+    },
+  );
   return {
     closed: false,
     close: vi.fn(),
     document: doc,
     location: { href: "" },
     opener: window,
-  } as unknown as Window;
+    addEventListener,
+    removeEventListener,
+    fireLoad: () => listeners.get("load")?.(new Event("load")),
+  } as unknown as Window & { fireLoad: () => void };
 }
 
 const signedConnectUrl =
@@ -192,6 +214,8 @@ describe("useBuilderStatus", () => {
       await Promise.resolve();
     });
 
+    await flushAfterPaint();
+
     expect(fetchMock).toHaveBeenCalledWith(
       "/_agent-native/connection-status/builder",
     );
@@ -212,6 +236,8 @@ describe("useBuilderStatus", () => {
       await Promise.resolve();
     });
 
+    await flushAfterPaint();
+
     expect(container.textContent).toContain("loaded configured fresh");
 
     await act(async () => {
@@ -222,6 +248,26 @@ describe("useBuilderStatus", () => {
 
     expect(container.textContent).toContain("loaded configured stale");
     expect(container.textContent).toContain("Builder status unavailable (404)");
+  });
+
+  it("focus inside the deferral window consumes the scheduled initial read", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(connectedBuilderStatus));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(<BuilderStatusProbe />);
+    });
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await Promise.resolve();
+    });
+    // The focus refresh stays immediate and the scheduled initial read is
+    // consumed, not stacked behind it.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await flushAfterPaint();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toContain("loaded configured fresh");
   });
 
   it("ignores an older refresh after a newer status request starts", async () => {
@@ -241,6 +287,8 @@ describe("useBuilderStatus", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
+
+    await flushAfterPaint();
     expect(pendingResponses).toHaveLength(1);
 
     await act(async () => {
@@ -272,6 +320,60 @@ describe("useBuilderConnectFlow", () => {
   let container: HTMLDivElement;
   let root: Root;
   let openSpy: ReturnType<typeof vi.fn>;
+
+  it("focus inside the deferral window consumes the scheduled read and supersedes overlapping refreshes", async () => {
+    const pendingResponses: Array<(response: Response) => void> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            pendingResponses.push(resolve);
+          }),
+      ),
+    );
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+    });
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await Promise.resolve();
+    });
+    // One read lands immediately; the scheduled initial read was consumed
+    // instead of stacking a duplicate when the window elapses.
+    expect(pendingResponses).toHaveLength(1);
+
+    await flushAfterPaint();
+    expect(pendingResponses).toHaveLength(1);
+
+    // Overlapping refreshes supersede each other: the newest started wins
+    // even when the older response resolves last.
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await Promise.resolve();
+    });
+    expect(pendingResponses).toHaveLength(2);
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await Promise.resolve();
+    });
+    expect(pendingResponses).toHaveLength(3);
+
+    await act(async () => {
+      pendingResponses[2]?.(jsonResponse(connectedBuilderStatus));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(container.textContent).toContain("configured idle resolved");
+
+    await act(async () => {
+      pendingResponses[0]?.(jsonResponse({ configured: false }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(container.textContent).toContain("configured idle resolved");
+  });
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -317,12 +419,14 @@ describe("useBuilderConnectFlow", () => {
       await Promise.resolve();
     });
 
+    await flushAfterPaint();
+
     expect(vi.mocked(fetch).mock.calls[0]?.[0]).toBe(
       "http://localhost:3000/_agent-native/connection-status/builder",
     );
   });
 
-  it("opens a blank web popup and navigates to a freshly fetched connect URL", async () => {
+  it("opens a top-level blank popup and navigates to a freshly fetched connect URL", async () => {
     setUserAgent("Mozilla/5.0 Chrome/140.0");
     const popup = createPopupStub();
     openSpy.mockReturnValue(popup);
@@ -332,6 +436,8 @@ describe("useBuilderConnectFlow", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
+
+    await flushAfterPaint();
 
     await act(async () => {
       container.querySelector("button")?.click();
@@ -348,6 +454,163 @@ describe("useBuilderConnectFlow", () => {
       expectedConnectUrl(signedConnectUrl),
     );
     expect(container.textContent).not.toContain("Popup blocked");
+  });
+
+  it("waits for an embedded waiting popup before navigating to Builder", async () => {
+    setEmbeddedWindow(true);
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await flushAfterPaint();
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(openSpy).toHaveBeenCalledWith(
+      expect.stringContaining("/_agent-native/oauth/popup?"),
+      "_blank",
+      "width=600,height=700",
+    );
+    expect(popup.location.href).toBe("");
+
+    await act(async () => {
+      popup.fireLoad();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(withoutConnectAttempt(popup.location.href)).toBe(
+      expectedConnectUrl(signedConnectUrl),
+    );
+  });
+
+  it("cancels an embedded popup wait when the popup closes before loading", async () => {
+    vi.useFakeTimers();
+    setEmbeddedWindow(true);
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    (popup as unknown as { closed: boolean }).closed = true;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+
+    expect(popup.location.href).toBe("");
+    expect(container.textContent).toContain(
+      "Couldn't navigate the Builder popup",
+    );
+    expect(popup.removeEventListener).toHaveBeenCalledWith(
+      "load",
+      expect.any(Function),
+    );
+  });
+
+  it("cancels an embedded popup wait when the flow unmounts", async () => {
+    vi.useFakeTimers();
+    setEmbeddedWindow(true);
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    act(() => root.unmount());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+
+    expect(popup.removeEventListener).toHaveBeenCalledWith(
+      "load",
+      expect.any(Function),
+    );
+  });
+
+  it("does not navigate an embedded popup after the connect attempt ends", async () => {
+    vi.useFakeTimers();
+    setEmbeddedWindow(true);
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+    const disconnectedStatus = {
+      configured: false,
+      envManaged: false,
+      builderEnabled: true,
+      orgName: null,
+      connectUrl: signedConnectUrl,
+      appHost: "https://builder.io",
+      apiHost: "https://api.builder.io",
+      publicKeyConfigured: false,
+      privateKeyConfigured: false,
+    };
+    vi.mocked(fetch).mockReset();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse(disconnectedStatus))
+      .mockResolvedValueOnce(jsonResponse(disconnectedStatus))
+      .mockResolvedValueOnce(jsonResponse(connectedBuilderStatus));
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(container.textContent).toContain("configured idle resolved");
+
+    await act(async () => {
+      popup.fireLoad();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(popup.location.href).toBe("");
+    expect(popup.close).toHaveBeenCalled();
   });
 
   it("marks the first-run popup for account provisioning", async () => {
@@ -371,6 +634,8 @@ describe("useBuilderConnectFlow", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
+
+    await flushAfterPaint();
 
     await act(async () => {
       container.querySelector("button")?.click();
@@ -420,6 +685,8 @@ describe("useBuilderConnectFlow", () => {
       await Promise.resolve();
     });
 
+    await flushAfterPaint();
+
     await act(async () => {
       container.querySelector("button")?.click();
       await Promise.resolve();
@@ -444,6 +711,8 @@ describe("useBuilderConnectFlow", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
+
+    await flushAfterPaint();
 
     await act(async () => {
       container.querySelector("button")?.click();
@@ -479,6 +748,8 @@ describe("useBuilderConnectFlow", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
+
+    await flushAfterPaint();
 
     await act(async () => {
       container.querySelector("button")?.click();
@@ -516,6 +787,8 @@ describe("useBuilderConnectFlow", () => {
       await Promise.resolve();
     });
 
+    await flushAfterPaint();
+
     expect(container.textContent).toContain("account-exists");
   });
 
@@ -546,6 +819,8 @@ describe("useBuilderConnectFlow", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
+
+    await flushAfterPaint();
 
     await act(async () => {
       container.querySelector("button")?.click();
@@ -581,6 +856,8 @@ describe("useBuilderConnectFlow", () => {
       await Promise.resolve();
     });
 
+    await flushAfterPaint();
+
     expect(container.textContent).toContain("not-configured idle unresolved");
 
     await act(async () => {
@@ -598,6 +875,8 @@ describe("useBuilderConnectFlow", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
+
+    await flushAfterPaint();
 
     expect(fetch).not.toHaveBeenCalled();
 
@@ -618,6 +897,8 @@ describe("useBuilderConnectFlow", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
+
+    await flushAfterPaint();
 
     expect(container.textContent).toContain("not-configured idle unresolved");
     // A status we could not read must not render the same as a status we have
@@ -658,6 +939,8 @@ describe("useBuilderConnectFlow", () => {
       await Promise.resolve();
     });
 
+    await flushAfterPaint();
+
     await act(async () => {
       container.querySelector("button")?.click();
       await Promise.resolve();
@@ -667,6 +950,65 @@ describe("useBuilderConnectFlow", () => {
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(
       container.querySelector("[data-radix-popper-content-wrapper]"),
+    ).toBeNull();
+  });
+
+  it("honors a connect click made while the first status read is still in flight", async () => {
+    // The cold-start shape: the status route is reachable but slow, so the
+    // trigger renders as a normal enabled button for seconds. A click there
+    // used to be discarded, which is what "Connect Builder.io doesn't work"
+    // looked like to a brand-new signup landing on a cold instance.
+    const pending: Array<() => void> = [];
+    vi.mocked(fetch).mockImplementation(
+      () =>
+        new Promise<Response>((resolve) => {
+          pending.push(() =>
+            resolve(
+              jsonResponse({
+                configured: false,
+                agentNativeProvisioningEnabled: true,
+                agentNativeProvisioningToken: provisioningToken,
+                envManaged: false,
+                builderEnabled: true,
+                orgName: null,
+                connectUrl: signedConnectUrl,
+              }),
+            ),
+          );
+        }),
+    );
+
+    await act(async () => {
+      root.render(<BuilderConnectPopoverProbe />);
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+    });
+
+    expect(container.querySelector("button")?.getAttribute("aria-busy")).toBe(
+      "true",
+    );
+    expect(
+      document.querySelector("[data-radix-popper-content-wrapper]"),
+    ).toBeNull();
+
+    await act(async () => {
+      for (const release of pending) release();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // Provisioning is available, so the queued click surfaces the consent
+    // choice rather than silently starting a connect.
+    expect(
+      document.querySelector("[data-radix-popper-content-wrapper]"),
+    ).not.toBeNull();
+    expect(
+      container.querySelector("button")?.getAttribute("aria-busy"),
     ).toBeNull();
   });
 
@@ -687,6 +1029,8 @@ describe("useBuilderConnectFlow", () => {
         </BuilderConnectPopover>,
       );
     });
+
+    await flushAfterPaint();
 
     await act(async () => {
       container.querySelector("button")?.click();
@@ -726,6 +1070,8 @@ describe("useBuilderConnectFlow", () => {
       root.render(<BuilderConnectProbe popupUrl={staleConnectUrl} />);
     });
 
+    await flushAfterPaint();
+
     await act(async () => {
       container.querySelector("button")?.click();
       await Promise.resolve();
@@ -762,6 +1108,8 @@ describe("useBuilderConnectFlow", () => {
     await act(async () => {
       root.render(<BuilderConnectProbe popupUrl={signedConnectUrl} />);
     });
+
+    await flushAfterPaint();
 
     await act(async () => {
       container.querySelector("button")?.click();
@@ -837,6 +1185,8 @@ describe("useBuilderConnectFlow", () => {
       await Promise.resolve();
     });
 
+    await flushAfterPaint();
+
     expect(container.textContent).toContain("not-configured");
 
     await act(async () => {
@@ -874,6 +1224,8 @@ describe("useBuilderConnectFlow", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
+
+    await flushAfterPaint();
 
     await act(async () => {
       container.querySelector("button")?.click();
@@ -914,6 +1266,10 @@ describe("useBuilderConnectFlow", () => {
     });
 
     await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+
+    await act(async () => {
       container.querySelector("button")?.click();
       await Promise.resolve();
       await Promise.resolve();
@@ -951,6 +1307,10 @@ describe("useBuilderConnectFlow", () => {
     await act(async () => {
       root.render(<BuilderConnectProbe />);
       await Promise.resolve();
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
     });
 
     await act(async () => {
@@ -1000,6 +1360,10 @@ describe("useBuilderConnectFlow", () => {
     await act(async () => {
       root.render(<BuilderConnectProbe />);
       await Promise.resolve();
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
     });
 
     await act(async () => {
@@ -1058,6 +1422,10 @@ describe("useBuilderConnectFlow", () => {
     await act(async () => {
       root.render(<BuilderConnectProbe />);
       await Promise.resolve();
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
     });
 
     await act(async () => {
@@ -1217,6 +1585,8 @@ describe("useBuilderConnectFlow", () => {
       root.render(<BuilderConnectProbe />);
     });
 
+    await flushAfterPaint();
+
     await act(async () => {
       container.querySelector("button")?.click();
     });
@@ -1277,6 +1647,8 @@ describe("useBuilderConnectFlow", () => {
       await Promise.resolve();
     });
 
+    await flushAfterPaint();
+
     await act(async () => {
       container.querySelector("button")?.click();
       await Promise.resolve();
@@ -1284,7 +1656,7 @@ describe("useBuilderConnectFlow", () => {
     });
 
     expect(openSpy).toHaveBeenCalledWith(
-      "about:blank",
+      expect.stringContaining("/_agent-native/oauth/popup?"),
       "_blank",
       "width=600,height=700",
     );
@@ -1328,6 +1700,10 @@ describe("useBuilderConnectFlow", () => {
     await act(async () => {
       root.render(<BuilderConnectProbe />);
       await Promise.resolve();
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
     });
 
     expect(container.textContent).toContain(
@@ -1392,6 +1768,10 @@ describe("useBuilderConnectFlow", () => {
     await act(async () => {
       root.render(<BuilderConnectProbe />);
       await Promise.resolve();
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
     });
 
     expect(container.textContent).toContain("No active connect flow found");

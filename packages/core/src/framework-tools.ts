@@ -38,6 +38,7 @@ export const FRAMEWORK_TOOL_GROUPS = [
   "emailCatalog",
   "workspaceUserGroups",
   "orgServiceTokens",
+  "orgAdministration",
 ] as const;
 
 export type FrameworkToolGroup = (typeof FRAMEWORK_TOOL_GROUPS)[number];
@@ -118,6 +119,8 @@ export interface FrameworkToolsOption {
    *  `mcp.enabled` decides whether the ROUTES exist, this decides whether the
    *  model can call them. */
   orgServiceTokens?: boolean;
+  /** Administer app roles and app permission mappings for the active org. */
+  orgAdministration?: boolean;
   /** `"minimal"` turns every group above off, for voice-first and
    *  single-purpose apps that want the template's own actions and nothing else.
    *  Any explicit group key wins over the preset, so
@@ -270,6 +273,14 @@ export function resolveFrameworkTools(
  * rather than the default that happens when a map goes un-updated.
  */
 export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
+  "list-app-member-roles": "orgAdministration",
+  "set-app-member-roles": "orgAdministration",
+  "list-app-permissions": "orgAdministration",
+  "set-app-permission-roles": "orgAdministration",
+  "list-workspace-app-access": "orgAdministration",
+  "set-workspace-app-access": "orgAdministration",
+  "explain-access": "orgAdministration",
+  "offboard-member": "orgAdministration",
   "share-resource": "sharing",
   "unshare-resource": "sharing",
   "list-resource-shares": "sharing",
@@ -314,6 +325,7 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "get-auth-methods": "userProfile",
   "set-password": "userProfile",
   "change-password": "userProfile",
+  "request-privacy-right": "userProfile",
   "change-appearance": "userProfile",
 
   "list-audit-events": "audit",
@@ -346,13 +358,16 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "create-review-comment": "review",
   "reply-review-comment": "review",
   "resolve-review-thread": "review",
+  "update-review-comment-anchor": "review",
   "delete-review-comment": "review",
+  "update-review-comment": "review",
   "consume-review-feedback": "review",
   "get-review-feedback": "review",
   "set-review-status": "review",
   "send-review-thread-to-agent": "review",
   "react-to-review-comment": "review",
   "set-review-thread-unread": "review",
+  "set-review-threads-unread": "review",
   "set-review-thread-muted": "review",
   "create-resource-suggestion": "review",
   "update-resource-suggestion": "review",

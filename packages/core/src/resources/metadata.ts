@@ -34,6 +34,36 @@ export interface CustomAgentProfile {
   };
 }
 
+export interface RemoteAgentBearerAuth {
+  type: "bearer";
+  /** Name of the vault credential containing the bearer token. */
+  credentialRef: string;
+}
+
+export interface RemoteAgentOAuthClientCredentialsAuth {
+  type: "oauth-client-credentials";
+  tokenUrl: string;
+  clientId: string;
+  /** Name of the vault credential containing the client secret. */
+  clientSecretRef: string;
+  scope?: string;
+}
+
+export type RemoteAgentAuth =
+  | RemoteAgentBearerAuth
+  | RemoteAgentOAuthClientCredentialsAuth;
+
+/** A managed agent provider that is reached through its native API adapter. */
+export interface AnthropicManagedAgentsRemoteAgentKind {
+  provider: "anthropic-managed-agents";
+  agentId: string;
+  environmentId: string;
+  /** Name of the vault credential containing the Anthropic API key. */
+  credentialRef: string;
+}
+
+export type RemoteAgentKind = AnthropicManagedAgentsRemoteAgentKind;
+
 export interface RemoteAgentManifest {
   id: string;
   path: string;
@@ -41,6 +71,12 @@ export interface RemoteAgentManifest {
   description?: string;
   url: string;
   color?: string;
+  /** Optional provider-specific agent-card URL. */
+  cardUrl?: string;
+  /** Authentication references only; secret values never belong in a manifest. */
+  auth?: RemoteAgentAuth;
+  /** Optional native provider adapter configuration. */
+  kind?: RemoteAgentKind;
 }
 
 export const REMOTE_AGENT_RESOURCE_PREFIX = "remote-agents/";
@@ -251,17 +287,157 @@ export function parseRemoteAgentManifest(
   if (!isRemoteAgentPath(path)) return null;
   try {
     const data = JSON.parse(content);
-    const id = data.id || getRemoteAgentIdFromPath(path);
-    if (!data.url) return null;
+    if (!data || typeof data !== "object" || Array.isArray(data)) return null;
+    const id =
+      typeof data.id === "string" && data.id.trim()
+        ? data.id.trim()
+        : getRemoteAgentIdFromPath(path);
+    const kind = parseRemoteAgentKind(data.kind);
+    if (data.kind !== undefined && data.kind !== null && !kind) return null;
+    const rawUrl =
+      typeof data.url === "string" && data.url.trim()
+        ? data.url.trim()
+        : kind?.provider === "anthropic-managed-agents"
+          ? "https://api.anthropic.com"
+          : "";
+    if (!rawUrl || !parseRemoteAgentUrl(rawUrl)) return null;
+
+    const cardUrl = parseRemoteAgentUrl(data.cardUrl);
+    if (data.cardUrl !== undefined && data.cardUrl !== null && !cardUrl) {
+      return null;
+    }
+
+    const auth = parseRemoteAgentAuth(data.auth);
+    if (data.auth !== undefined && data.auth !== null && !auth) return null;
+    if (
+      (auth || kind) &&
+      (Boolean(auth && kind) ||
+        !parseRemoteAgentUrl(rawUrl, {
+          allowLoopbackHttp: true,
+          requireHttps: true,
+        }) ||
+        (cardUrl &&
+          !parseRemoteAgentUrl(cardUrl, {
+            allowLoopbackHttp: true,
+            requireHttps: true,
+          })))
+    ) {
+      return null;
+    }
+
     return {
       id,
       path,
-      name: data.name || id,
-      description: data.description || "",
-      url: data.url,
-      color: data.color || "#6B7280",
+      name:
+        typeof data.name === "string" && data.name.trim()
+          ? data.name.trim()
+          : id,
+      description: typeof data.description === "string" ? data.description : "",
+      url: rawUrl,
+      color:
+        typeof data.color === "string" && data.color.trim()
+          ? data.color.trim()
+          : undefined,
+      ...(cardUrl ? { cardUrl } : {}),
+      ...(auth ? { auth } : {}),
+      ...(kind ? { kind } : {}),
     };
   } catch {
+    // coercion-ok: malformed JSON or an invalid manifest is absent, never a connected agent.
     return null;
   }
+}
+
+export function parseRemoteAgentKind(
+  value: unknown,
+): RemoteAgentKind | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const kind = value as Record<string, unknown>;
+  if (kind.provider !== "anthropic-managed-agents") return undefined;
+  const agentId = typeof kind.agentId === "string" ? kind.agentId.trim() : "";
+  const environmentId =
+    typeof kind.environmentId === "string" ? kind.environmentId.trim() : "";
+  const credentialRef =
+    typeof kind.credentialRef === "string" ? kind.credentialRef.trim() : "";
+  if (!agentId || !environmentId || !credentialRef) return undefined;
+  return {
+    provider: "anthropic-managed-agents",
+    agentId,
+    environmentId,
+    credentialRef,
+  };
+}
+
+export function parseRemoteAgentUrl(
+  value: unknown,
+  options?: { allowLoopbackHttp?: boolean; requireHttps?: boolean },
+): string | undefined {
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  try {
+    const url = new URL(value.trim());
+    if (url.protocol !== "http:" && url.protocol !== "https:") return undefined;
+    if (url.username || url.password) return undefined;
+    if (options?.requireHttps && url.protocol !== "https:") {
+      const loopbackHttp =
+        options.allowLoopbackHttp === true && isLoopbackHostname(url.hostname);
+      if (!loopbackHttp) return undefined;
+    }
+    return url.toString();
+  } catch {
+    // coercion-ok: an invalid URL is the typed absent result for optional manifest fields.
+    return undefined;
+  }
+}
+
+export function parseRemoteAgentAuth(
+  value: unknown,
+): RemoteAgentAuth | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const auth = value as Record<string, unknown>;
+  if (auth.type === "bearer") {
+    const credentialRef =
+      typeof auth.credentialRef === "string" ? auth.credentialRef.trim() : "";
+    return credentialRef ? { type: "bearer", credentialRef } : undefined;
+  }
+
+  if (auth.type === "oauth-client-credentials") {
+    const tokenUrl = parseRemoteAgentUrl(auth.tokenUrl, { requireHttps: true });
+    const clientId =
+      typeof auth.clientId === "string" ? auth.clientId.trim() : "";
+    const clientSecretRef =
+      typeof auth.clientSecretRef === "string"
+        ? auth.clientSecretRef.trim()
+        : "";
+    if (!tokenUrl || !clientId || !clientSecretRef) return undefined;
+    const scope =
+      typeof auth.scope === "string" && auth.scope.trim()
+        ? auth.scope.trim()
+        : undefined;
+    return {
+      type: "oauth-client-credentials",
+      tokenUrl,
+      clientId,
+      clientSecretRef,
+      ...(scope ? { scope } : {}),
+    };
+  }
+
+  return undefined;
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  const normalized = hostname.toLowerCase();
+  return (
+    normalized === "localhost" ||
+    normalized === "[::1]" ||
+    normalized === "::1" ||
+    normalized === "127.0.0.1" ||
+    normalized.startsWith("127.")
+  );
 }

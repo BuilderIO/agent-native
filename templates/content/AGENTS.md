@@ -23,8 +23,9 @@ Read the relevant skill before deeper work:
 - Use actions for Content operations. Never use raw HTTP or SQL for document
   mutations unless a skill explicitly requires it and preserves access checks.
 - Call these actions directly; `ask_app` only delegates to Content's agent.
-- The editor uses live Yjs collaboration. Use `edit-document` for small changes
-  and `update-document` for full rewrites; raw SQL will not sync an open editor.
+- The live Yjs editor requires actions for body writes. External agents use
+  revisioned `edit-document`, with `initializeContent` only for an empty body.
+  Browser full rewrites use `update-document`.
 - Preserve user-authored content. Prefer targeted edits over wholesale rewrites
   unless requested.
 - Document mutations signal UI refresh; use `refresh-list` only after an
@@ -70,8 +71,8 @@ Read the relevant skill before deeper work:
 | `get-blocks-field-word-count` | Count one exact Blocks field; omit `propertyId` for the primary Content body |
 | `create-document` | Create a page, optionally under a parent |
 | `resolve-content-landing` | Restore the caller's last authorized page |
-| `edit-document` | Find/replace edit — preferred for small changes |
-| `update-document` | Full rewrite of title, content, or description |
+| `edit-document` | Revisioned find/replace, or initialize an empty body |
+| `update-document` | Metadata or browser-owned full rewrite |
 | `delete-document` | Move a page and its children to Trash |
 | `list-content-trash` | Search authorized root or nested Trash metadata |
 | `get-trashed-document` | Read one authorized trashed Page body without restoring it |

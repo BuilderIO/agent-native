@@ -7,11 +7,14 @@ import {
   newDesign,
   geom,
   openEditor,
+  postAction,
   scale,
   selectViaTree,
+  styleNum,
+  styleOf,
   chromeBounds,
 } from "./drag-and-drop.shared";
-import { appPath } from "./helpers";
+import { appPath, expandAllLayers, gotoEditor } from "./helpers";
 
 /**
  * Figma parity: §3 Resize + Part 3 resolutions.
@@ -407,4 +410,223 @@ test("[codex] resizing a screen from its left edge changes width only, not heigh
     `dragging the screen's LEFT edge must not change height (was ${cardBoxBefore.height}, now ${cardBoxAfter.height}) — owned by codex, see feedback.md`,
   ).toBeCloseTo(cardBoxBefore.height, 0);
   expect(cardBoxAfter.width).not.toBeCloseTo(cardBoxBefore.width, 0);
+});
+
+/**
+ * A board-surface object's own selection handles live inside the board
+ * iframe, which the board wrapper deliberately keeps at zIndex 0 so board
+ * artwork never covers a Screen (see MultiScreenCanvas.tsx's board-surface
+ * layer). An overlapping Screen therefore occludes those handles both
+ * visually and for hit-testing. The host now mirrors the selected board
+ * object's rect into its own SelectionBox (zIndex 1_000_000, same mechanism
+ * Screens already use) and forwards resize gestures into the board bridge's
+ * own startResize — see beginBoardElementResize in MultiScreenCanvas.tsx.
+ */
+test.describe("board object resize through an overlapping Screen", () => {
+  const BOARD_HTML = `<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Board</title></head>
+  <body style="margin:0;min-height:900px;background:#e5e5e5">
+    <div data-agent-native-node-id="rect" data-agent-native-layer-name="Rect"
+         style="position:absolute;left:0px;top:0px;width:120px;height:90px;background:#f59e0b"></div>
+  </body>
+</html>`;
+  // A Screen at overview index 0 is placed at world (0,0) by
+  // getInitialFrameGeometry — the SAME origin as the board rect above — so
+  // it occludes the rect with no extra positioning needed.
+  const SCREEN_HTML = `<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Screen</title></head>
+  <body style="margin:0;min-height:812px;background:#ffffff"></body>
+</html>`;
+
+  async function newOccludedBoardDesign(page: Page): Promise<string> {
+    const created = await postAction(page, "create-design", {
+      title: "board occlusion resize",
+      projectType: "prototype",
+    });
+    const id = created?.id ?? created?.data?.id;
+    if (!id) throw new Error("create-design returned no id");
+    await postAction(page, "create-file", {
+      designId: id,
+      filename: "index.html",
+      content: SCREEN_HTML,
+      fileType: "html",
+    });
+    const board = await postAction(page, "create-file", {
+      designId: id,
+      filename: "__board__.html",
+      content: BOARD_HTML,
+      fileType: "html",
+    });
+    const boardFileId = board?.id ?? board?.data?.id;
+    if (!boardFileId) throw new Error("create-file returned no board id");
+    await postAction(page, "update-design", {
+      id,
+      dataOperations: [
+        { op: "set", path: ["boardFileId"], value: boardFileId },
+      ],
+    });
+    return id;
+  }
+
+  async function boardHtml(page: Page, designId: string): Promise<string> {
+    const result = await page.request
+      .get(`${appPath("/_agent-native/actions/get-design")}?id=${designId}`)
+      .then((r) => r.json());
+    return (
+      (result.files ?? []).find(
+        (f: { filename?: string }) => f.filename === "__board__.html",
+      )?.content ?? ""
+    );
+  }
+
+  async function rectGeom(page: Page, designId: string) {
+    const s = styleOf(await boardHtml(page, designId), "rect");
+    return {
+      left: styleNum(s, "left"),
+      top: styleNum(s, "top"),
+      width: styleNum(s, "width"),
+      height: styleNum(s, "height"),
+    };
+  }
+
+  /** The live DOM inline style inside the board iframe — distinct from
+   * rectGeom's persisted file content, so undo/redo is checked against both
+   * what's saved and what's actually on screen. */
+  async function renderedRectGeom(page: Page) {
+    const s =
+      (await page
+        .locator(
+          "[data-board-surface-layer] iframe[data-design-preview-iframe]",
+        )
+        .contentFrame()
+        .locator('[data-agent-native-node-id="rect"]')
+        .getAttribute("style")) ?? "";
+    return {
+      left: styleNum(s, "left"),
+      top: styleNum(s, "top"),
+      width: styleNum(s, "width"),
+      height: styleNum(s, "height"),
+    };
+  }
+
+  function layerRow(page: Page, name: string) {
+    return page
+      .getByRole("tree", { name: "Layers" })
+      .getByRole("treeitem")
+      .filter({ hasText: name })
+      .first();
+  }
+
+  test("SE-handle drag reaches and resizes the occluded board rect, one undo restores it and redo re-applies it", async ({
+    page,
+  }) => {
+    const id = await newOccludedBoardDesign(page);
+    await gotoEditor(page, id);
+    await expandAllLayers(page);
+
+    // Precondition: the Screen really does occlude the board rect at the
+    // host level (paint order + hit-testing) — this is the bug this fix
+    // addresses, not a harness artifact.
+    const screenCard = page.locator("[data-screen-card]").first();
+    await screenCard.waitFor({ timeout: 30_000 });
+    const screenBox = (await screenCard.boundingBox())!;
+    const occludedBy = await page.evaluate(
+      ({ x, y }) =>
+        document.elementFromPoint(x, y)?.closest("[data-screen-card]")
+          ? "screen"
+          : "other",
+      { x: screenBox.x + 10, y: screenBox.y + 10 },
+    );
+    expect(occludedBy, "precondition: Screen must occlude this point").toBe(
+      "screen",
+    );
+
+    await layerRow(page, "Rect").click();
+    await page.waitForTimeout(500);
+
+    // The board object's own host-level chrome, distinct from a Screen's
+    // (both can be on screen at once — see SelectionBox's boardObject prop).
+    const seHandle = page.locator(
+      '[data-board-object-selection-box] [data-resize-handle="se"]',
+    );
+    await seHandle.waitFor({ timeout: 10_000 });
+    const handleBox = (await seHandle.boundingBox())!;
+
+    // The handle must win the hit-test at its own location despite the
+    // Screen sitting underneath (host SelectionBox is zIndex 1_000_000).
+    const topAtHandle = await page.evaluate(
+      ({ x, y }) =>
+        document.elementFromPoint(x, y)?.getAttribute("data-resize-handle"),
+      {
+        x: handleBox.x + handleBox.width / 2,
+        y: handleBox.y + handleBox.height / 2,
+      },
+    );
+    expect(topAtHandle).toBe("se");
+
+    const before = await rectGeom(page, id);
+    expect(before).toEqual({ left: 0, top: 0, width: 120, height: 90 });
+
+    await page.mouse.move(
+      handleBox.x + handleBox.width / 2,
+      handleBox.y + handleBox.height / 2,
+    );
+    await page.mouse.down();
+    await page.mouse.move(
+      handleBox.x + handleBox.width / 2 + 30,
+      handleBox.y + handleBox.height / 2 + 20,
+      { steps: 10 },
+    );
+    await page.mouse.up();
+    await page.waitForTimeout(2000); // e2e-harness-ignore commit settle, matches drag-and-drop.shared dragBy
+
+    const after = await rectGeom(page, id);
+    // Growth need not be pixel-exact — the bridge's own snap-to-sibling-edge
+    // math (unrelated to this fix) can nudge the final size. The invariant
+    // this fix is about is that the drag reaches the occluded object AT ALL
+    // and grows both dimensions from a corner handle.
+    const msg = `SE-handle drag through the host chrome must resize the occluded board rect (before ${JSON.stringify(before)}, after ${JSON.stringify(after)})`;
+    expect(after.left, msg).toBe(0);
+    expect(after.top, msg).toBe(0);
+    expect(after.width, msg).toBeGreaterThan(before.width + 10);
+    expect(after.height, msg).toBeGreaterThan(before.height + 5);
+
+    // Figma contract: a resize gesture is one undo step, and redo re-applies
+    // it exactly — checked against both the persisted file content and the
+    // live board-iframe DOM, since a debounced write could pass the former
+    // while the latter still shows the pre-undo size.
+    await page.keyboard.press(`${MOD}+z`);
+    await expect
+      .poll(async () => rectGeom(page, id), {
+        timeout: 10_000,
+        message:
+          "one undo after the board-rect resize must restore the persisted pre-drag geometry",
+      })
+      .toEqual(before);
+    await expect
+      .poll(async () => renderedRectGeom(page), {
+        timeout: 10_000,
+        message:
+          "one undo after the board-rect resize must restore the rendered pre-drag geometry",
+      })
+      .toEqual(before);
+
+    await page.keyboard.press(`${MOD}+Shift+z`);
+    await expect
+      .poll(async () => rectGeom(page, id), {
+        timeout: 10_000,
+        message:
+          "redo after the undo must re-apply the persisted post-drag geometry",
+      })
+      .toEqual(after);
+    await expect
+      .poll(async () => renderedRectGeom(page), {
+        timeout: 10_000,
+        message:
+          "redo after the undo must re-apply the rendered post-drag geometry",
+      })
+      .toEqual(after);
+  });
 });

@@ -1,16 +1,18 @@
 ---
 title: "SSO entre aplicativos"
-description: "Documenta o SSO de workspace no Desktop e a federação de organizações no servidor. O login de navegador com Agent-Native foi removido."
+description: "Diferencia o login OIDC ou SAML da organização da federação de identidade entre aplicativos."
 ---
 
-# SSO entre aplicativos
+# SSO da organização e federação entre aplicativos
+
+O SSO da organização usa o provedor OIDC ou SAML da empresa para entrar em uma implantação Agent-Native. A federação entre aplicativos compartilha identidade verificada ou contexto da organização entre implantações distintas. A configuração e os limites de confiança são diferentes.
 
 A opção de navegador "Sign in with Agent-Native" e o redirecionamento automático
 do navegador foram removidos. O login por aplicativo continua sendo o padrão
 para usuários da web. Esta página descreve os contratos restantes do Desktop e
 da federação no servidor.
 
-## O que permanece
+## Federação entre aplicativos
 
 ### Workspace no Desktop
 
@@ -127,3 +129,9 @@ autenticação local normal.
 - [Dispatch](/docs/dispatch)
 - [Segurança e escopo de dados](/docs/security)
 - [Workspaces multiaplicativo](/docs/multi-app-workspace)
+
+O login corporativo com OIDC ou SAML é diferente da federação de identidade entre aplicativos. O [guia de implantações administradas](/docs/administered-deployments) descreve o modelo corporativo. Com `browser.identity-sso` habilitado, o app tenta uma verificação silenciosa `prompt=none` e mantém o formulário local como fallback. Veja o [design do Cross-App Connect](/docs/cross-app-connect-design).
+
+## Runbook de rollout do SSO de identidade no navegador
+
+Ative `browser.identity-sso` primeiro para um único e-mail de teste. Entre no Dispatch, saia do app de destino e confirme a sondagem silenciosa ao carregá-lo novamente. Repita sem sessão do hub e confirme que `login_required` retorna ao formulário local antes de ampliar o grupo. A primeira ativação pode exigir uma revogação única das sessões existentes.

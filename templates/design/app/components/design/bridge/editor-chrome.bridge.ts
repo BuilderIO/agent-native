@@ -178,6 +178,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       '[data-agent-native-empty-text-editing="true"] [data-agent-native-edit-overlay="selection"]{display:none!important}' +
       "[data-agent-native-text-editing]{outline:none!important;outline-offset:0!important}" +
       "[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}" +
+      // A selection SWITCHING to a different element must not ease the
+      // handle spans through their old target's geometry: the singleton
+      // spans jump straight from one element's clamped hit-zone to
+      // another's, and animating that jump (see applySelectionHandleHitGeometry)
+      // can transiently render an in-between size big enough to cover the
+      // newly selected element's own center. The transition above stays for
+      // same-element chrome-scale eases (zoom settling).
+      "[data-agent-native-suppress-handle-transition] [data-agent-native-edge-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-edit-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-rotate-handle]{transition:none!important}" +
       // Locked layers get a neutral dashed hairline instead of an accent one:
       // accent means "selected" everywhere else in the canvas chrome, and a
       // locked layer is usually neither selected nor selectable. The width
@@ -446,6 +454,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
       document.head.insertBefore(document.importNode(node, true), anchor);
     });
+    scheduleScreenRootStyleSnapshot();
   }
 
   function chromeScaleX(): number {
@@ -483,7 +492,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
 
   function escapeAttribute(value: unknown): string {
-    return String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    var text = String(value);
+    if (window.CSS && typeof window.CSS.escape === "function") {
+      return window.CSS.escape(text);
+    }
+    return text.replace(/[\0-\x1f\x7f\\"]/g, function (character) {
+      if (character === "\\" || character === '"') return "\\" + character;
+      return "\\" + character.charCodeAt(0).toString(16) + " ";
+    });
   }
 
   function attributeSelector(el: Element | null, name: string): string {
@@ -513,7 +529,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       .join("");
   }
 
-  function selectorPart(el: Element | null): string {
+  function selectorPart(el: Element | null, structuralOnly = false): string {
     if (!el || !el.tagName) return "";
     // A clone's own position is the only thing that distinguishes it from its
     // siblings, and it is a LIVE position: the source-equivalent count below
@@ -537,10 +553,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       attributeSelector(el, "data-layer-id") ||
       attributeSelector(el, "data-builder-id") ||
       attributeSelector(el, "data-loc");
-    if (stableSelector) return el.tagName.toLowerCase() + stableSelector;
-    if (el.id) return "#" + escapeIdent(el.id);
+    if (stableSelector && !structuralOnly)
+      return el.tagName.toLowerCase() + stableSelector;
+    if (el.id && !structuralOnly) return "#" + escapeIdent(el.id);
     var part =
-      el.tagName.toLowerCase() + (stableSelector || classSelectorSuffix(el, 2));
+      el.tagName.toLowerCase() +
+      (structuralOnly ? "" : stableSelector || classSelectorSuffix(el, 2));
     var parent = el.parentElement;
     if (parent) {
       // Count positions the way SOURCE does. Alpine's x-for clones and the
@@ -564,15 +582,19 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return part;
   }
 
-  function selectorPath(el: Element | null, stopEl?: Element | null): string {
+  function selectorPath(
+    el: Element | null,
+    stopEl?: Element | null,
+    structuralOnly = false,
+  ): string {
     var parts = [];
     var node = el;
     while (node && node.nodeType === 1) {
-      if (node !== stopEl) parts.unshift(selectorPart(node));
+      if (node !== stopEl) parts.unshift(selectorPart(node, structuralOnly));
       if (node === stopEl) break;
       node = node.parentElement;
     }
-    return parts.slice(-5).join(" > ");
+    return (structuralOnly ? parts : parts.slice(-5)).join(" > ");
   }
 
   function getSourceId(el: Element | null): string {
@@ -586,6 +608,119 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       el.id ||
       ""
     );
+  }
+
+  function readSourceDocumentProvenance(): {
+    versionHash?: string;
+    uniqueNodeIds: string[];
+  } {
+    return sourceDocumentProvenanceSnapshot;
+  }
+
+  function isUniqueRenderedSourceId(
+    sourceId: string,
+    expectedElement?: Element | null,
+  ): boolean {
+    if (!sourceId) return false;
+    var selectors = [
+      '[data-agent-native-node-id="' + escapeAttribute(sourceId) + '"]',
+      '[data-code-layer-id="' + escapeAttribute(sourceId) + '"]',
+      '[data-layer-id="' + escapeAttribute(sourceId) + '"]',
+      '[data-builder-id="' + escapeAttribute(sourceId) + '"]',
+      '[data-loc="' + escapeAttribute(sourceId) + '"]',
+      '[id="' + escapeAttribute(sourceId) + '"]',
+    ];
+    var matches = document.querySelectorAll(selectors.join(","));
+    return (
+      matches.length === 1 &&
+      (!expectedElement || matches[0] === expectedElement)
+    );
+  }
+
+  function nodeProvenanceForSourceId(
+    sourceId: string,
+    element: Element | null,
+  ): { versionHash?: string; uniqueNodeId?: string } | undefined {
+    // Only a node that the source morph actually owns can be paired with the
+    // current source version. Alpine template instances are runtime copies,
+    // even when a single rendered row makes their copied authored ID appear
+    // unique in the live document.
+    if (
+      !element ||
+      !isSourceOwned(element) ||
+      isTemplateCloneElement(element)
+    ) {
+      return undefined;
+    }
+    var documentProvenance = readSourceDocumentProvenance();
+    var nodeProvenance: { versionHash?: string; uniqueNodeId?: string } = {};
+    if (documentProvenance.versionHash) {
+      nodeProvenance.versionHash = documentProvenance.versionHash;
+    }
+    if (
+      sourceId &&
+      documentProvenance.uniqueNodeIds.indexOf(sourceId) !== -1 &&
+      isUniqueRenderedSourceId(sourceId, element)
+    ) {
+      nodeProvenance.uniqueNodeId = sourceId;
+    }
+    return nodeProvenance.versionHash || nodeProvenance.uniqueNodeId
+      ? nodeProvenance
+      : undefined;
+  }
+
+  function normalizeSourceDocumentProvenance(
+    value: unknown,
+  ): { versionHash?: string; uniqueNodeIds: string[] } | undefined {
+    if (!value || typeof value !== "object") return undefined;
+    var candidate = value as {
+      versionHash?: unknown;
+      uniqueNodeIds?: unknown;
+    };
+    var uniqueNodeIds: string[] = [];
+    var seenNodeIds = new Set<string>();
+    if (Array.isArray(candidate.uniqueNodeIds)) {
+      candidate.uniqueNodeIds.forEach(function (nodeId) {
+        if (typeof nodeId === "string" && nodeId && !seenNodeIds.has(nodeId)) {
+          seenNodeIds.add(nodeId);
+          uniqueNodeIds.push(nodeId);
+        }
+      });
+    }
+    var provenance: { versionHash?: string; uniqueNodeIds: string[] } = {
+      uniqueNodeIds: uniqueNodeIds,
+    };
+    if (typeof candidate.versionHash === "string" && candidate.versionHash) {
+      provenance.versionHash = candidate.versionHash;
+    }
+    return provenance;
+  }
+
+  function publishSourceDocumentProvenance(
+    sourceProvenance?: { versionHash?: string; uniqueNodeIds: string[] },
+    partialMutation?: boolean,
+  ): void {
+    var uniqueNodeIds = sourceProvenance
+      ? sourceProvenance.uniqueNodeIds
+      : partialMutation
+        ? readSourceDocumentProvenance().uniqueNodeIds
+        : [];
+    var published: { versionHash?: string; uniqueNodeIds: string[] } = {
+      uniqueNodeIds: uniqueNodeIds,
+    };
+    if (sourceProvenance?.versionHash) {
+      published.versionHash = sourceProvenance.versionHash;
+    }
+    sourceDocumentProvenanceSnapshot = published;
+    (window as any).__agentNativeSourceProvenance = published;
+  }
+
+  var sourceDocumentProvenanceSnapshot = normalizeSourceDocumentProvenance(
+    (window as any).__agentNativeSourceProvenance,
+  ) || { uniqueNodeIds: [] };
+  if ((window as any).__agentNativeSourceProvenance) {
+    (window as any).__agentNativeSourceProvenance =
+      sourceDocumentProvenanceSnapshot;
   }
 
   /**
@@ -634,13 +769,45 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     build: true,
     ".next": true,
     public: true,
+    ".vite": true,
   };
 
-  function isProvenanceNoisePath(path: string): boolean {
+  // React 19 captures _debugStack inside the JSX runtime itself, so its
+  // module is always the top frame; recognised by a runtime module name
+  // INSIDE a Vite optimizer deps directory (`deps`/`deps_ssr`/`deps_temp_*`
+  // — the optimizer always writes pre-bundles there, even under a custom
+  // cacheDir with no node_modules segment) — never by basename alone, since
+  // an authored file that happens to be named react.js or jsx-runtime.js
+  // outside a deps directory is a real local file.
+  var PROVENANCE_REACT_RUNTIME_MODULE_RE =
+    /^(?:react|(?:react[-_])?jsx(?:-dev)?-runtime)(?:\.development|\.production(?:\.min)?)?\.(?:m?js|cjs)$/;
+  var PROVENANCE_VITE_DEPS_SEGMENT_RE = /^deps(?:_|$)/;
+
+  // localServedOutput (a /@fs/ frame) exempts dist/build only — a locally
+  // built package is a real local file. node_modules stays noise even
+  // through /@fs/: Vite resolves symlinks, so a linked workspace package
+  // never carries a node_modules segment, and third-party code always
+  // arrives here by its real path.
+  function isProvenanceNoisePath(
+    path: string,
+    localServedOutput: boolean,
+  ): boolean {
     var segments = path.split("/");
+    for (var i = 0; i < segments.length - 1; i += 1) {
+      if (
+        PROVENANCE_VITE_DEPS_SEGMENT_RE.test(segments[i]!) &&
+        PROVENANCE_REACT_RUNTIME_MODULE_RE.test(segments[i + 1]!)
+      ) {
+        return true;
+      }
+    }
     for (var i = 0; i < segments.length; i += 1) {
-      if (PROVENANCE_NOISE_SEGMENTS[segments[i]!]) return true;
-      if (segments[i] === "_next" && segments[i + 1] === "static") return true;
+      var segment = segments[i]!;
+      if (localServedOutput && (segment === "dist" || segment === "build")) {
+        continue;
+      }
+      if (PROVENANCE_NOISE_SEGMENTS[segment]) return true;
+      if (segment === "_next" && segments[i + 1] === "static") return true;
     }
     return false;
   }
@@ -702,11 +869,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var resolved = resolveProvenanceFrameUrl(match[2]!);
     if (!resolved) return null;
     // A Vite /@fs/ frame is a real local file even when its path contains
-    // dist/ or node_modules/. Ordinary runtime/module frames retain the noise
-    // filter so React internals never become element provenance.
+    // dist/ or build/ — but node_modules stays noise even through /@fs/, so a
+    // classic-transform createElement frame served from a symlinked
+    // dependency (react.development.js) never becomes element provenance.
     if (
-      !resolved.localServedOutput &&
-      isProvenanceNoisePath(resolved.sourceFile)
+      isProvenanceNoisePath(resolved.sourceFile, resolved.localServedOutput)
     ) {
       return null;
     }
@@ -824,20 +991,29 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   ];
 
   function reactFiberOf(el: Element): any {
-    var keys = Object.keys(el);
+    var keys = Object.getOwnPropertyNames(el);
+    var fallback = null;
     for (var i = 0; i < keys.length; i += 1) {
       for (var j = 0; j < REACT_FIBER_KEY_PREFIXES.length; j += 1) {
         if (keys[i]!.indexOf(REACT_FIBER_KEY_PREFIXES[j]!) === 0) {
-          return (el as unknown as Record<string, any>)[keys[i]!];
+          var fiber = (el as unknown as Record<string, any>)[keys[i]!];
+          if (!fallback) fallback = fiber;
+          if (fiber && fiber._debugSource) return fiber;
         }
       }
     }
-    return null;
+    return fallback;
   }
 
   function reactDebugProvenance(el: Element): FrameworkDebugProvenance {
     var cached = reactDebugProvenanceCache?.get(el);
-    if (cached !== undefined) return cached;
+    if (
+      cached !== undefined &&
+      (cached.method === "debug-source" ||
+        cached.method === "debug-stack-remapped")
+    ) {
+      return cached;
+    }
     // Deliberately no climb to an ancestor's fiber: this runs over every node
     // in the runtime snapshot, and borrowing a parent's location would stamp a
     // non-React node with a source line that is not its own.
@@ -1376,16 +1552,26 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     ) {
       return false;
     }
+    if (
+      el instanceof HTMLIFrameElement &&
+      !isSourceOwned(el) &&
+      el.getAttribute("aria-hidden") === "true" &&
+      el.offsetWidth === 0 &&
+      el.offsetHeight === 0
+    ) {
+      return false;
+    }
     return !(
       isOverlayElement(el) || el.closest("[data-agent-native-edit-overlay]")
     );
   }
 
-  function serializeRuntimeLayerSnapshot(): {
-    html: string;
-    nodeCount: number;
-  } | null {
-    if (!document.body) return null;
+  function serializeRuntimeLayerSnapshot(
+    excludedRoot?: Element,
+  ):
+    | { ok: true; html: string; nodeCount: number; documentId: string }
+    | { ok: false; reason: "snapshot-unavailable" | "snapshot-too-large" } {
+    if (!document.body) return { ok: false, reason: "snapshot-unavailable" };
     // Keep this list export-focused and bounded. The runtime snapshot is also
     // the hosted/cross-origin Design→Figma fallback: inlining the resolved
     // paint/layout values lets the parent reconstruct the already-rendered
@@ -1490,14 +1676,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     ) {
       var sourceNode = sourceNodes[index];
       var cloneNode = cloneNodes[index];
-      if (!isRuntimeLayerVisualNode(sourceNode)) {
+      if (
+        excludedRoot?.contains(sourceNode) ||
+        !isRuntimeLayerVisualNode(sourceNode)
+      ) {
         cloneNode.setAttribute("data-an-runtime-layer-remove", "true");
         continue;
       }
-      cloneNode.setAttribute(
-        "data-agent-native-node-id",
-        ensureRuntimeLayerNodeId(sourceNode),
-      );
+      var runtimeNodeId = ensureRuntimeLayerNodeId(sourceNode);
+      cloneNode.setAttribute("data-agent-native-node-id", runtimeNodeId);
       inlineSnapshotComputedStyle(sourceNode, cloneNode);
       var provenance = elementDebugProvenance(sourceNode);
       if (provenance.sourceFile) {
@@ -1519,6 +1706,25 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         }
         if (provenance.component) {
           cloneNode.setAttribute("data-component-name", provenance.component);
+        }
+        var runtimeComponent = runtimeComponentIdentityForElement(
+          sourceNode,
+          provenance,
+          runtimeNodeId,
+        );
+        if (runtimeComponent) {
+          cloneNode.setAttribute(
+            "data-agent-native-runtime-component-id",
+            runtimeComponent.componentId,
+          );
+          cloneNode.setAttribute(
+            "data-agent-native-runtime-instance-id",
+            runtimeComponent.instanceId,
+          );
+          cloneNode.setAttribute(
+            "data-agent-native-runtime-component-capability",
+            runtimeComponent.writeCapability,
+          );
         }
         if (provenance.ownerSourceFile) {
           cloneNode.setAttribute(
@@ -1611,8 +1817,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     inlineSnapshotComputedStyle(document.body, cloneBody);
     cloneBody.setAttribute("data-an-runtime-layer-snapshot", "true");
     var html = "<!doctype html><html>" + cloneBody.outerHTML + "</html>"; // i18n-ignore serialized runtime-layer HTML payload, not visible UI copy
-    if (html.length > 2_000_000) return null;
+    if (html.length > 2_000_000)
+      return { ok: false, reason: "snapshot-too-large" };
     return {
+      ok: true,
       html: html,
       nodeCount: nodeCount,
       documentId: runtimeDocumentId,
@@ -1629,7 +1837,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     runtimeLayerSnapshotTimer = null;
     runtimeLayerSnapshotMaxTimer = null;
     var snapshot = serializeRuntimeLayerSnapshot();
-    if (!snapshot || snapshot.html === lastRuntimeLayerSnapshotHtml) return;
+    if (!snapshot.ok) {
+      (window.parent as Window).postMessage(
+        {
+          type: "agent-native:runtime-layer-snapshot-error",
+          payload: snapshot,
+        },
+        "*",
+      );
+      return;
+    }
+    if (snapshot.html === lastRuntimeLayerSnapshotHtml) return;
     lastRuntimeLayerSnapshotHtml = snapshot.html;
     (window.parent as Window).postMessage(
       {
@@ -1788,14 +2006,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   ];
 
   /** A rect padded so a hairline or empty box can still be hit and outlined. */
-  function selectableBounds(el: Element): {
+  interface SelectableBounds {
     left: number;
     top: number;
     right: number;
     bottom: number;
     width: number;
     height: number;
-  } {
+  }
+
+  function selectableBounds(el: Element): SelectableBounds {
     var rect = el.getBoundingClientRect();
     var padX =
       rect.width < MIN_SELECTABLE_EXTENT_PX ? MIN_SELECTABLE_EXTENT_PX / 2 : 0;
@@ -1846,71 +2066,57 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return !!(el && !isDocumentRootElement(el) && getSourceId(el));
   }
 
-  // Detects an Alpine `<template x-for>` runtime clone: Alpine keeps the
-  // `<template>` element itself in the live DOM (as a hidden, zero-size
-  // marker) and inserts every rendered instance as a DIRECT SIBLING of that
-  // template, all still children of the same parent — so `ul > template,
-  // li, li, li` is the live shape for `<ul><template x-for>...</template>
-  // rendering 3 items</ul>`. The static SOURCE HTML the host resolves moves
-  // against only ever contains the single template child, never the N
-  // runtime clones, so structural moves (reorder/reparent) targeting a
-  // clone — or targeting another clone as the anchor — can never resolve on
-  // the host and always come back `applied:false`. Detected once per drag
-  // via an ancestor walk (not just the immediate parent) so nested x-for
-  // clones (e.g. a subtask `<li>` inside a per-task `<ul>` that is itself
-  // x-for'd) are also caught, stopping at the first stable-id ancestor
-  // (anything inside a stamped subtree has a real anchor and is fine).
-  // Template bodies are projected and stamped, so a clone carries the body's
-  // id. Keying cloneness on "has an id" made every clone read as real source.
-  var repeatBodyIdCache = new WeakMap<Element, Set<string>>();
-
-  function repeatBodyIds(template: Element): Set<string> {
-    var cached = repeatBodyIdCache.get(template);
-    if (cached) return cached;
-    var ids = new Set<string>();
-    var body = (template as Element & { content?: DocumentFragment }).content;
-    if (body) {
-      var all = body.querySelectorAll("*");
-      for (var i = 0; i < all.length; i += 1) {
-        var id = all[i].getAttribute("data-agent-native-node-id");
-        if (id) ids.add(id);
-      }
-    }
-    repeatBodyIdCache.set(template, ids);
-    return ids;
+  // Portable clone styling retains its marker after persistence. The marker
+  // alone therefore means "clone-shaped", not "runtime-only": a source
+  // document reload stamps its nodes with __anSource, while an optimistic
+  // board insertion remains unclaimed until that source round trip completes.
+  function isRuntimeOnlyClone(el: Element): boolean {
+    var cloneRoot = el.closest('[data-agent-native-clone-root="true"]');
+    return !!cloneRoot && !isSourceOwned(cloneRoot);
   }
 
-  function repeatBodyRootTag(template: Element): string {
-    var body = (template as Element & { content?: DocumentFragment }).content;
-    var root = body ? body.firstElementChild : null;
-    return root ? root.tagName : "";
-  }
-
+  // Alpine inserts x-for and x-if instances as direct siblings of their
+  // template. Use Alpine's own ownership references rather than guessing from
+  // copied IDs, tag shape, or sibling position: any of those can also describe
+  // an ordinary authored sibling.
   function repeatTemplateOwning(node: Element): Element | null {
     var parent = node.parentElement;
     if (!parent) return null;
-    var ownId = node.getAttribute
-      ? node.getAttribute("data-agent-native-node-id")
-      : null;
     var siblings = parent.children;
     for (var i = 0; i < siblings.length; i += 1) {
       var sib = siblings[i];
       if (
         sib === node ||
         !sib.tagName ||
-        sib.tagName.toLowerCase() !== "template" ||
-        !sib.hasAttribute("x-for")
+        sib.tagName.toLowerCase() !== "template"
       ) {
         continue;
       }
-      if (ownId) {
-        if (repeatBodyIds(sib).has(ownId)) return sib;
+      var alpineTemplate = sib as Element & {
+        _x_lookup?: Map<unknown, Element> | Record<string, Element>;
+        _x_currentIfEl?: Element;
+      };
+      if (alpineTemplate._x_currentIfEl === node) return sib;
+      var lookup = alpineTemplate._x_lookup;
+      if (!lookup) continue;
+      var map = lookup as Map<unknown, Element>;
+      if (typeof map.forEach === "function" && typeof map.get === "function") {
+        var foundInMap = false;
+        map.forEach(function (instance) {
+          if (instance === node) foundInMap = true;
+        });
+        if (foundInMap) return sib;
         continue;
       }
-      // No id to match, so fall back to shape: a clone is a copy of the
-      // template body's root. "Has no id" alone would read any ordinary
-      // element following a repeat as one of its rendered rows.
-      if (node.tagName === repeatBodyRootTag(sib)) return sib;
+      var record = lookup as Record<string, Element>;
+      for (var key in record) {
+        if (
+          Object.prototype.hasOwnProperty.call(record, key) &&
+          record[key] === node
+        ) {
+          return sib;
+        }
+      }
     }
     return null;
   }
@@ -1945,6 +2151,24 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (node.nodeType === 3 && (node.nodeValue || "").trim()) return true;
     }
     return false;
+  }
+
+  function isWholeTextStyleRoot(el: Element): boolean {
+    if (
+      el === document.body ||
+      el === document.documentElement ||
+      el.getAttribute("data-agent-native-group") === "true" ||
+      el.getAttribute("data-an-primitive") === "frame"
+    ) {
+      return false;
+    }
+    if (el.getAttribute("data-an-primitive") === "text") {
+      return Boolean((el.textContent || "").trim());
+    }
+    return (
+      hasOnlyInlineEditableChildren(el) &&
+      (hasOwnTextContent(el) || isInlineEditableDescendant(el))
+    );
   }
 
   /** Every row this template rendered, in document order. */
@@ -2105,6 +2329,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return hit;
   }
 
+  function nativeTextPrimitiveForHit(hit: Element | null): Element | null {
+    if (!hit || !hit.closest) return null;
+    var root = hit.closest('[data-an-primitive="text"]');
+    return root && !isDocumentRootElement(root) ? root : null;
+  }
+
   function selectionTargetForHit(
     hit: Element | null,
     descendIntoGroup = false,
@@ -2116,14 +2346,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var svgRoot = outermostSvgAncestor(hit);
     if (svgRoot) return svgRoot;
     var target = unwrapTextOverlay(hit);
+    var textPrimitive = nativeTextPrimitiveForHit(target);
+    if (textPrimitive) target = textPrimitive;
     if (!descendIntoGroup) {
       var group = target;
       while (group && !isDocumentRootElement(group)) {
-        var groupName =
-          (group.getAttribute &&
-            group.getAttribute("data-agent-native-layer-name")) ||
-          (group.getAttribute && group.getAttribute("data-layer-name")) ||
-          "";
+        var groupName = layerNameForElement(group);
         var generatedGroupMarker =
           group.getAttribute &&
           group.getAttribute("data-agent-native-group-wrapper") === "true" &&
@@ -2214,6 +2442,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // would resolve straight back to selectedEl and click-through would
     // never descend into a selected Frame's children.
     var raw = outermostSvgAncestor(hit) || unwrapTextOverlay(hit);
+    raw = nativeTextPrimitiveForHit(raw) || raw;
     if (!raw || raw === selectedEl || !selectedEl.contains(raw)) {
       return null;
     }
@@ -2239,8 +2468,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return "an-" + String(prefix || "copy") + "-" + random;
   }
 
-  function resetRuntimeStableIds(root: Element | null): void {
-    if (!root || !root.querySelectorAll) return;
+  function resetRuntimeStableIds(
+    root: Element | null,
+  ): Array<[string, string]> {
+    if (!root || !root.querySelectorAll) return [];
+    var sourceNodeIdMap: Array<[string, string]> = [];
     var nodes = [root].concat(
       Array.prototype.slice.call(
         root.querySelectorAll("[data-agent-native-node-id]"),
@@ -2248,12 +2480,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
     nodes.forEach(function (node, index) {
       if (node && node.setAttribute) {
-        node.setAttribute(
-          "data-agent-native-node-id",
-          freshRuntimeNodeId(index === 0 ? "copy" : "copy-child"),
+        var sourceNodeId = node.getAttribute("data-agent-native-node-id");
+        var cloneNodeId = freshRuntimeNodeId(
+          index === 0 ? "copy" : "copy-child",
         );
+        node.setAttribute("data-agent-native-node-id", cloneNodeId);
+        if (sourceNodeId) sourceNodeIdMap.push([sourceNodeId, cloneNodeId]);
       }
     });
+    return sourceNodeIdMap;
   }
 
   function getSelector(el: Element | null): string {
@@ -2295,13 +2530,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   function layerNameForElement(el: Element | null): string {
     if (!el || !el.getAttribute) return "";
-    var canonical = el.getAttribute("data-agent-native-layer-name");
-    if (canonical && canonical.trim) {
-      var trimmedCanonical = canonical.trim();
-      if (trimmedCanonical) return trimmedCanonical;
+    var attributes = [
+      "data-agent-native-layer-name",
+      "data-layer-name",
+      "layer-name",
+    ];
+    for (var i = 0; i < attributes.length; i += 1) {
+      var value = el.getAttribute(attributes[i]);
+      var trimmed = value && value.trim ? value.trim() : "";
+      if (trimmed) return trimmed;
     }
-    var legacy = el.getAttribute("data-layer-name");
-    return legacy && legacy.trim ? legacy.trim() : "";
+    return "";
   }
 
   // Only the annotation. The class/layer-name guess this replaced painted
@@ -2326,6 +2565,82 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return layerNameForElement(el);
   }
 
+  function runtimeComponentPropsForElement(
+    el: Element,
+  ): Array<{ name: string; value: string }> {
+    var props: Array<{ name: string; value: string }> = [];
+    if (!el.attributes) return props;
+    for (var index = 0; index < el.attributes.length; index += 1) {
+      var attribute = el.attributes[index];
+      if (!attribute || attribute.name.indexOf("data-agent-native-prop-") !== 0)
+        continue;
+      var rawName = attribute.name.slice("data-agent-native-prop-".length);
+      if (!rawName) continue;
+      props.push({
+        name: rawName.replace(/-([a-z])/g, function (_match, letter) {
+          return String(letter).toUpperCase();
+        }),
+        value: attribute.value,
+      });
+    }
+    return props;
+  }
+
+  /** Runtime identity is separate from the persisted component annotation. */
+  function runtimeComponentIdentityForElement(
+    el: Element,
+    provenance: FrameworkDebugProvenance,
+    instanceId: string,
+  ): any {
+    var name = provenance.component && provenance.component.trim();
+    var definitionSourceFile =
+      provenance.sourceFile && provenance.sourceFile.trim();
+    var invocationSourceFile =
+      provenance.ownerSourceFile && provenance.ownerSourceFile.trim();
+    var invocationLine = provenance.ownerLine;
+    var invocationColumn = provenance.ownerColumn;
+    var invocationMethod = provenance.ownerMethod;
+    if (
+      !name ||
+      !definitionSourceFile ||
+      !provenance.framework ||
+      provenance.framework === "html" ||
+      !instanceId
+    ) {
+      return undefined;
+    }
+    var boundary = [
+      provenance.framework,
+      definitionSourceFile,
+      provenance.line || "",
+      provenance.column || "",
+      name,
+    ].join("|");
+    var writable =
+      provenance.framework === "react" &&
+      invocationSourceFile !== undefined &&
+      invocationMethod !== undefined &&
+      invocationMethod !== "debug-stack" &&
+      Number.isFinite(invocationLine) &&
+      Number.isFinite(invocationColumn);
+    return {
+      componentId: "runtime-component-" + runtimeLayerHash(boundary),
+      instanceId: instanceId,
+      name: name,
+      framework: provenance.framework,
+      sourceFile: invocationSourceFile,
+      line: invocationLine,
+      column: invocationColumn,
+      method: invocationMethod,
+      ownerKey: provenance.ownerKey,
+      props: runtimeComponentPropsForElement(el),
+      writeCapability: writable ? "authored-jsx-literal" : "unsupported",
+      reason: writable
+        ? undefined
+        : "The runtime did not expose a verified authored component invocation location.",
+    };
+  }
+
   function isAutoLayoutDisplay(display: string | undefined): boolean {
     return (
       display === "flex" ||
@@ -2336,6 +2651,35 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
 
   function rectInfoForElement(el: Element) {
+    if (el.getAttribute("data-an-primitive") === "boolean-operand") {
+      var geometry = el as SVGGraphicsElement;
+      var box = geometry.getBBox();
+      var matrix = geometry.getScreenCTM();
+      if (box && matrix) {
+        var points = [
+          [box.x, box.y],
+          [box.x + box.width, box.y],
+          [box.x, box.y + box.height],
+          [box.x + box.width, box.y + box.height],
+        ];
+        var xs = points.map(function (point) {
+          return matrix.a * point[0]! + matrix.c * point[1]! + matrix.e;
+        });
+        var ys = points.map(function (point) {
+          return matrix.b * point[0]! + matrix.d * point[1]! + matrix.f;
+        });
+        var scrollX = window.scrollX || window.pageXOffset || 0;
+        var scrollY = window.scrollY || window.pageYOffset || 0;
+        var left = Math.min.apply(null, xs);
+        var top = Math.min.apply(null, ys);
+        return {
+          x: left + scrollX,
+          y: top + scrollY,
+          width: Math.max.apply(null, xs) - left,
+          height: Math.max.apply(null, ys) - top,
+        };
+      }
+    }
     var rect = el.getBoundingClientRect();
     return {
       x: rect.x + (window.scrollX || window.pageXOffset || 0),
@@ -2345,8 +2689,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     };
   }
 
+  function designParentForElement(el: Element): Element | null {
+    if (el.getAttribute("data-an-primitive") === "boolean-operand") {
+      return el.closest('svg[data-an-primitive="boolean"]') || el.parentElement;
+    }
+    return el.parentElement;
+  }
+
   function autoLayoutParentInfo(el: Element) {
-    var parent = el.parentElement;
+    var parent = designParentForElement(el);
     if (
       !parent ||
       parent === document.body ||
@@ -2438,6 +2789,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     "justifySelf",
     "letterSpacing",
     "lineHeight",
+    "webkitBoxOrient",
+    "webkitLineClamp",
     "margin",
     "marginBottom",
     "marginLeft",
@@ -2468,7 +2821,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     "placeContent",
     "placeItems",
     "placeSelf",
-    "position",
+    // "position" is deliberately excluded: the drop/move that carries this
+    // snapshot always decides the landed node's position itself afterward
+    // (setRootLayerPosition / setAbsolutePositioningForNodeInHtml /
+    // removeAbsolutePositioningFromNodeInHtml), and design-editor/
+    // portable-style.ts's applyPortableStyles filters it back out on the
+    // apply side too if it's ever added back here — keep both in sync.
     "rowGap",
     "textAlign",
     "textDecoration",
@@ -2486,15 +2844,24 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     "zIndex",
   ];
 
-  function elementPathFromRoot(root: Element, node: Element): number[] {
-    var path = [];
-    var current: Element | null = node;
-    while (current && current !== root && current.parentElement) {
-      var siblings = Array.prototype.slice.call(current.parentElement.children);
-      path.unshift(Math.max(0, siblings.indexOf(current)));
-      current = current.parentElement;
+  function elementPathsFromRoot(
+    root: Element,
+    descendants: Element[],
+  ): Map<Element, number[]> {
+    var paths = new Map<Element, number[]>();
+    var nextChildIndexes = new Map<Element, number>();
+    paths.set(root, []);
+    for (var index = 0; index < descendants.length; index += 1) {
+      var node = descendants[index];
+      var parent = node.parentElement;
+      if (!parent) continue;
+      var parentPath = paths.get(parent);
+      if (!parentPath) continue;
+      var childIndex = nextChildIndexes.get(parent) || 0;
+      nextChildIndexes.set(parent, childIndex + 1);
+      paths.set(node, parentPath.concat(childIndex));
     }
-    return path;
+    return paths;
   }
 
   // Editor-internal CSS custom-property prefixes — selection chrome colors,
@@ -2522,15 +2889,878 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return false;
   }
 
+  // Bare-tag baseline for the diff below, measured in a throwaway iframe
+  // with NO author stylesheets — the source document's own `<style>`/
+  // Tailwind rules must never leak into "default", or a bare-tag rule
+  // there (e.g. `button { background: teal }`) matches the probe too and
+  // the diff wrongly reads a real, authored appearance as "just what this
+  // tag renders as anyway", dropping it before it ever reaches the
+  // destination document (which has no such rule). Cached per tag+
+  // namespace since a portable-style snapshot walks up to 80 descendants
+  // per drag.
+  var portableStyleProbeDoc: Document | null | undefined;
+
+  function portableStyleProbeDocument(): Document | null {
+    if (portableStyleProbeDoc !== undefined) return portableStyleProbeDoc;
+    try {
+      var frame = document.createElement("iframe");
+      frame.setAttribute("aria-hidden", "true");
+      frame.tabIndex = -1;
+      frame.style.cssText =
+        "position:fixed!important;width:0!important;height:0!important;" +
+        "border:0!important;visibility:hidden!important;pointer-events:none!important;";
+      document.body.appendChild(frame);
+      portableStyleProbeDoc = frame.contentDocument;
+    } catch (_err) {
+      portableStyleProbeDoc = null;
+    }
+    return portableStyleProbeDoc;
+  }
+
+  var portableStyleTagDefaultsCache: Record<
+    string,
+    Record<string, string>
+  > = {};
+
+  // `null` means "the probe could not be measured" — a distinct, loud
+  // failure a caller must skip on, never `{}`. `{}` reads as "this tag has
+  // no default styles," which makes every real computed value look
+  // customized and silently falls back to over-carrying ~130 properties
+  // onto every moved/duplicated node (the exact pre-fix bug this guards).
+  function portableStyleTagDefaults(
+    el: Element,
+  ): Record<string, string> | null {
+    var cacheKey = (el.namespaceURI || "") + ":" + el.tagName;
+    var cached = portableStyleTagDefaultsCache[cacheKey];
+    if (cached) return cached;
+    var probeDoc = portableStyleProbeDocument();
+    if (!probeDoc || !probeDoc.body) {
+      dndLog("style:probe-unavailable", { tag: el.tagName });
+      return null;
+    }
+    // Deliberately NOT forced to position:absolute: that changes width's
+    // auto-sizing algorithm (shrink-to-fit vs filling the containing
+    // block), so an ordinary static element would look "different from
+    // default" purely from the probe's own position, not any real
+    // customization. The probe stays in normal flow; the IFRAME around it
+    // (zero-size, hidden, fixed) is what's kept out of visible layout.
+    var probe =
+      el.namespaceURI && el.namespaceURI !== "http://www.w3.org/1999/xhtml"
+        ? probeDoc.createElementNS(el.namespaceURI, el.tagName)
+        : probeDoc.createElement(el.tagName);
+    probeDoc.body.appendChild(probe);
+    var probeWindow = probeDoc.defaultView || window;
+    var probeCs = probeWindow.getComputedStyle(probe);
+    var defaults: Record<string, string> = {};
+    PORTABLE_STYLE_PROPERTIES.forEach(function (property) {
+      defaults[property] =
+        probeCs[property] || probeCs.getPropertyValue(property);
+    });
+    probeDoc.body.removeChild(probe);
+    portableStyleTagDefaultsCache[cacheKey] = defaults;
+    return defaults;
+  }
+
+  // Native computed values preserve auto/%/calc without freezing used layout
+  // pixels or trying to replay the cascade. Like the other snapshot properties,
+  // sizes describe the current computed state, including active animations.
+  // ponytail: font-relative sizes may canonicalize to pixels; preserving authored
+  // units across different stylesheets would require declaration provenance.
+  var PORTABLE_STYLE_BOX_SIZE_PROPERTIES: Record<string, boolean> = {
+    width: true,
+    height: true,
+  };
+
+  type PortableStyleCacheEntry = {
+    generation: number;
+    styles: Record<string, string> | null;
+  };
+
+  type PortableStyleAnimationState = {
+    fingerprint: string;
+    cacheable: boolean;
+  };
+
+  type PortableStyleComputedStylesCache = {
+    entries: Map<Element, PortableStyleCacheEntry>;
+    animationFingerprints: Map<Element, string>;
+    mutationObserver: MutationObserver;
+    mutationGeneration: number;
+    observedMutationRoots: Node[];
+    restoreCssomHooks: () => void;
+  };
+
+  type PortableStyleCssomHookSubscriber = {
+    cache: PortableStyleComputedStylesCache;
+    shouldInvalidate?: (receiver: unknown) => boolean;
+  };
+
+  type PortableStyleCssomHook = {
+    owner: object;
+    property: string;
+    kind: "method" | "setter";
+    descriptor: PropertyDescriptor;
+    wrappedValue?: Function;
+    wrappedSetter?: Function;
+    subscribers: PortableStyleCssomHookSubscriber[];
+  };
+
+  // A collection can be re-entered while another collection still owns the
+  // same global CSSOM prototypes. Keep one wrapper per owner/property and
+  // release the original descriptor only after every cache has detached.
+  var portableStyleCssomHooks = new WeakMap<
+    object,
+    Map<string, PortableStyleCssomHook>
+  >();
+
+  var portableStyleMutationObserverOptions = {
+    subtree: true,
+    childList: true,
+    attributes: true,
+    characterData: true,
+  };
+
+  function portableStyleMutationAffectsCache(record: MutationRecord): boolean {
+    if (record.type === "attributes") {
+      return !(
+        record.target instanceof Element &&
+        (record.attributeName === "data-an-pending-node-id" ||
+          isOverlayElement(record.target))
+      );
+    }
+    if (record.type !== "childList") {
+      return !(
+        record.target instanceof Node &&
+        record.target.parentElement &&
+        isOverlayElement(record.target.parentElement)
+      );
+    }
+    if (record.target instanceof Element && isOverlayElement(record.target)) {
+      return false;
+    }
+    var nodes = Array.prototype.slice
+      .call(record.addedNodes)
+      .concat(Array.prototype.slice.call(record.removedNodes));
+    return (
+      nodes.length === 0 ||
+      nodes.some(function (node: Node) {
+        return !(
+          (node instanceof Element && isOverlayElement(node)) ||
+          (node.parentElement && isOverlayElement(node.parentElement))
+        );
+      })
+    );
+  }
+
+  function portableStyleMutationGeneration(
+    cache: PortableStyleComputedStylesCache,
+  ): number {
+    try {
+      var records = cache.mutationObserver.takeRecords();
+      if (records.some(portableStyleMutationAffectsCache)) {
+        cache.mutationGeneration += 1;
+      }
+    } catch (_error) {
+      // A cache with an unreadable observer cannot prove that a DOM/style
+      // mutation did not happen. Advancing the generation forces every
+      // subsequent lookup to miss and keeps the optimization fail-closed.
+      cache.mutationGeneration += 1;
+      dndLog("style:mutation-state-unreadable");
+    }
+    return cache.mutationGeneration;
+  }
+
+  function portableStyleObserveMutationRoot(
+    cache: PortableStyleComputedStylesCache,
+    root: Node,
+  ): boolean {
+    if (cache.observedMutationRoots.indexOf(root) !== -1) return true;
+    try {
+      cache.mutationObserver.observe(
+        root,
+        portableStyleMutationObserverOptions,
+      );
+      cache.observedMutationRoots.push(root);
+      // A newly discovered root may already have changed while an earlier
+      // snapshot was being read, so invalidate entries captured before it was
+      // observed.
+      if (cache.observedMutationRoots.length > 1) {
+        cache.mutationGeneration += 1;
+      }
+      return true;
+    } catch (_error) {
+      cache.mutationGeneration += 1;
+      dndLog("style:mutation-root-unavailable");
+      return false;
+    }
+  }
+
+  function portableStyleObserveElementRoot(
+    cache: PortableStyleComputedStylesCache,
+    el: Element,
+  ): boolean {
+    try {
+      var shadowRoot = (el as Element & { shadowRoot?: ShadowRoot | null })
+        .shadowRoot;
+      if (shadowRoot && !portableStyleObserveMutationRoot(cache, shadowRoot)) {
+        return false;
+      }
+      var getRootNode = (el as Element & { getRootNode?: () => Node })
+        .getRootNode;
+      if (typeof getRootNode !== "function") return true;
+      var root = getRootNode.call(el);
+      if (!(root instanceof Node)) return false;
+      return portableStyleObserveMutationRoot(cache, root);
+    } catch (_error) {
+      cache.mutationGeneration += 1;
+      dndLog("style:mutation-root-read-failed", { tag: el.tagName });
+      return false;
+    }
+  }
+
+  function portableStylePropertyDescriptor(
+    target: object,
+    property: string,
+  ): { owner: object; descriptor: PropertyDescriptor } | undefined {
+    var current: object | null = target;
+    while (current) {
+      var descriptor = Object.getOwnPropertyDescriptor(current, property);
+      if (descriptor) return { owner: current, descriptor: descriptor };
+      var prototype = Object.getPrototypeOf(current);
+      current =
+        prototype && prototype !== Object.prototype
+          ? (prototype as object)
+          : null;
+    }
+    return undefined;
+  }
+
+  function portableStyleCssomDeclarationChanged(receiver: unknown): boolean {
+    try {
+      // Inline style writes are already covered by MutationObserver. A rule's
+      // declaration has a parentRule and is invisible to that observer.
+      return (receiver as { parentRule?: unknown }).parentRule !== null;
+    } catch (_error) {
+      return true;
+    }
+  }
+
+  function portableStyleCssomHookKey(
+    property: string,
+    kind: "method" | "setter",
+  ): string {
+    return kind + ":" + property;
+  }
+
+  function portableStyleCssomHookMap(
+    owner: object,
+    create: boolean,
+  ): Map<string, PortableStyleCssomHook> | undefined {
+    var hooks = portableStyleCssomHooks.get(owner);
+    if (!hooks && create) {
+      hooks = new Map<string, PortableStyleCssomHook>();
+      portableStyleCssomHooks.set(owner, hooks);
+    }
+    return hooks;
+  }
+
+  function portableStyleCssomHookInstalled(
+    found: { owner: object; descriptor: PropertyDescriptor },
+    hook: PortableStyleCssomHook,
+  ): boolean {
+    return hook.kind === "method"
+      ? found.descriptor.value === hook.wrappedValue
+      : found.descriptor.set === hook.wrappedSetter;
+  }
+
+  function portableStyleCssomExistingHook(
+    found: { owner: object; descriptor: PropertyDescriptor },
+    property: string,
+    kind: "method" | "setter",
+  ): PortableStyleCssomHook | undefined {
+    var hooks = portableStyleCssomHookMap(found.owner, false);
+    var key = portableStyleCssomHookKey(property, kind);
+    var hook = hooks?.get(key);
+    if (!hook) return undefined;
+    if (portableStyleCssomHookInstalled(found, hook)) return hook;
+    hooks?.delete(key);
+    return undefined;
+  }
+
+  function portableStyleCssomInvalidateHook(
+    hook: PortableStyleCssomHook,
+    receiver?: unknown,
+  ): void {
+    hook.subscribers.slice().forEach(function (subscriber) {
+      try {
+        if (
+          !subscriber.shouldInvalidate ||
+          subscriber.shouldInvalidate(receiver)
+        ) {
+          subscriber.cache.mutationGeneration += 1;
+        }
+      } catch (_error) {
+        subscriber.cache.mutationGeneration += 1;
+      }
+    });
+  }
+
+  function portableStyleCssomSubscribe(
+    hook: PortableStyleCssomHook,
+    cache: PortableStyleComputedStylesCache,
+    shouldInvalidate?: (receiver: unknown) => boolean,
+  ): () => void {
+    var subscriber = { cache: cache, shouldInvalidate: shouldInvalidate };
+    hook.subscribers.push(subscriber);
+    var released = false;
+    return function () {
+      if (released) return;
+      released = true;
+      var subscriberIndex = hook.subscribers.indexOf(subscriber);
+      if (subscriberIndex !== -1) hook.subscribers.splice(subscriberIndex, 1);
+      if (hook.subscribers.length > 0) return;
+      var hooks = portableStyleCssomHookMap(hook.owner, false);
+      var current = Object.getOwnPropertyDescriptor(hook.owner, hook.property);
+      if (
+        current &&
+        portableStyleCssomHookInstalled(
+          { owner: hook.owner, descriptor: current },
+          hook,
+        )
+      ) {
+        try {
+          Object.defineProperty(hook.owner, hook.property, hook.descriptor);
+        } catch (_error) {
+          dndLog("style:cssom-hook-restore-failed", {
+            property: hook.property,
+          });
+        }
+      }
+      var key = portableStyleCssomHookKey(hook.property, hook.kind);
+      if (hooks?.get(key) === hook) hooks.delete(key);
+      if (hooks?.size === 0) portableStyleCssomHooks.delete(hook.owner);
+    };
+  }
+
+  function portableStyleWrapCssomMethod(
+    cache: PortableStyleComputedStylesCache,
+    target: object,
+    property: string,
+    shouldInvalidate?: (receiver: unknown) => boolean,
+  ): true | false | (() => void) {
+    var found = portableStylePropertyDescriptor(target, property);
+    if (!found || typeof found.descriptor.value !== "function") return true;
+    var existingHook = portableStyleCssomExistingHook(
+      found,
+      property,
+      "method",
+    );
+    if (existingHook) {
+      return portableStyleCssomSubscribe(existingHook, cache, shouldInvalidate);
+    }
+    var original = found.descriptor.value as (
+      this: unknown,
+      ...args: unknown[]
+    ) => unknown;
+    var hook: PortableStyleCssomHook = {
+      owner: found.owner,
+      property: property,
+      kind: "method",
+      descriptor: found.descriptor,
+      subscribers: [],
+    };
+    var wrapped = function (this: unknown, ...args: unknown[]) {
+      portableStyleCssomInvalidateHook(hook, this);
+      var result = original.apply(this, args);
+      if (property === "replace" && result) {
+        try {
+          var then = (result as { then?: unknown }).then;
+          if (typeof then === "function") {
+            then.call(
+              result,
+              function () {
+                portableStyleCssomInvalidateHook(hook);
+              },
+              function () {
+                portableStyleCssomInvalidateHook(hook);
+              },
+            );
+          }
+        } catch (_error) {
+          portableStyleCssomInvalidateHook(hook);
+        }
+      }
+      return result;
+    };
+    hook.wrappedValue = wrapped;
+    try {
+      Object.defineProperty(found.owner, property, {
+        ...found.descriptor,
+        value: wrapped,
+      });
+    } catch (_error) {
+      dndLog("style:cssom-hook-install-failed", { property: property });
+      return false;
+    }
+    portableStyleCssomHookMap(found.owner, true)!.set(
+      portableStyleCssomHookKey(property, "method"),
+      hook,
+    );
+    return portableStyleCssomSubscribe(hook, cache, shouldInvalidate);
+  }
+
+  function portableStyleWrapCssomSetter(
+    cache: PortableStyleComputedStylesCache,
+    target: object,
+    property: string,
+    shouldInvalidate?: (receiver: unknown) => boolean,
+  ): true | false | (() => void) {
+    var found = portableStylePropertyDescriptor(target, property);
+    if (!found || typeof found.descriptor.set !== "function") return true;
+    var existingHook = portableStyleCssomExistingHook(
+      found,
+      property,
+      "setter",
+    );
+    if (existingHook) {
+      return portableStyleCssomSubscribe(existingHook, cache, shouldInvalidate);
+    }
+    var original = found.descriptor.set as (
+      this: unknown,
+      value: unknown,
+    ) => void;
+    var hook: PortableStyleCssomHook = {
+      owner: found.owner,
+      property: property,
+      kind: "setter",
+      descriptor: found.descriptor,
+      subscribers: [],
+    };
+    var wrapped = function (this: unknown, value: unknown) {
+      portableStyleCssomInvalidateHook(hook, this);
+      original.call(this, value);
+    };
+    hook.wrappedSetter = wrapped;
+    try {
+      Object.defineProperty(found.owner, property, {
+        ...found.descriptor,
+        set: wrapped,
+      });
+    } catch (_error) {
+      dndLog("style:cssom-hook-install-failed", { property: property });
+      return false;
+    }
+    portableStyleCssomHookMap(found.owner, true)!.set(
+      portableStyleCssomHookKey(property, "setter"),
+      hook,
+    );
+    return portableStyleCssomSubscribe(hook, cache, shouldInvalidate);
+  }
+
+  function portableStyleWrapCssomSetters(
+    cache: PortableStyleComputedStylesCache,
+    target: object | undefined,
+    shouldInvalidate: ((receiver: unknown) => boolean) | undefined,
+    restorers: Array<() => void>,
+  ): boolean {
+    if (!target) return true;
+    var current: object | null = target;
+    while (current && current !== Object.prototype) {
+      var properties = Object.getOwnPropertyNames(current);
+      for (var index = 0; index < properties.length; index += 1) {
+        var property = properties[index];
+        if (property === "constructor") continue;
+        var result = portableStyleWrapCssomSetter(
+          cache,
+          current,
+          property,
+          shouldInvalidate,
+        );
+        if (result === false) return false;
+        if (result !== true) restorers.push(result);
+      }
+      var prototype = Object.getPrototypeOf(current);
+      current =
+        prototype && prototype !== Object.prototype
+          ? (prototype as object)
+          : null;
+    }
+    return true;
+  }
+
+  function portableStyleInstallCssomHooks(
+    cache: PortableStyleComputedStylesCache,
+  ): boolean {
+    var restorers: Array<() => void> = [];
+    var portableWindow = window as typeof window & {
+      CSSStyleDeclaration?: { prototype: object };
+      CSSStyleSheet?: { prototype: object };
+      Document?: { prototype: object };
+      Element?: { prototype: object };
+      KeyframeEffect?: { prototype: object };
+      ShadowRoot?: { prototype: object };
+    };
+    var success = true;
+    var addMethod = function (target: object | undefined, property: string) {
+      if (!success || !target) return;
+      var result = portableStyleWrapCssomMethod(cache, target, property);
+      if (result === false) success = false;
+      else if (result !== true) restorers.push(result);
+    };
+    var addSetter = function (target: object | undefined, property: string) {
+      if (!success || !target) return;
+      var result = portableStyleWrapCssomSetter(cache, target, property);
+      if (result === false) success = false;
+      else if (result !== true) restorers.push(result);
+    };
+    var styleSheetPrototype = portableWindow.CSSStyleSheet?.prototype;
+    addMethod(portableWindow.Element?.prototype, "animate");
+    var keyframeEffectPrototype = portableWindow.KeyframeEffect?.prototype;
+    addMethod(keyframeEffectPrototype, "setKeyframes");
+    addMethod(keyframeEffectPrototype, "updateTiming");
+    [
+      "insertRule",
+      "deleteRule",
+      "replace",
+      "replaceSync",
+      "addRule",
+      "removeRule",
+    ].forEach(function (property) {
+      addMethod(styleSheetPrototype, property);
+    });
+    addSetter(portableWindow.Document?.prototype, "adoptedStyleSheets");
+    addSetter(portableWindow.ShadowRoot?.prototype, "adoptedStyleSheets");
+    var styleDeclarationPrototype =
+      portableWindow.CSSStyleDeclaration?.prototype;
+    if (success && styleDeclarationPrototype) {
+      var setPropertyResult = portableStyleWrapCssomMethod(
+        cache,
+        styleDeclarationPrototype,
+        "setProperty",
+        portableStyleCssomDeclarationChanged,
+      );
+      if (setPropertyResult === false) success = false;
+      else if (setPropertyResult !== true) restorers.push(setPropertyResult);
+      var removePropertyResult = portableStyleWrapCssomMethod(
+        cache,
+        styleDeclarationPrototype,
+        "removeProperty",
+        portableStyleCssomDeclarationChanged,
+      );
+      if (removePropertyResult === false) success = false;
+      else if (removePropertyResult !== true)
+        restorers.push(removePropertyResult);
+    }
+    if (
+      success &&
+      !portableStyleWrapCssomSetters(
+        cache,
+        styleDeclarationPrototype,
+        portableStyleCssomDeclarationChanged,
+        restorers,
+      )
+    ) {
+      success = false;
+    }
+    if (
+      success &&
+      !portableStyleWrapCssomSetters(
+        cache,
+        styleSheetPrototype,
+        undefined,
+        restorers,
+      )
+    ) {
+      success = false;
+    }
+    if (!success) {
+      for (
+        var restoreIndex = restorers.length - 1;
+        restoreIndex >= 0;
+        restoreIndex -= 1
+      ) {
+        restorers[restoreIndex]();
+      }
+      return false;
+    }
+    cache.restoreCssomHooks = function () {
+      for (
+        var restoreIndex = restorers.length - 1;
+        restoreIndex >= 0;
+        restoreIndex -= 1
+      ) {
+        restorers[restoreIndex]();
+      }
+      restorers = [];
+    };
+    return true;
+  }
+
+  function createPortableStyleComputedStylesCache():
+    | PortableStyleComputedStylesCache
+    | undefined {
+    if (typeof MutationObserver === "undefined") return undefined;
+    var cache = {
+      entries: new Map<Element, PortableStyleCacheEntry>(),
+      animationFingerprints: new Map<Element, string>(),
+      mutationObserver: null as unknown as MutationObserver,
+      mutationGeneration: 0,
+      observedMutationRoots: [],
+      restoreCssomHooks: function () {},
+    };
+    try {
+      var observer = new MutationObserver(function (records) {
+        if (records.some(portableStyleMutationAffectsCache)) {
+          cache.mutationGeneration += 1;
+        }
+      });
+      cache.mutationObserver = observer;
+      if (!portableStyleObserveMutationRoot(cache, document)) {
+        observer.disconnect();
+        return undefined;
+      }
+      if (!portableStyleInstallCssomHooks(cache)) {
+        observer.disconnect();
+        return undefined;
+      }
+      return cache;
+    } catch (_error) {
+      cache.mutationObserver.disconnect();
+      cache.restoreCssomHooks();
+      dndLog("style:mutation-observer-unavailable");
+      return undefined;
+    }
+  }
+
+  function portableStyleAnimationParent(
+    el: Element,
+  ): Element | null | undefined {
+    try {
+      var assignedSlot = (el as Element & { assignedSlot?: Element | null })
+        .assignedSlot;
+      if (assignedSlot instanceof Element) return assignedSlot;
+      if (el.parentElement) return el.parentElement;
+      var getRootNode = (el as Element & { getRootNode?: () => Node })
+        .getRootNode;
+      if (typeof getRootNode !== "function") return null;
+      var root = getRootNode.call(el) as Document | ShadowRoot;
+      var host = (root as ShadowRoot).host;
+      return host instanceof Element ? host : null;
+    } catch (_error) {
+      dndLog("style:animation-parent-read-failed", { tag: el.tagName });
+      return undefined;
+    }
+  }
+
+  var portableStyleAnimationEffectIds = new WeakMap<object, number>();
+  var nextPortableStyleAnimationEffectId = 1;
+
+  function portableStyleAnimationEffectId(
+    effect: object | null,
+  ): number | null {
+    if (!effect) return null;
+    var id = portableStyleAnimationEffectIds.get(effect);
+    if (id !== undefined) return id;
+    id = nextPortableStyleAnimationEffectId++;
+    portableStyleAnimationEffectIds.set(effect, id);
+    return id;
+  }
+
+  function readPortableAnimationState(
+    el: Element,
+  ): PortableStyleAnimationState | undefined {
+    var animatedElement = el as Element & {
+      getAnimations?: () => Array<{
+        playState?: string;
+        currentTime?: unknown;
+        startTime?: unknown;
+        playbackRate?: unknown;
+        effect?: {
+          getKeyframes?: () => unknown;
+          getTiming?: () => unknown;
+          composite?: unknown;
+          iterationComposite?: unknown;
+          target?: unknown;
+        } | null;
+      }>;
+    };
+    try {
+      var getAnimations = animatedElement.getAnimations;
+      if (typeof getAnimations !== "function") {
+        dndLog("style:animation-state-unreadable", { tag: el.tagName });
+        return undefined;
+      }
+      var animations = getAnimations.call(animatedElement);
+      if (!Array.isArray(animations)) {
+        dndLog("style:animation-state-unreadable", { tag: el.tagName });
+        return undefined;
+      }
+      var cacheable = true;
+      var fingerprintParts: string[] = [];
+      for (var index = 0; index < animations.length; index += 1) {
+        var animation = animations[index];
+        var playState = animation?.playState;
+        if (!animation || typeof playState !== "string") {
+          dndLog("style:animation-state-unreadable", { tag: el.tagName });
+          return undefined;
+        }
+        if (playState === "running" || playState === "pending") {
+          cacheable = false;
+        }
+        fingerprintParts.push(
+          [
+            index,
+            playState,
+            animation.currentTime,
+            animation.startTime,
+            animation.playbackRate,
+            portableStyleAnimationEffectId(animation.effect ?? null),
+            animation.effect &&
+              JSON.stringify({
+                keyframes: animation.effect.getKeyframes?.(),
+                timing: animation.effect.getTiming?.(),
+                composite: animation.effect.composite,
+                iterationComposite: animation.effect.iterationComposite,
+                target: animation.effect.target,
+              }),
+          ]
+            .map(function (value) {
+              if (value === null) return "null";
+              if (value === undefined) return "undefined";
+              return `${typeof value}:${String(value)}`;
+            })
+            .join(":"),
+        );
+      }
+      return {
+        cacheable,
+        fingerprint: fingerprintParts.join("|") || "none",
+      };
+    } catch (_error) {
+      dndLog("style:animation-state-read-failed", { tag: el.tagName });
+      return undefined;
+    }
+  }
+
+  function recordPortableStyleAnimationState(
+    cache: PortableStyleComputedStylesCache,
+    el: Element,
+  ): void {
+    var state = readPortableAnimationState(el);
+    if (state) cache.animationFingerprints.set(el, state.fingerprint);
+    else cache.animationFingerprints.delete(el);
+  }
+
+  function canReusePortableComputedStyles(
+    el: Element,
+    cache?: PortableStyleComputedStylesCache,
+  ): boolean {
+    // Computed inherited values can change while only an ancestor is
+    // animated. Recheck the whole style parent chain on every cache lookup;
+    // caching this answer would make a mid-request animation invisible.
+    var current: Element | null = el;
+    while (current) {
+      var parent = portableStyleAnimationParent(current);
+      if (
+        cache &&
+        (!portableStyleObserveElementRoot(cache, current) ||
+          (parent && !portableStyleObserveElementRoot(cache, parent)))
+      ) {
+        return false;
+      }
+      var animationState = readPortableAnimationState(current);
+      if (
+        parent === undefined ||
+        !animationState ||
+        !animationState.cacheable
+      ) {
+        return false;
+      }
+      if (cache) {
+        var previousFingerprint = cache.animationFingerprints.get(current);
+        if (previousFingerprint === undefined) {
+          cache.animationFingerprints.set(current, animationState.fingerprint);
+        } else if (previousFingerprint !== animationState.fingerprint) {
+          cache.entries.delete(current);
+          cache.animationFingerprints.set(current, animationState.fingerprint);
+          return false;
+        }
+      }
+      current = parent;
+    }
+    return true;
+  }
+
   function collectPortableComputedStyles(
     el: Element | null,
-  ): Record<string, string> {
+    cache?: PortableStyleComputedStylesCache,
+    computedStyle?: CSSStyleDeclaration,
+  ): Record<string, string> | null {
     if (!el) return {};
-    var cs = window.getComputedStyle(el);
+    var cacheSafe = !cache || canReusePortableComputedStyles(el, cache);
+    var cacheGeneration = cache
+      ? portableStyleMutationGeneration(cache)
+      : undefined;
+    var cached = cache?.entries.get(el);
+    if (cacheSafe && cached && cached.generation === cacheGeneration) {
+      return cached.styles;
+    }
+    var cacheFailure = function (): null {
+      var failureGeneration = cache
+        ? portableStyleMutationGeneration(cache)
+        : undefined;
+      if (cache && cacheSafe && failureGeneration === cacheGeneration) {
+        cache.entries.set(el, { generation: failureGeneration, styles: null });
+      }
+      return null;
+    };
+    var cs = computedStyle || window.getComputedStyle(el);
+    var defaults = portableStyleTagDefaults(el);
+    if (!defaults) return cacheFailure();
+    var hostStyle = (el as HTMLElement).style;
     var styles: Record<string, string> = {};
+    var typedElement = el as Element & {
+      computedStyleMap?: () => StylePropertyMap;
+    };
+    if (typeof typedElement.computedStyleMap !== "function") {
+      dndLog("style:typed-om-unavailable", { tag: el.tagName });
+      return cacheFailure();
+    }
+    try {
+      var typedStyles = typedElement.computedStyleMap();
+      for (var property of Object.keys(PORTABLE_STYLE_BOX_SIZE_PROPERTIES)) {
+        var typedValue = typedStyles.get(property);
+        if (typedValue == null || !String(typedValue).trim()) {
+          dndLog("style:typed-om-value-missing", { property: property });
+          return cacheFailure();
+        }
+        var size = String(typedValue).trim();
+        // Explicit auto must replace a losing inline size in the moved markup.
+        if (size !== "auto" || hostStyle?.getPropertyValue(property)) {
+          styles[property] = size;
+        }
+      }
+    } catch (_error) {
+      dndLog("style:typed-om-read-failed", { tag: el.tagName });
+      return cacheFailure();
+    }
     PORTABLE_STYLE_PROPERTIES.forEach(function (property) {
+      if (PORTABLE_STYLE_BOX_SIZE_PROPERTIES[property]) return;
       var value = cs[property] || cs.getPropertyValue(property);
-      if (typeof value === "string" && value.trim()) {
+      var inlineValue = hostStyle && hostStyle.getPropertyValue(property);
+      // Only carry what a class/cascade actually customized on THIS element,
+      // or what it inherited from its old parent chain (an inherited value
+      // differs from the bare probe's un-inherited default too, since the
+      // probe has no parent to inherit from). A value identical to the bare
+      // tag's own rendering is noise: applying it verbatim is how a
+      // duplicate/cross-screen move used to bake ~50 irrelevant properties
+      // (opacity, z-index, box-sizing, transform:none, ...) onto every
+      // dropped copy instead of just what makes it look like the source.
+      if (
+        typeof value === "string" &&
+        value.trim() &&
+        (inlineValue || value !== defaults[property])
+      ) {
         styles[property] = value;
       }
     });
@@ -2547,30 +3777,94 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         }
       }
     }
+    var finalGeneration = cache
+      ? portableStyleMutationGeneration(cache)
+      : undefined;
+    if (cache && cacheSafe && finalGeneration === cacheGeneration) {
+      cache.entries.set(el, { generation: finalGeneration, styles: styles });
+    }
     return styles;
   }
 
-  function collectPortableStyleSnapshot(root: Element | null) {
+  function collectPortableStyleSnapshot(
+    root: Element | null,
+    cache?: PortableStyleComputedStylesCache,
+    rootComputedStyle?: CSSStyleDeclaration,
+  ) {
     if (!root || isDocumentRootElement(root)) return undefined;
+    var maxNodes = 5000;
+    var descendants = Array.prototype.slice.call(root.querySelectorAll("*"));
+    var nodeCount = descendants.length + 1;
+    if (nodeCount > maxNodes) {
+      dndLog("style:snapshot-skipped", {
+        el: getSelector(root),
+        reason: "node-limit",
+        count: nodeCount,
+      });
+      return null;
+    }
+    var elementPaths = elementPathsFromRoot(root, descendants);
+    if (elementPaths.size !== nodeCount) {
+      dndLog("style:snapshot-skipped", {
+        el: getSelector(root),
+        reason: "path-unavailable",
+        count: nodeCount,
+      });
+      return null;
+    }
     var nodes = [];
-    var maxNodes = 80;
+    // A failed probe or Typed OM read invalidates the entire capture; never
+    // return a partial snapshot that silently loses appearance.
+    var probeFailed = false;
     function pushNode(node: Element) {
-      if (nodes.length >= maxNodes) return;
+      if (nodes.length >= maxNodes || probeFailed) return;
+      var path = elementPaths.get(node);
+      if (!path) {
+        probeFailed = true;
+        return;
+      }
+      // The root is also represented by getElementInfo's live computedStyles.
+      // Refresh it instead of reusing an ancestor's value. Descendants use the
+      // request cache only when their style-parent animation state is quiescent.
+      var styles = collectPortableComputedStyles(
+        node,
+        node === root ? undefined : cache,
+        node === root ? rootComputedStyle : undefined,
+      );
+      if (styles === null) {
+        probeFailed = true;
+        return;
+      }
+      // Keep an existing root fingerprint until every descendant has been
+      // checked. A root's computed style is captured before its rect read, so
+      // a timeline seek during that read must invalidate descendants against
+      // the previous fingerprint before this request records the new one.
       nodes.push({
         sourceId: getSourceId(node) || undefined,
-        path: elementPathFromRoot(root, node),
-        styles: collectPortableComputedStyles(node),
+        path: path,
+        styles: styles,
       });
     }
     pushNode(root);
-    var descendants = Array.prototype.slice.call(root.querySelectorAll("*"));
     for (
       var index = 0;
-      index < descendants.length && nodes.length < maxNodes;
+      index < descendants.length && nodes.length < maxNodes && !probeFailed;
       index += 1
     ) {
       pushNode(descendants[index]);
     }
+    if (probeFailed) {
+      dndLog("style:snapshot-skipped", { el: getSelector(root) });
+      // `null` (not `undefined`) marks CAPTURE FAILED, distinct from a
+      // legitimately absent snapshot (isDocumentRootElement/no root above,
+      // which returns `undefined`). Callers that post this cross-screen must
+      // forward that distinction as its own flag — a probe failure means
+      // "we don't know this element's appearance," not "there is nothing to
+      // carry," and a cross-screen move must refuse rather than silently
+      // drop a class-only appearance it never got to measure.
+      return null;
+    }
+    if (cache) recordPortableStyleAnimationState(cache, root);
     return {
       version: 1,
       rootSourceId: getSourceId(root) || undefined,
@@ -2594,7 +3888,42 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     "width",
     "height",
     "transform",
+    "scale",
+    "display",
+    "overflow",
+    "lineHeight",
+    "letterSpacing",
+    "gridTemplateColumns",
+    "gridTemplateRows",
+    "gridAutoFlow",
+    "flexDirection",
+    "flexWrap",
+    "columnGap",
+    "rowGap",
+    "justifyContent",
+    "paddingTop",
+    "paddingRight",
+    "paddingBottom",
+    "paddingLeft",
+    "alignItems",
+    "alignContent",
+    "justifyItems",
+    "gap",
+    "padding",
+    "webkitBoxOrient",
+    "webkitLineClamp",
+    "--agent-native-truncate-original-display",
+    "--agent-native-truncate-original-overflow",
     "whiteSpace",
+    "backgroundImage",
+    "backgroundColor",
+    "color",
+    "fill",
+    "borderRadius",
+    "borderTopLeftRadius",
+    "borderTopRightRadius",
+    "borderBottomRightRadius",
+    "borderBottomLeftRadius",
   ];
 
   function collectInlineStyles(el: Element): Record<string, string> {
@@ -2602,10 +3931,44 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var inline = (el as HTMLElement).style;
     if (!inline) return styles;
     INLINE_STYLE_PROPERTIES.forEach(function (property) {
-      var value = inline[property as never] as unknown as string;
+      var cssProperty =
+        property === "webkitBoxOrient"
+          ? "-webkit-box-orient"
+          : property === "webkitLineClamp"
+            ? "-webkit-line-clamp"
+            : property;
+      var value =
+        property.indexOf("--") === 0 || property.indexOf("webkit") === 0
+          ? inline.getPropertyValue(cssProperty)
+          : (inline[property as never] as unknown as string);
       if (typeof value === "string" && value !== "") {
         styles[property] = value;
       }
+    });
+    return styles;
+  }
+
+  // CSS Typed OM keeps sizing keywords and authored units intact where
+  // getComputedStyle() resolves them to pixels: `auto`, `fit-content`, and
+  // `100%` remain distinguishable from an explicit pixel dimension. This is a
+  // read-only hint for the Inspector; stylesheet values are never write
+  // targets.
+  function collectAuthoredSizeStyles(
+    el: Element,
+  ): Record<string, string> | undefined {
+    var computedStyleMap = (
+      el as Element & {
+        computedStyleMap?: () => { get(property: string): unknown };
+      }
+    ).computedStyleMap;
+    if (typeof computedStyleMap !== "function") return undefined;
+    var map = computedStyleMap.call(el);
+    var styles: Record<string, string> = {};
+    ["width", "height"].forEach(function (property) {
+      var value = map.get(property);
+      if (value == null) return;
+      var cssText = String(value).trim();
+      if (cssText) styles[property] = cssText;
     });
     return styles;
   }
@@ -2619,6 +3982,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (!el || !liveVisualEditOriginalInlineStyles) return;
     if (liveVisualEditOriginalInlineStyles.has(el)) return;
     liveVisualEditOriginalInlineStyles.set(el, collectInlineStyles(el));
+  }
+
+  function refreshLiveVisualEditOriginalStyles(el: Element | null): void {
+    if (!el || !liveVisualEditOriginalInlineStyles) return;
+    liveVisualEditOriginalInlineStyles.delete(el);
+    rememberLiveVisualEditOriginalStyles(el);
+  }
+
+  function releaseLiveVisualEditOriginalStyles(el: Element | null): void {
+    if (!el || !liveVisualEditOriginalInlineStyles) return;
+    liveVisualEditOriginalInlineStyles.delete(el);
   }
 
   function originalInlineStylesForPatch(
@@ -2648,29 +4022,415 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       : "var(--design-editor-accent-contrast-color)";
   }
 
-  function getElementInfo(el: Element): unknown {
+  function collectComputedStyles(
+    cs: CSSStyleDeclaration,
+    paintCs: CSSStyleDeclaration,
+    strokeCs: CSSStyleDeclaration = paintCs,
+  ) {
+    var backgroundClip = cs.backgroundClip;
+    var webkitBackgroundClip = cs.getPropertyValue("-webkit-background-clip");
+    if (
+      !/(^|,)\s*text\s*(,|$)/i.test(backgroundClip) &&
+      /(^|,)\s*text\s*(,|$)/i.test(webkitBackgroundClip)
+    ) {
+      backgroundClip = webkitBackgroundClip;
+    }
+    return {
+      color: cs.color,
+      backgroundColor: cs.backgroundColor,
+      backgroundImage: cs.backgroundImage,
+      backgroundClip,
+      backgroundPosition: cs.backgroundPosition,
+      backgroundRepeat: cs.backgroundRepeat,
+      backgroundSize: cs.backgroundSize,
+      backgroundBlendMode: cs.backgroundBlendMode,
+      fontSize: cs.fontSize,
+      fontFamily: cs.fontFamily,
+      fontStyle: cs.fontStyle,
+      fontWeight: cs.fontWeight,
+      lineHeight: cs.lineHeight,
+      letterSpacing: cs.letterSpacing,
+      webkitBoxOrient: cs.getPropertyValue("-webkit-box-orient"),
+      webkitLineClamp: cs.getPropertyValue("-webkit-line-clamp"),
+      textAlign: cs.textAlign,
+      textTransform: cs.textTransform,
+      // Clean longhand for decoration-toggle state (Cmd+U underline /
+      // Cmd+Shift+X strikethrough). Deliberately the longhand, not the
+      // `textDecoration` shorthand — see typography-helpers.ts's
+      // PERSISTENCE GOTCHA comment: reads use this clean value, writes
+      // still commit through the shorthand property name.
+      textDecorationLine: cs.textDecorationLine,
+      display: cs.display,
+      overflow: cs.overflow,
+      flexDirection: cs.flexDirection,
+      justifyContent: cs.justifyContent,
+      alignItems: cs.alignItems,
+      justifyItems: cs.justifyItems,
+      alignSelf: cs.alignSelf,
+      flexGrow: cs.flexGrow,
+      flexShrink: cs.flexShrink,
+      flexBasis: cs.flexBasis,
+      order: cs.order,
+      gridColumn: cs.gridColumn,
+      gridRow: cs.gridRow,
+      gridTemplateColumns: cs.gridTemplateColumns,
+      gridTemplateRows: cs.gridTemplateRows,
+      gridAutoFlow: cs.gridAutoFlow,
+      position: cs.position,
+      top: cs.top,
+      right: cs.right,
+      bottom: cs.bottom,
+      left: cs.left,
+      gap: cs.gap,
+      rowGap: cs.rowGap,
+      columnGap: cs.columnGap,
+      width: cs.width,
+      height: cs.height,
+      minWidth: cs.minWidth,
+      maxWidth: cs.maxWidth,
+      minHeight: cs.minHeight,
+      maxHeight: cs.maxHeight,
+      opacity: cs.opacity,
+      paddingTop: cs.paddingTop,
+      paddingRight: cs.paddingRight,
+      paddingBottom: cs.paddingBottom,
+      paddingLeft: cs.paddingLeft,
+      marginTop: cs.marginTop,
+      marginRight: cs.marginRight,
+      marginBottom: cs.marginBottom,
+      marginLeft: cs.marginLeft,
+      borderWidth: cs.borderWidth,
+      borderStyle: cs.borderStyle,
+      borderColor: cs.borderColor,
+      borderRadius: cs.borderRadius,
+      borderTopLeftRadius: cs.borderTopLeftRadius,
+      borderTopRightRadius: cs.borderTopRightRadius,
+      borderBottomRightRadius: cs.borderBottomRightRadius,
+      borderBottomLeftRadius: cs.borderBottomLeftRadius,
+      outlineWidth: cs.outlineWidth,
+      outlineStyle: cs.outlineStyle,
+      outlineColor: cs.outlineColor,
+      outlineOffset: cs.outlineOffset,
+      // Read off the shape child for a drawn vector (vectorPaintTarget):
+      // the `<svg>` wrapper itself is never painted.
+      fill: paintCs.fill,
+      fillOpacity: paintCs.fillOpacity,
+      stroke: strokeCs.stroke,
+      strokeWidth: strokeCs.strokeWidth,
+      strokeOpacity: strokeCs.strokeOpacity,
+      strokeDasharray: strokeCs.strokeDasharray,
+      strokeDashoffset: strokeCs.strokeDashoffset,
+      strokeLinecap: strokeCs.strokeLinecap,
+      strokeLinejoin: strokeCs.strokeLinejoin,
+      strokeMiterlimit: strokeCs.strokeMiterlimit,
+      vectorOpacity: paintCs.opacity,
+      vectorTransform: paintCs.transform,
+      vectorTransformOrigin: paintCs.transformOrigin,
+      vectorTransformBox: paintCs.transformBox,
+      // Text glyph outline (Figma-parity text "Stroke") — CSS has no
+      // unprefixed alias, so this is read via the vendor-prefixed
+      // longhands directly. See applyStyleEdit/normalizeStyleProperty in
+      // shared/code-layer.ts for the matching write-side allow-list entry.
+      webkitTextStrokeWidth: (
+        cs as unknown as { webkitTextStrokeWidth?: string }
+      ).webkitTextStrokeWidth,
+      webkitTextStrokeColor: (
+        cs as unknown as { webkitTextStrokeColor?: string }
+      ).webkitTextStrokeColor,
+      boxShadow: cs.boxShadow,
+      textShadow: cs.textShadow,
+      filter: cs.filter,
+      mixBlendMode: cs.mixBlendMode,
+      zIndex: cs.zIndex,
+      transform: cs.transform,
+      scale: cs.scale,
+      visibility: cs.visibility,
+      backdropFilter: cs.backdropFilter,
+      webkitBackdropFilter: (cs as unknown as { webkitBackdropFilter?: string })
+        .webkitBackdropFilter,
+      flexWrap: cs.flexWrap,
+      alignContent: cs.alignContent,
+      isolation: cs.isolation,
+      whiteSpace: cs.whiteSpace,
+    };
+  }
+
+  function measureNormalLineHeightPx(
+    el: Element,
+    cs: CSSStyleDeclaration,
+  ): string | undefined {
+    if (
+      !hasOwnTextContent(el) ||
+      cs.lineHeight.trim().toLowerCase() !== "normal" ||
+      !document.body
+    ) {
+      return undefined;
+    }
+
+    var probe = document.createElement("span");
+    probe.textContent = (el.textContent || "Hg").slice(0, 256);
+    probe.setAttribute("aria-hidden", "true");
+    probe.setAttribute("data-agent-native-edit-overlay", "line-height-probe");
+    probe.style.setProperty("all", "initial");
+    probe.style.position = "fixed";
+    probe.style.left = "-10000px";
+    probe.style.top = "0";
+    probe.style.display = "inline-block";
+    probe.style.width = "max-content";
+    probe.style.whiteSpace = "nowrap";
+    probe.style.lineHeight = "normal";
+    probe.style.margin = "0";
+    probe.style.padding = "0";
+    probe.style.border = "0";
+    probe.style.visibility = "hidden";
+    probe.style.fontFamily = cs.fontFamily;
+    probe.style.fontSize = cs.fontSize;
+    probe.style.fontStyle = cs.fontStyle;
+    probe.style.fontWeight = cs.fontWeight;
+    probe.style.fontStretch = cs.fontStretch;
+    probe.style.fontVariant = cs.fontVariant;
+    probe.style.fontKerning = cs.fontKerning;
+    probe.style.fontFeatureSettings = cs.fontFeatureSettings;
+    probe.style.fontVariationSettings = cs.fontVariationSettings;
+    probe.style.fontOpticalSizing = cs.fontOpticalSizing;
+    probe.style.letterSpacing = cs.letterSpacing;
+    probe.style.wordSpacing = cs.wordSpacing;
+    probe.style.textTransform = cs.textTransform;
+    document.body.appendChild(probe);
+    var height = probe.getBoundingClientRect().height;
+    probe.remove();
+    return height > 0 && Number.isFinite(height) ? height + "px" : undefined;
+  }
+
+  function collectTextRangeComputedStyles(
+    target: Element,
+    bookmark: { start: number; end: number; text: string },
+  ): Record<string, string> | null {
+    var values = {
+      color: [] as string[],
+      fontFamily: [] as string[],
+      fontSize: [] as string[],
+      fontStyle: [] as string[],
+      fontWeight: [] as string[],
+      lineHeight: [] as string[],
+      letterSpacing: [] as string[],
+      textDecorationLine: [] as string[],
+      textTransform: [] as string[],
+    };
+    var resolvedNormalLineHeights: string[] = [];
+    var walker = document.createTreeWalker(target, NodeFilter.SHOW_TEXT);
+    var textOffset = 0;
+    while (walker.nextNode()) {
+      var text = walker.currentNode as Text;
+      var start = textOffset;
+      var end = start + text.data.length;
+      textOffset = end;
+      if (end <= bookmark.start || start >= bookmark.end) {
+        continue;
+      }
+      var styleTarget = text.parentElement || target;
+      var styles = window.getComputedStyle(styleTarget);
+      values.color.push(styles.color);
+      values.fontFamily.push(styles.fontFamily);
+      values.fontSize.push(styles.fontSize);
+      values.fontStyle.push(styles.fontStyle);
+      values.fontWeight.push(styles.fontWeight);
+      values.lineHeight.push(styles.lineHeight);
+      values.letterSpacing.push(styles.letterSpacing);
+      values.textDecorationLine.push(styles.textDecorationLine);
+      values.textTransform.push(styles.textTransform);
+      var resolvedNormalLineHeight = measureNormalLineHeightPx(
+        styleTarget,
+        styles,
+      );
+      if (resolvedNormalLineHeight) {
+        resolvedNormalLineHeights.push(resolvedNormalLineHeight);
+      }
+    }
+    if (values.color.length === 0) return null;
+    var computed: Record<string, string> = {};
+    Object.keys(values).forEach(function (property) {
+      var propertyValues = values[property as keyof typeof values];
+      computed[property] = propertyValues.every(
+        (value) => value === propertyValues[0],
+      )
+        ? propertyValues[0] || ""
+        : "Mixed";
+    });
+    if (
+      computed.lineHeight === "normal" &&
+      computed.fontFamily !== "Mixed" &&
+      computed.fontSize !== "Mixed" &&
+      computed.fontStyle !== "Mixed" &&
+      computed.fontWeight !== "Mixed" &&
+      resolvedNormalLineHeights.length === values.lineHeight.length &&
+      resolvedNormalLineHeights.every(
+        (value) => value === resolvedNormalLineHeights[0],
+      )
+    ) {
+      computed.resolvedLineHeightPx = resolvedNormalLineHeights[0]!;
+    }
+    return computed;
+  }
+
+  function collectTextRangeInlineStyles(
+    target: Element,
+    bookmark: { start: number; end: number; text: string },
+  ): Record<string, string> | undefined {
+    var lineHeights: string[] = [];
+    var walker = document.createTreeWalker(target, NodeFilter.SHOW_TEXT);
+    var textOffset = 0;
+    while (walker.nextNode()) {
+      var text = walker.currentNode as Text;
+      var start = textOffset;
+      var end = start + text.data.length;
+      textOffset = end;
+      if (end <= bookmark.start || start >= bookmark.end) continue;
+      var styleTarget = text.parentElement || target;
+      var inlineStyle = (styleTarget as HTMLElement).style;
+      lineHeights.push(inlineStyle?.lineHeight || "");
+    }
+    if (lineHeights.length === 0) return undefined;
+    var first = lineHeights[0] || "";
+    return lineHeights.every(function (value) {
+      return value === first;
+    })
+      ? { lineHeight: first }
+      : undefined;
+  }
+
+  function textLeafAtCaret(root: Element, range: Range): Text | null {
+    if (!range.collapsed || !rangeBelongsToElement(range, root)) return null;
+    var container = range.startContainer;
+    if (container.nodeType === 3) return container as Text;
+    if (container.nodeType !== 1) return null;
+
+    function firstText(node: Node): Text | null {
+      if (node.nodeType === 3) return node as Text;
+      var walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+      return (walker.nextNode() as Text | null) || null;
+    }
+
+    function lastText(node: Node): Text | null {
+      if (node.nodeType === 3) return node as Text;
+      var walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+      var result: Text | null = null;
+      while (walker.nextNode()) result = walker.currentNode as Text;
+      return result;
+    }
+
+    var children = container.childNodes;
+    var offset = range.startOffset;
+    for (var forward = offset; forward < children.length; forward += 1) {
+      var forwardText = firstText(children[forward]!);
+      if (forwardText) return forwardText as Text;
+    }
+    for (var backward = offset - 1; backward >= 0; backward -= 1) {
+      var backwardText = lastText(children[backward]!);
+      if (backwardText) return backwardText as Text;
+    }
+    return null;
+  }
+
+  function collectCaretTextStyles(target: Element): {
+    computedStyles: Record<string, string>;
+    inlineStyles?: Record<string, string>;
+  } | null {
+    var selection: Selection | null = window.getSelection
+      ? window.getSelection()
+      : null;
+    if (!selection || selection.rangeCount === 0 || !selection.isCollapsed) {
+      return null;
+    }
+    var caret = selection.getRangeAt(0);
+    if (!rangeBelongsToElement(caret, target)) return null;
+    var leaf = textLeafAtCaret(target, caret);
+    if (!leaf || leaf.length === 0) return null;
+
+    // Keep the browser's actual text-leaf affinity, including offset zero at
+    // the start of a styled run. Flattening the caret offset loses that owner.
+    var leafRange = document.createRange();
+    leafRange.selectNodeContents(leaf);
+    var bookmark = captureTextRangeBookmark(target, leafRange);
+    if (!bookmark) return null;
+    var computedStyles = collectTextRangeComputedStyles(target, bookmark);
+    if (!computedStyles) return null;
+    return {
+      computedStyles: computedStyles,
+      inlineStyles: collectTextRangeInlineStyles(target, bookmark),
+    };
+  }
+
+  function collectElementComputedStyles(
+    el: Element,
+    cs: CSSStyleDeclaration,
+    paintCs: CSSStyleDeclaration,
+  ): Record<string, string> {
+    var strokeTarget = vectorStrokeTarget(el);
+    var strokeCs = strokeTarget
+      ? window.getComputedStyle(strokeTarget)
+      : paintCs;
+    var computed = collectComputedStyles(cs, paintCs, strokeCs);
+    if (strokeTarget?.hasAttribute("data-an-vector-stroke-overlay")) {
+      computed.strokeWidth =
+        strokeTarget.getAttribute("data-an-vector-logical-width") ||
+        strokeCs.strokeWidth;
+    }
+    var wholeText: Record<string, string> | null = null;
+    if (isWholeTextStyleRoot(el)) {
+      var fullText = el.textContent || "";
+      wholeText = collectTextRangeComputedStyles(el, {
+        start: 0,
+        end: fullText.length,
+        text: fullText,
+      });
+    }
+    if (wholeText) {
+      computed = { ...computed, ...wholeText };
+    } else {
+      var resolvedLineHeightPx = measureNormalLineHeightPx(el, cs);
+      if (resolvedLineHeightPx) {
+        computed.resolvedLineHeightPx = resolvedLineHeightPx;
+      }
+    }
+    return {
+      ...computed,
+      "--an-vector-stroke-position":
+        el.getAttribute("data-an-vector-stroke-position") || "",
+    };
+  }
+
+  function getElementInfo(
+    el: Element,
+    portableComputedStylesCache?: PortableStyleComputedStylesCache,
+    includePortableStyleSnapshot = true,
+  ): unknown {
     var cs = window.getComputedStyle(el);
-    var paintTarget = vectorPaintTarget(el) || el;
-    var strokeTarget = vectorStrokeTarget(el) || paintTarget;
-    var paintCs = window.getComputedStyle(paintTarget);
-    var strokeCs = window.getComputedStyle(strokeTarget);
-    var strokeOverlay = strokeTarget.hasAttribute(
-      "data-an-vector-stroke-overlay",
-    );
-    var rect = el.getBoundingClientRect();
+    var paintCs = window.getComputedStyle(vectorPaintTarget(el) || el);
+    var boundingRect = rectInfoForElement(el);
     // A clone inherits nothing editable from its stamped ancestor: source
     // holds one template body, not this row. Claiming source-backed handed
     // the host a selector that resolves onto a DIFFERENT sibling.
     var componentName = componentNameForElement(el);
     var parentAutoLayout = autoLayoutParentInfo(el);
-    var parentStyles = el.parentElement
-      ? window.getComputedStyle(el.parentElement)
+    var designParent = designParentForElement(el);
+    var parentStyles = designParent
+      ? window.getComputedStyle(designParent)
       : null;
+    var authoredSizeStyles = collectAuthoredSizeStyles(el);
     var parentDisplay = parentStyles ? parentStyles.display : undefined;
+    // A board copy has a fresh live id so selection can target it, but that
+    // id is not source ownership until the host projects/persists the copy.
+    // Keep those identities separate: sourceId remains write-safe while the
+    // runtime pair lets host chrome match this exact live clone.
+    var runtimeOnlyClone = isRuntimeOnlyClone(el);
     var sourceBacked =
-      hasStableOwnSource(el) ||
-      (!isTemplateCloneElement(el) && !!closestStableSourceElement(el));
+      !runtimeOnlyClone &&
+      (hasStableOwnSource(el) ||
+        (!isTemplateCloneElement(el) && !!closestStableSourceElement(el)));
     var sourceId = sourceBacked ? getSourceId(el) || getSelector(el) : "";
+    var runtimeSourceId = runtimeOnlyClone ? getSourceId(el) : "";
+    var runtimeSelector = runtimeSourceId ? getSelector(el) : "";
     // Id-on-demand (empty-node-id fix, bridge side): AI-generated screens
     // frequently ship with NO data-agent-native-node-id anywhere, which
     // breaks every id-keyed operation host-side ("Could not move that
@@ -2712,6 +4472,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           alignItems: parentStyles.alignItems,
           justifyContent: parentStyles.justifyContent,
           gap: parentStyles.gap,
+          gridAutoFlow: parentStyles.gridAutoFlow,
           gridTemplateColumns: parentStyles.gridTemplateColumns,
           gridTemplateRows: parentStyles.gridTemplateRows,
           position: parentStyles.position,
@@ -2756,143 +4517,42 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // site; framework runtime metadata fills the React owner call site. The
     // shared resolver crosses ShadowRoot.host for Vue, Svelte, and attributes.
     var provenance: FrameworkDebugProvenance = elementDebugProvenance(el);
+    var runtimeComponent = runtimeComponentIdentityForElement(
+      el,
+      provenance,
+      sourceId || runtimeSourceId || pendingNodeId || getSelector(el),
+    );
+    var portableStyleSnapshot = includePortableStyleSnapshot
+      ? collectPortableStyleSnapshot(el, portableComputedStylesCache, cs)
+      : undefined;
     return {
       tagName: el.tagName.toLowerCase(),
       componentName: componentName || undefined,
+      componentAnnotation: explicitComponentNameForElement(el) || undefined,
+      runtimeComponent: runtimeComponent,
       id: el.id || undefined,
       sourceId: sourceId,
+      runtimeSelector: runtimeSelector || undefined,
+      runtimeSourceId: runtimeSourceId || undefined,
       repeat: repeatInstanceInfo(el) || undefined,
       hasOwnText: hasOwnTextContent(el),
+      wholeTextStyleRoot: isWholeTextStyleRoot(el),
       pendingNodeId: pendingNodeId || undefined,
       selector: getSelector(el),
       classes: Array.from(el.classList),
-      computedStyles: {
-        color: cs.color,
-        backgroundColor: cs.backgroundColor,
-        backgroundImage: cs.backgroundImage,
-        backgroundPosition: cs.backgroundPosition,
-        backgroundRepeat: cs.backgroundRepeat,
-        backgroundSize: cs.backgroundSize,
-        backgroundBlendMode: cs.backgroundBlendMode,
-        fontSize: cs.fontSize,
-        fontFamily: cs.fontFamily,
-        fontWeight: cs.fontWeight,
-        lineHeight: cs.lineHeight,
-        letterSpacing: cs.letterSpacing,
-        textAlign: cs.textAlign,
-        // Clean longhand for decoration-toggle state (Cmd+U underline /
-        // Cmd+Shift+X strikethrough). Deliberately the longhand, not the
-        // `textDecoration` shorthand — see typography-helpers.ts's
-        // PERSISTENCE GOTCHA comment: reads use this clean value, writes
-        // still commit through the shorthand property name.
-        textDecorationLine: cs.textDecorationLine,
-        display: cs.display,
-        overflow: cs.overflow,
-        flexDirection: cs.flexDirection,
-        justifyContent: cs.justifyContent,
-        alignItems: cs.alignItems,
-        justifyItems: cs.justifyItems,
-        alignSelf: cs.alignSelf,
-        flexGrow: cs.flexGrow,
-        flexShrink: cs.flexShrink,
-        flexBasis: cs.flexBasis,
-        order: cs.order,
-        gridColumn: cs.gridColumn,
-        gridRow: cs.gridRow,
-        gridTemplateColumns: cs.gridTemplateColumns,
-        gridTemplateRows: cs.gridTemplateRows,
-        gridAutoFlow: cs.gridAutoFlow,
-        position: cs.position,
-        top: cs.top,
-        right: cs.right,
-        bottom: cs.bottom,
-        left: cs.left,
-        gap: cs.gap,
-        rowGap: cs.rowGap,
-        columnGap: cs.columnGap,
-        width: cs.width,
-        height: cs.height,
-        opacity: cs.opacity,
-        paddingTop: cs.paddingTop,
-        paddingRight: cs.paddingRight,
-        paddingBottom: cs.paddingBottom,
-        paddingLeft: cs.paddingLeft,
-        marginTop: cs.marginTop,
-        marginRight: cs.marginRight,
-        marginBottom: cs.marginBottom,
-        marginLeft: cs.marginLeft,
-        borderWidth: cs.borderWidth,
-        borderStyle: cs.borderStyle,
-        borderColor: cs.borderColor,
-        borderRadius: cs.borderRadius,
-        borderTopLeftRadius: cs.borderTopLeftRadius,
-        borderTopRightRadius: cs.borderTopRightRadius,
-        borderBottomRightRadius: cs.borderBottomRightRadius,
-        borderBottomLeftRadius: cs.borderBottomLeftRadius,
-        outlineWidth: cs.outlineWidth,
-        outlineStyle: cs.outlineStyle,
-        outlineColor: cs.outlineColor,
-        outlineOffset: cs.outlineOffset,
-        // Read off the shape child for a drawn vector (vectorPaintTarget):
-        // the `<svg>` wrapper itself is never painted.
-        fill: paintCs.fill,
-        fillOpacity: paintCs.fillOpacity,
-        stroke: strokeCs.stroke,
-        strokeWidth: strokeOverlay
-          ? strokeTarget.getAttribute("data-an-vector-logical-width") ||
-            strokeCs.strokeWidth
-          : strokeCs.strokeWidth,
-        strokeOpacity: strokeCs.strokeOpacity,
-        strokeDasharray: strokeCs.strokeDasharray,
-        strokeDashoffset: strokeCs.strokeDashoffset,
-        strokeLinecap: strokeCs.strokeLinecap,
-        strokeLinejoin: strokeCs.strokeLinejoin,
-        strokeMiterlimit: strokeCs.strokeMiterlimit,
-        vectorOpacity: paintCs.opacity,
-        vectorTransform: paintCs.transform,
-        vectorTransformOrigin: paintCs.transformOrigin,
-        vectorTransformBox: paintCs.transformBox,
-        "--an-vector-stroke-position":
-          el.getAttribute("data-an-vector-stroke-position") || "",
-        // Text glyph outline (Figma-parity text "Stroke") — CSS has no
-        // unprefixed alias, so this is read via the vendor-prefixed
-        // longhands directly. See applyStyleEdit/normalizeStyleProperty in
-        // shared/code-layer.ts for the matching write-side allow-list entry.
-        webkitTextStrokeWidth: (
-          cs as unknown as { webkitTextStrokeWidth?: string }
-        ).webkitTextStrokeWidth,
-        webkitTextStrokeColor: (
-          cs as unknown as { webkitTextStrokeColor?: string }
-        ).webkitTextStrokeColor,
-        boxShadow: cs.boxShadow,
-        textShadow: cs.textShadow,
-        filter: cs.filter,
-        mixBlendMode: cs.mixBlendMode,
-        zIndex: cs.zIndex,
-        transform: cs.transform,
-        scale: cs.scale,
-        visibility: cs.visibility,
-        backdropFilter: cs.backdropFilter,
-        webkitBackdropFilter: (
-          cs as unknown as { webkitBackdropFilter?: string }
-        ).webkitBackdropFilter,
-        flexWrap: cs.flexWrap,
-        alignContent: cs.alignContent,
-        isolation: cs.isolation,
-        whiteSpace: cs.whiteSpace,
-      },
-      inlineStyles: collectInlineStyles(el),
+      computedStyles: collectElementComputedStyles(el, cs, paintCs),
+      inlineStyles: collectElementInlineStyles(el),
+      authoredSizeStyles: authoredSizeStyles,
       primitiveKind: el.getAttribute("data-an-primitive") || undefined,
+      isGroup: el.getAttribute("data-agent-native-group") === "true",
       vectorStrokeCanAlign: vectorStrokeCanAlign(el),
-      portableStyleSnapshot: collectPortableStyleSnapshot(el),
-      boundingRect: {
-        x: rect.x + (window.scrollX || window.pageXOffset || 0),
-        y: rect.y + (window.scrollY || window.pageYOffset || 0),
-        width: rect.width,
-        height: rect.height,
-      },
-      parentBoundingRect: el.parentElement
-        ? rectInfoForElement(el.parentElement)
+      portableStyleSnapshot:
+        portableStyleSnapshot === null ? undefined : portableStyleSnapshot,
+      styleSnapshotCaptureFailed:
+        portableStyleSnapshot === null ? true : undefined,
+      boundingRect,
+      parentBoundingRect: designParent
+        ? rectInfoForElement(designParent)
         : undefined,
       textContent: el.textContent ? el.textContent.slice(0, 200) : undefined,
       textContentTruncated: el.textContent
@@ -2921,6 +4581,31 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     };
   }
 
+  var lastScreenRootStyleSnapshot = "";
+  var screenRootStyleSnapshotFrame = 0;
+  function postScreenRootStyleSnapshot(): void {
+    if (!document.body) return;
+    var cs = window.getComputedStyle(document.body);
+    var computedStyles = collectComputedStyles(cs, cs);
+    var signature = JSON.stringify(computedStyles);
+    if (signature === lastScreenRootStyleSnapshot) return;
+    lastScreenRootStyleSnapshot = signature;
+    (window.parent as Window).postMessage(
+      {
+        type: "agent-native:screen-root-computed-styles",
+        computedStyles: computedStyles,
+      },
+      "*",
+    );
+  }
+  function scheduleScreenRootStyleSnapshot(): void {
+    if (screenRootStyleSnapshotFrame) return;
+    screenRootStyleSnapshotFrame = window.requestAnimationFrame(function () {
+      screenRootStyleSnapshotFrame = 0;
+      postScreenRootStyleSnapshot();
+    });
+  }
+
   // Light hover descriptor: every pointer hover posts one of these instead of
   // the full getElementInfo() payload. getElementInfo() runs getComputedStyle
   // over ~130 properties on the element PLUS (via collectPortableStyleSnapshot)
@@ -2930,23 +4615,49 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // or portableStyleSnapshot, so this intentionally omits both. Full detail is
   // still posted on element-select / drag-start / edit-time messages via
   // getElementInfo().
-  function getLightElementInfo(el: Element): unknown {
+  function getLightElementInfo(
+    el: Element,
+    includePendingNodeId = false,
+  ): unknown {
     var rect = el.getBoundingClientRect();
     var componentName = componentNameForElement(el);
+    var runtimeOnlyClone = isRuntimeOnlyClone(el);
     var sourceBacked =
-      hasStableOwnSource(el) ||
-      (!isTemplateCloneElement(el) && !!closestStableSourceElement(el));
+      !runtimeOnlyClone &&
+      (hasStableOwnSource(el) ||
+        (!isTemplateCloneElement(el) && !!closestStableSourceElement(el)));
     var sourceId = sourceBacked ? getSourceId(el) || getSelector(el) : "";
+    var runtimeSourceId = runtimeOnlyClone ? getSourceId(el) : "";
+    var runtimeSelector = runtimeSourceId ? getSelector(el) : "";
     var parentStyles = el.parentElement
       ? window.getComputedStyle(el.parentElement)
       : null;
     var parentDisplay = parentStyles ? parentStyles.display : undefined;
     var cs = window.getComputedStyle(el);
+    var pendingNodeId = "";
+    if (
+      includePendingNodeId &&
+      !getSourceId(el) &&
+      el !== document.body &&
+      el !== document.documentElement &&
+      el.getAttribute &&
+      el.setAttribute &&
+      !isTemplateCloneElement(el)
+    ) {
+      pendingNodeId = el.getAttribute("data-an-pending-node-id") || "";
+      if (!pendingNodeId) {
+        pendingNodeId = freshRuntimeNodeId("pending");
+        el.setAttribute("data-an-pending-node-id", pendingNodeId);
+      }
+    }
     return {
       tagName: el.tagName.toLowerCase(),
       componentName: componentName || undefined,
       id: el.id || undefined,
       sourceId: sourceId,
+      runtimeSelector: runtimeSelector || undefined,
+      runtimeSourceId: runtimeSourceId || undefined,
+      pendingNodeId: pendingNodeId || undefined,
       selector: getSelector(el),
       classes: Array.from(el.classList),
       computedStyles: {},
@@ -2976,12 +4687,19 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     metaKey: boolean;
     ctrlKey: boolean;
   } {
-    var additive = Boolean(e && (e.metaKey || e.ctrlKey || e.shiftKey));
+    // Figma spec §1: Shift+click is the ADDITIVE gesture (toggles membership).
+    // Cmd/Ctrl+click alone REPLACES the selection with the deep hit — it must
+    // not set `additive`, or a click-select host consumer (runScreenElementSelect)
+    // unions the deep-selected child into the current selection instead of
+    // replacing it. `metaKey`/`ctrlKey` still ride along on the intent for
+    // consumers (like deep-select's own hit resolution) that need to know a
+    // modifier was held without treating it as additive.
+    var shiftHeld = Boolean(e && e.shiftKey);
     return {
-      additive: additive,
-      range: Boolean(e && e.shiftKey),
+      additive: shiftHeld,
+      range: shiftHeld,
       source: "pointer",
-      shiftKey: Boolean(e && e.shiftKey),
+      shiftKey: shiftHeld,
       metaKey: Boolean(e && e.metaKey),
       ctrlKey: Boolean(e && e.ctrlKey),
     };
@@ -3093,15 +4811,98 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return cs.display === "none" || cs.visibility === "hidden";
   }
 
-  function collectSelectableElementInfos(deep: boolean): unknown[] {
+  /** An `atPoint` that is present but unreadable must not silently widen into
+   *  "collect everything": the caller asked a point question, so a malformed
+   *  point is a caller bug, not a request for the whole document. Absent stays
+   *  absent (collect all); malformed throws. */
+  function readSelectablePoint(raw: unknown): SelectablePoint | null {
+    if (raw === undefined || raw === null) return null;
+    var point = raw as Partial<SelectablePoint>;
+    if (
+      typeof point.x !== "number" ||
+      typeof point.y !== "number" ||
+      !isFinite(point.x) ||
+      !isFinite(point.y)
+    ) {
+      throw new Error(
+        "agent-native:collect-selectable-rects received a malformed atPoint",
+      );
+    }
+    return { x: point.x, y: point.y };
+  }
+
+  interface SelectablePoint {
+    x: number;
+    y: number;
+  }
+
+  function collectSelectableElementInfos(
+    deep: boolean,
+    atPoint?: SelectablePoint | null,
+    includePortableStyleSnapshot = true,
+  ): unknown[] {
     // This answers agent-native:collect-selectable-rects, which the overview
     // host uses for BOTH the overview marquee (scoped: direct children of
     // the current container, like the in-iframe marquee) and double-click
     // drill-in/click-to-pick (deep: needs every descendant to walk one level
     // further per repeat click) — the caller says which via `deep`.
-    return collectSelectableElements(deep).map(function (target) {
-      return getElementInfo(target);
-    });
+    var targets = collectSelectableElements(deep);
+    // getElementInfo is the expensive part by two orders of magnitude: it
+    // snapshots portable computed styles for the element AND its whole
+    // subtree. A drill-in/pick asks a POINT question and then discards every
+    // candidate whose box misses that point (drillInChainAtPoint), so
+    // narrowing here — before the map — is the difference between building
+    // ~1200 infos and building the handful actually on the containment
+    // chain. Deliberately a superset of the host's own filter: padded like
+    // selectableBounds and given a rounding tolerance, because the host
+    // re-filters in board space and must never lose a candidate this pass
+    // dropped.
+    if (atPoint) {
+      targets = targets.filter(function (el) {
+        return documentSpaceBoundsContainPoint(el, atPoint);
+      });
+    }
+    // Overview marquee collection only needs identity, geometry, and the
+    // selected element's computed state. Building a portable subtree snapshot
+    // for every candidate blocks the preview thread before a hit-set exists;
+    // direct selection and drill-in keep the default full snapshot contract.
+    if (!includePortableStyleSnapshot) {
+      return targets.map(function (target) {
+        return getElementInfo(target, undefined, false);
+      });
+    }
+    // Warm the editor-owned probe iframe before observing this request.
+    portableStyleProbeDocument();
+    var portableComputedStylesCache = createPortableStyleComputedStylesCache();
+    try {
+      return targets.map(function (target) {
+        return getElementInfo(target, portableComputedStylesCache, true);
+      });
+    } finally {
+      if (portableComputedStylesCache) {
+        portableComputedStylesCache.mutationObserver.disconnect();
+        portableComputedStylesCache.restoreCssomHooks();
+      }
+    }
+  }
+
+  /** Containment test in the same document space getElementInfo reports
+   *  boundingRect in (client rect + scroll), padded like selectableBounds so a
+   *  hairline element under the pointer stays reachable. */
+  function documentSpaceBoundsContainPoint(
+    el: Element,
+    point: SelectablePoint,
+  ): boolean {
+    var bounds = selectableBounds(el);
+    var scrollX = window.scrollX || window.pageXOffset || 0;
+    var scrollY = window.scrollY || window.pageYOffset || 0;
+    var tolerance = 1;
+    return (
+      point.x >= bounds.left + scrollX - tolerance &&
+      point.x <= bounds.right + scrollX + tolerance &&
+      point.y >= bounds.top + scrollY - tolerance &&
+      point.y <= bounds.bottom + scrollY + tolerance
+    );
   }
 
   var shieldOverlay = document.createElement("div");
@@ -3184,7 +4985,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             ? "nwse-resize"
             : "nesw-resize";
     handle.style.cssText =
-      "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:1px;pointer-events:auto;cursor:" +
+      "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:2px;box-shadow:0 1px 2px color-mix(in srgb,var(--design-editor-accent-color) 25%,transparent);pointer-events:auto;cursor:" +
       cursor +
       ";";
     if (pos.indexOf("n") !== -1) handle.style.top = "-4px";
@@ -3199,6 +5000,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       handle.style.top = "50%";
       handle.style.transform = "translateY(-50%)";
     }
+    selectionOverlay.appendChild(handle);
+  });
+  // Figma-style corner-radius handles: small circles inset from each corner
+  // along its diagonal, draggable to adjust the element's border-radius.
+  // Hidden (display:none) by default; applySelectionHandleHitGeometry shows
+  // and positions them only for elements that support a CSS border-radius.
+  ["nw", "ne", "se", "sw"].forEach(function (pos) {
+    var handle = document.createElement("span");
+    handle.setAttribute("data-agent-native-radius-handle", pos);
+    handle.style.cssText =
+      "position:absolute;z-index:2;width:9px;height:9px;border:1.5px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:999px;box-shadow:0 1px 2px color-mix(in srgb,var(--design-editor-accent-color) 25%,transparent);pointer-events:auto;cursor:pointer;display:none;";
     selectionOverlay.appendChild(handle);
   });
   (function () {
@@ -3341,7 +5153,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   var sizeBadge = document.createElement("div");
   sizeBadge.setAttribute("data-agent-native-edit-overlay", "size-badge");
   sizeBadge.style.cssText =
-    "position:fixed;z-index:100000;display:none;pointer-events:none;border-radius:3px;background:var(--design-editor-accent-color);color:var(--design-editor-accent-contrast-color);font:10px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;padding:2px 4px;white-space:nowrap;";
+    "position:fixed;z-index:100000;display:none;pointer-events:none;border-radius:4px;background:var(--design-editor-accent-color);color:var(--design-editor-accent-contrast-color);font:600 11px/1.4 ui-sans-serif,system-ui,-apple-system,sans-serif;padding:2px 6px;white-space:nowrap;box-shadow:0 1px 2px color-mix(in srgb,var(--design-editor-accent-color) 15%,transparent);";
   document.body.appendChild(sizeBadge);
 
   var insertionGuide = document.createElement("div");
@@ -3474,9 +5286,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // Constant-screen-size chrome: pill font/padding/offsets and the
     // component-root outline compensate for the host's iframe scale.
     var line = chromeLineScale();
-    var tagHeight = 22 * line;
-    var tagTop = rect.top - tagHeight - 4 * line;
-    if (tagTop < 4 * line) tagTop = rect.top + 4 * line;
+    var tagHeight = 24 * line;
+    var tagTop = rect.top - tagHeight - 6 * line;
+    // The fallback clears the size badge and outward rotation handles too.
+    if (tagTop < 4 * line) tagTop = rect.bottom + 40 * line;
     componentTagOverlay.style.display = "block";
     componentTagOverlay.style.fontSize = 11 * line + "px";
     componentTagOverlay.style.padding = 2 * line + "px " + 6 * line + "px";
@@ -3549,6 +5362,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
 
   function updateParentAutoLayoutOverlay(el: Element | null): void {
+    // A selected frame already has its own selection outline. Showing the
+    // parent's layout box as a second dashed outline makes the frame read as
+    // nested chrome instead of one selected object; keep this affordance for
+    // ordinary child layers where it communicates their auto-layout parent.
+    if (el?.getAttribute("data-an-primitive") === "frame") {
+      hideParentAutoLayoutOverlay();
+      return;
+    }
     var parent = el && el.parentElement;
     if (
       !parent ||
@@ -3573,6 +5394,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   function hideSelectionOverlay(): void {
     selectionOverlay.style.display = "none";
+    // The host mirrors this overlay into its own SelectionBox so a board
+    // object's handles can win z-order over an overlapping Screen (see
+    // MultiScreenCanvas). Clearing belongs here, at the single point every
+    // deselect path already funnels through — posting it from one caller
+    // leaves the host chrome floating over nothing after Escape, a marquee
+    // clear, a delete, or an undo.
+    if (designCanvasBoardSurface) {
+      window.parent.postMessage(
+        { type: "agent-native:board-selection-rect", rect: null },
+        "*",
+      );
+    }
     hideSizeBadge();
     hideSpacingOverlay();
     hideGridCellOverlay();
@@ -3643,12 +5476,36 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     moved: boolean;
     pointerId?: number;
     candidates?: Element[];
+    /** Parallel to `candidates`: each candidate's padded bounds, measured once
+     *  per gesture. A marquee never changes layout, so re-measuring every
+     *  candidate on every mousemove was pure waste. */
+    candidateBounds?: SelectableBounds[];
+    /** Per-gesture getElementInfo memo. The same element is re-reported on
+     *  every tick it stays inside the band, and getElementInfo snapshots
+     *  portable computed styles for the element AND its subtree — so without
+     *  this the drag pays that cost once per element PER TICK. Valid only
+     *  while the gesture runs, which is exactly while layout is frozen. */
+    infoCache?: Map<Element, unknown>;
+    /** Light identity/geometry descriptors are also stable for one gesture;
+     * cache them so distinct hit-set reports do not re-read computed style. */
+    lightInfoCache?: Map<Element, unknown>;
+    lastReportedElements?: Element[];
+    moveFrame?: number | null;
+    pendingMoveEvent?: MouseEvent | null;
     move: string;
     up: string;
     onMove: (ev: MouseEvent) => void;
     onUp: (ev: MouseEvent) => void;
   } | null = null;
   var activeTextEditEl: HTMLElement | null = null;
+  var activeTextEditRange: Range | null = null;
+  var activeTextEditStyleSelector = "";
+  var suspendedTextEditRange: {
+    target: HTMLElement;
+    range: Range;
+    selector: string;
+  } | null = null;
+  var textEditInspectorFocused = false;
   // Session-captured original min-width/min-height for the active text edit
   // (T19): refreshOverlays() re-applies these on every reflow via
   // updateTextEditingChrome, so it needs the real originals rather than "" —
@@ -3675,6 +5532,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     html: string;
     preferredSelector: string;
     selectorCandidates: string[];
+    sourceProvenance?: { versionHash?: string; uniqueNodeIds: string[] };
   } | null = null;
   var textEditPointerState: {
     shield: string;
@@ -3691,9 +5549,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // nodeId and activate the edit the moment it appears. Only the newest
   // command is kept; any user pointerdown or a user-initiated text edit
   // cancels it (the user has moved on — never yank focus later).
+  type BeginTextEditRepeat = { sourceSelector: string; itemIndex: number };
   var pendingBeginTextEdit: {
     nodeId: string;
+    repeat: BeginTextEditRepeat | null;
     force: boolean;
+    // Escape keeps what was typed (Figma): the host hands its buffer over with
+    // the command and asks for the session to end the moment it has landed.
+    commitImmediately: boolean;
     deadline: number;
     raf: number;
     // Keystrokes typed INTO THIS IFRAME while the command waits for its node
@@ -3715,9 +5578,44 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // iframe). pending:false stands the host down when the wait is abandoned;
   // successful activation instead flows through text-editing-state(active),
   // which both flushes the host buffer and clears its pending flag.
-  function postTextEditPending(nodeId: string, pending: boolean): void {
+  // `reason` exists because pending:false carries two different facts. Escape,
+  // a pointerdown in this frame, and a superseding dblclick are the user
+  // abandoning the request — the host may drop it and clean the node up. The
+  // pump's own deadline is not: the node simply has not arrived here yet, and
+  // a host that reads that as abandonment deletes a layer its own retry ladder
+  // is still working on. Unlabelled is never treated as abandonment.
+  function postTextEditPending(
+    nodeId: string,
+    pending: boolean,
+    reason?:
+      | "escape"
+      | "pointerdown"
+      | "superseded"
+      | "deadline"
+      | "committed"
+      | "not-taken",
+  ): void {
     (window.parent as Window).postMessage(
-      { type: "text-edit-pending", nodeId: nodeId, pending: pending },
+      {
+        type: "text-edit-pending",
+        nodeId: nodeId,
+        pending: pending,
+        reason: reason,
+      },
+      "*",
+    );
+  }
+  // Whether text handed to this frame actually landed in a session. The host
+  // owns the only copy until this says it did: an insert for an editable that
+  // was replaced or detached is dropped here, and silence let the host release
+  // keystrokes that never reached the document.
+  function postTextEditInsertResult(nodeId: string, inserted: boolean): void {
+    (window.parent as Window).postMessage(
+      {
+        type: "text-edit-insert-result",
+        nodeId: nodeId,
+        inserted: inserted,
+      },
       "*",
     );
   }
@@ -3788,7 +5686,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         // element did not exist before this request, so a rejected/undone
         // round-trip must REMOVE it. Restoring a prevParent it never had is
         // what would leave an orphan node behind after Cmd+Z.
-        | { inserted: true }
+        | { inserted: true; fallbackSelection?: Element }
         | {
             replaced: true;
             originalElement: Element;
@@ -3836,6 +5734,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   var bridgeSpaceKeyPressed = false;
   var bridgeSpaceKeyConsumedByDrag = false;
   var activeCrossScreenStyleSnapshot: unknown | undefined = undefined;
+  var activeCrossScreenDragIdentity: {
+    selector: string;
+    sourceId: string;
+    sourceProvenance?: { versionHash?: string; uniqueNodeId?: string };
+  } | null = null;
   var spacingDrag: {
     key: string;
     groupKey: string;
@@ -4022,7 +5925,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       );
       handle.setAttribute("data-corner", pos);
       handle.style.cssText =
-        "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:1px;pointer-events:auto;cursor:" +
+        "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:0;pointer-events:auto;cursor:" +
         (pos === "nw" || pos === "se" ? "nwse-resize" : "nesw-resize") +
         ";";
       if (pos.indexOf("n") !== -1) handle.style.top = "-4px";
@@ -4124,11 +6027,42 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       });
   }
 
+  /** Grows/shrinks the pooled passive overlays to `count`. A style change
+   *  rebuilds the pool, because the two styles are different cssText. */
+  var passiveSelectionOverlayPoolStyle: "default" | "soft" = "default";
+  function syncPassiveSelectionOverlayPool(
+    count: number,
+    style: "default" | "soft",
+  ): void {
+    if (style !== passiveSelectionOverlayPoolStyle) {
+      removePassiveSelectionOverlays();
+      passiveSelectionOverlayPoolStyle = style;
+    }
+    while (passiveSelectionOverlays.length > count) {
+      var extra = passiveSelectionOverlays.pop();
+      if (extra && extra.parentNode) extra.parentNode.removeChild(extra);
+    }
+    while (passiveSelectionOverlays.length < count) {
+      passiveSelectionOverlays.push(makePassiveSelectionOverlay(style));
+    }
+  }
+
+  function samePassiveSelectionElements(
+    current: Element[],
+    next: Element[],
+  ): boolean {
+    if (current.length !== next.length) return false;
+    for (var index = 0; index < current.length; index += 1) {
+      if (current[index] !== next[index]) return false;
+    }
+    return true;
+  }
+
   function setPassiveSelectionElements(
     elements: Element[],
     style: "default" | "soft" = "default",
   ): void {
-    passiveSelectionEls = elements.filter(function (el, index, all) {
+    var nextPassiveEls = elements.filter(function (el, index, all) {
       return (
         el &&
         el !== selectedEl &&
@@ -4136,11 +6070,30 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         all.indexOf(el) === index
       );
     });
-    removePassiveSelectionOverlays();
-    passiveSelectionEls.forEach(function (el) {
-      var overlay = makePassiveSelectionOverlay(style);
-      passiveSelectionOverlays.push(overlay);
-      positionOverlay(overlay, el);
+    // A marquee drag reports on every frame, but the hit-set only changes on
+    // the frames where the band actually crosses an element boundary. Tearing
+    // down and rebuilding every passive overlay on the unchanged frames was
+    // one DOM write plus one forced layout read per selected element per
+    // frame, for no visible difference.
+    if (
+      style === passiveSelectionOverlayPoolStyle &&
+      passiveSelectionOverlays.length === nextPassiveEls.length &&
+      samePassiveSelectionElements(passiveSelectionEls, nextPassiveEls)
+    ) {
+      passiveSelectionEls = nextPassiveEls;
+      positionMultiSelectionBounds();
+      return;
+    }
+    passiveSelectionEls = nextPassiveEls;
+    // Pool the overlay nodes rather than dropping and re-creating one per
+    // selected element: a marquee changes the hit-set on most frames, and the
+    // create/append/remove churn invalidated layout right before
+    // positionOverlay read it back, turning every frame into N forced
+    // reflows.
+    syncPassiveSelectionOverlayPool(passiveSelectionEls.length, style);
+    passiveSelectionEls.forEach(function (el, index) {
+      var overlay = passiveSelectionOverlays[index];
+      if (overlay) positionOverlay(overlay, el);
     });
     // Selection changes do not go through refreshOverlays, so the combined
     // bounds must be recomputed here too.
@@ -4321,6 +6274,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
      *  the unkeyed probe must treat it as doomed even though the key lives on
      *  in the next document. */
     obsolete: Set<string>;
+    repeatCloneTargets?: Map<Element, Element[]>;
+    repeatCloneBaselines?: Map<Element, SourceMeta>;
   }
 
   /**
@@ -4639,6 +6594,189 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return (node as Element).getAttribute("data-agent-native-node-id");
   }
 
+  function snapshotRepeatCloneTargets(
+    template: HTMLTemplateElement,
+    nextTemplate: HTMLTemplateElement,
+  ): { targets: Map<Element, Element[]>; baselines: Map<Element, SourceMeta> } {
+    var targets = new Map<Element, Element[]>();
+    var baselines = new Map<Element, SourceMeta>();
+    var parent = template.parentElement;
+    var sourceRoot = template.content.firstElementChild;
+    var nextRoot = nextTemplate.content.firstElementChild;
+    if (!parent || !sourceRoot || !nextRoot)
+      return { targets: targets, baselines: baselines };
+
+    var templates: Element[] = [];
+    for (var i = 0; i < parent.children.length; i += 1) {
+      var child = parent.children[i]!;
+      if (child.tagName === "TEMPLATE" && child.hasAttribute("x-for"))
+        templates.push(child);
+    }
+
+    function nestedClone(node: Element, row: Element | null): boolean {
+      var current: Element | null = node;
+      while (row && current && current !== row) {
+        var ancestor = current.parentElement;
+        if (!ancestor) return false;
+        for (var i = 0; i < ancestor.children.length; i += 1) {
+          var candidate = ancestor.children[i]!;
+          if (
+            candidate.tagName === "TEMPLATE" &&
+            candidate.hasAttribute("x-for") &&
+            rowKeyFor(candidate, current) !== ""
+          )
+            return true;
+        }
+        current = ancestor;
+      }
+      return false;
+    }
+
+    function children(node: Element, row: Element | null): Element[] {
+      var result: Element[] = [];
+      for (var i = 0; i < node.children.length; i += 1) {
+        var child = node.children[i]!;
+        if (!nestedClone(child, row)) result.push(child);
+      }
+      return result;
+    }
+
+    function sameShape(left: Element, right: Element, clone: boolean): boolean {
+      if (left.tagName !== right.tagName) return false;
+      function ignored(name: string): boolean {
+        return (
+          name === "class" ||
+          name === "style" ||
+          name === "data-agent-native-node-id" ||
+          name === "x-cloak"
+        );
+      }
+      for (var i = 0; i < left.attributes.length; i += 1) {
+        var attr = left.attributes[i]!;
+        if (!ignored(attr.name) && right.getAttribute(attr.name) !== attr.value)
+          return false;
+      }
+      for (var i = 0; i < right.attributes.length; i += 1) {
+        var attr = right.attributes[i]!;
+        if (!ignored(attr.name) && left.getAttribute(attr.name) !== attr.value)
+          return false;
+      }
+      var leftClasses = Array.from(left.classList);
+      var rightClasses = Array.from(right.classList);
+      return clone
+        ? leftClasses.every(function (name) {
+            return rightClasses.indexOf(name) !== -1;
+          })
+        : leftClasses.length === rightClasses.length &&
+            leftClasses.every(function (name) {
+              return rightClasses.indexOf(name) !== -1;
+            });
+    }
+
+    function walkPairs(
+      leftRoot: Element,
+      rightRoot: Element,
+      row: Element | null,
+      onPair: (left: Element, right: Element) => void,
+    ): void {
+      function visit(left: Element, right: Element): void {
+        if (left.tagName !== right.tagName) return;
+        onPair(left, right);
+        if (
+          left.tagName === "TEMPLATE" ||
+          left.hasAttribute("x-for") ||
+          declaresRuntimeChildren(left)
+        )
+          return;
+        var leftChildren = children(left, null);
+        var rightChildren = children(right, row);
+        var used = new Set<Element>();
+        for (var i = 0; i < leftChildren.length; i += 1) {
+          var source = leftChildren[i]!;
+          var id = source.getAttribute("data-agent-native-node-id");
+          var idTargets = id
+            ? rightChildren.filter(function (candidate) {
+                return (
+                  candidate.getAttribute("data-agent-native-node-id") === id
+                );
+              })
+            : [];
+          var target: Element | null =
+            idTargets.length === 1 &&
+            leftChildren.filter(function (candidate) {
+              return candidate.getAttribute("data-agent-native-node-id") === id;
+            }).length === 1
+              ? idTargets[0]!
+              : null;
+          if (!target) {
+            // ponytail: unkeyed clones need unique unchanged markup; source IDs are required for dynamic reshaping.
+            var leftMatches = leftChildren.filter(function (candidate) {
+              return sameShape(source, candidate, false);
+            });
+            var rightMatches = rightChildren.filter(function (candidate) {
+              return (
+                !used.has(candidate) &&
+                sameShape(source, candidate, row !== null)
+              );
+            });
+            if (leftMatches.length === 1 && rightMatches.length === 1)
+              target = rightMatches[0]!;
+          }
+          if (!target || used.has(target)) continue;
+          used.add(target);
+          visit(source, target);
+        }
+      }
+      visit(leftRoot, rightRoot);
+    }
+
+    var rows: Element[] = [];
+    for (var i = 0; i < parent.children.length; i += 1) {
+      var row = parent.children[i]!;
+      if (row === template || isSourceOwned(row)) continue;
+      var owners = templates.filter(function (candidate) {
+        return rowKeyFor(candidate, row) !== "";
+      });
+      if (owners.length === 1 && owners[0] === template) rows.push(row);
+    }
+
+    rows.forEach(function (row) {
+      walkPairs(sourceRoot, row, row, function (source, clone) {
+        var matches = targets.get(source);
+        if (matches) matches.push(clone);
+        else targets.set(source, [clone]);
+      });
+    });
+    walkPairs(sourceRoot, nextRoot, null, function (source, next) {
+      var matches = targets.get(source);
+      var baseline = sourceMetaFor(source);
+      if (matches && baseline) {
+        targets.set(next, matches);
+        baselines.set(next, baseline);
+      }
+    });
+    return { targets: targets, baselines: baselines };
+  }
+
+  function replayRepeatTemplatePaint(
+    next: Element,
+    previous: SourceMeta,
+    targets: Element[],
+  ): void {
+    var nextClass = next.getAttribute("class") ?? "";
+    if (previous.className !== nextClass) {
+      targets.forEach(function (target) {
+        applyClassAttribute(target, previous.className, nextClass);
+      });
+    }
+    var nextStyle = next.getAttribute("style") ?? "";
+    if (previous.style !== nextStyle) {
+      targets.forEach(function (target) {
+        applyStyleAttribute(target, previous.style, nextStyle);
+      });
+    }
+  }
+
   function morphAttributes(live: Element, next: Element): void {
     var meta = sourceMetaFor(live);
     var previousAttrs = meta ? meta.attrs : [];
@@ -4838,19 +6976,35 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // decide whether the SOURCE default changed. Run it after and a dirty
     // input never sees an explicit source edit.
     morphFormState(live, next);
+    var previousSource = sourceMetaFor(live);
     morphAttributes(live, next);
+    if (context.repeatCloneTargets) {
+      var repeatTargets = context.repeatCloneTargets.get(live);
+      var repeatBaseline = previousSource;
+      if (repeatTargets === undefined) {
+        repeatTargets = context.repeatCloneTargets.get(next);
+        repeatBaseline = context.repeatCloneBaselines?.get(next);
+      }
+      if (repeatTargets && repeatBaseline) {
+        replayRepeatTemplatePaint(next, repeatBaseline, repeatTargets);
+      }
+    }
     if (declaresRuntimeChildren(next) || declaresRuntimeChildren(live)) return;
     var liveTemplate = templateContentOf(live);
     var nextTemplate = templateContentOf(next);
     if (liveTemplate && nextTemplate) {
       // Its own key scope: a node id can legitimately appear both inside a
       // template and in the instantiated body, and the outer map must not
-      // hand the live one over to the template.
-      morphChildren(
-        liveTemplate,
-        nextTemplate,
-        scopedMorphContext(liveTemplate, nextTemplate),
+      // hand the live one over to the template. Snapshot repeat rows before
+      // morphing the inert children so unkeyed paths cannot shift mid-walk.
+      var templateContext = scopedMorphContext(liveTemplate, nextTemplate);
+      var repeatCloneSnapshot = snapshotRepeatCloneTargets(
+        live as HTMLTemplateElement,
+        next as HTMLTemplateElement,
       );
+      templateContext.repeatCloneTargets = repeatCloneSnapshot.targets;
+      templateContext.repeatCloneBaselines = repeatCloneSnapshot.baselines;
+      morphChildren(liveTemplate, nextTemplate, templateContext);
       return;
     }
     morphChildren(live, next, context);
@@ -4903,8 +7057,19 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     selectorCandidates: string[],
     forceFullDocument?: boolean,
     preserveTextEditingSession?: boolean,
+    sourceProvenanceValue?: unknown,
   ): void {
     if (typeof html !== "string") return;
+    var sourceProvenance = normalizeSourceDocumentProvenance(
+      sourceProvenanceValue,
+    );
+    var hasSourceProvenance =
+      sourceProvenanceValue !== undefined && sourceProvenanceValue !== null;
+    // A document revision proof only describes a complete source document.
+    // Inline source edits carrying proof therefore use the body morph even if
+    // the legacy selected-subtree optimization would otherwise apply.
+    var requiresFullDocumentMorph =
+      Boolean(forceFullDocument) || hasSourceProvenance;
     // T23: a session whose element was already detached (earlier patch,
     // delete-element, in-page reactivity) can never end via blur/Escape —
     // buffering behind it would freeze this surface's content forever. Exit
@@ -4913,6 +7078,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // finish() runs before we continue; this newer payload then supersedes
     // its result, preserving ordering.)
     exitStaleTextEditSession();
+    var rangeStateBeforeMorph = suspendedTextEditRange;
+    var rangeBookmarkBeforeMorph = rangeStateBeforeMorph
+      ? captureTextRangeBookmark(
+          rangeStateBeforeMorph.target,
+          rangeStateBeforeMorph.range,
+        )
+      : null;
+    var rangeTargetSelectorBeforeMorph = rangeStateBeforeMorph
+      ? getSelector(rangeStateBeforeMorph.target)
+      : "";
     if (
       activeTextEditEl &&
       (!forceFullDocument || preserveTextEditingSession)
@@ -4927,6 +7102,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         selectorCandidates: Array.isArray(selectorCandidates)
           ? selectorCandidates
           : [],
+        sourceProvenance: sourceProvenance,
       };
       applyLayerStateSelectors();
       refreshOverlays();
@@ -4996,7 +7172,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // The subtree path rewrites one selector's match. A forced replacement can
     // have changed any number of nodes, so taking it leaves the rest stale.
     if (
-      !forceFullDocument &&
+      !requiresFullDocumentMorph &&
       nextHeadHtml === currentHeadHtml &&
       activeCandidates.length > 0
     ) {
@@ -5049,7 +7225,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         currentMatch &&
         currentMatch !== document.body &&
         currentMatch !== document.documentElement &&
-        !isOverlayElement(currentMatch)
+        !isOverlayElement(currentMatch) &&
+        !suspendedTextEditRange
       ) {
         if (nextMatch) {
           if (
@@ -5096,6 +7273,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         highlightOverlay.style.display = "none";
         hideMeasurements();
         refreshOverlays();
+        publishSourceDocumentProvenance(undefined, true);
         return;
       }
     }
@@ -5110,6 +7288,35 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (node.parentNode) node.parentNode.removeChild(node);
     });
     morphRuntimeBody(nextDoc.body);
+    publishSourceDocumentProvenance(sourceProvenance);
+    if (suspendedTextEditRange) {
+      var suspendedRangeState = suspendedTextEditRange;
+      var rangeTargetAfterMorph = suspendedRangeState.target.isConnected
+        ? suspendedRangeState.target
+        : rangeTargetSelectorBeforeMorph
+          ? (findRuntimeTarget(rangeTargetSelectorBeforeMorph, [
+              rangeTargetSelectorBeforeMorph,
+            ]) as HTMLElement | null)
+          : null;
+      var restoredRange =
+        rangeBookmarkBeforeMorph && rangeTargetAfterMorph
+          ? restoreTextRangeBookmark(
+              rangeTargetAfterMorph,
+              rangeBookmarkBeforeMorph,
+            )
+          : null;
+      if (restoredRange && rangeTargetAfterMorph) {
+        suspendedRangeState.target = rangeTargetAfterMorph;
+        suspendedRangeState.range = restoredRange;
+        var selection = window.getSelection ? window.getSelection() : null;
+        if (selection) {
+          selection.removeAllRanges();
+          selection.addRange(restoredRange.cloneRange());
+        }
+      } else {
+        clearSuspendedTextEditRange();
+      }
+    }
     persistentNodes.forEach(function (node) {
       document.body.appendChild(node);
     });
@@ -5124,7 +7331,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // A structural replace can have deleted the selected node, and a stale
     // positional candidate then matches whichever sibling shifted into its
     // place — so only whole-selector stable identity may re-anchor one.
-    var reanchorCandidates = forceFullDocument
+    var reanchorCandidates = requiresFullDocumentMorph
       ? activeCandidates.filter(isStableIdentitySelector)
       : activeCandidates;
     for (var i = 0; i < reanchorCandidates.length && !selectedEl; i += 1) {
@@ -5362,11 +7569,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var paddingRight = readPx(cs.paddingRight);
     var paddingBottom = readPx(cs.paddingBottom);
     var paddingLeft = readPx(cs.paddingLeft);
-    var sx = chromeScaleX();
-    var sy = chromeScaleY();
     var line = chromeLineScale();
-    var hLineWidth = Math.max(6, Math.min(18, rect.width * 0.12)) * sx;
-    var vLineHeight = Math.max(6, Math.min(18, rect.height * 0.12)) * sy;
+    // Both orientations derive their tick length from the same metric (the
+    // element's smaller dimension) and the same uniform scale factor, so a
+    // horizontal (top/bottom) tick and a vertical (left/right) tick always
+    // render at the same visual length.
+    var tickLength =
+      Math.max(6, Math.min(18, Math.min(rect.width, rect.height) * 0.12)) *
+      line;
     var innerLeft = borderLeft;
     var innerTop = borderTop;
     var innerWidth = Math.max(1, rect.width - borderLeft - borderRight);
@@ -5388,9 +7598,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             height: paddingTop,
           },
           line: {
-            x: rect.width / 2 - hLineWidth / 2,
+            x: rect.width / 2 - tickLength / 2,
             y: innerTop + paddingTop / 2 - line / 2,
-            width: hLineWidth,
+            width: tickLength,
             height: line,
           },
         }),
@@ -5413,9 +7623,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             height: paddingBottom,
           },
           line: {
-            x: rect.width / 2 - hLineWidth / 2,
+            x: rect.width / 2 - tickLength / 2,
             y: rect.height - borderBottom - paddingBottom / 2 - line / 2,
-            width: hLineWidth,
+            width: tickLength,
             height: line,
           },
         }),
@@ -5439,9 +7649,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           },
           line: {
             x: innerLeft + paddingLeft / 2 - line / 2,
-            y: rect.height / 2 - vLineHeight / 2,
+            y: rect.height / 2 - tickLength / 2,
             width: line,
-            height: vLineHeight,
+            height: tickLength,
           },
         }),
       );
@@ -5464,9 +7674,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           },
           line: {
             x: rect.width - borderRight - paddingRight / 2 - line / 2,
-            y: rect.height / 2 - vLineHeight / 2,
+            y: rect.height / 2 - tickLength / 2,
             width: line,
-            height: vLineHeight,
+            height: tickLength,
           },
         }),
       );
@@ -5482,11 +7692,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var children = visibleLayoutChildren(el);
     if (children.length < 2) return [];
     var handles = [];
-    var sx = chromeScaleX();
-    var sy = chromeScaleY();
     var line = chromeLineScale();
-    var hLineWidth = 8 * sx;
-    var vLineHeight = 8 * sy;
+    // Use the same uniform scale for both axes so a horizontal gap tick and
+    // a vertical gap tick render at the same visual length.
+    var tickLength = 8 * line;
     var isFlex = cs.display === "flex" || cs.display === "inline-flex";
     var isGrid = cs.display === "grid" || cs.display === "inline-grid";
     if (!isFlex && !isGrid) return handles;
@@ -5526,9 +7735,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
               region: { x: a.right, y: top, width: gap, height: height },
               line: {
                 x: a.right + gap / 2 - line / 2,
-                y: top + height / 2 - vLineHeight / 2,
+                y: top + height / 2 - tickLength / 2,
                 width: line,
-                height: vLineHeight,
+                height: tickLength,
               },
             }),
           );
@@ -5546,9 +7755,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
               value: cssGap,
               region: { x: left, y: a.bottom, width: width, height: gap },
               line: {
-                x: left + width / 2 - hLineWidth / 2,
+                x: left + width / 2 - tickLength / 2,
                 y: a.bottom + gap / 2 - line / 2,
-                width: hLineWidth,
+                width: tickLength,
                 height: line,
               },
             }),
@@ -6141,6 +8350,37 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
+  // The element applySelectionHandleHitGeometry last sized handles for.
+  // Compared by reference on every call so a genuine selection SWITCH (a
+  // different element, including the very first real selection after the
+  // null-element page-load call) can suppress the handles' geometry
+  // transition for that one write — see the CSS rule this toggles above.
+  var lastHandleGeometryTargetEl: Element | null = null;
+
+  // Drawn vector primitives (lines, arrows, ellipses, polygons, stars, pen
+  // paths) render their shape via SVG geometry, not a CSS box — a
+  // border-radius on their wrapper has no visible effect, so the
+  // corner-radius drag handles stay hidden for them.
+  var RADIUS_UNSUPPORTED_PRIMITIVES = {
+    line: true,
+    arrow: true,
+    ellipse: true,
+    circle: true,
+    polygon: true,
+    star: true,
+    path: true,
+    pen: true,
+  };
+  function supportsCornerRadiusHandles(el) {
+    if (!el || el.nodeType !== 1) return false;
+    var kind = (
+      el.getAttribute("data-an-primitive") ||
+      el.getAttribute("data-agent-native-primitive") ||
+      ""
+    ).toLowerCase();
+    return !kind || !RADIUS_UNSUPPORTED_PRIMITIVES[kind];
+  }
+
   // Sizes the selection overlay's edge/corner handles for the current chrome
   // scale, clamping each handle's inward reach against the overlaid
   // element's own rect. Called from applyEditorChromeScale (scale changes)
@@ -6150,6 +8390,22 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // exactly: edge bars 10*scale thick centered on the edge, corner squares
   // 7*scale offset -4*scale.
   function applySelectionHandleHitGeometry(el) {
+    // The handle spans are singletons reused across every selection. Easing
+    // them from the PREVIOUS target's geometry to this one is meaningless
+    // for hit-testing (the two targets are unrelated), and the transient
+    // in-between value — up to the fully unclamped nominal reach, since the
+    // null-element page-load call never clamps — can cover this element's
+    // entire body and steal its first click as a resize instead of a move.
+    // Only ease when the SAME element is resizing under a live chrome-scale
+    // change, which is what the transition exists for.
+    var isNewSelectionTarget = el !== lastHandleGeometryTargetEl;
+    lastHandleGeometryTargetEl = el || null;
+    if (isNewSelectionTarget) {
+      selectionOverlay.setAttribute(
+        "data-agent-native-suppress-handle-transition",
+        "",
+      );
+    }
     var sx = chromeScaleX();
     var sy = chromeScaleY();
     var line = chromeLineScale();
@@ -6190,12 +8446,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       .querySelectorAll("[data-agent-native-edit-handle]")
       .forEach(function (handle) {
         var pos = handle.getAttribute("data-agent-native-edit-handle") || "";
-        var sizeX = 7 * sx;
-        var sizeY = 7 * sy;
-        // sizeY - 4*sy is exact (Sterbenz), so the unclamped offset below
+        // Both axes use the same uniform `line` scale (never sx/sy
+        // individually) so the square handle stays square and centered on
+        // the stroke corner even when the iframe's own X/Y chrome scale
+        // differs — using sx/sy here stretched the square into a rectangle
+        // and threw off the corner offset math whenever scaleX !== scaleY.
+        var sizeX = 7 * line;
+        var sizeY = 7 * line;
+        // sizeY - 4*line is exact (Sterbenz), so the unclamped offset below
         // reproduces the historical -4*scale bit-for-bit.
-        var inwardX = clampHandleInwardReach(sizeX - 4 * sx, elWidth);
-        var inwardY = clampHandleInwardReach(sizeY - 4 * sy, elHeight);
+        var inwardX = clampHandleInwardReach(sizeX - 4 * line, elWidth);
+        var inwardY = clampHandleInwardReach(sizeY - 4 * line, elHeight);
         handle.style.width = sizeX + "px";
         handle.style.height = sizeY + "px";
         handle.style.borderWidth = 1 * line + "px";
@@ -6212,6 +8473,52 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           handle.style.right = inwardX - sizeX + "px";
         }
       });
+
+    // Radius handles: small circles inset along each corner's diagonal,
+    // hidden unless the element supports border-radius and is large enough
+    // to fit them without overlapping the opposite corner.
+    var radiusHandlesSupported = supportsCornerRadiusHandles(el);
+    selectionOverlay
+      .querySelectorAll("[data-agent-native-radius-handle]")
+      .forEach(function (handle) {
+        if (
+          readOnly ||
+          !!activeTextEditEl ||
+          !radiusHandlesSupported ||
+          !(elWidth > 0) ||
+          !(elHeight > 0)
+        ) {
+          handle.style.display = "none";
+          return;
+        }
+        var pos = handle.getAttribute("data-agent-native-radius-handle") || "";
+        var size = 9 * line;
+        var maxInset = Math.min(elWidth, elHeight) / 2 - size;
+        if (maxInset < 4 * line) {
+          handle.style.display = "none";
+          return;
+        }
+        var inset = Math.max(4 * line, Math.min(16 * line, maxInset));
+        handle.style.display = "block";
+        handle.style.width = size + "px";
+        handle.style.height = size + "px";
+        handle.style.borderWidth = 1.5 * line + "px";
+        var offset = inset - size / 2 + "px";
+        if (pos.indexOf("n") !== -1) handle.style.top = offset;
+        if (pos.indexOf("s") !== -1) handle.style.bottom = offset;
+        if (pos.indexOf("w") !== -1) handle.style.left = offset;
+        if (pos.indexOf("e") !== -1) handle.style.right = offset;
+      });
+
+    if (isNewSelectionTarget) {
+      // Force layout so the instant geometry above is committed under the
+      // transition:none rule before removing it, or removing it on the same
+      // tick would let the transition pick up mid-write and still animate.
+      void selectionOverlay.offsetHeight;
+      selectionOverlay.removeAttribute(
+        "data-agent-native-suppress-handle-transition",
+      );
+    }
   }
 
   function applyEditorChromeScale() {
@@ -6315,7 +8622,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     setSelectionOverlayResizeChromeVisible(
       !readOnly && !activeTextEditEl && members.length < 2,
     );
-    if (members.length < 2 || selectionChromeHidden) {
+    if (members.length === 0 || selectionChromeHidden) {
       if (multiSelectionBoundsOverlay) {
         multiSelectionBoundsOverlay.style.display = "none";
       }
@@ -6348,6 +8655,33 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         return r.bottom;
       }),
     );
+    if (designCanvasBoardSurface && selectedEl) {
+      window.parent.postMessage(
+        {
+          type: "agent-native:board-selection-bounds",
+          screenId: designCanvasScreenId,
+          selector: getSelector(selectedEl),
+          memberSelectors: members.map(getSelector),
+          memberSourceIds: members.map(getSourceId),
+          contentOffsetX: designCanvasContentOffsetX,
+          contentOffsetY: designCanvasContentOffsetY,
+          rect: {
+            left: left,
+            top: top,
+            width: Math.max(0, right - left),
+            height: Math.max(0, bottom - top),
+          },
+          rotationDeg: 0,
+        },
+        "*",
+      );
+    }
+    if (members.length < 2) {
+      if (multiSelectionBoundsOverlay) {
+        multiSelectionBoundsOverlay.style.display = "none";
+      }
+      return;
+    }
     var overlay = ensureMultiSelectionBoundsOverlay();
     overlay.style.display = "block";
     overlay.style.transform = "none";
@@ -6366,7 +8700,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     var placedRotatedLocalBox = positionOverlayForRotatedLocalBox(overlay, el);
     if (!placedRotatedLocalBox) {
-      var rect = el.getBoundingClientRect();
+      // Only the primary selection overlay consumes this (updateComponentTag
+      // below); a marquee repositions every passive overlay on every frame,
+      // so measuring for them too was a forced layout per hit per tick.
+      var rect =
+        overlay === selectionOverlay ? el.getBoundingClientRect() : undefined;
       // Only a degenerate box is padded, so every normal outline still matches
       // the element rect exactly.
       var box = selectableBounds(el);
@@ -6394,6 +8732,36 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       updateComponentTag(el, rect);
       updateParentAutoLayoutOverlay(el);
       showSizeBadge(el);
+      // Board objects live inside this iframe, but the board wrapper is
+      // pinned below Screens (z-index 0) so an overlapping Screen can occlude
+      // this overlay's own handles both visually and for hit-testing. The
+      // host renders its own SelectionBox above every Screen and forwards
+      // gestures back into startResize() (see beginBoardElementResize); it
+      // needs this overlay's just-computed unrotated local box (left/top/
+      // width/height are set the same way by both branches above) plus the
+      // rotation separately, not the rotated bounding box.
+      if (designCanvasBoardSurface) {
+        window.parent.postMessage(
+          {
+            type: "agent-native:board-selection-rect",
+            screenId: designCanvasScreenId,
+            selector: getSelector(el),
+            sourceId: getSourceId(el),
+            // Carry the iframe's own render-window offset with this geometry.
+            // A delayed local rect must not be paired with a newer host window.
+            contentOffsetX: designCanvasContentOffsetX,
+            contentOffsetY: designCanvasContentOffsetY,
+            rect: {
+              left: parseFloat(overlay.style.left) || 0,
+              top: parseFloat(overlay.style.top) || 0,
+              width: parseFloat(overlay.style.width) || 0,
+              height: parseFloat(overlay.style.height) || 0,
+            },
+            rotationDeg: currentRotation(el),
+          },
+          "*",
+        );
+      }
     } else {
       applyElementOverlayChrome(overlay, el);
     }
@@ -7375,6 +9743,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var key = e.key;
     var normalized = normalizedHotkeyChar(e);
     var primary = e.metaKey || e.ctrlKey;
+    var isArrangeBracketChord =
+      (e.code === "BracketRight" || e.code === "BracketLeft") &&
+      ((!primary && !e.altKey && !e.shiftKey) ||
+        (primary && !e.shiftKey) ||
+        (e.ctrlKey && !e.metaKey && !e.altKey && e.shiftKey));
+    // KeyboardEvent.key is layout-dependent for bracket keys and some native
+    // automation sends the physical code as the key. Keep the iframe gate in
+    // step with the shared Design shortcut resolver, which already matches on
+    // code for these commands.
+    if (isArrangeBracketChord) return true;
     if (key === "Escape" || key === "Enter") return true;
     // Space arms Figma-style temporary hand-tool panning while the cursor is
     // over the preview iframe. Only forward the plain (no-modifier) chord —
@@ -7463,7 +9841,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // useDesignHotkeys.ts. A chord absent here is dead for anyone whose focus
     // is in the canvas iframe — where it lands the moment you click a layer.
     if (e.altKey) {
-      if (e.shiftKey) return false;
+      if (e.shiftKey) return normalized === "s";
       // Alt+A/D/W/S/H/V align selection; Alt+1/Alt+2 navigation panels.
       return (
         ["a", "d", "w", "s", "h", "v"].indexOf(normalized) !== -1 ||
@@ -7557,7 +9935,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   function setSelectionOverlayResizeChromeVisible(visible: boolean): void {
     selectionOverlay
       .querySelectorAll(
-        "[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]",
+        "[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle],[data-agent-native-radius-handle]",
       )
       .forEach(function (node) {
         if (!(node instanceof HTMLElement)) return;
@@ -7659,6 +10037,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       hit === document.documentElement
     )
       return null;
+    var nativeTextRoot = nativeTextPrimitiveForHit(hit);
+    if (nativeTextRoot) return nativeTextRoot;
     var selectedContainsHit =
       selectedEl && selectedEl.contains && selectedEl.contains(hit);
     // Generated Group wrappers are selection boundaries, not text targets.
@@ -7765,6 +10145,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   function clearActiveMarqueeSelection(): void {
     if (!activeMarqueeSelection) return;
+    if (activeMarqueeSelection.moveFrame != null) {
+      window.cancelAnimationFrame(activeMarqueeSelection.moveFrame);
+      activeMarqueeSelection.moveFrame = null;
+    }
     document.removeEventListener(
       activeMarqueeSelection.move,
       activeMarqueeSelection.onMove,
@@ -7830,13 +10214,35 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     additive: boolean,
     e,
     final?: boolean,
+    infoCache?: Map<Element, unknown> | null,
+    lightInfoCache?: Map<Element, unknown> | null,
   ): void {
+    function lightInfo(el: Element): unknown {
+      if (!lightInfoCache) return getLightElementInfo(el, true);
+      var cached = lightInfoCache.get(el);
+      if (cached === undefined) {
+        cached = getLightElementInfo(el, true);
+        lightInfoCache.set(el, cached);
+      }
+      return cached;
+    }
     (window.parent as Window).postMessage(
       {
         type: "agent-native:layer-marquee-selection",
         phase: "change",
         payload: elements.map(function (el) {
-          return getElementInfo(el);
+          // Live ticks only need identity and geometry. On the settled report,
+          // every member needs its own computed state: z-order planning must not
+          // classify passive selections from authored source or the primary
+          // inspector payload.
+          if (!final) return lightInfo(el);
+          if (!infoCache) return getElementInfo(el);
+          var cached = infoCache.get(el);
+          if (cached === undefined) {
+            cached = getElementInfo(el);
+            infoCache.set(el, cached);
+          }
+          return cached;
         }),
         intent: {
           additive: additive,
@@ -7871,14 +10277,20 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     marqueeSelectionOverlay.style.height = rect.height + "px";
 
     // Collected once per gesture: this runs on every pointermove, and a
-    // generated screen can hold thousands of nodes.
+    // generated screen can hold thousands of nodes. Bounds are measured in the
+    // same pass — a marquee moves the band, never the page, so every
+    // candidate's box is constant for the life of the gesture.
     if (!activeMarqueeSelection.candidates) {
-      activeMarqueeSelection.candidates = collectSelectableElements(
-        activeMarqueeSelection.deep,
-      );
+      var collected = collectSelectableElements(activeMarqueeSelection.deep);
+      activeMarqueeSelection.candidates = collected;
+      activeMarqueeSelection.candidateBounds = collected.map(selectableBounds);
     }
-    var hitElements = activeMarqueeSelection.candidates.filter(function (el) {
-      var bounds = selectableBounds(el);
+    var candidates = activeMarqueeSelection.candidates;
+    var candidateBounds = activeMarqueeSelection.candidateBounds || [];
+    var hitElements: Element[] = [];
+    for (var index = 0; index < candidates.length; index += 1) {
+      var bounds = candidateBounds[index];
+      if (!bounds) continue;
       // A candidate that encloses the band is the container being banded
       // inside, not something aimed at: sweeping it in selects the whole
       // screen and every later drag moves everything.
@@ -7888,15 +10300,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         bounds.right >= rect.right &&
         bounds.bottom >= rect.bottom
       ) {
-        return false;
+        continue;
       }
-      return rectsIntersect(rect, {
-        left: bounds.left,
-        top: bounds.top,
-        right: bounds.right,
-        bottom: bounds.bottom,
-      });
-    });
+      if (rectsIntersect(rect, bounds)) {
+        hitElements.push(candidates[index]!);
+      }
+    }
     var primary = hitElements[hitElements.length - 1] || null;
     if (primary) {
       selectedEl = primary;
@@ -7906,11 +10315,25 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       hideSelectionOverlay();
     }
     setPassiveSelectionElements(hitElements);
+    // The host also dedupes unchanged hit sets, but doing it after postMessage
+    // still pays to serialize every selection payload. Skip identical live
+    // ticks here; mouseup must always send the final packet for undo history.
+    var lastReported = activeMarqueeSelection.lastReportedElements;
+    var sameHitSet =
+      !!lastReported &&
+      lastReported.length === hitElements.length &&
+      hitElements.every(function (el, index) {
+        return lastReported![index] === el;
+      });
+    if (!final && sameHitSet) return;
+    activeMarqueeSelection.lastReportedElements = hitElements;
     postElementMarqueeSelect(
       hitElements,
       activeMarqueeSelection.additive,
       e,
       final,
+      activeMarqueeSelection.infoCache,
+      activeMarqueeSelection.lightInfoCache,
     );
   }
 
@@ -7922,6 +10345,25 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     clearActiveMarqueeSelection();
     var events = dragEventNames(e);
     var additive = Boolean(e && (e.metaKey || e.ctrlKey || e.shiftKey));
+    // rAF-coalesce raw move events, mirroring the host canvas's own drag
+    // listeners (PF15 in MultiScreenCanvas.installDragListeners). A pointer
+    // can emit several moves per frame; each one repositions the band,
+    // rebuilds passive overlays, and posts a selection message, so doing that
+    // per-event rather than per-frame was the dominant cost of the gesture.
+    // Latest-wins, and mouseup force-flushes so the gesture always ends on the
+    // true final pointer position.
+    function flushMarqueeMove() {
+      var session = activeMarqueeSelection;
+      if (!session) return;
+      if (session.moveFrame != null) {
+        window.cancelAnimationFrame(session.moveFrame);
+        session.moveFrame = null;
+      }
+      var ev = session.pendingMoveEvent;
+      if (!ev) return;
+      session.pendingMoveEvent = null;
+      updateMarqueeSelection(ev);
+    }
     function onMove(ev) {
       if (!activeMarqueeSelection) return;
       if (
@@ -7938,12 +10380,32 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         suppressNextShieldClickBriefly();
       }
       stopNativeInteraction(ev);
-      updateMarqueeSelection(ev);
+      activeMarqueeSelection.pendingMoveEvent = ev;
+      if (activeMarqueeSelection.moveFrame != null) return;
+      activeMarqueeSelection.moveFrame = window.requestAnimationFrame(
+        function () {
+          if (!activeMarqueeSelection) return;
+          activeMarqueeSelection.moveFrame = null;
+          flushMarqueeMove();
+        },
+      );
     }
     function onUp(ev) {
       var didMove = Boolean(activeMarqueeSelection?.moved);
       if (didMove) {
         stopNativeInteraction(ev);
+        // Drop any frame still queued from the last move: this mouseup event
+        // carries the final position and must be the tick tagged `final`,
+        // or the host never gets its one-drag-one-undo history entry.
+        if (
+          activeMarqueeSelection &&
+          activeMarqueeSelection.moveFrame != null
+        ) {
+          window.cancelAnimationFrame(activeMarqueeSelection.moveFrame);
+          activeMarqueeSelection.moveFrame = null;
+        }
+        if (activeMarqueeSelection)
+          activeMarqueeSelection.pendingMoveEvent = null;
         updateMarqueeSelection(ev, true);
         suppressNextShieldClickBriefly();
       }
@@ -7956,6 +10418,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       additive: additive,
       deep: Boolean(e && (e.metaKey || e.ctrlKey)),
       moved: false,
+      infoCache: new Map<Element, unknown>(),
+      lightInfoCache: new Map<Element, unknown>(),
+      moveFrame: null,
+      pendingMoveEvent: null,
       pointerId: e.pointerId,
       move: events.move,
       up: events.up,
@@ -8316,6 +10782,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       session.proposalId,
     );
     parent.insertBefore(nextElement, session.endMarker);
+    publishSourceDocumentProvenance(undefined, true);
     session.currentElement = nextElement;
     if (session.selectedWasInside) selectedEl = nextElement;
     if (session.hoveredWasInside) hoveredEl = nextElement;
@@ -8393,6 +10860,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     parent.insertBefore(startMarker, target);
     parent.insertBefore(endMarker, target.nextSibling);
     parent.replaceChild(nextElement, target);
+    publishSourceDocumentProvenance(undefined, true);
     activeNodeHtmlPreview = {
       proposalId: proposalId,
       originalElement: target,
@@ -8525,6 +10993,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       };
     }
     if (target.parentElement) target.parentElement.removeChild(target);
+    publishSourceDocumentProvenance(undefined, true);
     // T23: the removed subtree may contain the active text-edit element —
     // its blur/keydown listeners are gone with it, so exit the session
     // through the canonical cleanup instead of leaking it.
@@ -8547,6 +11016,199 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var num = parseFloat(value);
     return Number.isFinite(num) ? num : 0;
   }
+
+  function resolveCornerRadiusComponent(part, axisSize) {
+    if (!part) return 0;
+    if (part.charAt(part.length - 1) === "%") {
+      var pct = parseFloat(part) || 0;
+      return (pct / 100) * axisSize;
+    }
+    return readPx(part);
+  }
+
+  // CSS resolves each border-*-radius longhand as a horizontal/vertical pair:
+  // even a single value like `50%` produces an ellipse (not a circle) on a
+  // non-square box, because the horizontal component resolves against width
+  // and the vertical component resolves against height independently — a
+  // 200x100 box with `border-radius: 50%` renders 100px horizontal by 50px
+  // vertical corners, not a uniform 50px radius.
+  function resolveCornerRadiusXY(value, width, height) {
+    var trimmed = typeof value === "string" ? value.trim() : "";
+    var parts = trimmed.split(/\s+/);
+    return {
+      x: resolveCornerRadiusComponent(parts[0], width),
+      y: resolveCornerRadiusComponent(
+        parts.length > 1 ? parts[1] : parts[0],
+        height,
+      ),
+    };
+  }
+
+  function isDirectCornerRadiusValue(value) {
+    var trimmed = typeof value === "string" ? value.trim() : "";
+    if (!trimmed) return false;
+    var parts = trimmed.split(/\s+/);
+    return (
+      parts.length <= 2 &&
+      parts.every(function (part) {
+        return (
+          /^[-+]?(?:\d*\.\d+|\d+\.?\d*)(?:px|%)$/i.test(part) ||
+          /^[-+]?0(?:\.0*)?$/.test(part)
+        );
+      })
+    );
+  }
+
+  function borderBoxDimensions(cs) {
+    var width = readPx(cs.width);
+    var height = readPx(cs.height);
+    if (cs.boxSizing === "border-box") return { width: width, height: height };
+    width +=
+      readPx(cs.paddingLeft) +
+      readPx(cs.paddingRight) +
+      readPx(cs.borderLeftWidth) +
+      readPx(cs.borderRightWidth);
+    height +=
+      readPx(cs.paddingTop) +
+      readPx(cs.paddingBottom) +
+      readPx(cs.borderTopWidth) +
+      readPx(cs.borderBottomWidth);
+    return { width: width, height: height };
+  }
+
+  function radiusLinearTransformForStyle(cs) {
+    var transform = { a: 1, b: 0, c: 0, d: 1 };
+    if (cs.transform && cs.transform !== "none" && window.DOMMatrixReadOnly) {
+      try {
+        var matrix = new DOMMatrixReadOnly(cs.transform);
+        transform = { a: matrix.a, b: matrix.b, c: matrix.c, d: matrix.d };
+      } catch (err) {
+        // Invalid computed transforms have no reliable inverse; keep identity
+        // drag math rather than hiding the parse failure in an empty catch.
+        void err;
+      }
+    }
+    var scaleParts = (cs.scale || cs.getPropertyValue("scale") || "none")
+      .trim()
+      .split(/\s+/)
+      .map(function (part) {
+        return parseFloat(part);
+      });
+    var scaleX = Number.isFinite(scaleParts[0]) ? scaleParts[0] : 1;
+    var scaleY = Number.isFinite(scaleParts[1]) ? scaleParts[1] : scaleX;
+    var angle = independentRotation(cs.rotate || "");
+    var radians = (angle * Math.PI) / 180;
+    var result = composeRadiusLinearTransform(
+      transform,
+      scaleX,
+      scaleY,
+      radians,
+    );
+    var zoom = parseFloat(cs.zoom || cs.getPropertyValue("zoom"));
+    if (Number.isFinite(zoom) && zoom > 0) {
+      result.a *= zoom;
+      result.b *= zoom;
+      result.c *= zoom;
+      result.d *= zoom;
+    }
+    return result;
+  }
+
+  function radiusLinearTransform(el) {
+    return radiusLinearTransformForStyle(window.getComputedStyle(el));
+  }
+
+  function composeRadiusLinearTransform(transform, scaleX, scaleY, radians) {
+    var cos = Math.cos(radians);
+    var sin = Math.sin(radians);
+    // CSS individual scale/rotate are applied after the transform property.
+    // Keep that order so a class-authored rotate plus independent scale maps
+    // viewport deltas through the same matrix the browser paints.
+    var independent = {
+      a: cos * scaleX,
+      b: sin * scaleY,
+      c: -sin * scaleX,
+      d: cos * scaleY,
+    };
+    return {
+      a: independent.a * transform.a + independent.c * transform.b,
+      b: independent.b * transform.a + independent.d * transform.b,
+      c: independent.a * transform.c + independent.c * transform.d,
+      d: independent.b * transform.c + independent.d * transform.d,
+    };
+  }
+
+  function multiplyRadiusLinear(parent, child) {
+    return {
+      a: parent.a * child.a + parent.c * child.b,
+      b: parent.b * child.a + parent.d * child.b,
+      c: parent.a * child.c + parent.c * child.d,
+      d: parent.b * child.c + parent.d * child.d,
+    };
+  }
+
+  function radiusViewportLinearTransform(el) {
+    var total = { a: 1, b: 0, c: 0, d: 1 };
+    for (
+      var current = el;
+      current && current.nodeType === 1;
+      current = current.parentElement
+    ) {
+      total = multiplyRadiusLinear(radiusLinearTransform(current), total);
+    }
+    return total;
+  }
+
+  function radiusLocalDelta(el, screenDx, screenDy) {
+    var matrix = radiusViewportLinearTransform(el);
+    var determinant = matrix.a * matrix.d - matrix.b * matrix.c;
+    if (!Number.isFinite(determinant) || Math.abs(determinant) < 0.0001) {
+      return { x: screenDx, y: screenDy };
+    }
+    return {
+      x: (matrix.d * screenDx - matrix.c * screenDy) / determinant,
+      y: (-matrix.b * screenDx + matrix.a * screenDy) / determinant,
+    };
+  }
+
+  function cornerRadiusMap(cs, width, height) {
+    return {
+      nw: resolveCornerRadiusXY(cs.borderTopLeftRadius, width, height),
+      ne: resolveCornerRadiusXY(cs.borderTopRightRadius, width, height),
+      se: resolveCornerRadiusXY(cs.borderBottomRightRadius, width, height),
+      sw: resolveCornerRadiusXY(cs.borderBottomLeftRadius, width, height),
+    };
+  }
+
+  function radiusDragMaximums(corner, radii, width, height) {
+    var horizontalNeighbor =
+      corner === "nw"
+        ? radii.ne.x
+        : corner === "ne"
+          ? radii.nw.x
+          : corner === "se"
+            ? radii.sw.x
+            : radii.se.x;
+    var verticalNeighbor =
+      corner === "nw"
+        ? radii.sw.y
+        : corner === "ne"
+          ? radii.se.y
+          : corner === "se"
+            ? radii.ne.y
+            : radii.nw.y;
+    return {
+      x: Math.max(0, Math.min(width / 2, width - horizontalNeighbor)),
+      y: Math.max(0, Math.min(height / 2, height - verticalNeighbor)),
+    };
+  }
+
+  var CORNER_RADIUS_PROPERTY_BY_HANDLE = {
+    nw: "borderTopLeftRadius",
+    ne: "borderTopRightRadius",
+    se: "borderBottomRightRadius",
+    sw: "borderBottomLeftRadius",
+  };
 
   function readFinitePx(value) {
     if (!value || value === "auto") return null;
@@ -9070,6 +11732,37 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     ).trim();
   }
 
+  // Keep the authored transform intact and append only the relative mirror
+  // needed by a resize-through-zero. Rewriting a computed matrix loses class
+  // authored translate/scale functions and re-reading independent CSS scale
+  // makes a non-unit negative scale flip twice.
+  function readScalePair(value) {
+    if (!value || value === "none") return { x: 1, y: 1 };
+    var parts = value
+      .trim()
+      .split(/\s+/)
+      .map(function (part) {
+        return parseFloat(part);
+      });
+    var x = parts[0];
+    var y = parts.length > 1 ? parts[1] : x;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+    return { x: x, y: y };
+  }
+
+  function mergeRelativeScale(scale, flipX, flipY) {
+    var pair = readScalePair(scale) || { x: 1, y: 1 };
+    return (flipX ? -pair.x : pair.x) + " " + (flipY ? -pair.y : pair.y);
+  }
+
+  function mergeFlipIntoTransform(transform, flipX, flipY) {
+    var base = transform && transform !== "none" ? transform : "";
+    var suffix =
+      (flipX ? " matrix(-1, 0, 0, 1, 0, 0)" : "") +
+      (flipY ? " matrix(1, 0, 0, -1, 0, 0)" : "");
+    return (base + suffix).trim();
+  }
+
   function ensurePositionable(el) {
     var cs = window.getComputedStyle(el);
     if (cs.position === "static") {
@@ -9112,6 +11805,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return clampSpacingValue(originValue + delta);
   }
 
+  var paddingProperties = [
+    "paddingTop",
+    "paddingRight",
+    "paddingBottom",
+    "paddingLeft",
+  ];
+
   function applySpacingDragValue(
     target: Element,
     handle: {
@@ -9128,8 +11828,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     } | null,
     value: number,
     mirrorOpposite: boolean,
+    syncAllPadding: boolean,
   ): void {
     if (!target || !handle) return;
+    if (handle.kind === "padding" && syncAllPadding) {
+      for (var i = 0; i < 4; i += 1) {
+        target.style[paddingProperties[i]] = value + "px";
+      }
+      return;
+    }
     target.style[handle.property] = value + "px";
     if (
       handle.kind === "padding" &&
@@ -9155,10 +11862,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var events = dragEventNames(e);
     var dragEl = selectedEl;
     var originValue = handle.value;
-    var originInlineValue = (dragEl as HTMLElement).style[handle.property];
-    var originInlineOppositeValue = handle.oppositeProperty
-      ? (dragEl as HTMLElement).style[handle.oppositeProperty]
-      : "";
+    var originInlinePaddingValues = {};
+    for (var paddingIndex = 0; paddingIndex < 4; paddingIndex += 1) {
+      var paddingProperty = paddingProperties[paddingIndex];
+      originInlinePaddingValues[paddingProperty] = (
+        dragEl as HTMLElement
+      ).style[paddingProperty];
+    }
+    var syncAllPadding = !!e.shiftKey;
     var startX = e.clientX;
     var startY = e.clientY;
     lastSpacingPointerPoint = { x: startX, y: startY };
@@ -9167,20 +11878,49 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       handle: handle,
       currentValue: originValue,
       mirrorOpposite: !!e.altKey,
+      syncAllPadding: syncAllPadding,
+      touchedAllPadding: syncAllPadding,
     };
+    applySpacingDragValue(
+      dragEl,
+      handle,
+      originValue,
+      !!e.altKey,
+      syncAllPadding,
+    );
     // Hide the hover-only hatch fill the instant the drag begins (Figma-style:
     // hatch communicates "this is the resizable band" on hover; once dragging,
     // only the live value badge should be visible over the padding band).
     updateSpacingOverlay(selectedEl);
     showSpacingBadgeForHandle(handle, originValue);
 
-    function updateSpacingDragMirrorState(mirrorOpposite: boolean) {
+    function updateSpacingDragState(
+      mirrorOpposite: boolean,
+      syncAllPadding: boolean,
+    ) {
       if (!spacingDrag) return;
-      if (spacingDrag.mirrorOpposite === mirrorOpposite) return;
+      if (
+        spacingDrag.mirrorOpposite === mirrorOpposite &&
+        spacingDrag.syncAllPadding === syncAllPadding
+      ) {
+        return;
+      }
+      var touchedAllPadding = spacingDrag.touchedAllPadding || syncAllPadding;
+      if (syncAllPadding) {
+        applySpacingDragValue(
+          dragEl,
+          handle,
+          spacingDrag.currentValue,
+          mirrorOpposite,
+          true,
+        );
+      }
       spacingDrag = {
         handle: handle,
         currentValue: spacingDrag.currentValue,
         mirrorOpposite: mirrorOpposite,
+        syncAllPadding: syncAllPadding,
+        touchedAllPadding: touchedAllPadding,
       };
       positionOverlay(selectionOverlay, dragEl);
       showSpacingBadgeForHandle(handle, spacingDrag.currentValue);
@@ -9196,10 +11936,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
     function restoreSpacingDragValue() {
       if (dragEl && document.documentElement.contains(dragEl)) {
-        (dragEl as HTMLElement).style[handle.property] = originInlineValue;
-        if (handle.oppositeProperty) {
-          (dragEl as HTMLElement).style[handle.oppositeProperty] =
-            originInlineOppositeValue;
+        for (var paddingIndex = 0; paddingIndex < 4; paddingIndex += 1) {
+          var paddingProperty = paddingProperties[paddingIndex];
+          (dragEl as HTMLElement).style[paddingProperty] =
+            originInlinePaddingValues[paddingProperty];
         }
         selectedEl = dragEl;
         positionOverlay(selectionOverlay, dragEl);
@@ -9220,8 +11960,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         cancelSpacingDrag();
         return;
       }
-      if (ev.key !== "Alt") return;
-      updateSpacingDragMirrorState(!!ev.altKey);
+      if (ev.key !== "Alt" && ev.key !== "Shift") return;
+      updateSpacingDragState(!!ev.altKey, !!ev.shiftKey);
     }
 
     function onMove(ev) {
@@ -9234,13 +11974,24 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         ev.clientX,
         ev.clientY,
       );
+      var syncAllPadding = !!ev.shiftKey;
+      var touchedAllPadding =
+        (spacingDrag && spacingDrag.touchedAllPadding) || syncAllPadding;
       spacingDrag = {
         handle: handle,
         currentValue: nextValue,
         mirrorOpposite: !!ev.altKey,
+        syncAllPadding: syncAllPadding,
+        touchedAllPadding: touchedAllPadding,
       };
       lastSpacingPointerPoint = { x: ev.clientX, y: ev.clientY };
-      applySpacingDragValue(dragEl, handle, nextValue, !!ev.altKey);
+      applySpacingDragValue(
+        dragEl,
+        handle,
+        nextValue,
+        !!ev.altKey,
+        syncAllPadding,
+      );
       positionOverlay(selectionOverlay, dragEl);
       showSpacingBadgeForHandle(handle, nextValue);
     }
@@ -9256,17 +12007,37 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var mirrorOpposite = spacingDrag
         ? spacingDrag.mirrorOpposite
         : !!ev.altKey;
-      applySpacingDragValue(dragEl, handle, finalValue, mirrorOpposite);
+      var syncAllPadding = spacingDrag
+        ? spacingDrag.syncAllPadding
+        : !!ev.shiftKey;
+      var touchedAllPadding = spacingDrag
+        ? spacingDrag.touchedAllPadding
+        : syncAllPadding;
+      var commitAllPadding =
+        handle.kind === "padding" && (syncAllPadding || touchedAllPadding);
+      applySpacingDragValue(
+        dragEl,
+        handle,
+        finalValue,
+        mirrorOpposite,
+        commitAllPadding,
+      );
       selectedEl = dragEl;
       spacingDrag = null;
       var styles = {};
-      styles[handle.property] = finalValue + "px";
-      if (
-        handle.kind === "padding" &&
-        mirrorOpposite &&
-        handle.oppositeProperty
-      ) {
-        styles[handle.oppositeProperty] = finalValue + "px";
+      if (commitAllPadding) {
+        for (var paddingIndex = 0; paddingIndex < 4; paddingIndex += 1) {
+          styles[paddingProperties[paddingIndex]] = finalValue + "px";
+        }
+      } else {
+        styles[handle.property] = finalValue + "px";
+        if (
+          handle.kind === "padding" &&
+          mirrorOpposite &&
+          handle.oppositeProperty
+        ) {
+          styles[handle.oppositeProperty] = finalValue + "px";
+        }
       }
       postVisualStyleChange(styles);
       positionOverlay(selectionOverlay, dragEl);
@@ -9281,6 +12052,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   function postTextContentChange(el, value, html, originalValue, originalHtml) {
     claimContentAsSource(el);
+    publishSourceDocumentProvenance(undefined, true);
     (window.parent as Window).postMessage(
       {
         type: "text-content-change",
@@ -9297,40 +12069,90 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
-  function postTextEditingState(el: Element | null, active: boolean): void {
-    var selection: Selection | null = window.getSelection
-      ? window.getSelection()
-      : null;
+  function postTextEditingState(
+    el: Element | null,
+    active: boolean,
+    selectorOverride?: string,
+    hasRangeOverride?: boolean,
+  ): void {
+    var range = active
+      ? activeTextEditRange
+      : suspendedTextEditRange?.target === el
+        ? suspendedTextEditRange.range
+        : null;
+    var hasRange =
+      hasRangeOverride ??
+      Boolean(range && !range.collapsed && rangeBelongsToElement(range, el));
+    var selector =
+      selectorOverride ||
+      (active
+        ? activeTextEditStyleSelector
+        : suspendedTextEditRange?.target === el
+          ? suspendedTextEditRange.selector
+          : activeTextEditStyleSelector) ||
+      (el ? getSelector(el) : "");
+    var computedStyles: Record<string, string> | undefined;
+    var inlineStyles: Record<string, string> | undefined;
+    if (el && range && hasRange && rangeBelongsToElement(range, el)) {
+      var bookmark = captureTextRangeBookmark(el, range);
+      if (bookmark) {
+        computedStyles =
+          collectTextRangeComputedStyles(el, bookmark) || undefined;
+        if (computedStyles) {
+          inlineStyles = collectTextRangeInlineStyles(el, bookmark);
+        }
+      }
+    } else if (el && active) {
+      var caretStyles = collectCaretTextStyles(el);
+      if (caretStyles) {
+        computedStyles = caretStyles.computedStyles;
+        inlineStyles = caretStyles.inlineStyles;
+      }
+    }
     (window.parent as Window).postMessage(
       {
         type: "text-editing-state",
         active: !!active,
-        selector: el ? getSelector(el) : "",
-        hasRange: !!(
-          active &&
-          selection &&
-          selection.rangeCount > 0 &&
-          !selection.isCollapsed &&
-          selectionBelongsToElement(selection, el)
-        ),
+        selector,
+        sourceId: el ? getSourceId(el) || undefined : undefined,
+        hasRange,
+        computedStyles,
+        inlineStyles,
       },
       "*",
     );
   }
 
-  function insertPlainTextAtSelection(text: string): void {
-    if (!text) return;
+  function clearSuspendedTextEditRange(): void {
+    if (!suspendedTextEditRange) return;
+    var suspended = suspendedTextEditRange;
+    suspendedTextEditRange = null;
+    postTextEditingState(suspended.target, false, suspended.selector, false);
+  }
+
+  /** Whether the text actually landed in the document. The host holds the only
+   *  copy until it hears that it did, so reporting a success execCommand
+   *  refused released those keystrokes into nothing. */
+  function insertPlainTextAtSelection(text: string): boolean {
+    if (!text) return false;
     if (
       document.queryCommandSupported &&
       document.queryCommandSupported("insertText")
     ) {
-      document.execCommand("insertText", false, text);
-      return;
+      var executed = false;
+      try {
+        executed = document.execCommand("insertText", false, text) === true;
+      } catch (_err) {
+        executed = false;
+      }
+      // A refusal is not yet a failure to report: fall through to the manual
+      // range path, and answer for what actually happened.
+      if (executed) return true;
     }
     var selection: Selection | null = window.getSelection
       ? window.getSelection()
       : null;
-    if (!selection || selection.rangeCount === 0) return;
+    if (!selection || selection.rangeCount === 0) return false;
     var range = selection.getRangeAt(0);
     range.deleteContents();
     var textNode = document.createTextNode(text);
@@ -9339,6 +12161,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     range.setEndAfter(textNode);
     selection.removeAllRanges();
     selection.addRange(range);
+    return textNode.isConnected === true;
   }
 
   // T2: Figma-style text editing treats Enter as a line break while editing
@@ -9404,13 +12227,120 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     el: Element | null,
   ): boolean {
     if (!selection || !el || selection.rangeCount === 0) return false;
-    var range = selection.getRangeAt(0);
+    return rangeBelongsToElement(selection.getRangeAt(0), el);
+  }
+
+  function rangeBelongsToElement(
+    range: Range | null,
+    el: Element | null,
+  ): boolean {
+    if (!range || !el) return false;
     var ancestor = range.commonAncestorContainer;
     var ancestorEl =
       ancestor && ancestor.nodeType === 1
         ? ancestor
         : ancestor && ancestor.parentElement;
     return !!(ancestorEl && (ancestorEl === el || el.contains(ancestorEl)));
+  }
+
+  // Source echoes can replace a selected Range's boundary nodes during a
+  // document morph, so preserve its text offsets only while the text is equal.
+  function textOffsetInElement(
+    root: Element,
+    node: Node,
+    offset: number,
+  ): number | null {
+    if (node !== root && !root.contains(node)) return null;
+    var prefix = document.createRange();
+    prefix.selectNodeContents(root);
+    try {
+      prefix.setEnd(node, offset);
+      return prefix.toString().length;
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "IndexSizeError") {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  function captureTextRangeBookmark(
+    root: Element,
+    range: Range,
+  ): { start: number; end: number; text: string } | null {
+    if (range.collapsed || !rangeBelongsToElement(range, root)) return null;
+    var start = textOffsetInElement(
+      root,
+      range.startContainer,
+      range.startOffset,
+    );
+    var end = textOffsetInElement(root, range.endContainer, range.endOffset);
+    if (start === null || end === null || end <= start) return null;
+    return { start: start, end: end, text: root.textContent || "" };
+  }
+
+  function textPointAtElementOffset(
+    root: Element,
+    offset: number,
+  ): { node: Text; offset: number } | null {
+    if (!Number.isFinite(offset) || offset < 0) return null;
+    var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    var remaining = offset;
+    var lastText: Text | null = null;
+    while (walker.nextNode()) {
+      var text = walker.currentNode as Text;
+      var length = text.data.length;
+      if (remaining <= length) return { node: text, offset: remaining };
+      remaining -= length;
+      lastText = text;
+    }
+    return remaining === 0 && lastText
+      ? { node: lastText, offset: lastText.data.length }
+      : null;
+  }
+
+  function restoreTextRangeBookmark(
+    root: Element,
+    bookmark: { start: number; end: number; text: string },
+  ): Range | null {
+    if ((root.textContent || "") !== bookmark.text) return null;
+    var start = textPointAtElementOffset(root, bookmark.start);
+    var end = textPointAtElementOffset(root, bookmark.end);
+    if (!start || !end) return null;
+    var range = document.createRange();
+    range.setStart(start.node, start.offset);
+    range.setEnd(end.node, end.offset);
+    return !range.collapsed && rangeBelongsToElement(range, root)
+      ? range
+      : null;
+  }
+
+  function captureActiveTextEditRange(target: HTMLElement): void {
+    var selection: Selection | null = window.getSelection
+      ? window.getSelection()
+      : null;
+    if (
+      !selection ||
+      selection.rangeCount === 0 ||
+      selection.isCollapsed ||
+      !selectionBelongsToElement(selection, target)
+    ) {
+      return;
+    }
+    activeTextEditRange = selection.getRangeAt(0).cloneRange();
+  }
+
+  function clearActiveTextEditRangeIfCollapsed(target: HTMLElement): void {
+    if (document.activeElement !== target) return;
+    var selection = window.getSelection ? window.getSelection() : null;
+    if (
+      !selection ||
+      selection.rangeCount === 0 ||
+      selection.isCollapsed ||
+      !selectionBelongsToElement(selection, target)
+    ) {
+      activeTextEditRange = null;
+    }
   }
 
   function normalizeCssPropertyName(property: unknown): string {
@@ -9428,6 +12358,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   function vectorPaintTarget(el: Element | null): Element | null {
     if (!el || el.tagName.toLowerCase() !== "svg") return null;
     var kind = el.getAttribute("data-an-primitive") || "";
+    if (kind === "boolean") {
+      return el.querySelector(':scope > use[data-an-boolean-result="true"]');
+    }
+    if (kind === "boolean-operand") {
+      return el.querySelector(":scope > rect");
+    }
     if (
       kind !== "path" &&
       kind !== "line" &&
@@ -9447,6 +12383,23 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return el.querySelector(
       ":scope > path, :scope > polygon, :scope > ellipse, :scope > circle, :scope > rect, :scope > line, :scope > polyline",
     );
+  }
+
+  function collectElementInlineStyles(el: Element): Record<string, string> {
+    var styles = collectInlineStyles(el);
+    var paintTarget = vectorPaintTarget(el);
+    if (!paintTarget) return styles;
+    var authoredFill = (paintTarget as HTMLElement).style.getPropertyValue(
+      "fill",
+    );
+    if (!authoredFill) authoredFill = paintTarget.getAttribute("fill") || "";
+    if (el.getAttribute("data-an-primitive") === "boolean") {
+      authoredFill = (el as HTMLElement).style.getPropertyValue(
+        "--boolean-mask-fill",
+      );
+    }
+    if (authoredFill) styles.fill = authoredFill;
+    return styles;
   }
 
   function vectorStrokeTarget(el: Element | null): Element | null {
@@ -9822,14 +12775,34 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
 
   function applyTextRangeStyle(property: unknown, value: unknown): boolean {
-    if (!activeTextEditEl || !property) return false;
+    var target = activeTextEditEl || suspendedTextEditRange?.target || null;
+    if (!target || !property) return false;
     var selection: Selection | null = window.getSelection
       ? window.getSelection()
       : null;
-    if (!selection || selection.rangeCount === 0 || selection.isCollapsed)
+    if (!selection) return false;
+    var range =
+      selection.rangeCount > 0 &&
+      !selection.isCollapsed &&
+      selectionBelongsToElement(selection, target)
+        ? selection.getRangeAt(0)
+        : activeTextEditEl === target
+          ? activeTextEditRange
+          : suspendedTextEditRange?.target === target
+            ? suspendedTextEditRange.range
+            : null;
+    if (!range || range.collapsed || !rangeBelongsToElement(range, target)) {
       return false;
-    if (!selectionBelongsToElement(selection, activeTextEditEl)) return false;
-    var range = selection.getRangeAt(0);
+    }
+    if (
+      selection.rangeCount === 0 ||
+      selection.isCollapsed ||
+      !selectionBelongsToElement(selection, target)
+    ) {
+      selection.removeAllRanges();
+      selection.addRange(range.cloneRange());
+      range = selection.getRangeAt(0);
+    }
     var reused = exactCoverSpanForRange(range);
     if (reused) {
       if (!applyInlineStyleProperty(reused, property, value)) return false;
@@ -9837,6 +12810,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var reusedRange = document.createRange();
       reusedRange.selectNodeContents(reused);
       selection.addRange(reusedRange);
+      if (activeTextEditEl === target) {
+        activeTextEditRange = reusedRange.cloneRange();
+      } else if (suspendedTextEditRange?.target === target) {
+        suspendedTextEditRange.range = reusedRange.cloneRange();
+      }
       return true;
     }
     var span = document.createElement("span");
@@ -9853,6 +12831,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var nextRange = document.createRange();
     nextRange.selectNodeContents(span);
     selection.addRange(nextRange);
+    if (activeTextEditEl === target) {
+      activeTextEditRange = nextRange.cloneRange();
+    } else if (suspendedTextEditRange?.target === target) {
+      suspendedTextEditRange.range = nextRange.cloneRange();
+    }
     return true;
   }
 
@@ -10158,6 +13141,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (!el || el === document.body || el === document.documentElement) {
       return false;
     }
+    if (isAutoLayoutElement(el)) return false;
     if (window.getComputedStyle(el).position === "static") return false;
     var children = el.children;
     if (children.length === 0) return false;
@@ -10174,6 +13158,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   function isAbsolutePrimitiveContainer(el: Element | null): boolean {
     if (!el || el.nodeType !== 1) return false;
     if (BRIDGE_REPLACED_TAGS[(el.tagName || "").toLowerCase()]) return false;
+    if (isAutoLayoutElement(el)) return false;
     var primitive = (
       el.getAttribute("data-an-primitive") ||
       el.getAttribute("data-agent-native-primitive") ||
@@ -10184,13 +13169,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // other drawn shapes stay leaves, matching what
       // appendCanvasPrimitiveToHtml enforces on draw.
       if (!BRIDGE_ADOPTING_PRIMITIVES[primitive]) return false;
-    } else if (isAutoLayoutElement(el) || !hasAbsolutePositionedChild(el)) {
+    } else if (!hasAbsolutePositionedChild(el)) {
       // Unmarked markup is judged by how it positions its CHILDREN, not by its
       // own position: an absolutely positioned card whose children are in
       // normal flow still has slots, and pinning a drop into it is wrong.
       return false;
     }
     var cs = window.getComputedStyle(el);
+    if (primitive === "frame" && cs.position === "relative") return true;
     return cs.position === "absolute" || cs.position === "fixed";
   }
 
@@ -10399,6 +13385,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     dndLog("post:cross-screen", { phase: phase, el: getSelector(el ?? null) });
     if (phase === "cancel") {
       activeCrossScreenStyleSnapshot = undefined;
+      activeCrossScreenDragIdentity = null;
       (window.parent as Window).postMessage(
         { type: "agent-native:cross-screen-drag", phase: "cancel" },
         "*",
@@ -10408,7 +13395,27 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (phase === "start") {
       activeCrossScreenStyleSnapshot =
         options?.styleSnapshot ?? collectPortableStyleSnapshot(el ?? null);
+      var startSourceId = getSourceId(el ?? null);
+      var startProvenance = nodeProvenanceForSourceId(
+        startSourceId,
+        el ?? null,
+      );
+      // A duplicated authored ID needs its exact position. Only the frozen,
+      // source-owned static revision permits this fallback; runtime clone
+      // selectors keep their existing authored-template semantics.
+      var needsStructuralSelector =
+        startSourceId &&
+        startProvenance?.versionHash &&
+        !startProvenance.uniqueNodeId;
+      activeCrossScreenDragIdentity = {
+        selector: needsStructuralSelector
+          ? selectorPath(el ?? null, undefined, true)
+          : getSelector(el ?? null),
+        sourceId: startSourceId,
+        sourceProvenance: startProvenance,
+      };
     }
+    var dragIdentity = activeCrossScreenDragIdentity;
     var rect = options?.elementRect ?? (el ? el.getBoundingClientRect() : null);
     var pointerOffset =
       options?.pointerOffset ??
@@ -10424,8 +13431,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         phase,
         screenId: designCanvasScreenId,
         boardSurface: designCanvasBoardSurface,
-        selector: getSelector(el ?? null),
-        sourceId: getSourceId(el ?? null),
+        selector: dragIdentity?.selector ?? getSelector(el ?? null),
+        sourceId: dragIdentity?.sourceId ?? getSourceId(el ?? null),
+        sourceProvenance: dragIdentity?.sourceProvenance,
         iframeX: ev?.clientX ?? 0,
         iframeY: ev?.clientY ?? 0,
         viewportW: window.innerWidth,
@@ -10440,6 +13448,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           : undefined,
         pointerOffset,
         styleSnapshot: activeCrossScreenStyleSnapshot,
+        // Explicit sibling flag, not just `styleSnapshot === null` — the
+        // host must not have to infer capture-failed from a value shape
+        // that could change; see collectPortableStyleSnapshot's doc.
+        styleSnapshotCaptureFailed: activeCrossScreenStyleSnapshot === null,
         duplicate: options?.duplicate === true ? true : undefined,
         sourceCloneHtml: options?.duplicate && el ? el.outerHTML : undefined,
       },
@@ -10447,6 +13459,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
     if (phase === "end") {
       activeCrossScreenStyleSnapshot = undefined;
+      activeCrossScreenDragIdentity = null;
     }
   }
 
@@ -10614,8 +13627,22 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return "y";
   }
 
+  function wrappedFlexMainAxis(parent: Element): string | null {
+    var cs = window.getComputedStyle(parent);
+    if (cs.display !== "flex" && cs.display !== "inline-flex") {
+      return null;
+    }
+    if (cs.flexWrap !== "wrap" && cs.flexWrap !== "wrap-reverse") {
+      return null;
+    }
+    return cs.flexDirection && cs.flexDirection.indexOf("row") === 0
+      ? "x"
+      : "y";
+  }
+
   // Resolves a between-children insertion inside `container` from the
-  // pointer position: the nearest visible child (by flow-axis center)
+  // pointer position: the nearest visible child (by flow-axis center, or
+  // two-dimensional visual distance for wrapped flex and multi-track grid)
   // becomes the anchor with before/after placement, which renders as the
   // Figma-style insertion LINE between children. Returns null when the
   // container has no eligible children (caller falls back to "inside").
@@ -10655,8 +13682,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       return !isExcluded(child);
     });
     if (!children.length) return null;
-    var axis = parentFlowAxis(container);
     var containerStyles = window.getComputedStyle(container);
+    var wrappedFlexAxis = wrappedFlexMainAxis(container);
+    var axis = wrappedFlexAxis || parentFlowAxis(container);
     var multiTrackGrid =
       (containerStyles.display === "grid" ||
         containerStyles.display === "inline-grid") &&
@@ -10673,27 +13701,30 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var center =
         axis === "x" ? rect.left + rect.width / 2 : rect.top + rect.height / 2;
       var pointer = axis === "x" ? clientX : clientY;
-      // A multi-column grid is two-dimensional. Comparing X alone ties cells
-      // in the same column across every row, so a drop beside row 2 used to
-      // anchor against row 1 and jump to the beginning of the grid. Resolve
-      // the nearest visual cell in both axes, then use X for row-major
-      // before/after placement. One-column grids retain the normal Y path.
-      var distance = multiTrackGrid
-        ? Math.hypot(
-            clientX - (rect.left + rect.width / 2),
-            clientY - (rect.top + rect.height / 2),
-          )
-        : Math.abs(pointer - center);
+      // A multi-column grid or wrapped flex is two-dimensional. Comparing one
+      // axis alone ties cells/items across rows, so a drop can anchor against
+      // the wrong visual track. Resolve the nearest visual child in both
+      // axes, then use the container's main axis for before/after placement.
+      // One-column grids and non-wrapped flex retain their normal flow path.
+      var distance =
+        multiTrackGrid || wrappedFlexAxis
+          ? Math.hypot(
+              clientX - (rect.left + rect.width / 2),
+              clientY - (rect.top + rect.height / 2),
+            )
+          : Math.abs(pointer - center);
       if (distance < bestDistance) {
         bestDistance = distance;
         best = children[j];
-        placement = multiTrackGrid
-          ? clientX < rect.left + rect.width / 2
-            ? "before"
-            : "after"
-          : pointer < center
-            ? "before"
-            : "after";
+        var placementPointer = axis === "x" ? clientX : clientY;
+        placement =
+          multiTrackGrid || wrappedFlexAxis
+            ? placementPointer < center
+              ? "before"
+              : "after"
+            : pointer < center
+              ? "before"
+              : "after";
       }
     }
     if (!best) return null;
@@ -10742,6 +13773,39 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       !isOverlayElement(hit) &&
       !isTemplateCloneElement(hit)
     ) {
+      // A same-parent child is always a slot. Cross-parent slots are only
+      // forced for wrapped flex and grid, where the row/cell geometry carries
+      // insertion intent; a child of an ordinary flex item can still be an
+      // intentional nesting target.
+      var hitAutoLayoutParent = hit.parentElement;
+      var hitAutoLayoutStyles = hitAutoLayoutParent
+        ? window.getComputedStyle(hitAutoLayoutParent)
+        : null;
+      var hitIsGrid =
+        hitAutoLayoutStyles &&
+        (hitAutoLayoutStyles.display === "grid" ||
+          hitAutoLayoutStyles.display === "inline-grid");
+      var hitIsWrappedFlex =
+        hitAutoLayoutStyles &&
+        (hitAutoLayoutStyles.display === "flex" ||
+          hitAutoLayoutStyles.display === "inline-flex") &&
+        (hitAutoLayoutStyles.flexWrap === "wrap" ||
+          hitAutoLayoutStyles.flexWrap === "wrap-reverse");
+      if (
+        hitAutoLayoutParent &&
+        isAutoLayoutElement(hitAutoLayoutParent) &&
+        (hitAutoLayoutParent === el.parentElement ||
+          hitIsGrid ||
+          hitIsWrappedFlex)
+      ) {
+        var directChildSlot = nearestChildInsertionTarget(
+          hitAutoLayoutParent,
+          clientX,
+          clientY,
+          dragged,
+        );
+        if (directChildSlot) return directChildSlot;
+      }
       if (isContainerDropTarget(hit) && !isTextBearingLeaf(hit)) {
         var containerRect = hit.getBoundingClientRect();
         var edgeAxis = hit.parentElement
@@ -10784,6 +13848,30 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           axis: edgeAxis,
           dropMode: "flow-insert",
         };
+      }
+      // A hit on a label or icon is below its flow item. Reuse the same
+      // ancestor resolver used for free-element drops so the anchor remains
+      // at the nearest container's child level.
+      var hasAutoLayoutAncestor = false;
+      var ancestor = hit.parentElement;
+      while (ancestor && ancestor !== document.body) {
+        if (isAutoLayoutElement(ancestor)) {
+          hasAutoLayoutAncestor = true;
+          break;
+        }
+        if (isContainerDropTarget(ancestor) && !isTextBearingLeaf(ancestor)) {
+          break;
+        }
+        ancestor = ancestor.parentElement;
+      }
+      if (hit.parentElement !== el.parentElement && hasAutoLayoutAncestor) {
+        var descendantTarget = autoLayoutInsertionTargetForPoint(
+          el,
+          clientX,
+          clientY,
+          excludeEls,
+        );
+        if (descendantTarget) return descendantTarget;
       }
       var hitParent = hit.parentElement;
       if (hitParent) {
@@ -10873,7 +13961,59 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       clientY < parentRect.top ||
       clientY > parentRect.bottom;
 
+    // Cmd/Ctrl's auto-layout override is a free placement gesture. Once it
+    // leaves its current auto-layout parent, resolve the root escape before a
+    // nearby sibling/container can pull it back into that parent's flow.
+    var pointHit = elementFromEditorPoint(clientX, clientY);
+    if (
+      ignoreTargetAutoLayout &&
+      pointerOutsideCurrentParent &&
+      isAutoLayoutElement(currentParent) &&
+      (!pointHit ||
+        pointHit === document.body ||
+        pointHit === document.documentElement)
+    ) {
+      // Cmd/Ctrl is an explicit escape from the current auto-layout tree.
+      // Use the document root as the persistence anchor instead of placing
+      // after the former parent, whose generated screen wrapper would retain
+      // the child in that tree after the source round-trip.
+      return {
+        anchor: document.body,
+        placement: "inside",
+        axis: "y",
+        dropMode: "absolute-container",
+      };
+    }
+
     if (keepCurrentParent && pointerOutsideCurrentParent) {
+      // Figma parity: an auto-layout parent cannot host a freely
+      // (absolutely) positioned child at all, so "keep current parent,
+      // position free" while the pointer is off dragging far away must
+      // escape every auto-layout ancestor (the object's own row, the
+      // screen's own auto-layout root, ...) up to the nearest one that
+      // isn't — never just the object's immediate DOM parent, which may
+      // be a small auto-layout group nested deep inside a big auto-layout
+      // screen. Stops one level short of document.body: body itself has
+      // no node-id for persistence to anchor on (see the body-container
+      // fallback below), so the screen's own top-level wrapper is the
+      // outermost usable anchor.
+      var freeParent = currentParent;
+      while (
+        freeParent &&
+        freeParent.parentElement &&
+        freeParent.parentElement !== document.body &&
+        isAutoLayoutElement(freeParent)
+      ) {
+        freeParent = freeParent.parentElement;
+      }
+      if (freeParent !== currentParent) {
+        return {
+          anchor: freeParent,
+          placement: "after",
+          axis: "y",
+          dropMode: "flow-insert",
+        };
+      }
       var retainedSlot = nearestChildInsertionTarget(
         currentParent,
         clientX,
@@ -10944,7 +14084,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return target;
   }
 
-  /** Apply Figma's Control-drag "Ignore auto layout" modifier to an
+  /** Apply Figma's Cmd/Ctrl-drag "Ignore auto layout" modifier to an
    * absolute/freeform drag target. The flow-origin path above already made
    * this conversion, but the ordinary absolute drag path used to ignore the
    * modifier and strip position/left/top on drop. Resolve to the auto-layout
@@ -10953,11 +14093,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
    * or the container background. */
   function ignoreAutoLayoutForDropTarget(target) {
     var container = dropContainerForTarget(target);
+    var isDeclaredFrameInAutoLayout = Boolean(
+      container &&
+      container.getAttribute("data-an-primitive") === "frame" &&
+      isAutoLayoutElement(container.parentElement),
+    );
     if (
       !target ||
       !container ||
       container === document.body ||
-      !isAutoLayoutElement(container)
+      (!isAutoLayoutElement(container) && !isDeclaredFrameInAutoLayout)
     ) {
       return target;
     }
@@ -11045,6 +14190,23 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (!hit || hit === document.documentElement || hit === document.body) {
       return unnestAbsoluteToScreenRoot(el, clientX, clientY);
     }
+    var explicitFrame = hit.closest('[data-an-primitive="frame"]');
+    if (
+      explicitFrame &&
+      explicitFrame !== document.body &&
+      !isDraggedOrInsideDragged(explicitFrame) &&
+      isAutoLayoutElement(explicitFrame.parentElement)
+    ) {
+      return {
+        anchor: explicitFrame,
+        placement: "inside",
+        axis: parentFlowAxis(explicitFrame),
+        // A declared frame is a deliberate nesting target even while it is a
+        // flex item itself. Its normal drop mode joins the frame's content
+        // flow; Ctrl is the explicit request to keep absolute positioning.
+        dropMode: "flow-insert",
+      };
+    }
     var cursor = hit;
     while (cursor && cursor !== document.body) {
       if (
@@ -11110,7 +14272,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (
         cursor !== document.body &&
         isContainerDropTarget(cursor) &&
-        !(parent && parent !== document.body && isAutoLayoutElement(parent))
+        !(
+          parent &&
+          parent !== document.body &&
+          isAutoLayoutElement(parent) &&
+          cursor.getAttribute("data-an-primitive") !== "frame"
+        )
       ) {
         // Free (absolute) element into a non-auto-layout container stays free:
         // nest as an absolute child at the drop point, never convert to flex.
@@ -11188,6 +14355,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             axis: parentFlowAxis(parent),
             dropMode: "flow-insert",
           };
+        }
+        var wrappedParentAxis = wrappedFlexMainAxis(parent);
+        if (wrappedParentAxis) {
+          var wrappedParentSlot = nearestChildInsertionTarget(
+            parent,
+            clientX,
+            clientY,
+            dragged,
+          );
+          if (wrappedParentSlot) return wrappedParentSlot;
         }
         var parentAxis = parentFlowAxis(parent);
         var childRect = cursor.getBoundingClientRect();
@@ -11456,27 +14633,54 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   function stripAbsolutePositioningForFlowInsert(el: Element, target): void {
     if (!target || target.dropMode !== "flow-insert") return;
     var htmlEl = el as HTMLElement;
+    var primitive = (
+      el.getAttribute("data-an-primitive") ||
+      el.getAttribute("data-agent-native-primitive") ||
+      ""
+    ).toLowerCase();
+    var keepsContainingBlock = primitive === "frame";
     var cs = window.getComputedStyle(htmlEl);
-    if (cs.position !== "absolute" && cs.position !== "fixed") return;
+    if (
+      !keepsContainingBlock &&
+      cs.position !== "absolute" &&
+      cs.position !== "fixed"
+    ) {
+      return;
+    }
     for (var i = 0; i < ABS_POSITION_INLINE_PROPS.length; i += 1) {
       htmlEl.style.removeProperty(ABS_POSITION_INLINE_PROPS[i]);
     }
-    // Utility classes and authored stylesheets can still resolve the member
-    // to absolute/fixed after the inline properties are removed. The host
-    // strips those source declarations in the same structural history step,
-    // but waiting for its in-place document round-trip leaves one rendered
-    // frame where the optimistically reparented node is still absolute and
-    // appears to jump or overlap. Override only that residual computed state
-    // until the source replacement arrives. Inline-authored absolute nodes
-    // naturally compute as static after the removal and keep the historical
-    // empty-inline-style behavior.
+    if (keepsContainingBlock) {
+      htmlEl.style.setProperty("position", "relative");
+      htmlEl.style.setProperty("left", "auto");
+      htmlEl.style.setProperty("top", "auto");
+      htmlEl.style.setProperty("right", "auto");
+      htmlEl.style.setProperty("bottom", "auto");
+    }
+    // A Frame remains the containing block for its absolute descendants. If
+    // an authored stylesheet overrides the inline relative reset, persist the
+    // same important override as the host. Other nodes only need this fallback
+    // while a stylesheet still keeps them absolute/fixed after the strip.
     var afterRemoval = window.getComputedStyle(htmlEl).position;
-    if (afterRemoval === "absolute" || afterRemoval === "fixed") {
+    var needsPositionOverride = keepsContainingBlock
+      ? afterRemoval !== "relative"
+      : afterRemoval === "absolute" || afterRemoval === "fixed";
+    if (needsPositionOverride) {
       // An authored stylesheet may carry !important, so the optimistic
       // override must match that priority. Tell the host to persist the same
       // narrow override; otherwise its source round-trip would re-apply the
       // stylesheet and pop the newly-flowed child back out of auto layout.
-      htmlEl.style.setProperty("position", "static", "important");
+      htmlEl.style.setProperty(
+        "position",
+        keepsContainingBlock ? "relative" : "static",
+        "important",
+      );
+      if (keepsContainingBlock) {
+        htmlEl.style.setProperty("left", "auto", "important");
+        htmlEl.style.setProperty("top", "auto", "important");
+        htmlEl.style.setProperty("right", "auto", "important");
+        htmlEl.style.setProperty("bottom", "auto", "important");
+      }
       target.forceFlowPositionOverride = true;
     }
   }
@@ -11748,6 +14952,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
     }
     correctAbsoluteMemberClientPosition(el, desiredDropPoint);
+    // The optimistic DOM order/reparent now diverges from authored source.
+    // Keep known unique IDs, but invalidate the complete-source revision.
+    publishSourceDocumentProvenance(undefined, true);
   }
 
   function postVisualStructureChange(
@@ -11756,6 +14963,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     origin,
     insertedHtml?,
     replaced?,
+    replacementSnapshotHtml?: string,
   ) {
     if (!el || !target || !target.anchor) return;
     dndLog("post:structure-change", {
@@ -11789,6 +14997,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         insertedHtml:
           typeof insertedHtml === "string" ? insertedHtml : undefined,
         replaced: replaced === true ? true : undefined,
+        replacementSnapshotHtml: replacementSnapshotHtml,
         sourceRect: rectInfoForElement(el),
         anchorRect: rectInfoForElement(target.anchor),
         payload: getElementInfo(el),
@@ -11798,24 +15007,51 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
-  function postVisualDuplicateChange(originalEl, cloneEl, target) {
+  function postVisualDuplicateChange(
+    originalEl,
+    cloneEl,
+    target,
+    sourceNodeIdMap?: Array<[string, string]>,
+  ) {
     if (!originalEl || !cloneEl) return;
+    var anchorEl = target && target.anchor ? target.anchor : originalEl;
     // The host immediately pushes the persisted clone back through the source
     // morph. Claim the optimistic clone first so that round-trip reuses it
     // instead of importing a second copy beside it.
     recordSourceSubtree(cloneEl);
+    var requestId =
+      "duplicate-" + Date.now() + "-" + Math.random().toString(16).slice(2);
+    pendingStructureMoves[requestId] = {
+      requestId: requestId,
+      el: cloneEl,
+      target: target || null,
+      origin: { inserted: true, fallbackSelection: originalEl },
+    };
     (window.parent as Window).postMessage(
       {
         type: "visual-duplicate-change",
+        requestId: requestId,
         selector: getSelector(originalEl),
         sourceId: getSourceId(originalEl),
-        anchorSelector:
-          target && target.anchor ? getSelector(target.anchor) : "",
-        anchorSourceId:
-          target && target.anchor ? getSourceId(target.anchor) : "",
+        // A free Alt-drag has no resolved insertion target, but the source is
+        // still inserted after its original sibling. Keep that anchor in the
+        // host message so live-source persistence can replay the same relation.
+        anchorSelector: getSelector(anchorEl),
+        anchorSourceId: getSourceId(anchorEl),
         placement: target && target.placement ? target.placement : "after",
+        dropMode: target && target.dropMode ? target.dropMode : undefined,
+        forceFlowPositionOverride:
+          target && target.forceFlowPositionOverride === true
+            ? true
+            : undefined,
+        sourceRect: rectInfoForElement(cloneEl),
+        anchorRect: rectInfoForElement(anchorEl),
+        sourceNodeIdMap: Array.isArray(sourceNodeIdMap)
+          ? sourceNodeIdMap
+          : undefined,
         cloneHtml: cloneEl.outerHTML,
         payload: getElementInfo(cloneEl),
+        anchorPayload: getElementInfo(anchorEl),
       },
       "*",
     );
@@ -12876,18 +16112,34 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var events = dragEventNames(e);
     var originalSelectedEl = selectedEl;
     var duplicatedForDrag = false;
+    var duplicatedSourceNodeIdMap: Array<[string, string]> | undefined;
+    // Client-space vector from the clone's own layout box back to the box the
+    // pointer grabbed. A flow clone is inserted one slot after its source, so
+    // its layout box sits a whole slot away from the grab point; dragGrabRect
+    // below anchors every geometry baseline of this gesture to the grabbed box
+    // instead, so the duplicate drags, previews, and drops from where the user
+    // took hold of it.
+    var duplicateGrabOffset: { x: number; y: number } | null = null;
     if (
       e.altKey &&
       selectedEl &&
       selectedEl !== document.body &&
       selectedEl !== document.documentElement
     ) {
+      var grabbedRect = selectedEl.getBoundingClientRect();
       var clone = selectedEl.cloneNode(true);
-      resetRuntimeStableIds(clone);
+      duplicatedSourceNodeIdMap = resetRuntimeStableIds(clone);
+      clone.setAttribute("data-agent-native-clone-root", "true");
       selectedEl.parentElement.insertBefore(clone, selectedEl.nextSibling);
+      publishSourceDocumentProvenance(undefined, true);
       selectedEl = clone;
       duplicatedForDrag = true;
       gestureEl = clone;
+      var insertedRect = (clone as Element).getBoundingClientRect();
+      duplicateGrabOffset = {
+        x: grabbedRect.left - insertedRect.left,
+        y: grabbedRect.top - insertedRect.top,
+      };
       positionOverlay(selectionOverlay, selectedEl);
       // No `e` here: this reselects the clone mid-gesture, before the drag's
       // own commit persists it (postVisualDuplicateChange, at gesture end).
@@ -12895,6 +16147,20 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // the host records every intent-carrying pick as its own undo step —
       // stacking a stray one under this gesture's real content entry.
       postElementSelect(selectedEl);
+    }
+    // Read every drag baseline through this, never getBoundingClientRect
+    // directly: an alt-drag clone must be measured at the box the pointer
+    // grabbed, not at the flow slot it was inserted into. Identity for every
+    // other drag.
+    function dragGrabRect(el: Element): DOMRect {
+      var rect = el.getBoundingClientRect();
+      if (!duplicateGrabOffset || el !== gestureEl) return rect;
+      return new DOMRect(
+        rect.left + duplicateGrabOffset.x,
+        rect.top + duplicateGrabOffset.y,
+        rect.width,
+        rect.height,
+      );
     }
     // Multi-select group move: every member of the current 2+ selection moves
     // with the gesture when the drag started on a member. Alt-drag duplicates
@@ -12986,7 +16252,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // clear-selection postMessage cannot mutate the wrong element mid-drag.
       var reorderEl = gestureEl;
       var reorderGroupStartRects = groupEls.map(function (member) {
-        return member.getBoundingClientRect();
+        return dragGrabRect(member);
       });
       // Capture structural + inline positioning origins before any drop
       // preparation. Control-dragging a flow child calls
@@ -13002,7 +16268,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           prevInlinePositionStyles: snapshotInlinePositionStyles(member),
         };
       });
-      var reorderGestureStartRect = reorderEl.getBoundingClientRect();
+      var reorderGestureStartRect = dragGrabRect(reorderEl);
       var reorderLastTargetKey = null;
       var keepCurrentFlowParent = bridgeSpaceKeyPressed;
       // Ctrl/Cmd overrides auto-layout drag resistance for the WHOLE
@@ -13033,7 +16299,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       });
       crossScreenClaimedByHost = false;
       var reorderStyleSnapshot = collectPortableStyleSnapshot(reorderEl);
-      var reorderRect = reorderEl.getBoundingClientRect();
+      var reorderRect = dragGrabRect(reorderEl);
       var reorderPointerStart = pointerStartParam || e;
       var reorderPointerOffset = {
         x: reorderPointerStart.clientX - reorderRect.left,
@@ -13102,12 +16368,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           // Translate FIRST so movement is in screen space (an authored rotate
           // would otherwise send the drag off-axis), composed with the element's
           // own transform (inline OR class/stylesheet) so the drag never wipes
-          // it.
+          // it. The grab offset rides along so an alt-drag clone follows the
+          // cursor from the grabbed box rather than from its inserted slot.
+          var liftDx = dx + (duplicateGrabOffset ? duplicateGrabOffset.x : 0);
+          var liftDy = dy + (duplicateGrabOffset ? duplicateGrabOffset.y : 0);
           el.style.transform =
             "translate(" +
-            dx +
+            liftDx +
             "px, " +
-            dy +
+            liftDy +
             "px)" +
             (snap.authoredTransform ? " " + snap.authoredTransform : "");
         });
@@ -13123,6 +16392,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           el.style.pointerEvents = snap.prevPointerEvents;
         });
         reorderLiftedMembers = [];
+      }
+      // Without this the clone renders in the slot it was inserted into until
+      // the first pointer move, so the gesture opens with the element visibly
+      // jumping away from the cursor.
+      if (
+        duplicateGrabOffset &&
+        (duplicateGrabOffset.x !== 0 || duplicateGrabOffset.y !== 0)
+      ) {
+        applyReorderLift(0, 0);
+        positionOverlay(selectionOverlay, selectedEl);
       }
       // Live sibling reflow, restricted to same-container simple-packed flex so
       // a constant per-sibling shift always matches the real drop; ported from
@@ -13208,6 +16487,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // free x/y without leaving the layout, which would collapse it. Ctrl
       // "ignore auto layout" is the explicit free-place escape.
       function resolveReorderOrFreeTarget(cx, cy, ctrlKey) {
+        // Re-sync from the live global on every call: this document's own
+        // onReorderKeyDown/KeyUp keep keepCurrentFlowParent current when
+        // Space lands here, but the host's forwarded
+        // "agent-native:set-space-held" (see the message listener) only
+        // ever updates bridgeSpaceKeyPressed — never reaching this drag's
+        // own key listeners — so a "held" forward would otherwise be
+        // invisible to the one gesture that needs it.
+        if (bridgeSpaceKeyPressed) keepCurrentFlowParent = true;
         return flowMoveTargetForPoint(
           reorderEl,
           cx,
@@ -13429,7 +16716,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           hideInsertionGuide();
           clearReorderLift();
           clearReorderReflow();
-          showTransformBadge("Move layer", cx, cy);
+          showTransformBadge(
+            duplicatedForDrag ? "Duplicate layer" : "Move layer",
+            cx,
+            cy,
+          );
         } else {
           // NOT reset here: postCrossScreenDrag above runs every tick
           // regardless of inside/outside, so crossScreenClaimedByHost tracks
@@ -13443,7 +16734,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           var rawTarget = resolveReorderOrFreeTarget(
             cx,
             cy,
-            Boolean(ev.ctrlKey),
+            reorderIgnoresAutoLayout || Boolean(ev.ctrlKey || ev.metaKey),
           );
           rawTarget = applyReorderSizeGuard(rawTarget, ev);
           currentTarget = stabilizeReorderTarget(
@@ -13466,7 +16757,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           }
           applyReorderLift(dx, dy);
           applyReorderReflow(currentTarget, cx, cy);
-          showTransformBadge(currentTarget ? "Move layer" : "Move", cx, cy);
+          showTransformBadge(
+            duplicatedForDrag
+              ? "Duplicate layer"
+              : currentTarget
+                ? "Move layer"
+                : "Move",
+            cx,
+            cy,
+          );
         }
       }
       function cleanupReorderDrag() {
@@ -13529,7 +16828,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
       function onReorderKeyUp(ev) {
         if (ev.code !== "Space" && ev.key !== " ") return;
-        keepCurrentFlowParent = false;
+        // Deliberately NOT resetting keepCurrentFlowParent here. onReorderUp
+        // re-resolves the drop target from the release point (see its own
+        // comment) instead of reusing the last onReorderMove preview, so a
+        // release with no further pointer move before mouseup (Figma
+        // parity: press Space mid-drag, release it, drop without moving
+        // again) would otherwise re-read this as false and reparent anyway
+        // — exactly the bug this flag exists to prevent. Once Space has
+        // protected the current parent during a gesture, that protection
+        // holds for the rest of the gesture.
         ev.preventDefault();
       }
       function onReorderUp(ev) {
@@ -13603,7 +16910,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         // Space held only at release still takes effect; live reflow then runs
         // one final stabilize tick so the drop still lands on the previewed
         // slot rather than jumping.
-        var finalRaw = resolveReorderOrFreeTarget(cx, cy, Boolean(ev?.ctrlKey));
+        var finalRaw = resolveReorderOrFreeTarget(
+          cx,
+          cy,
+          reorderIgnoresAutoLayout || Boolean(ev?.ctrlKey || ev?.metaKey),
+        );
         currentTarget = liveReflowEnabled
           ? stabilizeReorderTarget(
               applyReorderSizeGuard(finalRaw, ev),
@@ -13652,10 +16963,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         );
         if (duplicatedForDrag) {
           applyRuntimeReorder(reorderEl, currentTarget);
+          positionOverlay(selectionOverlay, reorderEl);
           postVisualDuplicateChange(
             originalSelectedEl,
             reorderEl,
             currentTarget,
+            duplicatedSourceNodeIdMap,
           );
           postCrossScreenDrag("cancel");
         } else if (isGroupDrag) {
@@ -13757,8 +17070,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
     var originLeft = gestureState.originLeft;
     var originTop = gestureState.originTop;
-    var startX = e.clientX;
-    var startY = e.clientY;
+    // Shield drags hand off after crossing their outer threshold. The legacy
+    // moved flag must use the original press too, or a small follow-up delta
+    // is mistaken for an Alt-click and the optimistic clone is removed.
+    var startX = pointerStartParam ? pointerStartParam.clientX : e.clientX;
+    var startY = pointerStartParam ? pointerStartParam.clientY : e.clientY;
     // Snapshot the element being moved so that a concurrent select-element or
     // clear-selection postMessage cannot swap selectedEl mid-drag and cause
     // mutations on the wrong element or a null-deref in onUp.
@@ -13797,11 +17113,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     bridgeMoveController.pointerDown({
       kind: "move",
       objectIds: [getSelector(gestureEl)],
-      // `e` is deliberately the event that actually began the legacy move
-      // lifecycle, not `pointerStartParam`: anchoring the controller at the
-      // pointerdown moves the element the extra threshold-crossing distance,
-      // which breaks the cross-screen drop's target resolution.
-      pointer: bridgeGesturePointer(e),
+      // Shield drags begin here after their threshold-crossing event. For an
+      // alt-drag, the clone must include the movement from the original press;
+      // plain shield drags keep their existing threshold-relative baseline so
+      // cross-screen target resolution is unchanged.
+      pointer: bridgeGesturePointer(
+        duplicatedForDrag && pointerStartParam
+          ? { ...e, ...pointerStartParam }
+          : e,
+      ),
       viewport: gestureViewport,
       canvas: { width: gestureViewport.width, height: gestureViewport.height },
     });
@@ -13846,7 +17166,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var dragElOffsetScaleX = ancestorScale(dragEl, "x");
     var dragElOffsetScaleY = ancestorScale(dragEl, "y");
     if (!isGroupDrag) {
-      postCrossScreenDrag("start", dragEl, e, {
+      postCrossScreenDrag("start", dragEl, pointerStartParam || e, {
         duplicate: duplicatedForDrag,
       });
     }
@@ -13978,16 +17298,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         // host only resends a claim message on a claimed-value CHANGE, so
         // once clobbered it stayed false for the rest of the drag with no
         // further message ever arriving to correct it.
-        currentAutoLayoutTarget =
-          !duplicatedForDrag && !bridgeSpaceKeyPressed
-            ? autoLayoutInsertionTargetForPoint(
-                dragEl,
-                ev.clientX,
-                ev.clientY,
-                groupOthers,
-              )
-            : null;
-        if (currentAutoLayoutTarget && ev.ctrlKey) {
+        currentAutoLayoutTarget = !bridgeSpaceKeyPressed
+          ? autoLayoutInsertionTargetForPoint(
+              dragEl,
+              ev.clientX,
+              ev.clientY,
+              groupOthers,
+            )
+          : null;
+        if (currentAutoLayoutTarget && (ev.ctrlKey || ev.metaKey)) {
           currentAutoLayoutTarget = ignoreAutoLayoutForDropTarget(
             currentAutoLayoutTarget,
           );
@@ -14029,11 +17348,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         );
         showConstraintGuides(dragEl);
       }
-      showTransformBadge(
-        Math.round(nextLeft) + ", " + Math.round(nextTop),
-        ev.clientX,
-        ev.clientY,
-      );
       refreshOverlays();
     }
     function restoreSourceDragPosition(): void {
@@ -14113,6 +17427,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           positionOverlay(selectionOverlay, selectedEl);
           postElementSelect(selectedEl);
           postCrossScreenDrag("cancel");
+        } else if (!isGroupDrag) {
+          // A selection-box press that never crosses the drag threshold still
+          // arms the host's cross-screen listener. Clear that claim on the
+          // click path too, or the next drag inherits a stale board gesture.
+          postCrossScreenDrag("cancel");
         }
         return;
       }
@@ -14149,19 +17468,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         }
         return;
       }
-      if (
-        ev &&
-        !duplicatedForDrag &&
-        !outsideOnDrop &&
-        !bridgeSpaceKeyPressed
-      ) {
+      if (ev && !outsideOnDrop && !bridgeSpaceKeyPressed) {
         var finalAutoLayoutTarget = autoLayoutInsertionTargetForPoint(
           dragEl,
           ev.clientX,
           ev.clientY,
           groupOthers,
         );
-        if (finalAutoLayoutTarget && ev.ctrlKey) {
+        if (finalAutoLayoutTarget && (ev.ctrlKey || ev.metaKey)) {
           finalAutoLayoutTarget = ignoreAutoLayoutForDropTarget(
             finalAutoLayoutTarget,
           );
@@ -14186,7 +17500,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         return;
       }
       if (duplicatedForDrag) {
-        postVisualDuplicateChange(originalSelectedEl, dragEl);
+        postVisualDuplicateChange(
+          originalSelectedEl,
+          dragEl,
+          currentAutoLayoutTarget,
+          duplicatedSourceNodeIdMap,
+        );
         postCrossScreenDrag("cancel");
       } else if (currentAutoLayoutTarget) {
         // Nest-on-drop: a free element nests as an absolute child of a plain
@@ -14312,46 +17631,365 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     setActiveDragCancel(cancelMoveDrag, gestureStartedAt);
   }
 
-  /**
-   * K-scale descendant text (Figma scales the type inside a frame too). Only
-   * elements carrying their OWN size are listed: an inherited size is already
-   * covered by the root's font-size write and a relative inline unit tracks
-   * its parent, so writing either here would scale it twice.
-   */
-  function collectScaleFontTargets(root: Element) {
+  var KSCALE_LENGTH_PROPERTIES = [
+    "width",
+    "height",
+    "min-width",
+    "max-width",
+    "min-height",
+    "max-height",
+    "left",
+    "right",
+    "top",
+    "bottom",
+    "margin-top",
+    "margin-right",
+    "margin-bottom",
+    "margin-left",
+    "padding-top",
+    "padding-right",
+    "padding-bottom",
+    "padding-left",
+    "row-gap",
+    "column-gap",
+    "flex-basis",
+    "font-size",
+    "line-height",
+    "letter-spacing",
+    "word-spacing",
+    "border-top-left-radius",
+    "border-top-right-radius",
+    "border-bottom-right-radius",
+    "border-bottom-left-radius",
+    "outline-width",
+    "outline-offset",
+    "box-shadow",
+    "text-shadow",
+  ];
+
+  function scaleKScaleLengthValue(value: string, factor: number) {
+    return value.replace(/(-?\d*\.?\d+)px\b/gi, function (_token, number) {
+      return (Number(number) * factor).toFixed(2).replace(/\.00$/, "") + "px";
+    });
+  }
+
+  function isInsideScaledSvgViewBox(el: Element) {
+    var svgViewport = el instanceof SVGSVGElement ? el : el.closest("svg");
+    var outerSvgViewport = svgViewport?.parentElement?.closest("svg");
+    return Boolean(
+      (svgViewport?.hasAttribute("viewBox") && svgViewport !== el) ||
+      outerSvgViewport?.hasAttribute("viewBox"),
+    );
+  }
+
+  function rawKScaleValue(
+    el: Element,
+    property: string,
+    typedStyleMap: StylePropertyMap | null,
+  ) {
+    var inlineValue = (el as HTMLElement).style?.getPropertyValue(property);
+    return typedStyleMap
+      ? typedStyleMap.get(property)?.toString() || inlineValue || ""
+      : inlineValue || "";
+  }
+
+  function typedKScaleValue(
+    el: Element,
+    property: string,
+    typedStyleMap: StylePropertyMap | null,
+  ) {
+    var value = rawKScaleValue(el, property, typedStyleMap);
+    if (!/[-+]?\d*\.?\d+px\b/i.test(value)) return "";
+    return value;
+  }
+
+  function collectKScaleStyleTargets(
+    root: Element,
+    includeRootFontSize: boolean,
+  ) {
     var targets: Array<{
       el: HTMLElement;
-      originFontSize: number;
-      originalInlineFontSize: string;
+      selector: string;
+      sourceId?: string;
+      originalStyles: Record<string, { value: string; priority: string }>;
+      scaledStyles: Record<string, string>;
+      preservedStyles: Record<string, string>;
     }> = [];
-    var nodes = root.querySelectorAll("*");
-    for (var i = 0; i < nodes.length; i += 1) {
-      var el = nodes[i] as HTMLElement;
-      if (isOverlayElement(el)) continue;
-      var inlineFontSize = el.style.fontSize || "";
-      if (inlineFontSize && !/px\s*$/i.test(inlineFontSize)) continue;
+    var elements = [root].concat(
+      Array.prototype.slice.call(root.querySelectorAll("*")),
+    );
+
+    function isFlexibleMainAxisFill(el: HTMLElement, property: string) {
+      if (property !== "width" && property !== "height") return false;
       var parent = el.parentElement;
-      var cs = window.getComputedStyle(el);
+      if (!parent) return false;
+      var parentStyle = window.getComputedStyle(parent);
       if (
-        !inlineFontSize &&
-        parent &&
-        window.getComputedStyle(parent).fontSize === cs.fontSize
+        parentStyle.display !== "flex" &&
+        parentStyle.display !== "inline-flex"
+      ) {
+        return false;
+      }
+      var isMainAxis =
+        (property === "width" &&
+          parentStyle.flexDirection !== "column" &&
+          parentStyle.flexDirection !== "column-reverse") ||
+        (property === "height" &&
+          (parentStyle.flexDirection === "column" ||
+            parentStyle.flexDirection === "column-reverse"));
+      if (!isMainAxis) return false;
+      var itemStyle = window.getComputedStyle(el);
+      return (
+        Number(itemStyle.flexGrow) > 0 ||
+        itemStyle.flexBasis === "0%" ||
+        itemStyle.flexBasis === "0px"
+      );
+    }
+
+    for (var index = 0; index < elements.length; index += 1) {
+      var el = elements[index] as HTMLElement;
+      if (
+        (!(el instanceof HTMLElement) && !(el instanceof SVGElement)) ||
+        !isRuntimeLayerVisualNode(el)
+      )
+        continue;
+      var isRoot = el === root;
+      var originalStyles: Record<string, { value: string; priority: string }> =
+        {};
+      var scaledStyles: Record<string, string> = {};
+      var preservedStyles: Record<string, string> = {};
+      var typedStyleMap =
+        typeof (el as Element & { computedStyleMap?: () => StylePropertyMap })
+          .computedStyleMap === "function"
+          ? (
+              el as Element & { computedStyleMap: () => StylePropertyMap }
+            ).computedStyleMap()
+          : null;
+      var svgViewport = el instanceof SVGSVGElement ? el : el.closest("svg");
+      var hasSvgViewBox = Boolean(svgViewport?.hasAttribute("viewBox"));
+      var outerSvgViewport = svgViewport?.parentElement?.closest("svg");
+      var isSvgViewBoxRoot = Boolean(
+        el instanceof SVGSVGElement &&
+        hasSvgViewBox &&
+        !outerSvgViewport?.hasAttribute("viewBox"),
+      );
+      var isSvgViewBoxContent = isInsideScaledSvgViewBox(el);
+      var borderWidthProperties = [
+        "border-top-width",
+        "border-right-width",
+        "border-bottom-width",
+        "border-left-width",
+      ];
+      if (isSvgViewBoxRoot) {
+        ["font-size", "line-height", "letter-spacing", "word-spacing"].forEach(
+          function (property) {
+            var value = rawKScaleValue(el, property, typedStyleMap);
+            if (!value) return;
+            preservedStyles[property] = value;
+            originalStyles[property] = {
+              value: el.style.getPropertyValue(property),
+              priority: el.style.getPropertyPriority(property),
+            };
+          },
+        );
+      }
+      for (
+        var propertyIndex = 0;
+        propertyIndex < KSCALE_LENGTH_PROPERTIES.length;
+        propertyIndex += 1
+      ) {
+        var property = KSCALE_LENGTH_PROPERTIES[propertyIndex];
+        if (isSvgViewBoxContent) continue;
+        if (
+          isSvgViewBoxRoot &&
+          (property === "font-size" ||
+            property === "line-height" ||
+            property === "letter-spacing" ||
+            property === "word-spacing")
+        ) {
+          continue;
+        }
+        var authoredValue = typedKScaleValue(el, property, typedStyleMap);
+        if (!authoredValue) continue;
+        if (
+          isRoot &&
+          (property === "width" ||
+            property === "height" ||
+            property === "left" ||
+            property === "right" ||
+            property === "top" ||
+            property === "bottom" ||
+            (!includeRootFontSize && property === "font-size"))
+        ) {
+          continue;
+        }
+        if (isFlexibleMainAxisFill(el, property)) continue;
+        var lengthTokens = authoredValue.match(/[-+]?\d*\.?\d+px\b/gi) || [];
+        if (
+          lengthTokens.length === 0 ||
+          lengthTokens.every(function (token) {
+            return Number.parseFloat(token) === 0;
+          })
+        ) {
+          continue;
+        }
+        originalStyles[property] = {
+          value: el.style.getPropertyValue(property),
+          priority: el.style.getPropertyPriority(property),
+        };
+        scaledStyles[property] = authoredValue;
+      }
+
+      if (!isSvgViewBoxContent) {
+        var borderWidthValues = borderWidthProperties.map(function (property) {
+          return typedKScaleValue(el, property, typedStyleMap);
+        });
+        if (
+          borderWidthValues.every(function (value) {
+            return /^[-+]?\d*\.?\d+px$/i.test(value);
+          }) &&
+          borderWidthValues.some(function (value) {
+            return Number.parseFloat(value) !== 0;
+          })
+        ) {
+          originalStyles["border-width"] = {
+            value: el.style.getPropertyValue("border-width"),
+            priority: el.style.getPropertyPriority("border-width"),
+          };
+          scaledStyles["border-width"] = borderWidthValues.join(" ");
+        }
+      }
+
+      if (
+        Object.keys(scaledStyles).length === 0 &&
+        Object.keys(preservedStyles).length === 0
       ) {
         continue;
       }
-      var originFontSize = readPx(inlineFontSize || cs.fontSize);
-      if (!(originFontSize > 0)) continue;
-      // The revert baseline is recorded on first sight, and the commit is too
-      // late: by then the preview has already written the scaled size.
       rememberLiveVisualEditOriginalStyles(el);
       targets.push({
         el: el,
-        originFontSize: originFontSize,
-        originalInlineFontSize: el.style.fontSize,
+        selector: getSelector(el),
+        sourceId: getSourceId(el) || undefined,
+        originalStyles: originalStyles,
+        scaledStyles: scaledStyles,
+        preservedStyles: preservedStyles,
       });
     }
     return targets;
   }
+
+  function applyKScaleStyleTargets(targets, factor: number) {
+    targets.forEach(function (target) {
+      Object.keys(target.preservedStyles).forEach(function (property) {
+        var original = target.originalStyles[property];
+        target.el.style.setProperty(
+          property,
+          target.preservedStyles[property],
+          original ? original.priority : "",
+        );
+      });
+      Object.keys(target.scaledStyles).forEach(function (property) {
+        var scaledValue = scaleKScaleLengthValue(
+          target.scaledStyles[property],
+          factor,
+        );
+        if (scaledValue === target.scaledStyles[property]) return;
+        target.el.style.setProperty(
+          property,
+          scaledValue,
+          target.originalStyles[property]
+            ? target.originalStyles[property].priority
+            : "",
+        );
+      });
+    });
+  }
+
+  function restoreKScaleStyleTargets(targets) {
+    targets.forEach(function (target) {
+      Object.keys(target.originalStyles).forEach(function (property) {
+        var original = target.originalStyles[property];
+        if (original.value) {
+          target.el.style.setProperty(
+            property,
+            original.value,
+            original.priority,
+          );
+        } else {
+          target.el.style.removeProperty(property);
+        }
+      });
+    });
+  }
+
+  function kScaleStyleChanges(targets, factor: number) {
+    return targets.flatMap(function (target) {
+      var styles: Record<string, string> = {};
+      Object.keys(target.scaledStyles).forEach(function (property) {
+        var scaledValue = scaleKScaleLengthValue(
+          target.scaledStyles[property],
+          factor,
+        );
+        if (scaledValue !== target.scaledStyles[property])
+          styles[property] = scaledValue;
+      });
+      Object.keys(target.preservedStyles).forEach(function (property) {
+        styles[property] = target.preservedStyles[property];
+      });
+      if (Object.keys(styles).length === 0) return [];
+      return [
+        {
+          selector: target.selector,
+          sourceId: target.sourceId,
+          styles: styles,
+          originalStyles: Object.keys(target.originalStyles).reduce(
+            function (result, property) {
+              result[property] = target.originalStyles[property].value;
+              return result;
+            },
+            {} as Record<string, string>,
+          ),
+          preserveSelection: true,
+        },
+      ];
+    });
+  }
+
+  var externalKScaleTargets = null as ReturnType<
+    typeof collectKScaleStyleTargets
+  > | null;
+  (window as any).__designCanvasScaleContents = function (
+    factor: number,
+    phase: "begin" | "preview" | "commit" | "cancel" | "accept",
+  ) {
+    if (phase === "begin") {
+      externalKScaleTargets = document.body
+        ? collectKScaleStyleTargets(document.body, true)
+        : [];
+      return [];
+    }
+    if (!externalKScaleTargets) {
+      externalKScaleTargets = document.body
+        ? collectKScaleStyleTargets(document.body, true)
+        : [];
+    }
+    if (phase === "cancel") {
+      restoreKScaleStyleTargets(externalKScaleTargets);
+      externalKScaleTargets = null;
+      return [];
+    }
+    if (phase === "accept") {
+      externalKScaleTargets = null;
+      return [];
+    }
+    applyKScaleStyleTargets(externalKScaleTargets, factor);
+    if (phase === "commit") {
+      var changes = kScaleStyleChanges(externalKScaleTargets, factor);
+      return changes;
+    }
+    return [];
+  };
 
   function startResize(handle, e) {
     if (readOnly) return;
@@ -14368,10 +18006,26 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var originalInlineTop = resizeEl.style.top;
     var originalInlineWidth = resizeEl.style.width;
     var originalInlineHeight = resizeEl.style.height;
-    var originalInlineBorderWidth = resizeEl.style.borderWidth;
     var originalInlineFontSize = resizeEl.style.fontSize;
+    var originalInlineTransform = resizeEl.style.transform;
+    var originalInlineScale = resizeEl.style.scale;
+    refreshLiveVisualEditOriginalStyles(resizeEl);
     ensurePositionable(resizeEl);
     var cs = window.getComputedStyle(resizeEl);
+    var hasInlineTransform =
+      !!originalInlineTransform && originalInlineTransform !== "none";
+    var computedScale = cs.scale || cs.getPropertyValue("scale") || "none";
+    // A class-authored transform must remain owned by its stylesheet. CSS's
+    // independent scale property gives a separate mirror slot, so only an
+    // explicitly inline transform needs a transform-string edit.
+    var flipTransformBase = hasInlineTransform
+      ? originalInlineTransform
+      : cs.transform;
+    var mirrorScaleBase =
+      originalInlineScale && originalInlineScale !== "none"
+        ? originalInlineScale
+        : computedScale;
+    var mirrorUsesScale = !hasInlineTransform;
     // Bug fix: use COMPUTED width/height (never the raw inline style string)
     // for the resize origin dimensions. Two distinct hazards, one fix:
     //   1. Rotated elements — getBoundingClientRect() returns the inflated
@@ -14390,23 +18044,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     //      unit-agnostic.
     var originW = readPx(cs.width);
     var originH = readPx(cs.height);
-    // K-scale (Figma "Scale" tool) parity: capture the element's own border
-    // width and font size once at drag-start so a uniform per-tick scale
-    // factor (derived from width/height growth, see nextRect below) can
-    // multiply them proportionally, exactly like Figma's Scale tool resizes
-    // stroke weight and text size along with the box — a *normal* resize
-    // (scaleToolEnabled false) never touches either. Uses the CSS
-    // borderWidth/fontSize shorthand (not per-side border-*-width) since
-    // canvas-primitive-style.ts / appendCanvasPrimitiveToHtml only ever set a
-    // uniform border on these elements; a hand-authored per-side border is
-    // left untouched (readPx on the shorthand returns 0 for mixed values,
-    // which multiplies to 0 — an explicit non-goal edge case, not silently
-    // wrong: scaleToolEnabled is opt-in and mixed-width borders on a
-    // draggable primitive are not part of this app's authored shapes).
-    var originBorderWidth = readPx(
-      resizeEl.style.borderWidth || cs.borderWidth,
-    );
+    // K-scale captures border widths with the other authored length styles so
+    // asymmetric sides keep their proportions.
     var originFontSize = readPx(resizeEl.style.fontSize || cs.fontSize);
+    var svgViewBoxScalesFont =
+      (resizeEl instanceof SVGSVGElement && resizeEl.hasAttribute("viewBox")) ||
+      isInsideScaledSvgViewBox(resizeEl);
     var origin = {
       left: readPx(resizeEl.style.left || cs.left),
       top: readPx(resizeEl.style.top || cs.top),
@@ -14470,16 +18113,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // in onUp.
     var widthTouched = false;
     var heightTouched = false;
+    var transformTouched = false;
+    var scaleTouched = false;
     // Captured on the first K-scale tick, not at drag start: the host can arm
     // scale-tool-mode mid-gesture.
-    var scaledTextTargetsCache: ReturnType<
-      typeof collectScaleFontTargets
+    var scaledStyleTargetsCache: ReturnType<
+      typeof collectKScaleStyleTargets
     > | null = null;
-    function scaledTextTargets() {
-      if (!scaledTextTargetsCache) {
-        scaledTextTargetsCache = collectScaleFontTargets(resizeEl);
+    function scaledStyleTargets() {
+      if (!scaledStyleTargetsCache) {
+        scaledStyleTargetsCache = collectKScaleStyleTargets(resizeEl, false);
       }
-      return scaledTextTargetsCache;
+      return scaledStyleTargetsCache;
     }
     function nextRect(ev) {
       var screenDx = ev.clientX - startX;
@@ -14529,29 +18174,36 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           else width = height * origin.ratio;
         }
       }
-      // Clamp to minimum size.
-      var clampedW = Math.max(8, width);
-      var clampedH = Math.max(8, height);
-      // After clamping, re-apply the ratio if Shift or scale tool is active so
-      // the clamped dimension doesn't silently break the locked aspect ratio.
-      if (ev.shiftKey || scaleToolEnabled) {
-        if (clampedW !== width) {
-          // Width was clamped; re-derive height from the clamped width.
-          clampedH = Math.max(8, clampedW / origin.ratio);
-        } else if (clampedH !== height) {
-          // Height was clamped; re-derive width from the clamped height.
-          clampedW = Math.max(8, clampedH * origin.ratio);
-        }
-      }
-      width = clampedW;
-      height = clampedH;
-      // Re-anchor the pinned edge for w/n handles after aspect-ratio lock and
-      // clamping so the opposite (e/s) edge stays fixed regardless of whether
-      // the dimension change was driven by raw dx/dy or by the ratio lock.
-      if (handle.indexOf("w") !== -1)
-        left = origin.left + (origin.width - width);
-      if (handle.indexOf("n") !== -1)
-        top = origin.top + (origin.height - height);
+      // Flip-through-zero: dragging a handle past the box's OWN opposite
+      // (anchor) edge must keep resizing continuously instead of clamping to
+      // a floor and getting stuck near-flat (reported: a triangle shrunk to
+      // a hairline sliver and stayed there instead of flipping and growing
+      // from the other side, matching Figma). width/height above are
+      // computed straight from origin, so a negative value unambiguously
+      // means the dragged edge crossed the fixed anchor edge. Re-derive both
+      // edges from that ANCHOR -- never from left/top, which for a
+      // ratio-locked corner drag can be stale against a width/height the
+      // aspect-lock branch just overwrote above -- so the anchor edge stays
+      // exactly fixed and the box keeps growing on the far side of it.
+      var anchorLeft =
+        handle.indexOf("w") !== -1 ? origin.left + origin.width : origin.left;
+      var anchorTop =
+        handle.indexOf("n") !== -1 ? origin.top + origin.height : origin.top;
+      var movingLeft =
+        handle.indexOf("w") !== -1 ? anchorLeft - width : anchorLeft + width;
+      var movingTop =
+        handle.indexOf("n") !== -1 ? anchorTop - height : anchorTop + height;
+      var widthCrossed = width < 0;
+      var heightCrossed = height < 0;
+      // These are relative mirrors for this gesture, not an absolute reading
+      // of the element's existing transform. That keeps class-authored and
+      // independent CSS transforms from being parsed and rewritten.
+      var flipX = widthCrossed;
+      var flipY = heightCrossed;
+      left = Math.min(anchorLeft, movingLeft);
+      width = Math.max(1, Math.abs(movingLeft - anchorLeft));
+      top = Math.min(anchorTop, movingTop);
+      height = Math.max(1, Math.abs(movingTop - anchorTop));
       if (ev.altKey) {
         if (handle.indexOf("w") !== -1 || handle.indexOf("e") !== -1)
           left = origin.left - (width - origin.width) / 2;
@@ -14578,6 +18230,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         height: height,
         touchesWidth: touchesWidth,
         touchesHeight: touchesHeight,
+        flipX: flipX,
+        flipY: flipY,
       };
     }
     function onMove(ev) {
@@ -14586,6 +18240,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       );
       if (controllerMove.phase !== "active") return;
       if (!resizeEl) return;
+      var kScaleTargetsForMove = scaleToolEnabled ? scaledStyleTargets() : null;
       var rect = nextRect(ev);
       if (rect.touchesWidth) widthTouched = true;
       if (rect.touchesHeight) heightTouched = true;
@@ -14600,31 +18255,39 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         resizeEl.style.width = quantizeToLayoutGrid(rect.width) + "px";
       if (heightTouched)
         resizeEl.style.height = quantizeToLayoutGrid(rect.height) + "px";
+      if (rect.flipX || rect.flipY) {
+        if (mirrorUsesScale) {
+          scaleTouched = true;
+          resizeEl.style.scale = mergeRelativeScale(
+            mirrorScaleBase,
+            rect.flipX,
+            rect.flipY,
+          );
+        } else {
+          transformTouched = true;
+          resizeEl.style.transform = mergeFlipIntoTransform(
+            flipTransformBase,
+            rect.flipX,
+            rect.flipY,
+          );
+        }
+      } else {
+        if (transformTouched)
+          resizeEl.style.transform = originalInlineTransform;
+        if (scaleTouched) resizeEl.style.scale = originalInlineScale;
+      }
       if (scaleToolEnabled) {
         // Uniform scale factor: scaleToolEnabled already forces the
         // aspect-ratio lock above (nextRect), so width/origin.width and
         // height/origin.height agree (barring the min-size clamp's rounding)
         // — width is the simpler, always-defined choice.
         var kScaleFactor = rect.width / Math.max(1, origin.width);
-        if (originBorderWidth > 0) {
-          resizeEl.style.borderWidth =
-            Math.max(
-              0,
-              Math.round(originBorderWidth * kScaleFactor * 100) / 100,
-            ) + "px";
-        }
-        if (originFontSize > 0) {
+        if (originFontSize > 0 && !svgViewBoxScalesFont) {
           resizeEl.style.fontSize =
             Math.max(1, Math.round(originFontSize * kScaleFactor * 100) / 100) +
             "px";
         }
-        scaledTextTargets().forEach(function (target) {
-          target.el.style.fontSize =
-            Math.max(
-              1,
-              Math.round(target.originFontSize * kScaleFactor * 100) / 100,
-            ) + "px";
-        });
+        applyKScaleStyleTargets(kScaleTargetsForMove || [], kScaleFactor);
       }
       showTransformBadge(
         Math.round(rect.width) + " x " + Math.round(rect.height),
@@ -14641,10 +18304,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       };
       if (widthTouched) previewStyles.width = resizeEl.style.width;
       if (heightTouched) previewStyles.height = resizeEl.style.height;
-      if (scaleToolEnabled && originBorderWidth > 0) {
-        previewStyles.borderWidth = resizeEl.style.borderWidth;
-      }
-      if (scaleToolEnabled && originFontSize > 0) {
+      if (transformTouched) previewStyles.transform = resizeEl.style.transform;
+      if (scaleTouched) previewStyles.scale = resizeEl.style.scale;
+      if (scaleToolEnabled && originFontSize > 0 && !svgViewBoxScalesFont) {
         previewStyles.fontSize = resizeEl.style.fontSize;
       }
       (window.parent as Window).postMessage(
@@ -14675,36 +18337,40 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         resizeEl.style.top = originalInlineTop;
         resizeEl.style.width = originalInlineWidth;
         resizeEl.style.height = originalInlineHeight;
-        resizeEl.style.borderWidth = originalInlineBorderWidth;
         resizeEl.style.fontSize = originalInlineFontSize;
-        (scaledTextTargetsCache || []).forEach(function (target) {
-          target.el.style.fontSize = target.originalInlineFontSize;
-        });
+        resizeEl.style.transform = originalInlineTransform;
+        resizeEl.style.scale = originalInlineScale;
+        restoreKScaleStyleTargets(scaledStyleTargetsCache || []);
         selectedEl = resizeEl;
         positionOverlay(selectionOverlay, selectedEl);
         // Cancellation restores the iframe DOM without a commit packet. Send
         // the restored snapshot back so the host Inspector does not keep
         // displaying the last previewed dimensions.
         var restoredComputed = window.getComputedStyle(resizeEl);
+        var restoredStyles: Record<string, string> = {
+          position: restoredComputed.position,
+          left: restoredComputed.left,
+          top: restoredComputed.top,
+          width: restoredComputed.width,
+          height: restoredComputed.height,
+          borderWidth: restoredComputed.borderWidth,
+          fontSize: restoredComputed.fontSize,
+        };
+        if (transformTouched)
+          restoredStyles.transform = originalInlineTransform;
+        if (scaleTouched) restoredStyles.scale = originalInlineScale;
         (window.parent as Window).postMessage(
           {
             type: "visual-style-change",
             phase: "preview",
             selector: getSelector(resizeEl),
-            styles: {
-              position: restoredComputed.position,
-              left: restoredComputed.left,
-              top: restoredComputed.top,
-              width: restoredComputed.width,
-              height: restoredComputed.height,
-              borderWidth: restoredComputed.borderWidth,
-              fontSize: restoredComputed.fontSize,
-            },
+            styles: restoredStyles,
             payload: getElementInfo(resizeEl),
           },
           "*",
         );
       }
+      releaseLiveVisualEditOriginalStyles(resizeEl);
       suppressNextShieldClickBriefly();
       refreshOverlays();
       return true;
@@ -14721,16 +18387,19 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (!controllerEnd.committed) {
         cleanupResizeDrag();
         hideTransformBadge();
+        resizeEl.style.position = originalInlinePosition;
+        resizeEl.style.left = originalInlineLeft;
+        resizeEl.style.top = originalInlineTop;
+        releaseLiveVisualEditOriginalStyles(resizeEl);
         return;
       }
       cleanupResizeDrag();
       hideTransformBadge();
       if (!resizeEl) return;
-      var styles: Record<string, string> = {
-        position: resizeEl.style.position,
-        left: resizeEl.style.left,
-        top: resizeEl.style.top,
-      };
+      var styles: Record<string, string> = {};
+      if (resizeEl.style.position) styles.position = resizeEl.style.position;
+      if (resizeEl.style.left) styles.left = resizeEl.style.left;
+      if (resizeEl.style.top) styles.top = resizeEl.style.top;
       // Only commit width/height for an axis this gesture actually touched
       // (see widthTouched/heightTouched above) — a pure vertical or
       // horizontal edge-drag must not also commit a px value for the axis
@@ -14738,48 +18407,75 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // `width: 100%` to a fixed px width.
       if (widthTouched) styles.width = resizeEl.style.width;
       if (heightTouched) styles.height = resizeEl.style.height;
-      // Only include borderWidth/fontSize when the K-scale tool actually
-      // changed them (originBorderWidth/originFontSize > 0 AND
-      // scaleToolEnabled) — a normal resize must never introduce these keys,
-      // matching the "normal resize unchanged" requirement.
-      if (scaleToolEnabled && originBorderWidth > 0) {
-        styles.borderWidth = resizeEl.style.borderWidth;
+      if (
+        transformTouched &&
+        resizeEl.style.transform !== originalInlineTransform
+      ) {
+        styles.transform = resizeEl.style.transform;
       }
-      if (scaleToolEnabled && originFontSize > 0) {
+      if (scaleTouched && resizeEl.style.scale !== originalInlineScale) {
+        styles.scale = resizeEl.style.scale;
+      }
+      // Only include fontSize when the K-scale tool actually changed it — a
+      // normal resize must never introduce this key.
+      if (scaleToolEnabled && originFontSize > 0 && !svgViewBoxScalesFont) {
         styles.fontSize = resizeEl.style.fontSize;
       }
-      (window.parent as Window).postMessage(
-        {
-          type: "visual-style-change",
-          phase: "commit",
-          selector: getSelector(resizeEl),
-          styles: styles,
-          originalStyles: originalInlineStylesForPatch(resizeEl, styles),
-          payload: getElementInfo(resizeEl),
-        },
-        "*",
-      );
       if (scaleToolEnabled) {
-        (scaledTextTargetsCache || []).forEach(function (target) {
-          var textStyles: Record<string, string> = {
-            fontSize: target.el.style.fontSize,
-          };
-          (window.parent as Window).postMessage(
-            {
-              type: "visual-style-change",
-              selector: getSelector(target.el),
-              styles: textStyles,
-              originalStyles: originalInlineStylesForPatch(
-                target.el,
-                textStyles,
-              ),
-              payload: getElementInfo(target.el),
-              preserveSelection: true,
-            },
-            "*",
+        var finalScaleFactor =
+          readPx(
+            resizeEl.style.width || window.getComputedStyle(resizeEl).width,
+          ) / Math.max(1, origin.width);
+        var changes = kScaleStyleChanges(
+          scaledStyleTargetsCache || [],
+          finalScaleFactor,
+        );
+        var rootSelector = getSelector(resizeEl);
+        var rootChange = changes.find(function (change) {
+          return change.selector === rootSelector;
+        });
+        if (rootChange) {
+          rootChange.styles = Object.assign({}, rootChange.styles, styles);
+          rootChange.originalStyles = Object.assign(
+            {},
+            rootChange.originalStyles || {},
+            originalInlineStylesForPatch(resizeEl, styles),
           );
+        } else {
+          changes.unshift({
+            selector: rootSelector,
+            sourceId: getSourceId(resizeEl) || undefined,
+            styles: styles,
+            originalStyles: originalInlineStylesForPatch(resizeEl, styles),
+            preserveSelection: true,
+          });
+        }
+        (window.parent as Window).postMessage(
+          { type: "visual-style-batch-change", changes: changes },
+          "*",
+        );
+      } else {
+        (window.parent as Window).postMessage(
+          {
+            type: "visual-style-change",
+            phase: "commit",
+            selector: getSelector(resizeEl),
+            styles: styles,
+            originalStyles: originalInlineStylesForPatch(resizeEl, styles),
+            payload: getElementInfo(resizeEl),
+          },
+          "*",
+        );
+      }
+      // Let the next undo/redo morph compare against the committed inline
+      // values instead of the pre-resize snapshot.
+      recordSourceOwnership(resizeEl);
+      if (scaleToolEnabled) {
+        (scaledStyleTargetsCache || []).forEach(function (target) {
+          recordSourceOwnership(target.el);
         });
       }
+      releaseLiveVisualEditOriginalStyles(resizeEl);
     }
     document.addEventListener(events.move, onMove, true);
     document.addEventListener(events.up, onUp, true);
@@ -14815,8 +18511,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         originalInlineTop: el.style.top,
         originalInlineWidth: el.style.width,
         originalInlineHeight: el.style.height,
-        originalInlineBorderWidth: el.style.borderWidth,
-        originalInlineFontSize: el.style.fontSize,
         originLeft: 0,
         originTop: 0,
         originWidth: 0,
@@ -14826,9 +18520,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         // would scale it to the wrong place.
         originCenterX: 0,
         originCenterY: 0,
-        originBorderWidth: 0,
-        originFontSize: 0,
-        textTargets: null as ReturnType<typeof collectScaleFontTargets> | null,
       };
       rememberLiveVisualEditOriginalStyles(el);
       ensurePositionable(el);
@@ -14844,10 +18535,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       snapshot.originHeight = readPx(cs.height);
       snapshot.originCenterX = rect.left + rect.width / 2;
       snapshot.originCenterY = rect.top + rect.height / 2;
-      snapshot.originBorderWidth = readPx(
-        el.style.borderWidth || cs.borderWidth,
-      );
-      snapshot.originFontSize = readPx(el.style.fontSize || cs.fontSize);
       return snapshot;
     });
     var groupWidth = Math.max(1, groupRight - groupLeft);
@@ -14941,11 +18628,21 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       };
     }
 
-    function memberTextTargets(state) {
-      if (!state.textTargets) {
-        state.textTargets = collectScaleFontTargets(state.el);
+    var groupKScaleStyleTargetsCache: ReturnType<
+      typeof collectKScaleStyleTargets
+    > | null = null;
+    var lastKScaleFactor = 1;
+    function groupKScaleStyleTargets() {
+      if (!groupKScaleStyleTargetsCache) {
+        var targetsByElement = new Map();
+        memberStates.forEach(function (state) {
+          collectKScaleStyleTargets(state.el, true).forEach(function (target) {
+            targetsByElement.set(target.el, target);
+          });
+        });
+        groupKScaleStyleTargetsCache = Array.from(targetsByElement.values());
       }
-      return state.textTargets;
+      return groupKScaleStyleTargetsCache;
     }
 
     function onMove(ev) {
@@ -14953,49 +18650,36 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         bridgeGesturePointer(ev),
       );
       if (controllerMove.phase !== "active") return;
+      var kScaleTargetsForMove = scaleToolEnabled
+        ? groupKScaleStyleTargets()
+        : null;
       var factor = groupFactors(ev);
+      if (kScaleTargetsForMove) lastKScaleFactor = factor.x;
       memberStates.forEach(function (state) {
         var nextCenterX = anchorX + (state.originCenterX - anchorX) * factor.x;
         var nextCenterY = anchorY + (state.originCenterY - anchorY) * factor.y;
         var nextWidth = state.originWidth * factor.x;
         var nextHeight = state.originHeight * factor.y;
+        var nextLeft =
+          state.originLeft +
+          (nextCenterX - state.originCenterX) -
+          (nextWidth - state.originWidth) / 2;
+        var nextTop =
+          state.originTop +
+          (nextCenterY - state.originCenterY) -
+          (nextHeight - state.originHeight) / 2;
         state.el.style.left =
-          Math.round(
-            state.originLeft +
-              (nextCenterX - state.originCenterX) -
-              (nextWidth - state.originWidth) / 2,
-          ) + "px";
+          (scaleToolEnabled ? nextLeft : Math.round(nextLeft)) + "px";
         state.el.style.top =
-          Math.round(
-            state.originTop +
-              (nextCenterY - state.originCenterY) -
-              (nextHeight - state.originHeight) / 2,
-          ) + "px";
-        state.el.style.width = Math.round(nextWidth) + "px";
-        state.el.style.height = Math.round(nextHeight) + "px";
-        if (!scaleToolEnabled) return;
-        if (state.originBorderWidth > 0) {
-          state.el.style.borderWidth =
-            Math.max(
-              0,
-              Math.round(state.originBorderWidth * factor.x * 100) / 100,
-            ) + "px";
-        }
-        if (state.originFontSize > 0) {
-          state.el.style.fontSize =
-            Math.max(
-              1,
-              Math.round(state.originFontSize * factor.x * 100) / 100,
-            ) + "px";
-        }
-        memberTextTargets(state).forEach(function (target) {
-          target.el.style.fontSize =
-            Math.max(
-              1,
-              Math.round(target.originFontSize * factor.x * 100) / 100,
-            ) + "px";
-        });
+          (scaleToolEnabled ? nextTop : Math.round(nextTop)) + "px";
+        state.el.style.width =
+          (scaleToolEnabled ? nextWidth : Math.round(nextWidth)) + "px";
+        state.el.style.height =
+          (scaleToolEnabled ? nextHeight : Math.round(nextHeight)) + "px";
       });
+      if (kScaleTargetsForMove) {
+        applyKScaleStyleTargets(kScaleTargetsForMove, factor.x);
+      }
       showTransformBadge(
         Math.round(groupWidth * factor.x) +
           " x " +
@@ -15024,12 +18708,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         state.el.style.top = state.originalInlineTop;
         state.el.style.width = state.originalInlineWidth;
         state.el.style.height = state.originalInlineHeight;
-        state.el.style.borderWidth = state.originalInlineBorderWidth;
-        state.el.style.fontSize = state.originalInlineFontSize;
-        (state.textTargets || []).forEach(function (target) {
-          target.el.style.fontSize = target.originalInlineFontSize;
-        });
       });
+      restoreKScaleStyleTargets(groupKScaleStyleTargetsCache || []);
       suppressNextShieldClickBriefly();
       refreshOverlays();
       return true;
@@ -15048,9 +18728,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       cleanupGroupResizeDrag();
       hideTransformBadge();
       if (!controllerEnd.committed) return;
-      // One style-change message per member, in order — the host composes
-      // them against its same-tick content refs exactly like a group move.
-      memberStates.forEach(function (state) {
+      var rootStylesForMember = function (state, omitEmpty) {
         var styles: Record<string, string> = {
           position: state.el.style.position,
           left: state.el.style.left,
@@ -15058,45 +18736,71 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           width: state.el.style.width,
           height: state.el.style.height,
         };
-        if (scaleToolEnabled && state.originBorderWidth > 0) {
-          styles.borderWidth = state.el.style.borderWidth;
+        if (omitEmpty) {
+          Object.keys(styles).forEach(function (property) {
+            if (styles[property] === "") delete styles[property];
+          });
         }
-        if (scaleToolEnabled && state.originFontSize > 0) {
-          styles.fontSize = state.el.style.fontSize;
-        }
+        return styles;
+      };
+      if (groupKScaleStyleTargetsCache) {
+        var changes = kScaleStyleChanges(
+          groupKScaleStyleTargetsCache,
+          lastKScaleFactor,
+        );
+        memberStates.forEach(function (state) {
+          var selector = getSelector(state.el);
+          var styles = rootStylesForMember(state, true);
+          var originalStyles = originalInlineStylesForPatch(state.el, styles);
+          var rootChange = changes.find(function (change) {
+            return change.selector === selector;
+          });
+          if (rootChange) {
+            rootChange.styles = Object.assign({}, rootChange.styles, styles);
+            rootChange.originalStyles = Object.assign(
+              {},
+              rootChange.originalStyles || {},
+              originalStyles,
+            );
+          } else {
+            changes.unshift({
+              selector: selector,
+              sourceId: getSourceId(state.el) || undefined,
+              styles: styles,
+              originalStyles: originalStyles,
+              preserveSelection: true,
+            });
+          }
+        });
         (window.parent as Window).postMessage(
-          {
-            type: "visual-style-change",
-            selector: getSelector(state.el),
-            styles: styles,
-            originalStyles: originalInlineStylesForPatch(state.el, styles),
-            payload: getElementInfo(state.el),
-          },
+          { type: "visual-style-batch-change", changes: changes },
           "*",
         );
-        if (!scaleToolEnabled) return;
-        (state.textTargets || []).forEach(function (target) {
-          var textStyles: Record<string, string> = {
-            fontSize: target.el.style.fontSize,
-          };
+        memberStates.forEach(function (state) {
+          recordSourceOwnership(state.el);
+        });
+        groupKScaleStyleTargetsCache.forEach(function (target) {
+          recordSourceOwnership(target.el);
+        });
+      } else {
+        // Normal multi-resize keeps the existing one-style-change-per-member
+        // history path. K-scale uses one batch so every descendant edit is
+        // applied atomically with the selected roots.
+        memberStates.forEach(function (state) {
+          var styles = rootStylesForMember(state, false);
           (window.parent as Window).postMessage(
             {
               type: "visual-style-change",
-              selector: getSelector(target.el),
-              styles: textStyles,
-              originalStyles: originalInlineStylesForPatch(
-                target.el,
-                textStyles,
-              ),
-              payload: getElementInfo(target.el),
-              // A scaled descendant is a side effect of the gesture, not the
-              // object the user is holding.
-              preserveSelection: true,
+              selector: getSelector(state.el),
+              styles: styles,
+              originalStyles: originalInlineStylesForPatch(state.el, styles),
+              payload: getElementInfo(state.el),
             },
             "*",
           );
+          recordSourceOwnership(state.el);
         });
-      });
+      }
     }
 
     document.addEventListener(events.move, onMove, true);
@@ -15181,11 +18885,144 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         },
         "*",
       );
+      recordSourceOwnership(rotateEl);
     }
     document.addEventListener(events.move, onMove, true);
     document.addEventListener(events.up, onUp, true);
     document.addEventListener("keydown", onRotateKeyDown, true);
     setActiveDragCancel(cancelRotateDrag);
+  }
+
+  function startRadiusDrag(corner, e) {
+    if (readOnly) return;
+    if (!selectedEl) return;
+    if (isLayerInteractionBlocked(selectedEl)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    var events = dragEventNames(e);
+    var radiusEl = selectedEl;
+    var cs = window.getComputedStyle(radiusEl);
+    // Each handle owns exactly one corner — Figma adjusts only the dragged
+    // corner, not all four, so 4 independent handles stay meaningful instead
+    // of behaving like a single uniform-radius control.
+    var cornerProperty =
+      CORNER_RADIUS_PROPERTY_BY_HANDLE[corner] || "borderTopLeftRadius";
+    refreshLiveVisualEditOriginalStyles(radiusEl);
+    var borderBox = borderBoxDimensions(cs);
+    var elWidthPx = borderBox.width;
+    var elHeightPx = borderBox.height;
+    // getComputedStyle returns the COMPUTED value, so a percentage-authored
+    // radius (e.g. `border-radius: 50%` on a circular/pill element) comes
+    // back as a literal "50%" string. readPx's parseFloat would read that as
+    // the number 50 and misinterpret it as 50px, snapping the shape the
+    // instant the drag starts. Resolve it against the box's own dimensions
+    // first, same convention as CSS's own circle/pill radius authoring.
+    var authoredRadiusValue = radiusEl.style[cornerProperty];
+    var originRadius = resolveCornerRadiusXY(
+      isDirectCornerRadiusValue(authoredRadiusValue)
+        ? authoredRadiusValue
+        : cs[cornerProperty],
+      elWidthPx,
+      elHeightPx,
+    );
+    var maxRadius = radiusDragMaximums(
+      corner,
+      cornerRadiusMap(cs, elWidthPx, elHeightPx),
+      elWidthPx,
+      elHeightPx,
+    );
+    var maxRadiusX = maxRadius.x;
+    var maxRadiusY = maxRadius.y;
+    var originalRadiusValue = radiusEl.style[cornerProperty];
+    var startX = e.clientX;
+    var startY = e.clientY;
+    var radiusMoved = false;
+    var signX = corner.indexOf("w") !== -1 ? 1 : -1;
+    var signY = corner.indexOf("n") !== -1 ? 1 : -1;
+    function applyRadius(nextX, nextY) {
+      var x = Math.max(0, Math.min(maxRadiusX, Math.round(nextX)));
+      var y = Math.max(0, Math.min(maxRadiusY, Math.round(nextY)));
+      radiusEl.style[cornerProperty] =
+        x === y ? x + "px" : x + "px " + y + "px";
+    }
+    function onMove(ev) {
+      if (!radiusEl) return;
+      var screenDx = ev.clientX - startX;
+      var screenDy = ev.clientY - startY;
+      if (screenDx === 0 && screenDy === 0) return;
+      radiusMoved = true;
+      var local = radiusLocalDelta(radiusEl, screenDx, screenDy);
+      applyRadius(
+        originRadius.x + local.x * signX,
+        originRadius.y + local.y * signY,
+      );
+      applySelectionHandleHitGeometry(radiusEl);
+      refreshOverlays();
+    }
+    function cleanupRadiusDrag() {
+      document.removeEventListener(events.move, onMove, true);
+      document.removeEventListener(events.up, onUp, true);
+      document.removeEventListener("keydown", onRadiusKeyDown, true);
+      clearActiveDragCancel(cancelRadiusDrag);
+    }
+    function cancelRadiusDrag() {
+      cleanupRadiusDrag();
+      if (radiusEl && document.documentElement.contains(radiusEl)) {
+        radiusEl.style[cornerProperty] = originalRadiusValue;
+        selectedEl = radiusEl;
+        applySelectionHandleHitGeometry(radiusEl);
+        refreshOverlays();
+      }
+      releaseLiveVisualEditOriginalStyles(radiusEl);
+      suppressNextShieldClickBriefly();
+      return true;
+    }
+    function onRadiusKeyDown(ev) {
+      if (ev.key !== "Escape") return;
+      stopNativeInteraction(ev);
+      cancelRadiusDrag();
+    }
+    function onUp() {
+      cleanupRadiusDrag();
+      if (!radiusEl) return;
+      if (!radiusMoved) {
+        releaseLiveVisualEditOriginalStyles(radiusEl);
+        return;
+      }
+      var finalRadius = resolveCornerRadiusXY(
+        radiusEl.style[cornerProperty] || cs[cornerProperty],
+        elWidthPx,
+        elHeightPx,
+      );
+      var radiusChanged =
+        Math.abs(finalRadius.x - originRadius.x) > 0.5 ||
+        Math.abs(finalRadius.y - originRadius.y) > 0.5;
+      if (!radiusChanged) {
+        radiusEl.style[cornerProperty] = originalRadiusValue;
+        applySelectionHandleHitGeometry(radiusEl);
+        refreshOverlays();
+        releaseLiveVisualEditOriginalStyles(radiusEl);
+        return;
+      }
+      var styles = {};
+      styles[cornerProperty] = radiusEl.style[cornerProperty];
+      (window.parent as Window).postMessage(
+        {
+          type: "visual-style-change",
+          selector: getSelector(radiusEl),
+          styles: styles,
+          originalStyles: originalInlineStylesForPatch(radiusEl, styles),
+          payload: getElementInfo(radiusEl),
+        },
+        "*",
+      );
+      recordSourceOwnership(radiusEl);
+      releaseLiveVisualEditOriginalStyles(radiusEl);
+    }
+    document.addEventListener(events.move, onMove, true);
+    document.addEventListener(events.up, onUp, true);
+    document.addEventListener("keydown", onRadiusKeyDown, true);
+    setActiveDragCancel(cancelRadiusDrag);
   }
 
   function clearPendingShieldDrag() {
@@ -15451,9 +19288,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // Cmd/Ctrl+click (no Shift) deep-selects the next layer below the current
       // selection in the z-stack under the pointer, wrapping at the bottom.
       // Runs here (not in selectElementAtEvent) because a shield click resolves
-      // selection in this onUp and then suppresses the click handler. Selected
-      // plain (no ev) so it replaces the selection rather than adding to it;
-      // Shift-click stays additive via the normal path below.
+      // selection in this onUp and then suppresses the click handler.
       var cycledEl =
         !readOnly && (e.metaKey || e.ctrlKey) && !e.shiftKey
           ? stackCycleTarget(e.clientX, e.clientY, selectedEl)
@@ -15469,7 +19304,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
               ? clickThroughSelectionTarget(hit, ev)
               : null) || containerFirstSelectionTarget(hit);
       if (cycledEl) {
-        selectTarget(cycledEl, undefined, true);
+        // Real event (not undefined): selectionIntentFromEvent now reports
+        // Cmd/Ctrl-alone as non-additive, so the intent this carries already
+        // replaces rather than unions — passing it lets the host tell a real
+        // deep-select from a driftless bridge echo (DesignCanvas.tsx's
+        // `e.data.intent` check) instead of reading as one.
+        selectTarget(cycledEl, ev, true);
       } else {
         selectTarget(primaryClickTarget || dragTarget, ev, true);
       }
@@ -15516,6 +19356,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         e.target.getAttribute("data-agent-native-rotate-handle");
       if (rotateHandle) {
         startRotate(e);
+        return;
+      }
+      var radiusHandle =
+        e.target &&
+        e.target.getAttribute &&
+        e.target.getAttribute("data-agent-native-radius-handle");
+      if (radiusHandle) {
+        startRadiusDrag(radiusHandle, e);
         return;
       }
       startMove(e);
@@ -15605,7 +19453,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         bridgeSpaceKeyPressed = true;
         if (activeDragCancel) {
           bridgeSpaceKeyConsumedByDrag = true;
-          stopNativeInteraction(e);
+          // Not stopNativeInteraction: this listener is registered before
+          // the active drag's own onReorderKeyDown (added at drag start), so
+          // stopImmediatePropagation here would keep that later listener
+          // from ever seeing Space and setting keepCurrentFlowParent — the
+          // Figma-parity "Space suppresses reparenting" gesture would only
+          // ever see whatever Space was doing at drag START. preventDefault
+          // alone still blocks the browser's default (page scroll) and the
+          // early return still skips host-hotkey forwarding below.
+          if (e.cancelable) e.preventDefault();
           return;
         }
       }
@@ -15620,9 +19476,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         if (!(e.isComposing || e.keyCode === 229) && !e.metaKey && !e.ctrlKey) {
           var pendingKey = e.key || "";
           if (pendingKey === "Escape") {
+            // Escape KEEPS what was typed (Figma). Characters typed into this
+            // frame while the node was still arriving exist nowhere else, so
+            // the request stays alive and commits them the moment the node
+            // appears; only an empty one is abandoned.
+            if (pendingBeginTextEdit.buffer) {
+              pendingBeginTextEdit.commitImmediately = true;
+              stopNativeInteraction(e);
+              return;
+            }
             var abandonedPendingNodeId = pendingBeginTextEdit.nodeId;
             cancelPendingBeginTextEdit();
-            postTextEditPending(abandonedPendingNodeId, false);
+            postTextEditPending(abandonedPendingNodeId, false, "escape");
             stopNativeInteraction(e);
             return;
           }
@@ -15757,7 +19622,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       bridgeSpaceKeyPressed = false;
       if (bridgeSpaceKeyConsumedByDrag) {
         bridgeSpaceKeyConsumedByDrag = false;
-        stopNativeInteraction(e);
+        // Not stopNativeInteraction — see the matching keydown listener's
+        // comment: the active drag's own onReorderKeyUp (registered later)
+        // must still see this keyup to clear keepCurrentFlowParent, or
+        // releasing Space mid-drag would never re-enable reparenting.
+        if (e.cancelable) e.preventDefault();
         return;
       }
       if (activeTextEditEl || isEditorTypingTarget(e.target)) return;
@@ -15785,7 +19654,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (pendingBeginTextEdit) {
         var canceledPendingNodeId = pendingBeginTextEdit.nodeId;
         cancelPendingBeginTextEdit();
-        postTextEditPending(canceledPendingNodeId, false);
+        postTextEditPending(canceledPendingNodeId, false, "pointerdown");
       }
       if (!activeTextEditEl) return;
       if (exitStaleTextEditSession()) return;
@@ -15984,7 +19853,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return tag === "img" || tag === "svg" || tag === "canvas";
   }
 
-  function beginTextEditingFromEvent(e, forceTextEditing) {
+  function beginTextEditingFromEvent(
+    e,
+    forceTextEditing,
+    resumeBookmark?: { start: number; end: number; text: string },
+  ) {
     if (activeTextEditEl && e.target && activeTextEditEl.contains(e.target))
       return;
     if (!textEditingEnabled && !forceTextEditing) {
@@ -16000,7 +19873,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (pendingBeginTextEdit) {
       var supersededPendingNodeId = pendingBeginTextEdit.nodeId;
       cancelPendingBeginTextEdit();
-      postTextEditPending(supersededPendingNodeId, false);
+      postTextEditPending(supersededPendingNodeId, false, "superseded");
     }
     // T23: a live session on a DIFFERENT element must end through the
     // canonical cleanup BEFORE the new one starts. Previously the new
@@ -16009,6 +19882,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // shield pointer-passthrough state and posted text-editing-state(false)
     // UNDERNEATH the new session, corrupting both.
     if (activeTextEditEl && finishActiveTextEdit) finishActiveTextEdit(true);
+    clearSuspendedTextEditRange();
     var eventTarget =
       e && e.target && e.target.nodeType === 1 ? e.target : null;
     // The raw `eventTarget` fallback (no findTextEditTarget resolution at
@@ -16139,11 +20013,39 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var originalHtml = target.innerHTML || "";
     var originalMinWidth = target.style.minWidth;
     var originalMinHeight = target.style.minHeight;
+    var originalLineClamp = target.style.getPropertyValue("-webkit-line-clamp");
+    var originalLineClampPriority =
+      target.style.getPropertyPriority("-webkit-line-clamp");
+    var originalOverflow = target.style.getPropertyValue("overflow");
+    var originalOverflowPriority = target.style.getPropertyPriority("overflow");
+    var originalHeight = target.style.getPropertyValue("height");
+    var originalHeightPriority = target.style.getPropertyPriority("height");
+    var computedTextStyle = window.getComputedStyle(target);
+    var hasLineClamp = /^\d+$/.test(
+      computedTextStyle.getPropertyValue("-webkit-line-clamp").trim(),
+    );
+    var clampedTextEditHeight = "";
+    if (hasLineClamp) {
+      var verticalInset =
+        computedTextStyle.boxSizing === "border-box"
+          ? 0
+          : parseFloat(computedTextStyle.paddingTop || "0") +
+            parseFloat(computedTextStyle.paddingBottom || "0") +
+            parseFloat(computedTextStyle.borderTopWidth || "0") +
+            parseFloat(computedTextStyle.borderBottomWidth || "0");
+      // offsetHeight is in layout coordinates, unlike the transformed client
+      // rect. It reports whole CSS pixels, so fractional auto-height boxes can
+      // be quantized for this transient editing session.
+      clampedTextEditHeight =
+        Math.max(0, target.offsetHeight - verticalInset) + "px";
+    }
     var originalBorderColor = target.style.borderColor;
     var originalOutline = target.style.outline;
     var originalOutlineOffset = target.style.outlineOffset;
     var committed = false;
     activeTextEditEl = target;
+    activeTextEditRange = null;
+    activeTextEditStyleSelector = getSelector(selectedEl);
     // T19: publish this session's captured originals so refreshOverlays()
     // (which runs on ResizeObserver/MutationObserver ticks during the edit,
     // not just from inside this closure) can pass the real values instead of
@@ -16161,6 +20063,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       window.requestAnimationFrame(function () {
         chromeUpdateScheduled = false;
         if (committed) return;
+        captureActiveTextEditRange(target);
         updateTextEditingChrome(target, originalMinWidth, originalMinHeight);
         postTextEditingState(target, true);
       });
@@ -16183,17 +20086,35 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         "*",
       );
     }
+    if (hasLineClamp) {
+      // Keep the native text box dimensions while exposing its full text for
+      // editing. Only the active DOM session changes; finish() restores these
+      // inline declarations before the source-backed edit is committed.
+      target.style.setProperty("-webkit-line-clamp", "none", "important");
+      target.style.setProperty("overflow", "visible", "important");
+      target.style.setProperty("height", clampedTextEditHeight, "important");
+    }
     postTextEditingState(target, true);
 
-    function finish(commit) {
+    function finish(commit, preserveRangeForInspector) {
       if (committed) return;
       committed = true;
+      var preserveForInspector =
+        preserveRangeForInspector || textEditInspectorFocused;
+      var preservedRange =
+        commit &&
+        preserveForInspector &&
+        activeTextEditRange &&
+        !activeTextEditRange.collapsed &&
+        rangeBelongsToElement(activeTextEditRange, target)
+          ? activeTextEditRange.cloneRange()
+          : null;
       target.removeEventListener("blur", onBlur, true);
       target.removeEventListener("keydown", onKeyDown, true);
       target.removeEventListener("paste", onPaste, true);
       target.removeEventListener("input", onInput, true);
-      target.removeEventListener("keyup", onSelectionChange, true);
-      target.removeEventListener("mouseup", onSelectionChange, true);
+      target.removeEventListener("keyup", onKeyUp, true);
+      target.removeEventListener("mouseup", onMouseUp, true);
       document.removeEventListener("selectionchange", onSelectionChange);
       window.removeEventListener("blur", onWindowBlur, true);
       target.removeAttribute("contenteditable");
@@ -16206,15 +20127,58 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       target.style.outlineOffset = originalOutlineOffset;
       target.style.minWidth = originalMinWidth;
       target.style.minHeight = originalMinHeight;
+      if (hasLineClamp) {
+        if (originalLineClamp) {
+          target.style.setProperty(
+            "-webkit-line-clamp",
+            originalLineClamp,
+            originalLineClampPriority,
+          );
+        } else {
+          target.style.removeProperty("-webkit-line-clamp");
+        }
+        if (originalOverflow) {
+          target.style.setProperty(
+            "overflow",
+            originalOverflow,
+            originalOverflowPriority,
+          );
+        } else {
+          target.style.removeProperty("overflow");
+        }
+        if (originalHeight) {
+          target.style.setProperty(
+            "height",
+            originalHeight,
+            originalHeightPriority,
+          );
+        } else {
+          target.style.removeProperty("height");
+        }
+      }
       target.style.borderColor = originalBorderColor;
       setTextEditingPointerPassthrough(false);
       setSelectionOverlayResizeChromeVisible(true);
       var nativeSelection = window.getSelection ? window.getSelection() : null;
       if (nativeSelection) nativeSelection.removeAllRanges();
       if (activeTextEditEl === target) activeTextEditEl = null;
+      activeTextEditRange = null;
+      suspendedTextEditRange = preservedRange
+        ? {
+            target: target,
+            range: preservedRange,
+            selector: activeTextEditStyleSelector,
+          }
+        : null;
       // T4: this session no longer owns the active-edit slot.
       if (finishActiveTextEdit === finish) finishActiveTextEdit = null;
-      postTextEditingState(target, false);
+      postTextEditingState(
+        target,
+        false,
+        activeTextEditStyleSelector,
+        Boolean(preservedRange),
+      );
+      activeTextEditStyleSelector = "";
       if (!commit) {
         target.innerHTML = originalHtml;
         claimContentAsSource(target);
@@ -16257,6 +20221,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           pending.preferredSelector,
           pending.selectorCandidates,
           true,
+          false,
+          pending.sourceProvenance,
         );
       }
     }
@@ -16288,7 +20254,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
     function onBlur() {
       if (refocusEmptyProgrammaticEdit()) return;
-      finish(true);
+      finish(true, true);
     }
 
     // Moving focus from a child browsing context back to the host canvas does
@@ -16306,14 +20272,19 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // the character. keyCode 229 is the legacy signal browsers send for
       // composition keydowns that don't set isComposing.
       if (ev.isComposing || ev.keyCode === 229) return;
-      if (ev.key === "Escape") {
+      var metaOrCtrl = ev.metaKey || ev.ctrlKey;
+      if (
+        ev.key === "Escape" ||
+        (ev.key === "Enter" && metaOrCtrl && !ev.altKey && !ev.shiftKey)
+      ) {
         ev.preventDefault();
+        ev.stopPropagation();
         finish(true);
         target.blur();
         return;
       }
       // T2: Enter inserts a line break while editing (Figma convention);
-      // Escape or blur (click-out) is what commits and exits the session.
+      // Escape, Cmd/Ctrl+Enter, or blur commits and exits the session.
       if (ev.key === "Enter" && !ev.shiftKey) {
         ev.preventDefault();
         insertLineBreak();
@@ -16324,7 +20295,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // session to execCommand bold/italic/underline on the current selection.
       // normalizeNestedIdenticalSpans (T12) cleans up any span nesting
       // execCommand leaves behind when the session commits.
-      var metaOrCtrl = ev.metaKey || ev.ctrlKey;
       // A just-created text layer is one editor transaction, not an isolated
       // native contenteditable history island. Chromium consumes Cmd/Ctrl+Z
       // locally even when the empty editable has nothing to undo, so the host
@@ -16362,10 +20332,27 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
 
     function onInput() {
+      captureActiveTextEditRange(target);
+      clearActiveTextEditRangeIfCollapsed(target);
       scheduleTextEditingChromeUpdate();
     }
 
     function onSelectionChange() {
+      captureActiveTextEditRange(target);
+      scheduleTextEditingChromeUpdate();
+    }
+
+    function onKeyUp(ev) {
+      captureActiveTextEditRange(target);
+      if (document.activeElement === target && !ev.shiftKey) {
+        clearActiveTextEditRangeIfCollapsed(target);
+      }
+      scheduleTextEditingChromeUpdate();
+    }
+
+    function onMouseUp() {
+      captureActiveTextEditRange(target);
+      clearActiveTextEditRangeIfCollapsed(target);
       scheduleTextEditingChromeUpdate();
     }
 
@@ -16373,12 +20360,21 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     target.addEventListener("keydown", onKeyDown, true);
     target.addEventListener("paste", onPaste, true);
     target.addEventListener("input", onInput, true);
-    target.addEventListener("keyup", onSelectionChange, true);
-    target.addEventListener("mouseup", onSelectionChange, true);
+    target.addEventListener("keyup", onKeyUp, true);
+    target.addEventListener("mouseup", onMouseUp, true);
     document.addEventListener("selectionchange", onSelectionChange);
     window.addEventListener("blur", onWindowBlur, true);
     target.focus();
-    if (programmaticTextEdit) {
+    if (resumeBookmark) {
+      var resumedRange = restoreTextRangeBookmark(target, resumeBookmark);
+      var resumedSelection = window.getSelection ? window.getSelection() : null;
+      if (!resumedRange || !resumedSelection) {
+        if (finishActiveTextEdit) finishActiveTextEdit(false);
+        return;
+      }
+      resumedSelection.removeAllRanges();
+      resumedSelection.addRange(resumedRange);
+    } else if (programmaticTextEdit) {
       // The synthesized point sits at the (0×0) node's edge and resolves to the
       // parent element, so caretRangeFromPoint would drop the caret OUTSIDE the
       // editable node. Collapse to the end of the target's own contents instead.
@@ -16386,22 +20382,74 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     } else {
       placeTextCaretFromPoint(target, e.clientX, e.clientY);
     }
+    captureActiveTextEditRange(target);
+    postTextEditingState(target, true);
   }
 
   // T22: shared programmatic activation used by the begin-text-edit message
   // handler — both for an immediately-resolvable node and for one that lands
   // later via the deferred-retry window below.
-  function queryBeginTextEditNode(nodeId: string): HTMLElement | null {
-    var node: Element | null = document.querySelector(
+  function beginTextEditRepeatFromMessage(
+    value: unknown,
+  ): BeginTextEditRepeat | null {
+    if (!value || typeof value !== "object") return null;
+    var candidate = value as {
+      sourceSelector?: unknown;
+      itemIndex?: unknown;
+    };
+    if (
+      typeof candidate.sourceSelector !== "string" ||
+      !candidate.sourceSelector ||
+      typeof candidate.itemIndex !== "number" ||
+      !Number.isInteger(candidate.itemIndex) ||
+      candidate.itemIndex < 0
+    ) {
+      return null;
+    }
+    return {
+      sourceSelector: candidate.sourceSelector,
+      itemIndex: candidate.itemIndex,
+    };
+  }
+  function sameBeginTextEditRepeat(
+    left: BeginTextEditRepeat | null,
+    right: BeginTextEditRepeat | null,
+  ): boolean {
+    return (
+      left === right ||
+      (!!left &&
+        !!right &&
+        left.sourceSelector === right.sourceSelector &&
+        left.itemIndex === right.itemIndex)
+    );
+  }
+  function queryBeginTextEditNode(
+    nodeId: string,
+    repeat: BeginTextEditRepeat | null,
+  ): HTMLElement | null {
+    var nodes = document.querySelectorAll(
       '[data-agent-native-node-id="' +
         nodeId.replace(/\\/g, "\\\\").replace(/"/g, '\\"') +
         '"]',
     );
-    return node && node.nodeType === 1 ? (node as HTMLElement) : null;
+    for (var i = 0; i < nodes.length; i += 1) {
+      var node = nodes[i];
+      if (!repeat) return node as HTMLElement;
+      var info = repeatInstanceInfo(node);
+      if (
+        info &&
+        info.sourceSelector === repeat.sourceSelector &&
+        info.itemIndex === repeat.itemIndex
+      ) {
+        return node as HTMLElement;
+      }
+    }
+    return null;
   }
   function activateProgrammaticTextEdit(
     textTarget: HTMLElement,
     force: boolean,
+    resumeBookmark?: { start: number; end: number; text: string },
   ): void {
     // The host canvas can reclaim keyboard focus while React settles a newly
     // created layer. In that case this document still reports the same
@@ -16410,6 +20458,22 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // user's first keystroke hits host shortcuts. Re-focus the existing
     // session instead of rebuilding it.
     if (activeTextEditEl && activeTextEditEl === textTarget) {
+      if (resumeBookmark) {
+        var activeResumeRange = restoreTextRangeBookmark(
+          textTarget,
+          resumeBookmark,
+        );
+        var activeResumeSelection = window.getSelection
+          ? window.getSelection()
+          : null;
+        if (!activeResumeRange || !activeResumeSelection) return;
+        textTarget.focus();
+        activeResumeSelection.removeAllRanges();
+        activeResumeSelection.addRange(activeResumeRange);
+        captureActiveTextEditRange(textTarget);
+        postTextEditingState(textTarget, true);
+        return;
+      }
       if (document.activeElement !== textTarget || !document.hasFocus()) {
         textTarget.focus();
         collapseSelectionIntoContents(textTarget);
@@ -16435,50 +20499,94 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         stopImmediatePropagation: function () {},
       } as unknown as MouseEvent,
       force,
+      resumeBookmark,
     );
   }
+  // Outlives the host's own request window (its retry ladder settles at
+  // ~4.75s). At the old 2s this frame gave up FIRST on a slow board mount, and
+  // a commit-on-Escape carries no retries to extend it — everything typed was
+  // discarded before the node arrived.
+  var PENDING_BEGIN_TEXT_EDIT_MS = 5000;
   function pumpPendingBeginTextEdit(): void {
     if (!pendingBeginTextEdit) return;
     var entry = pendingBeginTextEdit;
-    var node = queryBeginTextEditNode(entry.nodeId);
+    var node = queryBeginTextEditNode(entry.nodeId, entry.repeat);
     if (node) {
       pendingBeginTextEdit = null;
-      // The user may have started their own edit meanwhile — never steal it.
+      // The user may have started their own edit meanwhile — never steal it,
+      // and tell the host its text did not land so it keeps owing it.
+      if (activeTextEditEl) {
+        if (entry.buffer) postTextEditInsertResult(entry.nodeId, false);
+      }
       if (!activeTextEditEl) {
         activateProgrammaticTextEdit(node, entry.force);
         // Replay keystrokes typed into this iframe during the wait — the
         // session is focused with the caret at the content end, so this
         // lands exactly where the user expects their first characters.
-        if (entry.buffer && activeTextEditEl === node) {
-          insertPlainTextAtSelection(entry.buffer);
+        var replayLanded = false;
+        if (entry.buffer) {
+          replayLanded =
+            activeTextEditEl === node &&
+            insertPlainTextAtSelection(entry.buffer);
+          postTextEditInsertResult(entry.nodeId, replayLanded);
+        }
+        if (entry.commitImmediately) {
+          // Same rule as the takeover above: a session finished and reported
+          // committed after a failed replay tells the host to release text
+          // that never reached the document.
+          if (
+            activeTextEditEl === node &&
+            finishActiveTextEdit &&
+            (replayLanded || !entry.buffer)
+          ) {
+            finishActiveTextEdit(true);
+            (node as HTMLElement).blur();
+            postTextEditPending(entry.nodeId, false, "committed");
+          } else {
+            postTextEditPending(entry.nodeId, false, "not-taken");
+          }
         }
       }
       return;
     }
     if (Date.now() > entry.deadline) {
       pendingBeginTextEdit = null;
-      postTextEditPending(entry.nodeId, false);
+      postTextEditPending(entry.nodeId, false, "deadline");
       return;
     }
     entry.raf = window.requestAnimationFrame(pumpPendingBeginTextEdit);
   }
-  function scheduleBeginTextEditRetry(nodeId: string, force: boolean): void {
+  function scheduleBeginTextEditRetry(
+    nodeId: string,
+    repeat: BeginTextEditRepeat | null,
+    force: boolean,
+    insertText?: string,
+    commitImmediately?: boolean,
+  ): void {
     // DesignEditor's own T6 loop re-posts begin-text-edit for the SAME node
     // every few hundred ms until it activates — those re-posts must extend
     // the wait, not reset it (a reset would drop keystrokes already buffered
     // for this node).
-    if (pendingBeginTextEdit && pendingBeginTextEdit.nodeId === nodeId) {
+    if (
+      pendingBeginTextEdit &&
+      pendingBeginTextEdit.nodeId === nodeId &&
+      sameBeginTextEditRepeat(pendingBeginTextEdit.repeat, repeat)
+    ) {
       pendingBeginTextEdit.force = pendingBeginTextEdit.force || force;
-      pendingBeginTextEdit.deadline = Date.now() + 2000;
+      pendingBeginTextEdit.deadline = Date.now() + PENDING_BEGIN_TEXT_EDIT_MS;
+      if (insertText) pendingBeginTextEdit.buffer += insertText;
+      if (commitImmediately) pendingBeginTextEdit.commitImmediately = true;
       return;
     }
     cancelPendingBeginTextEdit();
     pendingBeginTextEdit = {
       nodeId: nodeId,
+      repeat: repeat,
       force: force,
-      deadline: Date.now() + 2000,
+      commitImmediately: commitImmediately === true,
+      deadline: Date.now() + PENDING_BEGIN_TEXT_EDIT_MS,
       raf: window.requestAnimationFrame(pumpPendingBeginTextEdit),
-      buffer: "",
+      buffer: insertText || "",
     };
   }
 
@@ -16705,6 +20813,52 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // future message type needs payload-sourced fields, extract them
     // explicitly inside that type's own branch below instead of reintroducing
     // a blanket hoist.
+    if (e.data.type === "resume-text-edit") {
+      var resumeScreenId =
+        typeof e.data.screenId === "string" ? e.data.screenId : "";
+      var resumeSelector =
+        typeof e.data.selector === "string" ? e.data.selector : "";
+      var resumeSourceId =
+        typeof e.data.sourceId === "string" ? e.data.sourceId : undefined;
+      var suspendedForResume = suspendedTextEditRange;
+      if (
+        !resumeScreenId ||
+        resumeScreenId !== designCanvasScreenId ||
+        readOnly ||
+        !textEditingEnabled ||
+        !textEditInspectorFocused ||
+        !resumeSelector ||
+        !suspendedForResume ||
+        !suspendedForResume.target.isConnected ||
+        suspendedForResume.selector !== resumeSelector ||
+        (resumeSourceId !== undefined &&
+          (getSourceId(suspendedForResume.target) || undefined) !==
+            resumeSourceId)
+      ) {
+        return;
+      }
+      var resumeBookmark = captureTextRangeBookmark(
+        suspendedForResume.target,
+        suspendedForResume.range,
+      );
+      if (!resumeBookmark) return;
+      var resumeTarget = suspendedForResume.target;
+      suspendedTextEditRange = null;
+      textEditInspectorFocused = false;
+      activateProgrammaticTextEdit(resumeTarget, false, resumeBookmark);
+      return;
+    }
+    if (e.data.type === "text-edit-inspector-focus") {
+      if (typeof e.data.focused !== "boolean") return;
+      textEditInspectorFocused = e.data.focused;
+      if (!textEditInspectorFocused) {
+        clearSuspendedTextEditRange();
+        if (activeTextEditEl && finishActiveTextEdit) {
+          finishActiveTextEdit(true);
+        }
+      }
+      return;
+    }
     // set-read-only: toggle the bridge's readOnly state in-place without a reload.
     // When readOnly becomes true the shield/selection/drag/edit entry points are
     // gated so the surface is safe for background/inactive display use.
@@ -16771,30 +20925,102 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // nodeId immediately (no double-click needed). Used after programmatic
     // text-element creation so the user can type right away and the autosize
     // CSS (width:max-content or similar) takes effect from the first keystroke.
+    // The host stood this exact creation down (pointer-away, Escape, undo, a
+    // newer creation). A begin-text-edit already delivered here outlives that:
+    // pendingBeginTextEdit keeps pumping for its own ~2s deadline and focuses
+    // the node the moment it appears, so the abandoned layer comes back to life
+    // with a caret in it. Identity-scoped on BOTH ids — a cancel for one node
+    // must never touch another node's pending or live session — and it only
+    // ends a live session that is still EMPTY, because a session with typed
+    // text belongs to the user, not to the cancelled request.
+    if (e.data.type === "agent-native:cancel-text-edit") {
+      var cancelScreenId =
+        typeof e.data.screenId === "string" ? e.data.screenId : "";
+      var cancelNodeId = typeof e.data.nodeId === "string" ? e.data.nodeId : "";
+      if (!cancelNodeId) return;
+      if (cancelScreenId && cancelScreenId !== designCanvasScreenId) return;
+      if (
+        pendingBeginTextEdit &&
+        pendingBeginTextEdit.nodeId === cancelNodeId
+      ) {
+        cancelPendingBeginTextEdit();
+        postTextEditPending(cancelNodeId, false, "superseded");
+      }
+      if (
+        activeTextEditEl &&
+        getSourceId(activeTextEditEl) === cancelNodeId &&
+        (activeTextEditEl.textContent || "").trim() === "" &&
+        finishActiveTextEdit
+      ) {
+        finishActiveTextEdit(false);
+      }
+      return;
+    }
     if (e.data.type === "begin-text-edit") {
       var forceBeginTextEdit = e.data.force === true;
       if ((readOnly || !textEditingEnabled) && !forceBeginTextEdit) return;
       var nodeId: string =
         typeof e.data.nodeId === "string" ? e.data.nodeId : "";
       if (!nodeId) return;
+      var beginTextEditRepeat = beginTextEditRepeatFromMessage(e.data.repeat);
+      if (e.data.repeat !== undefined && !beginTextEditRepeat) return;
+      // Escape while the host still holds the creation's keystrokes: they ride
+      // in with the command so the node keeps them, and the session closes as
+      // soon as they have landed. Never a way to drop what was typed.
+      var beginInsertText =
+        typeof e.data.insertText === "string" ? e.data.insertText : "";
+      var beginCommitImmediately = e.data.commitImmediately === true;
       // Edit the EXACT node identified by nodeId. Do NOT run it through
       // findTextEditTarget here — that helper climbs UP to the highest
       // inline-editable ancestor, which for a text node inside a text-heavy
       // screen resolves all the way to <main>, putting the ENTIRE screen into
       // edit mode instead of this node (keystrokes land in the wrong element).
-      var textTarget = queryBeginTextEditNode(nodeId);
+      var textTarget = queryBeginTextEditNode(nodeId, beginTextEditRepeat);
       if (!textTarget) {
         // T22: the node hasn't landed in this document yet — the command won
         // the race against the replace-document-content round trip that
         // carries the freshly-created element. Defer instead of dropping,
         // so the caret is live the moment the node appears. Tell the host so
         // it buffers HOST-focused keystrokes for the same window (T25).
-        scheduleBeginTextEditRetry(nodeId, forceBeginTextEdit);
+        scheduleBeginTextEditRetry(
+          nodeId,
+          beginTextEditRepeat,
+          forceBeginTextEdit,
+          beginInsertText,
+          beginCommitImmediately,
+        );
         postTextEditPending(nodeId, true);
         return;
       }
       cancelPendingBeginTextEdit();
       activateProgrammaticTextEdit(textTarget, forceBeginTextEdit);
+      var tookTarget = activeTextEditEl === textTarget;
+      // The host keeps owing these keystrokes until this frame says they
+      // landed: a target it could not take over, or an insert the document
+      // refused, never received them.
+      var beginInsertLanded = false;
+      if (beginInsertText) {
+        beginInsertLanded =
+          tookTarget && insertPlainTextAtSelection(beginInsertText);
+        postTextEditInsertResult(nodeId, beginInsertLanded);
+      }
+      if (beginCommitImmediately) {
+        // Only ever finish THIS target, and only once the text is actually in
+        // it. Reporting "committed" after a failed insert made the host release
+        // the buffer it had just been told to keep — the two reports together
+        // were the one way to lose the text outright.
+        if (
+          tookTarget &&
+          finishActiveTextEdit &&
+          (beginInsertLanded || !beginInsertText)
+        ) {
+          finishActiveTextEdit(true);
+          textTarget.blur();
+          postTextEditPending(nodeId, false, "committed");
+        } else {
+          postTextEditPending(nodeId, false, "not-taken");
+        }
+      }
       return;
     }
     // T25: replay keystrokes the HOST buffered during the creation→activation
@@ -16805,8 +21031,23 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // chrome/state naturally.
     if (e.data.type === "text-edit-insert-text") {
       var bufferedText = typeof e.data.text === "string" ? e.data.text : "";
-      if (!bufferedText || !activeTextEditEl || !isTextEditElConnected())
+      var bufferedNodeId =
+        typeof e.data.nodeId === "string" ? e.data.nodeId : "";
+      if (!bufferedText) return;
+      if (!activeTextEditEl || !isTextEditElConnected()) {
+        // The editable these keystrokes belong to is gone — a document swap or
+        // a detached node. Returning silently lost them outright, because the
+        // host released its only copy when the session reported active.
+        postTextEditInsertResult(bufferedNodeId, false);
         return;
+      }
+      if (bufferedNodeId && getSourceId(activeTextEditEl) !== bufferedNodeId) {
+        // A queued insert for a node that is no longer the live session.
+        // Writing it here spliced one creation's keystrokes into another's
+        // node AND told the host the first one had landed.
+        postTextEditInsertResult(bufferedNodeId, false);
+        return;
+      }
       var bufferedActive = document.activeElement;
       if (
         !bufferedActive ||
@@ -16824,8 +21065,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         activeTextEditEl,
         true,
       );
-      insertPlainTextAtSelection(bufferedText);
+      var bufferedInserted = insertPlainTextAtSelection(bufferedText);
       if (positionedAtStart) collapseSelectionIntoContents(activeTextEditEl);
+      postTextEditInsertResult(bufferedNodeId, bufferedInserted);
       return;
     }
     if (e.data.type === "set-editor-chrome-scale") {
@@ -16961,6 +21203,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       crossScreenClaimedByHost = Boolean(e.data.claimed);
       return;
     }
+    if (e.data.type === "agent-native:set-space-held") {
+      // Figma parity (unique-paths): the host forwards Space here when ITS
+      // OWN window — not this document — received the native key event
+      // (the pointer-down that starts an on-canvas drag does not always
+      // move focus into this iframe). resolveReorderOrFreeTarget reads
+      // bridgeSpaceKeyPressed on every move/commit tick, so this has the
+      // same effect as this document's own keydown/keyup listener seeing it.
+      bridgeSpaceKeyPressed = Boolean(e.data.held);
+      return;
+    }
     if (e.data.type === "agent-native:cancel-active-drag") {
       cancelActiveBridgeDragOrPendingCommit(
         typeof e.data.pressedAt === "number" ? e.data.pressedAt : undefined,
@@ -16980,6 +21232,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // During marquee drag, empty hit sets are replayed back from the host as a
       // clear-selection state. Keep the drag-owned rectangle alive until pointer-up.
       if (activeMarqueeSelection) return;
+      clearSuspendedTextEditRange();
       clearRuntimeSelection();
       return;
     }
@@ -17028,7 +21281,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             typeof e.data.correlationId === "string"
               ? e.data.correlationId
               : "",
-          payload: collectSelectableElementInfos(Boolean(e.data.deep)),
+          payload: collectSelectableElementInfos(
+            Boolean(e.data.deep),
+            readSelectablePoint(e.data.atPoint),
+            e.data.includePortableStyleSnapshot !== false,
+          ),
         },
         "*",
       );
@@ -17046,26 +21303,23 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         typeof e.data.correlationId === "string" ? e.data.correlationId : "";
       var textEditStatusNodeId: string =
         typeof e.data.nodeId === "string" ? e.data.nodeId : "";
+      var textEditStatusRepeat = beginTextEditRepeatFromMessage(e.data.repeat);
       // "missing" (this document has no such node) stays distinct from a bare
       // `false` (node is here, just not being edited). The host's retry ladder
       // needs the difference: the first is a still-propagating insert or the
       // wrong iframe, the second means the user has not typed yet.
       var textEditStatus: "active" | "done" | "missing" | false = "missing";
-      if (textEditStatusNodeId) {
-        var escapedTextEditStatusNodeId = textEditStatusNodeId
-          .replace(/\\/g, "\\\\")
-          .replace(/"/g, '\\"');
-        var textEditStatusNode: Element | null = document.querySelector(
-          '[data-agent-native-node-id="' + escapedTextEditStatusNodeId + '"]',
-        );
-        var textEditStatusEditingEl: Element | null = document.querySelector(
-          '[data-agent-native-node-id="' +
-            escapedTextEditStatusNodeId +
-            '"][data-agent-native-text-editing]',
+      if (
+        textEditStatusNodeId &&
+        (e.data.repeat === undefined || textEditStatusRepeat)
+      ) {
+        var textEditStatusNode = queryBeginTextEditNode(
+          textEditStatusNodeId,
+          textEditStatusRepeat,
         );
         if (
-          textEditStatusEditingEl &&
-          document.activeElement === textEditStatusEditingEl &&
+          textEditStatusNode?.hasAttribute("data-agent-native-text-editing") &&
+          document.activeElement === textEditStatusNode &&
           document.hasFocus()
         ) {
           textEditStatus = "active";
@@ -17199,6 +21453,20 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // badge flash, i.e. "the value box never shows"). A same-element
       // replay must be a no-op for hover state.
       var selectionChangedByHost = target !== selectedEl;
+      if (
+        suspendedTextEditRange &&
+        !matchesExactSelectorList(suspendedTextEditRange.target, candidates)
+      ) {
+        clearSuspendedTextEditRange();
+      }
+      if (
+        selectionChangedByHost &&
+        activeTextEditEl &&
+        !matchesExactSelectorList(activeTextEditEl, candidates) &&
+        finishActiveTextEdit
+      ) {
+        finishActiveTextEdit(true);
+      }
       if (selectionChangedByHost) {
         hoveredSpacingHandleKey = "";
       }
@@ -17487,6 +21755,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         }
         var replaceNextSibling = insertAnchor.nextSibling;
         replaceParent.insertBefore(parsedInsertEl, insertAnchor);
+        // Capture while the original still supplies its selector/provenance,
+        // and reject before publishing a pending operation if proof is unavailable.
+        var replacementSnapshot = serializeRuntimeLayerSnapshot(insertAnchor);
+        if (!replacementSnapshot.ok) {
+          parsedInsertEl.remove();
+          rejectInsert("replacement-" + replacementSnapshot.reason);
+          return;
+        }
         selectedEl = parsedInsertEl;
         positionOverlay(selectionOverlay, selectedEl);
         refreshOverlays();
@@ -17501,6 +21777,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           },
           parsedInsertEl.outerHTML,
           true,
+          replacementSnapshot.html,
         );
         replaceParent.removeChild(insertAnchor);
         refreshOverlays();
@@ -17614,8 +21891,25 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         // since it now renders at the flow position of a detached style
         // instead of either its original spot or the intended drop slot.
         if (moveWasInsert) {
+          var selectionBelongsToRejectedClone = Boolean(
+            move.el &&
+            selectedEl &&
+            (selectedEl === move.el || move.el.contains(selectedEl)),
+          );
           if (move.el && move.el.isConnected) move.el.remove();
-          if (selectedEl === move.el) selectedEl = null;
+          if (
+            selectionBelongsToRejectedClone &&
+            move.origin &&
+            "inserted" in move.origin &&
+            move.origin.fallbackSelection &&
+            move.origin.fallbackSelection.isConnected
+          ) {
+            selectedEl = move.origin.fallbackSelection;
+            positionOverlay(selectionOverlay, selectedEl);
+            postElementSelect(selectedEl);
+          } else if (selectedEl === move.el) {
+            selectedEl = null;
+          }
           if (hoveredEl === move.el) hoveredEl = null;
           refreshOverlays();
           return;
@@ -17651,6 +21945,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         e.data.selectorCandidates,
         Boolean(e.data.forceFullDocument),
         Boolean(e.data.preserveTextEditingSession),
+        e.data.sourceProvenance,
       );
       return;
     }
@@ -17687,6 +21982,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           typeof e.data.value === "string" ? e.data.value : "";
       }
       claimContentAsSource(textTarget);
+      publishSourceDocumentProvenance(undefined, true);
       refreshOverlays();
       return;
     }
@@ -17720,21 +22016,35 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // activeTextEditEl lives inside (the panel is targeting "the thing the
     // user double-clicked into", which is this edit session, even though the
     // selector re-anchored to its stable container).
+    var textEditStyleTarget =
+      activeTextEditEl || suspendedTextEditRange?.target || null;
+    var textEditStyleSelector = activeTextEditEl
+      ? activeTextEditStyleSelector
+      : suspendedTextEditRange?.selector || "";
     var styleChangeTargetsActiveTextEdit =
-      !!activeTextEditEl &&
+      !!textEditStyleTarget &&
       !!el &&
-      (el === activeTextEditEl || el.contains(activeTextEditEl));
+      (el === textEditStyleTarget || el.contains(textEditStyleTarget)) &&
+      (!!activeTextEditEl ||
+        !textEditStyleSelector ||
+        candidatesForStyle.indexOf(textEditStyleSelector) !== -1);
     if (
       prop &&
       styleChangeTargetsActiveTextEdit &&
       applyTextRangeStyle(prop, val)
     ) {
       postTextContentChange(
-        activeTextEditEl,
-        activeTextEditEl!.textContent || "",
-        activeTextEditEl!.innerHTML || "",
+        textEditStyleTarget,
+        textEditStyleTarget!.textContent || "",
+        textEditStyleTarget!.innerHTML || "",
         undefined,
         undefined,
+      );
+      postTextEditingState(
+        textEditStyleTarget,
+        !!activeTextEditEl,
+        textEditStyleSelector,
+        true,
       );
       refreshOverlays();
       return;
@@ -17920,8 +22230,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         "aria-label",
         "class",
         "data-agent-native-component",
+        "data-agent-native-runtime-component-capability",
+        "data-agent-native-runtime-component-id",
+        "data-agent-native-runtime-instance-id",
         "data-agent-native-layer-name",
         "data-layer-name",
+        "layer-name",
         "data-an-primitive",
         "data-component-name",
         "data-source-column",
@@ -17959,6 +22273,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       attributeFilter: [
         "data-agent-native-layer-name",
         "data-layer-name",
+        "layer-name",
         "data-an-primitive",
         "class",
         "style",
@@ -17971,6 +22286,72 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   captureInitialSourceOwnership();
   if (runtimeLayerSnapshotEnabled) scheduleRuntimeLayerSnapshot();
+  if (document.readyState === "complete") {
+    scheduleScreenRootStyleSnapshot();
+  } else {
+    window.addEventListener("load", scheduleScreenRootStyleSnapshot, {
+      once: true,
+    });
+  }
+  window.addEventListener("resize", scheduleScreenRootStyleSnapshot);
+  if (typeof MutationObserver !== "undefined" && document.body) {
+    new MutationObserver(scheduleScreenRootStyleSnapshot).observe(
+      document.body,
+      { attributes: true, attributeFilter: ["class", "style"] },
+    );
+  }
+
+  var fontMetadataRefreshFrame = 0;
+  function refreshSelectedTextAfterFontsLoad(): void {
+    if (fontMetadataRefreshFrame) return;
+    fontMetadataRefreshFrame = window.requestAnimationFrame(function () {
+      fontMetadataRefreshFrame = 0;
+      var currentSelection = selectedEl;
+      if (
+        !currentSelection ||
+        !currentSelection.isConnected ||
+        !document.documentElement.contains(currentSelection) ||
+        passiveSelectionEls.length > 0
+      ) {
+        return;
+      }
+      if (isWholeTextStyleRoot(currentSelection)) {
+        // No intent marks this as a metadata echo; the host keeps user history
+        // untouched and does not replace an active multi-selection.
+        postElementSelect(currentSelection);
+      }
+
+      var textEditTarget =
+        activeTextEditEl || suspendedTextEditRange?.target || null;
+      if (
+        !textEditTarget ||
+        !textEditTarget.isConnected ||
+        !document.documentElement.contains(textEditTarget) ||
+        (textEditTarget !== currentSelection &&
+          !currentSelection.contains(textEditTarget) &&
+          !textEditTarget.contains(currentSelection))
+      ) {
+        return;
+      }
+      var active = activeTextEditEl === textEditTarget;
+      if (
+        active &&
+        !textEditTarget.hasAttribute("data-agent-native-text-editing")
+      ) {
+        return;
+      }
+      var selector = active
+        ? activeTextEditStyleSelector
+        : suspendedTextEditRange?.selector || "";
+      postTextEditingState(textEditTarget, active, selector);
+    });
+  }
+  if (document.fonts && typeof document.fonts.addEventListener === "function") {
+    document.fonts.addEventListener(
+      "loadingdone",
+      refreshSelectedTextAfterFontsLoad,
+    );
+  }
 
   // One-time ready signal: tells the host that every message listener above is
   // now attached, so one-shot commands (begin-text-edit, set-editor-chrome-scale,

@@ -22,6 +22,9 @@ import {
 } from "./google-api.js";
 import {
   getAccountDisplayName,
+  getClientForConnectedAccount,
+  getClientsWithErrors,
+  getConnectedAccountsWithErrors,
   isConnected,
   gmailToEmailMessage,
   getOAuth2Credentials,
@@ -78,11 +81,23 @@ export interface ScheduledJobRecord {
   createdAt: number;
 }
 
-async function getAccessToken(accountEmail: string): Promise<string | null> {
+async function getAccessToken(
+  accountEmail: string,
+  requireFreshToken = false,
+): Promise<string | null> {
   const tokens = (await getOAuthTokens("google", accountEmail)) as unknown as
     | StoredTokens
     | undefined;
   if (!tokens?.access_token) return null;
+
+  if (
+    requireFreshToken &&
+    tokens.expiry_date &&
+    !tokens.refresh_token &&
+    tokens.expiry_date < Date.now() + 5 * 60 * 1000
+  ) {
+    return null;
+  }
 
   if (
     tokens.expiry_date &&
@@ -110,6 +125,7 @@ async function getAccessToken(accountEmail: string): Promise<string | null> {
         `[getAccessToken] refresh failed for ${accountEmail}:`,
         err.message,
       );
+      if (requireFreshToken) return null;
     }
   }
 
@@ -119,10 +135,12 @@ async function getAccessToken(accountEmail: string): Promise<string | null> {
 async function getFirstAccountToken(
   preferEmail?: string,
   ownerEmail?: string,
+  strictPreference = false,
 ): Promise<{ email: string; accessToken: string } | null> {
   if (preferEmail) {
-    const token = await getAccessToken(preferEmail);
+    const token = await getAccessToken(preferEmail, strictPreference);
     if (token) return { email: preferEmail, accessToken: token };
+    if (strictPreference) return null;
   }
 
   // Only return accounts owned by the given owner
@@ -393,14 +411,39 @@ export async function scheduleEmailSend(input: {
   runAt: number;
   payload: SendLaterPayload;
 }): Promise<ScheduledJobRecord> {
+  const requestedAccountEmail =
+    input.payload.accountEmail?.trim() || input.payload.from?.trim();
+  const accountEmail = await resolveScheduledSendAccountEmail(
+    input.ownerEmail,
+    requestedAccountEmail,
+  );
+  const payload = { ...input.payload, accountEmail };
   return createScheduledJobRecord({
     type: "send_later",
     ownerEmail: input.ownerEmail,
-    threadId: input.payload.threadId ?? null,
-    accountEmail: input.payload.accountEmail || input.payload.from || null,
-    payload: input.payload as unknown as Record<string, unknown>,
+    threadId: payload.threadId ?? null,
+    accountEmail: accountEmail ?? null,
+    payload: payload as unknown as Record<string, unknown>,
     runAt: input.runAt,
   });
+}
+
+export async function resolveScheduledSendAccountEmail(
+  ownerEmail: string,
+  requestedAccountEmail?: string | null,
+): Promise<string | undefined> {
+  const requested = requestedAccountEmail?.trim();
+  if (!requested) return undefined;
+
+  const { accounts, errors } = await getConnectedAccountsWithErrors(ownerEmail);
+  const account = accounts.find(
+    (email) => email.toLowerCase() === requested.toLowerCase(),
+  );
+  if (account) return account;
+  if (errors.length > 0) {
+    throw new Error("Unable to verify the selected Gmail account.");
+  }
+  throw new Error("Selected Gmail account is not connected to this user.");
 }
 
 export async function resurfaceEmail(
@@ -605,77 +648,119 @@ export async function sendScheduledEmail(
   accountEmail?: string,
   ownerEmail?: string,
 ): Promise<void> {
-  const { to, cc, bcc, subject, body, from, replyToId, threadId } = payload;
-  const effectiveOwner = ownerEmail || accountEmail || from;
+  const {
+    to,
+    cc,
+    bcc,
+    subject,
+    body,
+    from,
+    accountEmail: payloadAccountEmail,
+    replyToId,
+    threadId,
+  } = payload;
+  const selectedAccountEmail =
+    [accountEmail, payloadAccountEmail, from]
+      .map((candidate) => candidate?.trim())
+      .find(Boolean) || undefined;
+  const effectiveOwner = ownerEmail?.trim();
+
+  if (selectedAccountEmail && !effectiveOwner) {
+    throw new Error("Scheduled send is missing its owner account context.");
+  }
+
+  let account: { email: string; accessToken: string } | null = null;
+  if (effectiveOwner && selectedAccountEmail) {
+    const connectedAccount = await getClientForConnectedAccount(
+      effectiveOwner,
+      selectedAccountEmail,
+    );
+    if (
+      connectedAccount?.email.toLowerCase() ===
+      selectedAccountEmail.toLowerCase()
+    ) {
+      account = connectedAccount;
+    }
+    if (!account) {
+      throw new Error(
+        `No valid access token for selected Gmail account ${selectedAccountEmail}`,
+      );
+    }
+  } else if (effectiveOwner) {
+    const { clients, errors } = await getClientsWithErrors(effectiveOwner);
+    account = clients[0] ?? null;
+    if (!account && errors.length > 0) {
+      throw new Error("No usable connected Gmail account for scheduled send.");
+    }
+  }
+
   const attachments = await resolveComposeAttachments(
     payload.attachments,
     effectiveOwner,
   );
 
-  if (await isConnected(effectiveOwner)) {
-    const account = await getFirstAccountToken(
-      accountEmail || from,
-      effectiveOwner,
-    );
-    if (account) {
-      let inReplyTo: string | undefined;
-      let references: string | undefined;
+  if (account) {
+    let inReplyTo: string | undefined;
+    let references: string | undefined;
 
-      if (replyToId) {
-        try {
-          const original = await gmailGetMessage(
-            account.accessToken,
-            replyToId,
-            "metadata",
-          );
-          const headers = original.payload?.headers || [];
-          inReplyTo =
-            headers.find((header: any) => header.name === "Message-Id")
-              ?.value ?? undefined;
-          const refs = headers.find(
-            (header: any) => header.name === "References",
-          )?.value;
-          references = [refs, inReplyTo].filter(Boolean).join(" ");
-        } catch {}
-      }
-
-      const senderEmail = account.email || from || "me";
-      const senderIdentity = await resolveGoogleSenderIdentity({
-        accessToken: account.accessToken,
-        email: senderEmail,
-        cachedName: getAccountDisplayName(senderEmail),
-        onResolvedDisplayName: (name) => {
-          setAccountDisplayName(senderEmail, name);
-          void setOAuthDisplayName("google", senderEmail, name).catch(() => {});
-        },
-      });
-
-      const raw = buildOutgoingRawEmail({
-        from: senderIdentity.header,
-        to,
-        cc,
-        bcc,
-        subject,
-        body,
-        inReplyTo,
-        references,
-        attachments,
-      });
-
-      const sendBody: any = { raw };
-      if (threadId) sendBody.threadId = threadId;
-
-      await googleFetch(
-        `https://gmail.googleapis.com/gmail/v1/users/me/messages/send`,
+    if (replyToId) {
+      const original = await gmailGetMessage(
         account.accessToken,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(sendBody),
-        },
+        replyToId,
+        "metadata",
       );
-      return;
+      const headers = original.payload?.headers || [];
+      inReplyTo =
+        headers.find((header: any) => header.name === "Message-Id")?.value ??
+        undefined;
+      const refs = headers.find(
+        (header: any) => header.name === "References",
+      )?.value;
+      references = [refs, inReplyTo].filter(Boolean).join(" ");
     }
+
+    const senderEmail = account.email || from || "me";
+    const senderIdentity = await resolveGoogleSenderIdentity({
+      accessToken: account.accessToken,
+      email: senderEmail,
+      cachedName: getAccountDisplayName(senderEmail),
+      onResolvedDisplayName: (name) => {
+        setAccountDisplayName(senderEmail, name);
+        void setOAuthDisplayName("google", senderEmail, name).catch(() => {});
+      },
+    });
+
+    const raw = buildOutgoingRawEmail({
+      from: senderIdentity.header,
+      to,
+      cc,
+      bcc,
+      subject,
+      body,
+      inReplyTo,
+      references,
+      attachments,
+    });
+
+    const sendBody: any = { raw };
+    if (threadId) sendBody.threadId = threadId;
+
+    await googleFetch(
+      `https://gmail.googleapis.com/gmail/v1/users/me/messages/send`,
+      account.accessToken,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(sendBody),
+      },
+    );
+    return;
+  }
+
+  if (selectedAccountEmail) {
+    throw new Error(
+      `No valid access token for selected Gmail account ${selectedAccountEmail}`,
+    );
   }
 
   const fallbackOwner = ownerEmail || from || accountEmail;

@@ -14,6 +14,7 @@ vi.mock("./hooks.js", () => ({
   useAppRoles: () => ({ data: undefined }),
   useChangeMemberRole: () => mocks.changeRole,
   useRemoveMember: () => mocks.removeMember,
+  useSetAppMemberRoles: () => mocks.action,
 }));
 
 vi.mock("../use-action.js", () => ({
@@ -21,7 +22,7 @@ vi.mock("../use-action.js", () => ({
 }));
 
 vi.mock("../i18n.js", () => ({
-  useT: () => (key: string, options?: { count?: number }) => {
+  useT: () => (key: string, options?: { count?: number; name?: string }) => {
     if (key === "org.admin") return "Admin";
     if (key === "org.member") return "Member";
     if (key === "org.members") return "Members";
@@ -32,12 +33,27 @@ vi.mock("../i18n.js", () => ({
     if (key === "org.noPeopleFound") return "No people found";
     if (key === "org.noMembers") return "No members";
     if (key === "org.inviteMembers") return "Invite members";
+    if (key === "org.appPermissions") return "App permissions";
+    if (key === "org.loading") return "Loading";
+    if (key === "org.newGroup") return "New group";
+    if (key === "org.groups") return "Groups";
+    if (key === "org.groupName") return "Group name";
+    if (key === "org.deleteGroup") return "Delete group?";
+    if (key === "org.deleteGroupAria") {
+      return `Delete group ${options?.name ?? ""}`;
+    }
+    if (key === "org.cancel") return "Cancel";
+    if (key === "org.delete") return "Delete";
     return key;
   },
 }));
 
 import { TooltipProvider } from "../components/ui/tooltip.js";
-import { MemberRow, MembersTableCard } from "./TeamPage.js";
+import {
+  MemberRow,
+  MembersTableCard,
+  WorkspaceGroupsCard,
+} from "./TeamPage.js";
 
 describe("MemberRow organization controls", () => {
   let container: HTMLDivElement;
@@ -102,6 +118,32 @@ describe("MemberRow organization controls", () => {
     ).not.toBeNull();
   });
 
+  it("offers an explain-access popover for members with app permissions", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <MemberRow
+            email="morgan@example.test"
+            role="member"
+            isCurrentUser={false}
+            currentUserRole="owner"
+            appRoles={{
+              appId: "dispatch",
+              roles: ["editor"],
+              permissions: { approve: ["editor"] },
+            }}
+            appRole={[]}
+            canManageAppRoles
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(
+      container.querySelector('[aria-label="App permissions"]'),
+    ).not.toBeNull();
+  });
+
   it("does not offer controls for the current user's own row", () => {
     act(() => {
       root.render(
@@ -145,6 +187,7 @@ describe("MemberRow organization controls", () => {
             nextMemberOffset={null}
             onMemberPageChange={vi.fn()}
             onMemberSearchChange={onMemberSearchChange}
+            onCreateGroup={vi.fn()}
           />
         </TooltipProvider>,
       );
@@ -166,6 +209,39 @@ describe("MemberRow organization controls", () => {
       search!.dispatchEvent(new Event("change", { bubbles: true }));
     });
     expect(onMemberSearchChange).toHaveBeenCalledWith("morgan");
+  });
+
+  it("hides the invite flow when email delivery is not configured", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <MembersTableCard
+            members={[]}
+            totalMembers={0}
+            pendingInvites={[]}
+            isLoadingMembers={false}
+            isFetchingMembers={false}
+            membersError={null}
+            onRetryMembers={vi.fn()}
+            currentUserEmail="admin@example.test"
+            currentUserRole="admin"
+            emailConfigured={false}
+            groups={[]}
+            canManageGroups={false}
+            memberOffset={0}
+            memberSearch=""
+            activeMemberSearch=""
+            hasNextPage={false}
+            nextMemberOffset={null}
+            onMemberPageChange={vi.fn()}
+            onMemberSearchChange={vi.fn()}
+            onCreateGroup={vi.fn()}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(container.textContent).not.toContain("Invite members");
   });
 
   it("uses a search-specific empty state", () => {
@@ -191,6 +267,7 @@ describe("MemberRow organization controls", () => {
             nextMemberOffset={null}
             onMemberPageChange={vi.fn()}
             onMemberSearchChange={vi.fn()}
+            onCreateGroup={vi.fn()}
           />
         </TooltipProvider>,
       );
@@ -198,5 +275,114 @@ describe("MemberRow organization controls", () => {
 
     expect(container.textContent).toContain("No people found");
     expect(container.textContent).not.toContain("Invite members");
+  });
+
+  it("offers to create a group for selected members when none exist", () => {
+    const onCreateGroup = vi.fn();
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <MembersTableCard
+            members={[
+              {
+                email: "morgan@example.test",
+                role: "member",
+              },
+            ]}
+            totalMembers={1}
+            pendingInvites={[]}
+            isLoadingMembers={false}
+            isFetchingMembers={false}
+            membersError={null}
+            onRetryMembers={vi.fn()}
+            currentUserEmail="owner@example.test"
+            currentUserRole="owner"
+            groups={[]}
+            canManageGroups
+            memberOffset={0}
+            memberSearch=""
+            activeMemberSearch=""
+            hasNextPage={false}
+            nextMemberOffset={null}
+            onMemberPageChange={vi.fn()}
+            onMemberSearchChange={vi.fn()}
+            onCreateGroup={onCreateGroup}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    const select = container.querySelector<HTMLButtonElement>(
+      '[aria-label="Select morgan@example.test"]',
+    );
+    expect(select).not.toBeNull();
+    act(() => select?.click());
+
+    const createButton = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((button) => button.textContent?.trim() === "New group");
+    expect(createButton).not.toBeUndefined();
+    act(() => createButton?.click());
+
+    expect(onCreateGroup).toHaveBeenCalledWith(["morgan@example.test"]);
+  });
+
+  it("keeps a failed group deletion open with its error visible", () => {
+    mocks.action.mutate.mockImplementation((_input, options) => {
+      options?.onError?.(new Error("Delete failed"));
+    });
+
+    act(() => {
+      root.render(
+        <WorkspaceGroupsCard
+          groups={[
+            {
+              id: "group-1",
+              orgId: "org-1",
+              name: "Rev Ops",
+              memberEmails: [],
+              createdByEmail: "owner@example.test",
+              createdAt: new Date(0).toISOString(),
+              updatedAt: new Date(0).toISOString(),
+            },
+          ]}
+          onNewGroup={vi.fn()}
+          onEditGroup={vi.fn()}
+        />,
+      );
+    });
+
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Delete group Rev Ops"]')
+        ?.click();
+    });
+
+    const input = document.querySelector<HTMLInputElement>(
+      "#workspace-delete-group-name-group-1",
+    );
+    expect(input?.labels?.[0]?.textContent).toBe("Group name");
+    expect(input).not.toBeNull();
+    act(() => {
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      valueSetter?.call(input, "Rev Ops");
+      input?.dispatchEvent(new Event("input", { bubbles: true }));
+      input?.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    act(() => {
+      Array.from(document.querySelectorAll<HTMLButtonElement>("button"))
+        .find((button) => button.textContent?.trim() === "Delete")
+        ?.click();
+    });
+
+    expect(document.body.textContent).toContain("Delete failed");
+    expect(
+      document.querySelector("#workspace-delete-group-name-group-1"),
+    ).not.toBeNull();
   });
 });

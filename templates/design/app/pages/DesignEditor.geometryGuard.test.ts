@@ -217,6 +217,25 @@ describe("quantizeCanvasFrameGeometryForPersist", () => {
     });
   });
 
+  it("quantizes changed coordinates without rounding unchanged fractional fields", () => {
+    const before = {
+      "screen-1": { x: 0.2, y: 0.2, width: 416.2, height: 416.2 },
+      "screen-2": { x: 2000.4, y: 0.6, width: 500.3, height: 700.1 },
+    };
+    expect(
+      quantizeCanvasFrameGeometryForPersist(
+        {
+          "screen-1": { ...before["screen-1"], x: 5.4 },
+          "screen-2": before["screen-2"],
+        },
+        before,
+      ),
+    ).toEqual({
+      "screen-1": { x: 5, y: 0.2, width: 416.2, height: 416.2 },
+      "screen-2": before["screen-2"],
+    });
+  });
+
   it("leaves rotation and z alone — only x/y/width/height are pixel coordinates", () => {
     expect(
       quantizeCanvasFrameGeometryForPersist({

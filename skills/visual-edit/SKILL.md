@@ -16,6 +16,9 @@ visually instead of generating standalone Alpine HTML. The source of truth is
 the running localhost app plus its route URLs. Design shows those routes as
 iframe-backed screens on the infinite canvas.
 
+The editor is hosted at `https://design.agent-native.com`. Never start local
+Design; only the target app and bridge run locally.
+
 ## Installation
 
 `npx @agent-native/core@latest skills add visual-edit` installs the skill and
@@ -36,9 +39,12 @@ show in model text or retain in logs. Do not claim that fallback is editable:
 the edit capability is intentionally available only to the host-managed MCP App
 launcher, where it is hidden from the model and redeemed once.
 
-- In Codex Desktop, Claude Desktop, and other hosts with an inline browser,
-  prefer that surface. In VS Code use its Design webview/deep link. If no
-  inline surface exists, return the normal **Open design** link.
+- Inline-browser hosts should open `https://design.agent-native.com/visual-edit`
+  and call its `open-visual-edit` WebMCP tool. It works signed in or out; the
+  one-time capability is not a Design account session.
+- VS Code uses its Design webview/deep link. Without page WebMCP, use the hosted
+  Design MCP connector and its normal OAuth/device authorization. Never replace
+  either path with a local Design server.
 
 Prefer the MCP App surface for a connected Design plugin, then the host's
 browser/preview tool as the universal fallback. Keep the canvas beside chat
@@ -73,12 +79,15 @@ The same action is available from Design's empty-canvas context menu.
 - The editor page registers a stable page-local WebMCP tool named
   `get-visual-edit-prompt`. Call it after canvas edits to retrieve the latest
   bounded source instructions instead of copying stale chat text. It returns
-  `status: "empty"` when there is nothing to apply.
-- The skill enters through local `pnpm action open-visual-edit`. When that CLI
-  has no account session, the action uses a stable, workspace-scoped local
-  principal to register the bridge, create/reuse the local design, and place
-  screens. That principal exists only inside the in-process CLI call; it is not
-  a browser login and cannot be selected by an HTTP, MCP, or tunneled caller.
+  `status: "empty"` when there is nothing to apply. If a previous editor
+  session ended with unapplied edits, it returns `status: "session-ended"`
+  with the pending count; `status: "unknown"` means the session marker
+  could not be read and must not be treated as an empty result.
+- The `open-visual-edit` action is owned by Design. From another app, use the
+  hosted MCP server at `https://design.agent-native.com/mcp` or the page's
+  WebMCP helper, not `pnpm action` in the target app. The page path works
+  signed out only for loopback apps in public mode, using a short-lived
+  capability-scoped principal; hosted MCP uses its normal OAuth identity.
 - Public links are always read-only, including on loopback. Loopback peer
   identity is not an authentication boundary because a tunnel or reverse proxy
   can make a remote request appear local. A bare `/visual-edit/:designId` or
@@ -102,13 +111,16 @@ The same action is available from Design's empty-canvas context menu.
 
 ## Useful Canvas Sets
 
-Use the smallest useful set: one ordered frame per requested route/query state,
-repeat routes at requested desktop/tablet/mobile viewports, and include
-URL-addressable empty, loading, error, modal-open, or selected-item states.
+Use a focused batch of 3-7 frames by default: one ordered frame per requested
+route/query state, repeat routes at requested desktop/tablet/mobile viewports,
+and include URL-addressable empty, loading, error, modal-open, or selected-item
+states. Keep the Screens section readable so Layers remains useful while
+editing. Do not expand beyond 7 frames unless the user explicitly asks for an
+exhaustive audit or a complete route inventory.
 
 Do not expand every discovered route or every viewport unless the user asks for
-an exhaustive audit. Preserve the user's labels and sequence so the canvas reads
-like the workflow they described.
+an exhaustive audit. Preserve the user's labels and sequence so the canvas
+reads like the workflow they described.
 
 ## Select And Reprompt
 
@@ -140,10 +152,6 @@ check meaningful URL, hover, focus, scroll, and modal states.
 
 ## Account And Sharing Model
 
-- `/visual-edit/:id` is the dedicated local-editor surface. The one-time
-  handoff returned by `open-visual-edit` opens it with edit access without a
-  Design login. A copied or bare `/visual-edit/:id` URL is read-only because it
-  does not carry the capability.
 - The capability permits live iframe inspection, session-local edits, undo/redo,
   **Apply design updates**, and **Copy prompt**. These hand bounded source
   instructions to the coding agent; they do not persist account-owned Design data.
@@ -167,9 +175,21 @@ must match on two sides: the local bridge process, and the user's connection row
 in Design (which the browser reads to authorize `/live-edit-bridge`,
 `/read-file`, `/write-file`). Get them to match by letting the
 `open-visual-edit` action mint the token, then starting the
-bridge with it. This is the only ordering that works for the remote-MCP flow —
+bridge with it. This is the only ordering that works for the remote-MCP flow -
 the bridge cannot push its own token to the server without a CLI auth token, so
 the server mints instead and the bridge adopts.
+
+For a fresh signed-out browser flow, generate the token locally, keep it in the
+host process, and pass it once as the page tool's optional `bridgeToken`; the
+page never returns it:
+
+```bash
+BRIDGE_TOKEN="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))')"
+AGENT_NATIVE_BRIDGE_TOKEN="$BRIDGE_TOKEN" npx @agent-native/core@latest design connect --url http://localhost:5173 --root . --daemon
+```
+
+Reuse an existing matching connection without `bridgeToken`; hosted MCP can
+mint the token when page WebMCP is unavailable.
 
 From the target app repo, make sure its dev server is running, then:
 
@@ -191,7 +211,8 @@ contain local changes and costs a slow install on every call:
 pnpm dev:cli design connect --url http://localhost:5173 --root templates/<app> --json
 ```
 
-**2. Call `open-visual-edit`** (see Action Flow below) with NO `bridgeToken`.
+**2. For the hosted MCP path, call `open-visual-edit`** (see Action Flow below)
+with NO `bridgeToken`.
 The server mints one, stores it on the user's connection row, copies it into the
 placed screens' metadata, and returns it to you as `bridgeToken`. Capture it.
 
@@ -226,46 +247,48 @@ The bridge listens on a single fixed port (7331) and refuses to start for a
 second, different app. It is detached with no log file, so if `--daemon` reports
 a timeout, check for a stale process (`lsof -ti:7331`) before retrying.
 
-If the local Design dev server uses PGlite, do not run the in-process
-`pnpm action open-visual-edit` command against it: the CLI opens the same
-database directory and PGlite rejects the second owner. Use the page's
-`window.__agentNativeWebMcp` helper in the running editor, or use the hosted
-MCP/Postgres path. The CLI command is safe when the action and server use
-separate Postgres-backed databases.
+If local Design uses PGlite, never invoke the in-process CLI against that server:
+both open the same directory and the second owner is rejected. For a signed-out
+local test, start Design with `AUTH_DISABLED=1`, open `/visual-edit`, and call
+the server-action `open-visual-edit` through `window.__agentNativeWebMcp` after
+it registers. This keeps one PGlite owner; `get-visual-edit-prompt` is only the
+post-edit handoff. With auth enabled, sign in to hosted Design MCP or use shared
+Postgres before using the CLI action.
 
 ## Action Flow
 
-Prefer the single `open-visual-edit` action. It registers or
-refreshes the localhost bridge connection, mints and stores the bridge token,
-creates or reuses a Design project, places URL-backed screens, stores the active
-visual-edit context, and navigates to overview mode in one call. This avoids
-creating a private design under a synthetic CLI user and then handing the browser
-a tokenized URL that may be shadowed by an existing session.
+When a browser is available, reuse the local bridge and call the hosted page's
+`open-visual-edit` WebMCP tool. For a fresh signed-out connection, pass the
+locally held `bridgeToken`; it reads its preview manifest and challenge proof,
+then sends both for validation. Hosted Design never fetches `127.0.0.1`.
+Without page WebMCP, use hosted MCP.
 
-Call it BEFORE starting the durable bridge (step 3 above): it does not contact
-the bridge, so the bridge need not be running yet, and you need its returned
-`bridgeToken` to start the bridge with a matching secret. Omit `bridgeToken`
-on the call so the server mints one.
+From another app, call the connected Design MCP tool
+`mcp__agent-native-design__open-visual-edit` with the JSON arguments below. It
+registers or refreshes the localhost bridge,
+mints and stores the bridge token, creates or reuses a Design project, places
+URL-backed screens, stores visual-edit context, and navigates to overview mode
+in one call. Never run `pnpm action` from the target app's checkout: its local
+registry does not contain Design actions.
 
-```bash
-pnpm action open-visual-edit '{
+Call it before starting the durable bridge: it does not contact the bridge, so
+the server can mint `bridgeToken` for the bridge to adopt. Omit that input.
+
+```json
+{
   "title": "Docs homepage visual edit",
   "devServerUrl": "http://localhost:5173",
   "bridgeUrl": "http://127.0.0.1:7331",
   "rootPath": "/absolute/path/to/app",
   "routeManifest": { "...": "from /manifest.json" },
   "paths": ["/", "/pricing", "/checkout?step=payment"]
-}'
+}
 ```
 
 The action returns `designId`, `connectionId`, `bridgeToken`, `screens`,
-`urlPath`, and a credential-free `openUrl`. Its MCP App metadata separately
-carries the one-time editor launcher so the host can redeem it without showing
-the capability to the model or retaining it in the action link. Keep
-`designId`/`connectionId` in the chat context for follow-ups, and pass
-`bridgeToken` to `design connect` (step 3) to start the bridge. On follow-up
-calls reusing an existing `connectionId`, the same token is returned (it is
-minted once and reused), so the running bridge stays valid.
+`urlPath`, and credential-free `openUrl`. MCP App metadata carries the
+hidden one-time launcher. Keep the ids for follow-ups
+and pass the token to `design connect`; reusing the connection reuses its token.
 
 ### Desktop and mobile side by side
 
@@ -274,15 +297,15 @@ out as a grid: one row per route, one column per viewport. Presets are
 `desktop` (1280x900), `laptop` (1440x900), `tablet` (834x1112), and `mobile`
 (390x844); an explicit `{ "label": "...", "width": N, "height": N }` also works.
 
-```bash
-pnpm action open-visual-edit '{
+```json
+{
   "title": "Tasks responsive visual edit",
   "devServerUrl": "http://localhost:5173",
   "bridgeUrl": "http://127.0.0.1:7331",
   "rootPath": "/absolute/path/to/app",
   "paths": ["/tasks", "/inbox"],
   "viewports": ["desktop", "mobile"]
-}'
+}
 ```
 
 Prefer this over two separate calls with `defaultWidth`/`defaultHeight`: it
@@ -310,14 +333,14 @@ only the new paths. Existing frames for the same route and viewport are
 refreshed in place rather than duplicated, and a frame the user has dragged or
 resized keeps its position unless you explicitly pass `x`/`y`/`width`/`height`.
 
-```bash
-pnpm action open-visual-edit '{
+```json
+{
   "designId": "<existing-design-id>",
   "connectionId": "<existing-connection-id>",
   "devServerUrl": "http://localhost:5173",
   "paths": ["/settings", "/team"],
   "startY": 2200
-}'
+}
 ```
 
 Do NOT add `defaultWidth`/`defaultHeight` just to restate the default size:
@@ -326,8 +349,8 @@ overwrites frame sizes the user has already adjusted on the canvas.
 
 For a numbered flow the user describes in chat, keep the labels and order:
 
-```bash
-pnpm action open-visual-edit '{
+```json
+{
   "designId": "<existing-design-id>",
   "connectionId": "<existing-connection-id>",
   "devServerUrl": "http://localhost:1234",
@@ -336,19 +359,23 @@ pnpm action open-visual-edit '{
     { "url": "localhost:1234/onboarding/2", "title": "Screen 2" },
     { "url": "localhost:1234/onboarding/3", "title": "Screen 3" }
   ]
-}'
+}
 ```
 
 If no `routes` or `paths` are supplied, `open-visual-edit` uses every route
 from the localhost manifest.
 
-Fallback, only when `open-visual-edit` is unavailable:
+Fallback only when `open-visual-edit` is unavailable and hosted Design MCP is
+authorized:
 
 1. Register or refresh the bridge with `connect-localhost`, passing the
    `/manifest.json` result as `routeManifest` and `capabilities`.
 2. Create or reuse a Design project with `create-design`.
 3. Place URL-backed screens with `add-localhost-screens`.
 4. Navigate to overview mode with `navigate`.
+
+The fallback still targets `https://design.agent-native.com`; only the app and
+bridge URLs are localhost. Never run `pnpm action` from `templates/design`.
 
 ## Open The Design Surface
 
@@ -361,10 +388,12 @@ Fallback, only when `open-visual-edit` is unavailable:
   `vscode://builder.agent-native/open?url=<encoded-design-url>`. Its
   `Agent-Native: Open Design Canvas` command also starts the local bridge and
   opens hosted Design in the VS Code side panel.
-- After `open-visual-edit`, confirm the Design editor is in overview mode
-  with the requested URL-backed frames visible, and that they render the app
-  rather than a spinner. Do not stop at "screens added" when the user asked to
-  inspect or edit visually.
+- Once `open-visual-edit` returns the expected `screenCount`, hand back the
+  link and stop. Do not open it yourself in a browser-automation tool to
+  screenshot or poll until it renders — a cold dev server can take 10-30s
+  regardless of who's watching, and that wait adds nothing the response didn't
+  already confirm. Reach for browser automation only if the user later reports
+  the canvas is broken.
 
 ## Applying Visual Edits Back To Source
 
@@ -458,6 +487,10 @@ the connected app's text/code files through the bridge
   the result. Human write consent remains mandatory and agents cannot grant it.
 
 ## Verification
+
+For a plain "open this app" request, `open-visual-edit`'s own response is
+the verification — see Open The Design Surface. Reach for the checks below
+only to diagnose an actual report, or to confirm an applied edit landed:
 
 - `list-localhost-connections` returns the expected connection and routes.
 - The Design editor opens in overview mode.

@@ -156,6 +156,14 @@ export function loadHighlighter(): Promise<ShikiHighlighter> {
 export const TextStreamingContext = React.createContext(false);
 export const ExternalTextStreamingContext = React.createContext(false);
 
+// `undefined` means "no chat host is providing run state", which is different
+// from `false` ("a host is providing it and the run has ended"). Embedded and
+// test surfaces render markdown without an AssistantChat above them, and they
+// must not be told the run is over.
+export const AgentRunActiveContext = React.createContext<boolean | undefined>(
+  undefined,
+);
+
 export interface ActiveTextStreamingIdentity {
   runId: string | null;
   turnId: string | null;
@@ -168,17 +176,21 @@ export function AgentTextStreamingProvider({
   children,
   identity,
   streaming,
+  runActive,
 }: {
   children: React.ReactNode;
   identity: ActiveTextStreamingIdentity | null;
   streaming: boolean;
+  runActive: boolean;
 }) {
   return (
-    <ActiveTextStreamingIdentityContext.Provider value={identity}>
-      <TextStreamingContext.Provider value={streaming}>
-        {children}
-      </TextStreamingContext.Provider>
-    </ActiveTextStreamingIdentityContext.Provider>
+    <AgentRunActiveContext.Provider value={runActive}>
+      <ActiveTextStreamingIdentityContext.Provider value={identity}>
+        <TextStreamingContext.Provider value={streaming}>
+          {children}
+        </TextStreamingContext.Provider>
+      </ActiveTextStreamingIdentityContext.Provider>
+    </AgentRunActiveContext.Provider>
   );
 }
 
@@ -472,8 +484,8 @@ type SmoothStreamingTextCacheEntry = {
 
 // Grouped message parts are rebuilt as tool calls arrive. A text part can
 // therefore be unmounted and mounted again even though its identity did not
-// change. Keep the reveal cursor outside that subtree so a structural update
-// continues from the current cursor instead of replaying the opening sentence.
+// change. Keep the reveal state outside that subtree so a structural update
+// continues from the current position instead of replaying the opening sentence.
 const smoothStreamingTextCache = new Map<
   string,
   SmoothStreamingTextCacheEntry
@@ -854,13 +866,6 @@ export function StreamingText({
       ) : (
         <span style={{ whiteSpace: "pre-wrap" }}>{visibleText}</span>
       )}
-      {shouldAnimate && visibleText !== text ? (
-        <span
-          aria-hidden="true"
-          className="agent-streaming-cursor"
-          data-agent-streaming-cursor="true"
-        />
-      ) : null}
     </div>
   );
 }
@@ -876,16 +881,24 @@ export function shouldAnimateMarkdownText({
   statusType,
   externalStreaming,
   activeMessageStreaming,
+  runActive,
 }: {
   textStreaming: boolean;
   isLastAssistantMessage: boolean;
   statusType: string;
   externalStreaming?: boolean;
   activeMessageStreaming?: boolean;
+  runActive?: boolean;
 }): boolean {
+  // The active-turn identity is deliberately retained after a run ends so a
+  // late final chunk still animates. Without the `runActive` gate that makes
+  // the finished turn's last message permanently "streaming": it never enters
+  // the fast settle drain and keeps re-animating on remount.
+  const identityStreaming =
+    activeMessageStreaming === true && runActive !== false;
   return (
     isLastAssistantMessage &&
-    (activeMessageStreaming === true ||
+    (identityStreaming ||
       (textStreaming &&
         (statusType === "running" || externalStreaming === true)))
   );
@@ -898,6 +911,7 @@ export function MarkdownText() {
   const message = messageRuntime.getState();
   const textStreaming = React.useContext(TextStreamingContext);
   const externalStreaming = React.useContext(ExternalTextStreamingContext);
+  const runActive = React.useContext(AgentRunActiveContext);
   const activeStreamingIdentity = React.useContext(
     ActiveTextStreamingIdentityContext,
   );
@@ -917,6 +931,7 @@ export function MarkdownText() {
           message,
           activeStreamingIdentity,
         ),
+        runActive,
       })}
       resetKey={message.id}
       statusType={statusType}

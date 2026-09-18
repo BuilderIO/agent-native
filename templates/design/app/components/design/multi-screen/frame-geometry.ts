@@ -398,12 +398,22 @@ export function resolveFrameGeometrySync(args: {
   persistedGeometryById:
     | Record<string, Partial<FrameGeometry> | undefined>
     | undefined;
+  geometryOverridesById?: Record<string, FrameGeometry | undefined>;
 }): {
   next: FrameGeometryById;
   changed: boolean;
   shouldNotifyParent: boolean;
 } {
-  const { screens, currentGeometryById, persistedGeometryById } = args;
+  const {
+    screens,
+    currentGeometryById,
+    persistedGeometryById,
+    geometryOverridesById,
+  } = args;
+  const effectivePersistedGeometryById = { ...persistedGeometryById };
+  for (const [id, geometry] of Object.entries(geometryOverridesById ?? {})) {
+    if (geometry) effectivePersistedGeometryById[id] = geometry;
+  }
   const currentIds = new Set(screens.map((screen) => screen.id));
   let shouldNotifyParent = Object.keys(currentGeometryById).some(
     (id) => !currentIds.has(id),
@@ -414,13 +424,14 @@ export function resolveFrameGeometrySync(args: {
   const baseGeometryById = Object.fromEntries(
     screens.map((screen) => [
       screen.id,
-      persistedGeometryById?.[screen.id] ?? currentGeometryById[screen.id],
+      effectivePersistedGeometryById[screen.id] ??
+        currentGeometryById[screen.id],
     ]),
   );
 
   screens.forEach((screen, index) => {
     const existing = currentGeometryById[screen.id];
-    const persisted = persistedGeometryById?.[screen.id];
+    const persisted = effectivePersistedGeometryById[screen.id];
     const legacyInitial = getInitialFrameGeometry(index, screen.metadata);
     const layoutGroupScreens = screen.layoutGroupId
       ? screens.filter(
@@ -437,7 +448,7 @@ export function resolveFrameGeometrySync(args: {
           layoutGroupScreens,
         );
         const candidateGeometry =
-          persistedGeometryById?.[candidate.id] ??
+          effectivePersistedGeometryById[candidate.id] ??
           currentGeometryById[candidate.id];
         return (
           candidateGeometry?.x === baseline.x &&
@@ -533,7 +544,6 @@ export function resolveFrameGeometrySync(args: {
     }
     if (persisted && !sameFrameGeometry(existing ?? resolved, resolved)) {
       changed = true;
-      shouldNotifyParent = true;
     }
   });
 
@@ -688,6 +698,29 @@ export function geometryContainsGeometry(
   return geometryCorners(inner).every((point) =>
     geometryContainsPoint(outer, point),
   );
+}
+
+/** Decides which screen wins a hit-test tie for `findTopFrameEntryAtPoint`'s
+ *  `foregroundId`. Must mirror `topScreenId` in MultiScreenCanvas exactly —
+ *  that's the id the canvas gives an additive z-index boost when painting
+ *  (selected screen, else the sticky `activeId`, else the first screen), so
+ *  whichever screen is visually on top of an overlapping neighbour is also
+ *  the one a mousedown/draw at that point resolves to. Do not special-case
+ *  "fresh gesture" callers with a different fallback — that desyncs hit
+ *  testing from paint order and routes a gesture into the frame *under* the
+ *  one the user is actually looking at. */
+export function resolveHitTestForegroundId(options: {
+  selectedIds: readonly string[];
+  hasGeometry: (id: string) => boolean;
+  activeId: string | null | undefined;
+  firstScreenId: string | undefined;
+}): string | undefined {
+  const selected = options.selectedIds.find((id) => options.hasGeometry(id));
+  if (selected !== undefined) return selected;
+  if (options.activeId && options.hasGeometry(options.activeId)) {
+    return options.activeId;
+  }
+  return options.firstScreenId;
 }
 
 export function findTopFrameEntryAtPoint<

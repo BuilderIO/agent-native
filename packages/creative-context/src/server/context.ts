@@ -6,6 +6,7 @@ import {
 } from "../connectors/index.js";
 import type { ContextImportConnectorRegistry } from "../connectors/registry.js";
 import type { ContextConnectorExecutionContext } from "../connectors/types.js";
+import { CREATIVE_CONTEXT_LIBRARY_LAB } from "../labs.js";
 import * as defaultSchema from "../schema/index.js";
 import type { PgVectorAdapter } from "../types.js";
 import type {
@@ -24,6 +25,7 @@ export type CreativeContextGetDb = () => any;
 export interface CreativeContextServerContext {
   getDb: CreativeContextGetDb;
   schema: CreativeContextSchema;
+  labKey: string;
   vectorAdapter?: PgVectorAdapter;
   connectors: ContextImportConnectorRegistry;
   connectorContext: ContextConnectorExecutionContext;
@@ -139,6 +141,7 @@ export function configureCreativeContext(
   const configured: CreativeContextServerContext = {
     getDb: context.getDb ?? defaultGetDb,
     schema: context.schema ?? defaultSchema,
+    labKey: context.labKey ?? CREATIVE_CONTEXT_LIBRARY_LAB.key,
     vectorAdapter: context.vectorAdapter ?? defaultVectorAdapter(),
     connectors:
       context.connectors ?? createDefaultContextImportConnectorRegistry(),

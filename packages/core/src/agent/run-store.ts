@@ -130,6 +130,82 @@ export const CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT = {
 } as const;
 
 /**
+ * Terminal error for a subscriber whose run row is not in `agent_runs` at all.
+ *
+ * `getRunById` returns null for three different situations — the row was pruned
+ * by retention, the producer never committed the INSERT, or the read hit a
+ * replica that has not caught up — and none of them can be told apart from
+ * "finished normally". The SSE subscription used to close the stream with no
+ * terminal frame here, which the client renders as the interrupted /
+ * unknown-outcome tool card plus "stopped without sending a final message": the
+ * user cannot tell whether their work landed. Recoverable so the client keeps
+ * its retry affordance.
+ */
+export const RUN_RECORD_MISSING_ERROR_EVENT = {
+  type: "error",
+  error:
+    "The agent run record is no longer available, so this turn could not be confirmed as finished. Retry if the result is missing.",
+  errorCode: "run_record_missing",
+  recoverable: true,
+  details:
+    "No agent_runs row existed for this run when the live connection last checked, and no terminal event was persisted for it. The run may have completed before its record was pruned.",
+} as const;
+
+/**
+ * Terminal error for a run row whose `status` is neither 'running' nor any
+ * status the SSE subscription knows how to convert into a terminal event.
+ *
+ * `agent_runs.status` is a plain TEXT column, so the subscription's branch list
+ * is an assumption about the column's domain rather than something the type
+ * system enforces. Falling through those branches silently closed the stream
+ * with no terminal frame; failing loudly here keeps a future status value from
+ * reintroducing the same ambiguous card.
+ */
+export const UNKNOWN_RUN_STATUS_ERROR_EVENT = {
+  type: "error",
+  error:
+    "The agent run ended in a state this app does not recognize, so the result could not be confirmed. Retry if the result is missing.",
+  errorCode: "unknown_run_status",
+  recoverable: true,
+  details:
+    "The run row left 'running' with a status the live connection has no terminal event for. Partial output and tool calls were preserved when available.",
+} as const;
+
+/**
+ * Terminal error for a subscriber that could not READ the run's last terminal
+ * event, as opposed to establishing that there is none.
+ *
+ * `RUN_RECORD_MISSING_ERROR_EVENT` and `UNKNOWN_RUN_STATUS_ERROR_EVENT` both
+ * diagnose an ABSENCE, so reporting either one off a failed lookup would claim
+ * a confirmed outcome the subscription never established. Distinct code so
+ * "we looked and there is nothing" stays separable from "we could not look" in
+ * triage. Recoverable so the client offers a manual retry.
+ */
+export const RUN_TERMINAL_LOOKUP_FAILED_ERROR_EVENT = {
+  type: "error",
+  error:
+    "The agent run's final state could not be read, so this turn could not be confirmed as finished. Retry if the result is missing.",
+  errorCode: "run_terminal_lookup_failed",
+  recoverable: true,
+  details:
+    "Reading the run's last persisted terminal event failed. The run may have completed; its outcome is unknown to this connection rather than known to be absent.",
+} as const;
+
+/**
+ * How long a subscriber keeps polling a run id with NO `agent_runs` row before
+ * treating the absence as terminal.
+ *
+ * A client can legitimately attach to a run id before the producer's INSERT is
+ * visible: the id is minted in the request handler, and the events endpoint
+ * frequently runs in a different isolate (and against a pooled/replica
+ * connection). Without a grace window, that ordinary startup race closes the
+ * stream on the very first status probe. 15s comfortably exceeds a cold-start
+ * dispatch plus replica lag while still surfacing a genuinely absent row well
+ * inside the client's own idle timeout.
+ */
+export const RUN_RECORD_MISSING_GRACE_MS = 15_000;
+
+/**
  * Grace period before a never-claimed background run (dispatch_mode still
  * 'background', no worker claim) is treated as a dead handoff and reaped.
  *
@@ -389,7 +465,8 @@ export async function ensureRunTables(): Promise<void> {
           dispatch_mode TEXT,
           diag_stage TEXT,
           dispatch_payload TEXT,
-          peak_rss_mb BIGINT
+          peak_rss_mb BIGINT,
+          continuation_order BIGINT
         )
       `;
       const agentRunEventsCreateSql = `
@@ -505,6 +582,10 @@ export async function ensureRunTables(): Promise<void> {
         // has failed. See `IN_FLIGHT_RUN_STALE_GRACE_MS` and
         // `setRunInFlightMarker`.
         ["in_flight_since", "BIGINT"],
+        // Monotonic position within a logical turn. Server-driven successors
+        // carry their continuation count; other inserts allocate the next
+        // position under the per-turn advisory lock.
+        ["continuation_order", "BIGINT"],
       ] as const) {
         await ensureColumnExists(
           "agent_runs",
@@ -528,7 +609,7 @@ export async function ensureRunTables(): Promise<void> {
         "agent_run_outcome_daily",
         agentRunOutcomeDailyCreateSql,
       );
-      // Widen millisecond-timestamp columns that older deployments created as
+      // Widen millisecond-timestamp and run-order columns that older deployments created as
       // 32-bit `INTEGER`. `insertRun()` writes `Date.now()` into `started_at`
       // on every turn, so an int4 column makes every agent prompt fail on
       // Postgres with "value … is out of range for type integer". No-op once
@@ -540,6 +621,7 @@ export async function ensureRunTables(): Promise<void> {
         "heartbeat_at",
         "last_progress_at",
         "in_flight_since",
+        "continuation_order",
       ]);
       await widenIntColumnsToBigInt("agent_run_events", ["event_at"]);
       await widenIntColumnsToBigInt("agent_tool_ledger", ["completed_at"]);
@@ -698,24 +780,99 @@ export async function insertRun(
      * bodies at 256KB); the worker rehydrates the body from this column.
      */
     dispatchPayload?: string;
+    /** Monotonic position within the logical turn, when the caller has one. */
+    continuationOrder?: number;
   },
 ): Promise<void> {
   await ensureRunTables();
   const client = getDbExec();
   const now = Date.now();
-  await client.execute({
-    sql: `INSERT INTO agent_runs (id, thread_id, status, started_at, heartbeat_at, last_progress_at, turn_id, dispatch_mode, dispatch_payload) VALUES (?, ?, 'running', ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`,
-    args: [
-      id,
-      threadId,
-      now,
-      now,
-      now,
-      turnId ?? id,
-      options?.dispatchMode ?? null,
-      options?.dispatchPayload ?? null,
-    ],
+  const logicalTurnId = turnId ?? id;
+  const explicitContinuationOrder = normalizeContinuationOrder(
+    options?.continuationOrder,
+  );
+  const insert = async (db: DbExec, continuationOrder: number) => {
+    await db.execute({
+      sql: `INSERT INTO agent_runs (id, thread_id, status, started_at, heartbeat_at, last_progress_at, turn_id, dispatch_mode, dispatch_payload, continuation_order) VALUES (?, ?, 'running', ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`,
+      args: [
+        id,
+        threadId,
+        now,
+        now,
+        now,
+        logicalTurnId,
+        options?.dispatchMode ?? null,
+        options?.dispatchPayload ?? null,
+        continuationOrder,
+      ],
+    });
+  };
+  if (!client.transaction) {
+    await lockContinuationOrder(client, threadId, logicalTurnId);
+    await insert(
+      client,
+      explicitContinuationOrder ??
+        (await nextContinuationOrder(client, threadId, logicalTurnId)),
+    );
+    return;
+  }
+  await client.transaction(async (tx) => {
+    await lockContinuationOrder(tx, threadId, logicalTurnId);
+    await insert(
+      tx,
+      explicitContinuationOrder ??
+        (await nextContinuationOrder(tx, threadId, logicalTurnId)),
+    );
   });
+}
+
+function normalizeContinuationOrder(
+  value: number | undefined,
+): number | undefined {
+  if (value === undefined) return undefined;
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`Invalid continuation order: ${String(value)}`);
+  }
+  return value;
+}
+
+function continuationOrderLockKey(threadId: string, turnId: string): string {
+  return `agent-native:run-order:${threadId}:${turnId}`;
+}
+
+async function lockContinuationOrder(
+  db: DbExec,
+  threadId: string,
+  turnId: string,
+): Promise<void> {
+  await db.execute({
+    sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
+    args: [continuationOrderLockKey(threadId, turnId)],
+  });
+}
+
+async function nextContinuationOrder(
+  db: DbExec,
+  threadId: string,
+  turnId: string,
+): Promise<number> {
+  await lockContinuationOrder(db, threadId, turnId);
+  const { rows } = await db.execute({
+    sql: `SELECT MAX(continuation_order) AS max_order
+          FROM agent_runs
+          WHERE thread_id = ? AND COALESCE(turn_id, id) = ?`,
+    args: [threadId, turnId],
+  });
+  const rawMax = (rows?.[0] as { max_order?: unknown } | undefined)?.max_order;
+  if (rawMax === null || rawMax === undefined) return 0;
+  const maxOrder = Number(rawMax);
+  if (!Number.isSafeInteger(maxOrder) || maxOrder < 0) {
+    throw new Error(`Invalid stored continuation order: ${String(rawMax)}`);
+  }
+  if (maxOrder === Number.MAX_SAFE_INTEGER) {
+    throw new Error("Continuation order exhausted");
+  }
+  return maxOrder + 1;
 }
 
 /**
@@ -1172,11 +1329,14 @@ export async function tryClaimRunSlot(
     replayCompletedTurn?: boolean;
     dispatchMode?: "foreground" | "foreground-self-chain" | "background";
     dispatchPayload?: string;
+    /** Monotonic position within the logical turn, when known. */
+    continuationOrder?: number;
   },
 ): Promise<{
   claimed: boolean;
   activeRunId: string | null;
   completedRunId?: string;
+  turnAborted?: boolean;
 }> {
   await ensureRunTables();
   const client = getDbExec();
@@ -1192,6 +1352,18 @@ export async function tryClaimRunSlot(
       sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
       args: [`agent-native:run-slot:${threadId}`],
     });
+    // Serialize the active-run checks with every other insertion path for this
+    // logical turn. Without this, an insertRun transaction can commit while a
+    // claimant is waiting on this lock, after the claimant already checked
+    // for an active row, and both rows can become live.
+    await lockContinuationOrder(tx, threadId, turnId);
+    const abortMarker = await tx.execute({
+      sql: `SELECT id FROM agent_runs WHERE thread_id = ? AND turn_id = ? AND dispatch_mode = 'turn-abort' AND status = 'aborted' LIMIT 1`,
+      args: [threadId, turnId],
+    });
+    if (abortMarker.rows.length > 0) {
+      return { claimed: false, activeRunId: null, turnAborted: true };
+    }
     const explicitCutoff = typeof maxStaleMs === "number";
     const active = await tx.execute({
       sql: `SELECT id FROM agent_runs
@@ -1242,8 +1414,11 @@ export async function tryClaimRunSlot(
       }
     }
 
+    const continuationOrder =
+      normalizeContinuationOrder(options?.continuationOrder) ??
+      (await nextContinuationOrder(tx, threadId, turnId));
     const inserted = await tx.execute({
-      sql: `INSERT INTO agent_runs (id, thread_id, status, started_at, heartbeat_at, last_progress_at, turn_id, dispatch_mode, dispatch_payload) VALUES (?, ?, 'running', ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`,
+      sql: `INSERT INTO agent_runs (id, thread_id, status, started_at, heartbeat_at, last_progress_at, turn_id, dispatch_mode, dispatch_payload, continuation_order) VALUES (?, ?, 'running', ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`,
       args: [
         runId,
         threadId,
@@ -1253,6 +1428,7 @@ export async function tryClaimRunSlot(
         turnId,
         options?.dispatchMode ?? null,
         options?.dispatchPayload ?? null,
+        continuationOrder,
       ],
     });
     if ((inserted.rowsAffected ?? 0) !== 1) {
@@ -1871,22 +2047,15 @@ async function attemptStaleRunRecovery(
   const turnId = row.turn_id ?? runId;
   const startedAt = Number(row.started_at) || 0;
 
-  // Serialize every per-turn decision below — the newer-run race check, the
-  // ledger budget, the successor cap and the insert — behind one lock: two
-  // concurrent reapers for the same turn could otherwise both pass the
-  // newer-run check, then serialize here and both insert (the first successor
-  // is still `running`, so the stale-count cap would not see it). On the transactional path `db` is
-  // the caller's open `tx` (see `reapSingleStaleRun`), so this lock is held
-  // until that transaction commits and a second reaper's acquire blocks
-  // until the first reaper's COUNT+INSERT are already visible to it. On the
+  // Serialize every per-turn decision below - the newer-run race check, the
+  // ledger budget, the successor cap and the insert - behind the same lock
+  // used by every other continuation insertion path. On the transactional
+  // path `db` is the caller's open `tx` (see `reapSingleStaleRun`), so this
+  // lock is held until that transaction commits and a second reaper's acquire
+  // blocks until the first reaper's COUNT+INSERT are visible to it. On the
   // documented non-transactional fallback path `db` has no open transaction,
-  // so this statement autocommits and the lock releases immediately — that
-  // path's own accepted two-successor race (see its comment above) already
-  // covers this gap, so this is a no-op there rather than a fix.
-  await db.execute({
-    sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
-    args: [`agent-native:stale-recovery:${turnId}`],
-  });
+  // so this statement autocommits and the lock releases immediately.
+  await lockContinuationOrder(db, threadId, turnId);
 
   const { rows: newerRows } = await db.execute({
     sql: `SELECT id FROM agent_runs WHERE turn_id = ? AND id != ? AND started_at > ? LIMIT 1`,
@@ -1964,8 +2133,9 @@ async function attemptStaleRunRecovery(
 
   const successorRunId = generateRecoveryRunId();
   const now = Date.now();
+  const continuationOrder = await nextContinuationOrder(db, threadId, turnId);
   await db.execute({
-    sql: `INSERT INTO agent_runs (id, thread_id, status, started_at, heartbeat_at, last_progress_at, turn_id, dispatch_mode, dispatch_payload) VALUES (?, ?, 'running', ?, ?, ?, ?, 'background', ?) ON CONFLICT (id) DO NOTHING`,
+    sql: `INSERT INTO agent_runs (id, thread_id, status, started_at, heartbeat_at, last_progress_at, turn_id, dispatch_mode, dispatch_payload, continuation_order) VALUES (?, ?, 'running', ?, ?, ?, ?, 'background', ?, ?) ON CONFLICT (id) DO NOTHING`,
     args: [
       successorRunId,
       threadId,
@@ -1974,6 +2144,7 @@ async function attemptStaleRunRecovery(
       now,
       turnId,
       staleRecoveryDispatchPayload(payload),
+      continuationOrder,
     ],
   });
   return { outcome: "recovered", successorRunId, threadId, turnId };
@@ -2440,8 +2611,8 @@ export async function markRunAborted(
   }
 }
 
-function turnAbortMarkerRunId(turnId: string): string {
-  return `turn-abort-${turnId}`;
+function turnAbortMarkerRunId(threadId: string, turnId: string): string {
+  return `turn-abort:${encodeURIComponent(threadId)}:${encodeURIComponent(turnId)}`;
 }
 
 /** Records Stop before a foreground request has created its real run row. */
@@ -2449,36 +2620,92 @@ export async function markTurnAborted(
   threadId: string,
   turnId: string,
   reason: string = "user",
-): Promise<void> {
+): Promise<"aborted" | "already_terminal"> {
   await ensureRunTables();
   const now = Date.now();
   const client = getDbExec();
-  await client.execute({
-    sql: `INSERT INTO agent_runs (id, thread_id, status, abort_reason, started_at, completed_at, heartbeat_at, last_progress_at, turn_id, terminal_reason, dispatch_mode) VALUES (?, ?, 'aborted', ?, ?, ?, ?, ?, ?, ?, 'turn-abort') ON CONFLICT (id) DO NOTHING`,
-    args: [
-      turnAbortMarkerRunId(turnId),
-      threadId,
-      reason,
-      now,
-      now,
-      now,
-      now,
-      turnId,
-      `aborted:${reason}`,
-    ],
+  if (!client.transaction) {
+    throw new Error("Atomic turn cancellation requires transaction support");
+  }
+  const runIds: string[] = [];
+  const outcome = await client.transaction(async (tx) => {
+    await tx.execute({
+      sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
+      args: [`agent-native:run-slot:${threadId}`],
+    });
+    const running = await tx.execute({
+      sql: `SELECT id FROM agent_runs WHERE thread_id = ? AND turn_id = ? AND status = 'running' AND dispatch_mode IS DISTINCT FROM 'turn-abort' FOR UPDATE`,
+      args: [threadId, turnId],
+    });
+    runIds.push(
+      ...running.rows
+        .map((row) => String((row as { id?: unknown }).id ?? ""))
+        .filter(Boolean),
+    );
+    if (runIds.length === 0) {
+      const existing = await tx.execute({
+        sql: `SELECT id, terminal_reason,
+                     EXISTS (
+                       SELECT 1 FROM agent_run_events
+                       WHERE agent_run_events.run_id = agent_runs.id
+                         AND (
+                           event_data LIKE ?
+                           OR event_data LIKE ?
+                         )
+                     ) AS continuation_pending
+              FROM agent_runs
+              WHERE thread_id = ? AND turn_id = ?
+                AND dispatch_mode IS DISTINCT FROM 'turn-abort'
+              ORDER BY started_at DESC LIMIT 1 FOR UPDATE`,
+        args: [
+          '{"type":"loop_limit"%',
+          '{"type":"auto_continue"%',
+          threadId,
+          turnId,
+        ],
+      });
+      const latest = existing.rows[0] as
+        | { terminal_reason?: string | null; continuation_pending?: boolean }
+        | undefined;
+      if (
+        latest &&
+        latest.continuation_pending !== true &&
+        !isContinuationTerminalReason(latest.terminal_reason ?? "")
+      ) {
+        return "already_terminal" as const;
+      }
+    } else {
+      await tx.execute({
+        sql: `UPDATE agent_runs SET status = 'aborted', abort_reason = ?, completed_at = ?, terminal_reason = ? WHERE thread_id = ? AND turn_id = ? AND status = 'running'`,
+        args: [reason, now, `aborted:${reason}`, threadId, turnId],
+      });
+    }
+    await tx.execute({
+      sql: `INSERT INTO agent_runs (id, thread_id, status, abort_reason, started_at, completed_at, heartbeat_at, last_progress_at, turn_id, terminal_reason, dispatch_mode) VALUES (?, ?, 'aborted', ?, ?, ?, ?, ?, ?, ?, 'turn-abort'), (?, ?, 'aborted', ?, ?, ?, ?, ?, ?, ?, 'turn-abort') ON CONFLICT (id) DO NOTHING`,
+      args: [
+        turnAbortMarkerRunId(threadId, turnId),
+        threadId,
+        reason,
+        now,
+        now,
+        now,
+        now,
+        turnId,
+        `aborted:${reason}`,
+        `turn-abort-${turnId}`,
+        threadId,
+        reason,
+        now,
+        now,
+        now,
+        now,
+        turnId,
+        `aborted:${reason}`,
+      ],
+    });
+    return "aborted" as const;
   });
-  const { rows } = await client.execute({
-    sql: `SELECT id FROM agent_runs WHERE thread_id = ? AND turn_id = ? AND status = 'running'`,
-    args: [threadId, turnId],
-  });
-  const runIds = rows
-    .map((row) => String((row as { id?: unknown }).id ?? ""))
-    .filter(Boolean);
-  if (runIds.length === 0) return;
-  await client.execute({
-    sql: `UPDATE agent_runs SET status = 'aborted', abort_reason = ?, completed_at = ?, terminal_reason = ? WHERE thread_id = ? AND turn_id = ? AND status = 'running'`,
-    args: [reason, Date.now(), `aborted:${reason}`, threadId, turnId],
-  });
+  if (outcome === "already_terminal") return outcome;
   await Promise.all(
     runIds.map((runId) =>
       safeAppendTerminalRunEvent(
@@ -2491,6 +2718,7 @@ export async function markTurnAborted(
       ),
     ),
   );
+  return outcome;
 }
 
 /**
@@ -2517,8 +2745,12 @@ export async function isTurnAborted(
 ): Promise<boolean> {
   await ensureRunTables();
   const { rows } = await getDbExec().execute({
-    sql: `SELECT id FROM agent_runs WHERE id = ? AND thread_id = ? AND status = 'aborted' LIMIT 1`,
-    args: [turnAbortMarkerRunId(turnId), threadId],
+    sql: `SELECT id FROM agent_runs WHERE id IN (?, ?) AND thread_id = ? AND status = 'aborted' LIMIT 1`,
+    args: [
+      turnAbortMarkerRunId(threadId, turnId),
+      `turn-abort-${turnId}`,
+      threadId,
+    ],
   });
   return rows.length > 0;
 }
@@ -2732,7 +2964,7 @@ export function resolveErroredRunTerminalEvent(run: {
 
 export async function getRunByThread(
   threadId: string,
-  options?: { includeTerminal?: boolean },
+  options?: { includeTerminal?: boolean; turnId?: string },
 ): Promise<{
   id: string;
   threadId: string;
@@ -2759,10 +2991,16 @@ export async function getRunByThread(
 } | null> {
   await ensureRunTables();
   const client = getDbExec();
-  const sql = options?.includeTerminal
-    ? `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, dispatch_mode, terminal_reason, diag_stage, error_code, in_flight_since FROM agent_runs WHERE thread_id = ? ORDER BY started_at DESC LIMIT 1`
-    : `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, dispatch_mode, terminal_reason, diag_stage, error_code, in_flight_since FROM agent_runs WHERE thread_id = ? AND status = 'running' ORDER BY started_at DESC LIMIT 1`;
-  const { rows } = await client.execute({ sql, args: [threadId] });
+  const turnClause = options?.turnId ? ` AND COALESCE(turn_id, id) = ?` : "";
+  const statusClause = options?.includeTerminal
+    ? ""
+    : ` AND status = 'running'`;
+  const markerPriority = options?.turnId
+    ? `CASE WHEN dispatch_mode = 'turn-abort' THEN 0 ELSE 1 END`
+    : `CASE WHEN dispatch_mode = 'turn-abort' THEN 1 ELSE 0 END`;
+  const sql = `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, dispatch_mode, terminal_reason, diag_stage, error_code, in_flight_since FROM agent_runs WHERE thread_id = ?${turnClause}${statusClause} ORDER BY ${markerPriority}, started_at DESC LIMIT 1`;
+  const args = options?.turnId ? [threadId, options.turnId] : [threadId];
+  const { rows } = await client.execute({ sql, args });
   if (rows.length === 0) return null;
   const r = rows[0] as {
     id: string;
@@ -2910,23 +3148,31 @@ export async function listRunsForThread(
 
 /**
  * Read the current logical turn's recorded events for a thread, parsed into
- * `AgentChatEvent`s in seq order, for per-turn tool-call journal classification
+ * `AgentChatEvent`s in continuation order, for per-turn tool-call journal classification
  * (see `tool-call-journal.ts`). Read-only and additive — reuses the existing
- * `agent_runs` / `agent_run_events` ledger with no schema change.
+ * `agent_runs` / `agent_run_events` ledger with an additive run-order column.
  *
  * A logical turn may span several continuation runs (each chunk is its own run
  * sharing one `turn_id`), so we union the events of every run that belongs to
- * the latest turn for this thread. Events are ordered by (started_at, seq) so
- * earlier chunks come before later ones and the positional `tool_start` →
- * `tool_done` matching in the classifier stays correct across chunk boundaries.
+ * the latest turn for this thread. Events are ordered by the durable per-turn
+ * position first, then timestamps and seq as compatibility fallbacks for rows
+ * written before that position existed. Earlier chunks must come before later
+ * ones so the positional `tool_start` → `tool_done` matching in the classifier
+ * stays correct across chunk boundaries.
  *
  * Returns an empty array when the thread has no run yet or no parseable events.
  * Best-effort on parse: malformed ledger rows are skipped rather than thrown.
  */
-export async function getCurrentTurnEventsForThread(
+export interface CurrentTurnRunEvent {
+  runId: string;
+  seq: number;
+  event: AgentChatEvent;
+}
+
+async function getCurrentTurnRunEvents(
   threadId: string,
   knownTurnId?: string,
-): Promise<AgentChatEvent[]> {
+): Promise<CurrentTurnRunEvent[]> {
   await ensureRunTables();
   const client = getDbExec();
   // Callers that already know their turn MUST pass it: `startRun` persists the
@@ -2948,25 +3194,56 @@ export async function getCurrentTurnEventsForThread(
   // read their events in seq order. COALESCE(turn_id, id) folds older rows that
   // predate the turn_id backfill into a turn keyed by their own run id.
   const { rows } = await client.execute({
-    sql: `SELECT e.event_data AS event_data
+    sql: `SELECT e.run_id AS run_id, e.seq AS seq, e.event_data AS event_data
           FROM agent_run_events e
           JOIN agent_runs r ON r.id = e.run_id
           WHERE r.thread_id = ?
             AND COALESCE(r.turn_id, r.id) = ?
-          ORDER BY r.started_at ASC, e.seq ASC`,
+          ORDER BY COALESCE(r.continuation_order, 0) ASC,
+                   r.started_at ASC,
+                   e.event_at ASC NULLS LAST,
+                   e.seq ASC,
+                   r.id ASC`,
     args: [threadId, turnId],
   });
-  const events: AgentChatEvent[] = [];
+  const events: CurrentTurnRunEvent[] = [];
   for (const r of rows) {
-    const raw = (r as { event_data?: string }).event_data;
-    if (!raw) continue;
+    const row = r as {
+      run_id?: string;
+      seq?: number | string;
+      event_data?: string;
+    };
+    const raw = row.event_data;
+    const seq = Number(row.seq);
+    if (!row.run_id || !Number.isFinite(seq) || !raw) continue;
     try {
-      events.push(JSON.parse(raw) as AgentChatEvent);
+      events.push({
+        runId: row.run_id,
+        seq,
+        event: JSON.parse(raw) as AgentChatEvent,
+      });
     } catch {
       // Skip malformed ledger rows — the journal is best-effort.
     }
   }
   return events;
+}
+
+/** Read a logical turn with source identity preserved for replay streams. */
+export async function getCurrentTurnRunEventsForThread(
+  threadId: string,
+  knownTurnId?: string,
+): Promise<CurrentTurnRunEvent[]> {
+  return getCurrentTurnRunEvents(threadId, knownTurnId);
+}
+
+/** Read the current logical turn's events for journal and prompt recovery. */
+export async function getCurrentTurnEventsForThread(
+  threadId: string,
+  knownTurnId?: string,
+): Promise<AgentChatEvent[]> {
+  const persisted = await getCurrentTurnRunEvents(threadId, knownTurnId);
+  return persisted.map(({ event }) => event);
 }
 
 /**

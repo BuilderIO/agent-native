@@ -1,0 +1,18 @@
+---
+title: Organisationen, Teams und Berechtigungen
+description: Organisationskontext, Team- und App-Rollen sowie Ressourcenfreigabe verwalten.
+---
+
+# Organisationen, Teams und Berechtigungen
+
+Eine Organisation definiert Teammitgliedschaft und Mandantengrenze. Ein Workspace bündelt Apps und Bereitstellungskonfiguration, ersetzt aber keine Organisation. Der Server muss Berechtigungen prüfen. Das Ausblenden einer Schaltfläche ist keine Zugriffskontrolle.
+
+## Drei Rollenumfänge
+
+- Organisationsrollen `owner`, `admin` und `member` steuern die Teamverwaltung.
+- App-Rollen steuern Funktionen innerhalb einer einzelnen App. Ein Mitglied kann mehrere App-Rollen haben.
+- Ressourcenrollen `viewer`, `editor` und `admin` steuern Zugriff auf einen Datensatz.
+
+Die App deklariert Rollen und Berechtigungsschlüssel im Code. Admins können Mitgliederrollen ersetzen und Code-Berechtigungen im Team-Bereich Rollen zuordnen. Ohne Überschreibung gelten die Standardwerte der App. Einladungen können App-Rollen vorab enthalten. App-Admins werden dadurch nicht zu Organisations-Admins.
+
+Für verwaltete Einladungen und die Konfiguration siehe [Verwaltete Bereitstellungen](/docs/administered-deployments). Für Datenzugriff siehe [Security → Data Scoping](/docs/security#data-scoping).

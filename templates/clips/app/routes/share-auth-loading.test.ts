@@ -49,6 +49,13 @@ describe("authenticated recording route loading", () => {
     expect(route).toContain("apiAccessDeniedStatus");
     expect(route).toContain("accessDeniedStatus");
     expect(route).toContain('const startAt = searchParams.get("at")');
+    expect(route).toContain("readShareAttribution(search)");
+    expect(route).not.toContain(
+      'typeof window === "undefined" ? "" : window.location.search',
+    );
+    expect(route).not.toContain(
+      'if (typeof window === "undefined") return path;',
+    );
     expect(route).toContain(
       "buildShareContinuationQuery(attribution, startAt, panelParam)",
     );
@@ -198,9 +205,9 @@ describe("authenticated recording route loading", () => {
     expect(shareRoute).toContain('useState<SharePanel>("comments")');
     expect(shareRoute).toContain('presentation="inline"');
     expect(shareRoute).toContain(
-      'className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 pb-3 pt-3"',
+      'className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 pb-3 pt-2"',
     );
-    expect(shareRoute).toContain('t("sharePage.comments")');
+    expect(shareRoute.match(/t\("sharePage\.comments"\)/g)).toHaveLength(1);
     expect(shareRoute).toContain("const [descriptionExpanded");
     expect(shareRoute).toContain('!descriptionExpanded && "line-clamp-2"');
     expect(shareRoute).not.toContain('panel === "insights"');

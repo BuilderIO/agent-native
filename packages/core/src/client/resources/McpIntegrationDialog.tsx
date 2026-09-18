@@ -65,6 +65,8 @@ export interface McpIntegrationDialogProps {
   onOAuthStart?: (url: string) => void | Promise<void>;
   oauthReady?: boolean;
   oauthReturnPath?: string;
+  trackingFlow?: "first_run";
+  trackingIntegrationId?: string | null;
   onCreated?: () => void;
   integrations?: DefaultMcpIntegration[];
 }
@@ -132,6 +134,8 @@ export function McpIntegrationDialog({
   onOAuthStart,
   oauthReady = true,
   oauthReturnPath,
+  trackingFlow,
+  trackingIntegrationId = null,
   onCreated,
   integrations,
 }: McpIntegrationDialogProps) {
@@ -161,7 +165,10 @@ export function McpIntegrationDialog({
     ((integration: DefaultMcpIntegration) => void) | null
   >(null);
   const mcpApi = useMcpServersApi();
-  const mcpServersQuery = useMcpServers();
+  // Rendered (closed) inside rail and settings surfaces that mount during
+  // startup, so it waits out the paint window like its parents; the open
+  // state already holds actions until the read succeeds.
+  const mcpServersQuery = useMcpServers({ defer: true });
   const defaultIntegrations = useMemo(
     () => integrations ?? getDefaultMcpIntegrations(),
     [integrations],
@@ -293,7 +300,11 @@ export function McpIntegrationDialog({
       url: string;
       description: string;
     },
-    options?: { scope?: McpServerScope },
+    options?: {
+      scope?: McpServerScope;
+      trackingFlow?: "first_run";
+      trackingIntegrationId?: string;
+    },
   ) => {
     if (!oauthReady) return;
     const validationError = getMcpUrlValidationError(args.url);
@@ -328,6 +339,8 @@ export function McpIntegrationDialog({
         description: args.description,
         scope: options?.scope ?? scope,
         returnUrl,
+        trackingFlow: options?.trackingFlow,
+        trackingIntegrationId: options?.trackingIntegrationId,
       }),
     );
     if (!onOAuthStart) {
@@ -367,6 +380,8 @@ export function McpIntegrationDialog({
           integration.managedOAuth !== true
             ? scope
             : "user"),
+        trackingFlow,
+        trackingIntegrationId: trackingIntegrationId ?? undefined,
       },
     );
 

@@ -70,17 +70,28 @@ test.describe.serial("rare-but-real unique paths", () => {
   test("Alt-drag inside the Layers panel duplicates a layer without touching the canvas", async ({
     page,
   }) => {
-    await selectByText(page, "Alpha Button");
     await openLayerSearch(page, "Button");
+    const target = layerRowButton(page, "Beta Button").first();
+    const sourceRow = layerRowButton(page, "Alpha Button");
+    await expect(sourceRow).toBeVisible();
+    await expect(target).toBeVisible();
+    await sourceRow.click();
+    await expect(layerRow(page, "Alpha Button")).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
     const before = await topLevelLayerNodeIds(page);
     const beforeCount = before.length;
 
-    const target = layerRowButton(page, "Beta Button").first();
-    const sourceRow = layerRowButton(page, "Alpha Button");
     const sourceLayerNodeId =
       await sourceRow.getAttribute("data-layer-node-id");
+    expect(sourceLayerNodeId).toBeTruthy();
     const sourceBox = (await sourceRow.boundingBox())!;
     const targetBox = (await target.boundingBox())!;
+    const beforeHtml = await getFileHtml(page);
+    const persistedNodeCount = (html: string) =>
+      [...html.matchAll(/data-agent-native-node-id=/g)].length;
+    const beforePersistedNodeCount = persistedNodeCount(beforeHtml);
 
     await page.mouse.move(
       sourceBox.x + sourceBox.width / 2,
@@ -95,7 +106,15 @@ test.describe.serial("rare-but-real unique paths", () => {
     );
     await page.mouse.up();
     await page.keyboard.up("Alt");
-    await page.waitForTimeout(300);
+    await expect
+      .poll(async () => persistedNodeCount(await getFileHtml(page)), {
+        timeout: 15_000,
+        message: "the Alt-drag duplicate must persist before undo",
+      })
+      .toBeGreaterThan(beforePersistedNodeCount);
+    await expect
+      .poll(async () => (await topLevelLayerNodeIds(page)).length)
+      .toBeGreaterThan(beforeCount);
 
     const after = await topLevelLayerNodeIds(page);
     // A button-shaped leaf's visible text is a real wrapped <span> child
@@ -116,7 +135,15 @@ test.describe.serial("rare-but-real unique paths", () => {
     ).toContain(sourceLayerNodeId);
 
     await page.keyboard.press(`${MOD}+z`);
-    await page.waitForTimeout(200);
+    await expect
+      .poll(async () => persistedNodeCount(await getFileHtml(page)), {
+        timeout: 15_000,
+        message: "undo must remove the persisted Alt-drag duplicate",
+      })
+      .toBe(beforePersistedNodeCount);
+    await expect
+      .poll(() => topLevelLayerNodeIds(page))
+      .toHaveLength(beforeCount);
     const undone = await topLevelLayerNodeIds(page);
     expect(undone.length).toBe(beforeCount);
   });
@@ -176,12 +203,17 @@ test.describe.serial("rare-but-real unique paths", () => {
   test("Cmd+A is scope-sensitive: inside a container it selects siblings, otherwise it selects screens", async ({
     page,
   }) => {
-    await selectByText(page, "Alpha Button");
+    // Alpha Button sits two frames deep (main > flex row > button); a plain
+    // single click (selectByText) selects the outer content frame under the
+    // pointer by design (see selectByTextDeep's doc comment) — only a real
+    // double-click descends straight to the specific leaf, which is what
+    // "a child selected" needs here.
+    await selectByTextDeep(page, "Alpha Button");
     await expandAllLayersLocal(page);
     await expect
       .poll(() => countSelectedLayerRows(page), {
         message:
-          "precondition: the paragraph click must select exactly one layer row",
+          "precondition: the button click must select exactly one layer row",
       })
       .toBe(1);
     await page.keyboard.press("ControlOrMeta+a");
@@ -256,12 +288,19 @@ test.describe.serial("rare-but-real unique paths", () => {
   test("holding Space mid-drag keeps an element a sibling instead of reparenting it into the frame it passes over", async ({
     page,
   }) => {
-    await selectByText(page, "Alpha Button");
+    // Alpha Button sits two levels deep (main > flex row > button) — a
+    // plain single click (selectByText) only ever selects the outer <main>
+    // (see selectByTextDeep's doc comment), so this drag needs the real
+    // leaf selected first via selectByTextDeep, not selectByText.
+    await selectByTextDeep(page, "Alpha Button");
     const target = await frameNode(page, "Alpha Button");
     const box = (await target.boundingBox())!;
     const sectionBox = (await (
       await frameNode(page, "Fixture Card Title")
     ).boundingBox())!;
+    const beforeHtml = await getFileHtml(page);
+    const beforeParentTag = parentTagNameOf(beforeHtml, "e2e-alpha-button");
+    const beforeLiveParent = await liveParentSignature(page, "Alpha Button");
 
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.down();
@@ -282,23 +321,144 @@ test.describe.serial("rare-but-real unique paths", () => {
     );
     await page.keyboard.up("Space");
     await page.mouse.up();
-    await page.waitForTimeout(200);
+
+    await expect.poll(() => getFileHtml(page)).not.toBe(beforeHtml);
 
     const html = await getFileHtml(page);
-    const sectionOpen = html.indexOf(
-      'data-agent-native-layer-name="Fixture Card Title"',
-    );
+    // The fixture's "Fixture Card Title" h2 carries no explicit
+    // data-agent-native-layer-name attribute (only its own text content) —
+    // search for that rendered text directly, not a layer-name attribute
+    // that is never persisted for this unnamed leaf.
+    const sectionOpen = html.indexOf(">Fixture Card Title<");
     const alphaIdx = html.indexOf(
       'data-agent-native-node-id="e2e-alpha-button"',
     );
     const sectionCloseIdx = html.indexOf("</section>", sectionOpen);
     expect(
-      alphaIdx > 0 &&
-        sectionOpen > 0 &&
-        sectionCloseIdx > 0 &&
+      sectionOpen,
+      "Fixture Card Title section sentinel must exist",
+    ).toBeGreaterThanOrEqual(0);
+    expect(alphaIdx, "Alpha Button sentinel must exist").toBeGreaterThanOrEqual(
+      0,
+    );
+    expect(
+      sectionCloseIdx,
+      "section close sentinel must exist",
+    ).toBeGreaterThanOrEqual(0);
+    expect(
+      alphaIdx > sectionOpen &&
+        sectionCloseIdx > sectionOpen &&
         alphaIdx > sectionCloseIdx,
       "Alpha Button must not land inside the section while Space is held during the drag",
     ).toBe(true);
+    // "Positioned after the section's close tag" alone doesn't prove Alpha
+    // became a real sibling of the section at the screen root — it would
+    // equally be satisfied by an accidental wrap in some OTHER new container
+    // placed after the section. Pin down the actual parent, both in the
+    // persisted document and in the live iframe: the screen root here is
+    // <body> (isScreenRootElementInfo's boundary), not the <main> content
+    // wrapper — Space's "keep the current parent" reparents up to the root
+    // when the element is dragged out from under everything, same as
+    // dragging it out of the flex-row would.
+    const afterParentTag = parentTagNameOf(html, "e2e-alpha-button");
+    expect(
+      afterParentTag,
+      `Alpha Button must become a direct child of the screen root <body> (a real sibling of <main>/the section), not merely "somewhere after" the section. before-parent=${beforeParentTag} after-parent=${afterParentTag}`,
+    ).toBe("body");
+    const afterLiveParent = await liveParentSignature(page, "Alpha Button");
+    expect(
+      afterLiveParent.startsWith("BODY|"),
+      `Alpha Button's live DOM parent must be <body> (the screen root) after the Space-held drop; before=${beforeLiveParent} after=${afterLiveParent}`,
+    ).toBe(true);
+
+    await page.keyboard.press(`${MOD}+z`);
+    await expect
+      .poll(() => getFileHtml(page), {
+        message:
+          "one undo after a Space-held drag must restore the original document (parent and position), not just deselect",
+      })
+      .toBe(beforeHtml);
+    const restoredBox = (await (
+      await frameNode(page, "Alpha Button")
+    ).boundingBox())!;
+    expect(
+      Math.abs(restoredBox.x - box.x) < 1 &&
+        Math.abs(restoredBox.y - box.y) < 1,
+      `one undo must restore Alpha Button's live position; before=(${box.x},${box.y}) after-undo=(${restoredBox.x},${restoredBox.y})`,
+    ).toBe(true);
+
+    // Reselect Alpha explicitly via the Layers panel — frameNode only reads
+    // a box, it never clicks anything, and a raw drag off whatever undo left
+    // selected could grab an ancestor instead of Alpha itself (it sits two
+    // levels deep: main > flex row > button). The Layers panel picks the
+    // exact layer directly, unlike a canvas double-click drill-in, which is
+    // timing-sensitive right after undo's own re-render.
+    await layerRowButton(page, "Alpha Button").click();
+    await page.waitForTimeout(100);
+    const restoredTargetBox = (await (
+      await frameNode(page, "Alpha Button")
+    ).boundingBox())!;
+    // frameNode's smallest-bounding-box tie-break resolves "Fixture Card
+    // Title" to the <h2> itself, not the <section> around it — go straight
+    // to the section element so the drop point below is computed against
+    // its real box, not the heading's.
+    await enterDirectMode(page);
+    const currentSectionBox = (await designFrame(page)
+      .locator("section")
+      .first()
+      .boundingBox())!;
+    await page.mouse.move(
+      restoredTargetBox.x + restoredTargetBox.width / 2,
+      restoredTargetBox.y + restoredTargetBox.height / 2,
+    );
+    await page.mouse.down();
+    // A small initial move registers drag-start (vs. a plain click) before
+    // jumping to the target — matches the footer-nesting drag in
+    // parity-drag-reparent.spec.ts.
+    await page.mouse.move(
+      restoredTargetBox.x + restoredTargetBox.width / 2 + 10,
+      restoredTargetBox.y + restoredTargetBox.height / 2,
+      { steps: 5 },
+    );
+    await page.mouse.move(
+      currentSectionBox.x + currentSectionBox.width / 2,
+      currentSectionBox.y + currentSectionBox.height / 2,
+      { steps: 20 },
+    );
+    // Let the hover/insertion-guide detection settle before releasing —
+    // it is debounced, same as the footer-nesting drag above.
+    await page.waitForTimeout(400);
+    await page.mouse.up();
+
+    await expect
+      .poll(
+        async () => {
+          const movedHtml = await getFileHtml(page);
+          const movedAlphaIdx = movedHtml.indexOf(
+            'data-agent-native-node-id="e2e-alpha-button"',
+          );
+          // DOM containment via the persisted `<section` open tag itself,
+          // not the heading's text position — Alpha landing BEFORE the
+          // heading (still between `<section>` and `</section>`) is a
+          // valid order and must not fail this check.
+          const movedSectionOpen = movedHtml.indexOf("<section");
+          const movedSectionClose = movedHtml.indexOf(
+            "</section>",
+            movedSectionOpen,
+          );
+          return (
+            movedSectionOpen > 0 &&
+            movedSectionClose > 0 &&
+            movedAlphaIdx > movedSectionOpen &&
+            movedAlphaIdx < movedSectionClose
+          );
+        },
+        {
+          message:
+            "a subsequent ordinary drag must reparent Alpha Button into the section",
+        },
+      )
+      .toBe(true);
   });
 
   test("click-dragging across multiple eye icons in the Layers panel toggles visibility for the whole run", async ({
@@ -398,26 +558,38 @@ test.describe.serial("rare-but-real unique paths", () => {
     // plain drag has there.
     await selectByTextDeep(page, "Alpha Button");
     const box = (await (await frameNode(page, "Alpha Button")).boundingBox())!;
+    const dropTarget = (await (
+      await frameNode(page, "Variant CTA")
+    ).boundingBox())!;
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.keyboard.down("Control");
     await page.mouse.down();
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 + 200, {
-      steps: 10,
-    });
+    await page.mouse.move(
+      dropTarget.x + dropTarget.width / 2,
+      dropTarget.y + dropTarget.height / 2,
+      { steps: 10 },
+    );
     await page.mouse.up();
     await page.keyboard.up("Control");
-    await page.waitForTimeout(200);
-
-    const html = await getFileHtml(page);
-    const rowOpen = html.indexOf('style="display:flex;flex-direction:row');
-    const rowClose = html.indexOf("</div>", rowOpen);
-    const alphaIdx = html.indexOf(
-      'data-agent-native-node-id="e2e-alpha-button"',
-    );
-    expect(
-      alphaIdx > 0 && (alphaIdx < rowOpen || alphaIdx > rowClose),
-      "Ctrl-drag should be able to pull the child out of the flex row against normal auto-layout drag resistance",
-    ).toBe(true);
+    const alphaOutsideRow = async () => {
+      const html = await getFileHtml(page);
+      const rowOpen = html.indexOf('style="display:flex;flex-direction:row');
+      const rowClose = html.indexOf("</div>", rowOpen);
+      const alphaIdx = html.indexOf(
+        'data-agent-native-node-id="e2e-alpha-button"',
+      );
+      return {
+        valid: rowOpen >= 0 && rowClose >= 0 && alphaIdx >= 0,
+        outside: alphaIdx < rowOpen || alphaIdx > rowClose,
+      };
+    };
+    await expect
+      .poll(alphaOutsideRow, {
+        timeout: 10_000,
+        message:
+          "Ctrl-drag should persist the child outside the flex row against normal auto-layout drag resistance",
+      })
+      .toMatchObject({ valid: true, outside: true });
   });
 
   test("paste-properties (Cmd+Opt+C / Cmd+Opt+V) copies style only, leaving position and size alone", async ({
@@ -481,10 +653,12 @@ test.describe.serial("rare-but-real unique paths", () => {
     });
     await page.locator("[data-frame-label]").first().click();
     const handle = page.locator("[data-rotate-handle]").first();
-    if ((await handle.count()) === 0) {
-      test.skip(true, "no rotate handle rendered for a top-level screen frame");
-    }
-    const box = (await handle.boundingBox())!;
+    await expect(
+      handle,
+      "required rotate handle must render for a top-level screen frame",
+    ).toHaveCount(1);
+    const box = await handle.boundingBox();
+    if (!box) throw new Error("rotate handle has no bounding box");
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.keyboard.down("Shift");
     await page.mouse.down();
@@ -497,21 +671,27 @@ test.describe.serial("rare-but-real unique paths", () => {
     );
     await page.mouse.up();
     await page.keyboard.up("Shift");
-    await page.waitForTimeout(150);
 
-    const rotation = await page
-      .locator("[data-frame-shell]")
-      .first()
-      .evaluate((el) => {
+    const frameShell = page.locator("[data-frame-shell]").first();
+    const readRotation = () =>
+      frameShell.evaluate((el) => {
         const t = getComputedStyle(el).transform;
         if (!t || t === "none") return 0;
         const m = new DOMMatrix(t);
         return Math.round((Math.atan2(m.b, m.a) * 180) / Math.PI);
       });
+    const rotation = await readRotation();
     expect(
       Math.abs(rotation % 15) < 1 || Math.abs((rotation % 15) - 15) < 1,
       `Shift-constrained rotation should land on a 15-degree increment, got ${rotation} deg`,
     ).toBe(true);
+
+    await page.keyboard.press(`${MOD}+z`);
+    await expect.poll(readRotation, { timeout: 15_000 }).toBe(0);
+    await expect(page.getByText(/Skipped an undo/)).toHaveCount(0);
+
+    await page.keyboard.press(`${MOD}+Shift+z`);
+    await expect.poll(readRotation, { timeout: 15_000 }).toBe(rotation);
   });
 
   test("arrow keys reorder a flex-row child instead of nudging its x/y position", async ({
@@ -525,10 +705,35 @@ test.describe.serial("rare-but-real unique paths", () => {
     const beforeBeta = before.indexOf(
       'data-agent-native-node-id="e2e-beta-button"',
     );
+    expect(
+      beforeAlpha,
+      "Alpha Button sentinel must exist before reorder",
+    ).toBeGreaterThanOrEqual(0);
+    expect(
+      beforeBeta,
+      "Beta Button sentinel must exist before reorder",
+    ).toBeGreaterThanOrEqual(0);
     expect(beforeAlpha).toBeLessThan(beforeBeta);
 
     await page.keyboard.press("ArrowRight");
-    await page.waitForTimeout(150);
+    await expect
+      .poll(
+        async () => {
+          const html = await getFileHtml(page);
+          const alpha = html.indexOf(
+            'data-agent-native-node-id="e2e-alpha-button"',
+          );
+          const beta = html.indexOf(
+            'data-agent-native-node-id="e2e-beta-button"',
+          );
+          return alpha >= 0 && beta >= 0 && alpha > beta;
+        },
+        {
+          timeout: 15_000,
+          message: "ArrowRight reorder must persist before the assertion",
+        },
+      )
+      .toBe(true);
 
     const after = await getFileHtml(page);
     const afterAlpha = after.indexOf(
@@ -537,6 +742,14 @@ test.describe.serial("rare-but-real unique paths", () => {
     const afterBeta = after.indexOf(
       'data-agent-native-node-id="e2e-beta-button"',
     );
+    expect(
+      afterAlpha,
+      "Alpha Button sentinel must exist after reorder",
+    ).toBeGreaterThanOrEqual(0);
+    expect(
+      afterBeta,
+      "Beta Button sentinel must exist after reorder",
+    ).toBeGreaterThanOrEqual(0);
     expect(
       afterAlpha > afterBeta,
       "ArrowRight on a flex-row child must reorder it past its sibling in DOM order, not translate it via left/top",
@@ -765,6 +978,59 @@ async function getFileHtml(page: Page): Promise<string> {
   if (!res.ok()) throw new Error(`get-design failed: ${res.status()}`);
   const body = await res.json();
   const files: any[] = body?.files ?? body?.data?.files ?? [];
-  const file = files.find((f) => f.filename === "index.html") ?? files[0];
-  return String(file?.content ?? "");
+  const file = files.find((f) => f.filename === "index.html");
+  if (typeof file?.content !== "string") {
+    throw new Error("index.html has no content");
+  }
+  return file.content;
+}
+
+/**
+ * The tag name of `nodeIdAttr`'s immediate enclosing element in `html`, via a
+ * real tag-depth stack walk (not a nearest-preceding-`<` scan, which only
+ * works when the node happens to be its parent's first child — Alpha Button
+ * is NOT always that, e.g. once reparented to the end of `<main>`). Used as a
+ * same-parent identity check that does not depend on the parent having a
+ * persisted data-agent-native-node-id (the flex-row wrapper here has none):
+ * "positioned after the section's close tag" alone doesn't prove the node
+ * became a real sibling of the section (a direct `<main>` child) rather than
+ * landing inside some other new wrapper placed after it.
+ */
+function parentTagNameOf(html: string, nodeIdAttr: string): string | null {
+  const tagRe = /<([a-zA-Z][a-zA-Z0-9]*)\b([^>]*)>|<\/([a-zA-Z][a-zA-Z0-9]*)>/g;
+  const stack: string[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = tagRe.exec(html))) {
+    if (match[1]) {
+      const tag = match[1].toLowerCase();
+      const attrs = match[2] ?? "";
+      if (attrs.includes(`data-agent-native-node-id="${nodeIdAttr}"`)) {
+        return stack.length > 0 ? stack[stack.length - 1]! : null;
+      }
+      const selfClosing = /\/\s*$/.test(attrs) || /\/>$/.test(match[0]);
+      if (!selfClosing) stack.push(tag);
+    } else if (match[3]) {
+      const tag = match[3].toLowerCase();
+      for (let index = stack.length - 1; index >= 0; index -= 1) {
+        if (stack[index] === tag) {
+          stack.length = index;
+          break;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/** Live-iframe counterpart of parentTagNameOf: tag name + inline
+ * style of the CURRENT DOM parent of the node matched by `text`, read fresh
+ * (not id-based — the flex-row wrapper has no persisted id either). */
+async function liveParentSignature(page: Page, text: string): Promise<string> {
+  const node = await frameNode(page, text);
+  return node.evaluate((el) => {
+    const parent = el.parentElement;
+    return parent
+      ? `${parent.tagName}|${parent.getAttribute("style") ?? ""}`
+      : "(no parent)";
+  });
 }

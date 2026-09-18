@@ -1,6 +1,6 @@
 import type { CanvasFrameGeometryById } from "@shared/canvas-frames";
 import { getFrameGroupBounds } from "@shared/canvas-math";
-import type { CodeLayerNode } from "@shared/code-layer";
+import type { CodeLayerNode, CodeLayerSource } from "@shared/code-layer";
 import { buildCodeLayerProjection } from "@shared/code-layer";
 import type { RefObject } from "react";
 
@@ -112,6 +112,7 @@ export interface AlignSelectionArgs {
   commitNodePositions: (
     baseContent: string,
     positions: ReadonlyMap<string, { x: number; y: number }>,
+    source?: CodeLayerSource,
   ) => boolean;
   designDataJsonRef: RefObject<Record<string, unknown>>;
   files: DesignFile[];
@@ -161,14 +162,16 @@ export function runAlignSelection(
   // One projection for both the verdict below and the layer paths further
   // down, built on demand so aligning overview screens never pays for it.
   const baseContent = activeFile ? getFreshActiveContent() : "";
+  const activeSource = activeFile
+    ? { kind: "design-file" as const, fileId: activeFile.id }
+    : undefined;
   let projectionNodesById: ReadonlyMap<string, CodeLayerNode> | null = null;
   const resolveNodesById = () => {
     if (!projectionNodesById) {
       projectionNodesById = new Map(
-        buildCodeLayerProjection(baseContent).nodes.map((node) => [
-          node.id,
-          node,
-        ]),
+        buildCodeLayerProjection(baseContent, {
+          ...(activeSource ? { source: activeSource } : {}),
+        }).nodes.map((node) => [node.id, node]),
       );
     }
     return projectionNodesById;
@@ -284,7 +287,7 @@ export function runAlignSelection(
     if (positions.size === 0) {
       return abandon("already aligned; nothing to move", { edge });
     }
-    commitNodePositions(baseContent, positions);
+    commitNodePositions(baseContent, positions, activeSource);
     return;
   }
 
@@ -305,5 +308,5 @@ export function runAlignSelection(
   if (positions.size === 0) {
     return abandon("already aligned; nothing to move", { edge });
   }
-  commitNodePositions(baseContent, positions);
+  commitNodePositions(baseContent, positions, activeSource);
 }

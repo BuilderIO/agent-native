@@ -4,11 +4,15 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { Editor } from "@tiptap/core";
+import StarterKit from "@tiptap/starter-kit";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
+  SlideBold,
   contentForSlideTextContainer,
   normalizeSlideEditorContent,
+  normalizeSlideClipboardHtml,
   restoreSlideTextContainerContent,
   selectionOffsetsWithin,
 } from "./SlideRichTextEditor";
@@ -28,6 +32,44 @@ afterAll(() => {
 });
 
 describe("slide rich text normalization", () => {
+  it("does not infer bold from numeric font weights", () => {
+    const editor = new Editor({
+      extensions: [StarterKit.configure({ bold: false }), SlideBold],
+      content:
+        '<p style="font-weight:500">Regular weight</p><p><strong>Intentional</strong></p>',
+    });
+
+    try {
+      const [regular, explicitBold] = editor.getJSON().content ?? [];
+      expect(regular?.content?.[0]?.marks).toBeUndefined();
+      expect(explicitBold?.content?.[0]?.marks).toEqual([{ type: "bold" }]);
+
+      editor.commands.setTextSelection({ from: 1, to: 15 });
+      expect(editor.commands.toggleBold()).toBe(true);
+      expect(editor.getJSON().content?.[0]?.content?.[0]?.marks).toEqual([
+        { type: "bold" },
+      ]);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("clears an existing bold mark for an explicit normal weight", () => {
+    const editor = new Editor({
+      extensions: [StarterKit.configure({ bold: false }), SlideBold],
+      content:
+        '<p><strong><span style="font-weight:400">Normal</span></strong></p>',
+    });
+
+    try {
+      expect(
+        editor.getJSON().content?.[0]?.content?.[0]?.marks,
+      ).toBeUndefined();
+    } finally {
+      editor.destroy();
+    }
+  });
+
   it("converts legacy bullet rows without losing row styling", () => {
     const html = normalizeSlideEditorContent(
       '<div><div style="font-size: 24px; color: red"><span>●</span><span>First</span></div><div><span>●</span><span>Second</span></div></div><p></p>',
@@ -44,7 +86,40 @@ describe("slide rich text normalization", () => {
     expect(items[0]?.style.fontSize).toBe("24px");
     expect(items[0]?.style.color).toBe("red");
     expect(list.style.getPropertyValue("--slide-legacy-list")).toBe("1");
-    expect(html).not.toContain("<p></p>");
+    expect(html).toContain("<p></p>");
+  });
+
+  it("preserves explicit blank paragraphs as line breaks", () => {
+    expect(
+      normalizeSlideEditorContent("<p>First</p><p></p><p>Second</p>"),
+    ).toBe("<p>First</p><p></p><p>Second</p>");
+  });
+
+  it("keeps rich clipboard styling without source layout or editor context", () => {
+    const html = normalizeSlideClipboardHtml(
+      '<p data-pm-slice="1 1 []" style="position:absolute;left:80px;font-size:34px;font-weight:500">First</p><p style="font-size:34px"><strong><br></strong></p><p style="visibility:hidden;pointer-events:none;height:76px">Spacer</p><p style="position:absolute;top:185px;width:800px;font-size:34px;font-weight:500"><span style="color:rgb(34,211,238)"><strong>Blue text</strong></span></p>',
+    );
+
+    expect(html).toContain("First");
+    expect(html).toContain("Blue text");
+    expect(html).toContain("font-size: 34px");
+    expect(html).toContain("font-weight: 500");
+    expect(html).toContain("color: rgb(34, 211, 238)");
+    expect(html).toContain("<br>");
+    expect(html).not.toContain("data-pm-slice");
+    expect(html).not.toContain("position:");
+    expect(html).not.toContain("visibility:");
+    expect(html).not.toContain("Spacer");
+  });
+
+  it("does not persist embedded clipboard image payloads", () => {
+    const html = normalizeSlideClipboardHtml(
+      '<p>Copied text<img src="data:image/png;base64,AAAA" alt="image label"></p><p><img src="data:image/png;base64,BBBB"></p>',
+    );
+
+    expect(html).toContain("Copied text");
+    expect(html).toContain("image label");
+    expect(html).not.toContain("data:image");
   });
 
   it("restores styled bullet rows after editing their semantic list", () => {
@@ -133,6 +208,18 @@ describe("slide rich text normalization", () => {
     // margin is asserted below because the matching rule sets it to a literal
     // "0" rather than "inherit".
     expect(getComputedStyle(inner).margin).toBe("0px");
+  });
+
+  it("renders an empty slide paragraph as a visible line break", () => {
+    document.body.innerHTML = `
+      <div class="slide-content">
+        <div class="fmd-slide"><p></p></div>
+      </div>
+    `;
+
+    expect(getComputedStyle(document.querySelector("p")!).minHeight).toBe(
+      "16px",
+    );
   });
 
   it("keeps raw-html slide paragraphs on the block's own metrics", () => {

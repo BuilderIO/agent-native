@@ -18,6 +18,7 @@ import {
 import { emit } from "@agent-native/core/event-bus";
 import { uploadFile } from "@agent-native/core/file-upload";
 import { captureRouteError } from "@agent-native/core/server";
+import { track } from "@agent-native/core/tracking";
 import { isStoredButUnservableFinalizeError } from "@shared/finalize-recovery.js";
 import { MAX_UPLOAD_BYTES as MAX_RECORDING_UPLOAD_BYTES } from "@shared/upload-limits.js";
 import { and, eq, isNull } from "drizzle-orm";
@@ -685,6 +686,23 @@ async function markRecordingReady(params: {
       durationMs: finalDurationMs,
     };
   }
+
+  track(
+    "recording_ready",
+    {
+      app_name: "clips",
+      template_name: "clips",
+      output_id: id,
+      output_type: "clip",
+      duration_s: Math.round(finalDurationMs / 1000),
+      video_format: videoFormat,
+      has_audio: finalHasAudio,
+      has_camera: finalHasCamera,
+      width: finalWidth,
+      height: finalHeight,
+    },
+    { userId: ownerEmail },
+  );
 
   await queueReadyRecordingThumbnail(id);
   await reconcileMeetingOnRecordingReady({

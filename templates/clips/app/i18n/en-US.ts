@@ -80,6 +80,7 @@ const messages = {
     createFolderError: "Create failed",
     folderCreated: "Folder created",
     folderNamePlaceholder: "Folder name",
+    breadcrumbBack: "Back to {{label}}",
   },
   empty: {
     library: {
@@ -645,6 +646,7 @@ const messages = {
     organizationFallback: "Organization",
     saving: "Saving…",
     save: "Save",
+    saved: "Saved",
   },
   downloadRoute: {
     pageTitle: "Download Clips Desktop",
@@ -1827,6 +1829,13 @@ const messages = {
     capturedFrom: "Captured from {{source}}",
     browserCapture: "Browser capture",
     views: "Diagnostic views",
+    timeline: "Timeline",
+    navigation: "Navigation",
+    click: "Click",
+    input: "Input",
+    scroll: "Scroll",
+    requestStarted: "Request started",
+    responseReceived: "Response received",
     issues: "Issues",
     consoleSource: "Console",
     networkSource: "Network",

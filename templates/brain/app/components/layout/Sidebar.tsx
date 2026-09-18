@@ -277,6 +277,7 @@ export function Sidebar({
       collapsible={collapsible}
       onCollapsedChange={onCollapsedChange}
       brandName={t("navigation.brand")}
+      appId="brain"
       brandHref="/home"
       secondaryItems={secondaryItems}
       feedback={feedbackButton}

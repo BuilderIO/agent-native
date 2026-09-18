@@ -1,6 +1,7 @@
 interface ActionQuery {
   queryKey: readonly unknown[];
   isActive?: () => boolean;
+  meta?: Record<string, unknown>;
 }
 
 interface ActionEvent {
@@ -92,6 +93,8 @@ const DATABASE_LIFECYCLE_MUTATIONS = new Set([
   "restore-document",
 ]);
 
+const DOCUMENT_DISCOVERY_MUTATIONS = new Set(["create-document"]);
+
 const DATABASE_LIFECYCLE_QUERIES = new Set([
   "list-content-databases",
   "list-documents",
@@ -128,11 +131,19 @@ const REVIEW_MUTATIONS = new Set([
   "set-review-thread-muted",
 ]);
 
+const COMMENT_AI_MUTATIONS = new Set([
+  "start-comment-ai-request",
+  "reply-to-comment-ai-request",
+  "create-comment-ai-suggestion",
+  "apply-comment-ai-request",
+]);
+
 function queryTargetsDocument(query: ActionQuery, documentId: string): boolean {
   if (query.queryKey[0] !== "action") return false;
   if (
     query.queryKey[1] !== "get-document" &&
     query.queryKey[1] !== "list-comments" &&
+    query.queryKey[1] !== "list-comment-ai-requests" &&
     query.queryKey[1] !== "list-document-properties"
   ) {
     return false;
@@ -176,6 +187,20 @@ function eventsIncludeMutation(
   );
 }
 
+function eventRefreshesDocumentQuery(eventKey: string, queryName: unknown) {
+  if (eventKey === "start-comment-ai-request") return false;
+  if (
+    eventKey === "reply-to-comment-ai-request" ||
+    eventKey === "create-comment-ai-suggestion"
+  )
+    return queryName === "list-comments";
+  if (eventKey === "apply-comment-ai-request")
+    return queryName === "get-document" || queryName === "list-comments";
+  if (eventKey === "decide-resource-suggestion")
+    return queryName === "get-document";
+  return CONTENT_MUTATIONS.has(eventKey);
+}
+
 function isDatabaseQuery(query: ActionQuery): boolean {
   if (
     query.queryKey[0] !== "action" ||
@@ -215,6 +240,20 @@ function isDatabaseLifecycleQuery(query: ActionQuery): boolean {
   );
 }
 
+function isDocumentListQuery(query: ActionQuery): boolean {
+  return (
+    query.queryKey[0] === "action" && query.queryKey[1] === "list-documents"
+  );
+}
+
+function isActiveFilesDatabaseQuery(query: ActionQuery): boolean {
+  return (
+    isDatabaseQuery(query) &&
+    query.isActive?.() === true &&
+    query.meta?.contentDatabaseSystemRole === "files"
+  );
+}
+
 export function contentDocumentIdFromPathname(
   pathname: string,
 ): string | undefined {
@@ -237,6 +276,12 @@ export function contentActionInvalidatePredicate(
             : undefined
         : undefined;
     if (
+      eventsIncludeMutation(events, DOCUMENT_DISCOVERY_MUTATIONS) &&
+      (isDocumentListQuery(query) || isActiveFilesDatabaseQuery(query))
+    ) {
+      return true;
+    }
+    if (
       (isDatabaseLifecycleQuery(query) ||
         (isDatabaseQuery(query) && query.isActive?.() === true)) &&
       events.some(
@@ -252,13 +297,23 @@ export function contentActionInvalidatePredicate(
       return false;
     }
     if (
+      query.queryKey[1] === "list-comment-ai-requests" &&
+      typeof targetId === "string" &&
+      targetId === documentId
+    ) {
+      return eventsIncludeMutation(events, COMMENT_AI_MUTATIONS);
+    }
+    if (
       queryTargetsDocumentReviewResource(
         query,
         "list-resource-suggestions",
         documentId,
       )
     ) {
-      return eventsIncludeMutation(events, SUGGESTION_MUTATIONS);
+      return (
+        eventsIncludeMutation(events, SUGGESTION_MUTATIONS) ||
+        eventsIncludeMutation(events, COMMENT_AI_MUTATIONS)
+      );
     }
     if (
       queryTargetsDocumentReviewResource(
@@ -280,7 +335,7 @@ export function contentActionInvalidatePredicate(
         (event) =>
           event.source === "action" &&
           typeof event.key === "string" &&
-          CONTENT_MUTATIONS.has(event.key),
+          eventRefreshesDocumentQuery(event.key, query.queryKey[1]),
       );
     }
     if (queryTargetsDatabase(query, documentId)) {

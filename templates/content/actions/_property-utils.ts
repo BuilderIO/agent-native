@@ -260,8 +260,9 @@ export function serializeDatabaseViewConfig(
 
 export function defaultDatabaseViewConfig(
   type: ContentDatabaseView["type"] = "table",
+  values: Partial<Omit<ContentDatabaseView, "id" | "name" | "type">> = {},
 ): ContentDatabaseViewConfig {
-  const view = defaultDatabaseView({}, type);
+  const view = defaultDatabaseView(values, type);
   return {
     activeViewId: view.id,
     views: [view],

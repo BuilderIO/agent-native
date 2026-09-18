@@ -133,9 +133,27 @@ test("alt-dragging a selected frame drops a copy and leaves the original in plac
     await altDrag(page, dragSurface, 220, 140);
 
     await expect(page.locator("[data-screen-shell]")).toHaveCount(2);
+    const copyId = Object.keys(await frameOffsets(page)).find(
+      (id) => id !== fileIds[0],
+    );
+    if (!copyId) throw new Error("Alt-drag did not create a duplicate frame");
+    // Shell insertion and the geometry snapshot are separate React updates;
+    // wait for the duplicate's translated frame before asserting its drop.
+    await expect
+      .poll(
+        async () => {
+          const offset = (await frameOffsets(page))[copyId!];
+          return Boolean(
+            offset &&
+            offset.left > before[fileIds[0]!]!.left &&
+            offset.top > before[fileIds[0]!]!.top,
+          );
+        },
+        { timeout: 30_000 },
+      )
+      .toBe(true);
     const after = await frameOffsets(page);
     expect(after[fileIds[0]!]).toEqual(before[fileIds[0]!]);
-    const copyId = Object.keys(after).find((id) => id !== fileIds[0])!;
     expect(after[copyId]!.left).toBeGreaterThan(before[fileIds[0]!]!.left);
     expect(after[copyId]!.top).toBeGreaterThan(before[fileIds[0]!]!.top);
   } finally {
@@ -177,6 +195,23 @@ test("alt-dragging a multi-frame selection copies every frame and keeps their sp
       sourceLefts[1]! - sourceLefts[0]!,
       0,
     );
+
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect(page.locator("[data-screen-shell]")).toHaveCount(2, {
+      timeout: 20_000,
+    });
+
+    const redoShortcut =
+      process.platform === "darwin" ? "Meta+Shift+z" : "Control+Shift+z";
+    await page.keyboard.press(redoShortcut);
+    await expect(page.locator("[data-screen-shell]")).toHaveCount(4, {
+      timeout: 20_000,
+    });
+    const selectedCopyRows = page
+      .getByRole("tree", { name: "Layers" })
+      .locator('[role="treeitem"][aria-level="1"][aria-selected="true"]')
+      .filter({ hasText: "copy" });
+    await expect(selectedCopyRows).toHaveCount(2, { timeout: 20_000 });
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }

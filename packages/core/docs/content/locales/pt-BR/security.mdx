@@ -78,6 +78,8 @@ A arquitetura da estrutura evita vulnerabilidades comuns quando você usa os pad
 | Exposição secreta    | `.env` gitignorado; credenciais e cofre criptografados em repouso (AES-256-GCM)      |
 | SSRF                 | `ssrfSafeFetch` bloqueia alvos internos/metadados + religação de redirecionamento    |
 
+A estrutura cria o contexto da solicitação a partir da sessão e aplica a propriedade com `accessFilter()` e `assertAccess()` nas leituras e gravações do aplicativo. O SQL do agente recebe visualizações temporárias filtradas para a identidade e organização ativas. O RLS ainda não está habilitado, portanto consultas diretas do aplicativo devem continuar usando esses auxiliares.
+
 ## Validação de entrada {#input-validation}
 
 Use `defineAction` com um Zod `schema:` para cada ação. A estrutura valida a entrada automaticamente antes da execução do código:

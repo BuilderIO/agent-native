@@ -348,6 +348,10 @@ const messages = {
     responseSubmitted: "回答を送信しました",
     noFields: "このフォームにはまだフィールドがありません。",
     failedSubmit: "フォームを送信できませんでした",
+    uncheckablePattern:
+      "このフォームの「{label}」のルールは検証できません。フォームの所有者に修正を依頼してください。",
+    patternTooLong:
+      "「{label}」の値が長すぎて、このフォームのルールを検証できません。",
   },
   responseInsights: {
     unavailable: "インサイトを利用できません",

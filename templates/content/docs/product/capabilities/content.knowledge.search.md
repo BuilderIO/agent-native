@@ -19,7 +19,12 @@ proof_requirements:
     "Cross-surface UI, Action, agent-context, reload, and failure-state coverage",
     "Real-interface keyboard and assistive-technology workflow coverage",
   ]
-evidence: []
+evidence:
+  [
+    "../../../actions/document-discovery.db.test.ts",
+    "../../../app/lib/content-command-search.test.ts",
+    "../../../app/components/ContentCommandSearch.tsx",
+  ]
 superseded_by: null
 last_reviewed: "2026-07-29"
 ---
@@ -55,6 +60,30 @@ Given a stale connected Source result, when it appears, then its freshness state
 ## Current evidence
 
 Existing search paths are in progress donor substrate, but complete indexed, freshness, ranking, and agent-parity proof is incomplete. This Capability remains `in_progress`.
+
+The command picker uses the shared paginated search Action, with title-only,
+document-type and modified-date predicates applied before pagination. Parent
+context is independently access-scoped. The query supports a bounded
+Google-style operator set: quoted "exact phrases", `-excludedTerm`,
+uppercase `OR` between terms, `intitle:term`, and implicit AND across bare
+words; `%`, `_`, and `*` stay literal, and an all-workspaces scope option
+omits the space filter while keeping server-side access scoping. Snippet
+windows anchor at the first in-body occurrence of the first match needle,
+so deep-body matches show their own context. Focused
+tests cover later pages, private-parent suppression, hidden-result counts,
+type filters, and each operator. This is bounded lexical search substrate,
+not proof of indexed retrieval across every Source, authoritative author
+filtering, ranking, or policy-governed global search.
+
+Local browser verification of the command picker covered 27 authorized matches
+across two result pages, equal-title parent context, keyboard opening, title/body
+and type/date filters, explicit request failure and retry. Pagination and retry
+return focus to the search input. A reversible composition with the companion
+sidebar controls change verified collapsed Search and the 390px mobile drawer:
+the picker and filters remain visible above the drawer, Escape returns to Search,
+and opening a result closes the drawer. This composed proof depends on that
+companion's entry wiring and shared CommandMenu layer fix; it does not certify
+screen-reader output or broader cross-context retrieval policy.
 
 ## Proof plan
 

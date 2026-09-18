@@ -1,18 +1,22 @@
+import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { createServer } from "vite";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { parseChangelog } from "../changelog/parse.js";
 import { signEmbedSessionToken } from "../server/embed-session.js";
 import {
   _debounceNitroFullReloadHotUpdate,
+  _devActionBridgeOrigin,
+  _devActionBridgePlugin,
   _findCorePackageRoot,
   _getClientDedupe,
   _getDefaultOptimizeDeps,
+  _devServerStartupBanner,
   _getReactRouterAliases,
   _installReactRouterVirtualInvalidationMirror,
   _mirrorReactRouterVirtualInvalidation,
@@ -26,6 +30,18 @@ import {
   isFrameworkDevPath,
   stripMountedDevApiPath,
 } from "./client.js";
+
+const mockWriteDevActionDiscoveryFile = vi.hoisted(() => vi.fn());
+const mockHashDatabaseKey = vi.hoisted(() =>
+  vi.fn((url: string) => `hash:${url}`),
+);
+
+vi.mock("../server/dev-action-bridge.js", () => ({
+  hashDatabaseKey: (...args: unknown[]) => mockHashDatabaseKey(...args),
+  removeDevActionDiscoveryFile: vi.fn(),
+  writeDevActionDiscoveryFile: (...args: unknown[]) =>
+    mockWriteDevActionDiscoveryFile(...args),
+}));
 
 describe("Nitro dev startup recovery", () => {
   it("finds the fetchable Nitro SSR wrapper before React Router's virtual build", () => {
@@ -268,6 +284,90 @@ function flatPlugins(plugins: any[] | undefined): any[] {
   return (plugins ?? []).flat().filter(Boolean) as any[];
 }
 
+describe("dev action bridge origin", () => {
+  beforeEach(() => {
+    mockWriteDevActionDiscoveryFile.mockClear();
+  });
+
+  // The recorded origin must BE the URL Vite prints: the browser cookie jar
+  // keys on the exact host label, so a second derivation of the bind address
+  // is how localhost vs 127.0.0.1 split-brain bugs happen.
+  it("derives the origin from the printed Local URL, not from the bind address", () => {
+    expect(
+      _devActionBridgeOrigin({
+        local: ["http://localhost:8082/"],
+        network: [],
+      }),
+    ).toBe("http://localhost:8082");
+  });
+
+  it("preserves https and bracketed IPv6 from the printed URL", () => {
+    expect(
+      _devActionBridgeOrigin({
+        local: ["https://localhost:8083/"],
+        network: [],
+      }),
+    ).toBe("https://localhost:8083");
+    expect(
+      _devActionBridgeOrigin({ local: ["http://[::1]:8084/"], network: [] }),
+    ).toBe("http://[::1]:8084");
+  });
+
+  it("has no origin when Vite printed none", () => {
+    expect(_devActionBridgeOrigin(null)).toBeUndefined();
+    expect(_devActionBridgeOrigin({ local: [], network: [] })).toBeUndefined();
+  });
+
+  function listeningHandlerFor(server: unknown): {
+    configuredServer: any;
+    listening: () => void;
+  } {
+    const listening: Array<() => void> = [];
+    const configuredServer = {
+      httpServer: {
+        once: (event: string, handler: () => void) => {
+          if (event === "listening") listening.push(handler);
+        },
+        address: () => ({ address: "::", port: 8082 }),
+      },
+      ...server,
+    } as any;
+    _devActionBridgePlugin().configureServer?.(configuredServer);
+    expect(listening).toHaveLength(1);
+    return { configuredServer, listening: listening[0]! };
+  }
+
+  it("records the printed origin in the discovery file when the server listens", () => {
+    const server = {
+      resolvedUrls: null as null | { local: string[]; network: string[] },
+      config: { logger: { warn: vi.fn() } },
+    };
+    const { configuredServer, listening } = listeningHandlerFor(server);
+    // Vite prepends its own listening handler, which resolves the URLs before
+    // plugin listeners run. Read the value at callback time, not registration.
+    configuredServer.resolvedUrls = {
+      local: ["http://localhost:8082/"],
+      network: [],
+    };
+    listening();
+    expect(mockWriteDevActionDiscoveryFile).toHaveBeenCalledWith(
+      expect.any(String),
+      "http://localhost:8082",
+      "hash:pglite:./data/pglite",
+    );
+  });
+
+  it("skips the discovery file loudly instead of guessing a label when nothing was printed", () => {
+    const warn = vi.fn();
+    listeningHandlerFor({
+      resolvedUrls: null,
+      config: { logger: { warn } },
+    }).listening();
+    expect(mockWriteDevActionDiscoveryFile).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("design system theme plugin", () => {
   it("emits normalized build-time CSS from a virtual module", async () => {
     const plugins = flatPlugins(
@@ -305,6 +405,149 @@ describe("design system theme plugin", () => {
         (candidate) => candidate.name === "agent-native-design-system-theme",
       ),
     ).toBe(false);
+  });
+});
+
+describe("dev server startup banner", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  interface FakeDevServer {
+    root: string;
+    base?: string;
+    https?: boolean;
+    configuredPort?: number;
+    resolvedUrls?: { local: string[]; network: string[] } | null;
+    address?: { address: string; port: number } | null;
+  }
+
+  function captureBannerLines(
+    fake: FakeDevServer,
+    afterConfigure?: (server: unknown) => void,
+  ): string[] {
+    const lines: string[] = [];
+    const logSpy = vi
+      .spyOn(console, "log")
+      .mockImplementation((line) => lines.push(String(line)));
+    try {
+      const httpServer = new EventEmitter();
+      (httpServer as any).address = () =>
+        fake.address ?? { address: "127.0.0.1", port: 47131 };
+      const server = {
+        httpServer,
+        config: {
+          root: fake.root,
+          base: fake.base ?? "/",
+          server: { port: fake.configuredPort ?? 47131, https: fake.https },
+        },
+        resolvedUrls: fake.resolvedUrls ?? { local: [], network: [] },
+      };
+      _devServerStartupBanner().configureServer(server as any);
+      afterConfigure?.(server);
+      httpServer.emit("listening");
+    } finally {
+      logSpy.mockRestore();
+    }
+    return lines;
+  }
+
+  function withTempAppRoot(run: (appRoot: string) => void): void {
+    const appRoot = fs.mkdtempSync(path.join(os.tmpdir(), "dev-banner-"));
+    fs.writeFileSync(
+      path.join(appRoot, "package.json"),
+      JSON.stringify({ name: "fixture-app" }),
+    );
+    try {
+      run(appRoot);
+    } finally {
+      fs.rmSync(appRoot, { recursive: true, force: true });
+    }
+  }
+
+  it("uses Vite's resolved URL verbatim, including https and base", () => {
+    withTempAppRoot((appRoot) => {
+      const lines = captureBannerLines({
+        root: appRoot,
+        resolvedUrls: { local: ["https://localhost:47131/docs/"], network: [] },
+      });
+      expect(lines).toEqual([
+        `[agent-native] fixture-app listening on https://localhost:47131/docs/ (root: ${appRoot})`,
+      ]);
+    });
+  });
+
+  it("builds an https URL with bracketed IPv6 and base when resolvedUrls is empty", () => {
+    withTempAppRoot((appRoot) => {
+      const lines = captureBannerLines({
+        root: appRoot,
+        https: true,
+        base: "/docs/",
+        resolvedUrls: { local: [], network: [] },
+        address: { address: "::1", port: 47131 },
+      });
+      expect(lines).toEqual([
+        `[agent-native] fixture-app listening on https://[::1]:47131/docs/ (root: ${appRoot})`,
+      ]);
+    });
+  });
+
+  it("says so explicitly when the configured port lost the bind", () => {
+    withTempAppRoot((appRoot) => {
+      const lines = captureBannerLines({
+        root: appRoot,
+        configuredPort: 47131,
+        resolvedUrls: { local: ["http://localhost:47132/"], network: [] },
+        address: { address: "::1", port: 47132 },
+      });
+      expect(lines).toEqual([
+        `[agent-native] fixture-app listening on http://localhost:47132/ (root: ${appRoot})`,
+        "[agent-native] Port 47131 was in use; listening on 47132 instead — the URL above is the real one.",
+      ]);
+    });
+  });
+
+  it("stays quiet when the configured port won", () => {
+    withTempAppRoot((appRoot) => {
+      const lines = captureBannerLines({
+        root: appRoot,
+        configuredPort: 47131,
+        resolvedUrls: { local: ["http://localhost:47131/"], network: [] },
+      });
+      expect(lines).toHaveLength(1);
+    });
+  });
+
+  it("defers to the workspace gateway's own diagnostics", () => {
+    withTempAppRoot((appRoot) => {
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+      const lines = captureBannerLines({
+        root: appRoot,
+        resolvedUrls: { local: ["http://localhost:47131/"], network: [] },
+      });
+      expect(lines).toEqual([]);
+    });
+  });
+  it("compares against the port configured before Vite rewrites it at listen", () => {
+    withTempAppRoot((appRoot) => {
+      const lines = captureBannerLines(
+        {
+          root: appRoot,
+          configuredPort: 47131,
+          resolvedUrls: { local: ["http://localhost:47132/"], network: [] },
+          address: { address: "::1", port: 47132 },
+        },
+        (server) => {
+          // Vite rewrites config.server.port to the bound port at listen.
+          (
+            server as { config: { server: { port: number } } }
+          ).config.server.port = 47132;
+        },
+      );
+      expect(lines[1]).toBe(
+        "[agent-native] Port 47131 was in use; listening on 47132 instead — the URL above is the real one.",
+      );
+    });
   });
 });
 
@@ -2671,6 +2914,7 @@ describe("Vite SSR stubs", () => {
     expect(code).toContain("export const UndoManager = stub;");
     expect(code).toContain("export const EditorContent = stub;");
     expect(code).toContain("export const createNodeFromContent = stub;");
+    expect(code).toContain("export const DOMSerializer = stub;");
     expect(code).toContain("export const Slice = stub;");
     expect(code).toContain("export const Transform = stub;");
     expect(code).toContain("export const getSchema = stub;");
@@ -2682,6 +2926,24 @@ describe("Vite SSR stubs", () => {
     expect(code).toContain("export const useAuiState = stub;");
     expect(code).toContain("export const useMessagePartReasoning = stub;");
     expect(code).toContain("export const useMessagePartRuntime = stub;");
+  });
+
+  it("stubs optional enterprise auth adapters when build flags are off", () => {
+    vi.stubEnv("AUTH_SSO", "");
+    vi.stubEnv("AUTH_SCIM", "");
+    const plugin = agentNative().find(
+      (entry) => entry.name === "agent-native-enterprise-auth-adapter-stub",
+    ) as any;
+
+    expect(plugin).toBeDefined();
+    expect(plugin.resolveId("@better-auth/sso")).toBe(
+      "\0agent-native-enterprise-auth-adapter-stub:@better-auth/sso",
+    );
+    expect(plugin.resolveId("@better-auth/scim")).toBe(
+      "\0agent-native-enterprise-auth-adapter-stub:@better-auth/scim",
+    );
+    expect(plugin.resolveId("@better-auth/core")).toBeNull();
+    vi.unstubAllEnvs();
   });
 });
 

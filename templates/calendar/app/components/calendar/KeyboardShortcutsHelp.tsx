@@ -82,7 +82,7 @@ export function KeyboardShortcutsHelp({
               <div className="space-y-0.5">
                 {shortcuts.map(({ keys, description }) => (
                   <div
-                    key={description}
+                    key={keys.join("+")}
                     className="flex items-center justify-between rounded-md px-2 py-1.5 hover:bg-accent/50 transition-colors"
                   >
                     <span className="text-sm text-foreground">

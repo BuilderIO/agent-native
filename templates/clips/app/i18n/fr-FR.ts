@@ -82,6 +82,7 @@ const messages = {
     createFolderError: "Échec de la création",
     folderCreated: "Dossier créé",
     folderNamePlaceholder: "Nom du dossier",
+    breadcrumbBack: "Retour à {{label}}",
   },
   empty: {
     library: {
@@ -664,6 +665,7 @@ const messages = {
     organizationFallback: "Organisation",
     saving: "Économie…",
     save: "Sauvegarder",
+    saved: "Enregistré",
   },
   downloadRoute: {
     pageTitle: "Télécharger Clips Desktop",
@@ -1882,6 +1884,13 @@ const messages = {
     capturedFrom: "Capturé depuis {{source}}",
     browserCapture: "Capture du navigateur",
     views: "Vues de diagnostic",
+    timeline: "Chronologie",
+    navigation: "Navigation",
+    click: "Clic",
+    input: "Saisie",
+    scroll: "Défilement",
+    requestStarted: "Requête démarrée",
+    responseReceived: "Réponse reçue",
     issues: "Problèmes",
     consoleSource: "Console",
     networkSource: "Réseau",

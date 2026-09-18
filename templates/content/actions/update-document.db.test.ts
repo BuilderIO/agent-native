@@ -6,6 +6,13 @@ import { runWithRequestContext } from "@agent-native/core/server";
 import { asc, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
+vi.mock("@agent-native/creative-context/server", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/creative-context/server")
+  >()),
+  getGenerationCreativeContext: vi.fn(async () => null),
+}));
+
 const TEST_DB_PATH = join(
   tmpdir(),
   `update-document-cas-${process.pid}-${Date.now()}.pglite`,
@@ -15,6 +22,8 @@ type Schema = typeof import("../server/db/schema.js");
 let getDb: () => any;
 let schema: Schema;
 let updateDocumentAction: typeof import("./update-document.js").default;
+let editDocumentAction: typeof import("./edit-document.js").default;
+let documentRevisionToken: typeof import("./_document-edit-mutation.js").documentRevisionToken;
 
 const OWNER = "owner@example.com";
 const EDITOR = "editor@example.com";
@@ -26,6 +35,8 @@ beforeAll(async () => {
   getDb = dbModule.getDb;
   schema = dbModule.schema;
   updateDocumentAction = (await import("./update-document.js")).default;
+  editDocumentAction = (await import("./edit-document.js")).default;
+  ({ documentRevisionToken } = await import("./_document-edit-mutation.js"));
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
 }, 60000);
@@ -75,6 +86,63 @@ async function documentRow(documentId: string) {
 }
 
 describe("update-document compare-and-swap", () => {
+  it("initializes an empty body through the externally callable edit action", async () => {
+    const documentId = await createDocument({
+      title: "Keep this title",
+      content: "",
+    });
+    const before = await documentRow(documentId);
+    const content = "# Keep this title\n\nExact body 🌿\n";
+
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      editDocumentAction.run(
+        {
+          id: documentId,
+          baseRevision: documentRevisionToken(0, ""),
+          idempotencyKey: "external-empty-initialization",
+          initializeContent: content,
+        },
+        { caller: "mcp", userEmail: OWNER },
+      ),
+    );
+    const after = await documentRow(documentId);
+
+    expect(result.receipt).toMatchObject({
+      outcome: "applied",
+      readback: { verified: true },
+    });
+    expect(after).toMatchObject({
+      id: before.id,
+      title: before.title,
+      description: before.description,
+      parentId: before.parentId,
+      visibility: before.visibility,
+      content,
+      bodyRevision: 1,
+    });
+  });
+
+  it("rejects conflicting initialization modes before writing", async () => {
+    const documentId = await createDocument({ content: "" });
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        editDocumentAction.run(
+          {
+            id: documentId,
+            baseRevision: documentRevisionToken(0, ""),
+            idempotencyKey: "conflicting-initialization",
+            initializeContent: "body",
+            find: "something",
+            replace: "else",
+          },
+          { caller: "mcp", userEmail: OWNER },
+        ),
+      ),
+    ).rejects.toMatchObject({ errorCode: "DOCUMENT_EDIT_MODE_CONFLICT" });
+    expect((await documentRow(documentId)).content).toBe("");
+  });
+
   it("rejects external full-body writes outside the revisioned edit protocol", async () => {
     const documentId = await createDocument({ content: "original" });
 
@@ -256,6 +324,145 @@ describe("update-document compare-and-swap", () => {
     expect((await documentRow(documentId)).content).toBe(
       "updated by matching snapshot",
     );
+  });
+
+  it("uses the body revision so a metadata-only write does not falsely conflict", async () => {
+    const documentId = await createDocument({ content: "original" });
+    const before = await documentRow(documentId);
+    const baseRevision = `body:${before.bodyRevision}:sha256:${(
+      await import("node:crypto")
+    )
+      .createHash("sha256")
+      .update(before.content)
+      .digest("hex")}`;
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run({ id: documentId, icon: "📌" }),
+    );
+    const afterMetadata = await documentRow(documentId);
+    expect(afterMetadata.updatedAt).not.toBe(before.updatedAt);
+    expect(afterMetadata.bodyRevision).toBe(before.bodyRevision);
+
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run({
+        id: documentId,
+        content: "local body edit",
+        baseUpdatedAt: before.updatedAt,
+        baseRevision,
+      }),
+    );
+
+    expect("conflict" in result && result.conflict).not.toBe(true);
+    expect(await documentRow(documentId)).toMatchObject({
+      content: "local body edit",
+      icon: "📌",
+      bodyRevision: before.bodyRevision + 1,
+    });
+  });
+
+  it("rejects a stale opaque body revision even when its counter is forged", async () => {
+    const documentId = await createDocument({ content: "original" });
+    const before = await documentRow(documentId);
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run({
+        id: documentId,
+        title: "Must not apply",
+        content: "local body edit",
+        baseTitle: "Untitled",
+        baseRevision: `body:${before.bodyRevision}:sha256:${"0".repeat(64)}`,
+      }),
+    );
+
+    expect("conflict" in result && result.conflict).toBe(true);
+    expect(await documentRow(documentId)).toMatchObject({
+      title: "Untitled",
+      content: "original",
+      bodyRevision: before.bodyRevision,
+    });
+  });
+
+  it("rejects a combined title and body CAS save without a title baseline", async () => {
+    const documentId = await createDocument({
+      title: "Original title",
+      content: "original",
+    });
+    const before = await documentRow(documentId);
+    const { documentRevisionToken } =
+      await import("./_document-edit-mutation.js");
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        updateDocumentAction.run({
+          id: documentId,
+          title: "Local title",
+          content: "local body",
+          baseRevision: documentRevisionToken(
+            before.bodyRevision,
+            before.content,
+          ),
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "BASE_TITLE_REQUIRED" });
+    expect(await documentRow(documentId)).toMatchObject({
+      title: "Original title",
+      content: "original",
+    });
+  });
+
+  it("does not let a matching body revision overwrite a concurrently changed title", async () => {
+    const documentId = await createDocument({
+      title: "Original title",
+      content: "original",
+    });
+    const before = await documentRow(documentId);
+    const { documentRevisionToken } =
+      await import("./_document-edit-mutation.js");
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run({ id: documentId, title: "Concurrent title" }),
+    );
+
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run({
+        id: documentId,
+        title: "Local title",
+        content: "local body",
+        baseTitle: "Original title",
+        baseRevision: documentRevisionToken(
+          before.bodyRevision,
+          before.content,
+        ),
+      }),
+    );
+
+    expect("conflict" in result && result.conflict).toBe(true);
+    expect(await documentRow(documentId)).toMatchObject({
+      title: "Concurrent title",
+      content: "original",
+    });
+  });
+
+  it("does not let a title-only save overwrite a concurrently changed title", async () => {
+    const documentId = await createDocument({
+      title: "Original title",
+      content: "original",
+    });
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run({ id: documentId, title: "Concurrent title" }),
+    );
+
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run({
+        id: documentId,
+        title: "Local title",
+        baseTitle: "Original title",
+      }),
+    );
+
+    expect("conflict" in result && result.conflict).toBe(true);
+    expect(await documentRow(documentId)).toMatchObject({
+      title: "Concurrent title",
+      content: "original",
+    });
   });
 
   it("rejects a content save when the row moved past baseUpdatedAt and returns the current server document", async () => {

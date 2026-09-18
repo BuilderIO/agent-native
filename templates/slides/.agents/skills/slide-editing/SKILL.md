@@ -19,7 +19,7 @@ registry; do not assume a fixed 1920x1080 canvas.
 Every slide uses this wrapper:
 
 ```html
-<div class="fmd-slide" style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: flex-start;">
+<div class="fmd-slide" style="--deck-bg: var(--ds-bg, Canvas); --deck-ink: var(--ds-text, CanvasText); --deck-muted: var(--ds-text-muted, GrayText); --deck-accent: var(--ds-accent, currentColor); --deck-surface: var(--ds-surface, transparent); --deck-heading-font: var(--ds-heading-font, sans-serif); --deck-body-font: var(--ds-body-font, sans-serif); --deck-radius: var(--ds-radius, 0px); background: var(--deck-bg); color: var(--deck-ink); padding: 64px 80px; display: flex; flex-direction: column; justify-content: flex-start; font-family: var(--deck-body-font);">
   <!-- Slide content here -->
 </div>
 ```
@@ -32,25 +32,22 @@ a reference deck controls composition and markup idiom only. The generic
 Impeccable-inspired quality bar can flag hierarchy, contrast, density, and
 anti-pattern issues, but it cannot replace the active system.
 
-When no system is linked, generated slides may use these conventions:
-
-| Element | Style |
-|---------|-------|
-| Background | `bg-[#000000]` (pure black) |
-| Font | `font-family: 'Poppins', sans-serif` on all text |
-| Section labels | `font-size: 16px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: #00E5FF` |
-| Headings | `font-size: 40px; font-weight: 900; color: #fff; line-height: 1.15; letter-spacing: -1px` |
-| Title slides | `font-size: 54px; font-weight: 900` with `justify-content: center` |
-| Bullet points | `&#x25CF;` character (8px, white), gap: 20px, font-size: 22px, color: rgba(255,255,255,0.85) |
-| Sub-bullets | `&#x25CB;` (open circle), padding-left: 36px |
-| Bold terms | `<strong style="font-weight: 800; color: #fff;">Term</strong>` + description in rgba(255,255,255,0.55) |
-| Accent color | `#00E5FF` (cyan) for section labels, emphasis, highlights |
+When no system is linked, establish one deck-level contract before changing a
+slide: choose a subject-appropriate background family, text and surface roles,
+one accent treatment, a heading/body type pairing, spacing scale, radius, and
+image treatment. Express those choices as the same semantic `--deck-*` values
+on every slide wrapper. Keep the canvas, type system, and palette fixed across
+the deck while varying composition and information hierarchy. Never alternate
+light and dark slides or introduce a new font/palette for a single slide unless
+the user explicitly asks for it. Use semantic roles for labels, headings,
+body, rules, and surfaces; avoid decorative card grids, gradient text, glass
+panels, fake logos, and filler bullets.
 
 ## Fit and Density
 
 Fit the main content to the native content area, not merely to the outer
-wrapper. For the default 16:9 canvas, the standard `80px 110px` padding leaves
-740x380px. Keep titles to two lines, content slides to three short bullets or
+wrapper. For the default 16:9 canvas, the standard `64px 80px` padding leaves
+800x412px. Keep titles to two lines, content slides to three short bullets or
 three compact cards, and two-column slides to two or three short items per
 column. If the source is denser, split it across slides. Never use zoom,
 `transform: scale()`, clipping, or scroll overflow to hide a fit issue; body
@@ -98,9 +95,87 @@ To edit a slide's content:
 5. For browser/editor code, enqueue granular deck operations through
    `patch-deck` / `DeckContext.tsx` instead of replacing the whole deck JSON.
 
+   For a deck-wide restyle such as "beautify this", report only what the write
+   actually returned. `patch-deck` lists genuinely changed slides in
+   `updatedSlideIds` and byte-identical ones in `unchangedSlideIds`; a slide in
+   `unchangedSlideIds` was not edited and must not be described as restyled.
+   `update-slide` fails with `slide_edit_noop` for the same reason. Both
+   reject a batch in which nothing changed, so re-read those slides and send
+   different content rather than narrating a summary the deck does not show.
+
 6. For factual edits, compare changed text against the retrieved source and
    preserve quote, speaker, date, metric, and uncertainty status. Existing HTML
    or visual similarity is not proof of source fidelity.
+
+## Style-Only Edits
+
+For a request that changes appearance and nothing else — colors, borders,
+shadows, background — set `styleOnly: true` on `update-slide`.
+
+`styleOnly` accepts the structured `edits` array and nothing else. `fullContent`
+and the top-level legacy `find` / `replace` / `objectId` fields are rejected in
+this mode, so even a single replacement goes as one `edits` entry:
+
+```jsonc
+{
+  "deckId": "...", "slideId": "...", "styleOnly": true,
+  "baseContentHash": "<contentHash from get-deck>",
+  "edits": [
+    { "find": "background:#111111", "replace": "background:#f4f0e8", "occurrence": 1 }
+  ]
+}
+```
+
+The action then rejects any result that changes text, markup, element order, or
+protected layout CSS (padding, margin, gap, font-size, line-height, dimensions,
+positioning), so the edit can only move the declarations you targeted.
+
+Use `occurrence: 1` rather than `expectedMatches: 1` when a declaration may
+appear more than once on the slide: the `edits` path refuses an ambiguous
+literal outright, so `expectedMatches` turns a repeated declaration into a
+rejection instead of an edit. Reach for `all: true` when every occurrence on
+that slide really should change.
+
+`objectId` is not a style-edit target. It replaces an element's inner content
+and leaves the element's own `style` attribute untouched, so it cannot move the
+declaration you are usually after.
+
+### Copying one slide's look onto the rest of the deck
+
+"Make every slide match slide 1" is a deck-wide restyle, so it goes through
+**one `patch-deck` call** with a `patch-slide` operation per slide. Do not fan
+out one `update-slide` per slide: that is the batching the agent instructions
+rule out, and because the calls issue in parallel, a mistake in the first one
+repeats across all of them before any rejection comes back.
+
+1. Read the reference slide with `get-deck` (`slideId`, `compact=false`) and
+   take the background declaration off its `.fmd-slide` wrapper — not off a
+   child. `deckStyle` summarizes the whole deck, including interior gradients,
+   so it is not a substitute for the wrapper's own value.
+2. Read the target slides for their exact current declarations, as late as
+   possible before the write.
+3. Send one `patch-deck` call carrying every affected slide, then verify with
+   `get-deck` using `compact=true`.
+
+Reserve `styleOnly` `update-slide` for one slide, or a handful of named slides.
+Two protections only exist on that path, so know what the deck-wide route gives
+up:
+
+- `patch-deck` patches `fields.content` wholesale and gets no style-only
+  invariant, so keep the rest of each slide's HTML byte-identical yourself.
+- `patch-deck` takes no per-slide `baseContentHash`. It serializes on the deck
+  lock and rejects a write when the deck row moved under it, but it cannot tell
+  that a human edited slide 4 between your read and your patch. Read
+  immediately before patching, and verify after.
+
+When a person is actively editing the deck, prefer per-slide `styleOnly`
+`update-slide` with `baseContentHash` and accept the extra round trips.
+
+Either way, change only the `.fmd-slide` wrapper's background. Interior card
+fills, image backgrounds, and gradients are separate visual elements; leave them
+alone unless the user asked for those too. A slide whose wrapper carries no
+background declaration needs one added to the wrapper's `style`, not a
+find/replace against a declaration that is not there.
 
 ## Skipping a Slide
 

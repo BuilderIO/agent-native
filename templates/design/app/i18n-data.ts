@@ -335,6 +335,9 @@ const enUS = {
       detailsTab: "Details",
       decorationLabel: "Decoration",
       caseLabel: "Case",
+      truncateText: "Truncate text",
+      maxLines: "Max lines",
+      restoreError: "Could not restore the original text layout.",
     },
     flexDirections: {
       row: "Row",
@@ -417,6 +420,10 @@ const enUS = {
   },
   designEditor: {
     askAgent: "Ask agent",
+    deepSelectGuidance: {
+      message: "Hold {{modifier}} and click to select an inner layer.",
+      dismiss: "Dismiss layer selection tip",
+    },
     autoLayoutSuggestion: {
       menuLabel: "Suggest auto layout…",
       title: "Suggest auto layout",
@@ -443,6 +450,7 @@ const enUS = {
     componentInstances: {
       selectLayer: "Select layer",
       goToMain: "Go to main component",
+      restore: "Restore component",
       swap: "Swap instance",
       detach: "Detach instance",
       searchComponents: "Search components…",
@@ -457,6 +465,14 @@ const enUS = {
       swappedFor: 'Swapped for "{{name}}".',
       openPanelNudge: "Use the Swap instance picker in the Component panel.",
       openPanelFailed: "Could not open the component panel.",
+      linkedStructureUnsupported:
+        "Changing linked component layer structure is not supported yet.",
+      linkedEditScopeUnsupported:
+        "Linked component edits are available only at the base breakpoint and default interaction state.",
+      linkedEditSourceUnsupported:
+        "Linked component edits aren't available for this source mode yet.",
+      linkedEditTargetsUnavailable:
+        "This linked edit couldn't be resolved for every selected layer. No changes were made.",
     },
     makeItRealCard: {
       open: "Open",
@@ -516,16 +532,6 @@ const enUS = {
       zoomOut: "Zoom out",
       zoomToPreset: "Zoom to {{percent}}%",
       exit: "Exit responsive preview",
-    },
-    screenDeletion: {
-      titleOne: "Delete this screen?",
-      titleMany: "Delete {{count}} screens?",
-      descriptionOne:
-        '"{{filename}}" and all of its responsive variants will be deleted. You can undo this while the editor remains open.',
-      descriptionMany:
-        "These screens and all of their responsive variants will be deleted. You can undo this while the editor remains open.",
-      cancel: "Cancel",
-      confirm: "Delete",
     },
     motion: {
       dockLabel: "Motion dock",
@@ -670,8 +676,20 @@ const enUS = {
       chooseFigFile: "Choose .fig file",
       figUploadUploading: "Uploading {{progress}}%",
       figUploadProcessing: "Converting…",
+      figImportWarningTitle: "Large .fig import",
+      figImportWarningDescription:
+        "This file contains {{frames}} frames and {{nodes}} layers. Importing everything may slow the editor. Choose the frames you need.",
+      figImportFrameCount: "{{selected}} of {{total}} frames selected",
+      figImportSelectAll: "Select all",
+      figImportClearAll: "Clear all",
+      figImportCancel: "Cancel",
+      figImportSelected: "Import {{count}} selected",
+      figImportAll: "Import all",
+      figImportAnalyzing: "Analyzing…",
       figUploadDescriptionShort:
-        "Local import — no Figma API quota used. Embedded images included.",
+        "Local import — no Figma API quota used. Supported embedded images are included.",
+      figUploadImagesSkippedWarning:
+        "Skipped embedded images ({{count}}) because browser uploads have a per-image limit.",
       figmaPasteBodyUnlimited:
         "Works without a Figma token — geometry, layout, and text import immediately.",
       figmaPasteBodyImages:
@@ -861,6 +879,7 @@ const enUS = {
         ellipse: "Ellipse",
         line: "Line",
         arrow: "Arrow",
+        booleanSubtract: "Subtract",
         selectAll: "Select all",
         selectParent: "Select parent",
         enterSelection: "Enter selection",
@@ -1149,6 +1168,8 @@ const enUS = {
       designStateLiveScreen:
         "Design states can't preview on a live screen — its content is the running app, not a document.",
       layerMoveFailed: "Could not move that layer",
+      groupFillApplyFailed:
+        "Could not apply this fill to every layer in the group.",
       layerMoveRedirected:
         "Moved next to its original spot — the exact drop target isn't editable",
       duplicateElementFailed: "Could not duplicate that element",
@@ -1169,17 +1190,23 @@ const enUS = {
       saveConflict:
         "This screen changed elsewhere. Your last edit was not saved.",
       autoLayoutScreensUnsupported: "Add auto layout doesn't apply to screens",
+      booleanSubtractUnsupported:
+        "Select adjacent rectangles or ellipses with solid fills to subtract them.",
+      booleanSubtractFailed: "Could not subtract those layers.",
       reactSourceAnchorsLoading:
         "Can't locate this layer in the source. Try again once the app finishes loading, or ask the agent to make the change.",
       reactSourceAnchorsUnavailable:
         "This app doesn't expose source locations to the editor, so this layer can't be traced back to a line. Ask the agent to make the change.",
       screenSourceUpdated: "Screen source updated",
       screenSourceUpdateFailed: "Could not update screen source",
+      vectorEditUnsupported:
+        "Vector editing isn't available for this shape or transform.",
     },
   },
   layersPanel: {
     title: "Layers",
     screens: "Screens",
+    resizeScreens: "Resize screens section",
     allScreens: "All screens",
     thumbnail: "Thumbnail",
     addScreen: "Add screen",
@@ -1211,6 +1238,8 @@ const enUS = {
     frameSelection: "Frame selection",
     flipHorizontal: "Flip horizontal",
     flipVertical: "Flip vertical",
+    booleanOperations: "Boolean operations",
+    subtract: "Subtract",
     dragGhostCount: "{{count}} layers",
   },
   designCanvas: {
@@ -1927,6 +1956,9 @@ const designLocaleOverrides = {
         detailsTab: "详细信息",
         decorationLabel: "装饰",
         caseLabel: "大小写",
+        truncateText: "截断文本",
+        maxLines: "最大行数",
+        restoreError: "无法恢复原始文本布局。",
       },
       flexDirections: {
         row: "排",
@@ -1951,6 +1983,10 @@ const designLocaleOverrides = {
       },
     },
     designEditor: {
+      deepSelectGuidance: {
+        message: "按住 {{modifier}} 并点击以选择内部图层。",
+        dismiss: "关闭图层选择提示",
+      },
       generationMayHaveStopped:
         "创建文件之前生成可能已停止。检查代理消息或重试。",
       generationMayHaveStoppedToast: "创建文件之前生成可能已停止。",
@@ -2366,6 +2402,9 @@ const designLocaleOverrides = {
         detailsTab: "Detalles",
         decorationLabel: "Decoración",
         caseLabel: "Mayúsculas y minúsculas",
+        truncateText: "Recortar texto",
+        maxLines: "Máximo de líneas",
+        restoreError: "No se pudo restaurar el diseño original del texto.",
       },
       flexDirections: {
         row: "Fila",
@@ -2390,6 +2429,11 @@ const designLocaleOverrides = {
       },
     },
     designEditor: {
+      deepSelectGuidance: {
+        message:
+          "Mantén presionada la tecla {{modifier}} y haz clic para seleccionar una capa interna.",
+        dismiss: "Descartar el consejo de selección de capas",
+      },
       generationMayHaveStopped:
         "Es posible que la generación se haya detenido antes de crear archivos. Verifique el mensaje del agente o inténtelo nuevamente.",
       generationMayHaveStoppedToast:
@@ -2832,6 +2876,10 @@ const designLocaleOverrides = {
         detailsTab: "Détails",
         decorationLabel: "Décoration",
         caseLabel: "Casse",
+        truncateText: "Tronquer le texte",
+        maxLines: "Nombre maximal de lignes",
+        restoreError:
+          "Impossible de restaurer la mise en page d’origine du texte.",
       },
       flexDirections: {
         row: "Rangée",
@@ -2856,6 +2904,11 @@ const designLocaleOverrides = {
       },
     },
     designEditor: {
+      deepSelectGuidance: {
+        message:
+          "Maintenez {{modifier}} enfoncé et cliquez pour sélectionner un calque interne.",
+        dismiss: "Fermer l’astuce de sélection des calques",
+      },
       generationMayHaveStopped:
         "La génération s'est peut-être arrêtée avant la création des fichiers. Vérifiez le message de l'agent ou réessayez.",
       generationMayHaveStoppedToast:
@@ -3302,6 +3355,10 @@ const designLocaleOverrides = {
         detailsTab: "Details",
         decorationLabel: "Dekoration",
         caseLabel: "Groß-/Kleinschreibung",
+        truncateText: "Text kürzen",
+        maxLines: "Maximale Zeilen",
+        restoreError:
+          "Das ursprüngliche Textlayout konnte nicht wiederhergestellt werden.",
       },
       flexDirections: {
         row: "Reihe",
@@ -3326,6 +3383,11 @@ const designLocaleOverrides = {
       },
     },
     designEditor: {
+      deepSelectGuidance: {
+        message:
+          "Halte {{modifier}} gedrückt und klicke, um eine innere Ebene auszuwählen.",
+        dismiss: "Tipp zur Ebenenauswahl schließen",
+      },
       generationMayHaveStopped:
         "Die Generierung wurde möglicherweise vor dem Erstellen der Dateien gestoppt. Überprüfen Sie die Agentennachricht oder versuchen Sie es erneut.",
       generationMayHaveStoppedToast:
@@ -3772,6 +3834,9 @@ const designLocaleOverrides = {
         detailsTab: "詳細",
         decorationLabel: "装飾",
         caseLabel: "大文字/小文字",
+        truncateText: "テキストを省略",
+        maxLines: "最大行数",
+        restoreError: "元のテキストレイアウトを復元できませんでした。",
       },
       flexDirections: {
         row: "行",
@@ -3796,6 +3861,11 @@ const designLocaleOverrides = {
       },
     },
     designEditor: {
+      deepSelectGuidance: {
+        message:
+          "{{modifier}}を押しながらクリックすると、内側のレイヤーを選択できます。",
+        dismiss: "レイヤー選択のヒントを閉じる",
+      },
       generationMayHaveStopped:
         "ファイルを作成する前に生成が停止している可能性があります。エージェントのメッセージを確認するか、再試行してください。",
       generationMayHaveStoppedToast:
@@ -4237,6 +4307,9 @@ const designLocaleOverrides = {
         detailsTab: "세부 정보",
         decorationLabel: "장식",
         caseLabel: "대소문자",
+        truncateText: "텍스트 자르기",
+        maxLines: "최대 줄 수",
+        restoreError: "원래 텍스트 레이아웃을 복원할 수 없습니다.",
       },
       flexDirections: {
         row: "열",
@@ -4261,6 +4334,11 @@ const designLocaleOverrides = {
       },
     },
     designEditor: {
+      deepSelectGuidance: {
+        message:
+          "{{modifier}}를 누른 채 클릭하면 내부 레이어를 선택할 수 있습니다.",
+        dismiss: "레이어 선택 팁 닫기",
+      },
       generationMayHaveStopped:
         "파일을 생성하기 전에 생성이 중지되었을 수 있습니다. 상담원 메시지를 확인하거나 다시 시도하세요.",
       generationMayHaveStoppedToast:
@@ -4694,6 +4772,9 @@ const designLocaleOverrides = {
         detailsTab: "Detalhes",
         decorationLabel: "Decoração",
         caseLabel: "Maiúsculas e minúsculas",
+        truncateText: "Truncar texto",
+        maxLines: "Máximo de linhas",
+        restoreError: "Não foi possível restaurar o layout original do texto.",
       },
       flexDirections: {
         row: "Linha",
@@ -4718,6 +4799,11 @@ const designLocaleOverrides = {
       },
     },
     designEditor: {
+      deepSelectGuidance: {
+        message:
+          "Segure {{modifier}} e clique para selecionar uma camada interna.",
+        dismiss: "Fechar dica de seleção de camadas",
+      },
       generationMayHaveStopped:
         "A geração pode ter parado antes da criação dos arquivos. Verifique a mensagem do agente ou tente novamente.",
       generationMayHaveStoppedToast:
@@ -5159,6 +5245,9 @@ const designLocaleOverrides = {
         detailsTab: "विवरण",
         decorationLabel: "सजावट",
         caseLabel: "बड़े/छोटे अक्षर",
+        truncateText: "पाठ छोटा करें",
+        maxLines: "अधिकतम पंक्तियाँ",
+        restoreError: "पाठ का मूल लेआउट पुनर्स्थापित नहीं हो सका।",
       },
       flexDirections: {
         row: "पंक्ति",
@@ -5183,6 +5272,10 @@ const designLocaleOverrides = {
       },
     },
     designEditor: {
+      deepSelectGuidance: {
+        message: "{{modifier}} दबाकर क्लिक करें और अंदर की लेयर चुनें।",
+        dismiss: "लेयर चयन की टिप बंद करें",
+      },
       generationMayHaveStopped:
         "फ़ाइलें बनाने से पहले जनरेशन बंद हो गया होगा. एजेंट संदेश की जाँच करें या पुनः प्रयास करें।",
       generationMayHaveStoppedToast: "फ़ाइलें बनाने से पहले जनरेशन बंद हो गया होगा.",
@@ -5612,6 +5705,9 @@ const designLocaleOverrides = {
         detailsTab: "التفاصيل",
         decorationLabel: "زخرفة",
         caseLabel: "حالة الأحرف",
+        truncateText: "اقتطاع النص",
+        maxLines: "الحد الأقصى للأسطر",
+        restoreError: "تعذرت استعادة تخطيط النص الأصلي.",
       },
       flexDirections: {
         row: "صف",
@@ -5636,6 +5732,10 @@ const designLocaleOverrides = {
       },
     },
     designEditor: {
+      deepSelectGuidance: {
+        message: "اضغط باستمرار على {{modifier}} وانقر لتحديد طبقة داخلية.",
+        dismiss: "إغلاق تلميح تحديد الطبقات",
+      },
       generationMayHaveStopped:
         "ربما توقف الإنشاء قبل إنشاء الملفات. تحقق من رسالة الوكيل أو حاول مرة أخرى.",
       generationMayHaveStoppedToast: "ربما توقف الإنشاء قبل إنشاء الملفات.",
@@ -10258,6 +10358,7 @@ const designCanvasFeatureOverrides = {
         propsPasted: "属性已粘贴",
         primitiveInsertFailed: "无法将该图层添加到画面",
         layerMoveFailed: "无法移动该图层",
+        groupFillApplyFailed: "无法将此填充应用到组中的所有图层。",
         layerMoveRedirected: "已移动到原位置附近——精确的放置目标不可编辑",
         duplicateElementFailed: "无法复制该元素",
         repeatListNotEditable: "无法更新此重复列表",
@@ -10365,6 +10466,8 @@ const designCanvasFeatureOverrides = {
         propsPasted: "Propiedades pegadas",
         primitiveInsertFailed: "No se pudo añadir esa capa a la pantalla",
         layerMoveFailed: "No se pudo mover esa capa",
+        groupFillApplyFailed:
+          "No se pudo aplicar este relleno a todas las capas del grupo.",
         layerMoveRedirected:
           "Se movió cerca de su lugar original — el destino exacto no es editable",
         duplicateElementFailed: "No se pudo duplicar ese elemento",
@@ -10477,6 +10580,8 @@ const designCanvasFeatureOverrides = {
         propsPasted: "Propriétés collées",
         primitiveInsertFailed: "Impossible d’ajouter ce calque à l’écran",
         layerMoveFailed: "Impossible de déplacer ce calque",
+        groupFillApplyFailed:
+          "Impossible d’appliquer ce remplissage à tous les calques du groupe.",
         layerMoveRedirected:
           "Déplacé à proximité de son emplacement d’origine — la cible exacte n’est pas modifiable",
         duplicateElementFailed: "Impossible de dupliquer cet élément",
@@ -10590,6 +10695,8 @@ const designCanvasFeatureOverrides = {
         primitiveInsertFailed:
           "Diese Ebene konnte nicht zur Ansicht hinzugefügt werden",
         layerMoveFailed: "Diese Ebene konnte nicht verschoben werden",
+        groupFillApplyFailed:
+          "Diese Füllung konnte nicht auf alle Ebenen der Gruppe angewendet werden.",
         layerMoveRedirected:
           "In die Nähe der ursprünglichen Stelle verschoben — das genaue Ziel ist nicht bearbeitbar",
         duplicateElementFailed: "Dieses Element konnte nicht dupliziert werden",
@@ -10700,6 +10807,8 @@ const designCanvasFeatureOverrides = {
         propsPasted: "プロパティを貼り付けました",
         primitiveInsertFailed: "そのレイヤーを画面に追加できませんでした",
         layerMoveFailed: "そのレイヤーを移動できませんでした",
+        groupFillApplyFailed:
+          "この塗りをグループ内のすべてのレイヤーに適用できませんでした。",
         layerMoveRedirected:
           "元の位置の近くに移動しました — 正確なドロップ先は編集できません",
         duplicateElementFailed: "その要素を複製できませんでした",
@@ -10808,6 +10917,8 @@ const designCanvasFeatureOverrides = {
         propsPasted: "속성이 붙여넣어짐",
         primitiveInsertFailed: "해당 레이어를 화면에 추가할 수 없습니다",
         layerMoveFailed: "해당 레이어를 이동할 수 없습니다",
+        groupFillApplyFailed:
+          "그룹의 모든 레이어에 이 채우기를 적용할 수 없습니다.",
         layerMoveRedirected:
           "원래 위치 근처로 이동되었습니다 — 정확한 놓기 대상은 편집할 수 없습니다",
         duplicateElementFailed: "해당 요소를 복제할 수 없습니다",
@@ -10917,6 +11028,8 @@ const designCanvasFeatureOverrides = {
         propsPasted: "Propriedades coladas",
         primitiveInsertFailed: "Não foi possível adicionar essa camada à tela",
         layerMoveFailed: "Não foi possível mover essa camada",
+        groupFillApplyFailed:
+          "Não foi possível aplicar este preenchimento a todas as camadas do grupo.",
         layerMoveRedirected:
           "Movido para perto do local original — o destino exato não é editável",
         duplicateElementFailed: "Não foi possível duplicar esse elemento",
@@ -11026,6 +11139,7 @@ const designCanvasFeatureOverrides = {
         propsPasted: "गुण चिपकाए गए",
         primitiveInsertFailed: "उस परत को स्क्रीन में नहीं जोड़ा जा सका",
         layerMoveFailed: "उस परत को स्थानांतरित नहीं किया जा सका",
+        groupFillApplyFailed: "यह भराव समूह की सभी परतों पर लागू नहीं किया जा सका।",
         layerMoveRedirected:
           "मूल स्थान के पास ले जाया गया — सटीक ड्रॉप लक्ष्य संपादन योग्य नहीं है",
         duplicateElementFailed: "उस तत्व की प्रतिलिपि नहीं बनाई जा सकी",
@@ -11134,6 +11248,8 @@ const designCanvasFeatureOverrides = {
         propsPasted: "تم لصق الخصائص",
         primitiveInsertFailed: "تعذرت إضافة تلك الطبقة إلى الشاشة",
         layerMoveFailed: "تعذر نقل تلك الطبقة",
+        groupFillApplyFailed:
+          "تعذر تطبيق هذا التعبئة على جميع الطبقات في المجموعة.",
         layerMoveRedirected:
           "تم النقل بالقرب من الموضع الأصلي — الهدف الدقيق للإفلات غير قابل للتحرير",
         duplicateElementFailed: "تعذّر تكرار هذا العنصر",
@@ -12798,6 +12914,16 @@ const designImportOverrides = {
         chooseFigFile: "選擇 .fig 檔案",
         figUploadUploading: "上傳中 {{progress}}%",
         figUploadProcessing: "轉換中…",
+        figImportWarningTitle: "大型 .fig 匯入",
+        figImportWarningDescription:
+          "此檔案包含 {{frames}} 個畫框和 {{nodes}} 個圖層。全部匯入可能會讓編輯器變慢。請選擇需要的畫框。",
+        figImportFrameCount: "已選取 {{selected}} / {{total}} 個畫框",
+        figImportSelectAll: "全選",
+        figImportClearAll: "全部清除",
+        figImportCancel: "取消",
+        figImportSelected: "匯入已選取的 {{count}} 個",
+        figImportAll: "全部匯入",
+        figImportAnalyzing: "分析中…",
         htmlTitle: "匯入 HTML",
         htmlDescription:
           "貼上或上傳獨立 HTML。Design 會將其儲存為新螢幕，不會注入到此編輯器 UI。",
@@ -12868,6 +12994,16 @@ const designImportOverrides = {
         chooseFigFile: "选择 .fig 文件",
         figUploadUploading: "正在上传 {{progress}}%",
         figUploadProcessing: "正在转换…",
+        figImportWarningTitle: "大型 .fig 导入",
+        figImportWarningDescription:
+          "此文件包含 {{frames}} 个画框和 {{nodes}} 个图层。全部导入可能会让编辑器变慢。请选择需要的画框。",
+        figImportFrameCount: "已选择 {{selected}} / {{total}} 个画框",
+        figImportSelectAll: "全选",
+        figImportClearAll: "全部清除",
+        figImportCancel: "取消",
+        figImportSelected: "导入已选择的 {{count}} 个",
+        figImportAll: "全部导入",
+        figImportAnalyzing: "正在分析…",
         htmlTitle: "导入 HTML",
         htmlDescription:
           "粘贴或上传独立 HTML。Design 会将其保存为新屏幕，不会注入到此编辑器界面。",
@@ -12941,6 +13077,16 @@ const designImportOverrides = {
         chooseFigFile: "Elegir archivo .fig",
         figUploadUploading: "Subiendo {{progress}}%",
         figUploadProcessing: "Convirtiendo…",
+        figImportWarningTitle: "Importación .fig grande",
+        figImportWarningDescription:
+          "Este archivo contiene {{frames}} marcos y {{nodes}} capas. Importarlo todo puede ralentizar el editor. Elige los marcos que necesitas.",
+        figImportFrameCount: "{{selected}} de {{total}} marcos seleccionados",
+        figImportSelectAll: "Seleccionar todo",
+        figImportClearAll: "Borrar todo",
+        figImportCancel: "Cancelar",
+        figImportSelected: "Importar {{count}} seleccionados",
+        figImportAll: "Importar todo",
+        figImportAnalyzing: "Analizando…",
         htmlTitle: "Importar HTML",
         htmlDescription:
           "Pega o sube HTML independiente. Design lo guarda como una pantalla nueva sin inyectarlo en esta interfaz.",
@@ -13016,6 +13162,16 @@ const designImportOverrides = {
         chooseFigFile: "Choisir un fichier .fig",
         figUploadUploading: "Téléversement {{progress}} %",
         figUploadProcessing: "Conversion…",
+        figImportWarningTitle: "Importation .fig volumineuse",
+        figImportWarningDescription:
+          "Ce fichier contient {{frames}} cadres et {{nodes}} calques. Tout importer peut ralentir l’éditeur. Choisissez les cadres nécessaires.",
+        figImportFrameCount: "{{selected}} cadres sur {{total}} sélectionnés",
+        figImportSelectAll: "Tout sélectionner",
+        figImportClearAll: "Tout effacer",
+        figImportCancel: "Annuler",
+        figImportSelected: "Importer {{count}} sélectionnés",
+        figImportAll: "Tout importer",
+        figImportAnalyzing: "Analyse…",
         htmlTitle: "Importer HTML",
         htmlDescription:
           "Collez ou téléversez du HTML autonome. Design l’enregistre comme nouvel écran sans l’injecter dans cette interface.",
@@ -13091,6 +13247,16 @@ const designImportOverrides = {
         chooseFigFile: ".fig-Datei wählen",
         figUploadUploading: "Wird hochgeladen: {{progress}} %",
         figUploadProcessing: "Wird konvertiert…",
+        figImportWarningTitle: "Großer .fig-Import",
+        figImportWarningDescription:
+          "Diese Datei enthält {{frames}} Frames und {{nodes}} Ebenen. Alles zu importieren kann den Editor verlangsamen. Wähle die benötigten Frames aus.",
+        figImportFrameCount: "{{selected}} von {{total}} Frames ausgewählt",
+        figImportSelectAll: "Alle auswählen",
+        figImportClearAll: "Alle löschen",
+        figImportCancel: "Abbrechen",
+        figImportSelected: "{{count}} ausgewählte importieren",
+        figImportAll: "Alle importieren",
+        figImportAnalyzing: "Wird analysiert…",
         htmlTitle: "HTML importieren",
         htmlDescription:
           "Füge eigenständiges HTML ein oder lade es hoch. Design speichert es als neuen Bildschirm, ohne es in diese Editor-UI einzufügen.",
@@ -13165,6 +13331,16 @@ const designImportOverrides = {
         chooseFigFile: ".fig ファイルを選択",
         figUploadUploading: "アップロード中 {{progress}}%",
         figUploadProcessing: "変換中…",
+        figImportWarningTitle: "大規模な .fig のインポート",
+        figImportWarningDescription:
+          "このファイルには {{frames}} 個のフレームと {{nodes}} 個のレイヤーがあります。すべてをインポートするとエディターが遅くなる可能性があります。必要なフレームを選択してください。",
+        figImportFrameCount: "{{total}} 個中 {{selected}} 個のフレームを選択",
+        figImportSelectAll: "すべて選択",
+        figImportClearAll: "すべて解除",
+        figImportCancel: "キャンセル",
+        figImportSelected: "選択した {{count}} 個をインポート",
+        figImportAll: "すべてインポート",
+        figImportAnalyzing: "分析中…",
         htmlTitle: "HTML をインポート",
         htmlDescription:
           "単体 HTML を貼り付けるかアップロードします。Design はこのエディター UI に注入せず、新しい画面として保存します。",
@@ -13239,6 +13415,16 @@ const designImportOverrides = {
         chooseFigFile: ".fig 파일 선택",
         figUploadUploading: "업로드 중 {{progress}}%",
         figUploadProcessing: "변환 중…",
+        figImportWarningTitle: "대용량 .fig 가져오기",
+        figImportWarningDescription:
+          "이 파일에는 프레임 {{frames}}개와 레이어 {{nodes}}개가 있습니다. 모두 가져오면 편집기가 느려질 수 있습니다. 필요한 프레임을 선택하세요.",
+        figImportFrameCount: "{{total}}개 중 {{selected}}개 프레임 선택",
+        figImportSelectAll: "모두 선택",
+        figImportClearAll: "모두 지우기",
+        figImportCancel: "취소",
+        figImportSelected: "선택한 {{count}}개 가져오기",
+        figImportAll: "모두 가져오기",
+        figImportAnalyzing: "분석 중…",
         htmlTitle: "HTML 가져오기",
         htmlDescription:
           "독립 HTML을 붙여넣거나 업로드하세요. Design은 이를 새 화면으로 저장하며 이 편집기 UI에 삽입하지 않습니다.",
@@ -13315,6 +13501,16 @@ const designImportOverrides = {
         chooseFigFile: "Escolher arquivo .fig",
         figUploadUploading: "Enviando {{progress}}%",
         figUploadProcessing: "Convertendo…",
+        figImportWarningTitle: "Importação de .fig grande",
+        figImportWarningDescription:
+          "Este arquivo contém {{frames}} quadros e {{nodes}} camadas. Importar tudo pode deixar o editor lento. Escolha os quadros necessários.",
+        figImportFrameCount: "{{selected}} de {{total}} quadros selecionados",
+        figImportSelectAll: "Selecionar tudo",
+        figImportClearAll: "Limpar tudo",
+        figImportCancel: "Cancelar",
+        figImportSelected: "Importar {{count}} selecionados",
+        figImportAll: "Importar tudo",
+        figImportAnalyzing: "Analisando…",
         htmlTitle: "Importar HTML",
         htmlDescription:
           "Cole ou envie HTML independente. O Design salva como uma nova tela sem injetar nesta interface.",
@@ -13390,6 +13586,16 @@ const designImportOverrides = {
         chooseFigFile: ".fig file चुनें",
         figUploadUploading: "अपलोड हो रहा है {{progress}}%",
         figUploadProcessing: "बदला जा रहा है…",
+        figImportWarningTitle: "बड़ा .fig आयात",
+        figImportWarningDescription:
+          "इस फ़ाइल में {{frames}} फ़्रेम और {{nodes}} लेयर हैं। सब कुछ आयात करने से एडिटर धीमा हो सकता है। ज़रूरी फ़्रेम चुनें।",
+        figImportFrameCount: "{{total}} में से {{selected}} फ़्रेम चुने गए",
+        figImportSelectAll: "सभी चुनें",
+        figImportClearAll: "सभी हटाएँ",
+        figImportCancel: "रद्द करें",
+        figImportSelected: "{{count}} चुने हुए आयात करें",
+        figImportAll: "सभी आयात करें",
+        figImportAnalyzing: "विश्लेषण हो रहा है…",
         htmlTitle: "HTML आयात करें",
         htmlDescription:
           "Standalone HTML paste या upload करें। Design इसे नए screen के रूप में save करता है, editor UI में inject नहीं करता।",
@@ -13464,6 +13670,16 @@ const designImportOverrides = {
         chooseFigFile: "اختر ملف .fig",
         figUploadUploading: "جار الرفع {{progress}}%",
         figUploadProcessing: "جار التحويل…",
+        figImportWarningTitle: "استيراد .fig كبير",
+        figImportWarningDescription:
+          "يحتوي هذا الملف على {{frames}} إطارًا و{{nodes}} طبقة. قد يؤدي استيراد كل شيء إلى إبطاء المحرر. اختر الإطارات التي تحتاجها.",
+        figImportFrameCount: "تم تحديد {{selected}} من أصل {{total}} إطارًا",
+        figImportSelectAll: "تحديد الكل",
+        figImportClearAll: "مسح الكل",
+        figImportCancel: "إلغاء",
+        figImportSelected: "استيراد {{count}} المحددة",
+        figImportAll: "استيراد الكل",
+        figImportAnalyzing: "جار التحليل…",
         htmlTitle: "استيراد HTML",
         htmlDescription:
           "الصق أو ارفع HTML مستقلا. يحفظه Design كشاشة جديدة دون حقنه في واجهة المحرر.",
@@ -14259,13 +14475,20 @@ const designAlignmentOverrides = {
     designEditor: {
       toasts: {
         autoLayoutScreensUnsupported: "自动布局不适用于屏幕",
+        booleanSubtractUnsupported:
+          "请选择相邻且使用纯色填充的矩形或椭圆以执行减去操作。",
+        booleanSubtractFailed: "无法减去所选图层。",
+        vectorEditUnsupported: "此形状或变换目前无法进行向量编辑。",
       },
     },
     layersPanel: {
+      resizeScreens: "调整屏幕区域大小",
       pasteToReplace: "粘贴替换",
       frameSelection: "创建画框",
       flipHorizontal: "水平翻转",
       flipVertical: "垂直翻转",
+      booleanOperations: "布尔运算",
+      subtract: "减去",
     },
   },
   "es-ES": {
@@ -14273,13 +14496,21 @@ const designAlignmentOverrides = {
       toasts: {
         autoLayoutScreensUnsupported:
           "Agregar diseño automático no se aplica a las pantallas",
+        booleanSubtractUnsupported:
+          "Selecciona rectángulos o elipses adyacentes con rellenos sólidos para restarlos.",
+        booleanSubtractFailed: "No se pudieron restar esas capas.",
+        vectorEditUnsupported:
+          "La edición vectorial no está disponible para esta forma o transformación.",
       },
     },
     layersPanel: {
+      resizeScreens: "Cambiar el tamaño de la sección de pantallas",
       pasteToReplace: "Pegar para reemplazar",
       frameSelection: "Enmarcar selección",
       flipHorizontal: "Voltear horizontalmente",
       flipVertical: "Voltear verticalmente",
+      booleanOperations: "Operaciones booleanas",
+      subtract: "Restar",
     },
   },
   "fr-FR": {
@@ -14287,13 +14518,21 @@ const designAlignmentOverrides = {
       toasts: {
         autoLayoutScreensUnsupported:
           "Ajouter une disposition automatique ne s'applique pas aux écrans",
+        booleanSubtractUnsupported:
+          "Sélectionnez des rectangles ou des ellipses adjacents avec un remplissage uni pour les soustraire.",
+        booleanSubtractFailed: "Impossible de soustraire ces calques.",
+        vectorEditUnsupported:
+          "L’édition vectorielle n’est pas disponible pour cette forme ou transformation.",
       },
     },
     layersPanel: {
+      resizeScreens: "Redimensionner la section des écrans",
       pasteToReplace: "Coller pour remplacer",
       frameSelection: "Encadrer la sélection",
       flipHorizontal: "Retourner horizontalement",
       flipVertical: "Retourner verticalement",
+      booleanOperations: "Opérations booléennes",
+      subtract: "Soustraire",
     },
   },
   "de-DE": {
@@ -14301,13 +14540,21 @@ const designAlignmentOverrides = {
       toasts: {
         autoLayoutScreensUnsupported:
           "Auto-Layout hinzufügen gilt nicht für Bildschirme",
+        booleanSubtractUnsupported:
+          "Wähle benachbarte Rechtecke oder Ellipsen mit einfarbiger Füllung aus, um sie zu subtrahieren.",
+        booleanSubtractFailed: "Diese Ebenen konnten nicht subtrahiert werden.",
+        vectorEditUnsupported:
+          "Vektorbearbeitung ist für diese Form oder Transformation nicht verfügbar.",
       },
     },
     layersPanel: {
+      resizeScreens: "Größe des Bildschirmbereichs ändern",
       pasteToReplace: "Einfügen zum Ersetzen",
       frameSelection: "Auswahl rahmen",
       flipHorizontal: "Horizontal spiegeln",
       flipVertical: "Vertikal spiegeln",
+      booleanOperations: "Boolesche Operationen",
+      subtract: "Subtrahieren",
     },
   },
   "ja-JP": {
@@ -14315,13 +14562,21 @@ const designAlignmentOverrides = {
       toasts: {
         autoLayoutScreensUnsupported:
           "オートレイアウトの追加は画面には適用されません",
+        booleanSubtractUnsupported:
+          "減算するには、隣接する単色塗りの長方形または楕円を選択してください。",
+        booleanSubtractFailed: "選択したレイヤーを減算できませんでした。",
+        vectorEditUnsupported:
+          "この形状または変形はベクター編集に対応していません。",
       },
     },
     layersPanel: {
+      resizeScreens: "画面セクションのサイズを変更",
       pasteToReplace: "置き換えて貼り付け",
       frameSelection: "選択範囲をフレーム化",
       flipHorizontal: "水平方向に反転",
       flipVertical: "垂直方向に反転",
+      booleanOperations: "ブール演算",
+      subtract: "減算",
     },
   },
   "ko-KR": {
@@ -14329,13 +14584,21 @@ const designAlignmentOverrides = {
       toasts: {
         autoLayoutScreensUnsupported:
           "오토 레이아웃 추가는 화면에 적용되지 않습니다",
+        booleanSubtractUnsupported:
+          "빼기 작업을 하려면 단색으로 채워진 인접한 사각형이나 타원을 선택하세요.",
+        booleanSubtractFailed: "선택한 레이어를 빼지 못했습니다.",
+        vectorEditUnsupported:
+          "이 도형이나 변형은 벡터 편집을 지원하지 않습니다.",
       },
     },
     layersPanel: {
+      resizeScreens: "화면 섹션 크기 조정",
       pasteToReplace: "교체하여 붙여넣기",
       frameSelection: "선택 영역 프레임화",
       flipHorizontal: "수평 뒤집기",
       flipVertical: "수직 뒤집기",
+      booleanOperations: "불리언 연산",
+      subtract: "빼기",
     },
   },
   "pt-BR": {
@@ -14343,26 +14606,42 @@ const designAlignmentOverrides = {
       toasts: {
         autoLayoutScreensUnsupported:
           "Adicionar layout automático não se aplica a telas",
+        booleanSubtractUnsupported:
+          "Selecione retângulos ou elipses adjacentes com preenchimento sólido para subtraí-los.",
+        booleanSubtractFailed: "Não foi possível subtrair essas camadas.",
+        vectorEditUnsupported:
+          "A edição vetorial não está disponível para esta forma ou transformação.",
       },
     },
     layersPanel: {
+      resizeScreens: "Redimensionar seção de telas",
       pasteToReplace: "Colar para substituir",
       frameSelection: "Enquadrar seleção",
       flipHorizontal: "Inverter horizontalmente",
       flipVertical: "Inverter verticalmente",
+      booleanOperations: "Operações booleanas",
+      subtract: "Subtrair",
     },
   },
   "hi-IN": {
     designEditor: {
       toasts: {
         autoLayoutScreensUnsupported: "ऑटो लेआउट जोड़ें स्क्रीन पर लागू नहीं होता",
+        booleanSubtractUnsupported:
+          "घटाने के लिए पास-पास रखे ठोस रंग वाले आयत या दीर्घवृत्त चुनें।",
+        booleanSubtractFailed: "चुनी गई परतों को घटाया नहीं जा सका।",
+        vectorEditUnsupported:
+          "इस आकार या रूपांतरण के लिए वेक्टर संपादन उपलब्ध नहीं है।",
       },
     },
     layersPanel: {
+      resizeScreens: "स्क्रीन अनुभाग का आकार बदलें",
       pasteToReplace: "बदलने के लिए पेस्ट करें",
       frameSelection: "चयन को फ़्रेम करें",
       flipHorizontal: "क्षैतिज रूप से फ़्लिप करें",
       flipVertical: "लंबवत रूप से फ़्लिप करें",
+      booleanOperations: "बूलियन ऑपरेशन",
+      subtract: "घटाएँ",
     },
   },
   "ar-SA": {
@@ -14370,13 +14649,20 @@ const designAlignmentOverrides = {
       toasts: {
         autoLayoutScreensUnsupported:
           "إضافة التخطيط التلقائي لا تنطبق على الشاشات",
+        booleanSubtractUnsupported:
+          "اختر مستطيلات أو أشكالًا بيضاوية متجاورة ذات تعبئة بلون ثابت لطرحها.",
+        booleanSubtractFailed: "تعذر طرح هذه الطبقات.",
+        vectorEditUnsupported: "تحرير المتجهات غير متاح لهذا الشكل أو التحويل.",
       },
     },
     layersPanel: {
+      resizeScreens: "تغيير حجم قسم الشاشات",
       pasteToReplace: "لصق للاستبدال",
       frameSelection: "تأطير التحديد",
       flipHorizontal: "قلب أفقيًا",
       flipVertical: "قلب رأسيًا",
+      booleanOperations: "العمليات المنطقية",
+      subtract: "طرح",
     },
   },
 } satisfies Record<Exclude<LocaleCode, "en-US" | "zh-TW">, PartialMessages>;
@@ -15793,6 +16079,12 @@ const designComponentInstanceOverrides = {
         swappedFor: "已交换为“{{name}}”。",
         openPanelNudge: "请使用“组件”面板中的“交换实例”选择器。",
         openPanelFailed: "无法打开组件面板。",
+        linkedStructureUnsupported: "目前尚不支持更改链接组件的图层结构。",
+        linkedEditScopeUnsupported:
+          "链接组件编辑目前仅支持基础断点和默认交互状态。",
+        linkedEditSourceUnsupported: "此来源模式目前不支持链接组件编辑。",
+        linkedEditTargetsUnavailable:
+          "无法为每个选中图层解析此链接编辑。未进行任何更改。",
       },
     },
   },
@@ -15818,6 +16110,14 @@ const designComponentInstanceOverrides = {
         openPanelNudge:
           "Usa el selector Intercambiar instancia del panel Componente.",
         openPanelFailed: "No se pudo abrir el panel Componente.",
+        linkedStructureUnsupported:
+          "Aún no se admite cambiar la estructura de capas de los componentes vinculados.",
+        linkedEditScopeUnsupported:
+          "Los cambios en componentes vinculados solo están disponibles en el punto de interrupción base y el estado de interacción predeterminado.",
+        linkedEditSourceUnsupported:
+          "Este modo de origen aún no admite cambios en componentes vinculados.",
+        linkedEditTargetsUnavailable:
+          "No se pudo resolver este cambio vinculado para todas las capas seleccionadas. No se realizaron cambios.",
       },
     },
   },
@@ -15843,6 +16143,14 @@ const designComponentInstanceOverrides = {
         openPanelNudge:
           "Utilisez le sélecteur Permuter l’instance dans le panneau Composant.",
         openPanelFailed: "Impossible d’ouvrir le panneau Composant.",
+        linkedStructureUnsupported:
+          "La modification de la structure des calques des composants liés n’est pas encore prise en charge.",
+        linkedEditScopeUnsupported:
+          "Les modifications des composants liés sont disponibles uniquement au point d’arrêt de base et dans l’état d’interaction par défaut.",
+        linkedEditSourceUnsupported:
+          "Ce mode source ne prend pas encore en charge les modifications des composants liés.",
+        linkedEditTargetsUnavailable:
+          "Impossible de résoudre cette modification liée pour tous les calques sélectionnés. Aucune modification n’a été effectuée.",
       },
     },
   },
@@ -15867,6 +16175,14 @@ const designComponentInstanceOverrides = {
         openPanelNudge:
           "Verwende die Auswahl „Instanz austauschen“ im Komponentenbereich.",
         openPanelFailed: "Der Komponentenbereich konnte nicht geöffnet werden.",
+        linkedStructureUnsupported:
+          "Das Ändern der Ebenenstruktur verknüpfter Komponenten wird noch nicht unterstützt.",
+        linkedEditScopeUnsupported:
+          "Verknüpfte Komponenten können nur am Basis-Breakpoint und im Standard-Interaktionszustand bearbeitet werden.",
+        linkedEditSourceUnsupported:
+          "Dieser Quellmodus unterstützt Änderungen an verknüpften Komponenten noch nicht.",
+        linkedEditTargetsUnavailable:
+          "Diese Änderung konnte nicht für alle ausgewählten Ebenen aufgelöst werden. Es wurden keine Änderungen vorgenommen.",
       },
     },
   },
@@ -15892,6 +16208,14 @@ const designComponentInstanceOverrides = {
         openPanelNudge:
           "コンポーネントパネルの「インスタンスを入れ替え」を使用してください。",
         openPanelFailed: "コンポーネントパネルを開けませんでした。",
+        linkedStructureUnsupported:
+          "リンクされたコンポーネントのレイヤー構造の変更はまだサポートされていません。",
+        linkedEditScopeUnsupported:
+          "リンクされたコンポーネントの編集は、ベースのブレークポイントと既定のインタラクション状態でのみ使用できます。",
+        linkedEditSourceUnsupported:
+          "このソースモードでは、リンクされたコンポーネントの編集はまだ利用できません。",
+        linkedEditTargetsUnavailable:
+          "選択したすべてのレイヤーでリンクされた編集を解決できませんでした。変更は行われていません。",
       },
     },
   },
@@ -15914,6 +16238,14 @@ const designComponentInstanceOverrides = {
         swappedFor: '"{{name}}"(으)로 교체했습니다.',
         openPanelNudge: "컴포넌트 패널의 인스턴스 교체 선택기를 사용하세요.",
         openPanelFailed: "컴포넌트 패널을 열 수 없습니다.",
+        linkedStructureUnsupported:
+          "연결된 컴포넌트의 레이어 구조 변경은 아직 지원되지 않습니다.",
+        linkedEditScopeUnsupported:
+          "연결된 컴포넌트 편집은 기본 중단점과 기본 상호작용 상태에서만 사용할 수 있습니다.",
+        linkedEditSourceUnsupported:
+          "이 소스 모드에서는 연결된 컴포넌트 편집을 아직 사용할 수 없습니다.",
+        linkedEditTargetsUnavailable:
+          "선택한 모든 레이어에서 연결된 편집을 확인할 수 없습니다. 변경 사항은 적용되지 않았습니다.",
       },
     },
   },
@@ -15938,6 +16270,14 @@ const designComponentInstanceOverrides = {
         swappedFor: 'Trocada por "{{name}}".',
         openPanelNudge: "Use o seletor Trocar instância no painel Componente.",
         openPanelFailed: "Não foi possível abrir o painel Componente.",
+        linkedStructureUnsupported:
+          "Ainda não é possível alterar a estrutura das camadas de componentes vinculados.",
+        linkedEditScopeUnsupported:
+          "Edições de componentes vinculados só estão disponíveis no breakpoint base e no estado de interação padrão.",
+        linkedEditSourceUnsupported:
+          "Este modo de origem ainda não permite edições de componentes vinculados.",
+        linkedEditTargetsUnavailable:
+          "Não foi possível resolver esta edição vinculada para todas as camadas selecionadas. Nenhuma alteração foi feita.",
       },
     },
   },
@@ -15960,6 +16300,14 @@ const designComponentInstanceOverrides = {
         swappedFor: '"{{name}}" से बदल दिया गया।',
         openPanelNudge: "कॉम्पोनेंट पैनल में इंस्टेंस बदलें चयनकर्ता का उपयोग करें।",
         openPanelFailed: "कॉम्पोनेंट पैनल नहीं खोला जा सका।",
+        linkedStructureUnsupported:
+          "लिंक किए गए कॉम्पोनेंट की लेयर संरचना बदलना अभी समर्थित नहीं है।",
+        linkedEditScopeUnsupported:
+          "लिंक किए गए कॉम्पोनेंट संपादन केवल बेस ब्रेकपॉइंट और डिफ़ॉल्ट इंटरैक्शन स्थिति में उपलब्ध हैं।",
+        linkedEditSourceUnsupported:
+          "इस सोर्स मोड में लिंक किए गए कॉम्पोनेंट संपादन अभी उपलब्ध नहीं हैं।",
+        linkedEditTargetsUnavailable:
+          "चुनी गई सभी लेयरों के लिए यह लिंक किया गया संपादन हल नहीं हो सका। कोई बदलाव नहीं किया गया।",
       },
     },
   },
@@ -15982,6 +16330,14 @@ const designComponentInstanceOverrides = {
         swappedFor: 'تم التبديل إلى "{{name}}".',
         openPanelNudge: "استخدم منتقي تبديل النسخة في لوحة المكوّن.",
         openPanelFailed: "تعذر فتح لوحة المكوّن.",
+        linkedStructureUnsupported:
+          "تغيير بنية طبقات المكوّنات المرتبطة غير مدعوم حتى الآن.",
+        linkedEditScopeUnsupported:
+          "تعديلات المكوّنات المرتبطة متاحة فقط عند نقطة التوقف الأساسية وفي حالة التفاعل الافتراضية.",
+        linkedEditSourceUnsupported:
+          "وضع المصدر هذا لا يدعم تعديلات المكوّنات المرتبطة بعد.",
+        linkedEditTargetsUnavailable:
+          "تعذر حل هذا التعديل المرتبط لكل الطبقات المحددة. لم يتم إجراء أي تغييرات.",
       },
     },
   },

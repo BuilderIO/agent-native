@@ -1,8 +1,5 @@
 import type { CodeLayerProjection } from "@shared/code-layer";
-import {
-  applyVisualEdit,
-  ensureCodeLayerNodeIdsInHtml,
-} from "@shared/code-layer";
+import { applyVisualEdit, buildCodeLayerProjection } from "@shared/code-layer";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 
@@ -12,9 +9,17 @@ import type {
 } from "@/components/design/types";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
 import {
+  canonicalElementInfoForCodeLayerNode,
   canonicalizeElementInfoFromProjection,
+  elementInfoFromCodeLayerNode,
   resolveCodeLayerNodeFromElementInfo,
 } from "@/pages/design-editor/code-layer-state";
+import type { ApplyFileContentUpdateResult } from "@/pages/design-editor/commands/apply-file-content-update";
+import {
+  mapAcceptedSelectionNode,
+  projectAcceptedSource,
+} from "@/pages/design-editor/commands/selection-publication";
+import { withMeasuredGeometry } from "@/pages/design-editor/editor-helpers";
 import {
   dedupeStringIds,
   isScreenRootElementInfo,
@@ -34,11 +39,13 @@ export interface ScreenElementSelectArgs {
       forcePreviewFullDocument?: boolean;
       persist?: boolean;
       recordHistory?: boolean;
+      historyBeforeContent?: string;
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
     },
-  ) => void;
+  ) => ApplyFileContentUpdateResult;
   clearPendingOverviewLayerSelectionTimer: () => void;
+  createdOverviewLayerSelection: { screenId: string; layerId: string } | null;
   focusDesignInspectorForSelection: () => void;
   getCodeLayerProjectionForScreen: (
     screenId: string,
@@ -48,6 +55,7 @@ export interface ScreenElementSelectArgs {
   id: string | undefined;
   pendingOverviewLayerSelectionRef: RefObject<string | null>;
   pendingOverviewScreenSelectionRef: RefObject<string | null>;
+  renderedElementInfoByLayerKeyRef?: RefObject<Map<string, ElementInfo>>;
   selectedLayerIdsState: string[];
   setActiveFileId: Dispatch<SetStateAction<string | null>>;
   setActiveTool: Dispatch<SetStateAction<DesignTool>>;
@@ -72,6 +80,7 @@ export function runScreenElementSelect(
     activeBreakpointWidthStateRef,
     applyFileContentUpdate,
     clearPendingOverviewLayerSelectionTimer,
+    createdOverviewLayerSelection,
     focusDesignInspectorForSelection,
     getCodeLayerProjectionForScreen,
     getScreenContent,
@@ -79,6 +88,7 @@ export function runScreenElementSelect(
     id,
     pendingOverviewLayerSelectionRef,
     pendingOverviewScreenSelectionRef,
+    renderedElementInfoByLayerKeyRef,
     selectedLayerIdsState,
     setActiveFileId,
     setActiveTool,
@@ -102,37 +112,53 @@ export function runScreenElementSelect(
   } = {},
 ) {
   const pendingLayerId = pendingOverviewLayerSelectionRef.current;
-  const pendingScreenId = pendingOverviewScreenSelectionRef.current;
-  const projection = getCodeLayerProjectionForScreen(screenId);
-  const canonical = projection
-    ? canonicalizeElementInfoFromProjection(projection, info)
+  const pendingScreenId =
+    pendingOverviewScreenSelectionRef.current ??
+    (createdOverviewLayerSelection?.layerId === pendingLayerId
+      ? createdOverviewLayerSelection.screenId
+      : null);
+  let projection = getCodeLayerProjectionForScreen(screenId);
+  let canonical = projection
+    ? canonicalizeElementInfoFromProjection(projection, info, screenId)
     : info;
-  const node = projection
+  let node = projection
     ? resolveCodeLayerNodeFromElementInfo(projection, canonical)
     : null;
-  if (
-    shouldIgnoreOverviewLayerCreationEcho({
-      pendingLayerId,
-      pendingScreenId,
-      screenId,
-      info: canonical,
-      resolvedLayerId: node?.id,
-      event: "select",
-    })
-  ) {
-    return;
+  const ignoredLayerSelectionEcho = shouldIgnoreOverviewLayerCreationEcho({
+    pendingLayerId,
+    pendingScreenId,
+    screenId,
+    info: canonical,
+    resolvedLayerId: node?.id,
+    event: "select",
+  });
+  const blockedSelection =
+    shouldPreserveBlockedOverviewLayerSelectionRef.current(screenId);
+  const exactPendingLayerEcho =
+    pendingLayerId !== null &&
+    (node?.id === pendingLayerId ||
+      (pendingScreenId === screenId &&
+        node?.dataAttributes["data-agent-native-node-id"] ===
+          pendingLayerId)) &&
+    !isScreenRootElementInfo(canonical) &&
+    (canonical.portableStyleSnapshot !== undefined ||
+      canonical.styleSnapshotCaptureFailed === true) &&
+    !blockedSelection;
+  if (ignoredLayerSelectionEcho) {
+    if (exactPendingLayerEcho) setSelectedElement(canonical);
+    return false;
   }
   pendingOverviewScreenSelectionRef.current = null;
   pendingOverviewLayerSelectionRef.current = null;
   clearPendingOverviewLayerSelectionTimer();
   setCreatedOverviewLayerSelection(null);
   if (
-    shouldPreserveBlockedOverviewLayerSelectionRef.current(screenId) &&
+    blockedSelection &&
     (isScreenRootElementInfo(canonical) ||
       !node ||
       selectedLayerIdsState.includes(node.id))
   ) {
-    return;
+    return false;
   }
   // Node-id integrity (id-on-demand): AI-generated/duplicated screens
   // frequently ship elements with a missing or empty-string
@@ -175,9 +201,37 @@ export function runScreenElementSelect(
         },
       );
       if (result.result.status === "applied" && result.content !== rawContent) {
-        applyFileContentUpdate(screenId, result.content, {
-          recordHistory: false,
+        const submittedProjection = buildCodeLayerProjection(result.content, {
+          source: { kind: "design-file", designId: id, fileId: screenId },
         });
+        const submittedNode = submittedProjection.nodes.find(
+          (candidate) =>
+            candidate.dataAttributes["data-agent-native-node-id"] ===
+            pendingNodeId,
+        );
+        const publication = applyFileContentUpdate(screenId, result.content, {
+          recordHistory: false,
+          historyBeforeContent: rawContent,
+        });
+        if (publication.status === "accepted") {
+          const acceptedProjection = projectAcceptedSource(publication, {
+            kind: "design-file",
+            designId: id,
+            fileId: screenId,
+          });
+          node = mapAcceptedSelectionNode(
+            publication,
+            acceptedProjection,
+            submittedNode,
+          );
+          if (node) {
+            projection = acceptedProjection;
+            canonical = withMeasuredGeometry(
+              canonicalElementInfoForCodeLayerNode(canonical, node, screenId),
+              screenId,
+            );
+          }
+        }
       }
     }
   } else if (
@@ -193,14 +247,58 @@ export function runScreenElementSelect(
   ) {
     const rawContent = getScreenContent(screenId);
     if (rawContent) {
-      const stamped = ensureCodeLayerNodeIdsInHtml(rawContent, {
-        source: { kind: "design-file", designId: id, fileId: screenId },
+      const publication = applyFileContentUpdate(screenId, rawContent, {
+        recordHistory: false,
+        historyBeforeContent: rawContent,
       });
-      if (stamped.changed && stamped.content !== rawContent) {
-        applyFileContentUpdate(screenId, stamped.content, {
-          recordHistory: false,
+      if (publication.status === "accepted") {
+        const acceptedProjection = projectAcceptedSource(publication, {
+          kind: "design-file",
+          designId: id,
+          fileId: screenId,
         });
+        node = mapAcceptedSelectionNode(publication, acceptedProjection, node);
+        if (node) {
+          projection = acceptedProjection;
+          canonical = withMeasuredGeometry(
+            canonicalElementInfoForCodeLayerNode(canonical, node, screenId),
+            screenId,
+          );
+        }
       }
+    }
+  }
+  if (node) {
+    if (viewModeRef.current === "overview") {
+      // Activate the frame scope before caching its measurement. The scope
+      // switch invalidates rendered metadata, so doing this after the write
+      // drops the only responsive measurement for the selected layer.
+      if (options.breakpointWidthPx !== undefined) {
+        handleBreakpointBarSelect(options.breakpointWidthPx);
+        const guidanceKey = `design-responsive-edit-guidance:${id}:${screenId}`;
+        if (
+          typeof window !== "undefined" &&
+          window.localStorage.getItem(guidanceKey) !== "shown"
+        ) {
+          window.localStorage.setItem(guidanceKey, "shown");
+          toast.info(t("designEditor.breakpointBar.scope.firstEditGuidance"), {
+            duration: 6000,
+          });
+        }
+      } else if (activeBreakpointWidthStateRef.current !== undefined) {
+        handleBreakpointBarSelect(undefined);
+      }
+    }
+    renderedElementInfoByLayerKeyRef?.current.set(
+      `${screenId}:${node.id}`,
+      canonical,
+    );
+    const stableId = node.dataAttributes["data-agent-native-node-id"];
+    if (stableId) {
+      renderedElementInfoByLayerKeyRef?.current.set(
+        `${screenId}:${stableId}`,
+        canonical,
+      );
     }
   }
   // Known limitation: elements rendered from a `<template x-for>`
@@ -211,30 +309,58 @@ export function runScreenElementSelect(
   // stamp. Fixing that requires the code-layer projection itself to
   // model `<template>` repeater children as selectable/attributable
   // nodes, which is out of scope for this selection-time fix.
+  // Figma spec §1: Shift+click is the only additive (union) click gesture.
+  // Cmd/Ctrl+click alone deep-selects and REPLACES, same as a plain click —
+  // it must not be OR'd in here, or a deep-selected child gets unioned onto
+  // the container it was cycled out of instead of replacing it.
   const additiveSelection = Boolean(
-    node &&
-    (intent?.additive ||
-      intent?.range ||
-      intent?.shiftKey ||
-      intent?.metaKey ||
-      intent?.ctrlKey),
+    node && (intent?.additive || intent?.range || intent?.shiftKey),
   );
   setActiveFileId(screenId);
   setSelectedElement(canonical);
   setHoveredElement(null);
   setHoveredElementScreenId(null);
   if (node && additiveSelection) {
-    setSelectedLayerIdsState((current) => {
-      const removeExisting =
-        Boolean(intent?.metaKey || intent?.ctrlKey) &&
-        !intent?.shiftKey &&
-        current.includes(node.id);
-      if (removeExisting) {
-        const next = current.filter((layerId) => layerId !== node.id);
-        return next.length > 0 ? next : [node.id];
-      }
-      return dedupeStringIds([...current, node.id]);
-    });
+    // Figma spec §1: Shift+click toggles membership — an already-selected
+    // object is removed, same as Screens' overview toggle
+    // (MultiScreenCanvas.tsx's handleFrameClick). Cmd/Ctrl never reaches
+    // here: additiveSelection above is shiftKey/additive/range only, so
+    // this branch is exclusively the Shift gesture.
+    if (selectedLayerIdsState.includes(node.id)) {
+      // `selectedElement` was just set to the clicked node above, but that
+      // node is the one being REMOVED — selectedCodeLayerNode (and the
+      // inspector/motion tools it feeds) derives from selectedElement, so it
+      // must follow the member that remains, not stay pointed at a node no
+      // longer selected. Pick the same member Screens' own toggle would
+      // (nextSelectedIds[nextSelectedIds.length - 1]).
+      const remainingIds = selectedLayerIdsState.filter(
+        (layerId) => layerId !== node.id,
+      );
+      const remainingId = remainingIds[remainingIds.length - 1];
+      const remainingNode = remainingId
+        ? (projection?.nodes.find(
+            (candidate) => candidate.id === remainingId,
+          ) ?? null)
+        : null;
+      setSelectedElement(
+        remainingNode
+          ? // elementInfoFromCodeLayerNode's boundingRect is always zero (it
+            // has no live DOM to measure) — Shift+2 zoom-to-selection and
+            // the inspector both need a real rect, so measure the live
+            // preview node the same way projection-derived selections
+            // already do elsewhere.
+            withMeasuredGeometry(
+              elementInfoFromCodeLayerNode(remainingNode),
+              screenId,
+            )
+          : null,
+      );
+    }
+    setSelectedLayerIdsState((current) =>
+      current.includes(node.id)
+        ? current.filter((layerId) => layerId !== node.id)
+        : dedupeStringIds([...current, node.id]),
+    );
   } else if (node) {
     // An intent-less select is the bridge re-anchoring after a content
     // replace, not a user picking one object, so it must not collapse a live
@@ -255,24 +381,9 @@ export function runScreenElementSelect(
     setOverviewSelectedScreenIds((current) =>
       !intent && current.length > 0 ? current : [],
     );
-    // A responsive sub-frame now owns a full editor bridge, so selection
-    // carries its exact width into the edit scope. Primary-frame clicks
-    // still return to Base. This prevents two identical selectors in the
-    // base and responsive runtimes from racing for one global scope.
-    if (options.breakpointWidthPx !== undefined) {
-      handleBreakpointBarSelect(options.breakpointWidthPx);
-      const guidanceKey = `design-responsive-edit-guidance:${id}:${screenId}`;
-      if (window.localStorage.getItem(guidanceKey) !== "shown") {
-        window.localStorage.setItem(guidanceKey, "shown");
-        toast.info(t("designEditor.breakpointBar.scope.firstEditGuidance"), {
-          duration: 6000,
-        });
-      }
-    } else if (activeBreakpointWidthStateRef.current !== undefined) {
-      handleBreakpointBarSelect(undefined);
-    }
   }
   setActiveTool(resolveToolAfterSelection);
   setMode("edit");
   focusDesignInspectorForSelection();
+  return true;
 }

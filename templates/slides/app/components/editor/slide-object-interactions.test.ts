@@ -15,7 +15,9 @@ import {
   cloneSlideObject,
   collectMovableSlideObjects,
   computeSlideObjectZOrder,
+  clampSlideObjectPlacementPosition,
   computeSlideObjectZOrderForSelection,
+  createSlideLinePlacementGeometry,
   createSlideObjectPlacementGeometry,
   copySlideObjects,
   readSlideObjectClipboardId,
@@ -44,6 +46,7 @@ import {
   resolveSlideObjectContainingBlock,
   resolveSlideObjectGroupRoot,
   resolveSlideObjectInsertionContainingBlock,
+  resolveSlideObjectMoveRoots,
   restoreSlideObjectStyle,
   resizeSlideObject,
   resizeSlideObjectMembers,
@@ -686,6 +689,92 @@ describe("slide object interactions", () => {
     expect(
       createSlideObjectPlacementGeometry({ x: 10, y: 20 }, { x: 10, y: 20 }),
     ).toEqual({ x: 10, y: 20, width: 24, height: 24 });
+  });
+
+  it("builds a rotated bar spanning the drag start and end points for a line", () => {
+    const geometry = createSlideLinePlacementGeometry(
+      { x: 0, y: 0 },
+      { x: 100, y: 0 },
+    );
+    expect(geometry).toEqual({
+      x: 0,
+      y: -2,
+      width: 100,
+      height: 4,
+      rotation: 0,
+    });
+  });
+
+  it("computes the drag angle so a diagonal line is not axis-aligned", () => {
+    const start = { x: 100, y: 100 };
+    const end = { x: 300, y: 250 };
+    const geometry = createSlideLinePlacementGeometry(start, end);
+
+    // The bar is drawn at its true length between the two points, not the
+    // axis-aligned bounding box `createSlideObjectPlacementGeometry` returns.
+    expect(geometry.width).toBeCloseTo(Math.hypot(200, 150), 5);
+    expect(geometry.height).toBe(4);
+    expect(geometry.rotation).toBeCloseTo(
+      (Math.atan2(150, 200) * 180) / Math.PI,
+      5,
+    );
+
+    // Reversing the drag direction should draw the same line segment, just
+    // rotated 180 degrees, not an unrelated rectangle.
+    const reversed = createSlideLinePlacementGeometry(end, start);
+    expect(reversed.width).toBeCloseTo(geometry.width, 5);
+    const angleDelta =
+      ((reversed.rotation - geometry.rotation + 540) % 360) - 180;
+    expect(Math.abs(angleDelta)).toBeCloseTo(180, 5);
+  });
+
+  it("keeps a minimum thickness even for a zero-length drag", () => {
+    const geometry = createSlideLinePlacementGeometry(
+      { x: 10, y: 10 },
+      { x: 10, y: 10 },
+      6,
+    );
+    expect(geometry.width).toBe(6);
+    expect(geometry.height).toBe(6);
+  });
+
+  it("clamps an unrotated shape identically to the old plain bounding-box clamp", () => {
+    expect(
+      clampSlideObjectPlacementPosition(
+        { x: -50, y: 10, width: 80, height: 40 },
+        300,
+        200,
+      ),
+    ).toEqual({ x: 0, y: 10 });
+    expect(
+      clampSlideObjectPlacementPosition(
+        { x: 250, y: 10, width: 80, height: 40 },
+        300,
+        200,
+      ),
+    ).toEqual({ x: 220, y: 10 });
+  });
+
+  it("clamps a rotated line by its rendered footprint, not its unrotated bar length", () => {
+    // A near-vertical line dragged from the left edge: the unrotated bar is
+    // 251px long (the full drag distance) but its rendered footprint is only
+    // ~20px wide, so it must not be pushed away from the drag position as if
+    // it were a 251px-wide box.
+    const start = { x: 10, y: 0 };
+    const end = { x: 30, y: 250 };
+    const geometry = createSlideLinePlacementGeometry(start, end);
+
+    const clamped = clampSlideObjectPlacementPosition(
+      geometry,
+      300,
+      300,
+      geometry.rotation,
+    );
+
+    // The line's rendered center must stay at the drag midpoint; only an
+    // unrotated-box clamp would have shifted it.
+    const renderedCenterX = clamped.x + geometry.width / 2;
+    expect(renderedCenterX).toBeCloseTo((start.x + end.x) / 2, 5);
   });
 
   it("promotes a Markdown-rendered canvas so a new text box can persist as a freeform object", () => {
@@ -1537,6 +1626,94 @@ describe("slide object interactions", () => {
     const pasted = buildPastedSlideObjects(copied, document);
     expect(pasted).toHaveLength(1);
     expect(pasted[0].querySelector("[data-slide-object-id]")).not.toBeNull();
+  });
+
+  it("moves a bordered container when all of its selectable leaves are selected", () => {
+    const slideContent = document.createElement("div");
+    const card = document.createElement("div");
+    card.style.borderTop = "2px solid";
+    const label = document.createElement("div");
+    label.dataset.builderId = "label";
+    const copy = document.createElement("div");
+    copy.dataset.builderId = "copy";
+    card.append(label, copy);
+    slideContent.append(card);
+
+    expect(
+      resolveSlideObjectMoveRoots(
+        [label, copy],
+        new Set(["label", "copy"]),
+        slideContent,
+      ),
+    ).toEqual([card]);
+    expect(
+      resolveSlideObjectMoveRoots([label], new Set(["label"]), slideContent),
+    ).toEqual([label]);
+  });
+
+  it("does not promote a bordered flow card with positioned descendants", () => {
+    const slideContent = document.createElement("div");
+    const card = document.createElement("div");
+    card.style.borderLeft = "2px solid";
+    const label = document.createElement("div");
+    label.dataset.builderId = "label";
+    const positioned = document.createElement("div");
+    positioned.dataset.builderId = "positioned";
+    positioned.style.position = "absolute";
+    card.append(label, positioned);
+    slideContent.append(card);
+
+    expect(
+      resolveSlideObjectMoveRoots(
+        [label, positioned],
+        new Set(["label", "positioned"]),
+        slideContent,
+      ),
+    ).toEqual([label, positioned]);
+  });
+
+  it("promotes the highest fully-selected bordered card", () => {
+    const slideContent = document.createElement("div");
+    const outerCard = document.createElement("div");
+    outerCard.style.borderBottom = "2px solid";
+    const innerCard = document.createElement("div");
+    innerCard.style.borderRight = "2px solid";
+    const label = document.createElement("div");
+    label.dataset.builderId = "label";
+    const copy = document.createElement("div");
+    copy.dataset.builderId = "copy";
+    innerCard.append(label, copy);
+    outerCard.append(innerCard);
+    slideContent.append(outerCard);
+
+    expect(
+      resolveSlideObjectMoveRoots(
+        [label, copy],
+        new Set(["label", "copy"]),
+        slideContent,
+      ),
+    ).toEqual([outerCard]);
+  });
+
+  it("does not promote a bordered flow card with fixed descendants", () => {
+    const slideContent = document.createElement("div");
+    const card = document.createElement("div");
+    card.style.borderTop = "2px solid";
+    const label = document.createElement("div");
+    label.dataset.builderId = "label";
+    const fixed = document.createElement("div");
+    fixed.dataset.builderId = "fixed";
+    fixed.style.position = "fixed";
+    card.append(label, fixed);
+    slideContent.append(card);
+
+    expect(
+      resolveSlideObjectMoveRoots(
+        [label, fixed],
+        new Set(["label", "fixed"]),
+        slideContent,
+      ),
+    ).toEqual([label, fixed]);
   });
 
   it("moves every member by the same delta relative to its own captured start", () => {

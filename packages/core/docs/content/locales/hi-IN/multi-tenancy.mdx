@@ -9,7 +9,7 @@ description: "प्रत्येक एजेंट-नेटिव ऐप �
 
 ## आपको मुफ़्त में क्या मिलता है {#free}
 
-एक ताज़ा `npx @agent-native/core@latest create` मचान पहले से ही भेजा जा रहा है:
+एक ताज़ा `npx --yes @agent-native/core@latest create` मचान पहले से ही भेजा जा रहा है:
 
 - **उपयोगकर्ता पंजीकरण और लॉगिन** — [Authentication](/docs/authentication) देखें।
 - **संगठन** — उपयोगकर्ता संगठन बनाते हैं और सदस्यों को ईमेल द्वारा आमंत्रित करते हैं। प्रत्येक संगठन पूरी तरह से पृथक किरायेदार है।
@@ -122,3 +122,7 @@ description: "प्रत्येक एजेंट-नेटिव ऐप �
 - [**Authentication**](/docs/authentication#organizations) — sessions, social providers और organization-management surface
 - [**Security — Data Scoping**](/docs/security#data-scoping) — SQL-level isolation, `ownableColumns()` contract और access guards
 - [**Multi-App Workspace**](/docs/multi-app-workspace) — साझा authentication और RBAC के साथ एक monorepo में कई Agent-Native ऐप्स होस्ट करना
+
+## आइसोलेशन मॉडल
+
+सर्वर रीड और राइट के लिए `accessFilter()` और `assertAccess()` का उपयोग करें। एजेंट SQL स्कोपिंग ownable tables के लिए अस्थायी फ़िल्टर किए गए views बनाती है। `pnpm guards` में unscoped-query जांच शामिल है। RLS अभी सक्रिय सुरक्षा परत नहीं है और इसे 1.0 के बाद hardening के रूप में नियोजित किया गया है। [प्रशासित डिप्लॉयमेंट](/docs/administered-deployments) देखें।

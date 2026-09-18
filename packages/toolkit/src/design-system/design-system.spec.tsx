@@ -1,6 +1,11 @@
 // @vitest-environment happy-dom
 
-import { act, forwardRef, type ComponentProps } from "react";
+import {
+  act,
+  forwardRef,
+  type ComponentProps,
+  type ComponentType,
+} from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -17,7 +22,10 @@ import { ActionButton, IconButton } from "./components.js";
 import { defaultDesignSystemComponents } from "./default-adapter.js";
 import { defineDesignSystem } from "./definition.js";
 import { defineTheme } from "./theme.js";
-import { DESIGN_SYSTEM_CONTRACT_VERSION } from "./types.js";
+import {
+  DESIGN_SYSTEM_CONTRACT_VERSION,
+  type ActionButtonProps,
+} from "./types.js";
 
 describe("design-system contract", () => {
   let container: HTMLDivElement;
@@ -146,6 +154,41 @@ describe("design-system contract", () => {
     expect(received).toHaveBeenCalledWith("danger", "outline");
   });
 
+  it("preserves inset focus semantics through a registered ActionButton", () => {
+    const received = vi.fn();
+    const CustomActionButton = (props: ComponentProps<typeof ActionButton>) => {
+      received(props.emphasis, props.inset);
+      return <button>{props.children}</button>;
+    };
+
+    act(() => {
+      root.render(
+        <ToolkitProvider
+          designSystem={{ components: { ActionButton: CustomActionButton } }}
+        >
+          <Button variant="ghost-inset">Sort</Button>
+        </ToolkitProvider>,
+      );
+    });
+
+    expect(received).toHaveBeenCalledWith("ghost", true);
+  });
+
+  it("keeps the v1 emphasis contract compatible with existing adapters", () => {
+    type LegacyActionButtonProps = Pick<ActionButtonProps, "children"> & {
+      emphasis?: "solid" | "outline" | "ghost";
+    };
+    const LegacyActionButton: ComponentType<LegacyActionButtonProps> = ({
+      children,
+    }: LegacyActionButtonProps) => <button>{children}</button>;
+
+    const definition = defineDesignSystem({
+      components: { ActionButton: LegacyActionButton },
+    });
+
+    expect(definition.components?.ActionButton).toBe(LegacyActionButton);
+  });
+
   it("uses legacy Button as the lowest-precedence ActionButton adapter", () => {
     const LegacyButton = (props: ComponentProps<"button">) => (
       <button {...props} data-adapter="legacy" />
@@ -162,6 +205,26 @@ describe("design-system contract", () => {
     expect(container.querySelector("[data-adapter=legacy]")?.textContent).toBe(
       "Save",
     );
+  });
+
+  it("preserves inset focus semantics through the legacy Button adapter", () => {
+    const received = vi.fn();
+    const LegacyButton = (props: ComponentProps<typeof Button>) => {
+      received(props.variant);
+      return <button>{props.children}</button>;
+    };
+
+    act(() => {
+      root.render(
+        <ToolkitProvider components={{ Button: LegacyButton }}>
+          <ActionButton emphasis="ghost" inset>
+            Sort
+          </ActionButton>
+        </ToolkitProvider>,
+      );
+    });
+
+    expect(received).toHaveBeenCalledWith("ghost-inset");
   });
 
   it.each(["pointer", "Enter", "Space", "ArrowDown"])(
