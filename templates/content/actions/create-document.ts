@@ -113,7 +113,7 @@ export default defineAction({
       .string()
       .nullish()
       .describe(
-        "Actual parent page ID for nesting; use spaceId or spaceName for a top-level page. A workspace Files document ID is accepted as a top-level target for compatibility.",
+        "Actual parent page ID for nesting; use spaceId or spaceName for a top-level root page. A workspace Files document ID is accepted as a top-level target for compatibility.",
       ),
     icon: z.string().optional().describe("Optional emoji icon."),
     contextPackId: z
