@@ -18,6 +18,7 @@ function hydratedEditorChromeBridgeScript(): string {
 }
 
 const INITIAL_HTML = `<!doctype html><html><body><svg data-agent-native-node-id="line.1" data-an-primitive="line" viewBox="0 0 100 40"><line x1="0" y1="0" x2="100" y2="40" stroke="black" stroke-width="3" /></svg></body></html>`;
+const PERSISTED_HTML = `<!doctype html><html><body><svg data-agent-native-node-id="line.1" data-an-primitive="line" viewBox="0 0 100 40" style="--an-vector-start-point:triangle;--an-vector-end-point:circle"><line x1="0" y1="0" x2="100" y2="40" stroke="black" stroke-width="3" /></svg></body></html>`;
 
 async function sendStyleChange(
   page: import("@playwright/test").Page,
@@ -42,7 +43,96 @@ async function sendStyleChange(
   );
 }
 
+async function replaceDocumentContent(
+  page: import("@playwright/test").Page,
+  content: string,
+): Promise<void> {
+  await page.evaluate((nextContent) => {
+    window.postMessage(
+      {
+        type: "replace-document-content",
+        content: nextContent,
+        selectedSelector: "",
+        selectorCandidates: [],
+        forceFullDocument: true,
+      },
+      "*",
+    );
+  }, content);
+}
+
+async function readHydratedMarkers(
+  page: import("@playwright/test").Page,
+): Promise<{
+  startReference: string | null;
+  endReference: string | null;
+  startStyle: string;
+  endStyle: string;
+  startOrient: string | null;
+  startRefX: string | null;
+}> {
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector('[data-agent-native-node-id="line.1"] line')
+        ?.getAttribute("marker-start") ===
+      "url(#line-1.006c0069006e0065002e0031-vector-marker-start)",
+  );
+  return page.evaluate(() => {
+    const svg = document.querySelector<SVGElement>(
+      '[data-agent-native-node-id="line.1"]',
+    );
+    const line = svg?.querySelector("line");
+    const startMarker = svg?.querySelector(
+      '[data-an-vector-endpoint-marker="start"]',
+    );
+    return {
+      startReference: line?.getAttribute("marker-start") ?? null,
+      endReference: line?.getAttribute("marker-end") ?? null,
+      startStyle: svg?.style.getPropertyValue("--an-vector-start-point") ?? "",
+      endStyle: svg?.style.getPropertyValue("--an-vector-end-point") ?? "",
+      startOrient: startMarker?.getAttribute("orient") ?? null,
+      startRefX: startMarker?.getAttribute("refX") ?? null,
+    };
+  });
+}
+
 describe("live vector endpoint style changes", () => {
+  it("hydrates persisted endpoint styles on startup and after a document reload", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      const pageErrors: string[] = [];
+      page.on("pageerror", (error) => pageErrors.push(error.message));
+      await page.setContent(PERSISTED_HTML);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+
+      expect(await readHydratedMarkers(page)).toEqual({
+        startReference:
+          "url(#line-1.006c0069006e0065002e0031-vector-marker-start)",
+        endReference: "url(#line-1.006c0069006e0065002e0031-vector-marker-end)",
+        startStyle: "triangle",
+        endStyle: "circle",
+        startOrient: "auto-start-reverse",
+        startRefX: "8",
+      });
+
+      await replaceDocumentContent(page, PERSISTED_HTML);
+      expect(await readHydratedMarkers(page)).toEqual({
+        startReference:
+          "url(#line-1.006c0069006e0065002e0031-vector-marker-start)",
+        endReference: "url(#line-1.006c0069006e0065002e0031-vector-marker-end)",
+        startStyle: "triangle",
+        endStyle: "circle",
+        startOrient: "auto-start-reverse",
+        startRefX: "8",
+      });
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  });
+
   it("updates marker DOM for start and end edits and removes only the cleared side", async () => {
     const browser = await chromium.launch({ headless: true });
     try {

@@ -5550,6 +5550,7 @@ export const editorChromeBridgeScript: string = `"use strict";
               currentMatch.remove();
             }
           }
+          hydrateVectorEndpointMarkers();
           applyLayerStateSelectors();
           selectedEl = null;
           if (nextMatch) {
@@ -5606,6 +5607,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       persistentNodes.forEach(function(node) {
         document.body.appendChild(node);
       });
+      hydrateVectorEndpointMarkers();
       applyLayerStateSelectors();
       frameLabelRenderKey = "";
       selectedEl = null;
@@ -9253,6 +9255,19 @@ export const editorChromeBridgeScript: string = `"use strict";
         wrapperStyle.setProperty(cssProperty, endpoint);
       }
       return true;
+    }
+    function hydrateVectorEndpointMarkers() {
+      document.querySelectorAll(
+        'svg[data-an-primitive="path"], svg[data-an-primitive="line"], svg[data-an-primitive="arrow"]'
+      ).forEach(function(element) {
+        var style = element.style;
+        ["--an-vector-start-point", "--an-vector-end-point"].forEach(
+          function(cssProperty) {
+            var value = style.getPropertyValue(cssProperty).trim();
+            if (value) applyVectorEndpointProperty(element, cssProperty, value);
+          }
+        );
+      });
     }
     function vectorPaintTarget(el) {
       if (!el || el.tagName.toLowerCase() !== "svg") return null;
@@ -15892,6 +15907,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       });
     }
     refreshFrameNameLabels();
+    hydrateVectorEndpointMarkers();
     captureInitialSourceOwnership();
     if (runtimeLayerSnapshotEnabled) scheduleRuntimeLayerSnapshot();
     if (document.readyState === "complete") {

@@ -7264,6 +7264,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             currentMatch.remove();
           }
         }
+        hydrateVectorEndpointMarkers();
         applyLayerStateSelectors();
         selectedEl = null;
         if (nextMatch) {
@@ -7328,6 +7329,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     persistentNodes.forEach(function (node) {
       document.body.appendChild(node);
     });
+    hydrateVectorEndpointMarkers();
     applyLayerStateSelectors();
     // The morph can swap a frame for an equivalent element with the same name
     // and box, which the label cache cannot see: rebuild so no label's click
@@ -12549,6 +12551,22 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       wrapperStyle.setProperty(cssProperty, endpoint);
     }
     return true;
+  }
+
+  function hydrateVectorEndpointMarkers(): void {
+    document
+      .querySelectorAll(
+        'svg[data-an-primitive="path"], svg[data-an-primitive="line"], svg[data-an-primitive="arrow"]',
+      )
+      .forEach(function (element) {
+        var style = (element as HTMLElement).style;
+        ["--an-vector-start-point", "--an-vector-end-point"].forEach(
+          function (cssProperty) {
+            var value = style.getPropertyValue(cssProperty).trim();
+            if (value) applyVectorEndpointProperty(element, cssProperty, value);
+          },
+        );
+      });
   }
 
   /**
@@ -22490,6 +22508,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     });
   }
   refreshFrameNameLabels();
+  hydrateVectorEndpointMarkers();
 
   captureInitialSourceOwnership();
   if (runtimeLayerSnapshotEnabled) scheduleRuntimeLayerSnapshot();

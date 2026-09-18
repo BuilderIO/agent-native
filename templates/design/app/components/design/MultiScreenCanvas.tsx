@@ -11240,7 +11240,7 @@ function DraftPrimitiveContent({
           id={markerId}
           markerWidth="10"
           markerHeight="10"
-          refX={side === "start" ? "2" : "8"}
+          refX="8"
           refY="5"
           orient={vectorEndpointMarkerOrientation(side)}
           markerUnits="strokeWidth"
