@@ -151,10 +151,6 @@ export function compactPromptLine(value: string, maxChars: number): string {
 const SHARED_RESOURCE_INDEX_LIMIT = 40;
 const PROMPT_SKILL_SUMMARY_LIMIT = 40;
 const PROMPT_SKILL_METADATA_READ_LIMIT = 80;
-const PROMPT_SKILL_METADATA_FALLBACK_READ_LIMIT = 12;
-const PROMPT_SKILL_RESOURCE_LIST_LIMIT = Math.ceil(
-  PROMPT_SKILL_METADATA_READ_LIMIT / 4,
-);
 const PROMPT_INSTRUCTION_SUMMARY_LIMIT = 20;
 const PROMPT_SUMMARY_DESCRIPTION_MAX_CHARS = 180;
 const JEV_CONTEXT_ITEM_MAX_CHARS = 10_000;
@@ -166,13 +162,16 @@ const JEV_CONTEXT_SEPARATOR = "\n\n";
 const JEV_CONTEXT_WRAPPER_OVERHEAD_CHARS =
   JEV_CONTEXT_PREFIX.length + JEV_CONTEXT_SUFFIX.length;
 
+function escapeJevContextFence(value: string): string {
+  return value.replace(/<(?=\s*\/?\s*jev-prefetched-context\b)/gi, "&lt;");
+}
+
 type JevPromptCandidate = JevCandidate & {
   kind: "skill";
   name: string;
   scope: string;
   path: string;
-  content?: string;
-  resourceId?: string;
+  content: string;
 };
 
 export interface PromptResourceManifestSection {
@@ -724,52 +723,10 @@ async function loadInstructionResourcesForPrompt(
 
 interface ResourceSkillPromptEntry {
   resource: ResourceMeta;
-  full?: Resource;
+  full: Resource;
   name: string;
   description: string;
   scope: string;
-}
-
-interface ResourceSkillMetadata {
-  name?: string;
-  description?: string;
-  scope?: string;
-  userInvocable?: boolean;
-}
-
-function resourceSkillMetadata(
-  resource: ResourceMeta,
-): ResourceSkillMetadata | null {
-  if (!resource.metadata) return null;
-  try {
-    const parsed: unknown = JSON.parse(resource.metadata);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return null;
-    }
-    const metadata = parsed as Record<string, unknown>;
-    const result: ResourceSkillMetadata = {
-      ...(typeof metadata.name === "string" ? { name: metadata.name } : {}),
-      ...(typeof metadata.description === "string"
-        ? { description: metadata.description }
-        : {}),
-      ...(typeof metadata.scope === "string" ? { scope: metadata.scope } : {}),
-      ...(typeof metadata.userInvocable === "boolean"
-        ? { userInvocable: metadata.userInvocable }
-        : {}),
-    };
-    return Object.keys(result).length > 0 ? result : null;
-  } catch {
-    // coercion-ok: malformed optional resource metadata is absent from the catalog.
-    return null;
-  }
-}
-
-function isRuntimeVisibleResourceSkill(
-  metadata: ResourceSkillMetadata | null,
-): boolean {
-  return metadata?.scope === undefined
-    ? true
-    : metadata.scope !== "dev" && metadata.scope !== "invalid";
 }
 
 async function loadResourceSkillPromptEntries(
@@ -785,19 +742,10 @@ async function loadResourceSkillPromptEntries(
     const resources =
       owner === SHARED_OWNER
         ? [
-            ...(await resourceList(SHARED_OWNER, "skills/", {
-              orgId,
-              limit: PROMPT_SKILL_RESOURCE_LIST_LIMIT,
-            })),
-            ...(await resourceList(WORKSPACE_OWNER, "skills/", {
-              orgId,
-              limit: PROMPT_SKILL_RESOURCE_LIST_LIMIT,
-            })),
+            ...(await resourceList(SHARED_OWNER, "skills/")),
+            ...(await resourceList(WORKSPACE_OWNER, "skills/")),
           ]
-        : await resourceListAccessible(owner, "skills/", {
-            orgId,
-            limit: PROMPT_SKILL_RESOURCE_LIST_LIMIT,
-          });
+        : await resourceListAccessible(owner, "skills/", { orgId });
     const sorted = resources.sort((a, b) => {
       const ownerOrder =
         (a.owner === owner
@@ -823,37 +771,25 @@ async function loadResourceSkillPromptEntries(
     });
     const skillCandidates = sorted.slice(0, PROMPT_SKILL_METADATA_READ_LIMIT);
     const loaded = await Promise.all(
-      skillCandidates.map(async (resource, index) => {
-        const metadata = resourceSkillMetadata(resource);
-        if (metadata?.name || metadata?.description || metadata?.scope) {
-          return { resource, metadata, full: undefined };
-        }
-        if (index >= PROMPT_SKILL_METADATA_FALLBACK_READ_LIMIT) {
-          return { resource, metadata: null, full: undefined };
-        }
+      skillCandidates.map(async (resource) => ({
+        resource,
         // coercion-ok: an unreadable optional skill is absent from Jev's catalog, not a required prompt failure.
-        const full = await resourceGet(resource.id, {
-          orgId,
-          userEmail: owner === SHARED_OWNER ? undefined : owner,
-        }).catch(() => null); // coercion-ok: an unreadable optional skill is absent from the catalog.
-        return {
-          resource,
-          metadata: full?.content ? parseSkillFrontmatter(full.content) : null,
-          full: full ?? undefined,
-        };
-      }),
+        full: await resourceGet(resource.id, { orgId }).catch(() => null),
+      })),
     );
     const seen = new Set<string>();
     const entries: ResourceSkillPromptEntry[] = [];
-    for (const { resource, metadata, full } of loaded) {
-      if (metadata?.userInvocable === false) continue;
-      if (!isRuntimeVisibleResourceSkill(metadata)) continue;
-      const name = metadata?.name || getSkillNameFromPath(resource.path);
+    for (const { resource, full } of loaded) {
+      if (!full?.content) continue;
+      const meta = parseSkillFrontmatter(full.content);
+      if (meta.userInvocable === false) continue;
+      if (!isRuntimeVisibleScope(meta.scope)) continue;
+      const name = meta.name || getSkillNameFromPath(resource.path);
       if (!name || seen.has(name)) continue;
       seen.add(name);
       const scope = resourceScopeForOwner(resource.owner, owner);
       const description = compactPromptLine(
-        metadata?.description || "(no description)",
+        meta.description || "(no description)",
         PROMPT_SUMMARY_DESCRIPTION_MAX_CHARS,
       );
       entries.push({ resource, full, name, description, scope });
@@ -939,13 +875,9 @@ async function loadResourceIndexForPrompt(
   }
 }
 
-async function collectJevPromptCandidates(
-  owner?: string,
-  orgId?: string | null,
-): Promise<JevPromptCandidate[]> {
-  // Keep the external catalog bounded and metadata-only. Resource access is
-  // resolved before candidates are created; raw skill bodies stay local until
-  // Jev selects one for the agent prompt.
+async function collectJevPromptCandidates(): Promise<JevPromptCandidate[]> {
+  // Do not send SQL resource names, paths, or descriptions to Jev. They are
+  // user-authored metadata and can contain customer/project information.
   const candidates: JevPromptCandidate[] = [];
   let nextId = 0;
   const add = (
@@ -991,21 +923,6 @@ async function collectJevPromptCandidates(
     );
   }
 
-  if (owner) {
-    const { entries } = await loadResourceSkillPromptEntries(owner, orgId);
-    for (const entry of entries) {
-      add({
-        kind: "skill",
-        name: entry.name,
-        description: entry.description,
-        scope: entry.scope,
-        path: entry.resource.path,
-        ...(entry.full ? { content: entry.full.content } : {}),
-        resourceId: entry.resource.id,
-      });
-    }
-  }
-
   return candidates;
 }
 
@@ -1014,8 +931,6 @@ export async function preloadJevContextForPrompt(options: {
   request: string;
   apiKey?: string;
   builderAuth?: BuilderGatewayAuth | null;
-  owner?: string | null;
-  orgId?: string | null;
   compact?: boolean;
   maxChars?: number;
 }): Promise<string> {
@@ -1025,10 +940,7 @@ export async function preloadJevContextForPrompt(options: {
     return "";
   }
 
-  const candidates = await collectJevPromptCandidates(
-    options.owner ?? undefined,
-    options.orgId,
-  );
+  const candidates = await collectJevPromptCandidates();
   const selectedIds = await rankJevCandidates({
     request,
     apiKey,
@@ -1051,33 +963,10 @@ export async function preloadJevContextForPrompt(options: {
     0,
     maxTotalChars - JEV_CONTEXT_WRAPPER_OVERHEAD_CHARS,
   );
-  const hydratedCandidates = await Promise.all(
-    selectedIds.map(async (id) => {
-      const candidate = candidates.find((item) => item.id === id);
-      if (!candidate) return null;
-      if (candidate.content !== undefined) return candidate;
-      if (!candidate.resourceId) return null;
-      const full = await resourceGet(candidate.resourceId, {
-        orgId: options.orgId,
-        userEmail:
-          options.owner && options.owner !== SHARED_OWNER
-            ? options.owner
-            : undefined,
-      }).catch(() => null); // coercion-ok: an unreadable selected skill is omitted from optional context.
-      if (!full?.content) return null;
-      const metadata = parseSkillFrontmatter(full.content);
-      if (
-        metadata.userInvocable === false ||
-        !isRuntimeVisibleScope(metadata.scope)
-      ) {
-        return null;
-      }
-      return { ...candidate, content: full.content };
-    }),
-  );
   const blocks: string[] = [];
   let usedChars = 0;
-  for (const candidate of hydratedCandidates) {
+  for (const id of selectedIds) {
+    const candidate = candidates.find((item) => item.id === id);
     if (!candidate?.content) continue;
     const separatorChars = blocks.length > 0 ? JEV_CONTEXT_SEPARATOR.length : 0;
     const remaining = contentBudget - usedChars - separatorChars;
@@ -1106,7 +995,7 @@ export async function preloadJevContextForPrompt(options: {
     usedChars += separatorChars + block.length;
   }
   if (blocks.length === 0) return "";
-  return `${JEV_CONTEXT_PREFIX}${blocks.join(JEV_CONTEXT_SEPARATOR)}${JEV_CONTEXT_SUFFIX}`;
+  return `${JEV_CONTEXT_PREFIX}${escapeJevContextFence(blocks.join(JEV_CONTEXT_SEPARATOR))}${JEV_CONTEXT_SUFFIX}`;
 }
 
 /**

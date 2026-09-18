@@ -691,6 +691,7 @@ export async function getOwnerJevApiKey(
     if (!lookupFailed) writeOptionalKeyCache(cacheKey, value);
     return value;
   }
+  if (lookupFailed) return undefined;
 
   const deployKey = canUseDeployCredentialFallbackForRequest("JEV_API_KEY")
     ? readDeployCredentialEnv("JEV_API_KEY")?.trim()
@@ -10694,8 +10695,6 @@ export function createProductionAgentHandler(
         request: requestMessage,
         apiKey: jevContextCredentials.apiKey,
         builderAuth: jevContextCredentials.builderAuth,
-        owner: ownerEmail ?? getRequestUserEmail(),
-        orgId: getRequestOrgId(),
         compact: options.jevContextCompact,
         maxChars: jevContextMaxChars,
       }),

@@ -212,7 +212,6 @@ export interface ResourceConditionalWrite {
 
 export interface ResourceListOptions {
   includeAgentScratch?: boolean;
-  limit?: number;
   workspaceAppId?: string | null;
   userEmail?: string | null;
   orgId?: string | null;
@@ -740,14 +739,6 @@ function mergeResourceMetas(
     merged.push(resource);
   }
   return merged;
-}
-
-function sortAndLimitResourceMetas(
-  resources: ResourceMeta[],
-  limit?: number,
-): ResourceMeta[] {
-  if (limit === undefined) return resources;
-  return resources.sort((a, b) => a.path.localeCompare(b.path)).slice(0, limit);
 }
 
 async function selectGrantedWorkspaceResourceRows(
@@ -1785,20 +1776,11 @@ export async function resourceList(
   const client = getDbExec();
   scheduleExpiredAgentScratchCleanup(client);
   const visibilitySql = scratchFilterSql(options);
-  const limit =
-    typeof options?.limit === "number" && Number.isFinite(options.limit)
-      ? Math.max(0, Math.floor(options.limit))
-      : undefined;
-  const limitSql = limit === undefined ? "" : " ORDER BY path ASC LIMIT ?";
 
   if (pathPrefix) {
     const { rows } = await client.execute({
-      sql: `SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ? AND path LIKE ? ESCAPE '!'${visibilitySql}${limitSql}`,
-      args: [
-        owner,
-        prefixLike(pathPrefix),
-        ...(limit === undefined ? [] : [limit]),
-      ],
+      sql: `SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ? AND path LIKE ? ESCAPE '!'${visibilitySql}`,
+      args: [owner, prefixLike(pathPrefix)],
     });
     const resources = rows
       .map(rowToMeta)
@@ -1816,18 +1798,15 @@ export async function resourceList(
       userEmail: options?.userEmail,
       orgId: options?.orgId,
     });
-    return sortAndLimitResourceMetas(
-      mergeResourceMetas(
-        local,
-        mergeResourceMetas(resources, granted.map(resourceToMeta)),
-      ),
-      limit,
+    return mergeResourceMetas(
+      local,
+      mergeResourceMetas(resources, granted.map(resourceToMeta)),
     );
   }
 
   const { rows } = await client.execute({
-    sql: `SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ?${visibilitySql}${limitSql}`,
-    args: [owner, ...(limit === undefined ? [] : [limit])],
+    sql: `SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ?${visibilitySql}`,
+    args: [owner],
   });
   const resources = rows
     .map(rowToMeta)
@@ -1844,12 +1823,9 @@ export async function resourceList(
     userEmail: options?.userEmail,
     orgId: options?.orgId,
   });
-  return sortAndLimitResourceMetas(
-    mergeResourceMetas(
-      local,
-      mergeResourceMetas(resources, granted.map(resourceToMeta)),
-    ),
-    limit,
+  return mergeResourceMetas(
+    local,
+    mergeResourceMetas(resources, granted.map(resourceToMeta)),
   );
 }
 

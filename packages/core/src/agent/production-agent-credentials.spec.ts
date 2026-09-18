@@ -137,4 +137,13 @@ describe("getOwnerApiKey", () => {
       "deployment-jev-key",
     );
   });
+
+  it("does not use a deployment Jev key when scoped lookup fails", async () => {
+    vi.stubEnv("JEV_API_KEY", "deployment-jev-key");
+    mockReadAppSecret.mockRejectedValue(new Error("database unavailable"));
+
+    await expect(
+      getOwnerJevApiKey("owner@example.com"),
+    ).resolves.toBeUndefined();
+  });
 });
