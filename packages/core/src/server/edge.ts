@@ -83,3 +83,5 @@ export {
   hasUiActionCapability,
   mountUiActionCapabilityRoute,
 } from "./ui-action-capability.js";
+export { getSession } from "./auth.js";
+export { resolveOrgIdForEmailViaEvent } from "../org/context.js";

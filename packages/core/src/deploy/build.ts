@@ -1200,7 +1200,7 @@ export function generateWorkerEntry(
   const ssrAuthRedirectCookieName = frameworkSessionHintCookieName(
     resolveAuthCookieNamespace().frameworkCookieName,
   );
-  const hasUiOnlyActions = actions.some((action) => action.uiOnly === true);
+  const hasActions = actions.length > 0;
   const routeImports: string[] = [];
   const routeRegistrations: string[] = [];
 
@@ -1244,9 +1244,11 @@ export function generateWorkerEntry(
     const routePath = `/_agent-native/actions/${a.path ?? a.name}`;
     actionRegistrations.push(
       `  const ${handlerName} = defineEventHandler(async (event) => {
-${
-  a.uiOnly
-    ? `    if (!hasGeneratedUiActionCapability(event)) {
+    const actionIsUiOnly = ${a.uiOnly ? "true" : `${varName}.uiOnly === true`};
+    const uiActionContext = actionIsUiOnly
+      ? await getGeneratedUiActionContext(event)
+      : undefined;
+    if (actionIsUiOnly && !uiActionContext) {
       return new Response(
         JSON.stringify({
           error: "This action can only be called from the signed-in app UI.",
@@ -1255,9 +1257,7 @@ ${
         { status: 403, headers: { "Content-Type": "application/json" } },
       );
     }
-`
-    : ""
-}    const configuredMethod = ${JSON.stringify(a.method.toUpperCase())};
+    const configuredMethod = ${JSON.stringify(a.method.toUpperCase())};
     const requestMethod = event.req.method;
     const isFrontendMutation =
       event.req.headers.get("x-agent-native-frontend") === "1" &&
@@ -1275,7 +1275,21 @@ ${
         event.req.headers.get("x-agent-native-frontend") === "1"
           ? "frontend"
           : "http";
-      const result = await ${varName}.run(params, { caller });
+      const actionRunContext = {
+        caller,
+        requestHeaders: event.req.headers,
+        actionName: ${JSON.stringify(a.name)},
+        ...(uiActionContext
+          ? {
+              userEmail: uiActionContext.userEmail,
+              orgId: uiActionContext.orgId ?? null,
+            }
+          : {}),
+      };
+      const runAction = () => ${varName}.run(params, actionRunContext);
+      const result = actionIsUiOnly
+        ? await runWithGeneratedRequestContext(uiActionContext, runAction)
+        : await runAction();
       if (typeof result === "string") { try { return JSON.parse(result); } catch { return result; } }
       return result;
     } catch (err) {
@@ -1306,7 +1320,7 @@ ${["post", "put", "delete"]
   getAppConfig as getAgentNativeAppConfig,
   getSsrAuthRedirectScript as getAgentNativeSsrAuthRedirectScript,
   resolveAppHomePath as resolveAgentNativeAppHomePath,
-${hasUiOnlyActions ? "  hasUiActionCapability as hasGeneratedUiActionCapability,\n" : ""}
+${hasActions ? "  getSession as getGeneratedSession,\n  hasUiActionCapability as hasGeneratedUiActionCapability,\n  mountUiActionCapabilityRoute as mountGeneratedUiActionCapabilityRoute,\n  resolveOrgIdForEmailViaEvent as resolveGeneratedOrgId,\n  runWithRequestContext as runWithGeneratedRequestContext,\n" : ""}
 } from "${EDGE_SERVER_ENTRYPOINT}";`,
   );
 
@@ -1363,7 +1377,7 @@ ${hasUiOnlyActions ? "  hasUiActionCapability as hasGeneratedUiActionCapability,
     );
   }
   const generatedPluginMarks =
-    providedPluginStems.size > 0
+    providedPluginStems.size > 0 || hasActions
       ? [
           ...new Set([
             ...Object.keys(DEFAULT_PLUGIN_REGISTRY),
@@ -2115,7 +2129,24 @@ async function getHandler() {
   // framework defaults before later custom plugins get a chance to mark
   // themselves as provided.
 ${generatedPluginMarks.map((stem) => `  markGeneratedPluginProvided(nitroApp, ${JSON.stringify(stem)});`).join("\n")}
+${hasActions ? "  mountGeneratedUiActionCapabilityRoute(nitroApp);" : ""}
 ${pluginCalls.join("\n")}
+
+${
+  hasActions
+    ? `  async function getGeneratedUiActionContext(event) {
+    const session = await getGeneratedSession(event);
+    const userEmail =
+      typeof session?.email === "string" ? session.email.trim().toLowerCase() : undefined;
+    if (!userEmail || !hasGeneratedUiActionCapability(event, userEmail)) {
+      return null;
+    }
+    const orgId = (await resolveGeneratedOrgId(event, userEmail)) ?? undefined;
+    return { userEmail, orgId };
+  }
+`
+    : ""
+}
 
   // Register API routes
 ${routeRegistrations.join("\n")}

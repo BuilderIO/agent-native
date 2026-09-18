@@ -1028,8 +1028,69 @@ describe("generateWorkerEntry", { timeout: 15_000 }, () => {
     expect(source).toContain(
       "hasUiActionCapability as hasGeneratedUiActionCapability",
     );
-    expect(source).toContain("if (!hasGeneratedUiActionCapability(event))");
+    expect(source).toContain(
+      "mountUiActionCapabilityRoute as mountGeneratedUiActionCapabilityRoute",
+    );
+    expect(source).toContain(
+      "if (!userEmail || !hasGeneratedUiActionCapability(event, userEmail))",
+    );
+    expect(source).toContain(
+      "resolveOrgIdForEmailViaEvent as resolveGeneratedOrgId",
+    );
+    expect(source).toContain(
+      "runWithRequestContext as runWithGeneratedRequestContext",
+    );
     expect(source).toContain('errorCode: "ui_capability_required"');
+
+    const dynamicSource = generateWorkerEntry(
+      [],
+      [],
+      [],
+      [
+        {
+          name: "dynamic-delete-data",
+          absPath: "/tmp/dynamic-delete-data.ts",
+          method: "post",
+        },
+      ],
+    );
+    expect(dynamicSource).toContain(
+      "const actionIsUiOnly = action_0.uiOnly === true;",
+    );
+    expect(dynamicSource).toContain(
+      "mountGeneratedUiActionCapabilityRoute(nitroApp);",
+    );
+  });
+
+  it("mounts the generated UI capability route when actions are discovered", async () => {
+    const dir = makeTempDir();
+    const actionPath = path.join(dir, "delete-action.mjs");
+    fs.writeFileSync(
+      actionPath,
+      `
+export default {
+  uiOnly: true,
+  run: async () => ({ ok: true }),
+};
+`,
+    );
+    const worker = await importGeneratedWorker(
+      generateWorkerEntry(
+        [],
+        [],
+        [],
+        [{ name: "delete-data", absPath: actionPath, method: "post" }],
+      ),
+    );
+
+    const capability = await worker.fetch(
+      new Request("https://app.test/_agent-native/ui-capability", {
+        method: "GET",
+      }),
+      {},
+      {},
+    );
+    expect(capability.status).toBe(401);
   });
 
   it("pre-marks generated plugin slots before running async plugins", () => {
