@@ -5,7 +5,9 @@ import { EVENT_CALL } from "./guard-tracking-event-names.mjs";
 
 test("matches optional-member telemetry tracking calls", () => {
   const source = [
-    "options.telemetry?.track(",
+    "options.telemetry?.",
+    "track",
+    "(",
     JSON.stringify("session status"),
     ");",
   ].join("");
