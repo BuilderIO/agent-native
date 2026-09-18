@@ -79,8 +79,14 @@ test("a selected frame exposes only its authored Selection color", async ({
         .locator('button[aria-label^="#"]')
         .evaluateAll((buttons) =>
           buttons.map((button) => button.getAttribute("aria-label")),
-        ),
+      ),
     ).resolves.toEqual(["#101010"]);
+    await selectionColors
+      .locator('button[aria-label="Find layers: #101010"]')
+      .click();
+    await expect(
+      layers.locator('[role="treeitem"][aria-selected="true"]'),
+    ).toHaveCount(1);
     await cdpScreenshot(
       page,
       testInfo.outputPath("selection-colors-inline.png"),

@@ -649,6 +649,33 @@ describe("selectionColorValues", () => {
     ).toEqual(expectedIds);
   });
 
+  it("does not claim a stylesheet-only color can locate an authored layer", () => {
+    const content = `<!doctype html><html><head><style>.card { color: #0066ff; }</style></head><body><div class="card"></div></body></html>`;
+
+    expect(
+      selectionColorTargets(
+        [{ fileId: "file-1", content, wholeDocument: true }],
+        "#0066ff",
+      ),
+    ).toEqual([]);
+  });
+
+  it("resolves replacement ranges against the rewritten source snapshot", () => {
+    const stale =
+      '<section data-agent-native-node-id="root"><div style="color:#0066ff"></div></section>';
+    const current =
+      '<section data-agent-native-node-id="root" data-padding="a-much-longer-current-attribute"><div style="color:#0066ff"></div></section>';
+
+    expect(
+      replaceSelectionColorsInHtml(
+        current,
+        [{ fileId: "screen", content: stale, sourceId: "root" }],
+        "#0066ff",
+        "#ff0000",
+      ),
+    ).toContain('style="color:#ff0000"');
+  });
+
   it("replaces a color throughout selected descendants but not outside them", () => {
     const content = [
       '<section data-agent-native-node-id="root" style="color:#0066ff">',

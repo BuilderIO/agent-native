@@ -451,3 +451,58 @@ it("cancels an active opacity drag without closing or late-committing it", async
   ).toBe(false);
   expect(document.querySelector('input[aria-label="Hex"]')).not.toBeNull();
 });
+
+it("calls the selection-wide color locator", async () => {
+  const onColorTarget = vi.fn();
+  await act(() =>
+    root.render(
+      <TooltipProvider>
+        <SelectionColorsProperties
+          colors={[{ property: "color", value: "#dadada" }]}
+          elements={[]}
+          onColorTarget={onColorTarget}
+        />
+      </TooltipProvider>,
+    ),
+  );
+
+  await act(() =>
+    Array.from(container.querySelectorAll("button"))
+      .find((button) => button.textContent === "Show selection colors")!
+      .click(),
+  );
+  const targetButton = container.querySelector<HTMLButtonElement>(
+    'button[aria-label="designEditor.keyboardShortcuts.commands.find: #dadada"]',
+  );
+  expect(targetButton).not.toBeNull();
+  await act(() => targetButton!.click());
+
+  expect(onColorTarget).toHaveBeenCalledWith("#dadada");
+});
+
+it("hides the color locator when a swatch has no selectable source layer", async () => {
+  await act(() =>
+    root.render(
+      <TooltipProvider>
+        <SelectionColorsProperties
+          colors={[{ property: "color", value: "#dadada" }]}
+          elements={[]}
+          onColorTarget={() => undefined}
+          canSelectColorTarget={() => false}
+        />
+      </TooltipProvider>,
+    ),
+  );
+
+  await act(() =>
+    Array.from(container.querySelectorAll("button"))
+      .find((button) => button.textContent === "Show selection colors")!
+      .click(),
+  );
+
+  expect(
+    container.querySelector(
+      'button[aria-label="designEditor.keyboardShortcuts.commands.find: #dadada"]',
+    ),
+  ).toBeNull();
+});

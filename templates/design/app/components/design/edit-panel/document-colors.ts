@@ -707,11 +707,12 @@ function addStyleColors(
 
 function scopeNodeRange(
   scope: SelectionColorScope,
+  content = scope.content,
 ): SelectionColorRange | null {
   if (scope.wholeDocument) {
-    return { start: 0, end: scope.content.length };
+    return { start: 0, end: content.length };
   }
-  const node = resolveSelectionScopeNode(scope);
+  const node = resolveSelectionScopeNode(scope, content);
   const source = node?.source;
   return source ? { start: source.start, end: source.end } : null;
 }
@@ -740,30 +741,40 @@ function resolveSelectionScope(scope: SelectionColorScope): {
 
 function resolveSelectionScopeNode(
   scope: SelectionColorScope,
+  content = scope.content,
 ): CodeLayerNode | null {
-  return resolveSelectionScope(scope).node;
+  return resolveSelectionScope({ ...scope, content }).node;
 }
 
 function mergedScopeRanges(
   scopes: SelectionColorScope[],
   requireEveryScope = false,
+  content?: string,
 ): SelectionColorRange[] | null {
-  const resolvedRanges = scopes.map(scopeNodeRange);
+  const resolvedRanges = scopes.map((scope) => scopeNodeRange(scope, content));
   if (requireEveryScope && resolvedRanges.some((range) => range === null)) {
     return null;
   }
   const ranges = resolvedRanges
     .filter((range): range is SelectionColorRange => range !== null)
     .sort((left, right) => left.start - right.start);
+  return mergeSelectionColorRanges(ranges);
+}
+
+function mergeSelectionColorRanges(
+  ranges: SelectionColorRange[],
+): SelectionColorRange[] {
   const merged: SelectionColorRange[] = [];
-  ranges.forEach((range) => {
-    const previous = merged[merged.length - 1];
-    if (!previous || range.start > previous.end) {
-      merged.push({ ...range });
-    } else {
-      previous.end = Math.max(previous.end, range.end);
-    }
-  });
+  [...ranges]
+    .sort((left, right) => left.start - right.start)
+    .forEach((range) => {
+      const previous = merged[merged.length - 1];
+      if (!previous || range.start > previous.end) {
+        merged.push({ ...range });
+      } else {
+        previous.end = Math.max(previous.end, range.end);
+      }
+    });
   return merged;
 }
 
@@ -824,7 +835,10 @@ function replaceScopedColorTokensInHtml(
   properties?: ReadonlySet<string>,
 ): string | null {
   const target = colorKey(from);
-  const ranges = mergedScopeRanges(scopes, true);
+  // Resolve node ranges against the exact source snapshot being rewritten.
+  // Selection scopes can outlive an async bridge/source update, so offsets
+  // from scope.content are not safe to apply to the caller's content.
+  const ranges = mergedScopeRanges(scopes, true, content);
   if (!ranges || ranges.length === 0) return null;
   let next = content;
   for (let index = ranges.length - 1; index >= 0; index -= 1) {
@@ -848,19 +862,33 @@ export function selectionColorValues(
 ): SelectionColorValue[] {
   const elements = Array.isArray(element) ? element : [element];
   const values = new Map<string, SelectionColorValue>();
-  const rangesByFile = selectionColorScopeRanges(scopes);
 
   // Source ranges are the authoritative selection-wide scan. They include
   // every literal in descendants, including nodes beyond the bridge's compact
   // runtime payload. Computed values fill in colors supplied by shared CSS.
-  for (const [fileId, ranges] of rangesByFile) {
-    const scope = scopes.find((candidate) => candidate.fileId === fileId);
-    if (!scope) continue;
-    for (const range of ranges) {
-      const content = scope.content.slice(range.start, range.end);
-      colorTokenSpansInHtml(content).forEach(({ value: token }) =>
-        addColorValue(values, "color", token),
-      );
+  const scanGroups = new Map<
+    string,
+    Array<{ content: string; ranges: SelectionColorRange[] }>
+  >();
+  for (const scope of scopes) {
+    const range = scopeNodeRange(scope);
+    if (!range) continue;
+    const groups = scanGroups.get(scope.fileId) ?? [];
+    const group = groups.find(
+      (candidate) => candidate.content === scope.content,
+    );
+    if (group) group.ranges.push(range);
+    else groups.push({ content: scope.content, ranges: [range] });
+    scanGroups.set(scope.fileId, groups);
+  }
+  for (const groups of scanGroups.values()) {
+    for (const group of groups) {
+      for (const range of mergeSelectionColorRanges(group.ranges)) {
+        const content = group.content.slice(range.start, range.end);
+        colorTokenSpansInHtml(content).forEach(({ value: token }) =>
+          addColorValue(values, "color", token),
+        );
+      }
     }
   }
 

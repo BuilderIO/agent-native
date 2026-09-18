@@ -358,6 +358,7 @@ interface EditPanelProps {
   selectionColorScopes?: SelectionColorScope[];
   onSelectionColorChange?: SelectionColorChangeHandler;
   onSelectionColorTarget?: (color: string) => void;
+  canSelectSelectionColorTarget?: (color: string) => boolean;
   onSelectionColorPickerOpenChange?: (from: string, open: boolean) => void;
   onGroupFillStylesChange?: (
     styles: Record<string, string>,
@@ -2073,6 +2074,7 @@ export function SelectionColorsProperties({
   scopes,
   onColorChange,
   onColorTarget,
+  canSelectColorTarget,
   onColorPickerOpenChange,
   colors: providedColors,
   title,
@@ -2081,6 +2083,7 @@ export function SelectionColorsProperties({
   scopes?: SelectionColorScope[];
   onColorChange?: SelectionColorChangeHandler;
   onColorTarget?: (color: string) => void;
+  canSelectColorTarget?: (color: string) => boolean;
   onColorPickerOpenChange?: (from: string, open: boolean) => void;
   colors?: SelectionColorValue[];
   title?: string;
@@ -2280,7 +2283,7 @@ export function SelectionColorsProperties({
                     }}
                     disabled={!onColorChange}
                   />
-                  {onColorTarget ? (
+                  {onColorTarget && (canSelectColorTarget?.(value) ?? true) ? (
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <button
@@ -2432,6 +2435,7 @@ export const EditPanel = memo(function EditPanel({
   selectionColorScopes = [],
   onSelectionColorChange: onSelectionColorChangeProp,
   onSelectionColorTarget,
+  canSelectSelectionColorTarget,
   onSelectionColorPickerOpenChange,
   onGroupFillStylesChange: onGroupFillStylesChangeProp,
   viewMode,
@@ -3210,6 +3214,7 @@ export const EditPanel = memo(function EditPanel({
                         elements={[selectedScreenElement]}
                         scopes={selectionColorScopes}
                         onColorTarget={onSelectionColorTarget}
+                        canSelectColorTarget={canSelectSelectionColorTarget}
                         onColorPickerOpenChange={
                           onSelectionColorPickerOpenChange
                         }
@@ -3231,6 +3236,7 @@ export const EditPanel = memo(function EditPanel({
                   elements={[]}
                   scopes={selectionColorScopes}
                   onColorTarget={onSelectionColorTarget}
+                  canSelectColorTarget={canSelectSelectionColorTarget}
                   onColorPickerOpenChange={onSelectionColorPickerOpenChange}
                   onColorChange={
                     readOnly || interactionState
@@ -3352,6 +3358,7 @@ export const EditPanel = memo(function EditPanel({
                     elements={effectiveSelectedElements}
                     scopes={selectionColorScopes}
                     onColorTarget={onSelectionColorTarget}
+                    canSelectColorTarget={canSelectSelectionColorTarget}
                     onColorPickerOpenChange={onSelectionColorPickerOpenChange}
                     onColorChange={
                       readOnly || interactionState
