@@ -164,6 +164,7 @@ import {
   filterHostedHarnessToolNames,
   normalizeHostedHarnessRuntime,
 } from "./harness/hosted.js";
+import { preloadJevTools } from "./jev-tool-prefetch.js";
 import {
   type AgentLoopSettings,
   getDefaultMaxIterations,
@@ -10563,7 +10564,7 @@ export function createProductionAgentHandler(
           options.initialToolNames,
         )
       : availableRequestTools;
-    const requestTools =
+    const curatedRequestTools =
       requestMode === "plan"
         ? preloadPlanModeEngineTools({
             request: requestMessage,
@@ -10572,6 +10573,14 @@ export function createProductionAgentHandler(
             availableTools: availableRequestTools,
           })
         : initialRequestTools;
+    const requestTools = await preloadJevTools({
+      request: requestMessage,
+      apiKey: await getOwnerApiKey("jev", ownerEmail ?? getRequestUserEmail()),
+      registry: requestActions,
+      initialTools: curatedRequestTools,
+      availableTools: availableRequestTools,
+      readOnlyOnly: requestMode === "plan",
+    });
     // System sections are emitted by the prompt builder once per request. Tool
     // schemas become known just after prompt setup, so append their measured
     // contribution here and reuse the immutable result for every loop pass.

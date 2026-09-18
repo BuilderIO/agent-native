@@ -21,6 +21,7 @@ export type AgentChatContextPolicy = {
   file: string;
   leanPrompt: boolean;
   starterToolCount: number | null;
+  starterToolNames: string[] | null;
   errors: string[];
 };
 
@@ -71,7 +72,7 @@ function importedSourceFile(
   return null;
 }
 
-function countStarterTools(arrayBody: string): number | null {
+function parseStaticStringEntries(arrayBody: string): string[] | null {
   // Starter catalogs must stay statically auditable. Spreads or expressions
   // can hide an arbitrarily large catalog, so require plain string entries.
   if (/\.\.\./.test(arrayBody)) return null;
@@ -83,7 +84,11 @@ function countStarterTools(arrayBody: string): number | null {
     .replace(/["'][^"']+["']/g, "")
     .replace(/[\s,]/g, "");
   if (remainder) return null;
-  return stringEntries.length;
+  return stringEntries.map((entry) => entry[1] ?? "");
+}
+
+function countStarterTools(arrayBody: string): number | null {
+  return parseStaticStringEntries(arrayBody)?.length ?? null;
 }
 
 export function analyzeAgentChatContextPolicy(
@@ -98,6 +103,7 @@ export function analyzeAgentChatContextPolicy(
   );
   const errors: string[] = [];
   let starterToolCount: number | null = null;
+  let starterToolNames: string[] | null = null;
 
   if (!initialProperty && !leanPrompt) {
     errors.push(
@@ -123,7 +129,9 @@ export function analyzeAgentChatContextPolicy(
       }
     }
 
-    starterToolCount = arrayBody === null ? null : countStarterTools(arrayBody);
+    starterToolNames =
+      arrayBody === null ? null : parseStaticStringEntries(arrayBody);
+    starterToolCount = starterToolNames?.length ?? null;
     if (starterToolCount === null) {
       errors.push(
         `${file}: initialToolNames must resolve to a static array of string literals so its first-request cost stays auditable.`,
@@ -135,7 +143,56 @@ export function analyzeAgentChatContextPolicy(
     }
   }
 
-  return { file, leanPrompt, starterToolCount, errors };
+  return { file, leanPrompt, starterToolCount, starterToolNames, errors };
+}
+
+const FRAMEWORK_STARTER_TOOL_NAMES = new Set([
+  "call-agent",
+  "create-extension",
+  "describe-workspace-apps",
+  "extension-data-set",
+  "get-extension",
+  "list-extensions",
+  "show-workspace-file",
+  "update-extension",
+]);
+
+function collectActionNames(dir: string, names: Set<string>): void {
+  if (!existsSync(dir)) return;
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const entryPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      collectActionNames(entryPath, names);
+      continue;
+    }
+    if (
+      !/\.(?:ts|tsx)$/.test(entry.name) ||
+      /\.(?:spec|test)\.(?:ts|tsx)$/.test(entry.name)
+    ) {
+      continue;
+    }
+    names.add(entry.name.replace(/\.(?:ts|tsx)$/, ""));
+  }
+}
+
+function collectActionDirectories(dir: string, names: Set<string>): void {
+  if (!existsSync(dir)) return;
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (!entry.isDirectory() || entry.name === "node_modules") continue;
+    const entryPath = path.join(dir, entry.name);
+    if (entry.name === "actions") {
+      collectActionNames(entryPath, names);
+    } else {
+      collectActionDirectories(entryPath, names);
+    }
+  }
+}
+
+function discoverActionNames(repoRoot: string): Set<string> {
+  const names = new Set(FRAMEWORK_STARTER_TOOL_NAMES);
+  collectActionDirectories(path.join(repoRoot, "templates"), names);
+  collectActionDirectories(path.join(repoRoot, "packages"), names);
+  return names;
 }
 
 export function discoverAgentChatPlugins(repoRoot: string): string[] {
@@ -226,6 +283,7 @@ export function checkAgentChatContextPolicies(repoRoot: string): {
   policies: AgentChatContextPolicy[];
   errors: string[];
 } {
+  const knownActionNames = discoverActionNames(repoRoot);
   const policies = discoverAgentChatPlugins(repoRoot)
     .map((file) =>
       analyzeAgentChatContextPolicy({
@@ -235,7 +293,19 @@ export function checkAgentChatContextPolicies(repoRoot: string): {
       }),
     )
     .filter((policy): policy is AgentChatContextPolicy => policy !== null);
-  return { policies, errors: policies.flatMap((policy) => policy.errors) };
+  const errors = policies.flatMap((policy) => {
+    const missing = (policy.starterToolNames ?? []).filter(
+      (name) => !knownActionNames.has(name),
+    );
+    return [
+      ...policy.errors,
+      ...missing.map(
+        (name) =>
+          `${policy.file}: starter tool "${name}" has no matching action source under templates/ or packages/; remove it or restore the action before shipping.`,
+      ),
+    ];
+  });
+  return { policies, errors };
 }
 
 function main(): void {
