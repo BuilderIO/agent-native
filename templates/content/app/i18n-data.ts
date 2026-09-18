@@ -2,6 +2,7 @@ import { type BuiltinLocaleCode as LocaleCode } from "@agent-native/core/client/
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 import { commentAttributionMessagesByLocale } from "../shared/comment-attribution-messages";
+import { trashMessagesByLocale } from "./trash-messages";
 
 const databaseMessages = {
   aField: "a field",
@@ -1491,6 +1492,7 @@ const enUS = {
     untitled: "Untitled",
     workspaces: "Workspaces",
   },
+  trash: trashMessagesByLocale["en-US"],
 };
 
 type Messages = typeof enUS;
@@ -1542,6 +1544,7 @@ function mergeMessages(overrides: PartialMessages): Messages {
     database: { ...enUS.database, ...overrides.database },
     localFiles: { ...enUS.localFiles, ...overrides.localFiles },
     sidebar: { ...enUS.sidebar, ...overrides.sidebar },
+    trash: enUS.trash,
     creativeContext: {
       ...enUS.creativeContext,
       ...overrides.creativeContext,
@@ -2050,6 +2053,7 @@ function mergeMessagesForLocale(
       },
     },
     sidebar: { ...base.sidebar, ...rawLiteralOverrides.sidebar },
+    trash: trashMessagesByLocale[locale],
   };
 }
 

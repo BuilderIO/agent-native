@@ -43,6 +43,45 @@ export const parityMatrix: ParityRow[] = [
     evalScenarioIds: ["document-search-edit"],
   },
   {
+    id: "trash.search-preview-and-purge",
+    surface: "sidebar",
+    label:
+      "Search root and nested Trash, preview Page bodies, restore or delete loaded items, and empty an explicit space scope with durable progress",
+    uiEntrypoints: [
+      "app/routes/_app.trash.tsx",
+      "app/components/trash/TrashBrowser.tsx",
+      "app/components/trash/EmptyTrashDialog.tsx",
+      "app/hooks/use-content-trash.ts",
+    ],
+    durableEffect:
+      "Authorized Trash metadata and Page bodies are read; reviewed purge plans, operations, and item outcomes are persisted before bounded permanent deletion runs.",
+    uiImplementation:
+      "The dedicated Trash route calls the same list, preview, restore, permanent-delete, purge-plan, purge-plan-detail, purge-execute, and operation-progress actions available to agents. Selection supports loaded rows or a server-backed matching scope; Empty Trash uses scope mode and intentionally ignores text, kind, actor, and location filters while preserving an explicit space filter.",
+    status: "action-backed",
+    actions: [
+      "execute-content-trash-purge",
+      "get-content-trash-purge-plan",
+      "get-content-trash-operation",
+      "get-trashed-document",
+      "list-content-trash",
+      "permanently-delete-document",
+      "plan-content-trash-purge",
+      "restore-document",
+    ],
+    exception:
+      "The read-only preview currently renders the Page body only, not full typed Properties, comments, or History.",
+    reliabilityRisk: "none",
+    spinePriority: "P0",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/list-content-trash.db.test.ts",
+      "actions/content-trash-purge.db.test.ts",
+      "app/components/editor/trash-preview-content.test.ts",
+      "app/hooks/content-action-refresh.trash.test.ts",
+    ],
+  },
+  {
     id: "workspace.spaces-and-files-catalog",
     surface: "workspace",
     label:

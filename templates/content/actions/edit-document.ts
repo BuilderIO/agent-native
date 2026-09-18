@@ -16,6 +16,10 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  documentEditAttribution,
+  requireDocumentRequestActor,
+} from "../server/lib/document-attribution.js";
 import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
 import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
 import { applyDocumentTextEdits } from "../shared/document-text-edits.js";
@@ -216,6 +220,7 @@ export default defineAction({
   run: async (args, ctx) => {
     const id = args.id;
     if (!id) throw new Error("--id is required");
+    const actor = requireDocumentRequestActor(ctx);
 
     // Only publish AI presence for genuine agent invocations (in-app tool loop,
     // sub-agents/A2A → "tool"; external MCP agents → "mcp"). A browser or
@@ -442,6 +447,7 @@ export default defineAction({
           .set({
             content,
             bodyRevision: existing.bodyRevision + 1,
+            ...documentEditAttribution(actor),
             updatedAt: now,
             ...(linkedLocalReconciliationDocument ?? {}),
           })

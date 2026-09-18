@@ -34,8 +34,8 @@ let deleteDocumentPropertyAction: typeof import("./delete-document-property.js")
 let reorderDocumentPropertyAction: typeof import("./reorder-document-property.js").default;
 let addDatabaseItemAction: typeof import("./add-database-item.js").default;
 let deleteDocumentAction: typeof import("./delete-document.js").default;
+let deleteTrashedDocumentSubtree: typeof import("./delete-document.js").deleteTrashedDocumentSubtree;
 let restoreDocumentAction: typeof import("./restore-document.js").default;
-let permanentlyDeleteDocumentAction: typeof import("./permanently-delete-document.js").default;
 let listTrashedDocumentsAction: typeof import("./list-trashed-documents.js").default;
 
 const OWNER = "owner@example.com";
@@ -79,11 +79,11 @@ beforeAll(async () => {
     await import("./reorder-document-property.js")
   ).default;
   addDatabaseItemAction = (await import("./add-database-item.js")).default;
-  deleteDocumentAction = (await import("./delete-document.js")).default;
+  const deleteDocumentModule = await import("./delete-document.js");
+  deleteDocumentAction = deleteDocumentModule.default;
+  deleteTrashedDocumentSubtree =
+    deleteDocumentModule.deleteTrashedDocumentSubtree;
   restoreDocumentAction = (await import("./restore-document.js")).default;
-  permanentlyDeleteDocumentAction = (
-    await import("./permanently-delete-document.js")
-  ).default;
   listTrashedDocumentsAction = (await import("./list-trashed-documents.js"))
     .default;
   const plugin = (await import("../server/plugins/db.js")).default;
@@ -99,6 +99,10 @@ let counter = 0;
 function nextId(prefix: string) {
   counter += 1;
   return `${prefix}_${counter}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+async function permanentlyDeleteFixtureDocument(id: string) {
+  return deleteTrashedDocumentSubtree(getDb(), id, OWNER);
 }
 
 function inlineDatabaseBlock(args: {
@@ -1076,18 +1080,14 @@ describe("document trash lifecycle", () => {
 
   it("requires Trash before permanent deletion", async () => {
     const documentId = await createDocument({ title: "Purge me" });
-    await expect(
-      runWithRequestContext({ userEmail: OWNER }, () =>
-        permanentlyDeleteDocumentAction.run({ id: documentId }),
-      ),
-    ).rejects.toThrow("must be in Trash");
+    await expect(permanentlyDeleteFixtureDocument(documentId)).rejects.toThrow(
+      "must be in Trash",
+    );
 
     await runWithRequestContext({ userEmail: OWNER }, () =>
       deleteDocumentAction.run({ id: documentId }),
     );
-    await runWithRequestContext({ userEmail: OWNER }, () =>
-      permanentlyDeleteDocumentAction.run({ id: documentId }),
-    );
+    await permanentlyDeleteFixtureDocument(documentId);
     expect(await documentRow(documentId)).toBeUndefined();
   });
 
@@ -1135,9 +1135,7 @@ describe("document trash lifecycle", () => {
     await runWithRequestContext({ userEmail: OWNER }, () =>
       deleteDocumentAction.run({ id: databaseDocumentId }),
     );
-    await runWithRequestContext({ userEmail: OWNER }, () =>
-      permanentlyDeleteDocumentAction.run({ id: databaseDocumentId }),
-    );
+    await permanentlyDeleteFixtureDocument(databaseDocumentId);
 
     expect(
       await getDb()
@@ -1157,7 +1155,7 @@ describe("document trash lifecycle", () => {
     expect(await databaseRow(retainedDatabase.databaseId)).toBeDefined();
   });
 
-  it("permanently deletes only a selected Trash root", async () => {
+  it("permanently deletes a selected nested Page without its Trash root", async () => {
     const rootId = await createDocument({ title: "Trash root" });
     const childId = await createDocument({
       parentId: rootId,
@@ -1167,13 +1165,9 @@ describe("document trash lifecycle", () => {
       deleteDocumentAction.run({ id: rootId }),
     );
 
-    await expect(
-      runWithRequestContext({ userEmail: OWNER }, () =>
-        permanentlyDeleteDocumentAction.run({ id: childId }),
-      ),
-    ).rejects.toThrow("Trash root");
+    await permanentlyDeleteFixtureDocument(childId);
     expect(await documentRow(rootId)).toBeDefined();
-    expect(await documentRow(childId)).toBeDefined();
+    expect(await documentRow(childId)).toBeUndefined();
   });
 
   it("preserves an independently trashed descendant when deleting its parent root", async () => {
@@ -1188,9 +1182,7 @@ describe("document trash lifecycle", () => {
     await runWithRequestContext({ userEmail: OWNER }, () =>
       deleteDocumentAction.run({ id: rootId }),
     );
-    await runWithRequestContext({ userEmail: OWNER }, () =>
-      permanentlyDeleteDocumentAction.run({ id: rootId }),
-    );
+    await permanentlyDeleteFixtureDocument(rootId);
 
     expect(await documentRow(rootId)).toBeUndefined();
     expect(await documentRow(childId)).toMatchObject({
