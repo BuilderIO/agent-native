@@ -39,6 +39,7 @@ vi.mock("@/components/ui/alert-dialog", () => {
 
 import {
   createOpenVisualEditWebMcpActions,
+  normalizeBrowserBridgeUrl,
   OpenVisualEditWebMcp,
 } from "./OpenVisualEditWebMcp";
 
@@ -104,6 +105,18 @@ describe("OpenVisualEditWebMcp", () => {
     expect(action.schema.required).toEqual(["devServerUrl"]);
   });
 
+  it("accepts only loopback bridge origins in the browser", () => {
+    expect(normalizeBrowserBridgeUrl("http://127.0.0.1:7331")).toBe(
+      "http://127.0.0.1:7331",
+    );
+    expect(() => normalizeBrowserBridgeUrl("https://example.com")).toThrow(
+      /localhost or loopback/,
+    );
+    expect(() =>
+      normalizeBrowserBridgeUrl("http://127.0.0.1:7331/manifest.json"),
+    ).toThrow(/localhost or loopback/);
+  });
+
   it("redeems and opens the private editor handoff after bootstrap", async () => {
     const [action] = createOpenVisualEditWebMcpActions() as unknown as Array<{
       run: (
@@ -112,7 +125,10 @@ describe("OpenVisualEditWebMcp", () => {
       ) => Promise<unknown>;
     }>;
     mocks.callAction
-      .mockResolvedValueOnce({ token: "bootstrap-capability" })
+      .mockResolvedValueOnce({
+        token: "bootstrap-capability",
+        challenge: "a".repeat(32),
+      })
       .mockResolvedValue({
         designId: "design-1",
         connectionId: "connection-1",
@@ -140,6 +156,10 @@ describe("OpenVisualEditWebMcp", () => {
             devServerUrl: "http://localhost:5173",
             bridgeUrl: "http://127.0.0.1:7331",
             rootPath: "/tmp/app",
+            attestation: {
+              challenge: "a".repeat(32),
+              signature: "a".repeat(64),
+            },
           }),
           { status: 200, headers: { "content-type": "application/json" } },
         ),
@@ -164,6 +184,8 @@ describe("OpenVisualEditWebMcp", () => {
         bridgeToken: "locally-generated-bridge-token",
         bridgeAttestation: expect.objectContaining({
           previewToken: expect.stringMatching(/^[a-f0-9]{64}$/),
+          challenge: "a".repeat(32),
+          signature: "a".repeat(64),
           manifest: expect.objectContaining({
             bridgeUrl: "http://127.0.0.1:7331",
           }),
@@ -190,5 +212,62 @@ describe("OpenVisualEditWebMcp", () => {
       ).toString(),
     );
     replace.mockRestore();
+  });
+
+  it("refreshes the bootstrap capability after its cache expires", async () => {
+    const [action] = createOpenVisualEditWebMcpActions() as unknown as Array<{
+      run: (
+        input: Record<string, unknown>,
+        runtime: unknown,
+      ) => Promise<unknown>;
+    }>;
+    const result = {
+      designId: "design-1",
+      connectionId: "connection-1",
+      createdDesign: false,
+      publicReadOnly: true,
+      devServerUrl: "http://localhost:5173",
+      bridgeUrl: "http://127.0.0.1:7331",
+      screenCount: 1,
+      overview: true,
+      urlPath: "/visual-edit/design-1",
+      openUrl: "agent-native://open/visual-edit/design-1",
+    };
+    mocks.callAction
+      .mockResolvedValueOnce({
+        token: "first-bootstrap",
+        challenge: "a".repeat(32),
+      })
+      .mockResolvedValueOnce(result)
+      .mockResolvedValueOnce({
+        token: "second-bootstrap",
+        challenge: "b".repeat(32),
+      })
+      .mockResolvedValueOnce(result);
+
+    await action.run(
+      { devServerUrl: "http://localhost:5173", navigate: false },
+      { signal: undefined },
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4 * 60 * 1000);
+    });
+    await action.run(
+      { devServerUrl: "http://localhost:5173", navigate: false },
+      { signal: undefined },
+    );
+
+    expect(mocks.callAction).toHaveBeenNthCalledWith(
+      1,
+      "issue-visual-edit-bootstrap",
+      {},
+      { signal: undefined },
+    );
+    expect(mocks.callAction).toHaveBeenNthCalledWith(
+      3,
+      "issue-visual-edit-bootstrap",
+      {},
+      { signal: undefined },
+    );
   });
 });

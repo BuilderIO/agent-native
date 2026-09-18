@@ -25,11 +25,14 @@ describe("issue-visual-edit-bootstrap", () => {
         ),
         targetPath: "/visual-edit",
         scope: expect.stringMatching(
-          /^capability:visual-edit:bootstrap:[A-Za-z0-9_-]{32}$/,
+          /^capability:visual-edit-bootstrap:[A-Za-z0-9_-]{32}$/,
         ),
         ttlSeconds: 300,
       }),
     );
-    expect(result).toEqual({ token: "signed-visual-edit-bootstrap" });
+    expect(result).toEqual({
+      token: "signed-visual-edit-bootstrap",
+      challenge: expect.stringMatching(/^[A-Za-z0-9_-]{32}$/),
+    });
   });
 });

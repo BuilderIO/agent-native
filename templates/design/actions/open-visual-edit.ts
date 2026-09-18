@@ -30,7 +30,6 @@ import addLocalhostScreensAction, {
 } from "./add-localhost-screens.js";
 import connectLocalhostAction, {
   DEFAULT_BRIDGE_URL,
-  derivePreviewToken,
   normalizeBridgeUrl,
 } from "./connect-localhost.js";
 import createDesignAction from "./create-design.js";
@@ -191,7 +190,7 @@ const LOCAL_VISUAL_EDIT_TICKET_TTL_SECONDS = 5 * 60;
 const LOCAL_VISUAL_EDIT_PRINCIPAL_DOMAIN =
   "local.visual-edit.agent-native.invalid";
 const VISUAL_EDIT_BOOTSTRAP_CAPABILITY_PREFIX =
-  "capability:visual-edit:bootstrap:";
+  "capability:visual-edit-bootstrap:";
 
 /**
  * Stable owner partition for local visual-edit calls when no account session
@@ -230,9 +229,28 @@ function isVisualEditBootstrapCapability(
   );
 }
 
+function visualEditBootstrapChallenge(capability: string): string {
+  return capability.slice(VISUAL_EDIT_BOOTSTRAP_CAPABILITY_PREFIX.length);
+}
+
+const BRIDGE_ATTESTATION_DOMAIN =
+  "agent-native-design-preview-attestation-v1\0";
+
+function expectedBridgeAttestationSignature(
+  bridgeToken: string,
+  challenge: string,
+): string {
+  return crypto
+    .createHmac("sha256", bridgeToken)
+    .update(BRIDGE_ATTESTATION_DOMAIN)
+    .update(challenge)
+    .digest("hex");
+}
+
 async function attestAnonymousBridge(args: {
-  bridgeToken?: string;
   bridgeAttestation?: {
+    challenge: string;
+    signature: string;
     previewToken: string;
     manifest: {
       source: unknown;
@@ -246,8 +264,11 @@ async function attestAnonymousBridge(args: {
   devServerUrl: string;
   bridgeUrl?: string;
   rootPath?: string;
+  expectedChallenge: string;
+  expectedBridgeToken: string;
+  expectedPreviewToken: string;
 }): Promise<void> {
-  const bridgeToken = args.bridgeToken?.trim();
+  const bridgeToken = args.expectedBridgeToken.trim();
   if (!bridgeToken) {
     fail(
       "Signed-out visual-edit needs the token from the local bridge. Start `agent-native design connect` with AGENT_NATIVE_BRIDGE_TOKEN, then pass that token to the page tool.",
@@ -264,9 +285,26 @@ async function attestAnonymousBridge(args: {
       { errorCode: "signed_out_visual_edit_bridge_attestation_failed" },
     );
   }
-  const expectedPreviewToken = derivePreviewToken(bridgeToken);
   const attestation = args.bridgeAttestation;
-  if (!attestation || attestation.previewToken !== expectedPreviewToken) {
+  const expectedSignature = expectedBridgeAttestationSignature(
+    bridgeToken,
+    args.expectedChallenge,
+  );
+  const signature = attestation?.signature;
+  const signatureMatches =
+    typeof signature === "string" &&
+    /^[a-f0-9]{64}$/i.test(signature) &&
+    crypto.timingSafeEqual(
+      Buffer.from(signature, "hex"),
+      Buffer.from(expectedSignature, "hex"),
+    );
+  if (
+    !attestation ||
+    attestation.challenge !== args.expectedChallenge ||
+    !/^[A-Za-z0-9_-]{32}$/.test(attestation.challenge) ||
+    !signatureMatches ||
+    attestation.previewToken !== args.expectedPreviewToken
+  ) {
     fail(
       "The signed-out visual-edit page could not prove the local bridge. Keep the bridge running, then retry from the Design page so it can read the bridge manifest.",
       { errorCode: "signed_out_visual_edit_bridge_attestation_failed" },
@@ -394,7 +432,7 @@ export default defineAction({
   // The public /visual-edit page calls this through the frontend transport.
   // Its run() guard still limits anonymous callers to loopback + public mode.
   requiresAuth: false,
-  capabilityScopes: ["visual-edit:bootstrap"],
+  capabilityScopes: ["visual-edit-bootstrap"],
   schema: z.object({
     designId: z
       .string()
@@ -439,6 +477,8 @@ export default defineAction({
       ),
     bridgeAttestation: z
       .object({
+        challenge: z.string().min(1),
+        signature: z.string().min(1),
         previewToken: z.string().min(1),
         manifest: z.object({
           source: z.unknown(),
@@ -508,6 +548,8 @@ export default defineAction({
   },
   run: async (args, ctx) => {
     const devServerUrl = normalizeBaseUrl(args.devServerUrl);
+    const authCapability = getRequestAuthCapability();
+    const isPageBootstrap = isVisualEditBootstrapCapability(authCapability);
     const runForPrincipal = async () => {
       const routeManifest = args.routeManifest
         ? {
@@ -544,6 +586,20 @@ export default defineAction({
         previewToken: args.previewToken,
         status: "connected",
       });
+
+      if (isPageBootstrap) {
+        // Validate against the effective server-side connection credentials,
+        // not a token echoed by the browser request.
+        await attestAnonymousBridge({
+          bridgeAttestation: args.bridgeAttestation,
+          devServerUrl,
+          bridgeUrl: args.bridgeUrl,
+          rootPath: args.rootPath,
+          expectedChallenge: visualEditBootstrapChallenge(authCapability),
+          expectedBridgeToken: connection.bridgeToken,
+          expectedPreviewToken: connection.previewToken,
+        });
+      }
 
       let designId = args.designId;
       let createdDesign = false;
@@ -680,8 +736,6 @@ export default defineAction({
     };
 
     if (getRequestUserEmail()) return runForPrincipal();
-    const authCapability = getRequestAuthCapability();
-    const isPageBootstrap = isVisualEditBootstrapCapability(authCapability);
     if (
       (!isPageBootstrap && ctx?.caller !== "cli") ||
       (isPageBootstrap &&
@@ -699,16 +753,6 @@ export default defineAction({
         "Signed-out local visual-edit requires publicReadOnly so the resource can be opened through its narrow editor capability. Sign in to create a private Design resource.",
         { errorCode: "signed_out_visual_edit_requires_public_resource" },
       );
-    }
-
-    if (isPageBootstrap) {
-      await attestAnonymousBridge({
-        bridgeToken: args.bridgeToken,
-        bridgeAttestation: args.bridgeAttestation,
-        devServerUrl,
-        bridgeUrl: args.bridgeUrl,
-        rootPath: args.rootPath,
-      });
     }
 
     return runWithRequestContext(

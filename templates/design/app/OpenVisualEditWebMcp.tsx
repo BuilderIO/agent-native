@@ -66,6 +66,8 @@ export interface OpenVisualEditWebMcpInput {
 }
 
 interface VisualEditBridgeAttestation {
+  challenge: string;
+  signature: string;
   previewToken: string;
   manifest: {
     source: unknown;
@@ -78,6 +80,46 @@ interface VisualEditBridgeAttestation {
 }
 
 const PREVIEW_TOKEN_DOMAIN = "agent-native-design-preview-v1\0";
+const DEFAULT_BRIDGE_URL = "http://127.0.0.1:7331";
+const BOOTSTRAP_CACHE_TTL_MS = 4 * 60 * 1000;
+
+function isLoopbackHostname(hostname: string): boolean {
+  const normalized = hostname.toLowerCase();
+  if (
+    normalized === "localhost" ||
+    normalized === "::1" ||
+    normalized === "[::1]"
+  ) {
+    return true;
+  }
+  const parts = normalized.split(".");
+  return (
+    parts.length === 4 &&
+    parts[0] === "127" &&
+    parts.every((part) => /^\d+$/.test(part) && Number(part) <= 255)
+  );
+}
+
+export function normalizeBrowserBridgeUrl(value: string): string {
+  const parsed = new URL(value.trim());
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("The local visual-edit bridge URL must use http(s).");
+  }
+  if (
+    parsed.username ||
+    parsed.password ||
+    !isLoopbackHostname(parsed.hostname) ||
+    (parsed.pathname !== "" && parsed.pathname !== "/") ||
+    parsed.search ||
+    parsed.hash
+  ) {
+    throw new Error(
+      "The local visual-edit bridge URL must be an http(s) localhost or loopback origin without a path or credentials.",
+    );
+  }
+  parsed.pathname = "";
+  return parsed.toString().replace(/\/$/, "");
+}
 
 async function derivePreviewToken(bridgeToken: string): Promise<string> {
   const bytes = new TextEncoder().encode(
@@ -91,12 +133,22 @@ async function derivePreviewToken(bridgeToken: string): Promise<string> {
 
 async function readVisualEditBridgeAttestation(
   input: OpenVisualEditWebMcpInput,
+  challenge: string,
   signal?: AbortSignal,
 ): Promise<VisualEditBridgeAttestation | undefined> {
   const bridgeToken = input.bridgeToken?.trim();
   if (!bridgeToken) return undefined;
 
-  const bridgeUrl = input.bridgeUrl ?? "http://127.0.0.1:7331";
+  let bridgeUrl: string;
+  try {
+    bridgeUrl = normalizeBrowserBridgeUrl(
+      input.bridgeUrl ?? DEFAULT_BRIDGE_URL,
+    );
+  } catch {
+    throw new Error(
+      `The local visual-edit bridge URL "${input.bridgeUrl ?? DEFAULT_BRIDGE_URL}" is invalid. Use the loopback URL printed by \`agent-native design connect\` and retry.`,
+    );
+  }
   let manifestUrl: URL;
   try {
     manifestUrl = new URL("/manifest.json", bridgeUrl);
@@ -104,6 +156,7 @@ async function readVisualEditBridgeAttestation(
       "previewToken",
       await derivePreviewToken(bridgeToken),
     );
+    manifestUrl.searchParams.set("attestationChallenge", challenge);
   } catch {
     throw new Error(
       `The local visual-edit bridge URL "${bridgeUrl}" is invalid. Use the loopback URL printed by \`agent-native design connect\` and retry.`,
@@ -129,7 +182,21 @@ async function readVisualEditBridgeAttestation(
         "The local visual-edit bridge returned an invalid preview manifest. Restart `agent-native design connect` and retry.",
       );
     }
+    const attestation = (manifest as { attestation?: unknown }).attestation;
+    if (
+      !attestation ||
+      typeof attestation !== "object" ||
+      Array.isArray(attestation) ||
+      typeof (attestation as { challenge?: unknown }).challenge !== "string" ||
+      typeof (attestation as { signature?: unknown }).signature !== "string"
+    ) {
+      throw new Error(
+        "The local visual-edit bridge returned no valid bootstrap attestation. Restart `agent-native design connect` and retry.",
+      );
+    }
     return {
+      challenge: attestation.challenge,
+      signature: attestation.signature,
       previewToken: manifestUrl.searchParams.get("previewToken") ?? "",
       manifest: manifest as VisualEditBridgeAttestation["manifest"],
     };
@@ -148,24 +215,73 @@ async function readVisualEditBridgeAttestation(
 }
 
 export function createOpenVisualEditWebMcpActions() {
-  let bootstrapTokenPromise: Promise<string> | undefined;
-  const getBootstrapToken = async (signal?: AbortSignal): Promise<string> => {
-    if (!bootstrapTokenPromise) {
-      bootstrapTokenPromise = callAction<{ token?: string }>(
-        "issue-visual-edit-bootstrap",
-        {},
-        { signal },
-      ).then((result) => {
-        if (!result?.token) {
-          throw new Error("Visual-edit bootstrap did not return a capability.");
-        }
-        return result.token;
-      });
-      bootstrapTokenPromise.catch(() => {
-        bootstrapTokenPromise = undefined;
-      });
+  type BootstrapCapability = { token: string; challenge: string };
+  let bootstrapCapabilityPromise: Promise<BootstrapCapability> | undefined;
+  let bootstrapCapabilityExpiresAt = 0;
+  const clearBootstrapCapability = () => {
+    bootstrapCapabilityPromise = undefined;
+    bootstrapCapabilityExpiresAt = 0;
+  };
+  const getBootstrapCapability = async (
+    signal?: AbortSignal,
+  ): Promise<BootstrapCapability> => {
+    if (
+      bootstrapCapabilityPromise &&
+      bootstrapCapabilityExpiresAt > Date.now() + 30_000
+    ) {
+      return bootstrapCapabilityPromise;
     }
-    return bootstrapTokenPromise;
+    const capabilityPromise = callAction<{
+      token?: string;
+      challenge?: string;
+    }>("issue-visual-edit-bootstrap", {}, { signal }).then((result) => {
+      if (!result?.token || !result.challenge) {
+        throw new Error("Visual-edit bootstrap did not return a capability.");
+      }
+      return { token: result.token, challenge: result.challenge };
+    });
+    bootstrapCapabilityPromise = capabilityPromise;
+    bootstrapCapabilityExpiresAt = Date.now() + BOOTSTRAP_CACHE_TTL_MS;
+    capabilityPromise.catch(() => {
+      if (bootstrapCapabilityPromise === capabilityPromise) {
+        clearBootstrapCapability();
+      }
+    });
+    return capabilityPromise;
+  };
+
+  const isCapabilityAuthFailure = (error: unknown): boolean => {
+    const status = (error as { status?: unknown } | null)?.status;
+    return status === 401 || status === 403;
+  };
+
+  const runOpenVisualEdit = async (
+    input: OpenVisualEditWebMcpInput,
+    runtime: { signal?: AbortSignal },
+  ) => {
+    const bootstrap = await getBootstrapCapability(runtime.signal);
+    const bridgeAttestation = await readVisualEditBridgeAttestation(
+      input,
+      bootstrap.challenge,
+      runtime.signal,
+    );
+    const actionInput = bridgeAttestation
+      ? { ...input, bridgeAttestation }
+      : input;
+    let result: OpenVisualEditActionResult;
+    try {
+      result = (await callAction("open-visual-edit", actionInput, {
+        signal: runtime.signal,
+        headers: {
+          Authorization: `Bearer ${bootstrap.token}`,
+          "X-Agent-Native-Embed-Target": "/visual-edit",
+        },
+      })) as OpenVisualEditActionResult;
+    } catch (error) {
+      if (isCapabilityAuthFailure(error)) clearBootstrapCapability();
+      throw error;
+    }
+    return result;
   };
 
   return [
@@ -264,21 +380,7 @@ export function createOpenVisualEditWebMcpActions() {
         additionalProperties: false,
       },
       run: async (input, runtime) => {
-        const bootstrapToken = await getBootstrapToken(runtime.signal);
-        const bridgeAttestation = await readVisualEditBridgeAttestation(
-          input,
-          runtime.signal,
-        );
-        const actionInput = bridgeAttestation
-          ? { ...input, bridgeAttestation }
-          : input;
-        const result = (await callAction("open-visual-edit", actionInput, {
-          signal: runtime.signal,
-          headers: {
-            Authorization: `Bearer ${bootstrapToken}`,
-            "X-Agent-Native-Embed-Target": "/visual-edit",
-          },
-        })) as OpenVisualEditActionResult;
+        const result = await runOpenVisualEdit(input, runtime);
         // The same-origin page transport invokes this call, but cannot start a
         // local process. A host may pass a token it used to start that process;
         // do not expose bridge credentials in the result.

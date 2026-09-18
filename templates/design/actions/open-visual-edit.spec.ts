@@ -1,3 +1,5 @@
+import crypto from "node:crypto";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -83,6 +85,14 @@ import action, {
   localVisualEditCapabilityPrincipal,
   localVisualEditWorkspacePrincipal,
 } from "./open-visual-edit.js";
+
+function bridgeAttestationSignature(bridgeToken: string, challenge: string) {
+  return crypto
+    .createHmac("sha256", bridgeToken)
+    .update("agent-native-design-preview-attestation-v1\0")
+    .update(challenge)
+    .digest("hex");
+}
 
 describe("open-visual-edit", () => {
   it("allows the public Design page to call the action without a session", () => {
@@ -605,7 +615,7 @@ describe("open-visual-edit", () => {
 
   it("allows signed-out page WebMCP bootstrap for loopback apps", async () => {
     mocks.getRequestUserEmail.mockReturnValue(undefined);
-    const capability = `capability:visual-edit:bootstrap:${"b".repeat(32)}`;
+    const capability = `capability:visual-edit-bootstrap:${"b".repeat(32)}`;
     mocks.getRequestAuthCapability.mockReturnValue(capability);
     const result = await action.run(
       {
@@ -614,7 +624,12 @@ describe("open-visual-edit", () => {
         rootPath: "/tmp/app",
         bridgeToken: "bridge-token",
         bridgeAttestation: {
-          previewToken: "preview:bridge-token",
+          challenge: "b".repeat(32),
+          signature: bridgeAttestationSignature(
+            "stored-write-token",
+            "b".repeat(32),
+          ),
+          previewToken: "stored-preview-token",
           manifest: {
             source: "agent-native-design-connect",
             sourceType: "localhost",
@@ -647,7 +662,7 @@ describe("open-visual-edit", () => {
   it("rejects a page bootstrap when the browser-observed bridge does not match", async () => {
     mocks.getRequestUserEmail.mockReturnValue(undefined);
     mocks.getRequestAuthCapability.mockReturnValue(
-      `capability:visual-edit:bootstrap:${"c".repeat(32)}`,
+      `capability:visual-edit-bootstrap:${"c".repeat(32)}`,
     );
 
     await expect(
@@ -657,7 +672,12 @@ describe("open-visual-edit", () => {
           bridgeUrl: "http://127.0.0.1:7331",
           bridgeToken: "bridge-token",
           bridgeAttestation: {
-            previewToken: "preview:bridge-token",
+            challenge: "c".repeat(32),
+            signature: bridgeAttestationSignature(
+              "stored-write-token",
+              "c".repeat(32),
+            ),
+            previewToken: "stored-preview-token",
             manifest: {
               source: "agent-native-design-connect",
               sourceType: "localhost",
@@ -679,7 +699,48 @@ describe("open-visual-edit", () => {
       ),
     ).rejects.toThrow(/does not match the visual-edit target/);
 
-    expect(mocks.connectLocalhostRun).not.toHaveBeenCalled();
+    expect(mocks.connectLocalhostRun).toHaveBeenCalledOnce();
+  });
+
+  it("rejects a forged signed-out bridge attestation", async () => {
+    mocks.getRequestUserEmail.mockReturnValue(undefined);
+    const challenge = "d".repeat(32);
+    mocks.getRequestAuthCapability.mockReturnValue(
+      `capability:visual-edit-bootstrap:${challenge}`,
+    );
+
+    await expect(
+      action.run(
+        {
+          devServerUrl: "http://localhost:5173",
+          bridgeUrl: "http://127.0.0.1:7331",
+          bridgeToken: "bridge-token",
+          bridgeAttestation: {
+            challenge,
+            signature: "0".repeat(64),
+            previewToken: "stored-preview-token",
+            manifest: {
+              source: "agent-native-design-connect",
+              sourceType: "localhost",
+              localOnly: true,
+              devServerUrl: "http://localhost:5173",
+              bridgeUrl: "http://127.0.0.1:7331",
+              rootPath: "/tmp/app",
+            },
+          },
+          paths: ["/"],
+          navigate: false,
+        },
+        {
+          actionName: "open-visual-edit",
+          caller: "frontend",
+          userEmail: undefined,
+          orgId: null,
+        },
+      ),
+    ).rejects.toThrow(/could not prove the local bridge/);
+
+    expect(mocks.connectLocalhostRun).toHaveBeenCalledOnce();
   });
 
   it("rejects a signed-out CLI caller for a non-loopback target", async () => {

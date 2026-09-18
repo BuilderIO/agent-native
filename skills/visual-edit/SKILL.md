@@ -259,8 +259,8 @@ Postgres before using the CLI action.
 
 When a browser is available, reuse the local bridge and call the hosted page's
 `open-visual-edit` WebMCP tool. For a fresh signed-out connection, pass the
-locally held `bridgeToken`; the page reads its preview manifest locally and
-sends it for server validation. Hosted Design never fetches `127.0.0.1`.
+locally held `bridgeToken`; it reads its preview manifest and challenge proof,
+then sends both for validation. Hosted Design never fetches `127.0.0.1`.
 Without page WebMCP, use hosted MCP.
 
 From another app, call the connected Design MCP tool

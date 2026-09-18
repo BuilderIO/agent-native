@@ -5,7 +5,7 @@ import { signEmbedSessionToken } from "@agent-native/core/server";
 import { z } from "zod";
 
 const BOOTSTRAP_TTL_SECONDS = 5 * 60;
-const BOOTSTRAP_SCOPE_PREFIX = "capability:visual-edit:bootstrap:";
+const BOOTSTRAP_SCOPE_PREFIX = "capability:visual-edit-bootstrap:";
 const BOOTSTRAP_PRINCIPAL_DOMAIN = "local.visual-edit.agent-native.invalid";
 
 /**
@@ -31,6 +31,7 @@ export default defineAction({
         scope,
         ttlSeconds: BOOTSTRAP_TTL_SECONDS,
       }),
+      challenge: nonce,
     };
   },
 });
