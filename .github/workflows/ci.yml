@@ -675,16 +675,11 @@ jobs:
           sudo apt-get clean
           df -h
 
-      - uses: ./.github/actions/setup-pnpm
-        with:
-          install: skip
-
-      - name: Restore dist + tsBuildInfo cache
-        uses: ./.github/actions/restore-dist-cache
-
       # postinstall rebuilds any stale/missing dists (incremental tsc is fast on
       # cache hit); no separate `pnpm build` step needed.
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
 
       - name: Headless scaffold — pnpm install + typecheck + action
         # Guards the documented one-file headless onboarding: a fresh
@@ -787,13 +782,11 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - uses: ./.github/actions/setup-pnpm
-        with:
-          install: skip
-
       # Skip postinstall build chain here — core is built explicitly below so we
       # control the exact build order and avoid redundant parallel builds.
-      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          install: no-scripts
 
       # Build the extracted recap CLI before core so its compatibility shim is
       # available to source imports, then produce the real serverless bundle.
@@ -847,13 +840,11 @@ jobs:
           # Diff-scoped guards resolve GITHUB_BASE_REF to origin/main.
           fetch-depth: 0
 
-      - uses: ./.github/actions/setup-pnpm
-        with:
-          install: skip
-
       # Guard scripts only need dependencies and should not depend on package
       # lifecycle builds; skipping scripts avoids native optional builds here.
-      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          install: no-scripts
 
       - name: Test production deploy concurrency guard
         run: pnpm test:netlify-prebuilt-workflow
@@ -903,15 +894,13 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - uses: ./.github/actions/setup-pnpm
-        with:
-          install: skip
-
       # These checks read source files only — no DB, browser, network, or
       # secrets — so they're safe to run on every PR. (The heavier harnesses —
       # test:mcp:e2e, qa:public-share, qa:composer-geometry — need a live
       # server / DB / browser and belong in a separate, set-up job.)
-      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          install: no-scripts
 
       - name: Template route matrix (fails on drift)
         run: pnpm qa:template-routes
