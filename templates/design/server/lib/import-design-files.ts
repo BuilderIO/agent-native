@@ -433,6 +433,7 @@ export async function saveImportedDesignFiles(
           title: file.preferredFrame?.title ?? filename.replace(/\.[^.]+$/, ""),
           width,
           height,
+          heightMode: "fixed",
           ...file.source,
         };
         metadataByFileId.set(fileId, source);

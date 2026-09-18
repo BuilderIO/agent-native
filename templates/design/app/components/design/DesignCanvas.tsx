@@ -172,7 +172,10 @@ import {
   sendLinkedScreenPreviewStyleChange,
 } from "./multi-screen/linked-screen-preview";
 import type { KScaleStyleChange } from "./multi-screen/types";
-import { SCALED_IFRAME_PAINT_RETENTION_STYLE } from "./scaled-iframe-paint";
+import {
+  getIframePaintRetentionStyle,
+  SCALED_IFRAME_PAINT_RETENTION_STYLE,
+} from "./scaled-iframe-paint";
 import type {
   ElementInfo,
   ElementSelectionIntent,
@@ -6157,6 +6160,17 @@ export function DesignCanvas({
             background: iframeBackgroundColor,
             backgroundColor: iframeBackgroundColor,
             ...SCALED_IFRAME_PAINT_RETENTION_STYLE,
+            ...getIframePaintRetentionStyle({
+              viewportWidth:
+                embeddedFrame?.viewportWidth ??
+                previewWidthPx ??
+                Number.parseFloat(iframeWidth),
+              viewportHeight:
+                embeddedFrame?.viewportHeight ??
+                previewHeightPx ??
+                Number.parseFloat(iframeHeight ?? "900px"),
+              effectiveScale: (zoom / 100) * editorChromeScaleX,
+            }),
           }}
           title={t("designEditor.designPreview")}
         />

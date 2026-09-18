@@ -25,3 +25,43 @@ import type { CSSProperties } from "react";
 export const SCALED_IFRAME_PAINT_RETENTION_STYLE = {
   backfaceVisibility: "hidden",
 } satisfies CSSProperties;
+
+/**
+ * Chromium's retained backing store is useful for a small iframe that is
+ * being shrunk by the canvas camera, but promoting a very tall document to a
+ * single composited surface can exceed the GPU tile budget. Keep the
+ * threshold below the common 16k texture limit so large imported documents
+ * stay in Chromium's normal tiled paint path.
+ */
+export const MAX_RETAINED_IFRAME_PAINT_AXIS_PX = 4096;
+
+export function getIframePaintRetentionStyle(args: {
+  viewportWidth: number;
+  viewportHeight: number;
+  effectiveScale: number;
+}): CSSProperties {
+  const scale =
+    Number.isFinite(args.effectiveScale) && args.effectiveScale > 0
+      ? args.effectiveScale
+      : 1;
+  const viewportWidth =
+    Number.isFinite(args.viewportWidth) && args.viewportWidth > 0
+      ? args.viewportWidth
+      : 1280;
+  const viewportHeight =
+    Number.isFinite(args.viewportHeight) && args.viewportHeight > 0
+      ? args.viewportHeight
+      : 900;
+  const paintedWidth = viewportWidth * scale;
+  const paintedHeight = viewportHeight * scale;
+  if (
+    paintedWidth > MAX_RETAINED_IFRAME_PAINT_AXIS_PX ||
+    paintedHeight > MAX_RETAINED_IFRAME_PAINT_AXIS_PX
+  ) {
+    // Do not add a compositing hint here. A large iframe must be painted as a
+    // tiled browsing context; forcing its backing store into one layer is the
+    // source of the blank/flickering viewport on large imported frames.
+    return { backfaceVisibility: "visible" };
+  }
+  return SCALED_IFRAME_PAINT_RETENTION_STYLE;
+}
