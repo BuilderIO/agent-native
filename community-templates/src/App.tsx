@@ -86,6 +86,31 @@ function TemplateIcon({ slug, size = 18 }: { slug: string; size?: number }) {
   return <Icon size={size} stroke={1.8} />;
 }
 
+function matchesQuery(query: string, ...values: string[]): boolean {
+  const normalizedQuery = query.trim().toLowerCase();
+  return (
+    !normalizedQuery || values.join(" ").toLowerCase().includes(normalizedQuery)
+  );
+}
+
+function useVisibleSelection<T extends { id: string }>(
+  items: T[],
+  selectedId: string | null,
+  onSelect: (id: string | null) => void,
+): T | undefined {
+  useEffect(() => {
+    if (!items.length) {
+      if (selectedId !== null) onSelect(null);
+      return;
+    }
+    if (!items.some((item) => item.id === selectedId)) {
+      onSelect(items[0].id);
+    }
+  }, [items, onSelect, selectedId]);
+
+  return items.find((item) => item.id === selectedId) ?? items[0];
+}
+
 function App() {
   const [slug, setSlug] = useState(currentSlug);
   const template = getTemplate(slug);
@@ -224,7 +249,7 @@ function App() {
             <TemplateView
               template={template}
               selectedId={selectedId}
-              onSelect={setSelectedId}
+              onSelect={(id) => setSelectedId(id)}
               onOpenPlan={openPlan}
             />
           </section>
@@ -321,6 +346,8 @@ function TemplateNavItem({
       className={`template-nav-item ${selected ? "is-selected" : ""}`}
       type="button"
       onClick={() => onSelect(template.slug)}
+      aria-label={template.title}
+      title={template.title}
     >
       <span className={`nav-icon accent-icon-${template.accent}`}>
         <TemplateIcon slug={template.slug} size={16} />
@@ -425,7 +452,7 @@ function TemplateView({
 }: {
   template: Template;
   selectedId: string | null;
-  onSelect: (id: string) => void;
+  onSelect: (id: string | null) => void;
   onOpenPlan: () => void;
 }) {
   switch (template.mode) {
@@ -501,11 +528,25 @@ function ViewHeader({
   );
 }
 
-function SearchField({ placeholder }: { placeholder: string }) {
+function SearchField({
+  placeholder,
+  value,
+  onChange,
+}: {
+  placeholder: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
   return (
     <label className="search-field">
       <IconSearch size={16} />
-      <input type="search" placeholder={placeholder} />
+      <input
+        aria-label={placeholder}
+        type="search"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+      />
     </label>
   );
 }
@@ -517,16 +558,24 @@ function QueueView({
 }: {
   template: Template;
   selectedId: string | null;
-  onSelect: (id: string) => void;
+  onSelect: (id: string | null) => void;
 }) {
   const [query, setQuery] = useState("");
-  const rows = (template.rows ?? []).filter((row) =>
-    `${row.name} ${row.meta} ${row.status} ${row.tags.join(" ")}`
-      .toLowerCase()
-      .includes(query.toLowerCase()),
+  const rows = useMemo(
+    () =>
+      (template.rows ?? []).filter((row) =>
+        matchesQuery(
+          query,
+          row.name,
+          row.meta,
+          row.status,
+          row.summary,
+          row.tags.join(" "),
+        ),
+      ),
+    [query, template.rows],
   );
-  const selected =
-    template.rows?.find((row) => row.id === selectedId) ?? rows[0];
+  const selected = useVisibleSelection(rows, selectedId, onSelect);
 
   return (
     <div className="template-view">
@@ -538,6 +587,7 @@ function QueueView({
         <label className="search-field">
           <IconSearch size={16} />
           <input
+            aria-label="Filter accounts"
             type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
@@ -669,10 +719,24 @@ function DraftView({
 }: {
   template: Template;
   selectedId: string | null;
-  onSelect: (id: string) => void;
+  onSelect: (id: string | null) => void;
 }) {
-  const rows = template.rows ?? [];
-  const selected = rows.find((row) => row.id === selectedId) ?? rows[0];
+  const [query, setQuery] = useState("");
+  const rows = useMemo(
+    () =>
+      (template.rows ?? []).filter((row) =>
+        matchesQuery(
+          query,
+          row.name,
+          row.meta,
+          row.status,
+          row.summary,
+          row.tags.join(" "),
+        ),
+      ),
+    [query, template.rows],
+  );
+  const selected = useVisibleSelection(rows, selectedId, onSelect);
   return (
     <div className="template-view">
       <ViewHeader
@@ -684,7 +748,11 @@ function DraftView({
         title="Evidence before the draft"
         count={`${rows.length} records`}
       >
-        <SearchField placeholder="Search records" />
+        <SearchField
+          placeholder="Search records"
+          value={query}
+          onChange={setQuery}
+        />
         <button className="filter-button" type="button">
           <IconFilter size={15} /> Needs review
         </button>
@@ -710,6 +778,9 @@ function DraftView({
               </div>
             </button>
           ))}
+          {!rows.length ? (
+            <div className="empty-table">No records match this search.</div>
+          ) : null}
         </div>
         <DraftPanel row={selected} draft={template.draft} />
       </div>
@@ -724,6 +795,7 @@ function DraftPanel({ row, draft }: { row?: QueueItem; draft?: DraftData }) {
         Select a record to preview its draft.
       </div>
     );
+  const selectedDraft = draft.variants?.[row.id] ?? draft;
   return (
     <div className="draft-panel">
       <div className="evidence-strip">
@@ -737,7 +809,7 @@ function DraftPanel({ row, draft }: { row?: QueueItem; draft?: DraftData }) {
           </strong>
         </div>
         <span className="confidence-badge">
-          <IconShieldCheck size={14} /> {draft.confidence}
+          <IconShieldCheck size={14} /> {selectedDraft.confidence}
         </span>
       </div>
       <div className="draft-preview">
@@ -749,18 +821,18 @@ function DraftPanel({ row, draft }: { row?: QueueItem; draft?: DraftData }) {
         </div>
         <div className="mail-meta">
           <span>To</span>
-          <strong>{draft.recipient}</strong>
+          <strong>{selectedDraft.recipient}</strong>
           <span>Subject</span>
-          <strong>{draft.subject}</strong>
+          <strong>{selectedDraft.subject}</strong>
         </div>
         <div className="draft-body">
-          {draft.body.map((paragraph) => (
+          {selectedDraft.body.map((paragraph) => (
             <p key={paragraph}>{paragraph}</p>
           ))}
         </div>
         <div className="draft-sources">
           <IconDatabase size={15} />
-          <span>{draft.source}</span>
+          <span>{selectedDraft.source}</span>
         </div>
       </div>
       <div className="review-bar">
@@ -782,10 +854,24 @@ function MemoView({
 }: {
   template: Template;
   selectedId: string | null;
-  onSelect: (id: string) => void;
+  onSelect: (id: string | null) => void;
 }) {
-  const rows = template.rows ?? [];
-  const selected = rows.find((row) => row.id === selectedId) ?? rows[0];
+  const [query, setQuery] = useState("");
+  const rows = useMemo(
+    () =>
+      (template.rows ?? []).filter((row) =>
+        matchesQuery(
+          query,
+          row.name,
+          row.meta,
+          row.status,
+          row.summary,
+          row.tags.join(" "),
+        ),
+      ),
+    [query, template.rows],
+  );
+  const selected = useVisibleSelection(rows, selectedId, onSelect);
   return (
     <div className="template-view">
       <ViewHeader
@@ -796,7 +882,11 @@ function MemoView({
         <button className="filter-button" type="button">
           <IconFilter size={15} /> Won + lost
         </button>
-        <SearchField placeholder="Find a deal" />
+        <SearchField
+          placeholder="Find a deal"
+          value={query}
+          onChange={setQuery}
+        />
       </ViewHeader>
       <div className="memo-layout">
         <div className="memo-deal-list">
@@ -818,10 +908,14 @@ function MemoView({
               </div>
             </button>
           ))}
-          <div className="memo-selection">
-            <IconCheck size={15} />
-            <span>1 deal selected for synthesis</span>
-          </div>
+          {rows.length ? (
+            <div className="memo-selection">
+              <IconCheck size={15} />
+              <span>1 deal selected for synthesis</span>
+            </div>
+          ) : (
+            <div className="empty-table">No deals match this search.</div>
+          )}
         </div>
         <MemoPanel row={selected} memo={template.memo} />
       </div>
@@ -887,25 +981,42 @@ function WatchView({
 }: {
   signals: SignalItem[];
   selectedId: string | null;
-  onSelect: (id: string) => void;
+  onSelect: (id: string | null) => void;
 }) {
-  const selected =
-    signals.find((signal) => signal.id === selectedId) ?? signals[0];
+  const [query, setQuery] = useState("");
+  const visibleSignals = useMemo(
+    () =>
+      signals.filter((signal) =>
+        matchesQuery(
+          query,
+          signal.source,
+          signal.title,
+          signal.body,
+          signal.impact,
+        ),
+      ),
+    [query, signals],
+  );
+  const selected = useVisibleSelection(visibleSignals, selectedId, onSelect);
   return (
     <div className="template-view">
       <ViewHeader
         kicker="SIGNAL FEED"
         title="The few changes worth a look"
-        count={`${signals.length} signals`}
+        count={`${visibleSignals.length} signals`}
       >
-        <SearchField placeholder="Search people or companies" />
+        <SearchField
+          placeholder="Search people or companies"
+          value={query}
+          onChange={setQuery}
+        />
         <button className="filter-button" type="button">
           <IconFilter size={15} /> High relevance
         </button>
       </ViewHeader>
       <div className="signal-layout">
         <div className="signal-feed">
-          {signals.map((signal) => (
+          {visibleSignals.map((signal) => (
             <button
               className={`signal-card ${signal.id === selected?.id ? "is-selected" : ""}`}
               key={signal.id}
@@ -932,6 +1043,9 @@ function WatchView({
               </span>
             </button>
           ))}
+          {!visibleSignals.length ? (
+            <div className="empty-table">No signals match this search.</div>
+          ) : null}
         </div>
         <SignalDetail signal={selected} />
       </div>
@@ -1000,24 +1114,42 @@ function LibraryView({
 }: {
   clips: ClipItem[];
   selectedId: string | null;
-  onSelect: (id: string) => void;
+  onSelect: (id: string | null) => void;
 }) {
-  const selected = clips.find((clip) => clip.id === selectedId) ?? clips[0];
+  const [query, setQuery] = useState("");
+  const visibleClips = useMemo(
+    () =>
+      clips.filter((clip) =>
+        matchesQuery(
+          query,
+          clip.title,
+          clip.account,
+          clip.tag,
+          clip.transcript,
+        ),
+      ),
+    [clips, query],
+  );
+  const selected = useVisibleSelection(visibleClips, selectedId, onSelect);
   return (
     <div className="template-view">
       <ViewHeader
         kicker="CLIP LIBRARY"
         title="Proof points your team can reuse"
-        count={`${clips.length} shown`}
+        count={`${visibleClips.length} shown`}
       >
-        <SearchField placeholder="Search transcript or account" />
+        <SearchField
+          placeholder="Search transcript or account"
+          value={query}
+          onChange={setQuery}
+        />
         <button className="filter-button" type="button">
           <IconFilter size={15} /> All topics
         </button>
       </ViewHeader>
       <div className="library-layout">
         <div className="clip-grid">
-          {clips.map((clip) => (
+          {visibleClips.map((clip) => (
             <button
               className={`clip-card clip-${clip.color} ${clip.id === selected?.id ? "is-selected" : ""}`}
               key={clip.id}
@@ -1035,6 +1167,9 @@ function LibraryView({
               </div>
             </button>
           ))}
+          {!visibleClips.length ? (
+            <div className="empty-table">No clips match this search.</div>
+          ) : null}
         </div>
         <ClipDetail clip={selected} />
       </div>
@@ -1098,112 +1233,133 @@ function ClipDetail({ clip }: { clip?: ClipItem }) {
 }
 
 function AccountView({ template }: { template: Template }) {
+  const [query, setQuery] = useState("");
+  const accountMatches = matchesQuery(
+    query,
+    "Acme Health",
+    "Enterprise · 1,240 seats",
+    ...(template.sections ?? []).map((section) => section.value),
+  );
   return (
     <div className="template-view">
-      <ViewHeader kicker="ACCOUNT DOSSIER" title="One account, fully in focus">
-        <SearchField placeholder="Search accounts" />
+      <ViewHeader
+        kicker="ACCOUNT DOSSIER"
+        title="One account, fully in focus"
+        count={accountMatches ? "1 account" : "0 accounts"}
+      >
+        <SearchField
+          placeholder="Search accounts"
+          value={query}
+          onChange={setQuery}
+        />
         <button className="filter-button" type="button">
           <IconFilter size={15} /> Current accounts
         </button>
       </ViewHeader>
-      <div className="account-layout">
-        <div className="account-index">
-          <div className="account-index-head">
-            <span className="view-kicker">ACCOUNT</span>
-            <IconCircleCheck size={16} />
+      {accountMatches ? (
+        <div className="account-layout">
+          <div className="account-index">
+            <div className="account-index-head">
+              <span className="view-kicker">ACCOUNT</span>
+              <IconCircleCheck size={16} />
+            </div>
+            <div className="account-identity">
+              <span className="large-avatar">A</span>
+              <div>
+                <strong>Acme Health</strong>
+                <span>Enterprise · 1,240 seats</span>
+              </div>
+            </div>
+            <div className="account-score">
+              <span>Account health</span>
+              <strong>96</strong>
+              <div className="score-bar">
+                <span />
+              </div>
+            </div>
+            <div className="account-links">
+              <span>
+                <IconUsers size={15} /> 12 stakeholders
+              </span>
+              <span>
+                <IconFileDescription size={15} /> 1 open opportunity
+              </span>
+              <span>
+                <IconTimeline size={15} /> 3 active threads
+              </span>
+            </div>
+            <button
+              className="button button-secondary account-question"
+              type="button"
+            >
+              <IconMessageCircle size={15} /> Ask a question
+            </button>
           </div>
-          <div className="account-identity">
-            <span className="large-avatar">A</span>
-            <div>
-              <strong>Acme Health</strong>
-              <span>Enterprise · 1,240 seats</span>
+          <div className="dossier-panel">
+            <div className="dossier-head">
+              <div>
+                <span className="view-kicker">LIVE SNAPSHOT</span>
+                <h3>What the team should know now</h3>
+              </div>
+              <span className="source-count">
+                <IconDatabase size={15} /> 12 source records
+              </span>
+            </div>
+            <div className="dossier-grid">
+              {(template.sections ?? []).map((section, index) => (
+                <div
+                  className={`dossier-card ${index === 0 ? "is-featured" : ""}`}
+                  key={section.label}
+                >
+                  <span>{section.label}</span>
+                  <strong>{section.value}</strong>
+                  <small>
+                    {index === 0
+                      ? "Most recent signal"
+                      : index === 5
+                        ? "Source trail"
+                        : "From connected context"}
+                  </small>
+                </div>
+              ))}
+            </div>
+            <div className="account-timeline">
+              <div className="memo-evidence-head">
+                <span className="view-kicker">RECENT ACTIVITY</span>
+                <span>Last 30 days</span>
+              </div>
+              <div className="timeline-row">
+                <span className="timeline-dot teal" />
+                <div>
+                  <strong>Security architecture shared</strong>
+                  <span>Sep 16 · CRM activity</span>
+                </div>
+                <IconChevronRight size={15} />
+              </div>
+              <div className="timeline-row">
+                <span className="timeline-dot amber" />
+                <div>
+                  <strong>Procurement contact opened brief</strong>
+                  <span>Sep 14 · Mail</span>
+                </div>
+                <IconChevronRight size={15} />
+              </div>
+              <div className="timeline-row">
+                <span className="timeline-dot coral" />
+                <div>
+                  <strong>Expansion question added</strong>
+                  <span>Sep 12 · Call notes</span>
+                </div>
+                <IconChevronRight size={15} />
+              </div>
             </div>
           </div>
-          <div className="account-score">
-            <span>Account health</span>
-            <strong>96</strong>
-            <div className="score-bar">
-              <span />
-            </div>
-          </div>
-          <div className="account-links">
-            <span>
-              <IconUsers size={15} /> 12 stakeholders
-            </span>
-            <span>
-              <IconFileDescription size={15} /> 1 open opportunity
-            </span>
-            <span>
-              <IconTimeline size={15} /> 3 active threads
-            </span>
-          </div>
-          <button
-            className="button button-secondary account-question"
-            type="button"
-          >
-            <IconMessageCircle size={15} /> Ask a question
-          </button>
         </div>
-        <div className="dossier-panel">
-          <div className="dossier-head">
-            <div>
-              <span className="view-kicker">LIVE SNAPSHOT</span>
-              <h3>What the team should know now</h3>
-            </div>
-            <span className="source-count">
-              <IconDatabase size={15} /> 12 source records
-            </span>
-          </div>
-          <div className="dossier-grid">
-            {(template.sections ?? []).map((section, index) => (
-              <div
-                className={`dossier-card ${index === 0 ? "is-featured" : ""}`}
-                key={section.label}
-              >
-                <span>{section.label}</span>
-                <strong>{section.value}</strong>
-                <small>
-                  {index === 0
-                    ? "Most recent signal"
-                    : index === 5
-                      ? "Source trail"
-                      : "From connected context"}
-                </small>
-              </div>
-            ))}
-          </div>
-          <div className="account-timeline">
-            <div className="memo-evidence-head">
-              <span className="view-kicker">RECENT ACTIVITY</span>
-              <span>Last 30 days</span>
-            </div>
-            <div className="timeline-row">
-              <span className="timeline-dot teal" />
-              <div>
-                <strong>Security architecture shared</strong>
-                <span>Sep 16 · CRM activity</span>
-              </div>
-              <IconChevronRight size={15} />
-            </div>
-            <div className="timeline-row">
-              <span className="timeline-dot amber" />
-              <div>
-                <strong>Procurement contact opened brief</strong>
-                <span>Sep 14 · Mail</span>
-              </div>
-              <IconChevronRight size={15} />
-            </div>
-            <div className="timeline-row">
-              <span className="timeline-dot coral" />
-              <div>
-                <strong>Expansion question added</strong>
-                <span>Sep 12 · Call notes</span>
-              </div>
-              <IconChevronRight size={15} />
-            </div>
-          </div>
+      ) : (
+        <div className="account-empty detail-panel empty-detail">
+          No accounts match this search.
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -1277,7 +1433,7 @@ function AdvisorView({
             type="button"
             onClick={onOpenPlan}
           >
-            <IconArrowUpRight size={16} /> Preview in Builder
+            <IconMessageCircle size={16} /> Stage customization plan
           </button>
         </div>
       </div>

@@ -14,4 +14,13 @@ describe("community template gallery", () => {
   it("falls back to the workflow discovery template", () => {
     expect(getTemplate("missing-template").slug).toBe("agent-advisor");
   });
+
+  it("keeps draft content associated with its selected record", () => {
+    const callFollowUp = getTemplate("call-follow-up-drafter");
+    const northstarDraft = callFollowUp.draft?.variants?.["northstar-call"];
+
+    expect(northstarDraft?.recipient).toContain("Northstar Labs");
+    expect(northstarDraft?.subject).toContain("Northstar");
+    expect(northstarDraft?.body.join(" ")).toContain("procurement timing");
+  });
 });

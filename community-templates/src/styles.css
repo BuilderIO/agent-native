@@ -1246,6 +1246,9 @@ h1 {
 .account-layout {
   grid-template-columns: 250px minmax(0, 1fr);
 }
+.account-empty {
+  grid-column: 1 / -1;
+}
 .account-index {
   padding: 20px;
   border-right: 1px solid var(--rule);

@@ -33,6 +33,15 @@ export interface DraftData {
   body: string[];
   source: string;
   confidence: string;
+  variants?: Record<string, DraftVariant>;
+}
+
+export interface DraftVariant {
+  recipient: string;
+  subject: string;
+  body: string[];
+  source?: string;
+  confidence?: string;
 }
 
 export interface MemoData {
@@ -387,6 +396,30 @@ export const templates: Template[] = [
       ],
       source: "Helio discovery call · CRM opportunity · Handoff checklist",
       confidence: "High confidence",
+      variants: {
+        "northstar-call": {
+          recipient: "Jordan Lee · Northstar Labs",
+          subject: "Northstar procurement timing from today’s renewal call",
+          body: [
+            "Jordan, thanks for the renewal conversation today.",
+            "The open question is procurement timing. I’ll capture the decision path and confirm who needs to be involved before we schedule the next step.",
+            "Would Tuesday afternoon work to review the timeline together?",
+          ],
+          source: "Northstar renewal call · CRM opportunity · Call notes",
+          confidence: "Review before sending",
+        },
+        "alto-call": {
+          recipient: "Alex Chen · Alto Commerce",
+          subject: "Clarifying Alto’s integration plan",
+          body: [
+            "Alex, thanks for the product walkthrough today.",
+            "You called out the integration boundary as the next open question. I’ll send the workflow notes and a short example of how similar teams scoped it.",
+            "Could we reconnect after you confirm the system owner?",
+          ],
+          source: "Alto demo · CRM opportunity · Integration notes",
+          confidence: "Review before sending",
+        },
+      },
     },
   },
   {
@@ -667,6 +700,30 @@ export const templates: Template[] = [
       source:
         "LinkedIn hiring signal · 3 approved outbound examples · Rivet account brief",
       confidence: "Review before sending",
+      variants: {
+        "kindred-outbound": {
+          recipient: "Nina Okafor · Kindred Health",
+          subject: "A lighter take on the ops handoff",
+          body: [
+            "Nina, your point about operational drag caught my attention.",
+            "As teams grow, the work between product and operations can become the invisible launch tax. I can share a short workflow if that is useful.",
+            "Happy to send it over without turning this into a sales process.",
+          ],
+          source: "Kindred LinkedIn post · 3 approved outbound examples",
+          confidence: "Review tone before sending",
+        },
+        "cinder-outbound": {
+          recipient: "Samir Shah · Cinder Finance",
+          subject: "A workflow note for Cinder’s next phase",
+          body: [
+            "Samir, Cinder looks like a strong fit for the way we think about operational workflows.",
+            "I did not see a timely trigger to interrupt your team, so I’m keeping this lightweight: I can share a short example when the timing is right.",
+            "Would it be useful for me to send that over?",
+          ],
+          source: "Cinder account brief · 3 approved outbound examples",
+          confidence: "Hold until there is a trigger",
+        },
+      },
     },
   },
   {
