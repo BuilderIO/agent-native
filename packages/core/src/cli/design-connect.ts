@@ -145,6 +145,8 @@ export interface DesignConnectBridgeOptions {
 }
 
 const PREVIEW_TOKEN_DOMAIN = "agent-native-design-preview-v1\0";
+const PREVIEW_ATTESTATION_DOMAIN =
+  "agent-native-design-preview-attestation-v1\0";
 const PREVIEW_SESSION_COOKIE_NAME = "agent-native-preview-token";
 
 /**
@@ -157,6 +159,22 @@ export function deriveDesignPreviewToken(bridgeToken: string): string {
     .createHash("sha256")
     .update(PREVIEW_TOKEN_DOMAIN)
     .update(bridgeToken)
+    .digest("hex");
+}
+
+/**
+ * Sign a page bootstrap challenge with the bridge's write secret. The browser
+ * can fetch this proof from loopback, while the hosted Design action verifies
+ * it without trusting the submitted manifest fields alone.
+ */
+export function deriveDesignPreviewAttestationSignature(
+  bridgeToken: string,
+  challenge: string,
+): string {
+  return crypto
+    .createHmac("sha256", bridgeToken)
+    .update(PREVIEW_ATTESTATION_DOMAIN)
+    .update(challenge)
     .digest("hex");
 }
 
@@ -2378,7 +2396,23 @@ export async function startDesignConnectBridge(
           (pathname === "/" && !isFrameNavigation))
       ) {
         if (rejectInvalidPreviewToken()) return;
-        sendJson(res, 200, manifest as unknown as Record<string, unknown>);
+        const challenge = requestUrl.searchParams
+          .get("attestationChallenge")
+          ?.trim();
+        sendJson(res, 200, {
+          ...manifest,
+          ...(challenge && /^[A-Za-z0-9_-]{32}$/.test(challenge)
+            ? {
+                attestation: {
+                  challenge,
+                  signature: deriveDesignPreviewAttestationSignature(
+                    bridgeToken,
+                    challenge,
+                  ),
+                },
+              }
+            : {}),
+        });
         return;
       }
       if (pathname === "/routes.json") {

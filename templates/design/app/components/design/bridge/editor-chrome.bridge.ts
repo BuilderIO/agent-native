@@ -2976,12 +2976,42 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     styles: Record<string, string> | null;
   };
 
+  type PortableStyleAnimationState = {
+    fingerprint: string;
+    cacheable: boolean;
+  };
+
   type PortableStyleComputedStylesCache = {
     entries: Map<Element, PortableStyleCacheEntry>;
+    animationFingerprints: Map<Element, string>;
     mutationObserver: MutationObserver;
     mutationGeneration: number;
     observedMutationRoots: Node[];
+    restoreCssomHooks: () => void;
   };
+
+  type PortableStyleCssomHookSubscriber = {
+    cache: PortableStyleComputedStylesCache;
+    shouldInvalidate?: (receiver: unknown) => boolean;
+  };
+
+  type PortableStyleCssomHook = {
+    owner: object;
+    property: string;
+    kind: "method" | "setter";
+    descriptor: PropertyDescriptor;
+    wrappedValue?: Function;
+    wrappedSetter?: Function;
+    subscribers: PortableStyleCssomHookSubscriber[];
+  };
+
+  // A collection can be re-entered while another collection still owns the
+  // same global CSSOM prototypes. Keep one wrapper per owner/property and
+  // release the original descriptor only after every cache has detached.
+  var portableStyleCssomHooks = new WeakMap<
+    object,
+    Map<string, PortableStyleCssomHook>
+  >();
 
   var portableStyleMutationObserverOptions = {
     subtree: true,
@@ -3088,15 +3118,395 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
   }
 
+  function portableStylePropertyDescriptor(
+    target: object,
+    property: string,
+  ): { owner: object; descriptor: PropertyDescriptor } | undefined {
+    var current: object | null = target;
+    while (current) {
+      var descriptor = Object.getOwnPropertyDescriptor(current, property);
+      if (descriptor) return { owner: current, descriptor: descriptor };
+      var prototype = Object.getPrototypeOf(current);
+      current =
+        prototype && prototype !== Object.prototype
+          ? (prototype as object)
+          : null;
+    }
+    return undefined;
+  }
+
+  function portableStyleCssomDeclarationChanged(receiver: unknown): boolean {
+    try {
+      // Inline style writes are already covered by MutationObserver. A rule's
+      // declaration has a parentRule and is invisible to that observer.
+      return (receiver as { parentRule?: unknown }).parentRule !== null;
+    } catch (_error) {
+      return true;
+    }
+  }
+
+  function portableStyleCssomHookKey(
+    property: string,
+    kind: "method" | "setter",
+  ): string {
+    return kind + ":" + property;
+  }
+
+  function portableStyleCssomHookMap(
+    owner: object,
+    create: boolean,
+  ): Map<string, PortableStyleCssomHook> | undefined {
+    var hooks = portableStyleCssomHooks.get(owner);
+    if (!hooks && create) {
+      hooks = new Map<string, PortableStyleCssomHook>();
+      portableStyleCssomHooks.set(owner, hooks);
+    }
+    return hooks;
+  }
+
+  function portableStyleCssomHookInstalled(
+    found: { owner: object; descriptor: PropertyDescriptor },
+    hook: PortableStyleCssomHook,
+  ): boolean {
+    return hook.kind === "method"
+      ? found.descriptor.value === hook.wrappedValue
+      : found.descriptor.set === hook.wrappedSetter;
+  }
+
+  function portableStyleCssomExistingHook(
+    found: { owner: object; descriptor: PropertyDescriptor },
+    property: string,
+    kind: "method" | "setter",
+  ): PortableStyleCssomHook | undefined {
+    var hooks = portableStyleCssomHookMap(found.owner, false);
+    var key = portableStyleCssomHookKey(property, kind);
+    var hook = hooks?.get(key);
+    if (!hook) return undefined;
+    if (portableStyleCssomHookInstalled(found, hook)) return hook;
+    hooks?.delete(key);
+    return undefined;
+  }
+
+  function portableStyleCssomInvalidateHook(
+    hook: PortableStyleCssomHook,
+    receiver?: unknown,
+  ): void {
+    hook.subscribers.slice().forEach(function (subscriber) {
+      try {
+        if (
+          !subscriber.shouldInvalidate ||
+          subscriber.shouldInvalidate(receiver)
+        ) {
+          subscriber.cache.mutationGeneration += 1;
+        }
+      } catch (_error) {
+        subscriber.cache.mutationGeneration += 1;
+      }
+    });
+  }
+
+  function portableStyleCssomSubscribe(
+    hook: PortableStyleCssomHook,
+    cache: PortableStyleComputedStylesCache,
+    shouldInvalidate?: (receiver: unknown) => boolean,
+  ): () => void {
+    var subscriber = { cache: cache, shouldInvalidate: shouldInvalidate };
+    hook.subscribers.push(subscriber);
+    var released = false;
+    return function () {
+      if (released) return;
+      released = true;
+      var subscriberIndex = hook.subscribers.indexOf(subscriber);
+      if (subscriberIndex !== -1) hook.subscribers.splice(subscriberIndex, 1);
+      if (hook.subscribers.length > 0) return;
+      var hooks = portableStyleCssomHookMap(hook.owner, false);
+      var current = Object.getOwnPropertyDescriptor(hook.owner, hook.property);
+      if (
+        current &&
+        portableStyleCssomHookInstalled(
+          { owner: hook.owner, descriptor: current },
+          hook,
+        )
+      ) {
+        try {
+          Object.defineProperty(hook.owner, hook.property, hook.descriptor);
+        } catch (_error) {
+          dndLog("style:cssom-hook-restore-failed", {
+            property: hook.property,
+          });
+        }
+      }
+      var key = portableStyleCssomHookKey(hook.property, hook.kind);
+      if (hooks?.get(key) === hook) hooks.delete(key);
+      if (hooks?.size === 0) portableStyleCssomHooks.delete(hook.owner);
+    };
+  }
+
+  function portableStyleWrapCssomMethod(
+    cache: PortableStyleComputedStylesCache,
+    target: object,
+    property: string,
+    shouldInvalidate?: (receiver: unknown) => boolean,
+  ): true | false | (() => void) {
+    var found = portableStylePropertyDescriptor(target, property);
+    if (!found || typeof found.descriptor.value !== "function") return true;
+    var existingHook = portableStyleCssomExistingHook(
+      found,
+      property,
+      "method",
+    );
+    if (existingHook) {
+      return portableStyleCssomSubscribe(existingHook, cache, shouldInvalidate);
+    }
+    var original = found.descriptor.value as (
+      this: unknown,
+      ...args: unknown[]
+    ) => unknown;
+    var hook: PortableStyleCssomHook = {
+      owner: found.owner,
+      property: property,
+      kind: "method",
+      descriptor: found.descriptor,
+      subscribers: [],
+    };
+    var wrapped = function (this: unknown, ...args: unknown[]) {
+      portableStyleCssomInvalidateHook(hook, this);
+      var result = original.apply(this, args);
+      if (property === "replace" && result) {
+        try {
+          var then = (result as { then?: unknown }).then;
+          if (typeof then === "function") {
+            then.call(
+              result,
+              function () {
+                portableStyleCssomInvalidateHook(hook);
+              },
+              function () {
+                portableStyleCssomInvalidateHook(hook);
+              },
+            );
+          }
+        } catch (_error) {
+          portableStyleCssomInvalidateHook(hook);
+        }
+      }
+      return result;
+    };
+    hook.wrappedValue = wrapped;
+    try {
+      Object.defineProperty(found.owner, property, {
+        ...found.descriptor,
+        value: wrapped,
+      });
+    } catch (_error) {
+      dndLog("style:cssom-hook-install-failed", { property: property });
+      return false;
+    }
+    portableStyleCssomHookMap(found.owner, true)!.set(
+      portableStyleCssomHookKey(property, "method"),
+      hook,
+    );
+    return portableStyleCssomSubscribe(hook, cache, shouldInvalidate);
+  }
+
+  function portableStyleWrapCssomSetter(
+    cache: PortableStyleComputedStylesCache,
+    target: object,
+    property: string,
+    shouldInvalidate?: (receiver: unknown) => boolean,
+  ): true | false | (() => void) {
+    var found = portableStylePropertyDescriptor(target, property);
+    if (!found || typeof found.descriptor.set !== "function") return true;
+    var existingHook = portableStyleCssomExistingHook(
+      found,
+      property,
+      "setter",
+    );
+    if (existingHook) {
+      return portableStyleCssomSubscribe(existingHook, cache, shouldInvalidate);
+    }
+    var original = found.descriptor.set as (
+      this: unknown,
+      value: unknown,
+    ) => void;
+    var hook: PortableStyleCssomHook = {
+      owner: found.owner,
+      property: property,
+      kind: "setter",
+      descriptor: found.descriptor,
+      subscribers: [],
+    };
+    var wrapped = function (this: unknown, value: unknown) {
+      portableStyleCssomInvalidateHook(hook, this);
+      original.call(this, value);
+    };
+    hook.wrappedSetter = wrapped;
+    try {
+      Object.defineProperty(found.owner, property, {
+        ...found.descriptor,
+        set: wrapped,
+      });
+    } catch (_error) {
+      dndLog("style:cssom-hook-install-failed", { property: property });
+      return false;
+    }
+    portableStyleCssomHookMap(found.owner, true)!.set(
+      portableStyleCssomHookKey(property, "setter"),
+      hook,
+    );
+    return portableStyleCssomSubscribe(hook, cache, shouldInvalidate);
+  }
+
+  function portableStyleWrapCssomSetters(
+    cache: PortableStyleComputedStylesCache,
+    target: object | undefined,
+    shouldInvalidate: ((receiver: unknown) => boolean) | undefined,
+    restorers: Array<() => void>,
+  ): boolean {
+    if (!target) return true;
+    var current: object | null = target;
+    while (current && current !== Object.prototype) {
+      var properties = Object.getOwnPropertyNames(current);
+      for (var index = 0; index < properties.length; index += 1) {
+        var property = properties[index];
+        if (property === "constructor") continue;
+        var result = portableStyleWrapCssomSetter(
+          cache,
+          current,
+          property,
+          shouldInvalidate,
+        );
+        if (result === false) return false;
+        if (result !== true) restorers.push(result);
+      }
+      var prototype = Object.getPrototypeOf(current);
+      current =
+        prototype && prototype !== Object.prototype
+          ? (prototype as object)
+          : null;
+    }
+    return true;
+  }
+
+  function portableStyleInstallCssomHooks(
+    cache: PortableStyleComputedStylesCache,
+  ): boolean {
+    var restorers: Array<() => void> = [];
+    var portableWindow = window as typeof window & {
+      CSSStyleDeclaration?: { prototype: object };
+      CSSStyleSheet?: { prototype: object };
+      Document?: { prototype: object };
+      Element?: { prototype: object };
+      KeyframeEffect?: { prototype: object };
+      ShadowRoot?: { prototype: object };
+    };
+    var success = true;
+    var addMethod = function (target: object | undefined, property: string) {
+      if (!success || !target) return;
+      var result = portableStyleWrapCssomMethod(cache, target, property);
+      if (result === false) success = false;
+      else if (result !== true) restorers.push(result);
+    };
+    var addSetter = function (target: object | undefined, property: string) {
+      if (!success || !target) return;
+      var result = portableStyleWrapCssomSetter(cache, target, property);
+      if (result === false) success = false;
+      else if (result !== true) restorers.push(result);
+    };
+    var styleSheetPrototype = portableWindow.CSSStyleSheet?.prototype;
+    addMethod(portableWindow.Element?.prototype, "animate");
+    var keyframeEffectPrototype = portableWindow.KeyframeEffect?.prototype;
+    addMethod(keyframeEffectPrototype, "setKeyframes");
+    addMethod(keyframeEffectPrototype, "updateTiming");
+    [
+      "insertRule",
+      "deleteRule",
+      "replace",
+      "replaceSync",
+      "addRule",
+      "removeRule",
+    ].forEach(function (property) {
+      addMethod(styleSheetPrototype, property);
+    });
+    addSetter(portableWindow.Document?.prototype, "adoptedStyleSheets");
+    addSetter(portableWindow.ShadowRoot?.prototype, "adoptedStyleSheets");
+    var styleDeclarationPrototype =
+      portableWindow.CSSStyleDeclaration?.prototype;
+    if (success && styleDeclarationPrototype) {
+      var setPropertyResult = portableStyleWrapCssomMethod(
+        cache,
+        styleDeclarationPrototype,
+        "setProperty",
+        portableStyleCssomDeclarationChanged,
+      );
+      if (setPropertyResult === false) success = false;
+      else if (setPropertyResult !== true) restorers.push(setPropertyResult);
+      var removePropertyResult = portableStyleWrapCssomMethod(
+        cache,
+        styleDeclarationPrototype,
+        "removeProperty",
+        portableStyleCssomDeclarationChanged,
+      );
+      if (removePropertyResult === false) success = false;
+      else if (removePropertyResult !== true)
+        restorers.push(removePropertyResult);
+    }
+    if (
+      success &&
+      !portableStyleWrapCssomSetters(
+        cache,
+        styleDeclarationPrototype,
+        portableStyleCssomDeclarationChanged,
+        restorers,
+      )
+    ) {
+      success = false;
+    }
+    if (
+      success &&
+      !portableStyleWrapCssomSetters(
+        cache,
+        styleSheetPrototype,
+        undefined,
+        restorers,
+      )
+    ) {
+      success = false;
+    }
+    if (!success) {
+      for (
+        var restoreIndex = restorers.length - 1;
+        restoreIndex >= 0;
+        restoreIndex -= 1
+      ) {
+        restorers[restoreIndex]();
+      }
+      return false;
+    }
+    cache.restoreCssomHooks = function () {
+      for (
+        var restoreIndex = restorers.length - 1;
+        restoreIndex >= 0;
+        restoreIndex -= 1
+      ) {
+        restorers[restoreIndex]();
+      }
+      restorers = [];
+    };
+    return true;
+  }
+
   function createPortableStyleComputedStylesCache():
     | PortableStyleComputedStylesCache
     | undefined {
     if (typeof MutationObserver === "undefined") return undefined;
     var cache = {
       entries: new Map<Element, PortableStyleCacheEntry>(),
+      animationFingerprints: new Map<Element, string>(),
       mutationObserver: null as unknown as MutationObserver,
       mutationGeneration: 0,
       observedMutationRoots: [],
+      restoreCssomHooks: function () {},
     };
     try {
       var observer = new MutationObserver(function (records) {
@@ -3109,8 +3519,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         observer.disconnect();
         return undefined;
       }
+      if (!portableStyleInstallCssomHooks(cache)) {
+        observer.disconnect();
+        return undefined;
+      }
       return cache;
     } catch (_error) {
+      cache.mutationObserver.disconnect();
+      cache.restoreCssomHooks();
       dndLog("style:mutation-observer-unavailable");
       return undefined;
     }
@@ -3136,34 +3552,103 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
   }
 
-  function canReadPortableAnimationState(el: Element): boolean {
+  var portableStyleAnimationEffectIds = new WeakMap<object, number>();
+  var nextPortableStyleAnimationEffectId = 1;
+
+  function portableStyleAnimationEffectId(
+    effect: object | null,
+  ): number | null {
+    if (!effect) return null;
+    var id = portableStyleAnimationEffectIds.get(effect);
+    if (id !== undefined) return id;
+    id = nextPortableStyleAnimationEffectId++;
+    portableStyleAnimationEffectIds.set(effect, id);
+    return id;
+  }
+
+  function readPortableAnimationState(
+    el: Element,
+  ): PortableStyleAnimationState | undefined {
     var animatedElement = el as Element & {
-      getAnimations?: () => Array<{ playState?: string }>;
+      getAnimations?: () => Array<{
+        playState?: string;
+        currentTime?: unknown;
+        startTime?: unknown;
+        playbackRate?: unknown;
+        effect?: {
+          getKeyframes?: () => unknown;
+          getTiming?: () => unknown;
+          composite?: unknown;
+          iterationComposite?: unknown;
+          target?: unknown;
+        } | null;
+      }>;
     };
     try {
       var getAnimations = animatedElement.getAnimations;
       if (typeof getAnimations !== "function") {
         dndLog("style:animation-state-unreadable", { tag: el.tagName });
-        return false;
+        return undefined;
       }
       var animations = getAnimations.call(animatedElement);
       if (!Array.isArray(animations)) {
         dndLog("style:animation-state-unreadable", { tag: el.tagName });
-        return false;
+        return undefined;
       }
+      var cacheable = true;
+      var fingerprintParts: string[] = [];
       for (var index = 0; index < animations.length; index += 1) {
-        var playState = animations[index]?.playState;
-        if (typeof playState !== "string") {
+        var animation = animations[index];
+        var playState = animation?.playState;
+        if (!animation || typeof playState !== "string") {
           dndLog("style:animation-state-unreadable", { tag: el.tagName });
-          return false;
+          return undefined;
         }
-        if (playState === "running" || playState === "pending") return false;
+        if (playState === "running" || playState === "pending") {
+          cacheable = false;
+        }
+        fingerprintParts.push(
+          [
+            index,
+            playState,
+            animation.currentTime,
+            animation.startTime,
+            animation.playbackRate,
+            portableStyleAnimationEffectId(animation.effect ?? null),
+            animation.effect &&
+              JSON.stringify({
+                keyframes: animation.effect.getKeyframes?.(),
+                timing: animation.effect.getTiming?.(),
+                composite: animation.effect.composite,
+                iterationComposite: animation.effect.iterationComposite,
+                target: animation.effect.target,
+              }),
+          ]
+            .map(function (value) {
+              if (value === null) return "null";
+              if (value === undefined) return "undefined";
+              return `${typeof value}:${String(value)}`;
+            })
+            .join(":"),
+        );
       }
-      return true;
+      return {
+        cacheable,
+        fingerprint: fingerprintParts.join("|") || "none",
+      };
     } catch (_error) {
       dndLog("style:animation-state-read-failed", { tag: el.tagName });
-      return false;
+      return undefined;
     }
+  }
+
+  function recordPortableStyleAnimationState(
+    cache: PortableStyleComputedStylesCache,
+    el: Element,
+  ): void {
+    var state = readPortableAnimationState(el);
+    if (state) cache.animationFingerprints.set(el, state.fingerprint);
+    else cache.animationFingerprints.delete(el);
   }
 
   function canReusePortableComputedStyles(
@@ -3176,7 +3661,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var current: Element | null = el;
     while (current) {
       var parent = portableStyleAnimationParent(current);
-      if (parent === undefined) return false;
       if (
         cache &&
         (!portableStyleObserveElementRoot(cache, current) ||
@@ -3184,7 +3668,24 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       ) {
         return false;
       }
-      if (!canReadPortableAnimationState(current)) return false;
+      var animationState = readPortableAnimationState(current);
+      if (
+        parent === undefined ||
+        !animationState ||
+        !animationState.cacheable
+      ) {
+        return false;
+      }
+      if (cache) {
+        var previousFingerprint = cache.animationFingerprints.get(current);
+        if (previousFingerprint === undefined) {
+          cache.animationFingerprints.set(current, animationState.fingerprint);
+        } else if (previousFingerprint !== animationState.fingerprint) {
+          cache.entries.delete(current);
+          cache.animationFingerprints.set(current, animationState.fingerprint);
+          return false;
+        }
+      }
       current = parent;
     }
     return true;
@@ -3334,6 +3835,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         probeFailed = true;
         return;
       }
+      // Keep an existing root fingerprint until every descendant has been
+      // checked. A root's computed style is captured before its rect read, so
+      // a timeline seek during that read must invalidate descendants against
+      // the previous fingerprint before this request records the new one.
       nodes.push({
         sourceId: getSourceId(node) || undefined,
         path: path,
@@ -3359,6 +3864,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // drop a class-only appearance it never got to measure.
       return null;
     }
+    if (cache) recordPortableStyleAnimationState(cache, root);
     return {
       version: 1,
       rootSourceId: getSourceId(root) || undefined,
@@ -3897,6 +4403,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   function getElementInfo(
     el: Element,
     portableComputedStylesCache?: PortableStyleComputedStylesCache,
+    includePortableStyleSnapshot = true,
   ): unknown {
     var cs = window.getComputedStyle(el);
     var paintCs = window.getComputedStyle(vectorPaintTarget(el) || el);
@@ -4015,11 +4522,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       provenance,
       sourceId || runtimeSourceId || pendingNodeId || getSelector(el),
     );
-    var portableStyleSnapshot = collectPortableStyleSnapshot(
-      el,
-      portableComputedStylesCache,
-      cs,
-    );
+    var portableStyleSnapshot = includePortableStyleSnapshot
+      ? collectPortableStyleSnapshot(el, portableComputedStylesCache, cs)
+      : undefined;
     return {
       tagName: el.tagName.toLowerCase(),
       componentName: componentName || undefined,
@@ -4334,6 +4839,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   function collectSelectableElementInfos(
     deep: boolean,
     atPoint?: SelectablePoint | null,
+    includePortableStyleSnapshot = true,
   ): unknown[] {
     // This answers agent-native:collect-selectable-rects, which the overview
     // host uses for BOTH the overview marquee (scoped: direct children of
@@ -4356,15 +4862,27 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         return documentSpaceBoundsContainPoint(el, atPoint);
       });
     }
+    // Overview marquee collection only needs identity, geometry, and the
+    // selected element's computed state. Building a portable subtree snapshot
+    // for every candidate blocks the preview thread before a hit-set exists;
+    // direct selection and drill-in keep the default full snapshot contract.
+    if (!includePortableStyleSnapshot) {
+      return targets.map(function (target) {
+        return getElementInfo(target, undefined, false);
+      });
+    }
     // Warm the editor-owned probe iframe before observing this request.
     portableStyleProbeDocument();
     var portableComputedStylesCache = createPortableStyleComputedStylesCache();
     try {
       return targets.map(function (target) {
-        return getElementInfo(target, portableComputedStylesCache);
+        return getElementInfo(target, portableComputedStylesCache, true);
       });
     } finally {
-      portableComputedStylesCache?.mutationObserver.disconnect();
+      if (portableComputedStylesCache) {
+        portableComputedStylesCache.mutationObserver.disconnect();
+        portableComputedStylesCache.restoreCssomHooks();
+      }
     }
   }
 
@@ -13109,8 +13627,22 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return "y";
   }
 
+  function wrappedFlexMainAxis(parent: Element): string | null {
+    var cs = window.getComputedStyle(parent);
+    if (cs.display !== "flex" && cs.display !== "inline-flex") {
+      return null;
+    }
+    if (cs.flexWrap !== "wrap" && cs.flexWrap !== "wrap-reverse") {
+      return null;
+    }
+    return cs.flexDirection && cs.flexDirection.indexOf("row") === 0
+      ? "x"
+      : "y";
+  }
+
   // Resolves a between-children insertion inside `container` from the
-  // pointer position: the nearest visible child (by flow-axis center)
+  // pointer position: the nearest visible child (by flow-axis center, or
+  // two-dimensional visual distance for wrapped flex and multi-track grid)
   // becomes the anchor with before/after placement, which renders as the
   // Figma-style insertion LINE between children. Returns null when the
   // container has no eligible children (caller falls back to "inside").
@@ -13150,8 +13682,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       return !isExcluded(child);
     });
     if (!children.length) return null;
-    var axis = parentFlowAxis(container);
     var containerStyles = window.getComputedStyle(container);
+    var wrappedFlexAxis = wrappedFlexMainAxis(container);
+    var axis = wrappedFlexAxis || parentFlowAxis(container);
     var multiTrackGrid =
       (containerStyles.display === "grid" ||
         containerStyles.display === "inline-grid") &&
@@ -13168,27 +13701,30 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var center =
         axis === "x" ? rect.left + rect.width / 2 : rect.top + rect.height / 2;
       var pointer = axis === "x" ? clientX : clientY;
-      // A multi-column grid is two-dimensional. Comparing X alone ties cells
-      // in the same column across every row, so a drop beside row 2 used to
-      // anchor against row 1 and jump to the beginning of the grid. Resolve
-      // the nearest visual cell in both axes, then use X for row-major
-      // before/after placement. One-column grids retain the normal Y path.
-      var distance = multiTrackGrid
-        ? Math.hypot(
-            clientX - (rect.left + rect.width / 2),
-            clientY - (rect.top + rect.height / 2),
-          )
-        : Math.abs(pointer - center);
+      // A multi-column grid or wrapped flex is two-dimensional. Comparing one
+      // axis alone ties cells/items across rows, so a drop can anchor against
+      // the wrong visual track. Resolve the nearest visual child in both
+      // axes, then use the container's main axis for before/after placement.
+      // One-column grids and non-wrapped flex retain their normal flow path.
+      var distance =
+        multiTrackGrid || wrappedFlexAxis
+          ? Math.hypot(
+              clientX - (rect.left + rect.width / 2),
+              clientY - (rect.top + rect.height / 2),
+            )
+          : Math.abs(pointer - center);
       if (distance < bestDistance) {
         bestDistance = distance;
         best = children[j];
-        placement = multiTrackGrid
-          ? clientX < rect.left + rect.width / 2
-            ? "before"
-            : "after"
-          : pointer < center
-            ? "before"
-            : "after";
+        var placementPointer = axis === "x" ? clientX : clientY;
+        placement =
+          multiTrackGrid || wrappedFlexAxis
+            ? placementPointer < center
+              ? "before"
+              : "after"
+            : pointer < center
+              ? "before"
+              : "after";
       }
     }
     if (!best) return null;
@@ -13237,6 +13773,39 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       !isOverlayElement(hit) &&
       !isTemplateCloneElement(hit)
     ) {
+      // A same-parent child is always a slot. Cross-parent slots are only
+      // forced for wrapped flex and grid, where the row/cell geometry carries
+      // insertion intent; a child of an ordinary flex item can still be an
+      // intentional nesting target.
+      var hitAutoLayoutParent = hit.parentElement;
+      var hitAutoLayoutStyles = hitAutoLayoutParent
+        ? window.getComputedStyle(hitAutoLayoutParent)
+        : null;
+      var hitIsGrid =
+        hitAutoLayoutStyles &&
+        (hitAutoLayoutStyles.display === "grid" ||
+          hitAutoLayoutStyles.display === "inline-grid");
+      var hitIsWrappedFlex =
+        hitAutoLayoutStyles &&
+        (hitAutoLayoutStyles.display === "flex" ||
+          hitAutoLayoutStyles.display === "inline-flex") &&
+        (hitAutoLayoutStyles.flexWrap === "wrap" ||
+          hitAutoLayoutStyles.flexWrap === "wrap-reverse");
+      if (
+        hitAutoLayoutParent &&
+        isAutoLayoutElement(hitAutoLayoutParent) &&
+        (hitAutoLayoutParent === el.parentElement ||
+          hitIsGrid ||
+          hitIsWrappedFlex)
+      ) {
+        var directChildSlot = nearestChildInsertionTarget(
+          hitAutoLayoutParent,
+          clientX,
+          clientY,
+          dragged,
+        );
+        if (directChildSlot) return directChildSlot;
+      }
       if (isContainerDropTarget(hit) && !isTextBearingLeaf(hit)) {
         var containerRect = hit.getBoundingClientRect();
         var edgeAxis = hit.parentElement
@@ -13392,6 +13961,30 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       clientY < parentRect.top ||
       clientY > parentRect.bottom;
 
+    // Cmd/Ctrl's auto-layout override is a free placement gesture. Once it
+    // leaves its current auto-layout parent, resolve the root escape before a
+    // nearby sibling/container can pull it back into that parent's flow.
+    var pointHit = elementFromEditorPoint(clientX, clientY);
+    if (
+      ignoreTargetAutoLayout &&
+      pointerOutsideCurrentParent &&
+      isAutoLayoutElement(currentParent) &&
+      (!pointHit ||
+        pointHit === document.body ||
+        pointHit === document.documentElement)
+    ) {
+      // Cmd/Ctrl is an explicit escape from the current auto-layout tree.
+      // Use the document root as the persistence anchor instead of placing
+      // after the former parent, whose generated screen wrapper would retain
+      // the child in that tree after the source round-trip.
+      return {
+        anchor: document.body,
+        placement: "inside",
+        axis: "y",
+        dropMode: "absolute-container",
+      };
+    }
+
     if (keepCurrentParent && pointerOutsideCurrentParent) {
       // Figma parity: an auto-layout parent cannot host a freely
       // (absolutely) positioned child at all, so "keep current parent,
@@ -13491,7 +14084,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return target;
   }
 
-  /** Apply Figma's Control-drag "Ignore auto layout" modifier to an
+  /** Apply Figma's Cmd/Ctrl-drag "Ignore auto layout" modifier to an
    * absolute/freeform drag target. The flow-origin path above already made
    * this conversion, but the ordinary absolute drag path used to ignore the
    * modifier and strip position/left/top on drop. Resolve to the auto-layout
@@ -13500,11 +14093,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
    * or the container background. */
   function ignoreAutoLayoutForDropTarget(target) {
     var container = dropContainerForTarget(target);
+    var isDeclaredFrameInAutoLayout = Boolean(
+      container &&
+      container.getAttribute("data-an-primitive") === "frame" &&
+      isAutoLayoutElement(container.parentElement),
+    );
     if (
       !target ||
       !container ||
       container === document.body ||
-      !isAutoLayoutElement(container)
+      (!isAutoLayoutElement(container) && !isDeclaredFrameInAutoLayout)
     ) {
       return target;
     }
@@ -13592,6 +14190,23 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (!hit || hit === document.documentElement || hit === document.body) {
       return unnestAbsoluteToScreenRoot(el, clientX, clientY);
     }
+    var explicitFrame = hit.closest('[data-an-primitive="frame"]');
+    if (
+      explicitFrame &&
+      explicitFrame !== document.body &&
+      !isDraggedOrInsideDragged(explicitFrame) &&
+      isAutoLayoutElement(explicitFrame.parentElement)
+    ) {
+      return {
+        anchor: explicitFrame,
+        placement: "inside",
+        axis: parentFlowAxis(explicitFrame),
+        // A declared frame is a deliberate nesting target even while it is a
+        // flex item itself. Its normal drop mode joins the frame's content
+        // flow; Ctrl is the explicit request to keep absolute positioning.
+        dropMode: "flow-insert",
+      };
+    }
     var cursor = hit;
     while (cursor && cursor !== document.body) {
       if (
@@ -13657,7 +14272,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (
         cursor !== document.body &&
         isContainerDropTarget(cursor) &&
-        !(parent && parent !== document.body && isAutoLayoutElement(parent))
+        !(
+          parent &&
+          parent !== document.body &&
+          isAutoLayoutElement(parent) &&
+          cursor.getAttribute("data-an-primitive") !== "frame"
+        )
       ) {
         // Free (absolute) element into a non-auto-layout container stays free:
         // nest as an absolute child at the drop point, never convert to flex.
@@ -13735,6 +14355,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             axis: parentFlowAxis(parent),
             dropMode: "flow-insert",
           };
+        }
+        var wrappedParentAxis = wrappedFlexMainAxis(parent);
+        if (wrappedParentAxis) {
+          var wrappedParentSlot = nearestChildInsertionTarget(
+            parent,
+            clientX,
+            clientY,
+            dragged,
+          );
+          if (wrappedParentSlot) return wrappedParentSlot;
         }
         var parentAxis = parentFlowAxis(parent);
         var childRect = cursor.getBoundingClientRect();
@@ -16104,7 +16734,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           var rawTarget = resolveReorderOrFreeTarget(
             cx,
             cy,
-            Boolean(ev.ctrlKey),
+            reorderIgnoresAutoLayout || Boolean(ev.ctrlKey || ev.metaKey),
           );
           rawTarget = applyReorderSizeGuard(rawTarget, ev);
           currentTarget = stabilizeReorderTarget(
@@ -16280,7 +16910,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         // Space held only at release still takes effect; live reflow then runs
         // one final stabilize tick so the drop still lands on the previewed
         // slot rather than jumping.
-        var finalRaw = resolveReorderOrFreeTarget(cx, cy, Boolean(ev?.ctrlKey));
+        var finalRaw = resolveReorderOrFreeTarget(
+          cx,
+          cy,
+          reorderIgnoresAutoLayout || Boolean(ev?.ctrlKey || ev?.metaKey),
+        );
         currentTarget = liveReflowEnabled
           ? stabilizeReorderTarget(
               applyReorderSizeGuard(finalRaw, ev),
@@ -16672,7 +17306,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
               groupOthers,
             )
           : null;
-        if (currentAutoLayoutTarget && ev.ctrlKey) {
+        if (currentAutoLayoutTarget && (ev.ctrlKey || ev.metaKey)) {
           currentAutoLayoutTarget = ignoreAutoLayoutForDropTarget(
             currentAutoLayoutTarget,
           );
@@ -16841,7 +17475,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           ev.clientY,
           groupOthers,
         );
-        if (finalAutoLayoutTarget && ev.ctrlKey) {
+        if (finalAutoLayoutTarget && (ev.ctrlKey || ev.metaKey)) {
           finalAutoLayoutTarget = ignoreAutoLayoutForDropTarget(
             finalAutoLayoutTarget,
           );
@@ -20650,6 +21284,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           payload: collectSelectableElementInfos(
             Boolean(e.data.deep),
             readSelectablePoint(e.data.atPoint),
+            e.data.includePortableStyleSnapshot !== false,
           ),
         },
         "*",

@@ -108,6 +108,11 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("grant-localhost-write-consent", () => {
+  it("is available to the capability-scoped visual-edit editor", () => {
+    expect(action.capabilityScopes).toEqual(["visual-edit"]);
+    expect(action.agentTool).toBe(false);
+  });
+
   it("persists the connection bridgeToken without returning it to the browser", async () => {
     mockConnection = {
       id: "conn_1",
