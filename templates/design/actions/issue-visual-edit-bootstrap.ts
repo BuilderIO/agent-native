@@ -1,7 +1,8 @@
 import crypto from "node:crypto";
 
+import { fail } from "@agent-native/core";
 import { defineAction } from "@agent-native/core/action";
-import { fail, signEmbedSessionToken } from "@agent-native/core/server";
+import { signEmbedSessionToken } from "@agent-native/core/server";
 import { z } from "zod";
 
 import { isSameOriginVisualEditBrowserRequest } from "./visual-edit-browser-request.js";

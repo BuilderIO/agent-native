@@ -183,20 +183,24 @@ async function readVisualEditBridgeAttestation(
       );
     }
     const attestation = (manifest as { attestation?: unknown }).attestation;
+    const attestationFields =
+      attestation &&
+      typeof attestation === "object" &&
+      !Array.isArray(attestation)
+        ? (attestation as { challenge?: unknown; signature?: unknown })
+        : undefined;
     if (
-      !attestation ||
-      typeof attestation !== "object" ||
-      Array.isArray(attestation) ||
-      typeof (attestation as { challenge?: unknown }).challenge !== "string" ||
-      typeof (attestation as { signature?: unknown }).signature !== "string"
+      !attestationFields ||
+      typeof attestationFields.challenge !== "string" ||
+      typeof attestationFields.signature !== "string"
     ) {
       throw new Error(
         "The local visual-edit bridge returned no valid bootstrap attestation. Restart `agent-native design connect` and retry.",
       );
     }
     return {
-      challenge: attestation.challenge,
-      signature: attestation.signature,
+      challenge: attestationFields.challenge,
+      signature: attestationFields.signature,
       previewToken: manifestUrl.searchParams.get("previewToken") ?? "",
       manifest: manifest as VisualEditBridgeAttestation["manifest"],
     };

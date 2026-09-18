@@ -11,10 +11,13 @@ vi.mock("@agent-native/core/action", () => ({
   defineAction: (config: unknown) => config,
 }));
 
-vi.mock("@agent-native/core/server", () => ({
+vi.mock("@agent-native/core", () => ({
   fail: (message: string) => {
     throw new Error(message);
   },
+}));
+
+vi.mock("@agent-native/core/server", () => ({
   signEmbedSessionToken,
 }));
 
