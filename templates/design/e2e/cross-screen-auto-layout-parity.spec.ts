@@ -8,7 +8,7 @@ const PRIMARY = process.platform === "darwin" ? "Meta" : "Control";
 const SOURCE_SCREEN = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Auto layout source</title></head>
-  <body style="margin:0;position:relative;min-height:900px;width:900px;background:#0f1115;color:#fff;font-family:system-ui,sans-serif">
+  <body style="margin:0;position:relative;min-height:780px;width:1000px;height:780px;background:#0f1115;color:#fff;font-family:system-ui,sans-serif">
     <section data-agent-native-node-id="source-flow" data-agent-native-layer-name="Source Flow" data-an-primitive="frame"
       style="position:absolute;left:80px;top:100px;width:360px;min-height:180px;box-sizing:border-box;display:flex;flex-direction:column;gap:12px;padding:16px;background:#1f2937">
       <div data-agent-native-node-id="screen-source" data-agent-native-layer-name="Screen Source"
@@ -22,7 +22,7 @@ const SOURCE_SCREEN = `<!doctype html>
 const DESTINATION_SCREEN = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Auto layout destination</title></head>
-  <body style="margin:0;position:relative;min-height:900px;width:900px;background:#111827;color:#fff;font-family:system-ui,sans-serif">
+  <body style="margin:0;position:relative;min-height:780px;width:1000px;height:780px;background:#111827;color:#fff;font-family:system-ui,sans-serif">
     <section data-agent-native-node-id="destination-flow" data-agent-native-layer-name="Destination Flow" data-an-primitive="frame"
       style="position:absolute;left:80px;top:100px;width:360px;min-height:180px;box-sizing:border-box;display:flex;flex-direction:column;gap:12px;padding:16px;background:#334155">
       <div data-agent-native-node-id="destination-anchor" data-agent-native-layer-name="Destination Anchor"
@@ -40,10 +40,14 @@ async function action(
   name: string,
   input: Record<string, unknown>,
 ) {
-  const response = await page.request.post(
-    `${baseURL}/_agent-native/actions/${name}`,
-    { data: input, headers: { "Content-Type": "application/json" } },
-  );
+  const actionURL = new URL(
+    `/_agent-native/actions/${name}`,
+    baseURL,
+  ).toString();
+  const response = await page.request.post(actionURL, {
+    data: input,
+    headers: { "Content-Type": "application/json" },
+  });
   if (!response.ok()) {
     throw new Error(`${name}: ${response.status()} ${await response.text()}`);
   }
@@ -51,15 +55,20 @@ async function action(
 }
 
 async function files(page: Page, designId: string): Promise<DesignFile[]> {
-  const response = await page.request.get(
-    `${baseURL}/_agent-native/actions/get-design?id=${designId}`,
-  );
+  const actionURL = new URL(
+    `/_agent-native/actions/get-design?id=${encodeURIComponent(designId)}`,
+    baseURL,
+  ).toString();
+  const response = await page.request.get(actionURL);
   if (!response.ok()) throw new Error(`get-design: ${await response.text()}`);
   const record = await response.json();
   return (record.files ?? []) as DesignFile[];
 }
 
-async function createDesign(page: Page): Promise<{
+async function createDesign(
+  page: Page,
+  onCreated?: (designId: string) => void,
+): Promise<{
   id: string;
   sourceId: string;
   destinationId: string;
@@ -70,6 +79,7 @@ async function createDesign(page: Page): Promise<{
   });
   const id = created?.id ?? created?.data?.id;
   if (typeof id !== "string") throw new Error("create-design returned no id");
+  onCreated?.(id);
   await action(page, "create-file", {
     designId: id,
     filename: "index.html",
@@ -96,22 +106,22 @@ async function createDesign(page: Page): Promise<{
       {
         op: "set",
         path: ["screenMetadata", sourceId],
-        value: { sourceType: "inline", width: 900, height: 900 },
+        value: { sourceType: "inline", width: 1000, height: 780 },
       },
       {
         op: "set",
         path: ["canvasFrames", sourceId],
-        value: { x: 0, y: 0, width: 900, height: 900, z: 0 },
+        value: { x: 0, y: 0, width: 1000, height: 780, z: 0 },
       },
       {
         op: "set",
         path: ["screenMetadata", destinationId],
-        value: { sourceType: "inline", width: 900, height: 900 },
+        value: { sourceType: "inline", width: 1000, height: 780 },
       },
       {
         op: "set",
         path: ["canvasFrames", destinationId],
-        value: { x: 1040, y: 0, width: 900, height: 900, z: 1 },
+        value: { x: 1120, y: 0, width: 1000, height: 780, z: 1 },
       },
     ],
   });
@@ -139,27 +149,6 @@ async function boxFor(page: Page, screenId: string, nodeId: string) {
     .boundingBox();
   if (!box) throw new Error(`missing ${nodeId} on ${screenId}`);
   return box;
-}
-
-async function probeNode(page: Page, screenId: string, nodeId: string) {
-  return designFrame(page, screenId)
-    .locator(`[data-agent-native-node-id="${nodeId}"]`)
-    .evaluate((node) => {
-      const rect = node.getBoundingClientRect();
-      const hit = document.elementFromPoint(
-        rect.left + rect.width / 2,
-        rect.top + rect.height / 2,
-      );
-      return {
-        rect: {
-          x: rect.x,
-          y: rect.y,
-          width: rect.width,
-          height: rect.height,
-        },
-        hit: hit?.getAttribute("data-agent-native-node-id") ?? hit?.tagName,
-      };
-    });
 }
 
 async function emptyBoardPoint(page: Page) {
@@ -214,7 +203,6 @@ async function settleScreens(
         });
         const stable = current === previous;
         previous = current;
-        if (stable) console.log("[cross-screen-auto-layout] settled", current);
         return stable;
       },
       { timeout: 5_000, message: "auto-layout screen positions never settled" },
@@ -275,34 +263,8 @@ async function dragScreenNode(
       steps: 5,
     },
   );
-  console.log(
-    "[cross-screen-auto-layout] drag points",
-    JSON.stringify({ source, destination }),
-  );
   await page.mouse.move(destination.x, destination.y, { steps: 30 });
   await page.waitForTimeout(500);
-  console.log(
-    "[cross-screen-auto-layout] held drag",
-    JSON.stringify(
-      await page.evaluate(() => ({
-        frames: Array.from(
-          document.querySelectorAll("iframe[data-design-preview-iframe]"),
-        ).map((frame) => {
-          const rect = frame.getBoundingClientRect();
-          return {
-            rect: {
-              x: rect.x,
-              y: rect.y,
-              width: rect.width,
-              height: rect.height,
-            },
-            pointerEvents: getComputedStyle(frame).pointerEvents,
-          };
-        }),
-        trace: (window as any).__designTrace?.dump?.() ?? "(no trace)",
-      })),
-    ),
-  );
   await expect(page.locator("[data-cross-screen-drop-guide]")).toHaveCount(1, {
     timeout: 5_000,
   });
@@ -366,8 +328,9 @@ test.describe("physical cross-screen auto-layout parity", () => {
   test("board to Screen auto-layout keeps held target/source evidence and full undo-redo publication", async ({
     page,
   }) => {
-    const design = await createDesign(page);
-    test.info().annotations.push({ type: "design-id", description: design.id });
+    const design = await createDesign(page, (id) =>
+      test.info().annotations.push({ type: "design-id", description: id }),
+    );
     await gotoEditor(page, design.id);
     await settleScreens(page, design.sourceId, design.destinationId);
 
@@ -379,6 +342,9 @@ test.describe("physical cross-screen auto-layout parity", () => {
     await page.mouse.down();
     await page.mouse.move(boardPoint.x + 100, boardPoint.y + 64, { steps: 8 });
     await page.mouse.up();
+    await expect
+      .poll(() => fileContent(page, design.id, "__board__.html"))
+      .toMatch(/data-agent-native-node-id=/);
     const beforeBoard = await fileContent(page, design.id, "__board__.html");
     const nodeId = [
       ...beforeBoard.matchAll(/data-agent-native-node-id="([^"]+)"/g),
@@ -389,58 +355,59 @@ test.describe("physical cross-screen auto-layout parity", () => {
     await page
       .locator('[data-design-bottom-toolbar] button[aria-label="Move"]')
       .click();
+    await page.evaluate(() => {
+      (window as Window & { __DND_DEBUG?: boolean }).__DND_DEBUG = true;
+      window.addEventListener("message", (event) => {
+        if (event.data?.type === "agent-native:cross-screen-drag") {
+          console.log(
+            "[cross-screen-auto-layout] top message",
+            JSON.stringify({
+              phase: event.data.phase,
+              sourceMatches: Array.from(
+                document.querySelectorAll("iframe[data-design-preview-iframe]"),
+              ).some((iframe) => iframe.contentWindow === event.source),
+            }),
+          );
+        }
+      });
+    });
+    page.on("console", (message) => {
+      if (
+        message.text().includes("[dnd:host:") ||
+        message.text().includes("[dnd:")
+      ) {
+        console.log(message.text());
+      }
+    });
+    console.log(
+      "[cross-screen-auto-layout] board iframes",
+      await page
+        .locator("iframe[data-design-preview-iframe]")
+        .evaluateAll((iframes) =>
+          iframes.map((iframe) => ({
+            screenId: iframe.getAttribute("data-screen-iframe-id"),
+            boardSurface: iframe.getAttribute("data-board-surface"),
+            rect: iframe.getBoundingClientRect().toJSON(),
+          })),
+        ),
+    );
     const source = page
       .locator("[data-board-surface-layer] iframe[data-design-preview-iframe]")
+      .first()
       .contentFrame()
-      .locator(`[data-agent-native-node-id="${nodeId}"]`);
+      .locator('[data-an-primitive="rectangle"]')
+      .first();
     await expect(source).toHaveCount(1);
     const sourceBox = (await source.boundingBox())!;
     const destination = await boxFor(
       page,
       design.destinationId,
-      "destination-anchor",
+      "destination-flow",
     );
-    console.log(
-      "[cross-screen-auto-layout] screen-to-screen target",
-      JSON.stringify({
-        destination,
-        anchor: await probeNode(
-          page,
-          design.destinationId,
-          "destination-anchor",
-        ),
-        frames: await page
-          .locator("iframe[data-design-preview-iframe]")
-          .evaluateAll((iframes) =>
-            iframes.map((iframe) => {
-              const rect = iframe.getBoundingClientRect();
-              return {
-                id: iframe.getAttribute("data-screen-iframe-id"),
-                rect: {
-                  x: rect.x,
-                  y: rect.y,
-                  width: rect.width,
-                  height: rect.height,
-                },
-              };
-            }),
-          ),
-      }),
-    );
-    console.log(
-      "[cross-screen-auto-layout] destination probe",
-      JSON.stringify({
-        destination,
-        anchor: await probeNode(
-          page,
-          design.destinationId,
-          "destination-anchor",
-        ),
-        frame: await page
-          .locator(`[data-screen-iframe-id="${design.destinationId}"]`)
-          .boundingBox(),
-      }),
-    );
+    console.log("[cross-screen-auto-layout] board drag boxes", {
+      sourceBox,
+      destination,
+    });
     await page.mouse.move(
       sourceBox.x + sourceBox.width / 2,
       sourceBox.y + sourceBox.height / 2,
@@ -462,24 +429,8 @@ test.describe("physical cross-screen auto-layout parity", () => {
     );
     await page.waitForTimeout(500);
     console.log(
-      "[cross-screen-auto-layout] board held drag",
-      await page.evaluate(() => ({
-        frames: Array.from(
-          document.querySelectorAll("iframe[data-design-preview-iframe]"),
-        ).map((frame) => {
-          const rect = frame.getBoundingClientRect();
-          return {
-            rect: {
-              x: rect.x,
-              y: rect.y,
-              width: rect.width,
-              height: rect.height,
-            },
-            pointerEvents: getComputedStyle(frame).pointerEvents,
-          };
-        }),
-        trace: (window as any).__designTrace?.dump?.() ?? "(no trace)",
-      })),
+      "[cross-screen-auto-layout] board held trace",
+      await page.evaluate(() => (window as any).__designTrace?.dump?.()),
     );
     const held = {
       guide: await page.locator("[data-cross-screen-drop-guide]").count(),
@@ -502,17 +453,7 @@ test.describe("physical cross-screen auto-layout parity", () => {
         .locator(`[data-agent-native-node-id="${nodeId}"]`)
         .evaluate((node) => getComputedStyle(node).position),
     ).not.toBe("absolute");
-    await settleReload(page);
-    await expect
-      .poll(() =>
-        designFrame(page, design.destinationId)
-          .locator(`[data-agent-native-node-id="${nodeId}"]`)
-          .evaluate((node) =>
-            node.parentElement?.getAttribute("data-agent-native-node-id"),
-          ),
-      )
-      .toBe("destination-flow");
-    await page.keyboard.press("ControlOrMeta+z");
+    await page.keyboard.press(`${PRIMARY}+z`);
     await expect
       .poll(() =>
         readMoveState(
@@ -527,7 +468,7 @@ test.describe("physical cross-screen auto-layout parity", () => {
         sourceHas: true,
         destinationHas: false,
       });
-    await page.keyboard.press("ControlOrMeta+Shift+z");
+    await page.keyboard.press(`${PRIMARY}+Shift+z`);
     await waitForMove(
       page,
       design.id,
@@ -535,17 +476,27 @@ test.describe("physical cross-screen auto-layout parity", () => {
       "destination.html",
       nodeId,
     );
+    await settleReload(page);
+    await expect
+      .poll(() =>
+        designFrame(page, design.destinationId)
+          .locator(`[data-agent-native-node-id="${nodeId}"]`)
+          .evaluate((node) =>
+            node.parentElement?.getAttribute("data-agent-native-node-id"),
+          ),
+      )
+      .toBe("destination-flow");
   });
 
   test("Screen to board preserves the auto-layout source boundary and undo-redo publication", async ({
     page,
   }) => {
-    const design = await createDesign(page);
-    test.info().annotations.push({ type: "design-id", description: design.id });
+    const design = await createDesign(page, (id) =>
+      test.info().annotations.push({ type: "design-id", description: id }),
+    );
     await gotoEditor(page, design.id);
     await settleScreens(page, design.sourceId, design.destinationId);
     const boardPoint = await emptyBoardPoint(page);
-    console.log("[cross-screen-auto-layout] board point", boardPoint);
     const held = await dragScreenNode(
       page,
       design.sourceId,
@@ -562,8 +513,7 @@ test.describe("physical cross-screen auto-layout parity", () => {
       "__board__.html",
       "screen-source",
     );
-    await settleReload(page);
-    await page.keyboard.press("ControlOrMeta+z");
+    await page.keyboard.press(`${PRIMARY}+z`);
     await expect
       .poll(() =>
         readMoveState(
@@ -578,7 +528,7 @@ test.describe("physical cross-screen auto-layout parity", () => {
         sourceHas: true,
         destinationHas: false,
       });
-    await page.keyboard.press("ControlOrMeta+Shift+z");
+    await page.keyboard.press(`${PRIMARY}+Shift+z`);
     await waitForMove(
       page,
       design.id,
@@ -586,19 +536,21 @@ test.describe("physical cross-screen auto-layout parity", () => {
       "__board__.html",
       "screen-source",
     );
+    await settleReload(page);
   });
 
   test("Screen to Screen inserts into the destination auto-layout root with held ghost and undo-redo publication", async ({
     page,
   }) => {
-    const design = await createDesign(page);
-    test.info().annotations.push({ type: "design-id", description: design.id });
+    const design = await createDesign(page, (id) =>
+      test.info().annotations.push({ type: "design-id", description: id }),
+    );
     await gotoEditor(page, design.id);
     await settleScreens(page, design.sourceId, design.destinationId);
     const destination = await boxFor(
       page,
       design.destinationId,
-      "destination-anchor",
+      "destination-flow",
     );
     const held = await dragScreenNode(page, design.sourceId, "screen-source", {
       x: destination.x + destination.width / 2,
@@ -626,8 +578,7 @@ test.describe("physical cross-screen auto-layout parity", () => {
           })),
       )
       .toEqual({ parent: "destination-flow", position: "static" });
-    await settleReload(page);
-    await page.keyboard.press("ControlOrMeta+z");
+    await page.keyboard.press(`${PRIMARY}+z`);
     await expect
       .poll(() =>
         readMoveState(
@@ -642,7 +593,7 @@ test.describe("physical cross-screen auto-layout parity", () => {
         sourceHas: true,
         destinationHas: false,
       });
-    await page.keyboard.press("ControlOrMeta+Shift+z");
+    await page.keyboard.press(`${PRIMARY}+Shift+z`);
     await waitForMove(
       page,
       design.id,
@@ -650,5 +601,6 @@ test.describe("physical cross-screen auto-layout parity", () => {
       "destination.html",
       "screen-source",
     );
+    await settleReload(page);
   });
 });
