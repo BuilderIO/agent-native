@@ -83,7 +83,7 @@ const messages = {
   empty: {
     library: {
       title: "你的資料庫還是空的",
-      body: "錄製第一個螢幕影片後，它會出現在這裡，隨時可以分享。",
+      body: "錄製你的第一個螢幕影片，與他人或智慧代理分享。",
       cta: "錄製第一個 Clip",
     },
     shared: {
@@ -1287,13 +1287,17 @@ const messages = {
   captureInstall: {
     title: "選擇錄製工具",
     description: "需要瀏覽器記錄時使用 Chrome；日常擷取要最順暢則使用桌面版。",
-    chromeTitle: "Chrome 擴充功能",
+    chromeTitle: "Get Chrome extension",
     chromeDescription: "使用 Chrome 擴充功能擷取瀏覽器分頁。",
     chromePendingDescription:
       "瀏覽器記錄選項已就緒，正在等待 Chrome Web Store URL。",
-    desktopTitle: "桌面應用程式",
+    desktopTitle: "Download desktop app",
     desktopDescription: "使用全域快捷鍵和系統音訊錄製。",
     openDesktopApp: "開啟桌面應用程式",
+    chromeHoverTitle: "Chrome 擴充功能",
+    chromeHoverDescription: "擷取頁面的控制台與網路詳細資訊，並隱藏隱私資訊。",
+    desktopHoverTitle: "桌面應用程式",
+    desktopHoverDescription: "透過快速鍵或選單列立即啟動——非常適合會議與重複錄製。",
   },
   editableTitle: {
     untitled: "未命名剪輯",
@@ -1482,7 +1486,8 @@ const messages = {
     betterInDesktop: "桌面應用程式體驗更好",
     desktopAppDescription:
       "選單列啟動、全域快捷鍵、自動更新，以及更順暢的重複錄製。",
-    downloadDesktopApp: "下載桌面應用程式",
+    downloadDesktopApp: "Record on desktop",
+    downloadLabel: "下載",
     technicalDetails: "技術詳細資料",
     whatToCheck: "檢查項目",
     downloadRecording: "下載",

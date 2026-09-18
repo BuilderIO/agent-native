@@ -85,7 +85,7 @@ const messages = {
   empty: {
     library: {
       title: "라이브러리가 비어 있습니다",
-      body: "첫 화면 녹화를 만들면 공유할 준비가 된 상태로 여기에 표시됩니다.",
+      body: "사람이나 에이전트와 공유할 첫 화면 녹화를 캡처하세요.",
       cta: "첫 Clip 녹화하기",
     },
     shared: {
@@ -1344,13 +1344,19 @@ const messages = {
     title: "Choose your recorder (현지화됨)",
     description:
       "Use Chrome when you need browser logs, or desktop for the smoothest everyday capture. (현지화됨)",
-    chromeTitle: "Chrome extension (현지화됨)",
+    chromeTitle: "Get Chrome extension",
     chromeDescription: "Chrome 확장 프로그램으로 브라우저 탭을 캡처하세요.",
     chromePendingDescription:
       "Browser logs option is ready, pending the Chrome Web Store URL. (현지화됨)",
-    desktopTitle: "Desktop app (현지화됨)",
+    desktopTitle: "Download desktop app",
     desktopDescription: "전역 단축키와 시스템 오디오로 녹화하세요.",
     openDesktopApp: "Open desktop app (현지화됨)",
+    chromeHoverTitle: "Chrome 확장 프로그램",
+    chromeHoverDescription:
+      "페이지의 콘솔 및 네트워크 세부 정보를 캡처하며 개인 정보는 숨겨집니다.",
+    desktopHoverTitle: "데스크톱 앱",
+    desktopHoverDescription:
+      "바로가기나 메뉴 막대에서 즉시 시작됩니다 — 회의와 반복 녹화에 적합합니다.",
   },
   editableTitle: {
     untitled: "Untitled Clip (현지화됨)",
@@ -1553,7 +1559,8 @@ const messages = {
     betterInDesktop: "Better in the desktop app (현지화됨)",
     desktopAppDescription:
       "Menu-bar launch, global shortcuts, auto-updates, and smoother repeat recordings. (현지화됨)",
-    downloadDesktopApp: "Download desktop app (현지화됨)",
+    downloadDesktopApp: "Record on desktop",
+    downloadLabel: "다운로드",
     technicalDetails: "Technical details (현지화됨)",
     whatToCheck: "What to check (현지화됨)",
     downloadRecording: "Download (현지화됨)",

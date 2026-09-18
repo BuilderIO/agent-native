@@ -17,7 +17,7 @@ export function LibraryPrimaryActions({
   spaceId,
 }: LibraryPrimaryActionsProps) {
   const t = useT();
-  const { recordHref, uploadHref, importLoomHref } = buildLibraryActionHrefs({
+  const { recordHref, uploadHref } = buildLibraryActionHrefs({
     folderId,
     spaceId,
   });
@@ -34,7 +34,9 @@ export function LibraryPrimaryActions({
       </PageHeaderPrimaryAction>
       <ImportMenu
         uploadHref={uploadHref}
-        importLoomHref={importLoomHref}
+        spaceId={spaceId}
+        folderId={folderId}
+        recordHref={recordHref}
         iconOnly
         triggerIcon="chevron"
         size="sm"

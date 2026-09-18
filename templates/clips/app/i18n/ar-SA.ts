@@ -84,7 +84,7 @@ const messages = {
   empty: {
     library: {
       title: "مكتبتك فارغة",
-      body: "التقط أول تسجيل شاشة وسيظهر هنا جاهزًا للمشاركة.",
+      body: "التقط أول تسجيل شاشة لمشاركته مع الأشخاص أو الوكلاء.",
       cta: "سجّل أول Clip لك",
     },
     shared: {
@@ -1350,13 +1350,19 @@ const messages = {
     title: "Choose your recorder (مترجم)",
     description:
       "Use Chrome when you need browser logs, or desktop for the smoothest everyday capture. (مترجم)",
-    chromeTitle: "Chrome extension (مترجم)",
+    chromeTitle: "Get Chrome extension",
     chromeDescription: "التقط علامات تبويب المتصفح باستخدام إضافة Chrome.",
     chromePendingDescription:
       "Browser logs option is ready, pending the Chrome Web Store URL. (مترجم)",
-    desktopTitle: "Desktop app (مترجم)",
+    desktopTitle: "Download desktop app",
     desktopDescription: "سجّل باستخدام الاختصارات العامة وصوت النظام.",
     openDesktopApp: "Open desktop app (مترجم)",
+    chromeHoverTitle: "إضافة Chrome",
+    chromeHoverDescription:
+      "تلتقط تفاصيل وحدة التحكم والشبكة من الصفحة، مع إخفاء المعلومات الخاصة.",
+    desktopHoverTitle: "تطبيق سطح المكتب",
+    desktopHoverDescription:
+      "يبدأ فورًا باختصار أو من شريط القوائم — مثالي للاجتماعات والتسجيلات المتكررة.",
   },
   editableTitle: {
     untitled: "Untitled Clip (مترجم)",
@@ -1559,7 +1565,8 @@ const messages = {
     betterInDesktop: "Better in the desktop app (مترجم)",
     desktopAppDescription:
       "Menu-bar launch, global shortcuts, auto-updates, and smoother repeat recordings. (مترجم)",
-    downloadDesktopApp: "Download desktop app (مترجم)",
+    downloadDesktopApp: "Record on desktop",
+    downloadLabel: "تنزيل",
     technicalDetails: "Technical details (مترجم)",
     whatToCheck: "What to check (مترجم)",
     downloadRecording: "Download (مترجم)",

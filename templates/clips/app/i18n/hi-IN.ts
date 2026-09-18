@@ -85,7 +85,7 @@ const messages = {
   empty: {
     library: {
       title: "आपकी लाइब्रेरी खाली है",
-      body: "अपनी पहली स्क्रीन रिकॉर्डिंग कैप्चर करें और वह यहाँ शेयर करने के लिए तैयार मिलेगी।",
+      body: "लोगों या एजेंट के साथ शेयर करने के लिए अपनी पहली स्क्रीन रिकॉर्डिंग कैप्चर करें।",
       cta: "अपना पहला Clip रिकॉर्ड करें",
     },
     shared: {
@@ -1327,13 +1327,19 @@ const messages = {
     title: "Choose your recorder (स्थानीयकृत)",
     description:
       "Use Chrome when you need browser logs, or desktop for the smoothest everyday capture. (स्थानीयकृत)",
-    chromeTitle: "Chrome extension (स्थानीयकृत)",
+    chromeTitle: "Get Chrome extension",
     chromeDescription: "Chrome एक्सटेंशन से ब्राउज़र टैब कैप्चर करें।",
     chromePendingDescription:
       "Browser logs option is ready, pending the Chrome Web Store URL. (स्थानीयकृत)",
-    desktopTitle: "Desktop app (स्थानीयकृत)",
+    desktopTitle: "Download desktop app",
     desktopDescription: "ग्लोबल शॉर्टकट और सिस्टम ऑडियो के साथ रिकॉर्ड करें।",
     openDesktopApp: "Open desktop app (स्थानीयकृत)",
+    chromeHoverTitle: "क्रोम एक्सटेंशन",
+    chromeHoverDescription:
+      "पेज से कंसोल और नेटवर्क विवरण कैप्चर करता है, निजी जानकारी छिपी रहती है।",
+    desktopHoverTitle: "डेस्कटॉप ऐप",
+    desktopHoverDescription:
+      "शॉर्टकट या मेनू बार से तुरंत शुरू होता है — मीटिंग और बार-बार रिकॉर्डिंग के लिए एकदम सही।",
   },
   editableTitle: {
     untitled: "Untitled Clip (स्थानीयकृत)",
@@ -1535,7 +1541,8 @@ const messages = {
     betterInDesktop: "Better in the desktop app (स्थानीयकृत)",
     desktopAppDescription:
       "Menu-bar launch, global shortcuts, auto-updates, and smoother repeat recordings. (स्थानीयकृत)",
-    downloadDesktopApp: "Download desktop app (स्थानीयकृत)",
+    downloadDesktopApp: "Record on desktop",
+    downloadLabel: "डाउनलोड",
     technicalDetails: "Technical details (स्थानीयकृत)",
     whatToCheck: "What to check (स्थानीयकृत)",
     downloadRecording: "Download (स्थानीयकृत)",
