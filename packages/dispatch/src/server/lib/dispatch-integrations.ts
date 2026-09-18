@@ -272,10 +272,31 @@ async function resolveSlackSenderProfile(
   }
 }
 
+async function resolveSlackSenderProfileWithinAckDeadline(
+  incoming: IncomingMessage,
+): Promise<SlackSenderProfile> {
+  return new Promise((resolve) => {
+    const timeout = setTimeout(
+      () => resolve({ email: null, name: null, trust: "unknown" }),
+      2_000,
+    );
+    void resolveSlackSenderProfile(incoming).then(
+      (profile) => {
+        clearTimeout(timeout);
+        resolve(profile);
+      },
+      () => {
+        clearTimeout(timeout);
+        resolve({ email: null, name: null, trust: "unknown" });
+      },
+    );
+  });
+}
+
 async function resolveSlackOwnerFromVerifiedEmail(
   incoming: IncomingMessage,
 ): Promise<string | null> {
-  const profile = await resolveSlackSenderProfile(incoming);
+  const profile = await resolveSlackSenderProfileWithinAckDeadline(incoming);
   if (!profile.email) return null;
 
   incoming.senderEmail = profile.email;
@@ -295,7 +316,7 @@ async function resolveManagedSlackDmExecutionContext(
     Awaited<ReturnType<typeof resolveManagedSlackInstallation>>
   >,
 ): Promise<IntegrationExecutionContext> {
-  const profile = await resolveSlackSenderProfile(incoming);
+  const profile = await resolveSlackSenderProfileWithinAckDeadline(incoming);
   incoming.actorTrust = {
     memberType:
       profile.trust === "guest"
@@ -587,7 +608,7 @@ export async function resolveDispatchExecutionContext(
   if (!teamId || !channelId) {
     throw new Error("Slack channel identity is incomplete");
   }
-  const profile = await resolveSlackSenderProfile(incoming);
+  const profile = await resolveSlackSenderProfileWithinAckDeadline(incoming);
   const conversation = await resolveSlackConversationTrust(
     incoming,
     profile.trust,

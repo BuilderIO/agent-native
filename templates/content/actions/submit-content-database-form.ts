@@ -292,6 +292,17 @@ function normalizeSubmittedPropertyValue(
           `Invalid value for "${definition.name}"; use a real ISO calendar date.`,
         );
       }
+      if (
+        value !== null &&
+        typeof value === "object" &&
+        !Array.isArray(value) &&
+        explicitIncludeTime === undefined &&
+        dateParts.some((part) => typeof part === "string" && part.includes("T"))
+      ) {
+        throw new Error(
+          `Invalid value for "${definition.name}"; includeTime is required for timed date ranges.`,
+        );
+      }
     }
     normalized = normalizePropertyValue(type, value);
   }

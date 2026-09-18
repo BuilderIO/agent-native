@@ -648,6 +648,45 @@ describe("submit-content-database-form", () => {
     ).rejects.toThrow("numeric dates are only supported as scalar values");
   });
 
+  it("rejects a timed range when includeTime is omitted", async () => {
+    const seeded = await seedFormDatabase();
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        submitForm.run({
+          databaseId: seeded.databaseId,
+          viewId: "request-form",
+          title: "Implicit timed range",
+          propertyEntries: [
+            { property: "Description", value: "Keep valid fields." },
+            { property: "Priority", value: "P1 — High" },
+            {
+              property: "Deadline",
+              value: { start: "2026-09-20", end: "2026-09-21T12:00" },
+            },
+          ],
+        }),
+      ),
+    ).rejects.toThrow("includeTime is required for timed date ranges");
+  });
+
+  it("accepts a scalar timed date with inferred precision", async () => {
+    const seeded = await seedFormDatabase();
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      submitForm.run({
+        databaseId: seeded.databaseId,
+        viewId: "request-form",
+        title: "Scalar timed date",
+        propertyEntries: [
+          { property: "Description", value: "Keep valid fields." },
+          { property: "Priority", value: "P1 — High" },
+          { property: "Deadline", value: "2026-09-20T12:00" },
+        ],
+      }),
+    );
+    expect(result.verified).toBe(true);
+  });
+
   it.each([
     ["invalid select array", "Priority", [42]],
     ["multiple values for a select", "Priority", ["P1 — High", "P2 — Medium"]],

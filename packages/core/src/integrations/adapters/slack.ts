@@ -874,6 +874,7 @@ async function resolveManagedSlackBotToken(
         )
       : null;
     if (installationKeyHint && !installation) return undefined;
+    if (installationKeyHint && !installation?.apiAppId) return undefined;
     if (!installation && apiAppId) {
       installation = await getActiveIntegrationInstallationByKey(
         "slack",

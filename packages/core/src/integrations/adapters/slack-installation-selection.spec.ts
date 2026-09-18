@@ -110,7 +110,7 @@ describe("slack outbound installation selection", () => {
     ).not.toHaveBeenCalled();
   });
 
-  it("does not let the deployment token override a named legacy installation", async () => {
+  it("rejects a named legacy installation without an app id", async () => {
     process.env.SLACK_BOT_TOKEN = "xoxb-deploy-token";
     getActiveIntegrationInstallationByKeyMock.mockResolvedValue(
       installation("T1:agent-native"),
@@ -118,34 +118,22 @@ describe("slack outbound installation selection", () => {
     resolveIntegrationTokenBundleMock.mockResolvedValue({
       accessToken: "xoxb-selected-token",
     });
-    const postedTokens: string[] = [];
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (url: string, init?: RequestInit) => {
-        const token = String(
-          (init?.headers as Record<string, string> | undefined)
-            ?.Authorization ?? "",
-        );
-        if (new URL(url).pathname.endsWith("/api/auth.test")) {
-          return new Response(
-            JSON.stringify({ ok: true, team_id: "T1", bot_id: "B1" }),
-          );
-        }
-        postedTokens.push(token);
-        return new Response(JSON.stringify({ ok: true, ts: "1.0" }));
-      }),
-    );
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
 
-    await slackAdapter().sendMessageToTarget!(
-      { text: "hello", platformContext: {} },
-      {
-        destination: "C123",
-        tenantId: "T1",
-        installationKey: "T1:agent-native",
-      },
-    );
+    await expect(
+      slackAdapter().sendMessageToTarget!(
+        { text: "hello", platformContext: {} },
+        {
+          destination: "C123",
+          tenantId: "T1",
+          installationKey: "T1:agent-native",
+        },
+      ),
+    ).rejects.toThrow("no bot token for outbound target");
 
-    expect(postedTokens).toEqual(["Bearer xoxb-selected-token"]);
+    expect(resolveIntegrationTokenBundleMock).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("fails closed when a named installation is missing", async () => {
