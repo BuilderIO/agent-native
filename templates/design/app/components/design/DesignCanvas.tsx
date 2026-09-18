@@ -183,6 +183,20 @@ import type {
   TextEditingState,
 } from "./types";
 
+function getSingleScreenZoomTransform(
+  zoom: number,
+  deviceFrame: DeviceFrameType,
+  centerInteractPreview: boolean,
+) {
+  const scale = zoom / 100;
+  if (centerInteractPreview || deviceFrame !== "none") {
+    return `scale(${scale})`;
+  }
+  return zoom < 100
+    ? `translate(${(100 - zoom) / 2}%, ${(100 - zoom) / 2}%) scale(${scale})`
+    : `scale(${scale})`;
+}
+
 function parseKScaleStyleChangeBatch(
   value: unknown,
 ): KScaleStyleChange[] | null {
@@ -1422,6 +1436,55 @@ export function DesignCanvas({
   const reviewCanvasId = useId();
   const zoomLayerRef = useRef<HTMLDivElement>(null);
   const zoomRef = useRef(zoom);
+  const imperativeZoomRef = useRef<number | null>(null);
+  const zoomCommitTimerRef = useRef<number | null>(null);
+  const applyZoomFrame = useCallback(
+    (nextZoom: number) => {
+      imperativeZoomRef.current = nextZoom;
+      zoomRef.current = nextZoom;
+      const layer = zoomLayerRef.current;
+      if (layer) {
+        layer.style.transform = getSingleScreenZoomTransform(
+          nextZoom,
+          deviceFrame,
+          centerInteractPreview,
+        );
+      }
+    },
+    [centerInteractPreview, deviceFrame],
+  );
+  const commitZoom = useCallback(
+    (nextZoom: number) => {
+      if (zoomCommitTimerRef.current !== null) {
+        window.clearTimeout(zoomCommitTimerRef.current);
+        zoomCommitTimerRef.current = null;
+      }
+      imperativeZoomRef.current = nextZoom;
+      zoomRef.current = nextZoom;
+      onZoomChange?.(nextZoom);
+    },
+    [onZoomChange],
+  );
+  const scheduleZoomCommit = useCallback(
+    (nextZoom: number) => {
+      applyZoomFrame(nextZoom);
+      if (zoomCommitTimerRef.current !== null) {
+        window.clearTimeout(zoomCommitTimerRef.current);
+      }
+      zoomCommitTimerRef.current = window.setTimeout(() => {
+        zoomCommitTimerRef.current = null;
+        commitZoom(zoomRef.current);
+      }, 120);
+    },
+    [applyZoomFrame, commitZoom],
+  );
+  useEffect(() => {
+    return () => {
+      if (zoomCommitTimerRef.current !== null) {
+        window.clearTimeout(zoomCommitTimerRef.current);
+      }
+    };
+  }, []);
   // Zoom-invariant chrome: the non-embedded-frame render path below wraps the
   // iframe in its own CSS `transform: scale(zoom / 100)` (see the
   // `deviceFrame === "none"` and framed branches further down) — a purely
@@ -2165,7 +2228,10 @@ export function DesignCanvas({
   const waitingForEditableExternalSnapshot = false;
   const waitingForLiveEditBridge =
     usesLiveEditInjectedBridge && !liveEditBridgeRegistered;
-  zoomRef.current = zoom;
+  if (imperativeZoomRef.current === zoom) {
+    imperativeZoomRef.current = null;
+  }
+  zoomRef.current = imperativeZoomRef.current ?? zoom;
   runtimeReplacementContentRef.current = runtimeReplacementContent;
   runtimeReplacementSourceRef.current =
     authoredSourceContent ?? runtimeReplacementContent;
@@ -3040,6 +3106,8 @@ export function DesignCanvas({
     max: DEFAULT_CANVAS_MAX_ZOOM,
     zoomToCursor: deviceFrame === "none" && !centerInteractPreview,
     enabled: Boolean(onZoomChange),
+    onZoomFrame: onZoomChange ? applyZoomFrame : undefined,
+    onZoomEnd: onZoomChange ? commitZoom : undefined,
   });
 
   // T-zoom-anchor: the "none"-mode zoom layer now uses `transform-origin: top
@@ -4192,7 +4260,7 @@ export function DesignCanvas({
           const rawClientX = Number(e.data.clientX);
           const rawClientY = Number(e.data.clientY);
           if (!Number.isFinite(rawClientX) || !Number.isFinite(rawClientY)) {
-            onZoomChange(nextZoom);
+            scheduleZoomCommit(nextZoom);
             return;
           }
           // The iframe lives inside a `transform: scale(zoom/100)` wrapper, so
@@ -4214,13 +4282,13 @@ export function DesignCanvas({
             scroll,
             ratio,
           );
-          onZoomChange(nextZoom);
+          scheduleZoomCommit(nextZoom);
           requestAnimationFrame(() => {
             scroll.scrollLeft += dx;
             scroll.scrollTop += dy;
           });
         } else {
-          onZoomChange(nextZoom);
+          scheduleZoomCommit(nextZoom);
         }
       }
     }
@@ -4251,6 +4319,7 @@ export function DesignCanvas({
     onRuntimeStructureInsertRejected,
     onVisualDuplicateChange,
     onZoomChange,
+    scheduleZoomCommit,
     centerInteractPreview,
     deviceFrame,
     onPrototypeNavigate,
@@ -6511,7 +6580,11 @@ export function DesignCanvas({
             <div
               ref={zoomLayerRef}
               style={{
-                transform: `scale(${zoom / 100})`,
+                transform: getSingleScreenZoomTransform(
+                  zoom,
+                  deviceFrame,
+                  centerInteractPreview,
+                ),
                 transformOrigin: "top left",
               }}
             >
@@ -6556,10 +6629,11 @@ export function DesignCanvas({
             // >= 100% the offset is exactly 0 and the original top-left
             // contract holds verbatim. The offset is also continuous at
             // 100% (0), so crossing the boundary mid-gesture cannot jump.
-            transform:
-              zoom < 100
-                ? `translate(${(100 - zoom) / 2}%, ${(100 - zoom) / 2}%) scale(${zoom / 100})`
-                : `scale(${zoom / 100})`,
+            transform: getSingleScreenZoomTransform(
+              zoom,
+              deviceFrame,
+              centerInteractPreview,
+            ),
             transformOrigin: "top left",
           }}
         >
@@ -6568,8 +6642,13 @@ export function DesignCanvas({
       ) : (
         <div className="relative flex items-center justify-center min-h-full">
           <div
+            ref={zoomLayerRef}
             style={{
-              transform: `scale(${zoom / 100})`,
+              transform: getSingleScreenZoomTransform(
+                zoom,
+                deviceFrame,
+                centerInteractPreview,
+              ),
               transformOrigin: "center center",
             }}
           >
