@@ -101,6 +101,33 @@ describe("exportConcat", () => {
     );
     expect(result).toMatchObject({ width: 1920, height: 1080 });
   });
+
+  it("uses supplied dimensions for fragmented MP4 sources", async () => {
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: {},
+    });
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: {
+        createElement: () => {
+          throw new Error("fragmented MP4 metadata should not be probed");
+        },
+      },
+    });
+
+    await expect(
+      exportConcat([
+        {
+          url: "/rewind.mp4",
+          format: "mp4",
+          width: 1920,
+          height: 1080,
+        },
+        { url: "/clip.webm", width: 1280, height: 720 },
+      ]),
+    ).resolves.toMatchObject({ width: 1920, height: 1080 });
+  });
 });
 
 describe("exportMp4 progress", () => {

@@ -33,6 +33,8 @@ interface RewindExtensionRequest {
     | "failed";
   preRollRecordingId?: string;
   actualDurationMs?: number;
+  preRollWidth?: number;
+  preRollHeight?: number;
   error?: string;
 }
 
@@ -172,6 +174,8 @@ export function RewindExtensionDialog({
               url: `${appBasePath()}/api/video/${encodeURIComponent(request.preRollRecordingId)}`,
               format: "mp4",
               hasAudio,
+              width: request.preRollWidth,
+              height: request.preRollHeight,
             },
             {
               url: `${appBasePath()}/api/video/${encodeURIComponent(recordingId)}`,

@@ -287,6 +287,8 @@ interface RewindExtensionRequest {
 interface NativeRewindUploadResult {
   recordingId: string;
   durationMs: number;
+  width?: number;
+  height?: number;
 }
 
 interface DueRewindAgentHandoff {
@@ -2018,6 +2020,8 @@ export function App({
           status: "ready",
           preRollRecordingId: recording.id,
           actualDurationMs: Math.round(upload.durationMs),
+          preRollWidth: upload.width,
+          preRollHeight: upload.height,
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
