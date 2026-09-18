@@ -24,7 +24,7 @@ describe("cross-screen drag identity provenance", () => {
     document.body.append(container);
     rectSpy = vi
       .spyOn(HTMLElement.prototype, "getBoundingClientRect")
-      .mockImplementation(function () {
+      .mockImplementation(function (this: HTMLElement) {
         const screenId = this.getAttribute("data-screen-iframe-id");
         const rect =
           screenId === "source"
