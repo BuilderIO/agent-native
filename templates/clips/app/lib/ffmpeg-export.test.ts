@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 let lastExecArgs: string[] = [];
+const originalDocument = (globalThis as { document?: unknown }).document;
 
 class FakeFfmpeg {
   private handlers = new Map<string, (payload: unknown) => void>();
@@ -49,6 +50,14 @@ const originalWindow = (globalThis as { window?: unknown }).window;
 afterEach(() => {
   lastExecArgs = [];
   resetFfmpegInstance();
+  if (originalDocument === undefined) {
+    Reflect.deleteProperty(globalThis, "document");
+  } else {
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: originalDocument,
+    });
+  }
   if (originalWindow === undefined) {
     Reflect.deleteProperty(globalThis, "window");
   } else {
@@ -65,10 +74,25 @@ describe("exportConcat", () => {
       configurable: true,
       value: {},
     });
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: {
+        createElement: () => ({
+          videoWidth: 1920,
+          videoHeight: 1050,
+          onloadedmetadata: null as (() => void) | null,
+          onerror: null as (() => void) | null,
+          load() {
+            queueMicrotask(() => this.onloadedmetadata?.());
+          },
+          removeAttribute() {},
+        }),
+      },
+    });
 
     await exportConcat([
       { url: "/one.webm", width: 1920, height: 1080 },
-      { url: "/two.webm", width: 1920, height: 1050 },
+      { url: "/two.webm", width: 0, height: 0 },
     ]);
 
     const filter = lastExecArgs[lastExecArgs.indexOf("-filter_complex") + 1];

@@ -353,8 +353,8 @@ export async function exportConcat(
     url: string;
     format?: "webm" | "mp4";
     hasAudio?: boolean;
-    width: number;
-    height: number;
+    width?: number;
+    height?: number;
   }>,
   onProgress?: (p: ExportProgress) => void,
 ): Promise<Blob> {
@@ -363,6 +363,56 @@ export async function exportConcat(
   }
 
   onProgress?.({ progress: 0, stage: "loading-ffmpeg" });
+  const dimensions = await Promise.all(
+    sources.map(async (source) => {
+      if (
+        Number.isFinite(source.width) &&
+        source.width! > 0 &&
+        Number.isFinite(source.height) &&
+        source.height! > 0
+      ) {
+        return { width: source.width!, height: source.height! };
+      }
+
+      return new Promise<{ width: number; height: number }>(
+        (resolve, reject) => {
+          const video = document.createElement("video");
+          let settled = false;
+          const timeout = setTimeout(
+            () => finish(new Error("Video metadata timed out")),
+            10_000,
+          );
+          const finish = (error?: Error) => {
+            if (settled) return;
+            settled = true;
+            const dimensions = {
+              width: video.videoWidth,
+              height: video.videoHeight,
+            };
+            clearTimeout(timeout);
+            video.onloadedmetadata = null;
+            video.onerror = null;
+            video.removeAttribute("src");
+            if (error) reject(error);
+            else resolve(dimensions);
+          };
+          video.preload = "metadata";
+          video.onloadedmetadata = () => {
+            if (video.videoWidth > 0 && video.videoHeight > 0) finish();
+            else finish(new Error("Video metadata has no dimensions"));
+          };
+          video.onerror = () =>
+            finish(new Error("Could not read video dimensions"));
+          video.src = source.url;
+          video.load();
+        },
+      );
+    }),
+  );
+  const targetWidth =
+    Math.ceil(Math.max(...dimensions.map(({ width }) => width)) / 2) * 2;
+  const targetHeight =
+    Math.ceil(Math.max(...dimensions.map(({ height }) => height)) / 2) * 2;
   const ffmpeg = await loadFfmpeg();
   const { fetchFile } = await import("@ffmpeg/util");
 
@@ -384,18 +434,6 @@ export async function exportConcat(
       `src${i}.${s.format ?? "webm"}`,
     ]);
     const includesAudio = sources.every((source) => source.hasAudio !== false);
-    const targetWidth =
-      Math.ceil(Math.max(...sources.map((source) => source.width)) / 2) * 2;
-    const targetHeight =
-      Math.ceil(Math.max(...sources.map((source) => source.height)) / 2) * 2;
-    if (
-      !Number.isFinite(targetWidth) ||
-      targetWidth <= 0 ||
-      !Number.isFinite(targetHeight) ||
-      targetHeight <= 0
-    ) {
-      throw new Error("Every source needs valid video dimensions");
-    }
     const filterParts: string[] = [];
     const concatInputs: string[] = [];
     for (let i = 0; i < sources.length; i++) {
