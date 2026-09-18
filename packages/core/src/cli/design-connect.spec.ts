@@ -945,6 +945,8 @@ describe("design connect bridge endpoints", () => {
       );
       expect(html.status).toBe(200);
       expect(html.headers["content-type"]).toContain("text/html");
+      expect(html.headers["cross-origin-embedder-policy"]).toBe("require-corp");
+      expect(html.headers["cross-origin-resource-policy"]).toBe("cross-origin");
       expect(html.body).toContain(`<base href="${base}/">`);
       expect(html.body).toContain('src="/src/main.ts"');
       expect(html.body).toContain("agent-native:editor-chrome-ready");
@@ -974,6 +976,12 @@ describe("design connect bridge endpoints", () => {
       expect(module.status).toBe(200);
       expect(module.headers["content-type"]).toContain(
         "application/javascript",
+      );
+      expect(module.headers["cross-origin-resource-policy"]).toBe(
+        "cross-origin",
+      );
+      expect(module.headers["cross-origin-embedder-policy"]).toBe(
+        "require-corp",
       );
       expect(module.headers["content-length"]).toBe(
         String(Buffer.byteLength(module.body)),

@@ -146,6 +146,13 @@ export interface DesignConnectBridgeOptions {
 
 const PREVIEW_TOKEN_DOMAIN = "agent-native-design-preview-v1\0";
 const PREVIEW_SESSION_COOKIE_NAME = "agent-native-preview-token";
+const BRIDGE_RESOURCE_HEADERS = {
+  // Embedded Design runs with COEP=require-corp. The loopback bridge is the
+  // explicitly connected preview origin, so every framed document and proxy
+  // asset it serves must opt into that cross-origin embedding contract.
+  "cross-origin-embedder-policy": "require-corp",
+  "cross-origin-resource-policy": "cross-origin",
+} as const;
 
 /**
  * Derive a read-only preview credential from the stronger filesystem token.
@@ -775,6 +782,7 @@ function sendJson(
 ) {
   res.writeHead(statusCode, {
     "content-type": "application/json; charset=utf-8",
+    ...BRIDGE_RESOURCE_HEADERS,
     ...bridgeCorsHeaders(res),
   });
   res.end(`${JSON.stringify(body, null, 2)}\n`);
@@ -789,6 +797,7 @@ function sendText(
 ) {
   res.writeHead(statusCode, {
     "content-type": contentType,
+    ...BRIDGE_RESOURCE_HEADERS,
     ...(setCookieHeaders.length > 0 ? { "set-cookie": setCookieHeaders } : {}),
     ...bridgeCorsHeaders(res),
   });
@@ -804,6 +813,7 @@ function sendBytes(
   setCookieHeaders: string[] = [],
 ) {
   const responseHeaders: Record<string, string | string[]> = {
+    ...BRIDGE_RESOURCE_HEADERS,
     ...bridgeCorsHeaders(res),
     "content-length": String(contentLength),
     ...(setCookieHeaders.length > 0 ? { "set-cookie": setCookieHeaders } : {}),

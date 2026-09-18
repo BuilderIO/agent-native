@@ -202,7 +202,7 @@ function reorderElementInfo(
 }
 
 function recordReorderAgainstRunningSnapshot(
-  sourceType: "inline" | "localhost",
+  sourceType: "inline" | "localhost" | "fusion",
 ) {
   const pendingLiveNonStyleEditsRef = {
     current: [] as PendingLiveNonStyleEdit[],
@@ -260,6 +260,7 @@ function recordReorderAgainstRunningSnapshot(
 describe("live insert lifecycle", () => {
   it("skips persisted static no-ops but queues running-app post-gesture snapshots", () => {
     expect(recordReorderAgainstRunningSnapshot("inline")).toEqual([]);
+    expect(recordReorderAgainstRunningSnapshot("fusion")).toEqual([]);
     expect(recordReorderAgainstRunningSnapshot("localhost")).toHaveLength(1);
   });
 

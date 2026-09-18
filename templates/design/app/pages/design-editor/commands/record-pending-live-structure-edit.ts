@@ -190,15 +190,13 @@ export function runRecordPendingLiveStructureEdit(
   });
   // The bridge applies a live move to the running document before it sends
   // this message, so the runtime snapshot already contains the requested
-  // order. Treating that post-gesture snapshot as authored source makes every
-  // localhost/fusion reorder look like a no-op and drops the source handoff.
-  // Only static/design-file snapshots can prove that the change was already
-  // persisted.
-  const isRunningAppScreen =
-    overviewScreen?.sourceType === "localhost" ||
-    overviewScreen?.sourceType === "fusion";
+  // order. Treating that post-gesture snapshot as authored source makes a
+  // localhost reorder look like a no-op and drops the source handoff. Fusion
+  // screens do not yet carry the connection metadata Apply needs, so keep
+  // their static no-op protection until that source path is supported too.
+  const isRunningLocalhostScreen = overviewScreen?.sourceType === "localhost";
   if (
-    !isRunningAppScreen &&
+    !isRunningLocalhostScreen &&
     isPendingStructureDropNoOp(
       runtimeLayerSnapshotsById[screenId]?.html,
       nextEdit,

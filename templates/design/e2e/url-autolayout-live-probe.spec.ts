@@ -73,7 +73,7 @@ test.describe("URL-backed live auto-layout probe", () => {
       res.end(fs.readFileSync(path.join(rootPath, "index.html"), "utf8"));
     });
     const devPort = await listen(devServer);
-    targetUrl = `http://127.0.0.1:${devPort}`;
+    targetUrl = `http://127.0.0.1:${devPort}`; // e2e-harness-ignore - the probe owns an ephemeral loopback app server.
     const portProbe = http.createServer();
     const bridgePort = await listen(portProbe);
     await closeServer(portProbe);
@@ -425,7 +425,12 @@ test.describe("URL-backed live auto-layout probe", () => {
     );
     await page.evaluate(() => {
       const state = window as typeof window & {
-        __urlProbeHandoff?: { submitMessageId: string; tabId?: string };
+        __urlProbeHandoff?: {
+          submitMessageId: string;
+          tabId?: string;
+          message?: string;
+          context?: string;
+        };
       };
       window.addEventListener("message", (event) => {
         const payload = event.data;
@@ -445,6 +450,14 @@ test.describe("URL-backed live auto-layout probe", () => {
             typeof payload.data.tabId === "string"
               ? payload.data.tabId
               : undefined,
+          message:
+            typeof payload.data.message === "string"
+              ? payload.data.message
+              : undefined,
+          context:
+            typeof payload.data.context === "string"
+              ? payload.data.context
+              : undefined,
         };
         // The standalone signed-out visual-edit route has no mounted agent
         // chat to acknowledge the local handoff. Acknowledge the exact
@@ -460,7 +473,15 @@ test.describe("URL-backed live auto-layout probe", () => {
     });
     await applyUpdates.click();
     console.log("URL probe started Apply design updates handoff");
-    await page.waitForTimeout(1_000);
+    await expect
+      .poll(
+        () =>
+          page.evaluate(() =>
+            document.body.innerText.includes("Verifying source and runtime"),
+          ),
+        { timeout: 10_000 },
+      )
+      .toBe(true);
     console.log(
       "URL probe apply state after 1s",
       await page.evaluate(() => ({
@@ -488,17 +509,25 @@ test.describe("URL-backed live auto-layout probe", () => {
         { timeout: 10_000 },
       )
       .toBe(true);
-    console.log(
-      "URL probe source handoff acknowledged",
-      await page.evaluate(
-        () =>
-          (
-            window as typeof window & {
-              __urlProbeHandoff?: unknown;
-            }
-          ).__urlProbeHandoff,
-      ),
+    const sourceHandoff = await page.evaluate(
+      () =>
+        (
+          window as typeof window & {
+            __urlProbeHandoff?: {
+              submitMessageId?: string;
+              message?: string;
+              context?: string;
+            };
+          }
+        ).__urlProbeHandoff,
     );
+    expect(sourceHandoff?.submitMessageId).toBeTruthy();
+    expect(sourceHandoff?.message).toContain("source");
+    expect(sourceHandoff?.context).toContain("index.html");
+    expect(sourceHandoff?.context).toContain('"sourceId": "v1"');
+    expect(sourceHandoff?.context).toContain('"anchorSourceId": "v3"');
+    expect(sourceHandoff?.context).toContain('"dropMode": "flow-insert"');
+    console.log("URL probe source handoff acknowledged", sourceHandoff);
 
     const readResult = (await call("read-local-file", {
       designId,
