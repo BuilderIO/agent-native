@@ -197,6 +197,7 @@ describe("suppression evidence", () => {
     // Undo callback runs.
     expect(releaseSuppression(threadId, id)).toBe(true);
     expect(releaseSuppressionClaims(threadId, [id])).toBe(true);
+    expect(releaseSuppressionClaims(threadId, [])).toBe(false);
   });
 });
 

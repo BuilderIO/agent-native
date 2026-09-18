@@ -488,6 +488,7 @@ export function releaseSuppressionClaims(
   threadId: string,
   ids: readonly number[],
 ): boolean {
+  if (ids.length === 0) return false;
   for (const id of ids) releaseSuppression(threadId, id);
   // Keep token ids stable after provider evidence retires a claim: an Undo
   // toast can outlive that evidence and still needs to send its inverse.
