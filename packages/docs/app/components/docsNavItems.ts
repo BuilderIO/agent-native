@@ -505,19 +505,19 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             slug: "template-design",
           },
           {
-            id: "template-design-quality-and-components",
-            labelKey: "designQualityAndComponents",
-            slug: "template-design-quality-and-components",
+            id: "template-design-features",
+            labelKey: "designFeatures",
+            slug: "template-design-features",
           },
           {
-            id: "template-design-brand-and-figma",
-            labelKey: "designBrandAndFigma",
-            slug: "template-design-brand-and-figma",
+            id: "template-design-agent",
+            labelKey: "designAgent",
+            slug: "template-design-agent",
           },
           {
-            id: "template-design-collaboration-and-full-apps",
-            labelKey: "designCollaborationAndFullApps",
-            slug: "template-design-collaboration-and-full-apps",
+            id: "template-design-integrations",
+            labelKey: "designIntegrations",
+            slug: "template-design-integrations",
           },
           {
             id: "template-design-developers",

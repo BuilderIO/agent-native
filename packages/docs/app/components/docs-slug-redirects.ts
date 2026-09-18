@@ -67,6 +67,13 @@ export const DOCS_SLUG_REDIRECTS: Record<string, string> = {
   // Features / Talk to the Agent / Cross-App Use / Developer Guide).
   "template-forms-building-publishing": "template-forms-features",
   "template-forms-responses": "template-forms-features",
+  // Design's Quality & Components, Brand & Figma, and Review & Handoff pages
+  // merged into one Features doc as part of the five-page app-doc-format
+  // rework (Overview / Features / Talk to the Agent / Cross-App Use /
+  // Developer Guide).
+  "template-design-quality-and-components": "template-design-features",
+  "template-design-brand-and-figma": "template-design-features",
+  "template-design-collaboration-and-full-apps": "template-design-features",
   // Slides' Generating & Editing Decks and Design Systems & Media pages
   // merged into one Features doc as part of the same five-page app-doc-format
   // rework (Overview / Features / Talk to the Agent / Cross-App Use /

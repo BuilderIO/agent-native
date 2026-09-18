@@ -13,6 +13,9 @@ packages/core/docs/content/locales/ar-SA/recurring-jobs.mdx|, recompute
 packages/core/docs/content/locales/ar-SA/template-calendar-developers.mdx|confirmed | cancelled
 packages/core/docs/content/locales/ar-SA/template-calendar-developers.mdx|none | google_meet | zoom | custom
 packages/core/docs/content/locales/ar-SA/template-calendar-developers.mdx|viewer | editor | admin
+packages/core/docs/content/locales/ar-SA/template-clips-developers.mdx|uploading | processing | ready | failed
+packages/core/docs/content/locales/ar-SA/template-clips-developers.mdx|viewer | contributor | admin
+packages/core/docs/content/locales/ar-SA/template-clips-developers.mdx|viewer | editor | admin
 packages/core/docs/content/locales/ar-SA/template-content.mdx|At a glance · owner, window, status
 packages/core/docs/content/locales/ar-SA/template-content.mdx|Engineering wiki
 packages/core/docs/content/locales/ar-SA/template-content.mdx|Launch goals
@@ -22,7 +25,7 @@ packages/core/docs/content/locales/ar-SA/template-content.mdx|Ship the onboardin
 packages/core/docs/content/locales/ar-SA/template-content.mdx|Top objectives
 packages/core/docs/content/locales/ar-SA/template-content.mdx|Weekly sync
 packages/core/docs/content/locales/ar-SA/template-content.mdx|Workstreams table
-packages/core/docs/content/locales/ar-SA/template-slides.mdx|"10-slide pitch deck"
+packages/core/docs/content/locales/ar-SA/template-slides-developers.mdx|decks, slide_comments, deck_versions, design_systems, deck_share_links
 packages/core/docs/content/locales/ar-SA/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/ar-SA/toolkit-context-knowledge.mdx|Context X-Ray
 packages/core/docs/content/locales/ar-SA/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
@@ -40,6 +43,9 @@ packages/core/docs/content/locales/de-DE/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/de-DE/progress.mdx|Writing to target DB
 packages/core/docs/content/locales/de-DE/recurring-jobs.mdx|, recompute
 packages/core/docs/content/locales/de-DE/template-calendar-developers.mdx|none | google_meet | zoom | custom
+packages/core/docs/content/locales/de-DE/template-clips-developers.mdx|uploading | processing | ready | failed
+packages/core/docs/content/locales/de-DE/template-clips-developers.mdx|viewer | contributor | admin
+packages/core/docs/content/locales/de-DE/template-clips-developers.mdx|viewer | editor | admin
 packages/core/docs/content/locales/de-DE/template-content.mdx|At a glance · owner, window, status
 packages/core/docs/content/locales/de-DE/template-content.mdx|Engineering wiki
 packages/core/docs/content/locales/de-DE/template-content.mdx|Launch goals
@@ -50,7 +56,7 @@ packages/core/docs/content/locales/de-DE/template-content.mdx|Top objectives
 packages/core/docs/content/locales/de-DE/template-content.mdx|Weekly sync
 packages/core/docs/content/locales/de-DE/template-content.mdx|Workstreams table
 packages/core/docs/content/locales/de-DE/template-forms.mdx|"add an NPS question"
-packages/core/docs/content/locales/de-DE/template-slides.mdx|"10-slide pitch deck"
+packages/core/docs/content/locales/de-DE/template-slides-developers.mdx|decks, slide_comments, deck_versions, design_systems, deck_share_links
 packages/core/docs/content/locales/de-DE/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/de-DE/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
 packages/core/docs/content/locales/es-ES/actions-access-control.mdx|Needs approval
@@ -67,6 +73,9 @@ packages/core/docs/content/locales/es-ES/recurring-jobs.mdx|, recompute
 packages/core/docs/content/locales/es-ES/template-calendar-developers.mdx|confirmed | cancelled
 packages/core/docs/content/locales/es-ES/template-calendar-developers.mdx|none | google_meet | zoom | custom
 packages/core/docs/content/locales/es-ES/template-calendar-developers.mdx|viewer | editor | admin
+packages/core/docs/content/locales/es-ES/template-clips-developers.mdx|uploading | processing | ready | failed
+packages/core/docs/content/locales/es-ES/template-clips-developers.mdx|viewer | contributor | admin
+packages/core/docs/content/locales/es-ES/template-clips-developers.mdx|viewer | editor | admin
 packages/core/docs/content/locales/es-ES/template-content.mdx|At a glance · owner, window, status
 packages/core/docs/content/locales/es-ES/template-content.mdx|Engineering wiki
 packages/core/docs/content/locales/es-ES/template-content.mdx|Launch goals
@@ -77,7 +86,7 @@ packages/core/docs/content/locales/es-ES/template-content.mdx|Top objectives
 packages/core/docs/content/locales/es-ES/template-content.mdx|Weekly sync
 packages/core/docs/content/locales/es-ES/template-content.mdx|Workstreams table
 packages/core/docs/content/locales/es-ES/template-forms.mdx|"add an NPS question"
-packages/core/docs/content/locales/es-ES/template-slides.mdx|"10-slide pitch deck"
+packages/core/docs/content/locales/es-ES/template-slides-developers.mdx|decks, slide_comments, deck_versions, design_systems, deck_share_links
 packages/core/docs/content/locales/es-ES/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/es-ES/toolkit-context-knowledge.mdx|Context X-Ray
 packages/core/docs/content/locales/es-ES/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
@@ -95,6 +104,9 @@ packages/core/docs/content/locales/fr-FR/recurring-jobs.mdx|, recompute
 packages/core/docs/content/locales/fr-FR/template-calendar-developers.mdx|confirmed | cancelled
 packages/core/docs/content/locales/fr-FR/template-calendar-developers.mdx|none | google_meet | zoom | custom
 packages/core/docs/content/locales/fr-FR/template-calendar-developers.mdx|viewer | editor | admin
+packages/core/docs/content/locales/fr-FR/template-clips-developers.mdx|uploading | processing | ready | failed
+packages/core/docs/content/locales/fr-FR/template-clips-developers.mdx|viewer | contributor | admin
+packages/core/docs/content/locales/fr-FR/template-clips-developers.mdx|viewer | editor | admin
 packages/core/docs/content/locales/fr-FR/template-content.mdx|At a glance · owner, window, status
 packages/core/docs/content/locales/fr-FR/template-content.mdx|Engineering wiki
 packages/core/docs/content/locales/fr-FR/template-content.mdx|Launch goals
@@ -105,7 +117,7 @@ packages/core/docs/content/locales/fr-FR/template-content.mdx|Top objectives
 packages/core/docs/content/locales/fr-FR/template-content.mdx|Weekly sync
 packages/core/docs/content/locales/fr-FR/template-content.mdx|Workstreams table
 packages/core/docs/content/locales/fr-FR/template-forms.mdx|"add an NPS question"
-packages/core/docs/content/locales/fr-FR/template-slides.mdx|"10-slide pitch deck"
+packages/core/docs/content/locales/fr-FR/template-slides-developers.mdx|decks, slide_comments, deck_versions, design_systems, deck_share_links
 packages/core/docs/content/locales/fr-FR/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/fr-FR/toolkit-context-knowledge.mdx|Context X-Ray
 packages/core/docs/content/locales/fr-FR/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
@@ -139,6 +151,9 @@ packages/core/docs/content/locales/hi-IN/recurring-jobs.mdx|, recompute
 packages/core/docs/content/locales/hi-IN/template-calendar-developers.mdx|confirmed | cancelled
 packages/core/docs/content/locales/hi-IN/template-calendar-developers.mdx|none | google_meet | zoom | custom
 packages/core/docs/content/locales/hi-IN/template-calendar-developers.mdx|viewer | editor | admin
+packages/core/docs/content/locales/hi-IN/template-clips-developers.mdx|uploading | processing | ready | failed
+packages/core/docs/content/locales/hi-IN/template-clips-developers.mdx|viewer | contributor | admin
+packages/core/docs/content/locales/hi-IN/template-clips-developers.mdx|viewer | editor | admin
 packages/core/docs/content/locales/hi-IN/template-content.mdx|At a glance · owner, window, status
 packages/core/docs/content/locales/hi-IN/template-content.mdx|Engineering wiki
 packages/core/docs/content/locales/hi-IN/template-content.mdx|Launch goals
@@ -148,7 +163,7 @@ packages/core/docs/content/locales/hi-IN/template-content.mdx|Ship the onboardin
 packages/core/docs/content/locales/hi-IN/template-content.mdx|Top objectives
 packages/core/docs/content/locales/hi-IN/template-content.mdx|Weekly sync
 packages/core/docs/content/locales/hi-IN/template-content.mdx|Workstreams table
-packages/core/docs/content/locales/hi-IN/template-slides.mdx|"10-slide pitch deck"
+packages/core/docs/content/locales/hi-IN/template-slides-developers.mdx|decks, slide_comments, deck_versions, design_systems, deck_share_links
 packages/core/docs/content/locales/hi-IN/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/hi-IN/toolkit-context-knowledge.mdx|Context X-Ray
 packages/core/docs/content/locales/hi-IN/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
@@ -167,6 +182,9 @@ packages/core/docs/content/locales/ja-JP/recurring-jobs.mdx|, recompute
 packages/core/docs/content/locales/ja-JP/template-calendar-developers.mdx|confirmed | cancelled
 packages/core/docs/content/locales/ja-JP/template-calendar-developers.mdx|none | google_meet | zoom | custom
 packages/core/docs/content/locales/ja-JP/template-calendar-developers.mdx|viewer | editor | admin
+packages/core/docs/content/locales/ja-JP/template-clips-developers.mdx|uploading | processing | ready | failed
+packages/core/docs/content/locales/ja-JP/template-clips-developers.mdx|viewer | contributor | admin
+packages/core/docs/content/locales/ja-JP/template-clips-developers.mdx|viewer | editor | admin
 packages/core/docs/content/locales/ja-JP/template-content.mdx|At a glance · owner, window, status
 packages/core/docs/content/locales/ja-JP/template-content.mdx|Engineering wiki
 packages/core/docs/content/locales/ja-JP/template-content.mdx|Launch goals
@@ -177,7 +195,7 @@ packages/core/docs/content/locales/ja-JP/template-content.mdx|Top objectives
 packages/core/docs/content/locales/ja-JP/template-content.mdx|Weekly sync
 packages/core/docs/content/locales/ja-JP/template-content.mdx|Workstreams table
 packages/core/docs/content/locales/ja-JP/template-forms.mdx|"add an NPS question"
-packages/core/docs/content/locales/ja-JP/template-slides.mdx|"10-slide pitch deck"
+packages/core/docs/content/locales/ja-JP/template-slides-developers.mdx|decks, slide_comments, deck_versions, design_systems, deck_share_links
 packages/core/docs/content/locales/ja-JP/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/ja-JP/toolkit-context-knowledge.mdx|Context X-Ray
 packages/core/docs/content/locales/ja-JP/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
@@ -196,6 +214,9 @@ packages/core/docs/content/locales/ko-KR/recurring-jobs.mdx|, recompute
 packages/core/docs/content/locales/ko-KR/template-calendar-developers.mdx|confirmed | cancelled
 packages/core/docs/content/locales/ko-KR/template-calendar-developers.mdx|none | google_meet | zoom | custom
 packages/core/docs/content/locales/ko-KR/template-calendar-developers.mdx|viewer | editor | admin
+packages/core/docs/content/locales/ko-KR/template-clips-developers.mdx|uploading | processing | ready | failed
+packages/core/docs/content/locales/ko-KR/template-clips-developers.mdx|viewer | contributor | admin
+packages/core/docs/content/locales/ko-KR/template-clips-developers.mdx|viewer | editor | admin
 packages/core/docs/content/locales/ko-KR/template-content.mdx|At a glance · owner, window, status
 packages/core/docs/content/locales/ko-KR/template-content.mdx|Engineering wiki
 packages/core/docs/content/locales/ko-KR/template-content.mdx|Launch goals
@@ -205,7 +226,7 @@ packages/core/docs/content/locales/ko-KR/template-content.mdx|Ship the onboardin
 packages/core/docs/content/locales/ko-KR/template-content.mdx|Top objectives
 packages/core/docs/content/locales/ko-KR/template-content.mdx|Weekly sync
 packages/core/docs/content/locales/ko-KR/template-content.mdx|Workstreams table
-packages/core/docs/content/locales/ko-KR/template-slides.mdx|"10-slide pitch deck"
+packages/core/docs/content/locales/ko-KR/template-slides-developers.mdx|decks, slide_comments, deck_versions, design_systems, deck_share_links
 packages/core/docs/content/locales/ko-KR/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/ko-KR/toolkit-context-knowledge.mdx|Context X-Ray
 packages/core/docs/content/locales/ko-KR/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
@@ -225,6 +246,9 @@ packages/core/docs/content/locales/pt-BR/recurring-jobs.mdx|, recompute
 packages/core/docs/content/locales/pt-BR/template-calendar-developers.mdx|confirmed | cancelled
 packages/core/docs/content/locales/pt-BR/template-calendar-developers.mdx|none | google_meet | zoom | custom
 packages/core/docs/content/locales/pt-BR/template-calendar-developers.mdx|viewer | editor | admin
+packages/core/docs/content/locales/pt-BR/template-clips-developers.mdx|uploading | processing | ready | failed
+packages/core/docs/content/locales/pt-BR/template-clips-developers.mdx|viewer | contributor | admin
+packages/core/docs/content/locales/pt-BR/template-clips-developers.mdx|viewer | editor | admin
 packages/core/docs/content/locales/pt-BR/template-content.mdx|At a glance · owner, window, status
 packages/core/docs/content/locales/pt-BR/template-content.mdx|Engineering wiki
 packages/core/docs/content/locales/pt-BR/template-content.mdx|Launch goals
@@ -234,7 +258,7 @@ packages/core/docs/content/locales/pt-BR/template-content.mdx|Ship the onboardin
 packages/core/docs/content/locales/pt-BR/template-content.mdx|Top objectives
 packages/core/docs/content/locales/pt-BR/template-content.mdx|Weekly sync
 packages/core/docs/content/locales/pt-BR/template-content.mdx|Workstreams table
-packages/core/docs/content/locales/pt-BR/template-slides.mdx|"10-slide pitch deck"
+packages/core/docs/content/locales/pt-BR/template-slides-developers.mdx|decks, slide_comments, deck_versions, design_systems, deck_share_links
 packages/core/docs/content/locales/pt-BR/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/pt-BR/toolkit-context-knowledge.mdx|Context X-Ray
 packages/core/docs/content/locales/pt-BR/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
@@ -256,6 +280,9 @@ packages/core/docs/content/locales/zh-CN/recurring-jobs.mdx|, recompute
 packages/core/docs/content/locales/zh-CN/template-calendar-developers.mdx|confirmed | cancelled
 packages/core/docs/content/locales/zh-CN/template-calendar-developers.mdx|none | google_meet | zoom | custom
 packages/core/docs/content/locales/zh-CN/template-calendar-developers.mdx|viewer | editor | admin
+packages/core/docs/content/locales/zh-CN/template-clips-developers.mdx|uploading | processing | ready | failed
+packages/core/docs/content/locales/zh-CN/template-clips-developers.mdx|viewer | contributor | admin
+packages/core/docs/content/locales/zh-CN/template-clips-developers.mdx|viewer | editor | admin
 packages/core/docs/content/locales/zh-CN/template-content.mdx|At a glance · owner, window, status
 packages/core/docs/content/locales/zh-CN/template-content.mdx|Engineering wiki
 packages/core/docs/content/locales/zh-CN/template-content.mdx|Launch goals
@@ -265,7 +292,7 @@ packages/core/docs/content/locales/zh-CN/template-content.mdx|Ship the onboardin
 packages/core/docs/content/locales/zh-CN/template-content.mdx|Top objectives
 packages/core/docs/content/locales/zh-CN/template-content.mdx|Weekly sync
 packages/core/docs/content/locales/zh-CN/template-content.mdx|Workstreams table
-packages/core/docs/content/locales/zh-CN/template-slides.mdx|"10-slide pitch deck"
+packages/core/docs/content/locales/zh-CN/template-slides-developers.mdx|decks, slide_comments, deck_versions, design_systems, deck_share_links
 packages/core/docs/content/locales/zh-CN/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/zh-CN/toolkit-context-knowledge.mdx|Context X-Ray
 packages/core/docs/content/locales/zh-CN/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
@@ -287,6 +314,9 @@ packages/core/docs/content/locales/zh-TW/recurring-jobs.mdx|, recompute
 packages/core/docs/content/locales/zh-TW/template-calendar-developers.mdx|confirmed | cancelled
 packages/core/docs/content/locales/zh-TW/template-calendar-developers.mdx|none | google_meet | zoom | custom
 packages/core/docs/content/locales/zh-TW/template-calendar-developers.mdx|viewer | editor | admin
+packages/core/docs/content/locales/zh-TW/template-clips-developers.mdx|uploading | processing | ready | failed
+packages/core/docs/content/locales/zh-TW/template-clips-developers.mdx|viewer | contributor | admin
+packages/core/docs/content/locales/zh-TW/template-clips-developers.mdx|viewer | editor | admin
 packages/core/docs/content/locales/zh-TW/template-content.mdx|At a glance · owner, window, status
 packages/core/docs/content/locales/zh-TW/template-content.mdx|Engineering wiki
 packages/core/docs/content/locales/zh-TW/template-content.mdx|Launch goals
@@ -296,7 +326,7 @@ packages/core/docs/content/locales/zh-TW/template-content.mdx|Ship the onboardin
 packages/core/docs/content/locales/zh-TW/template-content.mdx|Top objectives
 packages/core/docs/content/locales/zh-TW/template-content.mdx|Weekly sync
 packages/core/docs/content/locales/zh-TW/template-content.mdx|Workstreams table
-packages/core/docs/content/locales/zh-TW/template-slides.mdx|"10-slide pitch deck"
+packages/core/docs/content/locales/zh-TW/template-slides-developers.mdx|decks, slide_comments, deck_versions, design_systems, deck_share_links
 packages/core/docs/content/locales/zh-TW/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/zh-TW/toolkit-context-knowledge.mdx|Context X-Ray
 packages/core/docs/content/locales/zh-TW/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
