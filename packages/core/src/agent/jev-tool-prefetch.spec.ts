@@ -228,7 +228,7 @@ describe("preloadJevTools", () => {
     expect(result).toEqual(["search-crm", "send-email"]);
     expect(typeSafeClient).not.toHaveBeenCalled();
     expect(fetch).toHaveBeenCalledWith(
-      "https://api.builder.io/agent-native/jev/v1/systemone",
+      "https://api.builder.io/agent-native/jev/v1/system-one",
       expect.objectContaining({
         method: "POST",
         headers: expect.objectContaining({

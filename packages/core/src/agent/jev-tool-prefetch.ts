@@ -317,7 +317,7 @@ async function requestJevThroughBuilder(
   const timeout = setTimeout(() => controller.abort(), JEV_TIMEOUT_MS);
   try {
     const response = await fetch(
-      `${getBuilderProxyOrigin().replace(/\/+$/, "")}/agent-native/jev/v1/systemone`,
+      `${getBuilderProxyOrigin().replace(/\/+$/, "")}/agent-native/jev/v1/system-one`,
       {
         method: "POST",
         headers: {
