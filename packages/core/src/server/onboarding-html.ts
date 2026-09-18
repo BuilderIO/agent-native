@@ -1672,7 +1672,11 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
           description: copy.description ?? marketing?.description,
           features: copy.features ?? marketing?.features,
           authHeadline: copy.authHeadline ?? copy.tagline,
-          authDescription: copy.authDescription ?? copy.description,
+          authDescription:
+            copy.authDescription ??
+            copy.description ??
+            marketingPresentation?.description ??
+            marketing?.description,
         },
       ]),
     );

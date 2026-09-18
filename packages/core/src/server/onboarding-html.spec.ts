@@ -601,6 +601,9 @@ describe("getOnboardingHtml", () => {
     });
 
     expect(html).toContain("你的 AI 代理会转录、总结并搜索你记录的所有内容。");
+    expect(
+      readAuthPageData(html).marketingLocales["zh-CN"]?.authDescription,
+    ).toBe("Screen recordings built for people and agents.");
   });
 
   it("keeps custom Clips auth marketing copy out of built-in localization", () => {
