@@ -285,6 +285,7 @@ async function dragScreenNode(
   });
   await selectScreenNode(page, screenId, nodeId);
   const source = await boxFor(page, screenId, nodeId);
+  console.log(`drag geometry ${JSON.stringify({ source, destination })}`);
   await page.mouse.move(
     source.x + source.width / 2,
     source.y + source.height / 2,
