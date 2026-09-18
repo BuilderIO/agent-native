@@ -2044,7 +2044,7 @@ export function AuthPage(props: AuthPageProps) {
             body: JSON.stringify({ code }),
           },
         );
-        if (response.ok) {
+        if (response.ok && data.ok === true) {
           removeStorage(pendingEmailStorageKey());
           redirectToSignedInApp();
           return;
