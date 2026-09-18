@@ -365,7 +365,10 @@ test.describe("physical cross-screen auto-layout parity", () => {
               phase: event.data.phase,
               sourceMatches: Array.from(
                 document.querySelectorAll("iframe[data-design-preview-iframe]"),
-              ).some((iframe) => iframe.contentWindow === event.source),
+              ).some(
+                (iframe) =>
+                  (iframe as HTMLIFrameElement).contentWindow === event.source,
+              ),
             }),
           );
         }
