@@ -58,14 +58,15 @@ describe("content agent-readable discovery", () => {
         state: "authentication-required",
         summary:
           "This Content document is private. Authenticated access is available through the Content MCP integration.",
-        authenticationRequired: true,
-        anonymousHttp: "denied",
+        sharePageAuthenticationRequired: true,
+        sharePageHttpAccess: "denied",
+        mcpConnectionRequired: true,
         mcpAccountPermission: "not-evaluated",
         authorization: "connected-account-existing-permissions",
         setupDocumentationUrl:
           "https://www.agent-native.com/docs/external-agents/#private-content-links",
         connectionUrl: "https://content.example.test/content/mcp/connect",
-        missingConnectionPath:
+        missingMcpConnectionPath:
           "add-remote-server-authenticate-enable-and-retry",
       },
     });
@@ -81,14 +82,16 @@ describe("content agent-readable discovery", () => {
       state: "authentication-required",
       summary:
         "This Content document is private. Authenticated access is available through the Content MCP integration.",
-      authenticationRequired: true,
-      anonymousHttp: "denied",
+      sharePageAuthenticationRequired: true,
+      sharePageHttpAccess: "denied",
+      mcpConnectionRequired: true,
       mcpAccountPermission: "not-evaluated",
       authorization: "connected-account-existing-permissions",
       setupDocumentationUrl:
         "https://www.agent-native.com/docs/external-agents/#private-content-links",
       connectionUrl: "https://content.example.test/content/mcp/connect",
-      missingConnectionPath: "add-remote-server-authenticate-enable-and-retry",
+      missingMcpConnectionPath:
+        "add-remote-server-authenticate-enable-and-retry",
     });
     expect(guidance.instructions).toContain("Content access information:");
     expect(guidance.instructions).toContain(
@@ -113,7 +116,8 @@ describe("content agent-readable discovery", () => {
       accessState: "public",
     });
 
-    expect(guidance.access.authenticationRequired).toBe(false);
+    expect(guidance.access.sharePageAuthenticationRequired).toBe(false);
+    expect(guidance.access.mcpConnectionRequired).toBe(false);
     expect(guidance.access.state).toBe("public");
     expect(guidance.instructions).toContain(
       "available through its public Content share page",
@@ -137,8 +141,9 @@ describe("content agent-readable discovery", () => {
 
     expect(discovery.access).toMatchObject({
       state: "authorized",
-      anonymousHttp: "authorized",
-      authenticationRequired: false,
+      sharePageHttpAccess: "authorized",
+      sharePageAuthenticationRequired: false,
+      mcpConnectionRequired: false,
       mcpAccountPermission: "not-evaluated",
     });
     expect(discovery.accessContractVersion).toBe(2);

@@ -49,13 +49,14 @@ export interface ContentDocumentMcpGuidance {
   access: {
     state: ContentDocumentAccessState;
     summary: string;
-    authenticationRequired: boolean;
-    anonymousHttp: "readable" | "authorized" | "denied";
+    sharePageAuthenticationRequired: boolean;
+    sharePageHttpAccess: "readable" | "authorized" | "denied";
+    mcpConnectionRequired: boolean;
     mcpAccountPermission: "not-required" | "not-evaluated";
     authorization: "connected-account-existing-permissions";
     setupDocumentationUrl: typeof CONTENT_MCP_SETUP_DOCUMENTATION_URL;
     connectionUrl: string;
-    missingConnectionPath:
+    missingMcpConnectionPath:
       | "not-required"
       | "add-remote-server-authenticate-enable-and-retry";
   };
@@ -84,8 +85,8 @@ export function buildContentDocumentMcpGuidance(
   const access: ContentDocumentMcpGuidance["access"] = {
     state: accessState,
     summary,
-    authenticationRequired: accessState === "authentication-required",
-    anonymousHttp:
+    sharePageAuthenticationRequired: accessState === "authentication-required",
+    sharePageHttpAccess:
       accessState === "public"
         ? "readable"
         : accessState === "authorized"
@@ -93,10 +94,11 @@ export function buildContentDocumentMcpGuidance(
           : "denied",
     mcpAccountPermission:
       accessState === "public" ? "not-required" : "not-evaluated",
+    mcpConnectionRequired: accessState === "authentication-required",
     authorization: "connected-account-existing-permissions" as const,
     setupDocumentationUrl: CONTENT_MCP_SETUP_DOCUMENTATION_URL,
     connectionUrl: mcpConnectUrl,
-    missingConnectionPath:
+    missingMcpConnectionPath:
       accessState === "authentication-required"
         ? "add-remote-server-authenticate-enable-and-retry"
         : "not-required",

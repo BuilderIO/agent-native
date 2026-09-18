@@ -51,14 +51,16 @@ vi.mock("../../../shared/agent-readable.js", () => ({
     access: {
       state: "authentication-required",
       summary: "Private Content document",
-      authenticationRequired: true,
-      anonymousHttp: "denied",
+      sharePageAuthenticationRequired: true,
+      sharePageHttpAccess: "denied",
+      mcpConnectionRequired: true,
       mcpAccountPermission: "not-evaluated",
       authorization: "connected-account-existing-permissions",
       setupDocumentationUrl:
         "https://www.agent-native.com/docs/external-agents/#private-content-links",
       connectionUrl: `${options.origin}${options.basePath}/mcp/connect`,
-      missingConnectionPath: "add-remote-server-authenticate-enable-and-retry",
+      missingMcpConnectionPath:
+        "add-remote-server-authenticate-enable-and-retry",
     },
     instructions: "Use authenticated Content MCP.",
   }),
@@ -138,14 +140,15 @@ describe("GET /api/document-agent-context.json", () => {
       readAction: { name: "get-document", arguments: { id: document.id } },
       access: {
         state: "authentication-required",
-        authenticationRequired: true,
-        anonymousHttp: "denied",
+        sharePageAuthenticationRequired: true,
+        sharePageHttpAccess: "denied",
+        mcpConnectionRequired: true,
         mcpAccountPermission: "not-evaluated",
         authorization: "connected-account-existing-permissions",
         setupDocumentationUrl:
           "https://www.agent-native.com/docs/external-agents/#private-content-links",
         connectionUrl: "https://content.example.test/content/mcp/connect",
-        missingConnectionPath:
+        missingMcpConnectionPath:
           "add-remote-server-authenticate-enable-and-retry",
       },
     });
