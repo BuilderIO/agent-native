@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   claimant: "recipient@example.test",
+  accessFilter: vi.fn((...args: unknown[]) => args),
   listJobs: vi.fn(),
   claimAwaitingAi: vi.fn(),
   reclaimStaleAiDispatch: vi.fn(),
@@ -14,13 +15,18 @@ vi.mock("@agent-native/core/action", () => ({
   defineAction: (options: unknown) => options,
 }));
 vi.mock("@agent-native/core/sharing", () => ({
-  accessFilter: (...args: unknown[]) => args,
+  accessFilter: mocks.accessFilter,
 }));
 vi.mock("drizzle-orm", () => ({
   and: (...args: unknown[]) => args,
   eq: (...args: unknown[]) => args,
   gte: (...args: unknown[]) => mocks.gte(...args),
   inArray: (...args: unknown[]) => args,
+  or: (...args: unknown[]) => args,
+  sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({
+    strings: [...strings],
+    values,
+  }),
 }));
 vi.mock("../server/lib/recordings.js", () => ({
   getCurrentOwnerEmail: () => mocks.claimant,
@@ -173,6 +179,13 @@ describe("list-transactional-email-ai-requests", () => {
     );
     expect(result.requests).toHaveLength(1);
     expect(result.requests[0].contextPackets).toHaveLength(2);
+    expect(mocks.accessFilter).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      undefined,
+      "viewer",
+      { includePublic: true },
+    );
     expect(result.requests[0].contextPackets).toEqual([
       expect.objectContaining({
         recordingId: "recording-1",

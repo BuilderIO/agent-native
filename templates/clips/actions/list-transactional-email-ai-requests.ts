@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
+import { orgMembers } from "@agent-native/core/org";
 import { accessFilter } from "@agent-native/core/sharing";
-import { and, eq, gte, inArray } from "drizzle-orm";
+import { and, eq, gte, inArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -46,6 +47,23 @@ function boundedText(value: string | null | undefined, limit: number): string {
   return (value ?? "").replace(/\s+/g, " ").trim().slice(0, limit);
 }
 
+function recordingOrgMembershipFilter(userEmail: string) {
+  const normalizedUserEmail = normalizeEmail(userEmail);
+  const orgMemberAccess = normalizedUserEmail
+    ? and(
+        eq(schema.recordings.visibility, "org"),
+        sql`exists (
+          select 1 from ${orgMembers}
+          where ${orgMembers.orgId} = ${schema.recordings.orgId}
+            and lower(${orgMembers.email}) = ${normalizedUserEmail}
+            and ${orgMembers.federationRemovalPendingAt} is null
+        )`,
+      )
+    : sql`1 = 0`;
+
+  return orgMemberAccess ?? sql`1 = 0`;
+}
+
 async function claimantMayClaim(
   job: TransactionalEmailJob,
   claimantEmail: string,
@@ -67,7 +85,16 @@ async function claimantMayClaim(
       .where(
         and(
           inArray(schema.recordings.id, job.recordingIds),
-          accessFilter(schema.recordings, schema.recordingShares),
+          or(
+            accessFilter(
+              schema.recordings,
+              schema.recordingShares,
+              undefined,
+              "viewer",
+              { includePublic: true },
+            ),
+            recordingOrgMembershipFilter(claimantEmail),
+          ),
         ),
       ),
     db
@@ -108,6 +135,7 @@ async function claimantMayClaim(
 async function loadContextPackets(
   job: TransactionalEmailJob,
   enabledAt: string,
+  userEmail: string,
 ): Promise<
   [TransactionalEmailContextPacket, TransactionalEmailContextPacket] | null
 > {
@@ -125,7 +153,16 @@ async function loadContextPackets(
       .where(
         and(
           inArray(schema.recordings.id, job.recordingIds),
-          accessFilter(schema.recordings, schema.recordingShares),
+          or(
+            accessFilter(
+              schema.recordings,
+              schema.recordingShares,
+              undefined,
+              "viewer",
+              { includePublic: true },
+            ),
+            recordingOrgMembershipFilter(userEmail),
+          ),
         ),
       ),
     db
@@ -229,6 +266,7 @@ export async function claimTransactionalEmailAiRequests(
     const contextPackets = await loadContextPackets(
       candidate,
       config.enabledAt,
+      claimant,
     );
     if (!contextPackets) continue;
     const claimed =
