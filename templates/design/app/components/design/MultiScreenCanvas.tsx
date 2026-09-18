@@ -3338,6 +3338,22 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               msg.sourceId,
             )
           : undefined;
+      const boardPointFromParentPointer = (
+        iframeX: number,
+        iframeY: number,
+        viewportW: number,
+        viewportH: number,
+      ): Point | null => {
+        if (sourceScreenId === boardFileId) return null;
+        const iframeRect = sourcePreviewIframe.getBoundingClientRect();
+        if (iframeRect.width <= 0 || iframeRect.height <= 0) return null;
+        return getCanvasPoint(
+          iframeRect.left +
+            iframeX * (iframeRect.width / Math.max(1, viewportW)),
+          iframeRect.top +
+            iframeY * (iframeRect.height / Math.max(1, viewportH)),
+        );
+      };
 
       if (msg.phase !== "move") {
         dndHostLog("overview:cross-screen", {
@@ -3516,14 +3532,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           })
         ) {
           const previewPoint =
-            crossScreenLastBoardPointRef.current ??
-            boardPointFromDragMessage(
-              sourceScreenId,
+            boardPointFromParentPointer(
               iframeX,
               iframeY,
               viewportW,
               viewportH,
-            );
+            ) ?? crossScreenLastBoardPointRef.current;
           if (previewPoint) {
             updateCrossScreenTargetFromBoardPoint(previewPoint, sourceScreenId);
           }
@@ -3578,21 +3592,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             crossScreenDragMsgRef.current?.styleSnapshotCaptureFailed === true,
         };
 
-        // The host renders the source iframe element itself larger than the
-        // screen's visible frame (see isPointerInsideSourceIframe's doc), so
-        // the bridge's own window.innerWidth/innerHeight always reads back
-        // "inside" well past the visible edge — use the frame's real
-        // rendered geometry as the boundary instead.
-        const sourceRenderedGeometry =
-          renderedFrameGeometryRef.current[sourceScreenId] ??
-          frameGeometryRef.current[sourceScreenId];
         const pointerInsideSourceIframe = isPointerInsideSourceIframe({
           iframeX,
           iframeY,
           viewportW,
           viewportH,
-          frameWidth: sourceRenderedGeometry?.width,
-          frameHeight: sourceRenderedGeometry?.height,
         });
         const sourceIsBoard = sourceScreenId === boardFileId;
         // Regular screen iframes are finite artboards, so an in-bounds pointer
