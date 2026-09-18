@@ -535,6 +535,12 @@ test.describe("Layers-panel auto-layout parity", () => {
       const sourceParentBefore = await parentId(page, "free-source");
       expect(sourceParentBefore).toBeTruthy();
       const original = await fileHtml(request, design.id, design.primaryId);
+      const sourceWasAfterOuter = nodeIsBefore(
+        original,
+        "nested-outer",
+        "free-source",
+      );
+      expect(sourceWasAfterOuter).toBe(true);
       const result = await heldPanelDrag(
         page,
         "Free source",
@@ -573,7 +579,13 @@ test.describe("Layers-panel auto-layout parity", () => {
         request,
         design.id,
         design.primaryId,
-        (html) => !nodeIsInsideSection(html, "nested-inner", "free-source"),
+        (html) =>
+          html !== persisted.html &&
+          nodeOffset(html, "free-source") >= 0 &&
+          nodeIsBefore(html, "nested-outer", "free-source") ===
+            sourceWasAfterOuter &&
+          !nodeIsInsideSection(html, "nested-outer", "free-source") &&
+          !nodeIsInsideSection(html, "nested-inner", "free-source"),
       );
 
       await page.keyboard.down(mod);
