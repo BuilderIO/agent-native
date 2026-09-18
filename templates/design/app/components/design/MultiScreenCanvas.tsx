@@ -2831,7 +2831,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       boardPoint: Point,
     ) => {
       const requestSeq = ++crossScreenHitTestSeqRef.current;
-      void runHitTest(candidate, boardPoint).then((hit) => {
+      void runHitTest(candidate, boardPoint, { preview: true }).then((hit) => {
         if (crossScreenHitTestSeqRef.current !== requestSeq) return;
         if (crossScreenTargetRef.current?.id !== candidate.id) return;
         const targetScreen = screensRef.current.find(
