@@ -116,11 +116,13 @@ async function selectCanvasNode(page: Page, rawNodeId: string): Promise<void> {
 
 async function dragCanvasNode(
   page: Page,
+  designId: string,
   sourceId: string,
   target: { x: number; y: number },
   feedback?: "inside" | "line" | "ghost",
   modifier?: "Meta" | "Control",
 ): Promise<void> {
+  const beforeHtml = await indexHtml(page, designId);
   const source = (await node(page, sourceId).boundingBox())!;
   const start = {
     x: source.x + source.width / 2,
@@ -152,7 +154,12 @@ async function dragCanvasNode(
   }
   await page.mouse.up();
   if (modifier) await page.keyboard.up(modifier);
-  await page.waitForTimeout(1200);
+  await expect
+    .poll(() => indexHtml(page, designId), {
+      timeout: 5_000,
+      message: `dragging ${sourceId} did not persist a source update`,
+    })
+    .not.toBe(beforeHtml);
 }
 
 async function deleteDesign(page: Page, designId: string): Promise<void> {
@@ -167,7 +174,7 @@ test("physical vertical auto-layout reorder keeps parent, order, and geometry", 
     await openEditor(page, designId);
     await selectCanvasNode(page, "v1");
     const v3 = (await node(page, "v3").boundingBox())!;
-    await dragCanvasNode(page, "v1", {
+    await dragCanvasNode(page, designId, "v1", {
       x: v3.x + v3.width / 2,
       y: v3.y + v3.height * 0.8,
     });
@@ -211,6 +218,7 @@ test("physical wrap auto-layout reorder moves a wrapped child between rows", asy
     const w1 = (await node(page, "w1").boundingBox())!;
     await dragCanvasNode(
       page,
+      designId,
       "w3",
       { x: w1.x + 4, y: w1.y + w1.height / 2 },
       "line",
@@ -252,6 +260,7 @@ test("physical grid drop resolves the pointer row and persists flow placement", 
     const g3 = (await node(page, "g3").boundingBox())!;
     await dragCanvasNode(
       page,
+      designId,
       "grid-source",
       { x: g3.x + 4, y: g3.y + g3.height / 2 },
       "line",
@@ -315,7 +324,20 @@ test("physical drop into a nested frame in a regular flex row still nests", asyn
     );
     expect(await insertionGuideKind(page)).toBe("inside");
     await page.mouse.up();
-    await page.waitForTimeout(1200);
+    await expect
+      .poll(
+        () =>
+          indexHtml(page, designId).then((html) =>
+            /data-agent-native-node-id="nested-frame"[\s\S]*data-agent-native-node-id="nest-source"/.test(
+              html,
+            ),
+          ),
+        {
+          timeout: 5_000,
+          message: "nested frame drop did not persist the new parent",
+        },
+      )
+      .toBe(true);
 
     await openEditor(page, designId);
     const state = await preview(page).evaluate(() => {
@@ -368,7 +390,20 @@ test("physical Meta-drag overrides auto-layout resistance", async ({
       .toBe(true);
     await page.mouse.up();
     await page.keyboard.up("Meta");
-    await page.waitForTimeout(1200);
+    await expect
+      .poll(
+        () =>
+          indexHtml(page, designId).then((html) =>
+            /data-agent-native-node-id="meta-child"[^>]*style="[^"]*position:\s*absolute/i.test(
+              html,
+            ),
+          ),
+        {
+          timeout: 5_000,
+          message: "Meta-drag did not persist free placement",
+        },
+      )
+      .toBe(true);
 
     await openEditor(page, designId);
     const html = await indexHtml(page, designId);
