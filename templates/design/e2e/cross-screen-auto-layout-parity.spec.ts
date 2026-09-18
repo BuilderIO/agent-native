@@ -232,6 +232,27 @@ async function readMoveState(
   };
 }
 
+async function readPrimitiveMoveState(
+  page: Page,
+  designId: string,
+  sourceFilename: string,
+  destinationFilename: string,
+  primitive: string,
+): Promise<{ sourceHas: boolean; destinationHas: boolean }> {
+  const record = await files(page, designId);
+  const source = record.find(
+    (file) => file.filename === sourceFilename,
+  )?.content;
+  const destination = record.find(
+    (file) => file.filename === destinationFilename,
+  )?.content;
+  const marker = `data-an-primitive="${primitive}"`;
+  return {
+    sourceHas: source?.includes(marker) ?? false,
+    destinationHas: destination?.includes(marker) ?? false,
+  };
+}
+
 async function selectScreenNode(
   page: Page,
   screenId: string,
@@ -454,6 +475,10 @@ test.describe("physical cross-screen auto-layout parity", () => {
         filename: file.filename,
         length: file.content.length,
         hasNode: file.content.includes(`data-agent-native-node-id="${nodeId}"`),
+        ids: [
+          ...file.content.matchAll(/data-agent-native-node-id="([^"]+)"/g),
+        ].map((match) => match[1]),
+        hasRectangle: file.content.includes('data-an-primitive="rectangle"'),
       })),
     );
     await waitForMove(
