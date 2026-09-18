@@ -116,7 +116,10 @@ function paginateIntoResult(
     activeTabId,
     items: pageItems,
     total: activeMembers.length,
-    complete: page.offset + pageItems.length >= pageSource.length,
+    // An unread-only page proves coverage of unread rows, not of the full tab
+    // that `total` describes, so it cannot settle a removal journal.
+    complete:
+      !page.unreadOnly && page.offset + pageItems.length >= pageSource.length,
     syncing,
     accounts,
     labels,
