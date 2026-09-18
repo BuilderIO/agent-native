@@ -61,6 +61,14 @@ import {
   updateRunProgress,
 } from "../progress/registry.js";
 import {
+  readOptionalKeyCache,
+  writeOptionalKeyCache,
+} from "../secrets/optional-key-cache.js";
+import {
+  COMPACT_PROMPT_RESOURCES_TOTAL_MAX_CHARS,
+  preloadJevContextForPrompt,
+} from "../server/agent-chat/prompt-resources.js";
+import {
   isRuntimeVisibleScope,
   parseSkillFrontmatter,
 } from "../server/agent-chat/skill-frontmatter.js";
@@ -69,7 +77,10 @@ import {
   getProviderCredentialAuthFailure,
   isBuilderGatewayDeployConfigured,
   readDeployCredentialEnv,
+  resolveBuilderGatewayAuth,
+  type BuilderGatewayAuth,
 } from "../server/credential-provider.js";
+import { resolveDeployEnvironment } from "../server/deploy-environment.js";
 import { readBody } from "../server/h3-helpers.js";
 import { resolveHostedHarnessPolicy } from "../server/hosted-harness-policy.js";
 import {
@@ -164,6 +175,7 @@ import {
   filterHostedHarnessToolNames,
   normalizeHostedHarnessRuntime,
 } from "./harness/hosted.js";
+import { preloadJevTools } from "./jev-tool-prefetch.js";
 import {
   type AgentLoopSettings,
   getDefaultMaxIterations,
@@ -560,8 +572,15 @@ async function readAppStateForBrowserTab<T>(
 export async function getOwnerApiKey(
   provider: string,
   ownerEmail: string | null | undefined,
+  options?: { onLookupFailure?: () => void },
 ): Promise<string | undefined> {
   if (!ownerEmail) return undefined;
+  let lookupFailed = false;
+  const reportLookupFailure = (): void => {
+    if (!lookupFailed) return;
+    options?.onLookupFailure?.();
+    lookupFailed = false;
+  };
   const secretKey =
     PROVIDER_TO_ENV[provider] ?? `${provider.toUpperCase()}_API_KEY`;
   const syntheticTraffic = getRequestContext()?.isSyntheticTraffic === true;
@@ -597,11 +616,18 @@ export async function getOwnerApiKey(
       }
     }
   } catch {
+    lookupFailed = true;
     // app_secrets table not ready — only non-synthetic traffic may fall through
     // to legacy lookup. A synthetic run must never bill an alternate key.
-    if (syntheticTraffic) return undefined;
+    if (syntheticTraffic) {
+      reportLookupFailure();
+      return undefined;
+    }
   }
-  if (syntheticTraffic) return undefined;
+  if (syntheticTraffic) {
+    reportLookupFailure();
+    return undefined;
+  }
   try {
     const { getSetting } = await import("../settings/store.js");
     const stored = await getSetting(`user-api-key:${provider}:${ownerEmail}`);
@@ -626,11 +652,79 @@ export async function getOwnerApiKey(
       ) {
         return legacyKey;
       }
+      reportLookupFailure();
       return undefined;
     }
+    reportLookupFailure();
     return undefined;
   } catch {
+    lookupFailed = true;
+    reportLookupFailure();
     return undefined;
+  }
+}
+
+/**
+ * Jev is optional, so cache its present/absent result across turns. Secret
+ * writes clear this process-local cache; the short TTL bounds cross-instance
+ * staleness without adding a secret-store read to every request.
+ */
+export async function getOwnerJevApiKey(
+  ownerEmail: string | null | undefined,
+): Promise<string | undefined> {
+  if (!ownerEmail) return undefined;
+  const cacheKey = [
+    "jev",
+    ownerEmail,
+    getRequestOrgId() ?? `solo:${ownerEmail}`,
+    getRequestContext()?.isSyntheticTraffic === true ? "synthetic" : "normal",
+  ].join("\u0000");
+  const cached = readOptionalKeyCache(cacheKey);
+  if (cached.hit) return cached.value;
+  let lookupFailed = false;
+  const value = await getOwnerApiKey("jev", ownerEmail, {
+    onLookupFailure: () => {
+      lookupFailed = true;
+    },
+  });
+  if (value) {
+    if (!lookupFailed) writeOptionalKeyCache(cacheKey, value);
+    return value;
+  }
+  if (lookupFailed) return undefined;
+
+  const deployKey = canUseDeployCredentialFallbackForRequest("JEV_API_KEY")
+    ? readDeployCredentialEnv("JEV_API_KEY")?.trim()
+    : undefined;
+  if (
+    deployKey &&
+    !(await getProviderCredentialAuthFailure({
+      key: "JEV_API_KEY",
+      value: deployKey,
+    }))
+  ) {
+    if (!lookupFailed) writeOptionalKeyCache(cacheKey, deployKey);
+    return deployKey;
+  }
+
+  if (!lookupFailed) writeOptionalKeyCache(cacheKey, undefined);
+  return undefined;
+}
+
+async function getJevContextCredentials(
+  ownerEmail: string | null | undefined,
+): Promise<{
+  apiKey: string | undefined;
+  builderAuth: BuilderGatewayAuth | null;
+}> {
+  const apiKey = await getOwnerJevApiKey(ownerEmail);
+  if (resolveDeployEnvironment() === "production") {
+    return { apiKey, builderAuth: null };
+  }
+  try {
+    return { apiKey, builderAuth: await resolveBuilderGatewayAuth() };
+  } catch {
+    return { apiKey, builderAuth: null };
   }
 }
 
@@ -1470,6 +1564,8 @@ export interface ProductionAgentOptions {
    * Default: false (inventory is injected).
    */
   skipFilesContext?: boolean;
+  /** Internal prompt mode used to keep optional Jev context inside the compact budget. */
+  jevContextCompact?: boolean;
   /**
    * Optional starter tool catalog. When set, the first model request includes
    * only these tool schemas plus `tool-search`; the full action registry remains
@@ -10501,7 +10597,7 @@ export function createProductionAgentHandler(
     const systemPromptTimeoutError = new Error(
       "system prompt preparation timed out before the agent could start",
     );
-    const [
+    let [
       systemPrompt,
       timeBlock,
       screenBlock,
@@ -10510,6 +10606,7 @@ export function createProductionAgentHandler(
       filesContext,
       loopSettings,
       enrichedMessage,
+      jevContextCredentials,
     ] = await Promise.all([
       presendCap("systemPrompt", systemPromptThunk, "", 13000, () => {
         // An empty configured prompt is valid, but an empty timeout fallback
@@ -10525,6 +10622,12 @@ export function createProductionAgentHandler(
       presendCap("files", filesContextThunk, "", 12000),
       presendCap("loopSettings", loopSettingsThunk, fallbackLoopSettings, 9000),
       presendCap("enrichedMessage", enrichedMessageThunk, requestMessage, 9000),
+      presendCap(
+        "jevContextCredentials",
+        () => getJevContextCredentials(ownerEmail ?? getRequestUserEmail()),
+        { apiKey: undefined, builderAuth: null },
+        9000,
+      ),
     ]);
     setupMark("ctxAll");
     // DIAGNOSTIC-ONLY: all parallel context gathering (system prompt, screen,
@@ -10563,7 +10666,7 @@ export function createProductionAgentHandler(
           options.initialToolNames,
         )
       : availableRequestTools;
-    const requestTools =
+    const curatedRequestTools =
       requestMode === "plan"
         ? preloadPlanModeEngineTools({
             request: requestMessage,
@@ -10572,11 +10675,47 @@ export function createProductionAgentHandler(
             availableTools: availableRequestTools,
           })
         : initialRequestTools;
+    const jevContextMaxChars = options.jevContextCompact
+      ? Math.max(
+          0,
+          COMPACT_PROMPT_RESOURCES_TOTAL_MAX_CHARS - systemPrompt.length - 2,
+        )
+      : undefined;
+    const [requestTools, jevContext] = await Promise.all([
+      preloadJevTools({
+        request: requestMessage,
+        apiKey: jevContextCredentials.apiKey,
+        builderAuth: jevContextCredentials.builderAuth,
+        registry: requestActions,
+        initialTools: curatedRequestTools,
+        availableTools: availableRequestTools,
+        readOnlyOnly: requestMode === "plan",
+      }),
+      preloadJevContextForPrompt({
+        request: requestMessage,
+        apiKey: jevContextCredentials.apiKey,
+        builderAuth: jevContextCredentials.builderAuth,
+        compact: options.jevContextCompact,
+        maxChars: jevContextMaxChars,
+      }),
+    ]);
+    if (jevContext) systemPrompt = `${systemPrompt}\n\n${jevContext}`;
     // System sections are emitted by the prompt builder once per request. Tool
     // schemas become known just after prompt setup, so append their measured
     // contribution here and reuse the immutable result for every loop pass.
     const contextXraySystemSections = [
       ...readContextXraySystemSections(event),
+      ...(jevContext
+        ? await buildSystemManifestSections([
+            {
+              label: "Jev-prefetched skills and resources",
+              provenance: "runtime-context",
+              governance: "inherited",
+              content: jevContext,
+              sourceRef: { scope: "jev" },
+            },
+          ])
+        : []),
       ...(requestTools.length > 0
         ? await buildSystemManifestSections([
             {

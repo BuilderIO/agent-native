@@ -39,7 +39,7 @@ export type OnboardingMethod =
       kind: "form";
       payload: {
         fields: OnboardingFormField[];
-        writeScope?: "workspace" | "app";
+        writeScope?: "user" | "workspace" | "app";
         /**
          * Defaults to the compatibility env-vars route, which accepts
          * framework/template-declared keys and stores them as scoped secrets.

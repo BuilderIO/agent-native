@@ -21,6 +21,7 @@ export type AgentChatContextPolicy = {
   file: string;
   leanPrompt: boolean;
   starterToolCount: number | null;
+  starterToolNames: string[] | null;
   errors: string[];
 };
 
@@ -71,7 +72,7 @@ function importedSourceFile(
   return null;
 }
 
-function countStarterTools(arrayBody: string): number | null {
+function parseStaticStringEntries(arrayBody: string): string[] | null {
   // Starter catalogs must stay statically auditable. Spreads or expressions
   // can hide an arbitrarily large catalog, so require plain string entries.
   if (/\.\.\./.test(arrayBody)) return null;
@@ -83,7 +84,11 @@ function countStarterTools(arrayBody: string): number | null {
     .replace(/["'][^"']+["']/g, "")
     .replace(/[\s,]/g, "");
   if (remainder) return null;
-  return stringEntries.length;
+  return stringEntries.map((entry) => entry[1] ?? "");
+}
+
+function countStarterTools(arrayBody: string): number | null {
+  return parseStaticStringEntries(arrayBody)?.length ?? null;
 }
 
 export function analyzeAgentChatContextPolicy(
@@ -98,6 +103,7 @@ export function analyzeAgentChatContextPolicy(
   );
   const errors: string[] = [];
   let starterToolCount: number | null = null;
+  let starterToolNames: string[] | null = null;
 
   if (!initialProperty && !leanPrompt) {
     errors.push(
@@ -123,7 +129,9 @@ export function analyzeAgentChatContextPolicy(
       }
     }
 
-    starterToolCount = arrayBody === null ? null : countStarterTools(arrayBody);
+    starterToolNames =
+      arrayBody === null ? null : parseStaticStringEntries(arrayBody);
+    starterToolCount = starterToolNames?.length ?? null;
     if (starterToolCount === null) {
       errors.push(
         `${file}: initialToolNames must resolve to a static array of string literals so its first-request cost stays auditable.`,
@@ -135,7 +143,103 @@ export function analyzeAgentChatContextPolicy(
     }
   }
 
-  return { file, leanPrompt, starterToolCount, errors };
+  return { file, leanPrompt, starterToolCount, starterToolNames, errors };
+}
+
+const FRAMEWORK_STARTER_TOOL_NAMES = new Set([
+  "call-agent",
+  "create-extension",
+  "describe-workspace-apps",
+  "extension-data-set",
+  "get-extension",
+  "list-extensions",
+  "show-workspace-file",
+  "update-extension",
+]);
+
+const ACTION_DISCOVERY_SKIP_FILES = new Set([
+  "helpers",
+  "run",
+  "db-connect",
+  "db-status",
+  "registry",
+]);
+
+function frameworkActionNames(repoRoot: string): Set<string> {
+  const names = new Set(FRAMEWORK_STARTER_TOOL_NAMES);
+  const source = readFileSync(
+    path.join(repoRoot, "packages/core/src/framework-tools.ts"),
+    "utf8",
+  );
+  for (const match of source.matchAll(/^\s*"([^"\n]+)":\s*"[^"\n]+",?$/gm)) {
+    if (match[1]) names.add(match[1]);
+  }
+  return names;
+}
+
+function collectActionNames(dir: string, names: Set<string>): void {
+  if (!existsSync(dir)) return;
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isDirectory()) continue;
+    if (
+      !/\.(?:ts|tsx)$/.test(entry.name) ||
+      /\.(?:spec|test)\.(?:ts|tsx)$/.test(entry.name)
+    ) {
+      continue;
+    }
+    if (entry.name.startsWith("_")) continue;
+    const name = entry.name.replace(/\.(?:ts|tsx)$/, "");
+    if (ACTION_DISCOVERY_SKIP_FILES.has(name)) continue;
+    const source = readFileSync(path.join(dir, entry.name), "utf8");
+    const isActionSource =
+      source.includes("defineAction") ||
+      /export\s*\{\s*default\s*\}\s*from\s*["'][^"']+["']/.test(source) ||
+      /export\s+default\s+(?:create[A-Z][A-Za-z0-9]*Action|defineActionFactory)\s*\(/.test(
+        source,
+      );
+    if (!isActionSource) {
+      continue;
+    }
+    names.add(name);
+  }
+}
+
+function actionDirectoriesForPlugin(
+  repoRoot: string,
+  pluginFile: string,
+): string[] {
+  const relative = path.relative(repoRoot, pluginFile).split(path.sep);
+  const directories: string[] = [];
+  if (relative[0] === "templates" && relative[2] === "server") {
+    directories.push(path.join(repoRoot, "templates", relative[1]!, "actions"));
+  }
+  if (
+    relative[0] === "packages" &&
+    relative[2] === "src" &&
+    relative[3] === "server"
+  ) {
+    directories.push(
+      path.join(repoRoot, "packages", relative[1]!, "src", "actions"),
+    );
+  }
+  const source = readFileSync(pluginFile, "utf8");
+  if (/@agent-native\/dispatch(?:\/|["'])/.test(source)) {
+    directories.push(
+      path.join(repoRoot, "packages", "dispatch", "src", "actions"),
+    );
+  }
+  return [...new Set(directories)];
+}
+
+function discoverActionNames(
+  repoRoot: string,
+  pluginFile: string,
+): Set<string> {
+  const names = frameworkActionNames(repoRoot);
+  for (const actionDir of actionDirectoriesForPlugin(repoRoot, pluginFile)) {
+    collectActionNames(actionDir, names);
+  }
+  return names;
 }
 
 export function discoverAgentChatPlugins(repoRoot: string): string[] {
@@ -226,16 +330,34 @@ export function checkAgentChatContextPolicies(repoRoot: string): {
   policies: AgentChatContextPolicy[];
   errors: string[];
 } {
-  const policies = discoverAgentChatPlugins(repoRoot)
-    .map((file) =>
-      analyzeAgentChatContextPolicy({
+  const policiesWithFiles = discoverAgentChatPlugins(repoRoot)
+    .map((file) => ({
+      file,
+      policy: analyzeAgentChatContextPolicy({
         file: path.relative(repoRoot, file),
         source: readFileSync(file, "utf8"),
         readSource: (importedFile) => readFileSync(importedFile, "utf8"),
       }),
-    )
-    .filter((policy): policy is AgentChatContextPolicy => policy !== null);
-  return { policies, errors: policies.flatMap((policy) => policy.errors) };
+    }))
+    .filter(
+      (entry): entry is { file: string; policy: AgentChatContextPolicy } =>
+        entry.policy !== null,
+    );
+  const policies = policiesWithFiles.map(({ policy }) => policy);
+  const errors = policiesWithFiles.flatMap(({ file, policy }) => {
+    const knownActionNames = discoverActionNames(repoRoot, file);
+    const missing = (policy.starterToolNames ?? []).filter(
+      (name) => !knownActionNames.has(name),
+    );
+    return [
+      ...policy.errors,
+      ...missing.map(
+        (name) =>
+          `${path.relative(repoRoot, file)}: starter tool "${name}" has no matching action source under this app's actions/ directory or the framework catalog; remove it or restore the action before shipping.`,
+      ),
+    ];
+  });
+  return { policies, errors };
 }
 
 function main(): void {
