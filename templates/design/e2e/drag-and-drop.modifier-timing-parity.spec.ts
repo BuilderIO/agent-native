@@ -505,6 +505,16 @@ test("late Alt flow reorder duplicates without moving the source and Escape is b
       visible: true,
     });
     expect(heldClones[0].id).not.toBe("control-child");
+    const heldCloneBox = await preview(page)
+      .locator("[data-agent-native-clone-root]")
+      .boundingBox();
+    expect(heldCloneBox).not.toBeNull();
+    expect(
+      Math.abs(heldCloneBox!.x + heldCloneBox!.width / 2 - destination.x),
+    ).toBeLessThan(1);
+    expect(
+      Math.abs(heldCloneBox!.y + heldCloneBox!.height / 2 - destination.y),
+    ).toBeLessThan(1);
     expect(await visibleInsertionGuides(page)).not.toHaveLength(0);
 
     await page.mouse.up();
