@@ -1130,6 +1130,26 @@ export function prepareClonedHtmlLayer(
   // silently misapplying edits meant for the duplicate.
   reassignClonedAuthoredIds(clone, () => uniqueLayerId("copy-id"));
   reassignClonedSourceIdentity(clone, () => uniqueLayerId("copy-child"));
+  // Runtime snapshots carry the source component identity separately from
+  // the DOM node id. Keep the component boundary stable across a clone, but
+  // mint its instance handle with the same fresh id used for the cloned node.
+  // Leaving the old handle in place makes two live instances address the same
+  // runtime component when the next snapshot is serialized.
+  for (const element of [clone, ...Array.from(clone.querySelectorAll("*"))]) {
+    const runtimeInstanceId = element.getAttribute(
+      "data-agent-native-runtime-instance-id",
+    );
+    if (!runtimeInstanceId) continue;
+    const nextInstanceId =
+      nodeIdMap.get(runtimeInstanceId) ??
+      element.getAttribute("data-agent-native-node-id");
+    if (nextInstanceId) {
+      element.setAttribute(
+        "data-agent-native-runtime-instance-id",
+        nextInstanceId,
+      );
+    }
+  }
   const linkedClone = linkedCloneSubtree(
     source,
     clone,

@@ -5,6 +5,7 @@ import type { WorkspaceProvider } from "./types";
 export interface CreateWorkspaceProvidersOptions {
   designId: string;
   canEdit: boolean;
+  onDeleteInlineFile?: (fileId: string) => void | Promise<void>;
   localhostConnections: Array<{
     connectionId: string;
     label: string;
@@ -24,6 +25,7 @@ export function createWorkspaceProviders(
     createInlineProvider({
       designId: options.designId,
       canEdit: options.canEdit,
+      onDeleteFile: options.onDeleteInlineFile,
     }),
   ];
   for (const connection of options.localhostConnections) {

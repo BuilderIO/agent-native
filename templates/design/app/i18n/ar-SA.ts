@@ -4,6 +4,11 @@ const messages = {
   ...messagesByLocale["ar-SA"],
   designEditor: {
     ...messagesByLocale["ar-SA"].designEditor,
+    import: {
+      ...messagesByLocale["ar-SA"].designEditor.import,
+      figUploadDescriptionShort:
+        "استيراد محلي — بلا حصة من واجهة Figma. يتم تضمين الصور المضمّنة المدعومة.",
+    },
     componentInstances: {
       ...messagesByLocale["ar-SA"].designEditor.componentInstances,
       restore: "استعادة المكوّن",
@@ -121,6 +126,17 @@ const messages = {
     presentComments: "التعليقات",
     presentCommentMode: "وضع التعليق",
     closeComments: "إغلاق التعليقات",
+    yours: "تعليقاتك",
+    unread: "غير مقروءة",
+    confirmDeleteTitle: "حذف التعليق؟",
+    confirmDeleteDescription: "سيؤدي ذلك إلى إزالة التعليق من سلسلة المراجعة.",
+    cancelDelete: "إلغاء",
+    markedUnread: "تم وضع علامة كغير مقروء",
+    markUnreadFailed: "تعذر وضع علامة كغير مقروء",
+    attachImage: "إرفاق صورة",
+    searching: "جارٍ البحث…",
+    reactionFailed: "تعذر تحديث التفاعل",
+    moveFailed: "تعذر نقل التعليق",
     status: {
       draft: "مسودة",
       in_review: "قيد المراجعة",

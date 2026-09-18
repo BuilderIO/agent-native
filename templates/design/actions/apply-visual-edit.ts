@@ -1064,7 +1064,8 @@ export default defineAction({
       if (
         editIntent.kind !== "textContent" &&
         editIntent.kind !== "class" &&
-        editIntent.kind !== "style"
+        editIntent.kind !== "style" &&
+        editIntent.kind !== "attribute"
       ) {
         return {
           result: {
@@ -1458,6 +1459,7 @@ export default defineAction({
 
       const workspace = await resolveSourceWorkspace(file.designId, {
         includeContent: true,
+        includeBoard: true,
       });
       if (workspace.sourceType !== "inline") {
         return noWrite(

@@ -3,6 +3,13 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-17
+
+### Fixed
+
+- Clips waits for authentication before showing the recording action
+- The Clips sort control keeps its keyboard focus ring visible
+
 ## 2026-09-16
 
 ### Improved

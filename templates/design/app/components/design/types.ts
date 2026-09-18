@@ -1,4 +1,7 @@
-import type { ElementProvenance } from "@shared/source-mode";
+import type {
+  ElementProvenance,
+  RuntimeComponentIdentity,
+} from "@shared/source-mode";
 
 export interface PortableStyleSnapshotNode {
   sourceId?: string;
@@ -47,6 +50,10 @@ export interface RuntimeVerificationRequest {
 export interface ElementInfo {
   tagName: string;
   componentName?: string;
+  /** The durable inline/component annotation, distinct from runtime labels. */
+  componentAnnotation?: string;
+  /** Framework-derived identity for an unannotated runtime component. */
+  runtimeComponent?: RuntimeComponentIdentity;
   id?: string;
   sourceId?: string;
   /**
@@ -184,6 +191,7 @@ export interface ElementInfo {
     alignItems?: string;
     justifyContent?: string;
     gap?: string;
+    gridAutoFlow?: string;
     gridTemplateColumns?: string;
     gridTemplateRows?: string;
     position?: string;
@@ -218,6 +226,12 @@ export interface ElementSelectionIntent {
   range?: boolean;
   source?: "pointer" | "keyboard" | "marquee";
   final?: boolean;
+  /** Ends a marquee lifecycle without changing the current selection. */
+  cancelled?: boolean;
+  /** Restores the host selection captured before an Escape-cancelled marquee. */
+  restoreHostSelection?: boolean;
+  /** Retires any pending marquee history before the next gesture starts. */
+  resetHistory?: boolean;
   shiftKey?: boolean;
   metaKey?: boolean;
   ctrlKey?: boolean;

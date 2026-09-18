@@ -7,7 +7,19 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Allow keyboard nudges to move multiple selected slide layers together
+- Dragging slide elements keeps selection handles aligned and snap guides on the visual edges
+- Duplicating slides saves successfully when speaker notes are missing
+- Editing slide text preserves its formatting, layout, line breaks, and rich clipboard styles
+- Keep layout wrappers selectable around text blocks in Slides
+- Moving a multi-selection keeps bordered slide cards together
+- Slide content edits reject regex patterns that could freeze the editor
+- Slides keeps chat turns in order and restores the current slide context when you navigate or select.
 - Content-only agent edits now preserve the slide's existing backgrounds and styling.
+
+### Changed
+
+- Imported decks now support adding, deleting, and reordering slides
 
 ## 2026-09-15
 

@@ -15,6 +15,7 @@ import {
   reassignDuplicatedNodeIds,
 } from "@/pages/design-editor/canvas-primitive-insert";
 import {
+  captureDesignFileIds,
   createdFileIdFromResult,
   isPersistedFilePresent,
   reconcileCreatedFile,
@@ -34,6 +35,7 @@ const DUPLICATE_SCREEN_GAP = 56;
 export interface DuplicateScreenRecoveryEntry {
   sourceScreenId: string;
   fileId?: string;
+  knownFileIds?: string[];
   content?: string;
   fileType?: DesignFile["fileType"];
   geometry?: FrameGeometry;
@@ -186,6 +188,7 @@ export function runDuplicateScreen(
     canvasPosition?: { x: number; y: number };
     preserveCamera?: boolean;
     historyBatchId?: string;
+    duplicateStackIndex?: number;
   },
 ) {
   if (!id || !canEditDesign) return Promise.resolve(undefined);
@@ -205,6 +208,10 @@ export function runDuplicateScreen(
     ([, recovery]) => recovery.sourceScreenId === screenId,
   );
   const recoveryState = recoveryEntry?.[1];
+  const knownFileIds = new Set(
+    recoveryState?.knownFileIds ??
+      captureDesignFileIds({ queryClient, designId: id, files }),
+  );
   const filename =
     recoveryEntry?.[0] ??
     nextDuplicatedFilename(
@@ -259,7 +266,7 @@ export function runDuplicateScreen(
           ...sourceGeometry,
           x: request.canvasPosition.x,
           y: request.canvasPosition.y,
-          z: adjacentGeometry.z,
+          z: (adjacentGeometry.z ?? 0) + (request.duplicateStackIndex ?? 0),
         }
       : adjacentGeometry);
   const createdGeometry = recoveryState?.geometry
@@ -346,6 +353,7 @@ export function runDuplicateScreen(
             content,
             fileType,
             files,
+            knownFileIds,
           }).then((reconciled) =>
             reconciled ? { id: reconciled.id } : callCreateFile(),
           );
@@ -381,6 +389,7 @@ export function runDuplicateScreen(
           geometry: createdGeometry,
           screenMetadata,
           localhostScreen,
+          knownFileIds: [...knownFileIds],
         });
         const reconciled = await reconcileCreatedFile({
           queryClient,
@@ -389,6 +398,7 @@ export function runDuplicateScreen(
           content,
           fileType,
           files,
+          knownFileIds,
         });
         if (reconciled) {
           result = reconciled;
@@ -497,6 +507,7 @@ export function runDuplicateScreen(
             recoveries.set(filename, {
               sourceScreenId: screenId,
               fileId: createdFileId,
+              knownFileIds: [...knownFileIds],
               content,
               fileType,
               geometry: createdGeometry,
@@ -512,6 +523,7 @@ export function runDuplicateScreen(
               geometry: createdGeometry,
               screenMetadata,
               localhostScreen,
+              knownFileIds: [...knownFileIds],
             });
           }
         }

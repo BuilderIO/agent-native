@@ -29,6 +29,7 @@ import type { LiveScreenSnapshot } from "@/pages/design-editor/command-types";
 import type { ApplyFileContentUpdateResult } from "@/pages/design-editor/commands/apply-file-content-update";
 import type { ApplyLocalContentUpdateResult } from "@/pages/design-editor/commands/apply-local-content-update";
 import {
+  captureDesignFileIds,
   createdFileIdFromResult,
   isPersistedFilePresent,
   reconcileCreatedFile,
@@ -163,7 +164,9 @@ export interface RedoArgs {
   fileDeletionRedoStackRef: RefObject<FileDeletionHistoryEntry[]>;
   fileDeletionUndoStackRef: RefObject<FileDeletionHistoryEntry[]>;
   fileHistoryMutationPendingRef: RefObject<boolean>;
+  clearPendingHistory?: () => void;
   files: DesignFile[];
+  filesRef?: RefObject<DesignFile[]>;
   focusCreatedScreen: (
     screenId: string,
     geometry: FrameGeometry,
@@ -357,7 +360,9 @@ export function runRedo({
   fileDeletionRedoStackRef,
   fileDeletionUndoStackRef,
   fileHistoryMutationPendingRef,
+  clearPendingHistory,
   files,
+  filesRef,
   focusCreatedScreen,
   geometryRedoStackRef,
   geometryUndoStackRef,
@@ -423,8 +428,9 @@ export function runRedo({
     selection: GeometryHistorySelection | undefined,
     replaySources: Record<string, string> = {},
   ) => {
+    const currentFiles = filesRef?.current ?? files;
     const actualSources = Object.fromEntries(
-      files.map((file) => [
+      currentFiles.map((file) => [
         file.id,
         replaySources[file.id] ?? getScreenContent(file.id),
       ]),
@@ -1175,6 +1181,15 @@ export function runRedo({
     const entry = redoStack[redoStack.length - 1];
     if (!entry) return false;
     if (!id) return false;
+    const currentFiles = filesRef?.current ?? files;
+    const knownFileIds = new Set(
+      entry.recoveryKnownFileIds ??
+        captureDesignFileIds({
+          queryClient,
+          designId: id,
+          files: currentFiles,
+        }),
+    );
     let batchStart = redoStack.length - 1;
     while (
       batchStart > 0 &&
@@ -1268,9 +1283,11 @@ export function runRedo({
       const retryEntries = entries.map((item) => {
         if (!retryRecoveryFileIds.has(item)) return item;
         const recoveryFileId = retryRecoveryFileIds.get(item);
-        return recoveryFileId === item.recoveryFileId
-          ? item
-          : { ...item, recoveryFileId };
+        return {
+          ...item,
+          recoveryFileId,
+          recoveryKnownFileIds: [...knownFileIds],
+        };
       });
       fileCreationRedoStackRef.current = [
         ...fileCreationRedoStackRef.current.slice(
@@ -1289,13 +1306,22 @@ export function runRedo({
       });
       toast.error(errorMessage);
     };
-    const createFile = (item: FileCreationHistoryEntry) =>
-      createFileMutation.mutateAsync({
+    const createFile = (item: FileCreationHistoryEntry) => {
+      const input = {
         designId: id,
         filename: item.filename,
         content: item.content,
         fileType: item.fileType,
-      } as any);
+      } as any;
+      if (typeof createFileMutation.mutateAsync === "function")
+        return createFileMutation.mutateAsync(input);
+      return new Promise((resolve, reject) => {
+        createFileMutation.mutate(input, {
+          onSuccess: async (result: unknown) => resolve(result),
+          onError: reject,
+        });
+      });
+    };
     const recreateFile = async (item: FileCreationHistoryEntry) => {
       attemptedEntries.add(item);
       const recoveryFileId = item.recoveryFileId;
@@ -1325,7 +1351,8 @@ export function runRedo({
           filename: item.filename,
           content: item.content,
           fileType: item.fileType as DesignFile["fileType"],
-          files,
+          files: currentFiles,
+          knownFileIds,
         });
         rawResult = reconciled ?? (await createFile(item));
       }
@@ -1339,7 +1366,8 @@ export function runRedo({
           filename: item.filename,
           content: item.content,
           fileType: item.fileType as DesignFile["fileType"],
-          files,
+          files: currentFiles,
+          knownFileIds,
         });
         if (reconciled) {
           result = reconciled;
@@ -1359,11 +1387,12 @@ export function runRedo({
         }),
         ...item.geometry,
       };
-      writeFrameGeometrySnapshot({
-        ...getCanvasFrameGeometry(designDataJsonRef.current),
-        [nextId]: geometry,
-      });
       const dataOperations: DesignDataOperation[] = [
+        {
+          op: "set",
+          path: ["canvasFrames", nextId],
+          value: geometry,
+        },
         ...(item.screenMetadata
           ? [
               {
@@ -1398,6 +1427,10 @@ export function runRedo({
         );
         await updateDesignAsync({ id, dataOperations } as any);
       }
+      writeFrameGeometrySnapshot({
+        ...getCanvasFrameGeometry(designDataJsonRef.current),
+        [nextId]: geometry,
+      });
       optimisticallyInsertCreatedFile({
         fileId: nextId,
         filename: item.filename,
@@ -1423,6 +1456,7 @@ export function runRedo({
               return item;
             const committedEntry = { ...item };
             delete committedEntry.recoveryFileId;
+            delete committedEntry.recoveryKnownFileIds;
             return committedEntry;
           },
         );
@@ -1466,6 +1500,7 @@ export function runRedo({
             ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
             "file-deleted",
           ];
+          clearPendingHistory?.();
         }
         if (failedFiles.length > 0) {
           const failedIds = new Set(failedFiles.map((file) => file.id));

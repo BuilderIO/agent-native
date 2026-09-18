@@ -52,14 +52,13 @@ const mocks = vi.hoisted(() => {
   const db = {
     select: vi.fn(() => fileSelectChain),
     update: vi.fn(() => updateChain),
+    execute: vi.fn().mockResolvedValue({ rows: [] }),
+    transaction: vi.fn(async (callback) => callback(db)),
   };
 
-  // Shared with the @agent-native/core/collab mock below: writeInlineSourceFile
-  // re-reads getText() right after seedFromText/applyText to persist the
-  // "authoritative" collab content back to SQL, so seedFromText must
-  // actually store what getText reads back. Cleared per-test in beforeEach
-  // (the vi.mock factory only runs once per file, so without an explicit
-  // reset this map would leak seeded content across tests).
+  // Shared with the @agent-native/core/collab mock below: the prepared source
+  // lease persists its authoritative content back to SQL. Cleared per-test in
+  // beforeEach because the vi.mock factory only runs once per file.
   const seededCollabText = new Map<string, string>();
 
   return {
@@ -99,7 +98,8 @@ vi.mock("@agent-native/core/application-state", () => ({
 vi.mock("@agent-native/core/collab", () => {
   const seeded = mocks.seededCollabText;
   return {
-    hasCollabState: vi.fn().mockResolvedValue(false),
+    CollabBaseVersionConflictError: class CollabBaseVersionConflictError extends Error {},
+    hasCollabState: vi.fn(async (docId: string) => seeded.has(docId)),
     getText: vi.fn(async (docId: string) => seeded.get(docId) ?? ""),
     applyText: vi.fn(async (docId: string, text: string) => {
       seeded.set(docId, text);
@@ -108,6 +108,35 @@ vi.mock("@agent-native/core/collab", () => {
     seedFromText: vi.fn(async (docId: string, text: string) => {
       if (!seeded.has(docId)) seeded.set(docId, text);
     }),
+    applyTextToYDoc: vi.fn(
+      (doc: { content: string }, _fieldName: string, text: string) => {
+        doc.content = text;
+      },
+    ),
+    withPreparedYDocMutation: vi.fn(
+      async (
+        docId: string,
+        _requestSource: string | undefined,
+        run: (lease: {
+          doc: { content: string; getText: () => { toString: () => string } };
+          baseVersion: number | null;
+          persist: (_tx: unknown, text: string) => Promise<void>;
+        }) => Promise<unknown>,
+      ) => {
+        const doc = {
+          content: seeded.get(docId) ?? "",
+          getText: () => ({ toString: () => doc.content }),
+        };
+        const result = await run({
+          doc,
+          baseVersion: seeded.has(docId) ? 0 : null,
+          persist: async (_tx, text) => {
+            seeded.set(docId, text);
+          },
+        });
+        return result;
+      },
+    ),
   };
 });
 

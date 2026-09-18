@@ -40,9 +40,9 @@ describe("onboarding app profiles", () => {
     );
     expect(storage).toMatchObject({
       builderIncluded: true,
-      suggested: appId !== "clips" && appId !== "assets",
+      suggested: appId !== "clips",
     });
-    expect(storage?.required).toBe(appId === "clips" || appId === "assets");
+    expect(storage?.required).toBe(appId === "clips");
     expect(profile.capabilities).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -51,6 +51,11 @@ describe("onboarding app profiles", () => {
         }),
         expect.objectContaining({
           id: "voice-input",
+          required: false,
+          suggested: true,
+        }),
+        expect.objectContaining({
+          id: "embeddings",
           required: false,
           suggested: true,
         }),
@@ -66,6 +71,7 @@ describe("onboarding app profiles", () => {
       "llm",
       "video-storage",
       "voice-input",
+      "embeddings",
       "transcription",
     ]);
     expect(clips.capabilities[1]?.required).toBe(true);
@@ -119,9 +125,25 @@ describe("onboarding app profiles", () => {
         }),
         expect.objectContaining({
           id: "file-storage",
-          required: true,
+          required: false,
+          suggested: true,
         }),
       ]),
     );
   });
+
+  it.each(["design", "slides"] as const)(
+    "marks image generation as recommended for %s",
+    (appId) => {
+      expect(getOnboardingAppProfile(appId).capabilities).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: "image-generation",
+            required: false,
+            suggested: true,
+          }),
+        ]),
+      );
+    },
+  );
 });

@@ -95,11 +95,11 @@ import { McpConnectionSuggestion } from "../resources/McpConnectionSuggestion.js
 import type { ContentPart } from "../sse-event-processor.js";
 import { useThinkingDisplay } from "../thinking-display.js";
 import {
-  humanizeToolName,
   isCallAgentToolCallShadowed,
   isToolCallActive,
   resolveToolCallRowContext,
   shadowedCallAgentToolCallIds,
+  toolLabel,
 } from "../tool-display.js";
 import { actionErrorMessage } from "../use-action.js";
 import { cn } from "../utils.js";
@@ -2057,11 +2057,14 @@ function assistantActivityItem(
   part: AssistantWorkPart,
   index: number,
   isLast: boolean,
+  translate: (key: string, options?: Record<string, unknown>) => string,
 ): AgentActivityItem {
   if (part.type === "reasoning") {
     return {
       id: `reasoning-${index}`,
-      label: "Reasoning",
+      label: translate("agentChat.activity.reasoning", {
+        defaultValue: "Reasoning",
+      }),
       variant: "reasoning",
       status: isLast ? "running" : "complete",
     };
@@ -2079,7 +2082,7 @@ function assistantActivityItem(
         : "steps";
   return {
     id: part.toolCallId ?? `tool-${index}`,
-    label: humanizeToolName(toolName),
+    label: toolLabel(translate, toolName),
     detail: resolveToolCallRowContext(part.args)?.text,
     variant,
     status: isLast ? "running" : "complete",
@@ -2259,6 +2262,7 @@ export function AssistantMessage() {
     assistantMessageWasUserStopped(msg) ||
     userStoppedRun(messageRunId, messageTurnId) ||
     (externalUserStopped && isLast);
+  const messageIsRunning = isLast && chatRunning && !isUserStoppedRun;
   const thinkingDisplay = useThinkingDisplay();
   const groupWorkParts = useCallback(
     (
@@ -2305,16 +2309,10 @@ export function AssistantMessage() {
     missingFinalResponseCandidate,
     isLast ? MISSING_FINAL_RESPONSE_SETTLE_MS : 0,
   );
-  const shouldShowUserStoppedNotice =
-    isUserStoppedRun && isLast && responseConnectionText.trim().length === 0;
-  const missingFinalResponseNoticeText = shouldShowUserStoppedNotice
-    ? t("agentChat.error.stopped")
-    : isUserStoppedRun
-      ? null
-      : (missingWarningText ??
-        (showMissingFinalResponse
-          ? t("agentChat.message.missingFinal")
-          : null));
+  const missingFinalResponseNoticeText = isUserStoppedRun
+    ? null
+    : (missingWarningText ??
+      (showMissingFinalResponse ? t("agentChat.message.missingFinal") : null));
   const animateMissingFinalResponse = Boolean(
     !isUserStoppedRun &&
     isLast &&
@@ -2602,15 +2600,16 @@ export function AssistantMessage() {
                           return assistantActivityItem(
                             workPart,
                             index,
-                            chatRunning &&
+                            messageIsRunning &&
                               itemIndex === part.indices.length - 1,
+                            t,
                           );
                         })
                         .filter(
                           (item): item is AgentActivityItem => item !== null,
                         )}
                       activeSummary={t("agentChat.status.working")}
-                      running={chatRunning}
+                      running={messageIsRunning}
                       variant={hasCodeAgentTools ? "coding" : "steps"}
                       defaultOpen={hasCustomUi}
                     >
@@ -2632,13 +2631,7 @@ export function AssistantMessage() {
                     isUserStoppedRun &&
                     isMissingFinalResponseWarningText(part.text)
                   ) {
-                    return shouldShowUserStoppedNotice ? (
-                      <MissingFinalResponseNotice
-                        messageId={msg.id}
-                        text="Stopped"
-                        animate={false}
-                      />
-                    ) : null;
+                    return null;
                   }
                   if (
                     missingWarningText != null &&

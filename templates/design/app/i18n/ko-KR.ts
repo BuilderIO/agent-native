@@ -4,6 +4,11 @@ const messages = {
   ...messagesByLocale["ko-KR"],
   designEditor: {
     ...messagesByLocale["ko-KR"].designEditor,
+    import: {
+      ...messagesByLocale["ko-KR"].designEditor.import,
+      figUploadDescriptionShort:
+        "로컬 가져오기 — Figma API 할당량을 사용하지 않습니다. 지원되는 포함 이미지가 포함됩니다.",
+    },
     componentInstances: {
       ...messagesByLocale["ko-KR"].designEditor.componentInstances,
       restore: "컴포넌트 복원",
@@ -121,6 +126,17 @@ const messages = {
     presentComments: "댓글",
     presentCommentMode: "댓글 모드",
     closeComments: "댓글 닫기",
+    yours: "내 댓글",
+    unread: "읽지 않음",
+    confirmDeleteTitle: "댓글을 삭제할까요?",
+    confirmDeleteDescription: "검토 스레드에서 댓글이 삭제됩니다.",
+    cancelDelete: "취소",
+    markedUnread: "읽지 않음으로 표시했습니다",
+    markUnreadFailed: "읽지 않음으로 표시하지 못했습니다",
+    attachImage: "이미지 첨부",
+    searching: "검색 중…",
+    reactionFailed: "리액션을 업데이트하지 못했습니다",
+    moveFailed: "댓글을 이동하지 못했습니다",
     status: {
       draft: "초안",
       in_review: "검토 중",

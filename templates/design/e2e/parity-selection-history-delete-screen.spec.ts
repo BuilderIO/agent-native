@@ -51,6 +51,15 @@ const HOME_SCREEN = `<!doctype html>
   </body>
 </html>`;
 
+const THIRD_SCREEN = `<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Third</title></head>
+  <body style="margin:0;min-height:600px;background:#0f1115;color:#fff;font-family:system-ui,sans-serif">
+    <div data-agent-native-node-id="third-target" data-agent-native-layer-name="Green Box"
+         style="position:absolute;left:40px;top:40px;width:120px;height:80px;background:#166534"></div>
+  </body>
+</html>`;
+
 test.use({ viewport: { width: 1600, height: 1000 } });
 
 let baseURL = "";
@@ -74,19 +83,41 @@ async function newTwoScreenDesign(page: Page): Promise<string> {
   return id;
 }
 
+async function newThreeScreenDesign(page: Page): Promise<string> {
+  const id = await newTwoScreenDesign(page);
+  await postAction(page, "create-file", {
+    designId: id,
+    filename: "third.html",
+    content: THIRD_SCREEN,
+    fileType: "html",
+  });
+  return id;
+}
+
 async function fileIdByFilename(
   page: Page,
   designId: string,
   filename: string,
 ): Promise<string> {
-  const result = await page.request
-    .get(`${baseURL}/_agent-native/actions/get-design?id=${designId}`)
-    .then((r) => r.json());
-  const file = (result.files ?? []).find((f: any) => f.filename === filename);
-  if (!file?.id) {
-    throw new Error(`file ${filename} not found in design ${designId}`);
+  let filenames: string[] = [];
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const response = await page.request.get(
+      `${baseURL}/_agent-native/actions/get-design?id=${designId}`,
+    );
+    if (!response.ok()) throw new Error(await response.text());
+    const result = await response.json();
+    filenames = (result.files ?? []).flatMap((file: any) =>
+      typeof file.filename === "string" ? [file.filename] : [],
+    );
+    const file = (result.files ?? []).find(
+      (candidate: any) => candidate.filename === filename,
+    );
+    if (typeof file?.id === "string") return file.id;
+    await page.waitForTimeout(250);
   }
-  return file.id as string;
+  throw new Error(
+    `file ${filename} not found in design ${designId}; available: ${filenames.join(", ")}`,
+  );
 }
 
 /** The current `selectedLayerIdsState` snapshot, read off the same trace the
@@ -146,12 +177,8 @@ test("undo of a screen deletion remaps stale selection-history entries instead o
     .poll(() => lastSelectedLayers(page))
     .toEqual([homeIdBeforeDelete]);
 
-  // delete Home, confirm the dialog
+  // delete Home immediately
   await page.keyboard.press("Delete");
-  const dialog = page.getByRole("alertdialog");
-  await expect(dialog).toBeVisible({ timeout: 10_000 });
-  await dialog.getByRole("button", { name: "Delete" }).click();
-  await expect(dialog).toHaveCount(0);
   await expect(layerRow(page, "Home")).toHaveCount(0);
 
   // undo the deletion -> recreates Home under a NEW database id
@@ -190,4 +217,43 @@ test("undo of a screen deletion remaps stale selection-history entries instead o
     consoleErrors,
     `no console errors expected across the undo/redo walk; got: ${consoleErrors.join("; ")}`,
   ).toEqual([]);
+});
+
+test("deletes multiple selected Screens as one undoable operation", async ({
+  page,
+}) => {
+  const id = await newThreeScreenDesign(page);
+  try {
+    await openEditor(page, id);
+
+    await layerRow(page, "Home").click();
+    await page.keyboard.press(
+      process.platform === "darwin" ? "Meta+A" : "Control+A",
+    );
+    await expect(
+      page
+        .getByRole("tree", { name: "Layers" })
+        .locator('[role="treeitem"][aria-level="1"][aria-selected="true"]'),
+    ).toHaveCount(3);
+
+    await page.keyboard.press("Delete");
+    await expect(layerRow(page, "Home")).toHaveCount(0);
+    await expect(layerRow(page, "Second")).toHaveCount(0);
+    await expect(layerRow(page, "Third")).toHaveCount(1);
+    await expect(page.getByRole("alertdialog")).toHaveCount(0);
+
+    await page.keyboard.press(UNDO);
+    await expect(layerRow(page, "Home")).toHaveCount(1, {
+      timeout: 10_000,
+    });
+    await expect(layerRow(page, "Second")).toHaveCount(1);
+    await expect(layerRow(page, "Third")).toHaveCount(1);
+
+    await page.keyboard.press(REDO);
+    await expect(layerRow(page, "Home")).toHaveCount(0, { timeout: 10_000 });
+    await expect(layerRow(page, "Second")).toHaveCount(0);
+    await expect(layerRow(page, "Third")).toHaveCount(1);
+  } finally {
+    await postAction(page, "delete-design", { id }).catch(() => {});
+  }
 });

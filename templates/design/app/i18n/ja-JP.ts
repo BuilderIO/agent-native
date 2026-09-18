@@ -4,6 +4,11 @@ const messages = {
   ...messagesByLocale["ja-JP"],
   designEditor: {
     ...messagesByLocale["ja-JP"].designEditor,
+    import: {
+      ...messagesByLocale["ja-JP"].designEditor.import,
+      figUploadDescriptionShort:
+        "ローカルインポート — Figma API の割り当てを使用しません。対応する埋め込み画像が含まれます。",
+    },
     componentInstances: {
       ...messagesByLocale["ja-JP"].designEditor.componentInstances,
       restore: "コンポーネントを復元",
@@ -121,6 +126,17 @@ const messages = {
     presentComments: "コメント",
     presentCommentMode: "コメントモード",
     closeComments: "コメントを閉じる",
+    yours: "自分のコメント",
+    unread: "未読",
+    confirmDeleteTitle: "コメントを削除しますか？",
+    confirmDeleteDescription: "コメントをレビュー スレッドから削除します。",
+    cancelDelete: "キャンセル",
+    markedUnread: "未読にしました",
+    markUnreadFailed: "未読にできませんでした",
+    attachImage: "画像を添付",
+    searching: "検索中…",
+    reactionFailed: "リアクションを更新できませんでした",
+    moveFailed: "コメントを移動できませんでした",
     status: {
       draft: "下書き",
       in_review: "レビュー中",

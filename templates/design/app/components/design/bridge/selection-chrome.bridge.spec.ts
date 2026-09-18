@@ -66,7 +66,7 @@ describe("editor chrome selection overlays", () => {
               borderRadius: style.borderRadius,
             };
           }),
-      ).toEqual({ width: 7, height: 7, borderRadius: "0px" });
+      ).toEqual({ width: 7, height: 7, borderRadius: "2px" });
 
       await select(page, "#child");
       expect(

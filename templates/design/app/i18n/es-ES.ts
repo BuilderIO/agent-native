@@ -4,6 +4,11 @@ const messages = {
   ...messagesByLocale["es-ES"],
   designEditor: {
     ...messagesByLocale["es-ES"].designEditor,
+    import: {
+      ...messagesByLocale["es-ES"].designEditor.import,
+      figUploadDescriptionShort:
+        "Importación local — sin cuota de la API de Figma. Se incluyen las imágenes incrustadas compatibles.",
+    },
     componentInstances: {
       ...messagesByLocale["es-ES"].designEditor.componentInstances,
       restore: "Restaurar componente",
@@ -122,6 +127,18 @@ const messages = {
     presentComments: "Comentarios",
     presentCommentMode: "Modo de comentarios",
     closeComments: "Cerrar comentarios",
+    yours: "Tuyos",
+    unread: "No leídos",
+    confirmDeleteTitle: "¿Eliminar comentario?",
+    confirmDeleteDescription:
+      "Esto quitará el comentario del hilo de revisión.",
+    cancelDelete: "Cancelar",
+    markedUnread: "Marcado como no leído",
+    markUnreadFailed: "No se pudo marcar como no leído",
+    attachImage: "Adjuntar imagen",
+    searching: "Buscando…",
+    reactionFailed: "No se pudo actualizar la reacción",
+    moveFailed: "No se pudo mover el comentario",
     status: {
       draft: "Borrador",
       in_review: "En revisión",

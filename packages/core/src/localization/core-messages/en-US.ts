@@ -1,4 +1,5 @@
 const messages = {
+  "activity.reasoning": "Reasoning",
   "approval.alwaysAllow": "Always allow",
   "approval.alwaysAllowHint": "Approve and always allow this exact command",
   "approval.alwaysAllowAction": "Always allow this action",
@@ -88,6 +89,11 @@ const messages = {
     "Browser speech recognition or speech-to-text",
   "onboarding.capability.voiceInput.why":
     "Voice input turns spoken requests into text; typing always works without it.",
+  "onboarding.capability.embeddings.label": "Embeddings",
+  "onboarding.capability.embeddings.keySummary":
+    "Gemini, Cohere, or Voyage key",
+  "onboarding.capability.embeddings.why":
+    "Embeddings improve semantic search. Keyword search still works without them.",
   "onboarding.capability.assetsImageGeneration.label": "Image generation",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Builder credits or an image provider key",
@@ -748,6 +754,7 @@ const messages = {
   "status.preparing": "Preparing {{activity}}...",
   "status.writing": "Writing {{activity}}...",
   "status.stillGenerating": "Still generating {{activity}}",
+  "status.runningTool": "Running {{activity}}",
   "tabs.allChats": "All chats",
   "tabs.closeTab": "Close tab",
   "tabs.main": "Main",

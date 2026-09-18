@@ -733,7 +733,7 @@ describe("prepareClonedHtmlLayersForLiveInsert", () => {
     const result = prepareClonedHtmlLayersForLiveInsert(
       LIVE_URL,
       [
-        `<section id="card" data-agent-native-node-id="root">
+        `<section id="card" data-agent-native-node-id="root" data-agent-native-runtime-component-id="runtime-component-card" data-agent-native-runtime-instance-id="root">
           <label for="field" data-agent-native-node-id="label">Name</label>
           <input id="field" aria-labelledby="card" data-agent-native-node-id="input">
         </section>`,
@@ -746,6 +746,12 @@ describe("prepareClonedHtmlLayersForLiveInsert", () => {
     const label = clone.querySelector("label")!;
     const input = clone.querySelector("input")!;
     expect(clone.getAttribute("data-agent-native-node-id")).not.toBe("root");
+    expect(clone.getAttribute("data-agent-native-runtime-component-id")).toBe(
+      "runtime-component-card",
+    );
+    expect(clone.getAttribute("data-agent-native-runtime-instance-id")).toBe(
+      clone.getAttribute("data-agent-native-node-id"),
+    );
     expect(label.getAttribute("data-agent-native-node-id")).not.toBe("label");
     expect(input.getAttribute("data-agent-native-node-id")).not.toBe("input");
     expect(clone.id).not.toBe("card");

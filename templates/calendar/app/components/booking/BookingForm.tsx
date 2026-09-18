@@ -1,5 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { Turnstile } from "@agent-native/core/client/ui";
+import { testUserRegex } from "@agent-native/core/shared";
 import type { CustomField } from "@shared/api";
 import { IconX } from "@tabler/icons-react";
 import { useState } from "react";
@@ -108,14 +109,19 @@ export function BookingForm({
         }
       }
       if (field.pattern && typeof value === "string" && value) {
-        try {
-          const re = new RegExp(field.pattern);
-          if (!re.test(value)) {
-            errors[field.id] =
-              field.patternError ||
-              t("bookingLinks.fieldFormatError", { label: field.label });
-          }
-        } catch {}
+        // An unrunnable pattern is not a passing one. Swallowing it here used
+        // to mean a broken rule silently validated everything, while a
+        // catastrophically backtracking one froze the booker tab outright.
+        const result = testUserRegex(field.pattern, value);
+        if (result.status === "unevaluated") {
+          errors[field.id] = t("bookingLinks.fieldPatternUncheckable", {
+            label: field.label,
+          });
+        } else if (result.status === "no-match") {
+          errors[field.id] =
+            field.patternError ||
+            t("bookingLinks.fieldFormatError", { label: field.label });
+        }
       }
     }
     setFieldErrors(errors);

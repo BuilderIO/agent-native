@@ -1609,6 +1609,8 @@ function localPackageTarball(packageDir: string): string {
   );
   const npmCacheDir = path.join(packDir, "npm-cache");
   const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+  // npm prints one notice per packed corpus file; piping that output through
+  // execFileSync's default buffer makes local linking fail as the corpus grows.
   execFileSync(
     npm,
     ["pack", "--ignore-scripts", "--pack-destination", packDir],
@@ -1619,8 +1621,6 @@ function localPackageTarball(packageDir: string): string {
         npm_config_cache: npmCacheDir,
         npm_config_ignore_scripts: "true",
       },
-      // npm pack prints one line per included file; piping that output through
-      // execFileSync can hit Node's 1 MiB buffer before the artifact exists.
       stdio: "ignore",
     },
   );

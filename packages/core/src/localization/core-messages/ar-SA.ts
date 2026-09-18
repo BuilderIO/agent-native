@@ -1,6 +1,7 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "activity.reasoning": "الاستدلال",
   "approval.alwaysAllow": "السماح دائمًا",
   "approval.alwaysAllowHint": "الموافقة على هذا الأمر المحدد والسماح به دائمًا",
   "approval.alwaysAllowAction": "السماح بهذا الإجراء دائمًا",
@@ -89,6 +90,11 @@ const messages: AgentChatTranslation = {
     "التعرف على الكلام في المتصفح أو تحويل الكلام إلى نص",
   "onboarding.capability.voiceInput.why":
     "يحوّل الإدخال الصوتي الطلبات المنطوقة إلى نص؛ وتظل الكتابة متاحة دائمًا.",
+  "onboarding.capability.embeddings.label": "التضمينات",
+  "onboarding.capability.embeddings.keySummary":
+    "مفتاح Gemini أو Cohere أو Voyage",
+  "onboarding.capability.embeddings.why":
+    "تُحسّن التضمينات البحث الدلالي. يظل البحث بالكلمات المفتاحية يعمل من دونها.",
   "onboarding.capability.assetsImageGeneration.label": "إنشاء الصور",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "أرصدة Builder أو مفتاح مزود صور",
@@ -758,6 +764,7 @@ const messages: AgentChatTranslation = {
   "status.preparing": "جارٍ تحضير {{activity}}...",
   "status.writing": "جارٍ كتابة {{activity}}...",
   "status.stillGenerating": "لا يزال {{activity}} قيد الإنشاء",
+  "status.runningTool": "جارٍ تشغيل {{activity}}",
   "tabs.allChats": "جميع المحادثات",
   "tabs.closeTab": "إغلاق علامة التبويب",
   "tabs.main": "الرئيسية",

@@ -11,6 +11,7 @@ export const AUTHORED_INLINE_STYLE_PROPERTIES = [
   "width",
   "height",
   "transform",
+  "scale",
   "lineHeight",
   "letterSpacing",
   "gridTemplateColumns",
@@ -41,6 +42,11 @@ export const AUTHORED_INLINE_STYLE_PROPERTIES = [
   "backgroundColor",
   "color",
   "fill",
+  "borderRadius",
+  "borderTopLeftRadius",
+  "borderTopRightRadius",
+  "borderBottomRightRadius",
+  "borderBottomLeftRadius",
 ] as const;
 
 /** Patch authored values onto an existing inline-style snapshot. A commit that

@@ -4,6 +4,11 @@ const messages = {
   ...messagesByLocale["hi-IN"],
   designEditor: {
     ...messagesByLocale["hi-IN"].designEditor,
+    import: {
+      ...messagesByLocale["hi-IN"].designEditor.import,
+      figUploadDescriptionShort:
+        "स्थानीय आयात — Figma API कोटा नहीं। समर्थित एम्बेडेड छवियाँ शामिल की जाती हैं।",
+    },
     componentInstances: {
       ...messagesByLocale["hi-IN"].designEditor.componentInstances,
       restore: "कॉम्पोनेंट पुनर्स्थापित करें",
@@ -121,6 +126,17 @@ const messages = {
     presentComments: "टिप्पणियाँ",
     presentCommentMode: "टिप्पणी मोड",
     closeComments: "टिप्पणियाँ बंद करें",
+    yours: "आपके",
+    unread: "अपठित",
+    confirmDeleteTitle: "टिप्पणी हटाएँ?",
+    confirmDeleteDescription: "यह टिप्पणी को समीक्षा थ्रेड से हटा देगा।",
+    cancelDelete: "रद्द करें",
+    markedUnread: "अपठित के रूप में चिह्नित",
+    markUnreadFailed: "अपठित के रूप में चिह्नित नहीं किया जा सका",
+    attachImage: "इमेज संलग्न करें",
+    searching: "खोज जारी…",
+    reactionFailed: "प्रतिक्रिया अपडेट नहीं हो सकी",
+    moveFailed: "टिप्पणी स्थानांतरित नहीं हो सकी",
     status: {
       draft: "मसौदा",
       in_review: "समीक्षाधीन",

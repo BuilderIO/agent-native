@@ -424,6 +424,84 @@ describe("editor chrome shared gesture controller", () => {
           top: 242,
           styleChanges: 1,
         });
+
+        // An alt-drag starts through the same shield threshold, but the clone
+        // must travel from the original press rather than from that threshold
+        // event. This is the one-step-short regression that plain dragging
+        // above must continue to reject.
+        const beforeAltDuplicate = await page.evaluate(() => {
+          const target = document.getElementById(
+            "shield-target",
+          ) as HTMLElement;
+          const rect = target.getBoundingClientRect();
+          return { left: rect.left, top: rect.top };
+        });
+        const altStartX = beforeAltDuplicate.left + 80;
+        const altStartY = beforeAltDuplicate.top + 45;
+        await page.evaluate(
+          async ({ startX, startY }) => {
+            const shield = document.querySelector<HTMLElement>(
+              '[data-agent-native-edit-overlay="shield"]',
+            )!;
+            const event = (
+              type: string,
+              clientX: number,
+              clientY: number,
+              buttons: number,
+            ) =>
+              new PointerEvent(type, {
+                bubbles: true,
+                cancelable: true,
+                altKey: true,
+                button: 0,
+                buttons,
+                clientX,
+                clientY,
+                isPrimary: true,
+                pointerId: 17,
+                pointerType: "mouse",
+              });
+            shield.dispatchEvent(event("pointerdown", startX, startY, 1));
+            document.dispatchEvent(
+              event("pointermove", startX + 10, startY, 1),
+            );
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            document.dispatchEvent(
+              event("pointermove", startX + 12, startY + 2, 1),
+            );
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            document.dispatchEvent(
+              event("pointerup", startX + 12, startY + 2, 0),
+            );
+          },
+          { startX: altStartX, startY: altStartY },
+        );
+        await page.waitForTimeout(20);
+        const afterAltDuplicate = await page.evaluate(() => {
+          const nodes = Array.from(
+            document.querySelectorAll<HTMLElement>(
+              "[data-agent-native-node-id]",
+            ),
+          );
+          return nodes.map((node) => {
+            const rect = node.getBoundingClientRect();
+            return {
+              id: node.dataset.agentNativeNodeId,
+              left: rect.left,
+              top: rect.top,
+            };
+          });
+        });
+        const duplicate = afterAltDuplicate.find(
+          (node) => node.id !== "target" && node.id !== "shield-target",
+        );
+        expect(duplicate).toBeDefined();
+        expect(Math.round(duplicate!.left)).toBe(
+          Math.round(beforeAltDuplicate.left + 12),
+        );
+        expect(Math.round(duplicate!.top)).toBe(
+          Math.round(beforeAltDuplicate.top + 2),
+        );
         expect(pageErrors).toEqual([]);
       } finally {
         await browser.close();
@@ -6337,6 +6415,96 @@ it(
   },
 );
 
+it(
+  "editor chrome bridge maps radius drags through rotated and independently scaled ancestors",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      .rotated-parent {
+        position: absolute;
+        left: 440px;
+        top: 100px;
+        width: 360px;
+        height: 360px;
+        transform-origin: 0 0;
+        transform: rotate(90deg);
+        scale: 2 3;
+      }
+      #target {
+        position: absolute;
+        left: 20px;
+        top: 20px;
+        width: 100px;
+        height: 60px;
+        border-top-left-radius: 20px;
+        background: #6366f1;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="rotated-parent" data-agent-native-node-id="parent">
+      <div id="target" data-agent-native-node-id="target"></div>
+    </div>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+      await selectElementDirect(page, "#target");
+
+      const handle = page.locator('[data-agent-native-radius-handle="nw"]');
+      await page.waitForFunction(() => {
+        const handle = document.querySelector<HTMLElement>(
+          '[data-agent-native-radius-handle="nw"]',
+        );
+        return handle && window.getComputedStyle(handle).display === "block";
+      });
+      const handleBox = await handle.boundingBox();
+      if (!handleBox) throw new Error("nw radius handle not visible");
+
+      await page.mouse.move(
+        handleBox.x + handleBox.width / 2,
+        handleBox.y + handleBox.height / 2,
+      );
+      await page.mouse.down();
+      await page.mouse.move(
+        handleBox.x + handleBox.width / 2 + 12,
+        handleBox.y + handleBox.height / 2,
+        { steps: 4 },
+      );
+      await page.mouse.up();
+      const radius = await page.evaluate(
+        () =>
+          document.querySelector<HTMLElement>("#target")!.style
+            .borderTopLeftRadius,
+      );
+      const messages = await readBridgeMessages(page);
+      const styleChange = messages.find(
+        (message) => message.type === "visual-style-change",
+      );
+      expect(radius).toBe("20px 14px");
+      expect(styleChange).toMatchObject({
+        styles: { borderTopLeftRadius: "20px 14px" },
+      });
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
 // ── Nest-on-drop into plain rectangles (Figma "drop into a frame" parity) ───
 //
 // Product decision: dragging a rectangle onto another rectangle, or text onto
@@ -11411,6 +11579,7 @@ it(
 const PRIMARY_HOTKEY_FORWARDING_CASES: Array<{
   name: string;
   key: string;
+  code?: string;
   shift?: boolean;
   alt?: boolean;
   ctrlOnly?: boolean;
@@ -11465,6 +11634,16 @@ const PRIMARY_HOTKEY_FORWARDING_CASES: Array<{
   { name: "Cmd/Ctrl+Alt+B detach instance", key: "b", alt: true },
   { name: "Cmd/Ctrl+] bring forward", key: "]" },
   { name: "Cmd/Ctrl+[ send backward", key: "[" },
+  {
+    name: "Cmd/Ctrl+physical BracketRight bring forward",
+    key: "BracketRight",
+    code: "BracketRight",
+  },
+  {
+    name: "Cmd/Ctrl+physical BracketLeft send backward",
+    key: "BracketLeft",
+    code: "BracketLeft",
+  },
   { name: "Cmd/Ctrl+Backspace ungroup", key: "Backspace" },
   {
     name: "Ctrl+Alt+H distribute horizontal (literal Control)",
@@ -11518,7 +11697,30 @@ it(
         await page.keyboard.down(modifier);
         if (testCase.alt) await page.keyboard.down("Alt");
         if (testCase.shift) await page.keyboard.down("Shift");
-        await page.keyboard.press(testCase.key);
+        if (testCase.code) {
+          await page.evaluate(
+            (chord) => {
+              document.body.dispatchEvent(
+                new KeyboardEvent("keydown", {
+                  key: chord.key,
+                  code: chord.code,
+                  metaKey: chord.modifier === "Meta",
+                  ctrlKey: chord.modifier === "Control",
+                  altKey: Boolean(chord.alt),
+                  shiftKey: Boolean(chord.shift),
+                  bubbles: true,
+                  cancelable: true,
+                }),
+              );
+            },
+            {
+              ...testCase,
+              modifier,
+            },
+          );
+        } else {
+          await page.keyboard.press(testCase.key);
+        }
         if (testCase.shift) await page.keyboard.up("Shift");
         if (testCase.alt) await page.keyboard.up("Alt");
         await page.keyboard.up(modifier);
@@ -11602,6 +11804,16 @@ const NON_PRIMARY_HOTKEY_FORWARDING_CASES: Array<{
   { name: "\\ select parent", key: "\\", code: "Backslash" },
   { name: "] bring to front", key: "]", code: "BracketRight" },
   { name: "[ send to back", key: "[", code: "BracketLeft" },
+  {
+    name: "physical BracketRight bring to front",
+    key: "BracketRight",
+    code: "BracketRight",
+  },
+  {
+    name: "physical BracketLeft send to back",
+    key: "BracketLeft",
+    code: "BracketLeft",
+  },
   { name: "= zoom in", key: "=", code: "Equal" },
   { name: "- zoom out", key: "-", code: "Minus" },
   { name: "5 opacity 50%", key: "5", code: "Digit5" },
@@ -13043,10 +13255,18 @@ it(
         position: absolute; left: 40px; top: 40px; width: 120px; height: 60px;
         background: linear-gradient(90deg, red 0%, green 50%, blue 100%);
       }
+      #text-target {
+        position: absolute; left: 220px; top: 40px;
+        background-image: linear-gradient(90deg, red 0%, blue 100%);
+        background-clip: text;
+        -webkit-background-clip: text;
+        color: transparent;
+      }
     </style>
   </head>
   <body>
     <div id="target" data-agent-native-node-id="target"></div>
+    <button id="text-target" data-agent-native-node-id="text-target">Listen now</button>
   </body>
 </html>`);
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
@@ -13122,6 +13342,32 @@ it(
       expect(
         replayMessages.some((message) => message.type === "element-select"),
       ).toBe(false);
+
+      await page.evaluate(() => {
+        window.postMessage(
+          {
+            type: "select-element",
+            selector: "#text-target",
+            selectorCandidates: ["#text-target"],
+          },
+          "*",
+        );
+      });
+      await page.waitForFunction(() =>
+        ((window as any).__bridgeMessages ?? []).some(
+          (message: any) =>
+            message.type === "element-select" &&
+            message.payload?.id === "text-target",
+        ),
+      );
+      const textSelect = (await readBridgeMessages(page)).find(
+        (message) =>
+          message.type === "element-select" &&
+          (message as any).payload?.id === "text-target",
+      ) as
+        | { payload?: { computedStyles?: Record<string, string> } }
+        | undefined;
+      expect(textSelect?.payload?.computedStyles?.backgroundClip).toBe("text");
 
       expect(pageErrors).toEqual([]);
     } finally {
@@ -13765,13 +14011,13 @@ it(
       const page = await browser.newPage();
       await page.setContent(`<!doctype html><html><body>
         <div id="dense-grid" data-agent-native-node-id="dense-grid" style="display:grid;grid-auto-flow:dense;grid-template-columns:repeat(2, 1fr)"><div>Cell</div></div>
-        <div id="column-grid" data-agent-native-node-id="column-grid" style="display:grid;grid-auto-flow:column"><div>Cell</div></div>
+        <div id="column-grid" data-agent-native-node-id="column-grid" style="display:grid;grid-auto-flow:column"><div id="column-grid-child">Cell</div></div>
       </body></html>`);
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
       await collectBridgeMessages(page);
 
-      const selectInlineStyles = async (selector: string) => {
+      const selectElementPayload = async (selector: string) => {
         await page.evaluate((targetSelector) => {
           (window as any).__bridgeMessages = [];
           window.postMessage(
@@ -13798,11 +14044,14 @@ it(
           | {
               payload?: {
                 inlineStyles?: Record<string, string>;
+                parentLayout?: { gridAutoFlow?: string };
               };
             }
           | undefined;
-        return message?.payload?.inlineStyles;
+        return message?.payload;
       };
+      const selectInlineStyles = async (selector: string) =>
+        (await selectElementPayload(selector))?.inlineStyles;
 
       // The track templates are carried for provenance; grid-auto-flow is
       // written by the same grid edit (gridChangePatch) and needs it for the
@@ -13815,6 +14064,8 @@ it(
       expect((await selectInlineStyles("#column-grid"))?.gridAutoFlow).toBe(
         "column",
       );
+      const childPayload = await selectElementPayload("#column-grid-child");
+      expect(childPayload?.parentLayout?.gridAutoFlow).toBe("column");
     } finally {
       await browser.close();
     }

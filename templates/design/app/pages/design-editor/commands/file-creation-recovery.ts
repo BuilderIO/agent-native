@@ -25,6 +25,7 @@ function cachedDesignFiles(
   queryClient: QueryClient,
   queryKey: ReturnType<typeof designQueryKey>,
 ): DesignFile[] | undefined {
+  if (typeof queryClient.getQueryData !== "function") return undefined;
   const cached = queryClient.getQueryData<unknown>(queryKey);
   if (!isRecord(cached) || !Array.isArray(cached.files)) return undefined;
   return cached.files.filter(isDesignFile);
@@ -61,6 +62,22 @@ export function createdFileIdFromResult(result: unknown): string | undefined {
   return id.trim().length > 0 ? id : undefined;
 }
 
+export function captureDesignFileIds({
+  queryClient,
+  designId,
+  files,
+}: {
+  queryClient: QueryClient;
+  designId: string;
+  files: readonly DesignFile[];
+}): Set<string> {
+  const cached = cachedDesignFiles(queryClient, designQueryKey(designId));
+  return new Set([
+    ...files.map((file) => file.id),
+    ...(cached ?? []).map((file) => file.id),
+  ]);
+}
+
 export async function reconcileCreatedFile({
   queryClient,
   designId,
@@ -68,6 +85,7 @@ export async function reconcileCreatedFile({
   content,
   fileType,
   files,
+  knownFileIds,
 }: {
   queryClient: QueryClient;
   designId: string;
@@ -75,12 +93,19 @@ export async function reconcileCreatedFile({
   content: string;
   fileType: DesignFile["fileType"];
   files: readonly DesignFile[];
+  /** IDs present before the create attempt. Only rows added afterward can be
+   * adopted when the create action did not return its id. */
+  knownFileIds?: ReadonlySet<string>;
 }): Promise<DesignFile | undefined> {
   const queryKey = designQueryKey(designId);
   const expected = { filename, content, fileType };
   const cached = cachedDesignFiles(queryClient, queryKey);
+  const beforeIds =
+    knownFileIds ?? captureDesignFileIds({ queryClient, designId, files });
   const fromCurrent = (candidates: readonly DesignFile[]) =>
-    candidates.find((file) => matchesCreatedFile(file, expected));
+    candidates.find(
+      (file) => !beforeIds.has(file.id) && matchesCreatedFile(file, expected),
+    );
   const cachedFile = fromCurrent(cached ?? files);
   if (cachedFile) return cachedFile;
 

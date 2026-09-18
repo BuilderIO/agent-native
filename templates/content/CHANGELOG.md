@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-16
+
+### Fixed
+
+- Content now combines non-overlapping edits from another tab or agent automatically, while recovery choices stay attached to the exact draft and saved page version you reviewed.
+
 ## 2026-09-15
 
 ### Fixed
@@ -27,6 +33,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Tables now export as real tables. Downloading a page as PDF or HTML keeps rows, columns, header rows, header columns, and cell line breaks instead of flattening the table into plain text. Callouts, toggles, and column layouts survive the same export path, and printed tables repeat their header row across page breaks.
 - Suggestion previews and highlights stay aligned when editing text near lists.
 
 ## 2026-09-12

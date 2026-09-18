@@ -156,12 +156,14 @@ export function resolveSlidesCanvasPointerIntent({
   targetContainsSelectedObject,
   pointerWithinMoveBand,
   targetIsEditableText,
+  duplicateModifierActive = false,
 }: {
   hasSelectedObject: boolean;
   targetWithinSelectedObject: boolean;
   targetContainsSelectedObject: boolean;
   pointerWithinMoveBand: boolean;
   targetIsEditableText: boolean;
+  duplicateModifierActive?: boolean;
 }): SlidesCanvasPointerIntent {
   if (
     hasSelectedObject &&
@@ -174,7 +176,7 @@ export function resolveSlidesCanvasPointerIntent({
   }
   // The interior of an editable text object belongs to native text selection.
   // Only the measured outer edge is reserved for moving the selected object.
-  if (targetIsEditableText) return "edit-text";
+  if (targetIsEditableText && !duplicateModifierActive) return "edit-text";
   if (hasSelectedObject && targetWithinSelectedObject) {
     return "move-object-body";
   }

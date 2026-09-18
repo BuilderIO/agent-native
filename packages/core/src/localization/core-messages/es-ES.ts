@@ -1,6 +1,7 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "activity.reasoning": "Razonamiento",
   "approval.alwaysAllow": "Permitir siempre",
   "approval.alwaysAllowHint": "Aprobar y permitir siempre este comando exacto",
   "approval.alwaysAllowAction": "Permitir siempre esta acción",
@@ -97,6 +98,11 @@ const messages: AgentChatTranslation = {
     "Reconocimiento de voz del navegador o conversión de voz a texto",
   "onboarding.capability.voiceInput.why":
     "La entrada de voz convierte tus solicitudes habladas en texto; escribir siempre funciona.",
+  "onboarding.capability.embeddings.label": "Vectores semánticos",
+  "onboarding.capability.embeddings.keySummary":
+    "Clave de Gemini, Cohere o Voyage",
+  "onboarding.capability.embeddings.why":
+    "Los vectores semánticos mejoran la búsqueda semántica. La búsqueda por palabras clave sigue funcionando sin ellos.",
   "onboarding.capability.assetsImageGeneration.label": "Generación de imágenes",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Créditos de Builder o una clave de proveedor de imágenes",
@@ -390,6 +396,7 @@ const messages: AgentChatTranslation = {
   "status.preparing": "Preparando {{activity}}...",
   "status.writing": "Escribiendo {{activity}}...",
   "status.stillGenerating": "Sigue generando {{activity}}",
+  "status.runningTool": "Ejecutando {{activity}}",
   "tabs.allChats": "Todos los chats",
   "tabs.closeTab": "Cerrar pestaña",
   "tabs.main": "Principal",

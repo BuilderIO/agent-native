@@ -13,8 +13,19 @@ export const DOCUMENT_AGENT_CONTEXT_ENDPOINT =
 export const CONTENT_MCP_ENDPOINT = "/mcp";
 export const CONTENT_MCP_CONNECT_ENDPOINT = "/mcp/connect";
 export const CONTENT_DOCUMENT_READ_ACTION = "get-document";
-export const DOCUMENT_AGENT_READABLE_INSTRUCTIONS =
-  "Use contextUrl for public or agent-token JSON. For a private document, first use an existing authenticated Content MCP connection and call get-document with id; the host may prefix the tool name. Only if no Content connection exists, open mcpConnectUrl and authenticate, then retry. Do not ask the user to paste the document before trying MCP.";
+export const CONTENT_MCP_PROHIBITED_FALLBACKS = [
+  "ask-user-to-paste-document",
+  "ask-user-to-make-document-public",
+  "ask-user-to-change-sharing",
+] as const;
+
+function absoluteAgentAccessUrl(path: string, origin?: string): string {
+  return origin ? new URL(path, origin).toString() : path;
+}
+
+function missingContentMcpMessage(connectionUrl: string): string {
+  return `This private Content document requires the Content MCP server. Connect it at ${connectionUrl}, authenticate, then ask me to retry.`;
+}
 
 export interface ContentDocumentMcpGuidance {
   preferredTransport: "mcp";
@@ -24,32 +35,53 @@ export interface ContentDocumentMcpGuidance {
     name: typeof CONTENT_DOCUMENT_READ_ACTION;
     arguments: { id: string };
   };
+  whenToolUnavailable: {
+    action: "tell-user-to-connect";
+    connectionUrl: string;
+    message: string;
+  };
+  prohibitedFallbacks: typeof CONTENT_MCP_PROHIBITED_FALLBACKS;
   instructions: string;
 }
 
 export function buildContentDocumentMcpGuidance(
   documentId: string,
-  options: { basePath?: string } = {},
+  options: { basePath?: string; origin?: string } = {},
 ): ContentDocumentMcpGuidance {
   const basePath = normalizeAgentAccessBasePath(options.basePath);
+  const mcpUrl = absoluteAgentAccessUrl(
+    toAgentAccessUrl(CONTENT_MCP_ENDPOINT, { basePath }),
+    options.origin,
+  );
+  const mcpConnectUrl = absoluteAgentAccessUrl(
+    toAgentAccessUrl(CONTENT_MCP_CONNECT_ENDPOINT, { basePath }),
+    options.origin,
+  );
+  const message = missingContentMcpMessage(mcpConnectUrl);
   return {
     preferredTransport: "mcp",
-    mcpUrl: toAgentAccessUrl(CONTENT_MCP_ENDPOINT, { basePath }),
-    mcpConnectUrl: toAgentAccessUrl(CONTENT_MCP_CONNECT_ENDPOINT, { basePath }),
+    mcpUrl,
+    mcpConnectUrl,
     readAction: {
       name: CONTENT_DOCUMENT_READ_ACTION,
       arguments: { id: documentId },
     },
-    instructions: DOCUMENT_AGENT_READABLE_INSTRUCTIONS,
+    whenToolUnavailable: {
+      action: "tell-user-to-connect",
+      connectionUrl: mcpConnectUrl,
+      message,
+    },
+    prohibitedFallbacks: CONTENT_MCP_PROHIBITED_FALLBACKS,
+    instructions: `Use contextUrl first. If it reports that the document is private, use an authenticated Content MCP tool and call get-document with id; the host may prefix the tool name. If no Content MCP tool is available, tell the user exactly: ${JSON.stringify(message)} Do not ask the user to paste the document, make it public, or change sharing permissions.`,
   };
 }
 
 export function contentDocumentMcpInstructionText(
   documentId: string,
-  options: { basePath?: string } = {},
+  options: { basePath?: string; origin?: string } = {},
 ): string {
   const guidance = buildContentDocumentMcpGuidance(documentId, options);
-  return `Agent access: use an existing authenticated Content MCP connection at ${guidance.mcpUrl} and call ${guidance.readAction.name} with id ${JSON.stringify(documentId)}. Your host may prefix the tool name. If no Content MCP connection exists, open ${guidance.mcpConnectUrl}, authenticate, and retry. Do not ask the user to paste the document before trying MCP.`;
+  return `Agent access: if an authenticated Content MCP tool is available, call ${guidance.readAction.name} with id ${JSON.stringify(documentId)}. If no Content MCP tool is available, tell the user exactly: ${JSON.stringify(guidance.whenToolUnavailable.message)} Do not ask the user to paste the document, make it public, or change sharing permissions.`;
 }
 
 export function buildContentPublicDocumentPath(documentId: string): string {
@@ -77,10 +109,12 @@ export function buildContentDocumentAgentDiscovery({
   document,
   token,
   basePath,
+  origin,
 }: {
   document: { id: string; title?: string };
   token?: string | null;
   basePath?: string;
+  origin?: string;
 }): AgentReadableResourceDiscovery & ContentDocumentMcpGuidance {
   const discovery = buildAgentReadableResourceDiscovery({
     resourceType: "document",
@@ -90,10 +124,13 @@ export function buildContentDocumentAgentDiscovery({
     contextEndpoint: DOCUMENT_AGENT_CONTEXT_ENDPOINT,
     token,
     basePath,
-    instructions: DOCUMENT_AGENT_READABLE_INSTRUCTIONS,
+    instructions: buildContentDocumentMcpGuidance(document.id, {
+      basePath,
+      origin,
+    }).instructions,
   });
   return {
     ...discovery,
-    ...buildContentDocumentMcpGuidance(document.id, { basePath }),
+    ...buildContentDocumentMcpGuidance(document.id, { basePath, origin }),
   };
 }

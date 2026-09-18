@@ -2268,6 +2268,7 @@ async function assertAgentKitChatAcceptance(
     .waitFor({ state: "visible" });
   await assertComposerFocused(page);
 
+  await helloMessage.getByRole("button", { name: "Message actions" }).click();
   await helloMessage.getByRole("button", { name: "Fork conversation" }).click();
   await Promise.race([
     page.waitForURL(

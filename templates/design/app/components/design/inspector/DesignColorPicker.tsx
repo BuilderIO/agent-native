@@ -1325,7 +1325,7 @@ export function DesignColorPicker({
                             </TooltipTrigger>
                             <TooltipContent
                               side="bottom"
-                              className="text-[10px]"
+                              className="z-[10010] text-[10px]"
                             >
                               {label}
                             </TooltipContent>
@@ -1490,7 +1490,7 @@ export function DesignColorPicker({
                               <IconColorPicker className="size-4" />
                             </button>
                           </TooltipTrigger>
-                          <TooltipContent>
+                          <TooltipContent className="z-[10010]">
                             {
                               hasEyeDropper
                                 ? "Pick color" // i18n-ignore browser eyedropper label
@@ -1709,7 +1709,9 @@ export function DesignColorPicker({
                               }}
                             />
                           </TooltipTrigger>
-                          <TooltipContent>{currentHex}</TooltipContent>
+                          <TooltipContent className="z-[10010]">
+                            {currentHex}
+                          </TooltipContent>
                         </Tooltip>
                       );
                     })}

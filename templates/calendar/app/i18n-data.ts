@@ -532,6 +532,8 @@ const enUS = {
     hoursShort: "{{count}} hr",
     invalidEmail: "Invalid email: {{email}}",
     fieldFormatError: "{{label}} does not match the expected format",
+    fieldPatternUncheckable:
+      "The rule for {{label}} can't be checked. Ask the organizer to fix it.",
     fieldRequired: "{{label}} is required",
     linkDisabled: "{{title}} disabled",
     linkEnabled: "{{title}} enabled",
@@ -7927,6 +7929,8 @@ const translatedCalendarRawBurnDown = {
       cancelOrReschedule: "取消或重新安排",
       confirmationSent: "你已完成！确认邮件已发送到你的邮箱。",
       fieldFormatError: "{{label}} 与预期格式不匹配",
+      fieldPatternUncheckable:
+        "{{label}} 的校验规则无法检查，请联系组织者修复。",
       fieldRequired: "{{label}} 为必填项",
       meetingLink: "会议链接",
       needToMakeChanges: "需要更改吗？",
@@ -8112,6 +8116,8 @@ const translatedCalendarRawBurnDown = {
       confirmationSent:
         "Todo listo. Se ha enviado una confirmación a tu correo.",
       fieldFormatError: "{{label}} no coincide con el formato esperado",
+      fieldPatternUncheckable:
+        "La regla de {{label}} no se puede comprobar. Pide al organizador que la corrija.",
       fieldRequired: "{{label}} es obligatorio",
       meetingLink: "Enlace de la reunión",
       needToMakeChanges: "¿Necesitas hacer cambios?",
@@ -8307,6 +8313,8 @@ const translatedCalendarRawBurnDown = {
       confirmationSent:
         "Tout est prêt ! Une confirmation a été envoyée à votre adresse e-mail.",
       fieldFormatError: "{{label}} ne correspond pas au format attendu",
+      fieldPatternUncheckable:
+        "La règle de {{label}} ne peut pas être vérifiée. Demandez à l'organisateur de la corriger.",
       fieldRequired: "{{label}} est obligatoire",
       meetingLink: "Lien de réunion",
       needToMakeChanges: "Besoin de modifier ?",
@@ -8504,6 +8512,8 @@ const translatedCalendarRawBurnDown = {
       confirmationSent:
         "Alles erledigt! Eine Bestätigung wurde an deine E-Mail gesendet.",
       fieldFormatError: "{{label}} entspricht nicht dem erwarteten Format",
+      fieldPatternUncheckable:
+        "Die Regel für {{label}} kann nicht geprüft werden. Bitten Sie den Organisator, sie zu korrigieren.",
       fieldRequired: "{{label}} ist erforderlich",
       meetingLink: "Meeting-Link",
       needToMakeChanges: "Möchtest du etwas ändern?",
@@ -8702,6 +8712,8 @@ const translatedCalendarRawBurnDown = {
       cancelOrReschedule: "キャンセルまたは変更",
       confirmationSent: "完了しました。確認メールを送信しました。",
       fieldFormatError: "{{label}} が想定形式と一致しません",
+      fieldPatternUncheckable:
+        "{{label}} のルールは検証できません。主催者に修正を依頼してください。",
       fieldRequired: "{{label}} は必須です",
       meetingLink: "ミーティングリンク",
       needToMakeChanges: "変更が必要ですか？",
@@ -8892,6 +8904,8 @@ const translatedCalendarRawBurnDown = {
       cancelOrReschedule: "취소 또는 일정 변경",
       confirmationSent: "완료되었습니다. 확인 이메일을 보냈습니다.",
       fieldFormatError: "{{label}}이(가) 예상 형식과 일치하지 않습니다",
+      fieldPatternUncheckable:
+        "{{label}} 규칙을 확인할 수 없습니다. 주최자에게 수정을 요청하세요.",
       fieldRequired: "{{label}}은(는) 필수입니다",
       meetingLink: "회의 링크",
       needToMakeChanges: "변경이 필요하신가요?",
@@ -9083,6 +9097,8 @@ const translatedCalendarRawBurnDown = {
       confirmationSent:
         "Tudo certo! Uma confirmação foi enviada para o seu e-mail.",
       fieldFormatError: "{{label}} não corresponde ao formato esperado",
+      fieldPatternUncheckable:
+        "A regra de {{label}} não pode ser verificada. Peça ao organizador para corrigi-la.",
       fieldRequired: "{{label}} é obrigatório",
       meetingLink: "Link da reunião",
       needToMakeChanges: "Precisa fazer alterações?",
@@ -9278,6 +9294,8 @@ const translatedCalendarRawBurnDown = {
       cancelOrReschedule: "रद्द करें या पुनर्निर्धारित करें",
       confirmationSent: "सब तैयार है! पुष्टि आपके ईमेल पर भेज दी गई है।",
       fieldFormatError: "{{label}} अपेक्षित फ़ॉर्मेट से मेल नहीं खाता",
+      fieldPatternUncheckable:
+        "{{label}} का नियम जाँचा नहीं जा सकता। कृपया आयोजक से इसे ठीक करने को कहें।",
       fieldRequired: "{{label}} आवश्यक है",
       meetingLink: "मीटिंग लिंक",
       needToMakeChanges: "बदलाव करने हैं?",
@@ -9466,6 +9484,8 @@ const translatedCalendarRawBurnDown = {
       cancelOrReschedule: "إلغاء أو إعادة جدولة",
       confirmationSent: "كل شيء جاهز! تم إرسال تأكيد إلى بريدك الإلكتروني.",
       fieldFormatError: "{{label}} لا يطابق التنسيق المتوقع",
+      fieldPatternUncheckable:
+        "تعذّر التحقق من قاعدة {{label}}. يرجى الطلب من المنظّم إصلاحها.",
       fieldRequired: "{{label}} مطلوب",
       meetingLink: "رابط الاجتماع",
       needToMakeChanges: "هل تحتاج إلى إجراء تغييرات؟",

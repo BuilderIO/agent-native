@@ -1,3 +1,10 @@
+## 0.20.2
+
+### Patch Changes
+
+- 6071f7d: Provision and reuse the connected Builder workspace project automatically for hosted Turn Into App requests.
+- 6071f7d: Keep language selection in Settings instead of the Dispatch header.
+
 ## 0.20.1
 
 ### Patch Changes

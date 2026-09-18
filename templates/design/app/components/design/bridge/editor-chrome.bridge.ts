@@ -991,20 +991,29 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   ];
 
   function reactFiberOf(el: Element): any {
-    var keys = Object.keys(el);
+    var keys = Object.getOwnPropertyNames(el);
+    var fallback = null;
     for (var i = 0; i < keys.length; i += 1) {
       for (var j = 0; j < REACT_FIBER_KEY_PREFIXES.length; j += 1) {
         if (keys[i]!.indexOf(REACT_FIBER_KEY_PREFIXES[j]!) === 0) {
-          return (el as unknown as Record<string, any>)[keys[i]!];
+          var fiber = (el as unknown as Record<string, any>)[keys[i]!];
+          if (!fallback) fallback = fiber;
+          if (fiber && fiber._debugSource) return fiber;
         }
       }
     }
-    return null;
+    return fallback;
   }
 
   function reactDebugProvenance(el: Element): FrameworkDebugProvenance {
     var cached = reactDebugProvenanceCache?.get(el);
-    if (cached !== undefined) return cached;
+    if (
+      cached !== undefined &&
+      (cached.method === "debug-source" ||
+        cached.method === "debug-stack-remapped")
+    ) {
+      return cached;
+    }
     // Deliberately no climb to an ancestor's fiber: this runs over every node
     // in the runtime snapshot, and borrowing a parent's location would stamp a
     // non-React node with a source line that is not its own.
@@ -1674,10 +1683,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         cloneNode.setAttribute("data-an-runtime-layer-remove", "true");
         continue;
       }
-      cloneNode.setAttribute(
-        "data-agent-native-node-id",
-        ensureRuntimeLayerNodeId(sourceNode),
-      );
+      var runtimeNodeId = ensureRuntimeLayerNodeId(sourceNode);
+      cloneNode.setAttribute("data-agent-native-node-id", runtimeNodeId);
       inlineSnapshotComputedStyle(sourceNode, cloneNode);
       var provenance = elementDebugProvenance(sourceNode);
       if (provenance.sourceFile) {
@@ -1699,6 +1706,25 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         }
         if (provenance.component) {
           cloneNode.setAttribute("data-component-name", provenance.component);
+        }
+        var runtimeComponent = runtimeComponentIdentityForElement(
+          sourceNode,
+          provenance,
+          runtimeNodeId,
+        );
+        if (runtimeComponent) {
+          cloneNode.setAttribute(
+            "data-agent-native-runtime-component-id",
+            runtimeComponent.componentId,
+          );
+          cloneNode.setAttribute(
+            "data-agent-native-runtime-instance-id",
+            runtimeComponent.instanceId,
+          );
+          cloneNode.setAttribute(
+            "data-agent-native-runtime-component-capability",
+            runtimeComponent.writeCapability,
+          );
         }
         if (provenance.ownerSourceFile) {
           cloneNode.setAttribute(
@@ -2539,6 +2565,82 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return layerNameForElement(el);
   }
 
+  function runtimeComponentPropsForElement(
+    el: Element,
+  ): Array<{ name: string; value: string }> {
+    var props: Array<{ name: string; value: string }> = [];
+    if (!el.attributes) return props;
+    for (var index = 0; index < el.attributes.length; index += 1) {
+      var attribute = el.attributes[index];
+      if (!attribute || attribute.name.indexOf("data-agent-native-prop-") !== 0)
+        continue;
+      var rawName = attribute.name.slice("data-agent-native-prop-".length);
+      if (!rawName) continue;
+      props.push({
+        name: rawName.replace(/-([a-z])/g, function (_match, letter) {
+          return String(letter).toUpperCase();
+        }),
+        value: attribute.value,
+      });
+    }
+    return props;
+  }
+
+  /** Runtime identity is separate from the persisted component annotation. */
+  function runtimeComponentIdentityForElement(
+    el: Element,
+    provenance: FrameworkDebugProvenance,
+    instanceId: string,
+  ): any {
+    var name = provenance.component && provenance.component.trim();
+    var definitionSourceFile =
+      provenance.sourceFile && provenance.sourceFile.trim();
+    var invocationSourceFile =
+      provenance.ownerSourceFile && provenance.ownerSourceFile.trim();
+    var invocationLine = provenance.ownerLine;
+    var invocationColumn = provenance.ownerColumn;
+    var invocationMethod = provenance.ownerMethod;
+    if (
+      !name ||
+      !definitionSourceFile ||
+      !provenance.framework ||
+      provenance.framework === "html" ||
+      !instanceId
+    ) {
+      return undefined;
+    }
+    var boundary = [
+      provenance.framework,
+      definitionSourceFile,
+      provenance.line || "",
+      provenance.column || "",
+      name,
+    ].join("|");
+    var writable =
+      provenance.framework === "react" &&
+      invocationSourceFile !== undefined &&
+      invocationMethod !== undefined &&
+      invocationMethod !== "debug-stack" &&
+      Number.isFinite(invocationLine) &&
+      Number.isFinite(invocationColumn);
+    return {
+      componentId: "runtime-component-" + runtimeLayerHash(boundary),
+      instanceId: instanceId,
+      name: name,
+      framework: provenance.framework,
+      sourceFile: invocationSourceFile,
+      line: invocationLine,
+      column: invocationColumn,
+      method: invocationMethod,
+      ownerKey: provenance.ownerKey,
+      props: runtimeComponentPropsForElement(el),
+      writeCapability: writable ? "authored-jsx-literal" : "unsupported",
+      reason: writable
+        ? undefined
+        : "The runtime did not expose a verified authored component invocation location.",
+    };
+  }
+
   function isAutoLayoutDisplay(display: string | undefined): boolean {
     return (
       display === "flex" ||
@@ -2869,13 +2971,251 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     height: true,
   };
 
+  type PortableStyleCacheEntry = {
+    generation: number;
+    styles: Record<string, string> | null;
+  };
+
+  type PortableStyleComputedStylesCache = {
+    entries: Map<Element, PortableStyleCacheEntry>;
+    mutationObserver: MutationObserver;
+    mutationGeneration: number;
+    observedMutationRoots: Node[];
+  };
+
+  var portableStyleMutationObserverOptions = {
+    subtree: true,
+    childList: true,
+    attributes: true,
+    characterData: true,
+  };
+
+  function portableStyleMutationAffectsCache(record: MutationRecord): boolean {
+    if (record.type === "attributes") {
+      return !(
+        record.target instanceof Element &&
+        (record.attributeName === "data-an-pending-node-id" ||
+          isOverlayElement(record.target))
+      );
+    }
+    if (record.type !== "childList") {
+      return !(
+        record.target instanceof Node &&
+        record.target.parentElement &&
+        isOverlayElement(record.target.parentElement)
+      );
+    }
+    if (record.target instanceof Element && isOverlayElement(record.target)) {
+      return false;
+    }
+    var nodes = Array.prototype.slice
+      .call(record.addedNodes)
+      .concat(Array.prototype.slice.call(record.removedNodes));
+    return (
+      nodes.length === 0 ||
+      nodes.some(function (node: Node) {
+        return !(
+          (node instanceof Element && isOverlayElement(node)) ||
+          (node.parentElement && isOverlayElement(node.parentElement))
+        );
+      })
+    );
+  }
+
+  function portableStyleMutationGeneration(
+    cache: PortableStyleComputedStylesCache,
+  ): number {
+    try {
+      var records = cache.mutationObserver.takeRecords();
+      if (records.some(portableStyleMutationAffectsCache)) {
+        cache.mutationGeneration += 1;
+      }
+    } catch (_error) {
+      // A cache with an unreadable observer cannot prove that a DOM/style
+      // mutation did not happen. Advancing the generation forces every
+      // subsequent lookup to miss and keeps the optimization fail-closed.
+      cache.mutationGeneration += 1;
+      dndLog("style:mutation-state-unreadable");
+    }
+    return cache.mutationGeneration;
+  }
+
+  function portableStyleObserveMutationRoot(
+    cache: PortableStyleComputedStylesCache,
+    root: Node,
+  ): boolean {
+    if (cache.observedMutationRoots.indexOf(root) !== -1) return true;
+    try {
+      cache.mutationObserver.observe(
+        root,
+        portableStyleMutationObserverOptions,
+      );
+      cache.observedMutationRoots.push(root);
+      // A newly discovered root may already have changed while an earlier
+      // snapshot was being read, so invalidate entries captured before it was
+      // observed.
+      if (cache.observedMutationRoots.length > 1) {
+        cache.mutationGeneration += 1;
+      }
+      return true;
+    } catch (_error) {
+      cache.mutationGeneration += 1;
+      dndLog("style:mutation-root-unavailable");
+      return false;
+    }
+  }
+
+  function portableStyleObserveElementRoot(
+    cache: PortableStyleComputedStylesCache,
+    el: Element,
+  ): boolean {
+    try {
+      var shadowRoot = (el as Element & { shadowRoot?: ShadowRoot | null })
+        .shadowRoot;
+      if (shadowRoot && !portableStyleObserveMutationRoot(cache, shadowRoot)) {
+        return false;
+      }
+      var getRootNode = (el as Element & { getRootNode?: () => Node })
+        .getRootNode;
+      if (typeof getRootNode !== "function") return true;
+      var root = getRootNode.call(el);
+      if (!(root instanceof Node)) return false;
+      return portableStyleObserveMutationRoot(cache, root);
+    } catch (_error) {
+      cache.mutationGeneration += 1;
+      dndLog("style:mutation-root-read-failed", { tag: el.tagName });
+      return false;
+    }
+  }
+
+  function createPortableStyleComputedStylesCache():
+    | PortableStyleComputedStylesCache
+    | undefined {
+    if (typeof MutationObserver === "undefined") return undefined;
+    var cache = {
+      entries: new Map<Element, PortableStyleCacheEntry>(),
+      mutationObserver: null as unknown as MutationObserver,
+      mutationGeneration: 0,
+      observedMutationRoots: [],
+    };
+    try {
+      var observer = new MutationObserver(function (records) {
+        if (records.some(portableStyleMutationAffectsCache)) {
+          cache.mutationGeneration += 1;
+        }
+      });
+      cache.mutationObserver = observer;
+      if (!portableStyleObserveMutationRoot(cache, document)) {
+        observer.disconnect();
+        return undefined;
+      }
+      return cache;
+    } catch (_error) {
+      dndLog("style:mutation-observer-unavailable");
+      return undefined;
+    }
+  }
+
+  function portableStyleAnimationParent(
+    el: Element,
+  ): Element | null | undefined {
+    try {
+      var assignedSlot = (el as Element & { assignedSlot?: Element | null })
+        .assignedSlot;
+      if (assignedSlot instanceof Element) return assignedSlot;
+      if (el.parentElement) return el.parentElement;
+      var getRootNode = (el as Element & { getRootNode?: () => Node })
+        .getRootNode;
+      if (typeof getRootNode !== "function") return null;
+      var root = getRootNode.call(el) as Document | ShadowRoot;
+      var host = (root as ShadowRoot).host;
+      return host instanceof Element ? host : null;
+    } catch (_error) {
+      dndLog("style:animation-parent-read-failed", { tag: el.tagName });
+      return undefined;
+    }
+  }
+
+  function canReadPortableAnimationState(el: Element): boolean {
+    var animatedElement = el as Element & {
+      getAnimations?: () => Array<{ playState?: string }>;
+    };
+    try {
+      var getAnimations = animatedElement.getAnimations;
+      if (typeof getAnimations !== "function") {
+        dndLog("style:animation-state-unreadable", { tag: el.tagName });
+        return false;
+      }
+      var animations = getAnimations.call(animatedElement);
+      if (!Array.isArray(animations)) {
+        dndLog("style:animation-state-unreadable", { tag: el.tagName });
+        return false;
+      }
+      for (var index = 0; index < animations.length; index += 1) {
+        var playState = animations[index]?.playState;
+        if (typeof playState !== "string") {
+          dndLog("style:animation-state-unreadable", { tag: el.tagName });
+          return false;
+        }
+        if (playState === "running" || playState === "pending") return false;
+      }
+      return true;
+    } catch (_error) {
+      dndLog("style:animation-state-read-failed", { tag: el.tagName });
+      return false;
+    }
+  }
+
+  function canReusePortableComputedStyles(
+    el: Element,
+    cache?: PortableStyleComputedStylesCache,
+  ): boolean {
+    // Computed inherited values can change while only an ancestor is
+    // animated. Recheck the whole style parent chain on every cache lookup;
+    // caching this answer would make a mid-request animation invisible.
+    var current: Element | null = el;
+    while (current) {
+      var parent = portableStyleAnimationParent(current);
+      if (parent === undefined) return false;
+      if (
+        cache &&
+        (!portableStyleObserveElementRoot(cache, current) ||
+          (parent && !portableStyleObserveElementRoot(cache, parent)))
+      ) {
+        return false;
+      }
+      if (!canReadPortableAnimationState(current)) return false;
+      current = parent;
+    }
+    return true;
+  }
+
   function collectPortableComputedStyles(
     el: Element | null,
+    cache?: PortableStyleComputedStylesCache,
+    computedStyle?: CSSStyleDeclaration,
   ): Record<string, string> | null {
     if (!el) return {};
-    var cs = window.getComputedStyle(el);
+    var cacheSafe = !cache || canReusePortableComputedStyles(el, cache);
+    var cacheGeneration = cache
+      ? portableStyleMutationGeneration(cache)
+      : undefined;
+    var cached = cache?.entries.get(el);
+    if (cacheSafe && cached && cached.generation === cacheGeneration) {
+      return cached.styles;
+    }
+    var cacheFailure = function (): null {
+      var failureGeneration = cache
+        ? portableStyleMutationGeneration(cache)
+        : undefined;
+      if (cache && cacheSafe && failureGeneration === cacheGeneration) {
+        cache.entries.set(el, { generation: failureGeneration, styles: null });
+      }
+      return null;
+    };
+    var cs = computedStyle || window.getComputedStyle(el);
     var defaults = portableStyleTagDefaults(el);
-    if (!defaults) return null;
+    if (!defaults) return cacheFailure();
     var hostStyle = (el as HTMLElement).style;
     var styles: Record<string, string> = {};
     var typedElement = el as Element & {
@@ -2883,7 +3223,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     };
     if (typeof typedElement.computedStyleMap !== "function") {
       dndLog("style:typed-om-unavailable", { tag: el.tagName });
-      return null;
+      return cacheFailure();
     }
     try {
       var typedStyles = typedElement.computedStyleMap();
@@ -2891,7 +3231,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         var typedValue = typedStyles.get(property);
         if (typedValue == null || !String(typedValue).trim()) {
           dndLog("style:typed-om-value-missing", { property: property });
-          return null;
+          return cacheFailure();
         }
         var size = String(typedValue).trim();
         // Explicit auto must replace a losing inline size in the moved markup.
@@ -2901,7 +3241,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
     } catch (_error) {
       dndLog("style:typed-om-read-failed", { tag: el.tagName });
-      return null;
+      return cacheFailure();
     }
     PORTABLE_STYLE_PROPERTIES.forEach(function (property) {
       if (PORTABLE_STYLE_BOX_SIZE_PROPERTIES[property]) return;
@@ -2936,10 +3276,20 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         }
       }
     }
+    var finalGeneration = cache
+      ? portableStyleMutationGeneration(cache)
+      : undefined;
+    if (cache && cacheSafe && finalGeneration === cacheGeneration) {
+      cache.entries.set(el, { generation: finalGeneration, styles: styles });
+    }
     return styles;
   }
 
-  function collectPortableStyleSnapshot(root: Element | null) {
+  function collectPortableStyleSnapshot(
+    root: Element | null,
+    cache?: PortableStyleComputedStylesCache,
+    rootComputedStyle?: CSSStyleDeclaration,
+  ) {
     if (!root || isDocumentRootElement(root)) return undefined;
     var maxNodes = 5000;
     var descendants = Array.prototype.slice.call(root.querySelectorAll("*"));
@@ -2972,7 +3322,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         probeFailed = true;
         return;
       }
-      var styles = collectPortableComputedStyles(node);
+      // The root is also represented by getElementInfo's live computedStyles.
+      // Refresh it instead of reusing an ancestor's value. Descendants use the
+      // request cache only when their style-parent animation state is quiescent.
+      var styles = collectPortableComputedStyles(
+        node,
+        node === root ? undefined : cache,
+        node === root ? rootComputedStyle : undefined,
+      );
       if (styles === null) {
         probeFailed = true;
         return;
@@ -3025,6 +3382,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     "width",
     "height",
     "transform",
+    "scale",
     "display",
     "overflow",
     "lineHeight",
@@ -3055,6 +3413,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     "backgroundColor",
     "color",
     "fill",
+    "borderRadius",
+    "borderTopLeftRadius",
+    "borderTopRightRadius",
+    "borderBottomRightRadius",
+    "borderBottomLeftRadius",
   ];
 
   function collectInlineStyles(el: Element): Record<string, string> {
@@ -3115,6 +3478,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     liveVisualEditOriginalInlineStyles.set(el, collectInlineStyles(el));
   }
 
+  function refreshLiveVisualEditOriginalStyles(el: Element | null): void {
+    if (!el || !liveVisualEditOriginalInlineStyles) return;
+    liveVisualEditOriginalInlineStyles.delete(el);
+    rememberLiveVisualEditOriginalStyles(el);
+  }
+
+  function releaseLiveVisualEditOriginalStyles(el: Element | null): void {
+    if (!el || !liveVisualEditOriginalInlineStyles) return;
+    liveVisualEditOriginalInlineStyles.delete(el);
+  }
+
   function originalInlineStylesForPatch(
     el: Element | null,
     styles: Record<string, string>,
@@ -3147,10 +3521,19 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     paintCs: CSSStyleDeclaration,
     strokeCs: CSSStyleDeclaration = paintCs,
   ) {
+    var backgroundClip = cs.backgroundClip;
+    var webkitBackgroundClip = cs.getPropertyValue("-webkit-background-clip");
+    if (
+      !/(^|,)\s*text\s*(,|$)/i.test(backgroundClip) &&
+      /(^|,)\s*text\s*(,|$)/i.test(webkitBackgroundClip)
+    ) {
+      backgroundClip = webkitBackgroundClip;
+    }
     return {
       color: cs.color,
       backgroundColor: cs.backgroundColor,
       backgroundImage: cs.backgroundImage,
+      backgroundClip,
       backgroundPosition: cs.backgroundPosition,
       backgroundRepeat: cs.backgroundRepeat,
       backgroundSize: cs.backgroundSize,
@@ -3511,7 +3894,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     };
   }
 
-  function getElementInfo(el: Element): unknown {
+  function getElementInfo(
+    el: Element,
+    portableComputedStylesCache?: PortableStyleComputedStylesCache,
+  ): unknown {
     var cs = window.getComputedStyle(el);
     var paintCs = window.getComputedStyle(vectorPaintTarget(el) || el);
     var boundingRect = rectInfoForElement(el);
@@ -3579,6 +3965,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           alignItems: parentStyles.alignItems,
           justifyContent: parentStyles.justifyContent,
           gap: parentStyles.gap,
+          gridAutoFlow: parentStyles.gridAutoFlow,
           gridTemplateColumns: parentStyles.gridTemplateColumns,
           gridTemplateRows: parentStyles.gridTemplateRows,
           position: parentStyles.position,
@@ -3623,10 +4010,21 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // site; framework runtime metadata fills the React owner call site. The
     // shared resolver crosses ShadowRoot.host for Vue, Svelte, and attributes.
     var provenance: FrameworkDebugProvenance = elementDebugProvenance(el);
-    var portableStyleSnapshot = collectPortableStyleSnapshot(el);
+    var runtimeComponent = runtimeComponentIdentityForElement(
+      el,
+      provenance,
+      sourceId || runtimeSourceId || pendingNodeId || getSelector(el),
+    );
+    var portableStyleSnapshot = collectPortableStyleSnapshot(
+      el,
+      portableComputedStylesCache,
+      cs,
+    );
     return {
       tagName: el.tagName.toLowerCase(),
       componentName: componentName || undefined,
+      componentAnnotation: explicitComponentNameForElement(el) || undefined,
+      runtimeComponent: runtimeComponent,
       id: el.id || undefined,
       sourceId: sourceId,
       runtimeSelector: runtimeSelector || undefined,
@@ -3958,9 +4356,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         return documentSpaceBoundsContainPoint(el, atPoint);
       });
     }
-    return targets.map(function (target) {
-      return getElementInfo(target);
-    });
+    // Warm the editor-owned probe iframe before observing this request.
+    portableStyleProbeDocument();
+    var portableComputedStylesCache = createPortableStyleComputedStylesCache();
+    try {
+      return targets.map(function (target) {
+        return getElementInfo(target, portableComputedStylesCache);
+      });
+    } finally {
+      portableComputedStylesCache?.mutationObserver.disconnect();
+    }
   }
 
   /** Containment test in the same document space getElementInfo reports
@@ -4062,7 +4467,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             ? "nwse-resize"
             : "nesw-resize";
     handle.style.cssText =
-      "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:0;pointer-events:auto;cursor:" +
+      "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:2px;box-shadow:0 1px 2px color-mix(in srgb,var(--design-editor-accent-color) 25%,transparent);pointer-events:auto;cursor:" +
       cursor +
       ";";
     if (pos.indexOf("n") !== -1) handle.style.top = "-4px";
@@ -4077,6 +4482,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       handle.style.top = "50%";
       handle.style.transform = "translateY(-50%)";
     }
+    selectionOverlay.appendChild(handle);
+  });
+  // Figma-style corner-radius handles: small circles inset from each corner
+  // along its diagonal, draggable to adjust the element's border-radius.
+  // Hidden (display:none) by default; applySelectionHandleHitGeometry shows
+  // and positions them only for elements that support a CSS border-radius.
+  ["nw", "ne", "se", "sw"].forEach(function (pos) {
+    var handle = document.createElement("span");
+    handle.setAttribute("data-agent-native-radius-handle", pos);
+    handle.style.cssText =
+      "position:absolute;z-index:2;width:9px;height:9px;border:1.5px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:999px;box-shadow:0 1px 2px color-mix(in srgb,var(--design-editor-accent-color) 25%,transparent);pointer-events:auto;cursor:pointer;display:none;";
     selectionOverlay.appendChild(handle);
   });
   (function () {
@@ -4219,7 +4635,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   var sizeBadge = document.createElement("div");
   sizeBadge.setAttribute("data-agent-native-edit-overlay", "size-badge");
   sizeBadge.style.cssText =
-    "position:fixed;z-index:100000;display:none;pointer-events:none;border-radius:3px;background:var(--design-editor-accent-color);color:var(--design-editor-accent-contrast-color);font:10px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;padding:2px 4px;white-space:nowrap;";
+    "position:fixed;z-index:100000;display:none;pointer-events:none;border-radius:4px;background:var(--design-editor-accent-color);color:var(--design-editor-accent-contrast-color);font:600 11px/1.4 ui-sans-serif,system-ui,-apple-system,sans-serif;padding:2px 6px;white-space:nowrap;box-shadow:0 1px 2px color-mix(in srgb,var(--design-editor-accent-color) 15%,transparent);";
   document.body.appendChild(sizeBadge);
 
   var insertionGuide = document.createElement("div");
@@ -7423,6 +7839,30 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // transition for that one write — see the CSS rule this toggles above.
   var lastHandleGeometryTargetEl: Element | null = null;
 
+  // Drawn vector primitives (lines, arrows, ellipses, polygons, stars, pen
+  // paths) render their shape via SVG geometry, not a CSS box — a
+  // border-radius on their wrapper has no visible effect, so the
+  // corner-radius drag handles stay hidden for them.
+  var RADIUS_UNSUPPORTED_PRIMITIVES = {
+    line: true,
+    arrow: true,
+    ellipse: true,
+    circle: true,
+    polygon: true,
+    star: true,
+    path: true,
+    pen: true,
+  };
+  function supportsCornerRadiusHandles(el) {
+    if (!el || el.nodeType !== 1) return false;
+    var kind = (
+      el.getAttribute("data-an-primitive") ||
+      el.getAttribute("data-agent-native-primitive") ||
+      ""
+    ).toLowerCase();
+    return !kind || !RADIUS_UNSUPPORTED_PRIMITIVES[kind];
+  }
+
   // Sizes the selection overlay's edge/corner handles for the current chrome
   // scale, clamping each handle's inward reach against the overlaid
   // element's own rect. Called from applyEditorChromeScale (scale changes)
@@ -7488,12 +7928,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       .querySelectorAll("[data-agent-native-edit-handle]")
       .forEach(function (handle) {
         var pos = handle.getAttribute("data-agent-native-edit-handle") || "";
-        var sizeX = 7 * sx;
-        var sizeY = 7 * sy;
-        // sizeY - 4*sy is exact (Sterbenz), so the unclamped offset below
+        // Both axes use the same uniform `line` scale (never sx/sy
+        // individually) so the square handle stays square and centered on
+        // the stroke corner even when the iframe's own X/Y chrome scale
+        // differs — using sx/sy here stretched the square into a rectangle
+        // and threw off the corner offset math whenever scaleX !== scaleY.
+        var sizeX = 7 * line;
+        var sizeY = 7 * line;
+        // sizeY - 4*line is exact (Sterbenz), so the unclamped offset below
         // reproduces the historical -4*scale bit-for-bit.
-        var inwardX = clampHandleInwardReach(sizeX - 4 * sx, elWidth);
-        var inwardY = clampHandleInwardReach(sizeY - 4 * sy, elHeight);
+        var inwardX = clampHandleInwardReach(sizeX - 4 * line, elWidth);
+        var inwardY = clampHandleInwardReach(sizeY - 4 * line, elHeight);
         handle.style.width = sizeX + "px";
         handle.style.height = sizeY + "px";
         handle.style.borderWidth = 1 * line + "px";
@@ -7509,6 +7954,42 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         if (pos.indexOf("e") !== -1) {
           handle.style.right = inwardX - sizeX + "px";
         }
+      });
+
+    // Radius handles: small circles inset along each corner's diagonal,
+    // hidden unless the element supports border-radius and is large enough
+    // to fit them without overlapping the opposite corner.
+    var radiusHandlesSupported = supportsCornerRadiusHandles(el);
+    selectionOverlay
+      .querySelectorAll("[data-agent-native-radius-handle]")
+      .forEach(function (handle) {
+        if (
+          readOnly ||
+          !!activeTextEditEl ||
+          !radiusHandlesSupported ||
+          !(elWidth > 0) ||
+          !(elHeight > 0)
+        ) {
+          handle.style.display = "none";
+          return;
+        }
+        var pos = handle.getAttribute("data-agent-native-radius-handle") || "";
+        var size = 9 * line;
+        var maxInset = Math.min(elWidth, elHeight) / 2 - size;
+        if (maxInset < 4 * line) {
+          handle.style.display = "none";
+          return;
+        }
+        var inset = Math.max(4 * line, Math.min(16 * line, maxInset));
+        handle.style.display = "block";
+        handle.style.width = size + "px";
+        handle.style.height = size + "px";
+        handle.style.borderWidth = 1.5 * line + "px";
+        var offset = inset - size / 2 + "px";
+        if (pos.indexOf("n") !== -1) handle.style.top = offset;
+        if (pos.indexOf("s") !== -1) handle.style.bottom = offset;
+        if (pos.indexOf("w") !== -1) handle.style.left = offset;
+        if (pos.indexOf("e") !== -1) handle.style.right = offset;
       });
 
     if (isNewSelectionTarget) {
@@ -8744,6 +9225,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var key = e.key;
     var normalized = normalizedHotkeyChar(e);
     var primary = e.metaKey || e.ctrlKey;
+    var isArrangeBracketChord =
+      (e.code === "BracketRight" || e.code === "BracketLeft") &&
+      ((!primary && !e.altKey && !e.shiftKey) ||
+        (primary && !e.shiftKey) ||
+        (e.ctrlKey && !e.metaKey && !e.altKey && e.shiftKey));
+    // KeyboardEvent.key is layout-dependent for bracket keys and some native
+    // automation sends the physical code as the key. Keep the iframe gate in
+    // step with the shared Design shortcut resolver, which already matches on
+    // code for these commands.
+    if (isArrangeBracketChord) return true;
     if (key === "Escape" || key === "Enter") return true;
     // Space arms Figma-style temporary hand-tool panning while the cursor is
     // over the preview iframe. Only forward the plain (no-modifier) chord —
@@ -8926,7 +9417,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   function setSelectionOverlayResizeChromeVisible(visible: boolean): void {
     selectionOverlay
       .querySelectorAll(
-        "[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]",
+        "[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle],[data-agent-native-radius-handle]",
       )
       .forEach(function (node) {
         if (!(node instanceof HTMLElement)) return;
@@ -9208,7 +9699,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     infoCache?: Map<Element, unknown> | null,
     lightInfoCache?: Map<Element, unknown> | null,
   ): void {
-    var primaryIndex = elements.length - 1;
     function lightInfo(el: Element): unknown {
       if (!lightInfoCache) return getLightElementInfo(el, true);
       var cached = lightInfoCache.get(el);
@@ -9222,12 +9712,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       {
         type: "agent-native:layer-marquee-selection",
         phase: "change",
-        payload: elements.map(function (el, index) {
-          // Live ticks only need identity and geometry. Defer the expensive
-          // computed-style/subtree snapshot to the final primary item, which
-          // is the element the host keeps as the inspector selection.
+        payload: elements.map(function (el) {
+          // Live ticks only need identity and geometry. On the settled report,
+          // every member needs its own computed state: z-order planning must not
+          // classify passive selections from authored source or the primary
+          // inspector payload.
           if (!final) return lightInfo(el);
-          if (index !== primaryIndex) return lightInfo(el);
           if (!infoCache) return getElementInfo(el);
           var cached = infoCache.get(el);
           if (cached === undefined) {
@@ -10009,6 +10499,199 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return Number.isFinite(num) ? num : 0;
   }
 
+  function resolveCornerRadiusComponent(part, axisSize) {
+    if (!part) return 0;
+    if (part.charAt(part.length - 1) === "%") {
+      var pct = parseFloat(part) || 0;
+      return (pct / 100) * axisSize;
+    }
+    return readPx(part);
+  }
+
+  // CSS resolves each border-*-radius longhand as a horizontal/vertical pair:
+  // even a single value like `50%` produces an ellipse (not a circle) on a
+  // non-square box, because the horizontal component resolves against width
+  // and the vertical component resolves against height independently — a
+  // 200x100 box with `border-radius: 50%` renders 100px horizontal by 50px
+  // vertical corners, not a uniform 50px radius.
+  function resolveCornerRadiusXY(value, width, height) {
+    var trimmed = typeof value === "string" ? value.trim() : "";
+    var parts = trimmed.split(/\s+/);
+    return {
+      x: resolveCornerRadiusComponent(parts[0], width),
+      y: resolveCornerRadiusComponent(
+        parts.length > 1 ? parts[1] : parts[0],
+        height,
+      ),
+    };
+  }
+
+  function isDirectCornerRadiusValue(value) {
+    var trimmed = typeof value === "string" ? value.trim() : "";
+    if (!trimmed) return false;
+    var parts = trimmed.split(/\s+/);
+    return (
+      parts.length <= 2 &&
+      parts.every(function (part) {
+        return (
+          /^[-+]?(?:\d*\.\d+|\d+\.?\d*)(?:px|%)$/i.test(part) ||
+          /^[-+]?0(?:\.0*)?$/.test(part)
+        );
+      })
+    );
+  }
+
+  function borderBoxDimensions(cs) {
+    var width = readPx(cs.width);
+    var height = readPx(cs.height);
+    if (cs.boxSizing === "border-box") return { width: width, height: height };
+    width +=
+      readPx(cs.paddingLeft) +
+      readPx(cs.paddingRight) +
+      readPx(cs.borderLeftWidth) +
+      readPx(cs.borderRightWidth);
+    height +=
+      readPx(cs.paddingTop) +
+      readPx(cs.paddingBottom) +
+      readPx(cs.borderTopWidth) +
+      readPx(cs.borderBottomWidth);
+    return { width: width, height: height };
+  }
+
+  function radiusLinearTransformForStyle(cs) {
+    var transform = { a: 1, b: 0, c: 0, d: 1 };
+    if (cs.transform && cs.transform !== "none" && window.DOMMatrixReadOnly) {
+      try {
+        var matrix = new DOMMatrixReadOnly(cs.transform);
+        transform = { a: matrix.a, b: matrix.b, c: matrix.c, d: matrix.d };
+      } catch (err) {
+        // Invalid computed transforms have no reliable inverse; keep identity
+        // drag math rather than hiding the parse failure in an empty catch.
+        void err;
+      }
+    }
+    var scaleParts = (cs.scale || cs.getPropertyValue("scale") || "none")
+      .trim()
+      .split(/\s+/)
+      .map(function (part) {
+        return parseFloat(part);
+      });
+    var scaleX = Number.isFinite(scaleParts[0]) ? scaleParts[0] : 1;
+    var scaleY = Number.isFinite(scaleParts[1]) ? scaleParts[1] : scaleX;
+    var angle = independentRotation(cs.rotate || "");
+    var radians = (angle * Math.PI) / 180;
+    var result = composeRadiusLinearTransform(
+      transform,
+      scaleX,
+      scaleY,
+      radians,
+    );
+    var zoom = parseFloat(cs.zoom || cs.getPropertyValue("zoom"));
+    if (Number.isFinite(zoom) && zoom > 0) {
+      result.a *= zoom;
+      result.b *= zoom;
+      result.c *= zoom;
+      result.d *= zoom;
+    }
+    return result;
+  }
+
+  function radiusLinearTransform(el) {
+    return radiusLinearTransformForStyle(window.getComputedStyle(el));
+  }
+
+  function composeRadiusLinearTransform(transform, scaleX, scaleY, radians) {
+    var cos = Math.cos(radians);
+    var sin = Math.sin(radians);
+    // CSS individual scale/rotate are applied after the transform property.
+    // Keep that order so a class-authored rotate plus independent scale maps
+    // viewport deltas through the same matrix the browser paints.
+    var independent = {
+      a: cos * scaleX,
+      b: sin * scaleY,
+      c: -sin * scaleX,
+      d: cos * scaleY,
+    };
+    return {
+      a: independent.a * transform.a + independent.c * transform.b,
+      b: independent.b * transform.a + independent.d * transform.b,
+      c: independent.a * transform.c + independent.c * transform.d,
+      d: independent.b * transform.c + independent.d * transform.d,
+    };
+  }
+
+  function multiplyRadiusLinear(parent, child) {
+    return {
+      a: parent.a * child.a + parent.c * child.b,
+      b: parent.b * child.a + parent.d * child.b,
+      c: parent.a * child.c + parent.c * child.d,
+      d: parent.b * child.c + parent.d * child.d,
+    };
+  }
+
+  function radiusViewportLinearTransform(el) {
+    var total = { a: 1, b: 0, c: 0, d: 1 };
+    for (
+      var current = el;
+      current && current.nodeType === 1;
+      current = current.parentElement
+    ) {
+      total = multiplyRadiusLinear(radiusLinearTransform(current), total);
+    }
+    return total;
+  }
+
+  function radiusLocalDelta(el, screenDx, screenDy) {
+    var matrix = radiusViewportLinearTransform(el);
+    var determinant = matrix.a * matrix.d - matrix.b * matrix.c;
+    if (!Number.isFinite(determinant) || Math.abs(determinant) < 0.0001) {
+      return { x: screenDx, y: screenDy };
+    }
+    return {
+      x: (matrix.d * screenDx - matrix.c * screenDy) / determinant,
+      y: (-matrix.b * screenDx + matrix.a * screenDy) / determinant,
+    };
+  }
+
+  function cornerRadiusMap(cs, width, height) {
+    return {
+      nw: resolveCornerRadiusXY(cs.borderTopLeftRadius, width, height),
+      ne: resolveCornerRadiusXY(cs.borderTopRightRadius, width, height),
+      se: resolveCornerRadiusXY(cs.borderBottomRightRadius, width, height),
+      sw: resolveCornerRadiusXY(cs.borderBottomLeftRadius, width, height),
+    };
+  }
+
+  function radiusDragMaximums(corner, radii, width, height) {
+    var horizontalNeighbor =
+      corner === "nw"
+        ? radii.ne.x
+        : corner === "ne"
+          ? radii.nw.x
+          : corner === "se"
+            ? radii.sw.x
+            : radii.se.x;
+    var verticalNeighbor =
+      corner === "nw"
+        ? radii.sw.y
+        : corner === "ne"
+          ? radii.se.y
+          : corner === "se"
+            ? radii.ne.y
+            : radii.nw.y;
+    return {
+      x: Math.max(0, Math.min(width / 2, width - horizontalNeighbor)),
+      y: Math.max(0, Math.min(height / 2, height - verticalNeighbor)),
+    };
+  }
+
+  var CORNER_RADIUS_PROPERTY_BY_HANDLE = {
+    nw: "borderTopLeftRadius",
+    ne: "borderTopRightRadius",
+    se: "borderBottomRightRadius",
+    sw: "borderBottomLeftRadius",
+  };
+
   function readFinitePx(value) {
     if (!value || value === "auto") return null;
     var num = parseFloat(value);
@@ -10529,6 +11212,37 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       degrees +
       "deg)"
     ).trim();
+  }
+
+  // Keep the authored transform intact and append only the relative mirror
+  // needed by a resize-through-zero. Rewriting a computed matrix loses class
+  // authored translate/scale functions and re-reading independent CSS scale
+  // makes a non-unit negative scale flip twice.
+  function readScalePair(value) {
+    if (!value || value === "none") return { x: 1, y: 1 };
+    var parts = value
+      .trim()
+      .split(/\s+/)
+      .map(function (part) {
+        return parseFloat(part);
+      });
+    var x = parts[0];
+    var y = parts.length > 1 ? parts[1] : x;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+    return { x: x, y: y };
+  }
+
+  function mergeRelativeScale(scale, flipX, flipY) {
+    var pair = readScalePair(scale) || { x: 1, y: 1 };
+    return (flipX ? -pair.x : pair.x) + " " + (flipY ? -pair.y : pair.y);
+  }
+
+  function mergeFlipIntoTransform(transform, flipX, flipY) {
+    var base = transform && transform !== "none" ? transform : "";
+    var suffix =
+      (flipX ? " matrix(-1, 0, 0, 1, 0, 0)" : "") +
+      (flipY ? " matrix(1, 0, 0, -1, 0, 0)" : "");
+    return (base + suffix).trim();
   }
 
   function ensurePositionable(el) {
@@ -15722,8 +16436,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
     var originLeft = gestureState.originLeft;
     var originTop = gestureState.originTop;
-    var startX = e.clientX;
-    var startY = e.clientY;
+    // Shield drags hand off after crossing their outer threshold. The legacy
+    // moved flag must use the original press too, or a small follow-up delta
+    // is mistaken for an Alt-click and the optimistic clone is removed.
+    var startX = pointerStartParam ? pointerStartParam.clientX : e.clientX;
+    var startY = pointerStartParam ? pointerStartParam.clientY : e.clientY;
     // Snapshot the element being moved so that a concurrent select-element or
     // clear-selection postMessage cannot swap selectedEl mid-drag and cause
     // mutations on the wrong element or a null-deref in onUp.
@@ -15762,11 +16479,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     bridgeMoveController.pointerDown({
       kind: "move",
       objectIds: [getSelector(gestureEl)],
-      // `e` is deliberately the event that actually began the legacy move
-      // lifecycle, not `pointerStartParam`: anchoring the controller at the
-      // pointerdown moves the element the extra threshold-crossing distance,
-      // which breaks the cross-screen drop's target resolution.
-      pointer: bridgeGesturePointer(e),
+      // Shield drags begin here after their threshold-crossing event. For an
+      // alt-drag, the clone must include the movement from the original press;
+      // plain shield drags keep their existing threshold-relative baseline so
+      // cross-screen target resolution is unchanged.
+      pointer: bridgeGesturePointer(
+        duplicatedForDrag && pointerStartParam
+          ? { ...e, ...pointerStartParam }
+          : e,
+      ),
       viewport: gestureViewport,
       canvas: { width: gestureViewport.width, height: gestureViewport.height },
     });
@@ -15811,7 +16532,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var dragElOffsetScaleX = ancestorScale(dragEl, "x");
     var dragElOffsetScaleY = ancestorScale(dragEl, "y");
     if (!isGroupDrag) {
-      postCrossScreenDrag("start", dragEl, e, {
+      postCrossScreenDrag("start", dragEl, pointerStartParam || e, {
         duplicate: duplicatedForDrag,
       });
     }
@@ -15943,15 +16664,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         // host only resends a claim message on a claimed-value CHANGE, so
         // once clobbered it stayed false for the rest of the drag with no
         // further message ever arriving to correct it.
-        currentAutoLayoutTarget =
-          !duplicatedForDrag && !bridgeSpaceKeyPressed
-            ? autoLayoutInsertionTargetForPoint(
-                dragEl,
-                ev.clientX,
-                ev.clientY,
-                groupOthers,
-              )
-            : null;
+        currentAutoLayoutTarget = !bridgeSpaceKeyPressed
+          ? autoLayoutInsertionTargetForPoint(
+              dragEl,
+              ev.clientX,
+              ev.clientY,
+              groupOthers,
+            )
+          : null;
         if (currentAutoLayoutTarget && ev.ctrlKey) {
           currentAutoLayoutTarget = ignoreAutoLayoutForDropTarget(
             currentAutoLayoutTarget,
@@ -16073,6 +16793,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           positionOverlay(selectionOverlay, selectedEl);
           postElementSelect(selectedEl);
           postCrossScreenDrag("cancel");
+        } else if (!isGroupDrag) {
+          // A selection-box press that never crosses the drag threshold still
+          // arms the host's cross-screen listener. Clear that claim on the
+          // click path too, or the next drag inherits a stale board gesture.
+          postCrossScreenDrag("cancel");
         }
         return;
       }
@@ -16109,12 +16834,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         }
         return;
       }
-      if (
-        ev &&
-        !duplicatedForDrag &&
-        !outsideOnDrop &&
-        !bridgeSpaceKeyPressed
-      ) {
+      if (ev && !outsideOnDrop && !bridgeSpaceKeyPressed) {
         var finalAutoLayoutTarget = autoLayoutInsertionTargetForPoint(
           dragEl,
           ev.clientX,
@@ -16149,7 +16869,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         postVisualDuplicateChange(
           originalSelectedEl,
           dragEl,
-          null,
+          currentAutoLayoutTarget,
           duplicatedSourceNodeIdMap,
         );
         postCrossScreenDrag("cancel");
@@ -16653,8 +17373,25 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var originalInlineWidth = resizeEl.style.width;
     var originalInlineHeight = resizeEl.style.height;
     var originalInlineFontSize = resizeEl.style.fontSize;
+    var originalInlineTransform = resizeEl.style.transform;
+    var originalInlineScale = resizeEl.style.scale;
+    refreshLiveVisualEditOriginalStyles(resizeEl);
     ensurePositionable(resizeEl);
     var cs = window.getComputedStyle(resizeEl);
+    var hasInlineTransform =
+      !!originalInlineTransform && originalInlineTransform !== "none";
+    var computedScale = cs.scale || cs.getPropertyValue("scale") || "none";
+    // A class-authored transform must remain owned by its stylesheet. CSS's
+    // independent scale property gives a separate mirror slot, so only an
+    // explicitly inline transform needs a transform-string edit.
+    var flipTransformBase = hasInlineTransform
+      ? originalInlineTransform
+      : cs.transform;
+    var mirrorScaleBase =
+      originalInlineScale && originalInlineScale !== "none"
+        ? originalInlineScale
+        : computedScale;
+    var mirrorUsesScale = !hasInlineTransform;
     // Bug fix: use COMPUTED width/height (never the raw inline style string)
     // for the resize origin dimensions. Two distinct hazards, one fix:
     //   1. Rotated elements — getBoundingClientRect() returns the inflated
@@ -16742,6 +17479,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // in onUp.
     var widthTouched = false;
     var heightTouched = false;
+    var transformTouched = false;
+    var scaleTouched = false;
     // Captured on the first K-scale tick, not at drag start: the host can arm
     // scale-tool-mode mid-gesture.
     var scaledStyleTargetsCache: ReturnType<
@@ -16801,29 +17540,36 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           else width = height * origin.ratio;
         }
       }
-      // Clamp to minimum size.
-      var clampedW = Math.max(8, width);
-      var clampedH = Math.max(8, height);
-      // After clamping, re-apply the ratio if Shift or scale tool is active so
-      // the clamped dimension doesn't silently break the locked aspect ratio.
-      if (ev.shiftKey || scaleToolEnabled) {
-        if (clampedW !== width) {
-          // Width was clamped; re-derive height from the clamped width.
-          clampedH = Math.max(8, clampedW / origin.ratio);
-        } else if (clampedH !== height) {
-          // Height was clamped; re-derive width from the clamped height.
-          clampedW = Math.max(8, clampedH * origin.ratio);
-        }
-      }
-      width = clampedW;
-      height = clampedH;
-      // Re-anchor the pinned edge for w/n handles after aspect-ratio lock and
-      // clamping so the opposite (e/s) edge stays fixed regardless of whether
-      // the dimension change was driven by raw dx/dy or by the ratio lock.
-      if (handle.indexOf("w") !== -1)
-        left = origin.left + (origin.width - width);
-      if (handle.indexOf("n") !== -1)
-        top = origin.top + (origin.height - height);
+      // Flip-through-zero: dragging a handle past the box's OWN opposite
+      // (anchor) edge must keep resizing continuously instead of clamping to
+      // a floor and getting stuck near-flat (reported: a triangle shrunk to
+      // a hairline sliver and stayed there instead of flipping and growing
+      // from the other side, matching Figma). width/height above are
+      // computed straight from origin, so a negative value unambiguously
+      // means the dragged edge crossed the fixed anchor edge. Re-derive both
+      // edges from that ANCHOR -- never from left/top, which for a
+      // ratio-locked corner drag can be stale against a width/height the
+      // aspect-lock branch just overwrote above -- so the anchor edge stays
+      // exactly fixed and the box keeps growing on the far side of it.
+      var anchorLeft =
+        handle.indexOf("w") !== -1 ? origin.left + origin.width : origin.left;
+      var anchorTop =
+        handle.indexOf("n") !== -1 ? origin.top + origin.height : origin.top;
+      var movingLeft =
+        handle.indexOf("w") !== -1 ? anchorLeft - width : anchorLeft + width;
+      var movingTop =
+        handle.indexOf("n") !== -1 ? anchorTop - height : anchorTop + height;
+      var widthCrossed = width < 0;
+      var heightCrossed = height < 0;
+      // These are relative mirrors for this gesture, not an absolute reading
+      // of the element's existing transform. That keeps class-authored and
+      // independent CSS transforms from being parsed and rewritten.
+      var flipX = widthCrossed;
+      var flipY = heightCrossed;
+      left = Math.min(anchorLeft, movingLeft);
+      width = Math.max(1, Math.abs(movingLeft - anchorLeft));
+      top = Math.min(anchorTop, movingTop);
+      height = Math.max(1, Math.abs(movingTop - anchorTop));
       if (ev.altKey) {
         if (handle.indexOf("w") !== -1 || handle.indexOf("e") !== -1)
           left = origin.left - (width - origin.width) / 2;
@@ -16850,6 +17596,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         height: height,
         touchesWidth: touchesWidth,
         touchesHeight: touchesHeight,
+        flipX: flipX,
+        flipY: flipY,
       };
     }
     function onMove(ev) {
@@ -16873,6 +17621,27 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         resizeEl.style.width = quantizeToLayoutGrid(rect.width) + "px";
       if (heightTouched)
         resizeEl.style.height = quantizeToLayoutGrid(rect.height) + "px";
+      if (rect.flipX || rect.flipY) {
+        if (mirrorUsesScale) {
+          scaleTouched = true;
+          resizeEl.style.scale = mergeRelativeScale(
+            mirrorScaleBase,
+            rect.flipX,
+            rect.flipY,
+          );
+        } else {
+          transformTouched = true;
+          resizeEl.style.transform = mergeFlipIntoTransform(
+            flipTransformBase,
+            rect.flipX,
+            rect.flipY,
+          );
+        }
+      } else {
+        if (transformTouched)
+          resizeEl.style.transform = originalInlineTransform;
+        if (scaleTouched) resizeEl.style.scale = originalInlineScale;
+      }
       if (scaleToolEnabled) {
         // Uniform scale factor: scaleToolEnabled already forces the
         // aspect-ratio lock above (nextRect), so width/origin.width and
@@ -16901,6 +17670,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       };
       if (widthTouched) previewStyles.width = resizeEl.style.width;
       if (heightTouched) previewStyles.height = resizeEl.style.height;
+      if (transformTouched) previewStyles.transform = resizeEl.style.transform;
+      if (scaleTouched) previewStyles.scale = resizeEl.style.scale;
       if (scaleToolEnabled && originFontSize > 0 && !svgViewBoxScalesFont) {
         previewStyles.fontSize = resizeEl.style.fontSize;
       }
@@ -16933,6 +17704,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         resizeEl.style.width = originalInlineWidth;
         resizeEl.style.height = originalInlineHeight;
         resizeEl.style.fontSize = originalInlineFontSize;
+        resizeEl.style.transform = originalInlineTransform;
+        resizeEl.style.scale = originalInlineScale;
         restoreKScaleStyleTargets(scaledStyleTargetsCache || []);
         selectedEl = resizeEl;
         positionOverlay(selectionOverlay, selectedEl);
@@ -16940,25 +17713,30 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         // the restored snapshot back so the host Inspector does not keep
         // displaying the last previewed dimensions.
         var restoredComputed = window.getComputedStyle(resizeEl);
+        var restoredStyles: Record<string, string> = {
+          position: restoredComputed.position,
+          left: restoredComputed.left,
+          top: restoredComputed.top,
+          width: restoredComputed.width,
+          height: restoredComputed.height,
+          borderWidth: restoredComputed.borderWidth,
+          fontSize: restoredComputed.fontSize,
+        };
+        if (transformTouched)
+          restoredStyles.transform = originalInlineTransform;
+        if (scaleTouched) restoredStyles.scale = originalInlineScale;
         (window.parent as Window).postMessage(
           {
             type: "visual-style-change",
             phase: "preview",
             selector: getSelector(resizeEl),
-            styles: {
-              position: restoredComputed.position,
-              left: restoredComputed.left,
-              top: restoredComputed.top,
-              width: restoredComputed.width,
-              height: restoredComputed.height,
-              borderWidth: restoredComputed.borderWidth,
-              fontSize: restoredComputed.fontSize,
-            },
+            styles: restoredStyles,
             payload: getElementInfo(resizeEl),
           },
           "*",
         );
       }
+      releaseLiveVisualEditOriginalStyles(resizeEl);
       suppressNextShieldClickBriefly();
       refreshOverlays();
       return true;
@@ -16975,6 +17753,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (!controllerEnd.committed) {
         cleanupResizeDrag();
         hideTransformBadge();
+        resizeEl.style.position = originalInlinePosition;
+        resizeEl.style.left = originalInlineLeft;
+        resizeEl.style.top = originalInlineTop;
+        releaseLiveVisualEditOriginalStyles(resizeEl);
         return;
       }
       cleanupResizeDrag();
@@ -16991,6 +17773,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // `width: 100%` to a fixed px width.
       if (widthTouched) styles.width = resizeEl.style.width;
       if (heightTouched) styles.height = resizeEl.style.height;
+      if (
+        transformTouched &&
+        resizeEl.style.transform !== originalInlineTransform
+      ) {
+        styles.transform = resizeEl.style.transform;
+      }
+      if (scaleTouched && resizeEl.style.scale !== originalInlineScale) {
+        styles.scale = resizeEl.style.scale;
+      }
       // Only include fontSize when the K-scale tool actually changed it — a
       // normal resize must never introduce this key.
       if (scaleToolEnabled && originFontSize > 0 && !svgViewBoxScalesFont) {
@@ -17050,6 +17841,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           recordSourceOwnership(target.el);
         });
       }
+      releaseLiveVisualEditOriginalStyles(resizeEl);
     }
     document.addEventListener(events.move, onMove, true);
     document.addEventListener(events.up, onUp, true);
@@ -17467,6 +18259,138 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     setActiveDragCancel(cancelRotateDrag);
   }
 
+  function startRadiusDrag(corner, e) {
+    if (readOnly) return;
+    if (!selectedEl) return;
+    if (isLayerInteractionBlocked(selectedEl)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    var events = dragEventNames(e);
+    var radiusEl = selectedEl;
+    var cs = window.getComputedStyle(radiusEl);
+    // Each handle owns exactly one corner — Figma adjusts only the dragged
+    // corner, not all four, so 4 independent handles stay meaningful instead
+    // of behaving like a single uniform-radius control.
+    var cornerProperty =
+      CORNER_RADIUS_PROPERTY_BY_HANDLE[corner] || "borderTopLeftRadius";
+    refreshLiveVisualEditOriginalStyles(radiusEl);
+    var borderBox = borderBoxDimensions(cs);
+    var elWidthPx = borderBox.width;
+    var elHeightPx = borderBox.height;
+    // getComputedStyle returns the COMPUTED value, so a percentage-authored
+    // radius (e.g. `border-radius: 50%` on a circular/pill element) comes
+    // back as a literal "50%" string. readPx's parseFloat would read that as
+    // the number 50 and misinterpret it as 50px, snapping the shape the
+    // instant the drag starts. Resolve it against the box's own dimensions
+    // first, same convention as CSS's own circle/pill radius authoring.
+    var authoredRadiusValue = radiusEl.style[cornerProperty];
+    var originRadius = resolveCornerRadiusXY(
+      isDirectCornerRadiusValue(authoredRadiusValue)
+        ? authoredRadiusValue
+        : cs[cornerProperty],
+      elWidthPx,
+      elHeightPx,
+    );
+    var maxRadius = radiusDragMaximums(
+      corner,
+      cornerRadiusMap(cs, elWidthPx, elHeightPx),
+      elWidthPx,
+      elHeightPx,
+    );
+    var maxRadiusX = maxRadius.x;
+    var maxRadiusY = maxRadius.y;
+    var originalRadiusValue = radiusEl.style[cornerProperty];
+    var startX = e.clientX;
+    var startY = e.clientY;
+    var radiusMoved = false;
+    var signX = corner.indexOf("w") !== -1 ? 1 : -1;
+    var signY = corner.indexOf("n") !== -1 ? 1 : -1;
+    function applyRadius(nextX, nextY) {
+      var x = Math.max(0, Math.min(maxRadiusX, Math.round(nextX)));
+      var y = Math.max(0, Math.min(maxRadiusY, Math.round(nextY)));
+      radiusEl.style[cornerProperty] =
+        x === y ? x + "px" : x + "px " + y + "px";
+    }
+    function onMove(ev) {
+      if (!radiusEl) return;
+      var screenDx = ev.clientX - startX;
+      var screenDy = ev.clientY - startY;
+      if (screenDx === 0 && screenDy === 0) return;
+      radiusMoved = true;
+      var local = radiusLocalDelta(radiusEl, screenDx, screenDy);
+      applyRadius(
+        originRadius.x + local.x * signX,
+        originRadius.y + local.y * signY,
+      );
+      applySelectionHandleHitGeometry(radiusEl);
+      refreshOverlays();
+    }
+    function cleanupRadiusDrag() {
+      document.removeEventListener(events.move, onMove, true);
+      document.removeEventListener(events.up, onUp, true);
+      document.removeEventListener("keydown", onRadiusKeyDown, true);
+      clearActiveDragCancel(cancelRadiusDrag);
+    }
+    function cancelRadiusDrag() {
+      cleanupRadiusDrag();
+      if (radiusEl && document.documentElement.contains(radiusEl)) {
+        radiusEl.style[cornerProperty] = originalRadiusValue;
+        selectedEl = radiusEl;
+        applySelectionHandleHitGeometry(radiusEl);
+        refreshOverlays();
+      }
+      releaseLiveVisualEditOriginalStyles(radiusEl);
+      suppressNextShieldClickBriefly();
+      return true;
+    }
+    function onRadiusKeyDown(ev) {
+      if (ev.key !== "Escape") return;
+      stopNativeInteraction(ev);
+      cancelRadiusDrag();
+    }
+    function onUp() {
+      cleanupRadiusDrag();
+      if (!radiusEl) return;
+      if (!radiusMoved) {
+        releaseLiveVisualEditOriginalStyles(radiusEl);
+        return;
+      }
+      var finalRadius = resolveCornerRadiusXY(
+        radiusEl.style[cornerProperty] || cs[cornerProperty],
+        elWidthPx,
+        elHeightPx,
+      );
+      var radiusChanged =
+        Math.abs(finalRadius.x - originRadius.x) > 0.5 ||
+        Math.abs(finalRadius.y - originRadius.y) > 0.5;
+      if (!radiusChanged) {
+        radiusEl.style[cornerProperty] = originalRadiusValue;
+        applySelectionHandleHitGeometry(radiusEl);
+        refreshOverlays();
+        releaseLiveVisualEditOriginalStyles(radiusEl);
+        return;
+      }
+      var styles = {};
+      styles[cornerProperty] = radiusEl.style[cornerProperty];
+      (window.parent as Window).postMessage(
+        {
+          type: "visual-style-change",
+          selector: getSelector(radiusEl),
+          styles: styles,
+          originalStyles: originalInlineStylesForPatch(radiusEl, styles),
+          payload: getElementInfo(radiusEl),
+        },
+        "*",
+      );
+      recordSourceOwnership(radiusEl);
+      releaseLiveVisualEditOriginalStyles(radiusEl);
+    }
+    document.addEventListener(events.move, onMove, true);
+    document.addEventListener(events.up, onUp, true);
+    document.addEventListener("keydown", onRadiusKeyDown, true);
+    setActiveDragCancel(cancelRadiusDrag);
+  }
+
   function clearPendingShieldDrag() {
     if (!pendingShieldDrag) return;
     document.removeEventListener(
@@ -17798,6 +18722,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         e.target.getAttribute("data-agent-native-rotate-handle");
       if (rotateHandle) {
         startRotate(e);
+        return;
+      }
+      var radiusHandle =
+        e.target &&
+        e.target.getAttribute &&
+        e.target.getAttribute("data-agent-native-radius-handle");
+      if (radiusHandle) {
+        startRadiusDrag(radiusHandle, e);
         return;
       }
       startMove(e);
@@ -20663,6 +21595,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         "aria-label",
         "class",
         "data-agent-native-component",
+        "data-agent-native-runtime-component-capability",
+        "data-agent-native-runtime-component-id",
+        "data-agent-native-runtime-instance-id",
         "data-agent-native-layer-name",
         "data-layer-name",
         "layer-name",

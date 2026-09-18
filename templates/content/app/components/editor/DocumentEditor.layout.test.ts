@@ -1679,6 +1679,34 @@ describe("document editor layout", () => {
     );
   });
 
+  it("uses the reviewed title base throughout recovery saves", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    const persistUpdates = source.slice(
+      source.indexOf("const persistDocumentUpdates"),
+      source.indexOf("const saveDocumentImmediately"),
+    );
+    const baseAwareReconcile = source.slice(
+      source.indexOf("const handleBaseAwareReconcile"),
+      source.indexOf("const handleResolveReconcile"),
+    );
+
+    expect(persistUpdates).toContain(
+      "options.titleBase ?? lastSavedTitleRef.current.title",
+    );
+    expect(baseAwareReconcile).toContain("title: documentTitleRef.current");
+    expect(baseAwareReconcile).not.toContain("title: document.title");
+    expect(baseAwareReconcile).toContain("resolveReconcileAutomatically");
+    expect(
+      baseAwareReconcile.indexOf('result.status === "merged"'),
+    ).toBeLessThan(baseAwareReconcile.indexOf("reportReconcile(result.status"));
+    expect(baseAwareReconcile).toContain(
+      'reportReconcile("failed", result.content)',
+    );
+  });
+
   it("localizes the live-editor flush failure fallback", () => {
     const source = readFileSync(
       new URL("./DocumentEditor.tsx", import.meta.url),

@@ -130,7 +130,7 @@ export function canvasVectorPaint(overrides: {
 }): CanvasVectorPaint {
   const { closed, fill, stroke, strokeWidth } = overrides;
   return {
-    fill: fill ?? (closed ? DEFAULT_SHAPE_FILL : "none"),
+    fill: closed ? (fill ?? DEFAULT_SHAPE_FILL) : "none",
     stroke: stroke ?? (closed ? "none" : DEFAULT_LINE_STROKE),
     strokeWidth: strokeWidth ?? DEFAULT_LINE_STROKE_WIDTH_PX,
   };

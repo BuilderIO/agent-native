@@ -1,6 +1,7 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "activity.reasoning": "तर्क",
   "approval.alwaysAllow": "हमेशा अनुमति दें",
   "approval.alwaysAllowHint": "इस सटीक कमांड को स्वीकृत करें और हमेशा अनुमति दें",
   "approval.alwaysAllowAction": "इस कार्रवाई को हमेशा अनुमति दें",
@@ -86,6 +87,10 @@ const messages: AgentChatTranslation = {
     "ब्राउज़र स्पीच रिकग्निशन या स्पीच-टू-टेक्स्ट",
   "onboarding.capability.voiceInput.why":
     "वॉइस इनपुट बोले गए अनुरोधों को टेक्स्ट में बदलता है; टाइप करना हमेशा उपलब्ध है।",
+  "onboarding.capability.embeddings.label": "एंबेडिंग",
+  "onboarding.capability.embeddings.keySummary": "Gemini, Cohere या Voyage कुंजी",
+  "onboarding.capability.embeddings.why":
+    "एंबेडिंग अर्थपूर्ण खोज को बेहतर बनाती हैं। इनके बिना भी कीवर्ड खोज काम करती है।",
   "onboarding.capability.assetsImageGeneration.label": "इमेज जनरेशन",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Builder क्रेडिट या इमेज प्रदाता की कुंजी",
@@ -736,6 +741,7 @@ const messages: AgentChatTranslation = {
   "status.preparing": "{{activity}} तैयार किया जा रहा है...",
   "status.writing": "{{activity}} लिखा जा रहा है...",
   "status.stillGenerating": "{{activity}} अभी भी बनाया जा रहा है",
+  "status.runningTool": "{{activity}} चल रहा है",
   "tabs.allChats": "सभी चैट",
   "tabs.closeTab": "टैब बंद करें",
   "tabs.main": "मुख्य",

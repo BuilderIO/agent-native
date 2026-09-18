@@ -139,7 +139,7 @@ describe("runDuplicateScreen", () => {
               id: "stale-copy",
               filename: "index-copy.html",
               fileType: "html",
-              content: "<main>unrelated</main>",
+              content: "<main></main>",
             },
           ],
         }),
@@ -161,6 +161,68 @@ describe("runDuplicateScreen", () => {
 
     runDuplicateScreen(args, "source");
     await vi.waitFor(() => expect(createFileAsync).toHaveBeenCalledTimes(2));
+  });
+
+  it("preserves source stacking order across a multi-screen duplicate", async () => {
+    const low = {
+      id: "low",
+      filename: "low.html",
+      fileType: "html",
+      content: "<main>low</main>",
+      createdAt: "",
+      updatedAt: "",
+    };
+    const high = {
+      id: "high",
+      filename: "high.html",
+      fileType: "html",
+      content: "<main>high</main>",
+      createdAt: "",
+      updatedAt: "",
+    };
+    const args = duplicateArgs({
+      files: [low, high],
+      createFileAsync: vi
+        .fn()
+        .mockResolvedValueOnce({ id: "copy-low" })
+        .mockResolvedValueOnce({ id: "copy-high" }),
+      designDataJsonRef: {
+        current: {
+          canvasFrames: {
+            low: { x: 0, y: 0, width: 640, height: 480, z: 1 },
+            high: { x: 800, y: 0, width: 640, height: 480, z: 4 },
+          },
+        },
+      },
+      liveFrameGeometryRef: {
+        current: {
+          low: { x: 0, y: 0, width: 640, height: 480, z: 1 },
+          high: { x: 800, y: 0, width: 640, height: 480, z: 4 },
+        },
+      },
+    });
+    const historyBatchId = "duplicate-test";
+
+    runDuplicateScreen(args, "low", {
+      canvasPosition: { x: 0, y: 600 },
+      duplicateStackIndex: 0,
+      historyBatchId,
+    });
+    runDuplicateScreen(args, "high", {
+      canvasPosition: { x: 800, y: 600 },
+      duplicateStackIndex: 1,
+      historyBatchId,
+    });
+
+    await vi.waitFor(() =>
+      expect(args.focusCreatedScreen).toHaveBeenCalledTimes(2),
+    );
+    const zById = Object.fromEntries(
+      (args.focusCreatedScreen as any).mock.calls.map(
+        ([id, geometry]: [string, { z?: number }]) => [id, geometry.z],
+      ),
+    );
+    expect(zById["copy-low"]).toBeLessThan(zById["copy-high"]);
   });
 
   it("does not retain a recovery id when cleanup rejected after deleting the row", async () => {
@@ -424,5 +486,21 @@ describe("runDuplicateScreen", () => {
           .slice(-1)[0],
     );
     expect(geometries[1]!.x).toBeGreaterThan(geometries[0]!.x);
+  });
+
+  it("does not report success when metadata persistence fails", async () => {
+    const args = duplicateArgs({
+      updateDesignAsync: vi
+        .fn()
+        .mockRejectedValue(new Error("metadata write failed")),
+    });
+
+    runDuplicateScreen(args, "source");
+    await vi.waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith("metadata write failed"),
+    );
+    expect(args.optimisticallyInsertCreatedFile).not.toHaveBeenCalled();
+    expect(args.focusCreatedScreen).not.toHaveBeenCalled();
+    expect(args.recordFileCreationHistoryEntry).not.toHaveBeenCalled();
   });
 });

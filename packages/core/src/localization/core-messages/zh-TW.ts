@@ -1,6 +1,7 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "activity.reasoning": "推理",
   "approval.alwaysAllow": "一律允許",
   "approval.alwaysAllowHint": "核准並一律允許這個完全相同的命令",
   "approval.alwaysAllowAction": "一律允許此動作",
@@ -84,6 +85,11 @@ const messages: AgentChatTranslation = {
   "onboarding.capability.voiceInput.keySummary": "瀏覽器語音辨識或語音轉文字",
   "onboarding.capability.voiceInput.why":
     "語音輸入會將口述要求轉換為文字；隨時都可以使用鍵盤輸入。",
+  "onboarding.capability.embeddings.label": "嵌入向量",
+  "onboarding.capability.embeddings.keySummary":
+    "Gemini、Cohere 或 Voyage 金鑰",
+  "onboarding.capability.embeddings.why":
+    "嵌入向量可改善語意搜尋。沒有嵌入向量時，關鍵字搜尋仍可運作。",
   "onboarding.capability.assetsImageGeneration.label": "影像生成",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Builder 點數或影像提供者金鑰",
@@ -714,6 +720,7 @@ const messages: AgentChatTranslation = {
   "status.preparing": "正在準備 {{activity}}...",
   "status.writing": "正在寫入 {{activity}}...",
   "status.stillGenerating": "仍在產生 {{activity}}",
+  "status.runningTool": "正在執行 {{activity}}",
   "tabs.allChats": "所有聊天",
   "tabs.closeTab": "關閉分頁",
   "tabs.main": "主要聊天",

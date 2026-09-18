@@ -75,6 +75,17 @@ type PopupStatusResponse = {
 
 type AuthStatus = "checking" | "signed-in" | "signed-out";
 
+export function recordingControlVisibility(
+  recording: NativeRecording | null,
+  authStatus: AuthStatus,
+): { startHidden: boolean; signInHidden: boolean } {
+  const active = Boolean(recording);
+  return {
+    startHidden: active || authStatus !== "signed-in",
+    signInHidden: active || authStatus !== "signed-out",
+  };
+}
+
 type StoredAuth = {
   token: string;
   email?: string;
@@ -769,6 +780,7 @@ function formatDuration(startedAtMs: number): string {
 function renderActiveRecording(
   recording: NativeRecording | null,
   arming = false,
+  authStatus: AuthStatus = "checking",
 ): void {
   const idleContent = byId<HTMLDivElement>("idle-content");
   const activeContent = byId<HTMLDivElement>("active-content");
@@ -783,11 +795,12 @@ function renderActiveRecording(
     document.querySelector<HTMLDivElement>(".recording-actions");
 
   const active = Boolean(recording);
+  const controlVisibility = recordingControlVisibility(recording, authStatus);
   idleContent.hidden = active;
   activeContent.hidden = !active;
-  start.hidden = active;
+  start.hidden = controlVisibility.startHidden;
   start.disabled = arming;
-  signIn.hidden = true;
+  signIn.hidden = controlVisibility.signInHidden;
   if (recordingActions) recordingActions.hidden = !active;
   if (!recording) {
     setStorageHelp(false);
@@ -991,7 +1004,7 @@ async function init(): Promise<void> {
       await sendSimpleMessage<PopupStatusResponse>("CLIPS_POPUP_STATUS");
     activeRecording = status.activeRecording ?? null;
     arming = Boolean(status.arming);
-    renderActiveRecording(activeRecording, arming);
+    renderActiveRecording(activeRecording, arming, authStatus);
   };
   await refreshActiveRecording();
   if (activeRecording || arming) {
@@ -1222,11 +1235,8 @@ async function init(): Promise<void> {
   });
 
   authStatus = await readAuthStatus(settings);
-  if (!activeRecording && authStatus === "signed-out") {
-    start.hidden = true;
-    signIn.hidden = false;
-    setStatus("");
-  }
+  renderActiveRecording(activeRecording, arming, authStatus);
+  if (authStatus === "signed-out") setStatus("");
 
   start.addEventListener("click", async () => {
     start.disabled = true;
@@ -1236,9 +1246,7 @@ async function init(): Promise<void> {
     try {
       authStatus = await readAuthStatus(settings);
       if (authStatus === "signed-out") {
-        start.disabled = false;
-        start.hidden = true;
-        signIn.hidden = false;
+        renderActiveRecording(activeRecording, arming, authStatus);
         setStatus("");
         return;
       }
@@ -1375,8 +1383,7 @@ async function init(): Promise<void> {
       await sendSimpleMessage<PopupStartResponse>("CLIPS_POPUP_CANCEL");
     if (response.ok) {
       activeRecording = null;
-      renderActiveRecording(null);
-      if (authStatus === "signed-in") start.hidden = false;
+      renderActiveRecording(null, false, authStatus);
       setStatus("");
       stop.disabled = false;
       discard.disabled = false;
@@ -1398,12 +1405,14 @@ async function init(): Promise<void> {
   });
 }
 
-void init().catch((err) => {
-  captureExtensionError(err, {
-    tags: { surface: "popup", action: "init" },
+if (typeof document !== "undefined") {
+  void init().catch((err) => {
+    captureExtensionError(err, {
+      tags: { surface: "popup", action: "init" },
+    });
+    setStatus(
+      err instanceof Error ? err.message : "Could not load popup.",
+      "error",
+    );
   });
-  setStatus(
-    err instanceof Error ? err.message : "Could not load popup.",
-    "error",
-  );
-});
+}

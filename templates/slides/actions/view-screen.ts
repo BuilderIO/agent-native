@@ -367,6 +367,9 @@ export default defineAction({
         lines.push(``);
         lines.push(`### Current visual selection`);
         lines.push(
+          `editorCurrentSlideId: ${selectionSlide.id}   ← authoritative slide recorded by the editor; use this for the next focused edit`,
+        );
+        lines.push(
           `selectionSlideId: ${selection.slideId}` +
             (selectionSlide.id === currentSlide?.id
               ? `   (matches currentSlideId)`

@@ -17,7 +17,12 @@ import {
 } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
-import { cdpScreenshot, gotoEditor } from "./helpers";
+import {
+  appPath,
+  cdpScreenshot,
+  gotoEditor,
+  resetPersistedCanvasState,
+} from "./helpers";
 
 const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
 const SCREEN_HTML = `<!doctype html>
@@ -144,7 +149,7 @@ test.beforeAll(async ({ request }, workerInfo) => {
 
   const manifest = await prepareDesignConnectManifest({
     root: rootPath,
-    url: `http://127.0.0.1:${devPort}`,
+    url: `http://127.0.0.1:${devPort}`, // e2e-harness-ignore ephemeral test server port
     port: bridgePort,
   });
   const opened = await action(request, "open-visual-edit", {
@@ -222,6 +227,31 @@ test.afterAll(async ({ request }) => {
   await closeServer(bridge?.server ?? null);
   await closeServer(devServer);
   if (rootPath) fs.rmSync(rootPath, { recursive: true, force: true });
+});
+
+test("URL screen selection is replaced after choosing another screen", async ({
+  page,
+}) => {
+  await resetPersistedCanvasState(page);
+  await page.goto(
+    appPath(
+      `/design/${designId}?view=overview&screen=${encodeURIComponent(activeScreenId)}`,
+    ),
+    { waitUntil: "domcontentloaded" },
+  );
+  await expect(
+    page.getByRole("button", { name: "Move", exact: true }),
+  ).toBeVisible({ timeout: 30_000 });
+  await expect(screenFrame(page, activeScreenId)).toBeVisible();
+  await expect(screenFrame(page, inactiveScreenId)).toBeVisible();
+
+  await page
+    .locator(`[data-frame-id="${inactiveScreenId}"] [data-frame-label]`)
+    .dispatchEvent("click");
+
+  await expect(page).toHaveURL(
+    new RegExp(`screen=${encodeURIComponent(inactiveScreenId)}(?:&|$)`),
+  );
 });
 
 test("URL-backed nested drops stay pending and root-frame Option-drag duplicates", async ({

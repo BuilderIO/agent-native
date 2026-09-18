@@ -3,6 +3,19 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 describe("agent-native shell surface tokens", () => {
+  it("does not add a streaming cursor to chat markdown", () => {
+    const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
+      encoding: "utf8",
+    });
+    const conversationCss = readFileSync(
+      new URL("./agent-conversation.css", import.meta.url),
+      { encoding: "utf8" },
+    );
+
+    expect(css).not.toContain("agent-streaming-cursor");
+    expect(conversationCss).not.toContain("agent-markdown-stream-caret");
+  });
+
   it("routes AgentKit density, geometry, elevation, and status through role tokens", () => {
     const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
       encoding: "utf8",

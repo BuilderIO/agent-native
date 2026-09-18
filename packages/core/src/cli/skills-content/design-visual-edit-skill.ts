@@ -240,6 +240,15 @@ Postgres before using the CLI action.
 
 ## Action Flow
 
+When a real Chrome browser is available, start the target app's local Design
+bridge first, then call the Design page's own \`open-visual-edit\` WebMCP tool
+directly in the signed-in Design tab. It uses that tab's session, so no hosted
+MCP connector, OAuth flow, or synthetic CLI user is needed. The page action
+reuses the running bridge and intentionally omits bridge credentials; it cannot
+spawn or retoken a local process. If no matching bridge is running, use the
+headless ordering in **Required Local Bridge** once, then retry the page tool.
+Use the connected Design MCP path below for headless hosts or older builds.
+
 From another app, call the connected Design MCP tool
 \`mcp__agent-native-design__open-visual-edit\` with the JSON arguments below. It
 registers or refreshes the localhost bridge,
