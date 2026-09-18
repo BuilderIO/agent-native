@@ -53,6 +53,7 @@ import {
 import {
   agentPlanIncrementalContentPatchesSchema,
   applyPlanContentPatches,
+  findBlock,
   planContentPatchesSchema,
   planContentSchema,
   type PlanBlock,
@@ -91,22 +92,6 @@ function blockExcerpt(block: PlanBlock | null) {
     summary: block.summary ?? null,
     excerpt: compactExcerpt(blockDataForExcerpt(block)),
   };
-}
-
-function findContentBlock(
-  blocks: PlanBlock[],
-  blockId: string,
-): PlanBlock | null {
-  for (const block of blocks) {
-    if (block.id === blockId) return block;
-    if (block.type === "tabs") {
-      for (const tab of block.data.tabs) {
-        const match = findContentBlock(tab.blocks, blockId);
-        if (match) return match;
-      }
-    }
-  }
-  return null;
 }
 
 function contentPatchTargetId(patch: PlanContentPatch) {
@@ -409,11 +394,11 @@ function contentPatchDetails(input: {
     const targetId = contentPatchTargetId(patch);
     const beforeBlock =
       "blockId" in patch && input.before
-        ? findContentBlock(input.before.blocks, patch.blockId)
+        ? findBlock(input.before.blocks, patch.blockId)
         : null;
     const afterBlock =
       "blockId" in patch && input.after
-        ? findContentBlock(input.after.blocks, patch.blockId)
+        ? findBlock(input.after.blocks, patch.blockId)
         : patch.op === "append-block"
           ? patch.block
           : null;
@@ -452,9 +437,12 @@ function contentPatchDetails(input: {
 
 function canvasSurfaceProjection(content: PlanContent) {
   return (content.canvas?.frames ?? []).map((frame) => ({
-    frame,
+    label: frame.label ?? null,
+    surface: frame.surface ?? null,
+    wireframe: frame.wireframe ?? null,
+    legacyWireframe: frame.legacyWireframe ?? null,
     referencedBlock: frame.blockId
-      ? findContentBlock(content.blocks, frame.blockId)
+      ? findBlock(content.blocks, frame.blockId)
       : null,
   }));
 }
@@ -825,6 +813,15 @@ export default defineAction({
     );
     const nextTitle = args.title ?? metadataPatch?.title;
     const nextBrief = args.brief ?? metadataPatch?.brief;
+    const contentChanged =
+      nextContent !== null &&
+      JSON.stringify(nextContent) !==
+        JSON.stringify(bundleAtLoad?.plan.content ?? null);
+    const contentPatchChanged =
+      args.contentPatches.length > 0 &&
+      (contentChanged ||
+        (nextTitle !== undefined && nextTitle !== bundleAtLoad?.plan.title) ||
+        (nextBrief !== undefined && nextBrief !== bundleAtLoad?.plan.brief));
     const planPatch = {
       ...(nextTitle !== undefined ? { title: nextTitle } : {}),
       ...(nextBrief !== undefined ? { brief: nextBrief } : {}),
@@ -978,8 +975,8 @@ export default defineAction({
       args.status !== undefined ||
       args.currentFocus !== undefined ||
       args.html !== undefined ||
-      args.content !== undefined ||
-      args.contentPatches.length > 0 ||
+      (args.content !== undefined && contentChanged) ||
+      contentPatchChanged ||
       args.markdown !== undefined ||
       args.sections.length > 0;
     const diffCount =

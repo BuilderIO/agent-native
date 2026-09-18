@@ -832,7 +832,7 @@ describe("update-visual-plan comments", () => {
 
   it("allows an idempotent prototype patch retry", async () => {
     request.email = "editor@example.com";
-    useSuccessfulDb();
+    const { updateWhereMock } = useSuccessfulDb();
     loadPlanBundleMock.mockResolvedValue(planBundle());
 
     await expect(
@@ -857,6 +857,45 @@ describe("update-visual-plan comments", () => {
         { caller: "tool" },
       ),
     ).resolves.toMatchObject({ planId: "plan_public" });
+    expect(createPlanVersionSnapshotMock).not.toHaveBeenCalled();
+    expect(updateWhereMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects prototype edits paired only with canvas metadata changes", async () => {
+    request.email = "editor@example.com";
+    const { updateWhereMock } = useSuccessfulDb();
+    loadPlanBundleMock.mockResolvedValue(planBundle());
+
+    await expect(
+      (
+        updateVisualPlan as {
+          run: (args: unknown, ctx?: unknown) => Promise<unknown>;
+        }
+      ).run(
+        {
+          planId: "plan_public",
+          contentPatches: [
+            {
+              op: "update-prototype-screen",
+              screenId: "screen_1",
+              patch: { title: "Updated home" },
+            },
+            {
+              op: "update-canvas-frame",
+              frameId: "frame_1",
+              patch: { x: 100 },
+            },
+          ],
+          sections: [],
+          comments: [],
+          consumedCommentIds: [],
+        },
+        { caller: "tool" },
+      ),
+    ).rejects.toThrow("visible canvas unchanged");
+
+    expect(createPlanVersionSnapshotMock).not.toHaveBeenCalled();
+    expect(updateWhereMock).not.toHaveBeenCalled();
   });
 
   it("allows paired updates through a referenced wireframe block", async () => {
@@ -907,6 +946,79 @@ describe("update-visual-plan comments", () => {
             {
               op: "patch-wireframe-html",
               blockId: "screen-block",
+              edits: [{ find: "Before", replace: "After" }],
+            },
+          ],
+          sections: [],
+          comments: [],
+          consumedCommentIds: [],
+        },
+        { caller: "tool" },
+      ),
+    ).resolves.toMatchObject({ planId: "plan_public" });
+  });
+
+  it("allows paired updates through a column-nested wireframe block", async () => {
+    request.email = "editor@example.com";
+    useSuccessfulDb();
+    const linkedContent = {
+      ...structuredContent,
+      blocks: [
+        {
+          id: "columns-block",
+          type: "columns" as const,
+          data: {
+            columns: [
+              {
+                id: "column-1",
+                blocks: [
+                  {
+                    id: "nested-screen-block",
+                    type: "wireframe" as const,
+                    title: "Audit table",
+                    data: {
+                      surface: "browser" as const,
+                      html: "<main>Before</main>",
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      canvas: {
+        ...structuredContent.canvas,
+        frames: [
+          {
+            ...structuredContent.canvas.frames[0],
+            label: "Audit table",
+            blockId: "nested-screen-block",
+          },
+        ],
+      },
+    } as typeof structuredContent;
+    loadPlanBundleMock.mockResolvedValue(
+      planBundle({ content: linkedContent }),
+    );
+
+    await expect(
+      (
+        updateVisualPlan as {
+          run: (args: unknown, ctx?: unknown) => Promise<unknown>;
+        }
+      ).run(
+        {
+          planId: "plan_public",
+          contentPatches: [
+            {
+              op: "patch-prototype-html",
+              screenId: "screen_1",
+              edits: [{ find: "Home", replace: "Updated home" }],
+            },
+            {
+              op: "patch-wireframe-html",
+              blockId: "nested-screen-block",
               edits: [{ find: "Before", replace: "After" }],
             },
           ],
