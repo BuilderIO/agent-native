@@ -141,6 +141,27 @@ async function boxFor(page: Page, screenId: string, nodeId: string) {
   return box;
 }
 
+async function probeNode(page: Page, screenId: string, nodeId: string) {
+  return designFrame(page, screenId)
+    .locator(`[data-agent-native-node-id="${nodeId}"]`)
+    .evaluate((node) => {
+      const rect = node.getBoundingClientRect();
+      const hit = document.elementFromPoint(
+        rect.left + rect.width / 2,
+        rect.top + rect.height / 2,
+      );
+      return {
+        rect: {
+          x: rect.x,
+          y: rect.y,
+          width: rect.width,
+          height: rect.height,
+        },
+        hit: hit?.getAttribute("data-agent-native-node-id") ?? hit?.tagName,
+      };
+    });
+}
+
 async function emptyBoardPoint(page: Page) {
   const point = await page.evaluate(() => {
     const world = document.querySelector("[data-multi-screen-canvas-world]");
@@ -258,23 +279,25 @@ async function dragScreenNode(
   await page.waitForTimeout(500);
   console.log(
     "[cross-screen-auto-layout] held drag",
-    await page.evaluate(() => ({
-      frames: Array.from(
-        document.querySelectorAll("iframe[data-design-preview-iframe]"),
-      ).map((frame) => {
-        const rect = frame.getBoundingClientRect();
-        return {
-          rect: {
-            x: rect.x,
-            y: rect.y,
-            width: rect.width,
-            height: rect.height,
-          },
-          pointerEvents: getComputedStyle(frame).pointerEvents,
-        };
-      }),
-      trace: (window as any).__designTrace?.dump?.() ?? "(no trace)",
-    })),
+    JSON.stringify(
+      await page.evaluate(() => ({
+        frames: Array.from(
+          document.querySelectorAll("iframe[data-design-preview-iframe]"),
+        ).map((frame) => {
+          const rect = frame.getBoundingClientRect();
+          return {
+            rect: {
+              x: rect.x,
+              y: rect.y,
+              width: rect.width,
+              height: rect.height,
+            },
+            pointerEvents: getComputedStyle(frame).pointerEvents,
+          };
+        }),
+        trace: (window as any).__designTrace?.dump?.() ?? "(no trace)",
+      })),
+    ),
   );
   await expect(page.locator("[data-cross-screen-drop-guide]")).toHaveCount(1, {
     timeout: 5_000,
@@ -372,6 +395,20 @@ test.describe("physical cross-screen auto-layout parity", () => {
       page,
       design.destinationId,
       "destination-anchor",
+    );
+    console.log(
+      "[cross-screen-auto-layout] destination probe",
+      JSON.stringify({
+        destination,
+        anchor: await probeNode(
+          page,
+          design.destinationId,
+          "destination-anchor",
+        ),
+        frame: await page
+          .locator(`[data-screen-iframe-id="${design.destinationId}"]`)
+          .boundingBox(),
+      }),
     );
     await page.mouse.move(
       sourceBox.x + sourceBox.width / 2,
