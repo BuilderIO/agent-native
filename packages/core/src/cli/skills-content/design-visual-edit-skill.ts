@@ -2,9 +2,9 @@ export const DESIGN_VISUAL_EDIT_SKILL_MD = `---
 name: visual-edit
 description: >-
   Open a running local app in Design overview mode as URL-backed iframe screens
-  for visual editing, flow review, duplication, and route-state exploration.
-  Use when the user asks to inspect, compare, or edit a real local app visually
-  in Design.
+  for visual editing, flow review, duplication, route-state exploration, and
+  source handoff. Use when the user asks to inspect or edit a real local app in
+  Design, including through a browser-capable host without an MCP connector.
 metadata:
   visibility: exported
 ---
@@ -41,7 +41,10 @@ launcher, where it is hidden from the model and redeemed once.
 
 - Inline-browser hosts should open \`https://design.agent-native.com/visual-edit\`
   and call its \`open-visual-edit\` WebMCP tool. It works signed in or out; the
-  one-time capability is not a Design account session.
+  one-time capability is not a Design account session. A page-capable browser
+  controller is enough, so Claude-in-Chrome, Claude Code browser tools, the
+  ChatGPT Chrome/browser extension, Puppeteer or Playwright MCP, CDP, and
+  similar JavaScript-capable controllers do not need the hosted MCP connector.
 - VS Code uses its Design webview/deep link. Without page WebMCP, use the hosted
   Design MCP connector and its normal OAuth/device authorization. Never replace
   either path with a local Design server.
@@ -59,6 +62,81 @@ for a host that can call page-local tools.
 Inside Design, use **Show/Hide UI** from the \`Cmd K\` menu or press Figma's
 \`Shift \\\` shortcut to toggle all editing chrome so only the canvas remains.
 The same action is available from Design's empty-canvas context menu.
+
+## Browser WebMCP (Default Without Connector)
+
+When no connected Design MCP is available, use a visible browser tab that can
+evaluate JavaScript in the page's main world. Prefer the host's built-in or
+inline browser; use external Chrome when the host has no inline browser or the
+user asks for it. Open \`https://design.agent-native.com/visual-edit\`, keep the
+tab visible while tools register, and read the title and first lines before
+work. Never enter, copy, or request passwords, cookies, tokens, or codes. The
+Design page intentionally supports signed-out loopback visual-edit; other
+pages that block tools behind sign-in require the user to sign in in that tab.
+
+Use a native browser-session WebMCP bridge when the host provides one: list
+once with \`list-browser-session-webmcp-tools\` and run with
+\`run-browser-session-webmcp-tool\`, or use the \`list-host-webmcp-tools\` and
+\`run-host-webmcp-tool\` pair. Preserve the exact discovered name, origin, and
+args. Otherwise use the page-world API. Agent-Native pages expose this helper:
+
+\`\`\`js
+const an = window.__agentNativeWebMcp;
+const status = await an.ready({ waitMs: 20_000 });
+if (status.state !== "ready") throw new Error(status.error ?? status.state);
+const tools = await an.tools("visual-edit");
+if (!tools.some((tool) => tool.name === "open-visual-edit")) {
+  throw new Error("open-visual-edit is not registered yet");
+}
+const result = await an.call("open-visual-edit", {
+  devServerUrl: "http://localhost:5173",
+  paths: ["/"],
+  navigate: true,
+}, { waitMs: 2_000 });
+if (result.state === "pending") {
+  // On the next evaluation, read the still-running call without replaying it.
+  an.result(result.id);
+}
+\`\`\`
+
+If the helper is absent, use standard WebMCP directly. \`document.modelContext\`
+is canonical; \`navigator.modelContext\` is deprecated:
+
+\`\`\`js
+const ctx = document.modelContext;
+const tool = (await ctx.getTools()).find((candidate) => candidate.name === NAME);
+if (!tool) throw new Error(\`WebMCP tool not found: \${NAME}\`);
+const codex = typeof ctx.codexExecuteTool === "function" ||
+  typeof ctx.codexGetTools === "function";
+const result = await ctx.executeTool(tool, codex ? ARGS : JSON.stringify(ARGS));
+\`\`\`
+
+The helper handles live discovery, partial registries, and pending calls. If a
+call returns \`state: "pending"\`, read \`an.result(id)\` on the next evaluation;
+never replay a write. For Claude Code or Cowork, \`javascript_tool\` runs this
+page-world code with top-level \`await\`; for Codex open the page with
+\`cua.createBrowserTab("iab", url, { visible: true })\`, then use CDP
+\`Runtime.evaluate\` with \`awaitPromise: true\`; Puppeteer and Playwright MCP can
+use their page evaluator. Playwright isolated worlds cannot see
+\`document.modelContext\`. Keep evaluator output small, batch dependent calls,
+and do not navigate inside a batch.
+
+Tool descriptors are not callable outside the page. Do not copy one into the
+host, hand-build authenticated HTTP requests, or replace a named page tool
+with clicks, typing, DOM automation, or screenshots. UI automation is still
+appropriate for canvas inspection and edits that have no named tool, or when
+the user explicitly requests it. If neither a host bridge nor page API exists
+after one discovery and one independent evaluator check, stop before state
+changes and use the hosted MCP/CLI path instead.
+
+For a fresh signed-out loopback connection, generate the bridge token locally,
+start the durable bridge with it, and pass that same token once as the page
+tool's \`bridgeToken\`; the page never returns it. Reuse a matching running
+bridge without the token. Account-backed or private Design work requires a
+signed-in session or the authenticated Design MCP connector. After canvas edits,
+call \`an.call("get-visual-edit-prompt", {}, { waitMs: 2_000 })\` and apply the
+returned handoff. The page tool may show an approval dialog; let the user
+approve it and never bypass that consent.
 
 ## Core Model
 
@@ -257,11 +335,12 @@ Postgres before using the CLI action.
 
 ## Action Flow
 
-When a browser is available, reuse the local bridge and call the hosted page's
+When a browser is available, reuse the local bridge and call the Design page's
 \`open-visual-edit\` WebMCP tool. For a fresh signed-out connection, pass the
 locally held \`bridgeToken\`; it reads its preview manifest and challenge proof,
-then sends both for validation. Hosted Design never fetches \`127.0.0.1\`.
-Without page WebMCP, use hosted MCP.
+then sends both for validation. Hosted Design never fetches \`127.0.0.1\`. If the
+page has no WebMCP, use the connected Design MCP server or its normal hosted
+MCP fallback.
 
 From another app, call the connected Design MCP tool
 \`mcp__agent-native-design__open-visual-edit\` with the JSON arguments below. It
