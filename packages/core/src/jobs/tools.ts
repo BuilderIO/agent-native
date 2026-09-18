@@ -17,6 +17,10 @@ import {
   getIntegrationRequestContext,
 } from "../server/request-context.js";
 import {
+  isReasoningEffort,
+  REASONING_EFFORTS,
+} from "../shared/reasoning-effort.js";
+import {
   isValidCron,
   nextOccurrence,
   describeCron,
@@ -127,6 +131,7 @@ async function runCreate(
     scope,
     runAs,
     model,
+    reasoningEffort,
     executionHostId,
     executionEngine,
     executionCwd,
@@ -146,6 +151,12 @@ async function runCreate(
   if (!isValidCron(schedule)) {
     return JSON.stringify({
       error: `Invalid cron expression: "${schedule}". Use 5 fields: minute hour day-of-month month day-of-week.`,
+    });
+  }
+
+  if (reasoningEffort !== undefined && !isReasoningEffort(reasoningEffort)) {
+    return JSON.stringify({
+      error: `Invalid reasoningEffort: "${reasoningEffort}". Use one of: ${REASONING_EFFORTS.join(", ")}.`,
     });
   }
 
@@ -197,6 +208,7 @@ async function runCreate(
     ...(typeof model === "string" && model.trim()
       ? { model: model.trim() }
       : {}),
+    ...(isReasoningEffort(reasoningEffort) ? { reasoningEffort } : {}),
     ...(typeof executionHostId === "string" && executionHostId.trim()
       ? { executionHostId: executionHostId.trim() }
       : {}),
@@ -267,6 +279,7 @@ async function runList(
         deliveryPlatform: meta.deliveryPlatform || null,
         deliveryDestination: meta.deliveryDestination || null,
         model: meta.model || null,
+        reasoningEffort: meta.reasoningEffort || null,
         executionHostId: meta.executionHostId || null,
         executionEngine: meta.executionEngine || null,
         executionCwd: meta.executionCwd || null,
@@ -295,6 +308,7 @@ async function runUpdate(
     scope,
     runAs,
     model,
+    reasoningEffort,
     executionHostId,
     executionEngine,
     executionCwd,
@@ -379,6 +393,15 @@ async function runUpdate(
     meta.model = model.trim();
     fields.model = meta.model;
   }
+  if (reasoningEffort !== undefined) {
+    if (!isReasoningEffort(reasoningEffort)) {
+      return JSON.stringify({
+        error: `Invalid reasoningEffort: "${reasoningEffort}". Use one of: ${REASONING_EFFORTS.join(", ")}.`,
+      });
+    }
+    meta.reasoningEffort = reasoningEffort;
+    fields.reasoningEffort = reasoningEffort;
+  }
   if (executionHostId !== undefined) {
     meta.executionHostId =
       typeof executionHostId === "string" && executionHostId.trim()
@@ -442,6 +465,7 @@ async function runUpdate(
     enabled: meta.enabled,
     nextRun: meta.nextRun,
     mcpTools: meta.mcpTools || [],
+    reasoningEffort: meta.reasoningEffort || null,
     executionHostId: meta.executionHostId || null,
     executionEngine: meta.executionEngine || null,
     executionCwd: meta.executionCwd || null,
@@ -549,6 +573,12 @@ To run code-agent work on a paired always-on computer, pass executionHostId (fro
               type: "string",
               description:
                 "Optional model id for this routine. The channel/app/engine default is used when omitted.",
+            },
+            reasoningEffort: {
+              type: "string",
+              description:
+                "Optional reasoning effort for this routine's model. Omitted uses the model's default.",
+              enum: [...REASONING_EFFORTS],
             },
             executionHostId: {
               type: "string",
