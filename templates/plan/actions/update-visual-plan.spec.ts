@@ -219,6 +219,22 @@ const structuredContent = {
   },
 };
 
+const renderableStructuredContent = {
+  ...structuredContent,
+  canvas: {
+    ...structuredContent.canvas,
+    frames: [
+      {
+        ...structuredContent.canvas.frames[0],
+        wireframe: {
+          surface: "desktop" as const,
+          html: "<main>Audit table</main>",
+        },
+      },
+    ],
+  },
+} as typeof structuredContent;
+
 function planBundle(input?: {
   content?: typeof structuredContent | null;
   updatedAt?: string;
@@ -756,13 +772,15 @@ describe("update-visual-plan comments", () => {
         expectedUpdatedAt: baseUpdatedAt,
         contentPatches: [],
         content: {
-          ...structuredContent,
+          ...renderableStructuredContent,
           prototype: {
-            ...structuredContent.prototype,
-            screens: structuredContent.prototype.screens.map((screen) => ({
-              ...screen,
-              title: "Updated home",
-            })),
+            ...renderableStructuredContent.prototype,
+            screens: renderableStructuredContent.prototype.screens.map(
+              (screen) => ({
+                ...screen,
+                title: "Updated home",
+              }),
+            ),
           },
         },
       },
@@ -772,7 +790,9 @@ describe("update-visual-plan comments", () => {
     async ({ input }) => {
       request.email = "editor@example.com";
       const { updateWhereMock } = useSuccessfulDb();
-      loadPlanBundleMock.mockResolvedValue(planBundle());
+      loadPlanBundleMock.mockResolvedValue(
+        planBundle({ content: renderableStructuredContent }),
+      );
 
       await expect(
         (
@@ -799,7 +819,9 @@ describe("update-visual-plan comments", () => {
   it("allows an explicit single-surface edit and keeps the parity warning", async () => {
     request.email = "editor@example.com";
     useSuccessfulDb();
-    loadPlanBundleMock.mockResolvedValue(planBundle());
+    loadPlanBundleMock.mockResolvedValue(
+      planBundle({ content: renderableStructuredContent }),
+    );
 
     const result = await (
       updateVisualPlan as {
@@ -894,7 +916,9 @@ describe("update-visual-plan comments", () => {
   it("rejects prototype edits paired only with canvas metadata changes", async () => {
     request.email = "editor@example.com";
     const { updateWhereMock } = useSuccessfulDb();
-    loadPlanBundleMock.mockResolvedValue(planBundle());
+    loadPlanBundleMock.mockResolvedValue(
+      planBundle({ content: renderableStructuredContent }),
+    );
 
     await expect(
       (
@@ -1129,7 +1153,7 @@ describe("update-visual-plan comments", () => {
     request.email = "editor@example.com";
     const { updateWhereMock } = useSuccessfulDb();
     const contentWithoutPrototype = {
-      ...structuredContent,
+      ...renderableStructuredContent,
       prototype: undefined,
     } as typeof structuredContent;
     loadPlanBundleMock.mockResolvedValue(
@@ -1145,7 +1169,7 @@ describe("update-visual-plan comments", () => {
         {
           planId: "plan_public",
           expectedUpdatedAt: baseUpdatedAt,
-          content: structuredContent,
+          content: renderableStructuredContent,
           contentPatches: [],
           sections: [],
           comments: [],
