@@ -6161,15 +6161,22 @@ export function DesignCanvas({
             backgroundColor: iframeBackgroundColor,
             ...SCALED_IFRAME_PAINT_RETENTION_STYLE,
             ...getIframePaintRetentionStyle({
-              viewportWidth:
-                embeddedFrame?.viewportWidth ??
-                previewWidthPx ??
-                Number.parseFloat(iframeWidth),
-              viewportHeight:
-                embeddedFrame?.viewportHeight ??
-                previewHeightPx ??
-                Number.parseFloat(iframeHeight ?? "900px"),
-              effectiveScale: (zoom / 100) * editorChromeScaleX,
+              viewportWidth: embeddedFrame
+                ? Math.max(
+                    embeddedFrame.viewportWidth,
+                    embeddedFrame.displayWidth,
+                  )
+                : (previewWidthPx ?? Number.parseFloat(iframeWidth)),
+              viewportHeight: embeddedFrame
+                ? Math.max(
+                    embeddedFrame.viewportHeight,
+                    embeddedFrame.displayHeight,
+                  )
+                : (previewHeightPx ??
+                  Number.parseFloat(iframeHeight ?? "900px")),
+              effectiveScale:
+                (embeddedFrame ? 1 : zoom / 100) *
+                Math.max(editorChromeScaleX, editorChromeScaleY),
             }),
           }}
           title={t("designEditor.designPreview")}
@@ -6514,7 +6521,7 @@ export function DesignCanvas({
           tabIndex={-1}
           onPointerEnter={focusScrollSurface}
           onMouseEnter={focusScrollSurface}
-          className="relative h-full w-full overflow-hidden"
+          className="relative h-full w-full overflow-clip"
         >
           {iframeElement}
           {reviewCanvasPins}
@@ -6532,7 +6539,7 @@ export function DesignCanvas({
         tabIndex={-1}
         onPointerEnter={focusScrollSurface}
         onMouseEnter={focusScrollSurface}
-        className="relative h-full w-full overflow-hidden"
+        className="relative h-full w-full overflow-clip"
         style={{
           width: embeddedFrame.displayWidth,
           height: embeddedFrame.displayHeight,

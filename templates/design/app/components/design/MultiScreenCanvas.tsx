@@ -319,7 +319,7 @@ import {
   getBoardSelectionWorldBounds,
   getBoardSurfaceRenderGeometry,
   getBoardSurfaceLayerStyle,
-  getBoardSurfaceStaticPreviewClip,
+  getBoardSurfaceStaticPreviewTransform,
   getBoardSurfaceStaticPreviewViewport,
   isLineupShrinkOnlyChange,
   OVERVIEW_FRAME_WIDTH,
@@ -853,16 +853,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         : null,
     [boardFrameGeometry],
   );
-  const boardStaticPreviewClip = useMemo(
-    () =>
-      boardFrameGeometry
-        ? getBoardSurfaceStaticPreviewClip({
-            logicalGeometry: boardFrameGeometry,
-            viewportGeometry: boardViewportGeometry,
-          })
-        : undefined,
-    [boardFrameGeometry, boardViewportGeometry],
-  );
+  const boardStaticPreviewRef = useRef<HTMLIFrameElement>(null);
+  const boardFrameGeometryRef = useRef(boardFrameGeometry);
+  boardFrameGeometryRef.current = boardFrameGeometry;
   // Both board layers must ask this one question: an empty <body> is a truthy
   // string, and the replica is opaque, so a string-only gate slabs the board.
   const boardSurfaceHtml = hasBoardSurfaceContent(boardFileContent)
@@ -1359,7 +1352,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     },
     [markScreenBootReady],
   );
-  const wheelGestureFilteredIframesRef = useRef<HTMLElement[]>([]);
   // Paint suppression is resolved imperatively against the live camera, so its
   // inputs live in refs readable from applyViewToDom's render-free tick.
   const screenPaintCandidatesRef = useRef<ScreenPaintCandidate[]>([]);
@@ -8619,13 +8611,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     );
   }, []);
 
-  // Push the current pan/zoom straight to the DOM. A wheel/pinch gesture must
-  // NEVER re-render React's canvas tree during the gesture: each render re-runs
-  // renderScreenContent (which re-creates the active screen's live DesignCanvas
-  // iframe) and, with React DevTools attached, serializes every render over the
-  // extension bridge — that re-render storm is the real source of zoom jank, not
-  // layout/paint. We mutate the transform directly here and reconcile React
-  // state once, after the gesture settles, via scheduleViewCommit().
+  // Keep per-frame camera writes out of React's canvas tree. Reconcile its
+  // state after the gesture settles via scheduleViewCommit().
   const applyViewToDom = useCallback(() => {
     const nextScale = zoomRef.current / 100;
     const p = panRef.current;
@@ -8643,6 +8630,29 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       world.style.setProperty(
         CHROME_SCALE_CSS_VAR,
         String(nextScale > 0 ? 1 / nextScale : 1),
+      );
+    }
+    const replica = boardStaticPreviewRef.current;
+    const boardGeometry = boardFrameGeometryRef.current;
+    if (replica && boardGeometry) {
+      const viewport = getBoardSurfaceStaticPreviewViewport(boardGeometry);
+      replica.style.transform = getBoardSurfaceStaticPreviewTransform({
+        logicalGeometry: boardGeometry,
+        viewport,
+        pan: p,
+        zoom: zoomRef.current,
+      });
+      Object.assign(
+        replica.style,
+        getIframePaintRetentionStyle({
+          viewportWidth: viewport.width,
+          viewportHeight: viewport.height,
+          effectiveScale:
+            Math.max(
+              boardGeometry.width / viewport.width,
+              boardGeometry.height / viewport.height,
+            ) * nextScale,
+        }),
       );
     }
     const grid = pixelGridRef.current;
@@ -8693,10 +8703,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     if (wheelGestureActiveRef.current) {
       wheelGestureActiveRef.current = false;
       setWheelCameraGestureActive(false);
-      wheelGestureFilteredIframesRef.current.forEach((iframe) => {
-        if (iframe.isConnected) iframe.style.filter = "";
-      });
-      wheelGestureFilteredIframesRef.current = [];
       const muted = wheelGestureMutedElementsRef.current;
       wheelGestureMutedElementsRef.current = null;
       if (muted) {
@@ -8914,18 +8920,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         element.style.pointerEvents = "none";
       });
     wheelGestureMutedElementsRef.current = muted;
-    // A nested frame re-rasters on every scale change no matter what layer the
-    // canvas gets, starving the renderer. A filter — a no-op at this radius —
-    // gives each one a surface the compositor scales from cache. commitView must
-    // clear it, or they stay soft at rest.
-    const filtered: HTMLElement[] = [];
-    surface
-      .querySelectorAll<HTMLElement>("[data-screen-content] iframe")
-      .forEach((iframe) => {
-        iframe.style.filter = "blur(0.001px)";
-        filtered.push(iframe);
-      });
-    wheelGestureFilteredIframesRef.current = filtered;
   }, [cancelPendingStaticBoardSelection]);
 
   const flushPendingWheelGesture = useCallback(() => {
@@ -10176,6 +10170,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       onDrop={handleCanvasDrop}
       style={{
         cursor: surfaceCursor,
+        contain: "layout paint",
         isolation: "isolate",
         overscrollBehavior: "none",
         touchAction: "none",
@@ -10194,6 +10189,62 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         />
       ) : null}
 
+      {showBoardStaticPreview &&
+      boardFrameGeometry &&
+      boardStaticPreviewViewport &&
+      boardStaticPreviewContent ? (
+        // This clip belongs in viewport pixels. Inside the scaled world its
+        // raster bounds grow as 1 / zoom and can dwarf the visible surface.
+        <div
+          data-board-static-preview
+          aria-hidden="true"
+          style={{
+            position: "absolute",
+            inset: 0,
+            overflow: "clip",
+            contain: "strict",
+            isolation: "isolate",
+            pointerEvents: "none",
+            background: "transparent",
+            zIndex: 0,
+          }}
+        >
+          <iframe
+            ref={boardStaticPreviewRef}
+            data-board-static-preview-iframe
+            aria-hidden="true"
+            tabIndex={-1}
+            sandbox=""
+            referrerPolicy="no-referrer"
+            srcDoc={boardStaticPreviewContent}
+            style={{
+              display: "block",
+              width: boardStaticPreviewViewport.width,
+              height: boardStaticPreviewViewport.height,
+              border: 0,
+              pointerEvents: "none",
+              transform: getBoardSurfaceStaticPreviewTransform({
+                logicalGeometry: boardFrameGeometry,
+                viewport: boardStaticPreviewViewport,
+                pan,
+                zoom: canvasZoom,
+              }),
+              transformOrigin: "top left",
+              background: CANVAS_BACKGROUND_VAR,
+              ...SCALED_IFRAME_PAINT_RETENTION_STYLE,
+              ...getIframePaintRetentionStyle({
+                viewportWidth: boardStaticPreviewViewport.width,
+                viewportHeight: boardStaticPreviewViewport.height,
+                effectiveScale:
+                  (boardFrameGeometry.width /
+                    Math.max(1, boardStaticPreviewViewport.width)) *
+                  (canvasZoom / 100),
+              }),
+            }}
+          />
+        </div>
+      ) : null}
+
       <div
         ref={worldRef}
         data-multi-screen-canvas-world
@@ -10201,69 +10252,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         style={{
           left: 0,
           top: 0,
-          // Plain 2D transform — NO will-change / translate3d. Forcing a
-          // compositor layer pins a low-res cached raster that the GPU stretches
-          // when you zoom in, leaving screen content permanently blurry. A 2D
-          // transform lets the browser re-rasterize crisply at rest. Zoom smoothness
-          // comes from never re-rendering React during the gesture (see
-          // flushPendingWheelGesture / applyViewToDom), not from layer promotion —
-          // the trace proved paint/composite was never the bottleneck.
           transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
           transformOrigin: "top left",
         }}
       >
-        {showBoardStaticPreview &&
-        boardFrameGeometry &&
-        boardStaticPreviewViewport &&
-        boardStaticPreviewContent ? (
-          <div
-            data-board-static-preview
-            aria-hidden="true"
-            style={{
-              position: "absolute",
-              left: SURFACE_PADDING + boardFrameGeometry.x,
-              top: SURFACE_PADDING + boardFrameGeometry.y,
-              width: boardFrameGeometry.width,
-              height: boardFrameGeometry.height,
-              overflow: "hidden",
-              contain: "paint",
-              clipPath: boardStaticPreviewClip,
-              isolation: "isolate",
-              pointerEvents: "none",
-              background: "transparent",
-              zIndex: 0,
-            }}
-          >
-            <iframe
-              data-board-static-preview-iframe
-              aria-hidden="true"
-              tabIndex={-1}
-              sandbox=""
-              referrerPolicy="no-referrer"
-              srcDoc={boardStaticPreviewContent}
-              style={{
-                display: "block",
-                width: boardStaticPreviewViewport.width,
-                height: boardStaticPreviewViewport.height,
-                border: 0,
-                pointerEvents: "none",
-                transform: `scale(${boardFrameGeometry.width / boardStaticPreviewViewport.width}, ${boardFrameGeometry.height / boardStaticPreviewViewport.height})`,
-                transformOrigin: "top left",
-                background: CANVAS_BACKGROUND_VAR,
-                ...SCALED_IFRAME_PAINT_RETENTION_STYLE,
-                ...getIframePaintRetentionStyle({
-                  viewportWidth: boardStaticPreviewViewport.width,
-                  viewportHeight: boardStaticPreviewViewport.height,
-                  effectiveScale:
-                    (boardFrameGeometry.width /
-                      Math.max(1, boardStaticPreviewViewport.width)) *
-                    (canvasZoom / 100),
-                }),
-              }}
-            />
-          </div>
-        ) : null}
-
         {boardFileId &&
           boardFileContent !== undefined &&
           boardHasSurfaceContent &&
@@ -10288,8 +10280,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               resolvedTheme === "dark",
             );
             return (
-              // Overflow-hidden wrapper so the board iframe never bleeds outside
-              // its declared logical surface. z-index 0 keeps it below screen
+              // Clip the board without creating another scroll container.
+              // z-index 0 keeps it below screen
               // iframes (which have their own stacking context above this).
               <div
                 className="[&_.design-canvas-iframe-wrapper]:shadow-none [&_.design-canvas-iframe-wrapper]:ring-0"
@@ -12408,7 +12400,8 @@ const Screen = memo(function Screen({
           data-file-drag-over={isFileDragOver || undefined}
           data-cull-tier={cullTier}
           className={cn(
-            "relative block h-full w-full overflow-hidden rounded-[inherit] bg-white ring-1 ring-inset ring-border transition-colors",
+            // guard:allow-raw-color — preserve the document's white default independently of the editor theme.
+            "relative block h-full w-full overflow-clip rounded-[inherit] bg-white ring-1 ring-inset ring-border transition-colors",
             isFileDragOver &&
               "ring-2 ring-[var(--design-editor-accent-color)] ring-inset",
           )}
@@ -13225,7 +13218,10 @@ function BreakpointPreviewRow({
               <span
                 data-screen-content
                 data-cull-tier={cullTier}
-                className="relative block h-full w-full overflow-hidden rounded-[inherit] bg-white ring-1 ring-inset ring-border"
+                className={
+                  // guard:allow-raw-color — preserve the document's white default independently of the editor theme.
+                  "relative block h-full w-full overflow-clip rounded-[inherit] bg-white ring-1 ring-inset ring-border"
+                }
                 style={{
                   backgroundColor: transparentHost ? "transparent" : undefined,
                   borderRadius: rootStyles?.borderRadius,

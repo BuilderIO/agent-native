@@ -54,7 +54,7 @@ import {
   boardSurfaceLocalPointToBoardPoint,
   getBoardSurfaceRenderGeometry,
   getBoardSurfaceLayerStyle,
-  getBoardSurfaceStaticPreviewClip,
+  getBoardSurfaceStaticPreviewTransform,
   getBoardSurfaceStaticPreviewViewport,
   shouldRenderBoardSurfaceStaticPreview,
   SURFACE_PADDING,
@@ -307,19 +307,23 @@ describe("board surface pointer capture", () => {
     expect(content).toContain("transition:none!important");
   });
 
-  it("clips the static board preview to the camera window", () => {
+  it("maps the sampled board directly into viewport pixels", () => {
     expect(
-      getBoardSurfaceStaticPreviewClip({
+      getBoardSurfaceStaticPreviewTransform({
         logicalGeometry: makeGeom(-65_536, -65_536, 131_072, 131_072),
-        viewportGeometry: makeGeom(-36_000, -22_500, 72_000, 45_000),
+        viewport: { width: 4096, height: 4096 },
+        pan: { x: 400, y: 300 },
+        zoom: 3.125,
       }),
-    ).toBe("inset(43036px 29536px 43036px 29536px)");
+    ).toBe("translate(-1640.5px, -1740.5px) scale(1, 1)");
     expect(
-      getBoardSurfaceStaticPreviewClip({
-        logicalGeometry: makeGeom(0, 0, 100, 100),
-        viewportGeometry: makeGeom(200, 200, 10, 10),
+      getBoardSurfaceStaticPreviewTransform({
+        logicalGeometry: makeGeom(0, 0, 100, 200),
+        viewport: { width: 100, height: 200 },
+        pan: { x: -100, y: -100 },
+        zoom: 50,
       }),
-    ).toBe("inset(100px 0px 0px 100px)");
+    ).toBe("translate(20px, 20px) scale(0.5, 0.5)");
   });
 
   it("round-trips board drag and hit-test points through the finite iframe origin", () => {

@@ -81,7 +81,7 @@ export function getBoardSurfaceLayerStyle(args: {
     top: SURFACE_PADDING + args.geometry.y,
     width: args.geometry.width,
     height: args.geometry.height,
-    overflow: "hidden",
+    overflow: "clip",
     pointerEvents: args.interactive ? "auto" : "none",
     background: "transparent",
     zIndex: 0,
@@ -131,47 +131,17 @@ export function getBoardSurfaceStaticPreviewViewport(
   };
 }
 
-/**
- * Limit the inert board replica to the camera window. The replica is sampled
- * at 4k and scaled back to the logical board, so leaving its full logical box
- * paintable makes Chromium raster the entire board even though only the camera
- * window can contribute pixels.
- */
-export function getBoardSurfaceStaticPreviewClip(args: {
+export function getBoardSurfaceStaticPreviewTransform(args: {
   logicalGeometry: FrameGeometry;
-  viewportGeometry?: FrameGeometry | null;
+  viewport: { width: number; height: number };
+  pan: Point;
+  zoom: number;
 }) {
-  const { logicalGeometry, viewportGeometry } = args;
-  if (!viewportGeometry) return undefined;
-
-  const width = Math.max(1, logicalGeometry.width);
-  const height = Math.max(1, logicalGeometry.height);
-  const left = Math.min(
-    width,
-    Math.max(0, viewportGeometry.x - logicalGeometry.x),
-  );
-  const top = Math.min(
-    height,
-    Math.max(0, viewportGeometry.y - logicalGeometry.y),
-  );
-  const right = Math.min(
-    width,
-    Math.max(
-      0,
-      logicalGeometry.x + width - (viewportGeometry.x + viewportGeometry.width),
-    ),
-  );
-  const bottom = Math.min(
-    height,
-    Math.max(
-      0,
-      logicalGeometry.y +
-        height -
-        (viewportGeometry.y + viewportGeometry.height),
-    ),
-  );
-
-  return `inset(${top}px ${right}px ${bottom}px ${left}px)`;
+  const { logicalGeometry, viewport, pan, zoom } = args;
+  const scale = zoom / 100;
+  const x = pan.x + (SURFACE_PADDING + logicalGeometry.x) * scale;
+  const y = pan.y + (SURFACE_PADDING + logicalGeometry.y) * scale;
+  return `translate(${x}px, ${y}px) scale(${(logicalGeometry.width / viewport.width) * scale}, ${(logicalGeometry.height / viewport.height) * scale})`;
 }
 
 function geometryExtent(geometry: FrameGeometry) {
