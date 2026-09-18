@@ -43,16 +43,10 @@ no connector installation.
 
 ## Put Design Beside The Chat
 
-Prefer the interactive MCP App returned by `open-visual-edit` when the coding
-host renders it. The user gets the Design canvas beside the conversation, and
-**Apply design updates** can submit the bounded source-edit handoff back to the
-current host conversation through the standard MCP Apps message bridge. The
-host may ask the user to confirm the current conversation or choose a new one.
-
-Otherwise, `openUrl` is a credential-free, read-only fallback that is safe to
-show in model text or retain in logs. Do not claim that fallback is editable:
-the edit capability is intentionally available only to the host-managed MCP App
-launcher, where it is hidden from the model and redeemed once.
+Prefer the interactive MCP App from `open-visual-edit`: it keeps Design beside
+chat and routes **Apply design updates** through the host's MCP Apps bridge. The
+host may ask the user to confirm the current conversation. Otherwise,
+`openUrl` is a credential-free, read-only fallback; never claim it is editable.
 
 - Inline-browser hosts should open `https://design.agent-native.com/visual-edit`
   and call its `open-visual-edit` WebMCP tool. It works signed in or out; the
@@ -64,30 +58,18 @@ launcher, where it is hidden from the model and redeemed once.
   Design MCP connector and its normal OAuth/device authorization. Never replace
   either path with a local Design server.
 
-Prefer the MCP App surface for a connected Design plugin, then the host's
-browser/preview tool as the universal fallback. Keep the canvas beside chat
-when the host supports rearrangeable panes.
-
-ChatGPT, Claude Desktop, and other hosts with an inline browser should open
-the Design surface in that browser by default. Use an external browser only
-when the user asks for it or the host has no inline browser. The page exposes
-its Design actions through WebMCP, so no MCP connector installation is needed
-for a host that can call page-local tools.
-
 Inside Design, use **Show/Hide UI** from the `Cmd K` menu or press Figma's
 `Shift \` shortcut to toggle all editing chrome so only the canvas remains.
-The same action is available from Design's empty-canvas context menu.
 
 ## Browser WebMCP (Default Without Connector)
 
-When no connected Design MCP is available, use a visible browser tab that can
-evaluate JavaScript in the page's main world. Prefer the host's built-in or
-inline browser; use external Chrome when the host has no inline browser or the
-user asks for it. Open `https://design.agent-native.com/visual-edit`, keep the
-tab visible while tools register, and read the title and first lines before
-work. Never enter, copy, or request passwords, cookies, tokens, or codes. The
-Design page intentionally supports signed-out loopback visual-edit; other
-pages that block tools behind sign-in require the user to sign in in that tab.
+Without a connected Design MCP, use a visible browser tab with a main-world
+JavaScript evaluator. Prefer the host's inline browser; use external Chrome
+only when requested or unavailable. Open
+`https://design.agent-native.com/visual-edit`, keep it visible while tools
+register, and read the title before work. Never enter, copy, or request
+passwords, cookies, tokens, or codes. Signed-out loopback visual-edit works;
+other pages that block tools behind sign-in still require a signed-in tab.
 If the browser exposes CDP permissions, grant `local-network-access` to
 `https://design.agent-native.com` before calling page tools; otherwise use the
 page's Connect button and let the browser's permission prompt complete.
@@ -142,13 +124,12 @@ use their page evaluator. Playwright isolated worlds cannot see
 `document.modelContext`. Keep evaluator output small, batch dependent calls,
 and do not navigate inside a batch.
 
-Tool descriptors are not callable outside the page. Do not copy one into the
-host, hand-build authenticated HTTP requests, or replace a named page tool
-with clicks, typing, DOM automation, or screenshots. UI automation is still
-appropriate for canvas inspection and edits that have no named tool, or when
-the user explicitly requests it. If neither a host bridge nor page API exists
-after one discovery and one independent evaluator check, stop before state
-changes and use the hosted MCP/CLI path instead.
+Tool descriptors are page-local. Do not copy them into the host, hand-build
+authenticated HTTP requests, or replace named tools with clicks, typing, DOM
+automation, or screenshots. UI automation remains appropriate for canvas work
+without a named tool or when requested. If both bridges are unavailable after
+one discovery and one independent evaluator check, use hosted MCP/CLI before
+changing state.
 
 For a fresh signed-out loopback connection, generate the bridge token locally,
 start the durable bridge with it, and pass that same token once as the page
