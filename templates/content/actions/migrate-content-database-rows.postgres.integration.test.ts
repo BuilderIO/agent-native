@@ -67,6 +67,21 @@ beforeAll(async () => {
     .default;
   blocksFieldIdentity = await import("./_blocks-field-identity.js");
   await (await import("../server/plugins/db.js")).default(undefined as any);
+  const now = new Date().toISOString();
+  await getDb()
+    .insert(schema.contentSpaces)
+    .values({
+      id: "synthetic_space",
+      name: "Synthetic PostgreSQL migration space",
+      kind: "personal",
+      ownerEmail: OWNER,
+      orgId: null,
+      filesDatabaseId: "synthetic_postgres_migration_files",
+      createdBy: OWNER,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoNothing();
 }, 60_000);
 
 beforeEach(() => {
