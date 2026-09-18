@@ -2781,6 +2781,18 @@ export default function SlideEditor({
       const originalStyle = el.getAttribute("style");
       const computedStyle = window.getComputedStyle(el);
       const slideCanvas = el.closest<HTMLElement>("[data-slide-canvas]");
+      const transformOriginOffset = (
+        token: string | undefined,
+        size: number,
+      ) => {
+        const normalized = token?.trim().toLowerCase();
+        if (!normalized || normalized === "center") return size / 2;
+        if (normalized === "left" || normalized === "top") return 0;
+        if (normalized === "right" || normalized === "bottom") return size;
+        const value = Number.parseFloat(normalized);
+        if (!Number.isFinite(value)) return size / 2;
+        return normalized.endsWith("%") ? (value / 100) * size : value;
+      };
       const positionHost = () => {
         const rect = el.getBoundingClientRect();
         const canvasRect = slideCanvas?.getBoundingClientRect();
@@ -2805,6 +2817,140 @@ export default function SlideEditor({
           : rect.height / safeScaleY;
         host.style.width = `${layoutWidth}px`;
         host.style.minHeight = `${layoutHeight}px`;
+
+        const getBoxQuads = (
+          el as HTMLElement & {
+            getBoxQuads?: () => Array<{
+              p1: { x: number; y: number };
+              p2: { x: number; y: number };
+              p4: { x: number; y: number };
+            }>;
+          }
+        ).getBoxQuads;
+        const sourceQuad = getBoxQuads?.call(el)?.[0];
+        if (
+          sourceQuad &&
+          typeof DOMMatrixReadOnly !== "undefined" &&
+          el.offsetWidth > 0 &&
+          el.offsetHeight > 0
+        ) {
+          try {
+            const elementMatrix =
+              elementTransform === "none"
+                ? { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }
+                : new DOMMatrixReadOnly(elementTransform);
+            const totalA = (sourceQuad.p2.x - sourceQuad.p1.x) / el.offsetWidth;
+            const totalB = (sourceQuad.p2.y - sourceQuad.p1.y) / el.offsetWidth;
+            const totalC =
+              (sourceQuad.p4.x - sourceQuad.p1.x) / el.offsetHeight;
+            const totalD =
+              (sourceQuad.p4.y - sourceQuad.p1.y) / el.offsetHeight;
+            const determinant =
+              elementMatrix.a * elementMatrix.d -
+              elementMatrix.b * elementMatrix.c;
+            if (
+              [totalA, totalB, totalC, totalD, determinant].every(
+                Number.isFinite,
+              ) &&
+              Math.abs(determinant) > 1e-8
+            ) {
+              const ancestorA =
+                (totalA * elementMatrix.d - totalC * elementMatrix.b) /
+                determinant;
+              const ancestorB =
+                (totalB * elementMatrix.d - totalD * elementMatrix.b) /
+                determinant;
+              const ancestorC =
+                (totalC * elementMatrix.a - totalA * elementMatrix.c) /
+                determinant;
+              const ancestorD =
+                (totalD * elementMatrix.a - totalB * elementMatrix.c) /
+                determinant;
+              const sourceOriginTokens = transformOrigin.split(/\s+/);
+              const sourceOriginX = transformOriginOffset(
+                sourceOriginTokens[0],
+                el.offsetWidth,
+              );
+              const sourceOriginY = transformOriginOffset(
+                sourceOriginTokens[1],
+                el.offsetHeight,
+              );
+              const elementTranslationX =
+                sourceOriginX -
+                elementMatrix.a * sourceOriginX -
+                elementMatrix.c * sourceOriginY +
+                elementMatrix.e;
+              const elementTranslationY =
+                sourceOriginY -
+                elementMatrix.b * sourceOriginX -
+                elementMatrix.d * sourceOriginY +
+                elementMatrix.f;
+              const ancestorTranslationX =
+                sourceQuad.p1.x -
+                ancestorA * elementTranslationX -
+                ancestorC * elementTranslationY;
+              const ancestorTranslationY =
+                sourceQuad.p1.y -
+                ancestorB * elementTranslationX -
+                ancestorD * elementTranslationY;
+              const hostWidth = host.offsetWidth || layoutWidth;
+              const hostHeight = host.offsetHeight || layoutHeight;
+              const hostOriginTokens = transformOrigin.split(/\s+/);
+              const hostOriginX = transformOriginOffset(
+                hostOriginTokens[0],
+                hostWidth,
+              );
+              const hostOriginY = transformOriginOffset(
+                hostOriginTokens[1],
+                hostHeight,
+              );
+              const hostTranslationX =
+                ancestorTranslationX +
+                ancestorA *
+                  (hostOriginX -
+                    elementMatrix.a * hostOriginX -
+                    elementMatrix.c * hostOriginY +
+                    elementMatrix.e) +
+                ancestorC *
+                  (hostOriginY -
+                    elementMatrix.b * hostOriginX -
+                    elementMatrix.d * hostOriginY +
+                    elementMatrix.f);
+              const hostTranslationY =
+                ancestorTranslationY +
+                ancestorB *
+                  (hostOriginX -
+                    elementMatrix.a * hostOriginX -
+                    elementMatrix.c * hostOriginY +
+                    elementMatrix.e) +
+                ancestorD *
+                  (hostOriginY -
+                    elementMatrix.b * hostOriginX -
+                    elementMatrix.d * hostOriginY +
+                    elementMatrix.f);
+              const composed = [
+                ancestorA * elementMatrix.a + ancestorC * elementMatrix.b,
+                ancestorB * elementMatrix.a + ancestorD * elementMatrix.b,
+                ancestorA * elementMatrix.c + ancestorC * elementMatrix.d,
+                ancestorB * elementMatrix.c + ancestorD * elementMatrix.d,
+                hostTranslationX,
+                hostTranslationY,
+              ];
+              if (composed.every(Number.isFinite)) {
+                host.style.left = "0px";
+                host.style.top = "0px";
+                host.style.transformOrigin = "0 0";
+                host.style.transform = `matrix(${composed.join(", ")})`;
+                return;
+              }
+            }
+            // coercion-ok: browser geometry APIs can reject unsupported transform strings; use the scale-aware fallback.
+          } catch {
+            // Fall back to the scale-aware rect path when browser geometry
+            // APIs cannot provide a usable affine transform.
+          }
+        }
+
         host.style.transformOrigin = hasElementTransform
           ? transformOrigin
           : "top left";
@@ -2844,6 +2990,7 @@ export default function SlideEditor({
           : new ResizeObserver(positionHost);
       resizeObserver?.observe(el);
       if (slideCanvas) resizeObserver?.observe(slideCanvas);
+      resizeObserver?.observe(host);
       window.addEventListener("resize", positionHost);
       const scrollContainer = scrollContainerRef.current;
       scrollContainer?.addEventListener("scroll", positionHost);
@@ -2903,6 +3050,7 @@ export default function SlideEditor({
             if (richTextEditorSessionRef.current !== session) return;
             session.latestHtml = html;
             activeRichTextHtmlRef.current = html;
+            positionHost();
             scheduleInlineEditDraftCapture(slide.id);
           }}
           onEditorReady={handleRichTextEditorReady}
