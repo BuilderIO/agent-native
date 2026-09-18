@@ -842,6 +842,10 @@ export async function mergeCoreSharingActions(
       () => import("../user-profile/actions/change-password.js"),
     ],
     [
+      "request-privacy-right",
+      () => import("../user-profile/actions/request-privacy-right.js"),
+    ],
+    [
       "change-appearance",
       () => import("../appearance/actions/change-appearance.js"),
     ],

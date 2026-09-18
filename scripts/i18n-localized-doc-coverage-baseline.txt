@@ -13,6 +13,7 @@ ar-SA|http-api
 ar-SA|integrations
 ar-SA|messaging-internals
 ar-SA|messaging-recipes
+ar-SA|privacy-and-data-rights
 ar-SA|template-analytics-connectors
 ar-SA|template-analytics-dashboards
 ar-SA|template-analytics-developers
@@ -80,6 +81,7 @@ de-DE|http-api
 de-DE|integrations
 de-DE|messaging-internals
 de-DE|messaging-recipes
+de-DE|privacy-and-data-rights
 de-DE|template-analytics-connectors
 de-DE|template-analytics-dashboards
 de-DE|template-analytics-developers
@@ -147,6 +149,7 @@ es-ES|http-api
 es-ES|integrations
 es-ES|messaging-internals
 es-ES|messaging-recipes
+es-ES|privacy-and-data-rights
 es-ES|template-analytics-connectors
 es-ES|template-analytics-dashboards
 es-ES|template-analytics-developers
@@ -214,6 +217,7 @@ fr-FR|http-api
 fr-FR|integrations
 fr-FR|messaging-internals
 fr-FR|messaging-recipes
+fr-FR|privacy-and-data-rights
 fr-FR|template-analytics-connectors
 fr-FR|template-analytics-dashboards
 fr-FR|template-analytics-developers
@@ -281,6 +285,7 @@ hi-IN|http-api
 hi-IN|integrations
 hi-IN|messaging-internals
 hi-IN|messaging-recipes
+hi-IN|privacy-and-data-rights
 hi-IN|template-analytics-connectors
 hi-IN|template-analytics-dashboards
 hi-IN|template-analytics-developers
@@ -348,6 +353,7 @@ ja-JP|http-api
 ja-JP|integrations
 ja-JP|messaging-internals
 ja-JP|messaging-recipes
+ja-JP|privacy-and-data-rights
 ja-JP|template-analytics-connectors
 ja-JP|template-analytics-dashboards
 ja-JP|template-analytics-developers
@@ -415,6 +421,7 @@ ko-KR|http-api
 ko-KR|integrations
 ko-KR|messaging-internals
 ko-KR|messaging-recipes
+ko-KR|privacy-and-data-rights
 ko-KR|template-analytics-connectors
 ko-KR|template-analytics-dashboards
 ko-KR|template-analytics-developers
@@ -482,6 +489,7 @@ pt-BR|http-api
 pt-BR|integrations
 pt-BR|messaging-internals
 pt-BR|messaging-recipes
+pt-BR|privacy-and-data-rights
 pt-BR|template-analytics-connectors
 pt-BR|template-analytics-dashboards
 pt-BR|template-analytics-developers
@@ -549,6 +557,7 @@ zh-CN|http-api
 zh-CN|integrations
 zh-CN|messaging-internals
 zh-CN|messaging-recipes
+zh-CN|privacy-and-data-rights
 zh-CN|template-analytics-connectors
 zh-CN|template-analytics-dashboards
 zh-CN|template-analytics-developers
@@ -615,6 +624,7 @@ zh-TW|http-api
 zh-TW|integrations
 zh-TW|messaging-internals
 zh-TW|messaging-recipes
+zh-TW|privacy-and-data-rights
 zh-TW|template-analytics-connectors
 zh-TW|template-analytics-dashboards
 zh-TW|template-analytics-developers
