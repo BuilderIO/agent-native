@@ -12,7 +12,7 @@ import "../server/db/index.js"; // ensure registerShareableResource runs
 
 export default defineAction({
   description:
-    "Return whether a design URL exists and whether the current viewer can access it. This reveals only existence and access metadata, never design content.",
+    "Return whether a design URL is readable by the current viewer. Anonymous viewers receive no existence signal, and the action never returns design content.",
   schema: z.object({
     designId: z.string().min(1).describe("Design ID to check."),
   }),
@@ -25,6 +25,17 @@ export default defineAction({
     const viewerName = viewerEmail
       ? (getRequestUserName()?.trim() ?? null)
       : null;
+    if (!viewerEmail) {
+      return {
+        exists: false as const,
+        hasAccess: false,
+        signedIn: false,
+        viewerEmail: null,
+        viewerName: null,
+        role: null,
+        visibility: null,
+      };
+    }
     const [design] = await getDb()
       .select({
         id: schema.designs.id,
@@ -38,7 +49,7 @@ export default defineAction({
       return {
         exists: false as const,
         hasAccess: false,
-        signedIn: Boolean(viewerEmail),
+        signedIn: true,
         viewerEmail,
         viewerName,
         role: null,

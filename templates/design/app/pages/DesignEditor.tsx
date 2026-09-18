@@ -3784,13 +3784,21 @@ function DesignEditor() {
       const result = await requestDesignAccessMutation.mutateAsync({
         designId: id,
       });
-      if (!result.alreadyHasAccess) {
+      if (result.alreadyHasAccess) {
+        await Promise.all([refetchDesign(), refetchDesignAccessStatus()]);
+      } else if (result.notifiedOwner) {
         setDesignAccessRequestSent(true);
       }
     } catch (error) {
       toast.error(actionErrorMessage(error) ?? t("common.genericError"));
     }
-  }, [id, requestDesignAccessMutation, t]);
+  }, [
+    id,
+    refetchDesign,
+    refetchDesignAccessStatus,
+    requestDesignAccessMutation,
+    t,
+  ]);
 
   /** Rebuilt from the host payload; there is no row behind it to fetch. */
   const shellDesign = useMemo(

@@ -421,6 +421,11 @@ CREATE INDEX IF NOT EXISTS design_versions_design_created_idx ON design_versions
       name: "design-access-request-notified-at",
       sql: `ALTER TABLE design_access_requests ADD COLUMN IF NOT EXISTS notified_at TEXT`,
     },
+    {
+      version: 29,
+      name: "design-access-request-notification-claim",
+      sql: `ALTER TABLE design_access_requests ADD COLUMN IF NOT EXISTS notification_claimed_at TEXT`,
+    },
   ],
   { table: "design_migrations" },
 );

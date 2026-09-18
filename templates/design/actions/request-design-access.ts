@@ -13,13 +13,15 @@ import {
   getRequestUserName,
 } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull, lt, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
+import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
 
 export const DESIGN_ACCESS_REQUEST_EMAIL_ID = "design.access-request";
+const NOTIFICATION_CLAIM_TTL_MS = 5 * 60 * 1000;
 
 function httpError(message: string, statusCode: number): Error {
   return Object.assign(new Error(message), { statusCode });
@@ -120,21 +122,6 @@ export default defineAction({
       throw httpError("Sign in to request access to this design.", 401);
     }
 
-    const db = getDb();
-    const [design] = await db
-      .select({
-        id: schema.designs.id,
-        title: schema.designs.title,
-        ownerEmail: schema.designs.ownerEmail,
-      })
-      .from(schema.designs)
-      .where(eq(schema.designs.id, designId))
-      .limit(1);
-
-    if (!design) {
-      throw httpError(`Design ${designId} not found`, 404);
-    }
-
     const access = await resolveAccess("design", designId);
     if (access) {
       return {
@@ -149,36 +136,90 @@ export default defineAction({
     const requesterName =
       getRequestUserName()?.trim() || displayNameForEmail(requesterEmail);
     const requestId = accessRequestId(designId, requesterEmail);
-    const [request] = await db
-      .insert(schema.designAccessRequests)
-      .values({
-        id: requestId,
-        designId,
-        requesterEmail,
-        requesterName,
-      })
-      .onConflictDoNothing()
-      .returning({
-        id: schema.designAccessRequests.id,
-        notifiedAt: schema.designAccessRequests.notifiedAt,
+    const claimAt = new Date();
+    const claimCutoff = new Date(
+      claimAt.getTime() - NOTIFICATION_CLAIM_TTL_MS,
+    ).toISOString();
+    const claimTimestamp = claimAt.toISOString();
+    const { design, requestCreated, shouldNotify } =
+      await withDesignSourceMutationTransaction(designId, async (tx) => {
+        const [design] = await tx
+          .select({
+            id: schema.designs.id,
+            title: schema.designs.title,
+            ownerEmail: schema.designs.ownerEmail,
+          })
+          .from(schema.designs)
+          .where(eq(schema.designs.id, designId))
+          .limit(1);
+
+        if (!design) {
+          throw httpError(`Design ${designId} not found`, 404);
+        }
+
+        const [request] = await tx
+          .insert(schema.designAccessRequests)
+          .values({
+            id: requestId,
+            designId,
+            requesterEmail,
+            requesterName,
+            notificationClaimedAt: claimTimestamp,
+          })
+          .onConflictDoNothing()
+          .returning({ id: schema.designAccessRequests.id });
+
+        if (request) {
+          return { design, requestCreated: true, shouldNotify: true };
+        }
+
+        const [existingRequest] = await tx
+          .select({
+            notifiedAt: schema.designAccessRequests.notifiedAt,
+            notificationClaimedAt:
+              schema.designAccessRequests.notificationClaimedAt,
+          })
+          .from(schema.designAccessRequests)
+          .where(eq(schema.designAccessRequests.id, requestId))
+          .limit(1);
+        if (existingRequest?.notifiedAt) {
+          return { design, requestCreated: false, shouldNotify: false };
+        }
+
+        const [claim] = await tx
+          .update(schema.designAccessRequests)
+          .set({ notificationClaimedAt: claimTimestamp })
+          .where(
+            and(
+              eq(schema.designAccessRequests.id, requestId),
+              isNull(schema.designAccessRequests.notifiedAt),
+              or(
+                isNull(schema.designAccessRequests.notificationClaimedAt),
+                lt(
+                  schema.designAccessRequests.notificationClaimedAt,
+                  claimCutoff,
+                ),
+              ),
+            ),
+          )
+          .returning({ id: schema.designAccessRequests.id });
+
+        return {
+          design,
+          requestCreated: false,
+          shouldNotify: Boolean(claim),
+        };
       });
 
-    if (!request) {
-      const [existingRequest] = await db
-        .select({ notifiedAt: schema.designAccessRequests.notifiedAt })
-        .from(schema.designAccessRequests)
-        .where(eq(schema.designAccessRequests.id, requestId))
-        .limit(1);
-      if (existingRequest?.notifiedAt) {
-        return {
-          ok: true,
-          alreadyHasAccess: false,
-          alreadyRequested: true,
-          notifiedOwner: false,
-          requestId,
-          message: "Access has already been requested from the design owner.",
-        };
-      }
+    if (!shouldNotify) {
+      return {
+        ok: true,
+        alreadyHasAccess: false,
+        alreadyRequested: true,
+        notifiedOwner: false,
+        requestId,
+        message: "Access is already requested or being delivered to the owner.",
+      };
     }
 
     let notifiedOwner = false;
@@ -197,24 +238,30 @@ export default defineAction({
       );
     }
 
-    if (notifiedOwner) {
-      await db
-        .update(schema.designAccessRequests)
-        .set({ notifiedAt: new Date().toISOString() })
-        .where(eq(schema.designAccessRequests.id, requestId));
-    }
+    const db = getDb();
+    await db
+      .update(schema.designAccessRequests)
+      .set(
+        notifiedOwner
+          ? {
+              notifiedAt: new Date().toISOString(),
+              notificationClaimedAt: null,
+            }
+          : { notificationClaimedAt: null },
+      )
+      .where(eq(schema.designAccessRequests.id, requestId));
 
     return {
       ok: true,
       alreadyHasAccess: false,
-      alreadyRequested: !request,
+      alreadyRequested: !requestCreated,
       notifiedOwner,
       requestId,
       message: notifiedOwner
-        ? request
+        ? requestCreated
           ? "Access request sent to the design owner."
           : "Access request notification sent to the design owner."
-        : request
+        : requestCreated
           ? "Access request recorded for the design owner."
           : "Access request is queued for the design owner.",
     };

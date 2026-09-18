@@ -40,6 +40,10 @@ export function DesignAccessState({
   onRetryAccessCheck,
 }: DesignAccessStateProps) {
   const t = useT();
+  const requiresSignIn = Boolean(
+    accessStatus && !accessStatus.signedIn && !accessStatus.hasAccess,
+  );
+  const signedIn = accessStatus?.signedIn ?? false;
 
   return (
     <div className="relative flex min-h-dvh flex-1 items-center justify-center overflow-hidden bg-[var(--design-editor-canvas-bg)] px-6 py-12">
@@ -70,24 +74,25 @@ export function DesignAccessState({
               {t("designEditor.retryAccessCheck")}
             </Button>
           </>
-        ) : accessStatus?.exists && !accessStatus.hasAccess ? (
+        ) : requiresSignIn ||
+          (accessStatus?.exists && !accessStatus.hasAccess) ? (
           <>
             <div className="mx-auto mb-4 flex size-10 items-center justify-center rounded-full bg-muted text-muted-foreground">
               <IconLock className="size-5" />
             </div>
             <h1 className="text-xl font-semibold text-foreground">
-              {accessStatus.signedIn
+              {signedIn
                 ? t("designEditor.requestAccessTitle")
                 : t("designEditor.signInToRequestAccessTitle")}
             </h1>
             <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-              {accessStatus.signedIn
+              {signedIn
                 ? accessRequestSent
                   ? t("designEditor.accessRequestSentDescription")
                   : t("designEditor.requestAccessDescription")
                 : t("designEditor.signInToRequestAccessDescription")}
             </p>
-            {accessStatus.signedIn ? (
+            {signedIn ? (
               <Button
                 type="button"
                 onClick={onRequestAccess}

@@ -35,6 +35,7 @@ export const designAccessRequests = table("design_access_requests", {
   requesterName: text("requester_name").notNull(),
   requestedAt: text("requested_at").notNull().default(now()),
   notifiedAt: text("notified_at"),
+  notificationClaimedAt: text("notification_claimed_at"),
 });
 
 /**
