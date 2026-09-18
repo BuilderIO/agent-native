@@ -96,6 +96,25 @@ describe("SlideEditor render-phase safety", () => {
     );
   });
 
+  it("keeps the editor host outside React-owned slide content", () => {
+    const enterStart = source.indexOf("const enterInlineEdit");
+    const enterEnd = source.indexOf("// Exit edit mode", enterStart);
+    const enterBody = source.slice(enterStart, enterEnd);
+    const disposeStart = source.indexOf("const disposeRichTextEditor");
+    const disposeEnd = source.indexOf(
+      "const flushInlineEditDraft",
+      disposeStart,
+    );
+    const disposeBody = source.slice(disposeStart, disposeEnd);
+
+    expect(enterBody).toContain("document.body.append(host)");
+    expect(enterBody).not.toContain("el.replaceChildren(host)");
+    expect(disposeBody).toContain("session.cleanupHost()");
+    expect(disposeBody).not.toContain(
+      "restoreSlideTextContainerContent(session.element",
+    );
+  });
+
   it("marks and strips only the outer rich-text layer", () => {
     expect(source).toContain(
       'element.setAttribute("data-slide-text-block", "true")',

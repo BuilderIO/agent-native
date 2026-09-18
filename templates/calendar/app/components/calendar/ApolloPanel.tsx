@@ -1,6 +1,6 @@
 import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
-import type { CalendarEvent } from "@shared/api";
+import { getCalendarGuestCount, type CalendarEvent } from "@shared/api";
 import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 
@@ -201,7 +201,8 @@ export function ResearchMeetingButton({ event }: { event: CalendarEvent }) {
   const { send, codeRequiredDialog } = useSendToAgentChat();
 
   const attendees = (event.attendees ?? []).filter((a) => !a.self);
-  if (attendees.length === 0) return null;
+  const attendeeCount = getCalendarGuestCount(event.attendees);
+  if (attendeeCount === 0) return null;
 
   const handleResearch = () => {
     if (!connected) {
@@ -243,7 +244,7 @@ Use the Apollo API (/api/apollo/person?email=...) to look up each attendee and c
         </div>
         {t("apollo.researchMeeting")}
         <span className="ml-auto text-xs text-muted-foreground/40">
-          {t("apollo.attendeeCount", { count: attendees.length })}
+          {t("apollo.attendeeCount", { count: attendeeCount })}
         </span>
       </button>
     </>

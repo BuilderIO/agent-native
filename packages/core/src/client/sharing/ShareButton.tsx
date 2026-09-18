@@ -60,6 +60,8 @@ export interface ShareButtonProps {
   hideTriggerIcon?: boolean;
   /** Optional className applied to the trigger button. */
   triggerClassName?: string;
+  /** Optional heading rendered inside the share surface. */
+  panelTitle?: ReactNode;
   /** Optional compact trigger content for dense host toolbars. The accessible
    * label remains the localized Share label. */
   triggerContent?: ReactNode;
@@ -751,7 +753,22 @@ function SharePanel(
     </div>
   );
 
-  if (!hasTabs) return sharePanel;
+  const panelTitle = props.panelTitle ? (
+    <h2 className="text-base font-semibold leading-normal tracking-normal">
+      {props.panelTitle}
+    </h2>
+  ) : null;
+
+  if (!hasTabs) {
+    return props.panelTitle ? (
+      <div className="flex flex-col gap-4">
+        {panelTitle}
+        {sharePanel}
+      </div>
+    ) : (
+      sharePanel
+    );
+  }
 
   const tabs = [
     {
@@ -767,6 +784,7 @@ function SharePanel(
     : "share";
   return (
     <div className="flex flex-col gap-4">
+      {panelTitle}
       <div
         role="tablist"
         aria-label={t("agentChat.share.shareOptions", {

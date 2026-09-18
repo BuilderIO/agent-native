@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   isRouteErrorResponse,
   useInRouterContext,
@@ -12,6 +12,7 @@ import {
   normalizeLocaleCode,
   type LocaleCode,
 } from "../localization/shared.js";
+import { captureException } from "./analytics.js";
 import { appPath } from "./api-path.js";
 import { ErrorReportActions } from "./ErrorReportActions.js";
 import {
@@ -261,6 +262,18 @@ function UpdatingScreen() {
 function ErrorScreen({ error }: { error: unknown }) {
   const copy = useErrorCopy();
   const recovering = useStaleChunkRecovery(error);
+  const reportedErrorRef = useRef<unknown>(null);
+  useEffect(() => {
+    if (!error || recovering || reportedErrorRef.current === error) return;
+    reportedErrorRef.current = error;
+    captureException(error, {
+      tags: { boundary: "react-router-error-screen" },
+      extra: {
+        path:
+          typeof window === "undefined" ? undefined : window.location.pathname,
+      },
+    });
+  }, [error, recovering]);
   // While auto-recovering a stale chunk, show a neutral state and skip the
   // console.error below so the transient, self-healing failure does not get
   // reported as a hard error.

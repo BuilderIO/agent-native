@@ -6,7 +6,7 @@ import {
 } from "@agent-native/core/client/navigation";
 import { DefaultSpinner } from "@agent-native/core/client/ui";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
-import type { CalendarEvent } from "@shared/api";
+import { getCalendarAttendeeCount, type CalendarEvent } from "@shared/api";
 import {
   IconClock,
   IconMapPin,
@@ -40,6 +40,10 @@ function formatDuration(start: string, end: string): string {
 function EventCard({ event }: { event: CalendarEvent }) {
   const t = useT();
   const inEmbed = isInAgentEmbed();
+  const visibleAttendees = (event.attendees ?? []).slice(0, 5);
+  const hiddenAttendeeCount =
+    getCalendarAttendeeCount(event.attendees) -
+    getCalendarAttendeeCount(visibleAttendees);
 
   return (
     <div className="min-h-screen bg-background flex items-start justify-center p-4">
@@ -108,7 +112,7 @@ function EventCard({ event }: { event: CalendarEvent }) {
             <div className="flex items-start gap-2.5 text-sm text-muted-foreground">
               <IconUsers className="mt-0.5 h-4 w-4 shrink-0" />
               <div className="flex flex-col gap-0.5">
-                {event.attendees.slice(0, 5).map((a) => (
+                {visibleAttendees.map((a) => (
                   <span key={a.email} className="truncate">
                     {a.displayName ? (
                       <>
@@ -122,9 +126,9 @@ function EventCard({ event }: { event: CalendarEvent }) {
                     )}
                   </span>
                 ))}
-                {event.attendees.length > 5 && (
+                {hiddenAttendeeCount > 0 && (
                   <span className="text-muted-foreground/60 text-xs">
-                    +{event.attendees.length - 5} more
+                    +{hiddenAttendeeCount} more
                   </span>
                 )}
               </div>

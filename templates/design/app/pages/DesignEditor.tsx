@@ -24371,11 +24371,9 @@ function DesignEditor() {
       deviceName={interactDeviceName}
       width={interactDeviceSize.width}
       height={interactDeviceSize.height}
-      zoom={interactZoom}
       onDeviceChange={handleInteractDeviceChange}
       onWidthChange={handleInteractWidthChange}
       onHeightChange={handleInteractHeightChange}
-      onZoomChange={setInteractZoom}
       onModeChange={handleModeChange}
       canAnnotate={canEditDesign}
       onClose={handleExitResponsiveInteract}
@@ -25805,7 +25803,7 @@ function DesignEditor() {
                         }
                         zoom={responsiveInteractActive ? interactZoom : zoom}
                         onZoomChange={
-                          responsiveInteractActive ? setInteractZoom : setZoom
+                          responsiveInteractActive ? undefined : setZoom
                         }
                         deviceFrame={deviceFrame}
                         sourceType={activeCanvasSourceType}
