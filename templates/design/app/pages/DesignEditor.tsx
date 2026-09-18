@@ -1427,8 +1427,9 @@ function DesignEditor() {
   // during render (not an effect) so it has no lag on any setSelectedElement path.
   const selectedElementRef = useRef(selectedElement);
   selectedElementRef.current = selectedElement;
-  const [deepSelectGuidanceVisible, setDeepSelectGuidanceVisible] =
-    useState(false);
+  const [deepSelectGuidanceKey, setDeepSelectGuidanceKey] = useState<
+    string | null
+  >(null);
   const deepSelectGuidanceCountsRef = useRef(new Map<string, number>());
   const deepSelectGuidanceKeyRef = useRef<string | null>(null);
   const maybeShowDeepSelectGuidance = useCallback(
@@ -1438,6 +1439,7 @@ function DesignEditor() {
       intent?: ElementSelectionIntent,
     ) => {
       if (!shouldShowDeepSelectGuidance(info, intent)) return;
+      if (deepSelectGuidanceKeyRef.current !== null) return;
       const key = `design-deep-select-guidance:${id ?? "shell"}:${screenId}`;
       let count = deepSelectGuidanceCountsRef.current.get(key);
       if (count === undefined) {
@@ -1450,7 +1452,7 @@ function DesignEditor() {
       deepSelectGuidanceCountsRef.current.set(key, nextCount);
       window.localStorage.setItem(key, String(nextCount));
       deepSelectGuidanceKeyRef.current = key;
-      setDeepSelectGuidanceVisible(true);
+      setDeepSelectGuidanceKey(key);
     },
     [id],
   );
@@ -1460,7 +1462,8 @@ function DesignEditor() {
       deepSelectGuidanceCountsRef.current.set(key, 2);
       window.localStorage.setItem(key, "2");
     }
-    setDeepSelectGuidanceVisible(false);
+    deepSelectGuidanceKeyRef.current = null;
+    setDeepSelectGuidanceKey(null);
   }, []);
   // Vector-edit mode (P5 integration): active while the user is editing a
   // committed pen path's anchors/handles on the overview canvas. `path` is
@@ -25294,7 +25297,7 @@ function DesignEditor() {
                       </div>
                     </div>
                   ) : null}
-                  {deepSelectGuidanceVisible ? (
+                  {deepSelectGuidanceKey !== null ? (
                     <DeepSelectGuidance onDismiss={dismissDeepSelectGuidance} />
                   ) : null}
                   {viewMode === "overview" ? (

@@ -13,6 +13,7 @@ import {
   isUserOriginatedSelectionIntent,
   overviewSelectionTargetsElement,
   pendingEditTargetsSelectedElement,
+  resolveMarqueeAdditive,
   resolveOverviewScreenFrameGeometry,
   resolveEffectiveSelectedLayerIds,
   selectionHistorySnapshotsEqual,
@@ -460,6 +461,14 @@ describe("shouldShowDeepSelectGuidance", () => {
         { source: "pointer" },
       ),
     ).toBe(false);
+  });
+});
+
+describe("resolveMarqueeAdditive", () => {
+  it("preserves Shift additive semantics for pointer picks", () => {
+    expect(resolveMarqueeAdditive({ shiftKey: true, source: "pointer" })).toBe(
+      true,
+    );
   });
 });
 
