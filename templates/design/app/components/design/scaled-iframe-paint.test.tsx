@@ -159,5 +159,13 @@ describe("canvas iframe paint retention", () => {
         effectiveScale: 0.25,
       }).backfaceVisibility,
     ).toBe("hidden");
+    expect(
+      getIframePaintRetentionStyle({
+        viewportWidth: 1440,
+        viewportHeight: 1440,
+        effectiveScale: 1,
+        effectiveScaleY: 3,
+      }).backfaceVisibility,
+    ).toBe("visible");
   });
 });

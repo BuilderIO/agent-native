@@ -10266,6 +10266,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                     (boardFrameGeometry.width /
                       Math.max(1, boardStaticPreviewViewport.width)) *
                     (canvasZoom / 100),
+                  effectiveScaleY:
+                    (boardFrameGeometry.height /
+                      Math.max(1, boardStaticPreviewViewport.height)) *
+                    (canvasZoom / 100),
                 }),
               }}
             />

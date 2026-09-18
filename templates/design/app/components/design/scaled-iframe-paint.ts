@@ -33,11 +33,19 @@ export function getIframePaintRetentionStyle(args: {
   viewportWidth: number;
   viewportHeight: number;
   effectiveScale: number;
+  effectiveScaleY?: number;
 }): CSSProperties {
-  const scale =
+  const scaleX =
     Number.isFinite(args.effectiveScale) && args.effectiveScale > 0
       ? args.effectiveScale
       : 1;
+  const requestedScaleY = args.effectiveScaleY;
+  const scaleY =
+    typeof requestedScaleY === "number" &&
+    Number.isFinite(requestedScaleY) &&
+    requestedScaleY > 0
+      ? requestedScaleY
+      : scaleX;
   const viewportWidth =
     Number.isFinite(args.viewportWidth) && args.viewportWidth > 0
       ? args.viewportWidth
@@ -47,8 +55,8 @@ export function getIframePaintRetentionStyle(args: {
       ? args.viewportHeight
       : 900;
   if (
-    viewportWidth * scale > MAX_RETAINED_IFRAME_PAINT_AXIS_PX ||
-    viewportHeight * scale > MAX_RETAINED_IFRAME_PAINT_AXIS_PX
+    viewportWidth * scaleX > MAX_RETAINED_IFRAME_PAINT_AXIS_PX ||
+    viewportHeight * scaleY > MAX_RETAINED_IFRAME_PAINT_AXIS_PX
   ) {
     return { backfaceVisibility: "visible" };
   }

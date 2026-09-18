@@ -338,6 +338,7 @@ import {
 } from "@/components/design/multi-screen/measure-selection";
 import { getCurrentBoardSelectionWorldBounds } from "@/components/design/multi-screen/overview-layout";
 import {
+  isImportedStaticScreenSource,
   resolveScreenHeightMode,
   type ScreenHeightMode,
 } from "@/components/design/multi-screen/screen-height";
@@ -20270,7 +20271,15 @@ function DesignEditor() {
       );
       const operations: DesignDataOperation[] = [];
       if (mode === "auto") {
-        if (screenMetadata.heightMode !== undefined) {
+        if (isImportedStaticScreenSource(screenMetadata.sourceType)) {
+          if (screenMetadata.heightMode !== "auto") {
+            operations.push({
+              op: "set",
+              path: ["screenMetadata", screenId, "heightMode"],
+              value: "auto",
+            });
+          }
+        } else if (screenMetadata.heightMode !== undefined) {
           operations.push({
             op: "delete",
             path: ["screenMetadata", screenId, "heightMode"],
