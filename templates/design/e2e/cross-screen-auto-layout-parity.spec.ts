@@ -230,6 +230,26 @@ async function dragScreenNode(
   );
   await page.mouse.move(destination.x, destination.y, { steps: 30 });
   await page.waitForTimeout(500);
+  console.log(
+    "[cross-screen-auto-layout] held drag",
+    await page.evaluate(() => ({
+      frames: Array.from(
+        document.querySelectorAll("iframe[data-design-preview-iframe]"),
+      ).map((frame) => {
+        const rect = frame.getBoundingClientRect();
+        return {
+          rect: {
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
+          },
+          pointerEvents: getComputedStyle(frame).pointerEvents,
+        };
+      }),
+      trace: (window as any).__designTrace?.dump?.() ?? "(no trace)",
+    })),
+  );
   await expect(page.locator("[data-cross-screen-drop-guide]")).toHaveCount(1, {
     timeout: 5_000,
   });
@@ -325,7 +345,7 @@ test.describe("physical cross-screen auto-layout parity", () => {
     const destination = await boxFor(
       page,
       design.destinationId,
-      "destination-flow",
+      "destination-anchor",
     );
     await page.mouse.move(
       sourceBox.x + sourceBox.width / 2,
@@ -347,6 +367,26 @@ test.describe("physical cross-screen auto-layout parity", () => {
       },
     );
     await page.waitForTimeout(500);
+    console.log(
+      "[cross-screen-auto-layout] board held drag",
+      await page.evaluate(() => ({
+        frames: Array.from(
+          document.querySelectorAll("iframe[data-design-preview-iframe]"),
+        ).map((frame) => {
+          const rect = frame.getBoundingClientRect();
+          return {
+            rect: {
+              x: rect.x,
+              y: rect.y,
+              width: rect.width,
+              height: rect.height,
+            },
+            pointerEvents: getComputedStyle(frame).pointerEvents,
+          };
+        }),
+        trace: (window as any).__designTrace?.dump?.() ?? "(no trace)",
+      })),
+    );
     const held = {
       guide: await page.locator("[data-cross-screen-drop-guide]").count(),
       sourceStillPersisted: (
@@ -411,6 +451,7 @@ test.describe("physical cross-screen auto-layout parity", () => {
     await gotoEditor(page, design.id);
     await settleScreens(page, design.sourceId, design.destinationId);
     const boardPoint = await emptyBoardPoint(page);
+    console.log("[cross-screen-auto-layout] board point", boardPoint);
     const held = await dragScreenNode(
       page,
       design.sourceId,
@@ -463,7 +504,7 @@ test.describe("physical cross-screen auto-layout parity", () => {
     const destination = await boxFor(
       page,
       design.destinationId,
-      "destination-flow",
+      "destination-anchor",
     );
     const held = await dragScreenNode(page, design.sourceId, "screen-source", {
       x: destination.x + destination.width / 2,
