@@ -365,59 +365,10 @@ test.describe("physical cross-screen auto-layout parity", () => {
     await page.mouse.up();
     await expect
       .poll(() => fileContent(page, design.id, "__board__.html"))
-      .toMatch(/data-agent-native-node-id=/);
-    const beforeBoard = await fileContent(page, design.id, "__board__.html");
-    const nodeId = [
-      ...beforeBoard.matchAll(/data-agent-native-node-id="([^"]+)"/g),
-    ]
-      .map((match) => match[1])
-      .slice(-1)[0];
-    if (!nodeId) throw new Error("rectangle did not create a board node");
+      .toMatch(/data-an-primitive="rectangle"/);
     await page
       .locator('[data-design-bottom-toolbar] button[aria-label="Move"]')
       .click();
-    await page.evaluate(() => {
-      (window as Window & { __DND_DEBUG?: boolean }).__DND_DEBUG = true;
-      window.addEventListener("message", (event) => {
-        if (event.data?.type === "agent-native:cross-screen-drag") {
-          console.log(
-            "[cross-screen-auto-layout] top message",
-            JSON.stringify({
-              phase: event.data.phase,
-              sourceId: event.data.sourceId,
-              sourceProvenance: event.data.sourceProvenance,
-              selector: event.data.selector,
-              sourceMatches: Array.from(
-                document.querySelectorAll("iframe[data-design-preview-iframe]"),
-              ).some(
-                (iframe) =>
-                  (iframe as HTMLIFrameElement).contentWindow === event.source,
-              ),
-            }),
-          );
-        }
-      });
-    });
-    page.on("console", (message) => {
-      if (
-        message.text().includes("[dnd:host:") ||
-        message.text().includes("[dnd:")
-      ) {
-        console.log(message.text());
-      }
-    });
-    console.log(
-      "[cross-screen-auto-layout] board iframes",
-      await page
-        .locator("iframe[data-design-preview-iframe]")
-        .evaluateAll((iframes) =>
-          iframes.map((iframe) => ({
-            screenId: iframe.getAttribute("data-screen-iframe-id"),
-            boardSurface: iframe.getAttribute("data-board-surface"),
-            rect: iframe.getBoundingClientRect().toJSON(),
-          })),
-        ),
-    );
     const source = page
       .locator("[data-board-surface-layer] iframe[data-design-preview-iframe]")
       .first()
@@ -431,10 +382,6 @@ test.describe("physical cross-screen auto-layout parity", () => {
       design.destinationId,
       "destination-flow",
     );
-    console.log("[cross-screen-auto-layout] board drag boxes", {
-      sourceBox,
-      destination,
-    });
     await page.mouse.move(
       sourceBox.x + sourceBox.width / 2,
       sourceBox.y + sourceBox.height / 2,
@@ -455,53 +402,42 @@ test.describe("physical cross-screen auto-layout parity", () => {
       },
     );
     await page.waitForTimeout(500);
-    console.log(
-      "[cross-screen-auto-layout] board held trace",
-      await page.evaluate(() => (window as any).__designTrace?.dump?.()),
-    );
     const held = {
       guide: await page.locator("[data-cross-screen-drop-guide]").count(),
       sourceStillPersisted: (
         await fileContent(page, design.id, "__board__.html")
-      ).includes(`data-agent-native-node-id="${nodeId}"`),
+      ).includes('data-an-primitive="rectangle"'),
     };
     expect(held.guide).toBeGreaterThan(0);
     expect(held.sourceStillPersisted).toBe(true);
     await page.mouse.up();
-    await page.waitForTimeout(1_000);
-    console.log(
-      "[cross-screen-auto-layout] board post-release files",
-      (await files(page, design.id)).map((file) => ({
-        filename: file.filename,
-        length: file.content.length,
-        hasNode: file.content.includes(`data-agent-native-node-id="${nodeId}"`),
-        ids: [
-          ...file.content.matchAll(/data-agent-native-node-id="([^"]+)"/g),
-        ].map((match) => match[1]),
-        hasRectangle: file.content.includes('data-an-primitive="rectangle"'),
-      })),
-    );
-    await waitForMove(
-      page,
-      design.id,
-      "__board__.html",
-      "destination.html",
-      nodeId,
-    );
-    expect(
-      await designFrame(page, design.destinationId)
-        .locator(`[data-agent-native-node-id="${nodeId}"]`)
-        .evaluate((node) => getComputedStyle(node).position),
-    ).not.toBe("absolute");
-    await page.keyboard.press(`${PRIMARY}+z`);
     await expect
       .poll(() =>
-        readMoveState(
+        readPrimitiveMoveState(
           page,
           design.id,
           "__board__.html",
           "destination.html",
-          nodeId,
+          "rectangle",
+        ),
+      )
+      .toEqual({ sourceHas: false, destinationHas: true });
+    const movedRectangle = designFrame(page, design.destinationId)
+      .locator('[data-an-primitive="rectangle"]')
+      .first();
+    await expect(movedRectangle).toHaveCount(1);
+    expect(
+      await movedRectangle.evaluate((node) => getComputedStyle(node).position),
+    ).not.toBe("absolute");
+    await page.keyboard.press(`${PRIMARY}+z`);
+    await expect
+      .poll(() =>
+        readPrimitiveMoveState(
+          page,
+          design.id,
+          "__board__.html",
+          "destination.html",
+          "rectangle",
         ),
       )
       .toEqual({
@@ -509,18 +445,22 @@ test.describe("physical cross-screen auto-layout parity", () => {
         destinationHas: false,
       });
     await page.keyboard.press(`${PRIMARY}+Shift+z`);
-    await waitForMove(
-      page,
-      design.id,
-      "__board__.html",
-      "destination.html",
-      nodeId,
-    );
+    await expect
+      .poll(() =>
+        readPrimitiveMoveState(
+          page,
+          design.id,
+          "__board__.html",
+          "destination.html",
+          "rectangle",
+        ),
+      )
+      .toEqual({ sourceHas: false, destinationHas: true });
     await settleReload(page);
     await expect
       .poll(() =>
         designFrame(page, design.destinationId)
-          .locator(`[data-agent-native-node-id="${nodeId}"]`)
+          .locator('[data-an-primitive="rectangle"]')
           .evaluate((node) =>
             node.parentElement?.getAttribute("data-agent-native-node-id"),
           ),
