@@ -186,6 +186,27 @@ describe("slide rich text normalization", () => {
     expect(element.textContent).toBe("●Updated point");
   });
 
+  it("unwraps ordinary single-row bullet edits back into the row template", () => {
+    const element = document.createElement("div");
+    const source =
+      '<span style="font-size:8px">●</span><span>First point</span>';
+    element.innerHTML = source;
+
+    restoreSlideTextContainerContent(
+      element,
+      "<p><strong>Updated point</strong></p>",
+      source,
+    );
+
+    expect(element.querySelector(":scope > p")).toBeNull();
+    expect(element.querySelector(":scope > li")).toBeNull();
+    expect(element.querySelector(":scope > span")?.textContent).toBe("●");
+    expect(element.querySelectorAll(":scope > span")).toHaveLength(2);
+    expect(
+      element.querySelector(":scope > span:nth-child(2) strong")?.textContent,
+    ).toBe("Updated point");
+  });
+
   it("keeps persisted semantic lists styled without an editor marker", () => {
     document.body.innerHTML = `
       <div class="slide-content">

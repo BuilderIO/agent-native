@@ -167,7 +167,7 @@ describe("SlidesLayersPanel", () => {
     );
 
     const row = container.querySelector<HTMLElement>(
-      '[data-layer-node-id="layer"]',
+      '[data-layer-node-id="layer"] [data-layer-row-content]',
     );
     expect(row).not.toBeNull();
     fireEvent.mouseEnter(row!);
@@ -175,5 +175,59 @@ describe("SlidesLayersPanel", () => {
 
     expect(onHoverLayer).toHaveBeenCalledWith("layer");
     expect(onLeaveLayer).toHaveBeenCalledWith("layer");
+  });
+
+  it("restores the parent hover when moving back from a nested row", () => {
+    const onHoverLayer = vi.fn();
+    const onLeaveLayer = vi.fn();
+    const { container } = render(
+      <SlidesLayersPanel
+        layers={[
+          {
+            id: "parent",
+            label: "Parent",
+            kind: "container",
+            children: [{ id: "child", label: "Child", kind: "text" }],
+          },
+        ]}
+        selectedIds={[]}
+        onHoverLayer={onHoverLayer}
+        onLeaveLayer={onLeaveLayer}
+        onSelectLayer={vi.fn()}
+        onMoveLayer={vi.fn()}
+        onClose={vi.fn()}
+        labels={{
+          title: "Layers",
+          close: "Close layers panel",
+          expand: "Expand layer",
+          collapse: "Collapse layer",
+        }}
+      />,
+    );
+
+    const parentRow = container.querySelector<HTMLElement>(
+      '[data-layer-node-id="parent"] [data-layer-row-content]',
+    );
+    const childRow = container.querySelector<HTMLElement>(
+      '[data-layer-node-id="child"] [data-layer-row-content]',
+    );
+    expect(parentRow).not.toBeNull();
+    expect(childRow).not.toBeNull();
+
+    fireEvent.mouseEnter(parentRow!);
+    fireEvent.mouseLeave(parentRow!);
+    fireEvent.mouseEnter(childRow!);
+    fireEvent.mouseLeave(childRow!);
+    fireEvent.mouseEnter(parentRow!);
+
+    expect(onHoverLayer.mock.calls.map(([id]) => id)).toEqual([
+      "parent",
+      "child",
+      "parent",
+    ]);
+    expect(onLeaveLayer.mock.calls.map(([id]) => id)).toEqual([
+      "parent",
+      "child",
+    ]);
   });
 });

@@ -674,28 +674,27 @@ function restoreLegacyBulletRowContent(
   html: string,
 ): string {
   if (!sourceHtml || typeof DOMParser === "undefined") return html;
-  const restored = restoreLegacyBulletRows(sourceHtml, html);
-  if (restored !== html) return restored;
   const sourceDocument = new DOMParser().parseFromString(
     `<div>${sourceHtml}</div>`,
     "text/html",
   );
   const sourceWrapper = sourceDocument.body.firstElementChild;
   if (sourceWrapper?.tagName !== "DIV" || !isLegacyBulletRow(sourceWrapper)) {
-    return restored;
+    return html;
   }
-  const wrappedRestored = restoreLegacyBulletRows(
-    `<div>${sourceHtml}</div>`,
-    html,
-  );
-  const restoredDocument = new DOMParser().parseFromString(
-    `<div>${wrappedRestored}</div>`,
-    "text/html",
-  );
-  const row = restoredDocument.body.firstElementChild?.firstElementChild;
-  return row?.tagName === "DIV" && isLegacyBulletRow(row)
-    ? row.innerHTML
-    : wrappedRestored;
+  const currentDocument = new DOMParser().parseFromString(html, "text/html");
+  const currentRoot = currentDocument.body
+    .firstElementChild as HTMLElement | null;
+  if (!currentRoot) return html;
+  const currentItem =
+    currentRoot.tagName === "UL" || currentRoot.tagName === "OL"
+      ? (Array.from(currentRoot.children).find(
+          (child) => child.tagName === "LI",
+        ) as HTMLElement | undefined)
+      : currentRoot;
+  if (!currentItem) return html;
+  return restoreLegacyBulletRow(sourceWrapper as HTMLElement, currentItem)
+    .innerHTML;
 }
 
 function copyRowTextStyles(row: HTMLElement, item: HTMLElement): void {

@@ -171,6 +171,8 @@ function LayerRow({
       data-layer-depth={depth}
       data-layer-selection={selected ? "primary" : undefined}
       className={`group flex h-8 w-max min-w-full items-center pr-1 text-[12px] text-foreground/90 transition-colors ${selected ? "bg-accent text-accent-foreground" : "hover:bg-accent hover:text-foreground"} ${dragging ? "opacity-50" : ""}`}
+      onMouseEnter={() => onHoverLayer?.(node.id)}
+      onMouseLeave={() => onLeaveLayer?.(node.id)}
       onDragOver={(event) => event.preventDefault()}
       onDragEnter={() => setDragging(true)}
       onDragLeave={() => setDragging(false)}
@@ -242,8 +244,6 @@ function LayerRow({
       aria-selected={selected}
       data-layer-node-id={node.id}
       draggable
-      onMouseEnter={() => onHoverLayer?.(node.id)}
-      onMouseLeave={() => onLeaveLayer?.(node.id)}
       onDragStart={(event) => {
         event.dataTransfer.setData("text/plain", node.id);
         event.dataTransfer.effectAllowed = "move";
