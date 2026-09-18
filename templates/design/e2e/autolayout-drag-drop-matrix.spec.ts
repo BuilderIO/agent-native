@@ -94,8 +94,8 @@ const ROOT_SCREEN_FIXTURES = {
 </body></html>`,
   "grid-explicit": `<!doctype html><html><body style="margin:0;width:620px;height:420px;box-sizing:border-box;display:grid;grid-template-columns:repeat(2,180px);grid-template-rows:96px 112px;column-gap:28px;row-gap:22px;align-items:center;justify-content:space-between;padding:30px 44px;background:#111827;color:#f8fafc">
   <div data-agent-native-node-id="root-a" data-agent-native-layer-name="Root A" style="min-height:48px;background:#38bdf8"></div>
-  <div data-agent-native-node-id="root-b" data-agent-native-layer-name="Root B" style="min-height:48px;grid-column:span 2;background:#a78bfa"></div>
   <div data-agent-native-node-id="root-c" data-agent-native-layer-name="Root C" style="min-height:48px;background:#fbbf24"></div>
+  <div data-agent-native-node-id="root-b" data-agent-native-layer-name="Root B" style="min-height:48px;grid-column:span 2;background:#a78bfa"></div>
 </body></html>`,
   "grid-implicit": `<!doctype html><html><body style="margin:0;width:620px;height:520px;box-sizing:border-box;display:grid;grid-template-columns:repeat(2,180px);grid-auto-rows:82px;column-gap:18px;row-gap:20px;align-items:start;justify-content:center;padding:28px;background:#111827;color:#f8fafc">
   <div data-agent-native-node-id="root-a" data-agent-native-layer-name="Root A" style="min-height:48px;background:#38bdf8"></div>
@@ -667,6 +667,7 @@ async function flowStyles(page: Page, screenId: string, nodeId: string) {
       const style = getComputedStyle(node);
       return {
         flex: style.flex,
+        authoredWidth: (node as HTMLElement).style.width,
         width: style.width,
         position: style.position,
       };
@@ -927,9 +928,20 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
         source: "fixed-source",
         expectedFlex: "0 0 auto",
         expectedWidth: "72px",
+        expectedAuthoredWidth: "72px",
       },
-      { source: "hug-source", expectedFlex: "0 1 auto", expectedWidth: "auto" },
-      { source: "fill-source", expectedFlex: "1 1 0%", expectedWidth: "auto" },
+      {
+        source: "hug-source",
+        expectedFlex: "0 1 auto",
+        expectedWidth: "auto",
+        expectedAuthoredWidth: "max-content",
+      },
+      {
+        source: "fill-source",
+        expectedFlex: "1 1 0%",
+        expectedWidth: "auto",
+        expectedAuthoredWidth: "auto",
+      },
     ];
     for (const cell of cells) {
       await test.step(cell.source, async () => {
@@ -948,6 +960,7 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
           expect(styles.position).not.toBe("absolute");
           if (cell.source === "fixed-source")
             expect(styles.width).toBe(cell.expectedWidth);
+          expect(styles.authoredWidth).toBe(cell.expectedAuthoredWidth);
           await settleReload(page, design.primaryId);
           await expect
             .poll(() => parentId(page, design.primaryId, cell.source))
@@ -961,6 +974,7 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
           expect(reloadedStyles.position).not.toBe("absolute");
           if (cell.source === "fixed-source")
             expect(reloadedStyles.width).toBe(cell.expectedWidth);
+          expect(reloadedStyles.authoredWidth).toBe(cell.expectedAuthoredWidth);
           console.log(`[figma-autolayout-matrix] SIZE-${cell.source} PASS`, {
             during: result.during,
             styles,
@@ -1138,6 +1152,7 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
     page,
     request,
   }) => {
+    const reorderedSourceNodeIds = ["play-badge", "play-label"];
     const design = await createDesign(request, {
       primaryHtml: LINKED_COMPONENT_HTML,
     });
@@ -1283,6 +1298,8 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
             instance.sourceNodeIds.length === 2,
         ),
       ).toBe(true);
+      for (const instance of held.instances)
+        expect(instance.sourceNodeIds).toEqual(reorderedSourceNodeIds);
       await page.mouse.up();
       await page.keyboard.up("Alt");
 
@@ -1301,6 +1318,8 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
             instance.sourceNodeIds.length === 2,
         ),
       ).toBe(true);
+      for (const instance of duplicated.instances)
+        expect(instance.sourceNodeIds).toEqual(reorderedSourceNodeIds);
       await settleReload(page, design.primaryId);
       const reloaded = await linkedState();
       expect(reloaded.main.children).toEqual(["play-badge", "play-label"]);
@@ -1313,6 +1332,8 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
             instance.sourceNodeIds.length === 2,
         ),
       ).toBe(true);
+      for (const instance of reloaded.instances)
+        expect(instance.sourceNodeIds).toEqual(reorderedSourceNodeIds);
       console.log("[figma-autolayout-matrix] LINKED-COMPONENT PASS", {
         main: reloaded.main,
         instances: reloaded.instances,

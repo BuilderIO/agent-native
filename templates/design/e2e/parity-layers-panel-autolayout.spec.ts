@@ -140,7 +140,7 @@ async function deleteDesign(
   request: APIRequestContext,
   id: string,
 ): Promise<void> {
-  await action(request, "delete-design", { id }).catch(() => undefined);
+  await action(request, "delete-design", { id });
 }
 
 async function fileHtml(
@@ -154,6 +154,16 @@ async function fileHtml(
 
 function nodeOffset(html: string, nodeId: string): number {
   return html.indexOf(`data-agent-native-node-id="${nodeId}"`);
+}
+
+function nodeIsBefore(
+  html: string,
+  beforeId: string,
+  afterId: string,
+): boolean {
+  const beforeOffset = nodeOffset(html, beforeId);
+  const afterOffset = nodeOffset(html, afterId);
+  return beforeOffset >= 0 && afterOffset >= 0 && beforeOffset < afterOffset;
 }
 
 function nodeIsInsideSection(
@@ -404,8 +414,8 @@ test.describe("Layers-panel auto-layout parity", () => {
         design.id,
         design.primaryId,
         (html) =>
-          nodeOffset(html, "h-last") > nodeOffset(html, "h-first") &&
-          nodeOffset(html, "h-last") < nodeOffset(html, "h-middle"),
+          nodeIsBefore(html, "h-first", "h-last") &&
+          nodeIsBefore(html, "h-last", "h-middle"),
       );
       console.log(
         "[layers-panel-autolayout] persisted move latency",
@@ -424,7 +434,7 @@ test.describe("Layers-panel auto-layout parity", () => {
         request,
         design.id,
         design.primaryId,
-        (html) => nodeOffset(html, "h-middle") < nodeOffset(html, "h-last"),
+        (html) => nodeIsBefore(html, "h-middle", "h-last"),
       );
       expect(undone.html).toEqual(original);
 
@@ -436,11 +446,8 @@ test.describe("Layers-panel auto-layout parity", () => {
       await expect
         .poll(() => directChildren(page, "hrow"))
         .toEqual(["h-first", "h-last", "h-middle"]);
-      await waitForPersistedHtml(
-        request,
-        design.id,
-        design.primaryId,
-        (html) => nodeOffset(html, "h-last") < nodeOffset(html, "h-middle"),
+      await waitForPersistedHtml(request, design.id, design.primaryId, (html) =>
+        nodeIsBefore(html, "h-last", "h-middle"),
       );
 
       await page.reload();
@@ -490,7 +497,7 @@ test.describe("Layers-panel auto-layout parity", () => {
         design.primaryId,
         (html) =>
           nodeIsInsideSection(html, "nested-inner", "inner-first") &&
-          nodeOffset(html, "inner-last") < nodeOffset(html, "inner-first"),
+          nodeIsBefore(html, "inner-last", "inner-first"),
       );
       console.log(
         "[layers-panel-autolayout] nested persisted latency",
@@ -612,7 +619,7 @@ test.describe("Layers-panel auto-layout parity", () => {
         request,
         design.id,
         design.primaryId,
-        (html) => nodeOffset(html, "v-last") < nodeOffset(html, "v-middle"),
+        (html) => nodeIsBefore(html, "v-last", "v-middle"),
       );
       console.log(
         "[layers-panel-autolayout] vertical persisted latency",
