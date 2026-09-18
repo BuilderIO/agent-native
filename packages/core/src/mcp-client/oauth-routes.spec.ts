@@ -39,7 +39,10 @@ const callbackMocks = vi.hoisted(() => ({
   getOrgContext: vi.fn(),
   getSession: vi.fn(),
   listRemoteServers: vi.fn(),
+  readMcpOAuthCredentials: vi.fn(),
   replaceOAuthRemoteServer: vi.fn(),
+  resolveMcpOAuthAuthorizationServerDiscovery: vi.fn(),
+  resolveMcpOAuthAuthorizationServerUrl: vi.fn(),
   startMcpOAuthAuthorization: vi.fn(),
   validateMcpOAuthCallbackIssuer: vi.fn(),
 }));
@@ -62,6 +65,11 @@ vi.mock("./oauth-client.js", () => ({
   isGoogleWorkspaceMcpServer: () => false,
   McpOAuthRegistrationUnsupportedError:
     McpOAuthRegistrationUnsupportedErrorMock,
+  readMcpOAuthCredentials: callbackMocks.readMcpOAuthCredentials,
+  resolveMcpOAuthAuthorizationServerDiscovery:
+    callbackMocks.resolveMcpOAuthAuthorizationServerDiscovery,
+  resolveMcpOAuthAuthorizationServerUrl:
+    callbackMocks.resolveMcpOAuthAuthorizationServerUrl,
   startMcpOAuthAuthorization: callbackMocks.startMcpOAuthAuthorization,
   validateMcpOAuthCallbackIssuer: callbackMocks.validateMcpOAuthCallbackIssuer,
 }));
@@ -230,7 +238,10 @@ describe("MCP OAuth callback flow validation", () => {
       .mockReset()
       .mockResolvedValue({ email: "alice@example.com" });
     callbackMocks.listRemoteServers.mockReset();
+    callbackMocks.readMcpOAuthCredentials.mockReset();
     callbackMocks.replaceOAuthRemoteServer.mockReset();
+    callbackMocks.resolveMcpOAuthAuthorizationServerDiscovery.mockReset();
+    callbackMocks.resolveMcpOAuthAuthorizationServerUrl.mockReset();
     callbackMocks.startMcpOAuthAuthorization.mockReset();
     callbackMocks.validateMcpOAuthCallbackIssuer.mockReset();
     callbackMocks.finishMcpOAuthAuthorization.mockResolvedValue({
@@ -248,6 +259,102 @@ describe("MCP OAuth callback flow validation", () => {
 
   afterEach(() => {
     vi.unstubAllEnvs();
+  });
+
+  it("passes an OAuth metadata hint through the start route", async () => {
+    const routes: Array<{ handler: (event: H3Event) => unknown }> = [];
+    callbackMocks.getH3App.mockReturnValue({
+      use: (_base: string, handler: (event: H3Event) => unknown) => {
+        routes.push({ handler });
+      },
+    });
+    callbackMocks.resolveMcpOAuthAuthorizationServerDiscovery.mockResolvedValue(
+      {
+        authorizationServerUrl: "https://auth.example.com/tenant",
+        authorizationServerMetadata: {
+          issuer: "https://auth.example.com/tenant",
+          authorization_endpoint: "https://auth.example.com/authorize",
+          token_endpoint: "https://auth.example.com/token",
+          registration_endpoint: "https://auth.example.com/register",
+        },
+      },
+    );
+    callbackMocks.startMcpOAuthAuthorization.mockResolvedValue({
+      authorizationUrl: new URL("https://auth.example.com/authorize"),
+      codeVerifier: "<CODE_VERIFIER>",
+      state: "<STATE>",
+      clientInformation: { client_id: "mcp-client" },
+    });
+    mountMcpOAuthRoutes({}, { reconfigure: vi.fn() });
+
+    const event = mockEvent(
+      new Request(
+        "https://app.example.com/start?name=linear&url=https%3A%2F%2Fmcp.example.com%2Fmcp&oauthMetadataUrl=https%3A%2F%2Fauth.example.com%2F.well-known%2Fcustom",
+      ),
+    );
+    await routes[0]!.handler(event);
+
+    expect(
+      callbackMocks.resolveMcpOAuthAuthorizationServerDiscovery,
+    ).toHaveBeenCalledWith("https://auth.example.com/.well-known/custom");
+    expect(callbackMocks.startMcpOAuthAuthorization).toHaveBeenCalledWith(
+      expect.objectContaining({
+        discoveryState: {
+          authorizationServerUrl: "https://auth.example.com/tenant",
+          authorizationServerMetadata: {
+            issuer: "https://auth.example.com/tenant",
+            authorization_endpoint: "https://auth.example.com/authorize",
+            token_endpoint: "https://auth.example.com/token",
+            registration_endpoint: "https://auth.example.com/register",
+          },
+        },
+      }),
+    );
+  });
+
+  it("reuses the authorization server from a saved OAuth grant", async () => {
+    const routes: Array<{ handler: (event: H3Event) => unknown }> = [];
+    callbackMocks.getH3App.mockReturnValue({
+      use: (_base: string, handler: (event: H3Event) => unknown) => {
+        routes.push({ handler });
+      },
+    });
+    callbackMocks.listRemoteServers.mockResolvedValue([
+      { ...persistedServer, oauthSecretKey: "mcp_oauth:stored" },
+    ]);
+    callbackMocks.readMcpOAuthCredentials.mockResolvedValue({
+      discoveryState: {
+        authorizationServerUrl: "https://auth.example.com/tenant",
+      },
+    });
+    callbackMocks.startMcpOAuthAuthorization.mockResolvedValue({
+      authorizationUrl: new URL("https://auth.example.com/authorize"),
+      codeVerifier: "<CODE_VERIFIER>",
+      state: "<STATE>",
+      clientInformation: { client_id: "mcp-client" },
+    });
+    mountMcpOAuthRoutes({}, { reconfigure: vi.fn() });
+
+    const event = mockEvent(
+      new Request(
+        "https://app.example.com/start?serverId=mcp-linear&scope=user",
+      ),
+    );
+    await routes[0]!.handler(event);
+
+    expect(callbackMocks.readMcpOAuthCredentials).toHaveBeenCalledWith({
+      key: "mcp_oauth:stored",
+      scope: "user",
+      scopeId: "alice@example.com",
+      serverUrl: baseFlow.url,
+    });
+    expect(callbackMocks.startMcpOAuthAuthorization).toHaveBeenCalledWith(
+      expect.objectContaining({
+        discoveryState: {
+          authorizationServerUrl: "https://auth.example.com/tenant",
+        },
+      }),
+    );
   });
 
   it("keeps OAuth responses alive when first-run telemetry fails", async () => {

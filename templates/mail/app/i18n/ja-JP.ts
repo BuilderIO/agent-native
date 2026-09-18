@@ -451,6 +451,8 @@ const messages = {
     aiFilter: {
       title: "AI フィルター",
       subtitle: "判断から学習する、いつでも戻せるラベルです。",
+      rulesTitle: "ルール",
+      newRule: "新しいルール",
       lunaBadge: "Luna（利用可能な場合）",
       toggle: "AI フィルターを切り替え",
       autoFilterTitle: "確信度の高いメールを自動でフィルター",
@@ -512,6 +514,7 @@ const messages = {
       previewTitle: "最近のメールをプレビュー",
       previewDescription:
         "新しいルールを有効にする前に、受信トレイの最新20件を確認します。アーカイブ済み、または自動アーカイブされたメールは評価しません。",
+      previewScope: "受信トレイのみ · アーカイブ済みメールを除外",
       previewButton: "プレビューを実行",
       previewRunning: "最近の受信トレイを確認中…",
       jevBadge: "Jev",

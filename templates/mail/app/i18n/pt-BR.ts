@@ -448,6 +448,8 @@ const messages = {
     aiFilter: {
       title: "Filtro de IA",
       subtitle: "Uma etiqueta reversível que aprende com suas decisões.",
+      rulesTitle: "Regras",
+      newRule: "Nova regra",
       lunaBadge: "Luna quando disponível",
       toggle: "Ativar filtro de IA",
       autoFilterTitle: "Filtrar automaticamente com alta confiança",
@@ -514,6 +516,7 @@ const messages = {
       previewTitle: "Prévia dos emails recentes",
       previewDescription:
         "Revise as 20 mensagens mais recentes da Caixa de entrada antes de ativar uma regra. Emails arquivados ou arquivados automaticamente nunca são avaliados.",
+      previewScope: "Somente Caixa de entrada · emails arquivados excluídos",
       previewButton: "Executar prévia",
       previewRunning: "Verificando emails recentes da Caixa de entrada…",
       jevBadge: "Jev",

@@ -1995,6 +1995,9 @@ export function createOAuthPopupWaitingHandler() {
       "default-src 'none'; frame-ancestors 'none'",
     );
     setResponseHeader(event, "X-Frame-Options", "DENY");
+    // Match the opener's policy so the client can navigate this inert page
+    // before the provider navigation creates a new browsing-context group.
+    setResponseHeader(event, "Cross-Origin-Opener-Policy", "same-origin");
     return OAUTH_POPUP_WAITING_HTML;
   });
 }

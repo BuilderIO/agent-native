@@ -19,6 +19,7 @@ export type AuthView =
   | "signup"
   | "login"
   | "forgot"
+  | "twoFactor"
   | "verification"
   | "magicLink"
   | "magicLinkSent"
@@ -664,6 +665,9 @@ function headingKeys(view: AuthView): { heading: string; subtitle: string } {
   if (view === "forgot") {
     return { heading: "resetPasswordTitle", subtitle: "resetPasswordSubtitle" };
   }
+  if (view === "twoFactor") {
+    return { heading: "twoFactorTitle", subtitle: "twoFactorSubtitle" };
+  }
   if (view === "verification") {
     return { heading: "checkEmailTitle", subtitle: "finishAccountSubtitle" };
   }
@@ -736,6 +740,7 @@ export function AuthPage(props: AuthPageProps) {
     React.useState("");
   const [loginEmail, setLoginEmail] = React.useState("");
   const [loginPassword, setLoginPassword] = React.useState("");
+  const [twoFactorCode, setTwoFactorCode] = React.useState("");
   const [forgotEmail, setForgotEmail] = React.useState("");
   const [forgotSent, setForgotSent] = React.useState(false);
   const [verificationEmail, setVerificationEmail] = React.useState("");
@@ -1991,6 +1996,11 @@ export function AuthPage(props: AuthPageProps) {
           },
         );
         if (response.ok) {
+          if (data.twoFactorRedirect === true) {
+            setTwoFactorCode("");
+            setView("twoFactor");
+            return;
+          }
           removeStorage(pendingEmailStorageKey());
           redirectToSignedInApp();
           return;
@@ -2015,6 +2025,53 @@ export function AuthPage(props: AuthPageProps) {
       t,
       trackingApp,
       view,
+    ],
+  );
+
+  const handleTwoFactor = React.useCallback(
+    async (event: React.FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      const code = twoFactorCode.trim();
+      if (!/^\d{6,8}$/.test(code)) {
+        setNotice("twoFactor", { kind: "error", text: t("twoFactorInvalid") });
+        return;
+      }
+      setSubmitting("twoFactor");
+      setNotice("twoFactor", null);
+      try {
+        const { response, data } = await requestJson(
+          apiPath("/_agent-native/auth/two-factor/verify"),
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ code }),
+          },
+        );
+        if (response.ok && data.ok === true) {
+          removeStorage(pendingEmailStorageKey());
+          redirectToSignedInApp();
+          return;
+        }
+        setNotice("twoFactor", {
+          kind: "error",
+          text: authErrorText(data, t("twoFactorInvalid")),
+        });
+      } catch {
+        setNotice("twoFactor", {
+          kind: "error",
+          text: t("networkErrorDashRetry"),
+        });
+      } finally {
+        setSubmitting(null);
+      }
+    },
+    [
+      apiPath,
+      pendingEmailStorageKey,
+      redirectToSignedInApp,
+      setNotice,
+      t,
+      twoFactorCode,
     ],
   );
 
@@ -2630,7 +2687,11 @@ export function AuthPage(props: AuthPageProps) {
           <div
             className="tabs"
             id="auth-tabs"
-            hidden={view === "magicLink" || view === "magicLinkSent"}
+            hidden={
+              view === "magicLink" ||
+              view === "magicLinkSent" ||
+              view === "twoFactor"
+            }
           >
             <button
               className={`tab ${view === "signup" ? "active" : ""}`}
@@ -2736,6 +2797,51 @@ export function AuthPage(props: AuthPageProps) {
           </div>
           {notice("verification")}
         </div>
+        <form
+          id="two-factor-form"
+          className={`form ${view === "twoFactor" ? "active" : ""}`}
+          onSubmit={handleTwoFactor}
+        >
+          <label htmlFor="two-factor-code" data-i18n="twoFactorCodeLabel">
+            {t("twoFactorCodeLabel")}
+          </label>
+          <input
+            id="two-factor-code"
+            type="text"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            pattern="[0-9]{6,8}"
+            maxLength={8}
+            placeholder={t("twoFactorCodePlaceholder")}
+            value={twoFactorCode}
+            onChange={(event) =>
+              setTwoFactorCode(event.currentTarget.value.replace(/\D/g, ""))
+            }
+            required
+          />
+          <button
+            type="submit"
+            data-i18n="twoFactorVerify"
+            disabled={submitting === "twoFactor"}
+          >
+            {submitting === "twoFactor"
+              ? t("twoFactorVerifying")
+              : t("twoFactorVerify")}
+          </button>
+          {notice("twoFactor")}
+          <button
+            type="button"
+            className="link-button"
+            data-i18n="twoFactorBack"
+            onClick={() => {
+              setTwoFactorCode("");
+              setNotice("twoFactor", null);
+              setView("login");
+            }}
+          >
+            {t("twoFactorBack")}
+          </button>
+        </form>
         <form
           id="login-form"
           className={`form ${view === "login" ? "active" : ""}`}

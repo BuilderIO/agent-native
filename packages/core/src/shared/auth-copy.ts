@@ -47,10 +47,30 @@ export interface NativeAuthCopy {
   failedToConnect: string;
   googleNeverFinished: string;
   checking: string;
+  twoFactorTitle: string;
+  twoFactorSubtitle: string;
+  twoFactorCodeLabel: string;
+  twoFactorCodePlaceholder: string;
+  twoFactorVerify: string;
+  twoFactorVerifying: string;
+  twoFactorInvalid: string;
+  twoFactorBack: string;
 }
+
+const TWO_FACTOR_COPY = {
+  twoFactorTitle: "Two-step verification",
+  twoFactorSubtitle: "Enter the six-digit code from your authenticator app.",
+  twoFactorCodeLabel: "Authentication code",
+  twoFactorCodePlaceholder: "000000",
+  twoFactorVerify: "Verify code",
+  twoFactorVerifying: "Verifying...",
+  twoFactorInvalid: "That code is invalid or expired. Try again.",
+  twoFactorBack: "Back to sign in",
+} as const;
 
 export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
   "en-US": {
+    ...TWO_FACTOR_COPY,
     googleButton: "Sign in with Google",
     ssoButton: "Continue with SSO",
     ssoEmailPlaceholder: "Work email",
@@ -94,6 +114,7 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     checking: "Checking...",
   },
   "zh-CN": {
+    ...TWO_FACTOR_COPY,
     googleButton: "使用 Google 登录",
     ssoButton: "使用 SSO 继续",
     ssoEmailPlaceholder: "工作邮箱",
@@ -132,6 +153,7 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     checking: "正在检查...",
   },
   "zh-TW": {
+    ...TWO_FACTOR_COPY,
     googleButton: "使用 Google 登入",
     ssoButton: "使用 SSO 繼續",
     ssoEmailPlaceholder: "工作電子郵件",
@@ -170,6 +192,7 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     checking: "正在檢查...",
   },
   "es-ES": {
+    ...TWO_FACTOR_COPY,
     googleButton: "Iniciar sesión con Google",
     ssoButton: "Continuar con SSO",
     ssoEmailPlaceholder: "Correo de trabajo",
@@ -209,6 +232,7 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     checking: "Comprobando...",
   },
   "fr-FR": {
+    ...TWO_FACTOR_COPY,
     googleButton: "Se connecter avec Google",
     ssoButton: "Continuer avec SSO",
     ssoEmailPlaceholder: "E-mail professionnel",
@@ -248,6 +272,7 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     checking: "Vérification...",
   },
   "de-DE": {
+    ...TWO_FACTOR_COPY,
     googleButton: "Mit Google anmelden",
     ssoButton: "Mit SSO fortfahren",
     ssoEmailPlaceholder: "Arbeits-E-Mail",
@@ -288,6 +313,7 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     checking: "Prüfen...",
   },
   "ja-JP": {
+    ...TWO_FACTOR_COPY,
     googleButton: "Google でサインイン",
     ssoButton: "SSO で続行",
     ssoEmailPlaceholder: "仕事用メールアドレス",
@@ -329,6 +355,7 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     checking: "確認中...",
   },
   "ko-KR": {
+    ...TWO_FACTOR_COPY,
     googleButton: "Google로 로그인",
     ssoButton: "SSO로 계속",
     ssoEmailPlaceholder: "회사 이메일",
@@ -368,6 +395,7 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     checking: "확인 중...",
   },
   "pt-BR": {
+    ...TWO_FACTOR_COPY,
     googleButton: "Entrar com Google",
     ssoButton: "Continuar com SSO",
     ssoEmailPlaceholder: "E-mail de trabalho",
@@ -407,6 +435,7 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     checking: "Verificando...",
   },
   "hi-IN": {
+    ...TWO_FACTOR_COPY,
     googleButton: "Google से साइन इन करें",
     ssoButton: "SSO के साथ जारी रखें",
     ssoEmailPlaceholder: "कार्य ईमेल",
@@ -446,6 +475,7 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     checking: "जांच हो रही है...",
   },
   "ar-SA": {
+    ...TWO_FACTOR_COPY,
     googleButton: "تسجيل الدخول باستخدام Google",
     ssoButton: "المتابعة باستخدام SSO",
     ssoEmailPlaceholder: "البريد الإلكتروني للعمل",
