@@ -3351,6 +3351,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         crossScreenDropSeqRef.current += 1;
         crossScreenEndSeenRef.current = false;
         crossScreenHostCommittedRef.current = false;
+        crossScreenLastBoardPointRef.current = null;
         crossScreenDragMsgRef.current = {
           selector: msg.selector ?? "",
           sourceId: msg.sourceId,

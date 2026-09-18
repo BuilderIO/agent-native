@@ -462,8 +462,8 @@ test.describe("drag reparent parity", () => {
       ghostBox,
       `drag ghost geometry missing. Trace: ${trace.slice(-800)}`,
     ).not.toBeNull();
-    expect(ghostBox!.width).toBeGreaterThan(0);
-    expect(ghostBox!.height).toBeGreaterThan(0);
+    expect(ghostBox!.width).toBeGreaterThan(widget.width * 0.8);
+    expect(ghostBox!.height).toBeGreaterThan(widget.height * 0.8);
     expect(ghostBox!.x + ghostBox!.width / 2).toBeCloseTo(boardPoint.x, 0);
     expect(ghostBox!.y + ghostBox!.height / 2).toBeCloseTo(boardPoint.y, 0);
 
