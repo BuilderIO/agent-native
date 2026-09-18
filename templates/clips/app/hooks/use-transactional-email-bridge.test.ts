@@ -148,6 +148,40 @@ describe("transactional email bridge", () => {
     container.remove();
   });
 
+  it("aborts and ignores a poll that outlives the authenticated session", async () => {
+    let resolveAction!: (value: {
+      requests: ClaimedTransactionalEmailAiRequest[];
+    }) => void;
+    const pending = new Promise<{
+      requests: ClaimedTransactionalEmailAiRequest[];
+    }>((resolve) => {
+      resolveAction = resolve;
+    });
+    mocks.callAction.mockReturnValueOnce(pending);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(createElement(BridgeHarness));
+    });
+    const signal = mocks.callAction.mock.calls[0]?.[2]?.signal as AbortSignal;
+    expect(signal).toBeInstanceOf(AbortSignal);
+
+    mocks.sessionStatus = "unauthenticated";
+    await act(async () => {
+      root?.render(createElement(BridgeHarness));
+    });
+    expect(signal.aborted).toBe(true);
+
+    await act(async () => {
+      resolveAction({ requests: [request] });
+      await pending;
+    });
+    expect(mocks.sendToAgentChat).not.toHaveBeenCalled();
+    container.remove();
+  });
+
   it("logs a send failure once and never retries the ai_dispatched job", async () => {
     const error = new Error("chat unavailable");
     const consoleError = vi

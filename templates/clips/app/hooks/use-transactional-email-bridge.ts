@@ -61,12 +61,15 @@ export function buildTransactionalEmailChatOptions(
 export async function dispatchClaimedTransactionalEmailAiRequests(
   dispatched: Set<string>,
   send: (options: AgentChatMessage) => unknown = sendToAgentChat,
+  signal?: AbortSignal,
 ): Promise<number> {
+  if (signal?.aborted) return 0;
   const result = (await callAction(
     "list-transactional-email-ai-requests" as any,
     {} as any,
-    { method: "GET" },
+    signal ? { method: "GET", signal } : { method: "GET" },
   )) as { requests?: ClaimedTransactionalEmailAiRequest[] } | null;
+  if (signal?.aborted) return 0;
   let dispatchCount = 0;
   for (const request of result?.requests ?? []) {
     if (dispatched.has(request.jobId)) continue;
@@ -88,18 +91,23 @@ export function useTransactionalEmailBridge(): void {
   const actionVersion = useChangeVersions(["action"]);
   const { status } = useSession();
   const dispatched = useRef(new Set<string>());
-  const inflight = useRef(false);
 
   useEffect(() => {
     if (status !== "authenticated") return;
 
+    const controller = new AbortController();
+    let inflight = false;
     const tick = () => {
-      if (inflight.current) return;
-      inflight.current = true;
-      void dispatchClaimedTransactionalEmailAiRequests(dispatched.current)
+      if (inflight) return;
+      inflight = true;
+      void dispatchClaimedTransactionalEmailAiRequests(
+        dispatched.current,
+        sendToAgentChat,
+        controller.signal,
+      )
         .catch(() => undefined)
         .finally(() => {
-          inflight.current = false;
+          inflight = false;
         });
     };
 
@@ -107,6 +115,9 @@ export function useTransactionalEmailBridge(): void {
     // The transactional email queue is file-backed, so background worker writes
     // do not emit SQL/action change events that this browser can observe.
     const timer = setInterval(tick, TRANSACTIONAL_EMAIL_BRIDGE_INTERVAL_MS);
-    return () => clearInterval(timer);
+    return () => {
+      controller.abort();
+      clearInterval(timer);
+    };
   }, [actionVersion, status]);
 }
