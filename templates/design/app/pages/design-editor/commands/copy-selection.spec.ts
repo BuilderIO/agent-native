@@ -7,7 +7,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const clipboard = vi.hoisted(() => ({
   getDesignClipboardTrustToken: vi.fn(() => "local-clipboard-token"),
   plainTextFromDesignHtml: vi.fn(() => "Badge"),
-  writeDesignClipboard: vi.fn(async () => {}),
+  writeDesignClipboard: vi.fn<
+    (representations: { plainText: string; html: string }) => Promise<void>
+  >(async () => {}),
 }));
 
 vi.mock("@/lib/design-clipboard", () => clipboard);
@@ -103,22 +105,28 @@ describe("copying a runtime-projected layer", () => {
         "local-clipboard-token",
       )?.entries[0]?.styleSnapshotCaptureFailed,
     ).toBe(true);
+    expect(
+      parseDesignClipboardMarker(
+        clipboard.writeDesignClipboard.mock.calls[0]?.[0].html,
+        "local-clipboard-token",
+      )?.entries[0]?.styleSnapshotCaptureFailed,
+    ).toBe(true);
   });
 
-  it("refreshes a lightweight overview selection before copying", async () => {
+  it("writes cached enriched multi-selection to the system marker during activation", async () => {
     const file: DesignFile = {
       id: "screen-a",
       filename: "index.html",
       fileType: "html",
       content:
-        '<!doctype html><html><body><div data-agent-native-node-id="node-1">Copy</div></body></html>',
+        '<!doctype html><html><body><div data-agent-native-node-id="node-1">Copy</div><div data-agent-native-node-id="node-2">Copy too</div></body></html>',
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T00:00:00.000Z",
     };
     const projection = buildCodeLayerProjection(file.content!, {
       source: { kind: "design-file", fileId: file.id },
     });
-    const selectedNode = projection.nodes.find((node) => node.tag === "div")!;
+    const selectedNodes = projection.nodes.filter((node) => node.tag === "div");
     const lightweightSnapshots = runGetSelectedLayerSnapshots({
       activeFile: file,
       designSourceType: "inline",
@@ -128,11 +136,9 @@ describe("copying a runtime-projected layer", () => {
       liveScreenSnapshotsById: {},
       overviewScreens: [],
       runtimeLayerSnapshotsById: {},
-      selectedElement: {
-        selector: '[data-agent-native-node-id="node-1"]',
-      } as ElementInfo,
-      selectedElementLayerId: selectedNode.id,
-      selectedLayerIdsState: [selectedNode.id],
+      selectedElement: null,
+      selectedElementLayerId: null,
+      selectedLayerIdsState: selectedNodes.map((node) => node.id),
     });
     const portableStyleSnapshot: PortableStyleSnapshot = {
       version: 1,
@@ -145,20 +151,19 @@ describe("copying a runtime-projected layer", () => {
         },
       ],
     };
-    const fullSnapshots = [
-      {
-        ...lightweightSnapshots[0]!,
-        portableStyleSnapshot,
+    const fullSnapshots = lightweightSnapshots.map((snapshot) => ({
+      ...snapshot,
+      portableStyleSnapshot: {
+        ...portableStyleSnapshot,
+        rootSourceId: snapshot.rootNodeId,
       },
-    ];
+    }));
     const copiedLayerEntriesRef = ref<CanvasLayerClipboardEntry[]>([]);
     const copiedLayerHtmlRef = ref<string | null>(null);
     const copiedScreenEntriesRef = ref<
       DesignClipboardScreenEntry[] | undefined
     >(undefined);
-    const refetch = vi.fn(async () => fullSnapshots);
-
-    await runCopySelection({
+    const copying = runCopySelection({
       canvasFrameGeometryById: {},
       copiedLayerEntriesRef,
       copiedLayerHtmlRef,
@@ -166,8 +171,7 @@ describe("copying a runtime-projected layer", () => {
       designSourceType: "inline",
       files: [file],
       getScreenContent: () => file.content!,
-      getSelectedLayerSnapshots: () => lightweightSnapshots,
-      getSelectedLayerSnapshotsWithFullInfo: refetch,
+      getSelectedLayerSnapshots: () => fullSnapshots,
       lastWrittenClipboardMarkerRef: ref<string | null>(null),
       lastWrittenClipboardPlainTextRef: ref<string | null>(null),
       liveScreenSnapshotsById: {},
@@ -180,10 +184,47 @@ describe("copying a runtime-projected layer", () => {
       viewModeRef: ref<"single" | "overview">("overview"),
     });
 
-    expect(refetch).toHaveBeenCalledTimes(1);
-    expect(copiedLayerEntriesRef.current[0]?.portableStyleSnapshot).toEqual(
-      portableStyleSnapshot,
-    );
+    expect(clipboard.writeDesignClipboard).toHaveBeenCalledTimes(1);
+    await copying;
+
+    expect(copiedLayerEntriesRef.current).toHaveLength(2);
+    expect(
+      parseDesignClipboardMarker(
+        clipboard.writeDesignClipboard.mock.calls[0]?.[0].html,
+        "local-clipboard-token",
+      )?.entries.map((entry) => entry.portableStyleSnapshot),
+    ).toEqual(fullSnapshots.map((snapshot) => snapshot.portableStyleSnapshot));
+  });
+
+  it("matches an enriched override by source id and preserves an explicit failure", () => {
+    const file: DesignFile = {
+      id: "screen-a",
+      filename: "index.html",
+      fileType: "html",
+      content:
+        '<!doctype html><html><body><div data-agent-native-node-id="source-id">Copy</div></body></html>',
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const snapshots = runGetSelectedLayerSnapshots({
+      activeFile: file,
+      designSourceType: "inline",
+      files: [file],
+      getFreshActiveContent: () => file.content!,
+      getScreenContent: () => file.content!,
+      liveScreenSnapshotsById: {},
+      overviewScreens: [],
+      runtimeLayerSnapshotsById: {},
+      selectedElement: null,
+      selectedElementsByLayerId: new Map([
+        ["source-id", { styleSnapshotCaptureFailed: true } as ElementInfo],
+      ]),
+      selectedElementLayerId: null,
+      selectedLayerIdsState: ["source-id"],
+    });
+
+    expect(snapshots).toHaveLength(1);
+    expect(snapshots[0]?.styleSnapshotCaptureFailed).toBe(true);
   });
 
   it("keeps the source group id in memory and in the system clipboard marker", async () => {

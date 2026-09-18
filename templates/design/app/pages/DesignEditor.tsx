@@ -1857,6 +1857,9 @@ function DesignEditor() {
     [],
   );
   const selectedLayerTargetsRef = useRef<SelectedLayerTarget[]>([]);
+  const selectedLayerSnapshotInfoByIdRef = useRef<Map<string, ElementInfo>>(
+    new Map(),
+  );
   const renderedElementInfoByLayerKeyRef = useRef<Map<string, ElementInfo>>(
     new Map(),
   );
@@ -13063,7 +13066,10 @@ function DesignEditor() {
 
   // ── Clipboard copy and paste ───────────────────────────────────────────────
   const getSelectedLayerSnapshots = useCallback(
-    (selectedElementOverride?: ElementInfo | null) =>
+    (
+      selectedElementOverride?: ElementInfo | null,
+      selectedElementsByLayerId?: ReadonlyMap<string, ElementInfo>,
+    ) =>
       runGetSelectedLayerSnapshots({
         activeFile,
         designSourceType,
@@ -13077,6 +13083,8 @@ function DesignEditor() {
           selectedElementOverride === undefined
             ? selectedElement
             : selectedElementOverride,
+        selectedElementsByLayerId:
+          selectedElementsByLayerId ?? selectedLayerSnapshotInfoByIdRef.current,
         selectedElementLayerId,
         selectedLayerIdsState,
       }),
@@ -13094,45 +13102,6 @@ function DesignEditor() {
       selectedLayerIdsState,
     ],
   );
-
-  // Overview marquee collection deliberately omits portable subtree styles so
-  // the preview stays responsive while the hit-set is still changing. Copy is
-  // the first boundary that needs those styles; refresh just the selected
-  // element there instead of making every marquee tick pay for a full snapshot.
-  const getSelectedLayerSnapshotsWithFullInfo = useCallback(async () => {
-    const snapshots = getSelectedLayerSnapshots();
-    if (
-      !selectedElement ||
-      selectedElement.portableStyleSnapshot !== undefined ||
-      selectedElement.styleSnapshotCaptureFailed === true
-    ) {
-      return snapshots;
-    }
-    const screenId =
-      selectedElement.sourceLayerIdentity?.screenId ??
-      activeFile?.id ??
-      activeFileId;
-    const selector =
-      selectedElement.runtimeSelector ?? selectedElement.selector ?? null;
-    if (!screenId || !selector) return snapshots;
-    const measured = await requestSelectionMeasurement({
-      targetWindows: () =>
-        designPreviewWindowsForScreen(
-          screenId,
-          activeBreakpointWidthStateRef.current,
-          boardFileId,
-        ),
-      screenId,
-      selector,
-    });
-    return measured ? getSelectedLayerSnapshots(measured) : snapshots;
-  }, [
-    activeFile?.id,
-    activeFileId,
-    boardFileId,
-    getSelectedLayerSnapshots,
-    selectedElement,
-  ]);
 
   const getCanvasClipboardEntries = useCallback(() => {
     if (copiedLayerEntriesRef.current.length > 0) {
@@ -13251,7 +13220,6 @@ function DesignEditor() {
         files,
         getScreenContent,
         getSelectedLayerSnapshots,
-        getSelectedLayerSnapshotsWithFullInfo,
         lastWrittenClipboardMarkerRef,
         lastWrittenClipboardPlainTextRef,
         liveScreenSnapshotsById,
@@ -13269,7 +13237,6 @@ function DesignEditor() {
       files,
       getScreenContent,
       getSelectedLayerSnapshots,
-      getSelectedLayerSnapshotsWithFullInfo,
       liveScreenSnapshotsById,
       overviewSelectedScreenIds,
       overviewScreens,
@@ -19594,6 +19561,67 @@ function DesignEditor() {
   useLayoutEffect(() => {
     selectedLayerTargetsRef.current = selectedLayerTargets;
   }, [selectedLayerTargets]);
+
+  useEffect(() => {
+    const selectedElementsByLayerId = new Map(
+      selectedLayerTargets.map((target) => [
+        target.layerId,
+        target.elementInfo,
+      ]),
+    );
+    if (selectedElementLayerId && selectedElement) {
+      selectedElementsByLayerId.set(selectedElementLayerId, selectedElement);
+    }
+    selectedLayerSnapshotInfoByIdRef.current = selectedElementsByLayerId;
+    void Promise.all(
+      [...selectedElementsByLayerId].map(async ([layerId, element]) => {
+        if (
+          element.portableStyleSnapshot !== undefined ||
+          element.styleSnapshotCaptureFailed === true
+        ) {
+          return;
+        }
+        const target = selectedLayerTargets.find(
+          (candidate) => candidate.layerId === layerId,
+        );
+        const screenId =
+          element.sourceLayerIdentity?.screenId ??
+          target?.fileId ??
+          activeFile?.id ??
+          activeFileId;
+        const selector = element.runtimeSelector ?? element.selector ?? null;
+        const measured =
+          screenId && selector
+            ? await requestSelectionMeasurement({
+                targetWindows: () =>
+                  designPreviewWindowsForScreen(
+                    screenId,
+                    activeBreakpointWidthStateRef.current,
+                    boardFileId,
+                  ),
+                screenId,
+                selector,
+              })
+            : null;
+        if (
+          selectedLayerSnapshotInfoByIdRef.current !== selectedElementsByLayerId
+        ) {
+          return;
+        }
+        selectedElementsByLayerId.set(
+          layerId,
+          measured ?? { ...element, styleSnapshotCaptureFailed: true },
+        );
+      }),
+    );
+  }, [
+    activeFile?.id,
+    activeFileId,
+    boardFileId,
+    selectedElement,
+    selectedElementLayerId,
+    selectedLayerTargets,
+  ]);
 
   const selectedBoardCanvasSelectorCandidates = useMemo(() => {
     const boardTarget = [...selectedLayerTargets]
