@@ -14,8 +14,7 @@ Read the relevant skill before deeper work:
   suggestions, common tasks, the data model, and the collections reference.
 - `notion-integration` — connected Notion workflows and the raw Notion provider
   API path.
-- `creative-context` — cross-app source reuse, pinned packs, provenance, and
-  context opt-out.
+- `creative-context` — cross-app reuse, pinned packs, and context opt-out.
 
 ## Core Rules
 
@@ -30,27 +29,22 @@ Read the relevant skill before deeper work:
   Browser full rewrites use `update-document`.
 - Preserve user-authored content. Prefer targeted edits over wholesale rewrites
   unless requested.
-- `create-document`, `update-document`, and `delete-document` already signal
-  a UI refresh; only call `refresh-list` directly if you mutate documents
-  another way and the UI doesn't update.
 - Screen context is auto-included as a `<current-screen>` block on every
   message — check it before acting instead of calling `view-screen` by default.
   IDs for edits always come from `<current-screen>` or a prior action result,
   never guessed.
-- Documents are **private by default**; use `share-resource` /
-  `set-resource-visibility` (`resourceType document`) to change access. Keep
-  public/exported content server-renderable where relevant.
+- Documents are private by default. Use sharing actions to change access, and
+  keep public/exported content server-renderable where relevant.
 - Notion workspace access is per-user OAuth only: never read `NOTION_API_KEY`
   from `process.env`, never save a user-entered token, and require editor access
   to pull or push. Notion actions are shortcuts, not capability limits — see
   `notion-integration` for the `provider-api-*` path when an exact endpoint,
   filter, pagination mode, or API version matters.
-- Store large file/blob payloads in configured file/blob storage, not SQL: no
-  base64, `data:` URLs, images, video/audio, PDFs, ZIPs, screenshots,
-  thumbnails, or replay chunks in app tables, `application_state`, `settings`,
-  or `resources`; persist URLs, ids, or handles instead.
-- Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
-- For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
+- Store large files outside SQL; persist URLs, ids, or handles.
+- Never hardcode secrets or private/customer data. Use secrets, OAuth, runtime
+  configuration, and obvious placeholders.
+- For external integrations, inspect the workspace/provider connection catalog
+  first; reuse its scoped resolver.
 
 ## Application State
 
@@ -78,7 +72,8 @@ Read the relevant skill before deeper work:
 | `pull-document` | Flush live collab state, then read (external edits) |
 | `get-blocks-field-word-count` | Count one exact Blocks field; omit `propertyId` for the primary Content body |
 | `create-document` | Create a page, optionally under a parent |
-| `resolve-content-landing` | Restore the caller's last authorized page |
+| `resolve-content-landing` | Restore the caller's last authorized page in a requested Content space |
+| `get-content-recent` | List personal recent destinations with current access, optionally scoped to a Content space's Files membership |
 | `edit-document` | Revisioned find/replace, or initialize an empty body |
 | `update-document` | Metadata or browser-owned full rewrite |
 | `delete-document` | Move a page and its children to Trash |
@@ -91,11 +86,11 @@ Every action carries its own schema, and the rest of the app-specific surface
 `remove-local-file-source`) is registered too — use `tool-search` instead of
 scanning a table here.
 
-Sidebar ordering has two meanings. Reordering Pinned or workspace roots moves
-the exact `databaseId` + `itemId` membership, never the document. Files Custom
-order is a per-user view preference written with
-`update-content-database-personal-view`; shared row ordering still uses
-`move-database-item`.
+Sidebar order and active Views use `update-content-database-personal-view`'s
+`navigation` patch, never parentage or membership. Shared row order uses
+`move-database-item`. Recent means foreground visits, with Database visits
+coalesced to the latest View. Sidebar paging, active-path lookup, and visit
+recording are UI-owned; agents use the listed reads and `navigate`.
 
 ## Source Changes
 

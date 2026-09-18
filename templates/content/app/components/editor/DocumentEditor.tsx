@@ -55,7 +55,7 @@ import {
   useState,
 } from "react";
 import type { ClipboardEvent, MutableRefObject, ReactNode } from "react";
-import { useLocation, useNavigate } from "react-router";
+import { Navigate, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import {
@@ -83,6 +83,7 @@ import {
   useDeleteContentDatabase,
   useProcessBuilderBodyHydration,
 } from "@/hooks/use-content-database";
+import { useRecordContentVisit } from "@/hooks/use-content-recent";
 import {
   useContentSpaces,
   type ContentSpaceSummary,
@@ -259,6 +260,7 @@ interface DocumentEditorProps {
   databaseId?: string | null;
   databaseDocumentId?: string | null;
   viewId?: string | null;
+  foreground?: boolean;
 }
 
 export interface PageEditorSession {
@@ -543,6 +545,7 @@ export function DocumentEditor({
   databaseId,
   databaseDocumentId,
   viewId,
+  foreground = false,
 }: DocumentEditorProps) {
   return (
     <PageEditorSurface
@@ -550,6 +553,7 @@ export function DocumentEditor({
       databaseId={databaseId}
       databaseDocumentId={databaseDocumentId}
       viewId={viewId}
+      foreground={foreground}
       host="page"
     />
   );
@@ -571,6 +575,7 @@ export function PageEditorSurface({
   databaseId,
   databaseDocumentId,
   viewId,
+  foreground = false,
   host,
   onSessionChange,
   onDelete,
@@ -641,6 +646,18 @@ export function PageEditorSurface({
   });
   admittedDocumentIdRef.current = loadState.admittedDocumentId;
 
+  useRecordContentVisit(
+    { documentId },
+    foreground &&
+      host === "page" &&
+      !viewId &&
+      !!document &&
+      !document.database &&
+      !isError &&
+      isFetchedAfterMount &&
+      loadState.view === "editor",
+  );
+
   async function retryDocumentQuery() {
     setManualRetryDocumentId(documentId);
     try {
@@ -699,6 +716,18 @@ export function PageEditorSurface({
     );
   }
 
+  if (
+    viewId &&
+    document &&
+    (!document.database || document.database.id !== databaseId)
+  ) {
+    return host === "page" ? (
+      <Navigate to="/home" replace />
+    ) : (
+      <DocumentUnavailable />
+    );
+  }
+
   // If we have a doc (real or optimistic from create) render the editor —
   // an `isError` blip during a just-fired create shouldn't flash "not found".
   // A database/list snapshot can optimistically seed the document cache with a
@@ -721,6 +750,9 @@ export function PageEditorSurface({
         })}
         documentId={documentId}
         document={document}
+        foreground={
+          foreground && host === "page" && !isError && isFetchedAfterMount
+        }
         databaseId={databaseId}
         databaseDocumentId={databaseDocumentId}
         viewId={viewId}
@@ -1031,6 +1063,7 @@ interface DocumentEditorBodyProps {
   onDelete?: () => Promise<void>;
   focusTitle: boolean;
   onTitleFocused?: () => void;
+  foreground?: boolean;
 }
 
 type PendingDocumentSave = {
@@ -1471,6 +1504,7 @@ function PageEditorSessionBody({
   onDelete,
   focusTitle,
   onTitleFocused,
+  foreground = false,
 }: DocumentEditorBodyProps) {
   const acknowledgedDocumentRef = useRef<Document | null>(null);
   const resolvedDocument = resolveAcknowledgedDocumentSnapshot({
@@ -1489,17 +1523,32 @@ function PageEditorSessionBody({
     databaseDocumentId,
   });
   useEffect(() => {
-    if (host !== "page") return;
+    if (host !== "page" || document.database?.systemRole) return;
     void rememberContentLandingDocument(
-      documentId,
-      currentDocumentRef.current?.title,
+      {
+        documentId,
+        ...(currentDocumentRef.current?.title?.trim()
+          ? { title: currentDocumentRef.current.title }
+          : {}),
+        ...(databaseId ? { databaseId } : {}),
+        ...(viewId ? { viewId } : {}),
+      },
+      document.spaceId ?? undefined,
     ).catch((error) => {
       toast.error(t("landing.saveFailed"), {
         description:
           error instanceof Error ? error.message : t("empty.genericError"),
       });
     });
-  }, [documentId, host, t]);
+  }, [
+    databaseId,
+    document.database?.systemRole,
+    document.spaceId,
+    documentId,
+    host,
+    viewId,
+    t,
+  ]);
   const updateDocument = useUpdateDocument();
   const resolvePreviewDocumentDraft = useResolvePreviewDocumentDraft();
   const updatePreviewDocumentDraft = useUpdatePreviewDocumentDraft();
@@ -4755,7 +4804,7 @@ function PageEditorSessionBody({
                 { requestSource: "content-breadcrumb" },
               ),
             persistSelection: setStoredSpaceId,
-            openFiles: () => navigate(`/page/${targetId}`, { flushSync: true }),
+            openSpace: () => navigate(`/page/${targetId}`, { flushSync: true }),
           }),
         )
         .catch((error) => {
@@ -5375,6 +5424,7 @@ function PageEditorSessionBody({
                   <div className={documentEditorDatabaseRegionClassName()}>
                     <DocumentDatabase
                       document={document}
+                      foreground={foreground}
                       canEdit={canEdit}
                       viewId={viewId}
                       onExportContextChange={handleDatabaseExportContextChange}

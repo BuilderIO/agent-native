@@ -1129,6 +1129,14 @@ export const runContentMigrations = runMigrations(
         ON comment_ai_requests (document_id, thread_id, requester_email)
         WHERE status IN ('queued', 'running')`,
     },
+    {
+      version: 95,
+      name: "content-files-navigation-indexes",
+      sql: `CREATE INDEX IF NOT EXISTS documents_parent_title_id_idx ON documents (parent_id, title, id);
+        CREATE INDEX IF NOT EXISTS documents_parent_created_id_idx ON documents (parent_id, created_at, id);
+        CREATE INDEX IF NOT EXISTS documents_parent_updated_id_idx ON documents (parent_id, updated_at, id);
+        CREATE INDEX IF NOT EXISTS content_database_items_database_position_id_idx ON content_database_items (database_id, position, id)`,
+    },
   ],
   { table: "content_migrations" },
 );
