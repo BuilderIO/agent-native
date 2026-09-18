@@ -2976,19 +2976,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     styles: Record<string, string> | null;
   };
 
-  type PortableStyleAnimationStateCacheEntry = {
-    generation: number;
-    safe: boolean;
-    parent?: Element | null;
-  };
-
   type PortableStyleComputedStylesCache = {
     entries: Map<Element, PortableStyleCacheEntry>;
     mutationObserver: MutationObserver;
     mutationGeneration: number;
     observedMutationRoots: Node[];
-    animationStates: Map<Element, PortableStyleAnimationStateCacheEntry>;
-    animationSafety: Map<Element, PortableStyleAnimationStateCacheEntry>;
     restoreCssomHooks: () => void;
   };
 
@@ -3359,14 +3351,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       mutationObserver: null as unknown as MutationObserver,
       mutationGeneration: 0,
       observedMutationRoots: [],
-      animationStates: new Map<
-        Element,
-        PortableStyleAnimationStateCacheEntry
-      >(),
-      animationSafety: new Map<
-        Element,
-        PortableStyleAnimationStateCacheEntry
-      >(),
       restoreCssomHooks: function () {},
     };
     try {
@@ -3413,16 +3397,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
   }
 
-  function canReadPortableAnimationState(
-    el: Element,
-    cache?: PortableStyleComputedStylesCache,
-  ): boolean {
-    var cached = cache?.animationStates.get(el);
-    if (cached && cached.generation === cache?.mutationGeneration) {
-      return cached.safe;
-    }
-    var safe = true;
-    var cacheable = true;
+  function canReadPortableAnimationState(el: Element): boolean {
     var animatedElement = el as Element & {
       getAnimations?: () => Array<{ playState?: string }>;
     };
@@ -3430,107 +3405,51 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var getAnimations = animatedElement.getAnimations;
       if (typeof getAnimations !== "function") {
         dndLog("style:animation-state-unreadable", { tag: el.tagName });
-        safe = false;
-      } else {
-        var animations = getAnimations.call(animatedElement);
-        if (!Array.isArray(animations)) {
-          dndLog("style:animation-state-unreadable", { tag: el.tagName });
-          safe = false;
-        } else {
-          cacheable = animations.length === 0;
-          for (var index = 0; index < animations.length; index += 1) {
-            var playState = animations[index]?.playState;
-            if (typeof playState !== "string") {
-              dndLog("style:animation-state-unreadable", {
-                tag: el.tagName,
-              });
-              safe = false;
-              break;
-            }
-            if (playState === "running" || playState === "pending") {
-              safe = false;
-              break;
-            }
-          }
-        }
+        return false;
       }
+      var animations = getAnimations.call(animatedElement);
+      if (!Array.isArray(animations)) {
+        dndLog("style:animation-state-unreadable", { tag: el.tagName });
+        return false;
+      }
+      for (var index = 0; index < animations.length; index += 1) {
+        var playState = animations[index]?.playState;
+        if (typeof playState !== "string") {
+          dndLog("style:animation-state-unreadable", { tag: el.tagName });
+          return false;
+        }
+        if (playState === "running" || playState === "pending") return false;
+      }
+      return true;
     } catch (_error) {
       dndLog("style:animation-state-read-failed", { tag: el.tagName });
-      safe = false;
+      return false;
     }
-    if (cache) {
-      if (cacheable || !safe) {
-        cache.animationStates.set(el, {
-          generation: cache.mutationGeneration,
-          safe: safe,
-        });
-      } else {
-        cache.animationStates.delete(el);
-      }
-    }
-    return safe;
   }
 
   function canReusePortableComputedStyles(
     el: Element,
     cache?: PortableStyleComputedStylesCache,
   ): boolean {
-    if (!cache) {
-      var uncachedCurrent: Element | null = el;
-      while (uncachedCurrent) {
-        if (!canReadPortableAnimationState(uncachedCurrent)) return false;
-        var uncachedParent = portableStyleAnimationParent(uncachedCurrent);
-        if (uncachedParent === undefined) return false;
-        uncachedCurrent = uncachedParent;
-      }
-      return true;
-    }
-    var path: Array<{ element: Element; parent: Element | null }> = [];
+    // Computed inherited values can change while only an ancestor is
+    // animated. Recheck the whole style parent chain on every cache lookup;
+    // caching this answer would make a mid-request animation invisible.
     var current: Element | null = el;
-    var safe = true;
-    var volatile = false;
     while (current) {
-      if (!portableStyleObserveElementRoot(cache, current)) {
-        safe = false;
-        break;
-      }
       var parent = portableStyleAnimationParent(current);
-      if (parent === undefined) {
-        safe = false;
-        break;
-      }
-      if (parent && !portableStyleObserveElementRoot(cache, parent)) {
-        safe = false;
-        break;
-      }
-      var cachedSafety = cache.animationSafety.get(current);
       if (
-        cachedSafety &&
-        cachedSafety.generation === cache.mutationGeneration &&
-        cachedSafety.parent === parent
+        cache &&
+        (!portableStyleObserveElementRoot(cache, current) ||
+          (parent && !portableStyleObserveElementRoot(cache, parent)))
       ) {
-        safe = cachedSafety.safe;
-        break;
+        return false;
       }
-      path.push({ element: current, parent: parent });
-      if (!canReadPortableAnimationState(current, cache)) {
-        safe = false;
-        break;
+      if (parent === undefined || !canReadPortableAnimationState(current)) {
+        return false;
       }
-      if (!cache.animationStates.has(current)) volatile = true;
       current = parent;
     }
-    var generation = cache.mutationGeneration;
-    if (!volatile) {
-      for (var index = path.length - 1; index >= 0; index -= 1) {
-        cache.animationSafety.set(path[index].element, {
-          generation: generation,
-          safe: safe,
-          parent: path[index].parent,
-        });
-      }
-    }
-    return safe;
+    return true;
   }
 
   function collectPortableComputedStyles(

@@ -791,6 +791,69 @@ describe("large concurrent selectable-rects requests", () => {
     expect(result.portableLeaf).toBe(result.leaf);
   }, 60_000);
 
+  it("refreshes a descendant when an ancestor animation starts mid-request", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 600, height: 300 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+        <div id="parent" data-agent-native-node-id="parent">
+          <div id="child" data-agent-native-node-id="child" style="color:rgb(255, 0, 0); width:180px; height:80px">
+            <div id="leaf" data-agent-native-node-id="leaf" style="width:90px; height:40px"></div>
+          </div>
+        </div>
+      </body></html>`);
+      await page.evaluate(() => {
+        const child = document.querySelector<HTMLElement>("#child");
+        if (!child)
+          throw new Error("mid-request animation fixture missing child");
+        // Create the animation before the bridge installs its CSSOM hooks, then
+        // cancel it so the request starts with no animation to observe. Calling
+        // play() later changes inherited styles without a DOM mutation.
+        const animation = child.animate(
+          [{ color: "rgb(255, 0, 0)" }, { color: "rgb(0, 0, 255)" }],
+          { duration: 1000, fill: "both" },
+        );
+        animation.cancel();
+        let rectReads = 0;
+        const nativeRect = child.getBoundingClientRect.bind(child);
+        child.getBoundingClientRect = () => {
+          const rect = nativeRect();
+          rectReads += 1;
+          if (rectReads === 2) {
+            animation.play();
+            animation.currentTime = 500;
+            animation.playbackRate = 0;
+          }
+          return rect;
+        };
+      });
+      await page.addScriptTag({ content: hydratedBridge() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+      const payload = await collectSelectableRects(page, { deep: true });
+      const live = await page.evaluate(() => ({
+        child: getComputedStyle(document.querySelector<HTMLElement>("#child")!)
+          .color,
+        leaf: getComputedStyle(document.querySelector<HTMLElement>("#leaf")!)
+          .color,
+        state: document.querySelector<HTMLElement>("#child")!.getAnimations()[0]
+          ?.playState,
+      }));
+      const childInfo = payload.find((info) => info.sourceId === "child");
+      const portableLeaf = childInfo?.portableStyleSnapshot?.nodes?.find(
+        (node) => node.sourceId === "leaf",
+      )?.styles?.color;
+      expect(live.child).toBe("rgb(128, 0, 128)");
+      expect(live.leaf).toBe(live.child);
+      expect(live.state).toBe("running");
+      expect(portableLeaf).toBe(live.leaf);
+    } finally {
+      await browser.close();
+    }
+  }, 60_000);
+
   it("refreshes a descendant when an ancestor transition changes an inherited style", async () => {
     const result = await collectAncestorMutationCase("transition");
     expect(result.portableLeaf).toBe(result.leaf);

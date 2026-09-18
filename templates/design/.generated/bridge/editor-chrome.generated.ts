@@ -3102,8 +3102,6 @@ export const editorChromeBridgeScript: string = `"use strict";
         mutationObserver: null,
         mutationGeneration: 0,
         observedMutationRoots: [],
-        animationStates: /* @__PURE__ */ new Map(),
-        animationSafety: /* @__PURE__ */ new Map(),
         restoreCssomHooks: function() {
         }
       };
@@ -3145,111 +3143,46 @@ export const editorChromeBridgeScript: string = `"use strict";
         return void 0;
       }
     }
-    function canReadPortableAnimationState(el, cache) {
-      var cached = cache?.animationStates.get(el);
-      if (cached && cached.generation === cache?.mutationGeneration) {
-        return cached.safe;
-      }
-      var safe = true;
-      var cacheable = true;
+    function canReadPortableAnimationState(el) {
       var animatedElement = el;
       try {
         var getAnimations = animatedElement.getAnimations;
         if (typeof getAnimations !== "function") {
           dndLog("style:animation-state-unreadable", { tag: el.tagName });
-          safe = false;
-        } else {
-          var animations = getAnimations.call(animatedElement);
-          if (!Array.isArray(animations)) {
+          return false;
+        }
+        var animations = getAnimations.call(animatedElement);
+        if (!Array.isArray(animations)) {
+          dndLog("style:animation-state-unreadable", { tag: el.tagName });
+          return false;
+        }
+        for (var index = 0; index < animations.length; index += 1) {
+          var playState = animations[index]?.playState;
+          if (typeof playState !== "string") {
             dndLog("style:animation-state-unreadable", { tag: el.tagName });
-            safe = false;
-          } else {
-            cacheable = animations.length === 0;
-            for (var index = 0; index < animations.length; index += 1) {
-              var playState = animations[index]?.playState;
-              if (typeof playState !== "string") {
-                dndLog("style:animation-state-unreadable", {
-                  tag: el.tagName
-                });
-                safe = false;
-                break;
-              }
-              if (playState === "running" || playState === "pending") {
-                safe = false;
-                break;
-              }
-            }
+            return false;
           }
-        }
-      } catch (_error) {
-        dndLog("style:animation-state-read-failed", { tag: el.tagName });
-        safe = false;
-      }
-      if (cache) {
-        if (cacheable || !safe) {
-          cache.animationStates.set(el, {
-            generation: cache.mutationGeneration,
-            safe
-          });
-        } else {
-          cache.animationStates.delete(el);
-        }
-      }
-      return safe;
-    }
-    function canReusePortableComputedStyles(el, cache) {
-      if (!cache) {
-        var uncachedCurrent = el;
-        while (uncachedCurrent) {
-          if (!canReadPortableAnimationState(uncachedCurrent)) return false;
-          var uncachedParent = portableStyleAnimationParent(uncachedCurrent);
-          if (uncachedParent === void 0) return false;
-          uncachedCurrent = uncachedParent;
+          if (playState === "running" || playState === "pending") return false;
         }
         return true;
+      } catch (_error) {
+        dndLog("style:animation-state-read-failed", { tag: el.tagName });
+        return false;
       }
-      var path = [];
+    }
+    function canReusePortableComputedStyles(el, cache) {
       var current = el;
-      var safe = true;
-      var volatile = false;
       while (current) {
-        if (!portableStyleObserveElementRoot(cache, current)) {
-          safe = false;
-          break;
-        }
         var parent = portableStyleAnimationParent(current);
-        if (parent === void 0) {
-          safe = false;
-          break;
+        if (cache && (!portableStyleObserveElementRoot(cache, current) || parent && !portableStyleObserveElementRoot(cache, parent))) {
+          return false;
         }
-        if (parent && !portableStyleObserveElementRoot(cache, parent)) {
-          safe = false;
-          break;
+        if (parent === void 0 || !canReadPortableAnimationState(current)) {
+          return false;
         }
-        var cachedSafety = cache.animationSafety.get(current);
-        if (cachedSafety && cachedSafety.generation === cache.mutationGeneration && cachedSafety.parent === parent) {
-          safe = cachedSafety.safe;
-          break;
-        }
-        path.push({ element: current, parent });
-        if (!canReadPortableAnimationState(current, cache)) {
-          safe = false;
-          break;
-        }
-        if (!cache.animationStates.has(current)) volatile = true;
         current = parent;
       }
-      var generation = cache.mutationGeneration;
-      if (!volatile) {
-        for (var index = path.length - 1; index >= 0; index -= 1) {
-          cache.animationSafety.set(path[index].element, {
-            generation,
-            safe,
-            parent: path[index].parent
-          });
-        }
-      }
-      return safe;
+      return true;
     }
     function collectPortableComputedStyles(el, cache, computedStyle) {
       if (!el) return {};
