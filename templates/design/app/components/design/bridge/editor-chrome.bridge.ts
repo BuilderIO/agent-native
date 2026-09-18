@@ -14238,6 +14238,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // real root child as the insertion anchor instead of minting an id for
     // the document root and falling back to absolute placement.
     if (!isAutoLayoutElement(document.body)) return null;
+    var bodyRect = document.body.getBoundingClientRect();
+    if (
+      bodyRect.width <= 0 ||
+      bodyRect.height <= 0 ||
+      clientX < bodyRect.left ||
+      clientX > bodyRect.right || // i18n-ignore non-user-facing pointer geometry condition
+      clientY < bodyRect.top ||
+      clientY > bodyRect.bottom
+    ) {
+      return null;
+    }
     return nearestChildInsertionTarget(
       document.body,
       clientX,

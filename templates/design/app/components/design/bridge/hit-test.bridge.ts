@@ -757,6 +757,17 @@
     // Body is the authored Screen root. It has no durable node id, so anchor
     // cross-screen flow drops to a real root child instead of absolute mode.
     if (!isAutoLayoutElement(document.body)) return null;
+    var bodyRect = document.body.getBoundingClientRect();
+    if (
+      bodyRect.width <= 0 ||
+      bodyRect.height <= 0 ||
+      clientX < bodyRect.left ||
+      clientX > bodyRect.right || // i18n-ignore non-user-facing pointer geometry condition
+      clientY < bodyRect.top ||
+      clientY > bodyRect.bottom
+    ) {
+      return null;
+    }
     return nearestChildInsertionTarget(document.body, clientX, clientY);
   }
 

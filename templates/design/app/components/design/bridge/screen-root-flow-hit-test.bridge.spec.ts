@@ -60,6 +60,32 @@ describe("Screen-root auto-layout hit testing", () => {
             height: element.getBoundingClientRect().height,
           })),
       ).toMatchObject({ display: "block", width: 280, height: 2 });
+
+      await page.evaluate(() => {
+        window.postMessage(
+          {
+            type: "agent-native:hit-test",
+            correlationId: "screen-root-outside",
+            x: 500,
+            y: 115,
+          },
+          "*",
+        );
+      });
+      await page.waitForFunction(
+        () => (window as any).__hitTestResults.length === 2,
+      );
+      const outsidePacket = await page.evaluate(
+        () => (window as any).__hitTestResults[1],
+      );
+      expect(outsidePacket).toMatchObject({
+        correlationId: "screen-root-outside",
+        anchorNodeId: "",
+        placement: "inside",
+        axis: "y",
+        dropMode: "flow-insert",
+      });
+      expect(outsidePacket.anchorRect).toBeUndefined();
       expect(pageErrors).toEqual([]);
     } finally {
       await browser.close();

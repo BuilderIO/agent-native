@@ -10376,6 +10376,11 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function screenRootFlowInsertionTargetForPoint(clientX, clientY, excludeEls) {
       if (!isAutoLayoutElement(document.body)) return null;
+      var bodyRect = document.body.getBoundingClientRect();
+      if (bodyRect.width <= 0 || bodyRect.height <= 0 || clientX < bodyRect.left || clientX > bodyRect.right || // i18n-ignore non-user-facing pointer geometry condition
+      clientY < bodyRect.top || clientY > bodyRect.bottom) {
+        return null;
+      }
       return nearestChildInsertionTarget(
         document.body,
         clientX,

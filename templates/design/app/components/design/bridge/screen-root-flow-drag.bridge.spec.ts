@@ -127,4 +127,68 @@ describe("Screen-root auto-layout drag", () => {
       await browser.close();
     }
   });
+
+  it("does not use a root-flow anchor after the pointer leaves the root bounds", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 640, height: 480 },
+      });
+      const pageErrors: string[] = [];
+      page.on("pageerror", (error) => pageErrors.push(error.message));
+      await page.setContent(SCREEN_ROOT);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await page.evaluate(() => {
+        (window as any).__structureMessages = [];
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "visual-structure-change") {
+            (window as any).__structureMessages.push(event.data);
+          }
+        });
+        window.postMessage(
+          {
+            type: "select-element",
+            selector: '[data-agent-native-node-id="moving"]',
+          },
+          "*",
+        );
+      });
+      await page.waitForSelector('[data-agent-native-node-id="moving"]');
+      const source = await page
+        .locator('[data-agent-native-node-id="moving"]')
+        .boundingBox();
+      expect(source).not.toBeNull();
+      await page.mouse.move(
+        source!.x + source!.width / 2,
+        source!.y + source!.height / 2,
+      );
+      await page.mouse.down();
+      await page.mouse.move(
+        source!.x + source!.width / 2 + 10,
+        source!.y + source!.height / 2 + 6,
+        { steps: 4 },
+      );
+      await page.mouse.move(500, 115, { steps: 12 });
+      await page.mouse.up();
+      await page.waitForTimeout(50);
+
+      expect(
+        await page
+          .locator("[data-agent-native-insertion-guide]")
+          .evaluate((element) => getComputedStyle(element).display),
+      ).toBe("none");
+      expect(
+        await page.evaluate(() => (window as any).__structureMessages),
+      ).toEqual([]);
+      expect(
+        await page
+          .locator('[data-agent-native-node-id="moving"]')
+          .evaluate((element) => getComputedStyle(element).position),
+      ).toBe("absolute");
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  });
 });

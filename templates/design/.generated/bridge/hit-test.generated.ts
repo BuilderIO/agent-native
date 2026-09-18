@@ -450,6 +450,11 @@ export const hitTestBridgeScript: string = `"use strict";
     }
     function screenRootFlowInsertionTargetForPoint(clientX, clientY) {
       if (!isAutoLayoutElement(document.body)) return null;
+      var bodyRect = document.body.getBoundingClientRect();
+      if (bodyRect.width <= 0 || bodyRect.height <= 0 || clientX < bodyRect.left || clientX > bodyRect.right || // i18n-ignore non-user-facing pointer geometry condition
+      clientY < bodyRect.top || clientY > bodyRect.bottom) {
+        return null;
+      }
       return nearestChildInsertionTarget(document.body, clientX, clientY);
     }
     function resolveHitTarget(clientX, clientY) {

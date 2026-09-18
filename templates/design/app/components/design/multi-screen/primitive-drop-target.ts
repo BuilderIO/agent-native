@@ -267,6 +267,10 @@ type InlineNumericProperty =
   | "paddingRight"
   | "paddingTop"
   | "paddingBottom"
+  | "borderLeftWidth"
+  | "borderRightWidth"
+  | "borderTopWidth"
+  | "borderBottomWidth"
   | "marginLeft"
   | "marginRight"
   | "marginTop"
@@ -289,22 +293,65 @@ function elementInlineSize(
   element: Element,
   axis: "x" | "y",
   cache?: AuthoredSizeCache,
+  visiting?: Set<Element>,
 ) {
-  return authoredElementSize(element, axis, cache);
+  return authoredElementSize(element, axis, cache, visiting);
 }
 
 function parseAuthoredLength(value: string | undefined, reference: number) {
   const normalized = String(value || "")
     .trim()
     .toLowerCase();
-  if (!normalized || normalized === "auto" || normalized === "fit-content") {
+  if (
+    !normalized ||
+    normalized === "auto" ||
+    normalized === "fit-content" ||
+    normalized.startsWith("fit-content(")
+  ) {
     return null;
   }
   const px = normalized.match(/^(-?\d+(?:\.\d+)?)px$/);
   if (px?.[1]) return Number(px[1]);
   const percent = normalized.match(/^(-?\d+(?:\.\d+)?)%$/);
-  if (percent?.[1] && reference > 0) {
+  if (percent?.[1] && reference >= 0) {
     return (Number(percent[1]) / 100) * reference;
+  }
+  return null;
+}
+
+function isOutOfFlow(element: Element) {
+  const position = (element as HTMLElement).style.position;
+  return position === "absolute" || position === "fixed";
+}
+
+function flexBasis(element: Element, reference: number) {
+  const style = (element as HTMLElement).style;
+  const explicit = parseAuthoredLength(style.flexBasis, reference);
+  if (explicit !== null) return explicit;
+
+  const shorthand = (style.flex || "").trim();
+  if (!shorthand) return null;
+  const tokens = shorthand.split(/\s+/);
+  const shorthandKeyword = tokens[0]?.toLowerCase();
+  if (
+    shorthandKeyword === "auto" ||
+    shorthandKeyword === "initial" ||
+    shorthandKeyword === "none"
+  ) {
+    return null;
+  }
+  if (tokens.length === 1) {
+    return parseAuthoredLength(tokens[0], reference) ?? 0;
+  }
+  const lengthToken = tokens.find((token, index) => {
+    return parseAuthoredLength(token, reference) !== null;
+  });
+  if (lengthToken) return parseAuthoredLength(lengthToken, reference);
+  if (
+    tokens.length === 2 &&
+    tokens.every((token) => /^-?\d+(?:\.\d+)?$/.test(token))
+  ) {
+    return 0;
   }
   return null;
 }
@@ -335,10 +382,37 @@ function parentContentSize(
   const padding =
     axis === "x"
       ? inlineNumber(parent, "paddingLeft") +
-        inlineNumber(parent, "paddingRight")
+        inlineNumber(parent, "paddingRight") +
+        inlineNumber(parent, "borderLeftWidth") +
+        inlineNumber(parent, "borderRightWidth")
       : inlineNumber(parent, "paddingTop") +
-        inlineNumber(parent, "paddingBottom");
+        inlineNumber(parent, "paddingBottom") +
+        inlineNumber(parent, "borderTopWidth") +
+        inlineNumber(parent, "borderBottomWidth");
   return style.boxSizing === "border-box" ? Math.max(0, size - padding) : size;
+}
+
+function flexItemBaseSize(
+  element: Element,
+  axis: AuthoredSizeAxis,
+  reference: number,
+) {
+  const basis = flexBasis(element, reference);
+  if (basis !== null) return basis;
+  const style = (element as HTMLElement).style;
+  const authored = parseAuthoredLength(
+    style[axis === "x" ? "width" : "height"],
+    reference,
+  );
+  if (authored !== null) return authored;
+  if (
+    (element.getAttribute("data-an-primitive") || "").toLowerCase() === "text"
+  ) {
+    return authoredTextIntrinsicSize(element)[
+      axis === "x" ? "width" : "height"
+    ];
+  }
+  return 0;
 }
 
 function flexAvailableSize(
@@ -350,23 +424,68 @@ function flexAvailableSize(
   visiting: Set<Element>,
 ) {
   if (flexMainAxis(parent) !== axis) return available;
-  const children = Array.from(parent.children);
+  const children = Array.from(parent.children).filter(
+    (child) => !isOutOfFlow(child),
+  );
   const gap = inlineNumber(parent, "gap");
   let fixed = Math.max(0, children.length - 1) * gap;
   let growTotal = 0;
+  let growBase = 0;
   for (const child of children) {
     const grow = flexGrow(child);
+    const base = flexItemBaseSize(child, axis, available);
     if (grow > 0) {
       growTotal += grow;
+      growBase += base;
       continue;
     }
     fixed +=
-      authoredElementSize(child, axis, cache, visiting) +
+      base +
       inlineNumber(child, axis === "x" ? "marginLeft" : "marginTop") +
       inlineNumber(child, axis === "x" ? "marginRight" : "marginBottom");
   }
   if (growTotal <= 0) return 0;
-  return Math.max(0, available - fixed) * (flexGrow(element) / growTotal);
+  return (
+    flexItemBaseSize(element, axis, available) +
+    Math.max(0, available - fixed - growBase) * (flexGrow(element) / growTotal)
+  );
+}
+
+function intrinsicContentSize(
+  element: Element,
+  axis: AuthoredSizeAxis,
+  cache: AuthoredSizeCache,
+  visiting: Set<Element>,
+) {
+  const leading =
+    axis === "x"
+      ? inlineNumber(element, "paddingLeft") +
+        inlineNumber(element, "borderLeftWidth")
+      : inlineNumber(element, "paddingTop") +
+        inlineNumber(element, "borderTopWidth");
+  const trailing =
+    axis === "x"
+      ? inlineNumber(element, "paddingRight") +
+        inlineNumber(element, "borderRightWidth")
+      : inlineNumber(element, "paddingBottom") +
+        inlineNumber(element, "borderBottomWidth");
+  const elementPosition = authoredElementPosition(element, cache, visiting);
+  let extent = leading + trailing;
+  for (const child of Array.from(element.children)) {
+    if (isOutOfFlow(child)) continue;
+    const childPosition = authoredElementPosition(child, cache, visiting);
+    const offset =
+      axis === "x"
+        ? childPosition.x - elementPosition.x
+        : childPosition.y - elementPosition.y;
+    extent = Math.max(
+      extent,
+      Math.max(leading, offset) +
+        authoredElementSize(child, axis, cache, visiting) +
+        trailing,
+    );
+  }
+  return Math.max(0, extent);
 }
 
 function authoredElementSize(
@@ -390,6 +509,9 @@ function authoredElementSize(
     reference,
   );
   let size = authored;
+  const authoredValue = style[axis === "x" ? "width" : "height"]
+    .trim()
+    .toLowerCase();
 
   if (size === null) {
     const primitiveKind = (
@@ -398,6 +520,11 @@ function authoredElementSize(
     if (primitiveKind === "text") {
       size =
         authoredTextIntrinsicSize(element)[axis === "x" ? "width" : "height"];
+    } else if (
+      authoredValue === "fit-content" ||
+      authoredValue.startsWith("fit-content(")
+    ) {
+      size = intrinsicContentSize(element, axis, cache, visiting);
     } else if (parent) {
       const parentStyle = (parent as HTMLElement).style;
       const parentDisplay = parentStyle.display;
@@ -416,6 +543,8 @@ function authoredElementSize(
             cache,
             visiting,
           );
+        } else if (mainAxis === axis) {
+          size = flexBasis(element, reference);
         } else if (mainAxis !== axis || parentIsGrid) {
           const alignSelf =
             style.alignSelf || parentStyle.alignItems || "stretch";
@@ -536,6 +665,7 @@ export function authoredTextIntrinsicSize(element: Element) {
 export function authoredElementPosition(
   element: Element,
   cache: AuthoredSizeCache = new Map(),
+  visiting: Set<Element> = new Set(),
 ): Point {
   let x = 0;
   let y = 0;
@@ -555,8 +685,12 @@ export function authoredElementPosition(
       y += inlineNumber(cursor, "top");
     } else {
       const parentStyle = (parent as HTMLElement).style;
-      x += inlineNumber(parent, "paddingLeft");
-      y += inlineNumber(parent, "paddingTop");
+      x +=
+        inlineNumber(parent, "paddingLeft") +
+        inlineNumber(parent, "borderLeftWidth");
+      y +=
+        inlineNumber(parent, "paddingTop") +
+        inlineNumber(parent, "borderTopWidth");
       const siblings: Element[] = Array.from(parent.children);
       const index = siblings.indexOf(cursor);
       if (index > 0) {
@@ -567,15 +701,16 @@ export function authoredElementPosition(
         const isRow =
           isFlex && !(parentStyle.flexDirection || "row").startsWith("column");
         for (const sibling of previous as Element[]) {
+          if (isOutOfFlow(sibling)) continue;
           if (isRow) {
             x +=
-              elementInlineSize(sibling, "x", cache) +
+              elementInlineSize(sibling, "x", cache, visiting) +
               inlineNumber(sibling, "marginLeft") +
               inlineNumber(sibling, "marginRight") +
               gap;
           } else {
             y +=
-              elementInlineSize(sibling, "y", cache) +
+              elementInlineSize(sibling, "y", cache, visiting) +
               inlineNumber(sibling, "marginTop") +
               inlineNumber(sibling, "marginBottom") +
               (isFlex ? gap : 0);
