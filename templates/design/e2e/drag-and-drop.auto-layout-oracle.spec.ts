@@ -76,6 +76,29 @@ const GRID_EXPLICIT_SOURCE_ORACLE_FIXTURE = `<!doctype html>
   </section>
 </body></html>`;
 
+const GRID_INTRINSIC_SIZE_ORACLE_FIXTURE = `<!doctype html>
+<html><body style="margin:0;min-height:900px;background:#0f1115">
+  <div data-agent-native-node-id="sized-source" data-agent-native-layer-name="Sized Source"
+    style="position:absolute;left:60px;top:420px;width:44px;height:28px;min-width:44px;max-width:44px;min-height:28px;max-height:28px;align-self:end;justify-self:end;background:#6366f1">Source</div>
+  <section data-agent-native-node-id="intrinsic-grid" data-agent-native-layer-name="Intrinsic Grid"
+    style="position:absolute;left:360px;top:80px;width:340px;height:240px;padding:12px;display:grid;grid-template-columns:repeat(2,140px);grid-auto-rows:88px;gap:16px;background:#1f2937;box-sizing:border-box">
+    <div data-agent-native-node-id="sized-peer-1" data-agent-native-layer-name="Sized Peer 1" style="background:#a855f7">Peer 1</div>
+    <div data-agent-native-node-id="sized-peer-2" data-agent-native-layer-name="Sized Peer 2" style="background:#ec4899">Peer 2</div>
+  </section>
+</body></html>`;
+
+const GRID_LOCKED_EXPLICIT_ORACLE_FIXTURE = `<!doctype html>
+<html><body style="margin:0;min-height:900px;background:#0f1115">
+  <div data-agent-native-node-id="locked-source" data-agent-native-layer-name="Locked Source"
+    style="position:absolute;left:60px;top:420px;width:80px;height:44px;background:#6366f1">Source</div>
+  <section data-agent-native-node-id="locked-grid" data-agent-native-layer-name="Locked Grid"
+    style="position:absolute;left:360px;top:80px;width:340px;height:240px;padding:12px;display:grid;grid-template-columns:repeat(3,80px);grid-auto-rows:56px;gap:16px;background:#1f2937;box-sizing:border-box">
+    <div data-agent-native-node-id="locked-span" data-agent-native-layer-name="Locked Span" data-agent-native-locked="true" style="grid-column:1 / span 2;grid-row:1;background:#f59e0b">Locked</div>
+    <div data-agent-native-node-id="locked-peer-1" data-agent-native-layer-name="Locked Peer 1" style="background:#a855f7">Peer 1</div>
+    <div data-agent-native-node-id="locked-peer-2" data-agent-native-layer-name="Locked Peer 2" style="background:#ec4899">Peer 2</div>
+  </section>
+</body></html>`;
+
 const GRID_TRANSFORM_ORACLE_FIXTURE = `<!doctype html>
 <html><body style="margin:0;min-height:900px;background:#0f1115">
   <div data-agent-native-node-id="transform-source" data-agent-native-layer-name="Transform Source"
@@ -329,6 +352,7 @@ test("G-1 held drop into an empty grid cell previews that exact cell", async ({
   try {
     await openEditor(page, designId);
     await selectNode(page, "grid-source");
+    const sourceBefore = await frameRectSnapshot(page, "grid-source");
     const g2 = (await node(page, "g2").boundingBox())!;
     const g3 = (await node(page, "g3").boundingBox())!;
     const target = {
@@ -341,18 +365,10 @@ test("G-1 held drop into an empty grid cell previews that exact cell", async ({
       const g2Frame = await frameRectSnapshot(page, "g2");
       const g3Frame = await frameRectSnapshot(page, "g3");
       expect(guide).toMatchObject({ display: "block" });
-      expect(
-        Math.abs(
-          guide!.left + guide!.width / 2 - g2Frame.left - g2Frame.width / 2,
-        ),
-      ).toBeLessThan(3);
-      expect(
-        Math.abs(
-          guide!.top + guide!.height / 2 - g3Frame.top - g3Frame.height / 2,
-        ),
-      ).toBeLessThan(3);
-      expect(Math.abs(guide!.width - g2Frame.width)).toBeLessThan(3);
-      expect(Math.abs(guide!.height - g3Frame.height)).toBeLessThan(3);
+      expect(Math.abs(guide!.left - g2Frame.left)).toBeLessThan(3);
+      expect(Math.abs(guide!.top - g3Frame.top)).toBeLessThan(3);
+      expect(Math.abs(guide!.width - sourceBefore.width)).toBeLessThan(3);
+      expect(Math.abs(guide!.height - sourceBefore.height)).toBeLessThan(3);
     } finally {
       await page.mouse.up();
     }
@@ -426,6 +442,7 @@ test("G-3 full grid edge drop retains every child and creates the next flow slot
   try {
     await openEditor(page, designId);
     await selectNode(page, "grid-source");
+    const sourceBefore = await frameRectSnapshot(page, "grid-source");
     const grid = (await node(page, "grid-oracle").boundingBox())!;
     const g4 = await frameRectSnapshot(page, "g4");
     await dragToHeldPoint(page, "grid-source", {
@@ -436,7 +453,7 @@ test("G-3 full grid edge drop retains every child and creates the next flow slot
       const guide = await guideSnapshot(page);
       expect(guide).toMatchObject({ display: "block" });
       expect(guide!.top).toBeGreaterThan(g4.top + g4.height / 2);
-      expect(Math.abs(guide!.width - g4.width)).toBeLessThan(3);
+      expect(Math.abs(guide!.width - sourceBefore.width)).toBeLessThan(3);
     } finally {
       await page.mouse.up();
     }
@@ -460,6 +477,7 @@ test("G-4 held column-flow drop maps the excluded source to the empty cell", asy
   try {
     await openEditor(page, designId);
     await selectNode(page, "column-source");
+    const sourceBefore = await frameRectSnapshot(page, "column-source");
     const c2 = (await node(page, "c2").boundingBox())!;
     const c3 = (await node(page, "c3").boundingBox())!;
     const c2Frame = await frameRectSnapshot(page, "c2");
@@ -471,18 +489,10 @@ test("G-4 held column-flow drop maps the excluded source to the empty cell", asy
     try {
       const guide = await guideSnapshot(page);
       expect(guide).toMatchObject({ display: "block" });
-      expect(
-        Math.abs(
-          guide!.left + guide!.width / 2 - c3Frame.left - c3Frame.width / 2,
-        ),
-      ).toBeLessThan(3);
-      expect(
-        Math.abs(
-          guide!.top + guide!.height / 2 - c2Frame.top - c2Frame.height / 2,
-        ),
-      ).toBeLessThan(3);
-      expect(Math.abs(guide!.width - c3Frame.width)).toBeLessThan(3);
-      expect(Math.abs(guide!.height - c2Frame.height)).toBeLessThan(3);
+      expect(Math.abs(guide!.left - c3Frame.left)).toBeLessThan(3);
+      expect(Math.abs(guide!.top - c2Frame.top)).toBeLessThan(3);
+      expect(Math.abs(guide!.width - sourceBefore.width)).toBeLessThan(3);
+      expect(Math.abs(guide!.height - sourceBefore.height)).toBeLessThan(3);
     } finally {
       await page.mouse.up();
     }
@@ -715,6 +725,141 @@ test("G-8 held drop with an explicitly placed source keeps a line and projected 
       sourceCount: 1,
       gridColumn: "1",
       gridRow: "1",
+    });
+  } finally {
+    await deleteDesign(page, designId);
+  }
+});
+
+test("G-9 held grid projection preserves authored sizing and self-alignment", async ({
+  page,
+}) => {
+  const designId = await newDesign(page, GRID_INTRINSIC_SIZE_ORACLE_FIXTURE);
+  try {
+    await openEditor(page, designId);
+    await selectNode(page, "sized-source");
+    const sourceBefore = await frameRectSnapshot(page, "sized-source");
+    const gridFrame = await frameRectSnapshot(page, "intrinsic-grid");
+    const grid = (await node(page, "intrinsic-grid").boundingBox())!;
+    const scaleX = grid.width / 340;
+    const scaleY = grid.height / 240;
+    const target = {
+      x: grid.x + (12 + 140 / 2) * scaleX,
+      y: grid.y + (12 + 88 + 16 + 88 / 2) * scaleY,
+    };
+    await dragToHeldPoint(page, "sized-source", {
+      x: target.x,
+      y: target.y,
+    });
+    try {
+      const guide = await guideSnapshot(page);
+      const expectedLeft = gridFrame.left + 12 + 140 - sourceBefore.width;
+      const expectedTop =
+        gridFrame.top + 12 + 88 + 16 + 88 - sourceBefore.height;
+      expect(guide).toMatchObject({ display: "block" });
+      expect(Math.min(guide!.width, guide!.height)).toBeGreaterThan(10);
+      expect(Math.abs(guide!.width - sourceBefore.width)).toBeLessThan(3);
+      expect(Math.abs(guide!.height - sourceBefore.height)).toBeLessThan(3);
+      expect(Math.abs(guide!.left - expectedLeft)).toBeLessThan(3);
+      expect(Math.abs(guide!.top - expectedTop)).toBeLessThan(3);
+    } finally {
+      await page.mouse.up();
+    }
+    await expect
+      .poll(() => indexHtml(page, designId), { timeout: 5_000 })
+      .toContain('data-agent-native-node-id="sized-source"');
+    await openEditor(page, designId);
+    const state = await preview(page)
+      .locator("body")
+      .evaluate(() => {
+        const source = document.querySelector(
+          '[data-agent-native-node-id="sized-source"]',
+        ) as HTMLElement | null;
+        return {
+          parent: source?.parentElement?.getAttribute(
+            "data-agent-native-node-id",
+          ),
+          sourceCount: document.querySelectorAll(
+            '[data-agent-native-node-id="sized-source"]',
+          ).length,
+          width: source?.style.width,
+          height: source?.style.height,
+          minWidth: source?.style.minWidth,
+          maxWidth: source?.style.maxWidth,
+          alignSelf: source?.style.alignSelf,
+          justifySelf: source?.style.justifySelf,
+        };
+      });
+    expect(state).toMatchObject({
+      parent: "intrinsic-grid",
+      sourceCount: 1,
+      width: "44px",
+      height: "28px",
+      minWidth: "44px",
+      maxWidth: "44px",
+      alignSelf: "end",
+      justifySelf: "end",
+    });
+  } finally {
+    await deleteDesign(page, designId);
+  }
+});
+
+test("G-10 locked explicit grid children disable the projection shortcut", async ({
+  page,
+}) => {
+  const designId = await newDesign(page, GRID_LOCKED_EXPLICIT_ORACLE_FIXTURE);
+  try {
+    await openEditor(page, designId);
+    await selectNode(page, "locked-source");
+    const peer2 = (await node(page, "locked-peer-2").boundingBox())!;
+    await dragToHeldPoint(page, "locked-source", {
+      x: peer2.x + 4,
+      y: peer2.y + peer2.height / 2,
+    });
+    try {
+      const guide = await guideSnapshot(page);
+      expect(guide).toMatchObject({ display: "block" });
+      expect(Math.min(guide!.width, guide!.height)).toBeLessThan(10);
+    } finally {
+      await page.mouse.up();
+    }
+    await expect
+      .poll(() => indexHtml(page, designId), { timeout: 5_000 })
+      .toContain('data-agent-native-node-id="locked-source"');
+    await openEditor(page, designId);
+    const state = await preview(page)
+      .locator("body")
+      .evaluate(() => {
+        const grid = document.querySelector(
+          '[data-agent-native-node-id="locked-grid"]',
+        ) as HTMLElement | null;
+        const locked = document.querySelector(
+          '[data-agent-native-node-id="locked-span"]',
+        ) as HTMLElement | null;
+        const source = document.querySelector(
+          '[data-agent-native-node-id="locked-source"]',
+        ) as HTMLElement | null;
+        return {
+          parent: source?.parentElement?.getAttribute(
+            "data-agent-native-node-id",
+          ),
+          sourceCount: document.querySelectorAll(
+            '[data-agent-native-node-id="locked-source"]',
+          ).length,
+          gridContains: !!grid && !!source && grid.contains(source),
+          lockedColumn: locked?.style.gridColumn,
+          lockedRow: locked?.style.gridRow,
+          locked: locked?.getAttribute("data-agent-native-locked"),
+        };
+      });
+    expect(state).toMatchObject({
+      parent: "locked-grid",
+      sourceCount: 1,
+      gridContains: true,
+      lockedColumn: "1 / span 2",
+      lockedRow: "1",
+      locked: "true",
     });
   } finally {
     await deleteDesign(page, designId);
