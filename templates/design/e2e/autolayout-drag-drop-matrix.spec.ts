@@ -220,7 +220,7 @@ async function deleteDesign(
   request: APIRequestContext,
   id: string,
 ): Promise<void> {
-  await action(request, "delete-design", { id }).catch(() => undefined);
+  await action(request, "delete-design", { id });
 }
 
 async function fileHtml(
@@ -467,7 +467,10 @@ async function dragRootHeldWithOracle(
   await selectLayer(
     page,
     sourceLayerName ??
-      sourceId.replaceAll("-", " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+      sourceId
+        .split("-")
+        .join(" ")
+        .replace(/\b\w/g, (c: string) => c.toUpperCase()),
   );
   const source = await boxFor(page, screenId, sourceId);
   const target = await boxFor(page, screenId, targetId);
@@ -553,7 +556,10 @@ async function dragHeld(
   await selectLayer(
     page,
     options.sourceLayerName ??
-      sourceId.replaceAll("-", " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+      sourceId
+        .split("-")
+        .join(" ")
+        .replace(/\b\w/g, (c: string) => c.toUpperCase()),
   );
   const source = await boxFor(page, screenId, sourceId);
   const target = await boxFor(page, screenId, targetId);
@@ -632,6 +638,39 @@ async function parentId(
       (node) =>
         node.parentElement?.getAttribute("data-agent-native-node-id") ?? null,
     );
+}
+
+async function nestedGeometry(page: Page, screenId: string) {
+  return designFrame(page, screenId)
+    .locator('[data-agent-native-node-id="nested-marker"]')
+    .evaluate((node) => {
+      const parent = node.parentElement!;
+      const nodeStyle = getComputedStyle(node);
+      const parentStyle = getComputedStyle(parent);
+      const nodeRect = node.getBoundingClientRect();
+      const parentRect = parent.getBoundingClientRect();
+      return {
+        position: nodeStyle.position,
+        leftInset: nodeRect.left - parentRect.left,
+        topInset: nodeRect.top - parentRect.top,
+        paddingLeft: Number.parseFloat(parentStyle.paddingLeft),
+        paddingTop: Number.parseFloat(parentStyle.paddingTop),
+        gap: parentStyle.gap,
+      };
+    });
+}
+
+async function flowStyles(page: Page, screenId: string, nodeId: string) {
+  return designFrame(page, screenId)
+    .locator(`[data-agent-native-node-id="${nodeId}"]`)
+    .evaluate((node) => {
+      const style = getComputedStyle(node);
+      return {
+        flex: style.flex,
+        width: style.width,
+        position: style.position,
+      };
+    });
 }
 
 async function assertReloadedOrder(
@@ -794,23 +833,7 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
       await expect
         .poll(() => parentId(page, design.primaryId, "nested-marker"))
         .toBe("nested-inner");
-      const geometry = await designFrame(page, design.primaryId)
-        .locator('[data-agent-native-node-id="nested-marker"]')
-        .evaluate((node) => {
-          const parent = node.parentElement!;
-          const nodeStyle = getComputedStyle(node);
-          const parentStyle = getComputedStyle(parent);
-          const nodeRect = node.getBoundingClientRect();
-          const parentRect = parent.getBoundingClientRect();
-          return {
-            position: nodeStyle.position,
-            leftInset: nodeRect.left - parentRect.left,
-            topInset: nodeRect.top - parentRect.top,
-            paddingLeft: Number.parseFloat(parentStyle.paddingLeft),
-            paddingTop: Number.parseFloat(parentStyle.paddingTop),
-            gap: parentStyle.gap,
-          };
-        });
+      const geometry = await nestedGeometry(page, design.primaryId);
       expect(geometry.position).not.toBe("absolute");
       expect(geometry.leftInset).toBeGreaterThanOrEqual(
         geometry.paddingLeft - 1,
@@ -821,6 +844,19 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
       await expect
         .poll(() => parentId(page, design.primaryId, "nested-marker"))
         .toBe("nested-inner");
+      const reloadedGeometry = await nestedGeometry(page, design.primaryId);
+      expect(reloadedGeometry).toMatchObject({
+        position: geometry.position,
+        paddingLeft: geometry.paddingLeft,
+        paddingTop: geometry.paddingTop,
+        gap: geometry.gap,
+      });
+      expect(reloadedGeometry.leftInset).toBeGreaterThanOrEqual(
+        reloadedGeometry.paddingLeft - 1,
+      );
+      expect(reloadedGeometry.topInset).toBeGreaterThanOrEqual(
+        reloadedGeometry.paddingTop - 1,
+      );
       const html = await fileHtml(request, design.id, design.primaryId);
       expect(html).toMatch(/id="nested-inner"[^>]*display:flex/);
       console.log("[figma-autolayout-matrix] NEST-1/S-1 PASS", {
@@ -907,16 +943,7 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
             "size-target",
           );
           expect(result.during.display).toBe("block");
-          const styles = await designFrame(page, design.primaryId)
-            .locator(`[data-agent-native-node-id="${cell.source}"]`)
-            .evaluate((node) => {
-              const style = getComputedStyle(node);
-              return {
-                flex: style.flex,
-                width: style.width,
-                position: style.position,
-              };
-            });
+          const styles = await flowStyles(page, design.primaryId, cell.source);
           expect(styles.flex).toBe(cell.expectedFlex);
           expect(styles.position).not.toBe("absolute");
           if (cell.source === "fixed-source")
@@ -925,6 +952,15 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
           await expect
             .poll(() => parentId(page, design.primaryId, cell.source))
             .toBe("size-target");
+          const reloadedStyles = await flowStyles(
+            page,
+            design.primaryId,
+            cell.source,
+          );
+          expect(reloadedStyles.flex).toBe(cell.expectedFlex);
+          expect(reloadedStyles.position).not.toBe("absolute");
+          if (cell.source === "fixed-source")
+            expect(reloadedStyles.width).toBe(cell.expectedWidth);
           console.log(`[figma-autolayout-matrix] SIZE-${cell.source} PASS`, {
             during: result.during,
             styles,
@@ -1448,12 +1484,18 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
           const readout = page.locator("[data-grid-track-readout]");
           await expect(readout).toBeVisible();
           const trackReadout = await readout.textContent();
-          expect(trackReadout).toMatch(/^\d+ × \d+$/);
+          expect(trackReadout).toBe(
+            fixture === "grid-explicit" ? "2 × 2" : "2 × 3",
+          );
           await page.getByRole("button", { name: "Grid settings" }).click();
           const columns = page.getByRole("textbox", { name: "Columns" });
           const rows = page.getByRole("textbox", { name: "Rows" });
           await expect(columns).toBeVisible();
           await expect(rows).toBeVisible();
+          await expect(columns).toHaveValue("2");
+          await expect(rows).toHaveValue(
+            fixture === "grid-explicit" ? "2" : "3",
+          );
           const values = {
             columns: await columns.inputValue(),
             rows: await rows.inputValue(),
