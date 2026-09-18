@@ -324,6 +324,7 @@ export function AiFilterSection() {
   const [instruction, setInstruction] = useState("");
   const [composerOpen, setComposerOpen] = useState(false);
   const [selectedRuleId, setSelectedRuleId] = useState<string>();
+  const [previewRuleId, setPreviewRuleId] = useState<string>();
   const [corrections, setCorrections] = useState<Record<string, boolean>>({});
   const [feedback, setFeedback] = useState("");
   const [review, setReview] = useState<{
@@ -339,8 +340,13 @@ export function AiFilterSection() {
       ),
     [rules],
   );
+  const enabledInstructions = useMemo(
+    () => instructions.filter((rule) => rule.enabled),
+    [instructions],
+  );
   const selectedRule =
-    instructions.find((rule) => rule.id === selectedRuleId) ?? instructions[0];
+    enabledInstructions.find((rule) => rule.id === selectedRuleId) ??
+    enabledInstructions[0];
   const recentEmails = useMemo(
     () =>
       (emailData ?? [])
@@ -348,7 +354,10 @@ export function AiFilterSection() {
         .slice(0, 20),
     [emailData],
   );
-  const previewData = preview.data as PreviewResult | undefined;
+  const previewData =
+    previewRuleId === selectedRule?.id
+      ? (preview.data as PreviewResult | undefined)
+      : undefined;
   const previewEmails = previewData?.emails ?? [];
   const previewRule = selectedRule
     ? previewData?.rules.find((rule) => rule.id === selectedRule.id)
@@ -372,6 +381,14 @@ export function AiFilterSection() {
         .filter((item): item is AiFilterPreviewCorrection => Boolean(item)),
     [corrections, recentEmails],
   );
+
+  const selectRule = (ruleId: string) => {
+    setSelectedRuleId(ruleId);
+    setPreviewRuleId(undefined);
+    setCorrections({});
+    setFeedback("");
+    preview.reset();
+  };
 
   const updateSettings = (patch: {
     enabled?: boolean;
@@ -416,7 +433,7 @@ export function AiFilterSection() {
         onSuccess: (rule) => {
           setInstruction("");
           if (mode === "tag") setTagName("");
-          setSelectedRuleId(rule.id);
+          selectRule(rule.id);
           setComposerOpen(false);
           toast.success(t("mail.aiFilter.ruleAdded"));
         },
@@ -436,6 +453,7 @@ export function AiFilterSection() {
       return;
     }
     setCorrections({});
+    setPreviewRuleId(selectedRule.id);
     preview.mutate(
       { emails: recentEmails.map(toPreviewEmail) },
       {
@@ -528,7 +546,7 @@ export function AiFilterSection() {
                     key={rule.id}
                     rule={rule}
                     selected={rule.id === selectedRule?.id}
-                    onSelect={() => setSelectedRuleId(rule.id)}
+                    onSelect={() => rule.enabled && selectRule(rule.id)}
                   />
                 ))
               ) : (
@@ -574,7 +592,7 @@ export function AiFilterSection() {
               </div>
             </div>
             <div className="rounded-lg border border-border/50 bg-card/40">
-              {instructions.length > 1 && (
+              {enabledInstructions.length > 1 && (
                 <div className="border-b border-border/40 p-3">
                   <Select
                     value={selectedRule?.id}
@@ -584,7 +602,7 @@ export function AiFilterSection() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {instructions.map((rule) => (
+                      {enabledInstructions.map((rule) => (
                         <SelectItem key={rule.id} value={rule.id}>
                           {rule.condition}
                         </SelectItem>
