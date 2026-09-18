@@ -87,6 +87,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 
 import {
   DropdownMenu,
@@ -10998,15 +10999,18 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         </div>
       ) : null}
 
-      {transformBadge ? (
-        <div
-          data-transform-badge
-          className="pointer-events-none fixed z-50 rounded border border-border bg-background/95 px-1.5 py-0.5 font-mono !text-[11px] leading-5 text-foreground shadow-lg backdrop-blur"
-          style={{ left: transformBadge.x, top: transformBadge.y }}
-        >
-          {transformBadge.text}
-        </div>
-      ) : null}
+      {transformBadge
+        ? createPortal(
+            <div
+              data-transform-badge
+              className="pointer-events-none fixed z-50 rounded border border-border bg-background/95 px-1.5 py-0.5 font-mono !text-[11px] leading-5 text-foreground shadow-lg backdrop-blur"
+              style={{ left: transformBadge.x, top: transformBadge.y }}
+            >
+              {transformBadge.text}
+            </div>,
+            document.body,
+          )
+        : null}
 
       {crossScreenDropGuide ? (
         <span
