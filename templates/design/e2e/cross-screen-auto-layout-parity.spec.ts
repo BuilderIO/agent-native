@@ -447,6 +447,15 @@ test.describe("physical cross-screen auto-layout parity", () => {
     expect(held.guide).toBeGreaterThan(0);
     expect(held.sourceStillPersisted).toBe(true);
     await page.mouse.up();
+    await page.waitForTimeout(1_000);
+    console.log(
+      "[cross-screen-auto-layout] board post-release files",
+      (await files(page, design.id)).map((file) => ({
+        filename: file.filename,
+        length: file.content.length,
+        hasNode: file.content.includes(`data-agent-native-node-id="${nodeId}"`),
+      })),
+    );
     await waitForMove(
       page,
       design.id,
