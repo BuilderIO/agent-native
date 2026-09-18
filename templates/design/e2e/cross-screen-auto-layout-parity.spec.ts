@@ -90,6 +90,31 @@ async function createDesign(page: Page): Promise<{
     (file) => file.filename === "destination.html",
   )?.id;
   if (!sourceId || !destinationId) throw new Error("created screens missing");
+  await action(page, "update-design", {
+    id,
+    dataOperations: [
+      {
+        op: "set",
+        path: ["screenMetadata", sourceId],
+        value: { sourceType: "inline", width: 900, height: 900 },
+      },
+      {
+        op: "set",
+        path: ["canvasFrames", sourceId],
+        value: { x: 0, y: 0, width: 900, height: 900, z: 0 },
+      },
+      {
+        op: "set",
+        path: ["screenMetadata", destinationId],
+        value: { sourceType: "inline", width: 900, height: 900 },
+      },
+      {
+        op: "set",
+        path: ["canvasFrames", destinationId],
+        value: { x: 1040, y: 0, width: 900, height: 900, z: 1 },
+      },
+    ],
+  });
   return { id, sourceId, destinationId };
 }
 
@@ -168,6 +193,7 @@ async function settleScreens(
         });
         const stable = current === previous;
         previous = current;
+        if (stable) console.log("[cross-screen-auto-layout] settled", current);
         return stable;
       },
       { timeout: 5_000, message: "auto-layout screen positions never settled" },
