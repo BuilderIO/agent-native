@@ -2,6 +2,7 @@
   color-scheme: light dark;
   --background: #ffffff;
   --foreground: hsl(0 0% 10%);
+  --toggle-thumb: var(--foreground);
   --card: #ffffff;
   --primary: hsl(0 0% 15%);
   --primary-foreground: #ffffff;
@@ -43,6 +44,7 @@
   :root {
     --background: hsl(0 0% 13%);
     --foreground: hsl(0 0% 96%);
+    --toggle-thumb: var(--foreground);
     --card: hsl(0 0% 15%);
     --primary: hsl(0 0% 96%);
     --primary-foreground: hsl(0 0% 10%);
@@ -465,7 +467,7 @@ svg {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: var(--primary-foreground);
+  background: var(--toggle-thumb);
   box-shadow: var(--shadow-sm);
   content: "";
   transition: transform 120ms ease-out;
