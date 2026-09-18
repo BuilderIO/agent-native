@@ -162,58 +162,63 @@ async function createDesign(
   });
   const id = created?.id ?? created?.data?.id ?? created?.design?.id;
   if (typeof id !== "string") throw new Error("create-design returned no id");
-  await action(request, "create-file", {
-    designId: id,
-    filename: "index.html",
-    content: options.primaryHtml ?? MATRIX_HTML,
-    fileType: "html",
-  });
-  if (secondScreen) {
+  try {
     await action(request, "create-file", {
       designId: id,
-      filename: "second.html",
-      content: options.secondHtml ?? SECOND_SCREEN_HTML,
+      filename: "index.html",
+      content: options.primaryHtml ?? MATRIX_HTML,
       fileType: "html",
     });
-  }
-  const record = await readDesign(request, id);
-  const primaryId = record.files?.find(
-    (file) => file.filename === "index.html",
-  )?.id;
-  const secondId = record.files?.find(
-    (file) => file.filename === "second.html",
-  )?.id;
-  if (!primaryId || (secondScreen && !secondId)) {
-    throw new Error("created matrix screens are missing");
-  }
-  const dataOperations = [
-    {
-      op: "set",
-      path: ["screenMetadata", primaryId],
-      value: { sourceType: "inline", width: 1000, height: 780 },
-    },
-    {
-      op: "set",
-      path: ["canvasFrames", primaryId],
-      value: { x: 0, y: 0, width: 1000, height: 780, z: 0 },
-    },
-  ];
-  if (secondId) {
-    dataOperations.push(
+    if (secondScreen) {
+      await action(request, "create-file", {
+        designId: id,
+        filename: "second.html",
+        content: options.secondHtml ?? SECOND_SCREEN_HTML,
+        fileType: "html",
+      });
+    }
+    const record = await readDesign(request, id);
+    const primaryId = record.files?.find(
+      (file) => file.filename === "index.html",
+    )?.id;
+    const secondId = record.files?.find(
+      (file) => file.filename === "second.html",
+    )?.id;
+    if (!primaryId || (secondScreen && !secondId)) {
+      throw new Error("created matrix screens are missing");
+    }
+    const dataOperations = [
       {
         op: "set",
-        path: ["screenMetadata", secondId],
+        path: ["screenMetadata", primaryId],
         value: { sourceType: "inline", width: 1000, height: 780 },
       },
       {
         op: "set",
-        path: ["canvasFrames", secondId],
-        value: { x: 1120, y: 0, width: 1000, height: 780, z: 1 },
+        path: ["canvasFrames", primaryId],
+        value: { x: 0, y: 0, width: 1000, height: 780, z: 0 },
       },
-    );
+    ];
+    if (secondId) {
+      dataOperations.push(
+        {
+          op: "set",
+          path: ["screenMetadata", secondId],
+          value: { sourceType: "inline", width: 1000, height: 780 },
+        },
+        {
+          op: "set",
+          path: ["canvasFrames", secondId],
+          value: { x: 1120, y: 0, width: 1000, height: 780, z: 1 },
+        },
+      );
+    }
+    await action(request, "update-design", { id, dataOperations });
+    return { id, primaryId, secondId };
+  } catch (error) {
+    await deleteDesign(request, id);
+    throw error;
   }
-  await action(request, "update-design", { id, dataOperations });
-  return { id, primaryId, secondId };
 }
 
 async function deleteDesign(
@@ -229,7 +234,9 @@ async function fileHtml(
   fileId: string,
 ): Promise<string> {
   const record = await readDesign(request, designId);
-  return record.files?.find((file) => file.id === fileId)?.content ?? "";
+  const file = record.files?.find((candidate) => candidate.id === fileId);
+  if (!file) throw new Error(`design file ${fileId} is missing`);
+  return file.content;
 }
 
 async function selectionSourceId(
@@ -1319,6 +1326,22 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
         ),
       ).toBe(true);
       for (const instance of duplicated.instances)
+        expect(instance.sourceNodeIds).toEqual(reorderedSourceNodeIds);
+      await page.keyboard.press(`${COMMAND}+z`);
+      await expect
+        .poll(async () => (await linkedState()).instances.length)
+        .toBe(1);
+      const cloneUndone = await linkedState();
+      expect(cloneUndone.instances[0]?.nodeId).toBe("play-instance");
+      expect(cloneUndone.instances[0]?.sourceNodeIds).toEqual(
+        reorderedSourceNodeIds,
+      );
+      await page.keyboard.press(`${COMMAND}+Shift+z`);
+      await expect
+        .poll(async () => (await linkedState()).instances.length)
+        .toBe(2);
+      const cloneRedone = await linkedState();
+      for (const instance of cloneRedone.instances)
         expect(instance.sourceNodeIds).toEqual(reorderedSourceNodeIds);
       await settleReload(page, design.primaryId);
       const reloaded = await linkedState();

@@ -83,57 +83,62 @@ async function createDesign(
   });
   const id = created?.id ?? created?.data?.id ?? created?.design?.id;
   if (typeof id !== "string") throw new Error("create-design returned no id");
-  await action(request, "create-file", {
-    designId: id,
-    filename: "index.html",
-    content: HORIZONTAL_FIXTURE,
-    fileType: "html",
-  });
-  if (withSecondScreen) {
+  try {
     await action(request, "create-file", {
       designId: id,
-      filename: "second.html",
-      content: SECOND_SCREEN_FIXTURE,
+      filename: "index.html",
+      content: HORIZONTAL_FIXTURE,
       fileType: "html",
     });
-  }
-  const record = await readDesign(request, id);
-  const primaryId = record.files?.find(
-    (file) => file.filename === "index.html",
-  )?.id;
-  const secondId = record.files?.find(
-    (file) => file.filename === "second.html",
-  )?.id;
-  if (!primaryId || (withSecondScreen && !secondId))
-    throw new Error("fixture files are missing");
-  const dataOperations = [
-    {
-      op: "set",
-      path: ["screenMetadata", primaryId],
-      value: { sourceType: "inline", width: 1000, height: 780 },
-    },
-    {
-      op: "set",
-      path: ["canvasFrames", primaryId],
-      value: { x: 0, y: 0, width: 1000, height: 780, z: 0 },
-    },
-  ];
-  if (secondId) {
-    dataOperations.push(
+    if (withSecondScreen) {
+      await action(request, "create-file", {
+        designId: id,
+        filename: "second.html",
+        content: SECOND_SCREEN_FIXTURE,
+        fileType: "html",
+      });
+    }
+    const record = await readDesign(request, id);
+    const primaryId = record.files?.find(
+      (file) => file.filename === "index.html",
+    )?.id;
+    const secondId = record.files?.find(
+      (file) => file.filename === "second.html",
+    )?.id;
+    if (!primaryId || (withSecondScreen && !secondId))
+      throw new Error("fixture files are missing");
+    const dataOperations = [
       {
         op: "set",
-        path: ["screenMetadata", secondId],
+        path: ["screenMetadata", primaryId],
         value: { sourceType: "inline", width: 1000, height: 780 },
       },
       {
         op: "set",
-        path: ["canvasFrames", secondId],
-        value: { x: 1120, y: 0, width: 1000, height: 780, z: 1 },
+        path: ["canvasFrames", primaryId],
+        value: { x: 0, y: 0, width: 1000, height: 780, z: 0 },
       },
-    );
+    ];
+    if (secondId) {
+      dataOperations.push(
+        {
+          op: "set",
+          path: ["screenMetadata", secondId],
+          value: { sourceType: "inline", width: 1000, height: 780 },
+        },
+        {
+          op: "set",
+          path: ["canvasFrames", secondId],
+          value: { x: 1120, y: 0, width: 1000, height: 780, z: 1 },
+        },
+      );
+    }
+    await action(request, "update-design", { id, dataOperations });
+    return { id, primaryId, secondId };
+  } catch (error) {
+    await deleteDesign(request, id);
+    throw error;
   }
-  await action(request, "update-design", { id, dataOperations });
-  return { id, primaryId, secondId };
 }
 
 async function deleteDesign(
@@ -149,7 +154,9 @@ async function fileHtml(
   fileId: string,
 ): Promise<string> {
   const record = await readDesign(request, designId);
-  return record.files?.find((file) => file.id === fileId)?.content ?? "";
+  const file = record.files?.find((candidate) => candidate.id === fileId);
+  if (!file) throw new Error(`design file ${fileId} is missing`);
+  return file.content;
 }
 
 function nodeOffset(html: string, nodeId: string): number {
@@ -434,7 +441,10 @@ test.describe("Layers-panel auto-layout parity", () => {
         request,
         design.id,
         design.primaryId,
-        (html) => nodeIsBefore(html, "h-middle", "h-last"),
+        (html) =>
+          nodeIsInsideSection(html, "hrow", "h-middle") &&
+          nodeIsInsideSection(html, "hrow", "h-last") &&
+          nodeIsBefore(html, "h-middle", "h-last"),
       );
       expect(undone.html).toEqual(original);
 
