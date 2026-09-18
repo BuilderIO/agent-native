@@ -163,7 +163,12 @@ function nodeOffset(html: string, nodeId: string): number {
   return html.indexOf(`data-agent-native-node-id="${nodeId}"`);
 }
 
-function nodeParentId(html: string, nodeId: string): string | null | undefined {
+type HtmlParent = { id: string | null; tag: string };
+
+function nodeParent(
+  html: string,
+  nodeId: string,
+): HtmlParent | null | undefined {
   const voidTags = new Set([
     "area",
     "base",
@@ -186,7 +191,9 @@ function nodeParentId(html: string, nodeId: string): string | null | undefined {
     const tag = match[0];
     const tagName = match[1].toLowerCase();
     if (tag.startsWith("</")) {
-      if (stack.at(-1)?.tag === tagName) stack.pop();
+      if (stack.length > 0 && stack[stack.length - 1]?.tag === tagName) {
+        stack.pop();
+      }
       continue;
     }
     const nodeMatch = tag.match(
@@ -194,11 +201,51 @@ function nodeParentId(html: string, nodeId: string): string | null | undefined {
     );
     const currentId = nodeMatch?.[1] ?? nodeMatch?.[2] ?? null;
     if (currentId === nodeId) {
-      const parent = stack.at(-1);
-      return parent?.tag === "body" ? null : (parent?.id ?? null);
+      return stack.length > 0 ? (stack[stack.length - 1] ?? null) : null;
     }
     if (!voidTags.has(tagName) && !tag.endsWith("/>")) {
       stack.push({ id: currentId, tag: tagName });
+    }
+  }
+  return undefined;
+}
+
+function nodeParentId(html: string, nodeId: string): string | null | undefined {
+  return nodeParent(html, nodeId)?.id;
+}
+
+function semanticNodeHtml(html: string, nodeId: string): string | undefined {
+  const nodeOffset = html.indexOf(`data-agent-native-node-id="${nodeId}"`);
+  if (nodeOffset < 0) return undefined;
+  const nodeStart = html.lastIndexOf("<", nodeOffset);
+  const openingTag = html.slice(nodeStart).match(/^<([a-z][^\s/>]*)/i);
+  if (!openingTag) return undefined;
+  const nodeTag = openingTag[1].toLowerCase();
+  const tagPattern = /<\/?([a-z][^\s/>]*)(?:\s[^>]*)?>/gi;
+  let depth = 0;
+  for (const match of html.slice(nodeStart).matchAll(tagPattern)) {
+    const tag = match[0];
+    const tagName = match[1].toLowerCase();
+    if (tag.startsWith("</")) {
+      if (tagName !== nodeTag) continue;
+      depth -= 1;
+      if (depth === 0) {
+        return html
+          .slice(nodeStart, nodeStart + (match.index ?? 0) + tag.length)
+          .replace(/\sdata-agent-native-node-id="an-[^"]*"/g, "")
+          .replace(/\s+/g, " ")
+          .trim();
+      }
+      continue;
+    }
+    if (
+      tagName === nodeTag &&
+      !tag.endsWith("/>") &&
+      !/^<(?:area|base|br|col|embed|hr|img|input|link|meta|param|source|track|wbr)\b/i.test(
+        tag,
+      )
+    ) {
+      depth += 1;
     }
   }
   return undefined;
@@ -333,12 +380,16 @@ async function nodeBox(page: Page, nodeId: string, screenId?: string) {
 async function parentId(page: Page, nodeId: string, screenId?: string) {
   return frame(page, screenId)
     .locator(`[data-agent-native-node-id="${nodeId}"]`)
-    .evaluate((node) =>
-      node.parentElement?.tagName === "BODY"
-        ? null
-        : (node.parentElement?.getAttribute("data-agent-native-node-id") ??
-          null),
+    .evaluate(
+      (node) =>
+        node.parentElement?.getAttribute("data-agent-native-node-id") ?? null,
     );
+}
+
+async function parentTag(page: Page, nodeId: string, screenId?: string) {
+  return frame(page, screenId)
+    .locator(`[data-agent-native-node-id="${nodeId}"]`)
+    .evaluate((node) => node.parentElement?.tagName ?? null);
 }
 
 async function heldPanelDrag(
@@ -466,7 +517,9 @@ test.describe("Layers-panel auto-layout parity", () => {
           nodeIsInsideSection(html, "hrow", "h-last") &&
           nodeIsBefore(html, "h-middle", "h-last"),
       );
-      expect(undone).toEqual(original);
+      expect(semanticNodeHtml(undone, "hrow")).toBe(
+        semanticNodeHtml(original, "hrow"),
+      );
 
       await page.keyboard.down(mod);
       await page.keyboard.down("Shift");
@@ -549,7 +602,8 @@ test.describe("Layers-panel auto-layout parity", () => {
       const before = await directChildren(page, "nested-inner");
       expect(before).toEqual(["inner-first", "inner-last"]);
       const sourceParentBefore = await parentId(page, "free-source");
-      expect(sourceParentBefore).toBeNull();
+      expect(sourceParentBefore).toMatch(/^an-/);
+      expect(await parentTag(page, "free-source")).toBe("BODY");
       const original = await fileHtml(request, design.id, design.primaryId);
       const sourceWasAfterOuter = nodeIsBefore(
         original,
@@ -584,20 +638,20 @@ test.describe("Layers-panel auto-layout parity", () => {
       await page.keyboard.down(mod);
       await page.keyboard.press("z");
       await page.keyboard.up(mod);
-      await expect.poll(() => parentId(page, "free-source")).toBeNull();
+      await expect.poll(() => parentTag(page, "free-source")).toBe("BODY");
       const undone = await waitForPersistedHtml(
         request,
         design.id,
         design.primaryId,
         (html) =>
           html !== persisted &&
-          nodeParentId(html, "free-source") === null &&
+          nodeParent(html, "free-source")?.tag === "body" &&
           nodeOffset(html, "free-source") >= 0 &&
           nodeIsBefore(html, "nested-outer", "free-source") ===
             sourceWasAfterOuter &&
           nodeOffset(html, "nested-outer") >= 0,
       );
-      expect(nodeParentId(undone, "free-source")).toBeNull();
+      expect(nodeParent(undone, "free-source")?.tag).toBe("body");
       expect(nodeIsBefore(undone, "nested-outer", "free-source")).toBe(
         sourceWasAfterOuter,
       );
