@@ -161,4 +161,24 @@ describe("canvas iframe paint retention", () => {
       }).backfaceVisibility,
     ).toBe("hidden");
   });
+
+  it("drops retention for the low-zoom board replica when its composed paint is large", () => {
+    const sampledViewport = 4096;
+    const boardScale = 32;
+
+    expect(
+      getIframePaintRetentionStyle({
+        viewportWidth: sampledViewport,
+        viewportHeight: sampledViewport,
+        effectiveScale: boardScale * 0.0421,
+      }).backfaceVisibility,
+    ).toBe("visible");
+    expect(
+      getIframePaintRetentionStyle({
+        viewportWidth: sampledViewport,
+        viewportHeight: sampledViewport,
+        effectiveScale: boardScale * 0.02,
+      }).backfaceVisibility,
+    ).toBe("hidden");
+  });
 });

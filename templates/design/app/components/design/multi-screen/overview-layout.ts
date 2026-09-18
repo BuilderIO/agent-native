@@ -131,6 +131,49 @@ export function getBoardSurfaceStaticPreviewViewport(
   };
 }
 
+/**
+ * Limit the inert board replica to the camera window. The replica is sampled
+ * at 4k and scaled back to the logical board, so leaving its full logical box
+ * paintable makes Chromium raster the entire board even though only the camera
+ * window can contribute pixels.
+ */
+export function getBoardSurfaceStaticPreviewClip(args: {
+  logicalGeometry: FrameGeometry;
+  viewportGeometry?: FrameGeometry | null;
+}) {
+  const { logicalGeometry, viewportGeometry } = args;
+  if (!viewportGeometry) return undefined;
+
+  const width = Math.max(1, logicalGeometry.width);
+  const height = Math.max(1, logicalGeometry.height);
+  const left = Math.min(
+    width,
+    Math.max(0, viewportGeometry.x - logicalGeometry.x),
+  );
+  const top = Math.min(
+    height,
+    Math.max(0, viewportGeometry.y - logicalGeometry.y),
+  );
+  const right = Math.min(
+    width,
+    Math.max(
+      0,
+      logicalGeometry.x + width - (viewportGeometry.x + viewportGeometry.width),
+    ),
+  );
+  const bottom = Math.min(
+    height,
+    Math.max(
+      0,
+      logicalGeometry.y +
+        height -
+        (viewportGeometry.y + viewportGeometry.height),
+    ),
+  );
+
+  return `inset(${top}px ${right}px ${bottom}px ${left}px)`;
+}
+
 function geometryExtent(geometry: FrameGeometry) {
   return {
     minX: geometry.x,

@@ -25302,12 +25302,17 @@ function DesignEditor() {
                   className="relative min-w-0 flex-1 overflow-hidden bg-[var(--design-editor-canvas-bg)]"
                   // Overrides the themed canvas colour rather than a background
                   // shorthand, so every descendant reading the var follows.
+                  // Keep transformed canvas layers inside their own compositor
+                  // surface so they cannot invalidate the editor chrome.
                   style={
-                    canvasBackground
-                      ? ({
-                          "--design-editor-canvas-bg": canvasBackground,
-                        } as React.CSSProperties)
-                      : undefined
+                    {
+                      isolation: "isolate",
+                      ...(canvasBackground
+                        ? {
+                            "--design-editor-canvas-bg": canvasBackground,
+                          }
+                        : {}),
+                    } as React.CSSProperties
                   }
                   onPointerMove={handleCanvasPointerMove}
                   onClick={handleCanvasBackgroundClick}

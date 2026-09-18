@@ -319,6 +319,7 @@ import {
   getBoardSelectionWorldBounds,
   getBoardSurfaceRenderGeometry,
   getBoardSurfaceLayerStyle,
+  getBoardSurfaceStaticPreviewClip,
   getBoardSurfaceStaticPreviewViewport,
   isLineupShrinkOnlyChange,
   OVERVIEW_FRAME_WIDTH,
@@ -851,6 +852,16 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         ? getBoardSurfaceStaticPreviewViewport(boardFrameGeometry)
         : null,
     [boardFrameGeometry],
+  );
+  const boardStaticPreviewClip = useMemo(
+    () =>
+      boardFrameGeometry
+        ? getBoardSurfaceStaticPreviewClip({
+            logicalGeometry: boardFrameGeometry,
+            viewportGeometry: boardViewportGeometry,
+          })
+        : undefined,
+    [boardFrameGeometry, boardViewportGeometry],
   );
   // Both board layers must ask this one question: an empty <body> is a truthy
   // string, and the replica is opaque, so a string-only gate slabs the board.
@@ -10165,6 +10176,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       onDrop={handleCanvasDrop}
       style={{
         cursor: surfaceCursor,
+        isolation: "isolate",
         overscrollBehavior: "none",
         touchAction: "none",
       }}
@@ -10214,6 +10226,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               width: boardFrameGeometry.width,
               height: boardFrameGeometry.height,
               overflow: "hidden",
+              contain: "paint",
+              clipPath: boardStaticPreviewClip,
+              isolation: "isolate",
               pointerEvents: "none",
               background: "transparent",
               zIndex: 0,
@@ -10236,6 +10251,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                 transformOrigin: "top left",
                 background: CANVAS_BACKGROUND_VAR,
                 ...SCALED_IFRAME_PAINT_RETENTION_STYLE,
+                ...getIframePaintRetentionStyle({
+                  viewportWidth: boardStaticPreviewViewport.width,
+                  viewportHeight: boardStaticPreviewViewport.height,
+                  effectiveScale:
+                    (boardFrameGeometry.width /
+                      Math.max(1, boardStaticPreviewViewport.width)) *
+                    (canvasZoom / 100),
+                }),
               }}
             />
           </div>
