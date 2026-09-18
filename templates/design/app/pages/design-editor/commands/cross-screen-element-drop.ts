@@ -758,6 +758,13 @@ export function runCrossScreenElementDrop(
   const targetProvenanceForContent = targetAnchorWasRequested
     ? resolveSourceNodeProvenance(rawDestContent, targetAnchorProvenance)
     : undefined;
+  dndHostLog("persist:target-provenance", {
+    targetScreenId,
+    targetAnchorNodeId: targetAnchorNodeId ?? null,
+    targetAnchorSelector: targetAnchorSelector ?? null,
+    targetAnchorProvenance: targetAnchorProvenance ?? null,
+    resolved: targetProvenanceForContent ?? null,
+  });
   if (targetAnchorWasRequested && !targetProvenanceForContent) {
     toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
     return;
