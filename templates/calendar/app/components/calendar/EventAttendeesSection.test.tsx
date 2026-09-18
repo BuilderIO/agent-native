@@ -13,8 +13,8 @@ const rsvpMutate = vi.hoisted(() => vi.fn());
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT:
     () =>
-    (key: string): string =>
-      key,
+    (key: string, values?: { count?: number }): string =>
+      values?.count === undefined ? key : `${key}:${values.count}`,
 }));
 
 vi.mock("@/components/calendar/ApolloPanel", () => ({
@@ -151,7 +151,7 @@ describe("EventAttendeesSection attendee controls", () => {
       root.render(<EventAttendeesSection event={event} />);
     });
 
-    expect(document.body.textContent).toContain("deleteEvent.guest");
+    expect(document.body.textContent).toContain("deleteEvent.guest_other:2");
   });
 
   it("shows the matching Google Calendar proposal action with RSVP controls", () => {

@@ -507,7 +507,12 @@ function AttendeeRow({
           ? t("eventForm.yourResponse", { status: statusLabel })
           : null,
     additionalGuestCount > 0
-      ? t("deleteEvent.guest", { count: additionalGuestCount })
+      ? t(
+          additionalGuestCount === 1
+            ? "deleteEvent.guest_one"
+            : "deleteEvent.guest_other",
+          { count: additionalGuestCount },
+        )
       : null,
     localTimeLabel,
   ]
