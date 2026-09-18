@@ -399,7 +399,7 @@ export default defineAction({
       .max(50)
       .optional()
       .describe(
-        "Emoji name to add on the item source when that provider can. Slack clear bugs require eyes; omit on skips.",
+        "Emoji name to add on the item source when that provider can. Slack items that clear the dispatch bar (clearBug true, risk low, confidence high) require eyes; omit on skips.",
       ),
     relatedItemIds: z
       .array(z.string().trim().min(1))
@@ -513,6 +513,21 @@ export default defineAction({
     });
     const blocked =
       alreadyClaimed || guardResults.some((guard) => !guard.passed);
+    // Persist the classification immediately, ahead of any Slack/GitHub I/O
+    // below, for this item and every related item in the same cluster. A
+    // provider failure after this point must not leave an item's
+    // risk/confidence at their prior (usually "unknown") values when the
+    // model already classified it and, on the dispatch path, external side
+    // effects may already be underway.
+    await db
+      .update(triageItems)
+      .set({ risk, confidence, updatedAt: new Date().toISOString() })
+      .where(
+        and(
+          inArray(triageItems.id, [itemId, ...relatedIds]),
+          eq(triageItems.orgId, orgId),
+        ),
+      );
     const reactionRequirement = slackClearBugReactionRequirement({
       source: item.source,
       clearBug,
@@ -568,8 +583,6 @@ export default defineAction({
           .update(triageItems)
           .set({
             ...(nextStatus ? { status: nextStatus } : {}),
-            risk,
-            confidence,
             updatedAt: new Date().toISOString(),
           })
           .where(
@@ -814,8 +827,6 @@ export default defineAction({
             .update(triageItems)
             .set({
               status: "automation_started",
-              risk,
-              confidence,
               updatedAt: new Date().toISOString(),
             })
             .where(
@@ -835,8 +846,6 @@ export default defineAction({
           .update(triageItems)
           .set({
             status: "automation_started",
-            risk,
-            confidence,
             updatedAt: new Date().toISOString(),
           })
           .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)));
@@ -965,8 +974,6 @@ export default defineAction({
         .update(triageItems)
         .set({
           status: "automation_started",
-          risk,
-          confidence,
           updatedAt: new Date().toISOString(),
         })
         .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)));

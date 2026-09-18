@@ -30,9 +30,10 @@ contract is evidence-first and reply-producing:
   \`dispatch-factory-item\` only tags Builder when \`clearBug\` is true,
   \`risk\` is low, and \`confidence\` is high; everything else is a skip
   regardless of how clear the bug looks.
-- For an actionable repo-owned Slack clear bug with no existing eyes 👀,
-  you MUST pass \`reaction: eyes\` 👀 on \`dispatch-factory-item\` — never
-  dispatch a clear bug without it. Every parent this run marks must later
+- For a dispatch-eligible repo-owned Slack item (\`clearBug\` true, \`risk\`
+  low, \`confidence\` high) with no existing eyes 👀, you MUST pass
+  \`reaction: eyes\` 👀 on \`dispatch-factory-item\` — never dispatch without
+  it. Every parent this run marks must later
   receive a verified @agent-native Fixed, In progress, or Clarification needed
   reply; a reaction, forward, generic acknowledgement, or another person's
   reply is not a disposition. Group only genuinely repeated symptoms and
