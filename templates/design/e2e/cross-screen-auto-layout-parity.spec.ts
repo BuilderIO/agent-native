@@ -363,6 +363,9 @@ test.describe("physical cross-screen auto-layout parity", () => {
             "[cross-screen-auto-layout] top message",
             JSON.stringify({
               phase: event.data.phase,
+              sourceId: event.data.sourceId,
+              sourceProvenance: event.data.sourceProvenance,
+              selector: event.data.selector,
               sourceMatches: Array.from(
                 document.querySelectorAll("iframe[data-design-preview-iframe]"),
               ).some(
