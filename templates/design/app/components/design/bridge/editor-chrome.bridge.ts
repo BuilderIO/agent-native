@@ -13640,6 +13640,209 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       : "y";
   }
 
+  // Grid placement is two-dimensional. A nearest-child line is not enough
+  // when the pointer is over an empty cell: it can point at a neighbour in a
+  // different row and the live preview then disagrees with the cell the user
+  // is holding over. Let the browser lay out a hidden placeholder at each
+  // structural slot instead of reconstructing tracks here. That keeps used
+  // sizes, implicit tracks, dense/column flow, and zoom transforms in the
+  // browser's own coordinate space.
+  function supportsGridPlaceholderProjection(
+    containerStyles: CSSStyleDeclaration,
+    children: Element[],
+    excluded?: Element[],
+  ): boolean {
+    if (
+      containerStyles.display !== "grid" &&
+      containerStyles.display !== "inline-grid"
+    ) {
+      return false;
+    }
+    if (containerStyles.transform && containerStyles.transform !== "none") {
+      return false;
+    }
+    var autoFlow = (containerStyles.gridAutoFlow || "row").split(/\s+/);
+    if (autoFlow[0] !== "row" && autoFlow[0] !== "column") return false;
+    if (autoFlow[1] === "dense" || !children.length) return false;
+    var allChildren = children.slice();
+    (excluded || []).forEach(function (child) {
+      if (allChildren.indexOf(child) === -1) allChildren.push(child);
+    });
+    for (var i = 0; i < allChildren.length; i += 1) {
+      var childStyles = window.getComputedStyle(allChildren[i]);
+      if (
+        childStyles.gridColumnStart !== "auto" ||
+        childStyles.gridColumnEnd !== "auto" ||
+        childStyles.gridRowStart !== "auto" ||
+        childStyles.gridRowEnd !== "auto" ||
+        childStyles.order !== "0"
+      ) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  function prepareGridProjectionPlaceholder(
+    placeholder: HTMLElement,
+    containerStyles: CSSStyleDeclaration,
+  ): void {
+    if (
+      containerStyles.display !== "grid" &&
+      containerStyles.display !== "inline-grid"
+    ) {
+      return;
+    }
+    placeholder.style.position = "static";
+    placeholder.style.left = "auto";
+    placeholder.style.top = "auto";
+    placeholder.style.right = "auto";
+    placeholder.style.bottom = "auto";
+    placeholder.style.gridArea = "auto";
+    placeholder.style.gridColumn = "auto";
+    placeholder.style.gridRow = "auto";
+    placeholder.style.order = "0";
+    placeholder.style.width = "auto";
+    placeholder.style.height = "auto";
+    placeholder.style.minWidth = "0";
+    placeholder.style.minHeight = "0";
+    placeholder.style.maxWidth = "none";
+    placeholder.style.maxHeight = "none";
+    placeholder.style.justifySelf = "stretch";
+    placeholder.style.alignSelf = "stretch";
+  }
+
+  function gridCellInsertionTarget(
+    container: Element,
+    clientX: number,
+    clientY: number,
+    children: Element[],
+    excluded: Element[],
+  ) {
+    var styles = window.getComputedStyle(container);
+    if (styles.display !== "grid" && styles.display !== "inline-grid") {
+      return null;
+    }
+    if (!supportsGridPlaceholderProjection(styles, children, excluded)) {
+      return null;
+    }
+    var autoFlow = (styles.gridAutoFlow || "row").split(/\s+/);
+
+    var prototype = excluded && excluded.length ? excluded[0] : null;
+    var placeholder = prototype
+      ? (prototype.cloneNode(true) as HTMLElement)
+      : (container.ownerDocument.createElement("div") as HTMLElement);
+    placeholder.removeAttribute("data-agent-native-node-id");
+    placeholder.setAttribute("data-agent-native-reflow-placeholder", "");
+    prepareGridProjectionPlaceholder(placeholder, styles);
+    placeholder.style.visibility = "hidden";
+    placeholder.style.pointerEvents = "none";
+    placeholder.style.transform = "none";
+    placeholder.style.transition = "none";
+
+    var originalChildren = Array.prototype.slice.call(
+      container.children,
+    ) as Element[];
+    var originalChildNodes = Array.prototype.slice.call(
+      container.childNodes,
+    ) as Node[];
+    var removed = originalChildren.filter(function (child) {
+      return excluded.indexOf(child) !== -1;
+    });
+    var best: {
+      slot: number;
+      rect: { left: number; top: number; width: number; height: number };
+      distance: number;
+    } | null = null;
+    var trailingCandidate: typeof best = null;
+    var occupiedBottom = -Infinity;
+    var occupiedRight = -Infinity;
+
+    try {
+      removed.forEach(function (child) {
+        container.removeChild(child);
+      });
+      for (var slot = 0; slot <= children.length; slot += 1) {
+        var anchor = children[slot];
+        if (anchor && anchor.parentNode === container) {
+          container.insertBefore(placeholder, anchor);
+        } else {
+          container.appendChild(placeholder);
+        }
+        var rect = placeholder.getBoundingClientRect();
+        var dx =
+          clientX < rect.left
+            ? rect.left - clientX
+            : clientX > rect.right
+              ? clientX - rect.right
+              : 0;
+        var dy =
+          clientY < rect.top
+            ? rect.top - clientY
+            : clientY > rect.bottom
+              ? clientY - rect.bottom
+              : 0;
+        var distance = Math.hypot(dx, dy);
+        if (!best || distance < best.distance) {
+          best = {
+            slot: slot,
+            rect: {
+              left: rect.left,
+              top: rect.top,
+              width: rect.width,
+              height: rect.height,
+            },
+            distance: distance,
+          };
+        }
+        if (slot < children.length) {
+          occupiedBottom = Math.max(occupiedBottom, rect.bottom);
+          occupiedRight = Math.max(occupiedRight, rect.right);
+        } else {
+          trailingCandidate = {
+            slot: slot,
+            rect: {
+              left: rect.left,
+              top: rect.top,
+              width: rect.width,
+              height: rect.height,
+            },
+            distance: distance,
+          };
+        }
+        placeholder.remove();
+      }
+    } finally {
+      if (placeholder.parentNode)
+        placeholder.parentNode.removeChild(placeholder);
+      originalChildNodes.forEach(function (originalChildNode) {
+        container.appendChild(originalChildNode);
+      });
+    }
+    if (!best) return null;
+    // A full grid leaves its next implicit row/column in the container's
+    // trailing whitespace. Euclidean distance otherwise favors the last
+    // visible cell along the perpendicular axis, so a bottom/right edge drop
+    // would preview that occupied cell instead of the new flow slot.
+    if (
+      trailingCandidate &&
+      ((autoFlow[0] === "row" && clientY > occupiedBottom) ||
+        (autoFlow[0] === "column" && clientX > occupiedRight))
+    ) {
+      best = trailingCandidate;
+    }
+    var slot = best.slot;
+    var anchor = children[slot] || children[children.length - 1];
+    return {
+      anchor: anchor,
+      placement: slot < children.length ? "before" : "after",
+      axis: autoFlow[0] === "column" ? "y" : "x",
+      dropMode: "flow-insert",
+      guideRect: best.rect,
+      guideMode: "grid-cell",
+    };
+  }
+
   // Resolves a between-children insertion inside `container` from the
   // pointer position: the nearest visible child (by flow-axis center, or
   // two-dimensional visual distance for wrapped flex and multi-track grid)
@@ -13683,6 +13886,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     });
     if (!children.length) return null;
     var containerStyles = window.getComputedStyle(container);
+    var gridCellTarget = gridCellInsertionTarget(
+      container,
+      clientX,
+      clientY,
+      children,
+      excluded,
+    );
+    if (gridCellTarget) return gridCellTarget;
     var wrappedFlexAxis = wrappedFlexMainAxis(container);
     var axis = wrappedFlexAxis || parentFlowAxis(container);
     var multiTrackGrid =
@@ -14306,6 +14517,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             placement: betweenContainerChildren.placement,
             axis: betweenContainerChildren.axis,
             dropMode: "flow-insert",
+            guideRect: betweenContainerChildren.guideRect,
+            guideMode: betweenContainerChildren.guideMode,
           };
         }
         return {
@@ -14347,6 +14560,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
               placement: cloneFallback.placement,
               axis: cloneFallback.axis,
               dropMode: "flow-insert",
+              guideRect: cloneFallback.guideRect,
+              guideMode: cloneFallback.guideMode,
             };
           }
           return {
@@ -14496,7 +14711,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // guide must match so it stays a visible bright line at any zoom.
     var line = 2 * chromeLineScale();
     var insideBorder = 2 * chromeLineScale();
-    var rect = target.anchor.getBoundingClientRect();
+    var rect = target.guideRect || target.anchor.getBoundingClientRect();
     insertionGuide.style.display = "block";
     insertionGuide.style.background = "var(--design-editor-accent-color)";
     insertionGuide.style.border = "0";
@@ -14514,6 +14729,34 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         insideBorder + "px solid var(--design-editor-accent-color)";
       insertionGuide.style.borderRadius = "2px";
       insertionGuide.style.boxShadow = "none";
+      return;
+    }
+    if (target.guideMode === "grid-cell") {
+      insertionGuide.style.boxSizing = "border-box";
+      insertionGuide.style.left = rect.left + "px";
+      insertionGuide.style.top = rect.top + "px";
+      insertionGuide.style.width = rect.width + "px";
+      insertionGuide.style.height = rect.height + "px";
+      insertionGuide.style.background =
+        "color-mix(in srgb, var(--design-editor-accent-color) 14%, transparent)";
+      insertionGuide.style.border =
+        insideBorder + "px solid var(--design-editor-accent-color)";
+      insertionGuide.style.borderRadius = "2px";
+      insertionGuide.style.boxShadow = "none";
+      return;
+    }
+    if (target.guideMode === "wrapped-slot") {
+      if (target.axis === "x") {
+        insertionGuide.style.left = rect.left - line / 2 + "px";
+        insertionGuide.style.top = rect.top + "px";
+        insertionGuide.style.width = line + "px";
+        insertionGuide.style.height = rect.height + "px";
+      } else {
+        insertionGuide.style.left = rect.left + "px";
+        insertionGuide.style.top = rect.top - line / 2 + "px";
+        insertionGuide.style.width = rect.width + "px";
+        insertionGuide.style.height = line + "px";
+      }
       return;
     }
     if (target.axis === "x") {
@@ -16403,9 +16646,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         applyReorderLift(0, 0);
         positionOverlay(selectionOverlay, selectedEl);
       }
-      // Live sibling reflow, restricted to same-container simple-packed flex so
-      // a constant per-sibling shift always matches the real drop; ported from
-      // shared/drag-reflow.ts.
+      // Live sibling reflow. The preview is calculated by asking the browser
+      // for the actual layout after a temporary placeholder is inserted at
+      // the target slot. That keeps wrapped flex and grid geometry faithful to
+      // CSS instead of assuming every sibling moves by one main-axis gap.
       var reorderCommittedTarget: any = null;
       var reorderCommittedSlot: number | null = null;
       var reorderCommittedAt = 0;
@@ -16419,8 +16663,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         prevTransition: string;
       }[] = [];
       var reflowKey: string | null = null;
-      var packedCacheContainer: Element | null = null;
-      var packedCacheResult = false;
       function reorderMainAxis(target): "x" | "y" {
         return target && target.axis === "y" ? "y" : "x";
       }
@@ -16438,42 +16680,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         var ai = real.indexOf(target.anchor);
         if (ai < 0) return null;
         return { slot: target.placement === "before" ? ai : ai + 1 };
-      }
-      function containerIsSimplePacked(container: Element): boolean {
-        if (packedCacheContainer === container) return packedCacheResult;
-        packedCacheContainer = container;
-        packedCacheResult = false;
-        var cs = window.getComputedStyle(container);
-        if (cs.display !== "flex" && cs.display !== "inline-flex") return false;
-        if (cs.flexDirection !== "row" && cs.flexDirection !== "column") {
-          return false;
-        }
-        if (cs.flexWrap !== "nowrap") return false;
-        var jc = cs.justifyContent;
-        if (
-          jc !== "flex-start" &&
-          jc !== "start" &&
-          jc !== "normal" &&
-          jc !== "left" &&
-          jc !== ""
-        ) {
-          return false;
-        }
-        var kids = container.children;
-        for (var i = 0; i < kids.length; i += 1) {
-          if (kids[i].nodeType !== 1) continue;
-          if (parseFloat(window.getComputedStyle(kids[i]).flexGrow) > 0) {
-            return false;
-          }
-        }
-        packedCacheResult = true;
-        return true;
-      }
-      function reorderMainGap(container: Element, axis: "x" | "y"): number {
-        var cs = window.getComputedStyle(container);
-        var raw = axis === "x" ? cs.columnGap || cs.gap : cs.rowGap || cs.gap;
-        var n = readPx(raw);
-        return Number.isFinite(n) && n > 0 ? n : 0;
       }
       function clearReorderReflow(): void {
         reflowSiblings.forEach(function (s) {
@@ -16620,10 +16826,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           return;
         }
         var container = dropContainerForTarget(target);
+        var containerStyles = container
+          ? window.getComputedStyle(container)
+          : null;
         if (
           !container ||
           (reorderEl as HTMLElement).parentElement !== container ||
-          !containerIsSimplePacked(container)
+          !containerStyles ||
+          (containerStyles.display !== "flex" &&
+            containerStyles.display !== "inline-flex" &&
+            containerStyles.display !== "grid" &&
+            containerStyles.display !== "inline-grid")
         ) {
           clearReorderReflow();
           return;
@@ -16635,50 +16848,118 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           clearReorderReflow();
           return;
         }
+        var gridProjectionSupported = supportsGridPlaceholderProjection(
+          containerStyles,
+          real.filter(function (member) {
+            return member !== reorderEl;
+          }),
+          [reorderEl],
+        );
         var axis = reorderMainAxis(target);
         var key = axis + ":" + slotInfo.slot;
         if (key === reflowKey) return;
         clearReorderReflow();
         reflowKey = key;
-        var drect = (reorderEl as HTMLElement).getBoundingClientRect();
-        var slotMain =
-          (axis === "x" ? drect.width : drect.height) +
-          reorderMainGap(container, axis);
-        // Only siblings between origin and target shift, by ±slotMain — exact
-        // for a packed container regardless of each sibling's own size.
-        var offsets: number[] = new Array(real.length).fill(0);
-        if (slotInfo.slot > originIndex + 1) {
-          for (var a = originIndex + 1; a <= slotInfo.slot - 1; a += 1) {
-            offsets[a] = -slotMain;
-          }
-        } else if (slotInfo.slot < originIndex) {
-          for (var b = slotInfo.slot; b <= originIndex - 1; b += 1) {
-            offsets[b] = slotMain;
-          }
+        var originalNextSibling = reorderEl.nextSibling;
+        var placeholder = reorderEl.cloneNode(true) as HTMLElement;
+        placeholder.removeAttribute("data-agent-native-node-id");
+        placeholder.setAttribute("data-agent-native-reflow-placeholder", "");
+        placeholder.style.visibility = "hidden";
+        placeholder.style.pointerEvents = "none";
+        placeholder.style.transform = "none";
+        placeholder.style.transition = "none";
+        if (gridProjectionSupported) {
+          prepareGridProjectionPlaceholder(placeholder, containerStyles);
         }
-        for (var i = 0; i < real.length; i += 1) {
-          if (i === originIndex) continue;
-          var el = real[i] as HTMLElement;
-          var prevTransform = el.style.transform;
-          var authoredTransform = authoredTransformOf(el);
-          reflowSiblings.push({
-            el: el,
-            prevTransform: prevTransform,
-            authoredTransform: authoredTransform,
-            prevTransition: el.style.transition,
+        var projectedRects: {
+          el: Element;
+          left: number;
+          top: number;
+        }[] = [];
+        try {
+          reorderEl.parentElement!.removeChild(reorderEl);
+          if (target.placement === "inside") {
+            container.appendChild(placeholder);
+          } else if (target.placement === "before") {
+            container.insertBefore(placeholder, target.anchor);
+          } else {
+            container.insertBefore(placeholder, target.anchor.nextSibling);
+          }
+          real.forEach(function (member) {
+            if (member === reorderEl) return;
+            var projected = member.getBoundingClientRect();
+            projectedRects.push({
+              el: member,
+              left: projected.left,
+              top: projected.top,
+            });
           });
-          el.style.transition = "transform 140ms cubic-bezier(0.2, 0, 0, 1)";
-          var tx = axis === "x" ? offsets[i] : 0;
-          var ty = axis === "y" ? offsets[i] : 0;
-          // Translate FIRST (screen space) composed with the sibling's own
-          // transform so an authored rotate/scale survives the reflow shift.
-          el.style.transform =
-            "translate(" +
-            tx +
-            "px, " +
-            ty +
-            "px)" +
-            (authoredTransform ? " " + authoredTransform : "");
+          if (
+            containerStyles.flexWrap === "wrap" ||
+            containerStyles.flexWrap === "wrap-reverse"
+          ) {
+            var projectedGuide = placeholder.getBoundingClientRect();
+            target.guideRect = {
+              left: projectedGuide.left,
+              top: projectedGuide.top,
+              width: projectedGuide.width,
+              height: projectedGuide.height,
+            };
+            target.guideMode = "wrapped-slot";
+          }
+          placeholder.remove();
+          if (
+            originalNextSibling &&
+            originalNextSibling.parentNode === container
+          ) {
+            container.insertBefore(reorderEl, originalNextSibling);
+          } else {
+            container.appendChild(reorderEl);
+          }
+          projectedRects.forEach(function (projected) {
+            var el = projected.el as HTMLElement;
+            var current = el.getBoundingClientRect();
+            var dx = projected.left - current.left;
+            var dy = projected.top - current.top;
+            if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
+            var prevTransform = el.style.transform;
+            var authoredTransform = authoredTransformOf(el);
+            reflowSiblings.push({
+              el: el,
+              prevTransform: prevTransform,
+              authoredTransform: authoredTransform,
+              prevTransition: el.style.transition,
+            });
+            el.style.transition = "transform 140ms cubic-bezier(0.2, 0, 0, 1)";
+            // Translate FIRST (screen space) composed with the sibling's own
+            // transform so an authored rotate/scale survives the reflow shift.
+            el.style.transform =
+              "translate(" +
+              dx +
+              "px, " +
+              dy +
+              "px)" +
+              (authoredTransform ? " " + authoredTransform : "");
+          });
+        } catch (error) {
+          // A layout read or DOM insertion can fail if the editor is tearing
+          // down the frame during a cancel. Restore all preview transforms
+          // before letting the gesture handler surface the error.
+          clearReorderReflow();
+          throw error;
+        } finally {
+          if (placeholder.parentNode)
+            placeholder.parentNode.removeChild(placeholder);
+          if ((reorderEl as HTMLElement).parentNode !== container) {
+            if (
+              originalNextSibling &&
+              originalNextSibling.parentNode === container
+            ) {
+              container.insertBefore(reorderEl, originalNextSibling);
+            } else {
+              container.appendChild(reorderEl);
+            }
+          }
         }
       }
       function onReorderMove(ev) {
@@ -16731,6 +17012,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           // stabilized (hysteresis) and previewed with live sibling reflow when
           // liveReflowEnabled. stabilizeReorderTarget / applyReorderReflow are
           // no-ops (pass-through) when the flag is off.
+          // Resolve against the source layout, not transforms from the prior
+          // projected slot. The next call reapplies the fresh projection, so
+          // wrapped rows remain hit-testable while siblings animate.
+          clearReorderReflow();
           var rawTarget = resolveReorderOrFreeTarget(
             cx,
             cy,
@@ -16743,7 +17028,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             cy,
             ev.timeStamp,
           );
-          showInsertionGuideFor(currentTarget);
           var _dndKey = currentTarget
             ? getSelector(currentTarget.anchor) +
               "|" +
@@ -16757,6 +17041,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           }
           applyReorderLift(dx, dy);
           applyReorderReflow(currentTarget, cx, cy);
+          // Paint after sibling projection so a marker anchored to a moved
+          // child follows its projected geometry instead of one frame behind.
+          showInsertionGuideFor(currentTarget);
           showTransformBadge(
             duplicatedForDrag
               ? "Duplicate layer"

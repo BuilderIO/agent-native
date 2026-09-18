@@ -9941,6 +9941,147 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return cs.flexDirection && cs.flexDirection.indexOf("row") === 0 ? "x" : "y";
     }
+    function supportsGridPlaceholderProjection(containerStyles, children, excluded) {
+      if (containerStyles.display !== "grid" && containerStyles.display !== "inline-grid") {
+        return false;
+      }
+      if (containerStyles.transform && containerStyles.transform !== "none") {
+        return false;
+      }
+      var autoFlow = (containerStyles.gridAutoFlow || "row").split(/\\s+/);
+      if (autoFlow[0] !== "row" && autoFlow[0] !== "column") return false;
+      if (autoFlow[1] === "dense" || !children.length) return false;
+      var allChildren = children.slice();
+      (excluded || []).forEach(function(child) {
+        if (allChildren.indexOf(child) === -1) allChildren.push(child);
+      });
+      for (var i = 0; i < allChildren.length; i += 1) {
+        var childStyles = window.getComputedStyle(allChildren[i]);
+        if (childStyles.gridColumnStart !== "auto" || childStyles.gridColumnEnd !== "auto" || childStyles.gridRowStart !== "auto" || childStyles.gridRowEnd !== "auto" || childStyles.order !== "0") {
+          return false;
+        }
+      }
+      return true;
+    }
+    function prepareGridProjectionPlaceholder(placeholder, containerStyles) {
+      if (containerStyles.display !== "grid" && containerStyles.display !== "inline-grid") {
+        return;
+      }
+      placeholder.style.position = "static";
+      placeholder.style.left = "auto";
+      placeholder.style.top = "auto";
+      placeholder.style.right = "auto";
+      placeholder.style.bottom = "auto";
+      placeholder.style.gridArea = "auto";
+      placeholder.style.gridColumn = "auto";
+      placeholder.style.gridRow = "auto";
+      placeholder.style.order = "0";
+      placeholder.style.width = "auto";
+      placeholder.style.height = "auto";
+      placeholder.style.minWidth = "0";
+      placeholder.style.minHeight = "0";
+      placeholder.style.maxWidth = "none";
+      placeholder.style.maxHeight = "none";
+      placeholder.style.justifySelf = "stretch";
+      placeholder.style.alignSelf = "stretch";
+    }
+    function gridCellInsertionTarget(container, clientX, clientY, children, excluded) {
+      var styles = window.getComputedStyle(container);
+      if (styles.display !== "grid" && styles.display !== "inline-grid") {
+        return null;
+      }
+      if (!supportsGridPlaceholderProjection(styles, children, excluded)) {
+        return null;
+      }
+      var autoFlow = (styles.gridAutoFlow || "row").split(/\\s+/);
+      var prototype = excluded && excluded.length ? excluded[0] : null;
+      var placeholder = prototype ? prototype.cloneNode(true) : container.ownerDocument.createElement("div");
+      placeholder.removeAttribute("data-agent-native-node-id");
+      placeholder.setAttribute("data-agent-native-reflow-placeholder", "");
+      prepareGridProjectionPlaceholder(placeholder, styles);
+      placeholder.style.visibility = "hidden";
+      placeholder.style.pointerEvents = "none";
+      placeholder.style.transform = "none";
+      placeholder.style.transition = "none";
+      var originalChildren = Array.prototype.slice.call(
+        container.children
+      );
+      var originalChildNodes = Array.prototype.slice.call(
+        container.childNodes
+      );
+      var removed = originalChildren.filter(function(child) {
+        return excluded.indexOf(child) !== -1;
+      });
+      var best = null;
+      var trailingCandidate = null;
+      var occupiedBottom = -Infinity;
+      var occupiedRight = -Infinity;
+      try {
+        removed.forEach(function(child) {
+          container.removeChild(child);
+        });
+        for (var slot = 0; slot <= children.length; slot += 1) {
+          var anchor = children[slot];
+          if (anchor && anchor.parentNode === container) {
+            container.insertBefore(placeholder, anchor);
+          } else {
+            container.appendChild(placeholder);
+          }
+          var rect = placeholder.getBoundingClientRect();
+          var dx = clientX < rect.left ? rect.left - clientX : clientX > rect.right ? clientX - rect.right : 0;
+          var dy = clientY < rect.top ? rect.top - clientY : clientY > rect.bottom ? clientY - rect.bottom : 0;
+          var distance = Math.hypot(dx, dy);
+          if (!best || distance < best.distance) {
+            best = {
+              slot,
+              rect: {
+                left: rect.left,
+                top: rect.top,
+                width: rect.width,
+                height: rect.height
+              },
+              distance
+            };
+          }
+          if (slot < children.length) {
+            occupiedBottom = Math.max(occupiedBottom, rect.bottom);
+            occupiedRight = Math.max(occupiedRight, rect.right);
+          } else {
+            trailingCandidate = {
+              slot,
+              rect: {
+                left: rect.left,
+                top: rect.top,
+                width: rect.width,
+                height: rect.height
+              },
+              distance
+            };
+          }
+          placeholder.remove();
+        }
+      } finally {
+        if (placeholder.parentNode)
+          placeholder.parentNode.removeChild(placeholder);
+        originalChildNodes.forEach(function(originalChildNode) {
+          container.appendChild(originalChildNode);
+        });
+      }
+      if (!best) return null;
+      if (trailingCandidate && (autoFlow[0] === "row" && clientY > occupiedBottom || autoFlow[0] === "column" && clientX > occupiedRight)) {
+        best = trailingCandidate;
+      }
+      var slot = best.slot;
+      var anchor = children[slot] || children[children.length - 1];
+      return {
+        anchor,
+        placement: slot < children.length ? "before" : "after",
+        axis: autoFlow[0] === "column" ? "y" : "x",
+        dropMode: "flow-insert",
+        guideRect: best.rect,
+        guideMode: "grid-cell"
+      };
+    }
     function nearestChildInsertionTarget(container, clientX, clientY, excludeEls) {
       var excluded = excludeEls || [];
       function isExcluded(node) {
@@ -9957,6 +10098,14 @@ export const editorChromeBridgeScript: string = `"use strict";
       });
       if (!children.length) return null;
       var containerStyles = window.getComputedStyle(container);
+      var gridCellTarget = gridCellInsertionTarget(
+        container,
+        clientX,
+        clientY,
+        children,
+        excluded
+      );
+      if (gridCellTarget) return gridCellTarget;
       var wrappedFlexAxis = wrappedFlexMainAxis(container);
       var axis = wrappedFlexAxis || parentFlowAxis(container);
       var multiTrackGrid = (containerStyles.display === "grid" || containerStyles.display === "inline-grid") && (containerStyles.gridTemplateColumns || "").split(" ").filter(Boolean).length > 1;
@@ -10274,7 +10423,9 @@ export const editorChromeBridgeScript: string = `"use strict";
               anchor: betweenContainerChildren.anchor,
               placement: betweenContainerChildren.placement,
               axis: betweenContainerChildren.axis,
-              dropMode: "flow-insert"
+              dropMode: "flow-insert",
+              guideRect: betweenContainerChildren.guideRect,
+              guideMode: betweenContainerChildren.guideMode
             };
           }
           return {
@@ -10306,7 +10457,9 @@ export const editorChromeBridgeScript: string = `"use strict";
                 anchor: cloneFallback.anchor,
                 placement: cloneFallback.placement,
                 axis: cloneFallback.axis,
-                dropMode: "flow-insert"
+                dropMode: "flow-insert",
+                guideRect: cloneFallback.guideRect,
+                guideMode: cloneFallback.guideMode
               };
             }
             return {
@@ -10401,7 +10554,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       var line = 2 * chromeLineScale();
       var insideBorder = 2 * chromeLineScale();
-      var rect = target.anchor.getBoundingClientRect();
+      var rect = target.guideRect || target.anchor.getBoundingClientRect();
       insertionGuide.style.display = "block";
       insertionGuide.style.background = "var(--design-editor-accent-color)";
       insertionGuide.style.border = "0";
@@ -10416,6 +10569,32 @@ export const editorChromeBridgeScript: string = `"use strict";
         insertionGuide.style.border = insideBorder + "px solid var(--design-editor-accent-color)";
         insertionGuide.style.borderRadius = "2px";
         insertionGuide.style.boxShadow = "none";
+        return;
+      }
+      if (target.guideMode === "grid-cell") {
+        insertionGuide.style.boxSizing = "border-box";
+        insertionGuide.style.left = rect.left + "px";
+        insertionGuide.style.top = rect.top + "px";
+        insertionGuide.style.width = rect.width + "px";
+        insertionGuide.style.height = rect.height + "px";
+        insertionGuide.style.background = "color-mix(in srgb, var(--design-editor-accent-color) 14%, transparent)";
+        insertionGuide.style.border = insideBorder + "px solid var(--design-editor-accent-color)";
+        insertionGuide.style.borderRadius = "2px";
+        insertionGuide.style.boxShadow = "none";
+        return;
+      }
+      if (target.guideMode === "wrapped-slot") {
+        if (target.axis === "x") {
+          insertionGuide.style.left = rect.left - line / 2 + "px";
+          insertionGuide.style.top = rect.top + "px";
+          insertionGuide.style.width = line + "px";
+          insertionGuide.style.height = rect.height + "px";
+        } else {
+          insertionGuide.style.left = rect.left + "px";
+          insertionGuide.style.top = rect.top - line / 2 + "px";
+          insertionGuide.style.width = rect.width + "px";
+          insertionGuide.style.height = line + "px";
+        }
         return;
       }
       if (target.axis === "x") {
@@ -11530,34 +11709,6 @@ export const editorChromeBridgeScript: string = `"use strict";
           var ai = real.indexOf(target.anchor);
           if (ai < 0) return null;
           return { slot: target.placement === "before" ? ai : ai + 1 };
-        }, containerIsSimplePacked2 = function(container) {
-          if (packedCacheContainer === container) return packedCacheResult;
-          packedCacheContainer = container;
-          packedCacheResult = false;
-          var cs = window.getComputedStyle(container);
-          if (cs.display !== "flex" && cs.display !== "inline-flex") return false;
-          if (cs.flexDirection !== "row" && cs.flexDirection !== "column") {
-            return false;
-          }
-          if (cs.flexWrap !== "nowrap") return false;
-          var jc = cs.justifyContent;
-          if (jc !== "flex-start" && jc !== "start" && jc !== "normal" && jc !== "left" && jc !== "") {
-            return false;
-          }
-          var kids = container.children;
-          for (var i = 0; i < kids.length; i += 1) {
-            if (kids[i].nodeType !== 1) continue;
-            if (parseFloat(window.getComputedStyle(kids[i]).flexGrow) > 0) {
-              return false;
-            }
-          }
-          packedCacheResult = true;
-          return true;
-        }, reorderMainGap2 = function(container, axis) {
-          var cs = window.getComputedStyle(container);
-          var raw = axis === "x" ? cs.columnGap || cs.gap : cs.rowGap || cs.gap;
-          var n = readPx(raw);
-          return Number.isFinite(n) && n > 0 ? n : 0;
         }, clearReorderReflow2 = function() {
           reflowSiblings.forEach(function(s) {
             s.el.style.transform = s.prevTransform;
@@ -11656,7 +11807,8 @@ export const editorChromeBridgeScript: string = `"use strict";
             return;
           }
           var container = dropContainerForTarget(target);
-          if (!container || reorderEl.parentElement !== container || !containerIsSimplePacked2(container)) {
+          var containerStyles = container ? window.getComputedStyle(container) : null;
+          if (!container || reorderEl.parentElement !== container || !containerStyles || containerStyles.display !== "flex" && containerStyles.display !== "inline-flex" && containerStyles.display !== "grid" && containerStyles.display !== "inline-grid") {
             clearReorderReflow2();
             return;
           }
@@ -11667,38 +11819,94 @@ export const editorChromeBridgeScript: string = `"use strict";
             clearReorderReflow2();
             return;
           }
+          var gridProjectionSupported = supportsGridPlaceholderProjection(
+            containerStyles,
+            real.filter(function(member) {
+              return member !== reorderEl;
+            }),
+            [reorderEl]
+          );
           var axis = reorderMainAxis2(target);
           var key = axis + ":" + slotInfo.slot;
           if (key === reflowKey) return;
           clearReorderReflow2();
           reflowKey = key;
-          var drect = reorderEl.getBoundingClientRect();
-          var slotMain = (axis === "x" ? drect.width : drect.height) + reorderMainGap2(container, axis);
-          var offsets = new Array(real.length).fill(0);
-          if (slotInfo.slot > originIndex + 1) {
-            for (var a = originIndex + 1; a <= slotInfo.slot - 1; a += 1) {
-              offsets[a] = -slotMain;
-            }
-          } else if (slotInfo.slot < originIndex) {
-            for (var b = slotInfo.slot; b <= originIndex - 1; b += 1) {
-              offsets[b] = slotMain;
-            }
+          var originalNextSibling = reorderEl.nextSibling;
+          var placeholder = reorderEl.cloneNode(true);
+          placeholder.removeAttribute("data-agent-native-node-id");
+          placeholder.setAttribute("data-agent-native-reflow-placeholder", "");
+          placeholder.style.visibility = "hidden";
+          placeholder.style.pointerEvents = "none";
+          placeholder.style.transform = "none";
+          placeholder.style.transition = "none";
+          if (gridProjectionSupported) {
+            prepareGridProjectionPlaceholder(placeholder, containerStyles);
           }
-          for (var i = 0; i < real.length; i += 1) {
-            if (i === originIndex) continue;
-            var el = real[i];
-            var prevTransform = el.style.transform;
-            var authoredTransform = authoredTransformOf2(el);
-            reflowSiblings.push({
-              el,
-              prevTransform,
-              authoredTransform,
-              prevTransition: el.style.transition
+          var projectedRects = [];
+          try {
+            reorderEl.parentElement.removeChild(reorderEl);
+            if (target.placement === "inside") {
+              container.appendChild(placeholder);
+            } else if (target.placement === "before") {
+              container.insertBefore(placeholder, target.anchor);
+            } else {
+              container.insertBefore(placeholder, target.anchor.nextSibling);
+            }
+            real.forEach(function(member) {
+              if (member === reorderEl) return;
+              var projected = member.getBoundingClientRect();
+              projectedRects.push({
+                el: member,
+                left: projected.left,
+                top: projected.top
+              });
             });
-            el.style.transition = "transform 140ms cubic-bezier(0.2, 0, 0, 1)";
-            var tx = axis === "x" ? offsets[i] : 0;
-            var ty = axis === "y" ? offsets[i] : 0;
-            el.style.transform = "translate(" + tx + "px, " + ty + "px)" + (authoredTransform ? " " + authoredTransform : "");
+            if (containerStyles.flexWrap === "wrap" || containerStyles.flexWrap === "wrap-reverse") {
+              var projectedGuide = placeholder.getBoundingClientRect();
+              target.guideRect = {
+                left: projectedGuide.left,
+                top: projectedGuide.top,
+                width: projectedGuide.width,
+                height: projectedGuide.height
+              };
+              target.guideMode = "wrapped-slot";
+            }
+            placeholder.remove();
+            if (originalNextSibling && originalNextSibling.parentNode === container) {
+              container.insertBefore(reorderEl, originalNextSibling);
+            } else {
+              container.appendChild(reorderEl);
+            }
+            projectedRects.forEach(function(projected) {
+              var el = projected.el;
+              var current = el.getBoundingClientRect();
+              var dx = projected.left - current.left;
+              var dy = projected.top - current.top;
+              if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
+              var prevTransform = el.style.transform;
+              var authoredTransform = authoredTransformOf2(el);
+              reflowSiblings.push({
+                el,
+                prevTransform,
+                authoredTransform,
+                prevTransition: el.style.transition
+              });
+              el.style.transition = "transform 140ms cubic-bezier(0.2, 0, 0, 1)";
+              el.style.transform = "translate(" + dx + "px, " + dy + "px)" + (authoredTransform ? " " + authoredTransform : "");
+            });
+          } catch (error) {
+            clearReorderReflow2();
+            throw error;
+          } finally {
+            if (placeholder.parentNode)
+              placeholder.parentNode.removeChild(placeholder);
+            if (reorderEl.parentNode !== container) {
+              if (originalNextSibling && originalNextSibling.parentNode === container) {
+                container.insertBefore(reorderEl, originalNextSibling);
+              } else {
+                container.appendChild(reorderEl);
+              }
+            }
           }
         }, onReorderMove2 = function(ev) {
           var vw = window.innerWidth;
@@ -11731,6 +11939,7 @@ export const editorChromeBridgeScript: string = `"use strict";
               cy
             );
           } else {
+            clearReorderReflow2();
             var rawTarget = resolveReorderOrFreeTarget2(
               cx,
               cy,
@@ -11743,7 +11952,6 @@ export const editorChromeBridgeScript: string = `"use strict";
               cy,
               ev.timeStamp
             );
-            showInsertionGuideFor(currentTarget);
             var _dndKey = currentTarget ? getSelector(currentTarget.anchor) + "|" + currentTarget.placement + "|" + currentTarget.dropMode : "none";
             if (_dndKey !== reorderLastTargetKey) {
               reorderLastTargetKey = _dndKey;
@@ -11751,6 +11959,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             }
             applyReorderLift2(dx, dy);
             applyReorderReflow2(currentTarget, cx, cy);
+            showInsertionGuideFor(currentTarget);
             showTransformBadge(
               duplicatedForDrag ? "Duplicate layer" : currentTarget ? "Move layer" : "Move",
               cx,
@@ -11931,7 +12140,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             });
           }
         };
-        var authoredTransformOf = authoredTransformOf2, applyReorderLift = applyReorderLift2, clearReorderLift = clearReorderLift2, reorderMainAxis = reorderMainAxis2, reorderRealChildren = reorderRealChildren2, reorderSlotForTarget = reorderSlotForTarget2, containerIsSimplePacked = containerIsSimplePacked2, reorderMainGap = reorderMainGap2, clearReorderReflow = clearReorderReflow2, resolveReorderOrFreeTarget = resolveReorderOrFreeTarget2, applyReorderSizeGuard = applyReorderSizeGuard2, stabilizeReorderTarget = stabilizeReorderTarget2, applyReorderReflow = applyReorderReflow2, onReorderMove = onReorderMove2, cleanupReorderDrag = cleanupReorderDrag2, onReorderVisibilityChange = onReorderVisibilityChange2, onReorderEscape = onReorderEscape2, onReorderKeyDown = onReorderKeyDown2, onReorderKeyUp = onReorderKeyUp2, onReorderUp = onReorderUp2;
+        var authoredTransformOf = authoredTransformOf2, applyReorderLift = applyReorderLift2, clearReorderLift = clearReorderLift2, reorderMainAxis = reorderMainAxis2, reorderRealChildren = reorderRealChildren2, reorderSlotForTarget = reorderSlotForTarget2, clearReorderReflow = clearReorderReflow2, resolveReorderOrFreeTarget = resolveReorderOrFreeTarget2, applyReorderSizeGuard = applyReorderSizeGuard2, stabilizeReorderTarget = stabilizeReorderTarget2, applyReorderReflow = applyReorderReflow2, onReorderMove = onReorderMove2, cleanupReorderDrag = cleanupReorderDrag2, onReorderVisibilityChange = onReorderVisibilityChange2, onReorderEscape = onReorderEscape2, onReorderKeyDown = onReorderKeyDown2, onReorderKeyUp = onReorderKeyUp2, onReorderUp = onReorderUp2;
         var reorderEl = gestureEl;
         var reorderGroupStartRects = groupEls.map(function(member) {
           return dragGrabRect(member);
@@ -11997,8 +12206,6 @@ export const editorChromeBridgeScript: string = `"use strict";
         var reorderPendingAt = 0;
         var reflowSiblings = [];
         var reflowKey = null;
-        var packedCacheContainer = null;
-        var packedCacheResult = false;
         document.addEventListener(events.move, onReorderMove2, true);
         document.addEventListener(events.up, onReorderUp2, true);
         document.addEventListener("pointercancel", onReorderEscape2, true);
