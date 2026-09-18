@@ -832,7 +832,7 @@ describe("update-visual-plan comments", () => {
 
   it("allows an idempotent prototype patch retry", async () => {
     request.email = "editor@example.com";
-    const { updateWhereMock } = useSuccessfulDb();
+    const { insertValuesMock, updateWhereMock } = useSuccessfulDb();
     loadPlanBundleMock.mockResolvedValue(planBundle());
 
     await expect(
@@ -859,6 +859,36 @@ describe("update-visual-plan comments", () => {
     ).resolves.toMatchObject({ planId: "plan_public" });
     expect(createPlanVersionSnapshotMock).not.toHaveBeenCalled();
     expect(updateWhereMock).not.toHaveBeenCalled();
+    expect(insertValuesMock).not.toHaveBeenCalled();
+  });
+
+  it("allows prototype-only edits when canvas frames are placeholders", async () => {
+    request.email = "editor@example.com";
+    useSuccessfulDb();
+    loadPlanBundleMock.mockResolvedValue(planBundle());
+
+    await expect(
+      (
+        updateVisualPlan as {
+          run: (args: unknown, ctx?: unknown) => Promise<unknown>;
+        }
+      ).run(
+        {
+          planId: "plan_public",
+          contentPatches: [
+            {
+              op: "update-prototype-screen",
+              screenId: "screen_1",
+              patch: { title: "Updated home" },
+            },
+          ],
+          sections: [],
+          comments: [],
+          consumedCommentIds: [],
+        },
+        { caller: "tool" },
+      ),
+    ).resolves.toMatchObject({ planId: "plan_public" });
   });
 
   it("rejects prototype edits paired only with canvas metadata changes", async () => {

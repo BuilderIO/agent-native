@@ -436,21 +436,24 @@ function contentPatchDetails(input: {
 }
 
 function canvasSurfaceProjection(content: PlanContent) {
-  return (content.canvas?.frames ?? []).map((frame) => {
+  return (content.canvas?.frames ?? []).flatMap((frame) => {
     const referencedBlock = frame.blockId
       ? findBlock(content.blocks, frame.blockId)
       : null;
+    const wireframe =
+      frame.wireframe ??
+      (referencedBlock?.type === "wireframe" ? referencedBlock.data : null);
+    const legacyWireframe =
+      frame.legacyWireframe ??
+      (referencedBlock?.type === "legacy-wireframe"
+        ? referencedBlock.data
+        : null);
+    if (!wireframe && !legacyWireframe) return [];
     return {
       label: frame.label ?? referencedBlock?.title ?? null,
       surface: frame.surface ?? frame.wireframe?.surface ?? "desktop",
-      wireframe:
-        frame.wireframe ??
-        (referencedBlock?.type === "wireframe" ? referencedBlock.data : null),
-      legacyWireframe:
-        frame.legacyWireframe ??
-        (referencedBlock?.type === "legacy-wireframe"
-          ? referencedBlock.data
-          : null),
+      wireframe,
+      legacyWireframe,
     };
   });
 }
@@ -459,15 +462,16 @@ function surfaceParityWarnings(
   before: PlanContent | null,
   after: PlanContent | null,
 ) {
-  if (!before?.canvas?.frames.length || !after?.canvas?.frames.length) {
+  const beforeProjection = before ? canvasSurfaceProjection(before) : [];
+  const afterProjection = after ? canvasSurfaceProjection(after) : [];
+  if (beforeProjection.length === 0 && afterProjection.length === 0) {
     return [];
   }
   const prototypeChanged =
-    JSON.stringify(before.prototype) !== JSON.stringify(after.prototype);
+    JSON.stringify(before?.prototype) !== JSON.stringify(after?.prototype);
   if (
     !prototypeChanged ||
-    JSON.stringify(canvasSurfaceProjection(before)) !==
-      JSON.stringify(canvasSurfaceProjection(after))
+    JSON.stringify(beforeProjection) !== JSON.stringify(afterProjection)
   ) {
     return [];
   }
@@ -1186,18 +1190,20 @@ export default defineAction({
           );
       }
 
-      await tx.insert(schema.planEvents).values({
-        id: newId("evt"),
-        planId: args.planId,
-        type: "plan.updated",
-        message:
-          !onlyReviewerCommentWork && args.note
-            ? args.note
-            : `Updated ${args.sections.length} section(s), ${args.comments.length} comment(s).`,
-        payload: JSON.stringify(reviewEventPayload),
-        createdBy: onlyReviewerCommentWork ? "human" : "agent",
-        createdAt: now,
-      });
+      if (hasPersistedPlanChanges) {
+        await tx.insert(schema.planEvents).values({
+          id: newId("evt"),
+          planId: args.planId,
+          type: "plan.updated",
+          message:
+            !onlyReviewerCommentWork && args.note
+              ? args.note
+              : `Updated ${args.sections.length} section(s), ${args.comments.length} comment(s).`,
+          payload: JSON.stringify(reviewEventPayload),
+          createdBy: onlyReviewerCommentWork ? "human" : "agent",
+          createdAt: now,
+        });
+      }
     });
 
     // Make an agent content edit visible on the plan-presence doc: light the AI
