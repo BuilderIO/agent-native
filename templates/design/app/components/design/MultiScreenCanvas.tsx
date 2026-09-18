@@ -2834,12 +2834,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       void runHitTest(candidate, boardPoint).then((hit) => {
         if (crossScreenHitTestSeqRef.current !== requestSeq) return;
         if (crossScreenTargetRef.current?.id !== candidate.id) return;
-        trace("drop", "guide-result", {
-          target: candidate.id,
-          anchorRect: hit.anchorRect ?? null,
-          placement: hit.placement ?? null,
-          dropMode: hit.dropMode ?? null,
-        });
         const targetScreen = screensRef.current.find(
           (s) => s.id === candidate.id,
         );

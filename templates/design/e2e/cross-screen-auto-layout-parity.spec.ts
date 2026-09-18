@@ -359,6 +359,7 @@ test.describe("physical cross-screen auto-layout parity", () => {
     await page
       .locator('[data-design-bottom-toolbar] button[aria-label="Rectangle"]')
       .click();
+    await page.waitForTimeout(300);
     await page.mouse.move(boardPoint.x, boardPoint.y);
     await page.mouse.down();
     await page.mouse.move(boardPoint.x + 100, boardPoint.y + 64, { steps: 8 });
