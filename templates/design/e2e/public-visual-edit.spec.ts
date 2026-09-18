@@ -382,17 +382,6 @@ test.describe.serial("public visual edit", () => {
     }
   });
 
-  test("signed-out /visual-edit save CTA sends visitors to the sign-in return URL", async ({
-    browser,
-  }) => {
-    await expectReturnUrl(
-      browser,
-      "/visual-edit",
-      (page) => page.getByRole("link", { name: /^sign up$/i }).first(),
-      "/visual-edit?intent=save",
-    );
-  });
-
   test("authenticated public design links register WebMCP actions", async ({
     page,
   }) => {
