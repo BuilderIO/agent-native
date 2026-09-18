@@ -1256,6 +1256,12 @@ export function runCrossScreenElementDrop(
     targetSave ?? Promise.resolve(true),
     sourceSave ?? Promise.resolve(true),
   ]).then(async ([targetResult, sourceResult]) => {
+    dndHostLog("persist:save-results", {
+      target:
+        targetResult.status === "fulfilled" ? targetResult.value : "rejected",
+      source:
+        sourceResult.status === "fulfilled" ? sourceResult.value : "rejected",
+    });
     const targetSaved =
       targetResult.status === "fulfilled" && targetResult.value === true;
     const sourceSaved =
