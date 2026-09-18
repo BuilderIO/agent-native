@@ -20,6 +20,7 @@ import { ANALYTICS_CLIENT_PLATFORM_HEADER } from "../shared/analytics-platform.j
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import {
   clearPendingTurnIfMatches,
+  getPendingTurn,
   getActiveRun,
   setActiveRun,
   updateActiveRunSeq,
@@ -2399,6 +2400,13 @@ export function createAgentChatAdapter(
       if (threadId) setPendingTurn({ threadId, turnId });
       let runId: string | null = null;
       let lastSeq = -1;
+      const hasPendingSuccessorRequest = () => {
+        const pendingTurn = getPendingTurn();
+        return Boolean(
+          pendingTurn &&
+          (pendingTurn.threadId !== threadId || pendingTurn.turnId !== turnId),
+        );
+      };
       const activeRunMatchesTab = (
         activeRun: ReturnType<typeof getActiveRun>,
       ) =>
@@ -2406,6 +2414,7 @@ export function createAgentChatAdapter(
         !activeRunTabId ||
         activeRun.tabId === activeRunTabId;
       const ownsActiveRunState = () => {
+        if (hasPendingSuccessorRequest()) return false;
         const activeRun = getActiveRun();
         return (
           !activeRun ||
@@ -2446,6 +2455,9 @@ export function createAgentChatAdapter(
         );
       };
       const settleTerminalChatRun = () => {
+        // A successor claims the surface before its response can publish an
+        // active run. Keep the old stream from clearing that successor's UI.
+        if (hasPendingSuccessorRequest()) return;
         if (threadId && runId) {
           releaseRunStream(threadId, runId, streamOwnershipToken, turnId);
         }

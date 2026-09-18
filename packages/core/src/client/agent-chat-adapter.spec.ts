@@ -9,8 +9,10 @@ import {
 import {
   getActiveRun,
   getPendingTurn,
+  clearPendingTurnIfMatches,
   clearActiveRun,
   setActiveRun,
+  setPendingTurn,
 } from "./active-run-state.js";
 import {
   activeRunLooksAlive,
@@ -7694,6 +7696,80 @@ describe("createAgentChatAdapter", () => {
       runId: "new-run-in-same-tab",
       tabId: "chat-current",
     });
+  });
+
+  it("does not stop its tab while a successor request is still registering", async () => {
+    vi.stubGlobal("sessionStorage", createMemoryStorage());
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const body = `${JSON.stringify({ type: "done" })}\n\n`;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                controller.enqueue(new TextEncoder().encode("data: "));
+              },
+              pull(controller) {
+                clearActiveRun();
+                setPendingTurn({
+                  threadId: "successor-thread",
+                  turnId: "successor-turn",
+                });
+                controller.enqueue(new TextEncoder().encode(body));
+                controller.close();
+              },
+            }),
+            {
+              status: 200,
+              headers: {
+                "Content-Type": "text/event-stream",
+                "X-Run-Id": "run-current",
+              },
+            },
+          ),
+      ),
+    );
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-current",
+      threadId: "current-thread",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "finish this" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    expect(dispatchEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agentNative.chatRunning",
+        detail: { isRunning: false, tabId: "chat-current" },
+      }),
+    );
+    clearPendingTurnIfMatches("successor-thread", "successor-turn");
   });
 
   it("continues when a terminal followed run contains only completed tool work", async () => {
