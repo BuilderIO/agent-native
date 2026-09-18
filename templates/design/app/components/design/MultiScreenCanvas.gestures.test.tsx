@@ -1612,6 +1612,71 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     expect(selectionBox!.style.height).toBe(before.boxHeight);
   });
 
+  it.each(["release", "Escape", "unmount"])(
+    "portals transform feedback at viewport coordinates and removes it on %s",
+    async (cleanup) => {
+      rectSpy.mockReturnValue({
+        x: 160,
+        y: 80,
+        top: 80,
+        right: 960,
+        bottom: 680,
+        left: 160,
+        width: 800,
+        height: 600,
+        toJSON: () => ({}),
+      });
+      const surface = await renderHarness("rect");
+      const draft = await createSelectedDraft(surface);
+      const resizeHandle = container.querySelector<HTMLElement>(
+        '[data-frame-selection-box] [data-resize-handle="se"]',
+      );
+      expect(resizeHandle).not.toBeNull();
+      expect(surface.style.contain).toBe("layout paint");
+      const beforeWidth = draft.style.width;
+
+      await act(async () => {
+        dispatchMouse(resizeHandle!, "mousedown", 400, 400);
+        dispatchMouse(window, "mousemove", 450, 450);
+        await nextAnimationFrame();
+      });
+
+      const badge = document.querySelector<HTMLElement>(
+        "[data-transform-badge]",
+      );
+      expect(draft.style.width).not.toBe(beforeWidth);
+      expect(badge).not.toBeNull();
+      expect(badge!.parentElement).toBe(document.body);
+      expect(surface.contains(badge)).toBe(false);
+      expect(badge!.style.left).toBe("462px");
+      expect(badge!.style.top).toBe("462px");
+      expect(badge!.classList.contains("fixed")).toBe(true);
+      expect(badge!.classList.contains("bg-background/95")).toBe(true);
+      expect(badge!.classList.contains("text-foreground")).toBe(true);
+      expect(badge!.textContent).toBe(
+        `${Math.round(Number.parseFloat(draft.style.width))} x ${Math.round(Number.parseFloat(draft.style.height))}`,
+      );
+
+      await act(async () => {
+        if (cleanup === "release") {
+          dispatchMouse(window, "mouseup", 450, 450);
+        } else if (cleanup === "Escape") {
+          window.dispatchEvent(
+            new KeyboardEvent("keydown", {
+              key: "Escape",
+              bubbles: true,
+              cancelable: true,
+            }),
+          );
+        } else {
+          root.render(null);
+        }
+      });
+      expect(document.querySelector("[data-transform-badge]")).toBeNull();
+      expect(badge!.isConnected).toBe(false);
+    },
+  );
+
   it("does not deselect an already-selected frame for shift-marquee jitter below the drag threshold", async () => {
     await renderSelectedFrame();
     const surface = container.querySelector<HTMLElement>('[tabindex="-1"]');

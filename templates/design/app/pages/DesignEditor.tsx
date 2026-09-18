@@ -5646,6 +5646,7 @@ function DesignEditor() {
                 resolveScreenHeightMode(
                   metadata.heightMode,
                   metadata.heightPinned === true,
+                  metadata.sourceType,
                 ) !== "hug"
               ) {
                 if (beforeContent !== afterContent) {
@@ -15771,6 +15772,7 @@ function DesignEditor() {
           resolveScreenHeightMode(
             metadata.heightMode,
             metadata.heightPinned === true,
+            metadata.sourceType,
           ) === "fixed"
         ) {
           locallyPinnedHeightIdsRef.current.add(screenId);
@@ -20283,10 +20285,11 @@ function DesignEditor() {
       );
       const operations: DesignDataOperation[] = [];
       if (mode === "auto") {
-        if (screenMetadata.heightMode !== undefined) {
+        if (screenMetadata.heightMode !== "auto") {
           operations.push({
-            op: "delete",
+            op: "set",
             path: ["screenMetadata", screenId, "heightMode"],
+            value: "auto",
           });
         }
       } else if (screenMetadata.heightMode !== mode) {
@@ -25318,12 +25321,19 @@ function DesignEditor() {
                   className="relative min-w-0 flex-1 overflow-hidden bg-[var(--design-editor-canvas-bg)]"
                   // Overrides the themed canvas colour rather than a background
                   // shorthand, so every descendant reading the var follows.
+                  // A backdrop root must live outside the scaled world. Without
+                  // it, iframe backdrop filters inherit the shell's rounded clip
+                  // and Chrome sizes their masks in inverse-zoom coordinates.
                   style={
-                    canvasBackground
-                      ? ({
-                          "--design-editor-canvas-bg": canvasBackground,
-                        } as React.CSSProperties)
-                      : undefined
+                    {
+                      isolation: "isolate",
+                      willChange: "opacity",
+                      ...(canvasBackground
+                        ? {
+                            "--design-editor-canvas-bg": canvasBackground,
+                          }
+                        : {}),
+                    } as React.CSSProperties
                   }
                   onPointerMove={handleCanvasPointerMove}
                   onClick={handleCanvasBackgroundClick}

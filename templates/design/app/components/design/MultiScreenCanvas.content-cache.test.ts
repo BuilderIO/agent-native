@@ -396,6 +396,21 @@ describe("resolveScreenMetadataCached", () => {
     expect(second.source).toBe("localhost");
   });
 
+  it("treats legacy imported screens as fixed-height overviews", () => {
+    const cache = new Map();
+    const screen = makeScreen("s1", "<html>imported</html>");
+    const metadata = resolveScreenMetadataCached(
+      cache,
+      screen,
+      { sourceType: "figma-import", width: 1440, height: 900 },
+      undefined,
+      "none",
+    );
+
+    expect(metadata.heightMode).toBe("fixed");
+    expect(metadata.heightPinned).toBe(true);
+  });
+
   it("treats fresh-but-value-equal metadata inputs as cache hits", () => {
     const cache = new Map();
     const screen = makeScreen("s1", "<html>hello</html>");
