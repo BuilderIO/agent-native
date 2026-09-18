@@ -387,6 +387,10 @@ import type {
 } from "@/components/design/types";
 import { DEVICE_FRAME_VIEWPORTS } from "@/components/design/types";
 import {
+  DesignAccessState,
+  type DesignAccessStatus,
+} from "@/components/DesignAccessState";
+import {
   FigmaLinkComposerBubble,
   useDetectedFigmaComposerLink,
 } from "@/components/editor/FigmaLinkComposerBubble";
@@ -1049,6 +1053,15 @@ type UpdateScreenSourceActionResult = {
   content: string;
   metadata: Record<string, unknown>;
   updatedAt: string | null;
+};
+
+type RequestDesignAccessResult = {
+  ok: boolean;
+  alreadyHasAccess: boolean;
+  alreadyRequested: boolean;
+  notifiedOwner: boolean;
+  requestId?: string;
+  message: string;
 };
 
 /* i18n-ignore */
@@ -3741,6 +3754,41 @@ function DesignEditor() {
       refetchInterval: pendingGenerationActive || generating ? 1000 : false,
     },
   );
+  const {
+    data: designAccessStatus,
+    isLoading: designAccessStatusLoading,
+    isError: designAccessStatusError,
+    refetch: refetchDesignAccessStatus,
+  } = useActionQuery<DesignAccessStatus>(
+    "get-design-access-status",
+    { designId: id! },
+    {
+      enabled: !shellMode && Boolean(id) && !isDesignData(designResult),
+    },
+  );
+  const requestDesignAccessMutation = useActionMutation<
+    RequestDesignAccessResult,
+    { designId: string }
+  >("request-design-access");
+  const [designAccessRequestSent, setDesignAccessRequestSent] = useState(false);
+
+  useEffect(() => {
+    setDesignAccessRequestSent(false);
+  }, [id]);
+
+  const handleRequestDesignAccess = useCallback(async () => {
+    if (!id || requestDesignAccessMutation.isPending) return;
+    try {
+      const result = await requestDesignAccessMutation.mutateAsync({
+        designId: id,
+      });
+      if (!result.alreadyHasAccess) {
+        setDesignAccessRequestSent(true);
+      }
+    } catch (error) {
+      toast.error(actionErrorMessage(error) ?? t("common.genericError"));
+    }
+  }, [id, requestDesignAccessMutation, t]);
 
   /** Rebuilt from the host payload; there is no row behind it to fetch. */
   const shellDesign = useMemo(
@@ -23445,7 +23493,14 @@ function DesignEditor() {
 
   // A shell with no design yet is waiting for the host's `design:init`, not
   // looking at a design that does not exist.
-  if (designLoading || (!design && (pendingGenerationActive || shellMode))) {
+  if (
+    designLoading ||
+    (!design &&
+      (pendingGenerationActive ||
+        shellMode ||
+        designAccessStatusLoading ||
+        (!designAccessStatus && !designAccessStatusError)))
+  ) {
     return (
       <DesignEditorSkeleton
         embedded={embedded}
@@ -23456,34 +23511,19 @@ function DesignEditor() {
 
   if (!design) {
     return (
-      <div className="relative flex min-h-dvh flex-1 items-center justify-center overflow-hidden bg-[var(--design-editor-canvas-bg)] px-6 py-12">
-        <div
-          aria-hidden="true"
-          className="design-editor-not-found-grid absolute inset-0 opacity-60"
-        />
-        <div
-          aria-hidden="true"
-          className="absolute inset-x-0 top-0 h-px bg-[var(--design-editor-panel-divider-color)]"
-        />
-        <div className="relative flex w-full max-w-sm flex-col items-center text-center">
-          <div className="mb-2 !text-[11px] font-medium uppercase text-muted-foreground">
-            404
-          </div>
-          <h1 className="text-xl font-semibold text-foreground">
-            {t("designEditor.notFound")}
-          </h1>
-          <Button
-            asChild
-            variant="default"
-            className="mt-7 h-9 cursor-pointer gap-2 rounded-md border border-foreground bg-foreground px-3.5 text-background shadow-sm hover:border-foreground/90 hover:bg-foreground/90 hover:text-background focus-visible:ring-foreground"
-          >
-            <Link to="/home">
-              <IconArrowLeft className="size-4 rtl:-scale-x-100" />
-              {t("designEditor.backToDesigns")}
-            </Link>
-          </Button>
-        </div>
-      </div>
+      <DesignAccessState
+        accessStatus={designAccessStatus}
+        accessStatusError={
+          designAccessStatusError ||
+          !designAccessStatus ||
+          designAccessStatus.hasAccess
+        }
+        accessRequestPending={requestDesignAccessMutation.isPending}
+        accessRequestSent={designAccessRequestSent}
+        signInHref={buildSignInHrefForDesignIntent("save")}
+        onRequestAccess={() => void handleRequestDesignAccess()}
+        onRetryAccessCheck={() => void refetchDesignAccessStatus()}
+      />
     );
   }
 

@@ -511,6 +511,18 @@ const messages = {
       dismiss: "關閉圖層選取提示",
     },
     askAgent: "詢問代理",
+    designNotFoundDescription: "此設計不存在，或已被刪除。",
+    requestAccessTitle: "請求存取此設計",
+    requestAccessDescription: "此設計是私人的。向擁有者請求存取權限。",
+    requestAccess: "請求存取權限",
+    accessRequested: "已請求存取權限",
+    accessRequestSentDescription:
+      "已記錄你的請求。存取權限核准後即可開啟此設計。",
+    signInToRequestAccessTitle: "登入以請求存取權限",
+    signInToRequestAccessDescription: "登入或建立帳戶，向擁有者請求存取權限。",
+    signInOrSignUp: "登入或註冊",
+    accessCheckFailed: "無法檢查此設計的存取權限。",
+    retryAccessCheck: "重試",
     commenterRoleLabel: "評論者",
     commenterRoleDescription: "可以檢視並新增審閱評論",
     nodeRewrite: {

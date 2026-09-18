@@ -28,6 +28,14 @@ export const designs = table("designs", {
 
 export const designShares = createSharesTable("design_shares");
 
+export const designAccessRequests = table("design_access_requests", {
+  id: text("id").primaryKey(),
+  designId: text("design_id").notNull(),
+  requesterEmail: text("requester_email").notNull(),
+  requesterName: text("requester_name").notNull(),
+  requestedAt: text("requested_at").notNull().default(now()),
+});
+
 /**
  * Reusable starting points captured from a Design project. Template metadata
  * stays light enough for the gallery list; the full design data and file

@@ -749,6 +749,21 @@ const enUS = {
       "Generation stopped before creating files. Check the agent message or try again.",
     notFound: "Design not found",
     backToDesigns: "Back to designs",
+    designNotFoundDescription:
+      "This design does not exist or has been deleted.",
+    requestAccessTitle: "Request access to this design",
+    requestAccessDescription:
+      "This design is private. Request access from the owner.",
+    requestAccess: "Request access",
+    accessRequested: "Access requested",
+    accessRequestSentDescription:
+      "Your request has been recorded. You can open this design once access is approved.",
+    signInToRequestAccessTitle: "Sign in to request access",
+    signInToRequestAccessDescription:
+      "Sign in or create an account to request access from the owner.",
+    signInOrSignUp: "Sign in or sign up",
+    accessCheckFailed: "Could not check access to this design.",
+    retryAccessCheck: "Try again",
     saveAsTemplate: "Save as template…",
     saveTemplateDescription:
       "Capture the current screens, dimensions, defaults, and locked layers as a reusable starting point.",
