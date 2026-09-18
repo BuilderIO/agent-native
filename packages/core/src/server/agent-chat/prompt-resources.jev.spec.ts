@@ -63,7 +63,6 @@ describe("preloadJevContextForPrompt", () => {
     await expect(
       preloadJevContextForPrompt({
         request: "draft launch copy",
-        owner: "user@example.test",
       }),
     ).resolves.toBe("");
     expect(mocks.rankJevCandidates).not.toHaveBeenCalled();
@@ -75,7 +74,6 @@ describe("preloadJevContextForPrompt", () => {
     const result = await preloadJevContextForPrompt({
       request: "draft launch copy",
       apiKey: "jev-test-key",
-      owner: "user@example.test",
     });
 
     expect(result).toContain("<jev-prefetched-context>");
@@ -96,5 +94,7 @@ describe("preloadJevContextForPrompt", () => {
         ],
       }),
     );
+    expect(mocks.resourceList).not.toHaveBeenCalled();
+    expect(mocks.resourceListAccessible).not.toHaveBeenCalled();
   });
 });

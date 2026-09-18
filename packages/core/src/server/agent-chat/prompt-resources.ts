@@ -45,7 +45,7 @@ import {
 
 const SHARED_PROMPT_RESOURCE_MAX_CHARS = 30_000;
 export const COMPACT_PROMPT_RESOURCE_MAX_CHARS = 6_000;
-const COMPACT_PROMPT_RESOURCES_TOTAL_MAX_CHARS = 48_000;
+export const COMPACT_PROMPT_RESOURCES_TOTAL_MAX_CHARS = 48_000;
 const PROMPT_CONTEXT_PROVIDER_MAX_CHARS = 8_000;
 
 export interface PromptContextProviderContext {
@@ -156,12 +156,11 @@ const JEV_CONTEXT_ITEM_MAX_CHARS = 10_000;
 const JEV_CONTEXT_TOTAL_MAX_CHARS = 24_000;
 
 type JevPromptCandidate = JevCandidate & {
-  kind: "skill" | "resource-skill" | "instruction" | "resource";
+  kind: "skill";
   name: string;
   scope: string;
   path: string;
-  content?: string;
-  resourceId?: string;
+  content: string;
 };
 
 export interface PromptResourceManifestSection {
@@ -865,10 +864,9 @@ async function loadResourceIndexForPrompt(
   }
 }
 
-async function collectJevPromptCandidates(
-  owner: string,
-  orgId: string | null | undefined,
-): Promise<JevPromptCandidate[]> {
+async function collectJevPromptCandidates(): Promise<JevPromptCandidate[]> {
+  // Do not send SQL resource names, paths, or descriptions to Jev. They are
+  // user-authored metadata and can contain customer/project information.
   const candidates: JevPromptCandidate[] = [];
   let nextId = 0;
   const add = (
@@ -880,7 +878,7 @@ async function collectJevPromptCandidates(
       `${candidate.name}${candidate.description ? ` - ${candidate.description}` : ""}`,
       PROMPT_SUMMARY_DESCRIPTION_MAX_CHARS,
     );
-    if (!candidate.content?.trim() && !candidate.resourceId) return;
+    if (!candidate.content.trim()) return;
     if (!description) return;
     candidates.push({
       ...candidate,
@@ -914,129 +912,21 @@ async function collectJevPromptCandidates(
     );
   }
 
-  const resourceSkillEntries = await loadResourceSkillPromptEntries(
-    owner,
-    orgId,
-  );
-  for (const {
-    resource,
-    full,
-    name,
-    description,
-    scope,
-  } of resourceSkillEntries.entries) {
-    if (!full?.content) continue;
-    add({
-      kind: "resource-skill",
-      name,
-      description,
-      scope,
-      path: resource.path,
-      content: full.content,
-    });
-  }
-
-  const organizationOwner = sharedResourceOwner(orgId);
-  const sources = [
-    { owner: WORKSPACE_OWNER, scope: "workspace" },
-    { owner: SHARED_OWNER, scope: "shared" },
-    ...(organizationOwner !== SHARED_OWNER
-      ? [{ owner: organizationOwner, scope: "shared" }]
-      : []),
-    ...(owner !== SHARED_OWNER && owner !== WORKSPACE_OWNER
-      ? [{ owner, scope: "personal" }]
-      : []),
-  ];
-
-  for (const source of sources) {
-    try {
-      const listOptions = {
-        orgId,
-        ...(source.owner === WORKSPACE_OWNER ? { userEmail: owner } : {}),
-      };
-      const instructions = (
-        await resourceList(source.owner, "instructions/", listOptions)
-      )
-        .filter((resource) => isAutoLoadedInstructionPath(resource.path))
-        .sort((a, b) => a.path.localeCompare(b.path))
-        .slice(0, PROMPT_INSTRUCTION_SUMMARY_LIMIT);
-      for (const resource of instructions) {
-        add({
-          kind: "instruction",
-          name: resource.path,
-          description: "",
-          scope: `${source.scope}-instruction`,
-          path: resource.path,
-          resourceId: resource.id,
-        });
-      }
-
-      const resources = (
-        await resourceList(source.owner, undefined, listOptions)
-      )
-        .filter(
-          (resource) =>
-            !isSpecialPromptResourcePath(resource.path) &&
-            isTextLikeResource(resource.mimeType),
-        )
-        .sort((a, b) => a.path.localeCompare(b.path))
-        .slice(0, SHARED_RESOURCE_INDEX_LIMIT);
-      for (const resource of resources) {
-        add({
-          kind: "resource",
-          name: resource.path,
-          description: "",
-          scope: source.scope,
-          path: resource.path,
-          resourceId: resource.id,
-        });
-      }
-    } catch (error) {
-      console.warn(
-        `[agent] Jev context catalog unavailable for ${source.scope}; continuing without that source.`,
-        error instanceof Error ? error.message : "unknown error",
-      );
-    }
-  }
   return candidates;
-}
-
-async function hydrateJevPromptCandidate(
-  candidate: JevPromptCandidate,
-  orgId?: string | null,
-): Promise<JevPromptCandidate | null> {
-  if (candidate.content?.trim()) return candidate;
-  if (!candidate.resourceId) return null;
-  try {
-    const full = await resourceGet(candidate.resourceId, { orgId });
-    return full?.content?.trim()
-      ? { ...candidate, content: full.content }
-      : null;
-  } catch (error) {
-    console.warn(
-      `[agent] Jev context resource unavailable: ${candidate.path}`,
-      error instanceof Error ? error.message : "unknown error",
-    );
-    return null;
-  }
 }
 
 /** Rank and inline a few optional context sources before the first model call. */
 export async function preloadJevContextForPrompt(options: {
   request: string;
   apiKey?: string;
-  owner: string;
-  orgId?: string | null;
   compact?: boolean;
+  maxChars?: number;
 }): Promise<string> {
   const request = options.request.trim();
   const apiKey = options.apiKey?.trim();
-  if (!request || !apiKey) return "";
+  if (!request || !apiKey || options.maxChars === 0) return "";
 
-  const candidates = await collectJevPromptCandidates(
-    options.owner,
-    options.orgId,
-  );
+  const candidates = await collectJevPromptCandidates();
   const selectedIds = await rankJevCandidates({
     request,
     apiKey,
@@ -1049,19 +939,15 @@ export async function preloadJevContextForPrompt(options: {
   });
   if (selectedIds.length === 0) return "";
 
-  const selectedCandidates = await Promise.all(
-    selectedIds.map((id) => {
-      const candidate = candidates.find((item) => item.id === id);
-      return candidate
-        ? hydrateJevPromptCandidate(candidate, options.orgId)
-        : Promise.resolve(null);
-    }),
-  );
   const maxItemChars = options.compact ? 6_000 : JEV_CONTEXT_ITEM_MAX_CHARS;
-  const maxTotalChars = options.compact ? 16_000 : JEV_CONTEXT_TOTAL_MAX_CHARS;
+  const maxTotalChars = Math.min(
+    options.compact ? 16_000 : JEV_CONTEXT_TOTAL_MAX_CHARS,
+    Math.max(0, options.maxChars ?? Number.POSITIVE_INFINITY),
+  );
   const blocks: string[] = [];
   let usedChars = 0;
-  for (const candidate of selectedCandidates) {
+  for (const id of selectedIds) {
+    const candidate = candidates.find((item) => item.id === id);
     if (!candidate?.content) continue;
     const remaining = maxTotalChars - usedChars;
     if (remaining <= 0) break;
@@ -1077,7 +963,7 @@ export async function preloadJevContextForPrompt(options: {
     usedChars += block.length;
   }
   if (blocks.length === 0) return "";
-  return `<jev-prefetched-context>\nJev ranked these optional skills and reference resources for this task. Mandatory AGENTS.md instructions remain authoritative. Treat these sources as task-specific guidance and use the existing tools to read anything else you need.\n\n${blocks.join("\n\n")}\n</jev-prefetched-context>`;
+  return `<jev-prefetched-context>\nJev ranked these bundled skills for this task. Mandatory AGENTS.md instructions remain authoritative. Treat these sources as task-specific guidance and use the existing tools to read anything else you need.\n\n${blocks.join("\n\n")}\n</jev-prefetched-context>`;
 }
 
 /**

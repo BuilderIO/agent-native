@@ -64,7 +64,10 @@ import {
   readOptionalKeyCache,
   writeOptionalKeyCache,
 } from "../secrets/optional-key-cache.js";
-import { preloadJevContextForPrompt } from "../server/agent-chat/prompt-resources.js";
+import {
+  COMPACT_PROMPT_RESOURCES_TOTAL_MAX_CHARS,
+  preloadJevContextForPrompt,
+} from "../server/agent-chat/prompt-resources.js";
 import {
   isRuntimeVisibleScope,
   parseSkillFrontmatter,
@@ -1498,6 +1501,8 @@ export interface ProductionAgentOptions {
    * Default: false (inventory is injected).
    */
   skipFilesContext?: boolean;
+  /** Internal prompt mode used to keep optional Jev context inside the compact budget. */
+  jevContextCompact?: boolean;
   /**
    * Optional starter tool catalog. When set, the first model request includes
    * only these tool schemas plus `tool-search`; the full action registry remains
@@ -10602,6 +10607,12 @@ export function createProductionAgentHandler(
             availableTools: availableRequestTools,
           })
         : initialRequestTools;
+    const jevContextMaxChars = options.jevContextCompact
+      ? Math.max(
+          0,
+          COMPACT_PROMPT_RESOURCES_TOTAL_MAX_CHARS - systemPrompt.length - 2,
+        )
+      : undefined;
     const [requestTools, jevContext] = await Promise.all([
       preloadJevTools({
         request: requestMessage,
@@ -10614,8 +10625,8 @@ export function createProductionAgentHandler(
       preloadJevContextForPrompt({
         request: requestMessage,
         apiKey: jevApiKey,
-        owner: ownerEmail ?? getRequestUserEmail() ?? "",
-        orgId: getRequestOrgId(),
+        compact: options.jevContextCompact,
+        maxChars: jevContextMaxChars,
       }),
     ]);
     if (jevContext) systemPrompt = `${systemPrompt}\n\n${jevContext}`;
