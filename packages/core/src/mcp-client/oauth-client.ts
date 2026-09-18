@@ -24,6 +24,7 @@ import {
   OAuthTokens,
 } from "@modelcontextprotocol/client";
 
+import { getAppConfig } from "../app-config/index.js";
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import {
   readOAuthCredentialState,
@@ -554,6 +555,32 @@ function applicationTypeForRedirect(redirectUrl: string): "native" | "web" {
   return "web";
 }
 
+function brandedOAuthClientMetadata(): Pick<
+  OAuthClientMetadata,
+  "client_name" | "client_uri" | "logo_uri"
+> {
+  const app = getAppConfig().app;
+  const metadata: Pick<
+    OAuthClientMetadata,
+    "client_name" | "client_uri" | "logo_uri"
+  > = {
+    client_name: app.name?.trim() || "Agent-Native MCP connector",
+  };
+
+  if (app.logoUrl) {
+    try {
+      const logoUrl = new URL(app.logoUrl);
+      if (logoUrl.protocol === "https:") {
+        metadata.logo_uri = logoUrl.href;
+        metadata.client_uri = logoUrl.origin;
+      }
+    } catch {
+      // coercion-ok: an invalid optional logo is omitted from OAuth metadata.
+    }
+  }
+  return metadata;
+}
+
 /**
  * A small adapter around the MCP SDK's OAuth provider interface. The route
  * stores the adapter's state in an encrypted, short-lived browser cookie; the
@@ -600,12 +627,12 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
       this.clientInfo = { ...this.clientInfo, issuer: recordedIssuer };
     }
     this.metadata = {
+      ...brandedOAuthClientMetadata(),
       redirect_uris: [options.redirectUrl],
       token_endpoint_auth_method: "none",
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
       application_type: applicationTypeForRedirect(options.redirectUrl),
-      client_name: "Agent-Native MCP connector",
     };
   }
 
@@ -738,6 +765,34 @@ export class McpOAuthRegistrationUnsupportedError extends Error {
     this.issuer = details.issuer;
     this.authorizationServerUrl = details.authorizationServerUrl;
   }
+}
+
+/**
+ * Accept either an authorization-server URL or a URL to its discovery document.
+ * The SDK needs the issuer, while the document may live at an arbitrary path.
+ */
+export async function resolveMcpOAuthAuthorizationServerUrl(
+  value: string,
+): Promise<string> {
+  const candidate = checkedRemoteUrl(value, "authorization server metadata");
+  const response = await guardedOAuthFetch()(candidate, {
+    headers: { Accept: "application/json" },
+  });
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => undefined);
+    return candidate.toString();
+  }
+  const contentType =
+    response.headers.get("content-type")?.split(";", 1)[0]?.trim() ?? "";
+  if (!contentType.includes("json")) {
+    await response.body?.cancel().catch(() => undefined);
+    return candidate.toString();
+  }
+  const metadata = await readOAuthResponseJson(response);
+  const issuer = typeof metadata.issuer === "string" ? metadata.issuer : null;
+  return issuer
+    ? checkedRemoteUrl(issuer, "authorization server").toString()
+    : candidate.toString();
 }
 
 /**

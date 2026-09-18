@@ -9,6 +9,7 @@ const saveOAuthTokensMock = vi.hoisted(() => vi.fn());
 const replaceOAuthTokensIfRevisionMock = vi.hoisted(() => vi.fn());
 const deleteOAuthTokensIfRevisionMock = vi.hoisted(() => vi.fn());
 const ssrfSafeFetchMock = vi.hoisted(() => vi.fn());
+const getAppConfigMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@modelcontextprotocol/client", () => ({
   auth: authMock,
@@ -39,6 +40,10 @@ vi.mock("../oauth-tokens/store.js", () => ({
   deleteOAuthTokensIfRevision: deleteOAuthTokensIfRevisionMock,
 }));
 
+vi.mock("../app-config/index.js", () => ({
+  getAppConfig: getAppConfigMock,
+}));
+
 vi.mock("../settings/store.js", () => ({
   mutateSetting: vi.fn(
     async (
@@ -63,6 +68,7 @@ import {
   revokeMcpOAuthCredentials,
   saveMcpOAuthCredentials,
   McpOAuthRegistrationUnsupportedError,
+  resolveMcpOAuthAuthorizationServerUrl,
   startMcpOAuthAuthorization,
   tokenExpiresAt,
   validateMcpOAuthCallbackIssuer,
@@ -98,6 +104,7 @@ const credentials = {
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  getAppConfigMock.mockReset().mockReturnValue({ app: {} });
   authMock.mockReset();
   refreshAuthorizationMock.mockReset();
   deleteOAuthTokensMock.mockReset();
@@ -248,6 +255,46 @@ describe("MCP OAuth client", () => {
       application_type: "web",
       grant_types: ["authorization_code", "refresh_token"],
     });
+  });
+
+  it("uses app branding in OAuth client metadata", () => {
+    getAppConfigMock.mockReturnValue({
+      app: {
+        name: "Auttendo",
+        logoUrl: "https://auttendo.example/logo.png",
+        url: "https://different.example/workspace",
+      },
+    });
+
+    const metadata = new McpOAuthClientProvider({
+      serverUrl: "https://mcp.example.com/mcp",
+      redirectUrl: "https://auttendo.example/callback",
+      state: "<STATE>",
+    }).clientMetadata;
+
+    expect(metadata).toMatchObject({
+      client_name: "Auttendo",
+      logo_uri: "https://auttendo.example/logo.png",
+      client_uri: "https://auttendo.example",
+    });
+  });
+
+  it("resolves arbitrary OAuth metadata URLs to their issuer", async () => {
+    ssrfSafeFetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ issuer: "https://auth.example.com/tenant" }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      ),
+    );
+
+    await expect(
+      resolveMcpOAuthAuthorizationServerUrl(
+        "https://auth.example.com/.well-known/custom",
+      ),
+    ).resolves.toBe("https://auth.example.com/tenant");
   });
 
   it("sends the advertised RFC 8707 resource identifier without a trailing slash", async () => {

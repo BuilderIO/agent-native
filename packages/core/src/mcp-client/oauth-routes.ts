@@ -35,6 +35,8 @@ import {
   finishMcpOAuthAuthorization,
   isGoogleWorkspaceMcpServer,
   McpOAuthRegistrationUnsupportedError,
+  readMcpOAuthCredentials,
+  resolveMcpOAuthAuthorizationServerUrl,
   startMcpOAuthAuthorization,
   type McpOAuthCredentialBundle,
   type McpOAuthDiscoveryState,
@@ -428,6 +430,19 @@ async function handleMcpOAuthStart(
       if (isManagedMcpOAuthServer(urlCheck.url!) && !clientInformation) {
         return null;
       }
+      const storedCredentials =
+        reconnectServer?.oauthSecretKey && reconnectScopeId
+          ? await readMcpOAuthCredentials({
+              key: reconnectServer.oauthSecretKey,
+              scope,
+              scopeId,
+              serverUrl: urlCheck.url!.toString(),
+            })
+          : null;
+      const oauthMetadataUrl = text(query.oauthMetadataUrl);
+      const authorizationServerUrl = oauthMetadataUrl
+        ? await resolveMcpOAuthAuthorizationServerUrl(oauthMetadataUrl)
+        : storedCredentials?.discoveryState?.authorizationServerUrl;
       const authorizationScope = resolveTrustedMcpOAuthAuthorizationScope(
         urlCheck.url!,
       );
@@ -437,6 +452,9 @@ async function handleMcpOAuthStart(
         state,
         ...(authorizationScope ? { scope: authorizationScope } : {}),
         ...(clientInformation ? { clientInformation } : {}),
+        ...(authorizationServerUrl
+          ? { discoveryState: { authorizationServerUrl } }
+          : {}),
       });
     });
     if (!started) {
