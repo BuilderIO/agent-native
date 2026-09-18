@@ -3841,13 +3841,19 @@ impl CustomCaptureResume {
     /// Pause: stop only the capture source (SCStream). The writer, file, and
     /// live uploader stay alive; mic/screen go cold. The watchdog is told to
     /// hold so it never reads the silence as a stall and rebuilds.
-    pub(crate) fn pause(&self) {
+    pub(crate) fn pause(&self) -> Result<(), String> {
+        let guard = self
+            .stream
+            .lock()
+            .map_err(|error| format!("capture pause stream lock failed: {error}"))?;
+        guard
+            .stop_capture()
+            .map_err(|error| format!("capture pause stop_capture failed: {error:?}"))?;
+        drop(guard);
         self.watch.set_paused(true);
         self.handler.invalidate_stream();
-        if let Ok(guard) = self.stream.lock() {
-            let _ = guard.stop_capture();
-        }
         eprintln!("[mixer] capture paused; source stream stopped, writer/file kept open");
+        Ok(())
     }
 
     /// Resume: build a fresh SCStream wired to the SAME writer and start it,

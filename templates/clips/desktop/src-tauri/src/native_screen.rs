@@ -758,13 +758,13 @@ impl NativeFullscreenBackend {
     /// Screen Memory uses this during short ownership handoffs so macOS does
     /// not have two ScreenCaptureKit sessions competing while the native
     /// content picker is being presented.
-    pub(crate) fn pause_capture_source(&self) -> bool {
+    pub(crate) fn pause_capture_source(&self) -> Result<bool, String> {
         match self {
             Self::CustomScreenCaptureKit { resume, .. } => {
-                resume.pause();
-                true
+                resume.pause()?;
+                Ok(true)
             }
-            _ => false,
+            _ => Ok(false),
         }
     }
 
@@ -794,8 +794,8 @@ impl NativeFullscreenBackend {
 
 #[cfg(not(target_os = "macos"))]
 impl NativeFullscreenBackend {
-    pub(crate) fn pause_capture_source(&self) -> bool {
-        false
+    pub(crate) fn pause_capture_source(&self) -> Result<bool, String> {
+        Ok(false)
     }
 }
 
@@ -3045,7 +3045,7 @@ pub async fn native_fullscreen_recording_pause(
             }) = session.backend.as_ref()
             {
                 if writer.segmented() && writer.is_started() {
-                    resume.pause();
+                    resume.pause()?;
                     true
                 } else {
                     false
@@ -3083,16 +3083,31 @@ pub async fn native_fullscreen_recording_pause(
         live.ctrl.cancelled.store(true, Ordering::SeqCst);
     }
     if session.backend.is_none() {
-        // No active backend means we're already paused (or never started).
-        eprintln!("[clips-tray] pause: no active backend; marking paused only");
-        session.paused_at = Some(Instant::now());
-        return Ok(());
+        return Err("Unable to pause recording safely: the capture backend is unavailable; the local recording was retained for recovery.".into());
     }
     let stop_outcome = finalize_active_backend(session, true);
     if let Err(err) = &stop_outcome {
         eprintln!("[clips-tray] pause finalize reported an error: {err}");
+        return Err(format!(
+            "Unable to pause recording safely: {err}. The local recording was retained for recovery."
+        ));
     }
-    recover_from_unusable_current_segment(session, "pause", true);
+    if recover_from_unusable_current_segment(session, "pause", false) {
+        return Err(
+            "Unable to pause recording safely: the current segment was unusable; earlier local segments were retained for recovery."
+                .into(),
+        );
+    }
+    if !session
+        .segments
+        .last()
+        .is_some_and(|path| playable_recording_file(path, session.mime_type))
+    {
+        return Err(
+            "Unable to pause recording safely: no usable local segment was finalized; the recording was retained for recovery."
+                .into(),
+        );
+    }
     session.paused_at = Some(Instant::now());
     let current_segment_bytes = session
         .segments

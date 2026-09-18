@@ -2130,7 +2130,16 @@ fn suspend_active_segment_inner(app: &AppHandle) -> Result<(), String> {
     // competing ScreenCaptureKit producer before macOS presents its picker.
     let ended_at = Instant::now();
     let ended_at_iso = now_iso();
-    if active.backend.pause_capture_source() {
+    let capture_source_paused = match active.backend.pause_capture_source() {
+        Ok(paused) => paused,
+        Err(error) => {
+            eprintln!(
+                "[screen-memory] custom capture pause failed; falling back to durable segment finalization: {error}"
+            );
+            false
+        }
+    };
+    if capture_source_paused {
         let state = app.state::<ScreenMemoryState>();
         let mut runtime = state.inner.lock().map_err(|error| error.to_string())?;
         runtime.suspended_active = Some(SuspendedScreenMemorySegment {
