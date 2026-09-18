@@ -1255,8 +1255,17 @@ export function useThreadMessages(threadId: string | undefined) {
     placeholder,
     placeholder?.[0]?.accountEmail,
   );
+  // Thread refreshes can return an older Gmail read/star value after the
+  // mutation has already completed. Subscribe here as well as in useEmails so
+  // the detail view applies the same durable override while that fetch catches
+  // up.
+  useSyncExternalStore(
+    subscribeToOptimisticOverrides,
+    () => optimisticOverrideVersion,
+    () => optimisticOverrideVersion,
+  );
   return {
-    data: messages,
+    data: messages ? applyOverrides(messages) : messages,
     isLoading: isLoading && !messages,
     isFetching: isLoading,
     isError: false,

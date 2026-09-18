@@ -166,6 +166,13 @@ describe("optimistic property overrides", () => {
     expect(source).not.toContain("OVERRIDE_DURATION");
     expect(source).toContain("reconcileOptimisticOverrides");
     expect(source).toContain("Object.is(observed[property], props[property])");
+
+    const threadHook = source.slice(
+      source.indexOf("export function useThreadMessages("),
+      source.indexOf("export function useMarkRead()"),
+    );
+    expect(threadHook).toContain("subscribeToOptimisticOverrides");
+    expect(threadHook).toContain("applyOverrides(messages)");
   });
 });
 
