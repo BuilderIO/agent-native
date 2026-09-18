@@ -425,10 +425,6 @@ test.describe("drag reparent parity", () => {
     const screenId = await fileIdFor(page, id, "index.html");
 
     const widget = await boxFor(page, screenId, "widget");
-    const widgetNode = designFrame(page, screenId).locator(
-      '[data-agent-native-node-id="widget"]',
-    );
-    const widgetStyleBefore = await widgetNode.getAttribute("style");
     const boardPoint = await emptyBoardPoint(page);
 
     const deepSelectModifier =
@@ -459,15 +455,31 @@ test.describe("drag reparent parity", () => {
     await page.mouse.move(boardPoint.x, boardPoint.y, { steps: 30 });
     await page.waitForTimeout(500);
     const trace = await dumpTrace(page);
-    await expect(page.locator("[data-cross-screen-drag-ghost]")).toBeVisible({
+    const ghost = page.locator("[data-cross-screen-drag-ghost]");
+    await expect(ghost).toBeVisible({
       timeout: 5_000,
     });
-    const widgetStyleDuringDrag = await widgetNode.getAttribute("style");
+    const ghostAtBoard = await ghost.boundingBox();
     expect(
-      widgetStyleDuringDrag,
-      `the source element must visibly move while the physical drag is held. ` +
+      ghostAtBoard,
+      `the cross-screen drag ghost must render while the physical drag is held. ` +
         `Trace: ${trace.slice(-800)}`,
-    ).not.toBe(widgetStyleBefore);
+    ).not.toBeNull();
+    await page.mouse.move(boardPoint.x + 40, boardPoint.y + 24, { steps: 8 });
+    await page.waitForTimeout(250);
+    const ghostAtSecondPoint = await ghost.boundingBox();
+    expect(
+      ghostAtSecondPoint,
+      `the cross-screen drag ghost must remain rendered as the pointer moves. ` +
+        `Trace: ${trace.slice(-800)}`,
+    ).not.toBeNull();
+    expect(
+      Math.hypot(
+        ghostAtSecondPoint!.x - ghostAtBoard!.x,
+        ghostAtSecondPoint!.y - ghostAtBoard!.y,
+      ),
+      `the cross-screen drag ghost must follow the held pointer. Trace: ${trace.slice(-800)}`,
+    ).toBeGreaterThan(1);
     await page.mouse.up();
 
     let indexHtml = "";
@@ -495,7 +507,7 @@ test.describe("drag reparent parity", () => {
       `Widget must leave the screen document once dropped outside it on the board. Trace: ${trace.slice(-800)}`,
     ).toBe(false);
     expect(
-      boardHtml.includes("widget") || boardHtml.length > 0,
+      boardHtml.includes('data-agent-native-node-id="widget"'),
       `Widget dropped on the empty board must become a board object (checked __board__.html). Got boardHtml length=${boardHtml.length}`,
     ).toBe(true);
 
