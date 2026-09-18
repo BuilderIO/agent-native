@@ -13,7 +13,7 @@ vi.mock("@typesafe-ai/sdk", () => ({
 }));
 
 import type { EngineTool } from "./engine/types.js";
-import { preloadJevTools } from "./jev-tool-prefetch.js";
+import { preloadJevTools, rankJevCandidates } from "./jev-tool-prefetch.js";
 import type { ActionEntry } from "./production-agent.js";
 
 function action(description: string): ActionEntry {
@@ -132,5 +132,55 @@ describe("preloadJevTools", () => {
     });
 
     expect(result).toBe(initialTools);
+  });
+
+  it("ranks context candidates from metadata without sending their bodies", async () => {
+    systemOne.mockResolvedValue({
+      answers: {
+        best_context: {
+          choice: "context-1",
+          probabilities: { "context-1": 0.9, "context-0": 0.1 },
+        },
+      },
+    });
+
+    await expect(
+      rankJevCandidates({
+        apiKey: "jev-test-key",
+        request: "draft a launch email",
+        candidates: [
+          {
+            id: "context-0",
+            description: "Brand guidelines",
+            metadata: { kind: "resource", scope: "workspace" },
+          },
+          {
+            id: "context-1",
+            description: "Launch messaging skill",
+            metadata: { kind: "skill", scope: "template" },
+          },
+        ],
+        candidateStateKey: "candidate_context",
+        answerKey: "best_context",
+        question: "Which context applies?",
+      }),
+    ).resolves.toEqual(["context-1", "context-0"]);
+
+    const state = systemOne.mock.calls.at(-1)?.[0].state;
+    expect(state.candidate_context).toEqual([
+      {
+        id: "context-0",
+        description: "Brand guidelines",
+        kind: "resource",
+        scope: "workspace",
+      },
+      {
+        id: "context-1",
+        description: "Launch messaging skill",
+        kind: "skill",
+        scope: "template",
+      },
+    ]);
+    expect(JSON.stringify(state)).not.toContain("body");
   });
 });

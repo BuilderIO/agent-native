@@ -60,6 +60,7 @@ import {
   startRun as startProgressRun,
   updateRunProgress,
 } from "../progress/registry.js";
+import { preloadJevContextForPrompt } from "../server/agent-chat/prompt-resources.js";
 import {
   isRuntimeVisibleScope,
   parseSkillFrontmatter,
@@ -10502,7 +10503,7 @@ export function createProductionAgentHandler(
     const systemPromptTimeoutError = new Error(
       "system prompt preparation timed out before the agent could start",
     );
-    const [
+    let [
       systemPrompt,
       timeBlock,
       screenBlock,
@@ -10511,6 +10512,7 @@ export function createProductionAgentHandler(
       filesContext,
       loopSettings,
       enrichedMessage,
+      jevApiKey,
     ] = await Promise.all([
       presendCap("systemPrompt", systemPromptThunk, "", 13000, () => {
         // An empty configured prompt is valid, but an empty timeout fallback
@@ -10526,6 +10528,7 @@ export function createProductionAgentHandler(
       presendCap("files", filesContextThunk, "", 12000),
       presendCap("loopSettings", loopSettingsThunk, fallbackLoopSettings, 9000),
       presendCap("enrichedMessage", enrichedMessageThunk, requestMessage, 9000),
+      getOwnerApiKey("jev", ownerEmail ?? getRequestUserEmail()),
     ]);
     setupMark("ctxAll");
     // DIAGNOSTIC-ONLY: all parallel context gathering (system prompt, screen,
@@ -10573,19 +10576,39 @@ export function createProductionAgentHandler(
             availableTools: availableRequestTools,
           })
         : initialRequestTools;
-    const requestTools = await preloadJevTools({
-      request: requestMessage,
-      apiKey: await getOwnerApiKey("jev", ownerEmail ?? getRequestUserEmail()),
-      registry: requestActions,
-      initialTools: curatedRequestTools,
-      availableTools: availableRequestTools,
-      readOnlyOnly: requestMode === "plan",
-    });
+    const [requestTools, jevContext] = await Promise.all([
+      preloadJevTools({
+        request: requestMessage,
+        apiKey: jevApiKey,
+        registry: requestActions,
+        initialTools: curatedRequestTools,
+        availableTools: availableRequestTools,
+        readOnlyOnly: requestMode === "plan",
+      }),
+      preloadJevContextForPrompt({
+        request: requestMessage,
+        apiKey: jevApiKey,
+        owner: ownerEmail ?? getRequestUserEmail() ?? "",
+        orgId: getRequestOrgId(),
+      }),
+    ]);
+    if (jevContext) systemPrompt = `${systemPrompt}\n\n${jevContext}`;
     // System sections are emitted by the prompt builder once per request. Tool
     // schemas become known just after prompt setup, so append their measured
     // contribution here and reuse the immutable result for every loop pass.
     const contextXraySystemSections = [
       ...readContextXraySystemSections(event),
+      ...(jevContext
+        ? await buildSystemManifestSections([
+            {
+              label: "Jev-prefetched skills and resources",
+              provenance: "runtime-context",
+              governance: "inherited",
+              content: jevContext,
+              sourceRef: { scope: "jev" },
+            },
+          ])
+        : []),
       ...(requestTools.length > 0
         ? await buildSystemManifestSections([
             {

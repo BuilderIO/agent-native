@@ -1,4 +1,8 @@
 import {
+  rankJevCandidates,
+  type JevCandidate,
+} from "../../agent/jev-tool-prefetch.js";
+import {
   frameworkGroupEnabled,
   type FrameworkToolGroup,
 } from "../../framework-tools.js";
@@ -16,6 +20,8 @@ import {
   resourceListAccessible,
   SHARED_OWNER,
   sharedResourceOwner,
+  type Resource,
+  type ResourceMeta,
   WORKSPACE_OWNER,
 } from "../../resources/store.js";
 import type {
@@ -146,6 +152,17 @@ const PROMPT_SKILL_SUMMARY_LIMIT = 40;
 const PROMPT_SKILL_METADATA_READ_LIMIT = 80;
 const PROMPT_INSTRUCTION_SUMMARY_LIMIT = 20;
 const PROMPT_SUMMARY_DESCRIPTION_MAX_CHARS = 180;
+const JEV_CONTEXT_ITEM_MAX_CHARS = 10_000;
+const JEV_CONTEXT_TOTAL_MAX_CHARS = 24_000;
+
+type JevPromptCandidate = JevCandidate & {
+  kind: "skill" | "resource-skill" | "instruction" | "resource";
+  name: string;
+  scope: string;
+  path: string;
+  content?: string;
+  resourceId?: string;
+};
 
 export interface PromptResourceManifestSection {
   label: string;
@@ -694,10 +711,22 @@ async function loadInstructionResourcesForPrompt(
   }
 }
 
-async function loadResourceSkillsPromptBlock(
+interface ResourceSkillPromptEntry {
+  resource: ResourceMeta;
+  full: Resource | null;
+  name: string;
+  description: string;
+  scope: string;
+}
+
+async function loadResourceSkillPromptEntries(
   owner: string,
   orgId?: string | null,
-): Promise<string | null> {
+): Promise<{
+  entries: ResourceSkillPromptEntry[];
+  total: number;
+  metadataRead: number;
+}> {
   try {
     const organizationOwner = sharedResourceOwner(orgId);
     const resources =
@@ -734,11 +763,12 @@ async function loadResourceSkillsPromptBlock(
     const loaded = await Promise.all(
       skillCandidates.map(async (resource) => ({
         resource,
-        full: await resourceGet(resource.id).catch(() => null),
+        // coercion-ok: an unreadable optional skill is absent from Jev's catalog, not a required prompt failure.
+        full: await resourceGet(resource.id, { orgId }).catch(() => null),
       })),
     );
     const seen = new Set<string>();
-    const lines: string[] = [];
+    const entries: ResourceSkillPromptEntry[] = [];
     for (const { resource, full } of loaded) {
       if (!full?.content) continue;
       const meta = parseSkillFrontmatter(full.content);
@@ -752,27 +782,38 @@ async function loadResourceSkillsPromptBlock(
         meta.description || "(no description)",
         PROMPT_SUMMARY_DESCRIPTION_MAX_CHARS,
       );
-      lines.push(
+      entries.push({ resource, full, name, description, scope });
+    }
+    return { entries, total: sorted.length, metadataRead: loaded.length };
+  } catch {
+    return { entries: [], total: 0, metadataRead: 0 };
+  }
+}
+
+async function loadResourceSkillsPromptBlock(
+  owner: string,
+  orgId?: string | null,
+): Promise<string | null> {
+  const { entries, total, metadataRead } = await loadResourceSkillPromptEntries(
+    owner,
+    orgId,
+  );
+  const lines = entries
+    .slice(0, PROMPT_SKILL_SUMMARY_LIMIT)
+    .map(
+      ({ resource, name, description, scope }) =>
         `- \`${name}\` at resource \`${resource.path}\` (${scope}) - ${ensureSentence(description)} ${resourceToolHint(
           "read",
           `\`path: "${resource.path}"\` and \`scope: "${scope}"\` before starting a task it applies to`,
         )}`,
-      );
-      if (lines.length >= PROMPT_SKILL_SUMMARY_LIMIT) break;
-    }
-    if (lines.length === 0) return null;
-    if (
-      sorted.length > skillCandidates.length ||
-      loaded.length > PROMPT_SKILL_SUMMARY_LIMIT
-    ) {
-      lines.push(
-        `- ...more skills omitted from the startup summary. ${resourceToolHint("list", '`prefix: "skills/"` to inspect the full catalog')}`,
-      );
-    }
-    return `<resource-skills>\nThe following workspace skills are available in addition to codebase skills. They may come from SQL resources, Dispatch workspace resources, or local file mode. Read a matching skill before starting a task it applies to.\n\n${lines.join("\n")}\n</resource-skills>`;
-  } catch {
-    return null;
+    );
+  if (lines.length === 0) return null;
+  if (total > metadataRead || metadataRead > PROMPT_SKILL_SUMMARY_LIMIT) {
+    lines.push(
+      `- ...more skills omitted from the startup summary. ${resourceToolHint("list", '`prefix: "skills/"` to inspect the full catalog')}`,
+    );
   }
+  return `<resource-skills>\nThe following workspace skills are available in addition to codebase skills. They may come from SQL resources, Dispatch workspace resources, or local file mode. Read a matching skill before starting a task it applies to.\n\n${lines.join("\n")}\n</resource-skills>`;
 }
 
 async function loadResourceIndexForPrompt(
@@ -822,6 +863,221 @@ async function loadResourceIndexForPrompt(
   } catch {
     return null;
   }
+}
+
+async function collectJevPromptCandidates(
+  owner: string,
+  orgId: string | null | undefined,
+): Promise<JevPromptCandidate[]> {
+  const candidates: JevPromptCandidate[] = [];
+  let nextId = 0;
+  const add = (
+    candidate: Omit<JevPromptCandidate, "id" | "description"> & {
+      description?: string;
+    },
+  ): void => {
+    const description = compactPromptLine(
+      `${candidate.name}${candidate.description ? ` - ${candidate.description}` : ""}`,
+      PROMPT_SUMMARY_DESCRIPTION_MAX_CHARS,
+    );
+    if (!candidate.content?.trim() && !candidate.resourceId) return;
+    if (!description) return;
+    candidates.push({
+      ...candidate,
+      id: `context-${nextId++}`,
+      description,
+      metadata: {
+        kind: candidate.kind,
+        scope: candidate.scope,
+      },
+    });
+  };
+
+  try {
+    const { getRuntimeSkills, loadAgentsBundle } =
+      await import("../agents-bundle.js");
+    const bundle = await loadAgentsBundle();
+    for (const skill of getRuntimeSkills(bundle)) {
+      add({
+        kind: "skill",
+        name: skill.meta.name,
+        description: skill.meta.description,
+        scope: "template-skill",
+        path: `${skill.dir}/SKILL.md`,
+        content: skill.content,
+      });
+    }
+  } catch (error) {
+    console.warn(
+      "[agent] Jev skill context unavailable; continuing with the normal skills prompt.",
+      error instanceof Error ? error.message : "unknown error",
+    );
+  }
+
+  const resourceSkillEntries = await loadResourceSkillPromptEntries(
+    owner,
+    orgId,
+  );
+  for (const {
+    resource,
+    full,
+    name,
+    description,
+    scope,
+  } of resourceSkillEntries.entries) {
+    if (!full?.content) continue;
+    add({
+      kind: "resource-skill",
+      name,
+      description,
+      scope,
+      path: resource.path,
+      content: full.content,
+    });
+  }
+
+  const organizationOwner = sharedResourceOwner(orgId);
+  const sources = [
+    { owner: WORKSPACE_OWNER, scope: "workspace" },
+    { owner: SHARED_OWNER, scope: "shared" },
+    ...(organizationOwner !== SHARED_OWNER
+      ? [{ owner: organizationOwner, scope: "shared" }]
+      : []),
+    ...(owner !== SHARED_OWNER && owner !== WORKSPACE_OWNER
+      ? [{ owner, scope: "personal" }]
+      : []),
+  ];
+
+  for (const source of sources) {
+    try {
+      const listOptions = {
+        orgId,
+        ...(source.owner === WORKSPACE_OWNER ? { userEmail: owner } : {}),
+      };
+      const instructions = (
+        await resourceList(source.owner, "instructions/", listOptions)
+      )
+        .filter((resource) => isAutoLoadedInstructionPath(resource.path))
+        .sort((a, b) => a.path.localeCompare(b.path))
+        .slice(0, PROMPT_INSTRUCTION_SUMMARY_LIMIT);
+      for (const resource of instructions) {
+        add({
+          kind: "instruction",
+          name: resource.path,
+          description: "",
+          scope: `${source.scope}-instruction`,
+          path: resource.path,
+          resourceId: resource.id,
+        });
+      }
+
+      const resources = (
+        await resourceList(source.owner, undefined, listOptions)
+      )
+        .filter(
+          (resource) =>
+            !isSpecialPromptResourcePath(resource.path) &&
+            isTextLikeResource(resource.mimeType),
+        )
+        .sort((a, b) => a.path.localeCompare(b.path))
+        .slice(0, SHARED_RESOURCE_INDEX_LIMIT);
+      for (const resource of resources) {
+        add({
+          kind: "resource",
+          name: resource.path,
+          description: "",
+          scope: source.scope,
+          path: resource.path,
+          resourceId: resource.id,
+        });
+      }
+    } catch (error) {
+      console.warn(
+        `[agent] Jev context catalog unavailable for ${source.scope}; continuing without that source.`,
+        error instanceof Error ? error.message : "unknown error",
+      );
+    }
+  }
+  return candidates;
+}
+
+async function hydrateJevPromptCandidate(
+  candidate: JevPromptCandidate,
+  orgId?: string | null,
+): Promise<JevPromptCandidate | null> {
+  if (candidate.content?.trim()) return candidate;
+  if (!candidate.resourceId) return null;
+  try {
+    const full = await resourceGet(candidate.resourceId, { orgId });
+    return full?.content?.trim()
+      ? { ...candidate, content: full.content }
+      : null;
+  } catch (error) {
+    console.warn(
+      `[agent] Jev context resource unavailable: ${candidate.path}`,
+      error instanceof Error ? error.message : "unknown error",
+    );
+    return null;
+  }
+}
+
+/** Rank and inline a few optional context sources before the first model call. */
+export async function preloadJevContextForPrompt(options: {
+  request: string;
+  apiKey?: string;
+  owner: string;
+  orgId?: string | null;
+  compact?: boolean;
+}): Promise<string> {
+  const request = options.request.trim();
+  const apiKey = options.apiKey?.trim();
+  if (!request || !apiKey) return "";
+
+  const candidates = await collectJevPromptCandidates(
+    options.owner,
+    options.orgId,
+  );
+  const selectedIds = await rankJevCandidates({
+    request,
+    apiKey,
+    candidates,
+    candidateStateKey: "candidate_context",
+    answerKey: "best_context",
+    question:
+      "Which skills or reference resources should be loaded into the agent context first for this task? Pick the most useful source; probabilities may be used to keep a small ranked shortlist.",
+    limit: 3,
+  });
+  if (selectedIds.length === 0) return "";
+
+  const selectedCandidates = await Promise.all(
+    selectedIds.map((id) => {
+      const candidate = candidates.find((item) => item.id === id);
+      return candidate
+        ? hydrateJevPromptCandidate(candidate, options.orgId)
+        : Promise.resolve(null);
+    }),
+  );
+  const maxItemChars = options.compact ? 6_000 : JEV_CONTEXT_ITEM_MAX_CHARS;
+  const maxTotalChars = options.compact ? 16_000 : JEV_CONTEXT_TOTAL_MAX_CHARS;
+  const blocks: string[] = [];
+  let usedChars = 0;
+  for (const candidate of selectedCandidates) {
+    if (!candidate?.content) continue;
+    const remaining = maxTotalChars - usedChars;
+    if (remaining <= 0) break;
+    const block = promptResourceBlock({
+      name: candidate.name,
+      scope: candidate.scope,
+      path: candidate.path,
+      content: candidate.content,
+      maxChars: Math.min(maxItemChars, remaining),
+    });
+    if (!block) continue;
+    blocks.push(block);
+    usedChars += block.length;
+  }
+  if (blocks.length === 0) return "";
+  return `<jev-prefetched-context>\nJev ranked these optional skills and reference resources for this task. Mandatory AGENTS.md instructions remain authoritative. Treat these sources as task-specific guidance and use the existing tools to read anything else you need.\n\n${blocks.join("\n\n")}\n</jev-prefetched-context>`;
 }
 
 /**
