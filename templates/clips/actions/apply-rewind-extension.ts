@@ -56,8 +56,8 @@ export default defineAction({
     preRollRecordingId: z.string(),
     videoUrl: z.string().min(1),
     durationMs: z.number().int().positive(),
-    width: z.number().int().positive(),
-    height: z.number().int().positive(),
+    width: z.number().int().positive().optional(),
+    height: z.number().int().positive().optional(),
     addedMs: z
       .number()
       .int()
@@ -159,8 +159,8 @@ export default defineAction({
           videoUrl: args.videoUrl,
           videoFormat: "mp4",
           durationMs: args.durationMs,
-          width: args.width,
-          height: args.height,
+          ...(args.width !== undefined ? { width: args.width } : {}),
+          ...(args.height !== undefined ? { height: args.height } : {}),
           editsJson: serializeEdits(edits),
           chaptersJson: shiftedJsonArray(recording.chaptersJson, args.addedMs, [
             "startMs",
