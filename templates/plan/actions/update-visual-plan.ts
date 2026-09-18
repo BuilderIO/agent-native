@@ -436,15 +436,23 @@ function contentPatchDetails(input: {
 }
 
 function canvasSurfaceProjection(content: PlanContent) {
-  return (content.canvas?.frames ?? []).map((frame) => ({
-    label: frame.label ?? null,
-    surface: frame.surface ?? null,
-    wireframe: frame.wireframe ?? null,
-    legacyWireframe: frame.legacyWireframe ?? null,
-    referencedBlock: frame.blockId
+  return (content.canvas?.frames ?? []).map((frame) => {
+    const referencedBlock = frame.blockId
       ? findBlock(content.blocks, frame.blockId)
-      : null,
-  }));
+      : null;
+    return {
+      label: frame.label ?? referencedBlock?.title ?? null,
+      surface: frame.surface ?? frame.wireframe?.surface ?? "desktop",
+      wireframe:
+        frame.wireframe ??
+        (referencedBlock?.type === "wireframe" ? referencedBlock.data : null),
+      legacyWireframe:
+        frame.legacyWireframe ??
+        (referencedBlock?.type === "legacy-wireframe"
+          ? referencedBlock.data
+          : null),
+    };
+  });
 }
 
 function surfaceParityWarnings(
@@ -760,6 +768,9 @@ export default defineAction({
         args.contentPatches,
       );
     }
+    const normalizedContentAtLoad = bundleAtLoad?.plan.content
+      ? planContentSchema.parse(bundleAtLoad.plan.content)
+      : null;
     if (
       isDestructiveStructuredWrite &&
       !args.allowDestructive &&
@@ -777,7 +788,7 @@ export default defineAction({
       }
     }
     surfaceWarnings = surfaceParityWarnings(
-      bundleAtLoad?.plan.content ?? null,
+      normalizedContentAtLoad,
       nextContent,
     );
     if (surfaceWarnings.length > 0 && !args.allowSurfaceMismatch) {
@@ -815,8 +826,7 @@ export default defineAction({
     const nextBrief = args.brief ?? metadataPatch?.brief;
     const contentChanged =
       nextContent !== null &&
-      JSON.stringify(nextContent) !==
-        JSON.stringify(bundleAtLoad?.plan.content ?? null);
+      JSON.stringify(nextContent) !== JSON.stringify(normalizedContentAtLoad);
     const contentPatchChanged =
       args.contentPatches.length > 0 &&
       (contentChanged ||

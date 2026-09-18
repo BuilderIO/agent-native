@@ -958,6 +958,70 @@ describe("update-visual-plan comments", () => {
     ).resolves.toMatchObject({ planId: "plan_public" });
   });
 
+  it("rejects prototype edits paired only with hidden linked-block metadata", async () => {
+    request.email = "editor@example.com";
+    const { updateWhereMock } = useSuccessfulDb();
+    const linkedContent = {
+      ...structuredContent,
+      blocks: [
+        {
+          id: "screen-block",
+          type: "wireframe" as const,
+          title: "Audit table",
+          summary: "Before",
+          data: {
+            surface: "browser" as const,
+            html: "<main>Visible</main>",
+          },
+        },
+      ],
+      canvas: {
+        ...structuredContent.canvas,
+        frames: [
+          {
+            ...structuredContent.canvas.frames[0],
+            label: "Audit table",
+            blockId: "screen-block",
+          },
+        ],
+      },
+    } as typeof structuredContent;
+    loadPlanBundleMock.mockResolvedValue(
+      planBundle({ content: linkedContent }),
+    );
+
+    await expect(
+      (
+        updateVisualPlan as {
+          run: (args: unknown, ctx?: unknown) => Promise<unknown>;
+        }
+      ).run(
+        {
+          planId: "plan_public",
+          contentPatches: [
+            {
+              op: "update-prototype-screen",
+              screenId: "screen_1",
+              patch: { title: "Updated home" },
+            },
+            {
+              op: "update-block",
+              blockId: "screen-block",
+              patch: { summary: "After" },
+            },
+          ],
+          sections: [],
+          comments: [],
+          consumedCommentIds: [],
+        },
+        { caller: "tool" },
+      ),
+    ).rejects.toThrow("visible canvas unchanged");
+
+    expect(createPlanVersionSnapshotMock).not.toHaveBeenCalled();
+    expect(updateWhereMock).not.toHaveBeenCalled();
+  });
+
   it("allows paired updates through a column-nested wireframe block", async () => {
     request.email = "editor@example.com";
     useSuccessfulDb();
