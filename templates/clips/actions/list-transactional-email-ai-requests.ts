@@ -1,7 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
-import { orgMembers, organizations } from "@agent-native/core/org";
 import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
-import { and, eq, gte, inArray, or, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, ne, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -47,86 +46,64 @@ function boundedText(value: string | null | undefined, limit: number): string {
   return (value ?? "").replace(/\s+/g, " ").trim().slice(0, limit);
 }
 
-function recordingOrgMembershipFilter(userEmail: string) {
-  const normalizedUserEmail = normalizeEmail(userEmail);
-  const orgMemberAccess = normalizedUserEmail
-    ? and(
-        eq(schema.recordings.visibility, "org"),
-        sql`exists (
-          select 1 from ${orgMembers}
-          where ${orgMembers.orgId} = ${schema.recordings.orgId}
-            and lower(${orgMembers.email}) = ${normalizedUserEmail}
-            and ${orgMembers.federationRemovalPendingAt} is null
-        )`,
-      )
-    : sql`1 = 0`;
-
-  return orgMemberAccess ?? sql`1 = 0`;
-}
-
 async function filterFederatedRecordingAccess<
   T extends {
     id: string;
     visibility?: string | null;
-    orgId?: string | null;
-    identityAuthority?: string | null;
-    identityId?: string | null;
   },
->(rows: T[]): Promise<T[]> {
-  const filtered: T[] = [];
-  for (const row of rows) {
-    const linkedOrganization =
-      row.visibility === "org" &&
-      row.orgId &&
-      (String(row.identityAuthority ?? "").trim() ||
-        String(row.identityId ?? "").trim());
-    if (
-      !linkedOrganization ||
-      (await resolveAccess("recording", row.id, undefined, {
-        skipResourceBody: true,
-      }))
-    ) {
-      filtered.push(row);
-    }
-  }
-  return filtered;
+>(rows: T[], accessCache: Map<string, Promise<boolean>>): Promise<T[]> {
+  const filtered: Array<T | null> = await Promise.all(
+    rows.map(async (row): Promise<T | null> => {
+      if (row.visibility !== "org") return row;
+
+      let access = accessCache.get(row.id);
+      if (!access) {
+        access = resolveAccess("recording", row.id, undefined, {
+          skipResourceBody: true,
+        }).then(Boolean);
+        accessCache.set(row.id, access);
+      }
+      return (await access) ? row : null;
+    }),
+  );
+  return filtered.filter((row): row is T => row !== null);
 }
 
 async function claimantMayClaim(
   job: TransactionalEmailJob,
   claimantEmail: string,
+  accessCache: Map<string, Promise<boolean>>,
 ): Promise<boolean> {
   if (normalizeEmail(job.recipient) === claimantEmail) return true;
   if (normalizeEmail(job.requestedBy) !== claimantEmail) return false;
 
   const db = getDb();
-  // Resolve both recordings through one projected access query. Calling
-  // resolveAccess() once per recording reloads the full resource and its
-  // shares, which turned each two-clip candidate into an N+1 fanout.
+  // Resolve private/public/share access through one projected query. Org-visible
+  // rows use the authoritative by-ID resolver below so owner, membership,
+  // explicit-share, and federation semantics stay identical.
   const [accessibleCandidates, directShares, countedViews] = await Promise.all([
     db
       .select({
         id: schema.recordings.id,
         ownerEmail: schema.recordings.ownerEmail,
         visibility: schema.recordings.visibility,
-        orgId: schema.recordings.orgId,
-        identityAuthority: organizations.identityAuthority,
-        identityId: organizations.identityId,
       })
       .from(schema.recordings)
-      .leftJoin(organizations, eq(organizations.id, schema.recordings.orgId))
       .where(
         and(
           inArray(schema.recordings.id, job.recordingIds),
           or(
-            accessFilter(
-              schema.recordings,
-              schema.recordingShares,
-              undefined,
-              "viewer",
-              { includePublic: true },
+            and(
+              ne(schema.recordings.visibility, "org"),
+              accessFilter(
+                schema.recordings,
+                schema.recordingShares,
+                undefined,
+                "viewer",
+                { includePublic: true },
+              ),
             ),
-            recordingOrgMembershipFilter(claimantEmail),
+            eq(schema.recordings.visibility, "org"),
           ),
         ),
       ),
@@ -151,8 +128,10 @@ async function claimantMayClaim(
         ),
       ),
   ]);
-  const accessibleRows =
-    await filterFederatedRecordingAccess(accessibleCandidates);
+  const accessibleRows = await filterFederatedRecordingAccess(
+    accessibleCandidates,
+    accessCache,
+  );
   const accessibleIds = new Set(accessibleRows.map((row) => row.id));
   const directlyRelatedIds = new Set([
     ...accessibleRows.flatMap((row) =>
@@ -170,7 +149,7 @@ async function claimantMayClaim(
 async function loadContextPackets(
   job: TransactionalEmailJob,
   enabledAt: string,
-  userEmail: string,
+  accessCache: Map<string, Promise<boolean>>,
 ): Promise<
   [TransactionalEmailContextPacket, TransactionalEmailContextPacket] | null
 > {
@@ -184,24 +163,23 @@ async function loadContextPackets(
         title: schema.recordings.title,
         description: schema.recordings.description,
         visibility: schema.recordings.visibility,
-        orgId: schema.recordings.orgId,
-        identityAuthority: organizations.identityAuthority,
-        identityId: organizations.identityId,
       })
       .from(schema.recordings)
-      .leftJoin(organizations, eq(organizations.id, schema.recordings.orgId))
       .where(
         and(
           inArray(schema.recordings.id, job.recordingIds),
           or(
-            accessFilter(
-              schema.recordings,
-              schema.recordingShares,
-              undefined,
-              "viewer",
-              { includePublic: true },
+            and(
+              ne(schema.recordings.visibility, "org"),
+              accessFilter(
+                schema.recordings,
+                schema.recordingShares,
+                undefined,
+                "viewer",
+                { includePublic: true },
+              ),
             ),
-            recordingOrgMembershipFilter(userEmail),
+            eq(schema.recordings.visibility, "org"),
           ),
         ),
       ),
@@ -231,7 +209,10 @@ async function loadContextPackets(
         ),
       ),
   ]);
-  const recordings = await filterFederatedRecordingAccess(recordingCandidates);
+  const recordings = await filterFederatedRecordingAccess(
+    recordingCandidates,
+    accessCache,
+  );
 
   const recordingById = new Map(recordings.map((row) => [row.id, row]));
   const transcriptById = new Map(
@@ -300,14 +281,15 @@ export async function claimTransactionalEmailAiRequests(
       job.recordingIds.length === 2,
   );
   const requests: ClaimedTransactionalEmailAiRequest[] = [];
+  const accessCache = new Map<string, Promise<boolean>>();
 
   for (const candidate of candidates) {
     if (requests.length >= claimLimit) break;
-    if (!(await claimantMayClaim(candidate, claimant))) continue;
+    if (!(await claimantMayClaim(candidate, claimant, accessCache))) continue;
     const contextPackets = await loadContextPackets(
       candidate,
       config.enabledAt,
-      claimant,
+      accessCache,
     );
     if (!contextPackets) continue;
     const claimed =

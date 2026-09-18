@@ -24,6 +24,7 @@ vi.mock("drizzle-orm", () => ({
   eq: (...args: unknown[]) => args,
   gte: (...args: unknown[]) => mocks.gte(...args),
   inArray: (...args: unknown[]) => args,
+  ne: (...args: unknown[]) => args,
   or: (...args: unknown[]) => args,
   sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({
     strings: [...strings],
