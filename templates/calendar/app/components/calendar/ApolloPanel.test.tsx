@@ -89,7 +89,7 @@ describe("ResearchMeetingButton", () => {
     expect(container.querySelector("button")).toBeTruthy();
   });
 
-  it("counts only attendees included in the research request", () => {
+  it("counts only attendee identities included in the research request", () => {
     act(() => {
       root.render(
         <ResearchMeetingButton
@@ -105,6 +105,6 @@ describe("ResearchMeetingButton", () => {
       );
     });
 
-    expect(container.textContent).toContain("apollo.attendeeCount:2");
+    expect(container.textContent).toContain("apollo.attendeeCount:1");
   });
 });
