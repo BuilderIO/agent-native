@@ -44,6 +44,7 @@ import {
 import { Toaster } from "@/components/ui/sonner";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { useNavigationState } from "@/hooks/use-navigation-state";
+import { buildClipsExtensionBaseUrl } from "@/lib/extension-auth";
 import { isStandalonePublicPath } from "@/lib/public-ssr-paths";
 
 import { i18nCatalog, loadI18nMessages } from "./i18n";
@@ -247,7 +248,10 @@ function ClipsExtensionAuthBridge() {
         kind: "session",
         token: session.token,
         email: session.email,
-        clipsBaseUrl: window.location.origin,
+        clipsBaseUrl: buildClipsExtensionBaseUrl(
+          window.location.origin,
+          appPath("/"),
+        ),
       } as const;
       const sendViaPageBridge = () => {
         const onMessage = (event: MessageEvent) => {

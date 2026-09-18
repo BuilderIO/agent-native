@@ -134,7 +134,7 @@ import {
 } from "../shared/workspace-app-audience.js";
 import { isValidWorkspaceAppIdFormat } from "../shared/workspace-app-id.js";
 import { injectAnalyticsIntoHtml } from "./analytics.js";
-import { getConfiguredAppBasePath } from "./app-base-path.js";
+import { getConfiguredAppBasePath, stripAppBasePath } from "./app-base-path.js";
 import { getAppOriginClientConfigScript } from "./app-origin-config.js";
 import { getAppProductionUrl } from "./app-url.js";
 import {
@@ -4841,16 +4841,6 @@ function isPublicWorkspacePageRequest(
   if (matchesPathList(path, config.workspaceAppProtectedPaths)) return false;
   if (matchesPathList(path, config.workspaceAppPublicPaths)) return true;
   return config.workspaceAppAudience === "public";
-}
-
-function stripAppBasePath(pathname: string): string {
-  const basePath = getAppBasePath();
-  if (!basePath) return pathname;
-  if (pathname === basePath) return "/";
-  if (pathname.startsWith(`${basePath}/`)) {
-    return pathname.slice(basePath.length) || "/";
-  }
-  return pathname;
 }
 
 // ---------------------------------------------------------------------------
