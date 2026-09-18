@@ -67,6 +67,12 @@ export const DOCS_SLUG_REDIRECTS: Record<string, string> = {
   // Features / Talk to the Agent / Cross-App Use / Developer Guide).
   "template-forms-building-publishing": "template-forms-features",
   "template-forms-responses": "template-forms-features",
+  // Slides' Generating & Editing Decks and Design Systems & Media pages
+  // merged into one Features doc as part of the same five-page app-doc-format
+  // rework (Overview / Features / Talk to the Agent / Cross-App Use /
+  // Developer Guide).
+  "template-slides-editing": "template-slides-features",
+  "template-slides-design-and-media": "template-slides-features",
 };
 
 /** True for a docs URL whose loader answers with a redirect, not a document. */

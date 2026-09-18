@@ -345,19 +345,19 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             slug: "template-slides",
           },
           {
+            id: "template-slides-features",
+            labelKey: "slidesFeatures",
+            slug: "template-slides-features",
+          },
+          {
             id: "template-slides-agent",
             labelKey: "slidesAgent",
             slug: "template-slides-agent",
           },
           {
-            id: "template-slides-editing",
-            labelKey: "slidesEditing",
-            slug: "template-slides-editing",
-          },
-          {
-            id: "template-slides-design-and-media",
-            labelKey: "slidesDesignAndMedia",
-            slug: "template-slides-design-and-media",
+            id: "template-slides-integrations",
+            labelKey: "slidesIntegrations",
+            slug: "template-slides-integrations",
           },
           {
             id: "template-slides-developers",
