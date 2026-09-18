@@ -230,6 +230,10 @@ function errorMessageOf(error: unknown): string {
   return typeof error === "string" ? error : "";
 }
 
+export function isExpectedRouteNotFound(error: unknown): boolean {
+  return isRouteErrorResponse(error) && error.status === 404;
+}
+
 /**
  * When a route renders against a stale lazy chunk after a deploy (the chunk's
  * hashed filename no longer exists), the import rejection surfaces here. Reload
@@ -264,7 +268,13 @@ function ErrorScreen({ error }: { error: unknown }) {
   const recovering = useStaleChunkRecovery(error);
   const reportedErrorRef = useRef<unknown>(null);
   useEffect(() => {
-    if (!error || recovering || reportedErrorRef.current === error) return;
+    if (
+      !error ||
+      recovering ||
+      isExpectedRouteNotFound(error) ||
+      reportedErrorRef.current === error
+    )
+      return;
     reportedErrorRef.current = error;
     captureException(error, {
       tags: { boundary: "react-router-error-screen" },
@@ -286,7 +296,7 @@ function ErrorScreen({ error }: { error: unknown }) {
 
   if (isRouteErrorResponse(error)) {
     status = error.status;
-    if (error.status === 404) {
+    if (isExpectedRouteNotFound(error)) {
       title = copy.notFoundTitle;
       details = copy.notFoundDetails;
     } else {
@@ -317,7 +327,7 @@ function ErrorScreen({ error }: { error: unknown }) {
     console.error("[ErrorBoundary]", error);
   }
 
-  const isNotFound = status === 404;
+  const isNotFound = isExpectedRouteNotFound(error);
 
   return (
     <main className="flex items-center justify-center min-h-screen p-4 bg-background text-foreground">
