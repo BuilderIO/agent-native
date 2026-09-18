@@ -78,6 +78,7 @@ export default defineAction({
         (row.submissionSource === "agent" || row.submissionSource === "mcp"
           ? "agent"
           : "human"),
+      author_model: row.authorModel,
       author_name:
         row.actorKind === "agent" ||
         row.submissionSource === "agent" ||

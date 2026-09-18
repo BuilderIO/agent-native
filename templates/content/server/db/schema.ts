@@ -175,6 +175,7 @@ export const documentComments = table("document_comments", {
   submissionSource: text("submission_source"),
   submissionRunId: text("submission_run_id"),
   actorKind: text("actor_kind"),
+  authorModel: text("author_model"),
   resolved: integer("resolved").notNull().default(0),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
@@ -205,8 +206,16 @@ export const commentAiRequests = table(
     suggestionRevision: text("suggestion_revision").notNull(),
     runId: text("run_id"),
     agentThreadId: text("agent_thread_id"),
+    agentTurnId: text("agent_turn_id"),
+    submittedThreadDigest: text("submitted_thread_digest"),
+    submittedSnapshotJson: text("submitted_snapshot_json"),
+    model: text("model"),
+    engine: text("engine"),
+    activeAttemptId: text("active_attempt_id"),
+    attemptCount: integer("attempt_count").notNull().default(0),
     resultJson: text("result_json"),
     payloadJson: text("payload_json"),
+    errorCode: text("error_code"),
     error: text("error"),
     createdAt: text("created_at").notNull().default(now()),
     updatedAt: text("updated_at").notNull().default(now()),
@@ -215,10 +224,42 @@ export const commentAiRequests = table(
     uniqueIndex("comment_ai_requests_active_thread_idx")
       .on(request.documentId, request.threadId, request.requesterEmail)
       .where(sql`${request.status} IN ('queued', 'running')`),
+    uniqueIndex("comment_ai_requests_active_comment_idx")
+      .on(request.documentId, request.rootCommentId)
+      .where(sql`${request.status} IN ('queued', 'running', 'refreshing')`),
     index("comment_ai_requests_document_requester_idx").on(
       request.documentId,
       request.requesterEmail,
     ),
+  ],
+);
+
+export const commentAiAttempts = table(
+  "comment_ai_attempts",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    requestId: text("request_id").notNull(),
+    attemptNumber: integer("attempt_number").notNull(),
+    status: text("status").notNull().default("reasoning"),
+    sourceRevision: text("source_revision").notNull(),
+    suggestionRevision: text("suggestion_revision").notNull(),
+    threadDigest: text("thread_digest").notNull(),
+    snapshotJson: text("snapshot_json").notNull(),
+    payloadJson: text("payload_json"),
+    runId: text("run_id"),
+    model: text("model"),
+    errorCode: text("error_code"),
+    error: text("error"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (attempt) => [
+    uniqueIndex("comment_ai_attempts_request_number_unique").on(
+      attempt.requestId,
+      attempt.attemptNumber,
+    ),
+    index("comment_ai_attempts_request_idx").on(attempt.requestId),
   ],
 );
 

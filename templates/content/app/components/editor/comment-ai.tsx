@@ -1,4 +1,8 @@
-import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+import {
+  getBackgroundAgentSessionStatus,
+  startBackgroundAgentSession,
+  type BackgroundAgentSessionSnapshot,
+} from "@agent-native/core/client/agent-chat";
 import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import type {
@@ -7,7 +11,7 @@ import type {
   StartCommentAiResult,
 } from "@shared/comment-ai";
 import { IconSparkles } from "@tabler/icons-react";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
 
@@ -24,8 +28,22 @@ import {
 const ACTIVE_STATUSES = new Set<CommentAiRequest["status"]>([
   "queued",
   "running",
+  "refreshing",
 ]);
 const ACTIVE_REQUEST_REFETCH_INTERVAL_MS = 2_000;
+const UNAVAILABLE_CONFIRMATION_COUNT = 3;
+
+export function shouldReconcileCommentAiSnapshot(
+  snapshot: BackgroundAgentSessionSnapshot,
+  consecutiveUnavailable: number,
+) {
+  if (["queued", "running"].includes(snapshot.status)) return false;
+  if (snapshot.status !== "unavailable") return true;
+  return (
+    !snapshot.transportError &&
+    consecutiveUnavailable >= UNAVAILABLE_CONFIRMATION_COUNT
+  );
+}
 
 export function commentAiRequestsRefetchInterval(
   data: unknown,
@@ -38,7 +56,9 @@ export function commentAiRequestsRefetchInterval(
         request &&
         typeof request === "object" &&
         "status" in request &&
-        (request.status === "queued" || request.status === "running"),
+        (request.status === "queued" ||
+          request.status === "running" ||
+          request.status === "refreshing"),
     )
     ? ACTIVE_REQUEST_REFETCH_INTERVAL_MS
     : false;
@@ -82,9 +102,53 @@ export function useCommentAiRequests(
   const requestsRef = useRef(requests);
   requestsRef.current = requests;
   const startingRef = useRef(new Set<string>());
+  const unavailableCountsRef = useRef(new Map<string, number>());
   const [startingThreadIds, setStartingThreadIds] = useState<
     ReadonlySet<string>
   >(() => new Set());
+
+  const reconcileSnapshot = useCallback(
+    async (snapshot: BackgroundAgentSessionSnapshot) => {
+      const receiptKey = `${snapshot.threadId}\0${snapshot.turnId}`;
+      const unavailableCount =
+        snapshot.status === "unavailable" && !snapshot.transportError
+          ? (unavailableCountsRef.current.get(receiptKey) ?? 0) + 1
+          : 0;
+      if (unavailableCount > 0) {
+        unavailableCountsRef.current.set(receiptKey, unavailableCount);
+      } else {
+        unavailableCountsRef.current.delete(receiptKey);
+      }
+      if (!shouldReconcileCommentAiSnapshot(snapshot, unavailableCount)) return;
+      unavailableCountsRef.current.delete(receiptKey);
+      await callAction("reconcile-comment-ai-session", {
+        operationId: snapshot.operationId,
+        threadId: snapshot.threadId,
+        turnId: snapshot.turnId,
+        status: snapshot.status,
+        runId: snapshot.runId,
+        terminalReason: snapshot.terminalReason ?? undefined,
+      });
+      await query.refetch();
+    },
+    [query],
+  );
+
+  useEffect(() => {
+    const recoverable = requests.filter(
+      (request) =>
+        ACTIVE_STATUSES.has(request.status) &&
+        request.agentThreadId &&
+        request.agentTurnId,
+    );
+    for (const request of recoverable) {
+      void getBackgroundAgentSessionStatus({
+        operationId: request.operationId,
+        threadId: request.agentThreadId!,
+        turnId: request.agentTurnId!,
+      }).then(reconcileSnapshot, () => undefined);
+    }
+  }, [reconcileSnapshot, requests]);
 
   const start = useCallback<CommentAiController["start"]>(
     async ({ threadId, rootCommentId, intent, requestId: retryRequestId }) => {
@@ -108,20 +172,33 @@ export function useCommentAiRequests(
             requestId,
           },
         );
-        const message = {
-          message: t(
-            intent === "suggest"
-              ? "comments.aiPromptSuggest"
-              : intent === "reply"
-                ? "comments.aiPromptReply"
-                : "comments.aiPromptApplyResolve",
-          ),
-          context: started.context,
-          submit: true,
-          openSidebar: true,
-          actionScope: started.actionScope,
-        };
-        if (started.dispatch) sendToAgentChat(message);
+        const message = t(
+          intent === "suggest"
+            ? "comments.aiPromptSuggest"
+            : intent === "reply"
+              ? "comments.aiPromptReply"
+              : "comments.aiPromptApplyResolve",
+        );
+        if (started.dispatch) {
+          const handle = startBackgroundAgentSession({
+            message,
+            instructions: started.context,
+            ...started.backgroundSession,
+          });
+          void handle.accepted
+            .then(() => handle.status())
+            .then(reconcileSnapshot, async () => {
+              const snapshot = await handle.status();
+              if (
+                !(snapshot.status === "unavailable" && snapshot.transportError)
+              ) {
+                await reconcileSnapshot(snapshot);
+              }
+            });
+          void handle.completion
+            .then(() => handle.status())
+            .then(reconcileSnapshot, () => undefined);
+        }
         await query.refetch();
       } catch (error) {
         toast.error(
@@ -135,7 +212,7 @@ export function useCommentAiRequests(
         setStartingThreadIds(new Set(startingRef.current));
       }
     },
-    [documentId, query, t],
+    [documentId, query, reconcileSnapshot, t],
   );
 
   return useMemo(

@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   commentAiRequestsRefetchInterval,
+  shouldReconcileCommentAiSnapshot,
   CommentAiThreadActions,
   type CommentAiController,
   useCommentAiRequests,
@@ -16,7 +17,8 @@ import {
 const api = vi.hoisted(() => ({
   callAction: vi.fn(),
   refetch: vi.fn(),
-  sendToAgentChat: vi.fn(),
+  startBackgroundAgentSession: vi.fn(),
+  getBackgroundAgentSessionStatus: vi.fn(),
   requests: [] as CommentAiRequest[],
   toastError: vi.fn(),
 }));
@@ -29,7 +31,10 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   }),
 }));
 vi.mock("@agent-native/core/client/agent-chat", () => ({
-  sendToAgentChat: (...args: unknown[]) => api.sendToAgentChat(...args),
+  startBackgroundAgentSession: (...args: unknown[]) =>
+    api.startBackgroundAgentSession(...args),
+  getBackgroundAgentSessionStatus: (...args: unknown[]) =>
+    api.getBackgroundAgentSessionStatus(...args),
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
@@ -40,15 +45,22 @@ vi.mock("sonner", () => ({
 
 function request(overrides: Partial<CommentAiRequest> = {}): CommentAiRequest {
   return {
+    operationId: "request-1",
     requestId: "request-1",
     documentId: "document-1",
     threadId: "thread-1",
     rootCommentId: "comment-1",
     intent: "suggest",
     status: "failed",
+    attemptId: null,
+    attemptCount: 0,
     runId: null,
     agentThreadId: null,
+    agentTurnId: null,
+    model: null,
+    engine: null,
     result: null,
+    errorCode: "operation_failed",
     error: "The request failed",
     createdAt: "2026-09-08T12:00:00.000Z",
     updatedAt: "2026-09-08T12:00:00.000Z",
@@ -66,6 +78,14 @@ describe("comment AI controls", () => {
     root = createRoot(container);
     api.requests = [];
     api.refetch.mockResolvedValue(undefined);
+    api.startBackgroundAgentSession.mockReturnValue({
+      operationId: "request-1",
+      threadId: "agent-thread-1",
+      turnId: "agent-turn-1",
+      accepted: new Promise(() => undefined),
+      completion: new Promise(() => undefined),
+      status: vi.fn(),
+    });
   });
 
   afterEach(() => {
@@ -197,6 +217,12 @@ describe("comment AI controls", () => {
       prompt: "Handle the source comment",
       context: "Hidden comment AI instructions",
       actionScope: { kind: "content-comment-ai", requestId },
+      backgroundSession: {
+        operationId: requestId,
+        threadId: "agent-thread-1",
+        scope: { type: "content-comment-ai", id: requestId },
+        actionScope: { kind: "content-comment-ai", requestId },
+      },
     });
     vi.spyOn(globalThis.crypto, "randomUUID").mockReturnValue(requestId);
     act(() => root.render(createElement(Probe)));
@@ -218,11 +244,12 @@ describe("comment AI controls", () => {
       intent: "suggest",
       requestId,
     });
-    expect(api.sendToAgentChat).toHaveBeenCalledWith({
+    expect(api.startBackgroundAgentSession).toHaveBeenCalledWith({
       message: "comments.aiPromptSuggest",
-      context: "Hidden comment AI instructions",
-      submit: true,
-      openSidebar: true,
+      instructions: "Hidden comment AI instructions",
+      operationId: requestId,
+      threadId: "agent-thread-1",
+      scope: { type: "content-comment-ai", id: requestId },
       actionScope: { kind: "content-comment-ai", requestId },
     });
   });
@@ -251,7 +278,7 @@ describe("comment AI controls", () => {
     });
 
     expect(api.callAction).toHaveBeenCalledOnce();
-    expect(api.sendToAgentChat).not.toHaveBeenCalled();
+    expect(api.startBackgroundAgentSession).not.toHaveBeenCalled();
     expect(api.refetch).toHaveBeenCalledOnce();
   });
 
@@ -275,7 +302,7 @@ describe("comment AI controls", () => {
     expect(api.toastError).toHaveBeenCalledWith("The comment is stale");
     expect(api.refetch).toHaveBeenCalledOnce();
     expect(controller!.startingThreadIds.size).toBe(0);
-    expect(api.sendToAgentChat).not.toHaveBeenCalled();
+    expect(api.startBackgroundAgentSession).not.toHaveBeenCalled();
   });
 
   it("polls only while a saved request is queued or running", () => {
@@ -295,5 +322,28 @@ describe("comment AI controls", () => {
       }),
     ).toBe(false);
     expect(commentAiRequestsRefetchInterval(undefined)).toBe(false);
+  });
+});
+
+describe("comment AI session reconciliation", () => {
+  const snapshot = {
+    operationId: "operation-1",
+    threadId: "thread-1",
+    turnId: "turn-1",
+    status: "unavailable" as const,
+  };
+
+  it("keeps transport uncertainty recoverable", () => {
+    expect(
+      shouldReconcileCommentAiSnapshot(
+        { ...snapshot, transportError: "acknowledgement timed out" },
+        10,
+      ),
+    ).toBe(false);
+  });
+
+  it("requires repeated authoritative absence before review", () => {
+    expect(shouldReconcileCommentAiSnapshot(snapshot, 2)).toBe(false);
+    expect(shouldReconcileCommentAiSnapshot(snapshot, 3)).toBe(true);
   });
 });

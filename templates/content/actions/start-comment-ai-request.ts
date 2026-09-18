@@ -8,10 +8,11 @@ import {
 
 export default defineAction({
   description:
-    "Bind an Ask AI request to one original comment and the user's chosen intent.",
+    "Create one durable Ask AI operation bound to an exact source comment and intent. The receipt includes a fresh isolated background session; reuse both IDs only when retrying a lost acknowledgement.",
   toolCallable: false,
   schema: z.object({
     requestId: z.string().uuid(),
+    agentThreadId: z.string().min(1).max(200).optional(),
     documentId: z.string().min(1),
     threadId: z.string().min(1),
     rootCommentId: z.string().min(1),
