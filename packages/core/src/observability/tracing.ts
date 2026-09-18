@@ -106,15 +106,22 @@ function pruneAttributes(
   return out;
 }
 
-const TRACKING_SPAN_NAMES = new Set([
-  "action.response",
-  "action_completed",
-  "action_failed",
-  "http.response",
+// Keep this list explicit. Tracking names can be caller-controlled, so a
+// name-based fallback would turn arbitrary event names into OTel span names.
+const TRACKING_SPAN_NAMES = new Map([
+  ["action.response", "action.client"],
+  ["action_completed", "action.server"],
+  ["action_failed", "action.server"],
+  ["http.response", "http.server"],
+  ["$ai_generation", "llm.generation"],
+  ["$ai_trace", "llm.trace"],
+  ["agent_run_terminal", "agent.run.terminal"],
+  ["$a2a_invocation", "a2a.invocation"],
+  ["$a2a_read_invoke", "a2a.read"],
 ]);
-const TRACKING_TIMING_NAME_PATTERN =
-  /(?:duration|latency|performance|request|response|timing)/i;
 type TrackingEventOrigin = "client" | "server";
+
+const pendingTrackingEvents = new Set<Promise<void>>();
 
 function numericDuration(properties: Record<string, unknown>): number | null {
   const duration = properties.duration_ms;
@@ -155,7 +162,6 @@ function trackingSpanAttributes(
   assign("agent.caller", "caller");
   assign("agent.outcome", "outcome");
   assign("agent.success", "success");
-  assign("agent.request_id", "request_id");
   assign("agent.sample_rate", "sample_rate");
   assign("agent.sampled", "sampled");
   assign("http.method", "method");
@@ -174,24 +180,20 @@ function trackingSpanAttributes(
   return attributes;
 }
 
-function trackingSpanName(name: string): string {
-  if (name === "action.response") return "action.client";
-  if (name === "action_completed" || name === "action_failed") {
-    return "action.server";
-  }
-  if (name === "http.response") return "http.server";
-  return `agent.telemetry.${name
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ".")}`;
-}
-
 function trackingSpanStatus(
   properties: Record<string, unknown>,
 ): "success" | "error" {
   if (properties.success === false) return "error";
   const statusCode = properties.status_code;
   if (typeof statusCode === "number" && statusCode >= 400) return "error";
+  if (properties.$ai_is_error === true) return "error";
+  const status = properties.status;
+  if (
+    typeof status === "string" &&
+    /^(?:aborted|error|errored|failed|truncated)$/i.test(status)
+  ) {
+    return "error";
+  }
   const outcome = properties.outcome;
   return typeof outcome === "string" &&
     /(?:cancel|error|fail|network|timeout)/i.test(outcome)
@@ -211,18 +213,14 @@ export async function recordTrackingEvent(
 ): Promise<void> {
   const normalizedName = name.trim();
   const durationMs = numericDuration(properties);
-  if (
-    !normalizedName ||
-    durationMs === null ||
-    (!TRACKING_SPAN_NAMES.has(normalizedName) &&
-      !TRACKING_TIMING_NAME_PATTERN.test(normalizedName))
-  ) {
+  const spanName = TRACKING_SPAN_NAMES.get(normalizedName);
+  if (!spanName || durationMs === null) {
     return;
   }
 
   try {
     const span = await startAgentSpan(
-      trackingSpanName(normalizedName),
+      spanName,
       trackingSpanAttributes(normalizedName, properties, origin),
       null,
       Date.now() - durationMs,
@@ -235,6 +233,24 @@ export async function recordTrackingEvent(
   } catch {
     // Optional OTel export must never affect analytics or request handling.
   }
+}
+
+/** Queue server mirrors so a request boundary can await their completion. */
+export function queueTrackingEvent(
+  name: string,
+  properties: Record<string, unknown> = {},
+  origin: TrackingEventOrigin = "server",
+): void {
+  const pending = recordTrackingEvent(name, properties, origin);
+  pendingTrackingEvents.add(pending);
+  void pending.then(
+    () => pendingTrackingEvents.delete(pending),
+    () => pendingTrackingEvents.delete(pending),
+  );
+}
+
+export async function flushTrackingEvents(): Promise<void> {
+  await Promise.allSettled([...pendingTrackingEvents]);
 }
 
 /**

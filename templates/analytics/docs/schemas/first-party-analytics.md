@@ -135,12 +135,13 @@ background polling remain separate requests. Mutation user outcomes are
 represented by the server-side `action_started`, `action_completed`, and
 `action_failed` events.
 
-When a host has an OpenTelemetry provider, timing-bearing events are mirrored
-as best-effort spans: `action.client` for browser action responses,
-`http.server` for server responses, and `action.server` for mutation outcomes.
-Other events are mirrored only when their name indicates timing or performance
-and they carry `duration_ms`; ordinary clicks and content-bearing events stay
-in analytics rather than becoming spans.
+When a host has an OpenTelemetry provider, the reviewed timing-bearing events
+are mirrored as best-effort spans: `action.client` for browser action
+responses, `http.server` for server responses, `action.server` for mutation
+outcomes, and dedicated spans for agent, A2A, and LLM lifecycle events.
+Ordinary clicks and caller-defined event names stay in analytics rather than
+becoming spans. Server request boundaries await the queued OTel mirror before
+completion, while export remains optional and isolated from request failures.
 
 ## LLM observability events
 

@@ -11,10 +11,10 @@ import {
 } from "./registry.js";
 import type { TrackingEvent } from "./types.js";
 
-const mockRecordTrackingEvent = vi.hoisted(() => vi.fn(async () => undefined));
+const mockQueueTrackingEvent = vi.hoisted(() => vi.fn());
 
 vi.mock("../observability/tracing.js", () => ({
-  recordTrackingEvent: mockRecordTrackingEvent,
+  queueTrackingEvent: mockQueueTrackingEvent,
 }));
 
 function captureEvents(): TrackingEvent[] {
@@ -34,7 +34,7 @@ describe("tracking registry", () => {
     unregisterTrackingProvider("qa-rejecting-flush");
     unregisterTrackingProvider("qa-capture");
     unregisterTrackingProvider("qa-identify");
-    mockRecordTrackingEvent.mockClear();
+    mockQueueTrackingEvent.mockClear();
     vi.restoreAllMocks();
   });
 
@@ -209,7 +209,7 @@ describe("tracking registry", () => {
 
     track("http.response", { duration_ms: 12, status_code: 200 });
 
-    expect(mockRecordTrackingEvent).toHaveBeenCalledWith(
+    expect(mockQueueTrackingEvent).toHaveBeenCalledWith(
       "http.response",
       expect.objectContaining({ duration_ms: 12, status_code: 200 }),
       "server",

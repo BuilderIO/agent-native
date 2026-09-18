@@ -1,5 +1,5 @@
 import type { ActionRunContext } from "../action.js";
-import { recordTrackingEvent } from "../observability/tracing.js";
+import { queueTrackingEvent } from "../observability/tracing.js";
 import { resolveDeployEnvironment } from "../server/deploy-environment.js";
 import { getRequestContext } from "../server/request-context.js";
 import {
@@ -144,7 +144,7 @@ export function track(
     sessionId,
     occurredAt,
   });
-  void recordTrackingEvent(name, trackedProperties, "server");
+  queueTrackingEvent(name, trackedProperties, "server");
 
   const lifecycle = legacyLifecycleEvent(name, trackedProperties);
   if (lifecycle) {

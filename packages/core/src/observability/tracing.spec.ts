@@ -8,6 +8,8 @@ import {
   __setAgentTraceRuntimeForTests,
   __setAgentTracerForTests,
   endAgentSpan,
+  flushTrackingEvents,
+  queueTrackingEvent,
   recordTrackingEvent,
   startAgentSpan,
   withAgentSpanContext,
@@ -174,7 +176,6 @@ describe("tracing helper — test provider registered", () => {
         "http.route": "/_agent-native/actions/list-visual-plans",
         "http.status_code": 200,
         "agent.duration_ms": 42,
-        "agent.request_id": "request-1",
       },
       status: { code: SPAN_STATUS_OK },
       ended: true,
@@ -218,6 +219,25 @@ describe("tracing helper — test provider registered", () => {
     });
 
     expect(spans).toHaveLength(0);
+  });
+
+  it("does not turn arbitrary duration events into spans", async () => {
+    const { tracer, spans } = createTestTracer();
+    __setAgentTracerForTests(tracer as any);
+
+    await recordTrackingEvent("request_123", { duration_ms: 42 });
+
+    expect(spans).toHaveLength(0);
+  });
+
+  it("flushes queued server tracking spans", async () => {
+    const { tracer, spans } = createTestTracer();
+    __setAgentTracerForTests(tracer as any);
+
+    queueTrackingEvent("http.response", { duration_ms: 42 }, "server");
+    await flushTrackingEvents();
+
+    expect(spans[0]?.ended).toBe(true);
   });
 
   it("installs a span as the active context for child spans", async () => {
