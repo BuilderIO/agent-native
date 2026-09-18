@@ -311,6 +311,8 @@ async function dragScreenNode(
           (node) => {
             const iframe = node as HTMLIFrameElement;
             const rect = node.getBoundingClientRect();
+            const frame = node.closest("[data-frame-id]") as HTMLElement | null;
+            const frameRect = frame?.getBoundingClientRect();
             return {
               id: node.getAttribute("data-screen-iframe-id"),
               rect: {
@@ -328,6 +330,21 @@ async function dragScreenNode(
                 height: iframe.contentWindow?.innerHeight,
               },
               transform: getComputedStyle(iframe).transform,
+              frame: frame
+                ? {
+                    id: frame.getAttribute("data-frame-id"),
+                    rect: frameRect
+                      ? {
+                          x: frameRect.x,
+                          y: frameRect.y,
+                          width: frameRect.width,
+                          height: frameRect.height,
+                        }
+                      : null,
+                    width: getComputedStyle(frame).width,
+                    height: getComputedStyle(frame).height,
+                  }
+                : null,
             };
           },
         ),
