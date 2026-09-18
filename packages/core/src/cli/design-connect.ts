@@ -146,11 +146,11 @@ export interface DesignConnectBridgeOptions {
 
 const PREVIEW_TOKEN_DOMAIN = "agent-native-design-preview-v1\0";
 const PREVIEW_SESSION_COOKIE_NAME = "agent-native-preview-token";
-const BRIDGE_RESOURCE_HEADERS = {
-  // Embedded Design runs with COEP=require-corp. The loopback bridge is the
-  // explicitly connected preview origin, so every framed document and proxy
-  // asset it serves must opt into that cross-origin embedding contract.
-  "cross-origin-embedder-policy": "require-corp",
+const BRIDGE_FRAME_HEADERS = {
+  // Design's COEP requires the cross-origin iframe document to opt in too.
+  // `credentialless` preserves public CDN resources that lack CORP/CORS while
+  // keeping the policy off JSON and proxied assets outside the frame document.
+  "cross-origin-embedder-policy": "credentialless",
   "cross-origin-resource-policy": "cross-origin",
 } as const;
 
@@ -782,7 +782,6 @@ function sendJson(
 ) {
   res.writeHead(statusCode, {
     "content-type": "application/json; charset=utf-8",
-    ...BRIDGE_RESOURCE_HEADERS,
     ...bridgeCorsHeaders(res),
   });
   res.end(`${JSON.stringify(body, null, 2)}\n`);
@@ -794,10 +793,11 @@ function sendText(
   body: string,
   contentType: string,
   setCookieHeaders: string[] = [],
+  extraHeaders: Record<string, string> = {},
 ) {
   res.writeHead(statusCode, {
     "content-type": contentType,
-    ...BRIDGE_RESOURCE_HEADERS,
+    ...extraHeaders,
     ...(setCookieHeaders.length > 0 ? { "set-cookie": setCookieHeaders } : {}),
     ...bridgeCorsHeaders(res),
   });
@@ -811,9 +811,10 @@ function sendBytes(
   headers: Headers,
   contentLength = body.length,
   setCookieHeaders: string[] = [],
+  extraHeaders: Record<string, string> = {},
 ) {
   const responseHeaders: Record<string, string | string[]> = {
-    ...BRIDGE_RESOURCE_HEADERS,
+    ...extraHeaders,
     ...bridgeCorsHeaders(res),
     "content-length": String(contentLength),
     ...(setCookieHeaders.length > 0 ? { "set-cookie": setCookieHeaders } : {}),
@@ -2557,6 +2558,7 @@ export async function startDesignConnectBridge(
                 ...snapshot.setCookieHeaders,
                 previewSessionSetCookie(previewToken),
               ],
+              BRIDGE_FRAME_HEADERS,
             );
           } catch (err: unknown) {
             sendJson(res, 400, {
@@ -2893,7 +2895,10 @@ export async function startDesignConnectBridge(
                 if (keyed.previewToken) {
                   next.searchParams.set("previewToken", keyed.previewToken);
                 }
-                res.writeHead(302, { location: next.toString() });
+                res.writeHead(302, {
+                  location: next.toString(),
+                  ...BRIDGE_FRAME_HEADERS,
+                });
                 res.end();
                 return;
               }
@@ -2996,6 +3001,9 @@ export async function startDesignConnectBridge(
               proxied.headers,
               responseBody.length,
               proxied.setCookieHeaders,
+              documentNavigation && contentType.includes("html")
+                ? BRIDGE_FRAME_HEADERS
+                : {},
             );
           } catch (err: unknown) {
             sendJson(
