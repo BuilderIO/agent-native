@@ -122,10 +122,14 @@ async function openBridgePage(page: Page) {
 
 async function collectSelectableRects(
   page: Page,
-  options: { deep: boolean; atPoint?: { x: number; y: number } },
+  options: {
+    deep: boolean;
+    atPoint?: { x: number; y: number };
+    includePortableStyleSnapshot?: boolean;
+  },
 ): Promise<CollectedInfo[]> {
   return page.evaluate(
-    ([deep, atPoint]) =>
+    ([deep, atPoint, includePortableStyleSnapshot]) =>
       new Promise<CollectedInfo[]>((resolve) => {
         const id = `spec-${Math.random().toString(36).slice(2)}`;
         const onMessage = (event: MessageEvent) => {
@@ -149,12 +153,17 @@ async function collectSelectableRects(
             type: "agent-native:collect-selectable-rects",
             correlationId: id,
             deep,
+            includePortableStyleSnapshot,
             ...(atPoint ? { atPoint } : {}),
           },
           "*",
         );
       }),
-    [options.deep, options.atPoint ?? null] as const,
+    [
+      options.deep,
+      options.atPoint ?? null,
+      options.includePortableStyleSnapshot ?? true,
+    ] as const,
   );
 }
 
@@ -482,6 +491,57 @@ describe("selectable-rects collect is bounded by the point it was asked about", 
           0,
         );
       }
+    } finally {
+      await browser.close();
+    }
+  }, 60_000);
+});
+
+describe("overview marquee selectable-rects collection", () => {
+  it("keeps computed state without paying for portable subtree snapshots", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 1000, height: 900 },
+      });
+      const errors: string[] = [];
+      page.on("pageerror", (error) => errors.push(error.message));
+      await openBridgePage(page);
+
+      const full = await collectSelectableRects(page, { deep: false });
+      const fullReads = await page.evaluate(
+        () =>
+          (window as typeof window & { __styleReads?: number }).__styleReads ??
+          0,
+      );
+      await page.evaluate("window.__styleReads = 0;");
+      const lightweight = await collectSelectableRects(page, {
+        deep: false,
+        includePortableStyleSnapshot: false,
+      });
+      const lightweightReads = await page.evaluate(
+        () =>
+          (window as typeof window & { __styleReads?: number }).__styleReads ??
+          0,
+      );
+
+      expect(errors, errors.join("\n")).toEqual([]);
+      expect(lightweight).toHaveLength(full.length);
+      expect(lightweight.length).toBeGreaterThan(20);
+      expect(lightweightReads).toBeGreaterThan(0);
+      expect(lightweightReads).toBeLessThan(fullReads);
+      expect(
+        lightweight.every(
+          (info) =>
+            Object.keys(info.computedStyles ?? {}).length > 0 &&
+            info.portableStyleSnapshot === undefined,
+        ),
+      ).toBe(true);
+      expect(
+        full.every(
+          (info) => (info.portableStyleSnapshot?.nodes?.length ?? 0) > 0,
+        ),
+      ).toBe(true);
     } finally {
       await browser.close();
     }

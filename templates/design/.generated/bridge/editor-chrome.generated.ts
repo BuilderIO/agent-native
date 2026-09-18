@@ -3792,7 +3792,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         "--an-vector-stroke-position": el.getAttribute("data-an-vector-stroke-position") || ""
       };
     }
-    function getElementInfo(el, portableComputedStylesCache) {
+    function getElementInfo(el, portableComputedStylesCache, includePortableStyleSnapshot = true) {
       var cs = window.getComputedStyle(el);
       var paintCs = window.getComputedStyle(vectorPaintTarget(el) || el);
       var boundingRect = rectInfoForElement(el);
@@ -3872,11 +3872,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         provenance,
         sourceId || runtimeSourceId || pendingNodeId || getSelector(el)
       );
-      var portableStyleSnapshot = collectPortableStyleSnapshot(
-        el,
-        portableComputedStylesCache,
-        cs
-      );
+      var portableStyleSnapshot = includePortableStyleSnapshot ? collectPortableStyleSnapshot(el, portableComputedStylesCache, cs) : void 0;
       return {
         tagName: el.tagName.toLowerCase(),
         componentName: componentName || void 0,
@@ -4071,18 +4067,23 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return { x: point.x, y: point.y };
     }
-    function collectSelectableElementInfos(deep, atPoint) {
+    function collectSelectableElementInfos(deep, atPoint, includePortableStyleSnapshot = true) {
       var targets = collectSelectableElements(deep);
       if (atPoint) {
         targets = targets.filter(function(el) {
           return documentSpaceBoundsContainPoint(el, atPoint);
         });
       }
+      if (!includePortableStyleSnapshot) {
+        return targets.map(function(target) {
+          return getElementInfo(target, void 0, false);
+        });
+      }
       portableStyleProbeDocument();
       var portableComputedStylesCache = createPortableStyleComputedStylesCache();
       try {
         return targets.map(function(target) {
-          return getElementInfo(target, portableComputedStylesCache);
+          return getElementInfo(target, portableComputedStylesCache, true);
         });
       } finally {
         if (portableComputedStylesCache) {
@@ -14853,7 +14854,8 @@ export const editorChromeBridgeScript: string = `"use strict";
             correlationId: typeof e.data.correlationId === "string" ? e.data.correlationId : "",
             payload: collectSelectableElementInfos(
               Boolean(e.data.deep),
-              readSelectablePoint(e.data.atPoint)
+              readSelectablePoint(e.data.atPoint),
+              e.data.includePortableStyleSnapshot !== false
             )
           },
           "*"

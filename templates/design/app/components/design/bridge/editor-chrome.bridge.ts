@@ -4240,6 +4240,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   function getElementInfo(
     el: Element,
     portableComputedStylesCache?: PortableStyleComputedStylesCache,
+    includePortableStyleSnapshot = true,
   ): unknown {
     var cs = window.getComputedStyle(el);
     var paintCs = window.getComputedStyle(vectorPaintTarget(el) || el);
@@ -4358,11 +4359,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       provenance,
       sourceId || runtimeSourceId || pendingNodeId || getSelector(el),
     );
-    var portableStyleSnapshot = collectPortableStyleSnapshot(
-      el,
-      portableComputedStylesCache,
-      cs,
-    );
+    var portableStyleSnapshot = includePortableStyleSnapshot
+      ? collectPortableStyleSnapshot(el, portableComputedStylesCache, cs)
+      : undefined;
     return {
       tagName: el.tagName.toLowerCase(),
       componentName: componentName || undefined,
@@ -4677,6 +4676,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   function collectSelectableElementInfos(
     deep: boolean,
     atPoint?: SelectablePoint | null,
+    includePortableStyleSnapshot = true,
   ): unknown[] {
     // This answers agent-native:collect-selectable-rects, which the overview
     // host uses for BOTH the overview marquee (scoped: direct children of
@@ -4699,12 +4699,21 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         return documentSpaceBoundsContainPoint(el, atPoint);
       });
     }
+    // Overview marquee collection only needs identity, geometry, and the
+    // selected element's computed state. Building a portable subtree snapshot
+    // for every candidate blocks the preview thread before a hit-set exists;
+    // direct selection and drill-in keep the default full snapshot contract.
+    if (!includePortableStyleSnapshot) {
+      return targets.map(function (target) {
+        return getElementInfo(target, undefined, false);
+      });
+    }
     // Warm the editor-owned probe iframe before observing this request.
     portableStyleProbeDocument();
     var portableComputedStylesCache = createPortableStyleComputedStylesCache();
     try {
       return targets.map(function (target) {
-        return getElementInfo(target, portableComputedStylesCache);
+        return getElementInfo(target, portableComputedStylesCache, true);
       });
     } finally {
       if (portableComputedStylesCache) {
@@ -20956,6 +20965,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           payload: collectSelectableElementInfos(
             Boolean(e.data.deep),
             readSelectablePoint(e.data.atPoint),
+            e.data.includePortableStyleSnapshot !== false,
           ),
         },
         "*",
