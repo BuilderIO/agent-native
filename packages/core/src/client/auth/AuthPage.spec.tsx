@@ -6,6 +6,7 @@ import {
   AuthPage,
   isAuthenticatedAuthSession,
   isConfirmedAnonymousAuthSession,
+  isVerificationLinkInvalid,
   oauthReturnTarget,
   resolveGoogleAuthUrlPath,
   shouldUseIdentitySsoForGoogle,
@@ -23,6 +24,17 @@ function propsFromHtml(html: string): AuthPageProps {
 }
 
 describe("AuthPage", () => {
+  it("recognizes Better Auth invalid-token redirects as expired verification links", () => {
+    expect(isVerificationLinkInvalid("verification_link_invalid")).toBe(true);
+    expect(isVerificationLinkInvalid("INVALID_TOKEN")).toBe(true);
+    expect(isVerificationLinkInvalid("INVALID_CALLBACK_URL")).toBe(false);
+
+    expect(
+      propsFromHtml(getOnboardingHtml({ requestPath: "/?error=INVALID_TOKEN" }))
+        .initialView,
+    ).toBe("login");
+  });
+
   it("hides account-only guidance when local development sign-in is available", () => {
     expect(shouldHideAuthSubtitle("signup", true)).toBe(true);
     expect(shouldHideAuthSubtitle("signup", false)).toBe(false);
