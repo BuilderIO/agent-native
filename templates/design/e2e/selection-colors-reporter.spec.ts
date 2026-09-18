@@ -79,7 +79,7 @@ test("a selected frame exposes only its authored Selection color", async ({
         .locator('button[aria-label^="#"]')
         .evaluateAll((buttons) =>
           buttons.map((button) => button.getAttribute("aria-label")),
-      ),
+        ),
     ).resolves.toEqual(["#101010"]);
     await selectionColors
       .locator('button[aria-label="Find layers: #101010"]')
