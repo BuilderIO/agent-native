@@ -1321,7 +1321,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     --b-hero-shader-opacity: 0.15;
     padding: 0;
     position: relative;
-    overflow-x: hidden;
+    overflow-x: clip;
     color-scheme: dark;
   }
   [data-agent-native-starfield] {
@@ -2342,7 +2342,7 @@ ${marketingStyles}
 `;
   const authPageLayoutStyles = `
   .auth-root { width: 100%; }
-  .auth-marketing-home { width: 100%; padding: 0; position: relative; overflow-x: hidden; }
+  .auth-marketing-home { width: 100%; padding: 0; position: relative; overflow: clip; }
   .auth-marketing-shell { padding: 0; }
   .auth-marketing-home .auth-marketing-shell-with-top-right {
     position: relative;
@@ -2665,9 +2665,12 @@ ${marketingStyles}
     .auth-marketing-home .auth-marketing-top-right {
       position: sticky;
       top: max(1rem, env(safe-area-inset-top));
-      inset-inline: auto 1.5rem;
+      inset-inline-start: auto;
+      inset-inline-end: max(1.5rem, calc(env(safe-area-inset-right) + 0.5rem));
       align-self: flex-end;
-      margin: 1.5rem 1.5rem 2rem auto;
+      margin-block: 1.5rem 2rem;
+      margin-inline-start: auto;
+      margin-inline-end: max(1.5rem, calc(env(safe-area-inset-right) + 0.5rem));
       padding: 0;
     }
     .auth-marketing-home .auth-marketing-layout {
