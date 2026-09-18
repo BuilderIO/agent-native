@@ -1995,10 +1995,9 @@ export function createOAuthPopupWaitingHandler() {
       "default-src 'none'; frame-ancestors 'none'",
     );
     setResponseHeader(event, "X-Frame-Options", "DENY");
-    // Keep the opener alive until the client replaces this inert page with the
-    // provider URL. The response has no script or user data, so it does not
-    // need the default same-origin opener isolation.
-    setResponseHeader(event, "Cross-Origin-Opener-Policy", "unsafe-none");
+    // Match the opener's policy so the client can navigate this inert page
+    // before the provider navigation creates a new browsing-context group.
+    setResponseHeader(event, "Cross-Origin-Opener-Policy", "same-origin");
     return OAUTH_POPUP_WAITING_HTML;
   });
 }
