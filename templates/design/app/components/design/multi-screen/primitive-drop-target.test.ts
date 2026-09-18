@@ -78,6 +78,43 @@ describe("primitive drop target authored layout fallback", () => {
     ).toBe("fill");
   });
 
+  it("subtracts a growing flex child's own main-axis margins", () => {
+    const screen = {
+      id: "fill-margin-screen",
+      filename: "fill-margin-screen.html",
+      content: `<!doctype html><html><body>
+        <div data-agent-native-node-id="parent" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:300px;height:100px;display:flex;gap:10px">
+          <div data-agent-native-node-id="fixed" data-an-primitive="rectangle" style="width:80px;height:20px"></div>
+          <div data-agent-native-node-id="fill" data-an-primitive="frame" style="flex:1 1 0px;height:20px;margin-left:10px;margin-right:20px"></div>
+        </div>
+      </body></html>`,
+    };
+
+    expect(
+      parsePrimitivesFromScreen(screen).find(
+        (primitive) => primitive.nodeId === "fill",
+      ),
+    ).toMatchObject({ localLeft: 100, localWidth: 180 });
+  });
+
+  it("leaves grid descendants to the live bridge instead of using whole-grid bounds", () => {
+    const screen = {
+      id: "grid-fallback-screen",
+      filename: "grid-fallback-screen.html",
+      content: `<!doctype html><html><body>
+        <div data-agent-native-node-id="grid" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:300px;height:200px;display:grid;grid-template-columns:100px 200px;grid-template-rows:100px 100px">
+          <div data-agent-native-node-id="grid-child" data-an-primitive="frame" style="grid-column:2;grid-row:1;width:auto;height:auto">
+            <div data-agent-native-node-id="nested" data-an-primitive="rectangle" style="width:20px;height:20px"></div>
+          </div>
+        </div>
+      </body></html>`,
+    };
+
+    expect(
+      parsePrimitivesFromScreen(screen).map((primitive) => primitive.nodeId),
+    ).toEqual(["grid"]);
+  });
+
   it("uses flex-basis for fixed items when estimating a Fill sibling", () => {
     const screen = {
       id: "basis-screen",

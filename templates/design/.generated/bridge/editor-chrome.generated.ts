@@ -5650,7 +5650,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (!child || child.nodeType !== 1 || isOverlayElement(child) || isLayerInteractionBlocked(child))
           return false;
         var cs = window.getComputedStyle(child);
-        if (cs.display === "none" || cs.visibility === "hidden" || cs.position === "fixed")
+        if (cs.display === "none" || cs.visibility === "hidden" || cs.position === "fixed" || cs.position === "absolute")
           return false;
         var rect = child.getBoundingClientRect();
         return rect.width > 0 && rect.height > 0;
@@ -6712,6 +6712,15 @@ export const editorChromeBridgeScript: string = `"use strict";
     function gridTrackCssProperty(property) {
       return property === "gridRow" ? "grid-row" : "grid-column";
     }
+    function authoredGridTrackRange(value) {
+      var match = value.trim().match(/^(-?\\d+)(?:\\s*\\/\\s*(-?\\d+))?$/);
+      if (!match || !match[1]) return null;
+      var start = Number(match[1]) - 1;
+      var end = match[2] ? Number(match[2]) - 1 : start + 1;
+      if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0)
+        return null;
+      return end > start ? { start, end } : null;
+    }
     function gridTrackMoveOrder(count, sourceIndex, slot) {
       var order = [];
       for (var index = 0; index < count; index += 1) {
@@ -6736,19 +6745,28 @@ export const editorChromeBridgeScript: string = `"use strict";
       var changes = [];
       drag.originalStyles.forEach(function(item) {
         if (item.property !== property) return;
+        var range = authoredGridTrackRange(item.value) || item.range;
         var mapped = [];
-        for (var original = item.range.start; original < item.range.end; original += 1) {
+        for (var original = range.start; original < range.end; original += 1) {
           if (originalToNext[original] !== void 0) {
             mapped.push(originalToNext[original]);
           }
         }
         if (mapped.length === 0) return;
+        mapped.sort(function(left, right) {
+          return left - right;
+        });
+        for (var mappedIndex = 1; mappedIndex < mapped.length; mappedIndex += 1) {
+          if (mapped[mappedIndex] !== mapped[mappedIndex - 1] + 1) return;
+        }
         var start = Math.min.apply(null, mapped);
         var end = Math.max.apply(null, mapped) + 1;
+        var value = start + 1 + " / " + (end + 1);
+        if (value === item.value) return;
         changes.push({
           el: item.el,
           property,
-          value: start + 1 + " / " + (end + 1)
+          value
         });
       });
       return changes;
@@ -6979,6 +6997,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           return {
             selector: getSelector(change.el),
             sourceId: getSourceId(change.el) || void 0,
+            elementInfo: getElementInfo(change.el, void 0, false),
             styles: { [change.property]: change.value },
             originalStyles: info ? { [change.property]: info.value } : void 0,
             preserveSelection: true

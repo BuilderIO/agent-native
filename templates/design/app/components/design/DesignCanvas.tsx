@@ -241,6 +241,11 @@ function parseKScaleStyleChangeBatch(
         string
       >;
     }
+    let elementInfo: ElementInfo | undefined;
+    if (candidate.elementInfo !== undefined) {
+      if (!isElementInfoPayload(candidate.elementInfo)) return null;
+      elementInfo = candidate.elementInfo;
+    }
     if (
       candidate.preserveSelection !== undefined &&
       typeof candidate.preserveSelection !== "boolean"
@@ -252,6 +257,7 @@ function parseKScaleStyleChangeBatch(
       ...(typeof candidate.sourceId === "string"
         ? { sourceId: candidate.sourceId }
         : {}),
+      ...(elementInfo ? { elementInfo } : {}),
       styles: Object.fromEntries(styleEntries) as Record<string, string>,
       ...(originalStyles ? { originalStyles } : {}),
       ...(candidate.preserveSelection === true

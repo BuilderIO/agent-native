@@ -882,6 +882,7 @@ export type ResizeHandle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
 export interface KScaleStyleChange {
   selector: string;
   sourceId?: string;
+  elementInfo?: ElementInfo;
   styles: Record<string, string>;
   originalStyles?: Record<string, string>;
   preserveSelection?: boolean;

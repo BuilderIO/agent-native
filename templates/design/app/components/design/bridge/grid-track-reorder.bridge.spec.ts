@@ -25,13 +25,37 @@ function gridDocument(axis: "row" | "column"): string {
       ? `
         <div data-agent-native-node-id="span" style="grid-row:1;grid-column:1 / 3;background:#bfdbfe"></div>
         <div data-agent-native-node-id="first" style="grid-row:2;grid-column:1;background:#bbf7d0"></div>
-        <div data-agent-native-node-id="second" style="grid-row:2;grid-column:2;background:#fde68a"></div>`
+        <div data-agent-native-node-id="second" style="grid-row:2;grid-column:2;background:#fde68a"></div>
+        <div data-agent-native-node-id="overlay" style="position:absolute;left:8px;top:8px;width:20px;height:20px;grid-row:1;grid-column:2;background:#f97316"></div>`
       : `
         <div data-agent-native-node-id="span" style="grid-row:1 / 3;grid-column:1;background:#bfdbfe"></div>
         <div data-agent-native-node-id="first" style="grid-row:1;grid-column:2;background:#bbf7d0"></div>
-        <div data-agent-native-node-id="second" style="grid-row:2;grid-column:2;background:#fde68a"></div>`;
+        <div data-agent-native-node-id="second" style="grid-row:2;grid-column:2;background:#fde68a"></div>
+        <div data-agent-native-node-id="overlay" style="position:absolute;left:8px;top:8px;width:20px;height:20px;grid-row:2;grid-column:1;background:#f97316"></div>`;
   return `<!doctype html><html><body style="margin:0">
     <div data-agent-native-node-id="grid" style="position:absolute;left:40px;top:40px;width:220px;height:180px;display:grid;grid-template-columns:100px 100px;grid-template-rows:80px 80px;gap:20px">
+      ${children}
+    </div>
+  </body></html>`;
+}
+
+function nonContiguousGridDocument(axis: "row" | "column"): string {
+  const children =
+    axis === "row"
+      ? `
+        <div data-agent-native-node-id="cross" style="grid-row:1 / 3;grid-column:1;background:#fca5a5"></div>
+        <div data-agent-native-node-id="first" style="grid-row:2;grid-column:1;background:#bbf7d0"></div>
+        <div data-agent-native-node-id="second" style="grid-row:3;grid-column:1;background:#fde68a"></div>`
+      : `
+        <div data-agent-native-node-id="cross" style="grid-row:1;grid-column:1 / 3;background:#fca5a5"></div>
+        <div data-agent-native-node-id="first" style="grid-row:1;grid-column:2;background:#bbf7d0"></div>
+        <div data-agent-native-node-id="second" style="grid-row:1;grid-column:3;background:#fde68a"></div>`;
+  const gridStyle =
+    axis === "row"
+      ? "width:100px;height:220px;grid-template-columns:100px;grid-template-rows:60px 60px 60px"
+      : "width:220px;height:100px;grid-template-columns:60px 60px 60px;grid-template-rows:100px";
+  return `<!doctype html><html><body style="margin:0">
+    <div data-agent-native-node-id="grid" style="position:absolute;left:40px;top:40px;display:grid;gap:20px;${gridStyle}">
       ${children}
     </div>
   </body></html>`;
@@ -159,6 +183,15 @@ describe("grid track controls reorder complete tracks", () => {
         expect(
           changes.get('[data-agent-native-node-id="second"]')?.[property],
         ).toBe("1 / 2");
+        expect(changes.has('[data-agent-native-node-id="overlay"]')).toBe(
+          false,
+        );
+        expect(
+          batch.changes.find(
+            (change: { selector: string }) =>
+              change.selector === '[data-agent-native-node-id="first"]',
+          )?.elementInfo,
+        ).toMatchObject({ sourceId: "first" });
 
         const after = await page.evaluate(() => {
           const span = document.querySelector(
@@ -184,6 +217,82 @@ describe("grid track controls reorder complete tracks", () => {
           expect(after.first.left).toBeCloseTo(before.span.left, 1);
         }
         expect(pageErrors).toEqual([]);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it.each(["row", "column"] as const)(
+    "does not widen a span across non-contiguous %s track mappings",
+    { timeout: 30_000 },
+    async (axis) => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage({
+          viewport: { width: 640, height: 480 },
+        });
+        await page.setContent(nonContiguousGridDocument(axis));
+        await page.addScriptTag({
+          content: hydratedEditorChromeBridgeScript(),
+        });
+        await page.evaluate(() => {
+          (window as any).__gridTrackBatches = [];
+          window.addEventListener("message", (event) => {
+            if (event.data?.type === "visual-style-batch-change") {
+              (window as any).__gridTrackBatches.push(event.data);
+            }
+          });
+          window.postMessage(
+            {
+              type: "select-element",
+              selector: '[data-agent-native-node-id="grid"]',
+            },
+            "*",
+          );
+        });
+
+        const handle = page.locator(
+          `[data-agent-native-grid-track="${axis}"][data-grid-track-index="0"]`,
+        );
+        await handle.waitFor();
+        const gridBox = await page
+          .locator('[data-agent-native-node-id="grid"]')
+          .boundingBox();
+        const handleBox = await handle.boundingBox();
+        expect(gridBox).not.toBeNull();
+        expect(handleBox).not.toBeNull();
+        const start =
+          axis === "row"
+            ? { x: handleBox!.x + handleBox!.width / 2, y: handleBox!.y + 30 }
+            : { x: handleBox!.x + 30, y: handleBox!.y + handleBox!.height / 2 };
+        const end =
+          axis === "row"
+            ? { x: gridBox!.x + 30, y: gridBox!.y + 160 }
+            : { x: gridBox!.x + 160, y: gridBox!.y + 30 };
+
+        await page.mouse.move(start.x, start.y);
+        await page.mouse.down();
+        await page.mouse.move(end.x, end.y, { steps: 8 });
+        expect(
+          await page
+            .locator("[data-agent-native-grid-track-guide]")
+            .getAttribute("data-agent-native-grid-track-index"),
+        ).toBe("2");
+        await page.mouse.up();
+        await page.waitForFunction(
+          () => (window as any).__gridTrackBatches.length === 1,
+        );
+
+        const selectors = await page.evaluate(() =>
+          (window as any).__gridTrackBatches[0].changes.map(
+            (change: { selector: string }) => change.selector,
+          ),
+        );
+        expect(selectors).toEqual([
+          '[data-agent-native-node-id="first"]',
+          '[data-agent-native-node-id="second"]',
+        ]);
       } finally {
         await browser.close();
       }

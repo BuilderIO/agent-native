@@ -8131,6 +8131,7 @@ function DesignEditor() {
       metadata?: {
         originalStyles?: Record<string, string>;
         interactionState?: InteractionState;
+        preserveSelection?: boolean;
       },
     ) =>
       runRecordPendingVisualStyleEdit(
@@ -12676,9 +12677,26 @@ function DesignEditor() {
             ? activeCanvasSourceType
             : designSourceType));
       if (isRunningAppSourceType(sourceType)) {
-        changes.forEach(({ selector, styles }) => {
-          recordPendingVisualStyleEdit(screenId, selector, styles);
-        });
+        changes.forEach(
+          ({
+            selector,
+            styles,
+            elementInfo,
+            originalStyles,
+            preserveSelection,
+          }) => {
+            recordPendingVisualStyleEdit(
+              screenId,
+              selector,
+              styles,
+              elementInfo,
+              {
+                originalStyles,
+                preserveSelection,
+              },
+            );
+          },
+        );
         return true;
       }
       const content =

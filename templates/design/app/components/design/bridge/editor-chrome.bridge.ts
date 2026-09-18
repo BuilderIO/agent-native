@@ -7405,7 +7405,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (
         cs.display === "none" ||
         cs.visibility === "hidden" ||
-        cs.position === "fixed"
+        cs.position === "fixed" ||
+        cs.position === "absolute"
       )
         return false;
       var rect = child.getBoundingClientRect();
@@ -8967,6 +8968,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return property === "gridRow" ? "grid-row" : "grid-column";
   }
 
+  function authoredGridTrackRange(
+    value: string,
+  ): { start: number; end: number } | null {
+    var match = value.trim().match(/^(-?\d+)(?:\s*\/\s*(-?\d+))?$/);
+    if (!match || !match[1]) return null;
+    var start = Number(match[1]) - 1;
+    var end = match[2] ? Number(match[2]) - 1 : start + 1;
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0)
+      return null;
+    return end > start ? { start, end } : null;
+  }
+
   function gridTrackMoveOrder(
     count: number,
     sourceIndex: number,
@@ -9003,23 +9016,28 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }> = [];
     drag.originalStyles.forEach(function (item) {
       if (item.property !== property) return;
+      var range = authoredGridTrackRange(item.value) || item.range;
       var mapped: number[] = [];
-      for (
-        var original = item.range.start;
-        original < item.range.end;
-        original += 1
-      ) {
+      for (var original = range.start; original < range.end; original += 1) {
         if (originalToNext[original] !== undefined) {
           mapped.push(originalToNext[original]);
         }
       }
       if (mapped.length === 0) return;
+      mapped.sort(function (left, right) {
+        return left - right;
+      });
+      for (var mappedIndex = 1; mappedIndex < mapped.length; mappedIndex += 1) {
+        if (mapped[mappedIndex] !== mapped[mappedIndex - 1] + 1) return;
+      }
       var start = Math.min.apply(null, mapped);
       var end = Math.max.apply(null, mapped) + 1;
+      var value = start + 1 + " / " + (end + 1);
+      if (value === item.value) return;
       changes.push({
         el: item.el,
         property,
-        value: start + 1 + " / " + (end + 1),
+        value: value,
       });
     });
     return changes;
@@ -9294,6 +9312,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         return {
           selector: getSelector(change.el),
           sourceId: getSourceId(change.el) || undefined,
+          elementInfo: getElementInfo(change.el, undefined, false),
           styles: { [change.property]: change.value },
           originalStyles: info ? { [change.property]: info.value } : undefined,
           preserveSelection: true,

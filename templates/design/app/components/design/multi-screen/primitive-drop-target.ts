@@ -434,15 +434,20 @@ function flexAvailableSize(
   for (const child of children) {
     const grow = flexGrow(child);
     const base = flexItemBaseSize(child, axis, available);
+    const leadingMargin = inlineNumber(
+      child,
+      axis === "x" ? "marginLeft" : "marginTop",
+    );
+    const trailingMargin = inlineNumber(
+      child,
+      axis === "x" ? "marginRight" : "marginBottom",
+    );
     if (grow > 0) {
       growTotal += grow;
-      growBase += base;
+      growBase += base + leadingMargin + trailingMargin;
       continue;
     }
-    fixed +=
-      base +
-      inlineNumber(child, axis === "x" ? "marginLeft" : "marginTop") +
-      inlineNumber(child, axis === "x" ? "marginRight" : "marginBottom");
+    fixed += base + leadingMargin + trailingMargin;
   }
   if (growTotal <= 0) return 0;
   return (
@@ -569,6 +574,16 @@ function authoredElementSize(
   return resolved;
 }
 
+function hasUnsupportedGridAncestor(element: Element) {
+  let ancestor = element.parentElement;
+  while (ancestor) {
+    const display = (ancestor as HTMLElement).style.display;
+    if (display === "grid" || display === "inline-grid") return true;
+    ancestor = ancestor.parentElement;
+  }
+  return false;
+}
+
 function cssPixelNumber(value: string | null | undefined) {
   const match = String(value || "")
     .trim()
@@ -693,13 +708,17 @@ export function authoredElementPosition(
         inlineNumber(parent, "borderTopWidth");
       const siblings: Element[] = Array.from(parent.children);
       const index = siblings.indexOf(cursor);
+      const gap = inlineNumber(parent, "gap");
+      const display = parentStyle.display;
+      const isFlex = display === "flex" || display === "inline-flex";
+      const isRow =
+        isFlex && !(parentStyle.flexDirection || "row").startsWith("column");
+      if (isFlex) {
+        if (isRow) x += inlineNumber(cursor, "marginLeft");
+        else y += inlineNumber(cursor, "marginTop");
+      }
       if (index > 0) {
         const previous = siblings.slice(0, index);
-        const gap = inlineNumber(parent, "gap");
-        const display = parentStyle.display;
-        const isFlex = display === "flex" || display === "inline-flex";
-        const isRow =
-          isFlex && !(parentStyle.flexDirection || "row").startsWith("column");
         for (const sibling of previous as Element[]) {
           if (isOutOfFlow(sibling)) continue;
           if (isRow) {
@@ -794,6 +813,10 @@ export function parsePrimitivesFromScreen(
     nodes.forEach((element) => {
       const nodeId = element.getAttribute("data-agent-native-node-id");
       if (!nodeId) return;
+      // ponytail: grid placement stays in the live bridge; omit descendants
+      // here until authored track parsing exists instead of returning the
+      // entire grid bounds as a false hit target.
+      if (hasUnsupportedGridAncestor(element)) return;
 
       const htmlElement = element as HTMLElement;
       const style = htmlElement.style;
