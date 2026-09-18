@@ -1038,17 +1038,6 @@ export function runCrossScreenElementDrop(
       after: nextDestContent,
     },
   ];
-  const sourcePublication = applyFileContentUpdate(
-    sourceScreenId,
-    result.sourceHtml,
-    {
-      recordHistory: false,
-      refreshPreview: false,
-      forcePreviewFullDocument: true,
-      historyBeforeContent: sourceContent,
-    },
-  );
-  if (sourcePublication.status !== "accepted") return;
   const targetPublication = applyFileContentUpdate(
     targetScreenId,
     nextDestContent,
@@ -1059,16 +1048,27 @@ export function runCrossScreenElementDrop(
       historyBeforeContent: rawDestContent,
     },
   );
-  if (targetPublication.status !== "accepted") {
-    const rollback = applyFileContentUpdate(sourceScreenId, sourceContent, {
+  if (targetPublication.status !== "accepted") return;
+
+  const sourcePublication = applyFileContentUpdate(
+    sourceScreenId,
+    result.sourceHtml,
+    {
       recordHistory: false,
       refreshPreview: false,
       forcePreviewFullDocument: true,
-      historyBeforeContent: sourcePublication.content,
+      historyBeforeContent: sourceContent,
+    },
+  );
+  if (sourcePublication.status !== "accepted") {
+    const rollback = applyFileContentUpdate(targetScreenId, rawDestContent, {
+      recordHistory: false,
+      refreshPreview: false,
+      forcePreviewFullDocument: true,
+      historyBeforeContent: targetPublication.content,
     });
-    if (rollback.status !== "accepted") {
+    if (rollback.status !== "accepted")
       toast.error(t("designEditor.toasts.saveConflict"));
-    }
     return;
   }
 
