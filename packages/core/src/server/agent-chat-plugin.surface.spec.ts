@@ -515,18 +515,25 @@ describe("interactive agent run options — wiring guards", () => {
       encoding: "utf-8",
     });
 
-    const handlerCallSites = source.match(/createProductionAgentHandler\(\{/g);
-    const spreadSites = source.match(
-      /\.\.\.resolveInteractiveAgentRunOptions\(options\),\s*\n\s*finalResponseGuard: options\?\.finalResponseGuard,/g,
+    const handlerStartIndices = [
+      ...source.matchAll(/createProductionAgentHandler\(\{/g),
+    ].map((match) => match.index ?? -1);
+    const handlerBlocks = handlerStartIndices.map((start, index) =>
+      source.slice(start, handlerStartIndices[index + 1] ?? source.length),
     );
 
     // Three interactive handlers are created today (prod, anonymous
     // read-only, dev). If this count changes, a new call site was added or
     // removed — update this guard alongside it, and confirm the new/changed
-    // site still spreads the run options immediately before
-    // `finalResponseGuard`.
-    expect(handlerCallSites).toHaveLength(3);
-    expect(spreadSites).toHaveLength(handlerCallSites?.length ?? 0);
+    // site still spreads the run options and passes `finalResponseGuard`.
+    expect(handlerBlocks).toHaveLength(3);
+    expect(
+      handlerBlocks.every(
+        (block) =>
+          block.includes("...resolveInteractiveAgentRunOptions(options),") &&
+          block.includes("finalResponseGuard: options?.finalResponseGuard,"),
+      ),
+    ).toBe(true);
   });
 
   it("threads runNoProgressTimeoutMs into startRun's noProgressTimeoutMs option", () => {
