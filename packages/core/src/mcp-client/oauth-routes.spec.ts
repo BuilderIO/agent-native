@@ -41,6 +41,7 @@ const callbackMocks = vi.hoisted(() => ({
   listRemoteServers: vi.fn(),
   readMcpOAuthCredentials: vi.fn(),
   replaceOAuthRemoteServer: vi.fn(),
+  resolveMcpOAuthAuthorizationServerDiscovery: vi.fn(),
   resolveMcpOAuthAuthorizationServerUrl: vi.fn(),
   startMcpOAuthAuthorization: vi.fn(),
   validateMcpOAuthCallbackIssuer: vi.fn(),
@@ -65,6 +66,8 @@ vi.mock("./oauth-client.js", () => ({
   McpOAuthRegistrationUnsupportedError:
     McpOAuthRegistrationUnsupportedErrorMock,
   readMcpOAuthCredentials: callbackMocks.readMcpOAuthCredentials,
+  resolveMcpOAuthAuthorizationServerDiscovery:
+    callbackMocks.resolveMcpOAuthAuthorizationServerDiscovery,
   resolveMcpOAuthAuthorizationServerUrl:
     callbackMocks.resolveMcpOAuthAuthorizationServerUrl,
   startMcpOAuthAuthorization: callbackMocks.startMcpOAuthAuthorization,
@@ -237,6 +240,7 @@ describe("MCP OAuth callback flow validation", () => {
     callbackMocks.listRemoteServers.mockReset();
     callbackMocks.readMcpOAuthCredentials.mockReset();
     callbackMocks.replaceOAuthRemoteServer.mockReset();
+    callbackMocks.resolveMcpOAuthAuthorizationServerDiscovery.mockReset();
     callbackMocks.resolveMcpOAuthAuthorizationServerUrl.mockReset();
     callbackMocks.startMcpOAuthAuthorization.mockReset();
     callbackMocks.validateMcpOAuthCallbackIssuer.mockReset();
@@ -264,8 +268,16 @@ describe("MCP OAuth callback flow validation", () => {
         routes.push({ handler });
       },
     });
-    callbackMocks.resolveMcpOAuthAuthorizationServerUrl.mockResolvedValue(
-      "https://auth.example.com/tenant",
+    callbackMocks.resolveMcpOAuthAuthorizationServerDiscovery.mockResolvedValue(
+      {
+        authorizationServerUrl: "https://auth.example.com/tenant",
+        authorizationServerMetadata: {
+          issuer: "https://auth.example.com/tenant",
+          authorization_endpoint: "https://auth.example.com/authorize",
+          token_endpoint: "https://auth.example.com/token",
+          registration_endpoint: "https://auth.example.com/register",
+        },
+      },
     );
     callbackMocks.startMcpOAuthAuthorization.mockResolvedValue({
       authorizationUrl: new URL("https://auth.example.com/authorize"),
@@ -283,12 +295,18 @@ describe("MCP OAuth callback flow validation", () => {
     await routes[0]!.handler(event);
 
     expect(
-      callbackMocks.resolveMcpOAuthAuthorizationServerUrl,
+      callbackMocks.resolveMcpOAuthAuthorizationServerDiscovery,
     ).toHaveBeenCalledWith("https://auth.example.com/.well-known/custom");
     expect(callbackMocks.startMcpOAuthAuthorization).toHaveBeenCalledWith(
       expect.objectContaining({
         discoveryState: {
           authorizationServerUrl: "https://auth.example.com/tenant",
+          authorizationServerMetadata: {
+            issuer: "https://auth.example.com/tenant",
+            authorization_endpoint: "https://auth.example.com/authorize",
+            token_endpoint: "https://auth.example.com/token",
+            registration_endpoint: "https://auth.example.com/register",
+          },
         },
       }),
     );

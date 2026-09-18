@@ -39,6 +39,12 @@ describe("server app base path helpers", () => {
   it("uses the Vite-prefixed base path when APP_BASE_PATH is unset", () => {
     process.env.VITE_APP_BASE_PATH = "/docs";
     expect(getAppBasePathFromViteEnv()).toBe("/docs");
+    expect(
+      stripAppBasePath(
+        "/docs/_agent-native/auth/session",
+        getAppBasePathFromViteEnv(),
+      ),
+    ).toBe("/_agent-native/auth/session");
   });
 
   it("normalizes the mounted deployment root marker", () => {

@@ -68,6 +68,7 @@ import {
   revokeMcpOAuthCredentials,
   saveMcpOAuthCredentials,
   McpOAuthRegistrationUnsupportedError,
+  resolveMcpOAuthAuthorizationServerDiscovery,
   resolveMcpOAuthAuthorizationServerUrl,
   startMcpOAuthAuthorization,
   tokenExpiresAt,
@@ -280,14 +281,17 @@ describe("MCP OAuth client", () => {
   });
 
   it("resolves arbitrary OAuth metadata URLs to their issuer", async () => {
+    const metadata = {
+      issuer: "https://auth.example.com/tenant",
+      authorization_endpoint: "https://auth.example.com/authorize",
+      token_endpoint: "https://auth.example.com/token",
+      registration_endpoint: "https://auth.example.com/register",
+    };
     ssrfSafeFetchMock.mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({ issuer: "https://auth.example.com/tenant" }),
-        {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        },
-      ),
+      new Response(JSON.stringify(metadata), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
     );
 
     await expect(
@@ -295,6 +299,56 @@ describe("MCP OAuth client", () => {
         "https://auth.example.com/.well-known/custom",
       ),
     ).resolves.toBe("https://auth.example.com/tenant");
+
+    ssrfSafeFetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify(metadata), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    await expect(
+      resolveMcpOAuthAuthorizationServerDiscovery(
+        "https://auth.example.com/.well-known/custom",
+      ),
+    ).resolves.toEqual({
+      authorizationServerUrl: "https://auth.example.com/tenant",
+      authorizationServerMetadata: metadata,
+    });
+  });
+
+  it("keeps arbitrary authorization metadata through the real start flow", async () => {
+    const discoveryState = {
+      authorizationServerUrl: "https://auth.example.com/tenant",
+      authorizationServerMetadata: {
+        issuer: "https://auth.example.com/tenant",
+        authorization_endpoint: "https://auth.example.com/authorize",
+        token_endpoint: "https://auth.example.com/token",
+        registration_endpoint: "https://auth.example.com/register",
+      },
+    };
+    authMock.mockImplementationOnce(
+      async (provider: McpOAuthClientProvider) => {
+        expect(provider.discoveryState()).toEqual(discoveryState);
+        provider.saveClientInformation(clientInformation as any);
+        provider.saveCodeVerifier("<CODE_VERIFIER>");
+        provider.redirectToAuthorization(
+          new URL("https://auth.example.com/authorize"),
+        );
+        return "REDIRECT";
+      },
+    );
+
+    await expect(
+      startMcpOAuthAuthorization({
+        serverUrl: "https://mcp.example.com/mcp",
+        redirectUrl: "https://app.example.com/callback",
+        state: "<STATE>",
+        discoveryState,
+      }),
+    ).resolves.toMatchObject({
+      codeVerifier: "<CODE_VERIFIER>",
+      clientInformation,
+    });
   });
 
   it("sends the advertised RFC 8707 resource identifier without a trailing slash", async () => {

@@ -774,25 +774,39 @@ export class McpOAuthRegistrationUnsupportedError extends Error {
 export async function resolveMcpOAuthAuthorizationServerUrl(
   value: string,
 ): Promise<string> {
+  return (await resolveMcpOAuthAuthorizationServerDiscovery(value))
+    .authorizationServerUrl;
+}
+
+export async function resolveMcpOAuthAuthorizationServerDiscovery(
+  value: string,
+): Promise<McpOAuthDiscoveryState> {
   const candidate = checkedRemoteUrl(value, "authorization server metadata");
   const response = await guardedOAuthFetch()(candidate, {
     headers: { Accept: "application/json" },
   });
   if (!response.ok) {
     await response.body?.cancel().catch(() => undefined);
-    return candidate.toString();
+    return { authorizationServerUrl: candidate.toString() };
   }
   const contentType =
     response.headers.get("content-type")?.split(";", 1)[0]?.trim() ?? "";
   if (!contentType.includes("json")) {
     await response.body?.cancel().catch(() => undefined);
-    return candidate.toString();
+    return { authorizationServerUrl: candidate.toString() };
   }
   const metadata = await readOAuthResponseJson(response);
   const issuer = typeof metadata.issuer === "string" ? metadata.issuer : null;
-  return issuer
-    ? checkedRemoteUrl(issuer, "authorization server").toString()
-    : candidate.toString();
+  const state: McpOAuthDiscoveryState = {
+    authorizationServerUrl: issuer
+      ? checkedRemoteUrl(issuer, "authorization server").toString()
+      : candidate.toString(),
+    ...(issuer
+      ? { authorizationServerMetadata: metadata as AuthorizationServerMetadata }
+      : {}),
+  };
+  validateDiscoveryUrls(state);
+  return state;
 }
 
 /**

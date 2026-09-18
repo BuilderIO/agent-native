@@ -134,7 +134,10 @@ import {
 } from "../shared/workspace-app-audience.js";
 import { isValidWorkspaceAppIdFormat } from "../shared/workspace-app-id.js";
 import { injectAnalyticsIntoHtml } from "./analytics.js";
-import { getConfiguredAppBasePath, stripAppBasePath } from "./app-base-path.js";
+import {
+  getConfiguredAppBasePath,
+  stripAppBasePath as stripConfiguredAppBasePath,
+} from "./app-base-path.js";
 import { getAppOriginClientConfigScript } from "./app-origin-config.js";
 import { getAppProductionUrl } from "./app-url.js";
 import {
@@ -242,6 +245,10 @@ import {
   setCachedSessionEmail,
 } from "./session-email-cache.js";
 import { isWorkspaceOAuthCallbackRelayEnabled } from "./workspace-oauth.js";
+
+function stripAppBasePath(pathname: string): string {
+  return stripConfiguredAppBasePath(pathname, getAppBasePath());
+}
 
 /**
  * Get the configured session max age. Desktop SSO broker writes from
