@@ -470,33 +470,36 @@ describe("submit-content-database-form", () => {
     expect(items).toHaveLength(0);
   });
 
-  it.each(["2026-02-30", "2026-20-99anything", "2026-09-20T25:00"])(
-    "rejects the calendar-invalid date %s",
-    async (value) => {
-      const seeded = await seedFormDatabase();
+  it.each([
+    "2026-02-30",
+    "2026-20-99anything",
+    "2026-09-20T25:00",
+    "2026-09-20T12:00+99:99",
+    "2026-09-20T12:00Z",
+  ])("rejects the calendar-invalid date %s", async (value) => {
+    const seeded = await seedFormDatabase();
 
-      await expect(
-        runWithRequestContext({ userEmail: OWNER }, () =>
-          submitForm.run({
-            databaseId: seeded.databaseId,
-            viewId: "request-form",
-            title: "Invalid calendar date",
-            propertyEntries: [
-              { property: "Description", value: "Keep valid fields." },
-              { property: "Priority", value: "P1 — High" },
-              { property: "Deadline", value },
-            ],
-          }),
-        ),
-      ).rejects.toThrow("use a real ISO calendar date");
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        submitForm.run({
+          databaseId: seeded.databaseId,
+          viewId: "request-form",
+          title: "Invalid calendar date",
+          propertyEntries: [
+            { property: "Description", value: "Keep valid fields." },
+            { property: "Priority", value: "P1 — High" },
+            { property: "Deadline", value },
+          ],
+        }),
+      ),
+    ).rejects.toThrow("use a real ISO calendar date");
 
-      const items = await getDb()
-        .select()
-        .from(schema.contentDatabaseItems)
-        .where(eq(schema.contentDatabaseItems.databaseId, seeded.databaseId));
-      expect(items).toHaveLength(0);
-    },
-  );
+    const items = await getDb()
+      .select()
+      .from(schema.contentDatabaseItems)
+      .where(eq(schema.contentDatabaseItems.databaseId, seeded.databaseId));
+    expect(items).toHaveLength(0);
+  });
 
   it("rejects a person array with a discarded value", async () => {
     const seeded = await seedFormDatabase();
@@ -680,6 +683,25 @@ describe("submit-content-database-form", () => {
     },
   );
 
+  it("accepts an intentionally blank optional date", async () => {
+    const seeded = await seedFormDatabase();
+
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      submitForm.run({
+        databaseId: seeded.databaseId,
+        viewId: "request-form",
+        title: "No deadline",
+        propertyEntries: [
+          { property: "Description", value: "Keep valid fields." },
+          { property: "Priority", value: "P1 — High" },
+          { property: "Deadline", value: "   " },
+        ],
+      }),
+    );
+
+    expect(result.verified).toBe(true);
+  });
+
   it("preserves an explicit empty map for compatible title-only callers", async () => {
     const seeded = await seedFormDatabase();
     const db = getDb();
@@ -711,6 +733,46 @@ describe("submit-content-database-form", () => {
     expect(result.verified).toBe(true);
     expect(result.submittedProperties).toEqual([]);
     expect(result.submittedContent).toBe(false);
+  });
+
+  it("does not report an optional empty primary Blocks value as submitted content", async () => {
+    const seeded = await seedFormDatabase();
+    const db = getDb();
+    const [database] = await db
+      .select({ viewConfigJson: schema.contentDatabases.viewConfigJson })
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, seeded.databaseId));
+    const viewConfig = JSON.parse(database.viewConfigJson);
+    viewConfig.views[0].formQuestions = viewConfig.views[0].formQuestions.map(
+      (question: { key: string; required: boolean }) =>
+        question.key === seeded.primaryBlocksId
+          ? { ...question, required: false }
+          : question,
+    );
+    await db
+      .update(schema.contentDatabases)
+      .set({ viewConfigJson: JSON.stringify(viewConfig) })
+      .where(eq(schema.contentDatabases.id, seeded.databaseId));
+
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      submitForm.run({
+        databaseId: seeded.databaseId,
+        viewId: "request-form",
+        title: "Empty narrative",
+        propertyEntries: [
+          { property: seeded.primaryBlocksId, value: "" },
+          { property: "Priority", value: "P1 — High" },
+        ],
+      }),
+    );
+
+    expect(result.verified).toBe(true);
+    expect(result.submittedContent).toBe(false);
+    const [document] = await db
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, result.createdDocumentId));
+    expect(document.content).toBe("");
   });
 
   it("rejects unknown option labels before creating a row", async () => {

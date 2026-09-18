@@ -160,7 +160,7 @@ function isValidSubmittedDatePart(value: unknown): boolean {
   const match = value
     .trim()
     .match(
-      /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?(?:Z|[+-]\d{2}:\d{2})?)?$/,
+      /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?)?$/,
     );
   if (!match) return false;
   const [, yearText, monthText, dayText, hourText, minuteText, secondText] =
@@ -238,7 +238,7 @@ function normalizeSubmittedPropertyValue(
           (part) =>
             part !== undefined &&
             part !== null &&
-            part !== "" &&
+            !(typeof part === "string" && part.trim() === "") &&
             !isValidSubmittedDatePart(part),
         )
       ) {
@@ -791,7 +791,7 @@ export default defineAction({
         propertyId,
         name: definitionById.get(propertyId)?.name ?? propertyId,
       })),
-      submittedContent: content !== undefined || primaryContent !== undefined,
+      submittedContent: documentContent !== "",
       verified: true,
     };
   },
