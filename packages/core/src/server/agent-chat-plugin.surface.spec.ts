@@ -515,20 +515,25 @@ describe("interactive agent run options — wiring guards", () => {
       encoding: "utf-8",
     });
 
-    const handlerCallSites = source
-      .split("createProductionAgentHandler({")
-      .slice(1);
+    const handlerCallSites = [
+      ...source.matchAll(/createProductionAgentHandler\(\{/g),
+    ];
+    const handlerBlocks = handlerCallSites.map((handlerCallSite, index) => {
+      const start = handlerCallSite.index ?? 0;
+      const end = handlerCallSites[index + 1]?.index ?? source.length;
+      return source.slice(start, end);
+    });
 
     // Three interactive handlers are created today (prod, anonymous
     // read-only, dev). If this count changes, a new call site was added or
     // removed — update this guard alongside it, and confirm the new/changed
     // site still includes both required options.
     expect(handlerCallSites).toHaveLength(3);
-    for (const handlerCallSite of handlerCallSites) {
-      expect(handlerCallSite).toContain(
+    for (const handlerBlock of handlerBlocks) {
+      expect(handlerBlock).toContain(
         "...resolveInteractiveAgentRunOptions(options),",
       );
-      expect(handlerCallSite).toContain(
+      expect(handlerBlock).toContain(
         "finalResponseGuard: options?.finalResponseGuard,",
       );
     }
