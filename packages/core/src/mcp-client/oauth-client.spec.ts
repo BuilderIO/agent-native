@@ -316,6 +316,21 @@ describe("MCP OAuth client", () => {
     });
   });
 
+  it("bounds OAuth metadata before buffering the response", async () => {
+    ssrfSafeFetchMock.mockResolvedValueOnce(
+      new Response("{" + "x".repeat(256 * 1024) + "}", {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    await expect(
+      resolveMcpOAuthAuthorizationServerDiscovery(
+        "https://auth.example.com/.well-known/oversized",
+      ),
+    ).rejects.toThrow("MCP OAuth response exceeded the size limit.");
+  });
+
   it("keeps arbitrary authorization metadata through the real start flow", async () => {
     const discoveryState = {
       authorizationServerUrl: "https://auth.example.com/tenant",

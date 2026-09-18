@@ -2336,11 +2336,10 @@ function replacePairedClientAssetReferences(
   source: string,
   replacements: Map<string, string>,
 ): string {
-  let replaced = source;
-  for (const [from, to] of replacements) {
-    replaced = replaced.replaceAll(from, to);
-  }
-  return replaced;
+  return source.replace(
+    /[/]assets[/][A-Za-z0-9][A-Za-z0-9._-]*/g,
+    (reference) => replacements.get(reference) ?? reference,
+  );
 }
 
 const REACT_ROUTER_ASSET_MANIFEST_FIELDS = [

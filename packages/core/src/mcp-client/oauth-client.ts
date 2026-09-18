@@ -219,10 +219,41 @@ function startGoogleMcpOAuthAuthorization(
 async function readOAuthResponseJson(
   response: Response,
 ): Promise<Record<string, unknown>> {
-  const text = await response.text();
-  if (Buffer.byteLength(text) > MAX_OAUTH_RESPONSE_BYTES) {
+  const declaredLength = Number(response.headers.get("content-length"));
+  if (
+    Number.isFinite(declaredLength) &&
+    declaredLength > MAX_OAUTH_RESPONSE_BYTES
+  ) {
+    await response.body?.cancel().catch(() => undefined);
     throw new Error("MCP OAuth response exceeded the size limit.");
   }
+  if (!response.body) {
+    throw new Error("MCP OAuth response had no body.");
+  }
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let byteLength = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      byteLength += value.byteLength;
+      if (byteLength > MAX_OAUTH_RESPONSE_BYTES) {
+        await reader.cancel().catch(() => undefined);
+        throw new Error("MCP OAuth response exceeded the size limit.");
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(byteLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  const text = new TextDecoder().decode(bytes);
   try {
     const parsed = JSON.parse(text) as unknown;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
