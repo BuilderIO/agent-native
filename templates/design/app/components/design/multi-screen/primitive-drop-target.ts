@@ -264,12 +264,20 @@ type InlineNumericProperty =
   | "left"
   | "top"
   | "paddingLeft"
+  | "paddingRight"
   | "paddingTop"
+  | "paddingBottom"
   | "marginLeft"
   | "marginRight"
   | "marginTop"
   | "marginBottom"
   | "gap";
+
+type AuthoredSizeAxis = "x" | "y";
+type AuthoredSizeCache = Map<
+  Element,
+  Partial<Record<AuthoredSizeAxis, number>>
+>;
 
 function inlineNumber(element: Element, property: InlineNumericProperty) {
   const value = (element as HTMLElement).style[property];
@@ -277,8 +285,159 @@ function inlineNumber(element: Element, property: InlineNumericProperty) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function elementInlineSize(element: Element, axis: "x" | "y") {
-  return inlineNumber(element, axis === "x" ? "width" : "height");
+function elementInlineSize(
+  element: Element,
+  axis: "x" | "y",
+  cache?: AuthoredSizeCache,
+) {
+  return authoredElementSize(element, axis, cache);
+}
+
+function parseAuthoredLength(value: string | undefined, reference: number) {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  if (!normalized || normalized === "auto" || normalized === "fit-content") {
+    return null;
+  }
+  const px = normalized.match(/^(-?\d+(?:\.\d+)?)px$/);
+  if (px?.[1]) return Number(px[1]);
+  const percent = normalized.match(/^(-?\d+(?:\.\d+)?)%$/);
+  if (percent?.[1] && reference > 0) {
+    return (Number(percent[1]) / 100) * reference;
+  }
+  return null;
+}
+
+function flexGrow(element: Element) {
+  const style = (element as HTMLElement).style;
+  const explicit = Number.parseFloat(style.flexGrow || "");
+  if (Number.isFinite(explicit)) return Math.max(0, explicit);
+  const shorthand = (style.flex || "").trim().split(/\s+/)[0];
+  const parsed = Number.parseFloat(shorthand || "");
+  return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+}
+
+function flexMainAxis(parent: Element): AuthoredSizeAxis | null {
+  const style = (parent as HTMLElement).style;
+  if (style.display !== "flex" && style.display !== "inline-flex") return null;
+  return (style.flexDirection || "row").startsWith("column") ? "y" : "x";
+}
+
+function parentContentSize(
+  parent: Element,
+  axis: AuthoredSizeAxis,
+  cache: AuthoredSizeCache,
+  visiting: Set<Element>,
+) {
+  const size = authoredElementSize(parent, axis, cache, visiting);
+  const style = (parent as HTMLElement).style;
+  const padding =
+    axis === "x"
+      ? inlineNumber(parent, "paddingLeft") +
+        inlineNumber(parent, "paddingRight")
+      : inlineNumber(parent, "paddingTop") +
+        inlineNumber(parent, "paddingBottom");
+  return style.boxSizing === "border-box" ? Math.max(0, size - padding) : size;
+}
+
+function flexAvailableSize(
+  element: Element,
+  axis: AuthoredSizeAxis,
+  parent: Element,
+  available: number,
+  cache: AuthoredSizeCache,
+  visiting: Set<Element>,
+) {
+  if (flexMainAxis(parent) !== axis) return available;
+  const children = Array.from(parent.children);
+  const gap = inlineNumber(parent, "gap");
+  let fixed = Math.max(0, children.length - 1) * gap;
+  let growTotal = 0;
+  for (const child of children) {
+    const grow = flexGrow(child);
+    if (grow > 0) {
+      growTotal += grow;
+      continue;
+    }
+    fixed +=
+      authoredElementSize(child, axis, cache, visiting) +
+      inlineNumber(child, axis === "x" ? "marginLeft" : "marginTop") +
+      inlineNumber(child, axis === "x" ? "marginRight" : "marginBottom");
+  }
+  if (growTotal <= 0) return 0;
+  return Math.max(0, available - fixed) * (flexGrow(element) / growTotal);
+}
+
+function authoredElementSize(
+  element: Element,
+  axis: AuthoredSizeAxis,
+  cache: AuthoredSizeCache = new Map(),
+  visiting: Set<Element> = new Set(),
+): number {
+  const cached = cache.get(element)?.[axis];
+  if (cached !== undefined) return cached;
+  if (visiting.has(element)) return 0;
+  visiting.add(element);
+
+  const style = (element as HTMLElement).style;
+  const parent = element.parentElement;
+  const reference = parent
+    ? parentContentSize(parent, axis, cache, visiting)
+    : 0;
+  const authored = parseAuthoredLength(
+    style[axis === "x" ? "width" : "height"],
+    reference,
+  );
+  let size = authored;
+
+  if (size === null) {
+    const primitiveKind = (
+      element.getAttribute("data-an-primitive") || ""
+    ).toLowerCase();
+    if (primitiveKind === "text") {
+      size =
+        authoredTextIntrinsicSize(element)[axis === "x" ? "width" : "height"];
+    } else if (parent) {
+      const parentStyle = (parent as HTMLElement).style;
+      const parentDisplay = parentStyle.display;
+      const parentIsGrid =
+        parentDisplay === "grid" || parentDisplay === "inline-grid";
+      const mainAxis = flexMainAxis(parent);
+      const isOutOfFlow =
+        style.position === "absolute" || style.position === "fixed";
+      if (!isOutOfFlow && (parentIsGrid || mainAxis !== null)) {
+        if (mainAxis === axis && flexGrow(element) > 0) {
+          size = flexAvailableSize(
+            element,
+            axis,
+            parent,
+            reference,
+            cache,
+            visiting,
+          );
+        } else if (mainAxis !== axis || parentIsGrid) {
+          const alignSelf =
+            style.alignSelf || parentStyle.alignItems || "stretch";
+          if (alignSelf === "stretch" || parentIsGrid) size = reference;
+        }
+      } else if (
+        axis === "x" &&
+        !isOutOfFlow &&
+        element.tagName.toLowerCase() === "div"
+      ) {
+        // A block child with width:auto fills its containing block.
+        size = reference;
+      }
+    }
+  }
+
+  const resolved = Math.max(0, size ?? 0);
+  visiting.delete(element);
+  const current = cache.get(element) ?? {};
+  current[axis] = resolved;
+  cache.set(element, current);
+  return resolved;
 }
 
 function cssPixelNumber(value: string | null | undefined) {
@@ -374,7 +533,10 @@ export function authoredTextIntrinsicSize(element: Element) {
  * the screen root — see that function's call sites for the nested-container
  * reparent fix this enables).
  */
-export function authoredElementPosition(element: Element): Point {
+export function authoredElementPosition(
+  element: Element,
+  cache: AuthoredSizeCache = new Map(),
+): Point {
   let x = 0;
   let y = 0;
   let cursor: Element | null = element;
@@ -407,13 +569,13 @@ export function authoredElementPosition(element: Element): Point {
         for (const sibling of previous as Element[]) {
           if (isRow) {
             x +=
-              elementInlineSize(sibling, "x") +
+              elementInlineSize(sibling, "x", cache) +
               inlineNumber(sibling, "marginLeft") +
               inlineNumber(sibling, "marginRight") +
               gap;
           } else {
             y +=
-              elementInlineSize(sibling, "y") +
+              elementInlineSize(sibling, "y", cache) +
               inlineNumber(sibling, "marginTop") +
               inlineNumber(sibling, "marginBottom") +
               (isFlex ? gap : 0);
@@ -465,6 +627,7 @@ export function parsePrimitivesFromScreen(
 
   try {
     const doc = new DOMParser().parseFromString(screen.content, "text/html");
+    const sizeCache: AuthoredSizeCache = new Map();
     const projection = buildCodeLayerProjection(screen.content, { source });
     const projectionIdentityByElement = new Map<
       Element,
@@ -503,11 +666,9 @@ export function parsePrimitivesFromScreen(
       const primitiveKind = (
         element.getAttribute("data-an-primitive") || ""
       ).toLowerCase();
-      const position = authoredElementPosition(element);
-      const intrinsicTextSize =
-        primitiveKind === "text" ? authoredTextIntrinsicSize(element) : null;
-      const width = parseFloat(style.width) || intrinsicTextSize?.width || 0;
-      const height = parseFloat(style.height) || intrinsicTextSize?.height || 0;
+      const position = authoredElementPosition(element, sizeCache);
+      const width = authoredElementSize(element, "x", sizeCache);
+      const height = authoredElementSize(element, "y", sizeCache);
       if (width <= 0 || height <= 0) return;
 
       const isContainer = isPrimitiveContainer({

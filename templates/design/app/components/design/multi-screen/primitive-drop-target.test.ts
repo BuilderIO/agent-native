@@ -15,6 +15,69 @@ import {
 beforeEach(() => __clearPrimitiveParseCachesForTests());
 
 describe("primitive drop target authored layout fallback", () => {
+  it("resolves percentage sizes against the containing block for overview hits", () => {
+    const screen = {
+      id: "percentage-screen",
+      filename: "percentage-screen.html",
+      content: `<!doctype html><html><body>
+        <div data-agent-native-node-id="parent" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:400px;height:300px;display:flex;flex-direction:column">
+          <div data-agent-native-node-id="child" data-an-primitive="frame" style="width:100%;height:120px"></div>
+        </div>
+      </body></html>`,
+    };
+
+    const child = parsePrimitivesFromScreen(screen).find(
+      (primitive) => primitive.nodeId === "child",
+    );
+    expect(child).toMatchObject({
+      localLeft: 0,
+      localTop: 0,
+      localWidth: 400,
+      localHeight: 120,
+    });
+    expect(
+      getPrimitiveDropTargetForPoint(
+        { x: 250, y: 60 },
+        null,
+        [screen],
+        { [screen.id]: { x: 0, y: 0, width: 400, height: 300 } },
+        () => ({ width: 400, height: 300 }),
+      )?.nodeId,
+    ).toBe("child");
+  });
+
+  it("resolves flex Fill dimensions before choosing an overview target", () => {
+    const screen = {
+      id: "fill-screen",
+      filename: "fill-screen.html",
+      content: `<!doctype html><html><body>
+        <div data-agent-native-node-id="parent" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:300px;height:200px;display:flex;flex-direction:row;gap:10px">
+          <div data-agent-native-node-id="fixed" data-an-primitive="rectangle" style="width:80px;height:100px"></div>
+          <div data-agent-native-node-id="fill" data-an-primitive="frame" style="height:100px;flex:1 1 0px"></div>
+        </div>
+      </body></html>`,
+    };
+
+    const fill = parsePrimitivesFromScreen(screen).find(
+      (primitive) => primitive.nodeId === "fill",
+    );
+    expect(fill).toMatchObject({
+      localLeft: 90,
+      localTop: 0,
+      localWidth: 210,
+      localHeight: 100,
+    });
+    expect(
+      getPrimitiveDropTargetForPoint(
+        { x: 200, y: 60 },
+        null,
+        [screen],
+        { [screen.id]: { x: 0, y: 0, width: 300, height: 200 } },
+        () => ({ width: 300, height: 200 }),
+      )?.nodeId,
+    ).toBe("fill");
+  });
+
   it("accumulates nested absolute coordinates for frame targets", () => {
     const screen = {
       id: "screen",

@@ -448,6 +448,10 @@ export const hitTestBridgeScript: string = `"use strict";
         dropMode: "flow-insert"
       };
     }
+    function screenRootFlowInsertionTargetForPoint(clientX, clientY) {
+      if (!isAutoLayoutElement(document.body)) return null;
+      return nearestChildInsertionTarget(document.body, clientX, clientY);
+    }
     function resolveHitTarget(clientX, clientY) {
       var hit = elementFromEditorPoint(clientX, clientY);
       if (!hit || hit === document.documentElement) return null;
@@ -530,6 +534,11 @@ export const hitTestBridgeScript: string = `"use strict";
         }
         cursor = parent;
       }
+      var screenRootTarget = screenRootFlowInsertionTargetForPoint(
+        clientX,
+        clientY
+      );
+      if (screenRootTarget) return screenRootTarget;
       var absoluteTarget = absolutePrimitiveContainerTargetForPoint(
         clientX,
         clientY

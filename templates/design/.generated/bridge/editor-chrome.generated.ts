@@ -4369,6 +4369,13 @@ export const editorChromeBridgeScript: string = `"use strict";
     gridCellOverlay.setAttribute("data-agent-native-edit-overlay", "grid-cells");
     gridCellOverlay.style.cssText = "position:fixed;inset:0;z-index:99993;display:none;pointer-events:none;";
     document.body.appendChild(gridCellOverlay);
+    var gridTrackOverlay = document.createElement("div");
+    gridTrackOverlay.setAttribute(
+      "data-agent-native-edit-overlay",
+      "grid-tracks"
+    );
+    gridTrackOverlay.style.cssText = "position:fixed;inset:0;z-index:99994;display:none;pointer-events:none;";
+    document.body.appendChild(gridTrackOverlay);
     var frameLabelLayer = document.createElement("div");
     frameLabelLayer.setAttribute("data-agent-native-edit-overlay", "frame-label");
     frameLabelLayer.style.cssText = "position:fixed;inset:0;z-index:99992;display:block;pointer-events:none;";
@@ -6575,12 +6582,21 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
     }
     var gridCellOverlayRenderKey = "";
+    var gridTrackOverlayRenderKey = "";
+    var gridTrackDrag = null;
+    function hideGridTrackOverlay() {
+      gridTrackOverlay.style.display = "none";
+      gridTrackOverlay.innerHTML = "";
+      gridTrackOverlay.removeAttribute("data-agent-native-grid-track-dragging");
+      gridTrackOverlayRenderKey = "";
+    }
     function hideGridCellOverlay() {
       gridCellOverlay.style.display = "none";
       if (gridCellOverlayRenderKey) {
         gridCellOverlay.innerHTML = "";
         gridCellOverlayRenderKey = "";
       }
+      hideGridTrackOverlay();
     }
     function gridTrackSizes(template) {
       var sizes = [];
@@ -6614,6 +6630,375 @@ export const editorChromeBridgeScript: string = `"use strict";
         return { offset: evenly, gap: gap + evenly };
       }
       return { offset: 0, gap };
+    }
+    function gridTrackLayoutForElement(el) {
+      if (!el || !document.documentElement.contains(el)) return null;
+      var cs = window.getComputedStyle(el);
+      if (cs.display !== "grid" && cs.display !== "inline-grid") return null;
+      if (Math.abs(currentRotation(el)) > 0.01) return null;
+      var columns = gridTrackSizes(cs.gridTemplateColumns);
+      var rows = gridTrackSizes(cs.gridTemplateRows);
+      if (columns.length === 0 || rows.length === 0) return null;
+      var rect = el.getBoundingClientRect();
+      var contentLeft = rect.left + readPx(cs.borderLeftWidth) + readPx(cs.paddingLeft);
+      var contentTop = rect.top + readPx(cs.borderTopWidth) + readPx(cs.paddingTop);
+      var contentWidth = rect.width - readPx(cs.borderLeftWidth) - readPx(cs.borderRightWidth) - readPx(cs.paddingLeft) - readPx(cs.paddingRight);
+      var contentHeight = rect.height - readPx(cs.borderTopWidth) - readPx(cs.borderBottomWidth) - readPx(cs.paddingTop) - readPx(cs.paddingBottom);
+      var columnFlow = gridTrackDistribution(
+        columns,
+        contentWidth,
+        readPx(cs.columnGap),
+        cs.justifyContent
+      );
+      var rowFlow = gridTrackDistribution(
+        rows,
+        contentHeight,
+        readPx(cs.rowGap),
+        cs.alignContent
+      );
+      var columnBounds = [];
+      var rowBounds = [];
+      var columnStart = contentLeft + columnFlow.offset;
+      for (var column = 0; column < columns.length; column += 1) {
+        columnBounds.push({
+          start: columnStart,
+          end: columnStart + columns[column]
+        });
+        columnStart += columns[column] + columnFlow.gap;
+      }
+      var rowStart = contentTop + rowFlow.offset;
+      for (var row = 0; row < rows.length; row += 1) {
+        rowBounds.push({ start: rowStart, end: rowStart + rows[row] });
+        rowStart += rows[row] + rowFlow.gap;
+      }
+      return { rect, columns, rows, columnBounds, rowBounds };
+    }
+    function gridTrackRangeForRect(rect, bounds, axis) {
+      if (bounds.length === 0) return null;
+      var leading = axis === "row" ? rect.top : rect.left;
+      var trailing = axis === "row" ? rect.bottom : rect.right;
+      var start = 0;
+      var end = bounds.length - 1;
+      var startDistance = Infinity;
+      var endDistance = Infinity;
+      for (var index = 0; index < bounds.length; index += 1) {
+        var startDelta = Math.abs(leading - bounds[index].start);
+        var endDelta = Math.abs(trailing - bounds[index].end);
+        if (startDelta < startDistance) {
+          startDistance = startDelta;
+          start = index;
+        }
+        if (endDelta < endDistance) {
+          endDistance = endDelta;
+          end = index;
+        }
+      }
+      if (end < start) {
+        var center = (leading + trailing) / 2;
+        var nearest = 0;
+        var nearestDistance = Infinity;
+        bounds.forEach(function(bound, index2) {
+          var distance = Math.abs(center - (bound.start + bound.end) / 2);
+          if (distance < nearestDistance) {
+            nearestDistance = distance;
+            nearest = index2;
+          }
+        });
+        start = nearest;
+        end = nearest;
+      }
+      return { start, end: end + 1 };
+    }
+    function gridTrackCssProperty(property) {
+      return property === "gridRow" ? "grid-row" : "grid-column";
+    }
+    function gridTrackMoveOrder(count, sourceIndex, slot) {
+      var order = [];
+      for (var index = 0; index < count; index += 1) {
+        if (index !== sourceIndex) order.push(index);
+      }
+      var targetIndex = slot > sourceIndex ? slot - 1 : slot;
+      targetIndex = Math.max(0, Math.min(order.length, targetIndex));
+      order.splice(targetIndex, 0, sourceIndex);
+      return { order, targetIndex };
+    }
+    function gridTrackStylesForSlot(drag, slot) {
+      var layout = gridTrackLayoutForElement(drag.el);
+      if (!layout) return [];
+      var bounds = drag.axis === "row" ? layout.rowBounds : layout.columnBounds;
+      var count = bounds.length;
+      var move = gridTrackMoveOrder(count, drag.sourceIndex, slot);
+      var originalToNext = [];
+      move.order.forEach(function(original, next) {
+        originalToNext[original] = next;
+      });
+      var property = drag.axis === "row" ? "gridRow" : "gridColumn";
+      var changes = [];
+      drag.originalStyles.forEach(function(item) {
+        if (item.property !== property) return;
+        var mapped = [];
+        for (var original = item.range.start; original < item.range.end; original += 1) {
+          if (originalToNext[original] !== void 0) {
+            mapped.push(originalToNext[original]);
+          }
+        }
+        if (mapped.length === 0) return;
+        var start = Math.min.apply(null, mapped);
+        var end = Math.max.apply(null, mapped) + 1;
+        changes.push({
+          el: item.el,
+          property,
+          value: start + 1 + " / " + (end + 1)
+        });
+      });
+      return changes;
+    }
+    function applyGridTrackPreview(drag, slot) {
+      drag.originalStyles.forEach(function(item) {
+        item.el.style.setProperty(
+          gridTrackCssProperty(item.property),
+          item.value,
+          item.priority
+        );
+      });
+      var changes = gridTrackStylesForSlot(drag, slot);
+      changes.forEach(function(change) {
+        change.el.style.setProperty(
+          gridTrackCssProperty(change.property),
+          change.value
+        );
+      });
+      drag.slot = slot;
+    }
+    function gridTrackSlotAtPoint(layout, axis, clientX, clientY) {
+      var bounds = axis === "row" ? layout.rowBounds : layout.columnBounds;
+      var coordinate = axis === "row" ? clientY : clientX;
+      for (var index = 0; index < bounds.length; index += 1) {
+        var midpoint = (bounds[index].start + bounds[index].end) / 2;
+        if (coordinate < midpoint) return index;
+      }
+      return bounds.length;
+    }
+    function showGridTrackLandingGuide(layout, axis, slot) {
+      var bounds = axis === "row" ? layout.rowBounds : layout.columnBounds;
+      var line = Math.max(1, 2 * chromeLineScale());
+      var coordinate = slot < bounds.length ? bounds[slot].start : bounds[bounds.length - 1].end;
+      insertionGuide.setAttribute("data-agent-native-grid-track-guide", "");
+      insertionGuide.setAttribute("data-agent-native-grid-track-axis", axis);
+      insertionGuide.setAttribute(
+        "data-agent-native-grid-track-index",
+        String(slot)
+      );
+      insertionGuide.style.display = "block";
+      insertionGuide.style.background = "var(--design-editor-accent-color)";
+      insertionGuide.style.border = "0";
+      insertionGuide.style.boxShadow = "0 0 0 1px var(--design-editor-accent-color)";
+      if (axis === "row") {
+        insertionGuide.style.left = layout.rect.left + "px";
+        insertionGuide.style.top = coordinate - line / 2 + "px";
+        insertionGuide.style.width = layout.rect.width + "px";
+        insertionGuide.style.height = line + "px";
+      } else {
+        insertionGuide.style.left = coordinate - line / 2 + "px";
+        insertionGuide.style.top = layout.rect.top + "px";
+        insertionGuide.style.width = line + "px";
+        insertionGuide.style.height = layout.rect.height + "px";
+      }
+    }
+    function hideGridTrackLandingGuide() {
+      insertionGuide.removeAttribute("data-agent-native-grid-track-guide");
+      insertionGuide.removeAttribute("data-agent-native-grid-track-axis");
+      insertionGuide.removeAttribute("data-agent-native-grid-track-index");
+      if (!gridTrackDrag) insertionGuide.style.display = "none";
+    }
+    function renderGridTrackOverlay(el, layout) {
+      if (readOnly || selectionChromeHidden || activeTextEditEl) {
+        hideGridTrackOverlay();
+        return;
+      }
+      var line = Math.max(1, chromeLineScale());
+      var nextKey = [
+        layout.rect.left,
+        layout.rect.top,
+        layout.rect.width,
+        layout.rect.height,
+        line,
+        layout.columns.join(","),
+        layout.rows.join(",")
+      ].join("|");
+      if (gridTrackOverlay.style.display === "block" && gridTrackOverlayRenderKey === nextKey) {
+        return;
+      }
+      gridTrackOverlayRenderKey = nextKey;
+      gridTrackOverlay.innerHTML = "";
+      gridTrackOverlay.style.display = "block";
+      var render = function(axis, index, bounds) {
+        var handle = document.createElement("button");
+        handle.type = "button";
+        handle.setAttribute("data-agent-native-grid-track", axis);
+        handle.setAttribute("data-grid-track-index", String(index));
+        handle.setAttribute("aria-label", axis + " track " + (index + 1));
+        handle.style.position = "fixed";
+        handle.style.boxSizing = "border-box";
+        handle.style.pointerEvents = "auto";
+        handle.style.border = "0";
+        handle.style.borderRadius = "3px";
+        handle.style.padding = "0";
+        handle.style.background = "color-mix(in srgb, var(--design-editor-accent-color) 16%, transparent)";
+        handle.style.cursor = "grab";
+        if (axis === "row") {
+          handle.style.left = layout.rect.left - 18 * line + "px";
+          handle.style.top = bounds.start + "px";
+          handle.style.width = 14 * line + "px";
+          handle.style.height = Math.max(8 * line, bounds.end - bounds.start) + "px";
+        } else {
+          handle.style.left = bounds.start + "px";
+          handle.style.top = layout.rect.top - 18 * line + "px";
+          handle.style.width = Math.max(8 * line, bounds.end - bounds.start) + "px";
+          handle.style.height = 14 * line + "px";
+        }
+        handle.addEventListener("pointerdown", function(event) {
+          startGridTrackDrag(axis, index, event);
+        });
+        handle.addEventListener("mousedown", function(event) {
+          startGridTrackDrag(axis, index, event);
+        });
+        gridTrackOverlay.appendChild(handle);
+      };
+      layout.rowBounds.forEach(function(bounds, index) {
+        render("row", index, bounds);
+      });
+      layout.columnBounds.forEach(function(bounds, index) {
+        render("column", index, bounds);
+      });
+    }
+    function startGridTrackDrag(axis, sourceIndex, event) {
+      if (readOnly || gridTrackDrag || !selectedEl) return;
+      var layout = gridTrackLayoutForElement(selectedEl);
+      if (!layout) return;
+      var bounds = axis === "row" ? layout.rowBounds : layout.columnBounds;
+      if (!bounds[sourceIndex]) return;
+      stopNativeInteraction(event);
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.stopImmediatePropagation) event.stopImmediatePropagation();
+      var property = axis === "row" ? "gridRow" : "gridColumn";
+      var children = visibleLayoutChildren(selectedEl);
+      var originalStyles = [];
+      children.forEach(function(child) {
+        var range = gridTrackRangeForRect(
+          child.getBoundingClientRect(),
+          bounds,
+          axis
+        );
+        if (!range) return;
+        var style = child.style;
+        var cssProperty = gridTrackCssProperty(property);
+        originalStyles.push({
+          el: child,
+          property,
+          value: style.getPropertyValue(cssProperty),
+          priority: style.getPropertyPriority(cssProperty),
+          range
+        });
+      });
+      gridTrackDrag = {
+        el: selectedEl,
+        axis,
+        sourceIndex,
+        slot: sourceIndex,
+        originalStyles
+      };
+      activeDragStartedAt = Date.now();
+      var events = dragEventNames(event);
+      function cleanup() {
+        document.removeEventListener(events.move, onMove, true);
+        document.removeEventListener(events.up, onUp, true);
+        document.removeEventListener("keydown", onKey, true);
+        clearActiveDragCancel(cancel);
+      }
+      function restore() {
+        if (!gridTrackDrag) return;
+        gridTrackDrag.originalStyles.forEach(function(item) {
+          if (item.value)
+            item.el.style.setProperty(
+              gridTrackCssProperty(item.property),
+              item.value,
+              item.priority
+            );
+          else item.el.style.removeProperty(gridTrackCssProperty(item.property));
+        });
+        gridTrackDrag = null;
+        hideGridTrackLandingGuide();
+        positionOverlay(selectionOverlay, selectedEl);
+        updateGridCellOverlay(selectedEl);
+      }
+      function cancel() {
+        cleanup();
+        restore();
+        return true;
+      }
+      function onKey(keyEvent) {
+        if (keyEvent.key !== "Escape") return;
+        stopNativeInteraction(keyEvent);
+        cancel();
+      }
+      function onMove(moveEvent) {
+        if (!gridTrackDrag || !document.documentElement.contains(gridTrackDrag.el))
+          return;
+        var currentLayout = gridTrackLayoutForElement(gridTrackDrag.el);
+        if (!currentLayout) return;
+        var slot = gridTrackSlotAtPoint(
+          currentLayout,
+          gridTrackDrag.axis,
+          moveEvent.clientX,
+          moveEvent.clientY
+        );
+        slot = Math.max(0, Math.min(bounds.length, slot));
+        applyGridTrackPreview(gridTrackDrag, slot);
+        showGridTrackLandingGuide(currentLayout, gridTrackDrag.axis, slot);
+        gridTrackOverlay.setAttribute(
+          "data-agent-native-grid-track-dragging",
+          ""
+        );
+        refreshOverlays();
+      }
+      function onUp() {
+        if (!gridTrackDrag) return;
+        var drag = gridTrackDrag;
+        cleanup();
+        if (drag.slot === drag.sourceIndex || drag.slot === drag.sourceIndex + 1) {
+          restore();
+          return;
+        }
+        var changes = gridTrackStylesForSlot(drag, drag.slot);
+        var payload = changes.map(function(change) {
+          var info = drag.originalStyles.find(function(item) {
+            return item.el === change.el;
+          });
+          return {
+            selector: getSelector(change.el),
+            sourceId: getSourceId(change.el) || void 0,
+            styles: { [change.property]: change.value },
+            originalStyles: info ? { [change.property]: info.value } : void 0,
+            preserveSelection: true
+          };
+        });
+        gridTrackDrag = null;
+        hideGridTrackLandingGuide();
+        gridTrackOverlay.removeAttribute("data-agent-native-grid-track-dragging");
+        if (payload.length > 0) {
+          window.parent.postMessage(
+            { type: "visual-style-batch-change", changes: payload },
+            "*"
+          );
+        }
+        refreshOverlays();
+      }
+      document.addEventListener(events.move, onMove, true);
+      document.addEventListener(events.up, onUp, true);
+      document.addEventListener("keydown", onKey, true);
+      setActiveDragCancel(cancel);
     }
     function updateGridCellOverlay(el) {
       if (!el || !document.documentElement.contains(el)) {
@@ -6689,6 +7074,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         cellY += rows[row] + rowGap;
       }
+      var trackLayout = gridTrackLayoutForElement(el);
+      if (trackLayout) renderGridTrackOverlay(el, trackLayout);
     }
     var FRAME_LABEL_IDLE_COLOR = "rgba(113,113,122,0.95)";
     var FRAME_PRIMITIVE_SELECTOR = '[data-an-primitive="frame"]';
@@ -9987,6 +10374,15 @@ export const editorChromeBridgeScript: string = `"use strict";
         dropMode: "flow-insert"
       };
     }
+    function screenRootFlowInsertionTargetForPoint(clientX, clientY, excludeEls) {
+      if (!isAutoLayoutElement(document.body)) return null;
+      return nearestChildInsertionTarget(
+        document.body,
+        clientX,
+        clientY,
+        excludeEls
+      );
+    }
     function reorderTargetForPoint(el, clientX, clientY, excludeEls) {
       if (!el || !el.parentElement) return null;
       var dragged = [el].concat(excludeEls || []);
@@ -10223,7 +10619,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       var hit = elementFromEditorPointIgnoring(clientX, clientY, dragged);
       if (!hit || hit === document.documentElement || hit === document.body) {
-        return unnestAbsoluteToScreenRoot(el, clientX, clientY);
+        return screenRootFlowInsertionTargetForPoint(clientX, clientY, dragged) || unnestAbsoluteToScreenRoot(el, clientX, clientY);
       }
       var explicitFrame = hit.closest('[data-an-primitive="frame"]');
       if (explicitFrame && explicitFrame !== document.body && !isDraggedOrInsideDragged(explicitFrame) && isAutoLayoutElement(explicitFrame.parentElement)) {
@@ -10339,7 +10735,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         cursor = parent;
       }
-      return unnestAbsoluteToScreenRoot(el, clientX, clientY);
+      return screenRootFlowInsertionTargetForPoint(clientX, clientY, dragged) || unnestAbsoluteToScreenRoot(el, clientX, clientY);
     }
     function unnestAbsoluteToScreenRoot(el, clientX, clientY) {
       var parent = el && el.parentElement;
