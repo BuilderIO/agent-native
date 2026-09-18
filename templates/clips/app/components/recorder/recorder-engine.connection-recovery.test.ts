@@ -737,6 +737,116 @@ describe("RecorderEngine streaming connection recovery", () => {
     expect(uploadChunk).toHaveBeenCalledOnce();
   });
 
+  it("cancels an in-flight recovery before retry starts", async () => {
+    let resolveClaim!: (resume: null) => void;
+    const engine = makeEngine();
+    const claimStreamingUploadResumePoint = vi.fn(
+      () =>
+        new Promise<null>((resolve) => {
+          resolveClaim = resolve;
+        }),
+    );
+    const resetUploadedChunks = vi.fn(async () => "streaming" as const);
+    const uploadBufferedChunks = vi.fn(async () => ({ status: "ready" }));
+    const internals = engine as unknown as {
+      streamingRecoveryGeneration: number;
+      recoverStreamingDelivery: (
+        restartRequired: boolean,
+        recoveryGeneration: number,
+      ) => Promise<void>;
+      claimStreamingUploadResumePoint: typeof claimStreamingUploadResumePoint;
+      resetUploadedChunks: typeof resetUploadedChunks;
+      uploadBufferedChunks: typeof uploadBufferedChunks;
+      localChunks: Blob[];
+      lastFinalizeMeta: {
+        durationMs: number;
+        dimensions: { width: number; height: number };
+        hasAudio: boolean;
+        hasCamera: boolean;
+      } | null;
+    };
+    internals.localChunks = [new Blob(["recording"])];
+    internals.lastFinalizeMeta = {
+      durationMs: 1,
+      dimensions: { width: 1280, height: 720 },
+      hasAudio: false,
+      hasCamera: false,
+    };
+    internals.claimStreamingUploadResumePoint = claimStreamingUploadResumePoint;
+    internals.resetUploadedChunks = resetUploadedChunks;
+    internals.uploadBufferedChunks = uploadBufferedChunks;
+
+    const recovery = internals.recoverStreamingDelivery(
+      false,
+      internals.streamingRecoveryGeneration,
+    );
+    await vi.waitFor(() => {
+      expect(claimStreamingUploadResumePoint).toHaveBeenCalledOnce();
+    });
+
+    await engine.retryUpload();
+    resolveClaim(null);
+
+    await expect(recovery).rejects.toMatchObject({ name: "AbortError" });
+    expect(uploadBufferedChunks).toHaveBeenCalledOnce();
+    expect(resetUploadedChunks).not.toHaveBeenCalled();
+  });
+
+  it("drains recovery started by a queued chunk before finalizing", async () => {
+    vi.useRealTimers();
+    vi.stubGlobal(
+      "window",
+      Object.assign(new EventTarget(), { setTimeout, clearTimeout }),
+    );
+    vi.stubGlobal(
+      "document",
+      Object.assign(new EventTarget(), { visibilityState: "visible" }),
+    );
+    const engine = makeEngine();
+    const source = new Blob([new Uint8Array(STREAM_CHUNK_BYTES)], {
+      type: "video/webm",
+    });
+    const resetUploadedChunks = vi.fn(async () => "streaming" as const);
+    const uploadChunk = vi
+      .fn()
+      .mockRejectedValueOnce(
+        Object.assign(new Error("connection lost"), { transport: true }),
+      )
+      .mockResolvedValue({ status: "ready" });
+    const internals = engine as unknown as {
+      localChunks: Blob[];
+      localChunkRevision: number;
+      recorder: { state: RecordingState } | null;
+      state: string;
+      uploadMode: "streaming" | "buffered";
+      queueChunk: (blob: Blob, index: number, isFinal: boolean) => void;
+      resetUploadedChunks: typeof resetUploadedChunks;
+      uploadChunk: typeof uploadChunk;
+      uploadThumbnailForBlob: () => Promise<void>;
+    };
+    internals.localChunks = [source];
+    internals.localChunkRevision = 1;
+    internals.recorder = { state: "inactive" };
+    internals.state = "recording";
+    internals.uploadMode = "streaming";
+    internals.resetUploadedChunks = resetUploadedChunks;
+    internals.uploadChunk = uploadChunk;
+    internals.uploadThumbnailForBlob = vi.fn(async () => {});
+    internals.queueChunk(source, 0, false);
+
+    await engine.stop();
+
+    expect(resetUploadedChunks).toHaveBeenCalledOnce();
+    expect(uploadChunk).toHaveBeenCalledTimes(3);
+    expect(
+      uploadChunk.mock.calls.map(([blob, index]) => [blob.size, index]),
+    ).toEqual([
+      [STREAM_CHUNK_BYTES, 0],
+      [STREAM_CHUNK_BYTES, 0],
+      [0, 1],
+    ]);
+  });
+
   it("drains paused delivery before sending the final streaming chunk", async () => {
     vi.useRealTimers();
     vi.stubGlobal(

@@ -1520,6 +1520,10 @@ export class RecorderEngine {
       // upload. New recordings upload after stop(), but keeping this guard makes
       // retry paths resilient while a release rolls out.
       await this.chunkQueue;
+      // A queued upload can enter recovery while the queue drains. Finish that
+      // recovery before sending the final chunk.
+      await this.streamingRecovery.drainForStop();
+      await this.chunkQueue;
       if (this.uploadFailure) throw this.uploadFailure;
       if (
         COMPRESSION_ENABLED &&
@@ -1597,6 +1601,8 @@ export class RecorderEngine {
     }
 
     this.uploadFailure = null;
+    this.streamingRecoveryGeneration += 1;
+    this.streamingRecovery.reset();
     this.streamingUploadGeneration += 1;
     this.chunkIndex = 0;
     this.uploadAbort = new AbortController();
