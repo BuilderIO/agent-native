@@ -1,4 +1,8 @@
 import type { ActionRunContext } from "../action.js";
+import {
+  queueTrackingEvent,
+  type TrackingEventOrigin,
+} from "../observability/tracing.js";
 import { resolveDeployEnvironment } from "../server/deploy-environment.js";
 import { getRequestContext } from "../server/request-context.js";
 import {
@@ -73,6 +77,8 @@ export interface TrackingMeta {
    * timeline.
    */
   occurredAt?: number;
+  /** Marks browser-submitted events so the OTel bridge applies client trust rules. */
+  telemetryOrigin?: TrackingEventOrigin;
 }
 
 /**
@@ -96,19 +102,27 @@ function resolveTrackingSource(source: TrackingSource | undefined): {
   anonymousId?: string;
   sessionId?: string;
   occurredAt?: number;
+  telemetryOrigin: TrackingEventOrigin;
 } {
   // The browser session rides the request, not the caller's arguments, so it
   // resolves the same way whether the UI called the action or the agent did.
   const ambientSessionId = getRequestContext()?.browserSessionId;
-  if (!source) return { sessionId: ambientSessionId };
+  if (!source) {
+    return { sessionId: ambientSessionId, telemetryOrigin: "server" };
+  }
   if (isActionRunContext(source)) {
-    return { userId: source.userEmail, sessionId: ambientSessionId };
+    return {
+      userId: source.userEmail,
+      sessionId: ambientSessionId,
+      telemetryOrigin: "server",
+    };
   }
   return {
     userId: source.userId,
     anonymousId: source.anonymousId,
     sessionId: source.sessionId ?? ambientSessionId,
     occurredAt: source.occurredAt,
+    telemetryOrigin: source.telemetryOrigin ?? "server",
   };
 }
 
@@ -117,7 +131,7 @@ export function track(
   properties?: Record<string, unknown>,
   source?: TrackingSource,
 ): void {
-  const { userId, anonymousId, sessionId, occurredAt } =
+  const { userId, anonymousId, sessionId, occurredAt, telemetryOrigin } =
     resolveTrackingSource(source);
   if (isTrackingSuppressed(userId, properties)) return;
   const clientPlatform = getRequestContext()?.clientPlatform;
@@ -143,6 +157,12 @@ export function track(
     sessionId,
     occurredAt,
   });
+  const trackingScope = getRequestContext()?.trackingScope;
+  if (trackingScope) {
+    queueTrackingEvent(name, trackedProperties, telemetryOrigin, trackingScope);
+  } else {
+    queueTrackingEvent(name, trackedProperties, telemetryOrigin);
+  }
 
   const lifecycle = legacyLifecycleEvent(name, trackedProperties);
   if (lifecycle) {

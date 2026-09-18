@@ -174,7 +174,7 @@ describe("AuthPage", () => {
     expect(html).toContain('id="organization-sso-submit"');
   });
 
-  it("composes the shared marketing home and animated background for branded auth", () => {
+  it("composes the shared two-panel marketing home for branded auth", () => {
     const onboardingHtml = getOnboardingHtml({
       requestHost: "slides.agent-native.com",
     });
@@ -182,60 +182,50 @@ describe("AuthPage", () => {
     const html = renderToString(<AuthPage {...props} />);
 
     expect(html).toContain('data-agent-native-marketing-home="true"');
-    expect(html).toContain("auth-marketing-screenshot");
-    expect(html).not.toContain('<img class="auth-marketing-screenshot"');
+    expect(html).toContain('class="auth-marketing-visual"');
+    expect(html).toContain('data-agent-native-starfield="true"');
     expect(html).toContain("New to Slides?");
+    expect(html).toContain("Welcome to Slides");
+    expect(html).toContain('data-i18n="welcomeToApp"');
+    expect(html).toContain("Sign in or create your account");
+    expect(html).toContain("Say it. Show it.");
+    expect(html).toContain('class="app-status-badge">alpha</span>');
+    expect(html).toContain('class="oss-badge"');
     expect(html).toContain('href="https://agent-native.com/apps/slides"');
     expect(html).toContain('class="auth-marketing-learn-more"');
     expect(onboardingHtml).toContain(
-      "bottom: max(1rem, env(safe-area-inset-bottom));\n    inset-inline-end: max(1rem, env(safe-area-inset-right));",
+      "top: max(1rem, env(safe-area-inset-top));\n    inset-inline-end: max(4rem, calc(env(safe-area-inset-right) + 3.5rem));",
     );
     expect(html).toContain('class="split');
     expect(html).toContain('class="marketing-panel"');
     expect(html).toContain('class="form-panel');
     expect(html).toContain('id="heading"');
     expect(html).not.toContain('id="local-note"');
-    expect(onboardingHtml).toContain("aspect-ratio: 914 / 818");
-    expect(onboardingHtml).toContain("width: 100%");
     expect(onboardingHtml).toContain(
-      "position: fixed;\n    inset: 0;\n    z-index: 0;",
-    );
-    expect(onboardingHtml).toContain("max-height: none;");
-    expect(onboardingHtml).toContain("filter: none");
-    expect(onboardingHtml).toContain("opacity: 0.15");
-    expect(onboardingHtml).toContain("object-fit: cover");
-    expect(onboardingHtml).toContain(
-      "box-shadow: 0 12px 36px rgba(0,0,0,0.38)",
+      ".auth-marketing-home .marketing-panel {\n    flex: 1 1 50%;",
     );
     expect(onboardingHtml).toContain(
-      "box-shadow: 0 18px 50px rgba(0,0,0,0.62)",
+      ".auth-marketing-home .auth-marketing-screenshot-wrap {\n    position: fixed;\n    inset: 0;",
     );
+    expect(onboardingHtml).toContain("transform: translateY(-5vh);");
     expect(onboardingHtml).toContain(
-      "position: fixed;\n    inset: 0;\n    z-index: 1;\n    display: flex;\n    align-items: center;\n    justify-content: flex-start;",
+      "body.has-marketing .locale-picker {\n    top: auto;",
     );
-    expect(onboardingHtml).toContain("padding: 1rem clamp(1rem, 4vw, 4rem);");
+    expect(onboardingHtml).toContain("box-shadow: none;");
     expect(onboardingHtml).toContain(
-      ".auth-marketing-home.has-product-screenshot .form-panel {\n      min-width: 0;\n      align-items: center;\n      padding: 1rem;",
+      ".auth-marketing-home .form-panel {\n    flex: 1 1 50%;",
     );
-    expect(onboardingHtml).toContain(
-      ".auth-marketing-home.has-product-screenshot .form-panel > .card {\n    margin-block: auto;\n  }",
-    );
-    expect(onboardingHtml).not.toContain(
-      ".auth-marketing-home.has-product-screenshot .marketing-panel { display: none; }",
-    );
-    expect(onboardingHtml).toContain("border-radius: 0.75rem;");
+    expect(onboardingHtml).toContain("border-inline-start: 1px solid");
     expect(onboardingHtml).toContain("@media (prefers-color-scheme: light)");
-    expect(onboardingHtml).toContain(
-      "background: color-mix(in srgb, CanvasText 4%, Canvas);",
-    );
+    expect(onboardingHtml).toContain("--auth-marketing-right-bg: Canvas;");
     expect(onboardingHtml).toContain("color-scheme: light;");
     expect(onboardingHtml).toContain(
       ".auth-marketing-home .card .verification-copy",
     );
   });
 
-  it("places the learn-more link bottom-right for every app, with no per-app opt-in", () => {
-    // Mail never configured a placement — bottom-right is the only layout, not a toggle.
+  it("places the learn-more link top-right for every app, with no per-app opt-in", () => {
+    // Mail never configured a placement — top-right is the only layout, not a toggle.
     const props = propsFromHtml(
       getOnboardingHtml({ requestHost: "mail.agent-native.com" }),
     );
@@ -246,15 +236,18 @@ describe("AuthPage", () => {
     expect(html).not.toContain("has-bottom-right-learn-more");
   });
 
-  it.each([
-    ["slides.agent-native.com", "914 / 818"],
-    ["analytics.agent-native.com", "927 / 818"],
-  ])("keeps the declared screenshot ratio for %s", (requestHost, ratio) => {
-    const html = getOnboardingHtml({ requestHost });
+  it.each(["slides.agent-native.com", "analytics.agent-native.com"])(
+    "keeps shared visual markup for %s",
+    (requestHost) => {
+      const props = propsFromHtml(getOnboardingHtml({ requestHost }));
+      const html = renderToString(<AuthPage {...props} />);
 
-    expect(html).toContain(`style="aspect-ratio:${ratio}"`);
-    expect(html).toContain("auth-marketing-screenshot");
-  });
+      expect(props.marketing?.screenshotWidth).toBeGreaterThan(0);
+      expect(props.marketing?.screenshotHeight).toBeGreaterThan(0);
+      expect(html).toContain('class="auth-marketing-visual"');
+      expect(html).toContain('data-agent-native-starfield="true"');
+    },
+  );
 
   it("keeps the magic-link entry and completion surfaces in the React tree", () => {
     const props = propsFromHtml(getOnboardingHtml({ authMode: "magic-link" }));
@@ -275,7 +268,7 @@ describe("AuthPage", () => {
     // The Create account / Sign in tabs are the only account chooser, and this
     // view hides them on purpose: one email field registers and signs in.
     expect(html).toMatch(/id="auth-tabs"[^>]*\shidden=""/);
-    expect(html).toContain("Continue to sign in or create your account");
+    expect(html).toContain("Sign in or create your account");
     expect(html).not.toContain("Create an account or sign in");
   });
 

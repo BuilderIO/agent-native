@@ -4843,6 +4843,7 @@ export function createCoreRoutesPlugin(
             track(validation.name as string, properties, {
               userId: userEmail,
               sessionId: readBrowserSessionIdHeader(event),
+              telemetryOrigin: "client",
             });
           } catch {
             // best-effort

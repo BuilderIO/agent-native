@@ -104,7 +104,7 @@ Events are stored in `analytics_events`. Common query columns include:
 | `url`, `path`, `hostname`, `referrer` | Page context                                           |
 | `properties`, `context`               | Original JSON objects                                  |
 
-### Action response telemetry
+## Action response telemetry
 
 `event_name = 'action.response'` records one browser transport attempt, not a
 user-level operation. Its `success` and `outcome` properties describe whether
@@ -118,6 +118,30 @@ counts instead of treating sampled rows as a complete request census. Keep
 `outcome = 'cancelled'` separate from failures, and split GET reads from
 mutations before presenting an action success rate. This metric is not a
 substitute for user-operation success or task completion.
+
+## Server action response telemetry
+
+`event_name = 'http.response'` is the server-observed request outcome. Action
+routes include `route_kind = 'framework'`, an `action_name`, the HTTP
+`status_code`, `duration_ms`, and a server-generated `request_id`. Join that
+ID with `action.response` when you need to compare the browser attempt with
+what the server actually completed.
+
+Errors, slow requests, startup requests, and database failures are retained
+with `sampled = false` and `sample_rate = 1`. Fast requests may be sampled;
+use `sample_weight = 1 / sample_rate` for aggregate counts. This event is a
+server transport measurement, not a user-level operation: retries and
+background polling remain separate requests. Mutation user outcomes are
+represented by the server-side `action_started`, `action_completed`, and
+`action_failed` events.
+
+When a host has an OpenTelemetry provider, the reviewed timing-bearing events
+are mirrored as best-effort spans: `action.client` for browser action
+responses, `http.server` for server responses, `action.server` for mutation
+outcomes, and dedicated spans for agent, A2A, and LLM lifecycle events.
+Ordinary clicks and caller-defined event names stay in analytics rather than
+becoming spans. Server request boundaries await the queued OTel mirror before
+completion, while export remains optional and isolated from request failures.
 
 ## LLM observability events
 
