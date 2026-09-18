@@ -63,6 +63,24 @@ function errorType(error: unknown): string {
   return typeof error;
 }
 
+function failureOutcome(
+  error: unknown,
+): "cancelled" | "timeout" | "network_error" | "http_error" | "error" {
+  const name = errorType(error);
+  if (name === "AbortError" || /cancel/i.test(name)) return "cancelled";
+  if (/timeout/i.test(name)) return "timeout";
+  if (
+    error &&
+    typeof error === "object" &&
+    "status" in error &&
+    typeof error.status === "number"
+  ) {
+    return "http_error";
+  }
+  if (name === "TypeError") return "network_error";
+  return "error";
+}
+
 export function wrapRunWithActionTracking(
   run: (args: any, ctx?: ActionRunContext) => any,
   readOnly: boolean | undefined,
@@ -77,13 +95,23 @@ export function wrapRunWithActionTracking(
     // environment (node:url), which crashes a client bundle at load.
     const { track } = await import("./registry.js");
     const startedAt = Date.now();
-    track(AGENT_NATIVE_ACTION_EVENTS.started, actionProperties(ctx), ctx);
+    const operationId =
+      globalThis.crypto?.randomUUID?.() ??
+      `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    track(
+      AGENT_NATIVE_ACTION_EVENTS.started,
+      actionProperties(ctx, { operation_id: operationId, status: "started" }),
+      ctx,
+    );
     try {
       const result = await run(args, ctx);
       const id = outputId(result);
       track(
         AGENT_NATIVE_ACTION_EVENTS.completed,
         actionProperties(ctx, {
+          operation_id: operationId,
+          status: "completed",
+          outcome: "success",
           success: true,
           duration_ms: Date.now() - startedAt,
           ...(id ? { output_id: id } : {}),
@@ -95,6 +123,9 @@ export function wrapRunWithActionTracking(
       track(
         AGENT_NATIVE_ACTION_EVENTS.failed,
         actionProperties(ctx, {
+          operation_id: operationId,
+          status: "failed",
+          outcome: failureOutcome(error),
           success: false,
           duration_ms: Date.now() - startedAt,
           failure_type: errorType(error),

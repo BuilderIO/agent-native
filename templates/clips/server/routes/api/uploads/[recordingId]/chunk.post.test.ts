@@ -865,6 +865,16 @@ describe("/api/uploads/:recordingId/chunk route", () => {
       error: "Recording was cancelled before it finished saving.",
     });
     expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 409);
+    expect(mockTrack).toHaveBeenCalledWith(
+      "clips_upload_blocking_failure",
+      expect.objectContaining({
+        stage: "finalize_recording",
+        outcome: "cancelled",
+        failure_type: "AbortError",
+        upload_mode: "buffered",
+      }),
+      { userId: "owner@example.com" },
+    );
   });
 
   it("preserves buffered source-byte proof when finalize committed before its response was lost", async () => {

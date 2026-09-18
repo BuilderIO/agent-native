@@ -432,7 +432,10 @@ describe("onboarding plugin routes", () => {
       nitroApp,
       "/_agent-native/onboarding/first-run/role",
       "POST",
-      { "content-type": "application/json" },
+      {
+        "content-type": "application/json",
+        "x-agent-native-session-id": "session-role-save",
+      },
       { role: "developer" },
     );
 
@@ -444,8 +447,13 @@ describe("onboarding plugin routes", () => {
     );
     expect(trackMock).toHaveBeenCalledWith(
       "onboarding.role_selected",
-      { role: "developer" },
-      { userId: "alice@example.com" },
+      {
+        flow: "first_run",
+        step_id: "role",
+        role: "developer",
+        outcome: "success",
+      },
+      { userId: "alice@example.com", sessionId: "session-role-save" },
     );
   });
 

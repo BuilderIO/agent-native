@@ -198,6 +198,12 @@ function trackUploadBlockingFailure(
   }
 }
 
+function trackingErrorType(error: unknown): string {
+  return error instanceof Error && error.name.trim()
+    ? error.name.trim()
+    : typeof error;
+}
+
 export async function handleRecordingChunk(
   event: H3Event,
   override?: {
@@ -675,6 +681,12 @@ export async function handleRecordingChunk(
           videoUrl: (result as any)?.videoUrl,
         });
         if ((result as any)?.status === "failed") {
+          trackUploadBlockingFailure(ownerEmail, {
+            stage: "finalize_recording",
+            outcome: "cancelled",
+            failure_type: "AbortError",
+            upload_mode: "buffered",
+          });
           setResponseStatus(event, 409);
           return {
             ok: false,
@@ -786,10 +798,9 @@ export async function handleRecordingChunk(
         }
         trackUploadBlockingFailure(ownerEmail, {
           stage: "finalize_recording",
-          failureKind: "finalize_error",
-          recordingId,
-          uploadMode: "buffered",
-          errorMessage: err instanceof Error ? err.message : String(err),
+          outcome: "failed",
+          failure_type: trackingErrorType(err),
+          upload_mode: "buffered",
         });
         const failed = await db
           .update(schema.recordings)
@@ -1245,6 +1256,12 @@ async function handleResumableChunk(
       buildFinalizeArgs(recordingId, mimeType, query, uploadGenerationId),
     );
     if ((result as any)?.status === "failed") {
+      trackUploadBlockingFailure(ownerEmail, {
+        stage: "finalize_recording",
+        outcome: "cancelled",
+        failure_type: "AbortError",
+        upload_mode: "resumable",
+      });
       setResponseStatus(event, 409);
       return {
         ok: false,
@@ -1344,10 +1361,9 @@ async function handleResumableChunk(
 
     trackUploadBlockingFailure(ownerEmail, {
       stage: "finalize_recording",
-      failureKind: "finalize_error",
-      recordingId,
-      uploadMode: "resumable",
-      errorMessage: err instanceof Error ? err.message : String(err),
+      outcome: "failed",
+      failure_type: trackingErrorType(err),
+      upload_mode: "resumable",
     });
     const failureReason =
       err instanceof Error ? err.message : "Finalize failed";
