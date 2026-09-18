@@ -9,7 +9,7 @@ const SOURCE_SCREEN = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Auto layout source</title></head>
   <body style="margin:0;position:relative;min-height:900px;width:900px;background:#0f1115;color:#fff;font-family:system-ui,sans-serif">
-    <section data-agent-native-node-id="source-flow" data-agent-native-layer-name="Source Flow"
+    <section data-agent-native-node-id="source-flow" data-agent-native-layer-name="Source Flow" data-an-primitive="frame"
       style="position:absolute;left:80px;top:100px;width:360px;min-height:180px;box-sizing:border-box;display:flex;flex-direction:column;gap:12px;padding:16px;background:#1f2937">
       <div data-agent-native-node-id="screen-source" data-agent-native-layer-name="Screen Source"
         style="box-sizing:border-box;flex:0 0 56px;width:180px;height:56px;background:#38bdf8;color:#082f49">Source</div>
@@ -23,7 +23,7 @@ const DESTINATION_SCREEN = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Auto layout destination</title></head>
   <body style="margin:0;position:relative;min-height:900px;width:900px;background:#111827;color:#fff;font-family:system-ui,sans-serif">
-    <section data-agent-native-node-id="destination-flow" data-agent-native-layer-name="Destination Flow"
+    <section data-agent-native-node-id="destination-flow" data-agent-native-layer-name="Destination Flow" data-an-primitive="frame"
       style="position:absolute;left:80px;top:100px;width:360px;min-height:180px;box-sizing:border-box;display:flex;flex-direction:column;gap:12px;padding:16px;background:#334155">
       <div data-agent-native-node-id="destination-anchor" data-agent-native-layer-name="Destination Anchor"
         style="box-sizing:border-box;flex:0 0 56px;width:180px;height:56px;background:#94a3b8;color:#0f172a">Anchor</div>
@@ -274,6 +274,10 @@ async function dragScreenNode(
     {
       steps: 5,
     },
+  );
+  console.log(
+    "[cross-screen-auto-layout] drag points",
+    JSON.stringify({ source, destination }),
   );
   await page.mouse.move(destination.x, destination.y, { steps: 30 });
   await page.waitForTimeout(500);
