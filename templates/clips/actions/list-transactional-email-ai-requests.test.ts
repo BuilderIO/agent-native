@@ -5,7 +5,6 @@ const mocks = vi.hoisted(() => ({
   listJobs: vi.fn(),
   claimAwaitingAi: vi.fn(),
   reclaimStaleAiDispatch: vi.fn(),
-  resolveAccess: vi.fn(),
   readConfig: vi.fn(),
   gte: vi.fn((...args: unknown[]) => args),
   select: vi.fn(),
@@ -16,7 +15,6 @@ vi.mock("@agent-native/core/action", () => ({
 }));
 vi.mock("@agent-native/core/sharing", () => ({
   accessFilter: (...args: unknown[]) => args,
-  resolveAccess: (...args: unknown[]) => mocks.resolveAccess(...args),
 }));
 vi.mock("drizzle-orm", () => ({
   and: (...args: unknown[]) => args,
@@ -44,6 +42,7 @@ vi.mock("../server/db/index.js", () => ({
   schema: {
     recordings: {
       id: "recordings.id",
+      ownerEmail: "recordings.ownerEmail",
       title: "recordings.title",
       description: "recordings.description",
     },
@@ -156,7 +155,6 @@ beforeEach(() => {
     state: "ai_dispatched",
     aiClaimedBy: mocks.claimant,
   });
-  mocks.resolveAccess.mockResolvedValue({ role: "viewer" });
   setupContextRows();
 });
 
@@ -169,7 +167,6 @@ describe("list-transactional-email-ai-requests", () => {
   it("lets the direct-share recipient claim and returns exactly two bounded authoritative packets", async () => {
     const result = await claimTransactionalEmailAiRequests(mocks.claimant);
 
-    expect(mocks.resolveAccess).not.toHaveBeenCalled();
     expect(mocks.claimAwaitingAi).toHaveBeenCalledWith(
       job.logicalKey,
       mocks.claimant,
@@ -270,27 +267,31 @@ describe("list-transactional-email-ai-requests", () => {
 
   it("denies a requestedBy sender with only generic public access to the other Clip", async () => {
     mocks.claimant = "second-sender@example.test";
-    mocks.resolveAccess.mockResolvedValue({
-      role: "viewer",
-      resource: { visibility: "public" },
-    });
     mocks.select.mockReset();
-    setupSelectRows([[{ recordingId: "recording-2" }], []]);
+    setupSelectRows([
+      [{ id: "recording-2", ownerEmail: "other@example.test" }],
+      [],
+      [],
+    ]);
 
     await expect(
       claimTransactionalEmailAiRequests(mocks.claimant),
     ).resolves.toEqual({ requests: [] });
-    expect(mocks.resolveAccess).toHaveBeenCalledTimes(2);
     expect(mocks.claimAwaitingAi).not.toHaveBeenCalled();
   });
 
   it("allows a requestedBy sender who owns one Clip and has a direct user share to the other", async () => {
     mocks.claimant = "second-sender@example.test";
-    mocks.resolveAccess
-      .mockResolvedValueOnce({ role: "owner", resource: {} })
-      .mockResolvedValueOnce({ role: "viewer", resource: {} });
     mocks.select.mockReset();
-    setupSelectRows([[{ recordingId: "recording-2" }], [], ...contextRows()]);
+    setupSelectRows([
+      [
+        { id: "recording-1", ownerEmail: mocks.claimant },
+        { id: "recording-2", ownerEmail: "other@example.test" },
+      ],
+      [{ recordingId: "recording-2" }],
+      [],
+      ...contextRows(),
+    ]);
 
     const result = await claimTransactionalEmailAiRequests(mocks.claimant);
 
@@ -304,14 +305,12 @@ describe("list-transactional-email-ai-requests", () => {
 
   it("denies a sender when either recording is inaccessible and never loads transcripts", async () => {
     mocks.claimant = "second-sender@example.test";
-    mocks.resolveAccess
-      .mockResolvedValueOnce({ role: "viewer" })
-      .mockResolvedValueOnce(null);
+    mocks.select.mockReset();
+    setupSelectRows([[], [], []]);
 
     await expect(
       claimTransactionalEmailAiRequests(mocks.claimant),
     ).resolves.toEqual({ requests: [] });
-    expect(mocks.select).not.toHaveBeenCalled();
     expect(mocks.claimAwaitingAi).not.toHaveBeenCalled();
   });
 });

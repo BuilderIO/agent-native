@@ -1,5 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
-import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
+import { accessFilter } from "@agent-native/core/sharing";
 import { and, eq, gte, inArray } from "drizzle-orm";
 import { z } from "zod";
 
@@ -53,15 +53,23 @@ async function claimantMayClaim(
   if (normalizeEmail(job.recipient) === claimantEmail) return true;
   if (normalizeEmail(job.requestedBy) !== claimantEmail) return false;
 
-  const access = await Promise.all(
-    job.recordingIds.map((recordingId) =>
-      resolveAccess("recording", recordingId),
-    ),
-  );
-  if (!access.every(Boolean)) return false;
-
   const db = getDb();
-  const [directShares, countedViews] = await Promise.all([
+  // Resolve both recordings through one projected access query. Calling
+  // resolveAccess() once per recording reloads the full resource and its
+  // shares, which turned each two-clip candidate into an N+1 fanout.
+  const [accessibleRows, directShares, countedViews] = await Promise.all([
+    db
+      .select({
+        id: schema.recordings.id,
+        ownerEmail: schema.recordings.ownerEmail,
+      })
+      .from(schema.recordings)
+      .where(
+        and(
+          inArray(schema.recordings.id, job.recordingIds),
+          accessFilter(schema.recordings, schema.recordingShares),
+        ),
+      ),
     db
       .select({ recordingId: schema.recordingShares.resourceId })
       .from(schema.recordingShares)
@@ -83,15 +91,17 @@ async function claimantMayClaim(
         ),
       ),
   ]);
+  const accessibleIds = new Set(accessibleRows.map((row) => row.id));
   const directlyRelatedIds = new Set([
-    ...access.flatMap((entry, index) =>
-      entry?.role === "owner" ? [job.recordingIds[index]] : [],
+    ...accessibleRows.flatMap((row) =>
+      normalizeEmail(row.ownerEmail) === claimantEmail ? [row.id] : [],
     ),
     ...directShares.map((share) => share.recordingId),
     ...countedViews.map((view) => view.recordingId),
   ]);
-  return job.recordingIds.every((recordingId) =>
-    directlyRelatedIds.has(recordingId),
+  return job.recordingIds.every(
+    (recordingId) =>
+      accessibleIds.has(recordingId) && directlyRelatedIds.has(recordingId),
   );
 }
 
@@ -200,7 +210,9 @@ export async function claimTransactionalEmailAiRequests(
   const config = await transactionalEmailStore.readConfig();
   if (!config) return { requests: [] };
   const staleBefore = new Date(Date.now() - AI_DISPATCH_STALE_MS);
-  const candidates = (await transactionalEmailStore.listJobs()).filter(
+  const candidates = (
+    await transactionalEmailStore.listJobs(["awaiting_ai", "ai_dispatched"])
+  ).filter(
     (job) =>
       isAiBackedType(job.type) &&
       (job.state === "awaiting_ai" ||
