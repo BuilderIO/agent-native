@@ -856,6 +856,60 @@ describe("slackAdapter", () => {
     expect(calls).toEqual(["/api/auth.test", "/api/bots.info"]);
   });
 
+  it("retries cached app-id hydration after a transient bots.info failure", async () => {
+    process.env.SLACK_BOT_TOKEN = "cache-hydration-retry-token";
+    const calls: string[] = [];
+    let botAttempts = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        const path = new URL(url).pathname;
+        calls.push(path);
+        if (path.endsWith("/auth.test")) {
+          return new Response(
+            JSON.stringify({ ok: true, team_id: "T-RETRY", bot_id: "B-RETRY" }),
+          );
+        }
+        botAttempts += 1;
+        return new Response(
+          JSON.stringify(
+            botAttempts === 1
+              ? { ok: false, error: "temporarily_unavailable" }
+              : { ok: true, bot: { app_id: "A-RETRY" } },
+          ),
+        );
+      }),
+    );
+    const incoming = {
+      platform: "slack",
+      externalThreadId: "T-RETRY:D-RETRY:1.2",
+      text: "hello",
+      tenantId: "T-RETRY",
+      timestamp: 1,
+      platformContext: { teamId: "T-RETRY" },
+    } as const;
+
+    await expect(resolveSlackBotTokenForIncoming(incoming)).resolves.toBe(
+      "cache-hydration-retry-token",
+    );
+    const appIncoming = {
+      ...incoming,
+      platformContext: { teamId: "T-RETRY", apiAppId: "A-RETRY" },
+    } as const;
+    await expect(
+      resolveSlackBotTokenForIncoming(appIncoming),
+    ).resolves.toBeUndefined();
+    await expect(resolveSlackBotTokenForIncoming(appIncoming)).resolves.toBe(
+      "cache-hydration-retry-token",
+    );
+    expect(calls).toEqual([
+      "/api/auth.test",
+      "/api/bots.info",
+      "/api/auth.test",
+      "/api/bots.info",
+    ]);
+  });
+
   it("hydrates bounded thread context, reactions, file references, and trust", async () => {
     const calls: URL[] = [];
     vi.stubGlobal(

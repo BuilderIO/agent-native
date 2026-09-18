@@ -678,6 +678,12 @@ export function slackAdapter(
       message: OutgoingMessage,
       target: OutboundTarget,
     ): Promise<void> {
+      const namedInstallation = target.installationKey
+        ? await getActiveIntegrationInstallationByKey(
+            "slack",
+            target.installationKey,
+          )
+        : null;
       const targetContext: IncomingMessage = {
         platform: "slack",
         externalThreadId: `${target.tenantId ?? "unknown"}:${target.destination}:${target.threadRef ?? "root"}`,
@@ -687,6 +693,7 @@ export function slackAdapter(
           threadTs: target.threadRef,
           teamId: target.tenantId,
           installationKey: target.installationKey,
+          apiAppId: namedInstallation?.apiAppId ?? undefined,
         },
         tenantId: target.tenantId,
         timestamp: Date.now(),
@@ -909,11 +916,19 @@ async function isSlackTokenForIncoming(
   const cached = slackTokenIdentityCache.get(token);
   if (cached && cached.expiresAt > Date.now()) {
     if (cached.valid && apiAppId && !cached.appId && cached.botId) {
-      const bot = await slackJson(token, "bots.info", { bot: cached.botId });
-      const appId = slackIdentityValue(bot?.bot?.app_id);
-      if (!appId) return false;
-      cached.appId = appId;
-      slackTokenIdentityCache.set(token, cached);
+      try {
+        const bot = await slackJson(token, "bots.info", { bot: cached.botId });
+        const appId = slackIdentityValue(bot?.bot?.app_id);
+        if (!appId) {
+          slackTokenIdentityCache.delete(token);
+          return false;
+        }
+        cached.appId = appId;
+        slackTokenIdentityCache.set(token, cached);
+      } catch {
+        slackTokenIdentityCache.delete(token);
+        return false;
+      }
     }
     return (
       cached.valid &&

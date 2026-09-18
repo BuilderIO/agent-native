@@ -18,10 +18,16 @@ vi.mock("../installations-store.js", () => ({
 const { resolveSlackBotTokenForIncoming, slackAdapter } =
   await import("./slack.js");
 
-const installation = (installationKey: string) => ({
+let tokenSequence = 0;
+
+const installation = (
+  installationKey: string,
+  apiAppId: string | null = null,
+) => ({
   id: installationKey,
   platform: "slack",
   installationKey,
+  apiAppId,
   status: "connected",
 });
 
@@ -30,7 +36,7 @@ describe("slack outbound installation selection", () => {
     delete process.env.SLACK_BOT_TOKEN;
     getActiveIntegrationInstallationByKeyMock.mockResolvedValue(null);
     resolveIntegrationTokenBundleMock.mockResolvedValue({
-      accessToken: "xoxb-not-a-real-token",
+      accessToken: `xoxb-not-a-real-token-${++tokenSequence}`,
     });
   });
 
@@ -67,15 +73,15 @@ describe("slack outbound installation selection", () => {
 
   it("sends when the caller names the installation explicitly", async () => {
     getActiveIntegrationInstallationByKeyMock.mockResolvedValue(
-      installation("T1:agent-native"),
+      installation("T1:agent-native", "agent-native"),
     );
     const fetchMock = vi.fn(async (url: string) => {
-      if (url.endsWith("/api/auth.test")) {
+      if (new URL(url).pathname.endsWith("/api/auth.test")) {
         return new Response(
           JSON.stringify({ ok: true, team_id: "T1", bot_id: "B1" }),
         );
       }
-      if (url.endsWith("/api/bots.info")) {
+      if (new URL(url).pathname.endsWith("/api/bots.info")) {
         return new Response(
           JSON.stringify({ ok: true, bot: { app_id: "agent-native" } }),
         );
@@ -104,12 +110,45 @@ describe("slack outbound installation selection", () => {
     ).not.toHaveBeenCalled();
   });
 
+  it("rejects a named installation token from another Slack app", async () => {
+    getActiveIntegrationInstallationByKeyMock.mockResolvedValue(
+      installation("T1:agent-native", "A-NAMED"),
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (new URL(url).pathname.endsWith("/api/auth.test")) {
+          return new Response(
+            JSON.stringify({ ok: true, team_id: "T1", bot_id: "B-WRONG" }),
+          );
+        }
+        if (new URL(url).pathname.endsWith("/api/bots.info")) {
+          return new Response(
+            JSON.stringify({ ok: true, bot: { app_id: "A-WRONG" } }),
+          );
+        }
+        return new Response(JSON.stringify({ ok: true, ts: "1.0" }));
+      }),
+    );
+
+    await expect(
+      slackAdapter().sendMessageToTarget!(
+        { text: "hello", platformContext: {} },
+        {
+          destination: "C123",
+          tenantId: "T1",
+          installationKey: "T1:agent-native",
+        },
+      ),
+    ).rejects.toThrow("no bot token for outbound target");
+  });
+
   it("sends without an app id when only one app is connected", async () => {
     listActiveIntegrationInstallationsForTenantMock.mockResolvedValue([
       installation("T1:agent-native"),
     ]);
     const fetchMock = vi.fn(async (url: string) => {
-      if (url.endsWith("/api/auth.test")) {
+      if (new URL(url).pathname.endsWith("/api/auth.test")) {
         return new Response(
           JSON.stringify({ ok: true, team_id: "T1", bot_id: "B1" }),
         );

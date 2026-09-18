@@ -505,6 +505,38 @@ describe("submit-content-database-form", () => {
     expect(items).toHaveLength(0);
   });
 
+  it("rejects a same-day timed range whose end is before its start", async () => {
+    const seeded = await seedFormDatabase();
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        submitForm.run({
+          databaseId: seeded.databaseId,
+          viewId: "request-form",
+          title: "Backwards timed range",
+          propertyEntries: [
+            { property: "Description", value: "Keep valid fields." },
+            { property: "Priority", value: "P1 — High" },
+            {
+              property: "Deadline",
+              value: {
+                start: "2026-09-20T16:00",
+                end: "2026-09-20T09:00",
+                includeTime: true,
+              },
+            },
+          ],
+        }),
+      ),
+    ).rejects.toThrow("the supplied date end is before the start");
+
+    const items = await getDb()
+      .select()
+      .from(schema.contentDatabaseItems)
+      .where(eq(schema.contentDatabaseItems.databaseId, seeded.databaseId));
+    expect(items).toHaveLength(0);
+  });
+
   it.each([
     ["invalid select array", "Priority", [42]],
     ["invalid multi-select array", "Tags", [42]],

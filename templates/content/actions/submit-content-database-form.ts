@@ -192,6 +192,23 @@ function normalizeSubmittedPropertyValue(
       `Invalid value for "${definition.name}"; the supplied date end could not be preserved.`,
     );
   }
+  if (
+    type === "date" &&
+    typeof normalized === "object" &&
+    normalized !== null &&
+    !Array.isArray(normalized) &&
+    "includeTime" in normalized &&
+    normalized.includeTime === true &&
+    "end" in normalized &&
+    typeof normalized.end === "string" &&
+    "start" in normalized &&
+    typeof normalized.start === "string" &&
+    normalized.end < normalized.start
+  ) {
+    throw new Error(
+      `Invalid value for "${definition.name}"; the supplied date end is before the start.`,
+    );
+  }
   if (!explicitlyEmpty && isEmptyPropertyValue(normalized)) {
     throw new Error(
       `Invalid value for "${definition.name}"; the supplied value could not be preserved as ${type}.`,
@@ -429,11 +446,15 @@ export default defineAction({
         databaseId,
       );
       const [lockedDatabase] = await tx
-        .select({ viewConfigJson: schema.contentDatabases.viewConfigJson })
+        .select({
+          viewConfigJson: schema.contentDatabases.viewConfigJson,
+          deletedAt: schema.contentDatabases.deletedAt,
+        })
         .from(schema.contentDatabases)
         .where(eq(schema.contentDatabases.id, databaseId));
       if (
         !lockedDatabase ||
+        lockedDatabase.deletedAt !== null ||
         lockedDatabase.viewConfigJson !== database.viewConfigJson
       ) {
         throw new Error(
