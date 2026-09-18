@@ -189,6 +189,9 @@ export function normalizeGoogleEventId(id: string): string {
 }
 
 export function normalizeWritableGoogleEventId(id: string): string {
+  if (id.startsWith("overlay-") && id.slice("overlay-".length).includes("@")) {
+    throw new Error("Overlay Google calendar events are read-only");
+  }
   if (id.startsWith("google-google-calendar:")) {
     throw new Error("Shared Google calendar events are read-only");
   }
@@ -261,6 +264,9 @@ export function undeletableEventReason(
   }
   if (event.source === "local") {
     return 'Is a booking; cancel the booking with "cancel-booking" instead';
+  }
+  if (event.overlayEmail) {
+    return "Comes from an overlaid Google calendar, which is read-only";
   }
   if (event.calendarReadOnly) {
     return "Comes from a read-only Google calendar source";
@@ -645,6 +651,35 @@ function allDaySpanDays(start: string, end: string): number {
     Number(endDate.slice(8, 10)),
   );
   return Math.round((endMs - startMs) / 86_400_000);
+}
+
+/**
+ * Events must end strictly after they start. Only explicit all-day spans are
+ * excluded, because their end bound is inclusive for out-of-office and
+ * exclusive for working locations; `validateStatusEventTiming` covers those.
+ * A date-only bound on a non-all-day event is still ordered, since that is the
+ * shape a malformed timed update arrives in.
+ */
+export function validateEventTimeOrder(args: {
+  allDay?: boolean;
+  start: string;
+  end: string;
+}) {
+  if (args.allDay === true) return;
+  // Date.parse reads a YYYY-MM-DD bound as UTC midnight, so date-only and
+  // instant bounds order against each other without a separate branch.
+  const startMs = Date.parse(args.start);
+  const endMs = Date.parse(args.end);
+  if (Number.isNaN(startMs) || Number.isNaN(endMs)) {
+    throw new Error(
+      `Event start and end must be valid timestamps: ${args.start} to ${args.end}`,
+    );
+  }
+  if (endMs <= startMs) {
+    throw new Error(
+      `Event end must be after its start: ${args.start} to ${args.end}`,
+    );
+  }
 }
 
 export function validateStatusEventTiming(args: {

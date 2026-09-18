@@ -1,4 +1,6 @@
 import { defineAction, fail } from "@agent-native/core/action";
+import type { ActionRunContext } from "@agent-native/core/action";
+import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
 import {
@@ -25,6 +27,7 @@ import {
   remindersInput,
   requireActionUserEmail,
   resolveOwnedAccountEmail,
+  validateEventTimeOrder,
   validateStatusEventTiming,
   visibilityInput,
   workingLocationTypeInput,
@@ -233,7 +236,7 @@ export default defineAction({
     // `??` instead of gating every attendee edit. Replacing the list through
     // `attendees` does not reach it, and so is not gated here.
     (sendUpdates === undefined && namesGuests(addAttendees)),
-  run: async (args) => {
+  run: async (args, actionContext?: ActionRunContext) => {
     const ownerEmail = requireActionUserEmail();
     if (args.addGoogleMeet && args.addZoom) {
       throw new Error("Choose either Google Meet or Zoom, not both.");
@@ -428,6 +431,18 @@ export default defineAction({
           })
         : undefined;
 
+      track(
+        "event_rescheduled",
+        {
+          app_name: "calendar",
+          template_name: "calendar",
+          event_id: `google-${result.id}`,
+          output_id: `google-${result.id}`,
+          output_type: "calendar_event",
+          change_type: "account_move",
+        },
+        actionContext,
+      );
       return {
         success: true,
         id: `google-${result.id}`,
@@ -463,6 +478,11 @@ export default defineAction({
           : "default";
       validateStatusEventTiming({
         eventType: existingStatusEventType,
+        allDay: args.allDay ?? existingEvent.allDay,
+        start: args.start ?? existingEvent.start,
+        end: args.end ?? existingEvent.end,
+      });
+      validateEventTimeOrder({
         allDay: args.allDay ?? existingEvent.allDay,
         start: args.start ?? existingEvent.start,
         end: args.end ?? existingEvent.end,
@@ -708,6 +728,21 @@ export default defineAction({
             kind: "update",
           })
         : undefined;
+
+    if (hasTimePatch) {
+      track(
+        "event_rescheduled",
+        {
+          app_name: "calendar",
+          template_name: "calendar",
+          event_id: `google-${returnedGoogleEventId}`,
+          output_id: `google-${returnedGoogleEventId}`,
+          output_type: "calendar_event",
+          change_type: "time",
+        },
+        actionContext,
+      );
+    }
 
     return {
       success: true,

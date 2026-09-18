@@ -434,6 +434,14 @@ function agentNativeMarkSvg(className: string, gradientId: string): string {
 </svg>`;
 }
 
+function tablerTerminalSvg(className: string): string {
+  return `<svg class="${className}" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+  <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+  <path d="M5 7l5 5l-5 5"/>
+  <path d="M12 19l7 0"/>
+</svg>`;
+}
+
 function renderConnectGuide(
   guide: McpConnectGuide,
   activeGuideId: McpConnectGuideId,
@@ -512,6 +520,7 @@ function renderConnectPage(params: {
     "flow-mark",
     "agent-native-connect-flow-gradient",
   );
+  const flowTerminalSvg = tablerTerminalSvg("flow-terminal");
   const safeUserCode =
     userCode && USER_CODE_RE.test(userCode) ? escapeHtml(userCode) : "";
   const resolvedGuideId = resolveMcpConnectGuideId(requestedGuide);
@@ -623,10 +632,7 @@ function renderConnectPage(params: {
     color: var(--text); flex-shrink: 0;
   }
   .flow-mark { width: 26px; height: auto; display: block; }
-  .flow .agent-symbol {
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 0.95rem; font-weight: 700; letter-spacing: -0.04em;
-  }
+  .flow-terminal { width: 22px; height: 22px; display: block; }
   .flow .conn {
     width: 30px; height: 1px; flex-shrink: 0;
     background: linear-gradient(90deg, transparent, var(--border-strong), transparent);
@@ -911,7 +917,7 @@ function renderConnectPage(params: {
       </span>
       <span class="conn" aria-hidden="true"></span>
       <span class="tile" aria-hidden="true">
-        <span class="agent-symbol">&lt;/&gt;</span>
+        ${flowTerminalSvg}
       </span>
     </div>
 
@@ -928,15 +934,23 @@ function renderConnectPage(params: {
 
   ${setupHtml}
 
-  <details id="staticTokenMint" class="connections static-token-mint"${safeUserCode ? " open" : ""}>
+  ${
+    safeUserCode
+      ? `<div id="staticTokenMint">
+    <div id="msg" class="msg" role="status" aria-live="polite"></div>
+    <div id="mintForm">
+      <button id="authorizeBtn" class="primary">${localize(connectMessages.authorizeDevice)}</button>
+    </div>
+  </div>`
+      : `<details id="staticTokenMint" class="connections static-token-mint">
     <summary>
-      <span class="connections-title">${safeUserCode ? localize(connectMessages.authorizeDevice) : escapeHtml(staticTokenFallback.title)}</span>
+      <span class="connections-title">${escapeHtml(staticTokenFallback.title)}</span>
       <span class="chev" aria-hidden="true"></span>
     </summary>
     <div class="static-token-body">
       <div id="msg" class="msg" role="status" aria-live="polite"></div>
       <div id="mintForm">
-        <button id="authorizeBtn" class="primary">${safeUserCode ? localize(connectMessages.authorizeDevice) : localize(connectMessages.createToken)}</button>
+        <button id="authorizeBtn" class="primary">${localize(connectMessages.createToken)}</button>
         ${tokenAdvancedOptionsHtml}
       </div>
       <div id="result" class="result-panel hidden">
@@ -955,7 +969,8 @@ function renderConnectPage(params: {
         </details>
       </div>
     </div>
-  </details>
+  </details>`
+  }
 
   <details id="connections" class="connections">
     <summary>

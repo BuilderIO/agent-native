@@ -4,6 +4,8 @@ import { MarketingHome } from "@agent-native/toolkit/marketing";
 import { AuthForm } from "@agent-native/toolkit/onboarding";
 import * as React from "react";
 
+import { normalizeLocaleCode } from "../../localization/shared.js";
+import { AUTH_SIGNUP_INVITE_ONLY_CODE } from "../../shared/auth-copy.js";
 import { toPublicFrameworkPath } from "../../shared/framework-route-prefix.js";
 import { isQaTestEmail } from "../../shared/qa-test-email.js";
 import {
@@ -12,6 +14,7 @@ import {
 } from "../../shared/sign-in-journey.js";
 import { isSyntheticTrafficValue } from "../../shared/test-traffic.js";
 import { frameworkRoutePrefix } from "../api-path.js";
+import { openOAuthPopup } from "../oauth-popup.js";
 import { OceanBackground } from "../ocean/OceanBackground.js";
 
 export type AuthView =
@@ -66,10 +69,15 @@ export interface AuthPageProps {
   marketing?: AuthMarketingProps;
   marketingLocales: Record<string, AuthMarketingProps>;
   brandMarkSrc: string;
+  brandMarkLightSrc?: string;
   githubUrl: string;
   showGoogle: boolean;
-  /** @deprecated Browser SSO entry points were removed. */
+  /** Show the organization SSO email-to-provider entry point. */
+  organizationSsoEnabled?: boolean;
+  /** Whether identity SSO is available for this request. */
   identitySsoEnabled?: boolean;
+  /** Whether Google sign-in should start through the preview identity hub. */
+  googleViaIdentitySso?: boolean;
   /** @deprecated Automatic browser SSO handoff was removed. */
   identitySsoAuto?: boolean;
   signupLegalNotice?: AuthLegalNotice;
@@ -130,20 +138,12 @@ function resolveLocale(
   defaultLocale: string,
 ): string {
   if (!value || value === "system") return defaultLocale;
-  const exact = localeOptions.find((option) => option.value === value);
-  if (exact) return exact.value;
-  try {
-    const canonical = Intl.getCanonicalLocales(value)[0]?.toLowerCase();
-    const match = localeOptions.find(
-      (option) =>
-        option.value.toLowerCase() === canonical ||
-        option.value.split("-")[0]?.toLowerCase() === canonical?.split("-")[0],
-    );
-    return match?.value ?? defaultLocale;
-  } catch {
-    // coercion-ok: malformed locale input falls back to the configured locale.
-    return defaultLocale;
-  }
+  return (
+    normalizeLocaleCode(
+      value,
+      localeOptions.map((option) => option.value),
+    ) ?? defaultLocale
+  );
 }
 
 function resolveSystemLocale(
@@ -204,7 +204,14 @@ function removeStorage(key: string): void {
 function authErrorText(
   data: Record<string, unknown>,
   fallback: string,
+  inviteOnlyMessage = fallback,
 ): string {
+  if (
+    data.code === AUTH_SIGNUP_INVITE_ONLY_CODE ||
+    data.error === AUTH_SIGNUP_INVITE_ONLY_CODE
+  ) {
+    return inviteOnlyMessage;
+  }
   const candidate = data.error ?? data.message;
   if (typeof candidate !== "string" || !candidate.trim()) return fallback;
   const message = candidate.trim();
@@ -392,6 +399,23 @@ export function isAgentNativeDesktop(
   return /AgentNativeDesktop/i.test(userAgent);
 }
 
+export function shouldAutoFederateIdentitySso(input: {
+  identitySsoAuto: boolean;
+  publicOAuthOrigin: string;
+  currentOrigin: string;
+}): boolean {
+  if (!input.identitySsoAuto || !input.publicOAuthOrigin) return false;
+  try {
+    return (
+      new URL(input.publicOAuthOrigin).origin ===
+      new URL(input.currentOrigin).origin
+    );
+  } catch {
+    // coercion-ok: malformed optional origin metadata fails closed for auto SSO.
+    return false;
+  }
+}
+
 export function isElectron(
   userAgent = typeof navigator === "undefined" ? "" : navigator.userAgent,
 ): boolean {
@@ -549,6 +573,23 @@ export function resolveGoogleAuthUrlPath(input: {
     : `${input.runtimeAppBasePath}${GOOGLE_AUTH_URL_PATH}`;
 }
 
+export function shouldUseIdentitySsoForGoogle(input: {
+  googleViaIdentitySso: boolean;
+  currentOrigin: string;
+}): boolean {
+  if (!input.googleViaIdentitySso) return false;
+  try {
+    const url = new URL(input.currentOrigin);
+    return (
+      url.protocol === "https:" &&
+      /^[a-f0-9]{24}--agent-native-[a-z0-9-]+\.netlify\.app$/.test(url.hostname)
+    );
+  } catch {
+    // coercion-ok: an invalid browser origin cannot select the preview flow.
+    return false;
+  }
+}
+
 function createFlowId(): string {
   try {
     if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
@@ -660,8 +701,11 @@ export function AuthPage(props: AuthPageProps) {
     marketing,
     marketingLocales,
     brandMarkSrc,
+    brandMarkLightSrc,
     githubUrl,
     showGoogle,
+    organizationSsoEnabled = false,
+    googleViaIdentitySso = false,
     signupLegalNotice,
     signupLocalModeNote,
     docsAuthUrl,
@@ -704,10 +748,8 @@ export function AuthPage(props: AuthPageProps) {
   }, []);
   const [googleBusy, setGoogleBusy] = React.useState(false);
   const [magicLinkBusy, setMagicLinkBusy] = React.useState(false);
-  const [environmentVisible, setEnvironmentVisible] = React.useState(false);
-  const [environmentOpen, setEnvironmentOpen] = React.useState(false);
-  const [environmentProductionUrl, setEnvironmentProductionUrl] =
-    React.useState("");
+  const [ssoEmail, setSsoEmail] = React.useState("");
+  const [ssoBusy, setSsoBusy] = React.useState(false);
   const [copiedLocalMode, setCopiedLocalMode] = React.useState(false);
   const signupViewTrackedRef = React.useRef(false);
   const pendingSignupPassword = React.useRef("");
@@ -949,7 +991,11 @@ export function AuthPage(props: AuthPageProps) {
 
   React.useEffect(() => {
     if (
-      !identitySsoAuto ||
+      !shouldAutoFederateIdentitySso({
+        identitySsoAuto,
+        publicOAuthOrigin,
+        currentOrigin: window.location.origin,
+      }) ||
       !runtimeBasePathResolved ||
       !sessionProbeComplete ||
       !sessionProbeAnonymous ||
@@ -970,6 +1016,7 @@ export function AuthPage(props: AuthPageProps) {
   }, [
     identityHref,
     identitySsoAuto,
+    publicOAuthOrigin,
     resumeHref,
     runtimeBasePathResolved,
     sessionProbeAnonymous,
@@ -1183,34 +1230,6 @@ export function AuthPage(props: AuthPageProps) {
     }
   }, [localDevAllowed, props]);
 
-  React.useEffect(() => {
-    if (window.parent !== window) return;
-    const hostname = window.location.hostname.toLowerCase().replace(/\.$/, "");
-    const productionHost = hostname.startsWith("beta.")
-      ? hostname.slice("beta.".length)
-      : "";
-    if (
-      !productionHost ||
-      props.environmentBetaHosts[productionHost] !== hostname
-    ) {
-      return;
-    }
-    try {
-      const productionUrl = new URL(window.location.href);
-      productionUrl.protocol = "https:";
-      productionUrl.hostname = productionHost;
-      productionUrl.port = "";
-      productionUrl.searchParams.set(
-        props.betaOptOutQueryParam,
-        String(Date.now() + props.betaOptOutDurationMs),
-      );
-      setEnvironmentProductionUrl(productionUrl.toString());
-      setEnvironmentVisible(true);
-    } catch {
-      // coercion-ok: malformed host metadata cannot produce a useful switcher.
-    }
-  }, [props]);
-
   const stopOAuthPolling = React.useCallback(() => {
     if (oauthPollTimer.current !== null) {
       window.clearInterval(oauthPollTimer.current);
@@ -1353,6 +1372,7 @@ export function AuthPage(props: AuthPageProps) {
                 kind === "magic-link"
                   ? t("magicLinkFailed")
                   : t("googleNotConfigured"),
+                t("signupInviteOnly"),
               ),
             });
             return;
@@ -1474,6 +1494,18 @@ export function AuthPage(props: AuthPageProps) {
       // coercion-ok: analytics session storage is optional.
     }
     const target = resumeHref();
+    if (
+      !isBuilderPreview() &&
+      !isAgentNativeDesktop() &&
+      shouldUseIdentitySsoForGoogle({
+        googleViaIdentitySso,
+        currentOrigin: window.location.origin,
+      })
+    ) {
+      const params = new URLSearchParams({ return: target });
+      window.location.replace(`${identityHref}?${params.toString()}`);
+      return;
+    }
     const flowId = createFlowId();
     oauthFlowId.current = flowId;
     const flow = resolveGoogleFlow();
@@ -1509,11 +1541,24 @@ export function AuthPage(props: AuthPageProps) {
     }
     let popup: Window | null = null;
     if (flow === "popup") {
-      const builderPreviewFrame = isBuilderPreview() && isInFrame();
+      // A same-frame redirect fallback is safe only at the true top level:
+      // Google's accounts pages refuse to render at all once they detect
+      // Sec-Fetch-Dest: iframe (a blank "403 — you do not have access to this
+      // page"), regardless of which host framed the page. This used to only
+      // guard Builder's own preview iframe, so any OTHER embedding — the
+      // Design app's local visual-edit canvas included — fell through to the
+      // redirect and hit that same 403 the moment the popup failed to open.
+      const redirectFallbackUnsafe = isInFrame();
       try {
-        popup = window.open("", "_blank", "width=640,height=760");
+        popup = openOAuthPopup({
+          initialUrl: new URL(
+            apiPath("/_agent-native/oauth/popup"),
+            window.location.origin,
+          ).href,
+          features: "width=640,height=760",
+        });
         if (!popup) {
-          if (builderPreviewFrame) {
+          if (redirectFallbackUnsafe) {
             setGoogleBusy(false);
             setNotice("google", {
               kind: "error",
@@ -1534,7 +1579,7 @@ export function AuthPage(props: AuthPageProps) {
           // coercion-ok: some browsers expose popup.opener as read-only.
         }
       } catch {
-        if (builderPreviewFrame) {
+        if (redirectFallbackUnsafe) {
           setGoogleBusy(false);
           setNotice("google", {
             kind: "error",
@@ -1567,7 +1612,9 @@ export function AuthPage(props: AuthPageProps) {
         },
       );
       if (!response.ok || typeof data.url !== "string" || !data.url) {
-        throw new Error(authErrorText(data, t("failedToConnect")));
+        throw new Error(
+          authErrorText(data, t("failedToConnect"), t("signupInviteOnly")),
+        );
       }
       if (nativeDesktop) nativeOAuthRequestPending.current = false;
       startOAuthExchange(flowId, target, verifier, "google", popup, (email) => {
@@ -1602,15 +1649,18 @@ export function AuthPage(props: AuthPageProps) {
       });
     }
   }, [
+    apiPath,
     googleAuthUrlPath,
     googleBusy,
+    identityHref,
     identityBootstrapHref,
+    googleViaIdentitySso,
     resolveGoogleFlow,
     resumeHref,
+    setNotice,
     showGoogle,
     startOAuthExchange,
     stopNativeOAuth,
-    stopOAuthPolling,
     t,
     trackingApp,
     view,
@@ -1672,7 +1722,11 @@ export function AuthPage(props: AuthPageProps) {
       redirectToSignedInApp();
       return { ok: true, needsManualSignIn: false };
     }
-    const error = authErrorText(data, t("finishSignInFailed"));
+    const error = authErrorText(
+      data,
+      t("finishSignInFailed"),
+      t("signupInviteOnly"),
+    );
     return {
       ok: false,
       needsManualSignIn: false,
@@ -1843,7 +1897,11 @@ export function AuthPage(props: AuthPageProps) {
         if (!response.ok) {
           setNotice("signup", {
             kind: "error",
-            text: authErrorText(data, t("registrationFailed")),
+            text: authErrorText(
+              data,
+              t("registrationFailed"),
+              t("signupInviteOnly"),
+            ),
           });
           return;
         }
@@ -1867,6 +1925,7 @@ export function AuthPage(props: AuthPageProps) {
         const loginError = authErrorText(
           loginResult.data,
           t("registrationFailed"),
+          t("signupInviteOnly"),
         );
         if (
           loginResult.response.status === 403 &&
@@ -1938,7 +1997,7 @@ export function AuthPage(props: AuthPageProps) {
         }
         setNotice("login", {
           kind: "error",
-          text: authErrorText(data, t("invalidLogin")),
+          text: authErrorText(data, t("invalidLogin"), t("signupInviteOnly")),
         });
       } catch {
         setNotice("login", { kind: "error", text: t("networkErrorDashRetry") });
@@ -1985,7 +2044,11 @@ export function AuthPage(props: AuthPageProps) {
         }
         setNotice("forgot", {
           kind: "error",
-          text: authErrorText(data, t("resetEmailFailed")),
+          text: authErrorText(
+            data,
+            t("resetEmailFailed"),
+            t("signupInviteOnly"),
+          ),
         });
       } catch {
         setNotice("forgot", {
@@ -2037,7 +2100,11 @@ export function AuthPage(props: AuthPageProps) {
         if (!response.ok) {
           setNotice("magic-link", {
             kind: "error",
-            text: authErrorText(data, t("magicLinkFailed")),
+            text: authErrorText(
+              data,
+              t("magicLinkFailed"),
+              t("signupInviteOnly"),
+            ),
           });
           return;
         }
@@ -2078,6 +2145,51 @@ export function AuthPage(props: AuthPageProps) {
     ],
   );
 
+  const handleOrganizationSso = React.useCallback(
+    async (event: React.FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      const email = normalizeEmail(ssoEmail);
+      if (!isValidEmail(email)) {
+        setNotice("sso", { kind: "error", text: t("invalidEmail") });
+        return;
+      }
+      setSsoBusy(true);
+      setNotice("sso", null);
+      try {
+        const callbackURL = new URL(
+          resumeHref(),
+          window.location.origin,
+        ).toString();
+        const { response, data } = await requestJson(
+          apiPath("/_agent-native/auth/ba/sign-in/sso"),
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              email,
+              callbackURL,
+              errorCallbackURL: callbackURL,
+              newUserCallbackURL: callbackURL,
+            }),
+          },
+        );
+        if (!response.ok || typeof data.url !== "string" || !data.url) {
+          setNotice("sso", {
+            kind: "error",
+            text: authErrorText(data, t("ssoFailed"), t("signupInviteOnly")),
+          });
+          return;
+        }
+        window.location.assign(data.url);
+      } catch {
+        setNotice("sso", { kind: "error", text: t("networkErrorDashRetry") });
+      } finally {
+        setSsoBusy(false);
+      }
+    },
+    [apiPath, resumeHref, setNotice, ssoEmail, t],
+  );
+
   const resendVerification = React.useCallback(async () => {
     const email = verificationEmail || readPendingSignupEmail();
     if (!email || verificationResendUntil > Date.now()) return;
@@ -2106,7 +2218,11 @@ export function AuthPage(props: AuthPageProps) {
       }
       setNotice("verification", {
         kind: "error",
-        text: authErrorText(data, t("resendVerificationFailed")),
+        text: authErrorText(
+          data,
+          t("resendVerificationFailed"),
+          t("signupInviteOnly"),
+        ),
       });
     } catch {
       setNotice("verification", {
@@ -2400,6 +2516,35 @@ export function AuthPage(props: AuthPageProps) {
             {notice("google")}
             <p className="google-debug" id="google-debug" />
           </div>
+        ) : null}
+        {organizationSsoEnabled && !googleOnly ? (
+          <form
+            id="organization-sso-form"
+            className="sso-signin"
+            onSubmit={handleOrganizationSso}
+          >
+            <label htmlFor="sso-email" data-i18n="email">
+              {t("email")}
+            </label>
+            <input
+              id="sso-email"
+              type="email"
+              autoComplete="email"
+              placeholder={t("ssoEmailPlaceholder")}
+              required
+              value={ssoEmail}
+              onChange={(event) => setSsoEmail(event.currentTarget.value)}
+            />
+            <button
+              type="submit"
+              id="organization-sso-submit"
+              disabled={ssoBusy || !isValidEmail(ssoEmail)}
+              data-i18n="ssoButton"
+            >
+              {ssoBusy ? t("checking") : t("ssoButton")}
+            </button>
+            {notice("sso")}
+          </form>
         ) : null}
         {!googleOnly && showGoogle ? (
           <div className="divider" id="auth-divider" data-i18n="dividerOr">
@@ -2784,59 +2929,6 @@ export function AuthPage(props: AuthPageProps) {
       </div>
     </div>
   );
-  const environmentBadge = (
-    <div
-      className="environment-switcher"
-      id="environment-switcher"
-      hidden={!environmentVisible}
-    >
-      <button
-        type="button"
-        className="environment-badge"
-        id="environment-badge"
-        aria-expanded={environmentOpen}
-        aria-controls="environment-popover"
-        onClick={() => setEnvironmentOpen((open) => !open)}
-      >
-        beta
-      </button>
-      <div
-        className="environment-popover"
-        id="environment-popover"
-        role="dialog"
-        aria-labelledby="environment-popover-title"
-        hidden={!environmentOpen}
-      >
-        <div
-          className="environment-popover-title"
-          id="environment-popover-title"
-        >
-          You're on Agent-Native Beta
-        </div>
-        <div className="environment-popover-copy">
-          Choose where you want to continue.
-        </div>
-        <a
-          className="environment-production-link"
-          id="environment-production-link"
-          href={environmentProductionUrl}
-        >
-          Switch to production
-        </a>
-        <button
-          type="button"
-          className="environment-hide-badge"
-          id="environment-hide-badge"
-          onClick={() => {
-            setEnvironmentOpen(false);
-            setEnvironmentVisible(false);
-          }}
-        >
-          Hide badge
-        </button>
-      </div>
-    </div>
-  );
   const marketingSurface = marketingCopy ? (
     <MarketingHome
       appName={marketingCopy.appName}
@@ -2888,12 +2980,20 @@ export function AuthPage(props: AuthPageProps) {
       ) : (
         <div className="marketing-content">
           <h2 className="app-name">
-            <img
-              className="brand-mark"
-              src={brandMarkSrc}
-              alt=""
-              aria-hidden="true"
-            />
+            <picture>
+              {brandMarkLightSrc ? (
+                <source
+                  media="(prefers-color-scheme: light)"
+                  srcSet={brandMarkLightSrc}
+                />
+              ) : null}
+              <img
+                className="brand-mark"
+                src={brandMarkSrc}
+                alt=""
+                aria-hidden="true"
+              />
+            </picture>
             <span>{marketingCopy.appName}</span>
           </h2>
           <p className="app-tagline" data-marketing-field="tagline">
@@ -2944,7 +3044,6 @@ export function AuthPage(props: AuthPageProps) {
   return (
     <>
       {localePicker}
-      {environmentBadge}
       {initialPrompt ? (
         <div className="auth-centered">{authCard}</div>
       ) : (

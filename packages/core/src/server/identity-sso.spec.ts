@@ -16,6 +16,7 @@ const googleAuthRequiredMock = vi.fn(async () => false);
 const adapterUsers: Array<{
   id: string;
   email: string;
+  emailVerified?: boolean;
   accounts: Array<{ providerId: string; accountId: string }>;
 }> = [];
 const signUpEmailMock = vi.fn(async ({ body }: any) => {
@@ -39,9 +40,25 @@ const linkAccountMock = vi.fn(async (input: any) => {
 const findUserByEmailMock = vi.fn(async (email: string) => {
   const user = adapterUsers.find((candidate) => candidate.email === email);
   return user
-    ? { user: { id: user.id, email: user.email }, accounts: user.accounts }
+    ? {
+        user: {
+          id: user.id,
+          email: user.email,
+          emailVerified: user.emailVerified === true,
+        },
+        accounts: user.accounts,
+      }
     : null;
 });
+const updateUserMock = vi.fn(async (userId: string, data: any) => {
+  const user = adapterUsers.find((candidate) => candidate.id === userId);
+  if (user && data?.emailVerified === true) user.emailVerified = true;
+  return {};
+});
+const acceptPendingInvitationsForEmailMock = vi.fn(async () => ({
+  accepted: [],
+  activeOrgId: null,
+}));
 
 const states = new Map<
   string,
@@ -88,11 +105,33 @@ vi.mock("./google-oauth.js", () => ({
   createOAuthSession: (...args: any[]) => createOAuthSessionMock(...args),
   getAppUrl: (event: any, path: string) =>
     `https://${event.headers?.host ?? "mail.agent-native.com"}${path}`,
-  getOrigin: (event: any) =>
-    `https://${event.headers?.host ?? "mail.agent-native.com"}`,
+  getOrigin: (event: any) => {
+    const host = event.headers?.host ?? "mail.agent-native.com";
+    const configuredOrigin = process.env.APP_URL ?? process.env.BETTER_AUTH_URL;
+    if (configuredOrigin) {
+      try {
+        if (
+          new URL(`https://${host}`).origin !== new URL(configuredOrigin).origin
+        ) {
+          return new URL(configuredOrigin).origin;
+        }
+      } catch {
+        // Fall through to the request origin for malformed test config.
+      }
+    }
+    return `https://${host}`;
+  },
 }));
 vi.mock("../org/auth-policy.js", () => ({
   GOOGLE_AUTH_REQUIRED_MESSAGE: "Google sign-in is required.",
+  authProviderRequiredMessage: (provider: string) =>
+    provider.startsWith("sso:")
+      ? "Single sign-on is required."
+      : "Google sign-in is required.",
+  getRequiredAuthProviderForEmail: (...args: any[]) =>
+    googleAuthRequiredMock(...args).then((required) =>
+      typeof required === "string" ? required : required ? "google" : null,
+    ),
   isGoogleSignInRequiredForEmail: (...args: any[]) =>
     googleAuthRequiredMock(...args),
 }));
@@ -104,10 +143,17 @@ vi.mock("./better-auth-instance.js", () => ({
   getBetterAuthInternalAdapter: async () => ({
     findUserByEmail: (...args: any[]) => findUserByEmailMock(...args),
     linkAccount: (...args: any[]) => linkAccountMock(...args),
+    updateUser: (...args: any[]) => updateUserMock(...args),
   }),
+}));
+vi.mock("../org/accept-pending.js", () => ({
+  acceptPendingInvitationsForEmail: (...args: any[]) =>
+    acceptPendingInvitationsForEmailMock(...args),
 }));
 vi.mock("./identity-sso-store.js", () => ({
   CANONICAL_IDENTITY_SSO_HUB_URL: "https://dispatch.agent-native.com",
+  NETLIFY_PREVIEW_IDENTITY_SSO_HUB_URL:
+    "https://beta.dispatch.agent-native.com",
   SSO_STATE_TTL_MS: 600_000,
   getIdentityHubUrl: () => {
     const raw = process.env.AGENT_NATIVE_IDENTITY_HUB_URL?.trim();
@@ -124,6 +170,12 @@ vi.mock("./identity-sso-store.js", () => ({
     ["mail.agent-native.com", "dispatch.agent-native.com"].includes(host),
   isCanonicalIdentitySsoClientRequest: (host: string, protocol: string) =>
     protocol === "https" && host === "mail.agent-native.com",
+  isNetlifyDeployPermalinkIdentitySsoClientRequest: (
+    host: string,
+    protocol: string,
+  ) =>
+    protocol === "https" &&
+    /^[a-f0-9]{24}--agent-native-[a-z0-9-]+\.netlify\.app$/.test(host ?? ""),
   isDesktopSsoUserAgent: (userAgent: string | undefined) =>
     /AgentNativeDesktop(?:SsoCanary)?\//i.test(userAgent ?? ""),
   isDesktopSsoCanaryUserAgent: (userAgent: string | undefined) =>
@@ -247,6 +299,8 @@ beforeEach(() => {
   googleAuthRequiredMock.mockReset().mockResolvedValue(false);
   linkAccountMock.mockClear();
   findUserByEmailMock.mockClear();
+  updateUserMock.mockClear();
+  acceptPendingInvitationsForEmailMock.mockClear();
   process.env.A2A_SECRET = SECRET;
   process.env.AGENT_NATIVE_IDENTITY_HUB_URL = HUB;
   // Stands in for the package layer: outside a template checkout package.json
@@ -266,6 +320,7 @@ beforeEach(() => {
 
 afterEach(() => {
   resetAppConfigForTests();
+  vi.unstubAllEnvs();
   delete process.env.A2A_SECRET;
   delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
   vi.unstubAllGlobals();
@@ -337,6 +392,36 @@ describe("identity SSO browser contract", () => {
     const response = await handleIdentitySso(request, "/login");
     expect(resolveIdentityHubUrl(request)).toBe(HUB);
     expect(response.status).toBe(302);
+  });
+
+  it("routes immutable Netlify deploys to the beta identity authority", () => {
+    delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
+    const request = event("/_agent-native/identity/login?return=/inbox", {
+      headers: {
+        host: `${"a".repeat(24)}--agent-native-analytics.netlify.app`,
+        "x-forwarded-proto": "https",
+      },
+    });
+
+    expect(resolveIdentityHubUrl(request)).toBe(
+      "https://beta.dispatch.agent-native.com",
+    );
+  });
+
+  it("keeps an immutable preview origin in the callback binding", async () => {
+    const previewHost = `${"b".repeat(24)}--agent-native-mail.netlify.app`;
+    vi.stubEnv("APP_URL", "https://mail.agent-native.com");
+    vi.stubEnv("BETTER_AUTH_URL", "https://mail.agent-native.com");
+    const request = event("/_agent-native/identity/login?return=/inbox", {
+      headers: { host: previewHost },
+    });
+
+    const response = await handleIdentitySso(request, "/login");
+    const location = new URL(response.headers.get("Location")!);
+
+    expect(location.searchParams.get("redirect_uri")).toBe(
+      `https://${previewHost}${"/_agent-native/identity/callback"}`,
+    );
   });
 
   it("starts an authorization-code + PKCE request without a browser JWT", async () => {
@@ -557,6 +642,39 @@ describe("identity SSO browser contract", () => {
       }),
     );
   });
+
+  it("preserves the asserted SSO provider for an SSO-required organization", async () => {
+    googleAuthRequiredMock.mockImplementation(async () => "sso:okta");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              assertion: await signAssertion({
+                identity_auth_provider: "sso:okta",
+              }),
+            }),
+            { status: 200 },
+          ),
+      ),
+    );
+    const { loginEvent, state } = await startLogin();
+    const response = await handleIdentitySso(
+      event(
+        `/_agent-native/identity/callback?code=${"s".repeat(43)}&state=${state}`,
+        { cookies: { ...loginEvent.cookies } },
+      ),
+      "/callback",
+    );
+
+    expect(response.status).toBe(302);
+    expect(createOAuthSessionMock).toHaveBeenCalledWith(
+      expect.anything(),
+      "alice@example.test",
+      expect.objectContaining({ authProvider: "sso:okta" }),
+    );
+  });
 });
 
 describe("additive JIT linking", () => {
@@ -617,6 +735,95 @@ describe("additive JIT linking", () => {
       providerId: "agent-native",
       accountId: "alice@example.test",
     });
+  });
+
+  it("records the authority's Google-proved verification on a new user", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              assertion: await signAssertion({
+                identity_auth_provider: "google",
+              }),
+            }),
+            { status: 200 },
+          ),
+      ),
+    );
+    const { loginEvent, state } = await startLogin();
+    const response = await handleIdentitySso(
+      event(
+        `/_agent-native/identity/callback?code=${"m".repeat(43)}&state=${state}`,
+        { cookies: { ...loginEvent.cookies } },
+      ),
+      "/callback",
+    );
+
+    expect(response.status).toBe(302);
+    expect(updateUserMock).toHaveBeenCalledWith(
+      "created-alice@example.test",
+      expect.objectContaining({ emailVerified: true }),
+    );
+    // The user-create hook skipped these while the row was still unverified.
+    expect(acceptPendingInvitationsForEmailMock).toHaveBeenCalledWith(
+      "alice@example.test",
+    );
+  });
+
+  it("leaves the row unverified when invitation reconciliation fails, so the next login retries", async () => {
+    acceptPendingInvitationsForEmailMock.mockRejectedValueOnce(
+      new Error("org database offline"),
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              assertion: await signAssertion({
+                identity_auth_provider: "google",
+              }),
+            }),
+            { status: 200 },
+          ),
+      ),
+    );
+    const { loginEvent, state } = await startLogin();
+    const response = await handleIdentitySso(
+      event(
+        `/_agent-native/identity/callback?code=${"o".repeat(43)}&state=${state}`,
+        { cookies: { ...loginEvent.cookies } },
+      ),
+      "/callback",
+    );
+
+    // Sign-in still succeeds; the caller owns the session.
+    expect(response.status).toBe(302);
+    expect(createOAuthSessionMock).toHaveBeenCalled();
+    // Recording verification here would make the dropped invitations permanent,
+    // because the next login would skip the reconciliation branch entirely.
+    expect(updateUserMock).not.toHaveBeenCalled();
+    expect(
+      adapterUsers.find((user) => user.email === "alice@example.test")
+        ?.emailVerified,
+    ).not.toBe(true);
+  });
+
+  it("leaves the row unverified when the authority proved no email control", async () => {
+    const { loginEvent, state } = await startLogin();
+    const response = await handleIdentitySso(
+      event(
+        `/_agent-native/identity/callback?code=${"n".repeat(43)}&state=${state}`,
+        { cookies: { ...loginEvent.cookies } },
+      ),
+      "/callback",
+    );
+
+    expect(response.status).toBe(302);
+    expect(updateUserMock).not.toHaveBeenCalled();
+    expect(acceptPendingInvitationsForEmailMock).not.toHaveBeenCalled();
   });
 
   it("creates a new user with a random unusable credential", async () => {

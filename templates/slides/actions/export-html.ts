@@ -8,6 +8,7 @@ import {
 } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
 import "../server/db/index.js"; // ensure registerShareableResource runs
@@ -560,7 +561,7 @@ export default defineAction({
   schema: z.object({
     deckId: z.string().describe("Deck ID to export"),
   }),
-  run: async ({ deckId }) => {
+  run: async ({ deckId }, ctx) => {
     const userEmail = getRequestUserEmail();
     if (!userEmail)
       fail("no authenticated user", {
@@ -643,6 +644,19 @@ export default defineAction({
       filePath = path.join(exportDir, filename);
       fs.writeFileSync(filePath, html);
     }
+
+    track(
+      "deck_exported",
+      {
+        app_name: "slides",
+        template_name: "slides",
+        output_id: deckId,
+        output_type: "deck",
+        export_format: "html",
+        slide_count: slides.length,
+      },
+      ctx,
+    );
 
     return { html, filePath, filename, slideCount: slides.length };
   },

@@ -1,4 +1,5 @@
 import { generateTabId } from "@agent-native/core/client/agent-chat";
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import {
   useCollaborativeDoc,
@@ -9,7 +10,7 @@ import {
 import {
   useSession,
   callAction,
-  useChangeVersions,
+  useChangeVersion,
   useActionMutation,
   type AuthSession,
 } from "@agent-native/core/client/hooks";
@@ -20,6 +21,7 @@ import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
   CreativeContextShareSheet,
   CreativeContextShareTab,
+  useCreativeContextLab,
 } from "@agent-native/creative-context/client";
 import { PresenceBar } from "@agent-native/toolkit/collab-ui";
 import {
@@ -605,6 +607,7 @@ function SqlDashboardPageContent({
   session: AuthSession | null;
 }) {
   const t = useT();
+  const creativeContextEnabled = useCreativeContextLab();
   const { canManageOrg, org } = useOrgRole();
   const [searchParams, setSearchParams] = useSearchParams();
   const { id: routeId } = useParams<{ id: string }>();
@@ -754,15 +757,9 @@ function SqlDashboardPageContent({
         undoRevisionIndex < dashboardRevisions.length - 1));
   const canRedo = canEdit && !!dashboardId && redoRevisionIds.length > 0;
 
-  // Refetch the dashboard whenever the `dashboards` source bumps OR any
-  // agent action runs. We depend on both because:
-  // - `dashboards` covers same-process writes from upsertDashboard
-  // - `action` covers every successful agent action and is emitted by the
-  //   agent runner unconditionally, which makes the refresh resilient even
-  //   if the dashboards-store emit is missed (different process, etc.).
-  // Folding counters into the queryKey is the framework pattern for "agent
-  // writes show up without a manual refresh"; see `use-change-version.ts`.
-  const sync = useChangeVersions(["dashboards", "action"]);
+  // Dashboard writes emit their own change event; unrelated agent actions do
+  // not need to restart this query.
+  const sync = useChangeVersion("dashboards");
   const dashboardQuery = useQuery({
     queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope, sync],
     enabled: !!dashboardId,
@@ -1014,6 +1011,18 @@ function SqlDashboardPageContent({
     ) {
       viewedDashboardIdRef.current = dashboardId;
       incrementItemView("dashboard", dashboardId);
+      trackEvent("dashboard_viewed", {
+        app_name: "analytics",
+        template_name: "analytics",
+        dashboard_id: dashboardId,
+        output_id: dashboardId,
+        output_type: "dashboard",
+        is_owner: Boolean(
+          session?.email &&
+          fetched.createdBy &&
+          session.email.toLowerCase() === fetched.createdBy.toLowerCase(),
+        ),
+      });
     }
   }, [
     dashboardId,
@@ -1414,6 +1423,11 @@ function SqlDashboardPageContent({
 
   const openEditPanel = useCallback(
     (panel: SqlPanel) => {
+      trackEvent("dashboard_panel_editor_opened", {
+        app_name: "analytics",
+        template_name: "analytics",
+        panel_type: panel.chartType,
+      });
       setEditingPanel(panel);
       setEditorOpen(true);
       awareness?.setLocalStateField("editingPanelId", panel.id);
@@ -1518,6 +1532,16 @@ function SqlDashboardPageContent({
     return { ...(dashboard?.variables ?? {}), ...filterValues };
   }, [dashboard?.variables, dashboard?.filters, searchParams]);
 
+  const dashboardExtensionContext = useMemo<Record<string, unknown>>(
+    () => ({
+      dashboardId,
+      dashboardName: dashboard?.name ?? "",
+      dashboardDescription: dashboard?.description ?? null,
+      filters: vars,
+    }),
+    [dashboardId, dashboard?.name, dashboard?.description, vars],
+  );
+
   const currentReportFilters = useMemo<Record<string, string>>(() => {
     const out = dashboard?.filters
       ? extractFilterParams(dashboard.filters, searchParams)
@@ -1584,6 +1608,13 @@ function SqlDashboardPageContent({
 
   const handleTabChange = useCallback(
     (value: string) => {
+      trackEvent("dashboard_tab_changed", {
+        app_name: "analytics",
+        template_name: "analytics",
+        tab_position: Math.max(0, tabs.indexOf(value)) + 1,
+        tab_count: tabs.length,
+        has_nested_tabs: groupedTabs.hasNestedTabs,
+      });
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev);
@@ -1593,7 +1624,7 @@ function SqlDashboardPageContent({
         { replace: true },
       );
     },
-    [setSearchParams],
+    [groupedTabs.hasNestedTabs, setSearchParams, tabs],
   );
   const handleTabGroupChange = useCallback(
     (groupName: string) => {
@@ -1926,29 +1957,33 @@ function SqlDashboardPageContent({
             variant="compact"
             triggerClassName="border-0 bg-accent text-accent-foreground hover:bg-accent/80 hover:text-accent-foreground"
             shareUrl={dashboardShareUrl}
-            shareTabs={{
-              tabs: [
-                {
-                  value: "context",
-                  label: t("creativeContext.share.tabLabel"),
-                  content: (
-                    <CreativeContextShareTab
-                      resource={{
-                        appId: "analytics",
-                        resourceType: "dashboard",
-                        resourceId: dashboardId,
-                        title: dashboard.name,
-                        updatedAt: dashboardUpdatedAt ?? undefined,
-                        preview: {
-                          kind: "document",
-                          label: t("dashboard.sqlDashboard"),
-                        },
-                      }}
-                    />
-                  ),
-                },
-              ],
-            }}
+            shareTabs={
+              creativeContextEnabled
+                ? {
+                    tabs: [
+                      {
+                        value: "context",
+                        label: t("creativeContext.share.tabLabel"),
+                        content: (
+                          <CreativeContextShareTab
+                            resource={{
+                              appId: "analytics",
+                              resourceType: "dashboard",
+                              resourceId: dashboardId,
+                              title: dashboard.name,
+                              updatedAt: dashboardUpdatedAt ?? undefined,
+                              preview: {
+                                kind: "document",
+                                label: t("dashboard.sqlDashboard"),
+                              },
+                            }}
+                          />
+                        ),
+                      },
+                    ],
+                  }
+                : undefined
+            }
           />
         ) : null}
         {canEdit ? (
@@ -1984,7 +2019,7 @@ function SqlDashboardPageContent({
             <TooltipContent>{t("sqlDashboard.details")}</TooltipContent>
           </Tooltip>
           <DropdownMenuContent align="end" className="w-72">
-            {dashboardId && canEdit && !archivedAt ? (
+            {creativeContextEnabled && dashboardId && canEdit && !archivedAt ? (
               <DropdownMenuItem
                 onSelect={(event) => {
                   event.preventDefault();
@@ -2048,6 +2083,10 @@ function SqlDashboardPageContent({
                   onSelect={(event) => {
                     event.preventDefault();
                     setDashboardActionsOpen(false);
+                    trackEvent("dashboard_history_opened", {
+                      app_name: "analytics",
+                      template_name: "analytics",
+                    });
                     setHistoryOpen(true);
                   }}
                 >
@@ -2155,7 +2194,7 @@ function SqlDashboardPageContent({
             onRestored={resetRevisionNavigation}
           />
         ) : null}
-        {dashboardId ? (
+        {creativeContextEnabled && dashboardId ? (
           <CreativeContextShareSheet
             open={contextSheetOpen}
             onOpenChange={setContextSheetOpen}
@@ -2554,13 +2593,9 @@ function SqlDashboardPageContent({
                                 onRemovePanel={removePanel}
                                 onEditPanel={openEditPanel}
                                 onSavePanel={handleSavePanel}
-                                dashboardExtensionContext={{
-                                  dashboardId,
-                                  dashboardName: dashboard.name,
-                                  dashboardDescription:
-                                    dashboard.description ?? null,
-                                  filters: vars,
-                                }}
+                                dashboardExtensionContext={
+                                  dashboardExtensionContext
+                                }
                               />
                               <DashboardDropLine
                                 slot={{

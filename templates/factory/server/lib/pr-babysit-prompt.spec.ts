@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  BABYSIT_DECISION_INSTRUCTION,
+  BABYSIT_FIXED_PATH,
   BABYSIT_LIST_BOUND,
   BABYSIT_SCOPE_INSTRUCTION,
   BABYSIT_WORK_RETRIGGER,
@@ -33,6 +35,8 @@ ${obsoleteBound}
 
     expect(repaired).toContain(BABYSIT_LIST_BOUND);
     expect(repaired).toContain(BABYSIT_SCOPE_INSTRUCTION);
+    expect(repaired).toContain(BABYSIT_FIXED_PATH);
+    expect(repaired).toContain(BABYSIT_DECISION_INSTRUCTION);
   });
 
   it("replaces the old commit-retriggers-a-poke sentence", () => {
@@ -45,7 +49,7 @@ window.
 
     expect(repaired).toContain(BABYSIT_WORK_RETRIGGER);
     expect(repaired).not.toContain("A changed commit, new unresolved feedback");
-    expect(repaired).toContain("Do not ask the bot to poll");
+    expect(repaired).toContain("bot review feedback");
   });
 
   it("rewrites the retired babysit-agent-native-pull-request name", () => {
@@ -55,5 +59,46 @@ window.
 
     expect(repaired).toContain("babysit-factory-pull-request");
     expect(repaired).not.toContain("babysit-agent-native-pull-request");
+  });
+
+  it("replaces the sentence that gave the babysit action the whole decision", () => {
+    const repaired = repairPrBabysitPrompt(`
+When inScope is true, call babysit-factory-pull-request. It owns GitHub
+evidence, the hardcoded comment, and the quiet window. Never approve or merge.
+`);
+
+    expect(repaired).toContain(BABYSIT_DECISION_INSTRUCTION);
+    expect(repaired).toContain("Never approve or merge.");
+  });
+
+  it("teaches the recommendation flow even when no obsolete sentence matched", () => {
+    const repaired = repairPrBabysitPrompt("# Factory PR babysitting\n");
+
+    expect(repaired).toContain("read recommendation and because");
+    expect(repaired).toContain("defer");
+    expect(repaired).toContain("stuck");
+  });
+
+  it("does not add the decision instruction twice", () => {
+    const once = repairPrBabysitPrompt("# Factory PR babysitting\n");
+    const twice = repairPrBabysitPrompt(once);
+
+    expect(twice).toBe(once);
+    expect(twice.split(BABYSIT_DECISION_INSTRUCTION).length - 1).toBe(1);
+  });
+
+  it("upgrades the legacy decision instruction to the recommendation flow", () => {
+    const legacy = `# Factory PR babysitting
+
+For every in-scope item call propose-pr-babysit-status, then call babysit-factory-pull-request with decision. Use ping only for new human review feedback, or for a merge conflict that appeared after the branch was known to be conflict-free; GitHub finishing its merge calculation is not new work. Use already_asked when Factory already asked during this round of work. Use stuck when another request cannot unblock the pull request, so a human has to look.
+`;
+
+    const repaired = repairPrBabysitPrompt(legacy);
+
+    expect(repaired).toContain("read recommendation and because");
+    expect(repaired).toContain(BABYSIT_DECISION_INSTRUCTION);
+    expect(repaired).not.toContain(
+      "Use ping only for new human review feedback",
+    );
   });
 });

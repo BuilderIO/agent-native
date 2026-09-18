@@ -64,10 +64,31 @@ describe("boundTranscriptForAgent", () => {
 
     expect(bounded.fullText).toHaveLength(AGENT_TRANSCRIPT_MAX_CHARS);
     expect(bounded.fullTextLength).toBe(fullText.length);
+    expect(bounded.fullTextOffset).toBe(0);
+    expect(bounded.nextFullTextOffset).toBe(AGENT_TRANSCRIPT_MAX_CHARS);
     expect(bounded.segmentCount).toBe(segments.length);
     expect(bounded.segments.length).toBeLessThan(segments.length);
     expect(bounded.previewTruncated).toBe(true);
     expect(bounded.note).toContain("bounded");
+  });
+
+  it("returns the next transcript chunk without repeating segments", () => {
+    const fullText = `${"a".repeat(AGENT_TRANSCRIPT_MAX_CHARS)}tail`;
+    const segments = [{ startMs: 0, endMs: 1_000, text: "Opening" }];
+
+    expect(
+      boundTranscriptForAgent({
+        fullText,
+        segments,
+        fullTextOffset: AGENT_TRANSCRIPT_MAX_CHARS,
+      }),
+    ).toMatchObject({
+      fullText: "tail",
+      segments: [],
+      fullTextOffset: AGENT_TRANSCRIPT_MAX_CHARS,
+      nextFullTextOffset: null,
+      fullTextLength: fullText.length,
+    });
   });
 
   it("keeps short transcripts complete", () => {
@@ -79,6 +100,8 @@ describe("boundTranscriptForAgent", () => {
       fullText: "Short clip.",
       segments,
       fullTextLength: 11,
+      fullTextOffset: 0,
+      nextFullTextOffset: null,
       segmentCount: 1,
       previewTruncated: false,
       note: "The complete transcript fits in this agent payload.",

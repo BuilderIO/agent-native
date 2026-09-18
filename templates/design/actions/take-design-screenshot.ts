@@ -33,14 +33,13 @@
  * shell (`playwright install --only-shell chromium`); plain
  * `install chromium` also downloads the full headed browser — several hundred
  * MB more disk, needed only by `pnpm e2e:headed`/`e2e:ui`, never by this
- * action. Hosted/serverless deploys (Netlify Functions) do not bundle a Chromium
- * binary, so this action detects that failure and returns a structured,
- * model-actionable `{ ok: false, reason }` telling the agent to fall back to
- * `run-design-audit` instead of surfacing a raw stack trace.
+ * action. Hosted/serverless deploys do not bundle a Chromium binary, so the
+ * shared runtime connects to Builder Browser before trying local/system
+ * Chromium. When neither is available, this action returns a structured,
+ * model-actionable `{ ok: false, reason }` rather than a raw stack trace.
  */
 
 import { defineAction } from "@agent-native/core/action";
-import { getText, hasCollabState } from "@agent-native/core/collab";
 import { uploadFile } from "@agent-native/core/file-upload";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { accessFilter } from "@agent-native/core/sharing";
@@ -49,6 +48,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { isAllowedFigmaSvgRenderRequest } from "../server/lib/design-to-figma-svg.js";
+import { readLiveSourceFile } from "../server/source-workspace.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 
 // ---------------------------------------------------------------------------
@@ -204,15 +204,17 @@ async function liveContent(
   fileId: string,
   storedContent: string,
 ): Promise<string> {
-  try {
-    if (await hasCollabState(fileId)) {
-      const live = await getText(fileId, "content");
-      if (typeof live === "string") return live;
-    }
-  } catch {
-    // SQL content is the deterministic fallback.
-  }
-  return storedContent;
+  return (
+    await readLiveSourceFile({
+      id: fileId,
+      designId: "",
+      filename: "index.html",
+      fileType: "html",
+      content: storedContent,
+      createdAt: null,
+      updatedAt: null,
+    })
+  ).content;
 }
 
 // ---------------------------------------------------------------------------
@@ -518,7 +520,9 @@ export default defineAction({
 
     const db = getDb();
     const conditions = [
-      accessFilter(schema.designs, schema.designShares),
+      accessFilter(schema.designs, schema.designShares, undefined, "viewer", {
+        includePublic: true,
+      }),
       fileId
         ? eq(schema.designFiles.id, fileId)
         : eq(schema.designFiles.designId, designId ?? ""),

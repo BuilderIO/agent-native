@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { settleAuthGate } from "../lib/app";
+import { renderedText, settleAuthGate } from "../lib/app";
 import { originFor, productionHostFor, selectedSites } from "../lib/fleet";
 import { mustRespond, parseJson } from "../lib/http";
 import { installBetaE2ETrafficMarker } from "../lib/test-traffic";
@@ -129,6 +129,62 @@ for (const site of sites) {
           `${site.host} rendered a link to the hostile continuation target on its sign-in page`,
         )
         .toBe(0);
+    });
+
+    test("centers the AuthPage card in each rendered layout variant", async ({
+      page,
+    }) => {
+      await page.goto(`${origin}/sign-in?cb=${Date.now()}`, {
+        waitUntil: "domcontentloaded",
+      });
+      await renderedText(page, `${site.host} auth layout`);
+
+      const geometry = await page.evaluate(() => {
+        const home = document.querySelector<HTMLElement>(
+          '[data-agent-native-marketing-home="true"]',
+        );
+        const panel = home?.querySelector<HTMLElement>(".form-panel");
+        const card = panel?.querySelector<HTMLElement>(":scope > .card");
+        if (!home || !panel || !card) return null;
+
+        const panelRect = panel.getBoundingClientRect();
+        const cardRect = card.getBoundingClientRect();
+        return {
+          cardCenterX: cardRect.left + cardRect.width / 2,
+          cardCenterY: cardRect.top + cardRect.height / 2,
+          panelCenterX: panelRect.left + panelRect.width / 2,
+          panelCenterY: panelRect.top + panelRect.height / 2,
+          viewportCenterX: window.innerWidth / 2,
+          viewportCenterY: window.innerHeight / 2,
+          hasProductScreenshot: home.classList.contains(
+            "has-product-screenshot",
+          ),
+        };
+      });
+
+      expect(
+        geometry,
+        `${site.host} did not render the AuthPage marketing/form layout`,
+      ).not.toBeNull();
+      expect(
+        Math.abs(geometry!.cardCenterX - geometry!.panelCenterX),
+        `${site.host} AuthPage card is not centered in its form panel`,
+      ).toBeLessThan(8);
+      expect(
+        Math.abs(geometry!.cardCenterY - geometry!.panelCenterY),
+        `${site.host} AuthPage card is not centered vertically in its form panel`,
+      ).toBeLessThan(8);
+
+      if (geometry!.hasProductScreenshot) {
+        expect(
+          Math.abs(geometry!.cardCenterX - geometry!.viewportCenterX),
+          `${site.host} screenshot AuthPage variant is not centered in the viewport`,
+        ).toBeLessThan(8);
+        expect(
+          Math.abs(geometry!.cardCenterY - geometry!.viewportCenterY),
+          `${site.host} screenshot AuthPage variant is not vertically centered in the viewport`,
+        ).toBeLessThan(8);
+      }
     });
 
     test("serves an impersonal, cacheable shell", async () => {

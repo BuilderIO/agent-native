@@ -440,6 +440,81 @@ describe("provider API runtime", () => {
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 
+  it("turns a missing OAuth workspace connection into a contextual request", async () => {
+    const runtime = createProviderApiRuntime({
+      appId: "mail",
+      providerIds: ["gmail"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    const failure = await runtime
+      .executeRequest({
+        provider: "gmail",
+        path: "/users/me/profile",
+        connectionId: "gmail-missing",
+      })
+      .catch((error) => error);
+
+    expect(failure).toMatchObject({
+      agentConnectionRequired: true,
+      provider: "gmail",
+      reason: "connect",
+      appId: "mail",
+    });
+  });
+
+  it("turns a missing Slack bearer connection into a contextual request", async () => {
+    const runtime = createProviderApiRuntime({
+      appId: "dispatch",
+      providerIds: ["slack"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    const failure = await runtime
+      .executeRequest({ provider: "slack", path: "/auth.test" })
+      .catch((error) => error);
+
+    expect(failure).toMatchObject({
+      agentConnectionRequired: true,
+      provider: "slack",
+      reason: "connect",
+      appId: "dispatch",
+    });
+  });
+
+  it("distinguishes a missing OAuth app grant from a missing connection", async () => {
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: false,
+      connection: {
+        id: "gmail-connection",
+        label: "Work Gmail",
+        status: "connected",
+      },
+      appAccess: { available: false },
+      reason: "The app has not been granted access.",
+    });
+    const runtime = createProviderApiRuntime({
+      appId: "mail",
+      providerIds: ["gmail"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    const failure = await runtime
+      .executeRequest({
+        provider: "gmail",
+        path: "/users/me/profile",
+        connectionId: "gmail-connection",
+      })
+      .catch((error) => error);
+
+    expect(failure).toMatchObject({
+      agentConnectionRequired: true,
+      provider: "gmail",
+      reason: "grant",
+      appId: "mail",
+    });
+  });
+
   it("refreshes Figma OAuth with the v1 token endpoint and preserves rotated refresh tokens", async () => {
     resolveSecret.mockImplementation(async (key: string) =>
       key === "FIGMA_CLIENT_ID"
@@ -1546,7 +1621,7 @@ describe("provider API runtime", () => {
     );
   });
 
-  it("keeps the generic message when nothing safe can be said about scope", async () => {
+  it("requests a workspace connection when no credential or scope gap exists", async () => {
     resolveCredential.mockResolvedValue(null);
     describeCredentialScopeGap.mockResolvedValue(null);
     const runtime = createProviderApiRuntime({
@@ -1562,10 +1637,12 @@ describe("provider API runtime", () => {
         (err: Error) => err,
       );
 
-    expect(error?.message).toMatch(
-      /hubspot credential not configured\. Tried:/,
-    );
-    expect(error?.message).not.toContain("Personal scope");
+    expect(error).toMatchObject({
+      agentConnectionRequired: true,
+      provider: "hubspot",
+      reason: "connect",
+      appId: "analytics",
+    });
   });
 
   it("wraps provider transport failures with a sanitized request target", async () => {

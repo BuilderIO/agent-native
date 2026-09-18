@@ -34,14 +34,27 @@ import {
 } from "../../../../lib/resumable-session.js";
 import { resolveResumableUploadProvider } from "../../../../lib/resumable-upload-provider.js";
 
-export default defineEventHandler(async (event: H3Event) => {
-  const recordingId = getRouterParam(event, "recordingId");
+export async function handleAbortRecordingUpload(
+  event: H3Event,
+  override?: {
+    recordingId?: string;
+    ownerEmail?: string;
+    orgId?: string;
+  },
+) {
+  const recordingId =
+    override?.recordingId ?? getRouterParam(event, "recordingId");
   if (!recordingId) {
     setResponseStatus(event, 400);
     return { error: "Missing recordingId" };
   }
 
-  const { userEmail: ownerEmail, orgId } = await getEventOwnerContext(event);
+  const { ownerEmail, orgId } = override?.ownerEmail
+    ? { ownerEmail: override.ownerEmail, orgId: override.orgId }
+    : await getEventOwnerContext(event).then((context) => ({
+        ownerEmail: context.userEmail,
+        orgId: context.orgId,
+      }));
   const body = (await readBody(event).catch(() => null)) as {
     reason?: unknown;
     attemptId?: unknown;
@@ -263,4 +276,6 @@ export default defineEventHandler(async (event: H3Event) => {
 
     return { ok: true, recordingId, chunksCleared: cleared };
   });
-});
+}
+
+export default defineEventHandler((event) => handleAbortRecordingUpload(event));

@@ -13,10 +13,25 @@ import {
   workspaceAppInitialPathFromSplat,
   workspaceAppRouteForChildPath,
   workspaceAppDirectHref,
+  workspaceAppHref,
   workspaceAppRoute,
 } from "./workspace-apps";
 
 describe("workspace app routes", () => {
+  it("targets the registered authenticated home path", () => {
+    expect(
+      workspaceAppHref({ id: "mail", path: "/mail", homePath: "/inbox" }),
+    ).toBe("/mail/inbox");
+    expect(workspaceAppHref({ id: "mail", path: "/mail" })).toBe("/mail/home");
+    expect(
+      workspaceAppHref({
+        id: "feedback-leaderboard",
+        path: "/feedback-leaderboard",
+        url: "https://workspace.example.test/feedback-leaderboard/leaderboard",
+      }),
+    ).toBe("https://workspace.example.test/feedback-leaderboard/leaderboard");
+  });
+
   it("round-trips encoded app ids", () => {
     const route = workspaceAppRoute("sales ops");
     expect(route).toBe("/apps/sales%20ops");

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 
 import { defineConfig, devices } from "@playwright/test";
@@ -15,12 +16,38 @@ import { defineConfig, devices } from "@playwright/test";
  */
 const PORT = Number(process.env.E2E_PORT ?? 9333);
 const BASE_URL = process.env.E2E_BASE_URL ?? `http://127.0.0.1:${PORT}`;
+const E2E_RUN_ID =
+  process.env.E2E_RUN_ID ?? `${Date.now()}-${process.pid}-${randomUUID()}`;
+if (!/^[A-Za-z0-9_-]+$/.test(E2E_RUN_ID)) {
+  throw new Error("E2E_RUN_ID must contain only letters, numbers, _ or -");
+}
+process.env.E2E_RUN_ID ??= E2E_RUN_ID; // guard:allow-env-mutation - Playwright boot shares this run id with setup and teardown
+const E2E_RUN_ROOT = path.join(
+  import.meta.dirname,
+  "..",
+  "..",
+  ".tmp",
+  "design-e2e",
+  E2E_RUN_ID,
+);
+process.env.E2E_RUN_ROOT ??= E2E_RUN_ROOT; // guard:allow-env-mutation - Playwright boot shares this run root with setup and teardown
 const AUTH_DIR = process.env.E2E_AUTH_DIR
   ? path.resolve(process.env.E2E_AUTH_DIR)
-  : path.join(import.meta.dirname, "e2e", ".auth");
+  : path.join(E2E_RUN_ROOT, "auth");
+process.env.E2E_AUTH_DIR ??= AUTH_DIR; // guard:allow-env-mutation - Playwright boot shares isolated auth state with setup
 const E2E_DATABASE_URL =
-  process.env.E2E_DATABASE_URL ??
-  `pglite:${path.join(import.meta.dirname, "data", "e2e-pglite")}`;
+  process.env.E2E_DATABASE_URL ?? `pglite:${path.join(E2E_RUN_ROOT, "pglite")}`;
+const usesRunPglite = !process.env.E2E_DATABASE_URL;
+process.env.E2E_DATABASE_URL ??= E2E_DATABASE_URL; // guard:allow-env-mutation - Playwright boot pins its isolated test database
+if (usesRunPglite) {
+  process.env.E2E_RUN_PGLITE_DIR = path.join(E2E_RUN_ROOT, "pglite"); // guard:allow-env-mutation - teardown removes only this Playwright run
+}
+const E2E_RESULTS_DIR = path.join(
+  import.meta.dirname,
+  "test-results",
+  E2E_RUN_ID,
+);
+process.env.E2E_RUN_RESULTS_DIR ??= E2E_RESULTS_DIR; // guard:allow-env-mutation - teardown removes only this Playwright run
 const BROWSER_CHANNEL = process.env.E2E_BROWSER_CHANNEL;
 const SHOW_SECONDARY_PANELS_IN_E2E =
   process.env.E2E_SHOW_DESIGN_SECONDARY_LEFT_PANELS !== "0";
@@ -50,6 +77,8 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? "github" : "list",
   globalSetup: path.join(import.meta.dirname, "e2e", "global-setup.ts"),
+  globalTeardown: path.join(import.meta.dirname, "e2e", "global-teardown.ts"),
+  outputDir: E2E_RESULTS_DIR,
   use: {
     baseURL: BASE_URL,
     storageState: path.join(AUTH_DIR, "state.json"),

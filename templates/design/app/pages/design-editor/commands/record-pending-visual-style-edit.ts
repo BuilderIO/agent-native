@@ -1,6 +1,10 @@
 import type { InteractionState } from "@shared/interaction-states";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 
+import {
+  clearAuthoredSizeStylesForCommit,
+  patchAuthoredInlineStyles,
+} from "@/components/design/edit-panel/interaction-state-helpers";
 import type { ElementInfo } from "@/components/design/types";
 import { prettyScreenName } from "@/lib/screen-names";
 import type {
@@ -25,6 +29,7 @@ import {
   pendingVisualStyleUndoRevertStyles,
   reactSourceAnchorForPendingEdit,
 } from "@/pages/design-editor/pending-edits";
+import { pendingEditTargetsSelectedElement } from "@/pages/design-editor/selection-state";
 import type { DesignFile } from "@/pages/design-editor/types";
 
 export interface RecordPendingVisualStyleEditArgs {
@@ -92,6 +97,8 @@ export function runRecordPendingVisualStyleEdit(
   metadata?: {
     originalStyles?: Record<string, string>;
     interactionState?: InteractionState;
+    pendingUndoGestureId?: string;
+    preserveSelection?: boolean;
   },
 ) {
   if (!canEditDesign) return;
@@ -119,8 +126,8 @@ export function runRecordPendingVisualStyleEdit(
   const baseStyles = metadata?.interactionState
     ? originalStylesForPendingVisualEdit(
         stylePatch,
-        screenId === activeFile?.id ? selectedElement : null,
         elementInfo,
+        screenId === activeFile?.id ? selectedElement : null,
       )
     : undefined;
   const originalStyles = metadata?.interactionState
@@ -128,8 +135,8 @@ export function runRecordPendingVisualStyleEdit(
     : (metadata?.originalStyles ??
       originalStylesForPendingVisualEdit(
         stylePatch,
-        screenId === activeFile?.id ? selectedElement : null,
         elementInfo,
+        screenId === activeFile?.id ? selectedElement : null,
       ));
   cancelPendingStructureVerification("conflict");
   pendingVisualStyleRedoStackRef.current = [];
@@ -194,6 +201,9 @@ export function runRecordPendingVisualStyleEdit(
   appendPendingVisualStyleUndoEntry(pendingVisualStyleUndoStackRef.current, {
     edit: nextEdit,
     revertStyles,
+    ...(metadata?.pendingUndoGestureId
+      ? { gestureId: metadata.pendingUndoGestureId }
+      : {}),
   });
   const nextPending = mergePendingVisualStyleEdit(
     pendingVisualStyleEditsRef.current,
@@ -231,6 +241,18 @@ export function runRecordPendingVisualStyleEdit(
 
   if (screenId !== activeFile?.id) return;
   setSelectedElement((prev) => {
+    if (
+      metadata?.preserveSelection &&
+      prev &&
+      !pendingEditTargetsSelectedElement({
+        editSourceId: sourceId,
+        editSelector: selector,
+        selectedSourceId: prev.sourceId,
+        selectedSelector: prev.selector,
+      })
+    ) {
+      return prev;
+    }
     const base = elementInfo ?? prev;
     if (!base) return prev;
     return {
@@ -241,9 +263,14 @@ export function runRecordPendingVisualStyleEdit(
         ...base.computedStyles,
         ...stylePatch,
       },
+      inlineStyles: patchAuthoredInlineStyles(base.inlineStyles, stylePatch),
+      authoredSizeStyles: clearAuthoredSizeStylesForCommit(
+        base.authoredSizeStyles,
+        stylePatch,
+      ),
     };
   });
-  if (sourceId) {
+  if (sourceId && !metadata?.preserveSelection) {
     setSelectedLayerIdsState([sourceId]);
   }
 }

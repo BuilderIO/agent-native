@@ -229,13 +229,9 @@ templates/calendar/app/i18n/zh-CN|bookingLinks.googleMeet|Google Meet
 templates/calendar/app/i18n/zh-CN|eventForm.googleMeet|Google Meet
 templates/calendar/app/i18n/zh-TW|bookingLinks.googleMeet|Google Meet
 templates/calendar/app/i18n/zh-TW|eventForm.googleMeet|Google Meet
-templates/clips/app/i18n/ar-SA|downloadRoute.clipsDesktop|Clips Desktop
-templates/clips/app/i18n/de-DE|downloadRoute.clipsDesktop|Clips Desktop
-templates/clips/app/i18n/es-ES|captureInstall.chromeDescription|Best when you want redacted console and network diagnostics from the browser tab.
 templates/clips/app/i18n/es-ES|captureInstall.chromePendingDescription|Browser logs option is ready, pending the Chrome Web Store URL.
 templates/clips/app/i18n/es-ES|captureInstall.chromeTitle|Chrome extension
 templates/clips/app/i18n/es-ES|captureInstall.description|Use Chrome when you need browser logs, or desktop for the smoothest everyday capture.
-templates/clips/app/i18n/es-ES|captureInstall.desktopDescription|Most seamless for global shortcuts, menu-bar recording, meetings, and repeat captures.
 templates/clips/app/i18n/es-ES|captureInstall.desktopTitle|Desktop app
 templates/clips/app/i18n/es-ES|captureInstall.openDesktopApp|Open desktop app
 templates/clips/app/i18n/es-ES|captureInstall.title|Choose your recorder
@@ -277,7 +273,6 @@ templates/clips/app/i18n/es-ES|dictateRoute.startSpeaking|Start speaking...
 templates/clips/app/i18n/es-ES|dictateRoute.vocabularyAddFailed|Couldn't add term
 templates/clips/app/i18n/es-ES|dictateRoute.vocabularyRemoveFailed|Couldn't remove term
 templates/clips/app/i18n/es-ES|dictateRoute.voiceToTextDescription|Voice-to-text dictation with AI cleanup. Get the desktop app to dictate from anywhere with a global shortcut.
-templates/clips/app/i18n/es-ES|downloadRoute.clipsDesktop|Clips Desktop
 templates/clips/app/i18n/es-ES|editableTitle.editLabel|Edit clip title
 templates/clips/app/i18n/es-ES|editableTitle.emptyTitle|Title cannot be empty
 templates/clips/app/i18n/es-ES|editableTitle.generatingTitle|Generating title
@@ -424,15 +419,9 @@ templates/clips/app/i18n/es-ES|recordRoute.videoReadyToUpload|Video is ready to 
 templates/clips/app/i18n/es-ES|recordRoute.videoTooLarge|Video is too large
 templates/clips/app/i18n/es-ES|recordRoute.videoUploaded|Video uploaded
 templates/clips/app/i18n/es-ES|recordRoute.whatToCheck|What to check
-templates/clips/app/i18n/fr-FR|downloadRoute.clipsDesktop|Clips Desktop
-templates/clips/app/i18n/hi-IN|downloadRoute.clipsDesktop|Clips Desktop
-templates/clips/app/i18n/ja-JP|downloadRoute.clipsDesktop|Clips Desktop
-templates/clips/app/i18n/ko-KR|downloadRoute.clipsDesktop|Clips Desktop
-templates/clips/app/i18n/pt-BR|captureInstall.chromeDescription|Best when you want redacted console and network diagnostics from the browser tab.
 templates/clips/app/i18n/pt-BR|captureInstall.chromePendingDescription|Browser logs option is ready, pending the Chrome Web Store URL.
 templates/clips/app/i18n/pt-BR|captureInstall.chromeTitle|Chrome extension
 templates/clips/app/i18n/pt-BR|captureInstall.description|Use Chrome when you need browser logs, or desktop for the smoothest everyday capture.
-templates/clips/app/i18n/pt-BR|captureInstall.desktopDescription|Most seamless for global shortcuts, menu-bar recording, meetings, and repeat captures.
 templates/clips/app/i18n/pt-BR|captureInstall.desktopTitle|Desktop app
 templates/clips/app/i18n/pt-BR|captureInstall.openDesktopApp|Open desktop app
 templates/clips/app/i18n/pt-BR|captureInstall.title|Choose your recorder
@@ -474,7 +463,6 @@ templates/clips/app/i18n/pt-BR|dictateRoute.startSpeaking|Start speaking...
 templates/clips/app/i18n/pt-BR|dictateRoute.vocabularyAddFailed|Couldn't add term
 templates/clips/app/i18n/pt-BR|dictateRoute.vocabularyRemoveFailed|Couldn't remove term
 templates/clips/app/i18n/pt-BR|dictateRoute.voiceToTextDescription|Voice-to-text dictation with AI cleanup. Get the desktop app to dictate from anywhere with a global shortcut.
-templates/clips/app/i18n/pt-BR|downloadRoute.clipsDesktop|Clips Desktop
 templates/clips/app/i18n/pt-BR|editableTitle.editLabel|Edit clip title
 templates/clips/app/i18n/pt-BR|editableTitle.emptyTitle|Title cannot be empty
 templates/clips/app/i18n/pt-BR|editableTitle.generatingTitle|Generating title
@@ -622,7 +610,6 @@ templates/clips/app/i18n/pt-BR|recordRoute.videoTooLarge|Video is too large
 templates/clips/app/i18n/pt-BR|recordRoute.videoUploaded|Video uploaded
 templates/clips/app/i18n/pt-BR|recordRoute.whatToCheck|What to check
 templates/design/app/i18n/ar-SA|designEditor.askAgent|Ask agent
-templates/design/app/i18n/ar-SA|designEditor.import.figUploadDescriptionShort|Local import — no Figma API quota used. Embedded images included.
 templates/design/app/i18n/ar-SA|designEditor.import.figmaHydrationChooseFig|Fill images from .fig
 templates/design/app/i18n/ar-SA|designEditor.import.figmaHydrationFigError|Couldn't read images from that .fig file.
 templates/design/app/i18n/ar-SA|designEditor.import.figmaHydrationFigOption|Fastest — pulls every image straight from the file. No token, no rate limits.
@@ -648,7 +635,6 @@ templates/design/app/i18n/ar-SA|designEditor.tokens.empty|No tokens yet
 templates/design/app/i18n/ar-SA|designEditor.tokens.newToken|New token
 templates/design/app/i18n/ar-SA|designEditor.tokens.refresh|Refresh tokens
 templates/design/app/i18n/de-DE|designEditor.askAgent|Ask agent
-templates/design/app/i18n/de-DE|designEditor.import.figUploadDescriptionShort|Local import — no Figma API quota used. Embedded images included.
 templates/design/app/i18n/de-DE|designEditor.import.figmaHydrationChooseFig|Fill images from .fig
 templates/design/app/i18n/de-DE|designEditor.import.figmaHydrationFigError|Couldn't read images from that .fig file.
 templates/design/app/i18n/de-DE|designEditor.import.figmaHydrationFigOption|Fastest — pulls every image straight from the file. No token, no rate limits.
@@ -674,7 +660,6 @@ templates/design/app/i18n/de-DE|designEditor.tokens.empty|No tokens yet
 templates/design/app/i18n/de-DE|designEditor.tokens.newToken|New token
 templates/design/app/i18n/de-DE|designEditor.tokens.refresh|Refresh tokens
 templates/design/app/i18n/es-ES|designEditor.askAgent|Ask agent
-templates/design/app/i18n/es-ES|designEditor.import.figUploadDescriptionShort|Local import — no Figma API quota used. Embedded images included.
 templates/design/app/i18n/es-ES|designEditor.import.figmaHydrationChooseFig|Fill images from .fig
 templates/design/app/i18n/es-ES|designEditor.import.figmaHydrationFigError|Couldn't read images from that .fig file.
 templates/design/app/i18n/es-ES|designEditor.import.figmaHydrationFigOption|Fastest — pulls every image straight from the file. No token, no rate limits.
@@ -700,7 +685,6 @@ templates/design/app/i18n/es-ES|designEditor.tokens.empty|No tokens yet
 templates/design/app/i18n/es-ES|designEditor.tokens.newToken|New token
 templates/design/app/i18n/es-ES|designEditor.tokens.refresh|Refresh tokens
 templates/design/app/i18n/fr-FR|designEditor.askAgent|Ask agent
-templates/design/app/i18n/fr-FR|designEditor.import.figUploadDescriptionShort|Local import — no Figma API quota used. Embedded images included.
 templates/design/app/i18n/fr-FR|designEditor.import.figmaHydrationChooseFig|Fill images from .fig
 templates/design/app/i18n/fr-FR|designEditor.import.figmaHydrationFigError|Couldn't read images from that .fig file.
 templates/design/app/i18n/fr-FR|designEditor.import.figmaHydrationFigOption|Fastest — pulls every image straight from the file. No token, no rate limits.
@@ -726,7 +710,6 @@ templates/design/app/i18n/fr-FR|designEditor.tokens.empty|No tokens yet
 templates/design/app/i18n/fr-FR|designEditor.tokens.newToken|New token
 templates/design/app/i18n/fr-FR|designEditor.tokens.refresh|Refresh tokens
 templates/design/app/i18n/hi-IN|designEditor.askAgent|Ask agent
-templates/design/app/i18n/hi-IN|designEditor.import.figUploadDescriptionShort|Local import — no Figma API quota used. Embedded images included.
 templates/design/app/i18n/hi-IN|designEditor.import.figmaHydrationChooseFig|Fill images from .fig
 templates/design/app/i18n/hi-IN|designEditor.import.figmaHydrationFigError|Couldn't read images from that .fig file.
 templates/design/app/i18n/hi-IN|designEditor.import.figmaHydrationFigOption|Fastest — pulls every image straight from the file. No token, no rate limits.
@@ -752,7 +735,6 @@ templates/design/app/i18n/hi-IN|designEditor.tokens.empty|No tokens yet
 templates/design/app/i18n/hi-IN|designEditor.tokens.newToken|New token
 templates/design/app/i18n/hi-IN|designEditor.tokens.refresh|Refresh tokens
 templates/design/app/i18n/ja-JP|designEditor.askAgent|Ask agent
-templates/design/app/i18n/ja-JP|designEditor.import.figUploadDescriptionShort|Local import — no Figma API quota used. Embedded images included.
 templates/design/app/i18n/ja-JP|designEditor.import.figmaHydrationChooseFig|Fill images from .fig
 templates/design/app/i18n/ja-JP|designEditor.import.figmaHydrationFigError|Couldn't read images from that .fig file.
 templates/design/app/i18n/ja-JP|designEditor.import.figmaHydrationFigOption|Fastest — pulls every image straight from the file. No token, no rate limits.
@@ -778,7 +760,6 @@ templates/design/app/i18n/ja-JP|designEditor.tokens.empty|No tokens yet
 templates/design/app/i18n/ja-JP|designEditor.tokens.newToken|New token
 templates/design/app/i18n/ja-JP|designEditor.tokens.refresh|Refresh tokens
 templates/design/app/i18n/ko-KR|designEditor.askAgent|Ask agent
-templates/design/app/i18n/ko-KR|designEditor.import.figUploadDescriptionShort|Local import — no Figma API quota used. Embedded images included.
 templates/design/app/i18n/ko-KR|designEditor.import.figmaHydrationChooseFig|Fill images from .fig
 templates/design/app/i18n/ko-KR|designEditor.import.figmaHydrationFigError|Couldn't read images from that .fig file.
 templates/design/app/i18n/ko-KR|designEditor.import.figmaHydrationFigOption|Fastest — pulls every image straight from the file. No token, no rate limits.
@@ -804,7 +785,6 @@ templates/design/app/i18n/ko-KR|designEditor.tokens.empty|No tokens yet
 templates/design/app/i18n/ko-KR|designEditor.tokens.newToken|New token
 templates/design/app/i18n/ko-KR|designEditor.tokens.refresh|Refresh tokens
 templates/design/app/i18n/pt-BR|designEditor.askAgent|Ask agent
-templates/design/app/i18n/pt-BR|designEditor.import.figUploadDescriptionShort|Local import — no Figma API quota used. Embedded images included.
 templates/design/app/i18n/pt-BR|designEditor.import.figmaHydrationChooseFig|Fill images from .fig
 templates/design/app/i18n/pt-BR|designEditor.import.figmaHydrationFigError|Couldn't read images from that .fig file.
 templates/design/app/i18n/pt-BR|designEditor.import.figmaHydrationFigOption|Fastest — pulls every image straight from the file. No token, no rate limits.
@@ -830,7 +810,6 @@ templates/design/app/i18n/pt-BR|designEditor.tokens.empty|No tokens yet
 templates/design/app/i18n/pt-BR|designEditor.tokens.newToken|New token
 templates/design/app/i18n/pt-BR|designEditor.tokens.refresh|Refresh tokens
 templates/design/app/i18n/zh-CN|designEditor.askAgent|Ask agent
-templates/design/app/i18n/zh-CN|designEditor.import.figUploadDescriptionShort|Local import — no Figma API quota used. Embedded images included.
 templates/design/app/i18n/zh-CN|designEditor.import.figmaHydrationChooseFig|Fill images from .fig
 templates/design/app/i18n/zh-CN|designEditor.import.figmaHydrationFigError|Couldn't read images from that .fig file.
 templates/design/app/i18n/zh-CN|designEditor.import.figmaHydrationFigOption|Fastest — pulls every image straight from the file. No token, no rate limits.

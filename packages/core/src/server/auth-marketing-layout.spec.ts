@@ -69,9 +69,25 @@ describe("built-in auth marketing layout contract", () => {
     expect(html).toMatch(
       /\.auth-marketing-top-right\s*{[^}]*justify-content:\s*flex-end;[^}]*bottom:/,
     );
-    // the auth canvas stays crisp and fully visible behind the card
     expect(html).toMatch(
-      /\.auth-marketing-home\.has-product-screenshot \.auth-marketing-screenshot\s*{[^}]*filter:\s*none;[^}]*opacity:\s*0\.15;/,
+      /\.auth-marketing-home\.has-product-screenshot \.form-panel\s*{[^}]*align-items:\s*center;/,
+    );
+    expect(html).toContain("--b-hero-ocean-opacity: 0.32;");
+    expect(html).toContain("--b-hero-shader-opacity: 0.15;");
+    expect(html).toContain("--b-hero-ocean-opacity: 0.3;");
+    expect(html).toContain("--b-hero-shader-opacity: 0.22;");
+    expect(html).toMatch(
+      /\[data-agent-native-starfield\]\s*{[^}]*opacity:\s*var\(--b-hero-shader-opacity,\s*0\.15\);/,
+    );
+    expect(html).toMatch(
+      /@media \(prefers-reduced-motion: reduce\)\s*{\s*\[data-agent-native-starfield\]\s*{\s*opacity:\s*var\(--b-hero-shader-opacity,\s*0\.15\);/,
+    );
+    // Let the ocean or fallback background's own opacity token control contrast.
+    expect(html).toMatch(
+      /\.auth-marketing-home\.has-product-screenshot \.auth-marketing-screenshot\s*{[^}]*filter:\s*none;/,
+    );
+    expect(html).not.toMatch(
+      /\.auth-marketing-home\.has-product-screenshot \.auth-marketing-screenshot\s*{[^}]*opacity\s*:/,
     );
   });
 

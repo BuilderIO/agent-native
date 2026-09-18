@@ -26,7 +26,75 @@ vi.mock("./google-auth.js", () => ({
   getOAuth2Credentials: mocks.getOAuth2Credentials,
 }));
 
-import { saveGmailDraft } from "./gmail-drafts.js";
+import { findGmailDraftAccount, saveGmailDraft } from "./gmail-drafts.js";
+
+describe("findGmailDraftAccount", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.listOAuthAccountsByOwner.mockResolvedValue([]);
+    mocks.getOAuthTokens.mockImplementation(
+      async (_provider: string, account: string) => ({
+        access_token: `token:${account}`,
+      }),
+    );
+    mocks.googleFetch.mockResolvedValue({ id: "legacy-draft" });
+  });
+
+  it("checks connected mailboxes for an exact legacy draft ID", async () => {
+    mocks.listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "owner@example.com",
+        displayName: null,
+        tokens: { scope: "https://mail.google.com/" },
+      },
+      {
+        accountId: "secondary@example.com",
+        displayName: null,
+        tokens: { scope: "https://www.googleapis.com/auth/gmail.modify" },
+      },
+    ]);
+    mocks.googleFetch.mockImplementation(
+      async (_url: string, token: string) => {
+        if (token === "token:owner@example.com") {
+          throw new Error("Google API error (404): Not Found");
+        }
+        return { id: "legacy-draft" };
+      },
+    );
+
+    await expect(
+      findGmailDraftAccount({
+        ownerEmail: "owner@example.com",
+        draftId: "legacy-draft",
+      }),
+    ).resolves.toBe("secondary@example.com");
+    expect(mocks.googleFetch).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining("/drafts/legacy-draft"),
+      "token:secondary@example.com",
+    );
+  });
+
+  it("does not turn unreadable Gmail ownership into an absent draft", async () => {
+    mocks.listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "owner@example.com",
+        displayName: null,
+        tokens: { scope: "https://mail.google.com/" },
+      },
+    ]);
+    mocks.googleFetch.mockRejectedValue(
+      new Error("Google API error (403): Insufficient permissions"),
+    );
+
+    await expect(
+      findGmailDraftAccount({
+        ownerEmail: "owner@example.com",
+        draftId: "legacy-draft",
+      }),
+    ).rejects.toThrow("Google API error (403)");
+  });
+});
 
 describe("saveGmailDraft", () => {
   beforeEach(() => {

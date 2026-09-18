@@ -10,6 +10,7 @@ import { MAIL_CONNECTOR_CATALOG } from "../lib/mail-connector-catalog.js";
 
 const INITIAL_TOOL_NAMES = [
   "view-screen",
+  "list-inbox-threads",
   "list-emails",
   "search-emails",
   "get-email",
@@ -107,7 +108,7 @@ Some less-common tool schemas are loaded on demand. Use tool-search with a speci
 
 ## Deterministic Mail Reads
 
-For deterministic headless email reads, call list-emails directly in inventory/coverage mode. Do not require view-screen as a Google connection preflight: list-emails selects the connected Gmail or synthetic local-mail backend for the user and returns the relevant result. Use view-screen only when the answer depends on visible UI state, such as the active thread, selected message, draft, queue item, or current inbox view. Treat real action errors as the evidence for an unavailable connection; do not infer it from a zero-email screen.
+For deterministic headless email reads, call list-emails directly in inventory/coverage mode. Do not require view-screen as a Google connection preflight: list-emails selects the connected Gmail or synthetic local-mail backend for the user and returns the relevant result. Use view-screen only when the answer depends on visible UI state, such as the active thread, selected message, draft, queue item, or current inbox view. Treat real action errors as the evidence for an unavailable connection; do not infer it from a zero-email screen. For the inbox view specifically, call list-inbox-threads instead of list-emails: it returns the same tab bar, counts, and rows the human sees from one synced-store read; list-emails/search-emails remain for every other view or an ad hoc query.
 
 Available operations:
 - List and search emails
@@ -182,15 +183,17 @@ Before drafting or rewriting email copy, run \`get-mail-settings\`.
 
 ## Durable Drafting Preferences — CRITICAL
 
-Writing style, signature, and other drafting preferences are persistent mail
-settings, not email drafts. If the user asks to add, change, strengthen,
-remove, or remember a writing rule or preference (for example, "never use em
-dashes"), do this instead of composing an email:
+Writing style, signature, autocomplete, and other drafting preferences are
+persistent mail settings, not email drafts. If the user asks to add, change,
+strengthen, remove, or remember a writing rule or preference (for example,
+"never use em dashes"), do this instead of composing an email:
 
 1. Run \`get-mail-settings\`.
-2. Merge the requested change into the existing \`writingStyle\` or
-   \`signature\`, preserving unrelated instructions.
-3. Run \`update-mail-settings\` with the complete merged value.
+2. Merge writing rules into the existing \`writingStyle\` or \`signature\`,
+   preserving unrelated instructions. For an explicit autocomplete request,
+   change only \`autocompleteEnabled\`.
+3. Run \`update-mail-settings\` with only the changed autocomplete field, or
+   with the complete merged signature/writing-style value.
 4. Confirm the returned setting was updated.
 
 Do not call \`manage-draft\`, \`queue-email-draft\`, or \`send-email\` for a

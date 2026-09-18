@@ -16,6 +16,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 
 vi.mock("@agent-native/creative-context/client", () => ({
   CreativeContextShareSheet: () => null,
+  useCreativeContextLab: () => false,
 }));
 
 vi.mock("@agent-native/toolkit/sharing", () => ({

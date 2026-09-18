@@ -11,7 +11,10 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
 import { InvitationBanner } from "@agent-native/core/client/org";
-import { CreativeContextComposerChip } from "@agent-native/creative-context/client";
+import {
+  CreativeContextComposerChip,
+  useCreativeContextLab,
+} from "@agent-native/creative-context/client";
 import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
 import { extractGoogleSlidesUrls } from "@shared/google-docs";
 import { IconMenu2 } from "@tabler/icons-react";
@@ -21,6 +24,7 @@ import { useLocation, useNavigate } from "react-router";
 import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
 import {
   hasCurrentSlideSelection,
+  buildSlidesAgentContext,
   readPublishedSlidesSelection,
   SLIDES_SELECTION_CHANGED_EVENT,
   type SlidesAgentSelection,
@@ -63,6 +67,7 @@ export function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const t = useT();
+  const creativeContextEnabled = useCreativeContextLab();
   const isChatRoute =
     location.pathname === "/chat" || location.pathname.startsWith("/chat/");
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
@@ -132,11 +137,13 @@ export function Layout({ children }: LayoutProps) {
     const deckId = match?.[1];
     if (!deckId) return null;
     const hasSelection = hasCurrentSlideSelection(slidesSelection, deckId);
+    const agentContext = buildSlidesAgentContext(slidesSelection, deckId);
     return {
       type: "deck" as const,
       id: deckId,
       label: t(hasSelection ? "agent.currentSelection" : "agent.thisSlide"),
       contextKey: "slides-current-context",
+      ...agentContext,
     };
   }, [location.pathname, slidesSelection, t]);
   const deckChatHistory = useMemo<
@@ -306,7 +313,7 @@ export function Layout({ children }: LayoutProps) {
               <GoogleDriveConnectionCta
                 active={extractGoogleSlidesUrls(composerText).length > 0}
               />
-              <CreativeContextComposerChip />
+              {creativeContextEnabled ? <CreativeContextComposerChip /> : null}
             </>
           }
         >

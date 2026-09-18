@@ -67,6 +67,8 @@ const messages = {
     recordings: "Gravações",
     newFolder: "Nova pasta",
     noSpaces: "Ainda não há espaços",
+    noSpacesAdminCta:
+      "Peça a um administrador da organização para criar o primeiro espaço.",
     desktopCta: "Baixar app desktop",
     desktopTitle: "Baixe o app desktop do Clips.",
     desktopBody:
@@ -80,6 +82,7 @@ const messages = {
     createFolderError: "Falha ao criar",
     folderCreated: "Pasta criada",
     folderNamePlaceholder: "Nome da pasta",
+    breadcrumbBack: "Voltar para {{label}}",
   },
   empty: {
     library: {
@@ -659,6 +662,7 @@ const messages = {
     organizationFallback: "Organização",
     saving: "Salvando…",
     save: "Salvar",
+    saved: "Salvo",
   },
   downloadRoute: {
     pageTitle: "Baixar Clips Desktop",
@@ -671,9 +675,11 @@ const messages = {
     downloadAgain: "Não funcionou? Tente baixar novamente",
     alsoFor: "Também disponível para {{platform}}",
     backToLibrary: "Voltar à biblioteca",
-    clipsDesktop: "Clips Desktop",
+    clipsDesktop: "Baixar Clips",
     stable: "Estável",
     nightly: "Nightly",
+    allPlatforms: "Todas as plataformas",
+    releaseChannel: "Canal de lançamento",
     switchToNightly: "Mudar para builds Nightly",
     switchToStable: "Mudar para builds estáveis",
     retry: "Tentar novamente",
@@ -725,17 +731,17 @@ const messages = {
     agentTitle: "Gerenciar agente",
     title: "Configurações",
     pageTitle: "Configurações · Clips",
-    experiments: "Experimentos",
-    experimentsIntro:
+    labs: "Labs",
+    labsIntro:
       "Estes recursos são novos e instáveis e podem apresentar bugs. Valorizamos seu feedback.",
-    experimentVideoEditing: "Edição de vídeo",
-    experimentVideoEditingDescription: "Experimente o novo editor de vídeo.",
-    experimentMeetings: "Reuniões e transcrição",
-    experimentMeetingsDescription:
+    labVideoEditing: "Edição de vídeo",
+    labVideoEditingDescription: "Experimente o novo editor de vídeo.",
+    labMeetings: "Reuniões e transcrição",
+    labMeetingsDescription:
       "Experimente a captura e a transcrição automáticas de reuniões.",
-    experimentWisprFlow: "Ditado por voz",
-    experimentWisprFlowDescription:
-      "Experimente o novo recurso de ditado por voz.",
+    labWisprFlow: "Ditado por voz",
+    labWisprFlowDescription:
+      "Mostre ou oculte o ditado por voz no Clips Desktop.",
     intro: "Preferências e serviços conectados para este espaço do Clips.",
     preferencesTitle: "Preferências",
     languageTitle: "Idioma",
@@ -972,6 +978,8 @@ const messages = {
     renameFailed: "Falha ao renomear clipe",
     renameClip: "Renomear clipe",
     clipTitle: "Título do clipe",
+    archiveAction: "Arquivar",
+    moveToTrashAction: "Mover para a lixeira",
     movedToTrash: "Movido para a lixeira",
     restoredFromArchive: "Restaurado do arquivo",
     archived: "Arquivado",
@@ -1365,13 +1373,11 @@ const messages = {
     description:
       "Use Chrome when you need browser logs, or desktop for the smoothest everyday capture.",
     chromeTitle: "Chrome extension",
-    chromeDescription:
-      "Best when you want redacted console and network diagnostics from the browser tab.",
+    chromeDescription: "Capture abas do navegador com a extensão do Chrome.",
     chromePendingDescription:
       "Browser logs option is ready, pending the Chrome Web Store URL.",
     desktopTitle: "Desktop app",
-    desktopDescription:
-      "Most seamless for global shortcuts, menu-bar recording, meetings, and repeat captures.",
+    desktopDescription: "Grave com atalhos globais e áudio do sistema.",
     openDesktopApp: "Open desktop app",
   },
   editableTitle: {
@@ -1856,10 +1862,18 @@ const messages = {
       "{{consoleCount}} problemas no console · {{networkCount}} solicitações com falha",
     noFailures: "Nenhuma falha detectada",
     failuresPresent: "Falhas do navegador detectadas",
+    unviewedCount: "{{count}} não vistos",
     captureSuccessful: "Diagnósticos capturados com sucesso",
     capturedFrom: "Capturado de {{source}}",
     browserCapture: "Captura do navegador",
     views: "Visualizações de diagnóstico",
+    timeline: "Linha do tempo",
+    navigation: "Navegação",
+    click: "Clique",
+    input: "Entrada",
+    scroll: "Rolagem",
+    requestStarted: "Solicitação iniciada",
+    responseReceived: "Resposta recebida",
     issues: "Problemas",
     consoleSource: "Console",
     networkSource: "Rede",

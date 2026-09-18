@@ -25,6 +25,7 @@ TypeScript 프레임워크입니다. 각 기능을 [액션](/docs/actions-overvi
 ```bash
 npx --yes @agent-native/core@latest create my-app --standalone --template chat
 cd my-app
+corepack enable
 pnpm install
 ```
 
@@ -47,6 +48,8 @@ pnpm dev
 Welcome 화면에서 **Continue as local dev**를 선택하세요. 로컬 개발에서는 이메일이나 비밀번호를 입력할 필요가 없습니다.
 
 </Callout>
+
+## LLM 연결하기
 
 다음으로 LLM을 연결합니다. 무료 크레딧을 사용하려면 **Connect Builder.io**를 선택하세요. 또는 **Custom keys**를 선택하고, 프로바이더를 고른 뒤 필요한 연결 정보를 입력하세요.
 
@@ -72,6 +75,7 @@ Hello, Alex!
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
+// One action powers every app surface: UI, agent, HTTP, MCP, A2A, and CLI.
 export default defineAction({
   description: "Return a friendly greeting.",
   schema: z.object({

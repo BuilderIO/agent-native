@@ -228,6 +228,35 @@ describe("createHttpAgentChatRuntime", () => {
         .delta,
     ).toEqual({ type: "text", text: "Done" });
   });
+
+  it("lets a transport continue a paused turn with the previous input", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(sseResponse([{ type: "done" }], "run-1"))
+      .mockResolvedValueOnce(sseResponse([{ type: "done" }], "run-2"));
+    const runtime = createHttpAgentChatRuntime({
+      endpoint: "/agent/chat",
+      fetch: fetchMock as typeof fetch,
+      continueTurn: ({ continuation, previousTurn, startTurn }) =>
+        startTurn({
+          ...previousTurn,
+          prompt: continuation.prompt,
+        }),
+    });
+    const session = await runtime.createSession({ id: "thread-1" });
+    const first = await session.startTurn({ prompt: "Start" });
+    await drain(first.events);
+
+    const second = await session.continueTurn?.({ prompt: "Continue" });
+    expect(second).toBeDefined();
+    await drain(second!.events);
+
+    expect(
+      JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)),
+    ).toMatchObject({
+      prompt: "Continue",
+    });
+  });
 });
 
 describe("createAgentNativeChatRuntime", () => {
@@ -254,6 +283,16 @@ describe("createAgentNativeChatRuntime", () => {
           result: "ok",
         },
         { type: "thinking", text: "Double-checking the result." },
+        {
+          type: "suggestions",
+          suggestions: [
+            {
+              id: "review-result",
+              label: "Review result",
+              prompt: "Review the result in detail.",
+            },
+          ],
+        },
         { type: "done" },
       ]),
     );
@@ -285,6 +324,7 @@ describe("createAgentNativeChatRuntime", () => {
       "tool-start",
       "tool-done",
       "message-delta",
+      "suggestions",
       "message-done",
       "done",
     ]);
@@ -320,6 +360,348 @@ describe("createAgentNativeChatRuntime", () => {
         ],
       },
     });
+    expect(events.at(-3)).toMatchObject({
+      type: "suggestions",
+      suggestions: [
+        {
+          id: "review-result",
+          label: "Review result",
+          prompt: "Review the result in detail.",
+        },
+      ],
+    });
+  });
+
+  it("exposes truthful rich capabilities for the Agent-Native stream", () => {
+    const runtime = createAgentNativeChatRuntime();
+
+    expect(runtime.capabilities.rich).toEqual({
+      annotations: false,
+      citations: false,
+      widgets: true,
+      clientEffects: false,
+      uploadProgress: false,
+      participants: true,
+      interactions: true,
+      tasks: true,
+      taskGroups: false,
+      extensions: true,
+      connectionRequests: true,
+    });
+  });
+
+  it("keeps legacy status events while adding structured activity", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        {
+          type: "activity",
+          id: "prepare-1",
+          label: "Preparing action input",
+          tool: "publish-release",
+          progressBytes: 512,
+          seq: 2,
+        },
+        { type: "done" },
+      ]),
+    );
+    const runtime = createAgentNativeChatRuntime({
+      fetch: fetchMock as typeof fetch,
+    });
+
+    const events = await drain(
+      (await (await runtime.createSession()).startTurn({ prompt: "Publish" }))
+        .events,
+    );
+
+    expect(events).toMatchObject([
+      {
+        type: "status",
+        message: "Preparing action input",
+        metadata: {
+          seq: 2,
+          tool: "publish-release",
+          progressBytes: 512,
+          compatibilityMirror: "activity",
+        },
+      },
+      {
+        type: "activity",
+        operation: "update",
+        activity: {
+          id: "prepare-1",
+          kind: "tool",
+          label: "Preparing action input",
+          status: "running",
+          metadata: {
+            seq: 2,
+            tool: "publish-release",
+            progressBytes: 512,
+          },
+        },
+      },
+      { type: "done" },
+    ]);
+  });
+
+  it("normalizes delegated-agent activity and task lifecycles without flattening them", async () => {
+    const snapshot = {
+      kind: "agent-native/agent-activity",
+      version: 1,
+      sequence: 4,
+      startedAt: 1_000,
+      updatedAt: 2_500,
+      durationMs: 1_500,
+      activePhase: "tool",
+      reasoning: ["Inspect the workspace"],
+      toolCalls: [{ name: "read-file", status: "running" }],
+    } as const;
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        {
+          type: "agent_call",
+          agent: "Planck",
+          status: "start",
+          agentCallId: "agent-call-1",
+          taskId: "remote-task-1",
+          seq: 1,
+        },
+        {
+          type: "agent_call_progress",
+          agent: "Planck",
+          agentCallId: "agent-call-1",
+          state: "working",
+          elapsedSeconds: 12,
+          detail: "Reading the protocol contract",
+          seq: 2,
+        },
+        {
+          type: "agent_call_text",
+          agent: "Planck",
+          agentCallId: "agent-call-1",
+          text: "Found the runtime boundary.",
+          seq: 3,
+        },
+        {
+          type: "agent_call_activity",
+          agent: "Planck",
+          agentCallId: "agent-call-1",
+          snapshot,
+          seq: 4,
+        },
+        {
+          type: "agent_call",
+          agent: "Planck",
+          status: "done",
+          agentCallId: "agent-call-1",
+          taskId: "remote-task-1",
+          durationMs: 1_500,
+          terminalCode: "completed",
+          seq: 5,
+        },
+        {
+          type: "agent_task",
+          taskId: "local-task-1",
+          threadId: "thread-rich",
+          description: "Review runtime contracts",
+          status: "running",
+          seq: 6,
+        },
+        {
+          type: "agent_task_update",
+          taskId: "local-task-1",
+          preview: "Runtime contract located",
+          currentStep: "Map event types",
+          seq: 7,
+        },
+        {
+          type: "agent_task_complete",
+          taskId: "local-task-1",
+          summary: "Mapped the runtime contract.",
+          seq: 8,
+        },
+        { type: "done" },
+      ]),
+    );
+    const runtime = createAgentNativeChatRuntime({
+      threadId: "thread-rich",
+      fetch: fetchMock as typeof fetch,
+    });
+
+    const events = await drain(
+      (
+        await (await runtime.createSession({ id: "thread-rich" })).startTurn({
+          prompt: "Review it",
+        })
+      ).events,
+    );
+
+    expect(events.map((event) => event.type)).toEqual([
+      "participant",
+      "interaction",
+      "task",
+      "participant",
+      "activity",
+      "interaction",
+      "activity",
+      "participant",
+      "interaction",
+      "task",
+      "task",
+      "task",
+      "task",
+      "done",
+    ]);
+    expect(events[0]).toMatchObject({
+      type: "participant",
+      operation: "register",
+      participant: {
+        id: "agent-call-1",
+        name: "Planck",
+        status: "working",
+        activeTaskId: "remote-task-1",
+      },
+    });
+    expect(events[4]).toMatchObject({
+      type: "activity",
+      activity: {
+        id: "agent-call-1:progress",
+        detail: "Reading the protocol contract",
+        data: { state: "working", elapsedSeconds: 12 },
+      },
+    });
+    expect(events[6]).toMatchObject({
+      type: "activity",
+      activity: {
+        id: "agent-call-1:activity",
+        data: snapshot,
+        metadata: { sequence: 4, durationMs: 1_500 },
+      },
+    });
+    expect(events[7]).toMatchObject({
+      type: "participant",
+      operation: "update",
+      participant: {
+        status: "completed",
+        metadata: { durationMs: 1_500, terminalCode: "completed" },
+      },
+    });
+    expect(events[13]).toMatchObject({ type: "done" });
+  });
+
+  it("surfaces native and MCP action renderers as composable widgets", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        {
+          type: "tool_done",
+          id: "tool-1",
+          tool: "build-report",
+          result: "Report ready",
+          chatUI: {
+            renderer: "core.data-table",
+            title: "Report",
+          },
+          mcpApp: {
+            serverId: "analytics",
+            toolName: "build-report",
+            originalToolName: "build_report",
+            resourceUri: "ui://analytics/report",
+            toolInput: { reportId: "report-1" },
+            toolResult: { reportId: "report-1" },
+          },
+        },
+        { type: "done" },
+      ]),
+    );
+    const runtime = createAgentNativeChatRuntime({
+      fetch: fetchMock as typeof fetch,
+    });
+
+    const events = await drain(
+      (await (await runtime.createSession()).startTurn({ prompt: "Build" }))
+        .events,
+    );
+
+    expect(events.map((event) => event.type)).toEqual([
+      "tool-done",
+      "widget",
+      "widget",
+      "done",
+    ]);
+    expect(events[1]).toMatchObject({
+      type: "widget",
+      widget: {
+        id: "tool-1:chat-ui",
+        kind: "core.data-table",
+        title: "Report",
+        data: { toolCallId: "tool-1", toolName: "build-report" },
+      },
+    });
+    expect(events[2]).toMatchObject({
+      type: "widget",
+      widget: {
+        id: "tool-1:mcp-app",
+        kind: "mcp-app",
+        object: {
+          id: "ui://analytics/report",
+          kind: "mcp-resource",
+        },
+      },
+    });
+  });
+
+  it("forwards only explicit namespaced rich envelopes as extensions", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        {
+          type: "rich_event",
+          seq: 9,
+          event: {
+            namespace: "com.agent-native.review",
+            name: "checkpoint.created",
+            version: 1,
+            data: { state: "ready" },
+            references: [
+              {
+                kind: "trace",
+                id: "trace-1",
+                label: "Release trace",
+              },
+            ],
+            metadata: { actionId: "release-review" },
+          },
+        },
+        { type: "unregistered_future_event", payload: "ignored" },
+        { type: "done" },
+      ]),
+    );
+    const runtime = createAgentNativeChatRuntime({
+      fetch: fetchMock as typeof fetch,
+    });
+
+    const events = await drain(
+      (await (await runtime.createSession()).startTurn({ prompt: "Review" }))
+        .events,
+    );
+
+    expect(events).toEqual([
+      {
+        type: "extension",
+        sessionId: expect.any(String),
+        turnId: expect.any(String),
+        namespace: "com.agent-native.review",
+        name: "checkpoint.created",
+        version: 1,
+        data: { state: "ready" },
+        references: [{ kind: "trace", id: "trace-1", label: "Release trace" }],
+        metadata: { seq: 9, actionId: "release-review" },
+      },
+      {
+        type: "done",
+        sessionId: expect.any(String),
+        turnId: expect.any(String),
+        reason: "complete",
+      },
+    ]);
   });
 
   it("carries the model-side toolCallId from approval_required", async () => {
@@ -349,9 +731,8 @@ describe("createAgentNativeChatRuntime", () => {
       fetch: fetchMock as typeof fetch,
     });
 
-    const turn = await (
-      await runtime.createSession()
-    ).startTurn({ prompt: "run it" });
+    const session = await runtime.createSession();
+    const turn = await session.startTurn({ prompt: "run it" });
     const events = await drain(turn.events);
 
     expect(
@@ -362,6 +743,124 @@ describe("createAgentNativeChatRuntime", () => {
       toolName: "start-prospect-run",
       allowPersistentApproval: false,
     });
+    expect(events.at(-1)).toMatchObject({
+      type: "done",
+      reason: "tool-use",
+    });
+    expect(session.continueTurn).toBeTypeOf("function");
+  });
+
+  it("continues an approved tool call on the same durable turn", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([
+          { type: "text", text: "Waiting for approval. " },
+          {
+            type: "approval_required",
+            tool: "publish-release",
+            approvalKey: "publish-release:{}",
+            toolCallId: "call-1",
+          },
+          { type: "done" },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        sseResponse([
+          { type: "text", text: "Release published." },
+          { type: "done" },
+        ]),
+      );
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-approval",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession({
+      id: "thread-approval",
+      threadId: "thread-approval",
+    });
+    const first = await session.startTurn({ prompt: "Publish it" });
+    const firstEvents = await drain(first.events);
+
+    const continuation = await session.continueTurn?.({
+      turnId: first.id,
+      approval: {
+        id: "publish-release:{}",
+        approved: true,
+      },
+    });
+    expect(continuation).toBeDefined();
+    const events = await drain(continuation!.events);
+
+    expect(
+      JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)),
+    ).toMatchObject({
+      message: "Approved. Go ahead and run the requested action.",
+      threadId: "thread-approval",
+      turnId: first.id,
+      internalContinuation: true,
+      approvedToolCalls: ["publish-release:{}"],
+    });
+    expect(events.at(-1)).toMatchObject({
+      type: "done",
+      reason: "complete",
+    });
+    const initialMessage = firstEvents.find(
+      (event) => event.type === "message-start",
+    );
+    expect(initialMessage).toMatchObject({
+      type: "message-start",
+      message: { id: expect.any(String) },
+    });
+    expect(events.some((event) => event.type === "message-start")).toBe(false);
+    expect(events.find((event) => event.type === "message-done")).toMatchObject(
+      {
+        message: {
+          id:
+            initialMessage?.type === "message-start"
+              ? initialMessage.message.id
+              : undefined,
+          content: [
+            { type: "text", text: "Waiting for approval. Release published." },
+          ],
+        },
+      },
+    );
+  });
+
+  it("resolves a denied approval without starting another agent run", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        {
+          type: "approval_required",
+          tool: "publish-release",
+          approvalKey: "publish-release:{}",
+        },
+        { type: "done" },
+      ]),
+    );
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-denial",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession({ id: "thread-denial" });
+    const first = await session.startTurn({ prompt: "Publish it" });
+    await drain(first.events);
+
+    const continuation = await session.continueTurn?.({
+      turnId: first.id,
+      approval: {
+        id: "publish-release:{}",
+        approved: false,
+      },
+    });
+    expect(continuation).toBeDefined();
+    expect(await drain(continuation!.events)).toEqual([
+      { type: "done", reason: "complete" },
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
 

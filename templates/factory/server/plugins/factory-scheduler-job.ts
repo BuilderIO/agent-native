@@ -19,24 +19,33 @@ import { and, eq, isNull, lt, ne, or } from "drizzle-orm";
 
 import { getDb } from "../db/index.js";
 import { triageConfig } from "../db/schema.js";
-import { renameFactoryActionMentions } from "../lib/factory-action-names.js";
 import {
   applyAutomationConfigFrontmatter,
-  buildGuardrailsText,
+  assembleAutomationContent,
   canonicalSeedLeafName,
+  composeFactoryAutomationBody,
+  computeExecutionPromptHash,
   defaultAutomationConfig,
+  needsAutomationBodyRepair,
+  normalizeUserPrompt,
   readFactoryAutomationConfig,
-  replaceUserPrompt,
+  readPromptVersion,
+  splitAutomationFrontmatter,
+  replaceAutomationContentWithUserPrompt,
+  restoreFactoryAutomationIdentityFields,
   scheduleCron,
   seedNameForTemplate,
   slugifyAutomationLeaf,
   sourceForTemplate,
-  stripInjectedAutomationBlocks,
   templateIdForSeedName,
-  wrapGuardrails,
   type FactoryAutomationConfig,
   type FactoryAutomationTemplateId,
 } from "../lib/factory-automation-config.js";
+import {
+  deleteFactoryAutomationVersionRow,
+  insertFactoryAutomationVersionRow,
+  type FactoryAutomationVersionRow,
+} from "../lib/factory-automation-history.js";
 import { repairFactoryAutomationsFromConfig } from "../lib/factory-automation-repair.js";
 import { listFactoryAutomationDefinitions } from "../lib/factory-automation-resources.js";
 import {
@@ -53,22 +62,22 @@ import {
 } from "../lib/factory-scope.js";
 import { persistGitHubRepository } from "../lib/github-repository.js";
 import {
+  BABYSIT_DECISION_INSTRUCTION,
+  BABYSIT_FIXED_PATH,
   BABYSIT_SCOPE_INSTRUCTION,
-  repairPrBabysitPrompt,
+  BABYSIT_WORK_RETRIGGER,
 } from "../lib/pr-babysit-prompt.js";
+import { SLACK_FEEDBACK_DISPATCH_INSTRUCTIONS } from "../lib/slack-feedback-prompt.js";
 import {
-  repairSlackFeedbackPrompt,
-  SLACK_FEEDBACK_DISPATCH_INSTRUCTIONS,
-} from "../lib/slack-feedback-prompt.js";
-import {
-  syncManagedReviewSkillAlignment,
-  type FactoryAutomationName,
-} from "../triage/review-skill-alignment.js";
+  recordFactoryAutomationRunPrompt,
+  recordFactoryGovernanceAudit,
+} from "../triage/audit.js";
+import { FACTORY_ALIGNMENT_REVISION } from "../triage/review-skill-alignment.js";
 
 const LEGACY_JOB_PATH = "jobs/factory-observation-scheduler.md";
 const FAILURE_ALERT_COOLDOWN_MS = 15 * 60_000;
 
-type AutomationRunFinishedEvent = {
+export type AutomationRunFinishedEvent = {
   automationRunId: string;
   owner: string;
   automation: string;
@@ -179,18 +188,57 @@ async function notifyFactoryAutomationFailure(
   );
 }
 
+export async function recordFinishedAutomationPrompt(
+  event: AutomationRunFinishedEvent,
+): Promise<void> {
+  if (
+    !event.orgId ||
+    (!event.path.startsWith("jobs/factory-") &&
+      !event.path.startsWith("jobs/factories/"))
+  ) {
+    return;
+  }
+  // list-factory-audit joins audit events by the agent run id (event.runId),
+  // not the core history-row id (event.automationRunId) — every other writer
+  // of factoryAuditEvents.automationRunId already stores the agent run id.
+  // Without one, this row can never be joined to a displayed run.
+  if (!event.runId) return;
+  // Reads the live resource: known gap (Cause 1 in
+  // .tmp/notes/factory-prompt-audit-gap.md) — an edit mid-run can make this
+  // describe a newer prompt than the one that actually executed. Parked
+  // pending the factory_automation_versions rework.
+  const resource = await resourceGetByPath(event.owner, event.path);
+  if (!resource) return;
+  const { body } = splitAutomationFrontmatter(resource.content);
+  const factoryId =
+    readFactoryIdFromAutomationPath(event.path) ?? DEFAULT_FACTORY_ID;
+  await recordFactoryAutomationRunPrompt({
+    identity: { userEmail: event.owner, orgId: event.orgId },
+    automationRunId: event.runId,
+    factoryId,
+    path: event.path,
+    promptVersion: readPromptVersion(resource.content),
+    executionPromptHash: computeExecutionPromptHash(body),
+  });
+}
+
 function subscribeToAutomationFailures(): void {
   if (failureAlertSubscription) return;
-  failureAlertSubscription = subscribe("automation.run.finished", (payload) =>
-    notifyFactoryAutomationFailure(payload as AutomationRunFinishedEvent).catch(
-      (error) => {
-        console.error(
-          "[factory-scheduler-job] automation failure alert failed:",
-          error,
-        );
-      },
-    ),
-  );
+  failureAlertSubscription = subscribe("automation.run.finished", (payload) => {
+    const event = payload as AutomationRunFinishedEvent;
+    void recordFinishedAutomationPrompt(event).catch((error) => {
+      console.error(
+        "[factory-scheduler-job] automation run prompt audit failed:",
+        error,
+      );
+    });
+    void notifyFactoryAutomationFailure(event).catch((error) => {
+      console.error(
+        "[factory-scheduler-job] automation failure alert failed:",
+        error,
+      );
+    });
+  });
 }
 
 type AutomationSeed = {
@@ -356,21 +404,20 @@ confirms it.
     schedule: "*/5 * * * *",
     legacySchedules: ["*/2 * * * *"],
     model: FACTORY_DEFAULT_MODEL,
-    maxIterations: FACTORY_DEFAULT_MAX_ITERATIONS,
+    maxIterations: 12,
     maxRunInputTokens: FACTORY_DEFAULT_MAX_RUN_INPUT_TOKENS,
     body: `
 # Factory PR babysitting
 
-Call poll-github-sources with includeIssues false and includePullRequests true.
-List at most 3 new or changed pull requests by passing needsReview true, source
-github, and limit 3. Never list the full queue or use the action's default page
-size. Each item includes author.
+${BABYSIT_FIXED_PATH}
 
 ${BABYSIT_SCOPE_INSTRUCTION}
 
-When inScope is true, call babysit-factory-pull-request. It owns GitHub
-evidence, the hardcoded comment, and the quiet window. Never approve or merge.
-Preserve action errors.
+${BABYSIT_WORK_RETRIGGER}
+
+${BABYSIT_DECISION_INSTRUCTION}
+
+Never approve or merge. Preserve action errors.
 `,
   },
 ];
@@ -422,25 +469,6 @@ function frontmatterField(content: string, key: string): string | undefined {
   return value.replace(/^("|')|(("|')$)/g, "");
 }
 
-function automationFactoryScopeInstruction(factoryId: string): string {
-  return `This automation runs for factory \`${factoryId}\`. Pass \`factoryId: "${factoryId}"\` on every Factory triage, poll, and config action in this run.`;
-}
-
-function repairAutomationFactoryScopeInstruction(
-  content: string,
-  factoryId: string,
-): string {
-  if (content.includes(`Pass \`factoryId: "${factoryId}"\``)) {
-    return content;
-  }
-  const end = content.indexOf("\n---", 4);
-  if (end === -1) {
-    return `${automationFactoryScopeInstruction(factoryId)}\n\n${content.trim()}\n`;
-  }
-  const insertAt = end + 4;
-  return `${content.slice(0, insertAt)}\n\n${automationFactoryScopeInstruction(factoryId)}\n${content.slice(insertAt)}`;
-}
-
 function automationContent(
   ownerEmail: string,
   orgId: string,
@@ -451,11 +479,6 @@ function automationContent(
   displayName?: string,
   userPrompt?: string,
 ): string {
-  const alignmentName = seed.name as FactoryAutomationName;
-  const body = syncManagedReviewSkillAlignment(
-    (userPrompt?.trim() || seed.body).trim(),
-    alignmentName,
-  );
   const resolved = config ?? defaultAutomationConfig("slack", "blank");
   let content = `---
 schedule: "${scheduleCron(resolved)}"
@@ -470,10 +493,8 @@ runAs: creator
 model: ${seed.model}
 maxIterations: ${seed.maxIterations}
 maxRunInputTokens: ${seed.maxRunInputTokens}
+alignmentRevision: ${FACTORY_ALIGNMENT_REVISION}
 ---
-${wrapGuardrails(buildGuardrailsText(factoryId, resolved))}
-
-${body.trim()}
 `;
   content = applyAutomationConfigFrontmatter(content, resolved);
   if (displayName?.trim()) {
@@ -483,7 +504,32 @@ ${body.trim()}
       displayName.trim(),
     );
   }
-  return replaceUserPrompt(content, body.trim());
+  const promptText = normalizeUserPrompt(
+    (userPrompt?.trim() || seed.body).trim(),
+  );
+  return replaceAutomationContentWithUserPrompt(content, promptText, seed.name);
+}
+
+function recomposeAutomationBody(
+  content: string,
+  automationName: string,
+  factoryId: string,
+): string {
+  const config = readFactoryAutomationConfig(content, automationName);
+  const { frontmatter } = splitAutomationFrontmatter(content);
+  const body = composeFactoryAutomationBody({
+    userPrompt: normalizeUserPrompt(content),
+    automationName,
+    factoryId,
+    config,
+  });
+  let next = assembleAutomationContent(frontmatter, body);
+  next = setAutomationFrontmatterField(
+    next,
+    "alignmentRevision",
+    String(FACTORY_ALIGNMENT_REVISION),
+  );
+  return next;
 }
 
 async function disableLegacyObserver(): Promise<void> {
@@ -527,10 +573,16 @@ export async function ensureFactoryAutomations(
         return;
       }
 
+      const originalContent = existing.content;
+      let repaired = originalContent;
+      const bodyRepairNeeded = needsAutomationBodyRepair(repaired);
+      if (bodyRepairNeeded) {
+        repaired = recomposeAutomationBody(repaired, leafName, factoryId);
+      }
+      const contentBeforeMetadata = repaired;
+
       // Earlier Factory versions created these rows without identity and run
-      // budget metadata. Preserve explicit prompt/model/budget edits, while
-      // repairing only missing defaults and the old built-in poll cadence.
-      let repaired = renameFactoryActionMentions(existing.content);
+      // budget metadata. Repair YAML only unless gated body repair above ran.
       repaired = setFrontmatterField(repaired, "triggerType", "schedule");
       repaired = setFrontmatterField(repaired, "domain", "factory");
       repaired = setFrontmatterField(repaired, "appId", "factory");
@@ -562,20 +614,6 @@ export async function ensureFactoryAutomations(
       ) {
         repaired = setFrontmatterField(repaired, "schedule", seed.schedule);
       }
-      // Keyed by the seed, not the leaf: a copy like `factory-pr-babysit-2`
-      // runs the same review contract, and an unrecognized name would silently
-      // skip the alignment block instead of syncing it.
-      repaired = syncManagedReviewSkillAlignment(
-        repaired,
-        seed.name as FactoryAutomationName,
-      );
-      if (seed.name === "factory-slack-feedback") {
-        repaired = repairSlackFeedbackPrompt(repaired);
-      }
-      if (seed.name === "factory-pr-babysit") {
-        repaired = repairPrBabysitPrompt(repaired);
-      }
-      repaired = repairAutomationFactoryScopeInstruction(repaired, factoryId);
       // Every row here matched a seed, so the leaf resolves a definite source.
       // Nothing in this loop may fall back to a guess.
       const existingConfig = readFactoryAutomationConfig(repaired, leafName);
@@ -586,24 +624,110 @@ export async function ensureFactoryAutomations(
             ? templateIdForSeedName(leafName)
             : existingConfig.template,
       });
-      repaired = replaceUserPrompt(
+      repaired = restoreFactoryAutomationIdentityFields(
+        originalContent,
         repaired,
-        stripInjectedAutomationBlocks(repaired),
+        leafName,
       );
-      if (repaired === existing.content) return;
+      if (repaired === originalContent) return;
 
-      const updated = await resourcePutIfCurrent({
-        owner,
-        path,
-        content: repaired,
-        mimeType: "text/markdown",
-        expectedId: existing.id,
-        expectedUpdatedAt: existing.updatedAt,
-        expectedContent: existing.content,
-      });
+      // Insert the predecessor snapshot before the live write commits, same
+      // as save/restore: if the write below fails, this is just an unused
+      // extra row, but the reverse order would let the repair commit with no
+      // recoverable pre-repair version when the history insert fails.
+      let insertedRepairVersion: FactoryAutomationVersionRow | null = null;
+      if (bodyRepairNeeded) {
+        const automationName = factoryAutomationRunHistoryKey(path);
+        // Unconditional, not the no-op-skipping insert: repair's whole
+        // purpose is recording a change (deduped injected blocks) that the
+        // user-facing-identity no-op check would otherwise treat as
+        // unchanged, since normalizing strips those blocks either way.
+        insertedRepairVersion = await insertFactoryAutomationVersionRow({
+          automationId: existing.id,
+          factoryId,
+          orgId,
+          userEmail: ownerEmail,
+          automationName,
+          content: originalContent,
+          summary: "Before deduped injected prompt blocks",
+          source: "repair",
+        });
+        // The row above claims the current live version number as its own.
+        // Leaving the live promptVersion unchanged would let the next normal
+        // save try to insert that same number again and collide with the
+        // unique (orgId, automationId, version) index, so the repaired
+        // content must advance past it.
+        repaired = setFrontmatterField(
+          repaired,
+          "promptVersion",
+          String(insertedRepairVersion.version + 1),
+        );
+      }
+      // A thrown write failure must compensate exactly like a falsy return —
+      // resourcePutIfCurrent has no try/catch of its own.
+      let updated: Awaited<ReturnType<typeof resourcePutIfCurrent>> = null;
+      let writeError: unknown;
+      try {
+        updated = await resourcePutIfCurrent({
+          owner,
+          path,
+          content: repaired,
+          mimeType: "text/markdown",
+          expectedId: existing.id,
+          expectedUpdatedAt: existing.updatedAt,
+          expectedContent: originalContent,
+        });
+      } catch (error) {
+        writeError = error;
+      }
+      if (!updated && insertedRepairVersion) {
+        await deleteFactoryAutomationVersionRow({
+          id: insertedRepairVersion.id,
+          orgId,
+        }).catch((cleanupError) => {
+          console.error(
+            `[factory-scheduler-job] failed to remove orphaned predecessor version ${insertedRepairVersion.id} after a failed repair write:`,
+            cleanupError,
+          );
+        });
+      }
+      if (writeError) {
+        console.warn(
+          `[factory-scheduler-job] metadata repair failed for ${path}:`,
+          writeError,
+        );
+        return;
+      }
       if (!updated) {
         console.warn(
           `[factory-scheduler-job] skipped metadata repair for ${path}: the resource changed concurrently`,
+        );
+        return;
+      }
+      if (bodyRepairNeeded) {
+        await recordFactoryGovernanceAudit(
+          { userEmail: ownerEmail, orgId },
+          {
+            action: "repair-factory-automation-body",
+            kind: "governance",
+            status: "success",
+            factoryId,
+            summary: `Recomposed prompt body for ${leafName}.`,
+            details: { path, resourceId: existing.id },
+          },
+        );
+      }
+      if (repaired !== contentBeforeMetadata) {
+        await recordFactoryGovernanceAudit(
+          { userEmail: ownerEmail, orgId },
+          {
+            action: "repair-factory-automation-metadata",
+            kind: "governance",
+            status: "success",
+            factoryId,
+            summary: `Repaired metadata for ${leafName}.`,
+            details: { path, resourceId: existing.id },
+          },
         );
       }
     }),

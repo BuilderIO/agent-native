@@ -116,6 +116,7 @@ export function shouldInvalidateAnalyticsQueryForAction(query: {
 }): boolean {
   const [scope, name] = query.queryKey;
   if (
+    (scope === "data" && name === "sql-dashboard") ||
     scope === "sql-chart" ||
     scope === "sql-dashboards-sidebar" ||
     scope === "analyses-sidebar" ||

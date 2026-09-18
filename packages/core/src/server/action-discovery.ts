@@ -1,5 +1,6 @@
 import nodePath from "node:path";
 
+import "../authorization/check-action.js";
 /**
  * Auto-discover actions from a template's actions/ directory.
  *
@@ -41,7 +42,9 @@ async function getFs(): Promise<typeof import("fs")> {
   }
   return _fs;
 }
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
+
+import { importRuntimeSourceModule } from "./runtime-source-module.js";
 
 /** Files to skip during auto-discovery (no extension). */
 const SKIP_FILES = new Set([
@@ -211,6 +214,13 @@ function wrapDefaultExport(
 
 function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   const out: Partial<ActionEntry> = {};
+  if (
+    entry.access &&
+    typeof entry.access === "object" &&
+    !Array.isArray(entry.access)
+  ) {
+    out.access = entry.access;
+  }
   if (typeof entry.agentTool === "boolean") out.agentTool = entry.agentTool;
   if (typeof entry.mcpTool === "boolean") out.mcpTool = entry.mcpTool;
   if (typeof entry.deferLoading === "boolean") {
@@ -219,6 +229,7 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   if (typeof entry.requiresAuth === "boolean") {
     out.requiresAuth = entry.requiresAuth;
   }
+  if (typeof entry.uiOnly === "boolean") out.uiOnly = entry.uiOnly;
   if (typeof entry.readOnly === "boolean") out.readOnly = entry.readOnly;
   if (typeof entry.grounding === "boolean") out.grounding = entry.grounding;
   if (typeof entry.allowInPlanMode === "boolean") {
@@ -242,6 +253,13 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   }
   if (typeof entry.toolCallable === "boolean") {
     out.toolCallable = entry.toolCallable;
+  }
+  if (
+    Array.isArray(entry.capabilityScopes) &&
+    entry.capabilityScopes.length > 0 &&
+    entry.capabilityScopes.every((scope: unknown) => typeof scope === "string")
+  ) {
+    out.capabilityScopes = entry.capabilityScopes;
   }
   if (
     entry.publicAgent &&
@@ -281,29 +299,6 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
     out.allowPersistentApproval = entry.allowPersistentApproval;
   }
   return out;
-}
-
-function shouldRetryWithJiti(filePath: string, err: unknown): boolean {
-  if (!filePath.endsWith(".ts")) return false;
-  const candidate = err as { code?: unknown; message?: unknown } | undefined;
-  if (candidate?.code === "ERR_UNKNOWN_FILE_EXTENSION") return true;
-  return /Unknown file extension ".ts"/.test(String(candidate?.message ?? ""));
-}
-
-async function importRuntimeSourceModule(
-  filePath: string,
-): Promise<Record<string, any>> {
-  try {
-    return await import(/* @vite-ignore */ pathToFileURL(filePath).href);
-  } catch (err) {
-    if (!shouldRetryWithJiti(filePath, err)) throw err;
-
-    const { createJiti } = await import("jiti");
-    const jiti = createJiti(pathToFileURL(filePath).href, {
-      interopDefault: true,
-    });
-    return (await jiti.import(filePath)) as Record<string, any>;
-  }
 }
 
 /**
@@ -646,6 +641,32 @@ export async function mergeCoreSharingActions(
       "create-agent-resource-link",
       () => import("../sharing/actions/create-agent-resource-link.js"),
     ],
+    [
+      "list-app-member-roles",
+      () => import("../org/actions/list-app-member-roles.js"),
+    ],
+    [
+      "set-app-member-roles",
+      () => import("../org/actions/set-app-member-roles.js"),
+    ],
+    [
+      "list-app-permissions",
+      () => import("../org/actions/list-app-permissions.js"),
+    ],
+    [
+      "set-app-permission-roles",
+      () => import("../org/actions/set-app-permission-roles.js"),
+    ],
+    [
+      "list-workspace-app-access",
+      () => import("../org/actions/list-workspace-app-access.js"),
+    ],
+    [
+      "set-workspace-app-access",
+      () => import("../org/actions/set-workspace-app-access.js"),
+    ],
+    ["explain-access", () => import("../org/actions/explain-access.js")],
+    ["offboard-member", () => import("../org/actions/offboard-member.js")],
     ["upload-image", () => import("../file-upload/actions/upload-image.js")],
     [
       "list-workspace-user-groups",
@@ -718,6 +739,8 @@ export async function mergeCoreSharingActions(
       "set-feature-flag",
       () => import("../feature-flags/actions/set-feature-flag.js"),
     ],
+    ["get-labs", () => import("../labs/actions/get-labs.js")],
+    ["set-lab", () => import("../labs/actions/set-lab.js")],
     [
       "get-experiments",
       () => import("../experiments/actions/get-experiments.js"),
@@ -820,6 +843,10 @@ export async function mergeCoreSharingActions(
       () => import("../user-profile/actions/change-password.js"),
     ],
     [
+      "request-privacy-right",
+      () => import("../user-profile/actions/request-privacy-right.js"),
+    ],
+    [
       "change-appearance",
       () => import("../appearance/actions/change-appearance.js"),
     ],
@@ -872,8 +899,16 @@ export async function mergeCoreSharingActions(
       () => import("../review/actions/resolve-review-thread.js"),
     ],
     [
+      "update-review-comment-anchor",
+      () => import("../review/actions/update-review-comment-anchor.js"),
+    ],
+    [
       "delete-review-comment",
       () => import("../review/actions/delete-review-comment.js"),
+    ],
+    [
+      "update-review-comment",
+      () => import("../review/actions/update-review-comment.js"),
     ],
     [
       "consume-review-feedback",
@@ -890,6 +925,46 @@ export async function mergeCoreSharingActions(
     [
       "send-review-thread-to-agent",
       () => import("../review/actions/send-review-thread-to-agent.js"),
+    ],
+    [
+      "react-to-review-comment",
+      () => import("../review/actions/react-to-review-comment.js"),
+    ],
+    [
+      "set-review-thread-unread",
+      () => import("../review/actions/set-review-thread-unread.js"),
+    ],
+    [
+      "set-review-threads-unread",
+      () => import("../review/actions/set-review-threads-unread.js"),
+    ],
+    [
+      "set-review-thread-muted",
+      () => import("../review/actions/set-review-thread-muted.js"),
+    ],
+    [
+      "create-resource-suggestion",
+      () =>
+        import("../review/suggestions/actions/create-resource-suggestion.js"),
+    ],
+    [
+      "list-resource-suggestions",
+      () =>
+        import("../review/suggestions/actions/list-resource-suggestions.js"),
+    ],
+    [
+      "update-resource-suggestion",
+      () =>
+        import("../review/suggestions/actions/update-resource-suggestion.js"),
+    ],
+    [
+      "get-resource-suggestion",
+      () => import("../review/suggestions/actions/get-resource-suggestion.js"),
+    ],
+    [
+      "decide-resource-suggestion",
+      () =>
+        import("../review/suggestions/actions/decide-resource-suggestion.js"),
     ],
     // Org service tokens (CI credentials, e.g. PLAN_RECAP_TOKEN). Mint/revoke
     // are toolCallable:false — preserved via preserveActionFlags below.

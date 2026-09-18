@@ -23,7 +23,6 @@
  */
 
 import { defineAction } from "@agent-native/core/action";
-import { getText, hasCollabState } from "@agent-native/core/collab";
 import { accessFilter } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -36,6 +35,7 @@ import {
   safeFigmaSvgFilename,
 } from "../server/lib/design-to-figma-svg.js";
 import { isMissingBrowserError } from "../server/lib/playwright-runtime.js";
+import { readLiveSourceFile } from "../server/source-workspace.js";
 import { parseCanvasFrameGeometryById } from "../shared/canvas-frames.js";
 import { buildCodeLayerProjection } from "../shared/code-layer.js";
 import { buildFigmaNodeSpec } from "../shared/figma-node-spec.js";
@@ -45,15 +45,17 @@ async function liveContent(
   fileId: string,
   storedContent: string,
 ): Promise<string> {
-  try {
-    if (await hasCollabState(fileId)) {
-      const live = await getText(fileId, "content");
-      if (typeof live === "string") return live;
-    }
-  } catch {
-    // SQL content is the deterministic fallback.
-  }
-  return storedContent;
+  return (
+    await readLiveSourceFile({
+      id: fileId,
+      designId: "",
+      filename: "index.html",
+      fileType: "html",
+      content: storedContent,
+      createdAt: null,
+      updatedAt: null,
+    })
+  ).content;
 }
 
 /** Model-actionable message when no headless Chromium binary is available. */
@@ -231,7 +233,9 @@ export default defineAction({
 
     const db = getDb();
     const conditions = [
-      accessFilter(schema.designs, schema.designShares),
+      accessFilter(schema.designs, schema.designShares, undefined, "viewer", {
+        includePublic: true,
+      }),
       fileId
         ? eq(schema.designFiles.id, fileId)
         : eq(schema.designFiles.designId, designId ?? ""),

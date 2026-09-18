@@ -34,6 +34,17 @@ describe("resolveFeedbackUrl", () => {
     expect(resolveFeedbackUrl(undefined, "fakeagent-native.com")).toBeNull();
   });
 
+  it("uses the Agent-Native feedback form on local first-party template hosts", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_FEEDBACK_URL", "");
+
+    expect(resolveFeedbackUrl(undefined, "localhost")).toBe(
+      "https://forms.agent-native.com/f/agent-native-feedback/_16ewV",
+    );
+    expect(resolveFeedbackUrl(undefined, "127.0.0.1")).toBe(
+      "https://forms.agent-native.com/f/agent-native-feedback/_16ewV",
+    );
+  });
+
   it("keeps the first-party fallback out of the server-rendered tree", () => {
     vi.stubEnv("VITE_AGENT_NATIVE_FEEDBACK_URL", "");
     vi.stubGlobal("location", { hostname: "analytics.agent-native.com" });

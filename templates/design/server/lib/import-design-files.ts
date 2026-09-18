@@ -4,8 +4,8 @@ import {
   hasCollabState,
   seedFromText,
 } from "@agent-native/core/collab";
-import { assertAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
+import { and, eq, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import {
@@ -15,6 +15,7 @@ import {
 } from "../../shared/canvas-frames.js";
 import { annotateScreenHtmlForPersist } from "../../shared/screen-annotation.js";
 import { getDb, schema } from "../db/index.js";
+import { designSourceMutationLockKey } from "../source-workspace.js";
 import { mutateDesignData } from "./design-data-mutation.js";
 
 const DEFAULT_FRAME_WIDTH = 1440;
@@ -25,6 +26,8 @@ export interface ImportedDesignFile {
   filename: string;
   fileType: "html" | "css" | "jsx" | "asset";
   content: string;
+  /** Stable retry marker for a browser import request. */
+  operationSource?: string;
   source?: Record<string, unknown>;
   preferredFrame?: {
     title?: string;
@@ -50,12 +53,96 @@ export interface SavedImportedDesignFile {
   source?: Record<string, unknown>;
 }
 
+export async function findImportedDesignFileByOperationSource(
+  designId: string,
+  operationSource: string,
+): Promise<{
+  file: SavedImportedDesignFile;
+  placed: boolean;
+} | null> {
+  const access = await resolveAccess("design", designId);
+  if (!access) return null;
+  const db = getDb();
+  const [file] = await db
+    .select()
+    .from(schema.designFiles)
+    .where(
+      and(
+        eq(schema.designFiles.designId, designId),
+        eq(schema.designFiles.contentOperationSource, operationSource),
+      ),
+    )
+    .limit(1);
+  if (!file) return null;
+
+  let metadata: Record<string, unknown> | undefined;
+  try {
+    const parsed = access.resource.data
+      ? JSON.parse(access.resource.data)
+      : null;
+    const screenMetadata = isRecord(parsed) ? parsed.screenMetadata : null;
+    const candidate = isRecord(screenMetadata)
+      ? screenMetadata[file.id]
+      : undefined;
+    metadata = isRecord(candidate) ? candidate : undefined;
+  } catch {
+    metadata = undefined;
+  }
+
+  return {
+    file: {
+      id: file.id,
+      filename: file.filename,
+      fileType: file.fileType,
+      source: metadata,
+    },
+    placed: metadata?.operationSource === operationSource,
+  };
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function jsonValuesEqual(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function isOperationSourceUniqueViolation(error: unknown): boolean {
+  return (error instanceof Error ? error.message : String(error)).includes(
+    "design_files_design_operation_source_unique_idx",
+  );
+}
+
+function nextImportedFrameZ(currentCanvasFrames: unknown): number {
+  const currentFrames = parseCanvasFrameGeometryById(currentCanvasFrames);
+  const currentFrameEntries = Object.values(currentFrames);
+  const highestPersistedZ = Math.max(
+    -1,
+    ...currentFrameEntries
+      .map((frame) => frame.z)
+      .filter((z): z is number => typeof z === "number" && Number.isFinite(z)),
+  );
+  // canvasFrames is the durable screen-frame map. Board placement is stored
+  // separately, so every entry contributes to the screen stack.
+  // Screens without persisted z use their source order as the fallback. The
+  // count keeps a new import above those entries too, while persisted z wins
+  // for designs that already have an explicit stack.
+  return Math.max(currentFrameEntries.length, highestPersistedZ + 1);
+}
+
+function nextImportedFrameX(currentCanvasFrames: unknown): number {
+  const currentFrames = Object.values(
+    parseCanvasFrameGeometryById(currentCanvasFrames),
+  );
+  const right = currentFrames.reduce((maxRight, frame) => {
+    const x = frame.x ?? 0;
+    const width = frame.width ?? 0;
+    return Number.isFinite(x) && Number.isFinite(width)
+      ? Math.max(maxRight, x + width)
+      : maxRight;
+  }, 0);
+  return currentFrames.length > 0 ? right + FRAME_GAP : 0;
 }
 
 function stringFromState(value: unknown, key: string): string | undefined {
@@ -192,6 +279,7 @@ export async function saveImportedDesignFiles(
   const savedFiles: SavedImportedDesignFile[] = [];
   const seedRecords: Array<{ id: string; content: string }> = [];
   const placements: CanvasFramePlacement[] = [];
+  let placementsForPersistence: CanvasFramePlacement[] = placements;
   const metadataByFileId = new Map<string, Record<string, unknown>>();
   let placedFrames:
     | Array<{
@@ -210,83 +298,134 @@ export async function saveImportedDesignFiles(
     isApplied: () => true,
   });
 
-  await db.transaction(async (tx) => {
-    const [design] = await tx
-      .select()
-      .from(schema.designs)
-      .where(eq(schema.designs.id, designId))
-      .limit(1);
-    if (!design) throw new Error(`Design ${designId} was not found.`);
-
-    const existingFiles = await tx
-      .select()
-      .from(schema.designFiles)
-      .where(eq(schema.designFiles.designId, designId));
-    const usedFilenames = new Set(existingFiles.map((file) => file.filename));
-    let nextFrameX = 0;
-
-    for (let index = 0; index < input.files.length; index += 1) {
-      const file = input.files[index]!;
-      const filename = uniqueFilename(
-        ensureExtension(sanitizeImportedFilename(file.filename), file.fileType),
-        usedFilenames,
+  try {
+    await db.transaction(async (tx) => {
+      await tx.execute(
+        sql`SELECT pg_advisory_xact_lock(hashtextextended(${designSourceMutationLockKey(designId)}, 0::bigint))`,
       );
-      const fileId = nanoid();
-      // Exact native clones are immutable source evidence. Other imports are
-      // annotated before persistence so editor operations can address nodes.
-      const annotatedContent = input.preserveExactContent
-        ? file.content
-        : annotateScreenHtmlForPersist(file.content, file.fileType);
-      await tx.insert(schema.designFiles).values({
-        id: fileId,
-        designId,
-        filename,
-        fileType: file.fileType,
-        content: annotatedContent,
-        createdAt: now,
-        updatedAt: now,
-      });
-      seedRecords.push({ id: fileId, content: annotatedContent });
+      const [design] = await tx
+        .select()
+        .from(schema.designs)
+        .where(eq(schema.designs.id, designId))
+        .limit(1);
+      if (!design) throw new Error(`Design ${designId} was not found.`);
 
-      const width = positiveDimension(
-        file.preferredFrame?.width,
-        DEFAULT_FRAME_WIDTH,
-      );
-      const height = positiveDimension(
-        file.preferredFrame?.height,
-        DEFAULT_FRAME_HEIGHT,
-      );
-      placements.push({
-        fileId,
-        filename,
-        x: file.preferredFrame?.x ?? nextFrameX,
-        y: file.preferredFrame?.y ?? 0,
-        width,
-        height,
-        z: index,
-      });
-      nextFrameX += width + FRAME_GAP;
-      const source = {
-        sourceType: input.sourceType,
-        previewState: "static",
-        title: file.preferredFrame?.title ?? filename.replace(/\.[^.]+$/, ""),
-        width,
-        height,
-        ...file.source,
-      };
-      metadataByFileId.set(fileId, source);
-      savedFiles.push({
-        id: fileId,
-        filename,
-        fileType: file.fileType,
-        source,
-      });
+      const existingFiles = await tx
+        .select()
+        .from(schema.designFiles)
+        .where(eq(schema.designFiles.designId, designId));
+      const usedFilenames = new Set(existingFiles.map((file) => file.filename));
+
+      for (let index = 0; index < input.files.length; index += 1) {
+        const file = input.files[index]!;
+        const [existing] = file.operationSource
+          ? await tx
+              .select()
+              .from(schema.designFiles)
+              .where(
+                and(
+                  eq(schema.designFiles.designId, designId),
+                  eq(
+                    schema.designFiles.contentOperationSource,
+                    file.operationSource,
+                  ),
+                ),
+              )
+              .limit(1)
+          : [];
+        const filename =
+          existing?.filename ??
+          uniqueFilename(
+            ensureExtension(
+              sanitizeImportedFilename(file.filename),
+              file.fileType,
+            ),
+            usedFilenames,
+          );
+        const fileId = existing?.id ?? nanoid();
+        // Exact native clones are immutable source evidence. Other imports are
+        // annotated before persistence so editor operations can address nodes.
+        const annotatedContent = input.preserveExactContent
+          ? file.content
+          : annotateScreenHtmlForPersist(file.content, file.fileType);
+        if (!existing) {
+          await tx.insert(schema.designFiles).values({
+            id: fileId,
+            designId,
+            filename,
+            fileType: file.fileType,
+            content: annotatedContent,
+            contentOperationSource: file.operationSource ?? null,
+            createdAt: now,
+            updatedAt: now,
+          });
+          seedRecords.push({ id: fileId, content: annotatedContent });
+        } else {
+          seedRecords.push({ id: fileId, content: existing.content });
+        }
+
+        const width = positiveDimension(
+          file.preferredFrame?.width,
+          DEFAULT_FRAME_WIDTH,
+        );
+        const height = positiveDimension(
+          file.preferredFrame?.height,
+          DEFAULT_FRAME_HEIGHT,
+        );
+        placements.push({
+          fileId,
+          filename,
+          ...(file.preferredFrame?.x !== undefined
+            ? { x: file.preferredFrame.x }
+            : {}),
+          y: file.preferredFrame?.y ?? 0,
+          width,
+          height,
+          z: index,
+        });
+        const source = {
+          sourceType: input.sourceType,
+          previewState: "static",
+          title: file.preferredFrame?.title ?? filename.replace(/\.[^.]+$/, ""),
+          width,
+          height,
+          ...file.source,
+        };
+        metadataByFileId.set(fileId, source);
+        savedFiles.push({
+          id: fileId,
+          filename,
+          fileType: file.fileType,
+          source,
+        });
+      }
+    });
+  } catch (error) {
+    if (
+      input.files.some((file) => file.operationSource) &&
+      isOperationSourceUniqueViolation(error)
+    ) {
+      return saveImportedDesignFiles(input);
     }
-  });
+    throw error;
+  }
 
   await mutateDesignData({
     designId,
     mutate: (current, { updatedAt }) => {
+      let nextFrameX = nextImportedFrameX(current.canvasFrames);
+      placementsForPersistence = placements.map((placement, index) => {
+        const x = placement.x ?? nextFrameX;
+        nextFrameX = Math.max(
+          nextFrameX,
+          x + (placement.width ?? 0) + FRAME_GAP,
+        );
+        return {
+          ...placement,
+          x,
+          z: nextImportedFrameZ(current.canvasFrames) + index,
+        };
+      });
       const previousMetadata = isRecord(current.screenMetadata)
         ? { ...current.screenMetadata }
         : {};
@@ -295,7 +434,7 @@ export async function saveImportedDesignFiles(
       }
       const mergedFrames = mergeCanvasFramePlacements({
         existing: current.canvasFrames,
-        placements,
+        placements: placementsForPersistence,
         resolveFileId: (placement) => placement.fileId,
       });
       placedFrames = mergedFrames.placedFrames;
@@ -316,7 +455,7 @@ export async function saveImportedDesignFiles(
       return savedFiles.every((file) => {
         const frame = currentFrames[file.id];
         const metadata = currentMetadata[file.id];
-        const placement = placements.find(
+        const placement = placementsForPersistence.find(
           (candidate) => candidate.fileId === file.id,
         );
         const expectedFrame = placement

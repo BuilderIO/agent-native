@@ -73,6 +73,8 @@ export interface GitHubPullRequest {
   body: string | null;
   state: string;
   draft: boolean;
+  merged: boolean;
+  mergedAt: string | null;
   htmlUrl: string;
   userId: number;
   userLogin: string;
@@ -126,6 +128,25 @@ export interface GitHubMergeResult {
 export interface GitHubComment {
   id: number;
   htmlUrl: string;
+  author: string;
+}
+
+export interface GitHubIssueCommentObservation {
+  id: string;
+  author: string;
+  body: string;
+  createdAt: string;
+  htmlUrl: string;
+}
+
+/**
+ * `truncated` is a cannot-confirm marker, not a hint. A capped page proves
+ * nothing about a body it did not return, so a caller asking "have we already
+ * posted this?" must refuse rather than read a short list as "no".
+ */
+export interface GitHubIssueCommentPage {
+  comments: readonly GitHubIssueCommentObservation[];
+  truncated: boolean;
 }
 
 export class GitHubRequestError extends Error {
@@ -178,6 +199,7 @@ export interface GitHubOpenItemPage<T> {
 }
 
 const MAX_REVIEW_PAGES = 5;
+const MAX_ISSUE_COMMENT_PAGES = 5;
 
 interface JsonResponse {
   ok: boolean;
@@ -252,6 +274,11 @@ function parsePullRequest(value: unknown): GitHubPullRequest {
         : requiredString(item.body, "pull request body"),
     state: requiredString(item.state, "pull request state"),
     draft: requiredBoolean(item.draft, "pull request draft state"),
+    merged: item.merged === true,
+    mergedAt:
+      item.merged_at === null || item.merged_at === undefined
+        ? null
+        : requiredString(item.merged_at, "pull request merged time"),
     htmlUrl: requiredString(item.html_url, "pull request URL"),
     userId: requiredNumber(user.id, "pull request author ID"),
     userLogin: requiredString(user.login, "pull request author"),
@@ -313,6 +340,10 @@ function normalizeCheckState(
     case "cancelled":
     case "timed_out":
       return "cancelled";
+    case "neutral":
+    case "skipped":
+    case "stale":
+      return "informational";
     default:
       return "failed";
   }
@@ -322,6 +353,10 @@ function parseReviewComment(value: unknown): ReviewCommentObservation {
   const item = record(value);
   const inReplyToId = item.in_reply_to_id;
   const line = item.line ?? item.original_line;
+  const originalLine = item.original_line;
+  const isOutdated =
+    typeof originalLine === "number" &&
+    (item.line === null || item.line === undefined);
   return {
     id: String(requiredNumber(item.id, "review comment id")),
     author: loginFromUser(item.user, "review comment"),
@@ -339,6 +374,109 @@ function parseReviewComment(value: unknown): ReviewCommentObservation {
         : undefined,
     line: typeof line === "number" && Number.isFinite(line) ? line : undefined,
     createdAt: requiredString(item.created_at, "review comment created time"),
+    ...(isOutdated ? { isOutdated: true } : {}),
+  };
+}
+
+const REVIEW_THREADS_QUERY = `
+  query FactoryPullRequestReviewThreads($owner: String!, $repo: String!, $number: Int!) {
+    repository(owner: $owner, name: $repo) {
+      pullRequest(number: $number) {
+        reviewThreads(first: 100) {
+          pageInfo { hasNextPage }
+          nodes {
+            id
+            isResolved
+            isOutdated
+            comments(first: 100) {
+              pageInfo { hasNextPage }
+              nodes {
+                databaseId
+                body
+                createdAt
+                path
+                line
+                originalLine
+                author { login }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
+export function reviewCommentsFromGraphqlThreads(
+  payload: unknown,
+): { comments: ReviewCommentObservation[]; commentsTruncated: boolean } | null {
+  const root = record(payload);
+  if (Array.isArray(root.errors) && root.errors.length > 0) return null;
+  const data = root.data;
+  if (!data || typeof data !== "object" || Array.isArray(data)) return null;
+  const repository = record((data as Record<string, unknown>).repository);
+  const pullRequest = record(repository.pullRequest);
+  const reviewThreads = record(pullRequest.reviewThreads);
+  const nodes = reviewThreads.nodes;
+  if (!Array.isArray(nodes)) return null;
+  const comments: ReviewCommentObservation[] = [];
+  let commentsTruncated = record(reviewThreads.pageInfo).hasNextPage === true;
+  for (const threadNode of nodes) {
+    const thread = record(threadNode);
+    const threadId = requiredString(thread.id, "review thread id");
+    const isResolved = thread.isResolved === true;
+    const isOutdated = thread.isOutdated === true;
+    const threadComments = record(thread.comments);
+    const commentNodes = threadComments.nodes;
+    if (!Array.isArray(commentNodes)) return null;
+    if (record(threadComments.pageInfo).hasNextPage === true) {
+      commentsTruncated = true;
+    }
+    let rootId: string | null = null;
+    for (const commentNode of commentNodes) {
+      const node = record(commentNode);
+      const id = String(requiredNumber(node.databaseId, "review comment id"));
+      if (!rootId) rootId = id;
+      comments.push({
+        id,
+        author: requiredString(
+          record(node.author).login,
+          "review comment author",
+        ),
+        inReplyToId: id === rootId ? null : rootId,
+        body: requiredString(node.body, "review comment body"),
+        path:
+          typeof node.path === "string" && node.path.length > 0
+            ? node.path
+            : undefined,
+        line:
+          typeof node.line === "number" && Number.isFinite(node.line)
+            ? node.line
+            : undefined,
+        createdAt: requiredString(
+          node.createdAt,
+          "review comment created time",
+        ),
+        isResolved,
+        isOutdated,
+        threadId,
+      });
+    }
+  }
+  return { comments, commentsTruncated };
+}
+
+function parseIssueComment(value: unknown): GitHubIssueCommentObservation {
+  const item = record(value);
+  return {
+    id: String(requiredNumber(item.id, "issue comment id")),
+    author: loginFromUser(item.user, "issue comment"),
+    body:
+      typeof item.body === "string"
+        ? item.body
+        : requiredString(item.body, "issue comment body"),
+    createdAt: requiredString(item.created_at, "issue comment created time"),
+    htmlUrl: requiredString(item.html_url, "issue comment URL"),
   };
 }
 
@@ -516,6 +654,44 @@ export function createGitHubClient(options: GitHubClientOptions) {
     return value;
   }
 
+  async function graphqlRequest<T>(
+    query: string,
+    variables: Record<string, unknown>,
+  ): Promise<T> {
+    let requestAttempted = false;
+    try {
+      const authorization = `Bearer ${await token()}`;
+      requestAttempted = true;
+      const response = (await fetchImpl(`${baseUrl}/graphql`, {
+        method: "POST",
+        headers: {
+          Accept: "application/vnd.github+json",
+          Authorization: authorization,
+          "Content-Type": "application/json",
+          "X-GitHub-Api-Version": "2022-11-28",
+        },
+        body: JSON.stringify({ query, variables }),
+      })) as JsonResponse;
+      if (!response.ok) {
+        const detail = (await response.text()).slice(0, 500);
+        throw new GitHubRequestError(
+          `GitHub GraphQL request failed: HTTP ${response.status}${detail ? ` - ${detail}` : ""}`,
+          true,
+          response.status,
+        );
+      }
+      return (await response.json()) as T;
+    } catch (error) {
+      if (error instanceof GitHubRequestError) throw error;
+      throw new GitHubRequestError(
+        error instanceof Error
+          ? error.message
+          : "GitHub GraphQL request failed",
+        requestAttempted,
+      );
+    }
+  }
+
   async function request<T>(
     path: string,
     init: RequestInit = {},
@@ -649,6 +825,50 @@ export function createGitHubClient(options: GitHubClientOptions) {
       };
     },
 
+    async listIssueComments(
+      repository: GitHubRepositoryRef,
+      issueNumber: number,
+    ): Promise<GitHubIssueCommentPage> {
+      if (!Number.isInteger(issueNumber) || issueNumber < 1) {
+        throw new Error("GitHub issue number must be a positive integer");
+      }
+      const comments: GitHubIssueCommentObservation[] = [];
+      let truncated = false;
+      for (let page = 1; page <= MAX_ISSUE_COMMENT_PAGES; page += 1) {
+        const payload = requireArray(
+          await request<unknown>(
+            `${repositoryPath(repository)}/issues/${issueNumber}/comments?per_page=${pageSize()}&page=${page}`,
+          ),
+          "issue comment",
+        );
+        comments.push(...payload.map(parseIssueComment));
+        if (payload.length < MAX_PAGE_SIZE) break;
+        if (page === MAX_ISSUE_COMMENT_PAGES) truncated = true;
+      }
+      return { comments, truncated };
+    },
+
+    async listPullRequestReviewThreads(
+      repository: GitHubRepositoryRef,
+      pullRequestNumber: number,
+    ): Promise<{
+      comments: ReviewCommentObservation[];
+      commentsTruncated: boolean;
+    } | null> {
+      requirePositivePullRequestNumber(pullRequestNumber);
+      try {
+        const payload = await graphqlRequest<unknown>(REVIEW_THREADS_QUERY, {
+          owner: repository.owner,
+          repo: repository.repo,
+          number: pullRequestNumber,
+        });
+        return reviewCommentsFromGraphqlThreads(payload);
+        // coercion-ok: GraphQL thread fetch failure falls back to REST review comments
+      } catch {
+        return null;
+      }
+    },
+
     async getPullRequestEvidence(
       repository: GitHubRepositoryRef,
       pullRequestNumber: number,
@@ -659,15 +879,28 @@ export function createGitHubClient(options: GitHubClientOptions) {
       if (!sha) throw new Error("GitHub pull request head SHA is required");
       const root = repositoryPath(repository);
       const page = pageSize();
-      const [reviewPage, commentPayload] = await Promise.all([
-        this.listPullRequestReviews(repository, pullRequestNumber),
-        request<unknown>(
-          `${root}/pulls/${pullRequestNumber}/comments?per_page=${page}`,
-        ),
-      ]);
-      const comments = requireArray(commentPayload, "review comment").map(
-        parseReviewComment,
+      const reviewPage = await this.listPullRequestReviews(
+        repository,
+        pullRequestNumber,
       );
+      const threadPage = await this.listPullRequestReviewThreads(
+        repository,
+        pullRequestNumber,
+      );
+      let comments: ReviewCommentObservation[];
+      let commentsTruncated: boolean;
+      if (threadPage) {
+        comments = threadPage.comments;
+        commentsTruncated = threadPage.commentsTruncated;
+      } else {
+        const commentPayload = await request<unknown>(
+          `${root}/pulls/${pullRequestNumber}/comments?per_page=${page}`,
+        );
+        comments = requireArray(commentPayload, "review comment").map(
+          parseReviewComment,
+        );
+        commentsTruncated = comments.length >= MAX_PAGE_SIZE;
+      }
       const reviews = reviewPage.reviews;
       const reviewsTruncated = reviewPage.reviewsTruncated;
       let checks: PullRequestCheckObservation[];
@@ -719,7 +952,7 @@ export function createGitHubClient(options: GitHubClientOptions) {
       }
       return {
         comments,
-        commentsTruncated: comments.length >= MAX_PAGE_SIZE,
+        commentsTruncated,
         reviews,
         reviewsTruncated,
         checks,
@@ -1014,6 +1247,7 @@ export function createGitHubClient(options: GitHubClientOptions) {
       return {
         id: requiredNumber(item.id, "comment id"),
         htmlUrl: requiredString(item.html_url, "comment URL"),
+        author: loginFromUser(item.user, "issue comment"),
       };
     },
 

@@ -1,6 +1,7 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "activity.reasoning": "तर्क",
   "approval.alwaysAllow": "हमेशा अनुमति दें",
   "approval.alwaysAllowHint": "इस सटीक कमांड को स्वीकृत करें और हमेशा अनुमति दें",
   "approval.alwaysAllowAction": "इस कार्रवाई को हमेशा अनुमति दें",
@@ -68,13 +69,28 @@ const messages: AgentChatTranslation = {
     "आपका Builder.io खाता बनाया या फिर से इस्तेमाल किया जा रहा है। इसमें आमतौर पर कुछ सेकंड लगते हैं।",
   "onboarding.builderConnectionDescription":
     "नई विंडो में एक क्लिक से कनेक्शन पूरा करें।",
+  "onboarding.builderReadyWithCodeChanges":
+    "AI क्रेडिट और क्लाउड कोड बदलाव उपयोग के लिए तैयार हैं।",
+  "onboarding.builderReadyCreditsOnly":
+    "AI क्रेडिट उपयोग के लिए तैयार हैं। क्लाउड कोड संपादन के लिए Background Agent सेटिंग्स में Builder प्रोजेक्ट आवश्यक है।",
+  "onboarding.openBackgroundAgentSettings": "Background Agent सेटिंग्स खोलें",
   "onboarding.capability.llm.keySummary": "AI प्रदाता या स्थानीय मॉडल कनेक्ट करें",
   "onboarding.capability.fileStorage.keySummary": "Builder स्टोरेज या S3-संगत बकेट",
+  "onboarding.fileStorage.title": "फ़ाइल स्टोरेज चुनें",
+  "onboarding.fileStorage.description":
+    "प्रबंधित Builder स्टोरेज चुनें या अपने S3-संगत बकेट के लिए कस्टम स्टोरेज कुंजियों का उपयोग करें।",
+  "onboarding.fileStorage.custom": "कस्टम स्टोरेज कुंजियों का उपयोग करें",
+  "onboarding.fileStorage.customDescription":
+    "स्थिर सार्वजनिक URL वाला S3-संगत बकेट कॉन्फ़िगर करें।",
   "onboarding.capability.voiceInput.label": "वॉइस इनपुट",
   "onboarding.capability.voiceInput.keySummary":
     "ब्राउज़र स्पीच रिकग्निशन या स्पीच-टू-टेक्स्ट",
   "onboarding.capability.voiceInput.why":
     "वॉइस इनपुट बोले गए अनुरोधों को टेक्स्ट में बदलता है; टाइप करना हमेशा उपलब्ध है।",
+  "onboarding.capability.embeddings.label": "एंबेडिंग",
+  "onboarding.capability.embeddings.keySummary": "Gemini, Cohere या Voyage कुंजी",
+  "onboarding.capability.embeddings.why":
+    "एंबेडिंग अर्थपूर्ण खोज को बेहतर बनाती हैं। इनके बिना भी कीवर्ड खोज काम करती है।",
   "onboarding.capability.assetsImageGeneration.label": "इमेज जनरेशन",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Builder क्रेडिट या इमेज प्रदाता की कुंजी",
@@ -103,6 +119,14 @@ const messages: AgentChatTranslation = {
   "common.agent": "एजेंट",
   "agentPanel.mode": "मोड",
   "agentPanel.uiMode": "यूआई",
+  "agentPanel.keyScope": "कुंजी का दायरा",
+  "agentPanel.personalKeyScope": "व्यक्तिगत",
+  "agentPanel.organizationKeyScope": "संगठन",
+  "agentPanel.personalKeyInEffect": "आपकी व्यक्तिगत कुंजी उपयोग में है।",
+  "agentPanel.organizationKeyInEffect": "संगठन की कुंजी उपयोग में है।",
+  "agentPanel.sharedKeyInEffect": "साझा कुंजी उपयोग में है।",
+  "agentPanel.useOrganizationKey": "संगठन की कुंजी इस्तेमाल करें",
+  "agentPanel.keyStatusUnavailable": "कुंजी की स्थिति उपलब्ध नहीं है।",
   "agentHostNudge.sidebarTitle": "{{agent}} की चैट का उपयोग करें",
   "agentHostNudge.sidebarDescription":
     "आप पहले से {{agent}} से चैट कर रहे हैं। इसे इस ऐप के साथ सीधे काम करने के लिए कहें।",
@@ -125,6 +149,55 @@ const messages: AgentChatTranslation = {
   "common.no": "नहीं",
   "common.retry": "फिर से प्रयास करें",
   "common.save": "सहेजें",
+  "agents.hostedAgent": "होस्ट किया गया एजेंट",
+  "agents.provider": "प्रदाता",
+  "agents.providerA2A": "A2A एजेंट (Foundry, Gemini या कस्टम)",
+  "agents.providerAnthropic": "Anthropic द्वारा प्रबंधित एजेंट",
+  "agents.agentId": "एजेंट ID",
+  "agents.agentIdPlaceholder": "agent_...",
+  "agents.environmentId": "एनवायरनमेंट ID",
+  "agents.environmentIdPlaceholder": "env_...",
+  "agents.apiBaseUrl": "API बेस URL (वैकल्पिक)",
+  "agents.apiBaseUrlPlaceholder": "https://api.anthropic.com",
+  "agents.managedAgentIncomplete": "Anthropic Managed Agents फ़ील्ड पूरे करें।",
+  "agents.managedAgentCheck": "चैट से डेलीगेट करने पर कनेक्शन की जाँच की जाती है।",
+  "agents.managedAgentSaved":
+    "Anthropic Managed Agent सहेजा गया। चैट से इसे डेलीगेट करें।",
+  "agents.cardUrl": "एजेंट कार्ड URL",
+  "agents.cardUrlPlaceholder": "https://host.example/agent-card.json",
+  "agents.authType": "प्रमाणीकरण",
+  "agents.authNone": "कोई प्रमाणीकरण नहीं",
+  "agents.authBearer": "Bearer टोकन",
+  "agents.authClientCredentials": "OAuth क्लाइंट क्रेडेंशियल",
+  "agents.chooseCredential": "क्रेडेंशियल चुनें",
+  "agents.vault": "वॉल्ट",
+  "agents.tokenUrl": "टोकन URL",
+  "agents.clientId": "क्लाइंट ID",
+  "agents.scope": "स्कोप",
+  "agents.authIncomplete": "होस्ट किए गए एजेंट के प्रमाणीकरण फ़ील्ड पूरे करें।",
+  "agents.invalidUrl":
+    "एजेंट URL में HTTPS होना चाहिए; localhost या loopback विकास URL इसके अपवाद हैं।",
+  "agents.statusReachable": "पहुंच योग्य",
+  "agents.statusAuthRejected": "प्रमाणीकरण अस्वीकार",
+  "agents.statusNoJsonRpc": "कोई JSON-RPC नहीं",
+  "agents.directoryTab": "एजेंट डायरेक्टरी",
+  "agents.directoryPageHint": "एजेंट बैकएंड खोजें और उसे अपने वर्कस्पेस से कनेक्ट करें।",
+  "agents.directorySearch": "प्रदाता खोजें",
+  "agents.directoryProviders": "प्रदाता",
+  "agents.directoryManual": "URL से जोड़ें",
+  "agents.directoryA2A": "A2A",
+  "agents.directoryManaged": "प्रबंधित API",
+  "agents.directoryFoundry": "Microsoft Foundry",
+  "agents.directoryFoundryHint": "A2A के ज़रिए Foundry एजेंट कनेक्ट करें।",
+  "agents.directoryGemini": "Gemini Enterprise",
+  "agents.directoryGeminiHint": "A2A के ज़रिए Gemini Enterprise एजेंट कनेक्ट करें।",
+  "agents.directoryAnthropic": "Anthropic द्वारा प्रबंधित एजेंट",
+  "agents.directoryAnthropicHint": "Anthropic से सेशन और अनुमोदन कनेक्ट करें।",
+  "agents.directoryNoMatches": "आपकी खोज से कोई प्रदाता मेल नहीं खाता।",
+  "agents.directoryRegistry": "वैश्विक A2A रजिस्ट्री",
+  "agents.directoryRegistryHint":
+    "सार्वजनिक Agent Cards देखें और कनेक्ट करने से पहले सत्यापित करें।",
+  "agents.directoryBrowse": "रजिस्ट्री ब्राउज़ करें",
   "common.saveFailed": "सहेजा नहीं जा सका",
   "common.saveFailedStatus": "सहेजा नहीं जा सका ({{status}})",
   "common.saving": "सहेजा जा रहा है...",
@@ -138,6 +211,7 @@ const messages: AgentChatTranslation = {
   "composer.openDesktop": "इस चैट का उपयोग करने के लिए Desktop खोलें।",
   "composer.removeAttachment": "{{name}} हटाएँ",
   "composer.scrollToBottom": "सबसे नीचे जाएँ",
+  "composer.suggestedPrompts": "सुझाए गए प्रॉम्प्ट",
   "composer.stopResponse": "जवाब रोकें",
   "composer.subAgentReadOnly":
     "ऑर्केस्ट्रेटर चैट को संदेश भेजें — यह सब-एजेंट अपने-आप चलता है",
@@ -166,6 +240,7 @@ const messages: AgentChatTranslation = {
     "Anthropic, OpenAI या किसी अन्य प्रदाता को कॉन्फ़िगर करें",
   "composer.connectAbove": "जारी रखने के लिए ऊपर AI कनेक्ट करें...",
   "composer.connectBuilder": "Builder.io कनेक्ट करें",
+  "composer.connectKeys": "कुंजियाँ कनेक्ट करें",
   "composer.connectingBuilder": "Builder.io से कनेक्ट किया जा रहा है…",
   "composer.costHigher": "अधिक लागत",
   "composer.costLower": "कम लागत",
@@ -290,7 +365,7 @@ const messages: AgentChatTranslation = {
   "voiceMode.errors.unsupported":
     "यह ब्राउज़र रीयल-टाइम वॉइस बातचीत का समर्थन नहीं करता।",
   "voiceMode.hideChat": "चैट छिपाएँ",
-  "voiceMode.keepDictating": "बोलकर लिखें",
+  "voiceMode.keepDictating": "संदेश बोलकर लिखें",
   "voiceMode.promptDescription":
     "जब एजेंट नेविगेट करता है और कार्रवाई करता है, तब वॉइस मोड सुनता रहता है।",
   "voiceMode.promptTitle": "अपनी आवाज़ का उपयोग करें",
@@ -332,7 +407,7 @@ const messages: AgentChatTranslation = {
     "मुफ़्त क्रेडिट के साथ प्रबंधित वॉइस का उपयोग करने के लिए Builder.io कनेक्ट करें, या अपनी कुंजियाँ जोड़ें।",
   "voiceMode.setupTitle": "वॉइस मोड सेट अप करें",
   "voiceMode.showChat": "चैट दिखाएँ",
-  "voiceMode.start": "रीयल-टाइम वॉइस",
+  "voiceMode.start": "वॉइस चैट शुरू करें",
   "voiceMode.startWithOpenAiKey": "OpenAI कुंजी से शुरू करें",
   "voiceMode.status.connecting": "कनेक्ट किया जा रहा है",
   "voiceMode.status.ending": "वॉइस मोड समाप्त हो रहा है",
@@ -352,6 +427,8 @@ const messages: AgentChatTranslation = {
   "error.stopped": "एजेंट पूरा करने से पहले रुक गया",
   "errorMessages.agentConnection":
     "एजेंट का कनेक्शन बाधित हो गया। अपना कनेक्शन जाँचें और फिर से प्रयास करें।",
+  "errorMessages.attachmentPasswordProtected":
+    "यह PDF पासवर्ड-सुरक्षित है, इसलिए इसे पढ़ा नहीं जा सकता। पासवर्ड सुरक्षा हटाएँ या संबंधित टेक्स्ट पेस्ट करें, फिर से प्रयास करें।",
   "errorMessages.builderAuthentication":
     "Builder ने कनेक्ट किए गए क्रेडेंशियल अस्वीकार कर दिए। सेटिंग्स में Builder.io को दोबारा कनेक्ट करें, फिर से प्रयास करें।",
   "errorMessages.builderModelUnauthorized":
@@ -361,10 +438,15 @@ const messages: AgentChatTranslation = {
     "एजेंट के उत्तर देने से पहले मॉडल गेटवे में एक आंतरिक त्रुटि आई। कुछ देर में फिर कोशिश करें, और बार-बार होने पर नीचे दिया गया error id बताएं।",
   "errorMessages.gatewayNoDetails":
     "मॉडल गेटवे ने त्रुटि का कोई विवरण नहीं दिया और चैट रिकवर नहीं हो सकी। कुछ देर रुककर फिर से प्रयास करें या समस्या बनी रहने पर नई चैट शुरू करें।",
+  "errorMessages.creditsLimitReached": "आपने अपने AI क्रेडिट की सीमा पूरी कर ली है।",
   "errorMessages.inactivityTimeout":
     "एजेंट का कनेक्शन काम पूरा होने से पहले समय सीमा पर पहुँच गया। आप आंशिक काम से जारी रख सकते हैं या फिर से प्रयास कर सकते हैं।",
   "errorMessages.invalidToolSchema":
     "एक टूल स्कीमा अमान्य था, इसलिए मॉडल ने अनुरोध शुरू होने से पहले ही अस्वीकार कर दिया। अमान्य टूल को छोड़कर अनुरोध दोबारा किया जा सकता है।",
+  "errorMessages.malformedRequest":
+    "मॉडल प्रदाता ने इस अनुरोध को त्रुटिपूर्ण मानकर अस्वीकार कर दिया, इसलिए इसे दोबारा नहीं भेजा गया। फिर से प्रयास करें, या बार-बार होने पर नई चैट शुरू करें।",
+  "errorMessages.malformedRequestAttachment":
+    "मॉडल ने एक संलग्न फ़ाइल अस्वीकार कर दी, इसलिए यह संदेश कभी भेजा ही नहीं गया। अटैचमेंट हटाकर दोबारा प्रयास करें — PDF, सादा टेक्स्ट फ़ाइल, या JPEG, PNG, GIF या WebP छवि सीधे पढ़ी जाती है; अन्य फ़ॉर्मैट अपलोड करके लिंक करने होंगे।",
   "errorMessages.noProviderConnected":
     "कोई LLM प्रदाता कनेक्ट नहीं है। सेटिंग्स > एजेंट > AI प्रदाता खोलें, फिर Builder.io कनेक्ट करें (मुफ़्त स्तर उपलब्ध है) या प्रदाता कुंजी जोड़ें।",
   "errorMessages.openBuilderSpaceSettings": "Builder स्पेस सेटिंग्स खोलें",
@@ -377,6 +459,8 @@ const messages: AgentChatTranslation = {
     "मॉडल प्रदाता तक पहुँचा नहीं जा सका। अपना कनेक्शन जाँचें और फिर से प्रयास करें।",
   "errorMessages.providerRateLimit":
     "मॉडल प्रदाता अभी इस चैट की अनुरोध दर सीमित कर रहा है। कुछ देर रुकें, फिर से प्रयास करें।",
+  "errorMessages.providerTransientRejection":
+    "AI प्रदाता ने इस अनुरोध को अस्थायी रूप से अस्वीकार कर दिया। यह आमतौर पर एक मिनट के भीतर ठीक हो जाता है — फिर से प्रयास करें।",
   "errorMessages.startNewChat": "नई चैट शुरू करें",
   "errorMessages.upgradeAtBuilder": "Builder.io पर अपग्रेड करें",
   "feedback.inaccurate": "गलत जानकारी",
@@ -384,6 +468,7 @@ const messages: AgentChatTranslation = {
   "feedback.notHelpful": "उपयोगी नहीं",
   "feedback.placeholder": "बताएं कि क्या गलत हुआ...",
   "feedback.submit": "जमा करें",
+  "feedback.submitted": "फ़ीडबैक सबमिट किया गया",
   "feedback.thumbsDown": "नापसंद",
   "feedback.thumbsUp": "पसंद",
   "feedback.tooSlow": "बहुत धीमा",
@@ -400,6 +485,15 @@ const messages: AgentChatTranslation = {
   "history.searching": "खोजा जा रहा है...",
   "history.untitledChat": "चैट",
   "history.yesterday": "कल",
+  "integrations.availableSection": "उपलब्ध इंटीग्रेशन",
+  "integrations.connectedSection": "कनेक्ट किए गए",
+  "integrations.goToApiKeys": "API कुंजियों पर जाएं",
+  "integrations.goToIntegrations": "इंटीग्रेशन पर जाएं",
+  "integrations.lookingForApiKeys": "इसके बजाय API कुंजी ढूंढ रहे हैं?",
+  "integrations.lookingForProviders": "OAuth या MCP प्रदाता ढूंढ रहे हैं?",
+  "integrations.manage": "प्रबंधित करें",
+  "integrations.recommended": "अनुशंसित",
+  "integrations.subtitle": "वे टूल कनेक्ट करें जिन्हें आपका एजेंट उपयोग कर सकता है।",
   "limit.account": "आपके खाते",
   "limit.descriptionAll":
     "एजेंट ने सभी उपलब्ध चरणों का उपयोग कर लिया। नए टर्न में जारी रखें या पहले {{scope}} की सीमा बढ़ाएँ।",
@@ -507,6 +601,10 @@ const messages: AgentChatTranslation = {
   "queue.remove": "कतार से हटाएँ",
   "queue.sendNow": "अभी भेजें",
   "queue.sendNowHint": "अभी भेजें (मौजूदा जवाब रुक जाएगा)",
+  "queue.steer": "दिशा दें",
+  "queue.steerHint": "यह संदेश अगला भेजें",
+  "queue.moreActions": "अन्य कार्रवाइयाँ",
+  "queue.moveToTop": "सबसे ऊपर ले जाएँ",
   "recovery.connectingBuilder": "Builder.io से कनेक्ट किया जा रहा है",
   "recovery.copyDebug": "डीबग जानकारी कॉपी करें",
   "recovery.copyFailed": "कॉपी नहीं हो सका",
@@ -527,6 +625,32 @@ const messages: AgentChatTranslation = {
   "recovery.streamEnded":
     "पिछला एजेंट स्ट्रीम रन की रिकवरी के दौरान समाप्त हो गया। रन से दोबारा जुड़ने के लिए जारी रखें या फिर प्रयास करें।",
   "recovery.reconnectBuilder": "Builder.io को दोबारा कनेक्ट करें",
+  "secrets.addCustomKeyNamed": '"{{name}}" को कस्टम कुंजी के रूप में जोड़ें',
+  "secrets.chooseKey": "कुंजी चुनें",
+  "secrets.customKey": "कस्टम कुंजी",
+  "secrets.customKeyHint": "नाम से कोई भी कुंजी जोड़ें",
+  "secrets.emptyHint": "अपने खुद के खातों का उपयोग करने के लिए एक कुंजी जोड़ें।",
+  "secrets.emptyMore":
+    "और {{count}} अधिक 'नया' के अंतर्गत, या नाम से कोई भी कस्टम कुंजी जोड़ें",
+  "secrets.emptyTitle": "अभी तक कोई कुंजी नहीं।",
+  "secrets.fromEnvironment": "डिप्लॉयमेंट एनवायरनमेंट द्वारा प्रदान किया गया।",
+  "secrets.managedInVault":
+    "वर्कस्पेस के Vault में प्रबंधित किया जाता है। इस वर्कस्पेस का हर ऐप यह वैल्यू उपयोग करता है।",
+  "secrets.openVault": "Vault खोलें",
+  "secrets.newKey": "नया",
+  "secrets.noKeysFound": "कोई कुंजी नहीं मिली।",
+  "secrets.overridesVault":
+    "यह पर्सनल कुंजी वर्कस्पेस के Vault वैल्यू को ओवरराइड करती है। Vault कुंजी उपयोग करने के लिए इसे हटाएं।",
+  "secrets.overridesWorkspace":
+    "यह पर्सनल कुंजी वर्कस्पेस वैल्यू को ओवरराइड करती है। शेयर की गई कुंजी उपयोग करने के लिए इसे हटाएं।",
+  "secrets.setForWorkspace": "इस वर्कस्पेस में सभी के लिए सेट है।",
+  "secrets.sourceEnvironment": "एनवायरनमेंट",
+  "secrets.sourceVault": "Vault",
+  "secrets.sourceWorkspace": "वर्कस्पेस",
+  "secrets.statusUnavailable": "अनुपलब्ध",
+  "secrets.required": "आवश्यक",
+  "secrets.searchKeys": "कुंजियां खोजें...",
+  "secrets.usePersonalKey": "इसके बजाय पर्सनल कुंजी का उपयोग करें",
   "selection.attached": "चयन के {{formattedCount}} अक्षर अटैच हैं",
   "selection.attached_one": "चयन का {{formattedCount}} अक्षर अटैच है",
   "selection.attached_other": "चयन के {{formattedCount}} अक्षर अटैच हैं",
@@ -617,6 +741,7 @@ const messages: AgentChatTranslation = {
   "status.preparing": "{{activity}} तैयार किया जा रहा है...",
   "status.writing": "{{activity}} लिखा जा रहा है...",
   "status.stillGenerating": "{{activity}} अभी भी बनाया जा रहा है",
+  "status.runningTool": "{{activity}} चल रहा है",
   "tabs.allChats": "सभी चैट",
   "tabs.closeTab": "टैब बंद करें",
   "tabs.main": "मुख्य",
@@ -652,6 +777,7 @@ const messages: AgentChatTranslation = {
   "widget.dataInsights": "डेटा इनसाइट्स",
   "widget.dataTable": "डेटा तालिका",
   "widget.downloadCsv": "CSV डाउनलोड करें",
+  "widget.connectProvider": "{{provider}} कनेक्ट करें",
   "widget.loadingToolResult": "टूल का परिणाम लोड हो रहा है",
   "widget.noRows": "कोई पंक्ति नहीं",
   "widget.points": "{{formattedCount}} बिंदु",
@@ -661,6 +787,14 @@ const messages: AgentChatTranslation = {
   "widget.rows_one": "{{formattedCount}} पंक्ति",
   "widget.rows_other": "{{formattedCount}} पंक्तियाँ",
   "widget.sampled": "नमूना लिया गया",
+  "settings.emailTitle": "ईमेल",
+  "settings.emailChange": "ईमेल बदलें",
+  "settings.emailChanging": "भेजा जा रहा है...",
+  "settings.emailChangeSent":
+    "इस बदलाव की पुष्टि करने के निर्देशों के लिए अपना ईमेल देखें।",
+  "settings.emailChangeError": "पुष्टिकरण नहीं भेजा जा सका।",
+  "settings.emailNewLabel": "नया ईमेल",
+  "settings.emailNewPlaceholder": "नया ईमेल दर्ज करें",
 };
 
 export default messages;

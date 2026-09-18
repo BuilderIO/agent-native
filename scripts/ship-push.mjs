@@ -15,7 +15,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, statfsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -25,12 +25,38 @@ const REPO_ROOT = path.resolve(
 );
 
 /** The only routine exclusions `.agents/skills/ship` allows. */
-const EXCLUDED = /(^|\/)(learnings\.md$|bridge\/|data\/)/;
+const EXCLUDED = /(^|\/)learnings\.md$|^(bridge|data)\//;
 
 const argv = process.argv.slice(2);
 const dryRun = argv.includes("--dry-run");
 const messageFlag = Math.max(argv.indexOf("-m"), argv.indexOf("--message"));
 const explicitMessage = messageFlag >= 0 ? argv[messageFlag + 1] : undefined;
+export const MIN_FREE_DISK_BYTES = 500 * 1024 * 1024;
+
+export function freeDiskBytes(root) {
+  const stats = statfsSync(root);
+  return Number(stats.bavail) * Number(stats.bsize);
+}
+
+export function assertFreeDisk(
+  root = REPO_ROOT,
+  minimumBytes = MIN_FREE_DISK_BYTES,
+) {
+  let freeBytes;
+  try {
+    freeBytes = freeDiskBytes(root);
+  } catch (error) {
+    throw new Error(
+      `could not read free disk space for ${root}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  if (!Number.isFinite(freeBytes) || freeBytes < minimumBytes) {
+    throw new Error(
+      `only ${Math.round(freeBytes / 1024 / 1024)} MiB free on ${root}; need at least ${Math.round(minimumBytes / 1024 / 1024)} MiB before publishing`,
+    );
+  }
+  return freeBytes;
+}
 
 /**
  * Run git and let a failure be a failure — no `catch { return "" }` here.
@@ -67,7 +93,19 @@ export function selectStageablePaths(paths, { exists, isTracked }) {
   return paths.filter((file) => exists(file) || isTracked(file));
 }
 
+export function isExcludedPath(file) {
+  return EXCLUDED.test(file);
+}
+
 function main() {
+  try {
+    assertFreeDisk();
+  } catch (error) {
+    console.error(
+      `ship-push: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    process.exit(1);
+  }
   const branch = git(["rev-parse", "--abbrev-ref", "HEAD"]);
   if (branch === "HEAD" || branch === "main" || branch === "master") {
     console.error(`ship-push: refusing to push from "${branch}".`);
@@ -90,8 +128,8 @@ function main() {
     return;
   }
 
-  const excluded = dirtyPaths.filter((file) => EXCLUDED.test(file));
-  const publishable = dirtyPaths.filter((file) => !EXCLUDED.test(file));
+  const excluded = dirtyPaths.filter(isExcludedPath);
+  const publishable = dirtyPaths.filter((file) => !isExcludedPath(file));
 
   if (dryRun) {
     console.log(
@@ -126,7 +164,9 @@ function main() {
       isTracked: (file) => tracked.has(file),
     });
     if (stageable.length > 0) {
-      git(["add", "--all", "--", ...stageable]);
+      // Tracked generated files may still match a parent ignore rule. These
+      // exact pathspecs came from Git's dirty-path list, so force-add is scoped.
+      git(["add", "--all", "-f", "--", ...stageable]);
     }
     const staged = git(["diff", "--cached", "--name-only"])
       .split("\n")
@@ -154,7 +194,7 @@ function main() {
     git(["status", "--porcelain", "-z", "--untracked-files=all"], {
       raw: true,
     }),
-  ).filter((file) => EXCLUDED.test(file));
+  ).filter(isExcludedPath);
   if (remainingExcluded.length > 0) {
     console.log(
       `  left behind (say so explicitly):\n    ${remainingExcluded.join("\n    ")}`,

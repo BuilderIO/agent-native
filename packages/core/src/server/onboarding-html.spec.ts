@@ -5,6 +5,7 @@ import {
   resetAppConfigForTests,
 } from "../app-config/index.js";
 import type { AuthPageProps } from "../client/auth/AuthPage.js";
+import { ENVIRONMENT_BADGE_MESSAGES } from "../localization/environment-badge-messages.js";
 import { LOCALE_STORAGE_KEY } from "../localization/shared.js";
 import {
   PASSWORD_MAX_LENGTH,
@@ -15,6 +16,7 @@ import {
   AGENT_NATIVE_SOCIAL_IMAGE_PATH,
 } from "../shared/social-meta.js";
 import { BUILT_IN_AUTH_MARKETING } from "./auth-marketing.js";
+import { injectBetaOptOutPersistence } from "./beta-opt-out-html.js";
 import { getOnboardingHtml, getResetPasswordHtml } from "./onboarding-html.js";
 
 function readAuthPageData(html: string): AuthPageProps {
@@ -39,14 +41,24 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain('id="upgrade-note"');
   });
 
-  it("includes a beta switcher on the standalone auth page", () => {
-    const html = getOnboardingHtml({
-      requestHost: "beta.analytics.agent-native.com",
-    });
+  it("includes an environment switcher on the standalone auth page", () => {
+    // Auth responses inject the shared switcher at the login boundary; the
+    // React shell alone only ships lane config + document styles.
+    const html = injectBetaOptOutPersistence(
+      getOnboardingHtml({
+        requestHost: "beta.analytics.agent-native.com",
+      }),
+    );
 
     expect(html).toContain('id="environment-badge"');
-    expect(html).toContain("You&#x27;re on Agent-Native Beta");
-    expect(html).toContain("Switch to production");
+    expect(html).toContain(
+      `var messagesByLocale = ${JSON.stringify(ENVIRONMENT_BADGE_MESSAGES)};`,
+    );
+    expect(html).toContain('data-agent-native-environment-switcher-script="1"');
+    expect(html).toContain("button.textContent = messages.betaLabel");
+    expect(html).toContain(
+      "productionLink.textContent = messages.switchToProduction",
+    );
     expect(html).toContain('id="environment-hide-badge"');
     expect(readAuthPageData(html).environmentBetaHosts).toHaveProperty(
       "analytics.agent-native.com",
@@ -187,7 +199,7 @@ describe("getOnboardingHtml", () => {
       expect(readAuthPageData(html).identitySsoAuto).toBe(true);
     });
 
-    it("cached canonical login HTML keeps silent federation enabled", () => {
+    it("keeps silent federation enabled in cached canonical login HTML", () => {
       vi.stubEnv("APP_URL", "https://calendar.agent-native.com");
       delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
 
@@ -439,7 +451,7 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain('id="back-to-magic-link"');
     expect(html).toContain('id="auth-tabs"');
     expect(html).toContain('data-i18n="magicLinkTitle">Welcome</h1>');
-    expect(html).toContain("Create an account or sign in");
+    expect(html).toContain("Continue to sign in or create your account");
     expect(html).toContain("Continue with email");
     expect(html).not.toContain("onclick=");
   });
@@ -474,7 +486,7 @@ describe("getOnboardingHtml", () => {
     const html = getOnboardingHtml({ authMode: "magic-link" });
 
     expect(html).toContain("欢迎");
-    expect(html).toContain("创建账户或登录");
+    expect(html).toContain("继续以登录或创建账户");
     expect(html).toContain("使用邮箱继续");
     expect(html).toContain("我们已向以下邮箱发送安全登录链接：");
     expect(html).toContain("改用密码");

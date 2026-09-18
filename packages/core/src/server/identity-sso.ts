@@ -23,8 +23,11 @@ import * as jose from "jose";
 
 import { canonicalA2AAudience, signA2AToken } from "../a2a/index.js";
 import { getAppConfig } from "../app-config/index.js";
+import { acceptPendingInvitationsForEmail } from "../org/accept-pending.js";
 import {
+  authProviderRequiredMessage,
   GOOGLE_AUTH_REQUIRED_MESSAGE,
+  getRequiredAuthProviderForEmail,
   isGoogleSignInRequiredForEmail,
 } from "../org/auth-policy.js";
 import { SIGN_IN_ENTRY_PATH } from "../shared/sign-in-journey.js";
@@ -42,16 +45,19 @@ import { readDeployCredentialEnv } from "./credential-provider.js";
 import { publicFrameworkPath } from "./framework-route-prefix.js";
 import { createOAuthSession, getAppUrl, getOrigin } from "./google-oauth.js";
 import { hasIdentityGoogleAuthCookie } from "./identity-auth-provider.js";
+import { IDENTITY_SSO_PROVIDER_ID } from "./identity-sso-provider.js";
 import {
   consumeSsoState,
   createSsoState,
   CANONICAL_IDENTITY_SSO_HUB_URL,
+  NETLIFY_PREVIEW_IDENTITY_SSO_HUB_URL,
   getIdentityHubUrl,
   identitySsoLoginButtonHtml,
   isCanonicalIdentitySsoClientRequest,
   isDesktopSsoUserAgent,
   isIdentitySsoExplicitlyEnabled,
   isIdentitySsoEnabled,
+  isNetlifyDeployPermalinkIdentitySsoClientRequest,
   isJtiReplayed,
   SSO_STATE_TTL_MS,
 } from "./identity-sso-store.js";
@@ -63,7 +69,7 @@ import {
 
 export { getIdentityHubUrl, identitySsoLoginButtonHtml, isIdentitySsoEnabled };
 
-export const IDENTITY_SSO_PROVIDER_ID = "agent-native";
+export { IDENTITY_SSO_PROVIDER_ID };
 export const IDENTITY_SSO_SCOPE = "identity";
 export const IDENTITY_SSO_DESKTOP_COMPLETE_PATH =
   "/_agent-native/identity/desktop-complete";
@@ -359,13 +365,27 @@ interface SsoClientBinding {
   authority: string;
 }
 
+function resolveIdentitySsoClientOrigin(event: H3Event): string {
+  const host = getHeader(event, "host")?.trim();
+  if (
+    host &&
+    isNetlifyDeployPermalinkIdentitySsoClientRequest(
+      host,
+      getHeader(event, "x-forwarded-proto"),
+    )
+  ) {
+    return `https://${host.toLowerCase()}`;
+  }
+  return getOrigin(event);
+}
+
 function resolveClientBinding(
   event: H3Event,
   hub: string,
 ): SsoClientBinding | null {
   const appId = resolveIdentitySsoAppId(event);
   const clientId = resolveClientId(appId);
-  const redirectUri = `${getOrigin(event)}${publicFrameworkPath(IDENTITY_SSO_CALLBACK_PATH)}`;
+  const redirectUri = `${resolveIdentitySsoClientOrigin(event)}${publicFrameworkPath(IDENTITY_SSO_CALLBACK_PATH)}`;
   const authority = normalizeAuthority(hub);
   if (!authority || !appId || !clientId || !redirectUri) return null;
   return { appId, clientId, redirectUri, authority };
@@ -388,6 +408,15 @@ export function resolveIdentityHubUrl(event: H3Event): string | undefined {
     )
   ) {
     return CANONICAL_IDENTITY_SSO_HUB_URL;
+  }
+  if (
+    !isDesktopSsoUserAgent(getHeader(event, "user-agent")) &&
+    isNetlifyDeployPermalinkIdentitySsoClientRequest(
+      getHeader(event, "host"),
+      getHeader(event, "x-forwarded-proto"),
+    )
+  ) {
+    return NETLIFY_PREVIEW_IDENTITY_SSO_HUB_URL;
   }
   if (!isDesktopSsoUserAgent(getHeader(event, "user-agent"))) {
     return undefined;
@@ -415,7 +444,7 @@ interface VerifiedIdentity {
   orgId?: string;
   orgName?: string;
   orgRole?: "owner" | "admin" | "member";
-  authProvider?: "google";
+  authProvider?: "google" | `sso:${string}`;
   sub: string;
   jti: string;
 }
@@ -472,6 +501,14 @@ async function verifyIdentityAssertion(
     if ((orgId || orgName || orgRole) && (!orgId || !orgName || !orgRole)) {
       return null;
     }
+    const identityAuthProvider = payload.identity_auth_provider;
+    const authProvider =
+      identityAuthProvider === "google"
+        ? ("google" as const)
+        : typeof identityAuthProvider === "string" &&
+            /^sso:[^:]+$/.test(identityAuthProvider)
+          ? (identityAuthProvider as `sso:${string}`)
+          : undefined;
     return {
       email,
       name:
@@ -485,8 +522,7 @@ async function verifyIdentityAssertion(
       ...(orgId ? { orgId } : {}),
       ...(orgName ? { orgName } : {}),
       ...(orgRole ? { orgRole } : {}),
-      authProvider:
-        payload.identity_auth_provider === "google" ? "google" : undefined,
+      ...(authProvider ? { authProvider } : {}),
       sub: typeof payload.sub === "string" && payload.sub ? payload.sub : email,
       jti,
     };
@@ -540,13 +576,25 @@ async function exchangeIdentityCode(
   }
 }
 
-/** Ensure an authority-issued identity has a local Better Auth account. */
+/**
+ * Ensure an authority-issued identity has a local Better Auth account.
+ *
+ * Provisioning goes through the password signup ceremony because that is the
+ * only public API that runs Better Auth's user hooks, which leaves behind an
+ * unusable credential the person never chose. Pass `emailVerified` whenever the
+ * authority proved control of the address: without it the row stays unverified
+ * forever, because the verification email points at a password nobody set. An
+ * unverified row is not a cosmetic detail, it withholds pending invitations and
+ * domain auto-join.
+ */
 export async function ensureIdentityUser(
   email: string,
   name?: string,
   signupHeaders?: Headers,
+  options?: { emailVerified?: boolean },
 ): Promise<{
   id: string;
+  emailVerified: boolean;
   accounts: Array<{ providerId: string; accountId: string }>;
 }> {
   const adapter = await getBetterAuthInternalAdapter();
@@ -579,8 +627,42 @@ export async function ensureIdentityUser(
     throw new Error("Local account could not be resolved.");
   }
 
+  let emailVerified = existing.user.emailVerified === true;
+  if (options?.emailVerified === true && !emailVerified) {
+    if (!adapter.updateUser) {
+      console.warn(
+        "[identity-sso] cannot record authority-verified email: adapter has no updateUser",
+      );
+    } else {
+      // Reconcile before recording verification, and leave the row unverified
+      // if it fails. Better Auth's user-create hook skipped these while the row
+      // was unverified and nothing else reconciles a federated signup, so this
+      // branch is the only thing that ever runs them - and it is reached only
+      // while the row is still unverified. Writing verification first would
+      // make a transient failure permanent: the next login would see a verified
+      // row, skip this branch, and the invitations would never be applied.
+      // Staying unverified is honest and retried on the next login; sign-in
+      // still succeeds either way, because the caller owns the session.
+      let reconciled = true;
+      try {
+        await acceptPendingInvitationsForEmail(email);
+      } catch (error) {
+        reconciled = false;
+        console.error(
+          "[identity-sso] leaving the row unverified: failed to reconcile pending invitations",
+          error,
+        );
+      }
+      if (reconciled) {
+        await adapter.updateUser(existing.user.id, { emailVerified: true });
+        emailVerified = true;
+      }
+    }
+  }
+
   return {
     id: existing.user.id,
+    emailVerified,
     accounts: existing.accounts ?? [],
   };
 }
@@ -596,6 +678,9 @@ async function jitLinkIdentity(
     identity.email,
     identity.name,
     signupHeaders,
+    // A Google identity at the authority is proof of control of the address.
+    // Any other authority session is not, so those rows stay unverified.
+    { emailVerified: identity.authProvider === "google" },
   );
 
   const accountId = identity.sub || identity.email;
@@ -967,11 +1052,22 @@ export async function handleIdentitySso(
         loginPath,
       );
     }
-    if (
-      (await isGoogleSignInRequiredForEmail(identity.email)) &&
-      identity.authProvider !== "google"
-    ) {
-      return errorPage(GOOGLE_AUTH_REQUIRED_MESSAGE, loginPath);
+    const requiredAuthProvider =
+      typeof getRequiredAuthProviderForEmail === "function"
+        ? await getRequiredAuthProviderForEmail(identity.email)
+        : (await isGoogleSignInRequiredForEmail(identity.email))
+          ? "google"
+          : null;
+    if (requiredAuthProvider) {
+      const identityProvider = identity.authProvider ?? null;
+      if (identityProvider !== requiredAuthProvider) {
+        return errorPage(
+          authProviderRequiredMessage
+            ? authProviderRequiredMessage(requiredAuthProvider)
+            : GOOGLE_AUTH_REQUIRED_MESSAGE,
+          loginPath,
+        );
+      }
     }
 
     try {

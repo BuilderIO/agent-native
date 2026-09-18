@@ -21,6 +21,15 @@ const mocks = vi.hoisted(() => ({
   trackOnboardingEvent: vi.fn(),
   useOnboarding: vi.fn(),
   useOnboardingPreviewMode: vi.fn(),
+  useOnboardingPreviewStep: vi.fn(),
+  navigateToMcpOAuthStart: vi.fn(),
+}));
+
+vi.mock("../resources/mcp-integration-catalog.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../resources/mcp-integration-catalog.js")
+  >()),
+  navigateToMcpOAuthStart: mocks.navigateToMcpOAuthStart,
 }));
 
 vi.mock("./use-onboarding.js", () => ({
@@ -30,6 +39,7 @@ vi.mock("./use-onboarding.js", () => ({
 
 vi.mock("./use-preview-mode.js", () => ({
   useOnboardingPreviewMode: mocks.useOnboardingPreviewMode,
+  useOnboardingPreviewStep: mocks.useOnboardingPreviewStep,
 }));
 
 vi.mock("../settings/useBuilderStatus.js", () => ({
@@ -57,12 +67,15 @@ describe("FirstRunOnboarding", () => {
     mocks.createMcpServer.mockReset();
     mocks.testMcpServer.mockReset();
     mocks.useBuilderConnectFlow.mockReset();
+    mocks.navigateToMcpOAuthStart.mockReset();
     mocks.useMcpServers.mockReset();
     mocks.useMcpServersApi.mockReset();
     mocks.trackOnboardingEvent.mockReset();
     mocks.useOnboarding.mockReset();
     mocks.useOnboardingPreviewMode.mockReset();
+    mocks.useOnboardingPreviewStep.mockReset();
     mocks.useOnboardingPreviewMode.mockReturnValue(false);
+    mocks.useOnboardingPreviewStep.mockReturnValue(null);
     mocks.useBuilderConnectFlow.mockReturnValue({
       hasFetchedStatus: false,
       statusResolved: true,
@@ -251,6 +264,86 @@ describe("FirstRunOnboarding", () => {
     expect(
       document.body.querySelector('[data-testid="first-run-builder-consent"]'),
     ).toBeNull();
+  });
+
+  it("starts the Builder connection from the card header arrow", () => {
+    const start = vi.fn();
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      hasFetchedStatus: true,
+      statusResolved: true,
+      configured: false,
+      agentNativeProvisioningEnabled: false,
+      connecting: false,
+      error: null,
+      start,
+      retry: vi.fn(),
+    });
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+
+    const header = document.body.querySelector(
+      '[data-testid="first-run-builder-header-activate"]',
+    );
+    expect(header).not.toBeNull();
+    expect(header?.querySelector("svg")).not.toBeNull();
+
+    act(() => {
+      header?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(start).toHaveBeenCalledOnce();
+  });
+
+  it("opens the same consent popover from the card header arrow", () => {
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      hasFetchedStatus: true,
+      statusResolved: true,
+      configured: false,
+      agentNativeProvisioningEnabled: true,
+      connecting: false,
+      error: null,
+      start: vi.fn(),
+    });
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+
+    expect(
+      document.body.querySelector('[data-testid="first-run-builder-consent"]'),
+    ).toBeNull();
+
+    act(() => {
+      document.body
+        .querySelector('[data-testid="first-run-builder-header-activate"]')
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(
+      document.body.querySelector('[data-testid="first-run-builder-consent"]'),
+    ).not.toBeNull();
   });
 
   it("shows one-click account consent in a popover and its loading state when enabled", () => {
@@ -603,6 +696,22 @@ describe("FirstRunOnboarding", () => {
     await act(async () => {
       await mocks.createMcpServerMutation.mock.results[0]?.value;
     });
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "integration_cta_clicked",
+      expect.objectContaining({
+        flow: "first_run",
+        step_id: "tools",
+        integration_id: "context7",
+      }),
+    );
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "integration_connect_started",
+      expect.objectContaining({ integration_id: "context7", scope: "user" }),
+    );
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "integration_connect_completed",
+      expect.objectContaining({ integration_id: "context7", scope: "user" }),
+    );
     expect(mocks.completeFirstRun).not.toHaveBeenCalled();
     expect(
       document.body.querySelector("[data-onboarding-screen='tools']"),
@@ -629,6 +738,73 @@ describe("FirstRunOnboarding", () => {
     );
     expect(document.body.textContent).toContain("Configure Sigma");
     expect(mocks.completeFirstRun).not.toHaveBeenCalled();
+  });
+
+  it("closes an OAuth start attempt with failure telemetry when navigation throws", async () => {
+    mocks.navigateToMcpOAuthStart.mockImplementationOnce(() => {
+      throw new Error("popup navigation failed");
+    });
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-use-own-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-skip-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const search = document.body.querySelector(
+      'input[aria-label="Search integrations"]',
+    ) as HTMLInputElement | null;
+    expect(search).toBeTruthy();
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(search, "Linear");
+      search?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    await act(async () => {
+      document.body
+        .querySelector('button[aria-label="Connect Linear"]')
+        ?.click();
+      await Promise.resolve();
+    });
+
+    const oauthUrl = mocks.navigateToMcpOAuthStart.mock.calls[0]?.[0];
+    const params = new URL(oauthUrl, "https://example.com").searchParams;
+    expect(params.get("tracking_flow")).toBe("first_run");
+    expect(params.get("tracking_integration_id")).toBe("linear");
+    expect(
+      mocks.trackOnboardingEvent.mock.calls
+        .filter(([name]) => name.startsWith("integration_connect_"))
+        .map(([name]) => name),
+    ).toEqual(["integration_connect_started", "integration_connect_failed"]);
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "integration_connect_failed",
+      expect.objectContaining({
+        integration_id: "linear",
+        error_type: "popup_or_navigation_blocked",
+      }),
+    );
+    expect(document.body.textContent).toContain("Connection error");
   });
 
   it("skips the generic integrations catalog but still asks for a role", () => {
@@ -718,6 +894,10 @@ describe("FirstRunOnboarding", () => {
       mocks.trackOnboardingEvent.mock.calls
         .filter(([event]) => event === "onboarding_step_completed")
         .map(([, properties]) => (properties as { step_id: string }).step_id);
+    const skippedSteps = () =>
+      mocks.trackOnboardingEvent.mock.calls
+        .filter(([event]) => event === "onboarding_step_skipped")
+        .map(([, properties]) => (properties as { step_id: string }).step_id);
 
     act(() => {
       [...document.body.querySelectorAll("button")]
@@ -735,7 +915,8 @@ describe("FirstRunOnboarding", () => {
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
-    expect(completedSteps()).toEqual(["intro", "choice", "manual"]);
+    expect(completedSteps()).toEqual(["intro", "choice"]);
+    expect(skippedSteps()).toEqual(["manual"]);
 
     act(() => {
       document.body
@@ -743,7 +924,7 @@ describe("FirstRunOnboarding", () => {
         ?.click();
     });
 
-    expect(completedSteps()).toEqual(["intro", "choice", "manual"]);
+    expect(completedSteps()).toEqual(["intro", "choice"]);
   });
 
   it("saves the selected role before completing first-run onboarding", async () => {
@@ -805,6 +986,10 @@ describe("FirstRunOnboarding", () => {
         method: "POST",
         body: JSON.stringify({ role: "developer" }),
       }),
+    );
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_role_option_selected",
+      { flow: "first_run", step_id: "role", role: "developer" },
     );
     expect(mocks.completeFirstRun).toHaveBeenCalledOnce();
   });
@@ -911,6 +1096,119 @@ describe("FirstRunOnboarding", () => {
 
     expect(document.body.textContent).toContain("Who should use this?");
     expect(mocks.createMcpServerMutation).not.toHaveBeenCalled();
+  });
+
+  it("does not start a personal connection for an org-only integration without a workspace", () => {
+    mocks.useMcpServers.mockReturnValue({
+      data: { user: [], org: [], orgId: null, role: null },
+      isSuccess: true,
+    });
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-use-own-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-skip-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const search = document.body.querySelector(
+      'input[aria-label="Search integrations"]',
+    ) as HTMLInputElement | null;
+    expect(search).toBeTruthy();
+
+    act(() => {
+      if (!search) return;
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(search, "Builder.io");
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const connectButton = document.body.querySelector(
+      'button[aria-label="Connect Builder.io Publish"]',
+    ) as HTMLButtonElement | null;
+    // Without this the click below is a no-op and the assertions pass vacuously.
+    expect(connectButton).toBeTruthy();
+    act(() => {
+      connectButton?.click();
+    });
+
+    // The no-workspace fast path used to send scope=user straight to the server.
+    expect(mocks.navigateToMcpOAuthStart).not.toHaveBeenCalled();
+    expect(mocks.createMcpServerMutation).not.toHaveBeenCalled();
+  });
+
+  it("labels the Builder Publish row apart from the Builder.io account", () => {
+    mocks.useMcpServers.mockReturnValue({
+      data: { user: [], org: [], orgId: null, role: null },
+      isSuccess: true,
+    });
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-use-own-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-skip-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const search = document.body.querySelector(
+      'input[aria-label="Search integrations"]',
+    ) as HTMLInputElement | null;
+    act(() => {
+      if (!search) return;
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(search, "builder");
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    // Searching "builder" still finds the row, but it no longer presents as the
+    // Builder.io account the previous screen just connected.
+    expect(
+      document.body.querySelector(
+        'button[aria-label="Connect Builder.io Publish"]',
+      ),
+    ).toBeTruthy();
+    expect(
+      document.body.querySelector('button[aria-label="Connect Builder.io"]'),
+    ).toBeNull();
   });
 
   it("shows the workspace permission requirement to a non-admin", () => {

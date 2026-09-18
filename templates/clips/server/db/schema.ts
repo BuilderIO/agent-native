@@ -220,6 +220,30 @@ export const recordings = table("recordings", {
   ...ownableColumns(),
 });
 
+export const clipIntakeSessions = table(
+  "clips_intake_sessions",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    organizationId: text("organization_id").notNull(),
+    recordingId: text("recording_id"),
+    status: text("status", {
+      enum: ["open", "creating", "recording", "completed", "aborted"],
+    })
+      .notNull()
+      .default("open"),
+    expiresAt: text("expires_at").notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (session) => ({
+    expiresIndex: index("clips_intake_sessions_expires_idx").on(
+      session.status,
+      session.expiresAt,
+    ),
+  }),
+);
+
 export const recordingShares = createSharesTable("recording_shares");
 
 // -----------------------------------------------------------------------------
@@ -281,6 +305,9 @@ export const recordingBrowserDiagnostics = table(
     endedAt: text("ended_at").notNull(),
     consoleLogsJson: text("console_logs_json").notNull().default("[]"),
     networkRequestsJson: text("network_requests_json").notNull().default("[]"),
+    interactionEventsJson: text("interaction_events_json")
+      .notNull()
+      .default("[]"),
     redactionVersion: integer("redaction_version").notNull().default(1),
     createdAt: text("created_at").notNull().default(now()),
     updatedAt: text("updated_at").notNull().default(now()),

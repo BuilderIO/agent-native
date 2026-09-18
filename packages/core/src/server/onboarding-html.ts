@@ -70,6 +70,7 @@ import {
   isCanonicalIdentitySsoClientRequest,
   isCanonicalIdentitySsoClientConfigured,
   isIdentitySsoAvailableForRequest,
+  isNetlifyDeployPermalinkIdentitySsoClientRequest,
 } from "./identity-sso-store.js";
 import { getPublicOAuthOrigin } from "./oauth-public-origin.js";
 import { getWorkspaceGatewayReturnOrigin } from "./oauth-return-url.js";
@@ -1104,6 +1105,8 @@ export interface OnboardingHtmlOptions {
    * If Google OAuth env vars are not configured, an error message is shown.
    */
   googleOnly?: boolean;
+  /** Additional provider scopes require the direct OAuth flow to persist tokens. */
+  googleScopes?: string[];
   /** Authentication surface to render. Defaults to the existing password flow. */
   authMode?: "magic-link" | "password";
   /** Render the quiet, centered auth surface used when the app has an initial prompt. */
@@ -1252,6 +1255,10 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     "/agent-native-icon-dark.svg",
     appBasePath,
   );
+  const brandMarkLightSrc = withAppBasePath(
+    "/agent-native-icon-light.svg",
+    appBasePath,
+  );
   const socialImageUrl = withAgentNativeSocialImageCacheBuster(
     opts.requestOrigin
       ? `${opts.requestOrigin}${withAppBasePath(AGENT_NATIVE_SOCIAL_IMAGE_PATH, appBasePath)}`
@@ -1273,6 +1280,12 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   const identitySsoRequestHost =
     opts.identitySsoRequestHost ?? opts.requestHost;
   const identitySsoRequestProtocol = opts.identitySsoRequestProtocol ?? "https";
+  const googleViaIdentitySso =
+    !opts.googleScopes?.length &&
+    isNetlifyDeployPermalinkIdentitySsoClientRequest(
+      identitySsoRequestHost,
+      identitySsoRequestProtocol,
+    );
   const identitySsoEnabled = isIdentitySsoAvailableForRequest({
     requestHost: identitySsoRequestHost,
     requestProtocol: identitySsoRequestProtocol,
@@ -1286,18 +1299,27 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
       (!identitySsoRequestHost && isCanonicalIdentitySsoClientConfigured()));
   const marketingStyles = hasMarketing
     ? `
-  body.has-marketing { padding: 0; position: relative; overflow-x: hidden; color-scheme: dark; }
+  body.has-marketing {
+    --b-hero-ocean-opacity: 0.32;
+    --b-hero-shader-opacity: 0.15;
+    padding: 0;
+    position: relative;
+    overflow-x: hidden;
+    color-scheme: dark;
+  }
   [data-agent-native-starfield] {
     position: fixed;
     inset: 0;
     width: 100%;
     height: 100%;
-    opacity: 0.15;
+    opacity: var(--b-hero-shader-opacity, 0.15);
     pointer-events: none;
     z-index: 0;
   }
   @media (prefers-reduced-motion: reduce) {
-    [data-agent-native-starfield] { opacity: 0.15; }
+    [data-agent-native-starfield] {
+      opacity: var(--b-hero-shader-opacity, 0.15);
+    }
   }
   .split {
     position: relative;
@@ -1467,6 +1489,8 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   }
   @media (prefers-color-scheme: light) {
     body.has-marketing {
+      --b-hero-ocean-opacity: 0.3;
+      --b-hero-shader-opacity: 0.22;
       background: color-mix(in srgb, CanvasText 4%, Canvas);
       color: CanvasText;
       color-scheme: light;
@@ -1482,6 +1506,33 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     }
     .auth-marketing-home .auth-marketing-learn-more-link {
       color: LinkText;
+    }
+    /* The marketing panel's base colors are picked for the near-black body.
+       Without these the app name renders white-on-white and the whole panel
+       reads as empty rather than as low contrast. */
+    .auth-marketing-home .app-name { color: CanvasText; }
+    .auth-marketing-home .app-tagline,
+    .auth-marketing-home .feature-list li {
+      color: color-mix(in srgb, CanvasText 72%, Canvas);
+    }
+    .auth-marketing-home .app-desc {
+      color: color-mix(in srgb, CanvasText 62%, Canvas);
+    }
+    .auth-marketing-home .feature-list li::before {
+      background: color-mix(in srgb, CanvasText 22%, transparent);
+      border-color: color-mix(in srgb, CanvasText 38%, transparent);
+    }
+    .auth-marketing-home .oss-link { color: LinkText; }
+    .auth-marketing-home .oss-link:hover {
+      color: color-mix(in srgb, LinkText 75%, CanvasText);
+    }
+    .auth-marketing-home .copy-run-local {
+      color: color-mix(in srgb, CanvasText 62%, Canvas);
+      border-color: color-mix(in srgb, CanvasText 18%, transparent);
+    }
+    .auth-marketing-home .copy-run-local:hover {
+      color: CanvasText;
+      border-color: color-mix(in srgb, CanvasText 32%, transparent);
     }
     .auth-marketing-home .card {
       background: Canvas;
@@ -1646,14 +1697,17 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
         : undefined,
     marketingLocales: authMarketingLocales,
     brandMarkSrc,
+    brandMarkLightSrc,
     githubUrl: "https://github.com/BuilderIO/agent-native",
     showGoogle,
+    organizationSsoEnabled: getAppConfig().access.sso.enabled,
     signupLegalNotice,
     signupLocalModeNote,
     docsAuthUrl: docsUrl("authentication", {
       hash: "local-development-sign-in",
     }),
     identitySsoEnabled,
+    googleViaIdentitySso,
     identitySsoAuto,
     publicOAuthOrigin,
     workspaceGatewayReturnOrigin,
@@ -1954,7 +2008,6 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   .local-dev-signin {
     margin: 1.25rem 0 0.25rem;
     padding-top: 1rem;
-    border-top: 1px solid color-mix(in srgb, currentColor 12%, transparent);
   }
   .btn-local-dev {
     margin-top: 0.25rem;
@@ -2001,7 +2054,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   }
   .local-dev-full-options {
     display: block;
-    margin: 0.75rem auto 0;
+    margin: 1rem 0 0;
     padding: 0;
     background: transparent;
     border: 0;
@@ -2015,6 +2068,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   .local-dev-full-options[hidden] { display: none; }
   .full-auth-options { margin-top: 1rem; }
   .full-auth-options[hidden] { display: none; }
+  .sso-signin { margin-top: 0.75rem; }
   .legal-note {
     margin-top: 0.375rem;
     margin-bottom: 0.875rem;
@@ -2312,7 +2366,6 @@ ${marketingStyles}
     max-width: none;
     max-height: none;
     filter: none;
-    opacity: 0.15;
   }
   .auth-marketing-home.has-product-screenshot .form-panel {
     position: fixed;
@@ -2324,7 +2377,7 @@ ${marketingStyles}
     width: 100%;
     min-width: 0;
     max-width: none;
-    padding: 1rem;
+    padding: 1rem clamp(1rem, 4vw, 4rem);
     overflow-y: auto;
   }
   .auth-marketing-home.has-product-screenshot .form-panel > .card {
@@ -2349,6 +2402,7 @@ ${marketingStyles}
     .auth-marketing-home .auth-marketing-shell-with-top-right { display: flex; }
     .auth-marketing-home.has-product-screenshot .form-panel {
       min-width: 0;
+      align-items: center;
       padding: 1rem;
     }
   }
@@ -2486,9 +2540,6 @@ ${marketingStyles}
   );
   return `<!DOCTYPE html>${authDocumentMarkup}`;
 }
-
-/** @deprecated Use getOnboardingHtml() instead */
-export const ONBOARDING_HTML = getOnboardingHtml();
 
 const RESET_PASSWORD_STYLES = `
   /* guard:allow-raw-color - standalone reset page has no app theme token layer */

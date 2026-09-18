@@ -30,9 +30,11 @@ import {
   getSessionMaxAge,
   hasLegacySessionForEmail,
   safeReturnPath,
+  setFirstRunOnboardingCookie,
   setFrameworkSessionCookie,
 } from "./auth.js";
 import {
+  getBetterAuthUserIdForEmail,
   hasBetterAuthUserEmail,
   trackSignupEvent,
 } from "./better-auth-instance.js";
@@ -44,6 +46,10 @@ import {
   publicFrameworkPath,
 } from "./framework-route-prefix.js";
 import { setIdentityGoogleAuthCookie } from "./identity-auth-provider.js";
+import {
+  isNetlifyDeployPermalinkGoogleOAuthClientOrigin,
+  isNetlifyDeployPermalinkGoogleOAuthClientRequest,
+} from "./identity-sso-store.js";
 import { appendSessionToOAuthReturnUrl } from "./oauth-return-url.js";
 import {
   EXPLICIT_PUBLIC_ORIGIN_ENV_KEYS,
@@ -158,6 +164,7 @@ function isBuilderPreviewHost(host: string | undefined): boolean {
       hostname.endsWith(".builder.my")
     );
   } catch {
+    // coercion-ok: malformed callback URLs are rejected as invalid input.
     return false;
   }
 }
@@ -228,6 +235,189 @@ export function getAppUrl(event: H3Event, path = "/"): string {
   return `${getOrigin(event)}${getAppBasePath()}${publicFrameworkPath(cleanPath)}`;
 }
 
+export const NETLIFY_PREVIEW_GOOGLE_OAUTH_CALLBACK_URL =
+  "https://beta.dispatch.agent-native.com/_agent-native/google/callback";
+export const AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET_ENV =
+  "AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET";
+export const NETLIFY_PREVIEW_GOOGLE_OAUTH_RELAY_STATE_PREFIX =
+  "agent-native-preview-google-relay.";
+const NETLIFY_PREVIEW_GOOGLE_OAUTH_RELAY_TTL_MS = 10 * 60 * 1000;
+const NETLIFY_PREVIEW_GOOGLE_OAUTH_RELAY_CLOCK_SKEW_MS = 2 * 60 * 1000;
+const NETLIFY_PREVIEW_GOOGLE_OAUTH_RELAY_MAX_LENGTH = 32 * 1024;
+const NETLIFY_PREVIEW_GOOGLE_OAUTH_CALLBACK_PATH_RE =
+  /^(?:\/[a-z0-9-]+)?\/_agent-native\/google\/(?:add-account\/)?callback$/;
+
+function isNetlifyPreviewGoogleOAuthCallbackPath(path: string): boolean {
+  return NETLIFY_PREVIEW_GOOGLE_OAUTH_CALLBACK_PATH_RE.test(path);
+}
+
+export function getNetlifyPreviewGoogleOAuthCallbackUrl(
+  event: H3Event,
+  path = "/_agent-native/google/callback",
+): string | undefined {
+  const cleanPath = path.startsWith("/") ? path : `/${path}`;
+  const host = getHeader(event, "host")?.trim().toLowerCase();
+  if (
+    !host ||
+    !isNetlifyPreviewGoogleOAuthCallbackPath(cleanPath) ||
+    !isNetlifyDeployPermalinkGoogleOAuthClientRequest(
+      host,
+      getHeader(event, "x-forwarded-proto"),
+    )
+  ) {
+    return undefined;
+  }
+  const basePath = isRequestUnderAppBasePath(event) ? getAppBasePath() : "";
+  return `https://${host}${basePath}${cleanPath}`;
+}
+
+export function isNetlifyPreviewGoogleOAuthCallbackUrl(
+  value: string | undefined,
+): boolean {
+  if (!value) return false;
+  try {
+    const url = new URL(value);
+    return (
+      `${url.origin}${url.pathname}` === value &&
+      isNetlifyDeployPermalinkGoogleOAuthClientOrigin(url.origin) &&
+      isNetlifyPreviewGoogleOAuthCallbackPath(url.pathname)
+    );
+  } catch {
+    // coercion-ok: malformed callback URLs are rejected as invalid input.
+    return false;
+  }
+}
+
+export function isNetlifyPreviewGoogleOAuthRelayState(
+  value: unknown,
+): value is string {
+  return (
+    typeof value === "string" &&
+    value.length <= NETLIFY_PREVIEW_GOOGLE_OAUTH_RELAY_MAX_LENGTH &&
+    value.startsWith(NETLIFY_PREVIEW_GOOGLE_OAUTH_RELAY_STATE_PREFIX)
+  );
+}
+
+function getNetlifyPreviewGoogleOAuthRelaySigningKey(): string {
+  const secret =
+    process.env[AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET_ENV]?.trim();
+  if (!secret) {
+    throw new Error(
+      `${AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET_ENV} is required for the Netlify preview Google OAuth relay.`,
+    );
+  }
+  if (secret.length < 32) {
+    throw new Error(
+      `${AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET_ENV} must be at least 32 characters long.`,
+    );
+  }
+  return secret;
+}
+
+/**
+ * Wrap a signed app OAuth state for the fixed Google callback registered on
+ * the beta Dispatch site. The inner state remains authoritative and is
+ * verified by the preview app after the relay forwards it.
+ */
+export function encodeNetlifyPreviewGoogleOAuthRelayState(
+  state: string,
+  callbackUri: string,
+  now = Date.now(),
+): string {
+  if (
+    !state ||
+    state.length > 16 * 1024 ||
+    !isNetlifyPreviewGoogleOAuthCallbackUrl(callbackUri)
+  ) {
+    throw new Error("Invalid Netlify preview Google OAuth relay state.");
+  }
+  const payload = {
+    v: 1,
+    t: callbackUri,
+    s: state,
+    i: now,
+    e: now + NETLIFY_PREVIEW_GOOGLE_OAUTH_RELAY_TTL_MS,
+  };
+  const encodedPayload = Buffer.from(JSON.stringify(payload)).toString(
+    "base64url",
+  );
+  const signature = crypto
+    .createHmac("sha256", getNetlifyPreviewGoogleOAuthRelaySigningKey())
+    .update(encodedPayload)
+    .digest("base64url");
+  return `${NETLIFY_PREVIEW_GOOGLE_OAUTH_RELAY_STATE_PREFIX}${encodedPayload}.${signature}`;
+}
+
+export function decodeNetlifyPreviewGoogleOAuthRelayState(
+  value: string | undefined,
+  now = Date.now(),
+): { callbackUri: string; state: string } | null {
+  if (!isNetlifyPreviewGoogleOAuthRelayState(value)) return null;
+  try {
+    const encodedEnvelope = value.slice(
+      NETLIFY_PREVIEW_GOOGLE_OAUTH_RELAY_STATE_PREFIX.length,
+    );
+    const delimiter = encodedEnvelope.lastIndexOf(".");
+    if (delimiter <= 0 || delimiter === encodedEnvelope.length - 1) return null;
+    const encodedPayload = encodedEnvelope.slice(0, delimiter);
+    const signature = encodedEnvelope.slice(delimiter + 1);
+    const expectedSignature = crypto
+      .createHmac("sha256", getNetlifyPreviewGoogleOAuthRelaySigningKey())
+      .update(encodedPayload)
+      .digest("base64url");
+    if (
+      signature.length !== expectedSignature.length ||
+      !crypto.timingSafeEqual(
+        Buffer.from(signature),
+        Buffer.from(expectedSignature),
+      )
+    ) {
+      return null;
+    }
+    const parsed = JSON.parse(
+      Buffer.from(encodedPayload, "base64url").toString("utf8"),
+    ) as Record<string, unknown>;
+    const issuedAt = parsed.i;
+    const expiresAt = parsed.e;
+    const callbackUri = parsed.t;
+    const state = parsed.s;
+    if (
+      parsed.v !== 1 ||
+      typeof callbackUri !== "string" ||
+      typeof state !== "string" ||
+      state.length > 16 * 1024 ||
+      typeof issuedAt !== "number" ||
+      typeof expiresAt !== "number" ||
+      !Number.isFinite(issuedAt) ||
+      !Number.isFinite(expiresAt) ||
+      issuedAt > now + NETLIFY_PREVIEW_GOOGLE_OAUTH_RELAY_CLOCK_SKEW_MS ||
+      expiresAt < issuedAt ||
+      expiresAt < now ||
+      !isNetlifyPreviewGoogleOAuthCallbackUrl(callbackUri)
+    ) {
+      return null;
+    }
+    return { callbackUri, state };
+  } catch {
+    // coercion-ok: malformed relay state is rejected as invalid input.
+    return null;
+  }
+}
+
+export function wrapNetlifyPreviewGoogleOAuthState(
+  event: H3Event,
+  state: string,
+  callbackPath = "/_agent-native/google/callback",
+): string {
+  const callbackUri = getNetlifyPreviewGoogleOAuthCallbackUrl(
+    event,
+    callbackPath,
+  );
+  return callbackUri
+    ? encodeNetlifyPreviewGoogleOAuthRelayState(state, callbackUri)
+    : state;
+}
+
 function isFrameworkOAuthCallbackPath(pathname: string): boolean {
   return (
     pathname.startsWith("/_agent-native/") &&
@@ -272,6 +462,8 @@ function isRequestUnderAppBasePath(event: H3Event): boolean {
 export type OAuthRedirectUriOptions = {
   /** Allow a known framework callback to bypass an app mount prefix. */
   allowRootCallback?: boolean;
+  /** Use the fixed Beta callback plus an immutable-preview relay. */
+  useNetlifyPreviewGoogleOAuthRelay?: boolean;
 };
 
 function getDefaultOAuthRedirectUrl(
@@ -337,6 +529,15 @@ export function isAllowedOAuthRedirectUri(
   } catch {
     return false;
   }
+  if (
+    options.useNetlifyPreviewGoogleOAuthRelay &&
+    candidate === NETLIFY_PREVIEW_GOOGLE_OAUTH_CALLBACK_URL &&
+    getNetlifyPreviewGoogleOAuthCallbackUrl(event) !== undefined
+  ) {
+    // The Beta relay has already authenticated this exact callback target;
+    // keep the signed inner state usable after it lands on the preview host.
+    return true;
+  }
   if (url.protocol !== expectedUrl.protocol) return false;
   if (url.host !== expectedUrl.host) return false;
   // The candidate arrives in the deployment's PUBLIC namespace; a custom
@@ -385,6 +586,19 @@ export function resolveOAuthRedirectUri(
   options: OAuthRedirectUriOptions = {},
 ): string | null {
   const supplied = getQuery(event).redirect_uri;
+  const previewCallbackUri = options.useNetlifyPreviewGoogleOAuthRelay
+    ? getNetlifyPreviewGoogleOAuthCallbackUrl(event, defaultPath)
+    : undefined;
+  if (previewCallbackUri) {
+    if (
+      typeof supplied === "string" &&
+      supplied.length > 0 &&
+      supplied !== previewCallbackUri
+    ) {
+      return null;
+    }
+    return NETLIFY_PREVIEW_GOOGLE_OAUTH_CALLBACK_URL;
+  }
   if (typeof supplied === "string" && supplied.length > 0) {
     return isAllowedOAuthRedirectUri(supplied, event, getOrigin(event), options)
       ? supplied
@@ -755,10 +969,13 @@ export async function createOAuthSession(
     hasProductionSession: boolean;
     desktop?: boolean;
     mobile?: boolean;
-    authProvider?: "google" | null;
+    authProvider?: "google" | `sso:${string}` | null;
     trackSignup?: {
       authProvider: string;
+      /** Provider subjects are retained for legacy callers, never used as auth_user_id. */
       authUserId?: string;
+      /** Canonical Better Auth fallback supplied by the core callback. */
+      canonicalAuthUserId?: string;
       name?: string | null;
       attribution?: Record<string, string | undefined>;
       signupAnonymousId?: string;
@@ -801,6 +1018,9 @@ export async function createOAuthSession(
     if (opts.authProvider !== null) {
       setIdentityGoogleAuthCookie(event, email);
     }
+    if (opts.trackSignup && opts.trackSignup.isNewUser !== false) {
+      setFirstRunOnboardingCookie(event);
+    }
     if (shouldTrackSignup && opts.trackSignup) {
       const attribution =
         opts.trackSignup.attribution ??
@@ -808,11 +1028,14 @@ export async function createOAuthSession(
       const anonymousId =
         opts.trackSignup.signupAnonymousId ??
         readAnalyticsAnonymousId(getHeader(event, "cookie") ?? null);
+      const authUserId =
+        (await getBetterAuthUserIdForEmail(email)) ??
+        opts.trackSignup.canonicalAuthUserId;
       await trackSignupEvent({
         authProvider: opts.trackSignup.authProvider,
         origin: "google_oauth",
         signupMethod: "google",
-        authUserId: opts.trackSignup.authUserId,
+        authUserId,
         email,
         name: opts.trackSignup.name,
         attribution,

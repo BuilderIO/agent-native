@@ -434,6 +434,7 @@ describe("action discovery", () => {
         "share-resource",
         "unshare-resource",
         "set-resource-visibility",
+        "offboard-member",
       ]) {
         expect(registry[name], `${name} should be merged`).toBeDefined();
         expect(
@@ -441,9 +442,33 @@ describe("action discovery", () => {
           `${name} must keep toolCallable:false`,
         ).toBe(false);
       }
+      expect(registry["offboard-member"].agentTool).toBe(false);
+      expect(registry["offboard-member"].mcpTool).toBe(false);
+      await expect(
+        registry["offboard-member"].run(
+          { email: "alice@example.com", transferTo: "bob@example.com" },
+          { caller: "tool", userEmail: "alice@example.com" },
+        ),
+      ).rejects.toThrow(
+        "This action can only be called from the signed-in app UI.",
+      );
     },
     CORE_ACTION_DISCOVERY_TIMEOUT_MS,
   );
+
+  it("preserves WebMCP capability scopes in the action registry", () => {
+    const registry = loadActionsFromStaticRegistry({
+      "visual-edit": {
+        default: {
+          tool: { description: "Visual edit", parameters: {} },
+          capabilityScopes: ["visual-edit"],
+          run: async () => ({}),
+        },
+      },
+    });
+
+    expect(registry["visual-edit"].capabilityScopes).toEqual(["visual-edit"]);
+  });
 
   it(
     "merges app-facing MCP actions without exposing them as agent tools",
@@ -493,6 +518,22 @@ describe("action discovery", () => {
     expect(registry["set-localization-preference"]).toBeDefined();
   });
 
+  it("merges Labs actions and their legacy experiment aliases", async () => {
+    const registry: Record<string, any> = {};
+    await mergeCoreSharingActions(registry);
+
+    for (const name of [
+      "get-labs",
+      "set-lab",
+      "get-experiments",
+      "set-experiment",
+    ]) {
+      expect(registry[name], `${name} should be merged`).toBeDefined();
+      expect(registry[name].frameworkGroup).toBe("labs");
+    }
+    expect(registry["get-experiments"].http).toEqual({ method: "GET" });
+  });
+
   it("merges toolkit history and review actions", async () => {
     const registry: Record<string, any> = {};
     await mergeCoreSharingActions(registry);
@@ -508,10 +549,12 @@ describe("action discovery", () => {
       "reply-review-comment",
       "resolve-review-thread",
       "delete-review-comment",
+      "update-review-comment",
       "consume-review-feedback",
       "get-review-feedback",
       "set-review-status",
       "send-review-thread-to-agent",
+      "set-review-threads-unread",
     ]) {
       expect(registry[name], `${name} should be merged`).toBeDefined();
     }

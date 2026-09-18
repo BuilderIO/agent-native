@@ -21,6 +21,7 @@
 
 import * as Y from "yjs";
 
+import type { DbExec } from "../db/client.js";
 import { emitCollabUpdate } from "./emitter.js";
 import {
   applyJsonDiff,
@@ -31,10 +32,10 @@ import {
 } from "./json-to-yjs.js";
 import {
   loadYDocRecord,
-  loadYDocState,
+  loadYDocRecordWithClient,
   loadYDocVersion,
-  saveYDocState,
   trySaveYDocState,
+  trySaveYDocStateWithClient,
 } from "./storage.js";
 import { uint8ArrayToBase64 } from "./storage.js";
 import { applyTextToYDoc, initYDocWithText } from "./text-to-yjs.js";
@@ -138,6 +139,13 @@ const _refreshLocks = new Map<string, Promise<void>>();
 // doc (a memory leak that grows with concurrent read traffic).
 const _loadLocks = new Map<string, Promise<Y.Doc>>();
 
+export interface PreparedYDocMutationLease {
+  /** Isolated clone. Mutations stay invisible until the outer transaction commits. */
+  doc: Y.Doc;
+  baseVersion: number | null;
+  persist(transaction: DbExec, textSnapshot: string): Promise<void>;
+}
+
 function evictIfNeeded(): void {
   if (_cache.size <= MAX_CACHE) return;
   // Evict least-recently-accessed entry
@@ -177,6 +185,75 @@ async function withDocWriteLock<T>(
       _writeLocks.delete(docId);
     }
   }
+}
+
+/**
+ * Serialize a caller-owned SQL transaction with Yjs writes. The callback
+ * mutates an isolated clone and persists it through its transaction. Only a
+ * successfully resolved callback replaces the shared cache and broadcasts.
+ */
+export async function withPreparedYDocMutation<T>(
+  docId: string,
+  requestSource: string | undefined,
+  run: (lease: PreparedYDocMutationLease) => Promise<T>,
+): Promise<T> {
+  return withDocWriteLock(docId, async () => {
+    const current = await getDocForWrite(docId);
+    const latest = await loadYDocRecord(docId);
+    if (latest?.state.length) Y.applyUpdate(current, latest.state);
+
+    const candidate = new Y.Doc();
+    Y.applyUpdate(candidate, Y.encodeStateAsUpdate(current));
+    const baseVector = Y.encodeStateVector(candidate);
+    const baseVersion = latest?.version ?? null;
+    let persisted = false;
+    const lease: PreparedYDocMutationLease = {
+      doc: candidate,
+      baseVersion,
+      persist: async (transaction, textSnapshot) => {
+        if (persisted) {
+          throw new Error("Prepared Yjs mutation was already persisted");
+        }
+        const saved = await trySaveYDocStateWithClient(
+          transaction,
+          docId,
+          Y.encodeStateAsUpdate(candidate),
+          textSnapshot,
+          baseVersion,
+        );
+        if (!saved) {
+          throw new CollabBaseVersionConflictError(
+            `Document ${docId} changed while the prepared mutation was committing.`,
+          );
+        }
+        persisted = true;
+      },
+    };
+
+    try {
+      const result = await run(lease);
+      if (!persisted) {
+        candidate.destroy();
+        return result;
+      }
+      const update = Y.encodeStateAsUpdate(candidate, baseVector);
+      const previous = _cache.get(docId);
+      previous?.doc.destroy();
+      _cache.set(docId, {
+        doc: candidate,
+        lastAccess: Date.now(),
+        syncedVersion: baseVersion === null ? 0 : baseVersion + 1,
+      });
+      evictIfNeeded();
+      if (update.length > 0) {
+        emitCollabUpdate(docId, uint8ArrayToBase64(update), requestSource);
+      }
+      return result;
+    } catch (error) {
+      candidate.destroy();
+      throw error;
+    }
+  });
 }
 
 /**
@@ -626,17 +703,52 @@ export async function seedFromText(
   docId: string,
   text: string,
   fieldName: string = DEFAULT_FIELD,
+  client?: DbExec,
 ): Promise<void> {
   return withDocWriteLock(docId, async () => {
-    const existing = await loadYDocState(docId);
-    if (existing && existing.length > 0) return; // Already seeded
+    const existing = client
+      ? await loadYDocRecordWithClient(client, docId)
+      : await loadYDocRecord(docId);
+    if (existing && existing.state.length > 0) return; // Already seeded
+    const expectedVersion = existing ? existing.version : null;
 
     const { doc, state } = initYDocWithText(fieldName, text);
-    await saveYDocState(docId, state, text);
+    let saved: boolean;
+    try {
+      saved = client
+        ? await trySaveYDocStateWithClient(
+            client,
+            docId,
+            state,
+            text,
+            expectedVersion,
+          )
+        : await trySaveYDocState(docId, state, text, expectedVersion);
+    } catch (error) {
+      doc.destroy();
+      throw error;
+    }
+    if (!saved) {
+      releaseDoc(docId);
+      doc.destroy();
+      return;
+    }
+
+    releaseDoc(docId);
+    // A caller-owned transaction may still roll back after this function
+    // returns, so never publish its uncommitted doc into the process cache.
+    if (client) {
+      doc.destroy();
+      return;
+    }
 
     // Cache the doc
     evictIfNeeded();
-    _cache.set(docId, { doc, lastAccess: Date.now(), syncedVersion: null });
+    _cache.set(docId, {
+      doc,
+      lastAccess: Date.now(),
+      syncedVersion: existing ? existing.version + 1 : 0,
+    });
   });
 }
 
@@ -720,17 +832,57 @@ export async function seedFromJson(
   json: any,
   fieldName: string = "data",
   type: "map" | "array" = "map",
+  client?: DbExec,
 ): Promise<void> {
   return withDocWriteLock(docId, async () => {
-    const existing = await loadYDocState(docId);
-    if (existing && existing.length > 0) return; // Already seeded
+    const existing = client
+      ? await loadYDocRecordWithClient(client, docId)
+      : await loadYDocRecord(docId);
+    if (existing && existing.state.length > 0) return; // Already seeded
+    const expectedVersion = existing ? existing.version : null;
 
     const { doc, state } = initYDocWithJson(fieldName, json, type);
-    await saveYDocState(docId, state, JSON.stringify(json));
+    let saved: boolean;
+    try {
+      saved = client
+        ? await trySaveYDocStateWithClient(
+            client,
+            docId,
+            state,
+            JSON.stringify(json),
+            expectedVersion,
+          )
+        : await trySaveYDocState(
+            docId,
+            state,
+            JSON.stringify(json),
+            expectedVersion,
+          );
+    } catch (error) {
+      doc.destroy();
+      throw error;
+    }
+    if (!saved) {
+      releaseDoc(docId);
+      doc.destroy();
+      return;
+    }
+
+    releaseDoc(docId);
+    // See seedFromText: a transaction-owned seed becomes cacheable only after
+    // its commit, when the route reads the now-durable state.
+    if (client) {
+      doc.destroy();
+      return;
+    }
 
     // Cache the doc
     evictIfNeeded();
-    _cache.set(docId, { doc, lastAccess: Date.now(), syncedVersion: null });
+    _cache.set(docId, {
+      doc,
+      lastAccess: Date.now(),
+      syncedVersion: existing ? existing.version + 1 : 0,
+    });
   });
 }
 

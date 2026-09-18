@@ -10,6 +10,7 @@ import {
   readBody as readH3Body,
 } from "h3";
 
+import "../authorization/check-action.js";
 import { verifyA2ATokenWithClaims } from "../a2a-claims.js";
 import {
   ActionContractError,
@@ -59,7 +60,11 @@ import {
 } from "./embed-session.js";
 import { getHttpRequestTelemetryId } from "./http-response-telemetry.js";
 import { consumeOneTimeJti } from "./identity-sso-store.js";
-import { getForwardedRequestOrigin } from "./request-origin.js";
+import {
+  getForwardedRequestOrigin,
+  isSameOriginRequest,
+} from "./request-origin.js";
+import { hasUiActionCapability } from "./ui-action-capability.js";
 
 declare const __AGENT_NATIVE_BUILD_ID__: string | undefined;
 declare const __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__: string | undefined;
@@ -438,6 +443,19 @@ function isPublicWebMcpAction(entry: ActionEntry): boolean {
   );
 }
 
+function allowsWebMcpCapability(
+  entry: ActionEntry,
+  authCapability: string | undefined,
+): boolean {
+  if (!authCapability || !Array.isArray(entry.capabilityScopes)) return false;
+  return entry.capabilityScopes.some(
+    (scope) =>
+      typeof scope === "string" &&
+      scope.length > 0 &&
+      authCapability.startsWith(`capability:${scope}:`),
+  );
+}
+
 async function resolveRequestAuthCapability(
   event: any,
 ): Promise<string | undefined> {
@@ -579,6 +597,9 @@ function mountActionRoutesInternal(
         // through, so a live same-origin session cookie can't silently execute
         // the request as the logged-in user.
         let resolvedCaller: ActionRouteResolvedCaller | null = null;
+        const capabilityAllowed =
+          (options?.caller === "webmcp" || isFrontendActionRequest(event)) &&
+          allowsWebMcpCapability(entry, authCapability);
         if (options?.allowDelegatedCaller !== false) {
           let caller: ActionRouteResolvedCaller | null;
           try {
@@ -614,7 +635,11 @@ function mountActionRoutesInternal(
           ownerContextResolved = true;
           try {
             const ownerContext = await options.getOwnerContextFromEvent(event);
-            if (ownerContext.anonymous && !isPublicWebMcpAction(entry)) {
+            if (
+              ownerContext.anonymous &&
+              !isPublicWebMcpAction(entry) &&
+              !capabilityAllowed
+            ) {
               throw createError({
                 statusCode: 401,
                 statusMessage: "Unauthorized",
@@ -626,9 +651,9 @@ function mountActionRoutesInternal(
             }
           } catch (error) {
             if (
-              entry.requiresAuth === false &&
               isAuthResolutionFailure(error) &&
-              isPublicWebMcpAction(entry)
+              (capabilityAllowed ||
+                (entry.requiresAuth === false && isPublicWebMcpAction(entry)))
             ) {
               userEmail = undefined;
               userName = undefined;
@@ -649,9 +674,11 @@ function mountActionRoutesInternal(
               : undefined;
           } catch (error) {
             if (
-              entry.requiresAuth === false &&
               isAuthResolutionFailure(error) &&
-              (options?.caller !== "webmcp" || isPublicWebMcpAction(entry))
+              (capabilityAllowed ||
+                (entry.requiresAuth === false &&
+                  (options?.caller !== "webmcp" ||
+                    isPublicWebMcpAction(entry))))
             ) {
               userEmail = undefined;
               userName = undefined;
@@ -681,13 +708,28 @@ function mountActionRoutesInternal(
           ) {
             orgId = await storedActiveOrgId(resolvedCaller.owner);
           }
-        } else {
+        } else if (!capabilityAllowed || userEmail) {
           orgId = options?.resolveOrgId
             ? ((await options.resolveOrgId(event)) ?? undefined)
             : undefined;
           if (!hasExplicitPersonalOrgScope(event) && !orgId && userEmail) {
             orgId = await storedActiveOrgId(userEmail);
           }
+        }
+        const frontendCaller =
+          !options?.caller && !resolvedCaller && isFrontendActionRequest(event);
+        if (
+          entry.uiOnly === true &&
+          (!frontendCaller ||
+            !userEmail ||
+            !isSameOriginRequest(event) ||
+            !hasUiActionCapability(event, userEmail))
+        ) {
+          setResponseStatus(event, 403);
+          return {
+            error: "This action can only be called from the signed-in app UI.",
+            errorCode: "ui_capability_required",
+          };
         }
         const timezone = readTimezoneHeader(event);
         const browserSessionId = readBrowserSessionIdHeader(event);
@@ -1095,11 +1137,17 @@ export function mountWebMcpActionRoutes(
       ([name, entry]) =>
         /^[A-Za-z0-9_.-]{1,128}$/.test(name) &&
         isActionExposedToExternalAgents(entry) &&
-        entry.agentTool !== false,
+        entry.agentTool !== false &&
+        entry.uiOnly !== true,
     ),
   );
   const publicEligible = Object.fromEntries(
     Object.entries(eligible).filter(([, entry]) => isPublicWebMcpAction(entry)),
+  );
+  const capabilityEligible = Object.fromEntries(
+    Object.entries(eligible).filter(([, entry]) =>
+      Array.isArray(entry.capabilityScopes),
+    ),
   );
 
   const app = getH3App(nitroApp);
@@ -1158,11 +1206,25 @@ export function mountWebMcpActionRoutes(
           if (!isAuthResolutionFailure(error)) throw error;
         }
       }
-      if (!authenticated && Object.keys(publicEligible).length === 0) {
+      const authCapability = await resolveRequestAuthCapability(event);
+      const visibleCapabilityActions = authCapability
+        ? Object.fromEntries(
+            Object.entries(capabilityEligible).filter(([, entry]) =>
+              allowsWebMcpCapability(entry, authCapability),
+            ),
+          )
+        : {};
+      if (
+        !authenticated &&
+        Object.keys(publicEligible).length === 0 &&
+        Object.keys(visibleCapabilityActions).length === 0
+      ) {
         throw createError({ statusCode: 401, statusMessage: "Unauthorized" });
       }
       setResponseHeader(event, "Cache-Control", "no-store");
-      const visible = authenticated ? eligible : publicEligible;
+      const visible = authenticated
+        ? eligible
+        : { ...publicEligible, ...visibleCapabilityActions };
       return Object.entries(visible).map(([name, entry]) => ({
         name,
         title: agentNativeToolTitle(name, entry.tool.title),

@@ -2,7 +2,7 @@ import { execFileSync } from "child_process";
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { pathToFileURL } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -237,6 +237,7 @@ describe("workspace deploy", () => {
         name: "Dispatch",
         description: "",
         path: "/dispatch",
+        homePath: "/home",
         isDispatch: true,
         audience: "internal",
         publicPaths: [],
@@ -247,6 +248,7 @@ describe("workspace deploy", () => {
         name: "Starter",
         description: "",
         path: "/starter",
+        homePath: "/home",
         isDispatch: false,
         audience: "internal",
         publicPaths: [],
@@ -382,6 +384,7 @@ describe("workspace deploy", () => {
           name: "Dispatch",
           description: "",
           path: "/dispatch",
+          homePath: "/home",
           isDispatch: true,
           audience: "internal",
           publicPaths: [],
@@ -392,6 +395,7 @@ describe("workspace deploy", () => {
           name: "Starter",
           description: "",
           path: "/starter",
+          homePath: "/home",
           isDispatch: false,
           audience: "internal",
           publicPaths: [],
@@ -444,7 +448,7 @@ describe("workspace deploy", () => {
       "utf-8",
     );
     expect(starterServer).toContain(
-      'path: ["/starter","/starter.data","/starter/*"]',
+      'path: ["/starter","/starter.data","/starter/*","/.well-known/oauth-authorization-server/starter","/.well-known/openid-configuration/starter","/.well-known/oauth-protected-resource/starter","/.well-known/oauth-protected-resource/starter/*"]',
     );
     expect(starterServer).toContain("normalizeBasePathArgs");
     expect(starterServer).toContain('"/starter/assets/*"');
@@ -545,6 +549,21 @@ describe("workspace deploy", () => {
     expect(redirects).toContain(
       "/.well-known/* /.netlify/functions/dispatch-server 200",
     );
+    expect(redirects).toContain(
+      "/.well-known/oauth-authorization-server/starter /.netlify/functions/starter-server 200",
+    );
+    expect(redirects).toContain(
+      "/.well-known/oauth-protected-resource/starter/* /.netlify/functions/starter-server 200",
+    );
+    expect(
+      redirects.indexOf(
+        "/.well-known/oauth-authorization-server/starter /.netlify/functions/starter-server 200",
+      ),
+    ).toBeLessThan(
+      redirects.indexOf(
+        "/.well-known/* /.netlify/functions/dispatch-server 200",
+      ),
+    );
     expect(redirects).toContain("/favicon.ico /dispatch/favicon.ico 302");
     expect(redirects).toContain("/ /dispatch/overview 302");
     expect(redirects).toContain("/dispatch /dispatch/overview 302");
@@ -621,6 +640,7 @@ describe("workspace deploy", () => {
     );
     expect(manifest.find((app: any) => app.id === "portal")).toMatchObject({
       id: "portal",
+      homePath: "/home",
       audience: "public",
       publicPaths: ["/", "/pricing"],
       protectedPaths: ["/admin"],
@@ -819,6 +839,24 @@ describe("workspace deploy", () => {
       dest: "/dispatch-server",
     });
     expect(config.routes).toContainEqual({
+      src: "/\\.well-known/oauth-authorization-server/starter",
+      dest: "/starter-server",
+    });
+    expect(config.routes).toContainEqual({
+      src: "/\\.well-known/oauth-protected-resource/starter/(.*)",
+      dest: "/starter-server",
+    });
+    expect(
+      config.routes.findIndex(
+        (route: { src?: string }) =>
+          route.src === "/\\.well-known/oauth-authorization-server/starter",
+      ),
+    ).toBeLessThan(
+      config.routes.findIndex(
+        (route: { src?: string }) => route.src === "/\\.well-known/(.*)",
+      ),
+    );
+    expect(config.routes).toContainEqual({
       src: "/\\.well-known/(.*)",
       dest: "/dispatch-server",
     });
@@ -969,7 +1007,7 @@ describe("workspace deploy", () => {
     expect(execFile).toHaveBeenCalledTimes(1);
   });
 
-  it("writes workspace app URLs and preserves explicit manifest URLs", async () => {
+  it("writes workspace app URLs and preserves explicit manifest metadata", async () => {
     process.env.APP_URL = "https://workspace.example.test/dispatch";
     process.env.AGENT_NATIVE_ORG_DIRECTORY_URL =
       "https://directory.example.test";
@@ -979,6 +1017,7 @@ describe("workspace deploy", () => {
         {
           id: "mail",
           path: "/mail",
+          homePath: "/inbox",
           url: "https://mail.custom.example.test/",
         },
       ],
@@ -1008,6 +1047,7 @@ describe("workspace deploy", () => {
         name: "Dispatch",
         description: "",
         path: "/dispatch",
+        homePath: "/home",
         url: "https://workspace.example.test/dispatch",
         isDispatch: true,
         audience: "internal",
@@ -1019,6 +1059,7 @@ describe("workspace deploy", () => {
         name: "Mail",
         description: "",
         path: "/mail",
+        homePath: "/inbox",
         url: "https://mail.custom.example.test",
         isDispatch: false,
         audience: "internal",
@@ -1049,6 +1090,68 @@ describe("workspace deploy", () => {
       ["dispatch", "https://workspace.example.test/dispatch"],
       ["mail", "https://mail.custom.example.test"],
     ]);
+  });
+
+  it("publishes configured app home paths while preserving manifest overrides", async () => {
+    process.env.APP_URL = "https://workspace.example.test/dispatch";
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
+      version: 1,
+      apps: [{ id: "mail", homePath: "/compose" }],
+    });
+    makeWorkspaceApp(tmpDir, "dispatch");
+    makeWorkspaceApp(tmpDir, "calendar", { homePath: "/dashboard" });
+    makeWorkspaceApp(tmpDir, "mail", { homePath: "/inbox" });
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      preset: "netlify",
+      buildOnly: true,
+      execFile: execFile as typeof execFileSync,
+    });
+
+    const dispatchCall = buildCallForApp("dispatch");
+    expect(
+      JSON.parse(dispatchCall?.env?.AGENT_NATIVE_WORKSPACE_APPS_JSON ?? "[]"),
+    ).toEqual([
+      expect.objectContaining({ id: "dispatch", homePath: "/home" }),
+      expect.objectContaining({ id: "calendar", homePath: "/dashboard" }),
+      expect.objectContaining({ id: "mail", homePath: "/compose" }),
+    ]);
+  }, 30_000);
+
+  it("infers a root home path when an app has no home route", async () => {
+    makeWorkspaceApp(tmpDir, "dispatch");
+    makeWorkspaceApp(tmpDir, "root-app", { rootRoute: true });
+    makeWorkspaceApp(tmpDir, "configured-root", {
+      homePath: "/inbox",
+      rootRoute: true,
+    });
+    makeWorkspaceApp(tmpDir, "standard", {
+      homeRoute: true,
+      rootRoute: true,
+    });
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      preset: "netlify",
+      buildOnly: true,
+      execFile: execFile as typeof execFileSync,
+    });
+
+    const apps = JSON.parse(
+      buildCallForApp("dispatch")?.env?.AGENT_NATIVE_WORKSPACE_APPS_JSON ??
+        "[]",
+    );
+    expect(apps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "root-app", homePath: "/" }),
+        expect.objectContaining({
+          id: "configured-root",
+          homePath: "/inbox",
+        }),
+        expect.objectContaining({ id: "standard", homePath: "/home" }),
+      ]),
+    );
   });
 
   it("uses public workspace URLs before loopback gateways when building apps", async () => {
@@ -1085,6 +1188,7 @@ describe("workspace deploy", () => {
         name: "Dispatch",
         description: "",
         path: "/dispatch",
+        homePath: "/home",
         url: "https://workspace.example.test/dispatch",
         isDispatch: true,
         audience: "internal",
@@ -1096,6 +1200,7 @@ describe("workspace deploy", () => {
         name: "Mail",
         description: "",
         path: "/mail",
+        homePath: "/home",
         url: "https://workspace.example.test/mail",
         isDispatch: false,
         audience: "internal",
@@ -1135,6 +1240,12 @@ describe("workspace deploy", () => {
     ) as { include: string[] };
     expect(routes.include).toContain("/_agent-native/*");
     expect(routes.include).toContain("/.well-known/*");
+    expect(routes.include).toContain(
+      "/.well-known/oauth-authorization-server/starter",
+    );
+    expect(routes.include).toContain(
+      "/.well-known/oauth-protected-resource/starter/*",
+    );
     expect(routes.include).toContain("/favicon.ico");
     expect(routes.include).toContain("/approval");
     expect(routes.include).toContain("/extensions");
@@ -1153,6 +1264,17 @@ describe("workspace deploy", () => {
     expect(worker).toContain(
       'return Response.redirect(new URL("/dispatch/overview", request.url).toString(), 302);',
     );
+    expect(worker).toContain(
+      'if (pathname === "/.well-known/oauth-authorization-server/starter") return app_starter.fetch(request, env, ctx);',
+    );
+    expect(worker).toContain(
+      'if (pathname === "/.well-known/oauth-protected-resource/starter" || pathname.startsWith("/.well-known/oauth-protected-resource/starter/")) return app_starter.fetch(request, env, ctx);',
+    );
+    expect(
+      worker.indexOf(
+        'pathname === "/.well-known/oauth-authorization-server/starter"',
+      ),
+    ).toBeLessThan(worker.indexOf('pathname === "/_agent-native"'));
     expect(worker).toContain(
       'if (pathname === "/_agent-native" || pathname.startsWith("/_agent-native/") || pathname === "/.well-known" || pathname.startsWith("/.well-known/")) return app_dispatch.fetch(request, env, ctx);',
     );
@@ -1207,6 +1329,12 @@ describe("workspace deploy", () => {
     ) as { include: string[] };
     expect(routes.include).not.toContain("/_agent-native/*");
     expect(routes.include).not.toContain("/.well-known/*");
+    expect(routes.include).toContain(
+      "/.well-known/oauth-authorization-server/starter",
+    );
+    expect(routes.include).toContain(
+      "/.well-known/oauth-protected-resource/starter/*",
+    );
     expect(routes.include).not.toContain("/favicon.ico");
 
     const worker = fs.readFileSync(
@@ -1215,6 +1343,9 @@ describe("workspace deploy", () => {
     );
     expect(worker).not.toContain('pathname === "/_agent-native"');
     expect(worker).not.toContain('pathname === "/.well-known"');
+    expect(worker).toContain(
+      'if (pathname === "/.well-known/oauth-authorization-server/starter") return app_starter.fetch(request, env, ctx);',
+    );
     expect(worker).not.toContain('pathname === "/favicon.ico"');
   });
 });
@@ -1306,6 +1437,26 @@ describe("durable-background Netlify function emit (workspace, flag-gated)", () 
     expect(fs.existsSync(backgroundFuncDir("dispatch"))).toBe(false);
     expect(fs.existsSync(backgroundFuncDir("starter"))).toBe(false);
   });
+
+  it.each([true, false])(
+    "keeps per-app chat recovery independent of disabled jobs (%s)",
+    async (durableChat) => {
+      process.env.AGENT_NATIVE_DISABLE_RECURRING_JOBS = "true";
+      process.env.AGENT_CHAT_DURABLE_BACKGROUND = String(durableChat);
+      makeWorkspaceApp(tmpDir, "dispatch");
+      makeWorkspaceApp(tmpDir, "starter");
+
+      await runWorkspaceDeploy({
+        workspaceRoot: tmpDir,
+        args: ["--preset=netlify", "--build-only"],
+        execFile: execFile as typeof execFileSync,
+      });
+
+      for (const app of ["dispatch", "starter"]) {
+        expect(fs.existsSync(recurringFuncDir(app))).toBe(durableChat);
+      }
+    },
+  );
 
   it("emits scoped integration background and scheduled recovery functions when opted in", async () => {
     process.env.AGENT_CHAT_DURABLE_BACKGROUND = "false";
@@ -1491,8 +1642,11 @@ function makeWorkspaceApp(
   app: string,
   opts: {
     audience?: "internal" | "public";
+    homeRoute?: boolean;
+    homePath?: string;
     protectedPaths?: string[];
     publicPaths?: string[];
+    rootRoute?: boolean;
     usesUnpooledDatabaseUrl?: boolean;
   } = {},
 ): void {
@@ -1512,6 +1666,42 @@ function makeWorkspaceApp(
     };
   }
   fs.writeFileSync(path.join(appDir, "package.json"), JSON.stringify(pkg));
+
+  if (opts.homePath) {
+    const coreConfigPath = pathToFileURL(
+      path.join(
+        path.dirname(fileURLToPath(import.meta.url)),
+        "../app-config/index.ts",
+      ),
+    ).href;
+    const pluginsDir = path.join(appDir, "server", "plugins");
+    fs.mkdirSync(pluginsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(pluginsDir, "config.ts"),
+      [
+        `import { defineAppConfig } from ${JSON.stringify(coreConfigPath)};`,
+        `export default defineAppConfig({ app: { homePath: ${JSON.stringify(opts.homePath)} } });`,
+        "",
+      ].join("\n"),
+    );
+  }
+
+  if (opts.rootRoute || opts.homeRoute) {
+    const routesDir = path.join(appDir, "app", "routes");
+    fs.mkdirSync(routesDir, { recursive: true });
+    if (opts.rootRoute) {
+      fs.writeFileSync(
+        path.join(routesDir, "_index.tsx"),
+        "export default function RootRoute() { return null; }\n",
+      );
+    }
+    if (opts.homeRoute) {
+      fs.writeFileSync(
+        path.join(routesDir, "_app.home.tsx"),
+        "export default function HomeRoute() { return null; }\n",
+      );
+    }
+  }
 
   if (opts.usesUnpooledDatabaseUrl) {
     fs.writeFileSync(

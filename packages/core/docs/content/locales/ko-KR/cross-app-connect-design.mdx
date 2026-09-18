@@ -1,0 +1,15 @@
+---
+title: "Cross-App Connect 및 Agent-Native 마켓플레이스"
+description: "Agent-Native 앱 간 연결, 프로비저닝, 로그인 방향입니다."
+---
+
+# Cross-App Connect 및 Agent-Native 마켓플레이스
+
+한 번의 클릭으로 앱을 연결하는 설계 방향입니다. Dispatch를 ID 권한자로, 기존 PKCE 흐름을 사용하며 와일드카드 쿠키는 추가하지 않습니다.
+
+- Dispatch가 ID 권한자이고 조직 멤버십은 서명된 assertion으로 전달됩니다.
+- `/_agent-native/open`이 딥 링크를 처리하고 로컬 로그인은 대체 수단입니다.
+- 동적 등록, Client ID 메타데이터, 동의 및 취소가 다음 마켓플레이스 단계입니다.
+- `labs.connectApps`를 켜면 `/connect`에서 캐시된 `/apps.json` 카탈로그를 보여 주고 기존 ID 핸드오프 전에 에이전트 카드를 검증합니다. 허브의 동적 등록과 취소는 다음 단계입니다.
+- 이 버전은 연결 상태나 연결 해제 작업을 표시하지 않습니다. 먼저 허브 앱 레지스트리가 필요합니다.
+- [Cross-App SSO](/docs/cross-app-sso)를 참고하세요.

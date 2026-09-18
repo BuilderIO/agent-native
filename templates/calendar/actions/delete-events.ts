@@ -8,7 +8,7 @@ import {
   normalizeWeekdays,
   requireValidTimezone,
 } from "../server/lib/event-weekday.js";
-import { isGoogleNotFoundError } from "../server/lib/google-api.js";
+import { isGoogleEventAbsentError } from "../server/lib/google-api.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import {
   BOOKED_EVENT_REASON,
@@ -290,7 +290,12 @@ export default defineAction({
 
       for (const event of matched) {
         const display: BulkEventResult = {
-          id: event.googleEventId ? `google-${event.googleEventId}` : event.id,
+          id:
+            event.overlayEmail || event.calendarReadOnly
+              ? event.id
+              : event.googleEventId
+                ? `google-${event.googleEventId}`
+                : event.id,
           title: event.title,
           start: event.start,
           weekday: eventWeekday(event.start, range.timezone),
@@ -362,7 +367,7 @@ export default defineAction({
           }
           return { ...target.display, outcome: "deleted" };
         } catch (error) {
-          if (isGoogleNotFoundError(error)) {
+          if (isGoogleEventAbsentError(error)) {
             return {
               ...target.display,
               outcome: "already_absent",

@@ -3,8 +3,13 @@ import { useT } from "@agent-native/core/client/i18n";
 import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
-import { AgentNativeIcon, FeedbackButton } from "@agent-native/core/client/ui";
-import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
+import {
+  AppSidebar,
+  AppSidebarNavItem,
+  FeedbackButton,
+  type AppSidebarItemDefinition,
+} from "@agent-native/core/client/ui";
+import type { GoogleCalendarSource, OverlayPerson } from "@shared/api";
 import { getWeekdayOrder, getWeekStartsOn } from "@shared/calendar-week";
 import {
   IconCalendar,
@@ -21,8 +26,6 @@ import {
   IconCheck,
   IconEye,
   IconEyeOff,
-  IconLayoutSidebarLeftCollapse,
-  IconLayoutSidebarLeftExpand,
   IconSearch,
   IconAlertTriangle,
 } from "@tabler/icons-react";
@@ -76,7 +79,6 @@ import {
 import { useGoogleCalendars } from "@/hooks/use-google-calendars";
 import {
   useOverlayPeople,
-  useRemoveOverlayPerson,
   useUpdateOverlayPersonColor,
 } from "@/hooks/use-overlay-people";
 import { useSettings } from "@/hooks/use-settings";
@@ -87,6 +89,7 @@ import {
 } from "@/lib/calendar-view-preferences";
 import { EVENT_CATEGORY_COLORS } from "@/lib/event-colors";
 import { shouldOfferGoogleOAuthSetup } from "@/lib/google-oauth-setup";
+import { isPersonCalendarId } from "@/lib/person-calendar";
 import { cn } from "@/lib/utils";
 
 import { useCalendarContext } from "./AppLayout";
@@ -425,16 +428,22 @@ function ColorPickerPopover({
   );
 }
 
-function GoogleCalendarsSections({
-  onClose,
-  section = "owned",
-}: {
-  onClose: () => void;
-  section?: "owned" | "other";
-}) {
+function otherCalendarLabel(calendar: GoogleCalendarSource): string {
+  return isPersonCalendarId(calendar.calendarId)
+    ? calendar.calendarId
+    : calendar.name;
+}
+
+interface OtherCalendarItem {
+  key: string;
+  label: string;
+  google?: GoogleCalendarSource;
+  person?: OverlayPerson;
+}
+
+function GoogleCalendarsSections({ onClose }: { onClose: () => void }) {
   const t = useT();
   const { setAddCalendarOpen, setAddCalendarDefaultTab } = useCalendarContext();
-  const [showAllCalendars, setShowAllCalendars] = useState(false);
   const { data: calendars, enabled } = useGoogleCalendars();
   const {
     prefs: {
@@ -459,15 +468,11 @@ function GoogleCalendarsSections({
   const ownedCalendars = readableCalendars.filter(
     (calendar) => calendar.accessRole === "owner",
   );
-  const otherCalendars = readableCalendars.filter(
-    (calendar) => calendar.accessRole !== "owner",
-  );
   function renderCalendarRow(calendar: (typeof readableCalendars)[number]) {
     const preferenceKey = calendar.canonicalKey;
-    const displayName =
-      section === "owned" && calendar.primary
-        ? calendar.accountEmail
-        : calendar.name;
+    const displayName = calendar.primary
+      ? calendar.accountEmail
+      : calendar.name;
     const visible =
       googleCalendarVisibility[preferenceKey] ??
       (calendar.primary || calendar.selected);
@@ -484,7 +489,7 @@ function GoogleCalendarsSections({
     return (
       <div
         key={preferenceKey}
-        className="group flex min-h-7 items-center gap-2 px-3 text-xs"
+        className="group flex min-h-7 items-center gap-2 px-2 text-xs"
       >
         <Popover>
           <PopoverTrigger asChild>
@@ -597,64 +602,42 @@ function GoogleCalendarsSections({
 
   return (
     <div className="px-1.5 py-1.5">
-      {section === "owned" && (
-        <div className="mb-1 flex min-h-8 items-center justify-between px-3">
-          <div className="flex items-center">
-            <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-              {t("sidebar.myCalendars")}
-            </span>
-          </div>
-          <div className="flex items-center">
-            <button
-              type="button"
-              aria-label={t("sidebar.addGoogleAccount")}
-              onClick={() => {
-                setAddCalendarDefaultTab("google");
-                setAddCalendarOpen(true);
-              }}
-              className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
-            >
-              <IconPlus className="h-3.5 w-3.5" />
-            </button>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Link
-                  to="/settings"
-                  onClick={onClose}
-                  className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
-                >
-                  <IconSettings className="h-3.5 w-3.5" />
-                </Link>
-              </TooltipTrigger>
-              <TooltipContent>
-                {t("sidebar.googleCalendarSettings")}
-              </TooltipContent>
-            </Tooltip>
-          </div>
+      <div className="mb-1 flex min-h-8 items-center justify-between px-3">
+        <div className="flex items-center">
+          <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+            {t("sidebar.myCalendars")}
+          </span>
         </div>
-      )}
+        <div className="flex items-center">
+          <button
+            type="button"
+            aria-label={t("sidebar.addGoogleAccount")}
+            onClick={() => {
+              setAddCalendarDefaultTab("google");
+              setAddCalendarOpen(true);
+            }}
+            className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+          >
+            <IconPlus className="h-3.5 w-3.5" />
+          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Link
+                to="/settings"
+                onClick={onClose}
+                className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+              >
+                <IconSettings className="h-3.5 w-3.5" />
+              </Link>
+            </TooltipTrigger>
+            <TooltipContent>
+              {t("sidebar.googleCalendarSettings")}
+            </TooltipContent>
+          </Tooltip>
+        </div>
+      </div>
 
-      {enabled &&
-        (section === "owned"
-          ? ownedCalendars
-          : showAllCalendars
-            ? otherCalendars
-            : otherCalendars.slice(0, 8)
-        ).map(renderCalendarRow)}
-      {enabled && section === "other" && otherCalendars.length > 8 && (
-        <button
-          type="button"
-          onClick={() => setShowAllCalendars((current) => !current)}
-          className="mx-3 mt-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          {
-            showAllCalendars
-              ? t("common.showLess") // i18n-key-ignore generated calendar catalog
-              : t("common.showMore") // i18n-key-ignore generated calendar catalog
-          }{" "}
-          ({otherCalendars.length - 8})
-        </button>
-      )}
+      {enabled && ownedCalendars.map(renderCalendarRow)}
     </div>
   );
 }
@@ -678,8 +661,15 @@ export function Sidebar({
   } = useCalendarContext();
   const googleStatus = useGoogleAuthStatus();
   const { data: rawOverlayPeople } = useOverlayPeople();
-  const overlayPeople = Array.isArray(rawOverlayPeople) ? rawOverlayPeople : [];
-  const removePerson = useRemoveOverlayPerson();
+  const overlayPeople = useMemo(
+    () =>
+      (Array.isArray(rawOverlayPeople) ? rawOverlayPeople : [])
+        .slice()
+        .sort((a, b) =>
+          a.email.localeCompare(b.email, undefined, { sensitivity: "base" }),
+        ),
+    [rawOverlayPeople],
+  );
   const updatePersonColor = useUpdateOverlayPersonColor();
   const overlayEmails = useMemo(
     () => overlayPeople.map((person) => person.email),
@@ -697,16 +687,109 @@ export function Sidebar({
     () => shouldOfferGoogleOAuthSetup(),
     [],
   );
-  const [peopleGroupOpen, setPeopleGroupOpen] = useState(
-    () => overlayPeople.length <= 2, // i18n-ignore scanner false positive
+  const includeGoogleOtherCalendars =
+    isConnected && (googleStatus.data?.accounts?.length ?? 0) > 0;
+  const { data: otherGoogleCalendarsRaw } = useGoogleCalendars({
+    enabled: includeGoogleOtherCalendars,
+  });
+  const {
+    prefs: { googleCalendarColors, googleCalendarVisibility },
+    updateGoogleCalendarColor,
+    updateGoogleCalendarVisibility,
+  } = useViewPreferences();
+  const [showAllOtherCalendars, setShowAllOtherCalendars] = useState(false);
+  const otherGoogleCalendars = useMemo(
+    () =>
+      includeGoogleOtherCalendars
+        ? (otherGoogleCalendarsRaw ?? []).filter(
+            (calendar) =>
+              calendar.accessRole !== "freeBusyReader" &&
+              calendar.accessRole !== "owner",
+          )
+        : [],
+    [includeGoogleOtherCalendars, otherGoogleCalendarsRaw],
   );
+  const otherCalendarItems = useMemo(() => {
+    const items = new Map<string, OtherCalendarItem>();
+    for (const calendar of otherGoogleCalendars) {
+      const mapKey = isPersonCalendarId(calendar.calendarId)
+        ? calendar.calendarId.toLowerCase()
+        : "google:" + calendar.canonicalKey;
+      items.set(mapKey, {
+        key: mapKey,
+        label: otherCalendarLabel(calendar),
+        google: calendar,
+      });
+    }
+    for (const person of overlayPeople) {
+      const mapKey = person.email.toLowerCase();
+      const existing = items.get(mapKey);
+      items.set(mapKey, {
+        key: mapKey,
+        label: person.name || (existing ? existing.label : person.email),
+        google: existing ? existing.google : undefined,
+        person,
+      });
+    }
+    return Array.from(items.values()).sort((a, b) =>
+      a.label.localeCompare(b.label, undefined, { sensitivity: "base" }),
+    );
+  }, [otherGoogleCalendars, overlayPeople]);
+  const visibleOtherCalendarItems = showAllOtherCalendars
+    ? otherCalendarItems
+    : otherCalendarItems.slice(0, 8);
+  function isOtherItemVisible(item: OtherCalendarItem): boolean {
+    const personVisible = item.person
+      ? !isHiddenCalendar("people", item.person.email)
+      : true;
+    if (!item.google) return personVisible;
+    const explicitGoogleVisible =
+      googleCalendarVisibility[item.google.canonicalKey];
+    // Google's own "selected" default is about which calendars Google shows
+    // in its own UI, not whether this person's overlay events should show
+    // here. For a merged row, a peer the owner deliberately added must not
+    // default to hidden just because that default hasn't been overridden —
+    // only an explicit toggle (present in `googleCalendarVisibility`) should
+    // hide it.
+    const googleVisible =
+      explicitGoogleVisible ??
+      (item.person ? true : item.google.primary || item.google.selected);
+    return personVisible && googleVisible;
+  }
+  function toggleOtherItemVisibility(item: OtherCalendarItem) {
+    const nextVisible = !isOtherItemVisible(item);
+    if (item.person) {
+      const personVisible = !isHiddenCalendar("people", item.person.email);
+      if (personVisible !== nextVisible) {
+        toggleHiddenCalendar("people", item.person.email);
+      }
+    }
+    if (item.google) {
+      updateGoogleCalendarVisibility(item.google.canonicalKey, nextVisible);
+    }
+  }
+  function otherItemColor(item: OtherCalendarItem): string {
+    if (item.person) return item.person.color;
+    if (item.google) {
+      return (
+        googleCalendarColors[item.google.canonicalKey] ??
+        item.google.color ??
+        CALENDAR_COLORS[6]
+      );
+    }
+    return CALENDAR_COLORS[6];
+  }
+  function setOtherItemColor(item: OtherCalendarItem, color: string) {
+    if (item.person) {
+      updatePersonColor.mutate({ email: item.person.email, color });
+    }
+    if (item.google) {
+      updateGoogleCalendarColor(item.google.canonicalKey, color);
+    }
+  }
   const [feedsGroupOpen, setFeedsGroupOpen] = useState(
     () => externalCalendars.length <= 2, // i18n-ignore scanner false positive
   );
-
-  useEffect(() => {
-    if (overlayPeople.length <= 2) setPeopleGroupOpen(true);
-  }, [overlayPeople.length]);
 
   useEffect(() => {
     if (externalCalendars.length <= 2) setFeedsGroupOpen(true);
@@ -720,33 +803,6 @@ export function Sidebar({
     onClose();
   }
 
-  const collapseButton = onCollapsedChange ? (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 shrink-0 text-muted-foreground"
-          onClick={() => onCollapsedChange(!collapsed)}
-          aria-label={
-            collapsed
-              ? t("sidebar.expandSidebar")
-              : t("sidebar.collapseSidebar")
-          }
-        >
-          {collapsed ? (
-            <IconLayoutSidebarLeftExpand className="h-4 w-4 rtl:-scale-x-100" />
-          ) : (
-            <IconLayoutSidebarLeftCollapse className="h-4 w-4 rtl:-scale-x-100" />
-          )}
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent side="top">
-        {collapsed ? t("sidebar.expandSidebar") : t("sidebar.collapseSidebar")}
-      </TooltipContent>
-    </Tooltip>
-  ) : null;
   const searchButton = (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -764,13 +820,21 @@ export function Sidebar({
       <TooltipContent side="top">{t("root.commandSearch")}</TooltipContent>
     </Tooltip>
   );
-  const feedbackButton = (
-    <FeedbackButton
-      variant={collapsed ? "icon" : "sidebar"}
-      side="right"
-      className={collapsed ? "h-8 w-8" : "min-w-0"}
-    />
+  const secondaryItems: AppSidebarItemDefinition[] = bottomNavItems.map(
+    (item) => ({
+      to: item.path,
+      label: t(item.labelKey),
+      icon: item.icon,
+      active: location.pathname.startsWith(item.path),
+      onClick: onClose,
+    }),
   );
+
+  const feedbackButton = (
+    <FeedbackButton variant={collapsed ? "icon" : "sidebar"} side="right" />
+  );
+
+  const orgSwitcher = <OrgSwitcher compact={collapsed} />;
 
   return (
     <>
@@ -782,249 +846,168 @@ export function Sidebar({
         />
       )}
 
-      <aside
-        data-open={open ? "true" : "false"}
-        data-collapsed={collapsed ? "true" : "false"}
+      <AppSidebar
+        collapsed={collapsed}
+        collapsible={Boolean(onCollapsedChange)}
+        onCollapsedChange={onCollapsedChange}
+        overflowAffordances
+        brandName={t("navigation.brand")}
+        appId="calendar"
+        brandHref="/home"
+        secondaryItems={secondaryItems}
+        feedback={feedbackButton}
+        orgSwitcher={orgSwitcher}
+        footerExtras={
+          <>
+            {searchButton}
+            <DevDatabaseLink />
+          </>
+        }
         className={cn(
-          "agent-layout-left-drawer calendar-app-sidebar fixed start-0 top-0 z-50 flex h-full min-w-0 flex-col overflow-hidden bg-sidebar transition-[width,translate] duration-200 ease-out lg:static",
-          collapsed ? "w-12" : "w-56",
+          "calendar-app-sidebar",
+          // Match calendar's lg mobile breakpoint (shared sidebar defaults to md).
+          "max-lg:!fixed max-lg:inset-y-0 max-lg:start-0 max-lg:z-50 lg:!static",
+          open
+            ? "translate-x-0"
+            : "-translate-x-full rtl:translate-x-full lg:translate-x-0",
         )}
       >
-        {/* Logo */}
-        <div
-          className={cn(
-            "flex h-12 shrink-0 items-center justify-between gap-2.5",
-            collapsed ? "px-1" : "px-4",
-          )}
-        >
-          <Link
-            to="/home"
-            onClick={(event) => {
-              onClose();
-              if (
-                !onCollapsedChange ||
-                event.metaKey ||
-                event.ctrlKey ||
-                event.shiftKey ||
-                event.altKey ||
-                event.button !== 0
-              ) {
-                return;
-              }
-              event.preventDefault();
-              onCollapsedChange(!collapsed);
-            }}
-            className={cn(
-              "flex items-center gap-2 rounded text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              collapsed ? "size-8 justify-center" : "flex-1",
-            )}
-            aria-label={
-              onCollapsedChange
-                ? collapsed
-                  ? t("sidebar.expandSidebar")
-                  : t("sidebar.collapseSidebar")
-                : collapsed
-                  ? t("navigation.brand")
-                  : undefined
-            }
-            data-sidebar-brand-toggle
-          >
-            <AgentNativeIcon
-              aria-hidden="true"
-              className="h-3.5 w-6 shrink-0 text-foreground"
+        {collapsed ? (
+          navItems.map((item) => {
+            const isActive =
+              item.path === "/"
+                ? location.pathname === "/"
+                : location.pathname.startsWith(item.path);
+            return (
+              <AppSidebarNavItem
+                key={item.path}
+                to={item.path}
+                label={t(item.labelKey)}
+                icon={item.icon}
+                active={isActive}
+                onClick={onClose}
+              />
+            );
+          })
+        ) : (
+          <>
+            {/* Mini calendar */}
+            <MiniCalendar
+              selectedDate={selectedDate}
+              onDateSelect={handleMiniCalendarDateSelect}
             />
-            {!collapsed && (
-              <span className="text-base font-semibold tracking-tight">
-                {t("navigation.brand")}
-              </span>
-            )}
-          </Link>
-        </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          {collapsed ? (
-            <nav className="flex flex-col items-center gap-1 px-1 py-2">
+            {/* Nav */}
+            <div className="space-y-0.5">
               {navItems.map((item) => {
                 const isActive =
                   item.path === "/"
                     ? location.pathname === "/"
                     : location.pathname.startsWith(item.path);
+
                 return (
-                  <Tooltip key={item.path}>
-                    <TooltipTrigger asChild>
-                      <Link
-                        to={item.path}
-                        onClick={onClose}
-                        aria-label={t(item.labelKey)}
-                        className={cn(
-                          "flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground",
-                          isActive && "bg-primary/10 text-primary",
-                        )}
-                      >
-                        <item.icon className="h-4 w-4" />
-                      </Link>
-                    </TooltipTrigger>
-                    <TooltipContent side="right">
-                      {t(item.labelKey)}
-                    </TooltipContent>
-                  </Tooltip>
+                  <AppSidebarNavItem
+                    key={item.path}
+                    to={item.path}
+                    label={t(item.labelKey)}
+                    icon={item.icon}
+                    active={isActive}
+                    onClick={onClose}
+                  />
                 );
               })}
-            </nav>
-          ) : (
-            <>
-              {/* Mini calendar */}
-              <MiniCalendar
-                selectedDate={selectedDate}
-                onDateSelect={handleMiniCalendarDateSelect}
-              />
+            </div>
 
-              {/* Nav */}
-              <nav className="space-y-0.5 p-2.5">
-                {navItems.map((item) => {
-                  const isActive =
-                    item.path === "/"
-                      ? location.pathname === "/"
-                      : location.pathname.startsWith(item.path);
+            {/* Google status / connect CTA */}
+            {!googleStatus.isLoading &&
+              !isConnected &&
+              (googleStatus.data?.configured === true ||
+                canOfferGoogleOAuthSetup) && <GoogleConnectSidebarButton />}
 
-                  return (
-                    <Link
-                      key={item.path}
-                      to={item.path}
-                      onClick={onClose}
-                      className={cn(
-                        "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                        isActive
-                          ? "bg-primary/10 text-primary"
-                          : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
-                      )}
+            {isConnected && (googleStatus.data?.accounts?.length ?? 0) > 0 && (
+              <GoogleCalendarsSections onClose={onClose} />
+            )}
+
+            {/* Other Calendars — people overlays + external ICS feeds combined */}
+            <div className="px-1.5 py-1.5">
+              <div className="flex min-h-8 items-center justify-between px-3">
+                <div className="flex items-center gap-1">
+                  <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                    {t("sidebar.otherCalendars")}
+                  </span>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="flex items-center text-muted-foreground/40 hover:text-muted-foreground cursor-default">
+                        <IconInfoCircle className="h-3 w-3" />
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent
+                      side="right"
+                      className="pointer-events-none"
                     >
-                      <item.icon className="h-4 w-4" />
-                      {t(item.labelKey)}
-                    </Link>
-                  );
-                })}
-              </nav>
-
-              {/* Google status / connect CTA */}
-              {!googleStatus.isLoading &&
-                !isConnected &&
-                (googleStatus.data?.configured === true ||
-                  canOfferGoogleOAuthSetup) && <GoogleConnectSidebarButton />}
-
-              {isConnected &&
-                (googleStatus.data?.accounts?.length ?? 0) > 0 && (
-                  <GoogleCalendarsSections onClose={onClose} />
-                )}
-
-              {/* Other Calendars — people overlays + external ICS feeds combined */}
-              <div className="px-1.5 py-1.5">
-                <div className="flex min-h-8 items-center justify-between px-3">
-                  <div className="flex items-center gap-1">
-                    <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                      {t("sidebar.otherCalendars")}
-                    </span>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <span className="flex items-center text-muted-foreground/40 hover:text-muted-foreground cursor-default">
-                          <IconInfoCircle className="h-3 w-3" />
-                        </span>
-                      </TooltipTrigger>
-                      <TooltipContent
-                        side="right"
-                        className="pointer-events-none"
-                      >
-                        <p>{t("sidebar.otherCalendarsDescription")}</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </div>
-                  <button
-                    type="button"
-                    aria-label={t("eventForm.addCalendar")}
-                    onClick={() => {
-                      setAddCalendarDefaultTab("people");
-                      setAddCalendarOpen(true);
-                    }}
-                    className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
-                  >
-                    <IconPlus className="h-3.5 w-3.5" />
-                  </button>
+                      <p>{t("sidebar.otherCalendarsDescription")}</p>
+                    </TooltipContent>
+                  </Tooltip>
                 </div>
-                {isConnected &&
-                  (googleStatus.data?.accounts?.length ?? 0) > 0 && (
-                    <GoogleCalendarsSections
-                      onClose={onClose}
-                      section="other"
-                    />
-                  )}
-                {(overlayPeople.length > 0 || externalCalendars.length > 0) && (
-                  <div className="mt-1 space-y-1">
-                    {overlayPeople.length > 0 && (
-                      <Collapsible
-                        open={peopleGroupOpen}
-                        onOpenChange={setPeopleGroupOpen}
-                      >
-                        <CollapsibleTrigger asChild>
-                          <button
-                            type="button"
-                            className="flex h-7 w-full items-center gap-1 rounded px-3 text-xs text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                <button
+                  type="button"
+                  aria-label={t("eventForm.addCalendar")}
+                  onClick={() => {
+                    setAddCalendarDefaultTab("people");
+                    setAddCalendarOpen(true);
+                  }}
+                  className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+                >
+                  <IconPlus className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              {(otherCalendarItems.length > 0 ||
+                externalCalendars.length > 0) && (
+                <div className="mt-1 space-y-1">
+                  {otherCalendarItems.length > 0 && (
+                    <div className="space-y-0.5">
+                      {visibleOtherCalendarItems.map((item) => {
+                        const visible = isOtherItemVisible(item);
+                        const color = otherItemColor(item);
+                        return (
+                          <div
+                            key={item.key}
+                            className="group flex min-h-7 items-center gap-2 px-3 text-xs"
                           >
-                            {peopleGroupOpen ? (
-                              <IconChevronDown className="h-3 w-3" />
-                            ) : (
-                              <IconChevronRight className="h-3 w-3 rtl:-scale-x-100" />
-                            )}
-                            <span className="min-w-0 flex-1 text-start">
-                              People
-                            </span>
-                            <span className="text-[10px]">
-                              {overlayPeople.length}
-                            </span>
-                          </button>
-                        </CollapsibleTrigger>
-                        <CollapsibleContent className="space-y-0.5">
-                          {overlayPeople.map((person) => (
-                            <div
-                              key={person.email}
-                              className="group flex min-h-7 items-center gap-2 px-3 text-xs"
+                            <ColorPickerPopover
+                              color={color}
+                              onColorChange={(nextColor) =>
+                                setOtherItemColor(item, nextColor)
+                              }
                             >
-                              <ColorPickerPopover
-                                color={person.color}
-                                onColorChange={(color) =>
-                                  updatePersonColor.mutate({
-                                    email: person.email,
-                                    color,
-                                  })
-                                }
+                              <button
+                                type="button"
+                                aria-label={`${t("eventForm.color")}: ${item.label}`}
+                                className="shrink-0 cursor-pointer rounded-full p-0.5 hover:ring-2 hover:ring-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                               >
-                                <button
-                                  type="button"
-                                  className="shrink-0 cursor-pointer rounded-full p-0.5 hover:ring-2 hover:ring-border"
-                                >
-                                  <span
-                                    className={cn(
-                                      "block h-2.5 w-2.5 rounded-full",
-                                      isHiddenCalendar(
-                                        "people",
-                                        person.email,
-                                      ) && "opacity-40",
-                                    )}
-                                    style={{ backgroundColor: person.color }}
-                                  />
-                                </button>
-                              </ColorPickerPopover>
-                              <span
-                                className={cn(
-                                  "min-w-0 flex-1 truncate",
-                                  isHiddenCalendar("people", person.email)
-                                    ? "text-muted-foreground/40"
-                                    : "text-muted-foreground",
-                                )}
-                              >
-                                {person.name || person.email}
-                              </span>
-                              {overlayStatusByEmail?.get(
-                                person.email.toLowerCase(),
+                                <span
+                                  aria-hidden="true"
+                                  className={cn(
+                                    "block h-2.5 w-2.5 rounded-full",
+                                    !visible && "opacity-40",
+                                  )}
+                                  style={{ backgroundColor: color }}
+                                />
+                              </button>
+                            </ColorPickerPopover>
+                            <span
+                              className={cn(
+                                "min-w-0 flex-1 truncate",
+                                visible
+                                  ? "text-muted-foreground"
+                                  : "text-muted-foreground/40",
+                              )}
+                            >
+                              {item.label}
+                            </span>
+                            {item.person &&
+                              overlayStatusByEmail?.get(
+                                item.person.email.toLowerCase(),
                               )?.status === "error" && (
                                 <Tooltip>
                                   <TooltipTrigger asChild>
@@ -1033,7 +1016,11 @@ export function Sidebar({
                                       className="inline-flex shrink-0 rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                                       aria-label={t(
                                         "sidebar.overlayCalendarUnavailable",
-                                        { email: person.name || person.email },
+                                        {
+                                          email:
+                                            item.person.name ||
+                                            item.person.email,
+                                        },
                                       )}
                                     >
                                       <IconAlertTriangle
@@ -1044,205 +1031,150 @@ export function Sidebar({
                                   </TooltipTrigger>
                                   <TooltipContent side="right">
                                     {t("sidebar.overlayCalendarUnavailable", {
-                                      email: person.name || person.email,
+                                      email:
+                                        item.person.name || item.person.email,
                                     })}
                                   </TooltipContent>
                                 </Tooltip>
                               )}
-                              <div className="flex items-center">
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    toggleHiddenCalendar("people", person.email)
-                                  }
-                                  className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground group-hover:text-muted-foreground/80"
-                                  aria-label={
-                                    isHiddenCalendar("people", person.email)
-                                      ? t("sidebar.showCalendar")
-                                      : t("sidebar.hideCalendar")
-                                  }
-                                >
-                                  {isHiddenCalendar("people", person.email) ? (
-                                    <IconEyeOff className="h-3 w-3" />
-                                  ) : (
-                                    <IconEye className="h-3 w-3" />
-                                  )}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    removePerson.mutate(person.email)
-                                  }
-                                  className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 opacity-0 hover:text-foreground group-hover:opacity-100"
-                                >
-                                  <IconX className="h-3 w-3" />
-                                </button>
-                              </div>
-                            </div>
-                          ))}
-                        </CollapsibleContent>
-                      </Collapsible>
-                    )}
-
-                    {externalCalendars.length > 0 && (
-                      <Collapsible
-                        open={feedsGroupOpen}
-                        onOpenChange={setFeedsGroupOpen}
-                      >
-                        <CollapsibleTrigger asChild>
-                          <button
-                            type="button"
-                            className="flex h-7 w-full items-center gap-1 rounded px-3 text-xs text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-                          >
-                            {feedsGroupOpen ? (
-                              <IconChevronDown className="h-3 w-3" />
-                            ) : (
-                              <IconChevronRight className="h-3 w-3 rtl:-scale-x-100" />
-                            )}
-                            <span className="min-w-0 flex-1 text-start">
-                              Feeds
-                            </span>
-                            <span className="text-[10px]">
-                              {externalCalendars.length}
-                            </span>
-                          </button>
-                        </CollapsibleTrigger>
-                        <CollapsibleContent className="space-y-0.5">
-                          {externalCalendars.map((cal) => (
-                            <div
-                              key={cal.id}
-                              className="group flex min-h-7 items-center gap-2 px-3 text-xs"
+                            <button
+                              type="button"
+                              onClick={() => toggleOtherItemVisibility(item)}
+                              className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground group-hover:text-muted-foreground/80"
+                              aria-label={
+                                visible
+                                  ? t("sidebar.hideCalendar")
+                                  : t("sidebar.showCalendar")
+                              }
                             >
-                              <ColorPickerPopover
-                                color={cal.color}
-                                onColorChange={(color) =>
-                                  updateExternalColor.mutate({
-                                    id: cal.id,
-                                    color,
-                                  })
+                              {visible ? (
+                                <IconEye className="h-3 w-3" />
+                              ) : (
+                                <IconEyeOff className="h-3 w-3" />
+                              )}
+                            </button>
+                          </div>
+                        );
+                      })}
+                      {otherCalendarItems.length > 8 && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setShowAllOtherCalendars((current) => !current)
+                          }
+                          className="mx-3 mt-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                        >
+                          {
+                            showAllOtherCalendars
+                              ? t("common.showLess") // i18n-key-ignore generated calendar catalog
+                              : t("common.showMore") // i18n-key-ignore generated calendar catalog
+                          }{" "}
+                          ({otherCalendarItems.length - 8})
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {externalCalendars.length > 0 && (
+                    <Collapsible
+                      open={feedsGroupOpen}
+                      onOpenChange={setFeedsGroupOpen}
+                    >
+                      <CollapsibleTrigger asChild>
+                        <button
+                          type="button"
+                          className="flex h-7 w-full items-center gap-1 rounded px-3 text-xs text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                        >
+                          {feedsGroupOpen ? (
+                            <IconChevronDown className="h-3 w-3" />
+                          ) : (
+                            <IconChevronRight className="h-3 w-3 rtl:-scale-x-100" />
+                          )}
+                          <span className="min-w-0 flex-1 text-start">
+                            {t("sidebar.feedsGroup")}
+                          </span>
+                          <span className="text-[10px]">
+                            {externalCalendars.length}
+                          </span>
+                        </button>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent className="space-y-0.5">
+                        {externalCalendars.map((cal) => (
+                          <div
+                            key={cal.id}
+                            className="group flex min-h-7 items-center gap-2 px-2 text-xs"
+                          >
+                            <ColorPickerPopover
+                              color={cal.color}
+                              onColorChange={(color) =>
+                                updateExternalColor.mutate({
+                                  id: cal.id,
+                                  color,
+                                })
+                              }
+                            >
+                              <button
+                                type="button"
+                                className="shrink-0 cursor-pointer rounded-full p-0.5 hover:ring-2 hover:ring-border"
+                              >
+                                <span
+                                  className={cn(
+                                    "block h-2.5 w-2.5 rounded-full",
+                                    isHiddenCalendar("external", cal.id) &&
+                                      "opacity-40",
+                                  )}
+                                  style={{ backgroundColor: cal.color }}
+                                />
+                              </button>
+                            </ColorPickerPopover>
+                            <span
+                              className={cn(
+                                "min-w-0 flex-1 truncate",
+                                isHiddenCalendar("external", cal.id)
+                                  ? "text-muted-foreground/40"
+                                  : "text-muted-foreground",
+                              )}
+                            >
+                              {cal.name}
+                            </span>
+                            <div className="flex items-center">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  toggleHiddenCalendar("external", cal.id)
+                                }
+                                className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground group-hover:text-muted-foreground/80"
+                                aria-label={
+                                  isHiddenCalendar("external", cal.id)
+                                    ? t("sidebar.showCalendar")
+                                    : t("sidebar.hideCalendar")
                                 }
                               >
-                                <button
-                                  type="button"
-                                  className="shrink-0 cursor-pointer rounded-full p-0.5 hover:ring-2 hover:ring-border"
-                                >
-                                  <span
-                                    className={cn(
-                                      "block h-2.5 w-2.5 rounded-full",
-                                      isHiddenCalendar("external", cal.id) &&
-                                        "opacity-40",
-                                    )}
-                                    style={{ backgroundColor: cal.color }}
-                                  />
-                                </button>
-                              </ColorPickerPopover>
-                              <span
-                                className={cn(
-                                  "min-w-0 flex-1 truncate",
-                                  isHiddenCalendar("external", cal.id)
-                                    ? "text-muted-foreground/40"
-                                    : "text-muted-foreground",
+                                {isHiddenCalendar("external", cal.id) ? (
+                                  <IconEyeOff className="h-3 w-3" />
+                                ) : (
+                                  <IconEye className="h-3 w-3" />
                                 )}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => removeExternal.mutate(cal.id)}
+                                className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 opacity-0 hover:text-foreground group-hover:opacity-100"
                               >
-                                {cal.name}
-                              </span>
-                              <div className="flex items-center">
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    toggleHiddenCalendar("external", cal.id)
-                                  }
-                                  className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground group-hover:text-muted-foreground/80"
-                                  aria-label={
-                                    isHiddenCalendar("external", cal.id)
-                                      ? t("sidebar.showCalendar")
-                                      : t("sidebar.hideCalendar")
-                                  }
-                                >
-                                  {isHiddenCalendar("external", cal.id) ? (
-                                    <IconEyeOff className="h-3 w-3" />
-                                  ) : (
-                                    <IconEye className="h-3 w-3" />
-                                  )}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => removeExternal.mutate(cal.id)}
-                                  className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 opacity-0 hover:text-foreground group-hover:opacity-100"
-                                >
-                                  <IconX className="h-3 w-3" />
-                                </button>
-                              </div>
+                                <IconX className="h-3 w-3" />
+                              </button>
                             </div>
-                          ))}
-                        </CollapsibleContent>
-                      </Collapsible>
-                    )}
-                  </div>
-                )}
-              </div>
-            </>
-          )}
-        </div>
-
-        <nav
-          className={cn(
-            "shrink-0",
-            collapsed
-              ? "flex flex-col items-center gap-1 px-1 py-2"
-              : "space-y-0.5 px-2.5 pt-2.5",
-          )}
-        >
-          {bottomNavItems.map((item) => {
-            const isActive = location.pathname.startsWith(item.path);
-            const link = (
-              <Link
-                to={item.path}
-                onClick={onClose}
-                aria-label={collapsed ? t(item.labelKey) : undefined}
-                className={cn(
-                  "flex items-center rounded-lg font-medium transition-colors",
-                  collapsed
-                    ? "h-10 w-10 justify-center"
-                    : "gap-3 px-3 py-2 text-sm",
-                  isActive
-                    ? "bg-primary/10 text-primary"
-                    : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
-                )}
-              >
-                <item.icon className="h-4 w-4" />
-                {!collapsed && t(item.labelKey)}
-              </Link>
-            );
-            return collapsed ? (
-              <Tooltip key={item.path}>
-                <TooltipTrigger asChild>{link}</TooltipTrigger>
-                <TooltipContent side="right">{t(item.labelKey)}</TooltipContent>
-              </Tooltip>
-            ) : (
-              <div key={item.path}>{link}</div>
-            );
-          })}
-        </nav>
-
-        {!collapsed ? (
-          <>
-            <div className="px-3 py-2 empty:hidden">
-              <OrgSwitcher />
-            </div>
-
-            <div className="px-3 py-2 empty:hidden">
-              <DevDatabaseLink />
+                          </div>
+                        ))}
+                      </CollapsibleContent>
+                    </Collapsible>
+                  )}
+                </div>
+              )}
             </div>
           </>
-        ) : null}
-        <SidebarFooterActions
-          collapsed={collapsed}
-          feedback={feedbackButton}
-          search={searchButton}
-          collapse={collapseButton}
-        />
-      </aside>
+        )}
+      </AppSidebar>
     </>
   );
 }

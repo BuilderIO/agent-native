@@ -36,6 +36,17 @@ describe("finalize upload recovery", () => {
     ).toBe("/app/api/uploads/rec-1/status");
   });
 
+  it("preserves a signed intake capability for lost-response recovery", () => {
+    expect(
+      publicRecordingStatusUrl(
+        "/base/api/clip-intake?recordingId=rec-1&operation=chunk&clip_intake_id=intake-1&clip_intake=token",
+        "rec-1",
+      ),
+    ).toBe(
+      "/base/api/clip-intake?recordingId=rec-1&operation=status&clip_intake_id=intake-1&clip_intake=token",
+    );
+  });
+
   it("recognizes ready public recording payloads", () => {
     const probe = readyRecordingFromPublicPayload(
       {
@@ -105,6 +116,36 @@ describe("finalize upload recovery", () => {
       status: "ready",
       videoUrl: "https://cdn.example.com/rec-1.webm",
     });
+  });
+
+  it("accepts a ready intake status without exposing the media URL", async () => {
+    const calls: string[] = [];
+    const fetchImpl = async (url: RequestInfo | URL) => {
+      calls.push(url instanceof URL ? url.toString() : String(url));
+      return new Response(
+        JSON.stringify({ recording: { id: "rec-1", status: "ready" } }),
+        { status: 200 },
+      );
+    };
+
+    await expect(
+      waitForReadyRecordingAfterFinalizeError({
+        uploadUrl:
+          "/base/api/clip-intake?recordingId=rec-1&operation=chunk&clip_intake_id=intake-1&clip_intake=token",
+        recordingId: "rec-1",
+        fetchImpl,
+        sleepImpl: async () => undefined,
+        timeoutMs: 1,
+        intervalMs: 1,
+      }),
+    ).resolves.toMatchObject({
+      id: "rec-1",
+      status: "ready",
+      finalized: true,
+    });
+    expect(calls).toEqual([
+      "/base/api/clip-intake?recordingId=rec-1&operation=status&clip_intake_id=intake-1&clip_intake=token",
+    ]);
   });
 
   it("accepts a durably queued media verification without waiting for ready", async () => {

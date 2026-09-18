@@ -34,7 +34,7 @@ afterAll(async () => {
   await pglite.close();
 });
 
-const rawClient = {
+const rawClient: any = {
   execute: vi.fn(async (input: string | { sql: string; args?: unknown[] }) => {
     if (typeof input === "string") {
       await pglite.exec(input);
@@ -48,6 +48,19 @@ const rawClient = {
     const info = await stmt.run(...args);
     return { rows: [] as unknown[], rowsAffected: info.changes };
   }),
+};
+rawClient.transaction = async (
+  fn: (tx: typeof rawClient) => Promise<unknown>,
+) => {
+  await pglite.exec("BEGIN");
+  try {
+    const result = await fn(rawClient);
+    await pglite.exec("COMMIT");
+    return result;
+  } catch (error) {
+    await pglite.exec("ROLLBACK");
+    throw error;
+  }
 };
 
 vi.mock("../db/client.js", () => ({
@@ -65,6 +78,7 @@ const {
   reapUnclaimedBackgroundRun,
   getRunById,
   getRunByThread,
+  getCurrentTurnRunEventsForThread,
   reapIfStale,
   setRunInFlightMarker,
   IN_FLIGHT_RUN_STALE_GRACE_MS,
@@ -115,6 +129,36 @@ async function readInFlightSince(runId: string): Promise<number | null> {
 }
 
 describe("foreground self-chain — pre-inserted successor vs racing client continuation", () => {
+  it("orders replay events by continuation position when chunk timestamps tie", async () => {
+    const { thread } = ids();
+    const turn = `${thread}-turn`;
+    const firstChunk = `${turn}-first`;
+    const laterChunk = `${turn}-later`;
+    await insertRun(laterChunk, thread, turn, { continuationOrder: 1 });
+    await insertRun(firstChunk, thread, turn, { continuationOrder: 0 });
+    const eventAt = 1_000;
+    await pglite
+      .prepare(
+        `INSERT INTO agent_run_events (run_id, seq, event_at, event_data) VALUES (?, ?, ?, ?), (?, ?, ?, ?)`,
+      )
+      .run(
+        laterChunk,
+        0,
+        eventAt,
+        JSON.stringify({ type: "text", text: "later" }),
+        firstChunk,
+        0,
+        eventAt,
+        JSON.stringify({ type: "text", text: "first" }),
+      );
+
+    const events = await getCurrentTurnRunEventsForThread(thread, turn);
+    expect(events.map((entry) => entry.runId)).toEqual([
+      firstChunk,
+      laterChunk,
+    ]);
+  });
+
   it("tryClaimRunSlot refuses the client's continuation POST while the UNCLAIMED successor holds the slot", async () => {
     const { chunk0, successor, thread } = ids();
     await insertRun(chunk0, thread, "turn-1");
@@ -129,7 +173,7 @@ describe("foreground self-chain — pre-inserted successor vs racing client cont
     // A racing client auto_continue re-POST hits the atomic thread-slot claim
     // and must NOT be allowed to start a duplicate run — it is pointed at the
     // successor run to reconnect to (the client's 409 → adopt path).
-    const slot = await tryClaimRunSlot(thread);
+    const slot = await tryClaimRunSlot(thread, "run-client-race-1");
     expect(slot.claimed).toBe(false);
     expect(slot.activeRunId).toBe(successor);
   });
@@ -144,7 +188,7 @@ describe("foreground self-chain — pre-inserted successor vs racing client cont
 
     expect(await claimBackgroundRun(successor)).toBe(true);
 
-    const slot = await tryClaimRunSlot(thread);
+    const slot = await tryClaimRunSlot(thread, "run-client-race-2");
     expect(slot.claimed).toBe(false);
     expect(slot.activeRunId).toBe(successor);
   });
@@ -182,7 +226,7 @@ describe("foreground self-chain — pre-inserted successor vs racing client cont
     // ...and the client (which still receives the terminal auto_continue —
     // run-manager emits it after onComplete) can re-POST its continuation:
     // the thread slot is free again. No deadlock, no double-run.
-    const slot = await tryClaimRunSlot(thread);
+    const slot = await tryClaimRunSlot(thread, "run-client-race-3");
     expect(slot.claimed).toBe(true);
   });
 });

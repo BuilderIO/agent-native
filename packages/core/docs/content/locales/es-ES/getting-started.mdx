@@ -29,6 +29,7 @@ En un directorio nuevo, empieza con la plantilla de Chat:
 ```bash
 npx --yes @agent-native/core@latest create my-app --standalone --template chat
 cd my-app
+corepack enable
 pnpm install
 ```
 
@@ -55,6 +56,8 @@ introducir una dirección de correo electrónico ni una contraseña para el
 desarrollo local.
 
 </Callout>
+
+## Conectar un LLM
 
 A continuación, conecta un LLM. Selecciona **Connect Builder.io** para usar
 créditos gratuitos, o selecciona **Custom keys**, elige un proveedor e introduce
@@ -86,6 +89,7 @@ En tu directorio local `my-app`, abre `actions/hello.ts` en tu editor de código
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
+// One action powers every app surface: UI, agent, HTTP, MCP, A2A, and CLI.
 export default defineAction({
   description: "Return a friendly greeting.",
   schema: z.object({

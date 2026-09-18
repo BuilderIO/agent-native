@@ -18,6 +18,7 @@ import {
   sourceAnswerPolicySchema,
   sourceProviderSchema,
 } from "./_schemas.js";
+import { assertValidSourceConfig } from "./_source-config.js";
 
 export default defineAction({
   description:
@@ -43,6 +44,7 @@ export default defineAction({
       ),
   }),
   run: async (args) => {
+    assertValidSourceConfig(args.provider, args.config);
     let config = { ...args.config };
     if (args.policy !== undefined || config.answerPolicy !== undefined) {
       config = withSourceAnswerPolicy(

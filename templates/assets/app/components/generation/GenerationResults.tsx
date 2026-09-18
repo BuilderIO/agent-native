@@ -51,6 +51,7 @@ import type {
   AssetVariantState,
   ImageLibrarySummary,
 } from "../../../shared/api";
+import { looksLikeMachinePayload } from "../../../shared/provider-error";
 
 type LibraryListResult = {
   libraries?: ImageLibrarySummary[];
@@ -788,9 +789,14 @@ function GenerationSlotPreview({ slot }: { slot: VariantSlot }) {
     );
   }
   if (slot.status === "failed") {
+    // Last line of defence for the tray: a provider that starts nesting its
+    // payload a layer deeper than the server reader expects must degrade to
+    // the generic label, not paste escaped JSON over the candidate.
+    const failure =
+      slot.error && !looksLikeMachinePayload(slot.error) ? slot.error : null;
     return (
       <div className="flex h-full w-full items-center justify-center p-2 text-center text-[11px] text-destructive">
-        {slot.error || t("library.failed")}
+        {failure || t("library.failed")}
       </div>
     );
   }

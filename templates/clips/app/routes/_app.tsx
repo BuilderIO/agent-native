@@ -1,5 +1,5 @@
-import { useExperiment } from "@agent-native/core/client/experiments";
-import { CLIPS_MEETINGS, CLIPS_WISPRFLOW } from "@shared/experiments";
+import { useLab } from "@agent-native/core/client/labs";
+import { CLIPS_MEETINGS, CLIPS_WISPRFLOW } from "@shared/labs";
 import { useEffect, useRef } from "react";
 import { Outlet, useNavigate } from "react-router";
 
@@ -9,8 +9,8 @@ import { useTransactionalEmailBridge } from "@/hooks/use-transactional-email-bri
 
 function useGlobalSequenceShortcuts() {
   const navigate = useNavigate();
-  const meetingsExperimentEnabled = useExperiment(CLIPS_MEETINGS.key);
-  const wisprFlowExperimentEnabled = useExperiment(CLIPS_WISPRFLOW.key);
+  const meetingsLabEnabled = useLab(CLIPS_MEETINGS.key);
+  const wisprFlowLabEnabled = useLab(CLIPS_WISPRFLOW.key);
   const bufferRef = useRef<string[]>([]);
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
@@ -18,12 +18,8 @@ function useGlobalSequenceShortcuts() {
     const sequences: { keys: string[]; path: string }[] = [
       { keys: ["g", "l"], path: "/library" },
       { keys: ["g", "s"], path: "/spaces" },
-      ...(meetingsExperimentEnabled
-        ? [{ keys: ["g", "m"], path: "/meetings" }]
-        : []),
-      ...(wisprFlowExperimentEnabled
-        ? [{ keys: ["g", "d"], path: "/dictate" }]
-        : []),
+      ...(meetingsLabEnabled ? [{ keys: ["g", "m"], path: "/meetings" }] : []),
+      ...(wisprFlowLabEnabled ? [{ keys: ["g", "d"], path: "/dictate" }] : []),
       { keys: ["g", "a"], path: "/archive" },
       { keys: ["g", "t"], path: "/trash" },
     ];
@@ -65,7 +61,7 @@ function useGlobalSequenceShortcuts() {
       window.removeEventListener("keydown", handleKey);
       clearTimeout(timerRef.current);
     };
-  }, [meetingsExperimentEnabled, navigate, wisprFlowExperimentEnabled]);
+  }, [meetingsLabEnabled, navigate, wisprFlowLabEnabled]);
 }
 
 // Pathless layout route — keeps the left sidebar + agent chat mounted across

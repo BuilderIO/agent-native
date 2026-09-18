@@ -148,6 +148,7 @@ type SharePageMetaRecording = {
   title: string;
   description: string;
   ownerInitial: string;
+  brandLogoUrl: string | null;
   thumbnailUrl: string | null;
   animatedThumbnailUrl: string | null;
   visibility: "private" | "org" | "public";
@@ -238,7 +239,8 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
     import("@agent-native/core/sharing"),
   ]);
 
-  const [rec] = await getDb()
+  const db = getDb();
+  const [rec] = await db
     .select({
       id: schema.recordings.id,
       title: schema.recordings.title,
@@ -248,6 +250,7 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
       visibility: schema.recordings.visibility,
       status: schema.recordings.status,
       ownerEmail: schema.recordings.ownerEmail,
+      organizationId: schema.recordings.organizationId,
       password: schema.recordings.password,
       expiresAt: schema.recordings.expiresAt,
       archivedAt: schema.recordings.archivedAt,
@@ -290,11 +293,22 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
     }
   }
 
+  const [organizationSettings] = rec.organizationId
+    ? await db
+        .select({ brandLogoUrl: schema.organizationSettings.brandLogoUrl })
+        .from(schema.organizationSettings)
+        .where(
+          eq(schema.organizationSettings.organizationId, rec.organizationId),
+        )
+        .limit(1)
+    : [];
+
   const recording: SharePageMetaRecording = {
     id: rec.id,
     title: rec.title,
     description: rec.description,
     ownerInitial: rec.ownerEmail.trim().charAt(0).toUpperCase() || "C",
+    brandLogoUrl: organizationSettings?.brandLogoUrl?.trim() || null,
     thumbnailUrl: rec.password
       ? null
       : resolvePlayerThumbnailUrl(rec, { appPath }),
@@ -399,17 +413,13 @@ export default function ShareRoute() {
   const [searchParams] = useSearchParams();
   const startAt = searchParams.get("at");
   const startMs = useMemo(() => parseTimeParam(startAt), [startAt]);
+  const panelParam = searchParams.get("panel");
+  const search = searchParams.toString();
 
   // Viral attribution: read the `ref`/`via` the visitor arrived on (the tagged
   // share link) so we can fire funnel events and forward attribution into the
   // signup URL even when cookies are blocked or `document.referrer` is empty.
-  const attribution = useMemo(
-    () =>
-      readShareAttribution(
-        typeof window === "undefined" ? "" : window.location.search,
-      ),
-    [],
-  );
+  const attribution = useMemo(() => readShareAttribution(search), [search]);
   const recordingId = shareId ?? "";
 
   // share_cta_click — fired alongside (never instead of) the real navigation.
@@ -446,6 +456,14 @@ export default function ShareRoute() {
       void trackEvent("share_view", {
         surface: "clip",
         recording_id: recordingId,
+        ref: attribution.ref,
+        via: attribution.via,
+      });
+      void trackEvent("clip_viewed", {
+        app_name: "clips",
+        template_name: "clips",
+        output_type: "clip",
+        view_type: "shared",
         ref: attribution.ref,
         via: attribution.via,
       });
@@ -512,7 +530,7 @@ export default function ShareRoute() {
   // Keep the public viewer's rail in the same default state as the signed-in
   // viewer. Its own tab strip is the only panel navigation; the page toolbar
   // stays focused on recording actions.
-  const [panel, setPanel] = useState<SharePanel>("transcript");
+  const [panel, setPanel] = useState<SharePanel>("comments");
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   const commentsSectionRef = useRef<HTMLElement | null>(null);
   const selectCommentsPanel = useCallback(() => {
@@ -535,20 +553,14 @@ export default function ShareRoute() {
     string | null
   >(null);
   const agentAccessToken = useMemo(() => {
-    if (typeof window === "undefined") return "";
-    return (
-      new URLSearchParams(window.location.search).get(
-        CLIPS_AGENT_ACCESS_PARAM,
-      ) ?? ""
-    );
-  }, []);
+    return searchParams.get(CLIPS_AGENT_ACCESS_PARAM) ?? "";
+  }, [searchParams]);
 
   const shareReturnTo = useMemo(() => {
     const path = `/share/${encodeURIComponent(recordingId)}`;
-    if (typeof window === "undefined") return path;
-    const query = buildShareContinuationQuery(attribution, startAt);
+    const query = buildShareContinuationQuery(attribution, startAt, panelParam);
     return query ? `${path}?${query}` : path;
-  }, [attribution, recordingId, startAt]);
+  }, [attribution, recordingId, startAt, panelParam]);
   const signInHref = buildSignInReturnHref({ returnTo: shareReturnTo });
 
   const submitAccessRequest = useCallback(
@@ -683,6 +695,24 @@ export default function ShareRoute() {
   });
 
   const recording = dataQ.data?.data?.recording;
+  useEffect(() => {
+    if (recording && !recording.enableComments) {
+      // Functional update so this branch doesn't need `panel` as a
+      // dependency below - depending on `panel` made this effect re-fire on
+      // every manual tab click (including away from Comments), and
+      // `panelParam === "comments"` would then re-select Comments right
+      // back, trapping the viewer on the deep link for the whole session.
+      setPanel((current) => (current === "comments" ? "transcript" : current));
+      return;
+    }
+    if (panelParam === "comments") {
+      selectCommentsPanel();
+    }
+    // `shareId` is a dependency (not just used inside) so navigating between
+    // shares with the same `panelParam`/`enableComments` values still re-runs
+    // this effect instead of leaving `panel` on whatever the previous share
+    // left it at.
+  }, [panelParam, recording?.enableComments, selectCommentsPanel, shareId]);
   const {
     dismiss: dismissProcessingToast,
     error: failProcessingToast,
@@ -805,6 +835,7 @@ export default function ShareRoute() {
     dataQ.data?.data?.viewer?.canOpenDashboard,
   );
   const viewCount = Number(dataQ.data?.data?.viewCount ?? 0);
+  const agentViewCount = Number(dataQ.data?.data?.agentViewCount ?? 0);
   const showTitleSkeleton = recording
     ? shouldShowGeneratedTitleSkeleton(recording, transcriptStatus)
     : false;
@@ -819,6 +850,12 @@ export default function ShareRoute() {
     ownerEmail.charAt(0).toUpperCase() ||
     loaderData.recording?.ownerInitial ||
     "C";
+  const liveBrandLogoUrl =
+    typeof recording?.brandLogoUrl === "string"
+      ? recording.brandLogoUrl.trim()
+      : "";
+  const brandLogoUrl =
+    liveBrandLogoUrl || loaderData.recording?.brandLogoUrl || null;
   const recordedOn = formatRecordedOn(recording?.createdAt, !hasHydrated);
   const visibilityLabel = recording
     ? t(`shareUi.visibility.${recording.visibility}.label`)
@@ -1376,10 +1413,19 @@ export default function ShareRoute() {
             aria-label={t("navigation.brand")}
             className="flex min-w-0 items-center gap-2 rounded text-start outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <AgentNativeIcon
-              aria-hidden="true"
-              className="h-3.5 w-6 shrink-0 text-foreground"
-            />
+            {brandLogoUrl ? (
+              <img
+                src={brandLogoUrl}
+                alt=""
+                aria-hidden="true"
+                className="h-5 w-5 shrink-0 object-contain"
+              />
+            ) : (
+              <AgentNativeIcon
+                aria-hidden="true"
+                className="h-3.5 w-6 shrink-0 text-foreground"
+              />
+            )}
             <span className="truncate text-sm font-semibold text-foreground">
               {t("navigation.brand")}
             </span>
@@ -1392,6 +1438,7 @@ export default function ShareRoute() {
             <SignedOutShareActions
               recordingId={recording.id}
               startAt={startAt}
+              panel={panelParam}
               onCtaClick={fireShareCtaClick}
               onSignup={() => openCreateAccount("continue")}
             />
@@ -1569,6 +1616,7 @@ export default function ShareRoute() {
                   <RecordingViewsBadge
                     recordingId={recording.id}
                     viewCount={viewCount}
+                    agentViewCount={agentViewCount}
                     reactionCount={reactions.length}
                     canViewDetails={viewerCanEdit}
                     className="shrink-0 border-0 shadow-none"
@@ -1640,7 +1688,19 @@ export default function ShareRoute() {
 
       <Tabs
         value={panel}
-        onValueChange={(value) => setPanel(value as SharePanel)}
+        onValueChange={(value) => {
+          const nextPanel = value as SharePanel;
+          setPanel(nextPanel);
+          if (nextPanel === "agent" && recordingId) {
+            trackEvent("builtin_agent_used", {
+              app_name: "clips",
+              template_name: "clips",
+              output_type: "clip",
+              query_type: "clip",
+              surface: "shared_clip",
+            });
+          }
+        }}
         className="contents"
       >
         <RecordingSidePanel
@@ -1648,7 +1708,10 @@ export default function ShareRoute() {
           tabs={
             <ViewerTabsList>
               {recording.enableComments ? (
-                <ViewerTabsTrigger value="comments">
+                <ViewerTabsTrigger
+                  value="comments"
+                  className="px-0 data-[state=active]:after:inset-x-0"
+                >
                   {t("sharePage.comments")}
                 </ViewerTabsTrigger>
               ) : null}
@@ -1669,11 +1732,8 @@ export default function ShareRoute() {
             >
               <section
                 ref={commentsSectionRef}
-                className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 pb-3 pt-3"
+                className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 pb-3 pt-2"
               >
-                <h2 className="mb-3 shrink-0 text-sm font-semibold">
-                  {t("sharePage.comments")}
-                </h2>
                 <CommentsPanel
                   recordingId={recording.id}
                   comments={comments}
@@ -1751,6 +1811,7 @@ export default function ShareRoute() {
               status={transcriptStatus}
               failureReason={transcriptFailureReason}
               recordingTitle={recording.title}
+              audience="viewer"
             />
           </TabsContent>
         </RecordingSidePanel>

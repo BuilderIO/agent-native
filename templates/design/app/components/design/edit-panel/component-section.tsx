@@ -8,7 +8,22 @@ import {
   useBuilderConnectFlow,
 } from "@agent-native/core/client/settings";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
-import { propNameToDataAttribute } from "@shared/component-model";
+import {
+  buildCodeLayerProjection,
+  type CodeLayerNode,
+  type CodeLayerProjection,
+} from "@shared/code-layer";
+import {
+  COMPONENT_ARCHIVE_ATTR,
+  readComponentArchivePointer,
+} from "@shared/component-archive";
+import {
+  COMPONENT_ID_ATTR,
+  COMPONENT_OVERRIDES_ATTR,
+  COMPONENT_REF_ATTR,
+  componentNodeIdMatches,
+  propNameToDataAttribute,
+} from "@shared/component-model";
 import {
   IconArrowRight,
   IconArrowsLeftRight,
@@ -16,10 +31,11 @@ import {
   IconComponents,
   IconExternalLink,
   IconLoader2,
+  IconRefresh,
   IconUnlink,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -44,6 +60,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
+import type { LocalhostWriteConsentPayload } from "../LocalhostWriteConsentDialog";
+import { findCanvasIframeForScreen } from "../multi-screen/iframe-targeting";
 import {
   canRebuildAlpineDataLosslessly,
   isBooleanPropValue,
@@ -56,6 +74,15 @@ import {
   InspectorGrid,
   InspectorGridCell,
 } from "./inspector-grid";
+
+function isLocalhostWriteConsentError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.name === "LocalWriteConsentRequiredError" ||
+      error.name === "WriteConsentRequiredError" ||
+      /write-consent grant|grant expired/i.test(error.message))
+  );
+}
 
 // ─── Make it real — inline upgrade card (§3, §6.6) ──────────────────────────
 
@@ -291,7 +318,10 @@ interface ComponentDetailsResult {
   nodeId: string;
   name: string;
   sourceType: string;
+  isMain?: boolean;
+  canRestore?: boolean;
   observedProps: Array<{ name: string; value: string }>;
+  literalProps?: Array<{ name: string; value: string }>;
   persistedVariants: Record<string, string[]>;
   sourceLocation?: { filePath: string; exportName?: string } | null;
   /** Component instance shape, including the Alpine `x-data` expression. */
@@ -307,6 +337,37 @@ interface ComponentDetailsResult {
     ctaRequired: boolean;
     ctaMessage?: string;
   };
+}
+
+export interface ComponentLocalSource {
+  connectionId: string;
+  path: string;
+  line: number;
+  column: number;
+  positionPrecision?: "authored" | "transformed" | "unknown";
+  runtimeMultiplicity?: number;
+  scope?:
+    | "single-instance"
+    | "repeated-render"
+    | "shared-component-definition"
+    | "unknown";
+  expectedVersionHash?: string;
+  expectedValue?: string;
+  propStamps?: Array<{ name: string; value: string }>;
+}
+
+export interface RuntimeComponentDetails {
+  name: string;
+  nodeId: string;
+  selector: string;
+  props: Array<{ name: string; value: string }>;
+  literalProps?: Array<{ name: string; value: string }>;
+  alpineData?: string | null;
+  componentId?: string;
+  componentRef?: string;
+  isMain?: boolean;
+  sourceLocation?: { filePath: string; exportName?: string };
+  local?: ComponentLocalSource;
 }
 
 /** Shape returned by `go-to-main-component`. */
@@ -349,11 +410,45 @@ interface DetachComponentInstanceResult {
 export type PropRow = {
   name: string;
   value: string;
+  literalValue?: string;
   /** Variant/enum options when the prop is a known group. */
   options?: string[];
   /** Persist surface for this prop. */
   surface: "alpineData" | "attribute";
 };
+
+/** Whether a selected linked instance subtree carries explicit override keys. */
+export function componentInstanceHasLocalOverrides(
+  projection: CodeLayerProjection,
+  root: CodeLayerNode | null | undefined,
+): boolean {
+  if (
+    !root?.dataAttributes[COMPONENT_REF_ATTR] ||
+    root.dataAttributes[COMPONENT_ID_ATTR]
+  ) {
+    return false;
+  }
+  const nodesById = new Map(projection.nodes.map((node) => [node.id, node]));
+  return projection.nodes.some((node) => {
+    const raw = node.dataAttributes[COMPONENT_OVERRIDES_ATTR];
+    if (typeof raw !== "string" || !raw.trim()) return false;
+    let current: CodeLayerNode | undefined = node;
+    const visited = new Set<string>();
+    while (current && !visited.has(current.id)) {
+      if (current.id === root.id) {
+        try {
+          const parsed = JSON.parse(decodeURIComponent(raw)) as unknown;
+          return !Array.isArray(parsed) || parsed.length > 0;
+        } catch {
+          return true;
+        }
+      }
+      visited.add(current.id);
+      current = current.parentId ? nodesById.get(current.parentId) : undefined;
+    }
+    return false;
+  });
+}
 
 /**
  * Build the editable prop rows for a component instance from
@@ -369,9 +464,18 @@ export function buildComponentPropRows(data: {
   instance?: { alpineData?: string | null } | null;
   observedProps: Array<{ name: string; value: string }>;
   persistedVariants: Record<string, string[]>;
+  literalProps?: Array<{ name: string; value: string }>;
 }): PropRow[] {
-  const { observedProps, persistedVariants, instance } = data;
+  const {
+    observedProps,
+    persistedVariants,
+    instance,
+    literalProps = [],
+  } = data;
   const alpineData = parseAlpineDataObject(instance?.alpineData);
+  const literalValues = new Map(
+    literalProps.map(({ name, value }) => [name, value]),
+  );
 
   const rows: PropRow[] = [];
   const seen = new Set<string>();
@@ -395,13 +499,29 @@ export function buildComponentPropRows(data: {
     rows.push({
       name: prop.name,
       value: prop.value,
+      ...(literalValues.has(prop.name)
+        ? { literalValue: literalValues.get(prop.name) }
+        : {}),
       options: persistedVariants[prop.name],
       surface: "attribute",
     });
     seen.add(prop.name);
   }
 
-  // 3) persistedVariant groups with no observed value yet (default to first).
+  // 3) Verified literal invocation props that are not reflected in the host DOM.
+  for (const prop of literalProps) {
+    if (seen.has(prop.name)) continue;
+    rows.push({
+      name: prop.name,
+      value: prop.value,
+      literalValue: prop.value,
+      options: persistedVariants[prop.name],
+      surface: "attribute",
+    });
+    seen.add(prop.name);
+  }
+
+  // 4) persistedVariant groups with no observed value yet (default to first).
   // Surface is always "attribute" here, NOT "alpineData" even when this
   // instance's x-data happens to be non-empty for other keys: x-data blocks
   // for a real component instance are written with every prop the component
@@ -418,7 +538,10 @@ export function buildComponentPropRows(data: {
     if (seen.has(group)) continue;
     rows.push({
       name: group,
-      value: options[0] ?? "",
+      value: literalValues.get(group) ?? options[0] ?? "",
+      ...(literalValues.has(group)
+        ? { literalValue: literalValues.get(group) }
+        : {}),
       options,
       surface: "attribute",
     });
@@ -469,20 +592,40 @@ export function isMessageFromOwnPreviewIframe(
 export function ComponentSection({
   designId,
   fileId,
+  boardFileId,
+  previewFrameId,
   activeContent,
   activeFileUpdatedAt,
+  componentDetailsReady = true,
   nodeId,
   swapPickerRequest = 0,
+  hasLocalOverrides = false,
+  onResetOverrides,
+  onRestoreComponent,
   onComponentPropApplied,
   sourceCapabilities = [],
+  runtime,
+  requestLocalhostWrite,
 }: {
   designId: string;
   fileId?: string;
+  /** Reserved board file id for the dedicated board preview iframe. */
+  boardFileId?: string;
+  /** Host iframe id for live prop previews when several frames are mounted. */
+  previewFrameId?: string;
   activeContent?: string;
   activeFileUpdatedAt?: string | null;
+  /** Whether the selected component is present in the accepted source snapshot. */
+  componentDetailsReady?: boolean;
   nodeId: string;
   /** Increment to open the Swap instance picker from another UI entry point. */
   swapPickerRequest?: number;
+  /** True when the selected linked instance subtree has local override keys. */
+  hasLocalOverrides?: boolean;
+  /** Reset the selected linked instance through the editor's mutation queue. */
+  onResetOverrides?: () => void;
+  /** Restore the selected linked component through the editor's mutation queue. */
+  onRestoreComponent?: () => void;
   onComponentPropApplied?: (
     fileId: string,
     content: string,
@@ -490,10 +633,40 @@ export function ComponentSection({
   ) => void;
   /** Capability names advertised by the current source. */
   sourceCapabilities?: string[];
+  /** Live component metadata used when a URL file stores only its route URL. */
+  runtime?: RuntimeComponentDetails;
+  /** Request the existing localhost write-consent dialog before source writes. */
+  requestLocalhostWrite?: (opts: {
+    files: string[];
+    onGranted: LocalhostWriteConsentPayload["onGranted"];
+    onCancel?: () => void;
+  }) => void;
 }) {
   const t = useT();
   const queryClient = useQueryClient();
-  const detailsParams = { designId, nodeId, ...(fileId ? { fileId } : {}) };
+  const [runtimePropOverride, setRuntimePropOverride] = useState<Array<{
+    name: string;
+    value: string;
+  }> | null>(null);
+  const effectiveRuntime = runtime
+    ? {
+        ...runtime,
+        props: runtimePropOverride ?? runtime.props,
+      }
+    : undefined;
+  const propPreviewStateRef = useRef(
+    new Map<string, { generation: number; authoritativeValue: string }>(),
+  );
+  useEffect(() => {
+    setRuntimePropOverride(null);
+    propPreviewStateRef.current.clear();
+  }, [nodeId, runtime?.nodeId, runtime?.props]);
+  const detailsParams = {
+    designId,
+    nodeId,
+    ...(fileId ? { fileId } : {}),
+    ...(effectiveRuntime ? { runtime: effectiveRuntime } : {}),
+  };
   const detailsKey = ["action", "get-component-details", detailsParams];
   const latestSourceRef = useRef<{
     content: string;
@@ -502,6 +675,8 @@ export function ComponentSection({
     content: activeContent ?? "",
     revision: activeFileUpdatedAt ?? null,
   });
+  const componentDetailsReadyRef = useRef(componentDetailsReady);
+  componentDetailsReadyRef.current = componentDetailsReady;
 
   useEffect(() => {
     latestSourceRef.current = {
@@ -514,8 +689,33 @@ export function ComponentSection({
     useActionQuery<ComponentDetailsResult>(
       "get-component-details",
       detailsParams,
-      { refetchOnMount: "always" },
+      { refetchOnMount: "always", enabled: componentDetailsReady },
     );
+  const sourceRestoreState = useMemo<
+    "unreadable" | "absent" | "invalid" | "valid"
+  >(() => {
+    if (typeof activeContent !== "string") return "unreadable";
+    try {
+      const node = buildCodeLayerProjection(activeContent, {
+        source: {
+          kind: "design-file",
+          designId,
+          ...(fileId ? { fileId } : {}),
+        },
+      }).nodes.find((candidate) => componentNodeIdMatches(candidate, nodeId));
+      if (!node) return "absent";
+      const componentRef = node.dataAttributes[COMPONENT_REF_ATTR]?.trim();
+      if (!componentRef) return "absent";
+      const archive = readComponentArchivePointer(
+        node.dataAttributes[COMPONENT_ARCHIVE_ATTR],
+      );
+      if (archive.status === "absent") return "absent";
+      if (archive.status === "invalid") return "invalid";
+      return archive.pointer.componentId === componentRef ? "valid" : "invalid";
+    } catch {
+      return "unreadable";
+    }
+  }, [activeContent, designId, fileId, nodeId]);
 
   const openSourceMutation = useActionMutation("open-component-source");
   const applyPropMutation = useActionMutation("apply-component-prop-edit");
@@ -561,10 +761,10 @@ export function ComponentSection({
     }
     void queryClient.invalidateQueries({ queryKey: ["action", "get-design"] });
     void queryClient.invalidateQueries({ queryKey: detailsKey });
-    void refetch();
   };
 
   const sourceForMutation = () => {
+    if (effectiveRuntime?.local) return undefined;
     const latestSource = latestSourceRef.current;
     return latestSource.content
       ? {
@@ -671,8 +871,12 @@ export function ComponentSection({
     (attribute: string, value: string) => {
       if (typeof document === "undefined") return;
 
-      const iframe = document.querySelector<HTMLIFrameElement>(
-        "iframe[data-design-preview-iframe]",
+      const targetFrameId = previewFrameId ?? fileId;
+      if (!targetFrameId) return;
+      const iframe = findCanvasIframeForScreen(
+        document.body,
+        targetFrameId,
+        boardFileId,
       );
       iframe?.contentWindow?.postMessage(
         {
@@ -684,8 +888,51 @@ export function ComponentSection({
         "*",
       );
     },
-    [data?.instance?.nodeId, data?.instance?.selector, nodeId],
+    [
+      data?.instance?.nodeId,
+      data?.instance?.selector,
+      boardFileId,
+      fileId,
+      nodeId,
+      previewFrameId,
+    ],
   );
+
+  const updateLocalSourceCache = (content: unknown, versionHash: unknown) => {
+    if (
+      !effectiveRuntime?.local ||
+      (typeof content !== "string" && typeof versionHash !== "string")
+    )
+      return;
+    queryClient.setQueryData(
+      [
+        "action",
+        "read-local-file",
+        {
+          designId,
+          connectionId: effectiveRuntime.local.connectionId,
+          path: effectiveRuntime.local.path,
+        },
+      ],
+      (previous: { content?: string; versionHash?: string } | undefined) => ({
+        ...previous,
+        ...(typeof content === "string" ? { content } : {}),
+        ...(typeof versionHash === "string" ? { versionHash } : {}),
+      }),
+    );
+  };
+
+  const updateRuntimeProp = (propName: string | undefined, value: string) => {
+    if (!effectiveRuntime || !propName) return;
+    setRuntimePropOverride((previous) => {
+      const props = previous ?? effectiveRuntime.props;
+      const index = props.findIndex((prop) => prop.name === propName);
+      if (index === -1) return [...props, { name: propName, value }];
+      return props.map((prop, propIndex) =>
+        propIndex === index ? { ...prop, value } : prop,
+      );
+    });
+  };
 
   // Persist a single prop change through apply-component-prop-edit. Attribute
   // props also preview immediately in the iframe so the selected component
@@ -693,49 +940,118 @@ export function ComponentSection({
   const persistPropEdit = (
     edit:
       | { kind: "alpineData"; value: string }
-      | { kind: "attribute"; attribute: string; value: string },
-    optimistic: (prev: ComponentDetailsResult) => ComponentDetailsResult,
+      | {
+          kind: "attribute";
+          attribute: string;
+          value: string;
+          expectedValue?: string;
+          previewValue?: string;
+          propName?: string;
+        },
   ) => {
-    queryClient.setQueryData<ComponentDetailsResult>(detailsKey, (prev) =>
-      prev ? optimistic(prev) : prev,
-    );
+    const previousPreviewValue =
+      edit.kind === "attribute"
+        ? (edit.previewValue ?? edit.expectedValue ?? "")
+        : undefined;
+    const previewGeneration =
+      edit.kind === "attribute"
+        ? (propPreviewStateRef.current.get(edit.attribute)?.generation ?? 0) + 1
+        : undefined;
+    if (edit.kind === "attribute") {
+      const previous = propPreviewStateRef.current.get(edit.attribute);
+      propPreviewStateRef.current.set(edit.attribute, {
+        generation: previewGeneration!,
+        authoritativeValue:
+          previous?.authoritativeValue ?? previousPreviewValue!,
+      });
+    }
+    const rollbackPreview = () => {
+      if (edit.kind !== "attribute") return;
+      const current = propPreviewStateRef.current.get(edit.attribute);
+      if (!current || current.generation !== previewGeneration) return;
+      postComponentPropPreview(edit.attribute, current.authoritativeValue);
+    };
     if (edit.kind === "attribute") {
       postComponentPropPreview(edit.attribute, edit.value);
     }
     const latestSource = latestSourceRef.current;
-    applyPropMutation.mutate(
-      {
-        designId,
-        nodeId,
-        ...(fileId ? { fileId } : {}),
-        edit,
-        ...(latestSource.content
+    const mutationSource = effectiveRuntime?.local
+      ? {
+          local: {
+            ...effectiveRuntime.local,
+            ...(edit.kind === "attribute" && edit.expectedValue !== undefined
+              ? { expectedValue: edit.expectedValue }
+              : {}),
+          },
+        }
+      : latestSource.content
+        ? {
+            currentContent: latestSource.content,
+            ...(latestSource.revision
+              ? { revision: latestSource.revision }
+              : {}),
+          }
+        : undefined;
+    const payload = {
+      designId,
+      nodeId,
+      ...(fileId ? { fileId } : {}),
+      edit:
+        edit.kind === "attribute"
           ? {
-              source: {
-                currentContent: latestSource.content,
-                ...(latestSource.revision
-                  ? { revision: latestSource.revision }
-                  : {}),
-              },
+              kind: "attribute" as const,
+              attribute: edit.attribute,
+              value: edit.value,
             }
-          : {}),
-      },
-      {
+          : edit,
+      ...(mutationSource ? { source: mutationSource } : {}),
+    };
+    const submit = (retriedAfterConsent = false) => {
+      applyPropMutation.mutate(payload, {
         onSuccess: (result) => {
           const response = result as {
             content?: unknown;
             fileId?: unknown;
             updatedAt?: unknown;
             conflict?: unknown;
+            ctaRequired?: unknown;
+            persisted?: unknown;
             error?: unknown;
+            source?: {
+              connectionId?: unknown;
+              path?: unknown;
+              versionHash?: unknown;
+            };
+            result?: { status?: unknown; message?: unknown };
           };
-          if (response.conflict) {
+          const resultStatus = response.result?.status;
+          updateLocalSourceCache(
+            response.content,
+            response.source?.versionHash,
+          );
+          if (
+            response.conflict ||
+            response.ctaRequired ||
+            response.persisted === false ||
+            (typeof resultStatus === "string" && resultStatus !== "applied")
+          ) {
+            rollbackPreview();
             toast.error(
               typeof response.error === "string"
                 ? response.error
-                : "This file changed since this component prop edit was prepared. Refresh and try again.",
+                : t("designEditor.toasts.componentCreateFailed"),
             );
             return;
+          }
+          if (edit.kind === "attribute") {
+            const current = propPreviewStateRef.current.get(edit.attribute);
+            if (current) {
+              propPreviewStateRef.current.set(edit.attribute, {
+                ...current,
+                authoritativeValue: edit.value,
+              });
+            }
+            updateRuntimeProp(edit.propName, edit.value);
           }
           if (
             typeof response.fileId === "string" &&
@@ -756,15 +1072,36 @@ export function ComponentSection({
             );
           }
         },
+        onError: (error: unknown) => {
+          if (
+            !retriedAfterConsent &&
+            effectiveRuntime?.local &&
+            requestLocalhostWrite &&
+            isLocalhostWriteConsentError(error)
+          ) {
+            requestLocalhostWrite({
+              files: [effectiveRuntime.local.path],
+              onGranted: () => submit(true),
+              onCancel: rollbackPreview,
+            });
+            return;
+          }
+          rollbackPreview();
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : t("designEditor.toasts.componentCreateFailed"),
+          );
+        },
         onSettled: () => {
           void queryClient.invalidateQueries({
             queryKey: ["action", "get-design"],
           });
           void queryClient.invalidateQueries({ queryKey: detailsKey });
-          void refetch();
         },
-      },
-    );
+      });
+    };
+    submit();
   };
 
   useEffect(() => {
@@ -777,7 +1114,7 @@ export function ComponentSection({
         return;
       }
       if (!isMessageFromOwnPreviewIframe(event.source)) return;
-      void refetch();
+      if (componentDetailsReadyRef.current) void refetch();
     };
     window.addEventListener("message", handleMessage);
     return () => {
@@ -786,7 +1123,7 @@ export function ComponentSection({
   }, [refetch]);
 
   // While loading, show a compact skeleton that matches the section width.
-  if (isLoading) {
+  if (isLoading || !componentDetailsReady) {
     return (
       <section className="shrink-0 border-t border-[var(--design-editor-control-border)] first:border-t-0">
         <div className="flex min-h-[var(--design-section-height)] items-center gap-2 px-2">
@@ -812,7 +1149,12 @@ export function ComponentSection({
     persistedVariants,
     instance,
     capabilities,
+    canRestore: serverCanRestore,
   } = data;
+  const canRestore =
+    sourceRestoreState === "unreadable"
+      ? serverCanRestore
+      : sourceRestoreState === "valid";
 
   // ── Editable prop model ───────────────────────────────────────────────────
   // Inline/Alpine designs persist through apply-component-prop-edit. Two write
@@ -822,19 +1164,20 @@ export function ComponentSection({
   // Real-app sources keep the deeper source-prop controls gated as-is, so for
   // non-inline sources the controls are read-only here.
   const isInline = sourceType === "inline";
-  const editingEnabled = isInline && capabilities.canEditProps; // gated; real-app stays read-only for now
+  const editingEnabled =
+    (isInline || Boolean(effectiveRuntime?.local)) && capabilities.canEditProps;
   const alpineData = parseAlpineDataObject(instance?.alpineData);
 
   const rows: PropRow[] = buildComponentPropRows({
     instance,
     observedProps,
     persistedVariants,
+    literalProps: data.literalProps ?? effectiveRuntime?.literalProps,
   });
 
   const hasRows = rows.length > 0;
 
-  // Build the apply-component-prop-edit payload + optimistic cache patch for a
-  // single prop change.
+  // Build the apply-component-prop-edit payload for a single prop change.
   const commitProp = (row: PropRow, nextValue: string) => {
     if (!editingEnabled || nextValue === row.value) return;
 
@@ -866,35 +1209,16 @@ export function ComponentSection({
       }
 
       const nextSerialized = serialized;
-      persistPropEdit(
-        { kind: "alpineData", value: nextSerialized },
-        (prev) => ({
-          ...prev,
-          instance: { ...(prev.instance ?? {}), alpineData: nextSerialized },
-          observedProps: prev.observedProps.map((p) =>
-            p.name === row.name ? { ...p, value: nextValue } : p,
-          ),
-        }),
-      );
+      persistPropEdit({ kind: "alpineData", value: nextSerialized });
     } else {
-      persistPropEdit(
-        {
-          kind: "attribute",
-          attribute: propNameToDataAttribute(row.name),
-          value: nextValue,
-        },
-        (prev) => {
-          const exists = prev.observedProps.some((p) => p.name === row.name);
-          return {
-            ...prev,
-            observedProps: exists
-              ? prev.observedProps.map((p) =>
-                  p.name === row.name ? { ...p, value: nextValue } : p,
-                )
-              : [...prev.observedProps, { name: row.name, value: nextValue }],
-          };
-        },
-      );
+      persistPropEdit({
+        kind: "attribute",
+        attribute: propNameToDataAttribute(row.name),
+        value: nextValue,
+        expectedValue: row.literalValue,
+        previewValue: row.value,
+        propName: row.name,
+      });
     }
   };
 
@@ -939,7 +1263,7 @@ export function ComponentSection({
             designs only — the underlying actions fail closed for real-app
             sources, so hide them entirely there rather than show a
             perpetually-disabled button. */}
-              {isInline && (
+              {isInline && !data.isMain && (
                 <>
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -948,17 +1272,35 @@ export function ComponentSection({
                         variant="ghost"
                         size="icon"
                         className="size-6 rounded-md text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-                        disabled={goToMainMutation.isPending}
+                        disabled={
+                          canRestore
+                            ? !onRestoreComponent
+                            : goToMainMutation.isPending
+                        }
                         aria-label={t(
-                          "designEditor.componentInstances.goToMain",
+                          canRestore
+                            ? "designEditor.componentInstances.restore"
+                            : "designEditor.componentInstances.goToMain",
                         )}
-                        onClick={handleGoToMainComponent}
+                        onClick={
+                          canRestore
+                            ? onRestoreComponent
+                            : handleGoToMainComponent
+                        }
                       >
-                        <IconComponents className="size-3.5" />
+                        {canRestore ? (
+                          <IconRefresh className="size-3.5" />
+                        ) : (
+                          <IconComponents className="size-3.5" />
+                        )}
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>
-                      {t("designEditor.componentInstances.goToMain")}
+                      {t(
+                        canRestore
+                          ? "designEditor.componentInstances.restore"
+                          : "designEditor.componentInstances.goToMain",
+                      )}
                     </TooltipContent>
                   </Tooltip>
 
@@ -1057,6 +1399,30 @@ export function ComponentSection({
                       </span>
                     </TooltipContent>
                   </Tooltip>
+                  {hasLocalOverrides && onResetOverrides ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="size-6 rounded-md text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                          disabled={
+                            !editingEnabled || applyPropMutation.isPending
+                          }
+                          aria-label={t(
+                            "editPanel.interactionStates.resetOverride",
+                          )}
+                          onClick={onResetOverrides}
+                        >
+                          <IconRefresh className="size-3.5" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {t("editPanel.interactionStates.resetOverride")}
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : null}
                 </>
               )}
               {/* Jump-to-source action */}

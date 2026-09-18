@@ -1,6 +1,7 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "activity.reasoning": "추론",
   "approval.alwaysAllow": "항상 허용",
   "approval.alwaysAllowHint":
     "이 명령과 정확히 일치하는 명령을 승인하고 항상 허용합니다",
@@ -69,14 +70,30 @@ const messages: AgentChatTranslation = {
     "Builder.io 계정을 생성하거나 재사용하는 중입니다. 보통 몇 초 정도 걸립니다.",
   "onboarding.builderConnectionDescription":
     "새 창에서 한 번의 클릭으로 연결을 완료하세요.",
+  "onboarding.builderReadyWithCodeChanges":
+    "AI 크레딧과 클라우드 코드 변경을 사용할 수 있습니다.",
+  "onboarding.builderReadyCreditsOnly":
+    "AI 크레딧을 사용할 수 있습니다. 클라우드 코드 편집에는 Background Agent 설정의 Builder 프로젝트가 필요합니다.",
+  "onboarding.openBackgroundAgentSettings": "Background Agent 설정 열기",
   "onboarding.capability.llm.keySummary": "AI 제공업체 또는 로컬 모델 연결",
   "onboarding.capability.fileStorage.keySummary":
     "Builder 스토리지 또는 S3 호환 버킷",
+  "onboarding.fileStorage.title": "파일 저장소 선택",
+  "onboarding.fileStorage.description":
+    "관리형 Builder 스토리지 또는 자체 S3 호환 버킷용 사용자 지정 스토리지 키를 선택하세요.",
+  "onboarding.fileStorage.custom": "사용자 지정 스토리지 키 사용",
+  "onboarding.fileStorage.customDescription":
+    "안정적인 공개 URL을 사용하는 S3 호환 버킷을 구성하세요.",
   "onboarding.capability.voiceInput.label": "음성 입력",
   "onboarding.capability.voiceInput.keySummary":
     "브라우저 음성 인식 또는 음성 텍스트 변환",
   "onboarding.capability.voiceInput.why":
     "음성 입력은 말한 요청을 텍스트로 바꿉니다. 입력은 언제나 사용할 수 있습니다.",
+  "onboarding.capability.embeddings.label": "임베딩",
+  "onboarding.capability.embeddings.keySummary":
+    "Gemini, Cohere 또는 Voyage 키",
+  "onboarding.capability.embeddings.why":
+    "임베딩은 의미 검색을 개선합니다. 임베딩 없이도 키워드 검색은 작동합니다.",
   "onboarding.capability.assetsImageGeneration.label": "이미지 생성",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Builder 크레딧 또는 이미지 제공업체 키",
@@ -105,6 +122,14 @@ const messages: AgentChatTranslation = {
   "common.agent": "에이전트",
   "agentPanel.mode": "모드",
   "agentPanel.uiMode": "UI",
+  "agentPanel.keyScope": "키 범위",
+  "agentPanel.personalKeyScope": "개인",
+  "agentPanel.organizationKeyScope": "조직",
+  "agentPanel.personalKeyInEffect": "개인 키를 사용 중입니다.",
+  "agentPanel.organizationKeyInEffect": "조직 키를 사용 중입니다.",
+  "agentPanel.sharedKeyInEffect": "공유 키를 사용 중입니다.",
+  "agentPanel.useOrganizationKey": "조직 키 사용",
+  "agentPanel.keyStatusUnavailable": "키 상태를 확인할 수 없습니다.",
   "agentHostNudge.sidebarTitle": "{{agent}} 채팅 사용",
   "agentHostNudge.sidebarDescription":
     "이미 {{agent}}와 대화 중입니다. 이 앱에서 직접 작업하도록 요청하세요.",
@@ -127,6 +152,58 @@ const messages: AgentChatTranslation = {
   "common.no": "아니요",
   "common.retry": "다시 시도",
   "common.save": "저장",
+  "agents.hostedAgent": "호스팅된 에이전트",
+  "agents.provider": "제공업체",
+  "agents.providerA2A": "A2A 에이전트 (Foundry, Gemini 또는 사용자 지정)",
+  "agents.providerAnthropic": "Anthropic 관리형 에이전트",
+  "agents.agentId": "에이전트 ID",
+  "agents.agentIdPlaceholder": "agent_...",
+  "agents.environmentId": "환경 ID",
+  "agents.environmentIdPlaceholder": "env_...",
+  "agents.apiBaseUrl": "API 기본 URL (선택 사항)",
+  "agents.apiBaseUrlPlaceholder": "https://api.anthropic.com",
+  "agents.managedAgentIncomplete":
+    "Anthropic Managed Agents 필드를 입력하세요.",
+  "agents.managedAgentCheck": "채팅에서 위임하면 연결을 확인합니다.",
+  "agents.managedAgentSaved":
+    "Anthropic Managed Agent가 저장되었습니다. 채팅에서 위임하세요.",
+  "agents.cardUrl": "에이전트 카드 URL",
+  "agents.cardUrlPlaceholder": "https://host.example/agent-card.json",
+  "agents.authType": "인증",
+  "agents.authNone": "인증 없음",
+  "agents.authBearer": "Bearer 토큰",
+  "agents.authClientCredentials": "OAuth 클라이언트 자격 증명",
+  "agents.chooseCredential": "자격 증명 선택",
+  "agents.vault": "Vault",
+  "agents.tokenUrl": "토큰 URL",
+  "agents.clientId": "클라이언트 ID",
+  "agents.scope": "범위",
+  "agents.authIncomplete": "호스팅된 에이전트 인증 필드를 완료하세요.",
+  "agents.invalidUrl":
+    "에이전트 URL은 HTTPS를 사용해야 하며 localhost 또는 루프백 개발 URL은 예외입니다.",
+  "agents.statusReachable": "연결 가능",
+  "agents.statusAuthRejected": "인증 거부됨",
+  "agents.statusNoJsonRpc": "JSON-RPC 없음",
+  "agents.directoryTab": "에이전트 디렉터리",
+  "agents.directoryPageHint":
+    "에이전트 백엔드를 찾아 워크스페이스에 연결하세요.",
+  "agents.directorySearch": "공급자 검색",
+  "agents.directoryProviders": "공급자",
+  "agents.directoryManual": "URL로 추가",
+  "agents.directoryA2A": "A2A",
+  "agents.directoryManaged": "관리형 API",
+  "agents.directoryFoundry": "Microsoft Foundry",
+  "agents.directoryFoundryHint": "A2A로 Foundry 에이전트를 연결하세요.",
+  "agents.directoryGemini": "Gemini Enterprise",
+  "agents.directoryGeminiHint":
+    "A2A로 Gemini Enterprise 에이전트를 연결하세요.",
+  "agents.directoryAnthropic": "Anthropic 관리형 에이전트",
+  "agents.directoryAnthropicHint": "Anthropic의 세션과 승인을 연결하세요.",
+  "agents.directoryNoMatches": "검색과 일치하는 공급자가 없습니다.",
+  "agents.directoryRegistry": "글로벌 A2A 레지스트리",
+  "agents.directoryRegistryHint":
+    "공개 Agent Card를 찾아 연결하기 전에 확인하세요.",
+  "agents.directoryBrowse": "레지스트리 찾아보기",
   "common.saveFailed": "저장 실패",
   "common.saveFailedStatus": "저장 실패({{status}})",
   "common.saving": "저장 중...",
@@ -140,6 +217,7 @@ const messages: AgentChatTranslation = {
   "composer.openDesktop": "이 채팅을 사용하려면 데스크톱 앱을 여세요.",
   "composer.removeAttachment": "{{name}} 제거",
   "composer.scrollToBottom": "맨 아래로 스크롤",
+  "composer.suggestedPrompts": "추천 프롬프트",
   "composer.stopResponse": "응답 중지",
   "composer.subAgentReadOnly":
     "오케스트레이터 채팅에 메시지를 보내세요. 이 하위 에이전트는 자동으로 실행됩니다",
@@ -167,6 +245,7 @@ const messages: AgentChatTranslation = {
   "composer.configureProviderKeys": "Anthropic, OpenAI 또는 다른 제공업체 설정",
   "composer.connectAbove": "계속하려면 위에서 AI를 연결하세요...",
   "composer.connectBuilder": "Builder.io 연결",
+  "composer.connectKeys": "키 연결",
   "composer.connectingBuilder": "Builder.io 연결 중…",
   "composer.costHigher": "높은 비용",
   "composer.costLower": "낮은 비용",
@@ -291,7 +370,7 @@ const messages: AgentChatTranslation = {
   "voiceMode.errors.unsupported":
     "이 브라우저는 실시간 음성 대화를 지원하지 않습니다.",
   "voiceMode.hideChat": "채팅 숨기기",
-  "voiceMode.keepDictating": "받아쓰기",
+  "voiceMode.keepDictating": "메시지 받아쓰기",
   "voiceMode.promptDescription":
     "음성 모드는 에이전트가 탐색하고 작업하는 동안 계속 음성을 듣습니다.",
   "voiceMode.promptTitle": "음성 사용",
@@ -333,7 +412,7 @@ const messages: AgentChatTranslation = {
     "Builder.io를 연결하여 무료 크레딧이 포함된 관리형 음성을 사용하거나 직접 키를 추가하세요.",
   "voiceMode.setupTitle": "음성 모드 설정",
   "voiceMode.showChat": "채팅 표시",
-  "voiceMode.start": "실시간 음성",
+  "voiceMode.start": "음성 채팅 시작",
   "voiceMode.startWithOpenAiKey": "OpenAI 키로 시작",
   "voiceMode.status.connecting": "연결 중",
   "voiceMode.status.ending": "음성 모드 종료 중",
@@ -353,6 +432,8 @@ const messages: AgentChatTranslation = {
   "error.stopped": "에이전트가 완료 전에 중지되었습니다",
   "errorMessages.agentConnection":
     "에이전트 연결이 중단되었습니다. 연결을 확인한 후 다시 시도하세요.",
+  "errorMessages.attachmentPasswordProtected":
+    "이 PDF는 비밀번호로 보호되어 있어 읽을 수 없습니다. 비밀번호 보호를 해제하거나 관련 텍스트를 붙여넣은 후 다시 시도하세요.",
   "errorMessages.builderAuthentication":
     "Builder가 연결된 자격 증명을 거부했습니다. 설정에서 Builder.io를 다시 연결한 후 다시 시도하세요.",
   "errorMessages.builderModelUnauthorized":
@@ -362,10 +443,15 @@ const messages: AgentChatTranslation = {
     "에이전트가 답변하기 전에 모델 게이트웨이에서 내부 오류가 발생했습니다. 잠시 후 다시 시도하고, 계속 발생하면 아래 오류 ID를 알려 주세요.",
   "errorMessages.gatewayNoDetails":
     "모델 게이트웨이가 오류 세부 정보를 반환하지 않아 채팅을 복구할 수 없습니다. 잠시 후 다시 시도하고, 문제가 계속되면 새 채팅을 시작하세요.",
+  "errorMessages.creditsLimitReached": "AI 크레딧 한도에 도달했습니다.",
   "errorMessages.inactivityTimeout":
     "에이전트 연결이 완료 전에 시간 초과되었습니다. 부분적으로 완료된 작업에서 계속하거나 다시 시도할 수 있습니다.",
   "errorMessages.invalidToolSchema":
     "도구 스키마가 올바르지 않아 모델이 요청 시작 전에 거부했습니다. 올바르지 않은 도구를 건너뛰고 요청을 다시 시도할 수 있습니다.",
+  "errorMessages.malformedRequest":
+    "모델 제공업체가 이 요청을 잘못된 형식으로 거부하여 재시도하지 않았습니다. 다시 시도하거나 문제가 계속되면 새 채팅을 시작하세요.",
+  "errorMessages.malformedRequestAttachment":
+    "모델이 첨부 파일을 거부하여 이 메시지는 전송되지 않았습니다. 첨부를 제거하고 다시 시도하세요. PDF, 일반 텍스트 파일, JPEG·PNG·GIF·WebP 이미지는 직접 읽을 수 있지만 다른 형식은 업로드한 뒤 링크해야 합니다.",
   "errorMessages.noProviderConnected":
     "연결된 LLM 제공업체가 없습니다. 설정 > 에이전트 > AI 제공업체를 연 다음 Builder.io(무료 요금제 제공)를 연결하거나 제공업체 키를 추가하세요.",
   "errorMessages.openBuilderSpaceSettings": "Builder 스페이스 설정 열기",
@@ -378,6 +464,8 @@ const messages: AgentChatTranslation = {
     "모델 제공업체에 연결할 수 없습니다. 연결을 확인한 후 다시 시도하세요.",
   "errorMessages.providerRateLimit":
     "현재 모델 제공업체가 이 채팅의 요청 속도를 제한하고 있습니다. 잠시 후 다시 시도하세요.",
+  "errorMessages.providerTransientRejection":
+    "AI 제공업체가 이 요청을 일시적으로 거부했습니다. 보통 1분 이내에 해결되니 다시 시도하세요.",
   "errorMessages.startNewChat": "새 채팅 시작",
   "errorMessages.upgradeAtBuilder": "Builder.io에서 업그레이드",
   "feedback.inaccurate": "부정확함",
@@ -385,6 +473,7 @@ const messages: AgentChatTranslation = {
   "feedback.notHelpful": "도움이 되지 않음",
   "feedback.placeholder": "무엇이 문제였는지 알려주세요…",
   "feedback.submit": "제출",
+  "feedback.submitted": "피드백이 제출되었습니다",
   "feedback.thumbsDown": "싫어요",
   "feedback.thumbsUp": "좋아요",
   "feedback.tooSlow": "너무 느림",
@@ -401,6 +490,16 @@ const messages: AgentChatTranslation = {
   "history.searching": "검색 중...",
   "history.untitledChat": "채팅",
   "history.yesterday": "어제",
+  "integrations.availableSection": "사용 가능한 연동",
+  "integrations.connectedSection": "연결됨",
+  "integrations.goToApiKeys": "API 키로 이동",
+  "integrations.goToIntegrations": "연동으로 이동",
+  "integrations.lookingForApiKeys": "대신 API 키를 찾고 계신가요?",
+  "integrations.lookingForProviders":
+    "OAuth 또는 MCP 제공업체를 찾고 계신가요?",
+  "integrations.manage": "관리",
+  "integrations.recommended": "추천",
+  "integrations.subtitle": "에이전트가 사용할 수 있는 도구를 연결하세요.",
   "limit.account": "계정",
   "limit.descriptionAll":
     "에이전트가 사용 가능한 모든 단계를 소진했습니다. 새 차례에서 계속하거나 먼저 {{scope}} 한도를 높이세요.",
@@ -506,6 +605,10 @@ const messages: AgentChatTranslation = {
   "queue.remove": "대기열에서 제거",
   "queue.sendNow": "지금 보내기",
   "queue.sendNowHint": "지금 보내기(현재 응답 중지)",
+  "queue.steer": "조정",
+  "queue.steerHint": "이 메시지를 다음에 보내기",
+  "queue.moreActions": "추가 작업",
+  "queue.moveToTop": "맨 위로 이동",
   "recovery.connectingBuilder": "Builder.io에 연결 중",
   "recovery.copyDebug": "디버그 정보 복사",
   "recovery.copyFailed": "복사 실패",
@@ -527,6 +630,33 @@ const messages: AgentChatTranslation = {
   "recovery.streamEnded":
     "이전 에이전트 스트림이 실행 복구 중 종료되었습니다. 계속하거나 다시 시도하여 실행에 다시 연결하세요.",
   "recovery.reconnectBuilder": "Builder.io 다시 연결",
+  "secrets.addCustomKeyNamed": '사용자 지정 키로 "{{name}}" 추가',
+  "secrets.chooseKey": "키 선택",
+  "secrets.customKey": "사용자 지정 키",
+  "secrets.customKeyHint": "이름으로 아무 키나 추가",
+  "secrets.emptyHint": "본인 계정을 사용하려면 키를 추가하세요.",
+  "secrets.emptyMore":
+    "그 외 {{count}}개는 '새로 만들기' 아래에 있거나 사용자 지정 키를 추가하세요",
+  "secrets.emptyTitle": "아직 키가 없습니다.",
+  "secrets.fromEnvironment": "배포 환경에서 제공됩니다.",
+  "secrets.managedInVault":
+    "워크스페이스 Vault에서 관리됩니다. 이 워크스페이스의 모든 앱이 이 값을 사용합니다.",
+  "secrets.openVault": "Vault 열기",
+  "secrets.newKey": "새로 만들기",
+  "secrets.noKeysFound": "키를 찾을 수 없습니다.",
+  "secrets.overridesVault":
+    "이 개인 키는 워크스페이스 Vault 값을 재정의합니다. Vault 키를 사용하려면 제거하세요.",
+  "secrets.overridesWorkspace":
+    "이 개인 키는 워크스페이스 값을 재정의합니다. 공유 키를 사용하려면 제거하세요.",
+  "secrets.setForWorkspace":
+    "이 워크스페이스의 모든 사용자에게 설정되어 있습니다.",
+  "secrets.sourceEnvironment": "환경",
+  "secrets.sourceVault": "Vault",
+  "secrets.sourceWorkspace": "워크스페이스",
+  "secrets.statusUnavailable": "사용할 수 없음",
+  "secrets.required": "필수",
+  "secrets.searchKeys": "키 검색...",
+  "secrets.usePersonalKey": "대신 개인 키 사용",
   "selection.attached": "선택한 내용의 {{formattedCount}}자가 첨부되었습니다",
   "selection.attached_other":
     "선택한 내용의 {{formattedCount}}자가 첨부되었습니다",
@@ -618,6 +748,7 @@ const messages: AgentChatTranslation = {
   "status.preparing": "{{activity}} 준비 중...",
   "status.writing": "{{activity}} 작성 중...",
   "status.stillGenerating": "{{activity}} 계속 생성 중",
+  "status.runningTool": "{{activity}} 실행 중",
   "tabs.allChats": "모든 채팅",
   "tabs.closeTab": "탭 닫기",
   "tabs.main": "메인",
@@ -653,6 +784,7 @@ const messages: AgentChatTranslation = {
   "widget.dataInsights": "데이터 인사이트",
   "widget.dataTable": "데이터 테이블",
   "widget.downloadCsv": "CSV 다운로드",
+  "widget.connectProvider": "{{provider}} 연결",
   "widget.loadingToolResult": "도구 결과를 불러오는 중",
   "widget.noRows": "행 없음",
   "widget.points": "포인트 {{formattedCount}}개",
@@ -660,6 +792,14 @@ const messages: AgentChatTranslation = {
   "widget.rows": "{{formattedCount}}개 행",
   "widget.rows_other": "{{formattedCount}}개 행",
   "widget.sampled": "샘플링됨",
+  "settings.emailTitle": "이메일",
+  "settings.emailChange": "이메일 변경",
+  "settings.emailChanging": "보내는 중...",
+  "settings.emailChangeSent":
+    "이 변경을 확인하는 방법을 이메일에서 확인하세요.",
+  "settings.emailChangeError": "확인 메일을 보내지 못했습니다.",
+  "settings.emailNewLabel": "새 이메일",
+  "settings.emailNewPlaceholder": "새 이메일 입력",
 };
 
 export default messages;

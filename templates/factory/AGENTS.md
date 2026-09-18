@@ -58,7 +58,7 @@ and graph versions.
 | `record-triage-feedback` | Capture human correction for learning. |
 | `dispatch-factory-item` | Tag Builder or record a skip. Optional `reaction` marks the source if that provider can. |
 | `govern-factory-pull-request` | Apply PR evidence and ownership gates. |
-| `babysit-factory-pull-request` / `propose-pr-babysit-status` | Post the bot PR poke, or propose babysit status without writing. |
+| `babysit-factory-pull-request` / `propose-pr-babysit-status` | Ping a bot PR after a decision, or read the briefing. |
 | `list-factory-automations` / `create-factory-automation` / `save-factory-automation` / `run-factory-automation` | List, create, edit, or run jobs. Factories start empty. Hosted jobs need a workspace connection or vault token. Author filters use Slack `U`/`W` or GitHub numeric ids. Limits are action-enforced. |
 | `list-factory-audit` | Inspect inbox additions, worked items, and actions for one factory. |
 | `get-factory-automation-health` | Inspect scheduler heartbeat and last error. |

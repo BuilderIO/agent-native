@@ -7,6 +7,7 @@ import { useEffect } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
 
 import {
+  buildSlidesAgentContext,
   hasCurrentSlideSelection,
   readPublishedSlidesSelection,
 } from "@/lib/slide-agent-context";
@@ -34,16 +35,18 @@ export default function ChatRoute() {
   const navigate = useNavigate();
   const t = useT();
   const deckId = new URLSearchParams(location.search).get("deckId");
+  const slidesSelection = readPublishedSlidesSelection();
   const scope = deckId
     ? {
         type: "deck" as const,
         id: deckId,
         label: t(
-          hasCurrentSlideSelection(readPublishedSlidesSelection(), deckId)
+          hasCurrentSlideSelection(slidesSelection, deckId)
             ? "agent.currentSelection"
             : "agent.thisSlide",
         ),
         contextKey: "slides-current-context",
+        ...buildSlidesAgentContext(slidesSelection, deckId),
       }
     : null;
   const scopeQuery = deckId ? `?deckId=${encodeURIComponent(deckId)}` : "";

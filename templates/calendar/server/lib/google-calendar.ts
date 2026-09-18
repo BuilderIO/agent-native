@@ -78,9 +78,6 @@ const SCOPES = [
   "https://www.googleapis.com/auth/calendar.events",
   "https://www.googleapis.com/auth/userinfo.email",
   "https://www.googleapis.com/auth/userinfo.profile",
-  "https://www.googleapis.com/auth/directory.readonly",
-  "https://www.googleapis.com/auth/contacts.readonly",
-  "https://www.googleapis.com/auth/contacts.other.readonly",
 ];
 
 interface GoogleTokens {
@@ -1727,6 +1724,8 @@ export async function listOverlayEvents(
             eventType: event.eventType || "default",
             accountEmail: client.email,
             overlayEmail,
+            calendarPrimary: false,
+            calendarReadOnly: true,
             ...mapColor(event),
             attendees: mapAttendees(event),
             organizer: mapOrganizer(event),

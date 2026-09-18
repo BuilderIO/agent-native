@@ -13,17 +13,22 @@ export default defineConfig({
 });
 ```
 
-新脚手架可能会将导入的函数命名为 `agentNativePlugins` 并展开其结果，以保持
-Vite 软件包类型一致。它就是同一个 `agentNative` 插件，接受相同的选项。
+生成的 Chat scaffold 仍然导入 `agentNative`。配置会通过类型断言将它赋给本地别名
+`agentNativePlugins`，再展开返回的插件数组，以匹配 Vite 软件包类型。该别名接受与上方
+`agentNative` 示例相同的选项。要将此 scaffold 部署到 Netlify，请在现有
+`agentNativePlugins({ ... })` 调用的选项中添加 `nitro: { preset: "netlify" }`。保留其他
+Chat 专用插件、选项和别名。
 
 ……或者在构建时设置 `NITRO_PRESET=netlify`。
 
 对于独立应用，请构建 Netlify 输出并部署静态资源和函数：
 
 ```bash
-NITRO_PRESET=netlify npx @agent-native/core@latest build
+NITRO_PRESET=netlify pnpm build
 npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
 ```
+
+首次生产部署前，请在 Netlify 站点环境变量中设置 `DATABASE_URL` 和稳定的 `BETTER_AUTH_SECRET`。不要依赖本地开发使用的 PGlite 数据库；`DATABASE_URL` 必须指向部署函数可以访问的持久 PostgreSQL 数据库。
 
 对于工作区,通过运行以下命令从同一个 Netlify 站点部署每个应用:
 

@@ -131,6 +131,13 @@ export default defineConfig({
     {
       name: "journeys",
       testMatch: /specs\/apps\/.*\.spec\.ts$/,
+      testIgnore: /specs\/apps\/design-interactions\.spec\.ts$/,
+      retries: 1,
+      use: { ...AUTHED_ARTIFACTS },
+    },
+    {
+      name: "design",
+      testMatch: /specs\/apps\/design-interactions\.spec\.ts$/,
       retries: 1,
       use: { ...AUTHED_ARTIFACTS },
     },

@@ -11,7 +11,7 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useRef, useState } from "react";
 
-import { CLIPS_MEETINGS } from "../../../shared/experiments";
+import { CLIPS_MEETINGS, isLabEnabled } from "../../../shared/labs";
 import { loadDesktopAuthToken } from "../app";
 import { dismissMeetingNotification } from "../lib/meeting-notification-dismissal";
 import {
@@ -136,7 +136,7 @@ export function MeetingNotification() {
    *  Held only until that start reports success or failure. */
   const startingRef = useRef<NotificationData | null>(null);
   const dismissedKeysRef = useRef(new Map<string, number>());
-  const meetingsExperimentEnabledRef = useRef<boolean | null>(null);
+  const meetingsLabEnabledRef = useRef<boolean | null>(null);
   const pendingNotificationRef = useRef<{
     payload: NotificationData;
     options?: { hydrated?: boolean };
@@ -180,9 +180,11 @@ export function MeetingNotification() {
       if (!values || typeof values !== "object" || Array.isArray(values)) {
         return false;
       }
-      const enabled =
-        (values as Record<string, unknown>)[CLIPS_MEETINGS.key] === true;
-      meetingsExperimentEnabledRef.current = enabled;
+      const enabled = isLabEnabled(
+        values as Record<string, unknown>,
+        CLIPS_MEETINGS,
+      );
+      meetingsLabEnabledRef.current = enabled;
       if (!enabled) {
         pendingNotificationRef.current = null;
         startingRef.current = null;
@@ -199,7 +201,7 @@ export function MeetingNotification() {
 
     const startFetch = () => {
       const requestVersion = preferenceVersion;
-      void fetch(`${serverUrl}/_agent-native/actions/get-experiments`, {
+      void fetch(`${serverUrl}/_agent-native/actions/get-labs`, {
         credentials: "include",
         ...(authToken
           ? { headers: { Authorization: `Bearer ${authToken}` } }
@@ -207,7 +209,7 @@ export function MeetingNotification() {
       })
         .then((response) => {
           if (!response.ok) {
-            throw new Error(`experiment read failed (${response.status})`);
+            throw new Error(`lab read failed (${response.status})`);
           }
           return response.json();
         })
@@ -220,7 +222,7 @@ export function MeetingNotification() {
     };
 
     const updateListener = listen<{ values?: Record<string, boolean> }>(
-      "clips:experiments-updated",
+      "clips:labs-updated",
       (event) => {
         if (cancelled || !applyValues(event.payload?.values)) return;
         preferenceVersion += 1;
@@ -289,9 +291,9 @@ export function MeetingNotification() {
     payload: NotificationData,
     options?: { hydrated?: boolean },
   ) {
-    const experimentState = meetingsExperimentEnabledRef.current;
-    if (experimentState === false) return;
-    if (experimentState === null) {
+    const labState = meetingsLabEnabledRef.current;
+    if (labState === false) return;
+    if (labState === null) {
       pendingNotificationRef.current = {
         payload,
         ...(options ? { options } : {}),

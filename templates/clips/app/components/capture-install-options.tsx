@@ -6,9 +6,12 @@ import {
   IconBrandWindows,
   IconChevronDown,
   IconDeviceDesktop,
-  IconExternalLink,
 } from "@tabler/icons-react";
-import { type ReactNode, useSyncExternalStore } from "react";
+import {
+  type ComponentProps,
+  type ReactNode,
+  useSyncExternalStore,
+} from "react";
 
 import { Button, type ButtonProps } from "@/components/ui/button";
 import {
@@ -69,19 +72,43 @@ function desktopOsIcon(): typeof IconDeviceDesktop {
   return IconDeviceDesktop;
 }
 
+export function DesktopPlatformIcon(
+  props: ComponentProps<typeof IconDeviceDesktop>,
+) {
+  const DesktopIcon = desktopOsIcon();
+  return <DesktopIcon {...props} />;
+}
+
 function InstallOptionsContent({ desktopHref = "/download" }) {
   const t = useT();
   const chromeAvailable = Boolean(clipsChromeExtensionUrl);
-  const DesktopIcon = desktopOsIcon();
-
   return (
-    <div className="grid gap-2">
+    <div className="grid gap-1">
+      <a
+        href={appPath(desktopHref)}
+        className="flex items-start gap-3 rounded-md px-2.5 py-2 text-start transition hover:bg-accent"
+      >
+        <DesktopPlatformIcon className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-medium">
+            {t("captureInstall.desktopTitle")}
+          </span>
+          <span className="mt-0.5 block text-xs leading-snug text-muted-foreground">
+            {t("captureInstall.desktopDescription")}
+          </span>
+        </span>
+      </a>
+
+      {chromeAvailable && (
+        <div aria-hidden="true" className="mx-2 h-px bg-border" />
+      )}
+
       {chromeAvailable ? (
         <a
           href={clipsChromeExtensionUrl ?? undefined}
           target="_blank"
           rel="noreferrer"
-          className="flex items-start gap-3 rounded-md border border-border p-3 text-start transition hover:bg-accent"
+          className="flex items-start gap-3 rounded-md px-2.5 py-2 text-start transition hover:bg-accent"
         >
           <IconBrandChrome className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
           <span className="min-w-0 flex-1">
@@ -92,10 +119,9 @@ function InstallOptionsContent({ desktopHref = "/download" }) {
               {t("captureInstall.chromeDescription")}
             </span>
           </span>
-          <IconExternalLink className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         </a>
       ) : (
-        <div className="flex items-start gap-3 rounded-md border border-dashed border-border p-3 text-start opacity-70">
+        <div className="flex items-start gap-3 rounded-md px-2.5 py-2 text-start opacity-70">
           <IconBrandChrome className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
           <span className="min-w-0 flex-1">
             <span className="block text-sm font-medium">
@@ -107,21 +133,6 @@ function InstallOptionsContent({ desktopHref = "/download" }) {
           </span>
         </div>
       )}
-
-      <a
-        href={appPath(desktopHref)}
-        className="flex items-start gap-3 rounded-md border border-border p-3 text-start transition hover:bg-accent"
-      >
-        <DesktopIcon className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-        <span className="min-w-0 flex-1">
-          <span className="block text-sm font-medium">
-            {t("captureInstall.desktopTitle")}
-          </span>
-          <span className="mt-0.5 block text-xs leading-snug text-muted-foreground">
-            {t("captureInstall.desktopDescription")}
-          </span>
-        </span>
-      </a>
     </div>
   );
 }
@@ -131,7 +142,7 @@ export function CaptureInstallButton({
   downloadedChildren,
   className,
   desktopHref = "/download",
-  align = "end",
+  align = "center",
   side = "bottom",
   ...buttonProps
 }: CaptureInstallButtonProps) {

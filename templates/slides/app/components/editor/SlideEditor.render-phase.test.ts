@@ -59,6 +59,43 @@ describe("SlideEditor render-phase safety", () => {
     expect(flushBody).not.toContain("onUpdateSlideRef.current");
   });
 
+  it("promotes every selected root before a shared keyboard nudge", () => {
+    const nudgeStart = source.indexOf(
+      "const nudge = resolveSlidesCanvasNudge(e);",
+    );
+    const singleNudgeStart = source.indexOf(
+      "// Arrow nudging is also a first-class way to move flow-layout text",
+      nudgeStart,
+    );
+    const multiNudgeBody = source.slice(nudgeStart, singleNudgeStart);
+
+    expect(multiNudgeBody).toContain(
+      "freezeElementForFreeformSelection(element)",
+    );
+    expect(multiNudgeBody).toContain(
+      "applySlideObjectMoveDelta(members, dx, dy, applyObjectGeometry)",
+    );
+    expect(multiNudgeBody).toContain(
+      "commitMultiObjectChange(\n          members.map((member) => member.objectId),\n          html,",
+    );
+    expect(multiNudgeBody).not.toContain(
+      "elements.some((element) => !isPersistedFreeformObject(element))",
+    );
+  });
+
+  it("queues the latest rich-text draft before disposing its editor", () => {
+    const start = source.indexOf("const disposeRichTextEditor");
+    const end = source.indexOf("const flushInlineEditDraft", start);
+    const disposeBody = source.slice(start, end);
+
+    expect(disposeBody).toContain(
+      "persistInlineEditDraft(session.slideId, draftContent)",
+    );
+    expect(disposeBody.indexOf("persistInlineEditDraft")).toBeLessThan(
+      disposeBody.indexOf("session.root.unmount()"),
+    );
+  });
+
   it("marks and strips only the outer rich-text layer", () => {
     expect(source).toContain(
       'element.setAttribute("data-slide-text-block", "true")',
@@ -95,9 +132,74 @@ describe("SlideEditor render-phase safety", () => {
       doubleClickStart,
     );
     const doubleClickBody = source.slice(doubleClickStart, doubleClickEnd);
-    expect(doubleClickBody).toContain("showImageOverlay(target);");
+    expect(doubleClickBody).toContain(
+      "findPersistedImageObject(resolvedTarget, slideContent)",
+    );
+    expect(doubleClickBody).toContain(
+      'imageOwner?.querySelector<HTMLElement>("img")',
+    );
+    expect(doubleClickBody).not.toContain(
+      'resolvedTarget.querySelector<HTMLElement>("img")',
+    );
+    expect(doubleClickBody).toContain(
+      "showImageOverlay(imageTarget ?? imagePlaceholder ?? resolvedTarget);",
+    );
+    expect(doubleClickBody.indexOf("const resolvedTarget")).toBeLessThan(
+      doubleClickBody.indexOf("const imageTarget"),
+    );
     expect(source).toContain(
-      "const block = findSmartBlock(target, slideContent);",
+      "const block = findSmartBlock(resolvedTarget, slideContent);",
+    );
+  });
+
+  it("keeps standalone transparent text boxes as canvas hit targets", () => {
+    const helperStart = source.indexOf("function resolveSlideCanvasHitTarget");
+    const helperEnd = source.indexOf(
+      "const PASTED_TEXT_STYLE_PROPERTIES",
+      helperStart,
+    );
+    const helperBody = source.slice(helperStart, helperEnd);
+
+    expect(helperBody).toContain("candidate instanceof HTMLElement");
+    expect(helperBody).toContain("candidate = candidate.parentElement;");
+    expect(helperBody).toContain("element !== slideContent");
+    expect(helperBody).toContain("return underlying ?? target;");
+  });
+
+  it("preserves wrapped images for double-click overlays", () => {
+    const doubleClickStart = source.indexOf("const handleSlideDoubleClick");
+    const doubleClickEnd = source.indexOf(
+      "const slideElementSelected =",
+      doubleClickStart,
+    );
+    const doubleClickBody = source.slice(doubleClickStart, doubleClickEnd);
+
+    expect(doubleClickBody).toContain(
+      "findPersistedImageObject(resolvedTarget, slideContent)",
+    );
+    expect(doubleClickBody).not.toContain(
+      'resolvedTarget.querySelector<HTMLElement>("img")',
+    );
+    expect(doubleClickBody).toContain(
+      "showImageOverlay(imageTarget ?? imagePlaceholder ?? resolvedTarget);",
+    );
+  });
+
+  it("keeps nested rich-text ranges in observer selection snapshots", () => {
+    const effectStart = source.indexOf(
+      "const editingElement = editingElRef.current;",
+    );
+    const effectEnd = source.indexOf(
+      "const positioningLayer = observedElement?.closest(",
+      effectStart,
+    );
+    const effectBody = source.slice(effectStart, effectEnd);
+
+    expect(effectBody).toContain(
+      "resolveSlideTextSelectionTarget(editingElement, slideContent)",
+    );
+    expect(effectBody).toContain(
+      "editingElement && resolvedEditingElement === element",
     );
   });
 
@@ -114,9 +216,12 @@ describe("SlideEditor render-phase safety", () => {
     const start = source.indexOf("const handleArrangeSelected");
     const end = source.indexOf("const handleToggleList", start);
     const arrangeBody = source.slice(start, end);
+    const singleArrangeBody = arrangeBody.slice(
+      arrangeBody.indexOf("const element =\n        liveContextMenuTarget"),
+    );
 
-    expect(arrangeBody.indexOf("selectElementForStyling")).toBeLessThan(
-      arrangeBody.indexOf("onUpdateSlideRef.current"),
+    expect(singleArrangeBody.indexOf("selectElementForStyling")).toBeLessThan(
+      singleArrangeBody.indexOf("onUpdateSlideRef.current"),
     );
   });
 
@@ -188,6 +293,34 @@ describe("SlideEditor render-phase safety", () => {
     );
   });
 
+  it("keeps object clipboard shortcuts scoped to the focused slide canvas", () => {
+    const keyStart = source.indexOf(
+      "// One window listener for object copy/paste/duplicate",
+    );
+    const pasteStart = source.indexOf(
+      "// The native paste event is authoritative",
+      keyStart,
+    );
+    const appearanceStart = source.indexOf(
+      "// Appearance clipboard shortcuts",
+      pasteStart,
+    );
+    const placementStart = source.indexOf(
+      "const placeTextBoxAt = useCallback",
+      appearanceStart,
+    );
+
+    expect(source.slice(keyStart, pasteStart)).toContain(
+      "isSlideCanvasShortcutTarget(active, slideCanvasRef.current)",
+    );
+    expect(source.slice(pasteStart, appearanceStart)).toContain(
+      "isSlideCanvasShortcutTarget(active, slideCanvasRef.current)",
+    );
+    expect(source.slice(appearanceStart, placementStart)).toContain(
+      "isSlideCanvasShortcutTarget(active, slideCanvasRef.current)",
+    );
+  });
+
   it("ends native text editing before entering a multi-selection", () => {
     const start = source.indexOf("const applyMultiSelection");
     const end = source.indexOf("const clearMultiSelection", start);
@@ -197,6 +330,38 @@ describe("SlideEditor render-phase safety", () => {
       "if (ids.size > 0 && editingElRef.current) exitInlineEdit();",
     );
     expect(source).toContain("window.getSelection()?.removeAllRanges();");
+  });
+
+  it("does not let selection rerenders clear a newly selected object set", () => {
+    const start = source.indexOf("const applyMultiSelectionRef");
+    const end = source.indexOf("// One Escape owner", start);
+    const reconciliationBody = source.slice(start, end);
+
+    expect(reconciliationBody).toContain(
+      "applyMultiSelectionRef.current(new Set());",
+    );
+    expect(reconciliationBody).toContain(
+      "applyMultiSelectionRef.current(ids);",
+    );
+    expect(reconciliationBody).toContain(
+      "}, [slide.content, getSlideContent]);",
+    );
+    expect(reconciliationBody).not.toContain(
+      "[slide.content, getSlideContent, applyMultiSelection]",
+    );
+  });
+
+  it("collapses a grouped multi-selection to the new group", () => {
+    const start = source.indexOf("const handleGroupSelected");
+    const end = source.indexOf("const handleUngroupSelected", start);
+    const groupBody = source.slice(start, end);
+
+    expect(groupBody.indexOf("ensureBuilderId(group)")).toBeLessThan(
+      groupBody.indexOf("getBuilderSelector(group)"),
+    );
+    expect(groupBody.indexOf("clearMultiSelection();")).toBeLessThan(
+      groupBody.indexOf("selectElementForStyling(group, selector)"),
+    );
   });
 
   it("lets additive canvas selection leave an active text edit", () => {
@@ -213,11 +378,14 @@ describe("SlideEditor render-phase safety", () => {
   });
 
   it("pastes plain clipboard text as a selected text box outside text editing", () => {
-    const pasteStart = source.indexOf("const pastePlainTextAsTextBox");
+    const pasteStart = source.indexOf("const pasteTextAsTextBox");
     const pasteEnd = source.indexOf("const placeShapeAt", pasteStart);
     const pasteBody = source.slice(pasteStart, pasteEnd);
 
     expect(pasteBody).toContain('getData("text/plain")');
+    expect(pasteBody).toContain('getData("text/html")');
+    expect(pasteBody).toContain("normalizeSlideClipboardHtml");
+    expect(pasteBody).toContain("applyPastedTextPresentation");
     expect(pasteBody).toContain("placeTextBoxAt(");
     expect(pasteBody).toContain("selectElementForStyling(box, selector)");
     expect(pasteBody).toContain(

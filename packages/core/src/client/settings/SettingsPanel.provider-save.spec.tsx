@@ -166,6 +166,11 @@ async function renderSettings(fetchMock: typeof fetch): Promise<{
     await Promise.resolve();
     await Promise.resolve();
   });
+  // The Builder status read is deferred past first paint; the fallback timer
+  // bounds that wait at 250ms, so settling past it is deterministic.
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  });
   return { container, root };
 }
 
@@ -490,6 +495,7 @@ describe("AgentSettingsContent provider save", () => {
       expect(fixture.providerSettingsRequests).toEqual([
         {
           key: "OPENAI_API_KEY",
+          scope: "org",
           ...(draft === "key"
             ? { value: "obviously-fake-provider-draft" }
             : {}),

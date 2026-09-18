@@ -1,3 +1,17 @@
+import {
+  isValidWorkspaceAppIdFormat,
+  normalizeTrackingDimension,
+} from "@agent-native/core/shared";
+
+export function normalizeCallerAppId(value: unknown): string | undefined {
+  const normalized = normalizeTrackingDimension(value);
+  return normalized &&
+    normalized.length <= 64 &&
+    isValidWorkspaceAppIdFormat(normalized)
+    ? normalized
+    : undefined;
+}
+
 export const IMAGE_CATEGORIES = [
   "hero",
   "landing",
@@ -13,6 +27,8 @@ export const IMAGE_CATEGORIES = [
 ] as const;
 
 export const MAX_ASSET_UPLOAD_FILES = 20;
+// Leave 256 KiB for multipart framing under the hosted 4 MiB request limit.
+export const MAX_ASSET_UPLOAD_BATCH_BYTES = 4 * 1024 * 1024 - 256 * 1024;
 
 export const ASPECT_RATIOS = [
   "1:1",

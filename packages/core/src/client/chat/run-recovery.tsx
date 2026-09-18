@@ -236,9 +236,15 @@ function isDesktopChatRelayRunError(info: RunErrorInfo): boolean {
 export function BuilderConnectCta({
   variant = "primary",
   onConnected,
+  reconnect = false,
 }: {
   variant?: "primary" | "compact";
   onConnected?: () => void;
+  /** Render the connect control even while connection status still reports
+   *  configured. A caller sets this after the server has actually seen the
+   *  credential rejected: Builder can revoke upstream without that landing in
+   *  the local status, and a Connected badge in that state is a dead end. */
+  reconnect?: boolean;
 }) {
   const t = useT();
   const flow = useBuilderConnectFlow({
@@ -249,7 +255,7 @@ export function BuilderConnectCta({
   const { configured, orgName, connecting, error } = flow;
 
   if (variant === "compact") {
-    if (configured) {
+    if (configured && !reconnect) {
       return (
         <span className="agent-builder-setup-card__builder-button inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-md border border-border bg-background px-2.5 text-[11px] font-medium text-foreground">
           <IconCheck size={11} className="text-emerald-500" />
@@ -274,6 +280,8 @@ export function BuilderConnectCta({
                 <IconLoader2 size={10} className="animate-spin" />
                 {t("agentChat.common.waiting")}
               </>
+            ) : reconnect ? (
+              t("agentChat.recovery.reconnectBuilder")
             ) : (
               t("agentChat.setup.connectBuilder")
             )}
@@ -697,7 +705,7 @@ export function RunErrorRecoveryCard({
   }
 
   return (
-    <div className="rounded-lg border border-amber-500/25 bg-amber-500/[0.06] p-3 text-sm">
+    <div className="min-w-0 rounded-lg border border-amber-500/25 bg-amber-500/[0.06] p-3 text-sm">
       <div className="flex items-start gap-2">
         <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-amber-500/10 text-amber-700 dark:text-amber-300">
           <IconAlertTriangle size={14} />
@@ -709,7 +717,7 @@ export function RunErrorRecoveryCard({
               terminal: t("agentChat.error.failed"),
             })}
           </div>
-          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+          <p className="mt-1 whitespace-pre-wrap break-words text-xs leading-relaxed text-muted-foreground">
             {localizeKnownChatErrorText(info.message, t)}
           </p>
           {shouldShowBuilderReconnect && !builderReconnectResolved && (

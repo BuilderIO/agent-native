@@ -66,6 +66,9 @@ const INITIAL_TOOL_NAMES = [
   "open-visual-edit",
   "add-localhost-screens",
   "list-localhost-connections",
+  "update-screen-source",
+  "add-breakpoint",
+  "remove-breakpoint",
   "edit-design",
   "generate-design",
   "present-design-variants",
@@ -80,9 +83,6 @@ const INITIAL_TOOL_NAMES = [
   "rename-screen",
   "export-png",
   "navigate",
-  "provider-api-catalog",
-  "provider-api-docs",
-  "provider-api-request",
 ];
 
 const DESIGN_EDIT_TOOLS = new Set([
@@ -105,9 +105,12 @@ const DESIGN_EDIT_TOOLS = new Set([
   "insert-design-native-asset",
   "remove-breakpoint",
   "remove-motion-timeline",
+  "rename-screen",
   "swap-component-instance",
   "update-design",
+  "update-breakpoint",
   "update-file",
+  "update-screen-source",
 ]);
 
 const DESIGN_FILE_TARGET_TOOLS = new Set([
@@ -123,6 +126,7 @@ const DESIGN_FILE_TARGET_TOOLS = new Set([
   "insert-asset",
   "insert-design-native-asset",
   "remove-motion-timeline",
+  "rename-screen",
   "swap-component-instance",
   "update-file",
 ]);
@@ -177,7 +181,7 @@ async function designIdForTool(
   if (typeof input?.designId === "string") return input.designId;
   if (!DESIGN_FILE_TARGET_TOOLS.has(tool)) return undefined;
   const fileId =
-    tool === "delete-file" || tool === "update-file"
+    tool === "delete-file" || tool === "rename-screen" || tool === "update-file"
       ? input?.id
       : input?.fileId;
   return typeof fileId === "string" ? fileDesignId(fileId) : undefined;
@@ -238,7 +242,7 @@ export default createAgentChatPlugin({
     connectorCatalog: EXTERNAL_CONNECTOR_TOOL_NAMES,
     instructions:
       "Resolve a named template or prior design first with list-design-templates / list-designs; copy with create-design-from-template, then adapt with edit-design — never regenerate a copied screen with generate-design. For new-design exploration use create-design then present-design-variants (2-5 variants) and surface the returned open link; do not navigate. Hand-off goes through export-png for one screen, or export-html / export-zip / export-coding-handoff / export-design-as-figma-svg for other formats. Persist early: create or update the design and its files as soon as a coherent candidate exists. " +
-      'Design system: get-design, get-design-snapshot, and view-screen return `designSystem` (a bounded summary with scope "summary" and a `next` line); call get-design-system { id } once before the first screen you author for the full context (create-design returns it in full), then reuse it. Apply designSystem.agentContext, plus index-design-tokens for an existing design, before authoring or restyling; never invent a generic palette. For a new design, pass the exact title as `designSystem` or a designSystemId; omit both to link the caller\'s default. Preserve existing screen composition as well as linked system tokens, fonts, assets, and custom instructions. Read back the saved file after every visual mutation.',
+      'Design system: get-design, get-design-snapshot, and view-screen return `designSystem` (a bounded summary with scope "summary" and a `next` line); call get-design-system { id } once before the first screen you author for the full context (create-design returns it in full), then reuse it. Apply designSystem.agentContext, plus index-design-tokens for an existing design, before authoring or restyling; never invent a generic palette. For a new design, pass the exact title as `designSystem` or a designSystemId; omit both to link the caller\'s default. Preserve existing screen composition as well as linked system tokens, fonts, assets, and custom instructions. Read back the saved file after every visual mutation. For a running localhost app, use open-visual-edit and keep each route/state/viewport as its own URL-backed screen. Update a selected screen with update-screen-source, and use add-localhost-screens or add-breakpoint for additional canvas frames. In a page-capable WebMCP host, call the page-local get-visual-edit-prompt tool after visual edits to retrieve the latest source handoff; no separate MCP install is required.',
   },
   externalAgents: { writes: "allowlisted" },
   finalResponseGuard: designFinalResponseGuard,
@@ -263,6 +267,10 @@ When a user message begins with [Selection question], answer about the captured 
 When the user asks for a new design and the current navigation view is list, settings, design-systems, or otherwise has no designId, create a new design first. Do not reuse, delete screens from, or edit a previous design unless the user explicitly names that design or the current navigation state is an editor/present view with that designId.
 
 Every web design must be responsive. Use mobile-first CSS, a viewport meta tag, and responsive layout changes for narrow widths; never ship a fixed-width desktop shell. Desktop is the default primary artboard: use a 1440×1024 canvas frame (or primaryViewport "desktop") unless the user explicitly asks for a mobile- or tablet-primary design. After generation, inspect desktop and mobile screenshots and correct overflow or broken reflow before reporting completion.
+
+Treat explicit visual direction, requested content, named pages, and page counts as acceptance criteria. When the user asks for multiple distinct pages or states, call generate-screens with every requested page before generating their files; do not substitute responsive breakpoint frames for requested pages. Verify the saved design contains each requested page before reporting completion.
+
+Generated controls that look interactive must work in the prototype. Give links valid destinations and wire buttons to the requested navigation or state change; if no behavior is intended, render the element as non-interactive content instead of a dead control. Exercise the primary links and buttons before reporting completion.
 
 When the user asks to start from a template or references a prior design/past work as the starting point, call both list-design-templates and list-designs before generating so you resolve the existing resource instead of recreating it. For a template, call create-design-from-template. The copied files and canvas dimensions are already the starting point. If the user also supplied a prompt or selected a different linked design system, call get-design-snapshot once and refine unlocked content with edit-design; do not call generate-design or replace the template with a fresh screen. Layers marked data-agent-native-locked="true" and their descendants must remain byte-for-byte unchanged. Ask the user to unlock one explicitly if they want it changed.
 

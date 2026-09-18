@@ -49,6 +49,12 @@ describe("SlideEditor layout overflow warning", () => {
     expect(source).toContain("hashSlideContent(slide.content)");
   });
 
+  it("keeps the warning opt-in through the default-off Slides lab", () => {
+    expect(source).toContain("useLabState(");
+    expect(source).toContain("SLIDES_LAYOUT_OVERFLOW_WARNING.key");
+    expect(source).toContain("layoutOverflowWarningEnabled &&");
+  });
+
   it("asks the agent to repair against complete current slide HTML", () => {
     expect(source).toContain("to confirm the overflow, then call");
     expect(source).toContain(

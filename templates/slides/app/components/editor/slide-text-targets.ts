@@ -73,6 +73,47 @@ export function shouldStampBuilderId(element: HTMLElement): boolean {
   );
 }
 
+/** Top-level selectable canvas targets in DOM order, excluding renderer shells. */
+export function getSlideCanvasTraversalElements(
+  canvasContent: HTMLElement,
+): HTMLElement[] {
+  return Array.from(
+    canvasContent.querySelectorAll<HTMLElement>("[data-builder-id]"),
+  ).filter((element) => {
+    if (
+      !shouldStampBuilderId(element) ||
+      element.classList.contains("fmd-layout-spacer") ||
+      isSlideCanvasShell(element)
+    ) {
+      return false;
+    }
+
+    let ancestor = element.parentElement;
+    while (ancestor && ancestor !== canvasContent) {
+      if (
+        ancestor.hasAttribute("data-builder-id") &&
+        !isSlideCanvasShell(ancestor)
+      ) {
+        return false;
+      }
+      ancestor = ancestor.parentElement;
+    }
+    return true;
+  });
+}
+
+/** Canvas-only shortcuts must not consume keys while focus is in editor chrome. */
+export function isSlideCanvasShortcutTarget(
+  activeElement: Element | null,
+  canvas: HTMLElement | null,
+): boolean {
+  return Boolean(
+    activeElement &&
+    (canvas?.contains(activeElement) ||
+      activeElement === canvas?.ownerDocument.body),
+  );
+}
+
 /**
  * A single-cell table satisfies `isRichTextBlock` all the way up to `<table>`,
  * but a table is a grid of independently selectable cells, not one text layer.
@@ -92,7 +133,9 @@ const RICH_TEXT_TABLE_TAGS = new Set([
 ]);
 
 function ownsRichTextLayer(element: HTMLElement): boolean {
-  return !RICH_TEXT_TABLE_TAGS.has(element.tagName) && isRichTextBlock(element);
+  return (
+    !RICH_TEXT_TABLE_TAGS.has(element.tagName) && canEnterRichTextEdit(element)
+  );
 }
 
 /**
@@ -100,7 +143,7 @@ function ownsRichTextLayer(element: HTMLElement): boolean {
  * round-trip, so edit the clicked text leaf without replacing the group.
  */
 function ownsRichTextEditingLayer(element: HTMLElement): boolean {
-  return ownsRichTextLayer(element) && !isSmartGroup(element);
+  return canEnterRichTextEdit(element) && !isSmartGroup(element);
 }
 
 /**
@@ -127,6 +170,24 @@ export function isSlideCanvasShell(element: HTMLElement): boolean {
   );
 }
 
+/** Rich-text editing may use a nested block that has no canvas identity. */
+export function resolveSlideTextSelectionTarget(
+  element: HTMLElement,
+  root: HTMLElement,
+): HTMLElement {
+  let current: HTMLElement | null = element;
+  while (current && current !== root && root.contains(current)) {
+    if (
+      current.hasAttribute("data-builder-id") &&
+      !isSlideCanvasShell(current)
+    ) {
+      return current;
+    }
+    current = current.parentElement;
+  }
+  return element;
+}
+
 /**
  * A text leaf is a block-level element whose children are text nodes or inline
  * elements. Inline style runs are deliberately not text leaves themselves.
@@ -148,7 +209,12 @@ export function isTextLeaf(element: HTMLElement): boolean {
 
 /** A container made only of text leaves or nested text groups. */
 export function isSmartGroup(element: HTMLElement): boolean {
-  if (!element || isInlineTextElement(element) || element.tagName === "IMG") {
+  if (
+    !element ||
+    isInlineTextElement(element) ||
+    element.tagName === "IMG" ||
+    isSlideCanvasShell(element)
+  ) {
     return false;
   }
   if (element.classList.contains("fmd-img-placeholder")) return false;
@@ -194,20 +260,59 @@ export function isRichTextBlock(element: HTMLElement): boolean {
       children.some((child) => child.tagName === "HR")) &&
     children.every((child) => {
       const childElement = child as HTMLElement;
-      return (
-        RICH_TEXT_BLOCK_TAGS.has(childElement.tagName) ||
-        (children.length === 1 &&
-          !isSmartGroup(childElement) &&
-          isRichTextBlock(childElement))
-      );
+      return RICH_TEXT_BLOCK_TAGS.has(childElement.tagName);
     })
   );
+}
+
+const RICH_TEXT_PRESERVED_STYLE_PROPERTIES = new Set([
+  "color",
+  "font-family",
+  "font-size",
+  "font-style",
+  "font-weight",
+  "letter-spacing",
+  "line-height",
+  "min-height",
+  "text-align",
+  "text-decoration",
+]);
+
+/**
+ * Rich text can replace a block's children, so layout and decoration styles
+ * on a multi-leaf group must stay outside the editor boundary.
+ */
+function hasUnsafeRichTextDescendant(element: HTMLElement): boolean {
+  return [
+    element,
+    ...Array.from(element.querySelectorAll<HTMLElement>("*")),
+  ].some((descendant) => {
+    if (
+      descendant.hasAttribute("data-slide-object-id") ||
+      descendant.classList.contains("fmd-slide-group") ||
+      descendant.classList.contains("fmd-text-box")
+    ) {
+      return true;
+    }
+    for (let index = 0; index < descendant.style.length; index += 1) {
+      const property = descendant.style.item(index);
+      if (!RICH_TEXT_PRESERVED_STYLE_PROPERTIES.has(property)) return true;
+    }
+    return false;
+  });
+}
+
+function canEnterRichTextEdit(element: HTMLElement): boolean {
+  if (!isRichTextBlock(element)) return false;
+  // A single text layer keeps its outer style while its contents are edited.
+  if (isTextLeaf(element)) return true;
+  return !hasUnsafeRichTextDescendant(element);
 }
 
 export function shouldTraverseSlideLayerChildren(
   element: HTMLElement,
 ): boolean {
-  return !isRichTextBlock(element) || isSmartGroup(element);
+  return !canEnterRichTextEdit(element) || isSmartGroup(element);
 }
 
 /** Keep a semantic list inside its containing canvas text block while editing. */
@@ -262,11 +367,14 @@ export function findSmartBlock(
     }
     if (isTextLeaf(element)) {
       const list = findEnclosingList(element, root);
-      if (list) return resolveRichTextEditingBlock(list);
-      return resolveRichTextEditingBlock(element);
+      const block = resolveRichTextEditingBlock(list ?? element);
+      return canEnterRichTextEdit(block) ? block : element;
     }
-    if (isSmartGroup(element)) return element;
-    if (isRichTextBlock(element)) return resolveRichTextEditingBlock(element);
+    if (isSmartGroup(element) && canEnterRichTextEdit(element)) return element;
+    if (isRichTextBlock(element)) {
+      const block = resolveRichTextEditingBlock(element);
+      return canEnterRichTextEdit(block) ? block : null;
+    }
     element = element.parentElement;
   }
   return null;

@@ -72,6 +72,8 @@ export type AgentNativeDeploymentEnvironment =
 export interface AgentNativeDeploymentConfig {
   /** The release lane that produced the currently running client bundle. */
   environment?: AgentNativeDeploymentEnvironment;
+  /** Badge text override shown in the top-left sidebar header badge (e.g. "alpha" or "beta"). Defaults to "alpha". */
+  badgeText?: string;
 }
 
 export interface AgentNativeDiagnosticsConfig {
@@ -121,6 +123,8 @@ export interface AgentNativeConfig {
   onboarding?: AgentNativeOnboardingConfig;
   runtime?: AgentNativeRuntimeConfig;
   deployment?: AgentNativeDeploymentConfig;
+  /** Badge text override shown in the top-left sidebar header badge (e.g. "alpha" or "beta"). Defaults to "alpha". */
+  badgeText?: string;
   diagnostics?: AgentNativeDiagnosticsConfig;
   instructions?: AgentNativeInstructionsConfig;
   translations?: AgentNativeTranslationsConfig;
@@ -491,6 +495,7 @@ export function normalizeAgentNativeConfig(
   const onboardingValue = input.onboarding;
   const runtimeValue = input.runtime;
   const deploymentValue = input.deployment;
+  const badgeTextValue = input.badgeText;
   const diagnosticsValue = input.diagnostics;
   const instructionsValue = input.instructions;
   const translationsValue = input.translations;
@@ -502,6 +507,13 @@ export function normalizeAgentNativeConfig(
       ? {}
       : { version: AGENT_NATIVE_CONFIG_VERSION }),
   };
+
+  if (badgeTextValue !== undefined) {
+    if (typeof badgeTextValue !== "string") {
+      throw new Error(`${source}.badgeText must be a string`);
+    }
+    normalized.badgeText = badgeTextValue;
+  }
 
   if (onboardingValue !== undefined) {
     if (!isRecord(onboardingValue)) {
@@ -629,6 +641,7 @@ export function mergeAgentNativeConfigs(
             ...override.deployment,
           }
         : undefined,
+    badgeText: override.badgeText ?? base.badgeText,
     diagnostics:
       base.diagnostics || override.diagnostics
         ? {
@@ -784,13 +797,22 @@ function normalizeDeploymentConfig(
     throw new Error(`${source} must be an object`);
   }
   const environment = value.environment;
-  if (environment === undefined) return {};
+  const badgeText = value.badgeText;
+  if (badgeText !== undefined && typeof badgeText !== "string") {
+    throw new Error(`${source}.badgeText must be a string`);
+  }
+  if (environment === undefined) {
+    return badgeText === undefined ? {} : { badgeText };
+  }
   if (!isAgentNativeDeploymentEnvironment(environment)) {
     throw new Error(
       `${source}.environment must be "local", "beta", "production", or "preview"`,
     );
   }
-  return { environment };
+  return {
+    environment,
+    ...(badgeText === undefined ? {} : { badgeText }),
+  };
 }
 
 function normalizeDiagnosticsConfig(

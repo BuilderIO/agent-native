@@ -175,6 +175,7 @@ export default defineAction({
             summary: triageItems.summary,
             source: triageItems.source,
             sourceUrl: triageItems.sourceUrl,
+            pullRequestNumber: triageItems.pullRequestNumber,
             status: triageItems.status,
             createdAt: triageItems.createdAt,
             lastSeenAt: triageItems.lastSeenAt,
@@ -196,6 +197,7 @@ export default defineAction({
         summary: item.summary,
         source: item.source,
         sourceUrl: item.sourceUrl,
+        pullRequestNumber: item.pullRequestNumber,
         status: item.status,
         createdAt: item.createdAt,
         lastSeenAt: item.lastSeenAt,
@@ -248,6 +250,10 @@ export default defineAction({
           runRows,
           { startedAt: run.startedAt, finishedAt: run.finishedAt },
         );
+        const promptEvent = mappedEvents.find(
+          (event) => event.action === "automation-run-prompt",
+        );
+        const promptDetails = promptEvent?.details ?? {};
         return {
           id: run.id,
           automation: run.automation,
@@ -258,6 +264,14 @@ export default defineAction({
           startedAt: run.startedAt,
           finishedAt: run.finishedAt,
           error: run.error,
+          promptVersion:
+            typeof promptDetails.promptVersion === "number"
+              ? promptDetails.promptVersion
+              : null,
+          executionPromptHash:
+            typeof promptDetails.executionPromptHash === "string"
+              ? promptDetails.executionPromptHash
+              : null,
           counts: report.counts,
           inbox: report.inbox,
           work: report.work,

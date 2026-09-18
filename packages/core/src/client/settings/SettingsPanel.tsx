@@ -89,18 +89,15 @@ import {
 import { useOptionalLocale, useT } from "../i18n.js";
 import { useOrg } from "../org/hooks.js";
 import { TeamPage } from "../org/TeamPage.js";
+import { useOrgSwitcherAppLinks } from "../org/workspace-app-links.js";
 import { McpAccessSettings } from "../resources/McpAccessSettings.js";
-import {
-  BuilderConnectCard,
-  BuilderConnectionMenu,
-} from "../setup-connections/BuilderConnectCard.js";
+import { BuilderConnectionMenu } from "../setup-connections/BuilderConnectCard.js";
 import { callAction } from "../use-action.js";
 import { useDevMode } from "../use-dev-mode.js";
 import { cn } from "../utils.js";
 import {
   AGENT_SETTINGS_SECTIONS,
   ALL_SETTINGS_SECTIONS,
-  INTEGRATION_SETTINGS_SECTIONS,
   WORKSPACE_SETTINGS_SECTIONS,
   getAgentSettingsSearchTabs,
   type SettingsSectionId,
@@ -780,6 +777,7 @@ interface EngineInfo {
   description: string;
   defaultModel: string;
   supportedModels: string[];
+  acceptsCustomModels?: boolean;
   requiredEnvVars: string[];
   installPackage?: string;
   packageInstalled?: boolean;
@@ -1078,8 +1076,8 @@ function LLMSectionInner({
     isEndpointProvider && (!!baseUrl.trim() || clearBaseUrl);
   const providerSettingsChanged = !!apiKey.trim() || endpointChanged;
 
-  const modelOptions: SettingsSelectOption[] = latestModelsOnly(
-    selectedEngineInfo?.supportedModels ?? [],
+  const modelOptions: SettingsSelectOption[] = (
+    selectedEngineInfo?.supportedModels ?? []
   ).map((m) => ({ value: m, label: friendlyModelName(m) }));
 
   const handleSave = async () => {
@@ -1094,6 +1092,7 @@ function LLMSectionInner({
         ...(apiKey.trim() ? { apiKey } : {}),
         ...(nextBaseUrl ? { baseUrl: nextBaseUrl } : {}),
         ...(isEndpointProvider && clearBaseUrl ? { clearBaseUrl: true } : {}),
+        scope: "org",
       });
       setSaved(true);
       setSelectionState((previous) => ({
@@ -1327,8 +1326,8 @@ function LLMSectionInner({
                   }}
                 />
 
-                {/* Free-form input so OpenRouter/Ollama custom model IDs can
-                be typed — the registry's supportedModels is only suggestions. */}
+                {/* Catalog entries are suggestions; every provider also accepts
+                a model ID typed here so new releases need no UI update. */}
                 <div className="space-y-1.5">
                   <p className={fieldLabelClass(isPage)}>Model</p>
                   <input
@@ -1718,14 +1717,14 @@ function AppDefaultModelPicker({
     ? `${selectedEngine?.label ?? selectedEngine?.name ?? "Provider"} · ${friendlyModelName(selectedModel)}`
     : "Global default";
 
-  const openIntegrations = () => {
+  const openApiKeys = () => {
     setOpen(false);
     if (typeof window !== "undefined") {
       window.history.pushState(
         null,
         "",
         appMountedPath(
-          buildSettingsRoute("integrations"),
+          buildSettingsRoute("keys"),
           STANDARD_APP_ROUTES.settings,
         ),
       );
@@ -1830,12 +1829,12 @@ function AppDefaultModelPicker({
                   })}
                   {!configured && (
                     <CommandItem
-                      value={`configure ${providerLabel} in integrations api keys`}
-                      onSelect={openIntegrations}
+                      value={`configure ${providerLabel} in api keys`}
+                      onSelect={openApiKeys}
                       className="gap-2 text-muted-foreground"
                     >
                       <IconExternalLink size={14} />
-                      Configure in Integrations
+                      Configure in API keys
                     </CommandItem>
                   )}
                 </CommandGroup>
@@ -2217,7 +2216,7 @@ function AppModelDefaultsSectionInner({
 
 // ─── Email Section ──────────────────────────────────────────────────────────
 
-function EmailSectionInner({
+export function EmailSectionInner({
   open,
   onToggle,
 }: {
@@ -3027,6 +3026,7 @@ function SettingsPanelContent({
   builderConnectionOwnedExternally = false,
   agentAdditionalContent,
 }: SettingsPanelContentProps) {
+  const t = useT();
   const {
     status: builder,
     loading: builderLoading,
@@ -3078,6 +3078,7 @@ function SettingsPanelContent({
 
   const isPage = surface === "page";
   const isWorkspacePage = isPage && sections.includes("hosting");
+  const { isWorkspace, dispatchAllAppsHref } = useOrgSwitcherAppLinks(isPage);
 
   return (
     <SettingsSurfaceProvider surface={surface}>
@@ -3225,9 +3226,23 @@ function SettingsPanelContent({
             </SettingsGroup>
           )}
 
-        {isWorkspacePage && (
+        {isPage && (isWorkspace || isWorkspacePage) && (
           <SettingsGroup title="Workspace">
-            {shouldShowSection("demo-mode") && (
+            {isWorkspace && (
+              <SettingsRow
+                label={t("dispatch.pages.workspaceApps")}
+                control={
+                  <a
+                    href={dispatchAllAppsHref}
+                    className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground no-underline transition-colors hover:bg-accent/40"
+                  >
+                    {t("dispatch.pages.browseApps")}
+                    <IconExternalLink size={14} />
+                  </a>
+                }
+              />
+            )}
+            {isWorkspacePage && shouldShowSection("demo-mode") && (
               <SettingsRow
                 id={settingsSectionDomId("demo-mode")}
                 label="Demo mode"
@@ -3235,7 +3250,7 @@ function SettingsPanelContent({
                 control={<DemoModeSection compact />}
               />
             )}
-            {shouldShowSection("hosting") && (
+            {isWorkspacePage && shouldShowSection("hosting") && (
               <SettingsRow
                 id={settingsSectionDomId("hosting")}
                 label="Hosting"
@@ -3789,26 +3804,15 @@ export function SettingsPanel(props: SettingsPanelProps) {
 }
 
 export function ConnectionsSettingsContent({
-  settingsPanelProps,
+  settingsPanelProps: _settingsPanelProps,
 }: {
   settingsPanelProps: SettingsPanelProps;
 }) {
   return (
-    <div className="w-full space-y-8">
+    <div className="w-full">
       <Suspense fallback={null}>
         <IntegrationsPanel />
       </Suspense>
-      <BuilderConnectCard trackingSource="settings_connections" showManage />
-      <SettingsPanelContent
-        {...settingsPanelProps}
-        surface="page"
-        sections={INTEGRATION_SETTINGS_SECTIONS.filter(
-          (section) => section !== "integrations" && section !== "usage",
-        )}
-        showCapabilityStrip={false}
-        className="w-full"
-        builderConnectionOwnedExternally
-      />
     </div>
   );
 }
@@ -3849,6 +3853,7 @@ export function AgentSettingsContent({
 export function useAgentSettingsTabs(
   options: AgentSettingsTabsOptions = {},
 ): SettingsTabItem[] {
+  const t = useT();
   const { isDevMode, canToggle, setDevMode } = useDevMode();
   const { data: org } = useOrg();
   const locale = useOptionalLocale()?.locale ?? "en-US";
@@ -3889,6 +3894,7 @@ export function useAgentSettingsTabs(
       id:
         | "agent"
         | "integrations"
+        | "keys"
         | "mcp"
         | "usage"
         | "organization"
@@ -3900,6 +3906,7 @@ export function useAgentSettingsTabs(
     };
     const agent = searchTab("agent");
     const integrations = searchTab("integrations");
+    const keys = searchTab("keys");
     const mcp = searchTab("mcp");
     const usage = searchTab("usage");
     const organization = searchTab("organization");
@@ -3978,6 +3985,23 @@ export function useAgentSettingsTabs(
         icon: IconPlugConnected,
         group: "integrations",
         content: <ConnectionsSettingsContent settingsPanelProps={baseProps} />,
+      },
+      {
+        ...keys,
+        icon: IconKey,
+        group: "integrations",
+        content: (
+          <div className="w-full">
+            <SettingsPanelContent
+              {...baseProps}
+              surface="page"
+              sections={["secrets"]}
+              showCapabilityStrip={false}
+              className="w-full"
+              builderConnectionOwnedExternally
+            />
+          </div>
+        ),
       },
       {
         ...mcp,
@@ -4087,6 +4111,29 @@ export function useAgentSettingsTabs(
         ),
       },
       {
+        id: "agent:directory",
+        label: t("agentChat.agents.directoryTab"),
+        icon: IconTopologyRing2,
+        group: "agent",
+        keywords:
+          "agent directory providers registry foundry gemini anthropic a2a connect",
+        searchEntries: [
+          {
+            id: "agent-directory",
+            label: t("agentChat.agents.directoryTab"),
+            keywords:
+              "agent directory providers registry foundry gemini anthropic a2a connect",
+            description: t("agentChat.agents.directoryPageHint"),
+            tabId: "agent:directory",
+            hash: "agent:directory",
+            icon: IconTopologyRing2,
+          },
+        ],
+        content: (
+          <AgentWorkspaceContent activeTab="directory" overview={null} />
+        ),
+      },
+      {
         id: "agent:agents",
         label: "Connected agents",
         icon: IconTopologyRing2,
@@ -4115,6 +4162,7 @@ export function useAgentSettingsTabs(
     extensionToolsEnabled,
     locale,
     organizationContent,
+    t,
     usageAppId,
     usageViewAllHref,
   ]);

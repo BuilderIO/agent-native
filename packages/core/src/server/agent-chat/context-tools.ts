@@ -461,7 +461,7 @@ export function createUrlTools(): Record<string, ActionEntry> {
             allowFreeText: {
               type: "string",
               description:
-                'Whether the user may also type a free-text "Other" answer. "true" (default) or "false".',
+                'Whether the user may also type a free-text "Other" answer. Keep this "true" (the default) for preferences and clarifying questions. Use "false" only when the underlying workflow can accept one of the enumerated values and cannot handle a custom answer.',
               enum: ["true", "false"],
             },
             allowMultiple: {

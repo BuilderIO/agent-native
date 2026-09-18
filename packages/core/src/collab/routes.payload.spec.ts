@@ -15,6 +15,9 @@ vi.mock("h3", () => ({
   setResponseStatus: (event: any, status: number) => {
     event._status = status;
   },
+  setResponseHeader: (event: any, name: string, value: string) => {
+    (event._headers ??= {})[name] = value;
+  },
   getQuery: (event: any) => event._query ?? {},
 }));
 
@@ -30,6 +33,8 @@ vi.mock("./ydoc-manager.js", () => ({
   applyJson: vi.fn(),
   applyPatchOps: vi.fn(),
   getJson: vi.fn().mockResolvedValue(null),
+  getState: vi.fn().mockResolvedValue(new Uint8Array([0, 0])),
+  getIncUpdate: vi.fn().mockResolvedValue(new Uint8Array([0, 0])),
 }));
 
 vi.mock("./storage.js", () => ({
@@ -38,6 +43,7 @@ vi.mock("./storage.js", () => ({
 }));
 
 import {
+  getCollabState,
   postCollabUpdate,
   postCollabText,
   postCollabSearchReplace,
@@ -56,6 +62,28 @@ function event(params: Record<string, string>, maxPayloadBytes?: number): any {
 }
 
 const DEFAULT_MAX_BYTES = 2 * 1024 * 1024; // 2 MB
+
+describe("getCollabState cache policy", () => {
+  it.each([{}, { stateVector: "AAA=" }])(
+    "does not cache a state response (%j)",
+    async (query) => {
+      const ev = event({ docId: "doc-1" });
+      ev._query = query;
+      expect(await getCollabState(ev)).toEqual({
+        docId: "doc-1",
+        state: "AAA=",
+      });
+      expect(ev._headers["Cache-Control"]).toBe("private, no-store");
+    },
+  );
+
+  it("does not cache validation errors", async () => {
+    const ev = event({});
+    expect(await getCollabState(ev)).toEqual({ error: "docId required" });
+    expect(ev._status).toBe(400);
+    expect(ev._headers["Cache-Control"]).toBe("private, no-store");
+  });
+});
 
 // Generates a string of `len` bytes.
 function bigString(len: number): string {

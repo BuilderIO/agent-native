@@ -7,6 +7,10 @@ export {
   type AppConfigInput,
 } from "../app-config/index.js";
 export {
+  inferWorkspaceAppRootHomePath,
+  readConfiguredWorkspaceAppHomePath,
+} from "../workspace-app-config.js";
+export {
   createServer,
   type CreateServerOptions,
   type EnvKeyConfig,
@@ -80,6 +84,7 @@ export {
   getSessionEmail,
   getFrameworkSessionCookieValues,
   setFrameworkSessionCookie,
+  setFirstRunOnboardingCookie,
   clearFrameworkSessionCookies,
   runAuthGuard,
   registerDesktopExchange,
@@ -155,6 +160,7 @@ export {
   type AgentLoopToolCallSummary,
   type AgentLoopToolResultSummary,
 } from "../agent/index.js";
+export type { AgentActionScope } from "../agent/types.js";
 export {
   actionsToEngineTools,
   executeAgentToolCall,
@@ -166,6 +172,8 @@ export {
   type ExecuteAgentToolCallOptions,
   type ResolvedOwnerApiKey,
 } from "../agent/production-agent.js";
+export { getRunStatus, getRunTurnRef } from "../agent/run-store.js";
+export { getActiveRunForThreadAsync } from "../agent/run-manager.js";
 export {
   mountRealtimeVoiceRoutes,
   realtimeVoiceSafetyIdentifier,
@@ -195,11 +203,13 @@ export { createDevScriptRegistry } from "../scripts/dev/index.js";
 export {
   createPollHandler,
   recordChange,
+  prepareTransactionalChange,
   getVersion,
   getChangesSince,
   getPollEmitter,
   canSeeChangeForUser,
   POLL_CHANGE_EVENT,
+  type TransactionalChange,
 } from "./poll.js";
 export { createPollEventsHandler } from "./poll-events.js";
 export { createAuthPlugin, defaultAuthPlugin } from "./auth-plugin.js";
@@ -231,6 +241,7 @@ export {
   createFeatureFlagA2AActionRouteAuth,
   createFeatureFlagsPlugin,
 } from "../feature-flags/server.js";
+export { createLabsPlugin } from "../labs/server.js";
 export { createExperimentsPlugin } from "../experiments/server.js";
 export {
   createContextXrayPlugin,
@@ -540,6 +551,14 @@ export {
   isAllowedOAuthRedirectUri,
   encodeOAuthState,
   decodeOAuthState,
+  encodeNetlifyPreviewGoogleOAuthRelayState,
+  decodeNetlifyPreviewGoogleOAuthRelayState,
+  wrapNetlifyPreviewGoogleOAuthState,
+  getNetlifyPreviewGoogleOAuthCallbackUrl,
+  isNetlifyPreviewGoogleOAuthCallbackUrl,
+  isNetlifyPreviewGoogleOAuthRelayState,
+  AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET_ENV,
+  NETLIFY_PREVIEW_GOOGLE_OAUTH_CALLBACK_URL,
   logOAuthStateDecodeFailure,
   resolveOAuthOwner,
   createOAuthSession,
@@ -665,6 +684,9 @@ export {
   resolveBuilderBranchProjectId,
   resolveIsBuilderBranchingEnabled,
   runBuilderAgent,
+  type BuilderAgentAttachment,
+  type BuilderAgentUploadAttachment,
+  type BuilderAgentUrlAttachment,
   type BuilderProjectResult,
   type RunBuilderAgentResult,
 } from "./builder-browser.js";

@@ -13,6 +13,7 @@ packages/*/dist/
 packages/*/build/
 .deploy-tmp/
 .tmp/
+.agent-native/
 
 # Env files — never commit secrets
 .env

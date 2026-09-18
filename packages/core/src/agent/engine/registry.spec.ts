@@ -571,6 +571,20 @@ describe("AgentEngine registry", () => {
       );
     });
 
+    it("keeps explicitly selected BYOK provider model ids", async () => {
+      const { normalizeModelForEngine } = await import("./registry.js");
+      const engine = {
+        name: "anthropic",
+        defaultModel: "claude-sonnet-5",
+        supportedModels: ["claude-sonnet-5"],
+        acceptsCustomModels: true,
+      } as any;
+
+      expect(normalizeModelForEngine(engine, "claude-next-preview")).toBe(
+        "claude-next-preview",
+      );
+    });
+
     it("preserves arbitrary Ollama model ids", async () => {
       const { resolveEnginePreservesCustomModels } =
         await import("./registry.js");
@@ -587,6 +601,18 @@ describe("AgentEngine registry", () => {
       await expect(
         resolveEnginePreservesCustomModels({ name: "ai-sdk:openrouter" }),
       ).resolves.toBe(true);
+    });
+
+    it("allows custom IDs for explicitly configured provider entries", async () => {
+      const { resolveEngineAcceptsCustomModels } =
+        await import("./registry.js");
+
+      await expect(
+        resolveEngineAcceptsCustomModels({ acceptsCustomModels: true }),
+      ).resolves.toBe(true);
+      await expect(
+        resolveEngineAcceptsCustomModels({ acceptsCustomModels: false }),
+      ).resolves.toBe(false);
     });
 
     it("falls back an unrecognized first-party OpenAI model to the default without a gateway", async () => {
@@ -3020,6 +3046,37 @@ describe("AgentEngine registry", () => {
         apiKey: undefined,
         allowEnvFallback: true,
         baseUrl: "https://gateway.example/v1",
+      });
+      expect(resolved).toBe(openAiEngine);
+    });
+
+    it("allows an operator-provided private OpenAI-compatible endpoint", async () => {
+      process.env.OPENAI_API_KEY = "sk-operator-test"; // guard:allow-env-credential — verifies operator-owned endpoint classification
+      process.env.OPENAI_BASE_URL = "http://127.0.0.1:43123/v1"; // guard:allow-env-credential — loopback proves the private-endpoint allowance stays deploy-scoped
+
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+
+      const openAiEngine = { name: "ai-sdk:openai", stream: vi.fn() } as any;
+      const openAiCreate = vi.fn().mockReturnValue(openAiEngine);
+
+      registerAgentEngine({
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "gpt-5.4",
+        supportedModels: [],
+        requiredEnvVars: ["OPENAI_API_KEY"],
+        create: openAiCreate,
+      });
+
+      const resolved = await resolveEngine({ engineOption: "ai-sdk:openai" });
+
+      expect(openAiCreate).toHaveBeenCalledWith({
+        apiKey: undefined,
+        allowEnvFallback: true,
+        baseUrl: "http://127.0.0.1:43123/v1",
       });
       expect(resolved).toBe(openAiEngine);
     });

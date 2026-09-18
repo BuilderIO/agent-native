@@ -1,3 +1,4 @@
+import { sanitizeBrowserDiagnosticNavigationUrl } from "@shared/browser-diagnostics";
 import { buildRecordingShareUrl } from "@shared/recording-link";
 
 import {
@@ -30,6 +31,8 @@ const DEFAULT_CLIPS_BASE_URL = "https://clips.agent-native.com";
 const DEBUGGER_PROTOCOL_VERSION = "1.3";
 const MAX_CONSOLE_LOGS = 400;
 const MAX_NETWORK_REQUESTS = 400;
+const CLICK_INPUT_INGRESS_WINDOW_MS = 1_000;
+const MAX_CLICK_INPUT_INGRESS_PER_WINDOW = 100;
 const MAX_MESSAGE_LENGTH = 2_000;
 const MAX_URL_LENGTH = 1_000;
 const STORAGE_SETUP_REQUIRED_MESSAGE =
@@ -56,6 +59,7 @@ const UNQUOTED_SECRET_VALUE_RE = new RegExp(
 type CaptureSurface = "browser" | "window" | "monitor" | "camera";
 type ConsoleLevel = "debug" | "log" | "info" | "warn" | "error";
 type NetworkType = "fetch" | "xhr";
+type InteractionKind = "navigation" | "click" | "input" | "scroll";
 type UploadMode = "streaming" | "buffered";
 
 type ExtensionSettings = {
@@ -71,6 +75,13 @@ type ExtensionSettings = {
 type PopupStartMessage = {
   type: "CLIPS_POPUP_START";
   settings?: Partial<ExtensionSettings>;
+};
+
+type AuthSessionMessage = {
+  type: "CLIPS_AUTH_SESSION";
+  token?: string;
+  email?: string;
+  clipsBaseUrl?: string;
 };
 
 type ExternalMessage =
@@ -89,12 +100,7 @@ type ExternalMessage =
       type: "CLIPS_CAPTURE_CANCEL";
       sessionId?: string;
     }
-  | {
-      type: "CLIPS_AUTH_SESSION";
-      token?: string;
-      email?: string;
-      clipsBaseUrl?: string;
-    };
+  | AuthSessionMessage;
 
 type ChromeTab = {
   id?: number;
@@ -124,6 +130,14 @@ type NetworkRequest = {
   error?: string;
 };
 
+type InteractionEvent = {
+  timestampMs: number;
+  elapsedMs: number;
+  kind: InteractionKind;
+  target?: string;
+  url?: string;
+};
+
 type BrowserDiagnosticsData = {
   pageUrl: string | null;
   userAgent: string | null;
@@ -131,6 +145,7 @@ type BrowserDiagnosticsData = {
   endedAt: string;
   consoleLogs: ConsoleLog[];
   networkRequests: NetworkRequest[];
+  interactionEvents?: InteractionEvent[];
   summary: {
     consoleCount: number;
     consoleErrorCount: number;
@@ -169,6 +184,8 @@ type NativeRecording = {
   status: NativeRecordingStatus;
   recordingUrl: string;
   error: string | null;
+  diagnosticsPausedAtMs?: number;
+  diagnosticsPausedDurationMs?: number;
   // When an upload fails, the recording is saved to the user's Downloads as a
   // fallback so it is never lost; these describe that saved file.
   savedToDisk?: boolean;
@@ -236,6 +253,11 @@ type CaptureSession = {
   attachError: string | null;
   consoleLogs: ConsoleLog[];
   networkRequests: NetworkRequest[];
+  interactionEvents: InteractionEvent[];
+  clickInputIngressWindowStartedAtMs: number;
+  clickInputIngressCount: number;
+  diagnosticsPausedAtMs: number | null;
+  diagnosticsPausedDurationMs: number;
   pendingNetworkRequests: Map<string, PendingNetworkRequest>;
 };
 
@@ -335,8 +357,8 @@ function clearCountdownTimer(): void {
   countdownEndsAtMs = 0;
 }
 
-// Toggle the toolbar popup off while recording so clicking the extension icon
-// fires onClicked (immediate stop & save) instead of opening the popup.
+// Keep the toolbar popup available while recording so the extension icon opens
+// the active-recording controls instead of stopping the take immediately.
 function setActionPopup(path: string): void {
   try {
     void chrome.action.setPopup({ popup: path });
@@ -378,18 +400,44 @@ function persistOverlay(): Promise<void> {
 async function restoreRuntimeState(): Promise<void> {
   const stored = await sessionStorageGet([
     "activeNativeRecording",
+    "pendingNativeRecording",
     "overlayRuntime",
     "armingNativeRecordingSessionId",
   ]);
+  const rawArmingSessionId = persistedArmingSessionId(
+    stored.armingNativeRecordingSessionId,
+  );
+  const hadArmingGuardBeforeRestore = armingNativeRecordingSessionId !== null;
   const rec = stored.activeNativeRecording as NativeRecording | undefined;
-  if (rec && typeof rec.sessionId === "string" && !activeNativeRecording) {
-    activeNativeRecording = rec;
+  const pendingRec = stored.pendingNativeRecording as
+    | NativeRecording
+    | undefined;
+  const restoredRecording = rec ?? pendingRec;
+  if (
+    restoredRecording &&
+    typeof restoredRecording.sessionId === "string" &&
+    !activeNativeRecording
+  ) {
+    activeNativeRecording = restoredRecording;
+  }
+  if (
+    activeNativeRecording &&
+    !sessions.has(activeNativeRecording.sessionId) &&
+    activeNativeRecording.status !== "complete" &&
+    activeNativeRecording.status !== "error"
+  ) {
+    const session = restoreCaptureSession(activeNativeRecording);
+    await attachSession(session);
   }
   const freshArmingSessionId = await readFreshPersistedArmingSessionId(
     stored.armingNativeRecordingSessionId,
   );
   if (freshArmingSessionId && armingNativeRecordingSessionId === null) {
     armingNativeRecordingSessionId = freshArmingSessionId;
+  } else if (!freshArmingSessionId) {
+    // A failed earlier status probe can outlive the persisted guard. Do not let
+    // that stale in-memory value keep the popup locked after the TTL expires.
+    armingNativeRecordingSessionId = null;
   }
   const rt = stored.overlayRuntime as
     | {
@@ -415,12 +463,89 @@ async function restoreRuntimeState(): Promise<void> {
     overlayTabId = typeof rt.overlayTabId === "number" ? rt.overlayTabId : null;
   }
 
-  if (overlayPhase !== "idle" && activeNativeRecording) {
+  let armingRecovered = !freshArmingSessionId;
+  const recoverySessionId = freshArmingSessionId ?? rawArmingSessionId;
+  if (recoverySessionId) {
+    let offscreenState: OffscreenRecordingState | null = null;
+    try {
+      await ensureOffscreenDocument();
+      offscreenState = await sendOffscreenMessage<OffscreenRecordingState>({
+        type: "CLIPS_OFFSCREEN_STATUS",
+      });
+    } catch (error) {
+      // Keep the guard and disabled action until a later status request can
+      // distinguish a live recorder from an interrupted picker.
+      console.warn(
+        "[clips-bg] could not inspect interrupted arming state:",
+        error,
+      );
+    }
+
+    if (offscreenState?.activeSessionId === recoverySessionId) {
+      if (activeNativeRecording) {
+        // The recorder row was persisted before BEGIN, so a worker restart here
+        // can keep the live recorder without leaving the arming guard stuck on.
+        await setArmingGuard(null);
+        armingRecovered = true;
+      } else {
+        // A pending descriptor normally restores the row above. If it is also
+        // missing, cancel the live recorder instead of leaving it with no UI
+        // stop/discard path; the offscreen state supplies a best-effort row id.
+        await cancelRecoveredOffscreenSession(
+          recoverySessionId,
+          offscreenState.activeRecordingId,
+        );
+        resetOverlay();
+        await broadcastUnmount();
+        broadcastOverlayState();
+        await clearNativeRecording();
+        await setArmingGuard(null);
+        armingRecovered = true;
+      }
+    } else if (offscreenState?.preparedSessionId === recoverySessionId) {
+      if (hadArmingGuardBeforeRestore && freshArmingSessionId) {
+        // This is the normal acquire/create/attach gap before BEGIN. Keep the
+        // guard while the prepared streams are still owned by this arm.
+      } else if (activeNativeRecording?.sessionId === recoverySessionId) {
+        // A worker restart ended the arm continuation, so release the row and
+        // prepared streams instead of leaving the popup locked forever.
+        await cancelRecording(true);
+        await setArmingGuard(null);
+        armingRecovered = true;
+      } else {
+        await cancelRecoveredOffscreenSession(recoverySessionId);
+        resetOverlay();
+        await broadcastUnmount();
+        broadcastOverlayState();
+        await clearNativeRecording();
+        await setArmingGuard(null);
+        armingRecovered = true;
+      }
+    } else if (offscreenState) {
+      // The old worker died before BEGIN. Cancel the guarded offscreen session
+      // even when its recording row was never persisted, then clean the local
+      // overlay without touching a different recording that may have resumed.
+      if (activeNativeRecording?.sessionId === recoverySessionId) {
+        await cancelRecording(true);
+      } else {
+        await cancelRecoveredOffscreenSession(recoverySessionId);
+        if (!activeNativeRecording) {
+          resetOverlay();
+          await broadcastUnmount();
+          broadcastOverlayState();
+          await clearNativeRecording();
+        }
+      }
+      await setArmingGuard(null);
+      armingRecovered = true;
+    }
+  }
+
+  if (armingRecovered && overlayPhase !== "idle" && activeNativeRecording) {
     // Recording survived a worker restart. The offscreen document owns the
-    // recorder + pre-roll timer, so it kept running; just restore immediate-stop
-    // mode. If the pre-roll already elapsed, assume the offscreen started the
-    // recorder so the icon click does Stop (not Discard).
-    setActionPopup("");
+    // recorder + pre-roll timer, so it kept running; restore the active-recording
+    // popup before the user can click the extension icon again.
+    setActionPopup(overlayPhase === "saving" ? "" : "src/popup.html");
     if (
       overlayPhase === "countdown" &&
       countdownEndsAtMs > 0 &&
@@ -455,11 +580,23 @@ async function injectContentScript(tabId: number): Promise<boolean> {
         executeScript: (args: {
           target: { tabId: number };
           files: string[];
+          world?: "ISOLATED" | "MAIN";
         }) => Promise<unknown>;
       };
     }
   ).scripting;
   if (!scripting) return false;
+  try {
+    await scripting.executeScript({
+      target: { tabId },
+      files: ["assets/content-history-bridge.js"],
+      world: "MAIN",
+    });
+    // coercion-ok: MAIN-world injection is optional; the isolated script still records.
+  } catch {
+    // Some restricted pages reject MAIN-world injection but still accept the
+    // isolated overlay/content script.
+  }
   try {
     await scripting.executeScript({
       target: { tabId },
@@ -501,11 +638,16 @@ async function broadcastMount(): Promise<void> {
     return;
   }
   const parts = desiredParts();
+  const resetDiagnosticQuotas = overlayPhase === "recording";
   const tabs = await allTabs();
   await Promise.all(
     tabs.map((tab) =>
       typeof tab.id === "number"
-        ? sendTabMessage(tab.id, { type: "CLIPS_OVERLAY_MOUNT", parts })
+        ? sendTabMessage(tab.id, {
+            type: "CLIPS_OVERLAY_MOUNT",
+            parts,
+            ...(resetDiagnosticQuotas ? { resetDiagnosticQuotas: true } : {}),
+          })
         : Promise.resolve(),
     ),
   );
@@ -818,11 +960,39 @@ async function authHeaders(
 async function saveActiveNativeRecording(): Promise<void> {
   if (!activeNativeRecording) {
     await sessionStorageRemove("activeNativeRecording").catch(() => undefined);
+    await sessionStorageRemove("pendingNativeRecording").catch(() => undefined);
     return;
   }
   await sessionStorageSet({
     activeNativeRecording: activeNativeRecording,
   }).catch(() => undefined);
+}
+
+async function persistPendingNativeRecording(
+  recording: NativeRecording,
+): Promise<void> {
+  await sessionStorageSet({ pendingNativeRecording: recording });
+}
+
+async function cancelRecoveredOffscreenSession(
+  sessionId: string,
+  recordingId?: string,
+): Promise<void> {
+  await sendOffscreenMessage({
+    type: "CLIPS_OFFSCREEN_CANCEL",
+    sessionId,
+  }).catch(() => undefined);
+  if (recordingId) {
+    const settings = await readSettings();
+    await postAction(settings, "trash-recording", { id: recordingId }).catch(
+      (error) => {
+        console.warn(
+          "[clips-bg] recovered recording cleanup could not trash row",
+          error,
+        );
+      },
+    );
+  }
 }
 
 // The arming guard rejects a second CLIPS_POPUP_START while the picker +
@@ -846,6 +1016,13 @@ async function setArmingGuard(sessionId: string | null): Promise<void> {
       () => undefined,
     );
   }
+}
+
+function persistedArmingSessionId(rawValue: unknown): string | null {
+  if (typeof rawValue === "string" && rawValue) return rawValue;
+  if (!rawValue || typeof rawValue !== "object") return null;
+  const sessionId = (rawValue as { sessionId?: unknown }).sessionId;
+  return typeof sessionId === "string" && sessionId ? sessionId : null;
 }
 
 // Reads the persisted arming guard and returns its sessionId only if it is
@@ -1200,10 +1377,46 @@ function createSession(
     attachError: null,
     consoleLogs: [],
     networkRequests: [],
+    interactionEvents: [],
+    clickInputIngressWindowStartedAtMs: 0,
+    clickInputIngressCount: 0,
+    diagnosticsPausedAtMs: null,
+    diagnosticsPausedDurationMs: 0,
     pendingNetworkRequests: new Map(),
   };
   sessions.set(sessionId, session);
   tabToSession.set(session.targetTabId, sessionId);
+  return session;
+}
+
+function restoreCaptureSession(recording: NativeRecording): CaptureSession {
+  const session = createSession(
+    recording.sessionId,
+    {
+      id: recording.targetTabId,
+      title: recording.targetTitle ?? undefined,
+      url: recording.targetUrl ?? undefined,
+    },
+    settingsFromRecording(recording),
+  );
+  session.recordingId = recording.recordingId;
+  session.startedAt = recording.startedAt;
+  session.startedAtMs = recording.startedAtMs;
+  session.diagnosticsPausedAtMs =
+    typeof recording.diagnosticsPausedAtMs === "number"
+      ? recording.diagnosticsPausedAtMs
+      : null;
+  session.diagnosticsPausedDurationMs =
+    typeof recording.diagnosticsPausedDurationMs === "number"
+      ? Math.max(0, recording.diagnosticsPausedDurationMs)
+      : 0;
+  if (session.targetUrl) {
+    pushInteraction(session, {
+      kind: "navigation",
+      url: session.targetUrl,
+      timestampMs: session.startedAtMs,
+    });
+  }
   return session;
 }
 
@@ -1235,6 +1448,9 @@ async function startRecordingFromTab(args: {
     (await sessionStorageGet(["armingNativeRecordingSessionId"]))
       .armingNativeRecordingSessionId,
   );
+  if (!persistedArmingSessionId) {
+    armingNativeRecordingSessionId = null;
+  }
   if (
     activeNativeRecording ||
     armingNativeRecordingSessionId ||
@@ -1403,6 +1619,7 @@ async function armRecording(args: {
   //    recorder starts. The on-page bubble shows during countdown AND recording
   //    (the face is captured in the display; we do not composite).
   const cameraInvolved = mode === "camera" || settings.includeCamera;
+  setActionPopup("");
   overlayPhase = "countdown";
   overlayBaseElapsedMs = 0;
   overlayBaseEpochMs = nowMs();
@@ -1413,8 +1630,6 @@ async function armRecording(args: {
   // so the popup-close disconnect won't tear down the live recording overlay.
   previewTabId = null;
   setRecordingFlag(true);
-  // Clicking the icon now stops & saves immediately instead of opening the popup.
-  setActionPopup("");
   overlayTabId = tab.id as number;
   await mountOverlayOnTab(tab.id as number);
   broadcastOverlayState();
@@ -1493,7 +1708,19 @@ async function armRecording(args: {
     recordingUrl: `${settings.clipsBaseUrl}/r/${encodeURIComponent(created.id)}`,
     error: null,
   };
-
+  // Persist a descriptor before BEGIN so recovery can control or trash the
+  // server row even if the worker dies before the active state write finishes.
+  try {
+    await persistPendingNativeRecording(activeNativeRecording);
+    await saveActiveNativeRecording();
+  } catch (err) {
+    await abortArming();
+    await postAction(settings, "trash-recording", { id: created.id }).catch(
+      () => undefined,
+    );
+    await clearNativeRecording();
+    throw err;
+  }
   // 4) Start the recorder when the (already-running) countdown ends. The
   //    offscreen owns the pre-roll timer (a reliable context, unlike the
   //    suspendable worker) and reports "recording" back when it actually starts.
@@ -1509,6 +1736,14 @@ async function armRecording(args: {
   // script holds it, with its own 12s cap), so the fallback must be generous
   // enough not to start the recorder mid-connect; otherwise a short pre-roll.
   const startDelayMs = cameraInvolved ? 20000 : COUNTDOWN_SECONDS * 1000 + 1000;
+  if (
+    armingNativeRecordingSessionId !== sessionId ||
+    activeNativeRecording?.sessionId !== sessionId
+  ) {
+    await abortArming();
+    await clearNativeRecording();
+    throw new Error("Clips recording start was cancelled.");
+  }
   try {
     await sendOffscreenMessage({
       type: "CLIPS_OFFSCREEN_BEGIN",
@@ -1535,9 +1770,12 @@ async function armRecording(args: {
         includeMicrophone: settings.includeMicrophone,
       },
     });
-    await cancelRecording();
+    await cancelRecording(true);
     throw err;
   }
+  // Keep the active-recording stop and discard controls behind the popup only
+  // after the offscreen recorder exists and can safely accept Stop or Discard.
+  setActionPopup("src/popup.html");
   await saveActiveNativeRecording();
 
   broadcastOverlayState();
@@ -1563,6 +1801,8 @@ async function markRecordingStarted() {
     : null;
   if (session) beginSessionCapture(session, overlayBaseEpochMs);
   if (activeNativeRecording) {
+    delete activeNativeRecording.diagnosticsPausedAtMs;
+    delete activeNativeRecording.diagnosticsPausedDurationMs;
     activeNativeRecording.startedAtMs = overlayBaseEpochMs;
     activeNativeRecording.startedAt = new Date(
       overlayBaseEpochMs,
@@ -1589,9 +1829,16 @@ async function handleOverlaySkip() {
 
 function handleOverlayPause() {
   if (overlayPhase !== "recording") return { ok: true };
-  overlayBaseElapsedMs += Math.max(0, nowMs() - overlayBaseEpochMs);
+  const pausedAtMs = nowMs();
+  overlayBaseElapsedMs += Math.max(0, pausedAtMs - overlayBaseEpochMs);
   overlayPhase = "paused";
+  const session = activeNativeRecording
+    ? sessions.get(activeNativeRecording.sessionId)
+    : null;
+  if (session) session.diagnosticsPausedAtMs = pausedAtMs;
   if (activeNativeRecording) {
+    activeNativeRecording.diagnosticsPausedAtMs = pausedAtMs;
+    activeNativeRecording.diagnosticsPausedDurationMs ??= 0;
     activeNativeRecording.status = "paused";
     void saveActiveNativeRecording();
     void sendOffscreenMessage({
@@ -1605,7 +1852,27 @@ function handleOverlayPause() {
 
 function handleOverlayResume() {
   if (overlayPhase !== "paused") return { ok: true };
-  overlayBaseEpochMs = nowMs();
+  const resumedAtMs = nowMs();
+  const session = activeNativeRecording
+    ? sessions.get(activeNativeRecording.sessionId)
+    : null;
+  const pausedAtMs =
+    session?.diagnosticsPausedAtMs ??
+    activeNativeRecording?.diagnosticsPausedAtMs;
+  if (typeof pausedAtMs === "number") {
+    const pausedDurationMs = Math.max(0, resumedAtMs - pausedAtMs);
+    if (session) {
+      session.diagnosticsPausedDurationMs += pausedDurationMs;
+      session.diagnosticsPausedAtMs = null;
+    }
+    if (activeNativeRecording) {
+      activeNativeRecording.diagnosticsPausedDurationMs =
+        (activeNativeRecording.diagnosticsPausedDurationMs ?? 0) +
+        pausedDurationMs;
+      delete activeNativeRecording.diagnosticsPausedAtMs;
+    }
+  }
+  overlayBaseEpochMs = resumedAtMs;
   overlayPhase = "recording";
   if (activeNativeRecording) {
     activeNativeRecording.status = "recording";
@@ -1759,11 +2026,12 @@ async function stopRecording() {
   const recording = activeNativeRecording;
   console.log("[clips-bg] stopRecording — active:", !!recording);
   if (!recording) return { ok: false, error: "No active Clips recording." };
+  if (overlayPhase === "saving") return { ok: false };
   recording.status = "stopping";
-  // Keep an overlay up: swap the recording controls/bubble for a "Saving…" card
-  // so the user has feedback during the upload gap (instead of everything
-  // vanishing while the clip uploads invisibly). Mirrors the desktop Finalizing
-  // overlay. The popup stays disabled so the icon can't interrupt the save.
+  // Disable the popup while saving so a second Stop or Discard cannot race
+  // finalization. Keep an overlay up with a "Saving…" card so the user still
+  // gets feedback during the upload gap.
+  setActionPopup("");
   overlayPhase = "saving";
   countdownEndsAtMs = 0;
   const diagnostics = await stopNativeDiagnostics(recording);
@@ -1819,8 +2087,12 @@ async function stopRecording() {
   }
 }
 
-async function cancelRecording() {
+async function cancelRecording(force = false) {
   const recording = activeNativeRecording;
+  if (overlayPhase === "saving") return { ok: false };
+  if (!force && armingNativeRecordingSessionId) {
+    return { ok: false, error: "Clips recording is still starting." };
+  }
   resetOverlay();
   await broadcastUnmount();
   broadcastOverlayState();
@@ -1863,6 +2135,7 @@ async function saveNativeDiagnostics(
       endedAt: snapshot.endedAt,
       consoleLogs: snapshot.consoleLogs,
       networkRequests: snapshot.networkRequests,
+      interactionEvents: snapshot.interactionEvents,
     },
   ).catch((err) => {
     console.warn("[clips-extension] diagnostics save failed:", err);
@@ -1931,6 +2204,7 @@ async function reconcilePersistedNativeRecording(): Promise<void> {
 
 async function handlePopupStatus() {
   await reconcilePersistedNativeRecording();
+  if (armingNativeRecordingSessionId) await restoreRuntimeState();
   return {
     ok: true,
     activeRecording: activeNativeRecording,
@@ -1962,6 +2236,35 @@ async function handlePopupSignIn(message: {
   signInUrl.searchParams.set("clipsExtensionAuth", "1");
   signInUrl.searchParams.set("clipsExtensionId", chrome.runtime.id);
   await createTab(signInUrl.toString());
+  return { ok: true };
+}
+
+async function handleAuthSession(
+  message: AuthSessionMessage,
+  senderUrl?: string,
+) {
+  const settings = await readSettings();
+  const clipsBaseUrl = normalizeBaseUrl(
+    message.clipsBaseUrl ?? settings.clipsBaseUrl,
+  );
+  const senderOrigin = originOf(senderUrl);
+  if (
+    !senderOrigin ||
+    senderOrigin !== originOf(clipsBaseUrl) ||
+    senderOrigin !== originOf(settings.clipsBaseUrl)
+  ) {
+    return { ok: false, error: "Auth message came from the wrong origin." };
+  }
+  if (typeof message.token !== "string" || !message.token.trim()) {
+    return { ok: false, error: "Missing auth token." };
+  }
+  await storageSet({ ...settings, clipsBaseUrl });
+  await saveAuthSession({
+    token: message.token,
+    email: typeof message.email === "string" ? message.email : undefined,
+    clipsBaseUrl,
+    savedAt: nowIso(),
+  });
   return { ok: true };
 }
 
@@ -2004,6 +2307,22 @@ function pendingNetworkSnapshot(session: CaptureSession): NetworkRequest[] {
   }));
 }
 
+function diagnosticElapsedMs(
+  timestampMs: number,
+  session: CaptureSession,
+): number | null {
+  const elapsedMs = elapsedMsFromCaptureStart(timestampMs, session.startedAtMs);
+  if (elapsedMs === null) return null;
+  const activePauseMs =
+    session.diagnosticsPausedAtMs === null
+      ? 0
+      : Math.max(0, timestampMs - session.diagnosticsPausedAtMs);
+  return Math.max(
+    0,
+    elapsedMs - session.diagnosticsPausedDurationMs - activePauseMs,
+  );
+}
+
 function snapshotSession(session: CaptureSession): BrowserDiagnosticsData {
   const endedAt = nowIso();
   const consoleLogs = session.consoleLogs.slice(-MAX_CONSOLE_LOGS);
@@ -2021,6 +2340,7 @@ function snapshotSession(session: CaptureSession): BrowserDiagnosticsData {
     endedAt,
     consoleLogs,
     networkRequests,
+    interactionEvents: session.interactionEvents.slice(-800),
     summary: summarize({ endedAt, consoleLogs, networkRequests }),
   };
 }
@@ -2033,6 +2353,18 @@ function beginSessionCapture(
   session.startedAt = new Date(startedAtMs).toISOString();
   session.consoleLogs = [];
   session.networkRequests = [];
+  session.interactionEvents = [];
+  session.clickInputIngressWindowStartedAtMs = 0;
+  session.clickInputIngressCount = 0;
+  session.diagnosticsPausedAtMs = null;
+  session.diagnosticsPausedDurationMs = 0;
+  if (session.targetUrl) {
+    pushInteraction(session, {
+      kind: "navigation",
+      url: session.targetUrl,
+      timestampMs: startedAtMs,
+    });
+  }
   session.pendingNetworkRequests.clear();
 }
 
@@ -2088,7 +2420,7 @@ function pushConsole(
   const timestampMs = Number.isFinite(entry.timestampMs)
     ? (entry.timestampMs as number)
     : nowMs();
-  const elapsedMs = elapsedMsFromCaptureStart(timestampMs, session.startedAtMs);
+  const elapsedMs = diagnosticElapsedMs(timestampMs, session);
   // Runtime and Log can replay old entries when the debugger attaches. Those
   // entries belong to the page history, not the recording that just started.
   if (elapsedMs === null) return;
@@ -2125,6 +2457,62 @@ function pushNetwork(session: CaptureSession, entry: NetworkRequest): void {
       session.networkRequests.length - MAX_NETWORK_REQUESTS,
     );
   }
+}
+
+function pushInteraction(
+  session: CaptureSession,
+  entry: Omit<InteractionEvent, "timestampMs" | "elapsedMs"> & {
+    timestampMs?: number;
+  },
+): void {
+  const timestampMs = entry.timestampMs ?? nowMs();
+  const elapsedMs = diagnosticElapsedMs(timestampMs, session);
+  if (elapsedMs === null) return;
+  const url = entry.url
+    ? sanitizeBrowserDiagnosticNavigationUrl(entry.url)
+    : undefined;
+  if (entry.kind === "navigation" && url) {
+    const first = session.interactionEvents[0];
+    if (
+      session.interactionEvents.length === 1 &&
+      first?.kind === "navigation" &&
+      first.url === url
+    ) {
+      return;
+    }
+  }
+  session.interactionEvents.push({
+    timestampMs,
+    elapsedMs,
+    kind: entry.kind,
+    ...(entry.target
+      ? { target: truncate(redactString(entry.target), 200) }
+      : {}),
+    ...(url ? { url } : {}),
+  });
+  if (session.interactionEvents.length > 800) {
+    session.interactionEvents.splice(0, session.interactionEvents.length - 800);
+  }
+}
+
+function allowClickInputIngress(
+  session: CaptureSession,
+  kind: InteractionKind,
+): boolean {
+  if (kind !== "click" && kind !== "input") return true;
+  const now = nowMs();
+  if (
+    now - session.clickInputIngressWindowStartedAtMs >=
+    CLICK_INPUT_INGRESS_WINDOW_MS
+  ) {
+    session.clickInputIngressWindowStartedAtMs = now;
+    session.clickInputIngressCount = 0;
+  }
+  if (session.clickInputIngressCount >= MAX_CLICK_INPUT_INGRESS_PER_WINDOW) {
+    return false;
+  }
+  session.clickInputIngressCount += 1;
+  return true;
 }
 
 function consoleLevel(value: unknown): ConsoleLevel {
@@ -2267,7 +2655,7 @@ function handleRequestWillBeSent(
       : null;
   if (!type || !requestId || !request) return;
   const timestampMs = requestTimestampMs(event);
-  const elapsedMs = elapsedMsFromCaptureStart(timestampMs, session.startedAtMs);
+  const elapsedMs = diagnosticElapsedMs(timestampMs, session);
   if (elapsedMs === null) return;
   const url = sanitizeUrl(typeof request.url === "string" ? request.url : "");
   if (!url) return;
@@ -2377,25 +2765,7 @@ async function handleExternalMessage(
   }
 
   if (message.type === "CLIPS_AUTH_SESSION") {
-    const settings = await readSettings();
-    const clipsBaseUrl = normalizeBaseUrl(
-      message.clipsBaseUrl ?? settings.clipsBaseUrl,
-    );
-    const senderOrigin = originOf(sender?.url);
-    if (!senderOrigin || senderOrigin !== originOf(clipsBaseUrl)) {
-      return { ok: false, error: "Auth message came from the wrong origin." };
-    }
-    if (typeof message.token !== "string" || !message.token.trim()) {
-      return { ok: false, error: "Missing auth token." };
-    }
-    await storageSet({ ...settings, clipsBaseUrl });
-    await saveAuthSession({
-      token: message.token,
-      email: typeof message.email === "string" ? message.email : undefined,
-      clipsBaseUrl,
-      savedAt: nowIso(),
-    });
-    return { ok: true };
+    return handleAuthSession(message, sender?.url);
   }
 
   if (message.type === "CLIPS_CAPTURE_START") {
@@ -2456,7 +2826,7 @@ function ensureRestored(): Promise<void> {
 }
 void ensureRestored();
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || typeof message !== "object") return false;
   void (async () => {
     // Critical: never read activeNativeRecording/overlayPhase before state is
@@ -2465,7 +2835,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     await ensureRestored();
     let response: unknown;
     try {
-      response = await dispatchRuntimeMessage(message);
+      response = await dispatchRuntimeMessage(message, sender);
     } catch (err) {
       console.error(
         "[clips-bg] message failed:",
@@ -2495,8 +2865,45 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   return true;
 });
 
-async function dispatchRuntimeMessage(message: unknown): Promise<unknown> {
+async function dispatchRuntimeMessage(
+  message: unknown,
+  sender?: chrome.runtime.MessageSender,
+): Promise<unknown> {
   const type = (message as { type?: unknown }).type;
+
+  if (type === "CLIPS_AUTH_SESSION") {
+    return handleAuthSession(
+      message as AuthSessionMessage,
+      sender?.tab?.url ?? sender?.url,
+    );
+  }
+
+  if (type === "CLIPS_DIAGNOSTIC_INTERACTION") {
+    const tabId = sender?.tab?.id;
+    const sessionId =
+      typeof tabId === "number" ? tabToSession.get(tabId) : null;
+    const session = sessionId ? sessions.get(sessionId) : null;
+    const kind = (message as { kind?: unknown }).kind;
+    if (
+      !session ||
+      (kind !== "navigation" &&
+        kind !== "click" &&
+        kind !== "input" &&
+        kind !== "scroll")
+    ) {
+      return { ok: false };
+    }
+    if (overlayPhase === "paused") return { ok: false };
+    if (!allowClickInputIngress(session, kind)) return { ok: false };
+    const target = (message as { target?: unknown }).target;
+    const url = (message as { url?: unknown }).url;
+    pushInteraction(session, {
+      kind,
+      ...(typeof target === "string" ? { target } : {}),
+      ...(typeof url === "string" ? { url } : {}),
+    });
+    return { ok: true };
+  }
 
   if (type === "CLIPS_EXTENSION_ERROR") {
     const report = message as ExtensionErrorMessage;
@@ -2745,14 +3152,18 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   })();
 });
 
-// While recording, the popup is disabled (setActionPopup("")), so clicking the
-// extension icon lands here: stop & save immediately (or discard if we're still
-// in the pre-roll countdown). When idle, the popup opens and this never fires.
+// The popup normally handles the icon click while recording. Keep this as a
+// fallback for environments where the action popup cannot be configured.
 chrome.action.onClicked.addListener(() => {
   void (async () => {
     // Await restore — the click may have woken the worker, leaving the module
     // globals empty until this resolves. Without it, Stop silently does nothing.
     await ensureRestored();
+    if (armingNativeRecordingSessionId) {
+      // The action can stay disabled after a transient offscreen-status wake
+      // failure, so retry recovery from the fallback click path as well.
+      await restoreRuntimeState();
+    }
     console.log(
       "[clips-bg] icon clicked — phase:",
       overlayPhase,
@@ -2833,7 +3244,6 @@ chrome.debugger.onDetach.addListener((source) => {
   if (!sessionId) return;
   const session = sessions.get(sessionId);
   if (session) session.attached = false;
-  tabToSession.delete(tabId);
 });
 
 // ---- Dev auto-reload (unpacked installs only) ------------------------------

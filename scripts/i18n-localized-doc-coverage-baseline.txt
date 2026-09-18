@@ -2,6 +2,7 @@
 # Keep this file sorted. Remove entries as localized coverage improves.
 # Format: locale|relative/doc-slug
 ar-SA|agent-native-config
+ar-SA|agentkit
 ar-SA|automation-connectors
 ar-SA|docs-components
 ar-SA|durable-background-runs
@@ -12,7 +13,6 @@ ar-SA|http-api
 ar-SA|integrations
 ar-SA|messaging-internals
 ar-SA|messaging-recipes
-ar-SA|organizations-teams-permissions
 ar-SA|template-analytics-connectors
 ar-SA|template-analytics-dashboards
 ar-SA|template-analytics-developers
@@ -38,10 +38,11 @@ ar-SA|template-design-brand-and-figma
 ar-SA|template-design-collaboration-and-full-apps
 ar-SA|template-design-developers
 ar-SA|template-design-quality-and-components
+ar-SA|template-dispatch-agent
 ar-SA|template-dispatch-developers
-ar-SA|template-dispatch-messaging-routing
-ar-SA|template-dispatch-operations
-ar-SA|template-dispatch-vault-integrations
+ar-SA|template-dispatch-features
+ar-SA|template-dispatch-integrations
+ar-SA|template-dispatch-reference
 ar-SA|template-forms-developers
 ar-SA|template-mail-agent
 ar-SA|template-mail-developers
@@ -68,6 +69,7 @@ ar-SA|toolkit-setup-connections
 ar-SA|toolkit-sharing
 ar-SA|toolkit-ui
 de-DE|agent-native-config
+de-DE|agentkit
 de-DE|automation-connectors
 de-DE|docs-components
 de-DE|durable-background-runs
@@ -78,7 +80,6 @@ de-DE|http-api
 de-DE|integrations
 de-DE|messaging-internals
 de-DE|messaging-recipes
-de-DE|organizations-teams-permissions
 de-DE|template-analytics-connectors
 de-DE|template-analytics-dashboards
 de-DE|template-analytics-developers
@@ -104,10 +105,11 @@ de-DE|template-design-brand-and-figma
 de-DE|template-design-collaboration-and-full-apps
 de-DE|template-design-developers
 de-DE|template-design-quality-and-components
+de-DE|template-dispatch-agent
 de-DE|template-dispatch-developers
-de-DE|template-dispatch-messaging-routing
-de-DE|template-dispatch-operations
-de-DE|template-dispatch-vault-integrations
+de-DE|template-dispatch-features
+de-DE|template-dispatch-integrations
+de-DE|template-dispatch-reference
 de-DE|template-forms-developers
 de-DE|template-mail-agent
 de-DE|template-mail-developers
@@ -134,6 +136,7 @@ de-DE|toolkit-setup-connections
 de-DE|toolkit-sharing
 de-DE|toolkit-ui
 es-ES|agent-native-config
+es-ES|agentkit
 es-ES|automation-connectors
 es-ES|docs-components
 es-ES|durable-background-runs
@@ -144,7 +147,6 @@ es-ES|http-api
 es-ES|integrations
 es-ES|messaging-internals
 es-ES|messaging-recipes
-es-ES|organizations-teams-permissions
 es-ES|template-analytics-connectors
 es-ES|template-analytics-dashboards
 es-ES|template-analytics-developers
@@ -170,10 +172,11 @@ es-ES|template-design-brand-and-figma
 es-ES|template-design-collaboration-and-full-apps
 es-ES|template-design-developers
 es-ES|template-design-quality-and-components
+es-ES|template-dispatch-agent
 es-ES|template-dispatch-developers
-es-ES|template-dispatch-messaging-routing
-es-ES|template-dispatch-operations
-es-ES|template-dispatch-vault-integrations
+es-ES|template-dispatch-features
+es-ES|template-dispatch-integrations
+es-ES|template-dispatch-reference
 es-ES|template-forms-developers
 es-ES|template-mail-agent
 es-ES|template-mail-developers
@@ -200,6 +203,7 @@ es-ES|toolkit-setup-connections
 es-ES|toolkit-sharing
 es-ES|toolkit-ui
 fr-FR|agent-native-config
+fr-FR|agentkit
 fr-FR|automation-connectors
 fr-FR|docs-components
 fr-FR|durable-background-runs
@@ -210,7 +214,6 @@ fr-FR|http-api
 fr-FR|integrations
 fr-FR|messaging-internals
 fr-FR|messaging-recipes
-fr-FR|organizations-teams-permissions
 fr-FR|template-analytics-connectors
 fr-FR|template-analytics-dashboards
 fr-FR|template-analytics-developers
@@ -236,10 +239,11 @@ fr-FR|template-design-brand-and-figma
 fr-FR|template-design-collaboration-and-full-apps
 fr-FR|template-design-developers
 fr-FR|template-design-quality-and-components
+fr-FR|template-dispatch-agent
 fr-FR|template-dispatch-developers
-fr-FR|template-dispatch-messaging-routing
-fr-FR|template-dispatch-operations
-fr-FR|template-dispatch-vault-integrations
+fr-FR|template-dispatch-features
+fr-FR|template-dispatch-integrations
+fr-FR|template-dispatch-reference
 fr-FR|template-forms-developers
 fr-FR|template-mail-agent
 fr-FR|template-mail-developers
@@ -266,6 +270,7 @@ fr-FR|toolkit-setup-connections
 fr-FR|toolkit-sharing
 fr-FR|toolkit-ui
 hi-IN|agent-native-config
+hi-IN|agentkit
 hi-IN|automation-connectors
 hi-IN|docs-components
 hi-IN|durable-background-runs
@@ -276,7 +281,6 @@ hi-IN|http-api
 hi-IN|integrations
 hi-IN|messaging-internals
 hi-IN|messaging-recipes
-hi-IN|organizations-teams-permissions
 hi-IN|template-analytics-connectors
 hi-IN|template-analytics-dashboards
 hi-IN|template-analytics-developers
@@ -302,10 +306,11 @@ hi-IN|template-design-brand-and-figma
 hi-IN|template-design-collaboration-and-full-apps
 hi-IN|template-design-developers
 hi-IN|template-design-quality-and-components
+hi-IN|template-dispatch-agent
 hi-IN|template-dispatch-developers
-hi-IN|template-dispatch-messaging-routing
-hi-IN|template-dispatch-operations
-hi-IN|template-dispatch-vault-integrations
+hi-IN|template-dispatch-features
+hi-IN|template-dispatch-integrations
+hi-IN|template-dispatch-reference
 hi-IN|template-forms-developers
 hi-IN|template-mail-agent
 hi-IN|template-mail-developers
@@ -332,6 +337,7 @@ hi-IN|toolkit-setup-connections
 hi-IN|toolkit-sharing
 hi-IN|toolkit-ui
 ja-JP|agent-native-config
+ja-JP|agentkit
 ja-JP|automation-connectors
 ja-JP|docs-components
 ja-JP|durable-background-runs
@@ -342,7 +348,6 @@ ja-JP|http-api
 ja-JP|integrations
 ja-JP|messaging-internals
 ja-JP|messaging-recipes
-ja-JP|organizations-teams-permissions
 ja-JP|template-analytics-connectors
 ja-JP|template-analytics-dashboards
 ja-JP|template-analytics-developers
@@ -368,10 +373,11 @@ ja-JP|template-design-brand-and-figma
 ja-JP|template-design-collaboration-and-full-apps
 ja-JP|template-design-developers
 ja-JP|template-design-quality-and-components
+ja-JP|template-dispatch-agent
 ja-JP|template-dispatch-developers
-ja-JP|template-dispatch-messaging-routing
-ja-JP|template-dispatch-operations
-ja-JP|template-dispatch-vault-integrations
+ja-JP|template-dispatch-features
+ja-JP|template-dispatch-integrations
+ja-JP|template-dispatch-reference
 ja-JP|template-forms-developers
 ja-JP|template-mail-agent
 ja-JP|template-mail-developers
@@ -398,6 +404,7 @@ ja-JP|toolkit-setup-connections
 ja-JP|toolkit-sharing
 ja-JP|toolkit-ui
 ko-KR|agent-native-config
+ko-KR|agentkit
 ko-KR|automation-connectors
 ko-KR|docs-components
 ko-KR|durable-background-runs
@@ -408,7 +415,6 @@ ko-KR|http-api
 ko-KR|integrations
 ko-KR|messaging-internals
 ko-KR|messaging-recipes
-ko-KR|organizations-teams-permissions
 ko-KR|template-analytics-connectors
 ko-KR|template-analytics-dashboards
 ko-KR|template-analytics-developers
@@ -434,10 +440,11 @@ ko-KR|template-design-brand-and-figma
 ko-KR|template-design-collaboration-and-full-apps
 ko-KR|template-design-developers
 ko-KR|template-design-quality-and-components
+ko-KR|template-dispatch-agent
 ko-KR|template-dispatch-developers
-ko-KR|template-dispatch-messaging-routing
-ko-KR|template-dispatch-operations
-ko-KR|template-dispatch-vault-integrations
+ko-KR|template-dispatch-features
+ko-KR|template-dispatch-integrations
+ko-KR|template-dispatch-reference
 ko-KR|template-forms-developers
 ko-KR|template-mail-agent
 ko-KR|template-mail-developers
@@ -464,6 +471,7 @@ ko-KR|toolkit-setup-connections
 ko-KR|toolkit-sharing
 ko-KR|toolkit-ui
 pt-BR|agent-native-config
+pt-BR|agentkit
 pt-BR|automation-connectors
 pt-BR|docs-components
 pt-BR|durable-background-runs
@@ -474,7 +482,6 @@ pt-BR|http-api
 pt-BR|integrations
 pt-BR|messaging-internals
 pt-BR|messaging-recipes
-pt-BR|organizations-teams-permissions
 pt-BR|template-analytics-connectors
 pt-BR|template-analytics-dashboards
 pt-BR|template-analytics-developers
@@ -500,10 +507,11 @@ pt-BR|template-design-brand-and-figma
 pt-BR|template-design-collaboration-and-full-apps
 pt-BR|template-design-developers
 pt-BR|template-design-quality-and-components
+pt-BR|template-dispatch-agent
 pt-BR|template-dispatch-developers
-pt-BR|template-dispatch-messaging-routing
-pt-BR|template-dispatch-operations
-pt-BR|template-dispatch-vault-integrations
+pt-BR|template-dispatch-features
+pt-BR|template-dispatch-integrations
+pt-BR|template-dispatch-reference
 pt-BR|template-forms-developers
 pt-BR|template-mail-agent
 pt-BR|template-mail-developers
@@ -530,6 +538,7 @@ pt-BR|toolkit-setup-connections
 pt-BR|toolkit-sharing
 pt-BR|toolkit-ui
 zh-CN|agent-native-config
+zh-CN|agentkit
 zh-CN|automation-connectors
 zh-CN|docs-components
 zh-CN|durable-background-runs
@@ -540,7 +549,6 @@ zh-CN|http-api
 zh-CN|integrations
 zh-CN|messaging-internals
 zh-CN|messaging-recipes
-zh-CN|organizations-teams-permissions
 zh-CN|template-analytics-connectors
 zh-CN|template-analytics-dashboards
 zh-CN|template-analytics-developers
@@ -566,10 +574,11 @@ zh-CN|template-design-brand-and-figma
 zh-CN|template-design-collaboration-and-full-apps
 zh-CN|template-design-developers
 zh-CN|template-design-quality-and-components
+zh-CN|template-dispatch-agent
 zh-CN|template-dispatch-developers
-zh-CN|template-dispatch-messaging-routing
-zh-CN|template-dispatch-operations
-zh-CN|template-dispatch-vault-integrations
+zh-CN|template-dispatch-features
+zh-CN|template-dispatch-integrations
+zh-CN|template-dispatch-reference
 zh-CN|template-forms-developers
 zh-CN|template-mail-agent
 zh-CN|template-mail-developers
@@ -596,6 +605,7 @@ zh-CN|toolkit-setup-connections
 zh-CN|toolkit-sharing
 zh-CN|toolkit-ui
 zh-TW|agent-native-config
+zh-TW|agentkit
 zh-TW|automation-connectors
 zh-TW|docs-components
 zh-TW|environment-variables
@@ -605,7 +615,6 @@ zh-TW|http-api
 zh-TW|integrations
 zh-TW|messaging-internals
 zh-TW|messaging-recipes
-zh-TW|organizations-teams-permissions
 zh-TW|template-analytics-connectors
 zh-TW|template-analytics-dashboards
 zh-TW|template-analytics-developers
@@ -631,10 +640,11 @@ zh-TW|template-design-brand-and-figma
 zh-TW|template-design-collaboration-and-full-apps
 zh-TW|template-design-developers
 zh-TW|template-design-quality-and-components
+zh-TW|template-dispatch-agent
 zh-TW|template-dispatch-developers
-zh-TW|template-dispatch-messaging-routing
-zh-TW|template-dispatch-operations
-zh-TW|template-dispatch-vault-integrations
+zh-TW|template-dispatch-features
+zh-TW|template-dispatch-integrations
+zh-TW|template-dispatch-reference
 zh-TW|template-forms-developers
 zh-TW|template-mail-agent
 zh-TW|template-mail-developers

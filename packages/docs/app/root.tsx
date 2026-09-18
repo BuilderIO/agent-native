@@ -35,9 +35,11 @@ import {
   useNavigate,
   useRouteError,
   useLocation,
+  useRevalidator,
   type LoaderFunctionArgs,
 } from "react-router";
 
+import { getGithubStarCount } from "../server/lib/github-star-count.server";
 import { hasDocBlockSyntax } from "./components/doc-block-detection";
 import {
   DEFAULT_DOCS_LOCALE,
@@ -64,6 +66,7 @@ import appCss from "./global.css?url";
 
 const SITE_URL = "https://www.agent-native.com";
 const LOCALE_INIT_SCRIPT_SELECTOR = "script[data-agent-native-locale-init]";
+const GITHUB_STAR_REVALIDATION_DELAY_MS = 1_500;
 
 const LazyAgentSidebar = lazy(async () => {
   const { AgentSidebar } = await import("@agent-native/core/client/agent-chat");
@@ -117,7 +120,6 @@ const JSON_LD = JSON.stringify({
         name: "Builder.io",
         url: "https://builder.io",
       },
-      codeRepository: "https://github.com/BuilderIO/agent-native",
     },
   ],
 });
@@ -134,11 +136,15 @@ async function initialMessagesForLocale(locale: DocsLocale) {
 export async function loader({ request, url }: LoaderFunctionArgs) {
   const requestUrl = url ?? new URL(request.url);
   const locale = resolveLayoutLocale(requestUrl.pathname);
+  const [messages, starCount] = await Promise.all([
+    initialMessagesForLocale(locale),
+    getGithubStarCount(),
+  ]);
   return {
     locale,
     preference: { locale },
-    messages: await initialMessagesForLocale(locale),
-    starCount: null,
+    messages,
+    starCount,
   };
 }
 
@@ -221,6 +227,27 @@ function useRootLocaleData() {
     : fallbackRootLocaleData(location.pathname);
 }
 
+function GithubStarCountRevalidator({
+  starCount,
+}: {
+  starCount: number | null;
+}) {
+  const { revalidate } = useRevalidator();
+  const scheduledRef = useRef(false);
+
+  useEffect(() => {
+    if (starCount !== null || scheduledRef.current) return;
+    scheduledRef.current = true;
+    const timer = window.setTimeout(
+      () => revalidate(),
+      GITHUB_STAR_REVALIDATION_DELAY_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [revalidate, starCount]);
+
+  return null;
+}
+
 export const links = () => [
   { rel: "stylesheet", href: appCss },
   // Every selector in tokens.css is scoped under .builder-brand-tokens, which
@@ -252,8 +279,6 @@ export const meta = () => [
       "Build autonomous agents with intuitive UIs. Define each capability once for the agent, UI, APIs, and integrations. Open-source TypeScript.",
   },
   { property: "og:type", content: "website" },
-  { property: "og:url", content: SITE_URL },
-  { property: "og:site_name", content: "Agent-Native" },
 ];
 
 function DocsChrome({ children }: { children: React.ReactNode }) {
@@ -325,6 +350,7 @@ function DocsChrome({ children }: { children: React.ReactNode }) {
       onClick={handleClick}
     >
       <ScrollManager />
+      <GithubStarCountRevalidator starCount={starCount} />
       <SnackbarProvider>
         <SiteHeader starCount={starCount} />
         {children}
@@ -364,6 +390,8 @@ function SeoLinks() {
   return (
     <>
       <link rel="canonical" href={canonical} />
+      <meta property="og:url" content={canonical} />
+      <meta property="og:site_name" content="Agent-Native" />
       {markdownPath ? (
         <link
           rel="alternate"

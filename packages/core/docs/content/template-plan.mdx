@@ -1,31 +1,29 @@
 ---
 title: "Visual Plans"
-description: "Agent-Native Plans turns your coding agent's plan into a structured, reviewable document — diagrams, wireframes, annotated code, comments, and share links. Install once from the CLI; reviewers you share with edit as a guest and sign in only to save or share."
+description: "Agent-Native Plans turns your coding agent's plan into a structured, reviewable document — diagrams, wireframes, annotated code, and comments. Install once from the CLI; anyone you share a plan with can review and comment as a guest, no sign-up required."
 ---
 
 # Visual Plans
 
-<Callout tone="info">
-
-**Most people install Plan as a skill, not a scaffolded app.** One CLI command
-adds the `/visual-plan`, `/visual-recap`, and `/visualize-repo` skills plus
-the hosted Plan connector to your coding agent — see
-[Plan plugin & marketplace](/docs/plan-plugin) for the plugin and marketplace
-routes. Customizing the Plan template (covered under [Extending Plan](/docs/template-plan-developers))
-is the secondary path, for self-hosting or building on Plan itself.
-
-</Callout>
-
 Agent-Native Plans is visual plan mode for coding agents. It turns an ordinary
 Codex, Claude Code, Markdown, or pasted implementation plan into a structured
-review surface with rich text, diagrams, wireframes, annotated code walkthroughs
-and file trees, annotations, comments, and shareable links.
+review surface with rich text, diagrams, wireframes, annotated code
+walkthroughs and file trees, comments, and shareable links.
 
-It comes down to two commands. `/visual-plan` builds a plan **before** the agent
-writes code. `/visual-recap` turns a change that **already** happened — a PR,
-commit, branch, or git diff — into a high-altitude visual code review. Both open
-the same review surface, so you annotate, comment, and hand feedback back to the
-agent the same way.
+<WireframeBlock id="doc-block-h7x805">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:grid;grid-template-columns:1fr 250px;gap:14px;padding:16px;min-height:520px;box-sizing:border-box'><main style='display:flex;flex-direction:column;gap:12px;min-width:0'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Checkout redesign plan</h1><div style='flex:1'></div><button>Share</button><button class='primary'>Approve</button></div><div class='wf-card' style='display:grid;grid-template-columns:1fr 1fr;gap:10px;min-height:150px'><div class='wf-box' style='display:flex;flex-direction:column;gap:6px;padding:10px'><span class='wf-muted' style='font-size:11px'>Current wireframe</span><div class='wf-box' style='height:14px'></div><div class='wf-box' style='height:28px'></div><div class='wf-box' style='height:28px'></div><div class='wf-box' style='height:18px;width:65%'></div></div><div class='wf-box' style='display:flex;flex-direction:column;gap:6px;padding:10px'><span class='wf-muted' style='font-size:11px'>Proposed wireframe</span><div style='display:flex;gap:6px'><div class='wf-box' style='flex:2;height:54px'></div><div class='wf-box' style='flex:1;height:54px'></div></div><div class='wf-box' style='height:18px;width:40%'></div></div></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:10px'><strong>Implementation plan</strong><div class='wf-box'>Decision: keep existing checkout shell</div><div class='wf-box'>Annotated code walkthrough</div><div class='wf-box'>Open questions</div></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Comments</strong><div class='wf-box'>Pin on primary CTA</div><div class='wf-box'>Question for agent</div><div class='wf-box'>Resolved copy note</div><button class='primary'>Hand back feedback</button></aside></div>"
+    }
+  />
+</WireframeBlock>
+
+It comes down to two commands. `/visual-plan` builds a plan **before** the
+agent writes code. `/visual-recap` turns a change that **already happened** —
+a PR, commit, branch, or git diff — into a high-altitude visual code review.
+Both open the same review surface, so you annotate, comment, and hand
+feedback back to the agent the same way either time.
 
 <Diagram id="doc-block-eoqv08" title="Two commands, one review surface" summary="Both commands publish through the hosted Plan MCP connector into the same annotate-and-comment surface.">
 
@@ -91,138 +89,92 @@ agent the same way.
 
 </Diagram>
 
-<WireframeBlock id="doc-block-h7x805">
-  <Screen
-    surface="desktop"
-    html={
-      "<div style='display:grid;grid-template-columns:1fr 250px;gap:14px;padding:16px;min-height:520px;box-sizing:border-box'><main style='display:flex;flex-direction:column;gap:12px;min-width:0'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Checkout redesign plan</h1><div style='flex:1'></div><button>Share</button><button class='primary'>Approve</button></div><div class='wf-card' style='display:grid;grid-template-columns:1fr 1fr;gap:10px;min-height:150px'><div class='wf-box' style='display:flex;flex-direction:column;gap:6px;padding:10px'><span class='wf-muted' style='font-size:11px'>Current wireframe</span><div class='wf-box' style='height:14px'></div><div class='wf-box' style='height:28px'></div><div class='wf-box' style='height:28px'></div><div class='wf-box' style='height:18px;width:65%'></div></div><div class='wf-box' style='display:flex;flex-direction:column;gap:6px;padding:10px'><span class='wf-muted' style='font-size:11px'>Proposed wireframe</span><div style='display:flex;gap:6px'><div class='wf-box' style='flex:2;height:54px'></div><div class='wf-box' style='flex:1;height:54px'></div></div><div class='wf-box' style='height:18px;width:40%'></div></div></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:10px'><strong>Implementation plan</strong><div class='wf-box'>Decision: keep existing checkout shell</div><div class='wf-box'>Annotated code walkthrough</div><div class='wf-box'>Open questions</div></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Comments</strong><div class='wf-box'>Pin on primary CTA</div><div class='wf-box'>Question for agent</div><div class='wf-box'>Resolved copy note</div><button class='primary'>Hand back feedback</button></aside></div>"
-    }
-  />
-</WireframeBlock>
+## What it replaces
 
-There are two ways into Plans:
+<Comparison>
 
-- **From your coding agent (CLI)** — one command installs the skill, registers
-  the hosted Plans connector, and authenticates it.
-- **In the browser** — anyone you share with can open the editor and create or
-  edit as a **guest, with no sign-up**. They sign in only when they want to save
-  or share.
+### Before
 
-## Install the skill {#install}
+- A plan lives as a wall of prose in chat or a Markdown file, and reviewing
+  it means reading start to finish to find the one paragraph you disagree
+  with.
+- Feedback happens in a Slack thread or scattered comments, disconnected
+  from the plan itself.
+- Reviewing a finished PR means reading a raw diff line by line to
+  reconstruct what changed and why.
 
-Use the Agent-Native CLI. This installs the Plans skill instructions, registers
-the hosted Plans MCP connector, **and** runs the client-specific auth flow in
-one step, so your first tool call does not hit an OAuth wall:
+### After
+
+- The plan renders as diagrams, wireframes, annotated code, and an Open
+  Questions form you can react to directly.
+- Comments pin to the exact text, image, or wireframe location, and target
+  either the agent or a human reviewer.
+- `/visual-recap` turns a PR, commit, or diff into the same visual review
+  instead of a raw diff.
+
+</Comparison>
+
+Export the result as HTML, Markdown, or JSON for a source-control-friendly
+copy, or keep it off the hosted database entirely with local-files mode. See
+[Reviewing and Commenting on Plans](/docs/template-plan-review-workflow) and
+[Local-Files Mode and Desktop Sync](/docs/template-plan-local-and-desktop)
+for each of those in depth.
+
+## Get started {#get-started}
+
+<Steps>
+
+### Install the skill {#install}
+
+Most people install Plan as a **skill** for their existing coding agent, not
+as a scaffolded app. This one command installs the skill instructions,
+registers the hosted Plans MCP connector, and signs it in:
 
 ```bash
 npx @agent-native/core@latest skills add visual-plan
 ```
 
-The command installs three commands — `/visual-plan`, `/visual-recap`, and
-`/visualize-repo` — plus the `plan` MCP connector at
-`https://plan.agent-native.com/mcp`. Authentication is a one-time browser
-sign-in at setup; this is intended, and it is what lets the agent persist and
-share the plans it generates.
+This installs three slash commands — `/visual-plan`, `/visual-recap`, and
+`/visualize-repo` — plus the `plan` MCP connector (a remote tool server your
+agent talks to) at `https://plan.agent-native.com/mcp`. For the full flag
+reference, the plugin/marketplace install routes for Claude Code and Codex,
+and the VS Code extension, see
+[Plan plugin and marketplace → Install routes](/docs/plan-plugin#install).
 
-For the full flag reference (`--client`, `--mode`, `--mcp-url`, `--no-connect`,
-`--with-github-action`), the plugin/marketplace install routes for Claude Code
-and Codex, and the bare-instructions fallback, see
-[Plan plugin & marketplace → Install routes](/docs/plan-plugin#install). To
-auto-generate a recap on every pull request, that same page's
-`--with-github-action` flag writes the GitHub Action described in
-[PR Visual Recap](/docs/pr-visual-recap).
+Customizing the Plan template itself — self-hosting it, or building on it
+directly — is a separate, secondary path covered in
+[Extending Plan](/docs/template-plan-developers). Most people never need it.
 
-<Callout tone="info">
+### Ask your agent for the command that fits the work
 
-**Prefer a one-install plugin?** Claude Code and Codex can add
-`BuilderIO/agent-native` directly as a plugin marketplace, which bundles the
-Plan skills _and_ the connector in one install and auto-updates as the skills
-improve — see [Plan plugin & marketplace](/docs/plan-plugin).
+- "Use `/visual-plan` before changing the auth flow."
+- "Create a `/visual-plan` for the new onboarding screen with mobile and
+  desktop states."
+- "Run `/visual-recap` on this PR so I can review the shape of the change
+  first."
+- "Use `/visual-recap` on the diff between `main` and this branch."
+- "Run `/visualize-repo` and start with our public API actions and schema."
 
-</Callout>
+`/visual-plan` pulls in diagrams, wireframes, mockups, clickable prototypes,
+and annotated code as the work calls for them. The agent inspects the
+codebase first, then the returned link opens the review UI in your browser
+or VS Code.
 
-### Open Plans inside VS Code {#vscode-extension}
+### Review as a guest, no account needed
 
-If you live in VS Code, install the
-[Agent-Native Plans extension](https://marketplace.visualstudio.com/items?itemName=Builder.agent-native)
-to open the same Plan review surface in a side panel instead of a separate
-browser tab. The extension handles the `vscode://builder.agent-native/open`
-handoff URL that Plan tools return alongside the normal web link, and it
-includes a command to run the Agent-Native MCP connect flow for VS Code /
-GitHub Copilot.
+People you share a plan with don't need to install anything. They open the
+Plans editor and **create and edit with no sign-up** — they work as a
+guest. Signing in is only required to **save or share** your own work, and
+if a guest signs in later, every plan they created as a guest is **claimed**
+into their account.
 
-## Use it from your coding agent
-
-After installation, ask your agent for the command that fits the work:
-
-- `/visual-plan` creates a structured plan **before** implementation — for
-  architecture, backend, refactor, UI, or mixed product work — pulling in
-  diagrams, wireframes, mockups, clickable prototypes, and annotated code
-  walkthroughs and file trees as the work calls for them.
-- `/visual-recap` creates a high-altitude **review** of a change that already
-  happened — a PR, commit, branch, or git diff — as schema, API, file, and
-  before/after blocks instead of a wall of raw diff.
-
-The agent should inspect the codebase first, then create the visual plan when a
-wrong direction would be costly. The returned Plans link opens the review UI in
-the browser or VS Code, so you can annotate, correct, choose options, and ask for
-updates before code changes begin.
+</Steps>
 
 When a Codex, Claude Code, Markdown, or pasted plan already exists, use
-`/visual-plan`; the agent preserves that source plan and builds the richer review
-surface from it instead of starting over.
-
-If the first pass still has answerable decisions, the agent can place an
-**Open Questions** form at the bottom of the same plan. Answering it and sending
-it to the agent starts a revision turn against the existing plan.
-
-## Cost and model choice
-
-Generating a plan or recap runs a full agentic session against your coding
-agent's LLM, not a lightweight template fill, so cost scales with the size of
-the diff or plan and the model you choose.
-
-- The app's default chat model is GPT-5.6 Luna. Direct Anthropic connections
-  keep Claude Sonnet 5 as their default. Change models any time in **Settings**;
-  Haiku is the cheaper Claude option.
-- Automated PR recaps from the GitHub Action run separately from the
-  interactive app and have their own model and cost knobs — see
-  [PR Visual Recap](/docs/pr-visual-recap) for `VISUAL_RECAP_MODEL`,
-  `VISUAL_RECAP_AGENT`, and `VISUAL_RECAP_REASONING`.
-
-## What you can do with it
-
-- **Review before implementation.** React to diagrams, wireframes, option tabs,
-  Open Questions forms, risk notes, annotated code walkthroughs, and code
-  previews before the agent edits files.
-- **Comment directly on the plan.** Pin feedback to text, images, wireframes, or
-  canvas locations; choose whether the comment is for the agent or a human
-  reviewer; @mention teammates with inline chips; and resolve comments as the
-  plan evolves. See [Reviewing and Commenting on Plans](/docs/template-plan-review-workflow)
-  for the full comment and sharing model.
-- **Hand feedback to the agent clearly.** Text comments attach to the nearest
-  prose block, visual comments include exact target metadata, and browser
-  handoff includes focused screenshots for a small set of visual/canvas comment
-  locations instead of one hard-to-read giant image.
-- **Export the result.** Keep an HTML, Markdown, or JSON receipt of the plan
-  when you need a source-control-friendly handoff.
-- **Keep plan content private.** Use local-files mode to write plans to a local
-  MDX folder instead of the hosted database — see
-  [Local-Files Mode and Desktop Sync](/docs/template-plan-local-and-desktop).
-
-## Editing in the browser as a guest {#guest}
-
-People you share a plan with do not need to install anything. They open the Plans
-editor and **create and edit with no sign-up** — they work as a guest. Signing in
-is only required when someone wants to **save or share** their own work.
-
-When a guest signs in, the plans they created as a guest are **claimed** into
-their account, so nothing they built is lost.
-
-Plan prose edits inline: click into any text section, type, format with the rich
-editor toolbar or slash menu, and Plans autosaves the underlying markdown. Review
-annotation mode temporarily turns text sections read-only so clicks can pin
-feedback; leave review mode to keep editing prose.
+`/visual-plan`; the agent preserves that source plan and builds the richer
+review surface from it instead of starting over. If the first pass still has
+open decisions, the agent can add an **Open Questions** form at the bottom
+of the plan — answering it and sending it back starts a revision turn.
 
 <Callout tone="info">
 
@@ -230,49 +182,56 @@ feedback; leave review mode to keep editing prose.
 
 - **As a guest** you can open a shared link, create a new plan, edit prose,
   and use review annotation mode — no account needed.
-- **Signing in** additionally lets you save your own plans permanently, publish
-  a plan to a shareable link, grant viewer/editor/admin access to others, post
-  comments that notify people by email, and delete or restore plans you own.
+- **Signing in** additionally lets you save your own plans permanently,
+  publish a plan to a shareable link, grant viewer/editor/admin access to
+  others, post comments that notify people by email, and delete or restore
+  plans you own.
 
 </Callout>
 
+## Cost and model choice
+
+Generating a plan or recap runs a full agentic session against your coding
+agent's LLM, not a lightweight template fill — cost scales with the size of
+the diff or plan and the model you choose.
+
+- The app's default chat model is GPT-5.6 Luna. Direct Anthropic connections
+  keep Claude Sonnet 5 as their default. Change models any time in
+  **Settings**; Haiku is the cheaper Claude option.
+- Automated PR recaps from the GitHub Action run separately from the
+  interactive app and have their own model and cost knobs — see
+  [PR Visual Recap](/docs/pr-visual-recap) for `VISUAL_RECAP_MODEL`,
+  `VISUAL_RECAP_AGENT`, and `VISUAL_RECAP_REASONING`.
+
 ## Requesting access to a private plan {#request-access}
 
-If someone opens a plan link they do not have permission to view, Plans does
-not just show a dead end. The page tells them the plan is private and offers a
-**Request access** action. Requesting access:
+If someone opens a plan link they don't have permission to view, Plans
+doesn't just show a dead end. The page tells them the plan is private and
+offers a **Request access** action, which:
 
 - Requires being signed in (a guest is prompted to sign in first).
 - Records the request against the plan and, when the deployment has email
-  configured, sends the plan owner a message with the requester's name and a
-  link to open the plan and share it back if approved.
+  configured, messages the plan owner with the requester's name and a link
+  to open the plan and share it back if approved.
 - Is safe to click more than once — Plans checks whether you already have
-  access first, and a second request from the same person does not spam the
+  access first, so a second request from the same person doesn't spam the
   owner with duplicate emails.
 
-If the plan's visibility is set to **org** rather than fully private, and your
-account already has a pending invitation to that organization or an email
-domain that matches it, Plans offers to join the organization directly instead
-of sending a request.
+If the plan's visibility is set to **org** rather than fully private, and
+your account already has a pending invitation to that organization or an
+email domain that matches it, Plans offers to join the organization
+directly instead of sending a request.
 
-## Recovering from auth errors {#auth-errors}
+<Callout tone="warning">
 
 If a Plans tool ever returns `needs auth`, `Unauthorized`, or `Session
-terminated`, do not keep retrying it. Authenticate the connector with
-`npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex`
-for Codex, or re-run `/mcp` → **Authenticate** in an OAuth-capable host. Start a
-new Codex thread or restart/reload the relevant client before expecting the tool
-registry to update.
+terminated`, don't keep retrying it. Re-authenticate with
+`npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex`,
+or re-run `/mcp` → **Authenticate** for an OAuth-capable host. Start a new
+Codex thread or restart/reload the client afterward — the tool registry
+only picks up the change on a fresh session.
 
-## Useful prompts
-
-- "Use `/visual-plan` before changing the auth flow."
-- "Create a `/visual-plan` for the new onboarding screen with mobile and desktop states."
-- "Use `/visual-plan` on the Markdown plan below and make it easier to review."
-- "Run `/visual-recap` on this PR so I can review the shape of the change first."
-- "Use `/visual-recap` on the diff between `main` and this branch."
-- "Use `/visual-recap` in local-files mode so no recap content is written to the Plan DB."
-- "Run `/visualize-repo` and start with our public API actions and schema."
+</Callout>
 
 ## What's next
 
@@ -281,7 +240,7 @@ registry to update.
 - [**Events and Automations**](/docs/template-plan-automations) — the plan event bus and automation recipes
 - [**Extending Plan**](/docs/template-plan-developers) — data model, actions, and custom MDX blocks for customizing or self-hosting Plan
 - [**PR Visual Recap**](/docs/pr-visual-recap) — run `/visual-recap` automatically on every pull request
-- [**Plan plugin & marketplace**](/docs/plan-plugin) — install the Plan skills as a Claude Code or Codex plugin
+- [**Plan plugin and marketplace**](/docs/plan-plugin) — install the Plan skills as a Claude Code or Codex plugin
 - [**Skills**](/docs/skills-guide) — how Agent-Native installs skills
 - [**MCP Clients**](/docs/mcp-clients) — configuring hosted MCP connectors
 - [**Templates**](/docs/cloneable-saas) — the Cloneable SaaS model

@@ -78,9 +78,29 @@ export function BrandingEditor({
   const [uploading, setUploading] = useState(false);
   const [dragging, setDragging] = useState(false);
 
+  // The last-saved values the Save button compares against to show the
+  // dirty state. Re-seeded after every successful save so the button
+  // returns to neutral instead of staying "dirty" against the original props.
+  const [savedState, setSavedState] = useState({
+    name: initialName,
+    brandColor: initialBrandColor,
+    brandLogoUrl: initialBrandLogoUrl,
+    defaultVisibility: initialDefaultVisibility,
+  });
+
   useEffect(() => {
     setDefaultVisibility(initialDefaultVisibility);
+    setSavedState((current) => ({
+      ...current,
+      defaultVisibility: initialDefaultVisibility,
+    }));
   }, [initialDefaultVisibility]);
+
+  const isDirty =
+    name !== savedState.name ||
+    brandColor !== savedState.brandColor ||
+    brandLogoUrl !== savedState.brandLogoUrl ||
+    defaultVisibility !== savedState.defaultVisibility;
 
   const qc = useQueryClient();
   const save = useActionMutation<
@@ -123,6 +143,7 @@ export function BrandingEditor({
         brandLogoUrl,
         defaultVisibility,
       });
+      setSavedState({ name, brandColor, brandLogoUrl, defaultVisibility });
       toast.success(t("brandingEditor.brandingUpdated"));
       void qc.invalidateQueries({
         queryKey: ["action", "list-organization-state"],
@@ -352,12 +373,14 @@ export function BrandingEditor({
           <div className="flex justify-end">
             <Button
               type="submit"
-              disabled={disabled || save.isPending}
-              className="bg-primary hover:bg-primary/90 text-primary-foreground"
+              variant={isDirty ? "default" : "secondary"}
+              disabled={disabled || save.isPending || !isDirty}
             >
               {save.isPending
                 ? t("brandingEditor.saving")
-                : t("brandingEditor.save")}
+                : isDirty
+                  ? t("brandingEditor.save")
+                  : t("brandingEditor.saved")}
             </Button>
           </div>
         </form>

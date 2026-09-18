@@ -598,8 +598,8 @@ export default defineAction({
     "Prepare one local Builder CMS review payload from pending outbound changes. This approves, prepares, and validates a dry-run plan, but never calls Builder APIs.",
   schema: z
     .object({
-      databaseId: z.string().optional().describe("Database ID"),
-      documentId: z.string().optional().describe("Database document/page ID"),
+      databaseId: z.string().optional().describe("Collection ID"),
+      documentId: z.string().optional().describe("Collection document/page ID"),
       sourceId: z
         .string()
         .optional()

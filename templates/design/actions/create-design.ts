@@ -6,6 +6,7 @@ import {
 } from "@agent-native/core/server/request-context";
 import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
 import { assertAccess } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
@@ -33,8 +34,8 @@ export default defineAction({
     "generate-design (files + canvasFrames) or create-file. When a design " +
     "system is linked, the result includes its `agentContext`; apply it " +
     "before authoring the screen. Omit designSystemId to link the caller's " +
-    "default design system; pass designSystemId, or the exact title as " +
-    "`designSystem`, to override.",
+    "default design system; pass null for no design system, or pass " +
+    "designSystemId or the exact title as `designSystem` to override.",
   schema: z.object({
     id: z
       .string()
@@ -42,7 +43,11 @@ export default defineAction({
       .describe(
         "Optional pre-generated UI ID. Agents should omit this and use the ID returned by the successful action.",
       ),
-    title: z.string().describe("Design project title"),
+    title: z
+      .string()
+      .describe(
+        "A concise, specific project name derived from the user's request. Never use a placeholder such as 'Untitled Design'.",
+      ),
     description: z
       .string()
       .optional()
@@ -54,8 +59,11 @@ export default defineAction({
       .describe("Type of design project"),
     designSystemId: z
       .string()
+      .nullable()
       .optional()
-      .describe("Design system ID to link to this design"),
+      .describe(
+        "Design system ID to link; omit for the caller's default, or pass null for no design system. Overrides designSystem.",
+      ),
     designSystem: z
       .string()
       .optional()
@@ -73,14 +81,17 @@ export default defineAction({
       height: 680,
     }),
   },
-  run: async ({
-    id: providedId,
-    title,
-    description,
-    projectType,
-    designSystemId,
-    designSystem,
-  }) => {
+  run: async (
+    {
+      id: providedId,
+      title,
+      description,
+      projectType,
+      designSystemId,
+      designSystem,
+    },
+    ctx,
+  ) => {
     const db = getDb();
     const id = providedId ?? nanoid();
     const now = new Date().toISOString();
@@ -91,7 +102,7 @@ export default defineAction({
     let resolvedDesignSystemId = designSystemId;
     if (resolvedDesignSystemId) {
       await assertAccess("design-system", resolvedDesignSystemId, "viewer");
-    } else {
+    } else if (designSystemId !== null) {
       resolvedDesignSystemId =
         (designSystem
           ? await resolveDesignSystemIdByTitle(designSystem)
@@ -113,6 +124,20 @@ export default defineAction({
       createdAt: now,
       updatedAt: now,
     });
+
+    track(
+      "design_created",
+      {
+        app_name: "design",
+        template_name: "design",
+        output_id: id,
+        output_type: "design",
+        project_type: projectType ?? "prototype",
+        variant_count: 0,
+        design_system_id: resolvedDesignSystemId ?? undefined,
+      },
+      ctx,
+    );
 
     return {
       id,

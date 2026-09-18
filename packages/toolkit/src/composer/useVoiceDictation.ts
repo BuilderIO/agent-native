@@ -1100,7 +1100,7 @@ export function useVoiceDictation(
 
     // In "auto" mode, prefer browser-native SpeechRecognition when available.
     // It requires no server-side API key, streams words incrementally into the
-    // composer, and matches the macros-app record-button experience. Fall back
+    // composer and matches the native record-button experience. Fall back
     // to the server upload path only when SpeechRecognition isn't supported.
     // Explicit server providers (builder, gemini, groq, openai) always use the
     // MediaRecorder → server upload path regardless.
