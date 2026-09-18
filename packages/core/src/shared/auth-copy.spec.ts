@@ -15,7 +15,7 @@ describe("native auth copy", () => {
     // that does not exist. The subtitle must attach both outcomes to the one
     // visible continue action.
     expect(NATIVE_AUTH_COPY["en-US"].welcomeSubtitle).toBe(
-      "Continue to sign in or create your account",
+      "Sign in or create your account",
     );
     expect(NATIVE_AUTH_COPY["en-US"].welcomeSubtitle).toMatch(
       /create your account/i,
@@ -31,6 +31,7 @@ describe("native auth copy", () => {
   it.each(LOCALES)("defines entry copy for %s", (locale) => {
     const copy = NATIVE_AUTH_COPY[locale];
     expect(copy.welcomeTitle.trim()).not.toBe("");
+    expect(copy.welcomeToApp).toContain("{appName}");
     expect(copy.welcomeSubtitle.trim()).not.toBe("");
     expect(copy.sendMagicLink.trim()).not.toBe("");
   });
