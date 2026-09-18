@@ -191,8 +191,15 @@ describe("SlideEditor render-phase safety", () => {
     expect(enterBody).toContain(
       "const hostRect = host.getBoundingClientRect()",
     );
+    expect(enterBody).toContain("getBoxQuads");
+    expect(enterBody).toContain("ancestorTranslationX");
+    expect(enterBody).toContain(
+      'host.style.transform = `matrix(${composed.join(", ")})`',
+    );
     expect(enterBody).toContain("new ResizeObserver(positionHost)");
     expect(enterBody).toContain("resizeObserver?.observe(slideCanvas)");
+    expect(enterBody).toContain("resizeObserver?.observe(host)");
+    expect(enterBody).toContain("positionHost();");
     expect(enterBody).toContain("resizeObserver?.disconnect()");
   });
 
