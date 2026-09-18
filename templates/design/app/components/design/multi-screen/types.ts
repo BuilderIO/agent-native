@@ -9,6 +9,7 @@ import type { CodeLayerProjection, CodeLayerSource } from "@shared/code-layer";
 import type { LayoutGridById } from "@shared/layout-grid";
 import type { PenCuspLatch, PenPath } from "@shared/pen-path";
 import type { SourceNodeProvenance } from "@shared/preview-source-provenance";
+import type { VectorEndpointStyle } from "@shared/vector-endpoints";
 import type { ReactNode } from "react";
 
 import type {
@@ -110,6 +111,8 @@ export interface CanvasToolProps {
   fill?: string;
   stroke?: string;
   strokeWidth?: number;
+  startPoint?: VectorEndpointStyle;
+  endPoint?: VectorEndpointStyle;
   text?: string;
 }
 
@@ -123,6 +126,8 @@ export interface CanvasPrimitiveInsert {
   fill?: string;
   stroke?: string;
   strokeWidth?: number;
+  startPoint?: VectorEndpointStyle;
+  endPoint?: VectorEndpointStyle;
   autoSize?: boolean;
 }
 
@@ -848,6 +853,8 @@ export interface DraftPrimitive {
   fill?: string;
   stroke?: string;
   strokeWidth?: number;
+  startPoint?: VectorEndpointStyle;
+  endPoint?: VectorEndpointStyle;
   autoSize?: boolean;
 }
 

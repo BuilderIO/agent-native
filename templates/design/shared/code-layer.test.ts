@@ -577,6 +577,66 @@ describe("code layer projection of a drawn vector", () => {
   it("keeps data-an-primitive so a projection-only selection stays a vector", () => {
     expect(vectorNode().dataAttributes["data-an-primitive"]).toBe("path");
   });
+
+  it("projects endpoint values and persists marker-start/marker-end edits", () => {
+    const withEndpoints = html
+      .replace(
+        'style="position:absolute;left:10px;top:10px;background-color:#782323;border-width:1px"',
+        'style="position:absolute;left:10px;top:10px;--an-vector-start-point:diamond;--an-vector-end-point:circle"',
+      )
+      .replace(
+        '<path d="M 0 0 L 80 60 Z"',
+        '<defs data-an-vector-endpoints="true"><marker id="pen-1-vector-marker-start"/></defs><path marker-start="url(#pen-1-vector-marker-start)" marker-end="url(#pen-1-vector-marker-end)" d="M 0 0 L 80 60 Z"',
+      );
+    const projected = buildCodeLayerProjection(withEndpoints).nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "pen-1",
+    );
+    expect(projected?.style).toMatchObject({
+      "--an-vector-start-point": "diamond",
+      "--an-vector-end-point": "circle",
+    });
+
+    const patch = applyVisualEdit(withEndpoints, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "--an-vector-end-point",
+      value: "triangle",
+    });
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("--an-vector-end-point: triangle");
+    expect(patch.content).toContain(
+      'marker-end="url(#pen-1-vector-marker-end)"',
+    );
+    expect(patch.content).toContain('data-an-vector-endpoints="true"');
+    expect(patch.content).toContain('d="M 0 0 L 10 5 L 0 10 z"');
+  });
+
+  it("supports none and round endpoint values without leaving stale markers", () => {
+    const content =
+      '<svg data-agent-native-node-id="line-1" data-an-primitive="line" style="--an-vector-end-point:triangle"><path marker-end="url(#line-1-vector-marker-end)" d="M 0 5 L 80 5"/></svg>';
+    const none = applyVisualEdit(content, {
+      kind: "style",
+      target: { nodeId: "line-1" },
+      property: "--an-vector-end-point",
+      value: "none",
+    });
+    expect(none.result.status).toBe("applied");
+    expect(none.content).not.toContain("marker-end=");
+
+    const round = applyVisualEdit(none.content, {
+      kind: "style",
+      target: { nodeId: "line-1" },
+      property: "--an-vector-start-point",
+      value: "round",
+    });
+    expect(round.result.status).toBe("applied");
+    expect(round.content).toContain(
+      'marker-start="url(#line-1-vector-marker-start)"',
+    );
+    expect(round.content).toContain(
+      '<circle cx="5" cy="5" r="4" fill="context-stroke"/>',
+    );
+  });
 });
 
 describe("applyVisualEdit vector paint", () => {

@@ -504,6 +504,21 @@ const messages = {
     },
   },
   designEditor: {
+    vectorEndpoints: {
+      startPoint: "起點",
+      endPoint: "終點",
+      swap: "交換起點與終點",
+      options: {
+        none: "無",
+        round: "圓頭",
+        square: "方形",
+        line: "線箭頭",
+        triangle: "三角箭頭",
+        reversedTriangle: "反向三角形",
+        circle: "圓形箭頭",
+        diamond: "菱形箭頭",
+      },
+    },
     ...designTemplateFeatureOverrides["zh-TW"].designEditor,
     ...responsiveInteractOverrides["zh-TW"].designEditor,
     deepSelectGuidance: {
