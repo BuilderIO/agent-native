@@ -13237,6 +13237,39 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       !isOverlayElement(hit) &&
       !isTemplateCloneElement(hit)
     ) {
+      // A same-parent child is always a slot. Cross-parent slots are only
+      // forced for wrapped flex and grid, where the row/cell geometry carries
+      // insertion intent; a child of an ordinary flex item can still be an
+      // intentional nesting target.
+      var hitAutoLayoutParent = hit.parentElement;
+      var hitAutoLayoutStyles = hitAutoLayoutParent
+        ? window.getComputedStyle(hitAutoLayoutParent)
+        : null;
+      var hitIsGrid =
+        hitAutoLayoutStyles &&
+        (hitAutoLayoutStyles.display === "grid" ||
+          hitAutoLayoutStyles.display === "inline-grid");
+      var hitIsWrappedFlex =
+        hitAutoLayoutStyles &&
+        (hitAutoLayoutStyles.display === "flex" ||
+          hitAutoLayoutStyles.display === "inline-flex") &&
+        (hitAutoLayoutStyles.flexWrap === "wrap" ||
+          hitAutoLayoutStyles.flexWrap === "wrap-reverse");
+      if (
+        hitAutoLayoutParent &&
+        isAutoLayoutElement(hitAutoLayoutParent) &&
+        (hitAutoLayoutParent === el.parentElement ||
+          hitIsGrid ||
+          hitIsWrappedFlex)
+      ) {
+        var directChildSlot = nearestChildInsertionTarget(
+          hitAutoLayoutParent,
+          clientX,
+          clientY,
+          dragged,
+        );
+        if (directChildSlot) return directChildSlot;
+      }
       if (isContainerDropTarget(hit) && !isTextBearingLeaf(hit)) {
         var containerRect = hit.getBoundingClientRect();
         var edgeAxis = hit.parentElement
@@ -13391,6 +13424,30 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       clientX > parentRect.right ||
       clientY < parentRect.top ||
       clientY > parentRect.bottom;
+
+    // Cmd/Ctrl's auto-layout override is a free placement gesture. Once it
+    // leaves its current auto-layout parent, resolve the root escape before a
+    // nearby sibling/container can pull it back into that parent's flow.
+    var pointHit = elementFromEditorPoint(clientX, clientY);
+    if (
+      ignoreTargetAutoLayout &&
+      pointerOutsideCurrentParent &&
+      isAutoLayoutElement(currentParent) &&
+      (!pointHit ||
+        pointHit === document.body ||
+        pointHit === document.documentElement)
+    ) {
+      // Cmd/Ctrl is an explicit escape from the current auto-layout tree.
+      // Use the document root as the persistence anchor instead of placing
+      // after the former parent, whose generated screen wrapper would retain
+      // the child in that tree after the source round-trip.
+      return {
+        anchor: document.body,
+        placement: "inside",
+        axis: "y",
+        dropMode: "absolute-container",
+      };
+    }
 
     if (keepCurrentParent && pointerOutsideCurrentParent) {
       // Figma parity: an auto-layout parent cannot host a freely
@@ -13592,6 +13649,23 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (!hit || hit === document.documentElement || hit === document.body) {
       return unnestAbsoluteToScreenRoot(el, clientX, clientY);
     }
+    var explicitFrame = hit.closest('[data-an-primitive="frame"]');
+    if (
+      explicitFrame &&
+      explicitFrame !== document.body &&
+      !isDraggedOrInsideDragged(explicitFrame) &&
+      isAutoLayoutElement(explicitFrame.parentElement)
+    ) {
+      return {
+        anchor: explicitFrame,
+        placement: "inside",
+        axis: parentFlowAxis(explicitFrame),
+        // A declared frame is a deliberate nesting target even while it is a
+        // flex item itself. Its normal drop mode joins the frame's content
+        // flow; Ctrl is the explicit request to keep absolute positioning.
+        dropMode: "flow-insert",
+      };
+    }
     var cursor = hit;
     while (cursor && cursor !== document.body) {
       if (
@@ -13657,7 +13731,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (
         cursor !== document.body &&
         isContainerDropTarget(cursor) &&
-        !(parent && parent !== document.body && isAutoLayoutElement(parent))
+        !(
+          parent &&
+          parent !== document.body &&
+          isAutoLayoutElement(parent) &&
+          cursor.getAttribute("data-an-primitive") !== "frame"
+        )
       ) {
         // Free (absolute) element into a non-auto-layout container stays free:
         // nest as an absolute child at the drop point, never convert to flex.
@@ -16104,7 +16183,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           var rawTarget = resolveReorderOrFreeTarget(
             cx,
             cy,
-            Boolean(ev.ctrlKey),
+            reorderIgnoresAutoLayout || Boolean(ev.ctrlKey || ev.metaKey),
           );
           rawTarget = applyReorderSizeGuard(rawTarget, ev);
           currentTarget = stabilizeReorderTarget(
@@ -16280,7 +16359,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         // Space held only at release still takes effect; live reflow then runs
         // one final stabilize tick so the drop still lands on the previewed
         // slot rather than jumping.
-        var finalRaw = resolveReorderOrFreeTarget(cx, cy, Boolean(ev?.ctrlKey));
+        var finalRaw = resolveReorderOrFreeTarget(
+          cx,
+          cy,
+          reorderIgnoresAutoLayout || Boolean(ev?.ctrlKey || ev?.metaKey),
+        );
         currentTarget = liveReflowEnabled
           ? stabilizeReorderTarget(
               applyReorderSizeGuard(finalRaw, ev),
