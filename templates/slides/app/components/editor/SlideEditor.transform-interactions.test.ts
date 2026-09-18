@@ -108,4 +108,22 @@ describe("SlideEditor transformed-object interactions", () => {
       "updateAlignmentGuides(snap.guides, containingBlock, snapCanvas)",
     );
   });
+
+  it("refreshes layer hover geometry after canvas zoom and nested row transitions", () => {
+    const hoverStart = editorSource.indexOf(
+      "useLayoutEffect(() => {\n    if (!layersOpen || !hoveredLayerId)",
+    );
+    const hoverEnd = editorSource.indexOf(
+      "useEffect(() => {\n    if (!layersOpen) setHoveredLayerId(null);",
+      hoverStart,
+    );
+    expect(hoverStart).toBeGreaterThanOrEqual(0);
+    expect(hoverEnd).toBeGreaterThan(hoverStart);
+    expect(editorSource.slice(hoverStart, hoverEnd)).toContain(
+      "[canvasZoom, getSlideContent, hoveredLayerId, layersOpen, slide.content]",
+    );
+    expect(editorSource).toContain(
+      "setHoveredLayerId((current) => (current === id ? null : current))",
+    );
+  });
 });

@@ -3180,7 +3180,7 @@ export default function SlideEditor({
       window.removeEventListener("resize", update);
       window.removeEventListener("scroll", update, true);
     };
-  }, [getSlideContent, hoveredLayerId, layersOpen, slide.content]);
+  }, [canvasZoom, getSlideContent, hoveredLayerId, layersOpen, slide.content]);
 
   useEffect(() => {
     if (!layersOpen) setHoveredLayerId(null);
