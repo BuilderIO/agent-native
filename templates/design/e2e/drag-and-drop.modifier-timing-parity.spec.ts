@@ -39,6 +39,15 @@ const COPY_FIXTURE = `<!doctype html>
     style="position:absolute;left:300px;top:80px;width:120px;height:64px;background:#a855f7">Copy Peer</div>
 </body></html>`;
 
+const META_FIXTURE = `<!doctype html>
+<html><body style="margin:0;min-height:900px;background:#0f1115">
+  <section data-agent-native-node-id="meta-row" data-agent-native-layer-name="Meta Row"
+    style="position:absolute;left:60px;top:80px;width:300px;height:100px;padding:16px;display:flex;flex-direction:row;gap:12px;background:#1f2937">
+    <div data-agent-native-node-id="meta-child" data-agent-native-layer-name="Meta Child" style="width:100px;height:48px;background:#6366f1">Child</div>
+    <div data-agent-native-node-id="meta-peer" data-agent-native-layer-name="Meta Peer" style="width:100px;height:48px;background:#a855f7">Peer</div>
+  </section>
+</body></html>`;
+
 const COMMAND_FIXTURE = `<!doctype html>
 <html><body style="margin:0;position:relative;width:900px;height:900px;background:#0f1115;color:#fff">
   <section data-agent-native-node-id="command-source-row" data-agent-native-layer-name="Command Source Row"
@@ -408,6 +417,54 @@ test("late Alt duplicate keeps the source visible, names a clone, and supports E
   }
 });
 
+test("late Alt free drag waits for post-key movement before duplicating", async ({
+  page,
+}) => {
+  const designId = await newDesign(page, COPY_FIXTURE);
+  try {
+    await openEditor(page, designId);
+    await selectCanvasNode(page, "copy-source");
+    const sourceBefore = (await node(page, "copy-source").boundingBox())!;
+    const target = await previewPoint(page, 560, 300);
+
+    await page.mouse.move(
+      sourceBefore.x + sourceBefore.width / 2,
+      sourceBefore.y + sourceBefore.height / 2,
+    );
+    await page.mouse.down();
+    await page.mouse.move(sourceBefore.x + 5, sourceBefore.y + 4, { steps: 2 });
+    await page.mouse.move(target.x, target.y, { steps: 18 });
+    await page.waitForTimeout(120);
+    const heldSource = await runtimeState(page, "copy-source");
+
+    // Alt arrives after the source has visibly moved. With no follow-up
+    // pointer event there is no placed duplicate yet; the source document and
+    // persisted history stay byte-identical until the drag is released.
+    const beforeAltDocument = await indexHtml(page, designId);
+    await page.keyboard.down("Alt");
+    expect(await visibleDuplicateState(page)).toHaveLength(0);
+    expect(await indexHtml(page, designId)).toBe(beforeAltDocument);
+    await page.mouse.up();
+    await page.keyboard.up("Alt");
+
+    await expect
+      .poll(() =>
+        indexHtml(page, designId).then((html) =>
+          htmlNodeCount(html, "Copy Source"),
+        ),
+      )
+      .toBe(1);
+    await openEditor(page, designId);
+    expect(
+      await preview(page)
+        .locator('[data-agent-native-layer-name="Copy Source"]')
+        .count(),
+    ).toBe(1);
+  } finally {
+    await deleteDesign(page, designId);
+  }
+});
+
 test("late Alt flow reorder duplicates without moving the source and Escape is byte-identical", async ({
   page,
 }) => {
@@ -527,6 +584,54 @@ test("Alt before movement threshold does not duplicate a flow child click", asyn
 
     await expect.poll(() => indexHtml(page, designId)).toBe(before);
     expect(await visibleDuplicateState(page)).toHaveLength(0);
+  } finally {
+    await deleteDesign(page, designId);
+  }
+});
+
+test("releasing Meta before the drop restores normal flow ownership", async ({
+  page,
+}) => {
+  const designId = await newDesign(page, META_FIXTURE);
+  try {
+    await openEditor(page, designId);
+    await selectCanvasNode(page, "meta-child");
+    const source = (await node(page, "meta-child").boundingBox())!;
+    const peer = (await node(page, "meta-peer").boundingBox())!;
+    const start = {
+      x: source.x + source.width / 2,
+      y: source.y + source.height / 2,
+    };
+    const background = await previewPoint(page, 500, 320);
+    const destination = {
+      x: peer.x + peer.width * 0.25,
+      y: peer.y + peer.height / 2,
+    };
+
+    await page.keyboard.down("Meta");
+    await page.mouse.move(start.x, start.y);
+    await page.mouse.down();
+    await page.mouse.move(start.x + 10, start.y + 6, { steps: 5 });
+    await page.mouse.move(background.x, background.y, { steps: 18 });
+    const freeHeld = await runtimeState(page, "meta-child");
+    expect(freeHeld.transform).not.toBe("none");
+    await page.keyboard.up("Meta");
+    await page.mouse.move(destination.x, destination.y, { steps: 18 });
+    await expect.poll(() => visibleInsertionGuides(page)).not.toHaveLength(0);
+    await page.mouse.up();
+
+    await expect
+      .poll(() => indexHtml(page, designId))
+      .toMatch(
+        /data-agent-native-node-id="meta-row"[\s\S]*data-agent-native-node-id="meta-child"/,
+      );
+    await openEditor(page, designId);
+    const state = await runtimeState(page, "meta-child");
+    expect(state).toMatchObject({
+      parent: "meta-row",
+      position: "static",
+    });
+    expect(state.style).not.toMatch(/position:\s*absolute/i);
   } finally {
     await deleteDesign(page, designId);
   }

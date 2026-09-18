@@ -13675,7 +13675,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       return (
         child.nodeType === 1 &&
         !isOverlayElement(child) &&
-        !isTemplateCloneElement(child) &&
+        child.tagName.toLowerCase() !== "template" &&
         !child.hasAttribute("data-agent-native-reflow-placeholder")
       );
     });
@@ -13697,6 +13697,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         children.indexOf(authoredChild) === -1 &&
         (excluded || []).indexOf(authoredChild) === -1
       ) {
+        // Rendered x-for rows are real grid items even though the source
+        // resolver cannot use them as structural anchors. Keep the browser
+        // projection conservative when one is present instead of indexing a
+        // later authored slot as if the runtime row did not exist.
         return false;
       }
     }
@@ -13713,6 +13717,86 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
     }
     return true;
+  }
+
+  type GridProjectionSlot = {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  };
+
+  type GridProjectionCacheEntry = {
+    container: Element;
+    styleKey: string;
+    directChildren: Element[];
+    children: Element[];
+    excluded: Element[];
+    slots: GridProjectionSlot[];
+  };
+
+  // Measuring a temporary placeholder is necessary for grid parity, but doing
+  // one forced layout for every candidate slot on every pointer event makes a
+  // large grid visibly stutter. Cache the browser-measured slots for the
+  // current gesture and key them by the target's direct structure and layout
+  // styles. A new pointer gesture clears the cache, so content/layout changes
+  // between drags cannot reuse stale geometry.
+  var gridProjectionCaches: GridProjectionCacheEntry[] = [];
+
+  function clearGridProjectionCaches(): void {
+    gridProjectionCaches = [];
+  }
+
+  function sameGridProjectionElements(
+    left: Element[],
+    right: Element[],
+  ): boolean {
+    if (left.length !== right.length) return false;
+    for (var i = 0; i < left.length; i += 1) {
+      if (left[i] !== right[i]) return false;
+    }
+    return true;
+  }
+
+  function gridProjectionStyleKey(styles: CSSStyleDeclaration): string {
+    return [
+      styles.gridAutoFlow,
+      styles.gridTemplateColumns,
+      styles.gridTemplateRows,
+      styles.gridAutoColumns,
+      styles.gridAutoRows,
+      styles.columnGap,
+      styles.rowGap,
+      styles.justifyContent,
+      styles.alignContent,
+      styles.width,
+      styles.height,
+      styles.boxSizing,
+      styles.padding,
+      styles.border,
+    ].join("|");
+  }
+
+  function cachedGridProjection(
+    container: Element,
+    styleKey: string,
+    directChildren: Element[],
+    children: Element[],
+    excluded: Element[],
+  ): GridProjectionCacheEntry | null {
+    for (var i = 0; i < gridProjectionCaches.length; i += 1) {
+      var entry = gridProjectionCaches[i];
+      if (
+        entry.container === container &&
+        entry.styleKey === styleKey &&
+        sameGridProjectionElements(entry.directChildren, directChildren) &&
+        sameGridProjectionElements(entry.children, children) &&
+        sameGridProjectionElements(entry.excluded, excluded)
+      ) {
+        return entry;
+      }
+    }
+    return null;
   }
 
   function prepareGridProjectionPlaceholder(
@@ -13791,6 +13875,22 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var removed = originalChildren.filter(function (child) {
       return excluded.indexOf(child) !== -1;
     });
+    var directChildren = originalChildren.filter(function (child) {
+      return (
+        child.nodeType === 1 &&
+        !isOverlayElement(child) &&
+        child.tagName.toLowerCase() !== "template" &&
+        !child.hasAttribute("data-agent-native-reflow-placeholder")
+      );
+    });
+    var projectionStyleKey = gridProjectionStyleKey(styles);
+    var cachedProjection = cachedGridProjection(
+      container,
+      projectionStyleKey,
+      directChildren,
+      children,
+      excluded,
+    );
     var best: {
       slot: number;
       rect: { left: number; top: number; width: number; height: number };
@@ -13799,67 +13899,82 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var trailingCandidate: typeof best = null;
     var occupiedBottom = -Infinity;
     var occupiedRight = -Infinity;
-
-    try {
-      removed.forEach(function (child) {
-        container.removeChild(child);
-      });
-      for (var slot = 0; slot <= children.length; slot += 1) {
-        var anchor = children[slot];
-        if (anchor && anchor.parentNode === container) {
-          container.insertBefore(placeholder, anchor);
-        } else {
-          container.appendChild(placeholder);
+    var slots: GridProjectionSlot[] = cachedProjection
+      ? cachedProjection.slots
+      : [];
+    if (!cachedProjection) {
+      try {
+        removed.forEach(function (child) {
+          container.removeChild(child);
+        });
+        for (var slot = 0; slot <= children.length; slot += 1) {
+          var anchor = children[slot];
+          if (anchor && anchor.parentNode === container) {
+            container.insertBefore(placeholder, anchor);
+          } else {
+            container.appendChild(placeholder);
+          }
+          var measured = placeholder.getBoundingClientRect();
+          slots.push({
+            left: measured.left,
+            top: measured.top,
+            width: measured.width,
+            height: measured.height,
+          });
+          placeholder.remove();
         }
-        var rect = placeholder.getBoundingClientRect();
-        var dx =
-          clientX < rect.left
-            ? rect.left - clientX
-            : clientX > rect.right
-              ? clientX - rect.right
-              : 0;
-        var dy =
-          clientY < rect.top
-            ? rect.top - clientY
-            : clientY > rect.bottom
-              ? clientY - rect.bottom
-              : 0;
-        var distance = Math.hypot(dx, dy);
-        if (!best || distance < best.distance) {
-          best = {
-            slot: slot,
-            rect: {
-              left: rect.left,
-              top: rect.top,
-              width: rect.width,
-              height: rect.height,
-            },
-            distance: distance,
-          };
-        }
-        if (slot < children.length) {
-          occupiedBottom = Math.max(occupiedBottom, rect.bottom);
-          occupiedRight = Math.max(occupiedRight, rect.right);
-        } else {
-          trailingCandidate = {
-            slot: slot,
-            rect: {
-              left: rect.left,
-              top: rect.top,
-              width: rect.width,
-              height: rect.height,
-            },
-            distance: distance,
-          };
-        }
-        placeholder.remove();
+      } finally {
+        if (placeholder.parentNode)
+          placeholder.parentNode.removeChild(placeholder);
+        originalChildNodes.forEach(function (originalChildNode) {
+          container.appendChild(originalChildNode);
+        });
       }
-    } finally {
-      if (placeholder.parentNode)
-        placeholder.parentNode.removeChild(placeholder);
-      originalChildNodes.forEach(function (originalChildNode) {
-        container.appendChild(originalChildNode);
-      });
+      cachedProjection = {
+        container: container,
+        styleKey: projectionStyleKey,
+        directChildren: directChildren,
+        children: children.slice(),
+        excluded: excluded.slice(),
+        slots: slots,
+      };
+      gridProjectionCaches.push(cachedProjection);
+    }
+    for (var slotIndex = 0; slotIndex < slots.length; slotIndex += 1) {
+      var slotRect = slots[slotIndex];
+      var dx =
+        clientX < slotRect.left
+          ? slotRect.left - clientX
+          : clientX > slotRect.left + slotRect.width
+            ? clientX - (slotRect.left + slotRect.width)
+            : 0;
+      var dy =
+        clientY < slotRect.top
+          ? slotRect.top - clientY
+          : clientY > slotRect.top + slotRect.height
+            ? clientY - (slotRect.top + slotRect.height)
+            : 0;
+      var distance = Math.hypot(dx, dy);
+      var candidate = {
+        slot: slotIndex,
+        rect: {
+          left: slotRect.left,
+          top: slotRect.top,
+          width: slotRect.width,
+          height: slotRect.height,
+        },
+        distance: distance,
+      };
+      if (!best || distance < best.distance) best = candidate;
+      if (slotIndex < children.length) {
+        occupiedBottom = Math.max(
+          occupiedBottom,
+          slotRect.top + slotRect.height,
+        );
+        occupiedRight = Math.max(occupiedRight, slotRect.left + slotRect.width);
+      } else {
+        trailingCandidate = candidate;
+      }
     }
     if (!best) return null;
     // A full grid leaves its next implicit row/column in the container's
@@ -16782,6 +16897,45 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
       var reorderLastMoveEvent: any = null;
       var reorderMoved = false;
+      function activateReorderControlOverride(): void {
+        if (reorderIgnoresAutoLayout) return;
+        reorderIgnoresAutoLayout = true;
+        reorderMetaFreePlacement = false;
+        crossScreenClaimedByHost = false;
+        postCrossScreenDrag("cancel");
+      }
+      function releaseReorderMetaOverride(point?: {
+        clientX?: number;
+        clientY?: number;
+      }): void {
+        if (!reorderMetaFreePlacement) return;
+        reorderMetaFreePlacement = false;
+        crossScreenClaimedByHost = false;
+        if (isGroupDrag || reorderIgnoresAutoLayout) return;
+        var lastPoint = point || reorderLastMoveEvent;
+        if (
+          !lastPoint ||
+          !Number.isFinite(lastPoint.clientX) ||
+          !Number.isFinite(lastPoint.clientY)
+        ) {
+          return;
+        }
+        postCrossScreenDrag(
+          "start",
+          reorderEl,
+          { clientX: lastPoint.clientX, clientY: lastPoint.clientY },
+          {
+            duplicate: duplicatedForDrag,
+            elementRect: reorderRect,
+            pointerOffset: reorderPointerOffset,
+            styleSnapshot: reorderStyleSnapshot,
+          },
+        );
+      }
+      function resetReorderModifierState(): void {
+        reorderMetaFreePlacement = false;
+        reorderIgnoresAutoLayout = false;
+      }
       function activateLateReorderDuplicate(ev): void {
         if (duplicatedForDrag || isGroupDrag || !reorderEl) return;
         clearReorderLift();
@@ -17155,6 +17309,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
       function onReorderMove(ev) {
         reorderLastMoveEvent = ev;
+        if (!ev.metaKey) releaseReorderMetaOverride(ev);
         if (
           !reorderMoved &&
           Math.hypot(
@@ -17174,11 +17329,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         var dx = cx - reorderPointerStart.clientX;
         var dy = cy - reorderPointerStart.clientY;
         var outside = cx < 0 || cy < 0 || cx > vw || cy > vh;
-        if (ev.ctrlKey && !reorderIgnoresAutoLayout) {
-          reorderIgnoresAutoLayout = true;
-          crossScreenClaimedByHost = false;
-          postCrossScreenDrag("cancel");
-        }
+        if (ev.ctrlKey) activateReorderControlOverride();
         var rawTarget = null;
         // Meta stays in normal flow whenever the pointer resolves to a real
         // flow target. Probe without the free-placement override first on
@@ -17358,17 +17509,22 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           positionOverlay(selectionOverlay, selectedEl);
           postElementSelect(selectedEl);
         }
+        resetReorderModifierState();
         suppressNextShieldClickBriefly();
         return true;
       }
       function onReorderKeyDown(ev) {
-        if (ev.code === "Space" || ev.key === " ") {
-          keepCurrentFlowParent = true;
+        if (
+          ev.key === "Control" ||
+          ev.code === "ControlLeft" ||
+          ev.code === "ControlRight"
+        ) {
+          activateReorderControlOverride();
           ev.preventDefault();
           return;
         }
-        if (ev.key === "Alt" && reorderMoved && !duplicatedForDrag) {
-          activateLateReorderDuplicate(reorderLastMoveEvent || ev);
+        if (ev.code === "Space" || ev.key === " ") {
+          keepCurrentFlowParent = true;
           ev.preventDefault();
           return;
         }
@@ -17378,6 +17534,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         }
       }
       function onReorderKeyUp(ev) {
+        if (
+          ev.key === "Meta" ||
+          ev.code === "MetaLeft" ||
+          ev.code === "MetaRight"
+        ) {
+          releaseReorderMetaOverride();
+          ev.preventDefault();
+          return;
+        }
         if (ev.code !== "Space" && ev.key !== " ") return;
         // Deliberately NOT resetting keepCurrentFlowParent here. onReorderUp
         // re-resolves the drop target from the release point (see its own
@@ -17410,6 +17575,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         var cx = ev.clientX;
         var cy = ev.clientY;
         var outside = cx < 0 || cy < 0 || cx > vw || cy > vh;
+        if (!ev.metaKey) releaseReorderMetaOverride(ev);
+        if (ev.ctrlKey) activateReorderControlOverride();
         if (ev.metaKey && !reorderIgnoresAutoLayout && !isGroupDrag) {
           var metaReleaseTarget = outside
             ? null
@@ -17473,6 +17640,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             positionOverlay(selectionOverlay, selectedEl);
             postElementSelect(selectedEl);
           }
+          resetReorderModifierState();
           return;
         }
         // Resolve from the RELEASE point + release-time modifiers so a Ctrl or
@@ -17515,6 +17683,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             positionOverlay(selectionOverlay, selectedEl);
             postElementSelect(selectedEl);
           }
+          resetReorderModifierState();
           return;
         }
         if (
@@ -17596,6 +17765,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             prevInlinePositionStyles: prevInlinePositionStyles,
           });
         }
+        resetReorderModifierState();
       }
       document.addEventListener(events.move, onReorderMove, true);
       document.addEventListener(events.up, onReorderUp, true);
@@ -17785,6 +17955,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // The source may have followed the pointer for a few ticks before Alt
       // arrived. Restore its authored position first so the optimistic clone
       // starts at the held source rect and the original remains fixed.
+      var heldPosition = {
+        position: source.style.position,
+        left: source.style.left,
+        top: source.style.top,
+      };
       source.style.position = sourceState.originalPosition;
       source.style.left = sourceState.originalLeft;
       source.style.top = sourceState.originalTop;
@@ -17793,6 +17968,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       duplicatedSourceNodeIdMap = resetRuntimeStableIds(clone);
       clone.setAttribute("data-agent-native-clone-root", "true");
       source.parentElement.insertBefore(clone, source.nextSibling);
+      // Keep the clone at the source's current held position while the
+      // gesture switches ownership, then let the same move tick below apply
+      // the controller's full delta from the authored numeric origin once.
+      clone.style.position = heldPosition.position;
+      clone.style.left = heldPosition.left;
+      clone.style.top = heldPosition.top;
       publishSourceDocumentProvenance(undefined, true);
 
       selectedEl = clone;
@@ -17821,8 +18002,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       cloneState.originTop = readPx(clone.style.top || cloneStyles.top);
       memberStates = [cloneState];
       gestureState = cloneState;
-      originLeft = cloneState.originLeft;
-      originTop = cloneState.originTop;
+      originLeft = sourceState.originLeft;
+      originTop = sourceState.originTop;
+      cloneState.originLeft = originLeft;
+      cloneState.originTop = originTop;
       dragElStartRect = dragGrabRect(clone);
       dragElStartWidth = dragElStartRect.width;
       dragElStartHeight = dragElStartRect.height;
@@ -18044,10 +18227,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       return true;
     }
     function onMoveKeyDown(ev) {
-      if (ev.key === "Alt" && moved && !duplicatedForDrag) {
-        activateLateDuplicate(lastMoveEvent);
-        return;
-      }
       if (ev.key !== "Escape") return;
       stopNativeInteraction(ev);
       cancelMoveDrag();
@@ -19773,6 +19952,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   function beginPotentialShieldDrag(e) {
     stopNativeInteraction(e);
+    clearGridProjectionCaches();
     // A new interaction starting is unambiguous proof the previous gesture is
     // over — a stale post-commit revert from it must never fire against
     // whatever this new one turns out to be.

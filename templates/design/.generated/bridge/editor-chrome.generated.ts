@@ -9952,7 +9952,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (autoFlow[0] !== "row" && autoFlow[0] !== "column") return false;
       if (autoFlow[1] === "dense" || !children.length) return false;
       var allChildren = Array.prototype.slice.call(container.children).filter(function(child) {
-        return child.nodeType === 1 && !isOverlayElement(child) && !isTemplateCloneElement(child) && !child.hasAttribute("data-agent-native-reflow-placeholder");
+        return child.nodeType === 1 && !isOverlayElement(child) && child.tagName.toLowerCase() !== "template" && !child.hasAttribute("data-agent-native-reflow-placeholder");
       });
       (excluded || []).forEach(function(child) {
         if (allChildren.indexOf(child) === -1) allChildren.push(child);
@@ -9970,6 +9970,44 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
       }
       return true;
+    }
+    var gridProjectionCaches = [];
+    function clearGridProjectionCaches() {
+      gridProjectionCaches = [];
+    }
+    function sameGridProjectionElements(left, right) {
+      if (left.length !== right.length) return false;
+      for (var i = 0; i < left.length; i += 1) {
+        if (left[i] !== right[i]) return false;
+      }
+      return true;
+    }
+    function gridProjectionStyleKey(styles) {
+      return [
+        styles.gridAutoFlow,
+        styles.gridTemplateColumns,
+        styles.gridTemplateRows,
+        styles.gridAutoColumns,
+        styles.gridAutoRows,
+        styles.columnGap,
+        styles.rowGap,
+        styles.justifyContent,
+        styles.alignContent,
+        styles.width,
+        styles.height,
+        styles.boxSizing,
+        styles.padding,
+        styles.border
+      ].join("|");
+    }
+    function cachedGridProjection(container, styleKey, directChildren, children, excluded) {
+      for (var i = 0; i < gridProjectionCaches.length; i += 1) {
+        var entry = gridProjectionCaches[i];
+        if (entry.container === container && entry.styleKey === styleKey && sameGridProjectionElements(entry.directChildren, directChildren) && sameGridProjectionElements(entry.children, children) && sameGridProjectionElements(entry.excluded, excluded)) {
+          return entry;
+        }
+      }
+      return null;
     }
     function prepareGridProjectionPlaceholder(placeholder, containerStyles) {
       if (containerStyles.display !== "grid" && containerStyles.display !== "inline-grid") {
@@ -10019,60 +10057,85 @@ export const editorChromeBridgeScript: string = `"use strict";
       var removed = originalChildren.filter(function(child) {
         return excluded.indexOf(child) !== -1;
       });
+      var directChildren = originalChildren.filter(function(child) {
+        return child.nodeType === 1 && !isOverlayElement(child) && child.tagName.toLowerCase() !== "template" && !child.hasAttribute("data-agent-native-reflow-placeholder");
+      });
+      var projectionStyleKey = gridProjectionStyleKey(styles);
+      var cachedProjection = cachedGridProjection(
+        container,
+        projectionStyleKey,
+        directChildren,
+        children,
+        excluded
+      );
       var best = null;
       var trailingCandidate = null;
       var occupiedBottom = -Infinity;
       var occupiedRight = -Infinity;
-      try {
-        removed.forEach(function(child) {
-          container.removeChild(child);
-        });
-        for (var slot = 0; slot <= children.length; slot += 1) {
-          var anchor = children[slot];
-          if (anchor && anchor.parentNode === container) {
-            container.insertBefore(placeholder, anchor);
-          } else {
-            container.appendChild(placeholder);
+      var slots = cachedProjection ? cachedProjection.slots : [];
+      if (!cachedProjection) {
+        try {
+          removed.forEach(function(child) {
+            container.removeChild(child);
+          });
+          for (var slot = 0; slot <= children.length; slot += 1) {
+            var anchor = children[slot];
+            if (anchor && anchor.parentNode === container) {
+              container.insertBefore(placeholder, anchor);
+            } else {
+              container.appendChild(placeholder);
+            }
+            var measured = placeholder.getBoundingClientRect();
+            slots.push({
+              left: measured.left,
+              top: measured.top,
+              width: measured.width,
+              height: measured.height
+            });
+            placeholder.remove();
           }
-          var rect = placeholder.getBoundingClientRect();
-          var dx = clientX < rect.left ? rect.left - clientX : clientX > rect.right ? clientX - rect.right : 0;
-          var dy = clientY < rect.top ? rect.top - clientY : clientY > rect.bottom ? clientY - rect.bottom : 0;
-          var distance = Math.hypot(dx, dy);
-          if (!best || distance < best.distance) {
-            best = {
-              slot,
-              rect: {
-                left: rect.left,
-                top: rect.top,
-                width: rect.width,
-                height: rect.height
-              },
-              distance
-            };
-          }
-          if (slot < children.length) {
-            occupiedBottom = Math.max(occupiedBottom, rect.bottom);
-            occupiedRight = Math.max(occupiedRight, rect.right);
-          } else {
-            trailingCandidate = {
-              slot,
-              rect: {
-                left: rect.left,
-                top: rect.top,
-                width: rect.width,
-                height: rect.height
-              },
-              distance
-            };
-          }
-          placeholder.remove();
+        } finally {
+          if (placeholder.parentNode)
+            placeholder.parentNode.removeChild(placeholder);
+          originalChildNodes.forEach(function(originalChildNode) {
+            container.appendChild(originalChildNode);
+          });
         }
-      } finally {
-        if (placeholder.parentNode)
-          placeholder.parentNode.removeChild(placeholder);
-        originalChildNodes.forEach(function(originalChildNode) {
-          container.appendChild(originalChildNode);
-        });
+        cachedProjection = {
+          container,
+          styleKey: projectionStyleKey,
+          directChildren,
+          children: children.slice(),
+          excluded: excluded.slice(),
+          slots
+        };
+        gridProjectionCaches.push(cachedProjection);
+      }
+      for (var slotIndex = 0; slotIndex < slots.length; slotIndex += 1) {
+        var slotRect = slots[slotIndex];
+        var dx = clientX < slotRect.left ? slotRect.left - clientX : clientX > slotRect.left + slotRect.width ? clientX - (slotRect.left + slotRect.width) : 0;
+        var dy = clientY < slotRect.top ? slotRect.top - clientY : clientY > slotRect.top + slotRect.height ? clientY - (slotRect.top + slotRect.height) : 0;
+        var distance = Math.hypot(dx, dy);
+        var candidate = {
+          slot: slotIndex,
+          rect: {
+            left: slotRect.left,
+            top: slotRect.top,
+            width: slotRect.width,
+            height: slotRect.height
+          },
+          distance
+        };
+        if (!best || distance < best.distance) best = candidate;
+        if (slotIndex < children.length) {
+          occupiedBottom = Math.max(
+            occupiedBottom,
+            slotRect.top + slotRect.height
+          );
+          occupiedRight = Math.max(occupiedRight, slotRect.left + slotRect.width);
+        } else {
+          trailingCandidate = candidate;
+        }
       }
       if (!best) return null;
       if (trailingCandidate && (autoFlow[0] === "row" && clientY > occupiedBottom || autoFlow[0] === "column" && clientX > occupiedRight)) {
@@ -11746,6 +11809,35 @@ export const editorChromeBridgeScript: string = `"use strict";
           });
           reflowSiblings = [];
           reflowKey = null;
+        }, activateReorderControlOverride2 = function() {
+          if (reorderIgnoresAutoLayout) return;
+          reorderIgnoresAutoLayout = true;
+          reorderMetaFreePlacement = false;
+          crossScreenClaimedByHost = false;
+          postCrossScreenDrag("cancel");
+        }, releaseReorderMetaOverride2 = function(point) {
+          if (!reorderMetaFreePlacement) return;
+          reorderMetaFreePlacement = false;
+          crossScreenClaimedByHost = false;
+          if (isGroupDrag || reorderIgnoresAutoLayout) return;
+          var lastPoint = point || reorderLastMoveEvent;
+          if (!lastPoint || !Number.isFinite(lastPoint.clientX) || !Number.isFinite(lastPoint.clientY)) {
+            return;
+          }
+          postCrossScreenDrag(
+            "start",
+            reorderEl,
+            { clientX: lastPoint.clientX, clientY: lastPoint.clientY },
+            {
+              duplicate: duplicatedForDrag,
+              elementRect: reorderRect,
+              pointerOffset: reorderPointerOffset,
+              styleSnapshot: reorderStyleSnapshot
+            }
+          );
+        }, resetReorderModifierState2 = function() {
+          reorderMetaFreePlacement = false;
+          reorderIgnoresAutoLayout = false;
         }, activateLateReorderDuplicate2 = function(ev) {
           if (duplicatedForDrag || isGroupDrag || !reorderEl) return;
           clearReorderLift2();
@@ -12021,6 +12113,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           }
         }, onReorderMove2 = function(ev) {
           reorderLastMoveEvent = ev;
+          if (!ev.metaKey) releaseReorderMetaOverride2(ev);
           if (!reorderMoved && Math.hypot(
             ev.clientX - reorderPointerStart.clientX,
             ev.clientY - reorderPointerStart.clientY
@@ -12037,11 +12130,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           var dx = cx - reorderPointerStart.clientX;
           var dy = cy - reorderPointerStart.clientY;
           var outside = cx < 0 || cy < 0 || cx > vw || cy > vh;
-          if (ev.ctrlKey && !reorderIgnoresAutoLayout) {
-            reorderIgnoresAutoLayout = true;
-            crossScreenClaimedByHost = false;
-            postCrossScreenDrag("cancel");
-          }
+          if (ev.ctrlKey) activateReorderControlOverride2();
           var rawTarget = null;
           if (ev.metaKey && !isGroupDrag && !reorderIgnoresAutoLayout) {
             clearReorderReflow2();
@@ -12159,16 +12248,17 @@ export const editorChromeBridgeScript: string = `"use strict";
             positionOverlay(selectionOverlay, selectedEl);
             postElementSelect(selectedEl);
           }
+          resetReorderModifierState2();
           suppressNextShieldClickBriefly();
           return true;
         }, onReorderKeyDown2 = function(ev) {
-          if (ev.code === "Space" || ev.key === " ") {
-            keepCurrentFlowParent = true;
+          if (ev.key === "Control" || ev.code === "ControlLeft" || ev.code === "ControlRight") {
+            activateReorderControlOverride2();
             ev.preventDefault();
             return;
           }
-          if (ev.key === "Alt" && reorderMoved && !duplicatedForDrag) {
-            activateLateReorderDuplicate2(reorderLastMoveEvent || ev);
+          if (ev.code === "Space" || ev.key === " ") {
+            keepCurrentFlowParent = true;
             ev.preventDefault();
             return;
           }
@@ -12177,6 +12267,11 @@ export const editorChromeBridgeScript: string = `"use strict";
             onReorderEscape2();
           }
         }, onReorderKeyUp2 = function(ev) {
+          if (ev.key === "Meta" || ev.code === "MetaLeft" || ev.code === "MetaRight") {
+            releaseReorderMetaOverride2();
+            ev.preventDefault();
+            return;
+          }
           if (ev.code !== "Space" && ev.key !== " ") return;
           ev.preventDefault();
         }, onReorderUp2 = function(ev) {
@@ -12192,6 +12287,8 @@ export const editorChromeBridgeScript: string = `"use strict";
           var cx = ev.clientX;
           var cy = ev.clientY;
           var outside = cx < 0 || cy < 0 || cx > vw || cy > vh;
+          if (!ev.metaKey) releaseReorderMetaOverride2(ev);
+          if (ev.ctrlKey) activateReorderControlOverride2();
           if (ev.metaKey && !reorderIgnoresAutoLayout && !isGroupDrag) {
             var metaReleaseTarget = outside ? null : resolveReorderOrFreeTarget2(cx, cy, false);
             if (!hasMetaFlowTarget2(metaReleaseTarget, cx, cy)) {
@@ -12233,6 +12330,7 @@ export const editorChromeBridgeScript: string = `"use strict";
               positionOverlay(selectionOverlay, selectedEl);
               postElementSelect(selectedEl);
             }
+            resetReorderModifierState2();
             return;
           }
           var finalRaw = resolveReorderOrFreeTarget2(
@@ -12259,6 +12357,7 @@ export const editorChromeBridgeScript: string = `"use strict";
               positionOverlay(selectionOverlay, selectedEl);
               postElementSelect(selectedEl);
             }
+            resetReorderModifierState2();
             return;
           }
           if (currentTarget.needsAutoLayoutConversion && currentTarget.conversionTarget) {
@@ -12317,8 +12416,9 @@ export const editorChromeBridgeScript: string = `"use strict";
               prevInlinePositionStyles
             });
           }
+          resetReorderModifierState2();
         };
-        var authoredTransformOf = authoredTransformOf2, applyReorderLift = applyReorderLift2, clearReorderLift = clearReorderLift2, reorderMainAxis = reorderMainAxis2, reorderRealChildren = reorderRealChildren2, reorderSlotForTarget = reorderSlotForTarget2, clearReorderReflow = clearReorderReflow2, activateLateReorderDuplicate = activateLateReorderDuplicate2, resolveReorderOrFreeTarget = resolveReorderOrFreeTarget2, hasMetaFlowTarget = hasMetaFlowTarget2, applyReorderSizeGuard = applyReorderSizeGuard2, stabilizeReorderTarget = stabilizeReorderTarget2, applyReorderReflow = applyReorderReflow2, onReorderMove = onReorderMove2, cleanupReorderDrag = cleanupReorderDrag2, onReorderVisibilityChange = onReorderVisibilityChange2, onReorderEscape = onReorderEscape2, onReorderKeyDown = onReorderKeyDown2, onReorderKeyUp = onReorderKeyUp2, onReorderUp = onReorderUp2;
+        var authoredTransformOf = authoredTransformOf2, applyReorderLift = applyReorderLift2, clearReorderLift = clearReorderLift2, reorderMainAxis = reorderMainAxis2, reorderRealChildren = reorderRealChildren2, reorderSlotForTarget = reorderSlotForTarget2, clearReorderReflow = clearReorderReflow2, activateReorderControlOverride = activateReorderControlOverride2, releaseReorderMetaOverride = releaseReorderMetaOverride2, resetReorderModifierState = resetReorderModifierState2, activateLateReorderDuplicate = activateLateReorderDuplicate2, resolveReorderOrFreeTarget = resolveReorderOrFreeTarget2, hasMetaFlowTarget = hasMetaFlowTarget2, applyReorderSizeGuard = applyReorderSizeGuard2, stabilizeReorderTarget = stabilizeReorderTarget2, applyReorderReflow = applyReorderReflow2, onReorderMove = onReorderMove2, cleanupReorderDrag = cleanupReorderDrag2, onReorderVisibilityChange = onReorderVisibilityChange2, onReorderEscape = onReorderEscape2, onReorderKeyDown = onReorderKeyDown2, onReorderKeyUp = onReorderKeyUp2, onReorderUp = onReorderUp2;
         var reorderEl = gestureEl;
         var reorderGroupStartRects = groupEls.map(function(member) {
           return dragGrabRect(member);
@@ -12514,6 +12614,11 @@ export const editorChromeBridgeScript: string = `"use strict";
           return state.el === source;
         })[0];
         if (!sourceState || !source.parentElement) return;
+        var heldPosition = {
+          position: source.style.position,
+          left: source.style.left,
+          top: source.style.top
+        };
         source.style.position = sourceState.originalPosition;
         source.style.left = sourceState.originalLeft;
         source.style.top = sourceState.originalTop;
@@ -12522,6 +12627,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         duplicatedSourceNodeIdMap = resetRuntimeStableIds(clone2);
         clone2.setAttribute("data-agent-native-clone-root", "true");
         source.parentElement.insertBefore(clone2, source.nextSibling);
+        clone2.style.position = heldPosition.position;
+        clone2.style.left = heldPosition.left;
+        clone2.style.top = heldPosition.top;
         publishSourceDocumentProvenance(void 0, true);
         selectedEl = clone2;
         gestureEl = clone2;
@@ -12549,8 +12657,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         cloneState.originTop = readPx(clone2.style.top || cloneStyles.top);
         memberStates = [cloneState];
         gestureState = cloneState;
-        originLeft = cloneState.originLeft;
-        originTop = cloneState.originTop;
+        originLeft = sourceState.originLeft;
+        originTop = sourceState.originTop;
+        cloneState.originLeft = originLeft;
+        cloneState.originTop = originTop;
         dragElStartRect = dragGrabRect(clone2);
         dragElStartWidth = dragElStartRect.width;
         dragElStartHeight = dragElStartRect.height;
@@ -12702,10 +12812,6 @@ export const editorChromeBridgeScript: string = `"use strict";
         return true;
       }
       function onMoveKeyDown(ev) {
-        if (ev.key === "Alt" && moved && !duplicatedForDrag) {
-          activateLateDuplicate(lastMoveEvent);
-          return;
-        }
         if (ev.key !== "Escape") return;
         stopNativeInteraction(ev);
         cancelMoveDrag();
@@ -14052,6 +14158,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     var crossScreenClaimedByHost = false;
     function beginPotentialShieldDrag(e) {
       stopNativeInteraction(e);
+      clearGridProjectionCaches();
       pendingMoveCommitRevert = null;
       if (e.button !== 0) return;
       if (activeTextEditEl && !exitStaleTextEditSession()) return;
