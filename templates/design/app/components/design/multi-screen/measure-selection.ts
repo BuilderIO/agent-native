@@ -1,5 +1,8 @@
 import type { ElementInfo } from "../types";
-import { getBreakpointIframeId } from "./iframe-targeting";
+import {
+  findCanvasIframeForScreen,
+  getBreakpointIframeId,
+} from "./iframe-targeting";
 
 /**
  * Ask a screen's bridge to re-measure one element. An inspector commit never
@@ -100,18 +103,19 @@ export function designPreviewWindows(): Window[] {
 export function designPreviewWindowsForScreen(
   screenId: string,
   breakpointWidth?: number,
+  boardFileId?: string,
 ): Window[] {
   if (typeof document === "undefined") return [];
   const iframeId =
-    breakpointWidth === undefined
-      ? screenId
-      : getBreakpointIframeId(screenId, breakpointWidth);
-  const escaped =
-    typeof CSS !== "undefined" && CSS.escape
-      ? CSS.escape(iframeId)
-      : iframeId.replace(/(["\\])/g, "\\$1");
-  const iframe = document.querySelector<HTMLIFrameElement>(
-    `iframe[data-screen-iframe-id="${escaped}"]`,
+    boardFileId && screenId === boardFileId
+      ? boardFileId
+      : breakpointWidth === undefined
+        ? screenId
+        : getBreakpointIframeId(screenId, breakpointWidth);
+  const iframe = findCanvasIframeForScreen(
+    document.body,
+    iframeId,
+    boardFileId,
   );
   return iframe?.contentWindow ? [iframe.contentWindow] : [];
 }

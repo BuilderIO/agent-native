@@ -228,10 +228,9 @@ function RootContent() {
 }
 
 function MarketingRootContent() {
-  const { session } = useSession();
   return (
     <>
-      {session?.email && <OpenVisualEditWebMcp />}
+      <OpenVisualEditWebMcp />
       <Outlet />
     </>
   );
@@ -260,7 +259,7 @@ function PrivateRootContent() {
   return (
     <>
       {hasSession && <DbSyncSetup />}
-      {hasSession && <OpenVisualEditWebMcp />}
+      <OpenVisualEditWebMcp />
       {hasSession && !isPublicVisualEdit && (
         <DesignCommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen} />
       )}

@@ -146,7 +146,7 @@ export function runScreenElementSelect(
     !blockedSelection;
   if (ignoredLayerSelectionEcho) {
     if (exactPendingLayerEcho) setSelectedElement(canonical);
-    return;
+    return false;
   }
   pendingOverviewScreenSelectionRef.current = null;
   pendingOverviewLayerSelectionRef.current = null;
@@ -158,7 +158,7 @@ export function runScreenElementSelect(
       !node ||
       selectedLayerIdsState.includes(node.id))
   ) {
-    return;
+    return false;
   }
   // Node-id integrity (id-on-demand): AI-generated/duplicated screens
   // frequently ship elements with a missing or empty-string
@@ -385,4 +385,5 @@ export function runScreenElementSelect(
   setActiveTool(resolveToolAfterSelection);
   setMode("edit");
   focusDesignInspectorForSelection();
+  return true;
 }

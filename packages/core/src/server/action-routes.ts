@@ -60,7 +60,11 @@ import {
 } from "./embed-session.js";
 import { getHttpRequestTelemetryId } from "./http-response-telemetry.js";
 import { consumeOneTimeJti } from "./identity-sso-store.js";
-import { getForwardedRequestOrigin } from "./request-origin.js";
+import {
+  getForwardedRequestOrigin,
+  isSameOriginRequest,
+} from "./request-origin.js";
+import { hasUiActionCapability } from "./ui-action-capability.js";
 
 declare const __AGENT_NATIVE_BUILD_ID__: string | undefined;
 declare const __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__: string | undefined;
@@ -488,6 +492,14 @@ function mountActionRoutesInternal(
     const path = options?.forcePost ? name : (http?.path ?? name);
     const routePath = `${options?.routePrefix ?? ROUTE_PREFIX}/${path}`;
 
+    // `requiresAuth: false` is the action's explicit contract that its own
+    // run() can handle an anonymous request. The auth guard runs before this
+    // handler, so register the exact route or the contract is unreachable in
+    // a real app even though the dispatcher below correctly handles 401s.
+    if (entry.requiresAuth === false && !options?.caller) {
+      registerAuthPublicPaths([routePath], app);
+    }
+
     // These two actions authenticate with a scoped A2A bearer rather than a
     // browser session. Let that verifier see the request before the cookie
     // auth guard rejects it; the action route still fails closed on invalid
@@ -711,6 +723,21 @@ function mountActionRoutesInternal(
           if (!hasExplicitPersonalOrgScope(event) && !orgId && userEmail) {
             orgId = await storedActiveOrgId(userEmail);
           }
+        }
+        const frontendCaller =
+          !options?.caller && !resolvedCaller && isFrontendActionRequest(event);
+        if (
+          entry.uiOnly === true &&
+          (!frontendCaller ||
+            !userEmail ||
+            !isSameOriginRequest(event) ||
+            !hasUiActionCapability(event, userEmail))
+        ) {
+          setResponseStatus(event, 403);
+          return {
+            error: "This action can only be called from the signed-in app UI.",
+            errorCode: "ui_capability_required",
+          };
         }
         const timezone = readTimezoneHeader(event);
         const browserSessionId = readBrowserSessionIdHeader(event);
@@ -1118,7 +1145,8 @@ export function mountWebMcpActionRoutes(
       ([name, entry]) =>
         /^[A-Za-z0-9_.-]{1,128}$/.test(name) &&
         isActionExposedToExternalAgents(entry) &&
-        entry.agentTool !== false,
+        entry.agentTool !== false &&
+        entry.uiOnly !== true,
     ),
   );
   const publicEligible = Object.fromEntries(

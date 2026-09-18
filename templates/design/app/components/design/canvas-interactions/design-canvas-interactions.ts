@@ -111,8 +111,8 @@ export const DESIGN_CANVAS_SHORTCUTS: readonly CanvasShortcut[] = [
     code: "BracketLeft",
     modifiers: ["primary"],
   },
-  { command: "bring-to-front", key: "]" },
-  { command: "send-to-back", key: "[" },
+  { command: "bring-to-front", key: "]", code: "BracketRight" },
+  { command: "send-to-back", key: "[", code: "BracketLeft" },
   {
     command: "bring-to-front",
     key: "]",

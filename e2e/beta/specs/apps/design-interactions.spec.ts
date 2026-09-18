@@ -40,6 +40,34 @@ const FIXTURE = `<!doctype html>
   </body>
 </html>`;
 
+const NESTED_DROP_FIXTURE = `<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><title>Beta Design drag and drop</title></head>
+  <body style="margin:0;position:relative;width:800px;height:600px;background:#fff">
+    <div data-agent-native-node-id="root-frame" data-agent-native-layer-name="Root frame" data-an-primitive="frame"
+         style="position:absolute;left:48px;top:48px;width:120px;height:80px;box-sizing:border-box;background:#f97316"></div>
+    <div data-agent-native-node-id="nested-frame" data-agent-native-layer-name="Nested frame" data-an-primitive="frame"
+         style="position:absolute;left:300px;top:160px;width:320px;height:240px;box-sizing:border-box;background:#bfdbfe;padding:16px">
+      <div data-agent-native-node-id="nested-anchor" data-agent-native-layer-name="Existing child"
+           style="position:absolute;left:16px;top:16px;width:80px;height:40px;background:#2563eb"></div>
+    </div>
+  </body>
+</html>`;
+
+const NESTED_DROP_BOARD_FIXTURE = `<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><title>Beta Design board drag source</title></head>
+  <body style="margin:0;position:relative;width:1800px;height:900px;background:transparent">
+    <div data-agent-native-node-id="board-source" data-agent-native-layer-name="Board source" data-an-primitive="frame"
+         style="position:absolute;left:960px;top:140px;width:60px;height:30px;box-sizing:border-box;background:#f97316"></div>
+  </body>
+</html>`;
+
+const ROOT_FRAME_ID = "root-frame";
+const ROOT_FRAME_NAME = "Root frame";
+const NESTED_FRAME_ID = "nested-frame";
+const BOARD_SOURCE_ID = "board-source";
+
 interface StyleSnapshot {
   backgroundColor: string;
   backgroundImage: string;
@@ -70,10 +98,33 @@ async function postAction(
   return response.json();
 }
 
-async function readSource(page: Page, designId: string): Promise<string> {
+async function readSource(
+  page: Page,
+  designId: string,
+  filename = "index.html",
+): Promise<string> {
+  if (filename === "__board__.html") {
+    const response = await page.request.get(
+      `${ORIGIN}/_agent-native/actions/get-design?id=${encodeURIComponent(designId)}`,
+    );
+    if (!response.ok()) {
+      throw new Error(`get-design failed: HTTP ${response.status()}`);
+    }
+    const record = (await response.json()) as {
+      files?: Array<{ filename?: string; content?: unknown }>;
+    };
+    const content = record.files?.find(
+      (file) => file.filename === filename,
+    )?.content;
+    if (typeof content !== "string") {
+      throw new Error(`get-design returned no ${filename} content`);
+    }
+    return content;
+  }
+
   const url = new URL("/_agent-native/actions/read-source-file", ORIGIN);
   url.searchParams.set("designId", designId);
-  url.searchParams.set("path", "index.html");
+  url.searchParams.set("path", filename);
   const response = await page.request.get(url.href);
   if (!response.ok()) {
     throw new Error(`read-source-file failed: HTTP ${response.status()}`);
@@ -83,6 +134,26 @@ async function readSource(page: Page, designId: string): Promise<string> {
     throw new Error("read-source-file returned no source content");
   }
   return result.content;
+}
+
+async function directChildIds(
+  page: Page,
+  source: string,
+  parentId: string,
+): Promise<string[]> {
+  return page.evaluate(
+    ({ html, id }) => {
+      const document = new DOMParser().parseFromString(html, "text/html");
+      const parent = document.querySelector<HTMLElement>(
+        `[data-agent-native-node-id="${CSS.escape(id)}"]`,
+      );
+      if (!parent) throw new Error(`saved source is missing ${id}`);
+      return Array.from(parent.children)
+        .map((child) => child.getAttribute("data-agent-native-node-id"))
+        .filter((childId): childId is string => Boolean(childId));
+    },
+    { html: source, id: parentId },
+  );
 }
 
 async function parseSource(
@@ -228,6 +299,76 @@ async function createFixture(
   return designId;
 }
 
+async function createNestedDropFixture(
+  page: Page,
+  onCreated: (designId: string) => void,
+): Promise<string> {
+  const created = await postAction(page, "create-design", {
+    title: runMarker(`Design drag and drop ${Date.now()}`),
+    projectType: "prototype",
+  });
+  const designId = String(
+    created?.id ?? created?.data?.id ?? created?.design?.id ?? "",
+  );
+  if (!designId) throw new Error("create-design returned no id");
+  onCreated(designId);
+
+  try {
+    const screen = await postAction(page, "create-file", {
+      designId,
+      filename: "index.html",
+      content: NESTED_DROP_FIXTURE,
+      fileType: "html",
+    });
+    const screenId = String(screen?.id ?? screen?.data?.id ?? "");
+    if (!screenId) throw new Error("create-file returned no screen id");
+
+    const board = await postAction(page, "create-file", {
+      designId,
+      filename: "__board__.html",
+      content: NESTED_DROP_BOARD_FIXTURE,
+      fileType: "html",
+    });
+    const boardId = String(board?.id ?? board?.data?.id ?? "");
+    if (!boardId) throw new Error("create-file returned no board id");
+
+    await postAction(page, "update-design", {
+      id: designId,
+      dataOperations: [
+        { op: "set", path: ["boardFileId"], value: boardId },
+        {
+          op: "set",
+          path: ["screenMetadata", boardId],
+          value: { sourceType: "inline", width: 1800, height: 900 },
+        },
+        {
+          op: "set",
+          path: ["screenMetadata", screenId],
+          value: { sourceType: "inline", width: 800, height: 600 },
+        },
+        {
+          op: "set",
+          path: ["canvasFrames", screenId],
+          value: { x: 0, y: 0, width: 800, height: 600, z: 0 },
+        },
+      ],
+    });
+  } catch (error) {
+    try {
+      await postAction(page, "delete-design", { id: designId });
+      onCreated("");
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        `drag fixture creation failed for ${designId}; cleanup also failed`,
+      );
+    }
+    throw error;
+  }
+
+  return designId;
+}
+
 async function cleanupTest(options: {
   context: BrowserContext;
   page: Page;
@@ -277,14 +418,26 @@ async function cleanupTest(options: {
 }
 
 function frame(page: Page) {
-  return page.locator(PREVIEW).last().contentFrame();
+  return page
+    .locator(`${PREVIEW}[data-screen-iframe-id]`)
+    .first()
+    .contentFrame();
+}
+
+function boardFrame(page: Page) {
+  return page
+    .locator(`[data-board-surface-layer] ${PREVIEW}`)
+    .first()
+    .contentFrame();
 }
 
 async function waitForEditor(page: Page, readyNodeId: string): Promise<void> {
   await expect(
     page.getByRole("button", { name: "Move", exact: true }),
   ).toBeVisible({ timeout: 45_000 });
-  await expect(page.locator(PREVIEW).last()).toBeVisible({ timeout: 30_000 });
+  await expect(
+    page.locator(`${PREVIEW}[data-screen-iframe-id]`).first(),
+  ).toBeVisible({ timeout: 30_000 });
   await expect
     .poll(
       () =>
@@ -396,6 +549,216 @@ test.describe("authenticated beta Design interactions", () => {
   );
 
   test.beforeEach(() => skipUnlessAuthed());
+
+  test("report path: nested drop shows its guide before release and preserves parent order", async ({
+    browser,
+  }) => {
+    const { context, page, appErrors } = await openAuthedPage(browser);
+    let designId = "";
+    let primaryFailure = false;
+    try {
+      designId = await createNestedDropFixture(page, (id) => {
+        designId = id;
+      });
+      await openEditor(page, designId, ROOT_FRAME_ID);
+
+      const screen = frame(page);
+      const board = boardFrame(page);
+      const source = board.locator(
+        `[data-agent-native-node-id="${BOARD_SOURCE_ID}"]`,
+      );
+      const target = screen.locator(
+        `[data-agent-native-node-id="${NESTED_FRAME_ID}"]`,
+      );
+      await expect(source).toBeVisible({ timeout: 30_000 });
+      await expect(target).toBeVisible({ timeout: 30_000 });
+      expect(
+        await directChildIds(
+          page,
+          await readSource(page, designId),
+          NESTED_FRAME_ID,
+        ),
+      ).toEqual(["nested-anchor"]);
+
+      const sourceBox = (await source.boundingBox())!;
+      const targetBox = (await target.boundingBox())!;
+      const grabOffset = { x: 18, y: 11 };
+      const release = {
+        x: targetBox.x + targetBox.width / 2,
+        y: targetBox.y + targetBox.height / 2,
+      };
+      await page.mouse.move(
+        sourceBox.x + grabOffset.x,
+        sourceBox.y + grabOffset.y,
+      );
+      await page.mouse.down();
+      await page.mouse.move(
+        sourceBox.x + grabOffset.x - 12,
+        sourceBox.y + grabOffset.y,
+        { steps: 4 },
+      );
+      await page.mouse.move(release.x, release.y, { steps: 24 });
+      await expect(page.locator("[data-cross-screen-drop-guide]")).toBeVisible({
+        timeout: 10_000,
+      });
+      expect(
+        await directChildIds(
+          page,
+          await readSource(page, designId),
+          NESTED_FRAME_ID,
+        ),
+      ).toEqual(["nested-anchor"]);
+      await page.mouse.up();
+
+      await expect
+        .poll(
+          async () =>
+            directChildIds(
+              page,
+              await readSource(page, designId),
+              NESTED_FRAME_ID,
+            ),
+          { timeout: 20_000 },
+        )
+        .toEqual(["nested-anchor", BOARD_SOURCE_ID]);
+      await expect
+        .poll(() => readSource(page, designId, "__board__.html"), {
+          timeout: 20_000,
+        })
+        .not.toContain(`data-agent-native-node-id="${BOARD_SOURCE_ID}"`);
+
+      await expandLayers(page);
+      await expect(
+        page
+          .getByRole("tree", { name: "Layers" })
+          .locator('[role="treeitem"][aria-selected="true"]')
+          .filter({ hasText: "Board source" }),
+      ).toHaveCount(1);
+    } catch (error) {
+      primaryFailure = true;
+      throw error;
+    } finally {
+      await cleanupTest({
+        context,
+        page,
+        designId,
+        appErrors,
+        primaryFailure,
+      });
+    }
+  });
+
+  test("report path: Option-dragging a root frame preserves source and selects the copy", async ({
+    browser,
+  }) => {
+    const { context, page, appErrors } = await openAuthedPage(browser);
+    let designId = "";
+    let primaryFailure = false;
+    try {
+      designId = await createNestedDropFixture(page, (id) => {
+        designId = id;
+      });
+      await openEditor(page, designId, ROOT_FRAME_ID);
+
+      const screen = frame(page);
+      const root = screen.locator(
+        `[data-agent-native-node-id="${ROOT_FRAME_ID}"]`,
+      );
+      await expect(root).toBeVisible({ timeout: 30_000 });
+      const rootBefore = (await root.boundingBox())!;
+      await page.mouse.click(
+        rootBefore.x + rootBefore.width / 2,
+        rootBefore.y + rootBefore.height / 2,
+      );
+      await expect(
+        screen.locator('[data-agent-native-edit-overlay="selection"]'),
+      ).toBeVisible();
+
+      await page.mouse.move(
+        rootBefore.x + rootBefore.width / 2,
+        rootBefore.y + rootBefore.height / 2,
+      );
+      // Playwright calls the browser-level Option key Alt on Linux CI.
+      await page.keyboard.down("Alt");
+      await page.mouse.down();
+      await page.mouse.move(
+        rootBefore.x + rootBefore.width / 2 + 6,
+        rootBefore.y + rootBefore.height / 2 + 3,
+        { steps: 2 },
+      );
+      await expect(
+        screen.locator("[data-agent-native-transform-badge]"),
+      ).toHaveText("Duplicate layer");
+      await page.mouse.move(
+        rootBefore.x + rootBefore.width / 2 + 120,
+        rootBefore.y + rootBefore.height / 2 + 60,
+        { steps: 12 },
+      );
+      await page.mouse.up();
+      await page.keyboard.up("Alt");
+
+      const roots = screen.locator(
+        `[data-agent-native-layer-name="${ROOT_FRAME_NAME}"]`,
+      );
+      await expect(roots).toHaveCount(2, { timeout: 20_000 });
+      const rootState = await screen.locator("body").evaluate(() => {
+        const nodes = Array.from(
+          document.querySelectorAll<HTMLElement>(
+            '[data-agent-native-layer-name="Root frame"]',
+          ),
+        );
+        const selection = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
+        );
+        return {
+          nodes: nodes.map((node) => ({
+            id: node.getAttribute("data-agent-native-node-id"),
+            rect: node.getBoundingClientRect().toJSON(),
+          })),
+          selectionRect: selection?.getBoundingClientRect().toJSON(),
+        };
+      });
+      const original = rootState.nodes.find(
+        (node) => node.id === ROOT_FRAME_ID,
+      );
+      const copy = rootState.nodes.find((node) => node.id !== ROOT_FRAME_ID);
+      expect(original).toBeTruthy();
+      const copyId = copy!.id!;
+      expect(copyId).toMatch(/^an-copy-/);
+      expect(copy!.rect.x).toBeGreaterThan(original!.rect.x);
+      expect(rootState.selectionRect).toMatchObject({
+        x: copy!.rect.x,
+        y: copy!.rect.y,
+        width: copy!.rect.width,
+        height: copy!.rect.height,
+      });
+      expect(await readSource(page, designId)).toContain(
+        `data-agent-native-node-id="${ROOT_FRAME_ID}"`,
+      );
+      await expect
+        .poll(() => readSource(page, designId), { timeout: 20_000 })
+        .toContain(`data-agent-native-node-id="${copyId}"`);
+
+      await expandLayers(page);
+      await expect(
+        page
+          .getByRole("tree", { name: "Layers" })
+          .locator('[role="treeitem"][aria-selected="true"]')
+          .filter({ hasText: ROOT_FRAME_NAME }),
+      ).toHaveCount(1);
+    } catch (error) {
+      primaryFailure = true;
+      throw error;
+    } finally {
+      await cleanupTest({
+        context,
+        page,
+        designId,
+        appErrors,
+        primaryFailure,
+      });
+    }
+  });
 
   test("converting a base solid preserves ordered fill layers through reload", async ({
     browser,

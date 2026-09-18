@@ -427,6 +427,21 @@ test.describe("drag reparent parity", () => {
     const widget = await boxFor(page, screenId, "widget");
     const boardPoint = await emptyBoardPoint(page);
 
+    const deepSelectModifier =
+      process.platform === "darwin" ? "Meta" : "Control";
+    await page.keyboard.down(deepSelectModifier);
+    await page.mouse.click(
+      widget.x + widget.width / 2,
+      widget.y + widget.height / 2,
+    );
+    await page.keyboard.up(deepSelectModifier);
+    await expect
+      .poll(
+        async () =>
+          (await selectionContext(page)).selectedElement?.sourceId ?? null,
+      )
+      .toBe("widget");
+
     await page.mouse.move(
       widget.x + widget.width / 2,
       widget.y + widget.height / 2,
@@ -440,6 +455,38 @@ test.describe("drag reparent parity", () => {
     await page.mouse.move(boardPoint.x, boardPoint.y, { steps: 30 });
     await page.waitForTimeout(500);
     const trace = await dumpTrace(page);
+    const ghost = page.locator("[data-cross-screen-drag-ghost]");
+    await expect(ghost).toBeVisible({ timeout: 5_000 });
+    const ghostAtBoard = await ghost.boundingBox();
+    expect(
+      ghostAtBoard,
+      `drag ghost geometry missing. Trace: ${trace.slice(-800)}`,
+    ).not.toBeNull();
+    expect(ghostAtBoard!.width).toBeGreaterThan(widget.width * 0.8);
+    expect(ghostAtBoard!.height).toBeGreaterThan(widget.height * 0.8);
+    expect(ghostAtBoard!.x + ghostAtBoard!.width / 2).toBeCloseTo(
+      boardPoint.x,
+      0,
+    );
+    expect(ghostAtBoard!.y + ghostAtBoard!.height / 2).toBeCloseTo(
+      boardPoint.y,
+      0,
+    );
+    await page.mouse.move(boardPoint.x + 40, boardPoint.y + 24, { steps: 8 });
+    await page.waitForTimeout(250);
+    const ghostAtSecondPoint = await ghost.boundingBox();
+    expect(
+      ghostAtSecondPoint,
+      `the cross-screen drag ghost must remain rendered as the pointer moves. ` +
+        `Trace: ${trace.slice(-800)}`,
+    ).not.toBeNull();
+    expect(
+      Math.hypot(
+        ghostAtSecondPoint!.x - ghostAtBoard!.x,
+        ghostAtSecondPoint!.y - ghostAtBoard!.y,
+      ),
+      `the cross-screen drag ghost must follow the held pointer. Trace: ${trace.slice(-800)}`,
+    ).toBeGreaterThan(1);
     await page.mouse.up();
 
     let indexHtml = "";
@@ -467,9 +514,24 @@ test.describe("drag reparent parity", () => {
       `Widget must leave the screen document once dropped outside it on the board. Trace: ${trace.slice(-800)}`,
     ).toBe(false);
     expect(
-      boardHtml.includes("widget") || boardHtml.length > 0,
+      boardHtml.includes('data-agent-native-node-id="widget"'),
       `Widget dropped on the empty board must become a board object (checked __board__.html). Got boardHtml length=${boardHtml.length}`,
     ).toBe(true);
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(
+      page.getByRole("button", { name: "Move", exact: true }),
+    ).toBeVisible({ timeout: 30_000 });
+    await expect
+      .poll(async () => {
+        const reloadedIndexHtml = await fileContent(page, id, "index.html");
+        const reloadedBoardHtml = await fileContent(page, id, "__board__.html");
+        return (
+          !reloadedIndexHtml.includes('data-agent-native-node-id="widget"') &&
+          reloadedBoardHtml.includes("widget")
+        );
+      })
+      .toBe(true);
   });
 
   test("dragging a board rectangle into a screen inserts it into that screen at the drop position", async ({
@@ -530,6 +592,10 @@ test.describe("drag reparent parity", () => {
       steps: 24,
     });
     await page.waitForTimeout(400);
+    await expect(page.locator("[data-cross-screen-drop-guide]")).toBeVisible({
+      timeout: 5_000,
+    });
+    const trace = await dumpTrace(page);
     await page.mouse.up();
 
     let indexHtmlAfter = "";
@@ -550,6 +616,30 @@ test.describe("drag reparent parity", () => {
           timeout: 10_000,
           message:
             "dragging the board rectangle into the screen's Main must insert it into that screen and remove it from the board",
+        },
+      )
+      .toBe(true);
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(
+      page.getByRole("button", { name: "Move", exact: true }),
+    ).toBeVisible({ timeout: 30_000 });
+    await expect
+      .poll(
+        async () => {
+          const reloadedIndexHtml = await fileContent(page, id, "index.html");
+          const reloadedBoardHtml = await fileContent(
+            page,
+            id,
+            "__board__.html",
+          );
+          return (
+            reloadedIndexHtml.includes('data-an-primitive="rectangle"') &&
+            !reloadedBoardHtml.includes('data-an-primitive="rectangle"')
+          );
+        },
+        {
+          message: `board-to-screen persistence did not survive reload. Trace: ${trace.slice(-800)}`,
         },
       )
       .toBe(true);
@@ -701,6 +791,21 @@ test.describe("drag reparent parity", () => {
     const widget = await boxFor(page, screenId, "widget");
     const boardPoint = await emptyBoardPoint(page);
 
+    const deepSelectModifier =
+      process.platform === "darwin" ? "Meta" : "Control";
+    await page.keyboard.down(deepSelectModifier);
+    await page.mouse.click(
+      widget.x + widget.width / 2,
+      widget.y + widget.height / 2,
+    );
+    await page.keyboard.up(deepSelectModifier);
+    await expect
+      .poll(
+        async () =>
+          (await selectionContext(page)).selectedElement?.sourceId ?? null,
+      )
+      .toBe("widget");
+
     await page.mouse.move(
       widget.x + widget.width / 2,
       widget.y + widget.height / 2,
@@ -792,6 +897,21 @@ test.describe("drag reparent parity", () => {
 
     const widget = await boxFor(page, screenOneId, "widget");
     const target = await boxFor(page, screenTwoId, "page2-target");
+
+    const deepSelectModifier =
+      process.platform === "darwin" ? "Meta" : "Control";
+    await page.keyboard.down(deepSelectModifier);
+    await page.mouse.click(
+      widget.x + widget.width / 2,
+      widget.y + widget.height / 2,
+    );
+    await page.keyboard.up(deepSelectModifier);
+    await expect
+      .poll(
+        async () =>
+          (await selectionContext(page)).selectedElement?.sourceId ?? null,
+      )
+      .toBe("widget");
 
     await page.mouse.move(
       widget.x + widget.width / 2,
@@ -891,6 +1011,18 @@ test.describe("drag reparent parity", () => {
 
     const card = await boxFor(page, screenOneId, "style-card");
     const target = await boxFor(page, screenTwoId, "style-dest-target");
+
+    const deepSelectModifier =
+      process.platform === "darwin" ? "Meta" : "Control";
+    await page.keyboard.down(deepSelectModifier);
+    await page.mouse.click(card.x + card.width / 2, card.y + card.height / 2);
+    await page.keyboard.up(deepSelectModifier);
+    await expect
+      .poll(
+        async () =>
+          (await selectionContext(page)).selectedElement?.sourceId ?? null,
+      )
+      .toBe("style-card");
 
     await page.mouse.move(card.x + card.width / 2, card.y + card.height / 2);
     await page.mouse.down();

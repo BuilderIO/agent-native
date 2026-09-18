@@ -324,6 +324,13 @@ export function mountDevActionForwardRoute(
         setResponseStatus(event, 404);
         return { ok: false, error: `Action "${name}" not found.` };
       }
+      if (entry.uiOnly === true) {
+        setResponseStatus(event, 403);
+        return {
+          ok: false,
+          error: "This action can only be called from the signed-in app UI.",
+        };
+      }
       const params = (body?.input ?? {}) as Record<string, unknown>;
       const userEmail =
         getHeader(event, DEV_ACTION_USER_HEADER) ||

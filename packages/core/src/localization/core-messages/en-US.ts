@@ -1,4 +1,5 @@
 const messages = {
+  "activity.reasoning": "Reasoning",
   "approval.alwaysAllow": "Always allow",
   "approval.alwaysAllowHint": "Approve and always allow this exact command",
   "approval.alwaysAllowAction": "Always allow this action",
@@ -753,6 +754,7 @@ const messages = {
   "status.preparing": "Preparing {{activity}}...",
   "status.writing": "Writing {{activity}}...",
   "status.stillGenerating": "Still generating {{activity}}",
+  "status.runningTool": "Running {{activity}}",
   "tabs.allChats": "All chats",
   "tabs.closeTab": "Close tab",
   "tabs.main": "Main",

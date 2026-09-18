@@ -37,8 +37,13 @@ function makeRedoHarness(
   const focusCreatedScreen = vi.fn();
   const optimisticallyInsertCreatedFile = vi.fn();
   const writeFrameGeometrySnapshot = vi.fn();
+  const deleteFileMutation = {
+    mutateAsync: vi.fn().mockResolvedValue({ deleted: true }),
+  };
   const queryClient = {
+    getQueryData: vi.fn().mockReturnValue(undefined),
     invalidateQueries: vi.fn(),
+    refetchQueries: vi.fn(),
     setQueryData: vi.fn(),
   };
 
@@ -57,6 +62,7 @@ function makeRedoHarness(
     contentUndoSelectionStackRef: ref([]),
     contentUndoStackRef: ref([]),
     createFileMutation,
+    deleteFileMutation,
     deleteRuntimeElement: vi.fn(() => true),
     designDataJsonRef: ref({}),
     fileCreationRedoStackRef,
@@ -129,6 +135,7 @@ function makeRedoHarness(
 
   return {
     args,
+    deleteFileMutation,
     fileCreationRedoStackRef,
     fileCreationUndoStackRef,
     fileHistoryMutationPendingRef,
@@ -155,8 +162,10 @@ describe("redo file creation metadata persistence", () => {
     const harness = makeRedoHarness(updateDesignAsync);
 
     runRedo(harness.args);
+    await vi.waitFor(() =>
+      expect(harness.args.createFileMutation.mutate).toHaveBeenCalledTimes(1),
+    );
 
-    expect(harness.args.createFileMutation.mutate).toHaveBeenCalledTimes(1);
     const completion = harness.getOnSuccess()?.({ id: "recreated-screen" });
     expect(completion).toBeDefined();
     await Promise.resolve();
@@ -180,9 +189,9 @@ describe("redo file creation metadata persistence", () => {
     expect(harness.queryClient.invalidateQueries).not.toHaveBeenCalled();
 
     resolveUpdate();
-    await completion;
-
-    expect(harness.queryClient.invalidateQueries).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() =>
+      expect(harness.queryClient.invalidateQueries).toHaveBeenCalledTimes(1),
+    );
   });
 
   it("restores redo and cleans up the file when data persistence fails", async () => {
@@ -192,6 +201,7 @@ describe("redo file creation metadata persistence", () => {
     const harness = makeRedoHarness(updateDesignAsync, performDeleteFiles);
 
     runRedo(harness.args);
+    await vi.waitFor(() => expect(harness.getOnSuccess()).toBeDefined());
 
     const completion = harness.getOnSuccess()?.({
       id: "recreated-screen",
@@ -199,17 +209,13 @@ describe("redo file creation metadata persistence", () => {
       updatedAt: "2026-09-17T00:00:00.000Z",
     });
     expect(completion).toBeDefined();
-    await completion;
-
-    expect(performDeleteFiles).toHaveBeenCalledWith(
-      [
-        expect.objectContaining({
-          id: "recreated-screen",
-          filename: "settings.html",
-        }),
-      ],
-      { preserveHistory: true, skipFileCreationRedoPrune: true },
+    await vi.waitFor(() =>
+      expect(harness.deleteFileMutation.mutateAsync).toHaveBeenCalledWith({
+        id: "recreated-screen",
+        allowLockedLayers: true,
+      }),
     );
+
     expect(harness.optimisticallyInsertCreatedFile).not.toHaveBeenCalled();
     expect(harness.focusCreatedScreen).not.toHaveBeenCalled();
     expect(harness.fileCreationUndoStackRef.current).toEqual([]);

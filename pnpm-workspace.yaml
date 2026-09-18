@@ -3,6 +3,8 @@ packages:
   - templates/*
   - templates/*/desktop
   - templates/*/chrome-extension
+  - community-templates
+  - community-templates/toolkit
 
 minimumReleaseAge: 1440
 minimumReleaseAgeExclude:

@@ -117,6 +117,11 @@ export function isSupersededSelectionEcho(
   incoming: ElementInfo,
   current: ElementInfo | null,
 ): boolean {
+  // The bridge emits an intent-less selection when an Alt-drag creates its
+  // optimistic runtime clone. That is an authoritative selection, not a
+  // delayed echo from the previous source element; the runtime identity is
+  // the marker that lets it cross this boundary without adding history.
+  if (incoming.runtimeSourceId?.trim()) return false;
   if (!current) return false;
   const incomingId = incoming.sourceId?.trim();
   const currentId = current.sourceId?.trim();

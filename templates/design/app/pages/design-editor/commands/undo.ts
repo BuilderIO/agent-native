@@ -1320,13 +1320,28 @@ export function runUndo({
   // entry itself doesn't carry the id assigned by the create mutation.
   const undoFileCreation = () => {
     if (!canUseOverviewHistory) return false;
-    const entry = fileCreationUndoStackRef.current.pop();
+    const stack = fileCreationUndoStackRef.current;
+    const entry = stack[stack.length - 1];
     if (!entry) return false;
-    const createdFile = files.find((file) => file.filename === entry.filename);
-    if (!createdFile) return false;
+    let batchStart = stack.length - 1;
+    while (
+      batchStart > 0 &&
+      entry.historyBatchId &&
+      stack[batchStart - 1]?.historyBatchId === entry.historyBatchId
+    ) {
+      batchStart -= 1;
+    }
+    const entries = stack.slice(batchStart);
+    const createdFiles = entries.map((item) =>
+      files.find((file) => file.filename === item.filename),
+    );
+    if (createdFiles.some((file) => !file)) return false;
+    stack.splice(batchStart, entries.length);
     fileCreationRedoStackRef.current = [
-      ...fileCreationRedoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
-      entry,
+      ...fileCreationRedoStackRef.current.slice(
+        -(MAX_DESIGN_UNDO_STACK - entries.length),
+      ),
+      ...entries,
     ];
     redoOrderRef.current = [
       ...redoOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
@@ -1336,7 +1351,10 @@ export function runUndo({
     // stack above for this exact filename — without this flag
     // performDeleteFiles' filename-keyed redo prune would immediately pop
     // it back off, leaving redo permanently empty after this undo.
-    performDeleteFiles([createdFile], { skipFileCreationRedoPrune: true });
+    performDeleteFiles(
+      createdFiles.filter((file): file is DesignFile => Boolean(file)),
+      { skipFileCreationRedoPrune: true },
+    );
     return true;
   };
   const undoFileDeletion = () => {

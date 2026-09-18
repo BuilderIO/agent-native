@@ -22,6 +22,7 @@ import { isInboxScopedAppLabel } from "@shared/gmail-labels";
 import { inboxTabHref } from "@shared/inbox-threads";
 import type { Label, SavedMailFilter } from "@shared/types";
 import {
+  IconArrowUpRight,
   IconMenu2,
   IconSettings,
   IconSearch,
@@ -40,6 +41,7 @@ import {
   IconStar,
   IconTrash,
   IconX,
+  IconFilter,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
@@ -1432,6 +1434,17 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                   align="start"
                   className="w-60 max-w-[calc(100vw-2rem)] p-0"
                 >
+                  <Link
+                    to="/settings?section=ai-filter"
+                    onClick={() => setTabSettingsOpen(false)}
+                    className="flex items-center gap-2 border-b border-border/30 px-3 py-2 text-[12px] font-medium text-foreground transition-colors hover:bg-accent/50"
+                  >
+                    <IconFilter className="size-3.5 text-primary" />
+                    <span className="flex-1">
+                      {t("mail.toolbar.aiSettings")}
+                    </span>
+                    <IconArrowUpRight className="size-3.5 text-muted-foreground" />
+                  </Link>
                   <TabSettingsPopover
                     systemViews={collapsibleViews}
                     userLabels={userLabels}

@@ -1,0 +1,63 @@
+---
+title: "Confidentialité et droits sur les données"
+description: "Valeurs par défaut du framework et responsabilités de l’opérateur pour les demandes de données au titre du RGPD et du CCPA."
+---
+
+# Confidentialité et droits sur les données
+
+Agent-Native inclut une interface de demande de confidentialité dans les paramètres de compte par défaut. Une personne connectée peut demander une copie de ses données personnelles ou leur suppression.
+
+Il s’agit d’une base technique, et non d’un conseil juridique ni d’une certification de conformité. L’organisation qui exploite l’application doit déterminer son rôle juridique et publier les avis et processus adaptés à son déploiement.
+
+## Ce que les utilisateurs peuvent faire
+
+Ouvrez **Paramètres > Compte > Confidentialité et données** pour :
+
+- demander une copie des données personnelles pour un examen de l’accès ou de la portabilité ;
+- demander la suppression des données personnelles pour un examen de l’effacement ;
+- corriger les informations du compte avec les contrôles de profil et d’adresse e-mail existants.
+
+Les demandes sont persistantes, idempotentes et auditées. L’action enregistre uniquement le type, le statut et l’horodatage. Elle ne renvoie pas d’export de données, n’accepte pas l’adresse e-mail ou l’identifiant d’une autre personne et ne supprime pas les données immédiatement.
+
+## Ce que les agents ne peuvent pas faire
+
+Les demandes sont envoyées depuis les paramètres du compte. L’action `request-privacy-right` est authentifiée, masquée des outils de l’agent et de la découverte MCP/A2A, bloquée par le pont d’outils et autorisée uniquement pour l’appelant frontend.
+
+L’action centrale `offboard-member` applique la même limite réservée à l’interface. Le retrait d’un membre est une opération d’organisation qui transfère ses lignes et révoque son accès ; ce n’est pas un effacement de compte. La suppression de l’organisation reste également protégée par la confirmation du propriétaire dans l’interface.
+
+Les demandes de validation humaine ne constituent pas une limite de sécurité. Pour une action personnalisée qui efface des données, révoque une identité, modifie les membres ou l’authentification, utilisez une limite UI-only explicite et dérivez l’identité du contexte de requête vérifié.
+
+## Exécution par l’opérateur
+
+Le framework enregistre la demande. L’opérateur doit :
+
+1. vérifier l’identité et déterminer l’organisation et le périmètre juridique ;
+2. rassembler les données contrôlées par le déploiement et les transmettre via un canal privé et protégé ;
+3. supprimer ou anonymiser les lignes et fichiers privés, révoquer les sessions et identifiants si nécessaire et coordonner les fournisseurs et sous-traitants connectés ;
+4. appliquer les règles de conservation aux sauvegardes, journaux de sécurité et d’audit, dispositifs antifraude et exceptions documentées ;
+5. consigner la réalisation, la réalisation partielle ou le motif du blocage et informer le demandeur.
+
+Une demande n’est pas terminée parce qu’une ligne d’organisation ou un paramètre a été supprimé. Les fournisseurs hébergés, fichiers importés, services connectés, caches, sauvegardes et journaux immuables peuvent avoir des chemins de conservation et de suppression distincts.
+
+## Protection par défaut
+
+Les nouvelles ressources partageables sont privées par défaut. Les analyses du navigateur désactivent la capture automatique du DOM et du réseau ; la relecture de session est facultative et réservée aux utilisateurs connectés lorsqu’elle est configurée. Ces paramètres ne remplacent ni l’avis de confidentialité, ni l’analyse de la base légale, ni la politique de conservation, ni les contrôles de consentement et d’opposition.
+
+Si le déploiement vend ou partage des informations personnelles, il doit proposer l’opposition CCPA applicable et gérer Global Privacy Control. Le framework ne crée pas de programme de vente ou de partage.
+
+## Liste de déploiement
+
+- Publier un avis indiquant les catégories, finalités, destinataires, durées de conservation, droits et moyen de contact.
+- Documenter les bases légales, le consentement, les données sensibles et les exigences d’âge.
+- Désigner un responsable et un processus pour les demandes d’accès, rectification, suppression, portabilité, opposition et retrait.
+- Recenser les tables, fichiers privés, outils analytiques, services connectés, e-mails, caches, journaux, sauvegardes et sous-traitants.
+- Définir la vérification, les délais, les exceptions de conservation, les preuves de suppression et les recours.
+- Garder les actions à fort impact réservées à l’interface et tester les appels depuis agent, MCP, A2A, CLI, HTTP et le pont d’outils.
+
+## Références
+
+- [Texte du RGPD](https://eur-lex.europa.eu/eli/reg/2016/679/oj/eng/)
+- [Commission européenne : demandes des personnes](https://commission.europa.eu/law/law-topic/data-protection/information-business-and-organisations/dealing-requests-individuals_en)
+- [Attorney General de Californie : CCPA](https://www.oag.ca.gov/privacy/ccpa)
+- [Règlements CCPA](https://www.oag.ca.gov/privacy/ccpa/regs)
+- [Politique de confidentialité Hosted Agent-Native](/privacy)

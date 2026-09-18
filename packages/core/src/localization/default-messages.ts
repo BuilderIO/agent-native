@@ -166,6 +166,24 @@ const messages = {
     twoFactorSetupError: "Could not update two-factor settings",
     twoFactorDisableError: "Could not turn off two-factor authentication",
     twoFactorCodeError: "Enter the six-digit code from your authenticator app.",
+    privacyTitle: "Privacy & data",
+    privacyDescription:
+      "Request a copy of your data or ask for your personal data to be deleted.",
+    privacyManage: "Manage",
+    privacyRightsTitle: "Your data rights",
+    privacyRightsDescription:
+      "Requests are recorded for review by a workspace administrator, who will verify your identity and follow up.",
+    privacyRequestCopy: "Request a copy",
+    privacyRequestDeletion: "Request deletion",
+    privacyRequesting: "Recording request...",
+    privacyRequestRecorded:
+      "Request recorded. An administrator will follow up.",
+    privacyRequestRecordedShort: "Request recorded",
+    privacyRequestError: "Could not record your request. Please try again.",
+    privacyDeletionTitle: "Request deletion of your data?",
+    privacyDeletionDescription:
+      "This records a deletion request; it does not delete data immediately. An administrator will verify your identity and complete the request under the deployment's retention and legal obligations.",
+    privacyDocsLink: "Read privacy and data rights",
     profileMenuItem: "Profile",
     manageAgentMenuItem: "Manage agent",
     timezoneLabel: "Timezone",

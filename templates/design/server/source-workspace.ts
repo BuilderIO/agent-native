@@ -3,9 +3,7 @@ import {
   CollabBaseVersionConflictError,
   hasCollabState,
   getText,
-  applyText,
   applyTextToYDoc,
-  seedFromText,
   type PreparedYDocMutationLease,
   withPreparedYDocMutation,
 } from "@agent-native/core/collab";
@@ -44,9 +42,9 @@ export interface SourceWorkspaceFile {
 // Per-file in-process write serialization for writeInlineSourceFile's full
 // read-check-write critical section.
 //
-// @agent-native/core/collab's applyText/seedFromText each serialize their OWN
-// Y.Doc mutation via an internal per-docId lock, but that only protects the
-// CRDT mutation itself — not the read-then-decide-then-write sequence around
+// @agent-native/core/collab's mutation helpers each serialize their OWN Y.Doc
+// mutation via an internal per-docId lock, but that only protects the CRDT
+// mutation itself — not the read-then-decide-then-write sequence around
 // it. Two concurrent writers to a file that has NO collab doc yet (a real
 // case: doc creation is lazy, so nothing has opened this file in a live
 // session) can each observe hasCollabState()===false, so BOTH take the
@@ -55,11 +53,11 @@ export interface SourceWorkspaceFile {
 // content, silently discarding whichever writer didn't "win" the seed (a
 // lost update, not a CRDT merge — reproduced in
 // insert-design-native-asset.interleave.spec.ts). Serializing the whole
-// critical section per file id closes this: the second writer's read
-// (hasCollabState / getText / expectedVersionHash check) now happens AFTER
-// the first writer's collab mutation has landed, so it observes the true
-// current state and either converges its own diff cleanly or is rejected by
-// the expectedVersionHash guard — never silently clobbered.
+// critical section per file id closes this: the second writer's prepared
+// document read and expectedVersionHash check now happen AFTER the first
+// writer's collab mutation has landed, so it observes the true current state
+// and either converges its own diff cleanly or is rejected by the
+// expectedVersionHash guard — never silently clobbered.
 const _writeLocks = new Map<string, Promise<void>>();
 
 /**
@@ -137,6 +135,16 @@ export async function withSourceFileWriteLock<T>(
   }
 }
 
+export function withPreparedSourceFileMutation<T>(
+  fileId: string,
+  requestSource: string | undefined,
+  callback: (lease: PreparedYDocMutationLease) => Promise<T>,
+): Promise<T> {
+  return withSourceFileWriteLock(fileId, () =>
+    withPreparedYDocMutation(fileId, requestSource, callback),
+  );
+}
+
 /** Serialize cross-process mutations that reconcile a design's source/index. */
 export function designSourceMutationLockKey(designId: string): string {
   return `agent-native:design-source:${designId}`;
@@ -156,6 +164,62 @@ type DesignSourceMutationTransaction = Parameters<
   Parameters<ReturnType<typeof getDb>["transaction"]>[0]
 >[0];
 
+function drizzleSqlForDbExec(statement: Parameters<DbExec["execute"]>[0]) {
+  const rawSql = typeof statement === "string" ? statement : statement.sql;
+  const args = typeof statement === "string" ? [] : (statement.args ?? []);
+  const parts = rawSql.split("?");
+  if (parts.length !== args.length + 1) {
+    throw new Error(
+      "A transaction-bound source write received an unreadable SQL statement.",
+    );
+  }
+  return sql.join(
+    parts.flatMap((part, index) => [
+      sql.raw(part),
+      ...(index < args.length ? [sql.param(args[index])] : []),
+    ]),
+  );
+}
+
+function dbExecForDrizzleTransaction(
+  transaction: DesignSourceMutationTransaction,
+): DbExec {
+  return {
+    execute: async (statement) => {
+      const result = await transaction.execute(drizzleSqlForDbExec(statement));
+      const resultRecord = result as {
+        rows?: unknown;
+        rowsAffected?: unknown;
+        affectedRows?: unknown;
+        rowCount?: unknown;
+        count?: unknown;
+        changes?: unknown;
+        meta?: { changes?: unknown };
+      };
+      return {
+        rows: Array.isArray(result)
+          ? result
+          : Array.isArray(resultRecord.rows)
+            ? resultRecord.rows
+            : [],
+        rowsAffected: affectedRowCount(result) ?? 0,
+      };
+    },
+  };
+}
+
+const _designTransactionExecs = new WeakMap<object, DbExec>();
+
+export function getDesignSourceMutationExec(transaction: object): DbExec {
+  const exec = _designTransactionExecs.get(transaction);
+  if (!exec) {
+    throw new Error(
+      "A source mutation attempted collaboration persistence outside its SQL transaction.",
+    );
+  }
+  return exec;
+}
+
 /** Keep design-file membership changes in the same lock domain as indexing. */
 export function withDesignSourceMutationTransaction<T>(
   designId: string,
@@ -165,7 +229,13 @@ export function withDesignSourceMutationTransaction<T>(
     await tx.execute(
       sql`SELECT pg_advisory_xact_lock(hashtextextended(${designSourceMutationLockKey(designId)}, 0::bigint))`,
     );
-    return callback(tx);
+    const transactionExec = dbExecForDrizzleTransaction(tx);
+    _designTransactionExecs.set(tx, transactionExec);
+    try {
+      return await callback(tx);
+    } finally {
+      _designTransactionExecs.delete(tx);
+    }
   });
 }
 
@@ -277,20 +347,29 @@ export async function readLiveSourceFile(file: SourceWorkspaceFile): Promise<{
   content: string;
   versionHash: string;
   language: string;
+  source: "collab" | "stored";
 }> {
   let content = file.content ?? "";
+  let source: "collab" | "stored" = "stored";
   try {
     if (await hasCollabState(file.id)) {
       const live = await getText(file.id, "content");
-      if (typeof live === "string") content = live;
+      if (typeof live !== "string") {
+        throw new Error("Collaboration content was not text.");
+      }
+      content = live;
+      source = "collab";
     }
   } catch {
-    // Collab reads are best-effort; SQL content is the fallback.
+    throw new SourceWorkspaceEditConflictError(
+      "Could not verify a source file's live version. Re-read the design and retry.",
+    );
   }
   return {
     content,
     versionHash: sourceContentHash(content),
     language: languageForSourcePath(file.filename),
+    source,
   };
 }
 
@@ -320,6 +399,73 @@ export class SourceWorkspaceEditConflictError extends Error {
     super(message);
     this.name = "SourceWorkspaceEditConflictError";
   }
+}
+
+export function readPreparedSourceText(
+  lease: Pick<PreparedYDocMutationLease, "doc">,
+): string {
+  try {
+    const content = lease.doc.getText("content").toString();
+    if (typeof content !== "string") {
+      throw new Error("Prepared collaboration content was not text.");
+    }
+    return content;
+  } catch {
+    throw new SourceWorkspaceEditConflictError(
+      "Could not verify a source file's live version. Re-read the design and retry.",
+    );
+  }
+}
+
+/**
+ * Lock and validate the durable collaboration row represented by a prepared
+ * lease. Preparing the Y.Doc happens before the design transaction can take
+ * its SQL locks, so the lease's base version must be checked again at the
+ * final boundary instead of trusting its cached snapshot.
+ */
+export async function lockPreparedSourceCollaboration(
+  transaction: DbExec,
+  fileId: string,
+  lease: Pick<PreparedYDocMutationLease, "baseVersion">,
+): Promise<{ hasState: boolean; needsSeed: boolean }> {
+  let result: { rows: unknown[] };
+  try {
+    result = (await transaction.execute({
+      sql: "SELECT yjs_state, text_snapshot, version FROM _collab_docs WHERE doc_id = ? FOR UPDATE",
+      args: [fileId],
+    })) as { rows: unknown[] };
+  } catch {
+    throw new SourceWorkspaceEditConflictError(
+      "Could not verify a source file's live version. Re-read the design and retry.",
+    );
+  }
+
+  const row = result.rows[0] as
+    | { yjs_state?: unknown; text_snapshot?: unknown; version?: unknown }
+    | undefined;
+  if (!row) {
+    if (lease.baseVersion !== null) {
+      throw new SourceWorkspaceEditConflictError(
+        "The source file's live collaboration document changed while it was being read. Re-read the design and retry.",
+      );
+    }
+    return { hasState: false, needsSeed: true };
+  }
+
+  const version = Number(row.version);
+  if (
+    typeof row.yjs_state !== "string" ||
+    typeof row.text_snapshot !== "string" ||
+    !Number.isSafeInteger(version) ||
+    version !== lease.baseVersion
+  ) {
+    throw new SourceWorkspaceEditConflictError(
+      "The source file's live collaboration document changed while it was being read. Re-read the design and retry.",
+    );
+  }
+
+  const hasState = row.yjs_state.length > 0;
+  return { hasState, needsSeed: !hasState };
 }
 
 export async function prepareInlineSourceEdit(args: {
@@ -372,7 +518,7 @@ export async function writeInlineSourceFile(args: {
   /** Used only when the editor deliberately changes a screen's source mode. */
   allowUrlBackedTransition?: boolean;
 }): Promise<{ versionHash: string; changed: boolean; updatedAt: string }> {
-  return withSourceFileWriteLock(args.file.id, () =>
+  return withPreparedSourceFileMutation(args.file.id, "agent", async (lease) =>
     withDesignSourceMutationTransaction(args.designId, async (tx) => {
       await assertAccess("design", args.designId, "editor");
       const [currentFile] = await tx
@@ -395,7 +541,46 @@ export async function writeInlineSourceFile(args: {
       if (!currentFile || currentFile.designId !== args.designId) {
         throw new Error("Source file not found.");
       }
-      const current = await readLiveSourceFile(currentFile);
+      let hasCollaborationState = false;
+      try {
+        hasCollaborationState = await hasCollabState(args.file.id);
+      } catch {
+        throw new SourceWorkspaceEditConflictError(
+          "Could not verify a source file's live version. Re-read the design and retry.",
+        );
+      }
+      const needsCollabSeed =
+        !hasCollaborationState || lease.baseVersion === null;
+      let liveContent = readPreparedSourceText(lease);
+      if (needsCollabSeed) {
+        liveContent = currentFile.content ?? "";
+        applyTextToYDoc(lease.doc, "content", liveContent, "agent");
+      }
+      const current = {
+        content: liveContent,
+        versionHash: sourceContentHash(liveContent),
+      };
+      const validatePreparedNoop = async () => {
+        const preparedCollaboration = await lockPreparedSourceCollaboration(
+          getDesignSourceMutationExec(tx),
+          args.file.id,
+          lease,
+        );
+        if (!preparedCollaboration.needsSeed) return;
+        if (!needsCollabSeed) {
+          applyTextToYDoc(lease.doc, "content", current.content, "agent");
+        }
+        try {
+          await lease.persist(getDesignSourceMutationExec(tx), current.content);
+        } catch (error) {
+          if (error instanceof CollabBaseVersionConflictError) {
+            throw new SourceWorkspaceEditConflictError(
+              "Source file changed while the edit was being applied. Re-read the design and retry.",
+            );
+          }
+          throw error;
+        }
+      };
       const identityOnly = args.identityOnly === true;
       let identityOnlyOperationSource: string | undefined;
       let identityOnlyOperationRevision: number | undefined;
@@ -465,6 +650,7 @@ export async function writeInlineSourceFile(args: {
         // Only the full content + operation-lineage proof above earns this
         // idempotent fast path.
         if (exactPersistedOperation) {
+          await validatePreparedNoop();
           return {
             versionHash: candidateHash,
             changed: false,
@@ -512,6 +698,7 @@ export async function writeInlineSourceFile(args: {
       const changed = args.content !== current.content;
       const updatedAt = new Date().toISOString();
       if (!changed && !identityOnly) {
+        await validatePreparedNoop();
         return {
           versionHash: current.versionHash,
           changed: false,
@@ -542,84 +729,23 @@ export async function writeInlineSourceFile(args: {
       };
       assertCandidateIntegrity(args.content);
 
-      if (await hasCollabState(args.file.id)) {
-        const liveBeforeApply = await getText(args.file.id, "content");
-        const expectedLiveHash = identityOnly
-          ? liveBaseHash
-          : args.expectedVersionHash;
-        if (
-          expectedLiveHash &&
-          expectedLiveHash !== sourceContentHash(liveBeforeApply)
-        ) {
-          throw new SourceWorkspaceEditConflictError(
-            "Source file changed since it was read. Re-read the file and retry.",
-          );
-        }
-        if (liveBeforeApply !== args.content) {
-          try {
-            await applyText(args.file.id, args.content, "content", "agent", {
-              // The check above ran before the write lock and against a value
-              // that another serverless process can invalidate a millisecond
-              // later. Re-assert it on the text the diff is actually computed
-              // from: `args.content` is a whole document built on the older
-              // base, so a peer's edit that landed in between would be
-              // overwritten silently rather than reported as a conflict.
-              validateBase: (base) => {
-                if (
-                  expectedLiveHash &&
-                  expectedLiveHash !== sourceContentHash(base)
-                ) {
-                  throw new SourceWorkspaceEditConflictError(
-                    "Source file changed while the edit was being applied. Re-read the file and retry.",
-                  );
-                }
-              },
-              // A human artboard edit can reach the shared Y.Doc from another
-              // serverless process after the version check above. Validate the
-              // fully converged CRDT snapshot before core persists or broadcasts
-              // the agent diff so clients never observe a malformed intermediate
-              // document that is immediately rolled back below.
-              validateSnapshot: (snapshot) =>
-                assertCandidateIntegrity(snapshot),
-            });
-          } catch (error) {
-            // A peer that commits after the base check now fails the persistence
-            // CAS by name; it is the same retryable conflict, not a bad edit.
-            if (error instanceof CollabBaseVersionConflictError) {
-              throw new SourceWorkspaceEditConflictError(
-                "Source file changed while the edit was being applied. Re-read the file and retry.",
-              );
-            }
-            if (!isDesignHtmlIntegrityError(error)) throw error;
-            // The caller's candidate already passed the integrity check above.
-            // A failure here therefore came from concurrent CRDT convergence,
-            // so surface it as a retryable conflict instead of blaming the edit
-            // with the invalid-HTML toast.
-            throw new SourceWorkspaceEditConflictError(
-              "Source file changed while the edit was being applied. Re-read the file and retry.",
-            );
-          }
-        }
-      } else {
-        // No collab doc exists for this file yet. Without the write-lock this
-        // function is now wrapped in, two concurrent callers could both
-        // observe hasCollabState()===false (doc creation is lazy) and both
-        // reach seedFromText — which only takes effect for the first caller —
-        // so a naive unconditional SQL write after this branch could clobber
-        // whichever writer "won" the seed with a loser's stale content (a lost
-        // update, not merely a no-op: exactly the "assets disappear/reappear"
-        // bug this fix closes). The lock serializes this whole critical
-        // section per file id, so by the time a second call reaches this
-        // branch it already observes hasCollabState()===true from the first
-        // call's seed and takes the applyText branch instead.
-        await seedFromText(args.file.id, args.content);
+      const liveBeforeApply = readPreparedSourceText(lease);
+      const expectedLiveHash = identityOnly
+        ? liveBaseHash
+        : args.expectedVersionHash;
+      if (
+        expectedLiveHash &&
+        expectedLiveHash !== sourceContentHash(liveBeforeApply)
+      ) {
+        throw new SourceWorkspaceEditConflictError(
+          "Source file changed since it was read. Re-read the file and retry.",
+        );
+      }
+      if (liveBeforeApply !== args.content) {
+        applyTextToYDoc(lease.doc, "content", args.content, "agent");
       }
 
-      // Persist whatever the collab layer actually holds now, not the caller's
-      // args.content blindly — normally the same string, but this keeps SQL a
-      // true mirror of the converged live document under the lock rather than
-      // trusting args.content directly.
-      const authoritativeContent = await getText(args.file.id, "content");
+      const authoritativeContent = readPreparedSourceText(lease);
       try {
         if (identityOnly && authoritativeContent !== args.content) {
           throw new SourceWorkspaceEditConflictError(
@@ -638,14 +764,10 @@ export async function writeInlineSourceFile(args: {
           fileType: currentFile.fileType ?? args.file.fileType ?? "html",
         });
       } catch (error) {
-        // `applyText` is a full-target diff, but keep the write transaction
-        // fail-closed even if a malformed/concurrent collab state somehow
-        // converges to something other than the validated candidate. Restore
-        // the exact pre-write live content before SQL can observe corruption.
-        if (!identityOnly) {
-          await applyText(args.file.id, current.content, "content", "agent");
-        }
-        throw error;
+        if (!isDesignHtmlIntegrityError(error)) throw error;
+        throw new SourceWorkspaceEditConflictError(
+          "Source file changed while the edit was being applied. Re-read the file and retry.",
+        );
       }
 
       // The JS lock is process-local. Guard the SQL mirror with the exact
@@ -728,21 +850,23 @@ export async function writeInlineSourceFile(args: {
       }
 
       if (!persisted) {
-        const [winner] = await tx
-          .select({ content: schema.designFiles.content })
-          .from(schema.designFiles)
-          .where(eq(schema.designFiles.id, args.file.id))
-          .limit(1);
-        if (
-          !identityOnly &&
-          winner &&
-          winner.content !== authoritativeContent
-        ) {
-          await applyText(args.file.id, winner.content, "content", "agent");
-        }
         throw new SourceWorkspaceEditConflictError(
           "Source file changed while it was being saved. Re-read the file and retry.",
         );
+      }
+
+      try {
+        await lease.persist(
+          getDesignSourceMutationExec(tx),
+          authoritativeContent,
+        );
+      } catch (error) {
+        if (error instanceof CollabBaseVersionConflictError) {
+          throw new SourceWorkspaceEditConflictError(
+            "Source file changed while the edit was being applied. Re-read the file and retry.",
+          );
+        }
+        throw error;
       }
 
       await tx
@@ -879,16 +1003,13 @@ export async function writeInlineSourceFilesBatch(args: {
     const planned = await Promise.all(
       args.files.map(async ({ file, content, expectedVersionHash }) => {
         const currentFile = byId.get(file.id)!;
-        let liveContent = currentFile.content ?? "";
-        try {
-          if (await hasCollabState(file.id)) {
-            liveContent = await getText(file.id, "content");
-          }
-        } catch {
-          throw new SourceWorkspaceEditConflictError(
-            "Could not verify a source file's live version. Re-read the design and retry.",
-          );
-        }
+        const liveContent = (
+          await readLiveSourceFile({
+            ...currentFile,
+            createdAt: null,
+            updatedAt: currentFile.updatedAt ?? null,
+          })
+        ).content;
         if (
           sourceContentHash(currentFile.content ?? "") !==
             expectedVersionHash ||
@@ -928,8 +1049,8 @@ export async function writeInlineSourceFilesBatch(args: {
       }
 
       await transaction(async (tx) => {
+        await lockDesignSourceMutation(tx, args.designId);
         if (args.expectedHtmlFileIds !== undefined) {
-          await lockDesignSourceMutation(tx, args.designId);
           const currentHtmlFiles = await tx.execute({
             sql: "SELECT id FROM design_files WHERE design_id = ? AND LOWER(file_type) = 'html' ORDER BY id FOR UPDATE",
             args: [args.designId],
@@ -956,6 +1077,35 @@ export async function writeInlineSourceFilesBatch(args: {
 
         for (const { item, lease } of prepared) {
           const current = item.currentFile;
+          const preparedCollaboration = await lockPreparedSourceCollaboration(
+            tx,
+            item.fileId,
+            lease,
+          );
+          if (preparedCollaboration.needsSeed) {
+            applyTextToYDoc(
+              lease.doc,
+              "content",
+              current.content ?? "",
+              "agent",
+            );
+          }
+          const liveContent = readPreparedSourceText(lease);
+          if (liveContent !== item.liveContent) {
+            throw new SourceWorkspaceEditConflictError(
+              "A source file changed while the batch was being prepared. Re-read the design and retry.",
+            );
+          }
+          assertLockedLayersPreserved(liveContent, item.content);
+          assertDesignHtmlEditIntegrity({
+            previousContent: liveContent,
+            nextContent: item.content,
+            fileType: current.fileType ?? "html",
+            filename: current.filename,
+          });
+          if (liveContent !== item.content) {
+            applyTextToYDoc(lease.doc, "content", item.content, "agent");
+          }
           const values = [
             item.fileId,
             args.designId,
@@ -1016,23 +1166,6 @@ export async function writeInlineSourceFilesBatch(args: {
       if (index >= sortedIds.length) return persistPrepared();
       const item = plannedById.get(sortedIds[index]!)!;
       return withPreparedYDocMutation(item.fileId, "agent", async (lease) => {
-        const text = lease.doc.getText("content");
-        if (lease.baseVersion === null) {
-          applyTextToYDoc(lease.doc, "content", item.liveContent, "agent");
-        } else if (text.toString() !== item.liveContent) {
-          throw new SourceWorkspaceEditConflictError(
-            "A source file's live version changed while the batch was being prepared. Re-read the design and retry.",
-          );
-        }
-        if (text.toString() !== item.content) {
-          applyTextToYDoc(lease.doc, "content", item.content, "agent");
-          assertDesignHtmlEditIntegrity({
-            previousContent: item.liveContent,
-            nextContent: text.toString(),
-            fileType: item.currentFile.fileType ?? "html",
-            filename: item.currentFile.filename,
-          });
-        }
         prepared.push({ item, lease });
         return withPrepared(index + 1);
       });

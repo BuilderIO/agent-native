@@ -53,10 +53,10 @@ import {
   FilesChangedSummary,
 } from "../tool-cells/index.js";
 import {
-  humanizeToolName,
   isCallAgentToolCallShadowed,
   isToolCallActive,
   resolveToolCallRowContext,
+  toolLabel,
 } from "../tool-display.js";
 import { useAgentChatContext } from "../use-agent-chat-context.js";
 import { cn } from "../utils.js";
@@ -995,7 +995,7 @@ function ToolCallDisplayGeneric({
       : isAgentError
         ? t("agentChat.tool.askingAgentFailed", { agent: agentName })
         : t("agentChat.tool.askedAgent", { agent: agentName })
-    : humanizeToolName(toolName);
+    : toolLabel(t, toolName);
   const rowContext = isAgentCall ? null : resolveToolCallRowContext(args);
 
   const canExpand = isAgentCall
@@ -1326,6 +1326,7 @@ function AgentActivityToolCallRow({
   tool: A2AAgentActivityToolCall;
   isActiveTail: boolean;
 }) {
+  const t = useT();
   const isRunning = tool.status === "running";
   const ToolIcon = resolveToolIcon(tool.name);
 
@@ -1350,7 +1351,7 @@ function AgentActivityToolCallRow({
             isActiveTail && "agent-running-shimmer",
           )}
         >
-          {humanizeToolName(tool.name)}
+          {toolLabel(t, tool.name)}
         </span>
       </div>
     </ToolActivityPresentation>

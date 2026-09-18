@@ -784,6 +784,9 @@ export interface ActionEntry {
   /** Max HTTP request body in bytes; the route 413s on `Content-Length` before
    *  parsing. For public, no-auth POST actions. */
   maxBodyBytes?: number;
+  /** Require the server-minted browser capability and hide this action from
+   * every agent surface. */
+  uiOnly?: boolean;
   /** Whether the action is exposed to the agent as a callable tool. Only an
    *  explicit `false` hides it from every agent tool surface (in-app assistant,
    *  MCP, A2A, job/trigger runners) while leaving it frontend/HTTP-callable.
@@ -3563,7 +3566,7 @@ export function actionsToEngineTools(
 ): EngineTool[] {
   const tools: EngineTool[] = [];
   for (const [name, entry] of Object.entries(actions)) {
-    if (entry.agentTool === false) continue;
+    if (entry.agentTool === false || entry.uiOnly === true) continue;
     const inputSchema = normalizeToolInputSchema(entry.tool.parameters);
     if (!inputSchema) {
       console.warn(

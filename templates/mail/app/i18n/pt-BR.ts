@@ -40,6 +40,7 @@ const messages = {
       unpinSidebar: "Desafixar barra lateral",
       closeSidebar: "Fechar barra lateral",
       settings: "Configurações",
+      aiSettings: "Tags e spam com IA",
     },
     search: {
       label: "Buscar",
@@ -500,6 +501,35 @@ const messages = {
       settingsFailed:
         "Não foi possível salvar as configurações do filtro de IA.",
       instructionFailed: "Não foi possível salvar a instrução do filtro de IA.",
+      spamMode: "Spam",
+      tagMode: "Tag",
+      ruleAdded: "Regra de IA adicionada.",
+      instructionHelp: "Use linguagem natural",
+      tagNamePlaceholder: "Nome da tag",
+      spamLabelHint:
+        "As correspondências recebem uma etiqueta e saem da Caixa de entrada.",
+      spamPlaceholder: "ex.: mensagens claramente promocionais ou indesejadas",
+      tagPlaceholder: "ex.: recibos e confirmações de pedidos de lojas online",
+      addShortcut: "Pressione ⌘ Enter para adicionar",
+      previewTitle: "Prévia dos emails recentes",
+      previewDescription:
+        "Revise as 20 mensagens mais recentes da Caixa de entrada antes de ativar uma regra. Emails arquivados ou arquivados automaticamente nunca são avaliados.",
+      previewButton: "Executar prévia",
+      previewRunning: "Verificando emails recentes da Caixa de entrada…",
+      jevBadge: "Jev",
+      feedbackLabel: "Marque as correspondências que não devem ser incluídas",
+      notSpamShort: "Não é spam",
+      notMatchShort: "Não corresponde",
+      noMatch: "Sem correspondência",
+      feedbackPlaceholder:
+        "Opcional: diga o que a IA entendeu errado ou o que deve procurar em vez disso",
+      refineButton: "Atualizar regra e executar novamente",
+      instructionsUpdated: "Regra atualizada e prévia executada novamente.",
+      noRecentMail: "Não há emails recentes na Caixa de entrada para revisar.",
+      addRuleToPreview:
+        "Adicione uma regra de IA para visualizar emails recentes.",
+      previewEmpty: "Execute uma prévia para ver possíveis correspondências.",
+      previewFailed: "Não foi possível visualizar os emails recentes.",
     },
     draftQueue: {
       title: "Cola de borradores",

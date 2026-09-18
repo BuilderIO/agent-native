@@ -159,7 +159,11 @@ import type {
   VectorEditOverlayState,
 } from "./multi-screen/types";
 import { SCALED_IFRAME_PAINT_RETENTION_STYLE } from "./scaled-iframe-paint";
-import { type ElementInfo, type PortableStyleSnapshot } from "./types";
+import {
+  type ElementInfo,
+  type ElementSelectionIntent,
+  type PortableStyleSnapshot,
+} from "./types";
 
 /**
  * design-editor overview canvas. Renders every file in the design as a movable,
@@ -980,6 +984,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     null,
   );
   const duplicateCleanup = useRef<(() => void) | null>(null);
+  const duplicateBatchSequenceRef = useRef(0);
   // Armed by a duplicate commit (alt-drag drop or Cmd+D) so the
   // lineup-recenter effect keeps the camera still when the
   // deliberately-placed clone(s) land in `screens` — see
@@ -1140,6 +1145,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
    *  "cancel" immediately after "end" as cleanup, and that trailing cancel must
    *  not invalidate the commit the release just started. */
   const crossScreenEndSeenRef = useRef(false);
+  const crossScreenHostCommittedRef = useRef(false);
   /** False once this canvas unmounts. Nothing may persist a drop after that.
    *  Mount-scoped on purpose: the message effect's cleanup also runs on every
    *  dependency change, and invalidating there kills live commits. */
@@ -1665,6 +1671,20 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     [],
   );
 
+  const selectCompletedDuplicates = useCallback(
+    (results: Array<void | Promise<string | undefined>>) => {
+      void Promise.all(results).then((ids) => {
+        const duplicateIds = ids.filter(
+          (id): id is string => typeof id === "string" && id.length > 0,
+        );
+        if (duplicateIds.length > 0) {
+          updateSelectedIds(() => duplicateIds);
+        }
+      });
+    },
+    [updateSelectedIds],
+  );
+
   const updateDraftPrimitives = useCallback(
     (updater: (current: DraftPrimitive[]) => DraftPrimitive[]) => {
       setDraftPrimitives((current) => {
@@ -1759,7 +1779,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   // ("Maximum update depth exceeded" → the editor appears to refresh). Track
   // the last prop-driven selection and only report genuine, local (user-driven)
   // divergences from it.
-  const propSyncedSelectionRef = useRef<string[] | null>(null);
+  const propSyncedSelectionRef = useRef<string[] | null>(
+    selectedScreenIds ? selectedIds : null,
+  );
   const isEchoOfPropSelection = useCallback(
     (ids: string[]) =>
       propSyncedSelectionRef.current !== null &&
@@ -1945,6 +1967,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       })),
       currentGeometryById: frameGeometryRef.current,
       persistedGeometryById: geometryById,
+      geometryOverridesById,
     });
 
     if (changed) {
@@ -1961,6 +1984,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     });
   }, [
     geometryById,
+    geometryOverridesById,
     getResolvedMetadata,
     screens,
     selectableScreens,
@@ -3102,6 +3126,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         });
         return;
       }
+      crossScreenHostCommittedRef.current = true;
 
       if (targetCandidate.id === boardFileId) {
         void runHitTest(targetCandidate, lastBoardPoint, {
@@ -3325,6 +3350,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         // immediately after "end", so clearing must not count.
         crossScreenDropSeqRef.current += 1;
         crossScreenEndSeenRef.current = false;
+        crossScreenHostCommittedRef.current = false;
+        crossScreenLastBoardPointRef.current = null;
         crossScreenDragMsgRef.current = {
           selector: msg.selector ?? "",
           sourceId: msg.sourceId,
@@ -3445,6 +3472,36 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           viewportW === undefined ||
           viewportH === undefined
         ) {
+          return;
+        }
+
+        // Once the pointer leaves the source iframe, its local coordinates
+        // become negative or otherwise out of range. The parent window drag
+        // listener has the real board point then; stale iframe coordinates
+        // must not clear a valid board target.
+        if (
+          sourceScreenId !== boardFileId &&
+          !isPointerInsideSourceIframe({
+            iframeX,
+            iframeY,
+            viewportW,
+            viewportH,
+          })
+        ) {
+          const previewPoint =
+            crossScreenLastBoardPointRef.current ??
+            boardPointFromDragMessage(
+              sourceScreenId,
+              iframeX,
+              iframeY,
+              viewportW,
+              viewportH,
+            );
+          if (previewPoint) {
+            setCrossScreenGhost(
+              buildCrossScreenGhost(previewPoint, sourceScreenId),
+            );
+          }
           return;
         }
 
@@ -3915,6 +3972,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
        *  for candidates whose box contains it — the drill-in/pick question —
        *  instead of for every selectable node on the screen. */
       atPoint?: Point | null,
+      /** Overview marquee hit-testing only needs identity, geometry, and the
+       *  selected element's computed state. Portable subtree snapshots are
+       *  still collected by direct selection and drill-in, where copy/paste
+       *  consumes them; skipping them here keeps a large overview drag from
+       *  blocking the preview thread before a hit-set exists. */
+      includePortableStyleSnapshot = true,
     ): Promise<SelectableRectsReply> => {
       const targetScreen = screensRef.current.find((s) => s.id === screenId);
       const iframeId = targetScreen
@@ -3977,6 +4040,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             type: "agent-native:collect-selectable-rects",
             correlationId,
             deep,
+            includePortableStyleSnapshot,
             ...(atPoint ? { atPoint } : {}),
           },
           "*",
@@ -4001,7 +4065,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
    *  selection-container scope (matching Figma's plain marquee), true
    *  reaches into nested descendants. Double-click drill-in and click-to-pick
    *  (`drillIntoScreenAtPoint`) always pass true — they need the full
-   *  descendant list to walk one level deeper per repeat click/click. */
+   *  descendant list to walk one level deeper per repeat click/click. The
+   *  overview marquee passes `includePortableStyleSnapshot: false` because
+   *  it needs hit geometry first; direct selection and drill-in keep the full
+   *  snapshot contract for copy/paste. */
   const collectLayerMarqueeCandidates = useCallback(
     async (
       screenIds?: Set<string>,
@@ -4010,6 +4077,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
        *  own local space so the bridge can skip building ElementInfo for
        *  candidates the containment chain would discard anyway. */
       atBoardPoint?: Point | null,
+      includePortableStyleSnapshot = true,
     ) => {
       const unanswered: Array<{
         screenId: string;
@@ -4051,6 +4119,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                   height: viewportHeight,
                 })
               : null,
+            includePortableStyleSnapshot,
           );
           if (reply.status !== "ok") {
             unanswered.push({ screenId: entry.id, reason: reply.reason });
@@ -4092,6 +4161,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                       },
                     )
                   : null,
+                includePortableStyleSnapshot,
               );
               if (reply.status !== "ok") {
                 unanswered.push({
@@ -4150,6 +4220,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       clientX: number,
       clientY: number,
       mode: "drill" | "pick" = "drill",
+      modifierKeys?: Pick<
+        ElementSelectionIntent,
+        "shiftKey" | "metaKey" | "ctrlKey"
+      >,
     ) => {
       const point = getCanvasPoint(clientX, clientY);
       const previousKey =
@@ -4193,7 +4267,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           updateSelectedIds(() => []);
           onLayerMarqueeSelectionChange?.(
             [{ screenId: target.screenId, info: target.info }],
-            { source: "pointer" },
+            {
+              additive: Boolean(modifierKeys?.shiftKey),
+              ctrlKey: Boolean(modifierKeys?.ctrlKey),
+              metaKey: Boolean(modifierKeys?.metaKey),
+              shiftKey: Boolean(modifierKeys?.shiftKey),
+              source: "pointer",
+            },
           );
         },
       );
@@ -4879,6 +4959,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         const collection = collectLayerMarqueeCandidates(
           requestIds,
           deepSelect,
+          null,
+          false,
         ).then((result) => {
           const unanswered = new Set(
             result.unanswered.map((entry) => entry.screenId),
@@ -5034,24 +5116,75 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           } else {
             const finalRect = latestRect;
             const releasedSelectionRevision = `${selectedIdsRef.current.join(",")}\u001e${selectedDraftIdsRef.current.join(",")}\u001e${marqueeHostSelectionRevisionRef.current}`;
-            void Promise.allSettled(pendingMarqueeCollections).then(() => {
-              if (
-                dragState.current !== marqueeState ||
-                marqueeLifecycleRef.current !== marqueeToken
-              )
-                return;
-              const currentSelectionRevision = `${selectedIdsRef.current.join(",")}\u001e${selectedDraftIdsRef.current.join(",")}\u001e${marqueeHostSelectionRevisionRef.current}`;
-              if (currentSelectionRevision !== releasedSelectionRevision) {
-                onLayerMarqueeSelectionChange?.([], {
-                  source: "marquee",
-                  cancelled: true,
-                });
+            void Promise.allSettled(pendingMarqueeCollections).then(
+              async () => {
+                if (
+                  dragState.current !== marqueeState ||
+                  marqueeLifecycleRef.current !== marqueeToken
+                )
+                  return;
+                const currentSelectionRevision = `${selectedIdsRef.current.join(",")}\u001e${selectedDraftIdsRef.current.join(",")}\u001e${marqueeHostSelectionRevisionRef.current}`;
+                if (currentSelectionRevision !== releasedSelectionRevision) {
+                  onLayerMarqueeSelectionChange?.([], {
+                    source: "marquee",
+                    cancelled: true,
+                  });
+                  finishDrag();
+                  return;
+                }
+                const selectedScreenIds = new Set(
+                  layerCandidates
+                    .filter(
+                      (candidate) =>
+                        (deepSelect ||
+                          !latestFullyEnclosedScreenIds.has(
+                            candidate.screenId,
+                          )) &&
+                        !enclosesMarqueeRect(candidate.geometry, finalRect) &&
+                        rotatedRectIntersects(
+                          finalRect,
+                          getLayerSelectableBounds(candidate.geometry),
+                          getFrameCenter(candidate.geometry),
+                          candidate.geometry.rotation ?? 0,
+                        ),
+                    )
+                    .map((candidate) => candidate.screenId),
+                );
+                if (selectedScreenIds.size > 0) {
+                  const full = await collectLayerMarqueeCandidates(
+                    selectedScreenIds,
+                    deepSelect,
+                  );
+                  const fullByIdentity = new Map(
+                    full.candidates.map((candidate) => [
+                      `${candidate.screenId}:${candidate.info.sourceId ?? candidate.info.pendingNodeId ?? candidate.info.selector ?? candidate.info.id ?? ""}`,
+                      candidate,
+                    ]),
+                  );
+                  layerCandidates = layerCandidates.map((candidate) => {
+                    const key = `${candidate.screenId}:${candidate.info.sourceId ?? candidate.info.pendingNodeId ?? candidate.info.selector ?? candidate.info.id ?? ""}`;
+                    return fullByIdentity.get(key) ?? candidate;
+                  });
+                }
+                if (
+                  dragState.current !== marqueeState ||
+                  marqueeLifecycleRef.current !== marqueeToken
+                ) {
+                  return;
+                }
+                const refreshedSelectionRevision = `${selectedIdsRef.current.join(",")}\u001e${selectedDraftIdsRef.current.join(",")}\u001e${marqueeHostSelectionRevisionRef.current}`;
+                if (refreshedSelectionRevision !== releasedSelectionRevision) {
+                  onLayerMarqueeSelectionChange?.([], {
+                    source: "marquee",
+                    cancelled: true,
+                  });
+                  finishDrag();
+                  return;
+                }
+                reportLayerSelection(finalRect, true);
                 finishDrag();
-                return;
-              }
-              reportLayerSelection(finalRect, true);
-              finishDrag();
-            });
+              },
+            );
           }
           return;
         }
@@ -6745,6 +6878,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         const shouldDuplicate = moved && ev.altKey;
 
         if (onDuplicate && shouldDuplicate) {
+          suppressNextPick.current = true;
           const dropCanvasPosition = canvasPointFromClient(
             ev.clientX,
             ev.clientY,
@@ -6761,16 +6895,26 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             fromCount: screensRef.current.length,
             addedCount: targets.length,
           };
-          targets.forEach((target) => {
+          const historyBatchId = `duplicate-${++duplicateBatchSequenceRef.current}`;
+          const duplicateTargets = targets
+            .map((target, index) => ({ target, index }))
+            .sort(
+              (left, right) =>
+                (left.target.geometry.z ?? 0) -
+                  (right.target.geometry.z ?? 0) || left.index - right.index,
+            );
+          const duplicateResults = duplicateTargets.map(({ target }, index) => {
             const canvasPosition = {
               x: target.geometry.x + delta.x,
               y: target.geometry.y + delta.y,
             };
-            onDuplicate(target.screen.id, {
+            return onDuplicate(target.screen.id, {
               mode: "alt-drag",
               screen: target.screen,
               canvasPosition,
               preserveCamera: true,
+              historyBatchId,
+              duplicateStackIndex: index,
               canvasOffset: {
                 x: dropCanvasPosition.x - canvasPosition.x,
                 y: dropCanvasPosition.y - canvasPosition.y,
@@ -6778,6 +6922,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               dropCanvasPosition,
             });
           });
+          selectCompletedDuplicates(duplicateResults);
         } else if (!moved) {
           onPick(id);
         }
@@ -6801,6 +6946,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       lockedScreenIdSet,
       onDuplicate,
       onPick,
+      selectCompletedDuplicates,
     ],
   );
 
@@ -7137,7 +7283,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             handleFrameClick(id, ev);
             suppressNextPick.current = true;
           } else if (wasAlreadySelected) {
-            drillIntoScreenAtPoint(id, ev.clientX, ev.clientY, "pick");
+            drillIntoScreenAtPoint(id, ev.clientX, ev.clientY, "pick", ev);
           }
         }
         if (state?.type === "move" && state.hasMoved) {
@@ -7753,16 +7899,29 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         );
       };
 
+      const pressModifiers = {
+        shiftKey: e.shiftKey,
+        altKey: e.altKey,
+        metaKey: e.metaKey,
+        ctrlKey: e.ctrlKey,
+      };
+      let bridgeDragStarted = false;
+      const startBridgeDrag = () => {
+        if (bridgeDragStarted) return;
+        bridgeDragStarted = true;
+        dispatchAt(
+          selectionOverlay,
+          "mousedown",
+          toIframePoint(e.clientX, e.clientY),
+          pressModifiers,
+          1,
+        );
+      };
+
       setIsDragging(true);
-      dispatchAt(
-        selectionOverlay,
-        "mousedown",
-        toIframePoint(e.clientX, e.clientY),
-        e,
-        1,
-      );
 
       const handleMouseMove = (ev: MouseEvent) => {
+        startBridgeDrag();
         dispatchAt(
           iframeDoc,
           "mousemove",
@@ -7772,12 +7931,17 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         );
       };
       const cancelMove = (pressedAt: number) => {
+        if (!bridgeDragStarted) return;
         iframe.contentWindow?.postMessage(
           { type: "agent-native:cancel-active-drag", pressedAt },
           "*",
         );
       };
       const handleMouseUp = (ev: MouseEvent) => {
+        if (!bridgeDragStarted) {
+          finishDrag();
+          return;
+        }
         // The host selection box sits above every Screen and follows the
         // moving board object, so DOM hit testing sees the chrome instead of
         // the card underneath it. Resolve the release in board-space geometry
@@ -7785,9 +7949,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         const droppedOnScreen = Boolean(
           getFrameEntryAtPoint(getCanvasPoint(ev.clientX, ev.clientY)),
         );
-        if (droppedOnScreen) {
-          // The host owns board-to-screen drops. Cancel the iframe gesture
-          // after its cross-screen writer has taken the release.
+        if (droppedOnScreen || crossScreenHostCommittedRef.current) {
+          // The bridge's startMove already installed a host-level
+          // cross-screen mouseup listener. Cancel the iframe gesture after
+          // the host has taken ownership of the drop.
           cancelMove(performance.timeOrigin + performance.now());
         } else {
           // No screen owns this release, so let the board bridge commit its
@@ -8183,7 +8348,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         onEdit?.(id);
         return;
       }
-      drillIntoScreenAtPoint(id, e.clientX, e.clientY);
+      drillIntoScreenAtPoint(id, e.clientX, e.clientY, "drill", e);
     },
     [drillIntoScreenAtPoint, lockedScreenIdSet, onEdit],
   );
@@ -9178,14 +9343,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
   // Cmd+D / Ctrl+D: duplicate every selected frame (not just the first) with
   // a visible offset so each copy doesn't land exactly on top of its
-  // original (Figma-style behaviour). `onDuplicate` is fire-and-forget
-  // (`(id, request) => void`) and the actual new file id is only known
-  // asynchronously by the caller (DesignEditor's createFileMutation
-  // onSuccess), so this component has no id to add to its own selection
-  // state. Known limitation: after a multi-duplicate, selection isn't
-  // reprogrammed to the new copies (the caller instead makes its own last
-  // duplicate the active file) — promoting the duplicates to the new
-  // selection would require `onDuplicate` to return/callback the created id.
+  // original (Figma-style behaviour). The callback resolves with each new
+  // file id, allowing the whole duplicate gesture to become one selection.
   useEffect(() => {
     if (!onDuplicate) return;
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -9219,7 +9378,19 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       // previous duplicate), mirroring how a multi-select alt-drag would
       // offset each frame independently.
       let dispatched = 0;
-      for (const targetId of frameIds) {
+      const duplicateResults: Array<void | Promise<string | undefined>> = [];
+      const historyBatchId = `duplicate-${++duplicateBatchSequenceRef.current}`;
+      const orderedFrameIds = frameIds
+        .map((targetId, index) => ({
+          targetId,
+          index,
+          z: frameGeometryRef.current[targetId]?.z ?? 0,
+        }))
+        .sort((left, right) => left.z - right.z || left.index - right.index);
+      for (const [
+        duplicateStackIndex,
+        { targetId },
+      ] of orderedFrameIds.entries()) {
         const screen = screens.find((s) => s.id === targetId);
         if (!screen) continue;
         const sourceGeometry = frameGeometryRef.current[targetId];
@@ -9230,13 +9401,17 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           x: sourceGeometry.x + sourceGeometry.width + SCREEN_GAP,
           y: sourceGeometry.y,
         };
-        onDuplicate(targetId, {
-          mode: "alt-click",
-          screen,
-          canvasPosition,
-          preserveCamera: true,
-          dropCanvasPosition: canvasPosition,
-        });
+        duplicateResults.push(
+          onDuplicate(targetId, {
+            mode: "alt-click",
+            screen,
+            canvasPosition,
+            preserveCamera: true,
+            historyBatchId,
+            duplicateStackIndex,
+            dropCanvasPosition: canvasPosition,
+          }),
+        );
         dispatched += 1;
       }
       if (dispatched > 0) {
@@ -9248,6 +9423,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           fromCount: screensRef.current.length,
           addedCount: dispatched,
         };
+        selectCompletedDuplicates(duplicateResults);
       }
     };
 
@@ -9255,7 +9431,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     return () => {
       window.removeEventListener("keydown", handleKeyDown, true);
     };
-  }, [onDuplicate, readOnly, screens]);
+  }, [onDuplicate, readOnly, screens, selectCompletedDuplicates]);
 
   // Releasing Alt should clear the alt-hover measurement immediately even if
   // the mouse never moves again (e.g. the user just lifts the Alt key while

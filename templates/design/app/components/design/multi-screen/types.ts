@@ -158,6 +158,8 @@ export interface DuplicateRequest {
   canvasOffset?: { x: number; y: number };
   dropCanvasPosition?: { x: number; y: number };
   preserveCamera?: boolean;
+  historyBatchId?: string;
+  duplicateStackIndex?: number;
 }
 
 export interface ScreenContentRenderOptions {
@@ -232,7 +234,10 @@ export interface MultiScreenCanvasProps {
    *  chrome transparent and clip root corner radii to the rendered surface. */
   screenRootComputedStylesById?: Record<string, Record<string, string>>;
   getScreenMetadata?: (screen: ScreenFile) => ScreenMetadata | undefined;
-  onDuplicate?: (id: string, request: DuplicateRequest) => void;
+  onDuplicate?: (
+    id: string,
+    request: DuplicateRequest,
+  ) => void | Promise<string | undefined>;
   geometryById?: Record<string, Partial<FrameGeometry> | undefined>;
   geometryOverridesById?: Record<string, FrameGeometry | undefined>;
   onGeometryChange?: (geometryById: FrameGeometryById) => void;
@@ -594,9 +599,15 @@ export interface MultiScreenCanvasProps {
       sourceNodeIdMap?: readonly (readonly [string, string])[] | null;
       anchorSelector?: string;
       anchorSourceId?: string;
+      anchorElementInfo?: ElementInfo;
+      requestId?: string;
+      dropMode?: "flow-insert" | "absolute-container";
+      forceFlowPositionOverride?: boolean;
+      sourceRect?: { x: number; y: number; width: number; height: number };
+      anchorRect?: { x: number; y: number; width: number; height: number };
       placement?: "before" | "after" | "inside";
     },
-  ) => boolean | void;
+  ) => boolean | "pending" | void;
   /**
    * Called when inline text is edited on a board element.
    * Target file is boardFileId.

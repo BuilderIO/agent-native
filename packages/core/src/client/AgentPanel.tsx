@@ -583,7 +583,7 @@ export function shouldShowAgentPanelChatTabBar(
 export function shouldShowAgentPanelSidebarChatTabs(
   tabs: MultiTabAssistantChatHeaderProps["tabs"],
 ) {
-  return tabs.filter((tab) => !tab.parentThreadId).length > 1;
+  return tabs.some((tab) => !tab.parentThreadId);
 }
 
 export function shouldShowAgentPanelPageNewChatButton(

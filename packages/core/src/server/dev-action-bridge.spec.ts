@@ -281,6 +281,27 @@ describe("mountDevActionForwardRoute", () => {
     expect(run).not.toHaveBeenCalled();
   });
 
+  it("rejects UI-only actions from the CLI bridge", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    const token = getDevActionToken()!;
+    const run = vi.fn();
+    const handler = mountedHandler({
+      "delete-data": { uiOnly: true, run } as any,
+    });
+    const event: any = {
+      _headers: { [DEV_ACTION_TOKEN_HEADER]: token },
+      _body: { name: "delete-data" },
+    };
+
+    const response = await handler(event);
+    expect(response).toEqual({
+      ok: false,
+      error: "This action can only be called from the signed-in app UI.",
+    });
+    expect(event._status).toBe(403);
+    expect(run).not.toHaveBeenCalled();
+  });
+
   it("runs a registered action under caller cli with the header identity and returns its result", async () => {
     writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
     const token = getDevActionToken()!;

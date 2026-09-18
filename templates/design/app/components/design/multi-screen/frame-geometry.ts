@@ -398,12 +398,22 @@ export function resolveFrameGeometrySync(args: {
   persistedGeometryById:
     | Record<string, Partial<FrameGeometry> | undefined>
     | undefined;
+  geometryOverridesById?: Record<string, FrameGeometry | undefined>;
 }): {
   next: FrameGeometryById;
   changed: boolean;
   shouldNotifyParent: boolean;
 } {
-  const { screens, currentGeometryById, persistedGeometryById } = args;
+  const {
+    screens,
+    currentGeometryById,
+    persistedGeometryById,
+    geometryOverridesById,
+  } = args;
+  const effectivePersistedGeometryById = { ...persistedGeometryById };
+  for (const [id, geometry] of Object.entries(geometryOverridesById ?? {})) {
+    if (geometry) effectivePersistedGeometryById[id] = geometry;
+  }
   const currentIds = new Set(screens.map((screen) => screen.id));
   let shouldNotifyParent = Object.keys(currentGeometryById).some(
     (id) => !currentIds.has(id),
@@ -414,13 +424,14 @@ export function resolveFrameGeometrySync(args: {
   const baseGeometryById = Object.fromEntries(
     screens.map((screen) => [
       screen.id,
-      persistedGeometryById?.[screen.id] ?? currentGeometryById[screen.id],
+      effectivePersistedGeometryById[screen.id] ??
+        currentGeometryById[screen.id],
     ]),
   );
 
   screens.forEach((screen, index) => {
     const existing = currentGeometryById[screen.id];
-    const persisted = persistedGeometryById?.[screen.id];
+    const persisted = effectivePersistedGeometryById[screen.id];
     const legacyInitial = getInitialFrameGeometry(index, screen.metadata);
     const layoutGroupScreens = screen.layoutGroupId
       ? screens.filter(
@@ -437,7 +448,7 @@ export function resolveFrameGeometrySync(args: {
           layoutGroupScreens,
         );
         const candidateGeometry =
-          persistedGeometryById?.[candidate.id] ??
+          effectivePersistedGeometryById[candidate.id] ??
           currentGeometryById[candidate.id];
         return (
           candidateGeometry?.x === baseline.x &&

@@ -3,13 +3,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   getDb: vi.fn(),
   resolveAccess: vi.fn(),
+  hasCollabState: vi.fn(),
+  getText: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/collab", () => ({
   CollabBaseVersionConflictError: class extends Error {},
   applyText: vi.fn(),
-  getText: vi.fn(),
-  hasCollabState: vi.fn(),
+  getText: mocks.getText,
+  hasCollabState: mocks.hasCollabState,
   seedFromText: vi.fn(),
 }));
 
@@ -40,7 +42,12 @@ vi.mock("./db/index.js", () => ({
   },
 }));
 
-import { resolveSourceWorkspace } from "./source-workspace.js";
+import {
+  readPreparedSourceText,
+  readLiveSourceFile,
+  resolveSourceWorkspace,
+  SourceWorkspaceEditConflictError,
+} from "./source-workspace.js";
 
 const sourceFiles = [
   {
@@ -67,6 +74,47 @@ describe("resolveSourceWorkspace", () => {
   beforeEach(() => {
     mocks.getDb.mockReset();
     mocks.resolveAccess.mockReset().mockResolvedValue(null);
+    mocks.hasCollabState.mockReset().mockResolvedValue(false);
+    mocks.getText.mockReset().mockResolvedValue("");
+  });
+
+  it("fails closed when live collaboration content cannot be verified", async () => {
+    mocks.hasCollabState.mockResolvedValue(true);
+    mocks.getText.mockRejectedValue(new Error("collaboration unavailable"));
+
+    await expect(readLiveSourceFile(sourceFiles[1])).rejects.toBeInstanceOf(
+      SourceWorkspaceEditConflictError,
+    );
+    await expect(readLiveSourceFile(sourceFiles[1])).rejects.toMatchObject({
+      statusCode: 409,
+    });
+  });
+
+  it("fails closed when live collaboration returns a non-string snapshot", async () => {
+    mocks.hasCollabState.mockResolvedValue(true);
+    mocks.getText.mockResolvedValue(42);
+
+    await expect(readLiveSourceFile(sourceFiles[1])).rejects.toMatchObject({
+      statusCode: 409,
+    });
+  });
+
+  it("maps malformed prepared collaboration documents to a typed conflict", () => {
+    let rejection: unknown;
+    try {
+      readPreparedSourceText({
+        doc: {
+          getText: () => {
+            throw new Error("malformed Y.Map root");
+          },
+        } as never,
+      });
+    } catch (error) {
+      rejection = error;
+    }
+
+    expect(rejection).toBeInstanceOf(SourceWorkspaceEditConflictError);
+    expect(rejection).toMatchObject({ statusCode: 409 });
   });
 
   it("returns a 404 action error when the design is missing or inaccessible", async () => {
