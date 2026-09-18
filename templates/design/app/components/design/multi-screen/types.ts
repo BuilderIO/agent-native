@@ -157,6 +157,7 @@ export interface DuplicateRequest {
   canvasPosition: { x: number; y: number };
   canvasOffset?: { x: number; y: number };
   dropCanvasPosition?: { x: number; y: number };
+  preserveCamera?: boolean;
 }
 
 export interface ScreenContentRenderOptions {
@@ -233,6 +234,7 @@ export interface MultiScreenCanvasProps {
   getScreenMetadata?: (screen: ScreenFile) => ScreenMetadata | undefined;
   onDuplicate?: (id: string, request: DuplicateRequest) => void;
   geometryById?: Record<string, Partial<FrameGeometry> | undefined>;
+  geometryOverridesById?: Record<string, FrameGeometry | undefined>;
   onGeometryChange?: (geometryById: FrameGeometryById) => void;
   onGeometryCommit?: (
     before: FrameGeometryById,
@@ -670,6 +672,18 @@ export interface MultiScreenCanvasProps {
     paddingScreenPx?: number;
     nonce: number;
   } | null;
+  /** Suppresses the automatic lineup fit for a history replay that restores a
+   * deliberately placed screen while keeping the current camera. */
+  suppressLineupRecenter?: {
+    fromCount: number;
+    addedCount: number;
+    nonce: number;
+  } | null;
+  /** Keeps an explicitly chosen overview zoom from triggering an automatic
+   * lineup fit when screen data arrives after a direct URL navigation. */
+  preserveCameraOnScreenCountChange?: boolean;
+  /** Lets the initial URL zoom apply after the first lineup centers the canvas. */
+  deferLineupZoomChange?: boolean;
   /**
    * Screen-px width of fixed chrome the caller renders OVER this canvas's
    * left/right edges (e.g. the left workspace rail+panel shell, the right

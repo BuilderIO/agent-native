@@ -99,10 +99,9 @@ const mocks = vi.hoisted(() => {
     transaction: vi.fn(async (callback) => callback(db)),
   };
 
-  // Shared with the @agent-native/core/collab mock below: writeInlineSourceFile
-  // re-reads getText() right after seedFromText/applyText to persist the
-  // "authoritative" collab content back to SQL, so seedFromText must
-  // actually store what getText reads back. Cleared per-test in beforeEach.
+  // Shared with the @agent-native/core/collab mock below: the prepared source
+  // lease persists its authoritative content back to SQL. Cleared per-test in
+  // beforeEach because the vi.mock factory only runs once per file.
   const seededCollabText = new Map<string, string>();
 
   return {
@@ -143,6 +142,7 @@ vi.mock("drizzle-orm", () => ({
 vi.mock("@agent-native/core/collab", () => {
   const seeded = mocks.seededCollabText;
   return {
+    CollabBaseVersionConflictError: class CollabBaseVersionConflictError extends Error {},
     agentEnterDocument: vi.fn(),
     agentLeaveDocument: vi.fn(),
     hasCollabState: vi.fn(async (docId: string) => seeded.has(docId)),
@@ -154,6 +154,39 @@ vi.mock("@agent-native/core/collab", () => {
     seedFromText: vi.fn(async (docId: string, text: string) => {
       if (!seeded.has(docId)) seeded.set(docId, text);
     }),
+    applyTextToYDoc: vi.fn(
+      (doc: { content: string }, _fieldName: string, text: string) => {
+        doc.content = text;
+      },
+    ),
+    withPreparedYDocMutation: vi.fn(
+      async (
+        docId: string,
+        _requestSource: string | undefined,
+        run: (lease: {
+          doc: { content: string; getText: () => { toString: () => string } };
+          baseVersion: number | null;
+          persist: (_tx: unknown, text: string) => Promise<void>;
+        }) => Promise<unknown>,
+      ) => {
+        const base = seeded.has(docId) ? seeded.get(docId)! : null;
+        const doc = {
+          content: base ?? "",
+          getText: () => ({ toString: () => doc.content }),
+        };
+        let persisted = false;
+        const result = await run({
+          doc,
+          baseVersion: base ? 0 : null,
+          persist: async (_tx, text) => {
+            seeded.set(docId, text);
+            persisted = true;
+          },
+        });
+        if (!persisted) docs.delete(docId);
+        return result;
+      },
+    ),
   };
 });
 
@@ -278,26 +311,24 @@ describe("remove-motion-timeline", () => {
       "<html><body><style data-agent-native-motion>.a{}</style>\n<main></main></body></html>",
       { id: "file-1" },
     );
-    // Simulate a concurrent writer landing on the collab doc between the
-    // action's base read and its persist, by seeding collab state directly
-    // before invoking the action so hasCollabState() is already true and the
-    // seeded text differs from the SQL row content read by readLiveSourceFile
-    // at the START of the run. Since readLiveSourceFile prefers collab state
-    // over SQL when present, we instead assert the write path itself is wired
-    // through writeInlineSourceFile by checking the persisted content is the
-    // authoritative collab text, not a blind write of the caller's diff.
-    mocks.seededCollabText.set(
-      "file-1",
-      "<html><body><style data-agent-native-motion>.a{}</style>\n<main></main></body></html>",
-    );
-
-    const result = await action.run({
-      designId: "design-1",
-      timelineId: "timeline-1",
+    const base =
+      "<html><body><style data-agent-native-motion>.a{}</style>\n<main></main></body></html>";
+    const concurrent = "<html><body><main>concurrent</main></body></html>";
+    mocks.seededCollabText.set("file-1", base);
+    const collab = await import("@agent-native/core/collab");
+    (collab.getText as any).mockImplementationOnce(async () => {
+      mocks.seededCollabText.set("file-1", concurrent);
+      return base;
     });
 
-    expect(result.htmlPatched).toBe(true);
-    const content = lastSavedContent();
-    expect(content).toBe("<html><body><main></main></body></html>");
+    await expect(
+      action.run({
+        designId: "design-1",
+        timelineId: "timeline-1",
+      }),
+    ).rejects.toMatchObject({ statusCode: 409 });
+
+    expect(mocks.updateChain.set).not.toHaveBeenCalled();
+    expect(mocks.seededCollabText.get("file-1")).toBe(concurrent);
   });
 });

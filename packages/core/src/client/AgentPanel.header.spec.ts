@@ -76,8 +76,8 @@ describe("AgentPanel header tab visibility", () => {
     ).toBe(0);
   });
 
-  it("hides sidebar chat tabs until a second main tab is open", () => {
-    expect(shouldShowAgentPanelSidebarChatTabs([chatTab("main")])).toBe(false);
+  it("shows sidebar chat tabs when a main tab is open", () => {
+    expect(shouldShowAgentPanelSidebarChatTabs([chatTab("main")])).toBe(true);
     expect(
       shouldShowAgentPanelSidebarChatTabs([
         chatTab("main"),

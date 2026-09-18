@@ -87,12 +87,52 @@ const mocks = vi.hoisted(() => {
 
 vi.mock("@agent-native/core/collab", () => {
   const seeded = mocks.seededCollabText;
+  function makePreparedDoc(docId: string) {
+    const doc = {
+      content: seeded.get(docId) ?? "",
+      getText: vi.fn(() => ({
+        toString: () => doc.content,
+      })),
+    };
+    return doc;
+  }
+
   return {
+    CollabBaseVersionConflictError: class extends Error {},
     agentEnterDocument: mocks.agentEnterDocument,
     agentLeaveDocument: mocks.agentLeaveDocument,
     agentUpdateSelection: mocks.agentUpdateSelection,
     hasCollabState: mocks.hasCollabState,
     getText: vi.fn(async (docId: string) => seeded.get(docId) ?? ""),
+    applyTextToYDoc: vi.fn(
+      (doc: { content: string }, _fieldName: string, text: string) => {
+        doc.content = text;
+        return new Uint8Array(0);
+      },
+    ),
+    withPreparedYDocMutation: vi.fn(
+      async (
+        docId: string,
+        _requestSource: string | undefined,
+        callback: (lease: {
+          doc: ReturnType<typeof makePreparedDoc>;
+          baseVersion: number | null;
+          persist: (
+            transaction: unknown,
+            textSnapshot: string,
+          ) => Promise<void>;
+        }) => Promise<unknown>,
+      ) => {
+        const doc = makePreparedDoc(docId);
+        return callback({
+          doc,
+          baseVersion: seeded.has(docId) ? 1 : null,
+          persist: async (_transaction, textSnapshot) => {
+            seeded.set(docId, textSnapshot);
+          },
+        });
+      },
+    ),
     applyText: vi.fn(async (docId: string, text: string) => {
       seeded.set(docId, text);
       return text;
@@ -102,6 +142,10 @@ vi.mock("@agent-native/core/collab", () => {
     }),
   };
 });
+
+vi.mock("@agent-native/core/db", () => ({
+  getDbExec: () => mocks.db,
+}));
 
 vi.mock("@agent-native/core/sharing", () => ({
   accessFilter: mocks.accessFilter,

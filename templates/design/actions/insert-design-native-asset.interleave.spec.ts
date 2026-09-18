@@ -77,6 +77,7 @@ function applyTextDiff(doc: InstanceType<typeof Y.Doc>, newText: string): void {
 }
 
 vi.mock("@agent-native/core/collab", () => ({
+  CollabBaseVersionConflictError: class CollabBaseVersionConflictError extends Error {},
   hasCollabState: async (docId: string) => collabDocs.docs.has(docId),
   getText: async (docId: string) =>
     getOrCreateDoc(docId).getText("content").toString(),
@@ -88,6 +89,42 @@ vi.mock("@agent-native/core/collab", () => ({
   seedFromText: async (docId: string, text: string) => {
     if (collabDocs.docs.has(docId)) return;
     getOrCreateDoc(docId).getText("content").insert(0, text);
+  },
+  applyTextToYDoc: (
+    doc: InstanceType<typeof Y.Doc>,
+    _fieldName: string,
+    text: string,
+  ) => applyTextDiff(doc, text),
+  withPreparedYDocMutation: async (
+    docId: string,
+    _requestSource: string | undefined,
+    run: (lease: {
+      doc: InstanceType<typeof Y.Doc>;
+      baseVersion: number | null;
+      persist: (_tx: unknown, text: string) => Promise<void>;
+    }) => Promise<unknown>,
+  ) => {
+    const base = collabDocs.docs.get(docId) as
+      | InstanceType<typeof Y.Doc>
+      | undefined;
+    const doc = new Y.Doc();
+    if (base) Y.applyUpdate(doc, Y.encodeStateAsUpdate(base));
+    let persisted = false;
+    try {
+      const result = await run({
+        doc,
+        baseVersion: base ? 0 : null,
+        persist: async (_tx, _text) => {
+          collabDocs.docs.set(docId, doc);
+          persisted = true;
+        },
+      });
+      if (!persisted) doc.destroy();
+      return result;
+    } catch (error) {
+      doc.destroy();
+      throw error;
+    }
   },
 }));
 
@@ -264,6 +301,21 @@ beforeEach(() => {
 });
 
 describe("insert-design-native-asset / insert-asset race safety (R64/R71)", () => {
+  it("seeds an absent collaboration row for an unchanged source write", async () => {
+    const file = currentFileRef();
+    const result = await writeInlineSourceFile({
+      designId: DESIGN_ID,
+      file,
+      content: file.content,
+    });
+
+    expect(result).toMatchObject({ changed: false });
+    expect(await hasCollabState(FILE_ID)).toBe(true);
+    expect((await readLiveSourceFile(currentFileRef())).content).toBe(
+      file.content,
+    );
+  });
+
   it("a concurrent style edit that lands AFTER insert-design-native-asset reads its base is not silently dropped: the write is rejected instead of corrupting", async () => {
     // Simulate the action's own base read (what it now does internally via
     // readLiveSourceFile before calling insert-design-native-asset.run).

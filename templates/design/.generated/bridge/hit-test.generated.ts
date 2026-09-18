@@ -326,6 +326,7 @@ export const hitTestBridgeScript: string = `"use strict";
     }
     function getOrMintPendingNodeId(el) {
       if (!el || !el.getAttribute || !el.setAttribute) return "";
+      if (el === document.body || el === document.documentElement) return "";
       if (isTemplateCloneElement(el)) return "";
       var existing = el.getAttribute("data-an-pending-node-id");
       if (existing) return existing;

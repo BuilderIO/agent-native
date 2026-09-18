@@ -25,8 +25,20 @@ const collabReadBarrier = vi.hoisted(() => ({
 const collabState = vi.hoisted(() => ({
   exists: false,
   content: "",
+  version: 0,
   failApplyCount: 0,
+  persistCount: 0,
+  peerContentBeforePersist: null as string | null,
 }));
+const updateControl = vi.hoisted(() => ({
+  sqlCasMisses: 0,
+}));
+const collabConflict = vi.hoisted(
+  () =>
+    class CollabBaseVersionConflictError extends Error {
+      readonly statusCode = 409;
+    },
+);
 
 async function waitAtCollabReadBarrier(): Promise<void> {
   if (collabReadBarrier.remaining <= 0) return;
@@ -41,6 +53,7 @@ async function waitAtCollabReadBarrier(): Promise<void> {
 }
 
 vi.mock("@agent-native/core/collab", () => ({
+  CollabBaseVersionConflictError: collabConflict,
   hasCollabState: async () => {
     await waitAtCollabReadBarrier();
     return collabState.exists;
@@ -53,6 +66,7 @@ vi.mock("@agent-native/core/collab", () => ({
     }
     collabState.exists = true;
     collabState.content = content;
+    collabState.version += 1;
   },
   seedFromText: async (_id: string, content: string) => {
     if (collabState.failApplyCount > 0) {
@@ -61,6 +75,55 @@ vi.mock("@agent-native/core/collab", () => ({
     }
     collabState.exists = true;
     collabState.content = content;
+    collabState.version += 1;
+  },
+  applyTextToYDoc: (
+    doc: { content: string },
+    _fieldName: string,
+    text: string,
+  ) => {
+    if (collabState.failApplyCount > 0) {
+      collabState.failApplyCount -= 1;
+      throw new Error("simulated collab apply failure");
+    }
+    doc.content = text;
+  },
+  withPreparedYDocMutation: async (
+    _docId: string,
+    _requestSource: string | undefined,
+    run: (lease: {
+      doc: { content: string; getText: () => { toString: () => string } };
+      baseVersion: number | null;
+      persist: (_tx: unknown, text: string) => Promise<void>;
+    }) => Promise<unknown>,
+  ) => {
+    const doc = {
+      content: collabState.exists ? collabState.content : "",
+      getText: () => ({ toString: () => doc.content }),
+    };
+    let persisted = false;
+    const result = await run({
+      doc,
+      baseVersion: collabState.exists ? collabState.version : null,
+      persist: async (_tx, text) => {
+        collabState.persistCount += 1;
+        if (collabState.peerContentBeforePersist !== null) {
+          collabState.exists = true;
+          collabState.content = collabState.peerContentBeforePersist;
+          collabState.version += 1;
+          collabState.peerContentBeforePersist = null;
+          throw new collabConflict(
+            "collaboration document changed before SQL mirror",
+          );
+        }
+        collabState.exists = true;
+        collabState.content = text;
+        collabState.version += 1;
+        persisted = true;
+      },
+    });
+    if (!persisted) return result;
+    return result;
   },
 }));
 
@@ -78,6 +141,10 @@ vi.mock("@agent-native/core/sharing", () => ({
 // CAS in update-file must be sufficient on its own.
 vi.mock("../server/source-workspace.js", () => ({
   affectedRowCount: (result: unknown) => {
+    if (updateControl.sqlCasMisses > 0) {
+      updateControl.sqlCasMisses -= 1;
+      return 0;
+    }
     if (!result || typeof result !== "object") return undefined;
     const candidate = result as {
       rowsAffected?: unknown;
@@ -96,11 +163,52 @@ vi.mock("../server/source-workspace.js", () => ({
       candidate.meta?.changes;
     return typeof value === "number" ? value : undefined;
   },
+  SourceWorkspaceEditConflictError: class SourceWorkspaceEditConflictError extends Error {
+    statusCode = 409;
+  },
+  getDesignSourceMutationExec: () => ({ execute: vi.fn() }),
   lockDesignFilesTable: async () => {},
+  readLiveSourceFile: async ({ content }: { content?: string | null }) => ({
+    content: collabState.exists ? collabState.content : (content ?? ""),
+    versionHash: "test-hash",
+    language: "html",
+  }),
+  readPreparedSourceText: (lease: {
+    doc: { getText: () => { toString: () => string } };
+  }) => lease.doc.getText().toString(),
   withSourceFileWriteLock: async <T>(
     _fileId: string,
     run: () => Promise<T>,
   ): Promise<T> => run(),
+  withPreparedSourceFileMutation: async <T>(
+    _fileId: string,
+    _requestSource: string | undefined,
+    run: (lease: unknown) => Promise<T>,
+  ): Promise<T> => {
+    const doc = {
+      content: collabState.exists ? collabState.content : "",
+      getText: () => ({ toString: () => doc.content }),
+    };
+    return run({
+      doc,
+      baseVersion: collabState.exists ? collabState.version : null,
+      persist: async (_tx: unknown, text: string) => {
+        collabState.persistCount += 1;
+        if (collabState.peerContentBeforePersist !== null) {
+          collabState.exists = true;
+          collabState.content = collabState.peerContentBeforePersist;
+          collabState.version += 1;
+          collabState.peerContentBeforePersist = null;
+          throw new collabConflict(
+            "collaboration document changed before SQL mirror",
+          );
+        }
+        collabState.exists = true;
+        collabState.content = text;
+        collabState.version += 1;
+      },
+    });
+  },
   withDesignSourceMutationTransaction: async <T>(
     _designId: string,
     run: (tx: unknown) => Promise<T>,
@@ -250,7 +358,11 @@ beforeEach(async () => {
   collabReadBarrier.waiters = [];
   collabState.exists = false;
   collabState.content = "";
+  collabState.version = 0;
   collabState.failApplyCount = 0;
+  collabState.persistCount = 0;
+  collabState.peerContentBeforePersist = null;
+  updateControl.sqlCasMisses = 0;
   await localDb.pglite?.exec("DELETE FROM design_files; DELETE FROM designs;");
   await localDb.pglite
     ?.prepare("INSERT INTO designs (id, updated_at) VALUES (?, ?)")
@@ -535,5 +647,45 @@ describe("update-file browser operation ordering with real PostgreSQL", () => {
     });
     expect((await persistedFile()).content).toBe(latestContent);
     expect(collabState.content).toBe(latestContent);
+  });
+
+  it("rejects a mirror when a peer commits live collaboration content before the SQL mirror", async () => {
+    collabState.exists = true;
+    collabState.content = BASE;
+    collabState.version = 3;
+    const peer = "<main>peer live edit</main>";
+    collabState.peerContentBeforePersist = peer;
+
+    await expect(
+      save({
+        content: "<main>stale SQL mirror</main>",
+        syncCollab: false,
+        expectedVersionHash: sourceContentHash(BASE),
+      }),
+    ).rejects.toMatchObject({ statusCode: 409 });
+
+    expect(collabState.content).toBe(peer);
+    expect((await persistedFile()).content).toBe(BASE);
+  });
+
+  it("does not reuse a prepared lease after a SQL content CAS miss", async () => {
+    collabState.exists = true;
+    collabState.content = BASE;
+    collabState.version = 0;
+    updateControl.sqlCasMisses = 1;
+    const next = "<main>CAS loser</main>";
+
+    await expect(
+      save({
+        content: next,
+        syncCollab: true,
+        expectedVersionHash: sourceContentHash(BASE),
+        operationSource: "tab-a",
+        operationRevision: 1,
+      }),
+    ).rejects.toMatchObject({ statusCode: 409 });
+
+    expect(collabState.persistCount).toBe(0);
+    expect(collabState.content).toBe(BASE);
   });
 });

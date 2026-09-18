@@ -251,6 +251,38 @@ describe("auto-layout drop insertion anchor (WORK ITEM 1)", () => {
     expect(target?.boardRect.width).toBeCloseTo(50);
   });
 
+  it("falls back to an eligible ancestor when the dragged layer is too large", () => {
+    const source = {
+      id: "source",
+      filename: "source.html",
+      content: `<!doctype html><html><body>
+        <div data-agent-native-node-id="moving" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:100px;height:80px"></div>
+      </body></html>`,
+    };
+    const target = {
+      id: "target",
+      filename: "target.html",
+      content: `<!doctype html><html><body>
+        <div data-agent-native-node-id="outer" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:500px;height:400px">
+          <div data-agent-native-node-id="too-small" data-an-primitive="frame" style="position:absolute;left:20px;top:20px;width:100px;height:70px"></div>
+        </div>
+      </body></html>`,
+    };
+
+    expect(
+      getPrimitiveDropTargetForPoint(
+        { x: 70, y: 50 },
+        "moving",
+        [source, target],
+        {
+          source: { x: 0, y: 0, width: 800, height: 600 },
+          target: { x: 0, y: 0, width: 800, height: 600 },
+        },
+        () => ({ width: 800, height: 600 }),
+      ),
+    ).toMatchObject({ nodeId: "outer" });
+  });
+
   it("resolves the same auto-layout anchor/placement when the screen frame itself is rotated", () => {
     // Adjacent coordinate-transform check (item 6): getPrimitiveDropTargetForPoint
     // must map the incoming board-space point back into the screen's own

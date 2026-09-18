@@ -10,6 +10,7 @@ import {
   isSlideTextEditingTarget,
   isTextLeaf,
   resolveRichTextEditingBlock,
+  resolveSlideTextSelectionTarget,
   shouldStampBuilderId,
   shouldTraverseSlideLayerChildren,
 } from "./slide-text-targets";
@@ -132,6 +133,24 @@ describe("slide text targets", () => {
     expect(shouldStampBuilderId(layer)).toBe(true);
     expect(shouldStampBuilderId(paragraph)).toBe(false);
     expect(findSmartBlock(paragraph, root)).toBe(layer);
+  });
+
+  it("restores the canvas identity for nested rich-text blocks", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `
+      <div class="fmd-slide">
+        <div data-builder-id="text" data-slide-object-id="text-id">
+          <p>First paragraph</p>
+          <p>Second paragraph</p>
+        </div>
+      </div>
+    `;
+
+    const text = root.querySelector("[data-builder-id='text']") as HTMLElement;
+    const paragraph = text.querySelector("p:last-of-type") as HTMLElement;
+
+    expect(resolveSlideTextSelectionTarget(paragraph, root)).toBe(text);
+    expect(resolveSlideTextSelectionTarget(text, root)).toBe(text);
   });
 
   it("edits text leaves inside imported smart groups without replacing their layout", () => {
