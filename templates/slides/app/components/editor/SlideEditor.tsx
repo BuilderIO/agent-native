@@ -2751,8 +2751,22 @@ export default function SlideEditor({
       const slideContentSnapshot = slideContent.cloneNode(true) as HTMLElement;
       const originalContent = el.innerHTML;
 
+      const editorContext = document.createElement("div");
+      editorContext.className = "slide-content slide-rich-editor-context";
+      const fmdSlide = el.closest<HTMLElement>(".fmd-slide");
+      const fmdSlideContext = fmdSlide
+        ? (fmdSlide.cloneNode(false) as HTMLElement)
+        : null;
+      if (fmdSlideContext) {
+        // Keep descendant slide selectors and imported-deck typography while
+        // the fixed editor host lives outside the React-owned canvas.
+        fmdSlideContext.style.display = "contents";
+        editorContext.append(fmdSlideContext);
+      }
+
       const host = document.createElement("div");
-      host.className = "slide-content slide-rich-editor-host";
+      host.className = "slide-rich-editor-host";
+      (fmdSlideContext ?? editorContext).append(host);
       const originalStyle = el.getAttribute("style");
       const computedStyle = window.getComputedStyle(el);
       const slideCanvas = el.closest<HTMLElement>("[data-slide-canvas]");
@@ -2792,8 +2806,8 @@ export default function SlideEditor({
       host.style.padding = computedStyle.padding;
       const contentScope = el.closest<HTMLElement>("[data-slide-content-scope]")
         ?.dataset.slideContentScope;
-      if (contentScope) host.dataset.slideContentScope = contentScope;
-      document.body.append(host);
+      if (contentScope) editorContext.dataset.slideContentScope = contentScope;
+      document.body.append(editorContext);
       positionHost();
       const resizeObserver =
         typeof ResizeObserver === "undefined"
@@ -2808,7 +2822,7 @@ export default function SlideEditor({
         resizeObserver?.disconnect();
         window.removeEventListener("resize", positionHost);
         scrollContainer?.removeEventListener("scroll", positionHost);
-        host.remove();
+        editorContext.remove();
       };
       const apiRef: { current: SlideRichTextEditorHandle | null } = {
         current: null,

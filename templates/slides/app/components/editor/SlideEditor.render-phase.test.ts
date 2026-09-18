@@ -107,7 +107,15 @@ describe("SlideEditor render-phase safety", () => {
     );
     const disposeBody = source.slice(disposeStart, disposeEnd);
 
-    expect(enterBody).toContain("document.body.append(host)");
+    expect(enterBody).toContain(
+      'editorContext.className = "slide-content slide-rich-editor-context"',
+    );
+    expect(enterBody).toContain("fmdSlide.cloneNode(false) as HTMLElement");
+    expect(enterBody).toContain('fmdSlideContext.style.display = "contents"');
+    expect(enterBody).toContain(
+      "(fmdSlideContext ?? editorContext).append(host)",
+    );
+    expect(enterBody).toContain("document.body.append(editorContext)");
     expect(enterBody).not.toContain("el.replaceChildren(host)");
     expect(disposeBody).toContain("session.cleanupHost()");
     expect(disposeBody).not.toContain(
