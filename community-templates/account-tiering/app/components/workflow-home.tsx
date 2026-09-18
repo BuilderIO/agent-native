@@ -44,9 +44,11 @@ export function WorkflowHome({ workflow }: { workflow: WorkflowDefinition }) {
     currentWorkflow.items[0]?.id ?? "",
   );
   const selectedIdRef = useRef(selectedId);
+  const confirmedSelectedIdRef = useRef(selectedId);
   useEffect(() => {
     if (data?.selectedId) {
       selectedIdRef.current = data.selectedId;
+      confirmedSelectedIdRef.current = data.selectedId;
       setSelectedId(data.selectedId);
     }
   }, [data?.selectedId]);
@@ -109,16 +111,23 @@ export function WorkflowHome({ workflow }: { workflow: WorkflowDefinition }) {
                     <button
                       key={item.id}
                       type="button"
+                      disabled={selectItem.isPending}
                       onClick={() => {
-                        const previousSelectedId = selectedIdRef.current;
+                        const previousSelectedId =
+                          confirmedSelectedIdRef.current;
                         selectedIdRef.current = item.id;
                         setSelectedId(item.id);
                         selectItem.mutate(
                           { id: item.id },
                           {
+                            onSuccess: () => {
+                              confirmedSelectedIdRef.current = item.id;
+                            },
                             onError: () => {
                               if (selectedIdRef.current !== item.id) return;
                               selectedIdRef.current = previousSelectedId;
+                              confirmedSelectedIdRef.current =
+                                previousSelectedId;
                               setSelectedId(previousSelectedId);
                               toast.error("Could not save selection.");
                             },

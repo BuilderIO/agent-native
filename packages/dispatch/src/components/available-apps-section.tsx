@@ -153,7 +153,7 @@ function AvailableAppRow({
 
   function customizeApp() {
     customize.mutate({
-      appId: `${app.id}-custom`,
+      appId: `${app.id}-custom-${crypto.randomUUID().slice(0, 8)}`,
       description: `A customized version of ${app.name}.`,
       prompt: [
         `Create a private customized copy of ${app.name}.`,
