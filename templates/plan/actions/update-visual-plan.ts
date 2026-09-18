@@ -454,7 +454,7 @@ function canvasSurfaceProjection(content: PlanContent) {
       surface:
         frame.surface ??
         wireframe?.surface ??
-        legacyWireframe?.surface ??
+        (legacyWireframe?.viewport === "phone" ? "mobile" : undefined) ??
         "desktop",
       wireframe,
       legacyWireframe,
