@@ -23,4 +23,16 @@ describe("community template gallery", () => {
     expect(northstarDraft?.subject).toContain("Northstar");
     expect(northstarDraft?.body.join(" ")).toContain("procurement timing");
   });
+
+  it("keys memo and queue evidence to the selected record", () => {
+    const winLoss = getTemplate("win-loss-memo");
+    const orbitMemo = winLoss.memo?.variants?.["orbit-loss"];
+    const accountTiering = getTemplate("account-tiering");
+    const northstarEvidence =
+      accountTiering.sectionsByRowId?.["northstar-labs"];
+
+    expect(orbitMemo?.headline).toContain("Orbit");
+    expect(orbitMemo?.evidence.join(" ")).toContain("economic buyer");
+    expect(northstarEvidence?.[0].value).toContain("Champion");
+  });
 });
