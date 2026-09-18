@@ -21,10 +21,10 @@
 
 ## Direction ledger
 
-| App family | Mode | Accent |
-| --- | --- | --- |
-| Account Tiering, Churn Warning, ICP Tracker | operate | ochre / coral / violet |
-| Call Follow-up, Win / Loss, Outbound Voice | read + draft | coral / violet |
-| Account Expert, Demo Clips | read | teal / ochre |
-| LinkedIn Signal Watch | watch | teal |
-| Agent Advisor | experience | teal |
+| App family                                  | Mode         | Accent                 |
+| ------------------------------------------- | ------------ | ---------------------- |
+| Account Tiering, Churn Warning, ICP Tracker | operate      | ochre / coral / violet |
+| Call Follow-up, Win / Loss, Outbound Voice  | read + draft | coral / violet         |
+| Account Expert, Demo Clips                  | read         | teal / ochre           |
+| LinkedIn Signal Watch                       | watch        | teal                   |
+| Agent Advisor                               | experience   | teal                   |
