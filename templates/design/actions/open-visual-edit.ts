@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import path from "node:path";
 
-import { defineAction, embedApp } from "@agent-native/core";
+import { defineAction, embedApp, fail } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import {
   buildDeepLink,
@@ -187,10 +187,10 @@ const LOCAL_VISUAL_EDIT_PRINCIPAL_DOMAIN =
   "local.visual-edit.agent-native.invalid";
 
 /**
- * Stable owner partition for Design rows created by the local CLI skill when
- * no account session exists. This value is never installed as a browser
- * session; it only lets one trusted in-process `pnpm action` invocation compose
- * the existing owner-scoped actions before minting a narrow embed capability.
+ * Stable owner partition for local visual-edit calls when no account session
+ * exists. This value is never installed as a browser session; it only lets the
+ * trusted local host compose the existing owner-scoped actions before minting
+ * a narrow embed capability.
  */
 export function localVisualEditWorkspacePrincipal(
   workspacePath = process.cwd(),
@@ -284,6 +284,9 @@ function routeManifestFromScreens(args: {
 export default defineAction({
   description:
     "Open or refresh a running localhost app in Design overview mode without requiring a Design account login. Registers the local bridge, creates or reuses a design, places URL-backed screens, stores the active visual-edit context, and navigates the current Design session to the canvas. Use this from the local /visual-edit skill and for follow-up requests like adding a mobile-size screen.",
+  // The public /visual-edit page calls this through the frontend transport.
+  // Its run() guard still limits anonymous callers to loopback + public mode.
+  requiresAuth: false,
   schema: z.object({
     designId: z
       .string()
@@ -543,33 +546,43 @@ export default defineAction({
         previewToken: connection.previewToken,
       };
       if (embedStartUrl) {
-        // Trusted hosts and the CLI runner read this property directly. Keeping
-        // it non-enumerable prevents generic object/string serialization from
-        // copying the single-use bearer into model-visible action output.
+        // The browser page needs the one-time launcher to replace its landing
+        // route. Keep it non-enumerable for CLI/MCP callers so generic object
+        // serialization cannot copy the bearer into model-visible output; the
+        // frontend transport is the trusted same-origin handoff that needs it.
         Object.defineProperty(result, "embedStartUrl", {
           value: embedStartUrl,
-          enumerable: false,
+          enumerable: ctx?.caller === "frontend",
         });
       }
       return result as typeof result & { embedStartUrl?: string };
     };
 
     if (getRequestUserEmail()) return runForPrincipal();
-    if (ctx?.caller !== "cli" || !isLoopbackUrl(devServerUrl)) {
-      throw new Error(
-        "Signed-out visual-edit is available only through the local CLI for a loopback app.",
+    if (
+      (ctx?.caller !== "cli" &&
+        ctx?.caller !== "webmcp" &&
+        ctx?.caller !== "frontend") ||
+      !isLoopbackUrl(devServerUrl)
+    ) {
+      fail(
+        "Signed-out visual-edit is available only through the local CLI for a loopback app or the Design page's WebMCP.",
+        { errorCode: "signed_out_visual_edit_requires_loopback" },
       );
     }
     if (args.publicReadOnly === false) {
-      throw new Error(
+      fail(
         "Signed-out local visual-edit requires publicReadOnly so the resource can be opened through its narrow editor capability. Sign in to create a private Design resource.",
+        { errorCode: "signed_out_visual_edit_requires_public_resource" },
       );
     }
 
     return runWithRequestContext(
       {
         ...(getRequestContext() ?? {}),
-        userEmail: localVisualEditWorkspacePrincipal(),
+        userEmail: localVisualEditWorkspacePrincipal(
+          args.rootPath ?? devServerUrl,
+        ),
         orgId: undefined,
       },
       runForPrincipal,

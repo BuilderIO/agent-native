@@ -16,6 +16,9 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@agent-native/core", () => ({
   defineAction: (config: unknown) => config,
   embedApp: (config: unknown) => config,
+  fail: (message: string) => {
+    throw new Error(message);
+  },
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
@@ -71,9 +74,15 @@ vi.mock("./navigate.js", () => ({
   },
 }));
 
-import action from "./open-visual-edit.js";
+import action, {
+  localVisualEditWorkspacePrincipal,
+} from "./open-visual-edit.js";
 
 describe("open-visual-edit", () => {
+  it("allows the public Design page to call the action without a session", () => {
+    expect(action.requiresAuth).toBe(false);
+  });
+
   beforeEach(() => {
     mocks.addLocalhostScreensRun.mockReset();
     mocks.createEmbedSessionTicket.mockReset();
@@ -495,12 +504,35 @@ describe("open-visual-edit", () => {
     );
   });
 
+  it("exposes the handoff only to the same-origin frontend transport", async () => {
+    const result = await action.run(
+      {
+        designId: "design_1",
+        devServerUrl: "http://localhost:5173",
+        paths: ["/"],
+        navigate: false,
+      },
+      {
+        actionName: "open-visual-edit",
+        caller: "frontend",
+        userEmail: "owner@example.com",
+        orgId: "org_1",
+      },
+    );
+
+    expect(Object.keys(result)).toContain("embedStartUrl");
+    expect(result.embedStartUrl).toBe(
+      "/_agent-native/embed/start?ticket=visual-edit-example-ticket",
+    );
+  });
+
   it("uses a non-account workspace principal for the signed-out local skill entry", async () => {
     mocks.getRequestUserEmail.mockReturnValue(undefined);
 
     const result = await action.run(
       {
         devServerUrl: "http://localhost:5173",
+        rootPath: "/Users/example/project",
         paths: ["/"],
         navigate: false,
       },
@@ -514,9 +546,7 @@ describe("open-visual-edit", () => {
 
     expect(mocks.runWithRequestContext).toHaveBeenCalledWith(
       expect.objectContaining({
-        userEmail: expect.stringMatching(
-          /^workspace\+[a-f0-9]{24}@local\.visual-edit\.agent-native\.invalid$/,
-        ),
+        userEmail: localVisualEditWorkspacePrincipal("/Users/example/project"),
         orgId: undefined,
       }),
       expect.any(Function),
@@ -565,6 +595,34 @@ describe("open-visual-edit", () => {
     expect(mocks.createEmbedSessionTicket).not.toHaveBeenCalled();
   });
 
+  it("allows signed-out page WebMCP bootstrap for loopback apps", async () => {
+    mocks.getRequestUserEmail.mockReturnValue(undefined);
+
+    const result = await action.run(
+      {
+        devServerUrl: "http://localhost:5173",
+        paths: ["/"],
+        navigate: false,
+      },
+      {
+        actionName: "open-visual-edit",
+        caller: "webmcp",
+        userEmail: undefined,
+        orgId: null,
+      },
+    );
+
+    expect(mocks.runWithRequestContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userEmail: expect.stringMatching(
+          /^workspace\+[a-f0-9]{24}@local\.visual-edit\.agent-native\.invalid$/,
+        ),
+      }),
+      expect.any(Function),
+    );
+    expect(result.designId).toBe("design_created");
+  });
+
   it("rejects a signed-out CLI caller for a non-loopback target", async () => {
     mocks.getRequestUserEmail.mockReturnValue(undefined);
 
@@ -582,7 +640,7 @@ describe("open-visual-edit", () => {
           orgId: null,
         },
       ),
-    ).rejects.toThrow(/only through the local CLI for a loopback app/);
+    ).rejects.toThrow(/only through the local CLI for a loopback app or/);
 
     expect(mocks.connectLocalhostRun).not.toHaveBeenCalled();
     expect(mocks.createEmbedSessionTicket).not.toHaveBeenCalled();

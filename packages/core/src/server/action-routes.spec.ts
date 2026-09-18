@@ -888,6 +888,25 @@ describe("mountActionRoutes", () => {
     });
   });
 
+  it("registers optional-auth action routes before the auth guard", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const nitroApp = {
+      use: vi.fn(),
+    };
+
+    mountActionRoutes(nitroApp, {
+      "public-metadata": {
+        requiresAuth: false,
+        run: vi.fn(async () => ({ ok: true })),
+      } as any,
+    });
+
+    expect(mockRegisterAuthPublicPaths).toHaveBeenCalledWith(
+      ["/_agent-native/actions/public-metadata"],
+      nitroApp,
+    );
+  });
+
   it("propagates a verified capability to a public action without impersonating its owner", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     const { getRequestAuthCapability, getRequestUserEmail } =
