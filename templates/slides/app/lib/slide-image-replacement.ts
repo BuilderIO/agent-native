@@ -101,7 +101,92 @@ function imageStructure(doc: Document): string {
   return body.innerHTML;
 }
 
-/** Update only image sources when upload completion did not change slide HTML. */
+const LIVE_IMAGE_GEOMETRY_STYLE_PROPERTIES = [
+  "position",
+  "inset",
+  "inset-block",
+  "inset-block-start",
+  "inset-block-end",
+  "inset-inline",
+  "inset-inline-start",
+  "inset-inline-end",
+  "top",
+  "right",
+  "bottom",
+  "left",
+  "width",
+  "min-width",
+  "max-width",
+  "height",
+  "min-height",
+  "max-height",
+  "margin",
+  "margin-top",
+  "margin-right",
+  "margin-bottom",
+  "margin-left",
+  "transform",
+  "transform-origin",
+  "translate",
+  "scale",
+  "rotate",
+  "aspect-ratio",
+] as const;
+
+function updateImageAttributesInPlace(
+  liveImage: HTMLImageElement,
+  nextImage: HTMLImageElement,
+): void {
+  const liveGeometry = LIVE_IMAGE_GEOMETRY_STYLE_PROPERTIES.map((property) => {
+    const value = liveImage.style.getPropertyValue(property);
+    return value
+      ? {
+          priority: liveImage.style.getPropertyPriority(property),
+          property,
+          value,
+        }
+      : null;
+  }).filter(
+    (
+      declaration,
+    ): declaration is {
+      priority: string;
+      property: (typeof LIVE_IMAGE_GEOMETRY_STYLE_PROPERTIES)[number];
+      value: string;
+    } => declaration !== null,
+  );
+
+  for (const attribute of Array.from(liveImage.attributes)) {
+    if (
+      attribute.name !== "src" &&
+      attribute.name !== "style" &&
+      !nextImage.hasAttribute(attribute.name)
+    ) {
+      liveImage.removeAttribute(attribute.name);
+    }
+  }
+  for (const attribute of Array.from(nextImage.attributes)) {
+    if (attribute.name !== "style") {
+      liveImage.setAttribute(attribute.name, attribute.value);
+    }
+  }
+
+  const nextStyle = nextImage.getAttribute("style");
+  if (nextStyle === null && liveGeometry.length === 0) {
+    liveImage.removeAttribute("style");
+  } else {
+    liveImage.setAttribute("style", nextStyle ?? "");
+  }
+  for (const declaration of liveGeometry) {
+    liveImage.style.setProperty(
+      declaration.property,
+      declaration.value,
+      declaration.priority,
+    );
+  }
+}
+
+/** Update image attributes in place while preserving live drag/resize styles. */
 export function swapImageSourcesInPlace(
   root: HTMLElement,
   previousContent: string,
@@ -128,9 +213,7 @@ export function swapImageSourcesInPlace(
   const liveImages = Array.from(root.querySelectorAll<HTMLImageElement>("img"));
   if (liveImages.length !== nextSources.length) return false;
   liveImages.forEach((image, index) => {
-    const nextSource = nextSources[index];
-    if (nextSource === null) image.removeAttribute("src");
-    else image.setAttribute("src", nextSource);
+    updateImageAttributesInPlace(image, nextImages[index]);
   });
   return true;
 }

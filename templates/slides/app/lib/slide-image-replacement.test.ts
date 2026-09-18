@@ -51,6 +51,31 @@ describe("slide image replacement", () => {
     expect(image.style.left).toBe("184px");
   });
 
+  it("updates image metadata and fit without overwriting live geometry", () => {
+    const previousContent =
+      '<div class="fmd-slide"><img src="blob:preview" alt="Preview" width="320" height="180" style="position:absolute;left:40px;width:320px;object-fit:contain;"></div>';
+    const nextContent =
+      '<div class="fmd-slide"><img src="https://cdn.builder.io/api/v1/image/assets%2Fphoto" alt="Photo" width="640" height="360" style="position:absolute;left:220px;width:640px;object-fit:cover;object-position:right bottom;"></div>';
+    const root = document.createElement("div");
+    root.innerHTML = previousContent;
+    const image = root.querySelector("img");
+    if (!image) throw new Error("expected preview image");
+    image.style.left = "184px";
+    image.style.width = "512px";
+
+    expect(swapImageSourcesInPlace(root, previousContent, nextContent)).toBe(
+      true,
+    );
+    expect(root.querySelector("img")).toBe(image);
+    expect(image.getAttribute("alt")).toBe("Photo");
+    expect(image.getAttribute("width")).toBe("640");
+    expect(image.getAttribute("height")).toBe("360");
+    expect(image.style.left).toBe("184px");
+    expect(image.style.width).toBe("512px");
+    expect(image.style.objectFit).toBe("cover");
+    expect(image.style.objectPosition).toBe("right bottom");
+  });
+
   it("waits for the hosted image to decode before resolving", async () => {
     let requestedSrc = "";
     let decoded = false;
