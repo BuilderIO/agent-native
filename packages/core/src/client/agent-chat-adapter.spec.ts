@@ -7975,6 +7975,160 @@ describe("createAgentChatAdapter", () => {
     clearPendingTurnIfMatches("successor-thread", "successor-turn");
   });
 
+  it("recognizes a legacy pending successor for the same thread", async () => {
+    vi.stubGlobal("sessionStorage", createMemoryStorage());
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const body = `${JSON.stringify({ type: "done" })}\n\n`;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                controller.enqueue(new TextEncoder().encode("data: "));
+              },
+              pull(controller) {
+                setPendingTurn({
+                  threadId: "current-thread",
+                  turnId: "legacy-successor-turn",
+                });
+                controller.enqueue(new TextEncoder().encode(body));
+                controller.close();
+              },
+            }),
+            {
+              status: 200,
+              headers: {
+                "Content-Type": "text/event-stream",
+                "X-Run-Id": "run-current",
+              },
+            },
+          ),
+      ),
+    );
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-current",
+      threadId: "current-thread",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "finish this" }],
+          },
+        ],
+        runConfig: { custom: { turnId: "current-turn" } },
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    expect(dispatchEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agentNative.chatRunning",
+        detail: { isRunning: false, tabId: "chat-current" },
+      }),
+    );
+    clearPendingTurnIfMatches("current-thread", "legacy-successor-turn");
+  });
+
+  it("stops its surface when a different run owns another surface", async () => {
+    vi.stubGlobal("sessionStorage", createMemoryStorage());
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const body = `${JSON.stringify({ type: "done" })}\n\n`;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                controller.enqueue(new TextEncoder().encode("data: "));
+              },
+              pull(controller) {
+                setActiveRun({
+                  threadId: "current-thread",
+                  runId: "run-new",
+                  tabId: "other-surface",
+                  lastSeq: 0,
+                });
+                controller.enqueue(new TextEncoder().encode(body));
+                controller.close();
+              },
+            }),
+            {
+              status: 200,
+              headers: {
+                "Content-Type": "text/event-stream",
+                "X-Run-Id": "run-current",
+              },
+            },
+          ),
+      ),
+    );
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-current",
+      threadId: "current-thread",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "finish this" }],
+          },
+        ],
+        runConfig: { custom: { turnId: "current-turn" } },
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agentNative.chatRunning",
+        detail: { isRunning: false, tabId: "chat-current" },
+      }),
+    );
+    expect(getActiveRun()).toMatchObject({
+      threadId: "current-thread",
+      runId: "run-new",
+      tabId: "other-surface",
+    });
+  });
+
   it("continues when a terminal followed run contains only completed tool work", async () => {
     vi.useFakeTimers();
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });

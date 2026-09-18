@@ -2408,9 +2408,12 @@ export function createAgentChatAdapter(
       let lastSeq = -1;
       const hasPendingSuccessorRequest = () => {
         const pendingTurn = getPendingTurn();
+        const pendingTurnBelongsToSurface = pendingTurn?.tabId
+          ? pendingTurn.tabId === activeRunTabId
+          : pendingTurn?.threadId === threadId;
         return Boolean(
           pendingTurn &&
-          (pendingTurn.tabId ?? pendingTurn.threadId) === activeRunTabId &&
+          pendingTurnBelongsToSurface &&
           (pendingTurn.threadId !== threadId || pendingTurn.turnId !== turnId),
         );
       };
@@ -2478,13 +2481,18 @@ export function createAgentChatAdapter(
             activeRun.runId === runId &&
             activeRunMatchesTab(activeRun));
         if (!ownsActiveRun) {
-          // A different thread may own the global active-run pointer. Only a
-          // run from another tab should trigger this adapter's cleanup; a
-          // newer run in this tab must keep its running state intact.
+          // A newer run in this tab must keep its running state intact. A
+          // different run on another surface must not leave this surface
+          // marked running after its own stream finishes. The same run on
+          // another surface still owns the shared stream and is left alone.
+          if (!activeRun || activeRunMatchesTab(activeRun)) {
+            return;
+          }
           if (
-            !threadId ||
-            activeRun?.threadId === threadId ||
-            activeRunMatchesTab(activeRun)
+            threadId &&
+            runId &&
+            activeRun.threadId === threadId &&
+            activeRun.runId === runId
           ) {
             return;
           }
