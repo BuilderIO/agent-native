@@ -26,6 +26,8 @@ import { designSaveErrorMessage } from "@/pages/design-editor/save-failure";
 import { prepareAcceptedSourceContent } from "@/pages/design-editor/source-publication";
 import type { DesignFile } from "@/pages/design-editor/types";
 
+import type { FileContentSaveCompletion } from "./save-file-content";
+
 export interface ApplyLocalContentUpdateArgs {
   acknowledgeAuthoritativeClipboardMutation: (args: {
     fileId: string;
@@ -90,7 +92,7 @@ export type ApplyLocalContentUpdateResult =
       status: "accepted";
       content: string;
       nodeIdMap: ReadonlyMap<string, string>;
-      saveCompletion?: Promise<boolean>;
+      saveCompletion?: Promise<FileContentSaveCompletion>;
     }
   | { status: "refused" };
 
@@ -352,7 +354,7 @@ export function runApplyLocalContentUpdate(
       );
     }
   }
-  let saveCompletion: Promise<boolean> | undefined;
+  let saveCompletion: Promise<FileContentSaveCompletion> | undefined;
   if (options.persist === false && !needsIdentityMigration) {
     cancelQueuedFileContentSave(activeFile.id);
   } else {

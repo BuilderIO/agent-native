@@ -51,6 +51,7 @@ import {
 } from "../clone-and-pen-edit";
 import { prepareAcceptedSourceContent } from "../source-publication";
 import type { ApplyFileContentUpdateResult } from "./apply-file-content-update";
+import type { FileContentSaveCompletion } from "./save-file-content";
 import {
   mapAcceptedSelectionNode,
   projectAcceptedSource,
@@ -1166,9 +1167,9 @@ export function runCrossScreenElementDrop(
     publication: typeof targetPublication,
     fileId: string,
     content: string,
-  ) => {
+  ): Promise<FileContentSaveCompletion> => {
     if (!isCurrentPublication(fileId, publication)) {
-      return Promise.resolve(false);
+      return Promise.resolve<FileContentSaveCompletion>("failed");
     }
     const rollback = applyFileContentUpdate(fileId, content, {
       recordHistory: false,
@@ -1179,8 +1180,13 @@ export function runCrossScreenElementDrop(
       immediateSave: true,
       awaitSave: true,
     });
-    if (rollback.status !== "accepted") return Promise.resolve(false);
-    return rollback.saveCompletion ?? Promise.resolve(true);
+    if (rollback.status !== "accepted") {
+      return Promise.resolve<FileContentSaveCompletion>("failed");
+    }
+    return (
+      rollback.saveCompletion ??
+      Promise.resolve<FileContentSaveCompletion>("persisted")
+    );
   };
 
   const targetSave = targetPublication.saveCompletion;
@@ -1191,20 +1197,26 @@ export function runCrossScreenElementDrop(
   }
 
   void Promise.allSettled([
-    targetSave ?? Promise.resolve(true),
-    sourceSave ?? Promise.resolve(true),
+    targetSave ?? Promise.resolve<FileContentSaveCompletion>("persisted"),
+    sourceSave ?? Promise.resolve<FileContentSaveCompletion>("persisted"),
   ]).then(async ([targetResult, sourceResult]) => {
     const targetSaved =
-      targetResult.status === "fulfilled" && targetResult.value === true;
+      targetResult.status === "fulfilled" && targetResult.value === "persisted";
     const sourceSaved =
-      sourceResult.status === "fulfilled" && sourceResult.value === true;
+      sourceResult.status === "fulfilled" && sourceResult.value === "persisted";
+    const retryableSave =
+      (targetResult.status === "fulfilled" &&
+        targetResult.value === "retryable") ||
+      (sourceResult.status === "fulfilled" &&
+        sourceResult.value === "retryable");
     const saveFailed =
       targetResult.status === "rejected" || sourceResult.status === "rejected";
     if (targetSaved && sourceSaved) {
       finalizePublication();
       return;
     }
-    const rollbackResults: Promise<boolean>[] = [];
+    if (retryableSave) return;
+    const rollbackResults: Promise<FileContentSaveCompletion>[] = [];
     if (targetSaved && !sourceSaved) {
       rollbackResults.push(
         rollbackAfterSaveConflict(
@@ -1225,7 +1237,9 @@ export function runCrossScreenElementDrop(
     }
     if (
       saveFailed ||
-      (await Promise.all(rollbackResults)).some((saved) => !saved)
+      (await Promise.all(rollbackResults)).some(
+        (status) => status !== "persisted",
+      )
     ) {
       toast.error(t("designEditor.toasts.saveConflict"));
     }

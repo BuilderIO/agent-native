@@ -53,6 +53,12 @@ type FileContentSaveKeepaliveAttempt =
   | { accepted: true; completion: Promise<unknown> }
   | { accepted: false; completion: null };
 
+export type FileContentSaveCompletion =
+  | "persisted"
+  | "conflict"
+  | "retryable"
+  | "failed";
+
 export interface SaveFileContentKeepaliveArgs {
   acknowledgeOutboxEntry: (entry: DesignSaveOutboxEntry) => Promise<void>;
   createFileSaveOutboxEntry: (
@@ -141,8 +147,8 @@ export function runSaveFileContent(
     warnChangesWillRetry,
   }: SaveFileContentArgs,
   pending: FileContentSaveRequest,
-): Promise<boolean> {
-  if (!canEditDesignRef.current) return Promise.resolve(false);
+): Promise<FileContentSaveCompletion> {
+  if (!canEditDesignRef.current) return Promise.resolve("failed");
   markPendingLocalFileContent(
     pending.id,
     pending.content,
@@ -165,7 +171,7 @@ export function runSaveFileContent(
         latestFileSaveForUnloadRef.current[pending.id] !== pending
       ) {
         if (queuedOutboxEntry) await acknowledgeOutboxEntry(queuedOutboxEntry);
-        return false;
+        return "failed";
       }
       try {
         const expectedVersionHash = pending.expectedVersionHash;
@@ -187,7 +193,7 @@ export function runSaveFileContent(
           latestFileSaveForUnloadRef.current[pending.id] !== pending
         ) {
           if (outboxEntry) await acknowledgeOutboxEntry(outboxEntry);
-          return false;
+          return "failed";
         }
         const resultInfo = result as
           | {
@@ -291,7 +297,7 @@ export function runSaveFileContent(
               }
             : { ...prev, status };
         });
-        return persistedContentMatches;
+        return persistedContentMatches ? "persisted" : "conflict";
       } catch (error) {
         if (
           pending.identityMigrationSourceContent !== undefined &&
@@ -299,7 +305,7 @@ export function runSaveFileContent(
         ) {
           if (queuedOutboxEntry)
             await acknowledgeOutboxEntry(queuedOutboxEntry);
-          return false;
+          return "failed";
         }
         // The queued source hash stays paired with its content until the
         // editor adopts a fresh source and creates a new save request.
@@ -339,7 +345,11 @@ export function runSaveFileContent(
               }
             : prev,
         );
-        return false;
+        return failureKind === "offline"
+          ? "retryable"
+          : failureKind === "conflict"
+            ? "conflict"
+            : "failed";
       }
     });
   const chain = current.then(() => {});
@@ -349,5 +359,5 @@ export function runSaveFileContent(
       delete fileSaveChainsRef.current[pending.id];
     }
   });
-  return current.then((result) => result === true);
+  return current;
 }

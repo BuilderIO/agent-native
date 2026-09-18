@@ -18,6 +18,7 @@ import { prepareAcceptedSourceContent } from "@/pages/design-editor/source-publi
 import type { DesignFile } from "@/pages/design-editor/types";
 
 import type { ApplyLocalContentUpdateResult } from "./apply-local-content-update";
+import type { FileContentSaveCompletion } from "./save-file-content";
 
 export type ApplyFileContentUpdateResult =
   | ApplyLocalContentUpdateResult
@@ -240,7 +241,7 @@ export function runApplyFileContentUpdate(
       TAB_ID,
     );
   }
-  let saveCompletion: Promise<boolean> | undefined;
+  let saveCompletion: Promise<FileContentSaveCompletion> | undefined;
   if (options.persist === false && !needsIdentityMigration) {
     cancelQueuedFileContentSave(fileId);
   } else {

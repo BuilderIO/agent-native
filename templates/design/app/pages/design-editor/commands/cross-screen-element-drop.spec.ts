@@ -30,6 +30,7 @@ import {
   runCrossScreenElementDrop,
   shouldAbsolutePlaceOnEmptyScreen,
 } from "./cross-screen-element-drop";
+import type { FileContentSaveCompletion } from "./save-file-content";
 
 const EMPTY_SCREEN = `<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"></head><body></body></html>`;
@@ -106,7 +107,7 @@ function runStoredCrossScreenDrop(args: {
           ...result,
           saveCompletion: result.saveCompletion.then(
             (persisted) => {
-              if (!persisted) {
+              if (persisted === "conflict" || persisted === "failed") {
                 contentByFile.set(fileId, baseContentByFile.get(fileId) ?? "");
               }
               return persisted;
@@ -1156,12 +1157,12 @@ describe("runCrossScreenElementDrop real publication refusal", () => {
         destinationContent,
       ).content;
       const calls: Array<{ fileId: string; content: string }> = [];
-      let resolveTarget!: (saved: boolean) => void;
-      let resolveSource!: (saved: boolean) => void;
-      const targetSave = new Promise<boolean>((resolve) => {
+      let resolveTarget!: (saved: FileContentSaveCompletion) => void;
+      let resolveSource!: (saved: FileContentSaveCompletion) => void;
+      const targetSave = new Promise<FileContentSaveCompletion>((resolve) => {
         resolveTarget = resolve;
       });
-      const sourceSave = new Promise<boolean>((resolve) => {
+      const sourceSave = new Promise<FileContentSaveCompletion>((resolve) => {
         resolveSource = resolve;
       });
       let publicationCount = 0;
@@ -1178,7 +1179,10 @@ describe("runCrossScreenElementDrop real publication refusal", () => {
           if (publicationCount === 2) {
             return { ...publication, saveCompletion: sourceSave };
           }
-          return { ...publication, saveCompletion: Promise.resolve(true) };
+          return {
+            ...publication,
+            saveCompletion: Promise.resolve("persisted" as const),
+          };
         },
         drop: {
           sourceSelector: '[data-agent-native-node-id="moving"]',
@@ -1194,8 +1198,8 @@ describe("runCrossScreenElementDrop real publication refusal", () => {
       });
 
       expect(result.historyEntries).toEqual([]);
-      resolveTarget(conflictingFile !== "target");
-      resolveSource(conflictingFile !== "source");
+      resolveTarget(conflictingFile === "target" ? "conflict" : "persisted");
+      resolveSource(conflictingFile === "source" ? "conflict" : "persisted");
       await new Promise((resolve) => setTimeout(resolve, 0));
 
       expect(calls.map(({ fileId }) => fileId)).toEqual([
@@ -1219,15 +1223,65 @@ describe("runCrossScreenElementDrop real publication refusal", () => {
     },
   );
 
+  it("does not compensate a persisted peer for a retryable save", async () => {
+    const sourceContent = `<!doctype html><html><body><button data-agent-native-node-id="moving">Move</button></body></html>`;
+    const destinationContent = `<!doctype html><html><body><main data-agent-native-node-id="target-root"></main></body></html>`;
+    let resolveTarget!: (saved: FileContentSaveCompletion) => void;
+    let resolveSource!: (saved: FileContentSaveCompletion) => void;
+    const targetSave = new Promise<FileContentSaveCompletion>((resolve) => {
+      resolveTarget = resolve;
+    });
+    const sourceSave = new Promise<FileContentSaveCompletion>((resolve) => {
+      resolveSource = resolve;
+    });
+    let publicationCount = 0;
+    const result = runStoredCrossScreenDrop({
+      sourceContent,
+      destinationContent,
+      publish: (fileId, content) => {
+        const publication = acceptFixture(fileId, content);
+        publicationCount += 1;
+        return {
+          ...publication,
+          saveCompletion:
+            publicationCount === 1
+              ? targetSave
+              : publicationCount === 2
+                ? sourceSave
+                : Promise.resolve("persisted" as const),
+        };
+      },
+      drop: {
+        sourceSelector: '[data-agent-native-node-id="moving"]',
+        sourceNodeId: "moving",
+        sourceProvenance: { uniqueNodeId: "moving" },
+        sourceScreenId: "source",
+        targetScreenId: "target",
+        targetAnchorNodeId: "target-root",
+        targetAnchorSelector: '[data-agent-native-node-id="target-root"]',
+        targetAnchorProvenance: { uniqueNodeId: "target-root" },
+        targetAnchorPlacement: "inside",
+      },
+    });
+
+    resolveTarget("persisted");
+    resolveSource("retryable");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(result.historyEntries).toEqual([]);
+    expect(result.selectionEvents).toEqual([]);
+    expect(publicationCount).toBe(2);
+  });
+
   it("does not finalize stale history or selection after a later edit", async () => {
     const sourceContent = `<!doctype html><html><body><button data-agent-native-node-id="moving">Move</button></body></html>`;
     const destinationContent = `<!doctype html><html><body><main data-agent-native-node-id="target-root"></main></body></html>`;
-    let resolveTarget!: (saved: boolean) => void;
-    let resolveSource!: (saved: boolean) => void;
-    const targetSave = new Promise<boolean>((resolve) => {
+    let resolveTarget!: (saved: FileContentSaveCompletion) => void;
+    let resolveSource!: (saved: FileContentSaveCompletion) => void;
+    const targetSave = new Promise<FileContentSaveCompletion>((resolve) => {
       resolveTarget = resolve;
     });
-    const sourceSave = new Promise<boolean>((resolve) => {
+    const sourceSave = new Promise<FileContentSaveCompletion>((resolve) => {
       resolveSource = resolve;
     });
     let publicationCount = 0;
@@ -1245,7 +1299,10 @@ describe("runCrossScreenElementDrop real publication refusal", () => {
         if (publicationCount === 2) {
           return { ...publication, saveCompletion: sourceSave };
         }
-        return { ...publication, saveCompletion: Promise.resolve(true) };
+        return {
+          ...publication,
+          saveCompletion: Promise.resolve("persisted" as const),
+        };
       },
       afterDrop: ({ applyFileContentUpdate, setSelectionFingerprint }) => {
         applyFileContentUpdate("source", laterSourceContent);
@@ -1264,8 +1321,8 @@ describe("runCrossScreenElementDrop real publication refusal", () => {
       },
     });
 
-    resolveTarget(true);
-    resolveSource(true);
+    resolveTarget("persisted");
+    resolveSource("persisted");
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(result.historyEntries).toEqual([]);
