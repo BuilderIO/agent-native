@@ -94,6 +94,7 @@ const GRID_LOCKED_EXPLICIT_ORACLE_FIXTURE = `<!doctype html>
   <section data-agent-native-node-id="locked-grid" data-agent-native-layer-name="Locked Grid"
     style="position:absolute;left:360px;top:80px;width:340px;height:240px;padding:12px;display:grid;grid-template-columns:repeat(3,80px);grid-auto-rows:56px;gap:16px;background:#1f2937;box-sizing:border-box">
     <div data-agent-native-node-id="locked-span" data-agent-native-layer-name="Locked Span" data-agent-native-locked="true" style="grid-column:1 / span 2;grid-row:1;background:#f59e0b">Locked</div>
+    <div data-agent-native-node-id="locked-implicit" data-agent-native-layer-name="Locked Implicit" data-agent-native-locked="true" style="background:#14b8a6">Locked implicit</div>
     <div data-agent-native-node-id="locked-peer-1" data-agent-native-layer-name="Locked Peer 1" style="background:#a855f7">Peer 1</div>
     <div data-agent-native-node-id="locked-peer-2" data-agent-native-layer-name="Locked Peer 2" style="background:#ec4899">Peer 2</div>
   </section>
@@ -837,6 +838,9 @@ test("G-10 locked explicit grid children disable the projection shortcut", async
         const locked = document.querySelector(
           '[data-agent-native-node-id="locked-span"]',
         ) as HTMLElement | null;
+        const lockedImplicit = document.querySelector(
+          '[data-agent-native-node-id="locked-implicit"]',
+        ) as HTMLElement | null;
         const source = document.querySelector(
           '[data-agent-native-node-id="locked-source"]',
         ) as HTMLElement | null;
@@ -851,6 +855,12 @@ test("G-10 locked explicit grid children disable the projection shortcut", async
           lockedColumn: locked?.style.gridColumn,
           lockedRow: locked?.style.gridRow,
           locked: locked?.getAttribute("data-agent-native-locked"),
+          lockedImplicit: lockedImplicit?.getAttribute(
+            "data-agent-native-locked",
+          ),
+          lockedImplicitParent: lockedImplicit?.parentElement?.getAttribute(
+            "data-agent-native-node-id",
+          ),
         };
       });
     expect(state).toMatchObject({
@@ -860,6 +870,8 @@ test("G-10 locked explicit grid children disable the projection shortcut", async
       lockedColumn: "1 / span 2",
       lockedRow: "1",
       locked: "true",
+      lockedImplicit: "true",
+      lockedImplicitParent: "locked-grid",
     });
   } finally {
     await deleteDesign(page, designId);

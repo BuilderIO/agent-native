@@ -13682,6 +13682,24 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     (excluded || []).forEach(function (child) {
       if (allChildren.indexOf(child) === -1) allChildren.push(child);
     });
+    // A filtered direct child still occupies an implicit grid slot. The
+    // projection loop only walks eligible children plus the dragged source,
+    // so retaining the shortcut with any other authored child would index
+    // every later slot against the wrong browser cell. Fall back to the
+    // ordinary insertion-line resolver until the structural set is complete.
+    for (
+      var authoredIndex = 0;
+      authoredIndex < allChildren.length;
+      authoredIndex += 1
+    ) {
+      var authoredChild = allChildren[authoredIndex];
+      if (
+        children.indexOf(authoredChild) === -1 &&
+        (excluded || []).indexOf(authoredChild) === -1
+      ) {
+        return false;
+      }
+    }
     for (var i = 0; i < allChildren.length; i += 1) {
       var childStyles = window.getComputedStyle(allChildren[i]);
       if (
@@ -16763,6 +16781,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         reflowKey = null;
       }
       var reorderLastMoveEvent: any = null;
+      var reorderMoved = false;
       function activateLateReorderDuplicate(ev): void {
         if (duplicatedForDrag || isGroupDrag || !reorderEl) return;
         clearReorderLift();
@@ -17136,7 +17155,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
       function onReorderMove(ev) {
         reorderLastMoveEvent = ev;
-        if (ev.altKey && !duplicatedForDrag) {
+        if (
+          !reorderMoved &&
+          Math.hypot(
+            ev.clientX - reorderPointerStart.clientX,
+            ev.clientY - reorderPointerStart.clientY,
+          ) > 3
+        ) {
+          reorderMoved = true;
+        }
+        if (ev.altKey && reorderMoved && !duplicatedForDrag) {
           activateLateReorderDuplicate(ev);
         }
         var vw = window.innerWidth;
@@ -17339,7 +17367,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           ev.preventDefault();
           return;
         }
-        if (ev.key === "Alt" && !duplicatedForDrag) {
+        if (ev.key === "Alt" && reorderMoved && !duplicatedForDrag) {
           activateLateReorderDuplicate(reorderLastMoveEvent || ev);
           ev.preventDefault();
           return;

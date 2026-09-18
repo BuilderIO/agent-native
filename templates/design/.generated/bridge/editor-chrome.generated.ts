@@ -9957,6 +9957,12 @@ export const editorChromeBridgeScript: string = `"use strict";
       (excluded || []).forEach(function(child) {
         if (allChildren.indexOf(child) === -1) allChildren.push(child);
       });
+      for (var authoredIndex = 0; authoredIndex < allChildren.length; authoredIndex += 1) {
+        var authoredChild = allChildren[authoredIndex];
+        if (children.indexOf(authoredChild) === -1 && (excluded || []).indexOf(authoredChild) === -1) {
+          return false;
+        }
+      }
       for (var i = 0; i < allChildren.length; i += 1) {
         var childStyles = window.getComputedStyle(allChildren[i]);
         if (childStyles.gridColumnStart !== "auto" || childStyles.gridColumnEnd !== "auto" || childStyles.gridRowStart !== "auto" || childStyles.gridRowEnd !== "auto" || childStyles.order !== "0") {
@@ -12015,7 +12021,13 @@ export const editorChromeBridgeScript: string = `"use strict";
           }
         }, onReorderMove2 = function(ev) {
           reorderLastMoveEvent = ev;
-          if (ev.altKey && !duplicatedForDrag) {
+          if (!reorderMoved && Math.hypot(
+            ev.clientX - reorderPointerStart.clientX,
+            ev.clientY - reorderPointerStart.clientY
+          ) > 3) {
+            reorderMoved = true;
+          }
+          if (ev.altKey && reorderMoved && !duplicatedForDrag) {
             activateLateReorderDuplicate2(ev);
           }
           var vw = window.innerWidth;
@@ -12155,7 +12167,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             ev.preventDefault();
             return;
           }
-          if (ev.key === "Alt" && !duplicatedForDrag) {
+          if (ev.key === "Alt" && reorderMoved && !duplicatedForDrag) {
             activateLateReorderDuplicate2(reorderLastMoveEvent || ev);
             ev.preventDefault();
             return;
@@ -12374,6 +12386,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         var reflowSiblings = [];
         var reflowKey = null;
         var reorderLastMoveEvent = null;
+        var reorderMoved = false;
         document.addEventListener(events.move, onReorderMove2, true);
         document.addEventListener(events.up, onReorderUp2, true);
         document.addEventListener("pointercancel", onReorderEscape2, true);

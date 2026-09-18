@@ -500,6 +500,38 @@ test("late Alt flow reorder duplicates without moving the source and Escape is b
   }
 });
 
+test("Alt before movement threshold does not duplicate a flow child click", async ({
+  page,
+}) => {
+  const designId = await newDesign(page, CONTROL_FIXTURE);
+  try {
+    await openEditor(page, designId);
+    await selectCanvasNode(page, "control-child");
+    const before = await indexHtml(page, designId);
+    const source = (await node(page, "control-child").boundingBox())!;
+    const start = {
+      x: source.x + source.width / 2,
+      y: source.y + source.height / 2,
+    };
+
+    // A modifier pressed during a stationary click must not turn the
+    // selection gesture into a copy. Alt only latches once the pointer has
+    // crossed the movement threshold.
+    await page.mouse.move(start.x, start.y);
+    await page.mouse.down();
+    await page.keyboard.down("Alt");
+    await page.waitForTimeout(80);
+    expect(await visibleDuplicateState(page)).toHaveLength(0);
+    await page.keyboard.up("Alt");
+    await page.mouse.up();
+
+    await expect.poll(() => indexHtml(page, designId)).toBe(before);
+    expect(await visibleDuplicateState(page)).toHaveLength(0);
+  } finally {
+    await deleteDesign(page, designId);
+  }
+});
+
 test.describe("Command oversized flow insertion", () => {
   for (const timing of ["before-pointerdown", "after-threshold"] as const) {
     test(`Meta/Command ${timing} enables normal-flow insertion`, async ({
