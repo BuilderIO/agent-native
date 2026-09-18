@@ -568,7 +568,8 @@ async function dragHeld(
 ) {
   await selectLayer(
     page,
-    options.sourceLayerName ?? (await layerNameForNode(page, screenId, sourceId)),
+    options.sourceLayerName ??
+      (await layerNameForNode(page, screenId, sourceId)),
   );
   const source = await boxFor(page, screenId, sourceId);
   const target = await boxFor(page, screenId, targetId);

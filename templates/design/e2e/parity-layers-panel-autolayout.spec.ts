@@ -439,8 +439,9 @@ async function heldPanelDrag(
     const count = await indicators.count();
     const placement =
       count > 0
-        ? ((await indicators.first().getAttribute("data-layer-drop-indicator")) ??
-          "")
+        ? ((await indicators
+            .first()
+            .getAttribute("data-layer-drop-indicator")) ?? "")
         : "";
     await onHeld?.();
     return { indicator: { placement, count }, sourceBox, targetBox };
