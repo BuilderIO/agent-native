@@ -152,6 +152,34 @@ function resolveOption(
   );
 }
 
+function isValidSubmittedDatePart(value: unknown): boolean {
+  if (typeof value === "number") {
+    return Number.isFinite(value) && !Number.isNaN(new Date(value).getTime());
+  }
+  if (typeof value !== "string") return false;
+  const match = value
+    .trim()
+    .match(
+      /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?(?:Z|[+-]\d{2}:\d{2})?)?$/,
+    );
+  if (!match) return false;
+  const [, yearText, monthText, dayText, hourText, minuteText, secondText] =
+    match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const hour = hourText === undefined ? 0 : Number(hourText);
+  const minute = minuteText === undefined ? 0 : Number(minuteText);
+  const second = secondText === undefined ? 0 : Number(secondText);
+  if (hour > 23 || minute > 59 || second > 59) return false;
+  const calendarDate = new Date(Date.UTC(year, month - 1, day));
+  return (
+    calendarDate.getUTCFullYear() === year &&
+    calendarDate.getUTCMonth() === month - 1 &&
+    calendarDate.getUTCDate() === day
+  );
+}
+
 function normalizeSubmittedPropertyValue(
   definition: PropertyDefinitionRow,
   value: unknown,
@@ -188,6 +216,37 @@ function normalizeSubmittedPropertyValue(
     normalized =
       type === "multi_select" ? [...new Set(values)] : (values[0] ?? null);
   } else {
+    if (
+      ["person", "relation", "files_media"].includes(type) &&
+      Array.isArray(value) &&
+      value.some((candidate) => typeof candidate !== "string")
+    ) {
+      throw new Error(
+        `Invalid value for "${definition.name}"; every supplied item must be preserved exactly once.`,
+      );
+    }
+    if (type === "date") {
+      const dateParts =
+        value !== null && typeof value === "object" && !Array.isArray(value)
+          ? [
+              (value as { start?: unknown }).start,
+              ...("end" in value ? [(value as { end?: unknown }).end] : []),
+            ]
+          : [value];
+      if (
+        dateParts.some(
+          (part) =>
+            part !== undefined &&
+            part !== null &&
+            part !== "" &&
+            !isValidSubmittedDatePart(part),
+        )
+      ) {
+        throw new Error(
+          `Invalid value for "${definition.name}"; use a real ISO calendar date.`,
+        );
+      }
+    }
     normalized = normalizePropertyValue(type, value);
   }
   const rawDateEnd =

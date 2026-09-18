@@ -820,6 +820,18 @@ function parseAllowlistEnv(name: string): Set<string> | null {
 export async function resolveSlackBotTokenForIncoming(
   incoming: IncomingMessage,
 ): Promise<string | undefined> {
+  const installationKeyHint =
+    typeof incoming.platformContext.installationKey === "string"
+      ? incoming.platformContext.installationKey
+      : undefined;
+  if (installationKeyHint) {
+    const selectedToken = await resolveManagedSlackBotToken(incoming);
+    if (!selectedToken) return undefined;
+    return (await isSlackTokenForIncoming(selectedToken, incoming))
+      ? selectedToken
+      : undefined;
+  }
+
   const legacyToken = await resolveSecret("SLACK_BOT_TOKEN");
   if (legacyToken && (await isSlackTokenForIncoming(legacyToken, incoming))) {
     return legacyToken;

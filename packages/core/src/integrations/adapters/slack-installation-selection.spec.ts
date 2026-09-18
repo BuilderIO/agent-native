@@ -110,6 +110,44 @@ describe("slack outbound installation selection", () => {
     ).not.toHaveBeenCalled();
   });
 
+  it("does not let the deployment token override a named legacy installation", async () => {
+    process.env.SLACK_BOT_TOKEN = "xoxb-deploy-token";
+    getActiveIntegrationInstallationByKeyMock.mockResolvedValue(
+      installation("T1:agent-native"),
+    );
+    resolveIntegrationTokenBundleMock.mockResolvedValue({
+      accessToken: "xoxb-selected-token",
+    });
+    const postedTokens: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const token = String(
+          (init?.headers as Record<string, string> | undefined)
+            ?.Authorization ?? "",
+        );
+        if (new URL(url).pathname.endsWith("/api/auth.test")) {
+          return new Response(
+            JSON.stringify({ ok: true, team_id: "T1", bot_id: "B1" }),
+          );
+        }
+        postedTokens.push(token);
+        return new Response(JSON.stringify({ ok: true, ts: "1.0" }));
+      }),
+    );
+
+    await slackAdapter().sendMessageToTarget!(
+      { text: "hello", platformContext: {} },
+      {
+        destination: "C123",
+        tenantId: "T1",
+        installationKey: "T1:agent-native",
+      },
+    );
+
+    expect(postedTokens).toEqual(["Bearer xoxb-selected-token"]);
+  });
+
   it("rejects a named installation token from another Slack app", async () => {
     getActiveIntegrationInstallationByKeyMock.mockResolvedValue(
       installation("T1:agent-native", "A-NAMED"),

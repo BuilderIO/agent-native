@@ -460,8 +460,61 @@ describe("submit-content-database-form", () => {
         }),
       ),
     ).rejects.toThrow(
-      'Invalid value for "Deadline"; the supplied value could not be preserved as date',
+      'Invalid value for "Deadline"; use a real ISO calendar date',
     );
+
+    const items = await getDb()
+      .select()
+      .from(schema.contentDatabaseItems)
+      .where(eq(schema.contentDatabaseItems.databaseId, seeded.databaseId));
+    expect(items).toHaveLength(0);
+  });
+
+  it.each(["2026-02-30", "2026-20-99anything", "2026-09-20T25:00"])(
+    "rejects the calendar-invalid date %s",
+    async (value) => {
+      const seeded = await seedFormDatabase();
+
+      await expect(
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          submitForm.run({
+            databaseId: seeded.databaseId,
+            viewId: "request-form",
+            title: "Invalid calendar date",
+            propertyEntries: [
+              { property: "Description", value: "Keep valid fields." },
+              { property: "Priority", value: "P1 — High" },
+              { property: "Deadline", value },
+            ],
+          }),
+        ),
+      ).rejects.toThrow("use a real ISO calendar date");
+
+      const items = await getDb()
+        .select()
+        .from(schema.contentDatabaseItems)
+        .where(eq(schema.contentDatabaseItems.databaseId, seeded.databaseId));
+      expect(items).toHaveLength(0);
+    },
+  );
+
+  it("rejects a person array with a discarded value", async () => {
+    const seeded = await seedFormDatabase();
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        submitForm.run({
+          databaseId: seeded.databaseId,
+          viewId: "request-form",
+          title: "Invalid requester",
+          propertyEntries: [
+            { property: "Description", value: "Keep valid fields." },
+            { property: "Priority", value: "P1 — High" },
+            { property: "Requester", value: ["alice@example.com", 42] },
+          ],
+        }),
+      ),
+    ).rejects.toThrow("every supplied item must be preserved exactly once");
 
     const items = await getDb()
       .select()
@@ -496,7 +549,13 @@ describe("submit-content-database-form", () => {
           ],
         }),
       ),
-    ).rejects.toThrow("the supplied date end could not be preserved");
+    ).rejects.toThrow(
+      _label === "backwards end"
+        ? "the supplied date end could not be preserved"
+        : _label === "invalid end"
+          ? "use a real ISO calendar date"
+          : "the supplied date end could not be preserved",
+    );
 
     const items = await getDb()
       .select()
