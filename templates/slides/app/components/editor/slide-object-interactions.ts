@@ -164,6 +164,37 @@ export function restoreSlideObjectStyle(
   else element.setAttribute("style", style);
 }
 
+export interface SlideObjectDomSnapshot {
+  className: string;
+  style: string | null;
+  objectId: string | null;
+  contentEditable: string | null;
+  editingBlock: string | null;
+}
+
+export function restoreSlideObjectDomSnapshot(
+  element: HTMLElement,
+  snapshot: SlideObjectDomSnapshot,
+): void {
+  element.className = snapshot.className;
+  restoreSlideObjectStyle(element, snapshot.style);
+  if (snapshot.contentEditable === null) {
+    element.removeAttribute("contenteditable");
+  } else {
+    element.setAttribute("contenteditable", snapshot.contentEditable);
+  }
+  if (snapshot.editingBlock === null) {
+    element.removeAttribute("data-editing-block");
+  } else {
+    element.setAttribute("data-editing-block", snapshot.editingBlock);
+  }
+  if (snapshot.objectId === null) {
+    element.removeAttribute("data-slide-object-id");
+  } else {
+    element.setAttribute("data-slide-object-id", snapshot.objectId);
+  }
+}
+
 export function createSlideObjectPlacementGeometry(
   start: { x: number; y: number },
   end: { x: number; y: number },
@@ -174,6 +205,65 @@ export function createSlideObjectPlacementGeometry(
     y: Math.min(start.y, end.y),
     width: Math.max(Math.abs(end.x - start.x), minSize),
     height: Math.max(Math.abs(end.y - start.y), minSize),
+  };
+}
+
+/**
+ * A line is a thin bar drawn at its true length between the two drag points,
+ * then rotated to the drag angle around its own center. Reusing the
+ * axis-aligned bounding box from `createSlideObjectPlacementGeometry` would
+ * discard the drag direction and always yield a horizontal/vertical rect.
+ */
+export function createSlideLinePlacementGeometry(
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+  thickness = 4,
+): SlideObjectGeometry & { rotation: number } {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const length = Math.max(Math.hypot(dx, dy), thickness);
+  return {
+    x: (start.x + end.x) / 2 - length / 2,
+    y: (start.y + end.y) / 2 - thickness / 2,
+    width: length,
+    height: thickness,
+    rotation: (Math.atan2(dy, dx) * 180) / Math.PI,
+  };
+}
+
+/**
+ * Clamps a newly placed shape's unrotated `left`/`top` so its *rendered*
+ * bounding box stays inside the containing block, not its unrotated box.
+ * A rotated bar's unrotated width/height (e.g. a line's full drag length)
+ * can be far larger than its actual on-screen footprint, so clamping the
+ * unrotated box directly would drag the shape's visual center away from
+ * where the user placed it. With `rotation` omitted (or 0) this reduces to
+ * the plain axis-aligned clamp used for every other shape.
+ */
+export function clampSlideObjectPlacementPosition(
+  geometry: SlideObjectGeometry,
+  containerWidth: number,
+  containerHeight: number,
+  rotation = 0,
+): { x: number; y: number } {
+  const radians = (rotation * Math.PI) / 180;
+  const cos = Math.abs(Math.cos(radians));
+  const sin = Math.abs(Math.sin(radians));
+  const renderedWidth = geometry.width * cos + geometry.height * sin;
+  const renderedHeight = geometry.width * sin + geometry.height * cos;
+  const centerX = geometry.x + geometry.width / 2;
+  const centerY = geometry.y + geometry.height / 2;
+  const clampedCenterX = Math.max(
+    renderedWidth / 2,
+    Math.min(centerX, containerWidth - renderedWidth / 2),
+  );
+  const clampedCenterY = Math.max(
+    renderedHeight / 2,
+    Math.min(centerY, containerHeight - renderedHeight / 2),
+  );
+  return {
+    x: clampedCenterX - geometry.width / 2,
+    y: clampedCenterY - geometry.height / 2,
   };
 }
 
@@ -1558,6 +1648,90 @@ function normalizeSlideObjectRoots(elements: HTMLElement[]): HTMLElement[] {
         (candidate) => candidate !== element && candidate.contains(element),
       ),
   );
+}
+
+function hasVisibleBorder(element: HTMLElement): boolean {
+  const computed = window.getComputedStyle(element);
+  return [
+    [
+      computed.borderTopStyle,
+      computed.borderTopWidth,
+      element.style.borderTopStyle,
+      element.style.borderTopWidth,
+    ],
+    [
+      computed.borderRightStyle,
+      computed.borderRightWidth,
+      element.style.borderRightStyle,
+      element.style.borderRightWidth,
+    ],
+    [
+      computed.borderBottomStyle,
+      computed.borderBottomWidth,
+      element.style.borderBottomStyle,
+      element.style.borderBottomWidth,
+    ],
+    [
+      computed.borderLeftStyle,
+      computed.borderLeftWidth,
+      element.style.borderLeftStyle,
+      element.style.borderLeftWidth,
+    ],
+  ].some(([computedStyle, computedWidth, inlineStyle, inlineWidth]) => {
+    const useComputed = computedStyle !== "" || computedWidth !== "";
+    const style = useComputed ? computedStyle : inlineStyle;
+    const width = useComputed ? computedWidth : inlineWidth;
+    return (
+      Number.parseFloat(width || "0") > 0 &&
+      style !== "" &&
+      style !== "none" &&
+      style !== "hidden"
+    );
+  });
+}
+
+function hasIndependentlyPositionedDescendant(element: HTMLElement): boolean {
+  return Array.from(element.querySelectorAll<HTMLElement>("*")).some(
+    (descendant) => {
+      const computedPosition = window.getComputedStyle(descendant).position;
+      const position = computedPosition || descendant.style.position;
+      return position === "absolute" || position === "fixed";
+    },
+  );
+}
+
+/** Promote selected leaves to a bordered container when its full content is selected. */
+export function resolveSlideObjectMoveRoots(
+  elements: HTMLElement[],
+  selectedIds: ReadonlySet<string>,
+  boundary?: HTMLElement,
+): HTMLElement[] {
+  const roots = normalizeSlideObjectRoots(elements).map((element) => {
+    let current: HTMLElement | null = element;
+    let promotedRoot: HTMLElement | null = null;
+    while (current && current !== boundary) {
+      const leaves = Array.from(
+        current.querySelectorAll<HTMLElement>("[data-builder-id]"),
+      ).filter((descendant) => !descendant.querySelector("[data-builder-id]"));
+      const computedPosition = window.getComputedStyle(current).position;
+      const position = computedPosition || current.style.position;
+      if (
+        hasVisibleBorder(current) &&
+        (position === "absolute" ||
+          !hasIndependentlyPositionedDescendant(current)) &&
+        leaves.length > 0 &&
+        leaves.every((leaf) => {
+          const id = leaf.getAttribute("data-builder-id");
+          return id !== null && selectedIds.has(id);
+        })
+      ) {
+        promotedRoot = current;
+      }
+      current = current.parentElement;
+    }
+    return promotedRoot ?? element;
+  });
+  return normalizeSlideObjectRoots(roots);
 }
 
 export const SLIDE_OBJECT_GROUP_CLASS = "fmd-slide-group";

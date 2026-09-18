@@ -34,6 +34,7 @@ import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js"
 import {
   readLiveSourceFile,
   SourceWorkspaceEditConflictError,
+  withDesignSourceMutationTransaction,
   writeInlineSourceFile,
   type SourceWorkspaceFile,
 } from "../server/source-workspace.js";
@@ -910,10 +911,19 @@ const generateDesignAction = defineAction({
             // html -> jsx), matching the original update behavior.
             const nextFileType = file.fileType ?? "html";
             if (nextFileType !== (existing.fileType ?? "html")) {
-              await db
-                .update(schema.designFiles)
-                .set({ fileType: nextFileType, updatedAt: now })
-                .where(eq(schema.designFiles.id, existing.id));
+              await withDesignSourceMutationTransaction(
+                existing.designId,
+                (tx) =>
+                  tx
+                    .update(schema.designFiles)
+                    .set({ fileType: nextFileType, updatedAt: now })
+                    .where(
+                      and(
+                        eq(schema.designFiles.id, existing.id),
+                        eq(schema.designFiles.designId, existing.designId),
+                      ),
+                    ),
+              );
             }
           } finally {
             agentLeaveDocument(existing.id);
@@ -956,18 +966,20 @@ const generateDesignAction = defineAction({
       } else {
         // Create new file
         const fileId = nanoid();
-        await db.insert(schema.designFiles).values({
-          id: fileId,
-          designId,
-          filename: file.filename,
-          fileType: file.fileType ?? "html",
-          content: file.content,
-          contentOperationSource: null,
-          contentOperationRevision: null,
-          contentOperationResultHash: null,
-          createdAt: now,
-          updatedAt: now,
-        });
+        await withDesignSourceMutationTransaction(designId, (tx) =>
+          tx.insert(schema.designFiles).values({
+            id: fileId,
+            designId,
+            filename: file.filename,
+            fileType: file.fileType ?? "html",
+            content: file.content,
+            contentOperationSource: null,
+            contentOperationRevision: null,
+            contentOperationResultHash: null,
+            createdAt: now,
+            updatedAt: now,
+          }),
+        );
 
         // Publish agent presence for the new file before seeding.
         agentEnterDocument(fileId);
@@ -1015,6 +1027,11 @@ const generateDesignAction = defineAction({
           frame: CanvasFramePlacement;
         }>
       | undefined;
+    let screenMetadataUpdates: Array<{
+      fileId: string;
+      width: number;
+      height: number;
+    }> = [];
     const normalizedTweaks = tweaks?.map((tweak) => ({
       ...tweak,
       type: tweak.type === "color-swatches" ? "color-swatch" : tweak.type,
@@ -1075,12 +1092,6 @@ const generateDesignAction = defineAction({
               : classifyBreakpointSet(prevData.breakpointSet) === "absent"
                 ? generatedBreakpointSet.map((breakpoint) => breakpoint.widthPx)
                 : [];
-        const metadataByFileId =
-          prevData.screenMetadata &&
-          typeof prevData.screenMetadata === "object" &&
-          !Array.isArray(prevData.screenMetadata)
-            ? (prevData.screenMetadata as Record<string, unknown>)
-            : {};
         const responsiveScreenFileIds = new Set([
           ...getOverviewScreenFileIds(existingFiles),
           ...getOverviewScreenFileIds(savedFiles),
@@ -1112,6 +1123,65 @@ const generateDesignAction = defineAction({
             }
           }
         }
+        // generate-screens encodes each target's device viewport in its
+        // canvasFrame. Persist that dimension before occupancy math so mixed
+        // batches do not fall back to the unrelated 1280x2560 default.
+        const nextScreenMetadata =
+          prevData.screenMetadata &&
+          typeof prevData.screenMetadata === "object" &&
+          !Array.isArray(prevData.screenMetadata)
+            ? { ...(prevData.screenMetadata as Record<string, unknown>) }
+            : {};
+        screenMetadataUpdates = [];
+        for (const file of savedFiles) {
+          const source = files.find(
+            (candidate) => candidate.filename === file.filename,
+          );
+          if (!source || !isRenderableDesignFile(source)) continue;
+          const rawMetadata = nextScreenMetadata[file.id];
+          const metadata =
+            rawMetadata &&
+            typeof rawMetadata === "object" &&
+            !Array.isArray(rawMetadata)
+              ? (rawMetadata as Record<string, unknown>)
+              : {};
+          const frame = merged.canvasFrames[file.id];
+          // Explicit devices resize existing frames above, so their final
+          // frame dimensions must win over stale persisted metadata.
+          const width =
+            devices && devices.length > 0
+              ? typeof frame?.width === "number" && frame.width > 0
+                ? frame.width
+                : viewport.width
+              : typeof metadata.width === "number" && metadata.width > 0
+                ? metadata.width
+                : typeof frame?.width === "number" && frame.width > 0
+                  ? frame.width
+                  : viewport.width;
+          const height =
+            devices && devices.length > 0
+              ? typeof frame?.height === "number" && frame.height > 0
+                ? frame.height
+                : viewport.height
+              : typeof metadata.height === "number" && metadata.height > 0
+                ? metadata.height
+                : typeof frame?.height === "number" && frame.height > 0
+                  ? frame.height
+                  : viewport.height;
+          if (
+            rawMetadata === undefined ||
+            metadata.width !== width ||
+            metadata.height !== height
+          ) {
+            nextScreenMetadata[file.id] = {
+              ...metadata,
+              width,
+              height,
+            };
+            screenMetadataUpdates.push({ fileId: file.id, width, height });
+          }
+        }
+        const metadataByFileId = nextScreenMetadata;
         const rectOf = (
           frame: {
             x?: number;
@@ -1309,6 +1379,7 @@ const generateDesignAction = defineAction({
           );
         }
         mergedData.canvasFrames = merged.canvasFrames;
+        mergedData.screenMetadata = nextScreenMetadata;
         placedFrames = generationFrames;
         // An explicit `devices` request is authoritative: replace the design's
         // breakpoint set with the derived one (or drop it for a single device),
@@ -1367,6 +1438,24 @@ const generateDesignAction = defineAction({
             );
           }),
         );
+        const currentMetadata =
+          current.screenMetadata &&
+          typeof current.screenMetadata === "object" &&
+          !Array.isArray(current.screenMetadata)
+            ? (current.screenMetadata as Record<string, unknown>)
+            : {};
+        const screenMetadataApplied = screenMetadataUpdates.every(
+          ({ fileId, width, height }) => {
+            const metadata = currentMetadata[fileId];
+            return (
+              metadata &&
+              typeof metadata === "object" &&
+              !Array.isArray(metadata) &&
+              (metadata as Record<string, unknown>).width === width &&
+              (metadata as Record<string, unknown>).height === height
+            );
+          },
+        );
         // For an explicit `devices` request, verify the persisted breakpoint
         // widths actually match the requested set (not merely that some set
         // exists), so a partial/stale write is retried rather than accepted.
@@ -1392,7 +1481,7 @@ const generateDesignAction = defineAction({
             ? jsonValuesEqual(currentBreakpointWidths, expectedBreakpointWidths)
             : generatedBreakpointSet.length === 0 ||
               classifyBreakpointSet(current.breakpointSet) !== "absent";
-        return framesApplied && breakpointSetApplied;
+        return framesApplied && screenMetadataApplied && breakpointSetApplied;
       },
     });
 
@@ -1461,7 +1550,7 @@ const generateDesignAction = defineAction({
     return {
       designId,
       urlPath: firstRenderableSavedFile
-        ? `/design/${encodeURIComponent(designId)}?view=overview&screen=${encodeURIComponent(firstRenderableSavedFile.id)}`
+        ? `/design/${encodeURIComponent(designId)}?editorView=overview&screen=${encodeURIComponent(firstRenderableSavedFile.id)}`
         : `/design/${encodeURIComponent(designId)}`,
       renderable: true,
       savedFiles,

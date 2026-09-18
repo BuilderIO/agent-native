@@ -21,6 +21,7 @@ import fs from "fs";
 import { createRequire } from "module";
 import path from "path";
 import { fileURLToPath } from "url";
+import { runInNewContext } from "vm";
 
 import { loadEnv } from "vite";
 
@@ -247,6 +248,7 @@ const AWS_AMPLIFY_CORE_RUNTIME_ENV_KEYS = [
   "EMAIL_AGENT_ADDRESS",
   "EMAIL_INBOUND_WEBHOOK_SECRET",
   "ANTHROPIC_API_KEY",
+  "AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET",
   "AGENT_NATIVE_BUILDER_RELAY_SECRET",
   "AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS",
   "AGENT_NATIVE_BUILDER_RELAY_TARGET_DOMAIN_SUFFIXES",
@@ -1003,6 +1005,12 @@ export const CLOUDFLARE_WORKER_NODE_BUILTIN_STUB_MODULES: Record<
     "moveCursor",
   ]),
   repl: cloudflareNodeBuiltinStubSource("repl", ["start"]),
+  sqlite: cloudflareNodeBuiltinStubSource("sqlite", [
+    "DatabaseSync",
+    "StatementSync",
+    "backup",
+    "constants",
+  ]),
   sys: cloudflareNodeBuiltinStubSource("sys", [
     "debug",
     "deprecate",
@@ -1060,6 +1068,8 @@ interface ReactRouterAssetManifest {
   entry: ReactRouterAssetManifestEntry;
   routes: Record<string, ReactRouterAssetManifestRoute>;
   url: string;
+  version?: string;
+  sri?: string;
 }
 
 interface ReactRouterAssetManifestEntry {
@@ -1190,6 +1200,7 @@ export function generateWorkerEntry(
   const ssrAuthRedirectCookieName = frameworkSessionHintCookieName(
     resolveAuthCookieNamespace().frameworkCookieName,
   );
+  const hasActions = actions.length > 0;
   const routeImports: string[] = [];
   const routeRegistrations: string[] = [];
 
@@ -1233,6 +1244,20 @@ export function generateWorkerEntry(
     const routePath = `/_agent-native/actions/${a.path ?? a.name}`;
     actionRegistrations.push(
       `  const ${handlerName} = defineEventHandler(async (event) => {
+    setResponseHeader(event, "Cache-Control", "no-" + "store");
+    const actionIsUiOnly = ${a.uiOnly ? "true" : `${varName}.uiOnly === true`};
+    const uiActionContext = actionIsUiOnly
+      ? await getGeneratedUiActionContext(event)
+      : undefined;
+    if (actionIsUiOnly && !uiActionContext) {
+      return new Response(
+        JSON.stringify({
+          error: "This action can only be called from the signed-in app UI.",
+          errorCode: "ui_capability_required",
+        }),
+        { status: 403, headers: { "Content-Type": "application/json" } },
+      );
+    }
     const configuredMethod = ${JSON.stringify(a.method.toUpperCase())};
     const requestMethod = event.req.method;
     const isFrontendMutation =
@@ -1251,7 +1276,21 @@ export function generateWorkerEntry(
         event.req.headers.get("x-agent-native-frontend") === "1"
           ? "frontend"
           : "http";
-      const result = await ${varName}.run(params, { caller });
+      const actionRunContext = {
+        caller,
+        requestHeaders: event.req.headers,
+        actionName: ${JSON.stringify(a.name)},
+        ...(uiActionContext
+          ? {
+              userEmail: uiActionContext.userEmail,
+              orgId: uiActionContext.orgId ?? null,
+            }
+          : {}),
+      };
+      const runAction = () => ${varName}.run(params, actionRunContext);
+      const result = actionIsUiOnly
+        ? await runWithGeneratedRequestContext(uiActionContext, runAction)
+        : await runAction();
       if (typeof result === "string") { try { return JSON.parse(result); } catch { return result; } }
       return result;
     } catch (err) {
@@ -1282,6 +1321,7 @@ ${["post", "put", "delete"]
   getAppConfig as getAgentNativeAppConfig,
   getSsrAuthRedirectScript as getAgentNativeSsrAuthRedirectScript,
   resolveAppHomePath as resolveAgentNativeAppHomePath,
+${hasActions ? "  getSession as getGeneratedSession,\n  hasUiActionCapability as hasGeneratedUiActionCapability,\n  isSameOriginRequest as isGeneratedSameOriginRequest,\n  mountUiActionCapabilityRoute as mountGeneratedUiActionCapabilityRoute,\n  resolveOrgIdForEmailViaEvent as resolveGeneratedOrgId,\n  runWithRequestContext as runWithGeneratedRequestContext,\n" : ""}
 } from "${EDGE_SERVER_ENTRYPOINT}";`,
   );
 
@@ -1338,7 +1378,7 @@ ${["post", "put", "delete"]
     );
   }
   const generatedPluginMarks =
-    providedPluginStems.size > 0
+    providedPluginStems.size > 0 || hasActions
       ? [
           ...new Set([
             ...Object.keys(DEFAULT_PLUGIN_REGISTRY),
@@ -1365,7 +1405,13 @@ ${["post", "put", "delete"]
 
   return `
 // Auto-generated worker entry point for ${preset}
-import { H3, defineEventHandler, readBody, toResponse } from "h3";
+import {
+  H3,
+  defineEventHandler,
+  readBody,
+  setResponseHeader,
+  toResponse,
+} from "h3";
 ${includeReactRouterSsr ? 'import { createRequestHandler } from "react-router";' : ""}
 ${includeReactRouterSsr ? 'import * as serverBuild from "./server-build.js";' : ""}
 ${includeReactRouterSsr ? `import { runWithRequestContext } from "${EDGE_SERVER_ENTRYPOINT}";` : ""}
@@ -1390,6 +1436,7 @@ function stripAppBasePath(pathname) {
   const basePath = getAppBasePath();
   if (!basePath) return pathname;
   if (pathname === basePath) return "/";
+  if (pathname === basePath + "//") return "/";
   if (pathname.startsWith(basePath + "/")) {
     return pathname.slice(basePath.length) || "/";
   }
@@ -2090,7 +2137,28 @@ async function getHandler() {
   // framework defaults before later custom plugins get a chance to mark
   // themselves as provided.
 ${generatedPluginMarks.map((stem) => `  markGeneratedPluginProvided(nitroApp, ${JSON.stringify(stem)});`).join("\n")}
+${hasActions ? `  mountGeneratedUiActionCapabilityRoute(nitroApp, "/_agent-native", ${JSON.stringify(builtAppBasePath)});` : ""}
 ${pluginCalls.join("\n")}
+
+${
+  hasActions
+    ? `  async function getGeneratedUiActionContext(event) {
+    const session = await getGeneratedSession(event);
+    const userEmail =
+      typeof session?.email === "string" ? session.email.trim().toLowerCase() : undefined;
+    if (
+      !userEmail ||
+      !isGeneratedSameOriginRequest(event) ||
+      !hasGeneratedUiActionCapability(event, userEmail)
+    ) {
+      return null;
+    }
+    const orgId = (await resolveGeneratedOrgId(event, userEmail)) ?? undefined;
+    return { userEmail, orgId };
+  }
+`
+    : ""
+}
 
   // Register API routes
 ${routeRegistrations.join("\n")}
@@ -2220,6 +2288,307 @@ function findReactRouterManifest(distDir: string): ReactRouterAssetManifest {
   }
 
   return JSON.parse(match[1].replace(/;$/, "")) as ReactRouterAssetManifest;
+}
+
+function clientAssetLogicalName(fileName: string): string {
+  const extension = path.extname(fileName);
+  if (!extension) return fileName;
+  const stem = fileName.slice(0, -extension.length);
+  return `${stem.replace(/-[A-Za-z0-9_-]{8,}$/, "")}${extension}`;
+}
+
+function createPairedClientAssetReplacements(
+  trustedClientDirectory: string,
+  pairedClientDirectory: string,
+): Map<string, string> {
+  const trustedAssetsDirectory = path.join(trustedClientDirectory, "assets");
+  const pairedAssetsDirectory = path.join(pairedClientDirectory, "assets");
+  if (
+    !fs.existsSync(trustedAssetsDirectory) ||
+    !fs.existsSync(pairedAssetsDirectory)
+  ) {
+    return new Map();
+  }
+
+  const pairedByLogicalName = new Map<string, string | undefined>();
+  for (const fileName of fs.readdirSync(pairedAssetsDirectory)) {
+    const logicalName = clientAssetLogicalName(fileName);
+    if (!pairedByLogicalName.has(logicalName)) {
+      pairedByLogicalName.set(logicalName, fileName);
+    } else {
+      pairedByLogicalName.set(logicalName, undefined);
+    }
+  }
+
+  const replacements = new Map<string, string>();
+  for (const fileName of fs.readdirSync(trustedAssetsDirectory)) {
+    const pairedFileName = pairedByLogicalName.get(
+      clientAssetLogicalName(fileName),
+    );
+    if (pairedFileName && pairedFileName !== fileName) {
+      replacements.set(`/assets/${fileName}`, `/assets/${pairedFileName}`);
+    }
+  }
+  return replacements;
+}
+
+function replacePairedClientAssetReferences(
+  source: string,
+  replacements: Map<string, string>,
+): string {
+  return source.replace(
+    /[/]assets[/][A-Za-z0-9][A-Za-z0-9._-]*/g,
+    (reference) => replacements.get(reference) ?? reference,
+  );
+}
+
+const REACT_ROUTER_ASSET_MANIFEST_FIELDS = [
+  "module",
+  "imports",
+  "css",
+  "clientActionModule",
+  "clientLoaderModule",
+  "clientMiddlewareModule",
+  "hydrateFallbackModule",
+] as const;
+
+type ManifestRecord = Record<string, unknown>;
+
+function asManifestRecord(value: unknown, label: string): ManifestRecord {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`React Router ${label} is not an object`);
+  }
+  return value as ManifestRecord;
+}
+
+function copyReactRouterAssetManifestFields(
+  target: ManifestRecord,
+  source: ManifestRecord,
+): void {
+  for (const field of REACT_ROUTER_ASSET_MANIFEST_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(source, field)) {
+      target[field] = source[field];
+    }
+  }
+}
+
+/**
+ * The trusted Functions build starts from the base checkout, while a PR
+ * preview supplies the PR's client build. Keep the server route metadata from
+ * the trusted build, but make every client asset reference agree with the
+ * paired artifact in Nitro's emitted server bundle.
+ */
+function mergeReactRouterServerManifest(
+  serverManifest: unknown,
+  clientManifest: ReactRouterAssetManifest,
+): ManifestRecord {
+  const serverManifestRecord = asManifestRecord(
+    serverManifest,
+    "server manifest",
+  );
+  const serverEntry = asManifestRecord(
+    serverManifestRecord.entry,
+    "server manifest entry",
+  );
+  const clientManifestRecord = clientManifest as unknown as ManifestRecord;
+  const clientEntry = asManifestRecord(
+    clientManifestRecord.entry,
+    "client manifest entry",
+  );
+  copyReactRouterAssetManifestFields(serverEntry, clientEntry);
+
+  const serverRoutes = asManifestRecord(
+    serverManifestRecord.routes,
+    "server manifest routes",
+  );
+  const clientRoutes = asManifestRecord(
+    clientManifestRecord.routes,
+    "client manifest routes",
+  );
+  const serverRouteIds = Object.keys(serverRoutes).sort();
+  const clientRouteIds = Object.keys(clientRoutes).sort();
+  if (serverRouteIds.join("\n") !== clientRouteIds.join("\n")) {
+    throw new Error(
+      `React Router server/client route manifests differ: server=${serverRouteIds.join(",")} client=${clientRouteIds.join(",")}`,
+    );
+  }
+  for (const routeId of clientRouteIds) {
+    copyReactRouterAssetManifestFields(
+      asManifestRecord(serverRoutes[routeId], `server route ${routeId}`),
+      asManifestRecord(clientRoutes[routeId], `client route ${routeId}`),
+    );
+  }
+
+  for (const field of ["url", "version", "sri"] as const) {
+    if (Object.prototype.hasOwnProperty.call(clientManifestRecord, field)) {
+      serverManifestRecord[field] = clientManifestRecord[field];
+    }
+  }
+
+  return serverManifestRecord;
+}
+
+function findJavaScriptObjectEnd(source: string, valueStart: number): number {
+  const stack: string[] = [];
+  let quote: "'" | '"' | "`" | undefined;
+  let escaped = false;
+  for (let index = valueStart; index < source.length; index += 1) {
+    const character = source[index];
+    if (quote) {
+      if (escaped) {
+        escaped = false;
+      } else if (character === "\\") {
+        escaped = true;
+      } else if (character === quote) {
+        quote = undefined;
+      }
+      continue;
+    }
+    if (character === "'" || character === '"' || character === "`") {
+      quote = character;
+      continue;
+    }
+    if (character === "{" || character === "[" || character === "(") {
+      stack.push(character === "{" ? "}" : character === "[" ? "]" : ")");
+      continue;
+    }
+    if (character === "}" || character === "]" || character === ")") {
+      if (stack.pop() !== character) {
+        throw new Error("React Router server manifest has unbalanced syntax");
+      }
+      if (stack.length === 0) return index;
+    }
+  }
+  throw new Error("React Router server manifest object is unterminated");
+}
+
+function evaluateReactRouterServerManifest(
+  source: string,
+  serverBuildFile: string,
+  valueStart: number,
+  valueEnd: number,
+): unknown {
+  try {
+    return runInNewContext(
+      `(${source.slice(valueStart, valueEnd + 1)})`,
+      Object.create(null),
+      { timeout: 1000 },
+    );
+  } catch (error) {
+    throw new Error(
+      `Could not parse React Router server manifest ${serverBuildFile}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+function patchReactRouterServerManifestSource(
+  source: string,
+  serverBuildFile: string,
+  clientManifest: ReactRouterAssetManifest,
+): string | undefined {
+  const regionStart = source.indexOf(
+    "//#region \\0virtual:react-router/server-manifest",
+  );
+  if (regionStart >= 0) {
+    const assignmentStart = source.indexOf(
+      "var server_manifest_default = ",
+      regionStart,
+    );
+    const regionEnd = source.indexOf("//#endregion", assignmentStart);
+    const assignmentEnd = source.lastIndexOf(";", regionEnd);
+    if (
+      assignmentStart < 0 ||
+      regionEnd < 0 ||
+      assignmentEnd < assignmentStart
+    ) {
+      throw new Error(
+        `React Router server manifest assignment not found in ${serverBuildFile}`,
+      );
+    }
+    const valueStart =
+      assignmentStart + "var server_manifest_default = ".length;
+    const serverManifest = evaluateReactRouterServerManifest(
+      source,
+      serverBuildFile,
+      valueStart,
+      assignmentEnd - 1,
+    );
+    const replacement = JSON.stringify(
+      mergeReactRouterServerManifest(serverManifest, clientManifest),
+    );
+    return (
+      source.slice(0, valueStart) + replacement + source.slice(assignmentEnd)
+    );
+  }
+
+  const assignments =
+    /(?:\b[A-Za-z_][\w$]*|\$[\w$]*)\s*=\s*(\{\s*(?:entry|["']entry["'])\s*:)/g;
+  for (const match of source.matchAll(assignments)) {
+    const valueStart = match.index! + match[0].lastIndexOf("{");
+    const valueEnd = findJavaScriptObjectEnd(source, valueStart);
+    const serverManifest = evaluateReactRouterServerManifest(
+      source,
+      serverBuildFile,
+      valueStart,
+      valueEnd,
+    );
+    if (
+      !serverManifest ||
+      typeof serverManifest !== "object" ||
+      Array.isArray(serverManifest) ||
+      !("routes" in serverManifest) ||
+      !("url" in serverManifest)
+    ) {
+      continue;
+    }
+    const replacement = JSON.stringify(
+      mergeReactRouterServerManifest(serverManifest, clientManifest),
+    );
+    return (
+      source.slice(0, valueStart) + replacement + source.slice(valueEnd + 1)
+    );
+  }
+  return undefined;
+}
+
+function patchReactRouterServerManifestInOutput(
+  serverDirectory: string,
+  trustedClientDirectory: string,
+  pairedClientDirectory: string,
+): void {
+  const clientManifest = findReactRouterManifest(pairedClientDirectory);
+  const assetReplacements = createPairedClientAssetReplacements(
+    trustedClientDirectory,
+    pairedClientDirectory,
+  );
+  let patchedFile: string | undefined;
+  walkServerJavaScriptFiles(serverDirectory, (serverBuildFile) => {
+    const source = fs.readFileSync(serverBuildFile, "utf8");
+    let rewritten = replacePairedClientAssetReferences(
+      source,
+      assetReplacements,
+    );
+    if (!patchedFile) {
+      const patched = patchReactRouterServerManifestSource(
+        rewritten,
+        serverBuildFile,
+        clientManifest,
+      );
+      if (patched !== undefined) {
+        rewritten = patched;
+        patchedFile = serverBuildFile;
+      }
+    }
+    if (rewritten !== source) fs.writeFileSync(serverBuildFile, rewritten);
+  });
+  if (!patchedFile) {
+    throw new Error(
+      `React Router server manifest not found in Nitro output ${serverDirectory}`,
+    );
+  }
+  console.log(
+    `[deploy] Paired React Router server manifest in ${path.relative(process.cwd(), patchedFile)} with ${path.basename(pairedClientDirectory)}`,
+  );
 }
 
 function collectModulePreloads(
@@ -2832,6 +3201,7 @@ const NODE_BUILTINS = [
   "stream",
   "stream/web",
   "string_decoder",
+  "sqlite",
   "sys",
   "timers",
   "tls",
@@ -5040,6 +5410,7 @@ export interface NitroBuildPipelineOptions {
 }
 
 const DRIZZLE_MIGRATIONS_SOURCE_DIR = path.join("server", "db", "migrations");
+const PREBUILT_CLIENT_DIRECTORY_ENV = "AGENT_NATIVE_PREBUILT_CLIENT_DIR";
 
 function listDrizzleMigrationFiles(sourceDir: string): string[] {
   if (!fs.existsSync(sourceDir)) return [];
@@ -5100,7 +5471,13 @@ export async function runNitroBuildPipeline(
     cwd,
     includeImmutableAssetRouteRules = true,
   } = opts;
-  const hasClientBuild = fs.existsSync(clientDir) && Boolean(publicOutputDir);
+  const trustedClientDirectory = path.resolve(cwd, clientDir);
+  const resolvedClientDir = resolveNitroClientDirectory(cwd, clientDir);
+  const hasClientBuild =
+    fs.existsSync(resolvedClientDir) && Boolean(publicOutputDir);
+  const usingPairedClientArtifact = Boolean(
+    process.env[PREBUILT_CLIENT_DIRECTORY_ENV]?.trim(),
+  );
 
   if (hasClientBuild && includeImmutableAssetRouteRules) {
     // Install hashed-asset route rules before Nitro prepares platform output.
@@ -5110,7 +5487,7 @@ export async function runNitroBuildPipeline(
     nitro.options.routeRules ??= {};
     addImmutableAssetRouteRulesForClientBuild(
       nitro.options.routeRules,
-      clientDir,
+      resolvedClientDir,
       appBasePath,
     );
   }
@@ -5119,12 +5496,15 @@ export async function runNitroBuildPipeline(
   await hooks.copyPublicAssets(nitro);
 
   if (hasClientBuild && publicOutputDir) {
-    copyDir(clientDir, publicOutputDir);
+    copyDir(resolvedClientDir, publicOutputDir);
     if (
       appBasePath &&
       !publicDirIsMountedAtBasePath(publicOutputDir, appBasePath)
     ) {
-      copyDir(clientDir, path.join(publicOutputDir, appBasePath.slice(1)));
+      copyDir(
+        resolvedClientDir,
+        path.join(publicOutputDir, appBasePath.slice(1)),
+      );
     }
     console.log(
       `[deploy] Copied client assets to ${path.relative(cwd, publicOutputDir)}`,
@@ -5132,6 +5512,38 @@ export async function runNitroBuildPipeline(
   }
 
   await hooks.nitroBuild(nitro);
+
+  if (hasClientBuild && usingPairedClientArtifact) {
+    patchReactRouterServerManifestInOutput(
+      nitro.options.output.serverDir,
+      trustedClientDirectory,
+      resolvedClientDir,
+    );
+  }
+}
+
+function resolveNitroClientDirectory(
+  cwd: string,
+  defaultClientDirectory: string,
+): string {
+  const configured = process.env[PREBUILT_CLIENT_DIRECTORY_ENV]?.trim();
+  const clientDirectory = configured
+    ? path.resolve(configured)
+    : path.resolve(cwd, defaultClientDirectory);
+  if (
+    configured &&
+    !fs.statSync(clientDirectory, { throwIfNoEntry: false })?.isDirectory()
+  ) {
+    throw new Error(
+      `${PREBUILT_CLIENT_DIRECTORY_ENV} points to a missing client artifact: ${clientDirectory}`,
+    );
+  }
+  if (configured) {
+    console.log(
+      `[deploy] Using paired prebuilt client artifact from ${clientDirectory}`,
+    );
+  }
+  return clientDirectory;
 }
 
 /**
@@ -5301,11 +5713,34 @@ function createBrowserOnlyServerStubPlugin() {
   };
 }
 
+function createEnterpriseAuthAdapterStubPlugin(enabled: boolean) {
+  if (enabled) return null;
+
+  const stubbed = new Set(["@better-auth/sso", "@better-auth/scim"]);
+  const stubIdPrefix = "\0agent-native-enterprise-auth-adapter-stub:";
+  return {
+    name: "agent-native-enterprise-auth-adapter-stub",
+    resolveId(id: string) {
+      const packageName = id
+        .split("/")
+        .slice(0, id.startsWith("@") ? 2 : 1)
+        .join("/");
+      return stubbed.has(packageName) ? `${stubIdPrefix}${packageName}` : null;
+    },
+    load(id: string) {
+      if (!id.startsWith(stubIdPrefix)) return null;
+      return "export default {};";
+    },
+  };
+}
+
 export function resolveNitroBuildReplacements(
   env: NodeJS.ProcessEnv = process.env,
   deploymentEnvironment?: string,
   projectCwd: string = cwd,
 ): Record<string, string> {
+  const isEnabled = (value: string | undefined) =>
+    ["1", "true", "yes", "on"].includes(value?.trim().toLowerCase() ?? "");
   const configuredDeploymentEnvironment =
     deploymentEnvironment?.trim() ||
     env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT?.trim();
@@ -5352,6 +5787,12 @@ export function resolveNitroBuildReplacements(
       JSON.stringify(
         JSON.stringify(resolveDeclaredRuntimePackageNames(projectCwd)),
       ),
+    // Enterprise auth adapters are optional at runtime, but must be present in
+    // the server bundle when an operator enables either feature. Baking this
+    // marker lets dead-code elimination keep them out of default deployments.
+    "process.env.AGENT_NATIVE_BUILD_ENTERPRISE_AUTH": JSON.stringify(
+      isEnabled(env.AUTH_SSO) || isEnabled(env.AUTH_SCIM) ? "true" : "false",
+    ),
     // Whether the recurring-jobs scheduled function exists is decided HERE, by
     // the build env. `scheduledTriggerAvailability` cannot re-derive it later —
     // a pipeline that sets the kill switch only for the build leaves no runtime
@@ -5415,6 +5856,12 @@ async function buildWithNitro() {
     ...loadEnv(nitroMode, cwd, ""),
     ...process.env,
   };
+  const enterpriseAuthAdaptersEnabled = [
+    nitroEnvironment.AUTH_SSO,
+    nitroEnvironment.AUTH_SCIM,
+  ].some((value) =>
+    ["1", "true", "yes", "on"].includes(value?.trim().toLowerCase() ?? ""),
+  );
   const nitroAgentConfig = await loadResolvedAgentNativeConfig(
     cwd,
     createAgentNativeConfigContext("build", nitroMode),
@@ -5500,7 +5947,7 @@ export default bundle;
     },
     virtual: nitroVirtual,
     replace: resolveNitroBuildReplacements(
-      process.env,
+      nitroEnvironment,
       nitroAgentConfig.deployment?.environment,
     ),
     // Replace browser-only renderers (Excalidraw/Mermaid) with an inert proxy in
@@ -5531,6 +5978,9 @@ export default bundle;
           ? [createCloudflareModuleStubPlugin()]
           : []),
         createBrowserOnlyServerStubPlugin(),
+        ...(enterpriseAuthAdaptersEnabled
+          ? []
+          : [createEnterpriseAuthAdapterStubPlugin(false)]),
         ...(isAwsAmplifyPreset(preset)
           ? [
               {

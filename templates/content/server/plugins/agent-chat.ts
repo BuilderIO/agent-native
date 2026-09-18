@@ -5,6 +5,7 @@ import {
 } from "@agent-native/core/server";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
+import { resolveCommentAiActionSurface } from "../lib/comment-ai.js";
 import {
   publicDocumentExtraContext,
   resolvePublicViewerOwner,
@@ -22,6 +23,8 @@ const INJECTED_INITIAL_TOOL_NAMES = [
 
 export default createAgentChatPlugin({
   appId: "content",
+  nativeActionsInDev: true,
+  resolveActionSurface: resolveCommentAiActionSurface,
   durableBackgroundRuns: true,
   selectedA2AReceiverOwnsObjective: true,
   actions: loadActionsFromStaticRegistry(actionsRegistry),
@@ -29,7 +32,7 @@ export default createAgentChatPlugin({
   mcp: {
     externalAgents: { writes: "allowlisted" },
     instructions:
-      "Find documents with list-documents or search-documents; read one with get-document (pull-document for the raw markdown you will edit). Author content yourself and persist it with create-document, or edit-document for a targeted change and update-document for a full replace. For Notion or other provider data use provider-api-catalog → provider-api-docs → provider-api-request instead of guessing endpoints.",
+      "Find documents with list-documents or search-documents; read with get-document (pull-document for raw Markdown). Author and persist content with create-document. For body changes use revision-guarded edit-document; pass initializeContent only when get-document returns an empty body. Use update-document for metadata and browser rewrites. For provider data use provider-api-catalog → provider-api-docs → provider-api-request.",
   },
   anonymousOwner: resolvePublicViewerOwner,
   extraContext: publicDocumentExtraContext,

@@ -71,10 +71,12 @@ export function TemplateHero({
       <div className="relative overflow-hidden border-x border-[var(--docs-border)]">
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute inset-0 hidden lg:grid lg:grid-cols-3"
+          // gap-px plus the pulled-back borders put these lines in the same
+          // places as the page gridlines below the hero; see GridLines.
+          className="pointer-events-none absolute inset-0 hidden lg:grid lg:grid-cols-3 lg:gap-px"
         >
           <div />
-          <div className="border-x border-[var(--docs-border)]" />
+          <div className="-mx-px border-x border-[var(--docs-border)]" />
           <div />
         </div>
 
@@ -82,7 +84,7 @@ export function TemplateHero({
           className={`relative grid gap-3 px-6 pt-12 sm:gap-4 sm:px-10 sm:pt-16 lg:grid-cols-3 lg:gap-6 lg:pt-24 ${headerPadding} ${headerClassName}`}
         >
           {eyebrow ? (
-            <div className="font-mono text-[15px] font-bold tracking-[0.14em] lg:col-span-2 lg:col-start-1 lg:row-start-1">
+            <div className="flex flex-col items-start justify-center font-mono text-[15px] font-bold tracking-[0.14em] lg:col-span-2 lg:col-start-1 lg:row-start-1">
               {eyebrow}
             </div>
           ) : null}

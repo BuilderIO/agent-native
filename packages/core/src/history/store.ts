@@ -43,6 +43,7 @@ export async function ensureResourceVersionsTable(): Promise<void> {
       resource_id TEXT NOT NULL,
       version_number BIGINT NOT NULL,
       created_at TEXT NOT NULL,
+      -- guard:allow-identity-column - immutable history actor snapshot
       created_by TEXT,
       actor_kind TEXT NOT NULL DEFAULT 'human',
       owner_email TEXT,

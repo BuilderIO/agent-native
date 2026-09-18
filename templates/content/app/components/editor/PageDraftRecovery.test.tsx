@@ -11,15 +11,28 @@ const state = vi.hoisted(() => ({
     version: number;
     baseDocumentUpdatedAt?: string | null;
     loadedContentWasEmpty?: number;
+    deferredReason?: "hydration" | "conflict" | null;
   },
   draftQueryOptions: null as null | { enabled?: boolean } | undefined,
   update: vi.fn(),
   remove: vi.fn(),
+  resolve: vi.fn(),
   refetch: vi.fn(),
+  writeClipboardText: vi.fn(),
+}));
+vi.mock("@agent-native/core/client/clipboard", () => ({
+  writeClipboardText: state.writeClipboardText,
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
+vi.mock("@agent-native/toolkit/editor", () => ({
+  SharedRichEditor: ({ value }: { value: string }) => <div>{value}</div>,
+}));
+vi.mock("sonner", () => ({
+  toast: { success: vi.fn(), error: vi.fn() },
+}));
+vi.mock("react-router", () => ({ useNavigate: () => vi.fn() }));
 vi.mock("@tanstack/react-query", () => ({
   useQueryClient: () => ({ refetchQueries: state.refetch }),
 }));
@@ -34,6 +47,7 @@ vi.mock("@/hooks/use-documents", () => ({
     return { data: { draft: state.draft }, refetch: state.refetch };
   },
   useUpdateDocument: () => ({ mutateAsync: state.update }),
+  useResolvePreviewDocumentDraft: () => ({ mutateAsync: state.resolve }),
   useUpdatePreviewDocumentDraft: () => ({ mutateAsync: state.remove }),
 }));
 vi.mock("./DocumentEditorSkeleton", () => ({
@@ -72,8 +86,10 @@ describe("Page draft recovery", () => {
       loadedContentWasEmpty: 1,
     };
     state.refetch.mockResolvedValue(undefined);
+    state.writeClipboardText.mockResolvedValue(true);
     state.update.mockResolvedValue({ title: "Draft", content: "Draft body" });
     state.remove.mockResolvedValue({ status: "deleted" });
+    state.resolve.mockResolvedValue({ status: "resolved" });
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -83,11 +99,20 @@ describe("Page draft recovery", () => {
     container.remove();
   });
   it("keeps a conflicting restoration visible and never deletes its draft", async () => {
-    state.update.mockResolvedValue({ conflict: true });
+    state.update.mockResolvedValue({
+      conflict: true,
+      document: {
+        ...page,
+        title: "Someone else's newer title",
+        content: "Someone else's newer body",
+        updatedAt: "v2",
+      },
+    });
     act(render);
-    await act(async () =>
-      container.querySelector<HTMLButtonElement>("button")!.click(),
-    );
+    const keepMineButton = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((button) => button.textContent === "editor.previewDraftKeepMine");
+    await act(async () => keepMineButton!.click());
     expect(state.update).toHaveBeenCalledWith(
       expect.objectContaining({
         baseUpdatedAt: "original-version",
@@ -96,32 +121,147 @@ describe("Page draft recovery", () => {
       }),
     );
     expect(state.remove).not.toHaveBeenCalled();
-    expect(container.querySelector('[role="alert"]')).not.toBeNull();
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+      "editor.previewDraftConflict",
+    );
     expect(container.textContent).toContain("Draft body");
+    expect(container.textContent).toContain("Someone else's newer body");
+    expect(container.textContent).toContain("editor.previewDraftYourEdits");
+    expect(container.textContent).toContain("editor.previewDraftSavedVersion");
+    expect(container.textContent).not.toContain("editor.restorePreviewDraft");
+    const useSavedButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) => button.textContent === "editor.previewDraftUseSaved");
+    await act(async () => useSavedButton!.click());
+    expect(state.update).toHaveBeenCalledTimes(1);
+    expect(state.resolve).toHaveBeenCalledWith({
+      choice: "use_saved",
+      documentId: "page",
+      expectedDraftVersion: 3,
+      expectedDraftTitle: "Draft",
+      expectedDraftContent: "Draft body",
+      expectedDocumentUpdatedAt: "v2",
+    });
     expect(container.querySelector("textarea")).toBeNull();
+  });
+  it("compares both versions and refreshes after an unseen Keep mine conflict", async () => {
+    state.draft!.deferredReason = "conflict";
+    state.resolve.mockResolvedValue({
+      status: "document_conflict",
+      document: {
+        ...page,
+        title: "Even newer",
+        content: "Unseen saved body",
+        updatedAt: "v2",
+      },
+    });
+    act(render);
+    expect(container.textContent).toContain("Draft body");
+    expect(container.textContent).toContain("Saved body");
+    const visibleChoices = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("button"),
+      (button) => button.textContent,
+    ).filter((label) =>
+      [
+        "editor.previewDraftKeepMine",
+        "editor.previewDraftUseSaved",
+        "editor.previewDraftSaveSeparately",
+        "editor.copyUnsavedText",
+      ].includes(label ?? ""),
+    );
+    expect(visibleChoices).toEqual([
+      "editor.previewDraftKeepMine",
+      "editor.previewDraftUseSaved",
+    ]);
+    expect(container.textContent).toContain("editor.previewDraftMoreOptions");
+
+    const keepButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "editor.previewDraftKeepMine",
+    );
+    await act(async () => keepButton!.click());
+    expect(state.resolve).toHaveBeenCalledWith({
+      choice: "keep_mine",
+      documentId: "page",
+      expectedDraftVersion: 3,
+      expectedDraftTitle: "Draft",
+      expectedDraftContent: "Draft body",
+      expectedDocumentUpdatedAt: "v1",
+    });
+    expect(container.textContent).toContain("Unseen saved body");
+    expect(container.textContent).toContain("Draft body");
+  });
+  it("highlights every disjoint change in both versions", () => {
+    state.draft = {
+      title: "Same title",
+      content: "First mine middle mine last",
+      version: 3,
+      deferredReason: "conflict",
+    };
+    const saved = {
+      ...page,
+      title: "Same title",
+      content: "First saved middle saved last",
+    } as Document;
+    act(() =>
+      root.render(
+        <PageDraftRecovery document={saved}>
+          <textarea defaultValue="Live editor" />
+        </PageDraftRecovery>,
+      ),
+    );
+    const panels = container.querySelectorAll("section");
+    expect(
+      Array.from(
+        panels[0]!.querySelectorAll("mark"),
+        (mark) => mark.textContent,
+      ),
+    ).toEqual(["mine", "mine"]);
+    expect(
+      Array.from(
+        panels[1]!.querySelectorAll("mark"),
+        (mark) => mark.textContent,
+      ),
+    ).toEqual(["saved", "saved"]);
+  });
+  it("keeps generic restore failures distinct and allows another restore attempt", async () => {
+    state.update.mockRejectedValue(new Error("network unavailable"));
+    act(render);
+    const keepMineButton = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((button) => button.textContent === "editor.previewDraftKeepMine");
+    await act(async () => keepMineButton!.click());
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+      "empty.genericError",
+    );
+    expect(container.textContent).toContain("editor.previewDraftKeepMine");
+    expect(container.textContent).not.toContain("editor.copyUnsavedText");
+    expect(state.remove).not.toHaveBeenCalled();
   });
   it("retains a draft with an unknown original version without overwriting the Page", async () => {
     state.draft!.baseDocumentUpdatedAt = null;
     act(render);
-    await act(async () =>
-      container.querySelector<HTMLButtonElement>("button")!.click(),
-    );
+    const keepMineButton = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((button) => button.textContent === "editor.previewDraftKeepMine");
+    await act(async () => keepMineButton!.click());
     expect(state.update).not.toHaveBeenCalled();
     expect(state.remove).not.toHaveBeenCalled();
     expect(container.querySelector('[role="alert"]')).not.toBeNull();
   });
-  it("uses the exact draft version when discarding without writing the Page", async () => {
+  it("uses the exact draft version when choosing the saved Page", async () => {
     act(render);
-    await act(async () =>
-      container.querySelectorAll<HTMLButtonElement>("button")[1].click(),
-    );
+    const useSavedButton = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((button) => button.textContent === "editor.previewDraftUseSaved");
+    await act(async () => useSavedButton!.click());
     expect(state.update).not.toHaveBeenCalled();
-    expect(state.remove).toHaveBeenCalledWith({
-      operation: "delete",
+    expect(state.resolve).toHaveBeenCalledWith({
+      choice: "use_saved",
       documentId: "page",
-      expectedVersion: 3,
-      expectedTitle: "Draft",
-      expectedContent: "Draft body",
+      expectedDraftVersion: 3,
+      expectedDraftTitle: "Draft",
+      expectedDraftContent: "Draft body",
+      expectedDocumentUpdatedAt: "v1",
     });
   });
   it("does not unmount the active editor when a later failed save retains a draft", async () => {

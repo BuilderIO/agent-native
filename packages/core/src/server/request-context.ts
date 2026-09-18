@@ -16,6 +16,7 @@
  * continue to work.
  */
 
+import type { AgentActionScope } from "../agent/types.js";
 import type { SignupAttributionContext } from "./attribution.js";
 
 type AsyncLocalStorageLike<T> = {
@@ -120,6 +121,14 @@ export interface RequestRunContext {
   model?: string;
   /** Request-authorized action names exposed to this agent run. */
   allowedActionNames?: readonly string[];
+  /** Server-resolved app data used by the request-authorized actions. */
+  actionScope?: Readonly<AgentActionScope>;
+  /** One-turn app authorization snapshot used by agent context and actions. */
+  appAuthorization?: {
+    appId: string;
+    roles: string[];
+    permissions: Record<string, string[]>;
+  } | null;
   /** Hosted tools-only harness selected for this agent run. */
   hostedHarnessRuntime?: "claude-code" | "codex" | "pi" | "opencode";
   /**
@@ -351,7 +360,10 @@ export function runWithRequestContext<T>(
     inheritedSyntheticTraffic !== undefined
       ? { ...ctx, isSyntheticTraffic: inheritedSyntheticTraffic }
       : ctx;
-  if (context.run?.allowedActionNames !== undefined) {
+  if (
+    context.run?.allowedActionNames !== undefined ||
+    context.run?.actionScope !== undefined
+  ) {
     assertRequestActionSurfaceIsolation();
   }
   return als.run(context, () => {

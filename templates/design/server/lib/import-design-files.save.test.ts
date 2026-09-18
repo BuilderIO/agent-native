@@ -32,9 +32,17 @@ const mocks = vi.hoisted(() => {
   );
 
   const filesSelectChain = { from: vi.fn(), where: vi.fn() };
+  const filesSelectWhereResult = {
+    limit: vi.fn(),
+    then: (
+      resolve: (value: unknown) => unknown,
+      reject: (error: unknown) => unknown,
+    ) => Promise.resolve(existingFiles).then(resolve, reject),
+  };
   filesSelectChain.from.mockReturnValue(filesSelectChain);
-  filesSelectChain.where.mockImplementation(() =>
-    Promise.resolve(existingFiles),
+  filesSelectChain.where.mockImplementation(() => filesSelectWhereResult);
+  filesSelectWhereResult.limit.mockImplementation(() =>
+    Promise.resolve(existingFiles.slice(0, 1)),
   );
 
   const insertValues = vi.fn().mockResolvedValue(undefined);
@@ -49,6 +57,7 @@ const mocks = vi.hoisted(() => {
     select: () => typeof designSelectChain | typeof filesSelectChain;
     insert: typeof insert;
     update: typeof update;
+    execute: ReturnType<typeof vi.fn>;
   }
 
   let selectCallCount = 0;
@@ -59,6 +68,7 @@ const mocks = vi.hoisted(() => {
     }),
     insert,
     update,
+    execute: vi.fn().mockResolvedValue({ rows: [] }),
   };
 
   const db = {
@@ -88,6 +98,7 @@ const mocks = vi.hoisted(() => {
     seedFromText: vi.fn().mockResolvedValue(undefined),
     hasCollabState: vi.fn().mockResolvedValue(false),
     applyText: vi.fn().mockResolvedValue(undefined),
+    and: vi.fn((...conditions) => ({ conditions })),
     eq: vi.fn((left, right) => ({ left, right })),
     nanoidCalls: 0,
   };
@@ -108,6 +119,7 @@ vi.mock("@agent-native/core/sharing", () => ({
 }));
 
 vi.mock("drizzle-orm", () => ({
+  and: mocks.and,
   eq: mocks.eq,
   sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
@@ -123,6 +135,7 @@ vi.mock("../db/index.js", () => ({
     designFiles: {
       id: "designFiles.id",
       designId: "designFiles.designId",
+      contentOperationSource: "designFiles.contentOperationSource",
     },
   },
 }));
@@ -200,6 +213,87 @@ describe("saveImportedDesignFiles: node-id annotation", () => {
     });
   });
 
+  it("places imported screens above the existing durable screen stack", async () => {
+    mocks.setExistingFiles([
+      {
+        id: "existing-screen",
+        filename: "existing.html",
+        fileType: "html",
+      },
+    ]);
+    mocks.setDesignData({
+      canvasFrames: {
+        "existing-screen": { x: 0, y: 0, width: 320, height: 200, z: 7 },
+        "concurrent-screen": {
+          x: 400,
+          y: 0,
+          width: 320,
+          height: 200,
+          z: 42,
+        },
+      },
+    });
+
+    const result = await saveImportedDesignFiles({
+      designId: "design-1",
+      sourceType: "figma-clipboard-rest",
+      files: [
+        {
+          filename: "pasted.html",
+          fileType: "html",
+          content: "<main>Pasted</main>",
+        },
+      ],
+    });
+
+    expect(result.placedFrames).toEqual([
+      expect.objectContaining({
+        fileId: "file-1",
+        frame: expect.objectContaining({ x: 816, z: 43 }),
+      }),
+    ]);
+    expect(mocks.getDesignData()).toMatchObject({
+      canvasFrames: {
+        "existing-screen": { z: 7 },
+        "concurrent-screen": { z: 42 },
+        "file-1": { x: 816, z: 43 },
+      },
+    });
+  });
+
+  it("places multiple imported screens side by side in one save", async () => {
+    mocks.setDesignData({});
+    const result = await saveImportedDesignFiles({
+      designId: "design-1",
+      sourceType: "figma-clipboard-rest",
+      files: [
+        {
+          filename: "first.html",
+          fileType: "html",
+          content: "<main>First</main>",
+          preferredFrame: { width: 320, height: 200 },
+        },
+        {
+          filename: "second.html",
+          fileType: "html",
+          content: "<main>Second</main>",
+          preferredFrame: { width: 640, height: 400 },
+        },
+      ],
+    });
+
+    expect(result.placedFrames).toEqual([
+      expect.objectContaining({
+        fileId: "file-1",
+        frame: expect.objectContaining({ x: 0, width: 320 }),
+      }),
+      expect.objectContaining({
+        fileId: "file-2",
+        frame: expect.objectContaining({ x: 416, width: 640 }),
+      }),
+    ]);
+  });
+
   it("is idempotent: preserves an existing clean id and only fills the missing one", async () => {
     await saveImportedDesignFiles({
       designId: "design-1",
@@ -273,6 +367,43 @@ describe("saveImportedDesignFiles: node-id annotation", () => {
     expect(mocks.seedFromText).toHaveBeenCalledWith(
       expect.any(String),
       nativeContent,
+    );
+  });
+
+  it("reuses an existing operation source instead of inserting a duplicate screen", async () => {
+    const existingContent =
+      '<main data-agent-native-node-id="kept">Existing</main>';
+    mocks.setExistingFiles([
+      {
+        id: "existing-screen",
+        filename: "Hero.html",
+        fileType: "html",
+        content: existingContent,
+        contentOperationSource: "fig-import:run-1:0",
+      },
+    ]);
+
+    const result = await saveImportedDesignFiles({
+      designId: "design-1",
+      sourceType: "fig-upload",
+      files: [
+        {
+          filename: "Hero.html",
+          fileType: "html",
+          content: "<main>Retry</main>",
+          operationSource: "fig-import:run-1:0",
+        },
+      ],
+    });
+
+    expect(result.files[0]).toMatchObject({
+      id: "existing-screen",
+      filename: "Hero.html",
+    });
+    expect(mocks.insertValues).not.toHaveBeenCalled();
+    expect(mocks.seedFromText).toHaveBeenCalledWith(
+      "existing-screen",
+      existingContent,
     );
   });
 });

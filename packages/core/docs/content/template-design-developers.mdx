@@ -14,18 +14,10 @@ This page is for anyone customizing the Design template or building on top of it
 ### Create the app
 
 ```bash
-npx @agent-native/core@latest create my-design --standalone --template design
-cd my-design
-pnpm install
+npx --yes @agent-native/core@latest create my-design --standalone --template design
 ```
 
-This needs [Node.js](https://nodejs.org) 22.22 or later and
-[pnpm](https://pnpm.io) installed first. See [Getting
-started](/docs/getting-started) if you haven't installed either yet, or
-don't have an LLM connection (Builder.io, an Anthropic/OpenAI key, or local
-Ollama) set up. For a workspace with Design alongside other apps, run `npx
-@agent-native/core@latest create my-platform` and pick Design during setup
-instead.
+See [Getting started](/docs/getting-started) for installing dependencies, running the dev server, and the rest of the setup. For a workspace with Design alongside other apps, run `npx --yes @agent-native/core@latest create my-platform` and pick Design during setup.
 
 ### Start the dev server
 

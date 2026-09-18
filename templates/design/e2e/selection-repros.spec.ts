@@ -276,20 +276,45 @@ test.describe("hairline selection", () => {
 });
 
 test.describe("clicking into a selected screen", () => {
-  test("one click selects the element under the cursor", async ({ page }) => {
+  test("plain clicks progress through the screen's direct children", async ({
+    page,
+  }) => {
     const id = await newDesign(page);
     await openEditor(page, id);
     await page.locator("[data-frame-label]").first().click({ force: true });
     await page.waitForTimeout(1800);
 
     const a = (await node(page, "box-a").boundingBox())!;
-    await page.mouse.click(a.x + a.width / 2, a.y + a.height / 2);
-    await page.waitForTimeout(2400);
+    const b = (await node(page, "box-b").boundingBox())!;
 
-    expect(
-      (await selectedRows(page).allTextContents()).join("|"),
-      "the frame's drag surface hands a click back to the content, so it must land on the element, not the full-bleed wrapper",
-    ).toContain("Box A");
+    // Selecting the frame label updates the host selection, while the first
+    // content click establishes the bridge's container-first selection.
+    await page.mouse.click(a.x + a.width / 2, a.y + a.height / 2);
+    await expect
+      .poll(() => selectedRows(page).allTextContents(), {
+        timeout: 10_000,
+        message:
+          "the first content click must select the screen's direct child container",
+      })
+      .toContain("Wrapper");
+
+    await page.mouse.click(a.x + a.width / 2, a.y + a.height / 2);
+    await expect
+      .poll(() => selectedRows(page).allTextContents(), {
+        timeout: 10_000,
+        message:
+          "a repeated plain click must descend to the clicked screen child",
+      })
+      .toContain("Box A");
+
+    await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2);
+    await expect
+      .poll(() => selectedRows(page).allTextContents(), {
+        timeout: 10_000,
+        message:
+          "a second plain click on another screen child must move selection to that child",
+      })
+      .toContain("Box B");
   });
 });
 

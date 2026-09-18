@@ -71,6 +71,14 @@ export function mixedElementFromSelection(
           ]),
         )
       : undefined;
+  const authoredSizeStyles: ElementInfo["authoredSizeStyles"] = {};
+  for (const property of ["width", "height"] as const) {
+    const value = sameValueOrUndefined(
+      elements.map((element) => element.authoredSizeStyles?.[property]),
+      base.authoredSizeStyles?.[property],
+    );
+    if (value !== undefined) authoredSizeStyles[property] = value;
+  }
   const minX = Math.min(...elements.map((element) => element.boundingRect.x));
   const minY = Math.min(...elements.map((element) => element.boundingRect.y));
   const maxX = Math.max(
@@ -116,6 +124,10 @@ export function mixedElementFromSelection(
     classes: [],
     computedStyles,
     inlineStyles,
+    authoredSizeStyles:
+      Object.keys(authoredSizeStyles).length > 0
+        ? authoredSizeStyles
+        : undefined,
     // Mix like tagName above — otherwise isTextElement() would trust
     // base.primitiveKind alone and misclassify a mixed text+shape selection.
     primitiveKind: sameOrMixed(

@@ -10,6 +10,7 @@ export const chatThreads = table("chat_threads", {
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
   scopeType: text("scope_type"),
+  // guard:allow-identity-column — opaque resource reference, not an account identity
   scopeId: text("scope_id"),
   scopeLabel: text("scope_label"),
   pinnedAt: bigint("pinned_at", { mode: "number" }),

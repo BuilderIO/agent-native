@@ -25,9 +25,11 @@ específicos do Chat.
 Para um app independente, gere a saída do Netlify e publique os assets e as funções:
 
 ```bash
-NITRO_PRESET=netlify npx @agent-native/core@latest build
+NITRO_PRESET=netlify pnpm build
 npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
 ```
+
+Antes do primeiro deploy de produção, defina `DATABASE_URL` e um `BETTER_AUTH_SECRET` estável nas variáveis de ambiente do site Netlify. Não dependa do banco PGlite local; `DATABASE_URL` deve apontar para um PostgreSQL persistente acessível pela função publicada.
 
 Para um espaço de trabalho, implante todos os apps a partir de um único site Netlify executando:
 

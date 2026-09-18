@@ -4,7 +4,6 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-import type { Deck } from "../context/DeckContext";
 import {
   getSlideClipboardStorageKey,
   normalizeSlideClipboard,
@@ -18,7 +17,7 @@ import {
 } from "../lib/slide-clipboard";
 import {
   isSlideClipboardStillArmed,
-  isSourceImportedDeck,
+  constrainSlideDragToVerticalAxis,
   getAltDragPlacement,
   SLIDE_CLIPBOARD_ARM_WINDOW_MS,
   syncSlideContentSnapshots,
@@ -96,12 +95,54 @@ describe("slide paste fallback", () => {
 });
 
 describe("slide thumbnail shortcuts", () => {
-  it("keeps Cmd/Ctrl+D scoped to the focused thumbnail", () => {
+  it("routes slide clipboard shortcuts through the focused thumbnail", () => {
     expect(deckEditorSource).toContain(
-      'if (key !== "c" && key !== "v" && key !== "d") return;',
+      'if (key !== "c" && key !== "x" && key !== "v" && key !== "d") return;',
     );
     expect(deckEditorSource).toContain(
-      "handleDuplicateSlideFromRail([activeSlideId]);",
+      "selectedSlideIds.includes(activeSlideId)",
+    );
+    expect(deckEditorSource).toContain("selectedSlideIds : [activeSlideId]");
+    expect(deckEditorSource).toContain(
+      "handleDuplicateSlideFromRail(slideIds);",
+    );
+  });
+
+  it("cuts the focused slide selection without removing every slide", () => {
+    const shortcutStart = deckEditorSource.indexOf(
+      "// Command/Ctrl+C then Command/Ctrl+V on the focused slide rail",
+    );
+    const shortcutEnd = deckEditorSource.indexOf(
+      'document.addEventListener("keydown", handleKeyDown)',
+      shortcutStart,
+    );
+    const shortcutBody = deckEditorSource.slice(shortcutStart, shortcutEnd);
+
+    expect(shortcutBody).toContain("if (!activeSlideId) return;");
+    expect(shortcutBody).toContain(
+      "selectedSlideIds.length > 0 ? selectedSlideIds : [activeSlideId]",
+    );
+    expect(shortcutBody).toContain(
+      "if (slideIds.length >= deck.slides.length) return;",
+    );
+    expect(shortcutBody).toContain("cutSlides(slideIds);");
+  });
+
+  it("lets focused thumbnails own shortcuts while canvas selection remains visible", () => {
+    const shortcutStart = deckEditorSource.indexOf(
+      "// Command/Ctrl+C then Command/Ctrl+V on the focused slide rail",
+    );
+    const shortcutEnd = deckEditorSource.indexOf(
+      'document.addEventListener("keydown", handleKeyDown)',
+      shortcutStart,
+    );
+    const shortcutBody = deckEditorSource.slice(shortcutStart, shortcutEnd);
+
+    expect(shortcutBody).toContain(
+      'document.activeElement?.closest("[data-slide-thumbnail-id]")',
+    );
+    expect(shortcutBody).toContain(
+      "!focusedThumbnail &&\n        document.querySelector(\"[data-slide-element-selected='true']\")",
     );
   });
 
@@ -113,43 +154,6 @@ describe("slide thumbnail shortcuts", () => {
     expect(deckEditorSource).toContain(
       "const clipboard = slideClipboardSlidesRef.current ?? syncSlideClipboard();",
     );
-  });
-});
-
-describe("source-imported deck structure", () => {
-  it("recognizes source-preserving import metadata", () => {
-    expect(
-      isSourceImportedDeck({
-        sourceImport: {
-          mode: "source-preserving",
-          format: "pptx",
-          slides: [],
-        },
-      } as unknown as Deck),
-    ).toBe(true);
-  });
-
-  it("does not block an editable source snapshot", () => {
-    expect(
-      isSourceImportedDeck({
-        sourceImport: {
-          mode: "source-preserving",
-          format: "pptx",
-          slides: [],
-          editableSnapshot: true,
-        },
-      } as unknown as Deck),
-    ).toBe(false);
-  });
-
-  it("does not block ordinary or malformed deck metadata", () => {
-    expect(isSourceImportedDeck(null)).toBe(false);
-    expect(isSourceImportedDeck(undefined)).toBe(false);
-    expect(
-      isSourceImportedDeck({
-        sourceImport: { mode: "source-preserving", format: "pptx" },
-      } as unknown as Deck),
-    ).toBe(false);
   });
 });
 
@@ -167,6 +171,27 @@ describe("alt-drag slide placement", () => {
     expect(getAltDragPlacement(slides, "slide-1", "slide-3")).toEqual({
       afterSlideId: "slide-3",
     });
+  });
+
+  it("keeps slide drag transforms on the vertical axis", () => {
+    expect(
+      constrainSlideDragToVerticalAxis({
+        x: 48,
+        y: 24,
+        scaleX: 1,
+        scaleY: 1,
+      }),
+    ).toEqual({ x: 0, y: 24, scaleX: 1, scaleY: 1 });
+  });
+
+  it("uses an Alt-only drag overlay for the copied thumbnail", () => {
+    expect(deckEditorSource).toContain('data-slide-drag-overlay="copy"');
+    expect(deckEditorSource).toContain(
+      "altDragSlideId={altDragState?.slideId}",
+    );
+    expect(deckEditorSource).toContain(
+      "modifiers={[verticalSlideDragModifier]}",
+    );
   });
 });
 

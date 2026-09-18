@@ -65,7 +65,30 @@ test("selects only docs checks for an all-docs change set", () => {
 
   assert.equal(scope.docsOnly, true);
   assert.equal(scope.full, false);
-  assert.deepEqual(Object.values(scope.checks).filter(Boolean), []);
+  // Docs-only change sets still run `lint`: oxfmt --check covers the whole
+  // tree, so unformatted .md/.mdx would otherwise reach main.
+  assert.deepEqual(
+    Object.entries(scope.checks)
+      .filter(([, enabled]) => enabled)
+      .map(([name]) => name),
+    ["lint"],
+  );
+});
+
+test("keeps the format check on for a docs-only change set", () => {
+  const scope = classifyChangedPaths([
+    "packages/core/docs/content/integrations.mdx",
+    "docs/plans/2026-09-04-booking-host-working-hours-status.md",
+  ]);
+  assert.equal(scope.docsOnly, true);
+  // oxfmt --check runs over the whole tree, so docs can fail it. Skipping lint
+  // here is how unformatted docs reached main and turned Lint red on every
+  // other open PR.
+  assert.equal(scope.checks.lint, true);
+  assert.equal(scope.checks.typecheck, false);
+  assert.equal(scope.checks.build, false);
+  assert.equal(scope.checks.fast_tests, false);
+  assert.equal(scope.checks.guards, false);
 });
 
 test("treats docs-app source and config as code, not documentation", () => {
@@ -189,5 +212,12 @@ test("does not run code checks for a mixed docs-only package change", () => {
 
   assert.equal(scope.docsOnly, true);
   assert.equal(scope.full, false);
-  assert.deepEqual(Object.values(scope.checks).filter(Boolean), []);
+  // Docs-only change sets still run `lint`: oxfmt --check covers the whole
+  // tree, so unformatted .md/.mdx would otherwise reach main.
+  assert.deepEqual(
+    Object.entries(scope.checks)
+      .filter(([, enabled]) => enabled)
+      .map(([name]) => name),
+    ["lint"],
+  );
 });

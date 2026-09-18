@@ -30,6 +30,7 @@
     "@google/genai": "^1.42.0",
     "@tabler/icons-react": "catalog:",
     "@tiptap/core": "catalog:",
+    "@tiptap/extension-bold": "catalog:",
     "@tiptap/extension-collaboration": "catalog:",
     "@tiptap/extension-collaboration-caret": "catalog:",
     "@tiptap/extension-color": "catalog:",

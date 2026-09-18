@@ -181,34 +181,6 @@
   background: var(--agent-kit-recessed-surface);
 }
 
-.agent-streaming-cursor {
-  display: inline-block;
-  width: 0.1em;
-  height: 1em;
-  margin-inline-start: 0.15em;
-  transform: translateY(0.15em);
-  border-radius: 999px;
-  background: currentColor;
-  animation: agent-streaming-cursor-blink 900ms ease-in-out infinite;
-}
-
-@keyframes agent-streaming-cursor-blink {
-  0%,
-  45% {
-    opacity: 1;
-  }
-  55%,
-  100% {
-    opacity: 0.25;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .agent-streaming-cursor {
-    animation: none;
-  }
-}
-
 .agent-sidebar-panel .agent-empty-state {
   align-items: stretch;
   justify-content: flex-end;
@@ -254,11 +226,6 @@
 
 .agent-sidebar-panel [data-agent-message-queue-variant="recessed"] {
   width: calc(100% - 2.5rem);
-}
-
-.agent-sidebar-panel
-  [data-agent-message-queue-variant="recessed"][data-empty="false"] {
-  margin-bottom: -1.25rem;
 }
 
 /* The mask is declared unconditionally and the fade is driven by its size

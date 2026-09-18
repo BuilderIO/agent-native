@@ -5,6 +5,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 export type NetlifyDeploymentTarget = "beta" | "preview" | "production";
 
 export type ResolvedNetlifyPrebuiltTarget = {
+  clientDirectory: string;
   functionsDirectory: string;
   host: string;
   migrationSiteId: string;
@@ -15,7 +16,34 @@ export type ResolvedNetlifyPrebuiltTarget = {
   sourceTemplate: string;
 };
 
+const VALID_NETLIFY_SLUG = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
+
+export function resolveNetlifyImmutableDeployUrl(
+  deployId: string,
+  siteName: string,
+): string {
+  const deploy = deployId.trim().toLowerCase();
+  const site = siteName.trim().toLowerCase();
+  if (!VALID_NETLIFY_SLUG.test(deploy) || !VALID_NETLIFY_SLUG.test(site)) {
+    throw new Error("Netlify deploy URLs require valid deploy and site slugs.");
+  }
+  return `https://${deploy}--${site}.netlify.app`;
+}
+
+export function resolveNetlifyPreviewAliasUrl(
+  previewAlias: string,
+  siteName: string,
+): string {
+  const alias = previewAlias.trim().toLowerCase();
+  const site = siteName.trim().toLowerCase();
+  if (!VALID_NETLIFY_SLUG.test(alias) || !VALID_NETLIFY_SLUG.test(site)) {
+    throw new Error("Netlify preview aliases require valid site slugs.");
+  }
+  return `https://${alias}--${site}.netlify.app`;
+}
+
 type SourceProject = {
+  clientDirectory: string;
   functionsDirectory: string;
   packageDirectory: string;
   publishDirectory: string;
@@ -63,6 +91,7 @@ function canonicalSiteName(
 function sourceProject(siteName: string, repoRoot: string): SourceProject {
   if (siteName === "fw") {
     return {
+      clientDirectory: "packages/docs/build/client",
       filter: "@agent-native/docs",
       functionsDirectory: "packages/docs/.netlify/functions-internal",
       packageDirectory: path.join(repoRoot, "packages/docs"),
@@ -72,6 +101,7 @@ function sourceProject(siteName: string, repoRoot: string): SourceProject {
 
   const sourceTemplate = siteName === "starter" ? "chat" : siteName;
   return {
+    clientDirectory: `templates/${sourceTemplate}/build/client`,
     filter: sourceTemplate,
     functionsDirectory: `templates/${sourceTemplate}/.netlify/functions-internal`,
     packageDirectory: path.join(repoRoot, "templates", sourceTemplate),
@@ -129,6 +159,7 @@ export function resolveNetlifyPrebuiltTarget(
   }
 
   return {
+    clientDirectory: project.clientDirectory,
     functionsDirectory: project.functionsDirectory,
     host: site.host,
     migrationSiteId: migrationSite.siteId,
@@ -146,6 +177,7 @@ export function writeGitHubOutputs(
   outputPath: string,
 ): void {
   const outputs: Record<string, string> = {
+    client_directory: target.clientDirectory,
     functions_directory: target.functionsDirectory,
     host: target.host,
     migration_site_id: target.migrationSiteId,

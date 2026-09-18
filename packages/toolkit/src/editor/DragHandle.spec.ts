@@ -185,6 +185,108 @@ afterEach(() => {
     .forEach((node) => node.remove());
 });
 
+function getMenu(): HTMLElement {
+  const menu = document.querySelector<HTMLElement>(".an-rich-md-drag-menu");
+  if (!menu) throw new Error("Expected the drag menu to be open");
+  return menu;
+}
+
+const ZERO_RECT = makeRect({ left: 0, top: 0, width: 0, height: 0 });
+
+/**
+ * Reported 2026-09-03: the block menu sometimes opened in the top-left corner
+ * of the window instead of beside the block. `getBoundingClientRect()` answers
+ * an all-zero rect (not null) for a hidden, detached, or unlaid-out element, so
+ * the old `handle ?? block` null-check never fired and the zero rect clamped the
+ * menu to the viewport padding.
+ */
+describe("DragHandle menu position", () => {
+  const blockRect = makeRect({ left: 24, top: 200, width: 640, height: 400 });
+
+  it("anchors the menu beside the grip", () => {
+    const { editor, handle } = mountEditor(
+      "<p>First</p><p>Second</p>",
+      {},
+      blockRect,
+    );
+
+    try {
+      clickHandle(handle);
+
+      const menu = getMenu();
+      expect(menu.style.left).toBe("30px");
+      expect(menu.style.top).toBe("198px");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("falls back to the block when the grip reports a zero rect", () => {
+    const { editor, handle } = mountEditor(
+      "<p>First</p><p>Second</p>",
+      {},
+      blockRect,
+    );
+
+    try {
+      setRect(handle, ZERO_RECT);
+      clickHandle(handle);
+
+      const menu = getMenu();
+      expect(menu.style.left).not.toBe("8px");
+      expect(menu.style.top).not.toBe("8px");
+      expect(Number.parseFloat(menu.style.top)).toBeCloseTo(196, 0);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("falls back to the block when the grip has been detached", () => {
+    const { editor, handle } = mountEditor(
+      "<p>First</p><p>Second</p>",
+      {},
+      blockRect,
+    );
+
+    try {
+      const originalParent = handle.parentElement!;
+      handle.addEventListener("mousedown", () => handle.remove(), {
+        once: true,
+      });
+      clickHandle(handle);
+      originalParent.appendChild(handle);
+
+      const menu = getMenu();
+      expect(menu.style.top).not.toBe("8px");
+      expect(Number.parseFloat(menu.style.top)).toBeCloseTo(196, 0);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("still opens the menu when every anchor candidate is degenerate", () => {
+    const { editor, handle, wrapper } = mountEditor(
+      "<p>First</p><p>Second</p>",
+      {},
+      blockRect,
+    );
+
+    try {
+      setRect(handle, ZERO_RECT);
+      wrapper.querySelectorAll("p").forEach((node) => setRect(node, ZERO_RECT));
+      setRect(editor.view.dom, ZERO_RECT);
+
+      clickHandle(handle);
+
+      // No usable anchor exists, so the menu must not open at a bogus
+      // position — a corner menu is worse than no menu.
+      expect(document.querySelector(".an-rich-md-drag-menu")).toBeNull();
+    } finally {
+      editor.destroy();
+    }
+  });
+});
+
 describe("DragHandle menu", () => {
   it("opens the block menu on a single click", () => {
     const { editor, handle } = mountEditor("<p>First</p><p>Second</p>");

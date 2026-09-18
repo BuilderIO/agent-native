@@ -1,0 +1,63 @@
+---
+title: "गोपनीयता और डेटा अधिकार"
+description: "GDPR और CCPA डेटा अनुरोधों के लिए framework के डिफ़ॉल्ट और ऑपरेटर की ज़िम्मेदारियाँ।"
+---
+
+# गोपनीयता और डेटा अधिकार
+
+Agent-Native में डिफ़ॉल्ट खाता सेटिंग्स के भीतर गोपनीयता अनुरोध की सुविधा शामिल है। साइन इन किया हुआ व्यक्ति अपने निजी डेटा की कॉपी या उसे हटाने का अनुरोध कर सकता है।
+
+यह लागू करने का आधार है, कानूनी सलाह या compliance certification नहीं। ऐप चलाने वाली संस्था को अपनी कानूनी भूमिका तय करके अपने deployment के अनुसार सूचनाएँ और प्रक्रियाएँ प्रकाशित करनी होंगी।
+
+## उपयोगकर्ता क्या कर सकते हैं
+
+**सेटिंग्स > खाता > गोपनीयता और डेटा** खोलकर:
+
+- access या portability review के लिए निजी डेटा की कॉपी माँगें,
+- erasure review के लिए निजी डेटा हटाने का अनुरोध करें,
+- मौजूदा profile और email controls से खाता विवरण ठीक करें।
+
+अनुरोध स्थायी, idempotent और audited होते हैं। action केवल अनुरोध का प्रकार, स्थिति और समय रखता है। यह डेटा dump नहीं लौटाता, किसी दूसरे व्यक्ति का email या user ID स्वीकार नहीं करता और तुरंत डेटा नहीं हटाता।
+
+## एजेंट क्या नहीं कर सकते
+
+गोपनीयता अनुरोध Account settings UI से भेजे जाते हैं। `request-privacy-right` authenticated है, agent tools और MCP/A2A discovery से छिपा है, sandboxed tools bridge में blocked है और केवल frontend caller के लिए authorized है।
+
+Core `offboard-member` action पर भी वही UI-only सीमा लागू है। सदस्य को हटाना organization operation है जो owned rows transfer करता और access revoke करता है; यह account erasure नहीं है। Organization deletion भी owner-only UI confirmation के पीछे रहता है।
+
+मानव approval prompt security boundary नहीं है। डेटा मिटाने, identity revoke करने, membership या authentication बदलने वाली custom action में explicit UI-only सीमा रखें और identity verified request context से लें।
+
+## ऑपरेटर द्वारा पूरा करना
+
+Framework अनुरोध दर्ज करता है। Deployment operator को:
+
+1. requester की पहचान और लागू organization तथा कानूनी scope सत्यापित करना चाहिए,
+2. deployment के नियंत्रण वाले डेटा को निजी, access-controlled चैनल से देना चाहिए,
+3. app rows और private blobs हटाने या anonymize करने, ज़रूरत पर sessions और credentials revoke करने और जुड़े providers/processors के साथ समन्वय करना चाहिए,
+4. backups, security/audit logs, fraud prevention और documented exceptions पर retention schedule लागू करना चाहिए,
+5. completion, partial fulfillment या blocking reason दर्ज करके requester को परिणाम बताना चाहिए।
+
+केवल एक organization row या setting हटने से अनुरोध पूरा न मानें। Hosted providers, uploads, connected services, caches, backups और immutable audit records के अलग retention और deletion paths हो सकते हैं।
+
+## डिफ़ॉल्ट privacy posture
+
+नई shareable resources डिफ़ॉल्ट रूप से private होती हैं। Browser analytics में DOM और network autocapture बंद रहता है; configured होने पर session replay opt-in और signed-in-only रहता है। ये defaults privacy notice, lawful-basis analysis, retention policy या consent/opt-out controls का विकल्प नहीं हैं।
+
+यदि deployment personal information बेचता या share करता है, तो लागू CCPA opt-out और Global Privacy Control handling देनी होगी। Framework कोई sale या sharing program नहीं बनाता।
+
+## Deployment checklist
+
+- data categories, purposes, recipients, retention, rights और contact channel वाला privacy notice प्रकाशित करें;
+- lawful bases, consent, sensitive-data restrictions और age requirements लिखित रूप में तय करें;
+- access, correction, deletion, portability, objection और opt-out requests के लिए owner और workflow तय करें;
+- tables, private blobs, analytics, connected services, email, caches, logs, backups और subprocessors map करें;
+- verification, deadlines, retention exceptions, deletion evidence और appeals परिभाषित करें;
+- high-consequence actions को UI-only रखें और agent, MCP, A2A, CLI, HTTP तथा tools iframe callers को test करें।
+
+## संदर्भ
+
+- [GDPR पाठ](https://eur-lex.europa.eu/eli/reg/2016/679/oj/eng/)
+- [European Commission: individual requests](https://commission.europa.eu/law/law-topic/data-protection/information-business-and-organisations/dealing-requests-individuals_en)
+- [California Attorney General: CCPA](https://www.oag.ca.gov/privacy/ccpa)
+- [CCPA regulations](https://www.oag.ca.gov/privacy/ccpa/regs)
+- [Hosted Agent-Native privacy policy](/privacy)

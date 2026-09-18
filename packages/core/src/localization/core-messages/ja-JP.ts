@@ -1,6 +1,7 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "activity.reasoning": "推論",
   "approval.alwaysAllow": "常に許可",
   "approval.alwaysAllowHint":
     "この完全に同じコマンドを承認し、今後も常に許可します",
@@ -72,15 +73,31 @@ const messages: AgentChatTranslation = {
     "Builder.io アカウントを作成または再利用しています。通常は数秒かかります。",
   "onboarding.builderConnectionDescription":
     "新しいウィンドウでワンクリック接続を完了してください。",
+  "onboarding.builderReadyWithCodeChanges":
+    "AI クレジットとクラウドコードの変更を利用できます。",
+  "onboarding.builderReadyCreditsOnly":
+    "AI クレジットを利用できます。クラウドコードの編集には、Background Agent 設定で Builder プロジェクトが必要です。",
+  "onboarding.openBackgroundAgentSettings": "Background Agent 設定を開く",
   "onboarding.capability.llm.keySummary":
     "AIプロバイダーまたはローカルモデルに接続",
   "onboarding.capability.fileStorage.keySummary":
     "BuilderストレージまたはS3互換バケット",
+  "onboarding.fileStorage.title": "ファイルストレージを選択",
+  "onboarding.fileStorage.description":
+    "Builderの管理ストレージ、または独自のS3互換バケット用のカスタムストレージキーを選択します。",
+  "onboarding.fileStorage.custom": "カスタムストレージキーを使用",
+  "onboarding.fileStorage.customDescription":
+    "安定した公開URLを持つS3互換バケットを設定します。",
   "onboarding.capability.voiceInput.label": "音声入力",
   "onboarding.capability.voiceInput.keySummary":
     "ブラウザーの音声認識または音声文字変換",
   "onboarding.capability.voiceInput.why":
     "音声入力は話したリクエストをテキストに変換します。入力はいつでも使えます。",
+  "onboarding.capability.embeddings.label": "埋め込み",
+  "onboarding.capability.embeddings.keySummary":
+    "Gemini、Cohere、またはVoyageのキー",
+  "onboarding.capability.embeddings.why":
+    "埋め込みは意味検索を改善します。埋め込みがなくてもキーワード検索は使えます。",
   "onboarding.capability.assetsImageGeneration.label": "画像生成",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Builderクレジットまたは画像プロバイダーのキー",
@@ -109,6 +126,14 @@ const messages: AgentChatTranslation = {
   "common.agent": "エージェント",
   "agentPanel.mode": "モード",
   "agentPanel.uiMode": "UI",
+  "agentPanel.keyScope": "キーの範囲",
+  "agentPanel.personalKeyScope": "個人",
+  "agentPanel.organizationKeyScope": "組織",
+  "agentPanel.personalKeyInEffect": "個人のキーを使用しています。",
+  "agentPanel.organizationKeyInEffect": "組織のキーを使用しています。",
+  "agentPanel.sharedKeyInEffect": "共有キーを使用しています。",
+  "agentPanel.useOrganizationKey": "組織のキーを使用",
+  "agentPanel.keyStatusUnavailable": "キーの状態を取得できません。",
   "agentHostNudge.sidebarTitle": "{{agent}}のチャットを使う",
   "agentHostNudge.sidebarDescription":
     "すでに{{agent}}とチャットしています。このアプリを直接操作するよう依頼できます。",
@@ -131,6 +156,60 @@ const messages: AgentChatTranslation = {
   "common.no": "いいえ",
   "common.retry": "再試行",
   "common.save": "保存",
+  "agents.hostedAgent": "ホスト型エージェント",
+  "agents.provider": "プロバイダー",
+  "agents.providerA2A": "A2A エージェント（Foundry、Gemini、またはカスタム）",
+  "agents.providerAnthropic": "Anthropic 管理エージェント",
+  "agents.agentId": "エージェント ID",
+  "agents.agentIdPlaceholder": "agent_...",
+  "agents.environmentId": "環境 ID",
+  "agents.environmentIdPlaceholder": "env_...",
+  "agents.apiBaseUrl": "API ベース URL（任意）",
+  "agents.apiBaseUrlPlaceholder": "https://api.anthropic.com",
+  "agents.managedAgentIncomplete":
+    "Anthropic Managed Agents の項目を入力してください。",
+  "agents.managedAgentCheck": "チャットから委任すると接続が確認されます。",
+  "agents.managedAgentSaved":
+    "Anthropic Managed Agent を保存しました。チャットから委任できます。",
+  "agents.cardUrl": "エージェントカード URL",
+  "agents.cardUrlPlaceholder": "https://host.example/agent-card.json",
+  "agents.authType": "認証",
+  "agents.authNone": "認証なし",
+  "agents.authBearer": "Bearer トークン",
+  "agents.authClientCredentials": "OAuth クライアント資格情報",
+  "agents.chooseCredential": "資格情報を選択",
+  "agents.vault": "Vault",
+  "agents.tokenUrl": "トークン URL",
+  "agents.clientId": "クライアント ID",
+  "agents.scope": "スコープ",
+  "agents.authIncomplete":
+    "ホスト型エージェントの認証フィールドをすべて入力してください。",
+  "agents.invalidUrl":
+    "エージェント URL には HTTPS を使用してください。localhost またはループバックの開発 URL は例外です。",
+  "agents.statusReachable": "接続可能",
+  "agents.statusAuthRejected": "認証拒否",
+  "agents.statusNoJsonRpc": "JSON-RPC なし",
+  "agents.directoryTab": "エージェントディレクトリ",
+  "agents.directoryPageHint":
+    "エージェントバックエンドを見つけてワークスペースに接続します。",
+  "agents.directorySearch": "プロバイダーを検索",
+  "agents.directoryProviders": "プロバイダー",
+  "agents.directoryManual": "URL で追加",
+  "agents.directoryA2A": "A2A",
+  "agents.directoryManaged": "マネージド API",
+  "agents.directoryFoundry": "Microsoft Foundry",
+  "agents.directoryFoundryHint":
+    "A2A 経由で Foundry エージェントを接続します。",
+  "agents.directoryGemini": "Gemini Enterprise",
+  "agents.directoryGeminiHint":
+    "A2A 経由で Gemini Enterprise エージェントを接続します。",
+  "agents.directoryAnthropic": "Anthropic 管理エージェント",
+  "agents.directoryAnthropicHint": "Anthropic のセッションと承認を接続します。",
+  "agents.directoryNoMatches": "検索に一致するプロバイダーはありません。",
+  "agents.directoryRegistry": "グローバル A2A レジストリ",
+  "agents.directoryRegistryHint":
+    "公開 Agent Card を参照し、接続前に確認してください。",
+  "agents.directoryBrowse": "レジストリを開く",
   "common.saveFailed": "保存に失敗しました",
   "common.saveFailedStatus": "保存に失敗しました（{{status}}）",
   "common.saving": "保存中...",
@@ -366,6 +445,8 @@ const messages: AgentChatTranslation = {
   "error.stopped": "エージェントは完了前に停止しました",
   "errorMessages.agentConnection":
     "エージェントとの接続が中断されました。接続を確認して再試行してください。",
+  "errorMessages.attachmentPasswordProtected":
+    "このPDFはパスワードで保護されているため読み取れません。パスワード保護を解除するか、関連するテキストを貼り付けてから再試行してください。",
   "errorMessages.builderAuthentication":
     "Builder が接続済みの認証情報を拒否しました。設定で Builder.io に再接続してから再試行してください。",
   "errorMessages.builderModelUnauthorized":
@@ -375,10 +456,15 @@ const messages: AgentChatTranslation = {
     "エージェントが応答する前にモデルゲートウェイで内部エラーが発生しました。少し待ってから再試行し、繰り返す場合は下のエラー ID を伝えてください。",
   "errorMessages.gatewayNoDetails":
     "モデルゲートウェイからエラーの詳細が返されず、チャットを復旧できませんでした。少し待ってから再試行し、繰り返し発生する場合は新しいチャットを開始してください。",
+  "errorMessages.creditsLimitReached": "AIクレジットの上限に達しました。",
   "errorMessages.inactivityTimeout":
     "エージェントとの接続が完了前にタイムアウトしました。途中までの作業から続行するか、再試行できます。",
   "errorMessages.invalidToolSchema":
     "ツールのスキーマが無効だったため、モデルは開始前にリクエストを拒否しました。無効なツールをスキップして再試行できます。",
+  "errorMessages.malformedRequest":
+    "モデルプロバイダーがこのリクエストを不正な形式として拒否したため、再試行されませんでした。再試行するか、繰り返し発生する場合は新しいチャットを開始してください。",
+  "errorMessages.malformedRequestAttachment":
+    "モデルが添付ファイルを拒否したため、このメッセージは送信されませんでした。添付を削除して再試行してください。PDF、プレーンテキスト、JPEG・PNG・GIF・WebP の画像は直接読み取れますが、その他の形式はアップロードしてリンクする必要があります。",
   "errorMessages.noProviderConnected":
     "LLM プロバイダーが接続されていません。設定 > エージェント > AI プロバイダーを開き、Builder.io（無料プランあり）に接続するか、プロバイダーキーを追加してください。",
   "errorMessages.openBuilderSpaceSettings": "Builder スペース設定を開く",
@@ -401,6 +487,7 @@ const messages: AgentChatTranslation = {
   "feedback.notHelpful": "役に立たない",
   "feedback.placeholder": "問題点を教えてください…",
   "feedback.submit": "送信",
+  "feedback.submitted": "フィードバックを送信しました",
   "feedback.thumbsDown": "低評価",
   "feedback.thumbsUp": "高評価",
   "feedback.tooSlow": "遅すぎる",
@@ -675,6 +762,7 @@ const messages: AgentChatTranslation = {
   "status.preparing": "{{activity}} を準備中...",
   "status.writing": "{{activity}} を書き込み中...",
   "status.stillGenerating": "{{activity}} を引き続き生成中",
+  "status.runningTool": "{{activity}} を実行中",
   "tabs.allChats": "すべてのチャット",
   "tabs.closeTab": "タブを閉じる",
   "tabs.main": "メイン",
@@ -710,6 +798,7 @@ const messages: AgentChatTranslation = {
   "widget.dataInsights": "データインサイト",
   "widget.dataTable": "データテーブル",
   "widget.downloadCsv": "CSV をダウンロード",
+  "widget.connectProvider": "{{provider}} を接続",
   "widget.loadingToolResult": "ツールの結果を読み込み中",
   "widget.noRows": "行がありません",
   "widget.points": "{{formattedCount}} ポイント",
@@ -717,6 +806,14 @@ const messages: AgentChatTranslation = {
   "widget.rows": "{{formattedCount}} 行",
   "widget.rows_other": "{{formattedCount}} 行",
   "widget.sampled": "サンプリング済み",
+  "settings.emailTitle": "メールアドレス",
+  "settings.emailChange": "メールアドレスを変更",
+  "settings.emailChanging": "送信中...",
+  "settings.emailChangeSent":
+    "この変更を確認する手順をメールでご確認ください。",
+  "settings.emailChangeError": "確認メールを送信できませんでした。",
+  "settings.emailNewLabel": "新しいメールアドレス",
+  "settings.emailNewPlaceholder": "新しいメールアドレスを入力",
 };
 
 export default messages;

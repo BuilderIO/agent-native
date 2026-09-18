@@ -28,6 +28,7 @@ import {
   updateWebContentsIdByTab,
   updateDesktopIdentityStatusByTab,
   orderDesktopApps,
+  resolveDesktopChatFirstPrimaryTab,
   MultiFrontierModeControl,
 } from "./CodeAgentsHub.js";
 import {
@@ -419,6 +420,17 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(shortcutSource).toContain('? ","');
   });
 
+  it("keeps the main-process active app synchronized when switching surface tabs", () => {
+    const hubSource = readFileSync(
+      "src/renderer/components/CodeAgentsHub.tsx",
+      "utf8",
+    );
+
+    expect(hubSource).toMatch(
+      /chatFirstSurfaceTabsStore\.activate\(tab\.id\);[\s\S]*?window\.electronAPI\?\.setActiveApp\?\.\([\s\S]*?tab\.appId[\s\S]*?CODE_AGENTS_SURFACE_ID/,
+    );
+  });
+
   it("orders pinned desktop apps ahead of unpinned apps and filters by name or description", () => {
     const apps = [
       {
@@ -569,8 +581,8 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(hubSource).toContain(
       "const canToggleChatFirstSurfacePanel = canRenderChatFirstSurfacePanel;",
     );
-    expect(hubSource).toContain(
-      "hasChatFirstActiveChat &&\n            !chatFirstAppSelected",
+    expect(hubSource).toMatch(
+      /hasChatFirstActiveChat &&\s*!chatFirstAppSelected/,
     );
     expect(hubSource).toContain(
       "canToggleChatFirstSurfacePanel\n                    ? chatFirstSurfacePanel.toggle",
@@ -971,5 +983,64 @@ describe("CodeAgentsHub app auth state", () => {
     expect(
       updateAppAuthStateByTab(unauthenticated, "dispatch-tab", "unknown"),
     ).toBe(unauthenticated);
+  });
+});
+
+describe("resolveDesktopChatFirstPrimaryTab", () => {
+  it("names the scheduled surface so the rail can deactivate app icons", () => {
+    expect(
+      resolveDesktopChatFirstPrimaryTab({
+        scheduledTasksOpen: true,
+        appSelected: false,
+        activeTab: null,
+      }),
+    ).toBe("scheduled");
+  });
+
+  it("keeps naming scheduled even if an app tab is still open underneath", () => {
+    expect(
+      resolveDesktopChatFirstPrimaryTab({
+        scheduledTasksOpen: true,
+        appSelected: true,
+        activeTab: { kind: "app", appId: "mail" },
+      }),
+    ).toBe("scheduled");
+  });
+
+  it("names the chats surface when nothing else owns the rail", () => {
+    expect(
+      resolveDesktopChatFirstPrimaryTab({
+        scheduledTasksOpen: false,
+        appSelected: false,
+        activeTab: null,
+      }),
+    ).toBe("new-chat");
+  });
+
+  it("names no tab when a workspace app owns the rail", () => {
+    expect(
+      resolveDesktopChatFirstPrimaryTab({
+        scheduledTasksOpen: false,
+        appSelected: true,
+        activeTab: { kind: "app", appId: "mail", path: "/inbox" },
+      }),
+    ).toBeUndefined();
+  });
+
+  it("maps the dispatch-hosted integrations and automations paths", () => {
+    expect(
+      resolveDesktopChatFirstPrimaryTab({
+        scheduledTasksOpen: false,
+        appSelected: true,
+        activeTab: { kind: "app", appId: "dispatch", path: "/integrations" },
+      }),
+    ).toBe("integrations");
+    expect(
+      resolveDesktopChatFirstPrimaryTab({
+        scheduledTasksOpen: false,
+        appSelected: true,
+        activeTab: { kind: "app", appId: "dispatch", path: "/automations" },
+      }),
+    ).toBe("scheduled");
   });
 });

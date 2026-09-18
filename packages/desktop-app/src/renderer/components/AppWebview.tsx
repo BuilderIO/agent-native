@@ -495,8 +495,6 @@ export interface AppWebviewHandle {
   ): void;
   focus(): void;
   getUrl(): string | undefined;
-  goBack(): void;
-  goForward(): void;
   reload(): void;
   toggleAgentSidebar(): void;
 }
@@ -1295,21 +1293,17 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
           if (currentUrl && currentUrl !== "about:blank") return currentUrl;
           return wv.src || url;
         },
-        goBack() {
-          const wv = webviewRef.current;
-          if (wv?.canGoBack()) wv.goBack();
-        },
-        goForward() {
-          const wv = webviewRef.current;
-          if (wv?.canGoForward()) wv.goForward();
-        },
         reload() {
           const wv = webviewRef.current;
           if (!wv || app.placeholder) return;
           try {
             wv.reloadIgnoringCache();
           } catch {
-            wv.reload();
+            try {
+              wv.reload();
+            } catch {
+              // The guest can detach between the two reload attempts.
+            }
           }
         },
         toggleAgentSidebar() {
@@ -1430,7 +1424,6 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
           });
         });
       };
-
       onAuthStateChangeRef.current?.("unknown");
 
       const onReady = () => {

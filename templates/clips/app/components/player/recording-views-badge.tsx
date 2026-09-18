@@ -49,8 +49,9 @@ interface AgentViewersResponse {
   views?: number;
   agentViews?: number;
   uniqueViewers?: number;
-  completionRate?: number;
-  ctaConversionRate?: number;
+  /** Null when no human viewer has been counted — render it as unknown, not 0%. */
+  completionRate?: number | null;
+  ctaConversionRate?: number | null;
   agentViewers: AgentViewerRow[];
 }
 

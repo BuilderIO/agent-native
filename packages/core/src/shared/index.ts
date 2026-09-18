@@ -11,6 +11,12 @@ export {
 } from "./agent-chat-context.js";
 export { agentEnv, type EnvVar } from "./agent-env.js";
 export {
+  APP_STATUS,
+  DEFAULT_APP_STATUS,
+  getAppStatus,
+  type AppStatus,
+} from "./app-status.js";
+export {
   extractOAuthStateAppId,
   extractOAuthStateProvider,
 } from "./oauth-state.js";
@@ -30,6 +36,16 @@ export {
   type SignInJourneyInput,
 } from "./sign-in-journey.js";
 export { truncate } from "./truncate.js";
+export {
+  MAX_USER_REGEX_INPUT_LENGTH,
+  MAX_USER_REGEX_LENGTH,
+  analyzeRegexSource,
+  compileUserRegex,
+  testUserRegex,
+  type RegexSafetyVerdict,
+  type UserRegexCompileResult,
+  type UserRegexTestResult,
+} from "./bounded-regex.js";
 export {
   isHumanReadableDocumentTitle,
   normalizeDocumentTitle,
@@ -113,6 +129,14 @@ export {
   type AgentNativeActionEventName,
   type AgentNativeLifecycleEventName,
 } from "./analytics-events.js";
+export {
+  BUILDER_CONNECT_PROVIDER,
+  BUILDER_CONNECT_PROVIDER_LABEL,
+  connectRequiredResult,
+  normalizeConnectRequiredResult,
+  type ConnectRequiredCard,
+  type ConnectRequiredResult,
+} from "./connect-required.js";
 export {
   DISPATCH_WORKSPACE_ROOT_REDIRECTS,
   RESERVED_WORKSPACE_APP_IDS,

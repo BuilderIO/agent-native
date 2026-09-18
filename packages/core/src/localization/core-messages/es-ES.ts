@@ -1,6 +1,7 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "activity.reasoning": "Razonamiento",
   "approval.alwaysAllow": "Permitir siempre",
   "approval.alwaysAllowHint": "Aprobar y permitir siempre este comando exacto",
   "approval.alwaysAllowAction": "Permitir siempre esta acción",
@@ -76,15 +77,32 @@ const messages: AgentChatTranslation = {
     "Creando o reutilizando tu cuenta de Builder.io. Esto suele tardar unos segundos.",
   "onboarding.builderConnectionDescription":
     "Finaliza la conexión con un clic en la nueva ventana.",
+  "onboarding.builderReadyWithCodeChanges":
+    "Los créditos de IA y los cambios de código en la nube están listos para usarse.",
+  "onboarding.builderReadyCreditsOnly":
+    "Los créditos de IA están listos para usarse. Las ediciones de código en la nube requieren un proyecto de Builder en la configuración del agente en segundo plano.",
+  "onboarding.openBackgroundAgentSettings":
+    "Abrir la configuración del agente en segundo plano",
   "onboarding.capability.llm.keySummary":
     "Conecta un proveedor de IA o un modelo local",
   "onboarding.capability.fileStorage.keySummary":
     "Almacenamiento de Builder o un bucket compatible con S3",
+  "onboarding.fileStorage.title": "Elige el almacenamiento de archivos",
+  "onboarding.fileStorage.description":
+    "Elige el almacenamiento administrado de Builder o tus propias claves para un bucket compatible con S3.",
+  "onboarding.fileStorage.custom": "Usar claves de almacenamiento propias",
+  "onboarding.fileStorage.customDescription":
+    "Configura un bucket compatible con S3 con una URL pública estable.",
   "onboarding.capability.voiceInput.label": "Entrada de voz",
   "onboarding.capability.voiceInput.keySummary":
     "Reconocimiento de voz del navegador o conversión de voz a texto",
   "onboarding.capability.voiceInput.why":
     "La entrada de voz convierte tus solicitudes habladas en texto; escribir siempre funciona.",
+  "onboarding.capability.embeddings.label": "Vectores semánticos",
+  "onboarding.capability.embeddings.keySummary":
+    "Clave de Gemini, Cohere o Voyage",
+  "onboarding.capability.embeddings.why":
+    "Los vectores semánticos mejoran la búsqueda semántica. La búsqueda por palabras clave sigue funcionando sin ellos.",
   "onboarding.capability.assetsImageGeneration.label": "Generación de imágenes",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Créditos de Builder o una clave de proveedor de imágenes",
@@ -114,6 +132,16 @@ const messages: AgentChatTranslation = {
   "common.agent": "Agente",
   "agentPanel.mode": "Modo",
   "agentPanel.uiMode": "Interfaz de usuario",
+  "agentPanel.keyScope": "Ámbito de la clave",
+  "agentPanel.personalKeyScope": "Personal",
+  "agentPanel.organizationKeyScope": "Organización",
+  "agentPanel.personalKeyInEffect": "Se está usando tu clave personal.",
+  "agentPanel.organizationKeyInEffect":
+    "Se está usando la clave de la organización.",
+  "agentPanel.sharedKeyInEffect": "Se está usando una clave compartida.",
+  "agentPanel.useOrganizationKey": "Usar clave de la organización",
+  "agentPanel.keyStatusUnavailable":
+    "No se pudo consultar el estado de la clave.",
   "agentHostNudge.sidebarTitle": "Usa el chat de {{agent}}",
   "agentHostNudge.sidebarDescription":
     "Ya estás chateando con {{agent}}. Pídele que trabaje directamente con esta app.",
@@ -136,6 +164,61 @@ const messages: AgentChatTranslation = {
   "common.no": "No",
   "common.retry": "Reintentar",
   "common.save": "Guardar",
+  "agents.hostedAgent": "Agente alojado",
+  "agents.provider": "Proveedor",
+  "agents.providerA2A": "Agente A2A (Foundry, Gemini o personalizado)",
+  "agents.providerAnthropic": "Agentes administrados de Anthropic",
+  "agents.agentId": "ID del agente",
+  "agents.agentIdPlaceholder": "agent_...",
+  "agents.environmentId": "ID del entorno",
+  "agents.environmentIdPlaceholder": "env_...",
+  "agents.apiBaseUrl": "URL base de la API (opcional)",
+  "agents.apiBaseUrlPlaceholder": "https://api.anthropic.com",
+  "agents.managedAgentIncomplete":
+    "Completa los campos de Anthropic Managed Agents.",
+  "agents.managedAgentCheck":
+    "La conexión se comprueba cuando delegas desde el chat.",
+  "agents.managedAgentSaved":
+    "Anthropic Managed Agent guardado. Delega en él desde el chat.",
+  "agents.cardUrl": "URL de la tarjeta del agente",
+  "agents.cardUrlPlaceholder": "https://host.example/agent-card.json",
+  "agents.authType": "Autenticación",
+  "agents.authNone": "Sin autenticación",
+  "agents.authBearer": "Token Bearer",
+  "agents.authClientCredentials": "Credenciales de cliente OAuth",
+  "agents.chooseCredential": "Elegir credencial",
+  "agents.vault": "Bóveda",
+  "agents.tokenUrl": "URL del token",
+  "agents.clientId": "ID de cliente",
+  "agents.scope": "Ámbito",
+  "agents.authIncomplete":
+    "Completa los campos de autenticación del agente alojado.",
+  "agents.invalidUrl":
+    "Las URL de los agentes deben usar HTTPS, salvo las URL de desarrollo localhost o de bucle local.",
+  "agents.statusReachable": "Accesible",
+  "agents.statusAuthRejected": "Autenticación rechazada",
+  "agents.statusNoJsonRpc": "Sin JSON-RPC",
+  "agents.directoryTab": "Directorio de agentes",
+  "agents.directoryPageHint":
+    "Encuentra un backend de agentes y conéctalo a tu espacio de trabajo.",
+  "agents.directorySearch": "Buscar proveedores",
+  "agents.directoryProviders": "Proveedores",
+  "agents.directoryManual": "Añadir por URL",
+  "agents.directoryA2A": "A2A",
+  "agents.directoryManaged": "API administrada",
+  "agents.directoryFoundry": "Microsoft Foundry",
+  "agents.directoryFoundryHint": "Conecta un agente de Foundry mediante A2A.",
+  "agents.directoryGemini": "Gemini Enterprise",
+  "agents.directoryGeminiHint":
+    "Conecta un agente de Gemini Enterprise mediante A2A.",
+  "agents.directoryAnthropic": "Agentes administrados de Anthropic",
+  "agents.directoryAnthropicHint":
+    "Conecta sesiones y aprobaciones de Anthropic.",
+  "agents.directoryNoMatches": "Ningún proveedor coincide con tu búsqueda.",
+  "agents.directoryRegistry": "Registro global de A2A",
+  "agents.directoryRegistryHint":
+    "Explora Agent Cards públicas y verifícalas antes de conectar.",
+  "agents.directoryBrowse": "Explorar registro",
   "common.saveFailed": "Error al guardar",
   "common.saveFailedStatus": "Error al guardar ({{status}})",
   "common.saving": "Guardando...",
@@ -313,6 +396,7 @@ const messages: AgentChatTranslation = {
   "status.preparing": "Preparando {{activity}}...",
   "status.writing": "Escribiendo {{activity}}...",
   "status.stillGenerating": "Sigue generando {{activity}}",
+  "status.runningTool": "Ejecutando {{activity}}",
   "tabs.allChats": "Todos los chats",
   "tabs.closeTab": "Cerrar pestaña",
   "tabs.main": "Principal",
@@ -348,6 +432,7 @@ const messages: AgentChatTranslation = {
   "widget.dataInsights": "Información sobre los datos",
   "widget.dataTable": "Tabla de datos",
   "widget.downloadCsv": "Descargar CSV",
+  "widget.connectProvider": "Conectar {{provider}}",
   "widget.loadingToolResult": "Cargando el resultado de la herramienta",
   "widget.noRows": "No hay filas",
   "widget.points": "{{formattedCount}} puntos",
@@ -596,6 +681,8 @@ const messages: AgentChatTranslation = {
   "widget.rows_other": "{{formattedCount}} filas",
   "errorMessages.agentConnection":
     "Se interrumpió la conexión con el agente. Comprueba tu conexión y vuelve a intentarlo.",
+  "errorMessages.attachmentPasswordProtected":
+    "Este PDF está protegido con contraseña y no se puede leer. Quita la protección con contraseña o pega el texto relevante, y vuelve a intentarlo.",
   "errorMessages.builderAuthentication":
     "Builder rechazó las credenciales conectadas. Vuelve a conectar Builder.io en Ajustes e inténtalo de nuevo.",
   "errorMessages.builderModelUnauthorized":
@@ -605,10 +692,16 @@ const messages: AgentChatTranslation = {
     "La pasarela del modelo tuvo un error interno antes de que el agente pudiera responder. Vuelve a intentarlo en un momento e indica el id de error de abajo si sigue ocurriendo.",
   "errorMessages.gatewayNoDetails":
     "La pasarela del modelo no devolvió detalles del error y el chat no pudo recuperarse. Espera un momento y vuelve a intentarlo. Si el problema continúa, inicia un chat nuevo.",
+  "errorMessages.creditsLimitReached":
+    "Has alcanzado el límite de créditos de IA.",
   "errorMessages.inactivityTimeout":
     "La conexión del agente expiró antes de que pudiera finalizar. Puedes continuar desde el trabajo parcial o volver a intentarlo.",
   "errorMessages.invalidToolSchema":
     "El esquema de una herramienta no era válido, así que el modelo rechazó la solicitud antes de iniciarla. Puedes omitir la herramienta no válida y volver a intentarlo.",
+  "errorMessages.malformedRequest":
+    "El proveedor del modelo rechazó esta solicitud por estar mal formada, así que no se reintentó. Vuelve a intentarlo o inicia un chat nuevo si sigue ocurriendo.",
+  "errorMessages.malformedRequestAttachment":
+    "El modelo rechazó un archivo adjunto, así que este mensaje nunca se envió. Quita el adjunto y vuelve a intentarlo: un PDF, un archivo de texto plano o una imagen JPEG, PNG, GIF o WebP se leen directamente; los demás formatos deben subirse y enlazarse.",
   "errorMessages.noProviderConnected":
     "No hay ningún proveedor de LLM conectado. Abre Configuración > Agente > Proveedores de IA y, a continuación, conecta Builder.io (nivel gratuito disponible) o añade una clave de proveedor.",
   "errorMessages.openBuilderSpaceSettings":
@@ -632,6 +725,7 @@ const messages: AgentChatTranslation = {
   "feedback.notHelpful": "Poco útil",
   "feedback.placeholder": "Cuéntanos qué salió mal...",
   "feedback.submit": "Enviar",
+  "feedback.submitted": "Comentarios enviados",
   "feedback.thumbsDown": "No me gusta",
   "feedback.thumbsUp": "Me gusta",
   "feedback.tooSlow": "Demasiado lento",
@@ -755,6 +849,13 @@ const messages: AgentChatTranslation = {
   "share.viewer": "Lector",
   "share.viewerDescription": "Puede ver",
   "share.userGroup": "Grupo de usuarios",
+  "settings.emailTitle": "Correo electrónico",
+  "settings.emailChange": "Cambiar correo electrónico",
+  "settings.emailChanging": "Enviando...",
+  "settings.emailChangeSent": "Revisa tu correo para confirmar este cambio.",
+  "settings.emailChangeError": "No se pudo enviar la confirmación.",
+  "settings.emailNewLabel": "Correo electrónico nuevo",
+  "settings.emailNewPlaceholder": "Introduce un correo nuevo",
 };
 
 export default messages;

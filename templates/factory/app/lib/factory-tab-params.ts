@@ -9,6 +9,9 @@ export type WorkspaceTab =
   | "audit"
   | "history";
 
+/** Selection survives tab switches so Automations does not fall back to row 0. */
+const SHARED_RETAINED_PARAMS = ["factoryId", "automationId"] as const;
+
 const TAB_OWNED_PARAMS: Record<WorkspaceTab, readonly string[]> = {
   overview: [],
   map: ["node", "edge"],
@@ -25,7 +28,10 @@ export function retainFactoryTabParams(
   current: URLSearchParams,
   tab: WorkspaceTab,
 ): URLSearchParams {
-  const allowed = new Set<string>(["factoryId", ...TAB_OWNED_PARAMS[tab]]);
+  const allowed = new Set<string>([
+    ...SHARED_RETAINED_PARAMS,
+    ...TAB_OWNED_PARAMS[tab],
+  ]);
   if (tab !== "inbox") allowed.add("tab");
   const next = new URLSearchParams();
   for (const key of allowed) {

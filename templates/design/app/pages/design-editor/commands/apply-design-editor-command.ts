@@ -53,14 +53,19 @@ export interface ApplyDesignEditorCommandArgs {
   >;
   setMode: Dispatch<SetStateAction<EditorMode>>;
   setPinMode: Dispatch<SetStateAction<boolean>>;
+  setOverviewSelectedScreenIds: Dispatch<SetStateAction<string[]>>;
   setScreenZoom: Dispatch<SetStateAction<number>>;
   setSelectedElement: Dispatch<SetStateAction<ElementInfo | null>>;
   setSelectedLayerIdsState: Dispatch<SetStateAction<string[]>>;
   setViewMode: Dispatch<SetStateAction<"single" | "overview">>;
+  pendingOverviewScreenSelectionRef?: RefObject<string | null>;
   setZoomForView: (
     targetView: "single" | "overview",
     update: SetStateAction<number>,
   ) => void;
+  /** The design payload is loaded, so overview zoom conversion has a real
+   * screen list and persisted frame scale rather than the pre-load fallback. */
+  overviewDataReady?: boolean;
   viewModeRef: RefObject<"single" | "overview">;
   /**
    * Reveals a screen on the overview canvas the same way a freshly-created
@@ -87,12 +92,15 @@ export function runApplyDesignEditorCommand(
     setInteractDeviceName,
     setInteractDeviceSize,
     setMode,
+    setOverviewSelectedScreenIds,
     setPinMode,
     setScreenZoom,
     setSelectedElement,
     setSelectedLayerIdsState,
     setViewMode,
     setZoomForView,
+    pendingOverviewScreenSelectionRef,
+    overviewDataReady = true,
     viewModeRef,
     requestCameraFit,
   }: ApplyDesignEditorCommandArgs,
@@ -131,6 +139,8 @@ export function runApplyDesignEditorCommand(
   // re-applied on the next tick once the file loads — not just when there are
   // zero files. Otherwise the navigate is silently consumed and dropped.
   if (target && !targetFile) return false;
+
+  const targetView = editorView ?? viewModeRef.current;
 
   const inspectorTab =
     command.inspectorTab === "design" ||
@@ -171,6 +181,12 @@ export function runApplyDesignEditorCommand(
 
   if (targetFile) {
     setActiveFileId(targetFile.id);
+    if (targetView === "overview") {
+      if (pendingOverviewScreenSelectionRef) {
+        pendingOverviewScreenSelectionRef.current = targetFile.id;
+      }
+      setOverviewSelectedScreenIds([targetFile.id]);
+    }
   }
   if (selectionId) {
     setSelectedLayerIdsState([selectionId]);
@@ -180,7 +196,6 @@ export function runApplyDesignEditorCommand(
     typeof command.zoom === "number" && Number.isFinite(command.zoom)
       ? clampZoom(command.zoom)
       : null;
-  const targetView = editorView ?? viewModeRef.current;
   // Zoom-compounding fix — see shouldDeferOverviewZoomCommand's doc
   // comment: converting a persisted overview zoom back to canvas units
   // needs the REAL overviewZoomScale (known only once `files` loads), so
@@ -193,7 +208,10 @@ export function runApplyDesignEditorCommand(
     shouldDeferOverviewZoomCommand({
       hasZoomCommand: commandZoom !== null,
       targetView,
-      filesLoaded: files.length > 0,
+      filesLoaded:
+        files.length > 0 &&
+        (targetView !== "overview" ||
+          (overviewDataReady && overviewScreens.length > 0)),
     })
   ) {
     return false;
@@ -216,7 +234,7 @@ export function runApplyDesignEditorCommand(
     const targetScreen = targetFile
       ? overviewScreens.find((screen) => screen.id === targetFile.id)
       : undefined;
-    if (targetScreen && requestCameraFit) {
+    if (targetScreen && requestCameraFit && commandZoom === null) {
       const geometry = resolveFrameGeometrySync({
         screens: overviewScreens.map((screen) => ({
           id: screen.id,

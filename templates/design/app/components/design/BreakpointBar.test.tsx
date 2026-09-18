@@ -341,10 +341,13 @@ describe("BreakpointDeviceControl — Base segment and selection state", () => {
 describe("parseBreakpointWidthInput", () => {
   it("accepts a valid width in range", () => {
     expect(parseBreakpointWidthInput("500", [])).toBe(500);
+    expect(parseBreakpointWidthInput("1e3", [])).toBe(1000);
   });
 
   it("rejects non-numeric input", () => {
     expect(parseBreakpointWidthInput("abc", [])).toBeNull();
+    expect(parseBreakpointWidthInput("500px", [])).toBeNull();
+    expect(parseBreakpointWidthInput("500.5", [])).toBeNull();
   });
 
   it("rejects widths below 320 or above 3840", () => {

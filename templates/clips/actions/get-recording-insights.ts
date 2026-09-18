@@ -8,6 +8,9 @@
  * uniqueViewers (distinct people behind those views), completionRate,
  * dropOff (100 buckets), ctaConversionRate.
  *
+ * completionRate and ctaConversionRate are null — never 0 — when no human
+ * viewer has been counted yet, so an agent-only clip does not read as 0%.
+ *
  * Usage:
  *   pnpm action get-recording-insights --recordingId=<id>
  */
@@ -80,13 +83,18 @@ export default defineAction({
     // number instead of 0, and so total can never read below uniqueViewers.
     const views = Math.max(Number(viewLogRow?.value ?? 0), countedViewers);
 
+    // Completion is a human-playback average. Agents read a clip through the
+    // agent APIs and never report progress, so a clip whose only audience is
+    // agents has no completion sample — null, not 0. "Nobody has watched it"
+    // and "everyone bounced at the first frame" are different facts, and only
+    // the second one is 0%.
     const completionRate =
-      countedViewerRows.length === 0
-        ? 0
+      countedViewers === 0
+        ? null
         : countedViewerRows.reduce(
             (acc, v) => acc + clampCompletionPct(v.completedPct),
             0,
-          ) / countedViewerRows.length;
+          ) / countedViewers;
 
     // Drop-off: 100 buckets across the video's duration.
     // Use the recording's duration as the denominator.
@@ -115,7 +123,7 @@ export default defineAction({
     // `views`, which counts repeat sessions from the same viewer.
     const ctaConversionRate =
       countedViewers === 0
-        ? 0
+        ? null
         : Math.min(100, (ctaClicks / countedViewers) * 100);
     const reactions = Number(reactionCountRow?.value ?? 0);
 

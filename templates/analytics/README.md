@@ -26,7 +26,7 @@ you can do in the UI, the agent can do through the same actions.
 Scaffold your own copy and run it:
 
 ```bash
-npx @agent-native/core@latest create my-analytics --standalone --template analytics
+npx --yes @agent-native/core@latest create my-analytics --standalone --template analytics
 cd my-analytics
 pnpm install
 pnpm dev

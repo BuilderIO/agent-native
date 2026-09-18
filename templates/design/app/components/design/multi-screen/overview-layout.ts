@@ -1,3 +1,4 @@
+import { getRotatedFrameAABB, type FrameBounds } from "@shared/canvas-math";
 import type { CSSProperties } from "react";
 
 import type { FrameGeometry } from "./types";
@@ -272,4 +273,84 @@ export function boardSurfaceLocalPointToBoardPoint(
     x: renderGeometry.x + point.x,
     y: renderGeometry.y + point.y,
   };
+}
+
+/** Converts the board bridge's iframe-local selection box into world-space
+ * bounds using the current finite board render window. */
+export function getBoardSelectionWorldBounds(args: {
+  rect: { left: number; top: number; width: number; height: number };
+  rotationDeg?: number;
+  contentOffsetX: number;
+  contentOffsetY: number;
+}): FrameBounds {
+  const origin = boardSurfaceLocalPointToBoardPoint(
+    { x: args.rect.left, y: args.rect.top },
+    {
+      x: -args.contentOffsetX,
+      y: -args.contentOffsetY,
+      width: args.rect.width,
+      height: args.rect.height,
+    },
+  );
+  return getRotatedFrameAABB({
+    ...origin,
+    width: args.rect.width,
+    height: args.rect.height,
+    rotation: args.rotationDeg ?? 0,
+  });
+}
+
+/** Returns cached Board geometry only while the current layer selection still
+ * owns the screen and selector that produced it. */
+export function getCurrentBoardSelectionWorldBounds(args: {
+  selection: {
+    screenId: string;
+    selector: string;
+    memberSelectors?: readonly string[];
+    memberSourceIds?: readonly string[];
+    worldBounds: FrameBounds;
+  } | null;
+  boardFileId?: string | null;
+  ownerFileId?: string | null;
+  selectedLayerId?: string;
+  sourceLayerIdentity?: { screenId: string; nodeId: string };
+  currentSelectors: readonly string[];
+  currentSourceIds?: readonly string[];
+}): FrameBounds | null {
+  const { selection, boardFileId, ownerFileId, selectedLayerId } = args;
+  if (
+    !selection ||
+    !boardFileId ||
+    ownerFileId !== boardFileId ||
+    selection.screenId !== ownerFileId ||
+    args.sourceLayerIdentity?.screenId !== ownerFileId ||
+    !selectedLayerId ||
+    args.sourceLayerIdentity.nodeId !== selectedLayerId
+  ) {
+    return null;
+  }
+  if (selection.memberSourceIds) {
+    const currentSourceIds = args.currentSourceIds ?? [];
+    const unmatched = [...selection.memberSourceIds];
+    if (
+      currentSourceIds.length !== unmatched.length ||
+      new Set(unmatched).size !== unmatched.length ||
+      new Set(currentSourceIds).size !== currentSourceIds.length
+    ) {
+      return null;
+    }
+    for (const sourceId of currentSourceIds) {
+      const match = unmatched.indexOf(sourceId);
+      if (match === -1) return null;
+      unmatched.splice(match, 1);
+    }
+    return unmatched.length === 0 ? selection.worldBounds : null;
+  }
+  if (
+    (args.currentSourceIds?.length ?? 0) > 1 ||
+    !args.currentSelectors.includes(selection.selector)
+  ) {
+    return null;
+  }
+  return selection.worldBounds;
 }

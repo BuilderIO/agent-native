@@ -6,6 +6,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { getDesignCanvasIframeAllow } from "./design-canvas/external-preview";
 import { DesignCanvas } from "./DesignCanvas";
 
 let container: HTMLDivElement;
@@ -60,6 +61,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
       });
     });
     const bridgeUrl = `http://127.0.0.1:${iframePort}`;
+    const onBootReady = vi.fn();
     let resolveRegistration!: (response: Response) => void;
     const registration = new Promise<Response>((resolve) => {
       resolveRegistration = resolve;
@@ -78,6 +80,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
           sourceType="localhost"
           bridgeUrl={bridgeUrl}
           previewToken="registration-preview-token"
+          onBootReady={onBootReady}
           zoom={100}
           deviceFrame="none"
           editMode
@@ -115,6 +118,11 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
     expect(liveIframe?.hasAttribute("srcdoc")).toBe(false);
 
     await act(async () => {
+      liveIframe?.dispatchEvent(new Event("load"));
+    });
+    expect(onBootReady).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
       window.dispatchEvent(
         new MessageEvent("message", {
           data: { type: "agent-native:editor-chrome-ready" },
@@ -126,6 +134,102 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
     expect(container.querySelector("iframe[data-design-preview-iframe]")).toBe(
       liveIframe,
     );
+  });
+
+  it("stops retrying a stale bridge token and tells the user to reconnect the screen", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = requestInfoUrl(input);
+      if (url.endsWith("/live-edit-bridge") || url.includes("/snapshot?")) {
+        return Promise.resolve(new Response("Unauthorized", { status: 401 }));
+      }
+      return Promise.reject(new Error(`Unexpected fetch: ${url}`));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(
+        <DesignCanvas
+          content="http://localhost:5173/account"
+          contentKey="screen-account"
+          screenId="screen-account"
+          sourceType="localhost"
+          bridgeUrl="http://127.0.0.1:7331"
+          previewToken="stale-preview-token"
+          onExternalContentSnapshot={() => {}}
+          zoom={100}
+          deviceFrame="none"
+          editMode
+          interactMode={false}
+          onElementSelect={() => {}}
+          onElementHover={() => {}}
+          tweakValues={{}}
+        />,
+      );
+    });
+
+    await vi.waitFor(() => {
+      expect(
+        fetchMock.mock.calls.filter(([input]) =>
+          requestInfoUrl(input).endsWith("/live-edit-bridge"),
+        ),
+      ).toHaveLength(1);
+      expect(
+        fetchMock.mock.calls.filter(([input]) =>
+          requestInfoUrl(input).includes("/snapshot?"),
+        ),
+      ).toHaveLength(1);
+      expect(container.textContent).toContain("Reconnect this screen");
+    });
+
+    await new Promise((resolve) => window.setTimeout(resolve, 1800));
+    expect(
+      fetchMock.mock.calls.filter(([input]) =>
+        requestInfoUrl(input).endsWith("/live-edit-bridge"),
+      ),
+    ).toHaveLength(1);
+    expect(
+      fetchMock.mock.calls.filter(([input]) =>
+        requestInfoUrl(input).includes("/snapshot?"),
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("allows Chrome local-network access on the raw localhost fallback", async () => {
+    expect(
+      getDesignCanvasIframeAllow("https://design.agent-native.com/app"),
+    ).toBe(undefined);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(new TypeError("Failed to fetch"))),
+    );
+
+    await act(async () => {
+      root.render(
+        <DesignCanvas
+          content="http://localhost:5173/account"
+          contentKey="screen-account"
+          screenId="screen-account"
+          sourceType="localhost"
+          bridgeUrl="http://127.0.0.1:7331"
+          previewToken="permission-preview-token"
+          zoom={100}
+          deviceFrame="none"
+          editMode
+          interactMode={false}
+          onElementSelect={() => {}}
+          onElementHover={() => {}}
+          tweakValues={{}}
+        />,
+      );
+    });
+
+    await vi.waitFor(() => {
+      const iframe = container.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      expect(iframe?.src).toBe("http://localhost:5173/account");
+      expect(iframe?.getAttribute("allow")).toBe("local-network-access");
+    });
   });
 
   it("mounts source verification in a separate hidden runtime without replacing the editable iframe", async () => {

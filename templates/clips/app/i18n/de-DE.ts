@@ -82,6 +82,7 @@ const messages = {
     createFolderError: "Erstellen fehlgeschlagen",
     folderCreated: "Ordner erstellt",
     folderNamePlaceholder: "Ordnername",
+    breadcrumbBack: "Zurück zu {{label}}",
   },
   empty: {
     library: {
@@ -669,6 +670,7 @@ const messages = {
     organizationFallback: "Organisation",
     saving: "Sparen…",
     save: "Speichern",
+    saved: "Gespeichert",
   },
   downloadRoute: {
     pageTitle: "Laden Sie Clips Desktop herunter",
@@ -1886,6 +1888,13 @@ const messages = {
     capturedFrom: "Erfasst von {{source}}",
     browserCapture: "Browseraufnahme",
     views: "Diagnoseansichten",
+    timeline: "Zeitachse",
+    navigation: "Navigation",
+    click: "Klick",
+    input: "Eingabe",
+    scroll: "Scrollen",
+    requestStarted: "Anfrage gestartet",
+    responseReceived: "Antwort empfangen",
     issues: "Probleme",
     consoleSource: "Konsole",
     networkSource: "Netzwerk",

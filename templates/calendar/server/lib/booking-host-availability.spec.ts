@@ -13,6 +13,7 @@ vi.mock("./google-calendar.js", () => ({
 import type { BookingLink } from "../../shared/api";
 import {
   getEligibleHostAvailability,
+  getHostOverlayStatuses,
   withHostTimezones,
 } from "./booking-host-availability";
 
@@ -298,5 +299,143 @@ describe("withHostTimezones", () => {
     expect(
       result.publicHosts?.every((host) => host.timezone === undefined),
     ).toBe(true);
+  });
+});
+
+describe("getHostOverlayStatuses", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getGoogleAccountTimezoneMock.mockResolvedValue(null);
+  });
+
+  it("returns nothing when the owner has no overlay people", async () => {
+    getUserSettingMock.mockResolvedValue(null);
+
+    await expect(
+      getHostOverlayStatuses("owner@example.com", ["cohost@example.com"]),
+    ).resolves.toEqual([]);
+  });
+
+  it("drops candidates that are not in the owner's overlay list", async () => {
+    getUserSettingMock.mockImplementation(
+      withReciprocalOverlay("peer@example.com", () => null),
+    );
+
+    await expect(
+      getHostOverlayStatuses("owner@example.com", ["stranger@example.com"]),
+    ).resolves.toEqual([]);
+  });
+
+  it("reports not-reciprocal for an overlaid host who has not added the owner back", async () => {
+    getUserSettingMock.mockImplementation(
+      async (email: string, key: string) => {
+        if (
+          email === "owner@example.com" &&
+          key === "calendar-overlay-people"
+        ) {
+          return {
+            people: [
+              { email: "peer@example.com", color: "#fff", name: "Peer" },
+            ],
+          };
+        }
+        // Peer's overlay list does not contain the owner.
+        if (email === "peer@example.com" && key === "calendar-overlay-people") {
+          return { people: [] };
+        }
+        return null;
+      },
+    );
+
+    await expect(
+      getHostOverlayStatuses("owner@example.com", ["peer@example.com"]),
+    ).resolves.toEqual([
+      {
+        email: "peer@example.com",
+        isOverlaidByOwner: true,
+        reciprocal: false,
+        hasWorkingHours: false,
+        displayName: "Peer",
+      },
+    ]);
+  });
+
+  it("never reads the peer's schedule settings when the peer is not reciprocal", async () => {
+    getUserSettingMock.mockImplementation(
+      async (email: string, key: string) => {
+        if (
+          email === "owner@example.com" &&
+          key === "calendar-overlay-people"
+        ) {
+          return { people: [{ email: "peer@example.com", color: "#fff" }] };
+        }
+        if (email === "peer@example.com" && key === "calendar-overlay-people") {
+          return { people: [] };
+        }
+        return null;
+      },
+    );
+
+    await getHostOverlayStatuses("owner@example.com", ["peer@example.com"]);
+
+    expect(getUserSettingMock).not.toHaveBeenCalledWith(
+      "peer@example.com",
+      "calendar-availability",
+    );
+    expect(getGoogleAccountTimezoneMock).not.toHaveBeenCalled();
+  });
+
+  it("reports reciprocal but no working hours when the peer saved no schedule", async () => {
+    getUserSettingMock.mockImplementation(
+      withReciprocalOverlay("peer@example.com", (_email, key) =>
+        key === "calendar-settings" ? { timezone: "America/New_York" } : null,
+      ),
+    );
+
+    await expect(
+      getHostOverlayStatuses("owner@example.com", ["peer@example.com"]),
+    ).resolves.toEqual([
+      {
+        email: "peer@example.com",
+        isOverlaidByOwner: true,
+        reciprocal: true,
+        hasWorkingHours: false,
+        timezone: "America/New_York",
+        displayName: undefined,
+      },
+    ]);
+  });
+
+  it("reports working hours when the peer has both a schedule and a timezone", async () => {
+    getUserSettingMock.mockImplementation(
+      withReciprocalOverlay("peer@example.com", (_email, key) =>
+        key === "calendar-availability"
+          ? { weeklySchedule: WEEKLY_SCHEDULE, timezone: "Europe/Berlin" }
+          : null,
+      ),
+    );
+
+    await expect(
+      getHostOverlayStatuses("owner@example.com", ["peer@example.com"]),
+    ).resolves.toEqual([
+      {
+        email: "peer@example.com",
+        isOverlaidByOwner: true,
+        reciprocal: true,
+        hasWorkingHours: true,
+        timezone: "Europe/Berlin",
+        displayName: undefined,
+      },
+    ]);
+  });
+
+  it("never reports the owner as their own host", async () => {
+    getUserSettingMock.mockImplementation(
+      withReciprocalOverlay("peer@example.com", () => null),
+    );
+
+    await expect(
+      getHostOverlayStatuses("owner@example.com", ["owner@example.com"]),
+    ).resolves.toEqual([]);
   });
 });

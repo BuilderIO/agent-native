@@ -11,6 +11,8 @@ import {
 } from "../agent/engine/credential-errors.js";
 import {
   CONTINUATION_REASONS,
+  normalizeAgentActionScope,
+  type AgentActionScope,
   type AgentChatStructuredContentPart,
   type AgentChatStructuredMessage,
 } from "../agent/types.js";
@@ -18,6 +20,7 @@ import { ANALYTICS_CLIENT_PLATFORM_HEADER } from "../shared/analytics-platform.j
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import {
   clearPendingTurnIfMatches,
+  getPendingTurn,
   getActiveRun,
   setActiveRun,
   updateActiveRunSeq,
@@ -1796,7 +1799,7 @@ function shouldCaptureRecoveryHttpStatus(status: number): boolean {
   return status < 500 || status >= 600;
 }
 
-function generateTurnId(): string {
+export function generateAgentChatTurnId(): string {
   if (
     typeof crypto !== "undefined" &&
     typeof crypto.randomUUID === "function"
@@ -2169,6 +2172,7 @@ export function createAgentChatAdapter(
   };
   const tabId = options?.tabId;
   const threadId = options?.threadId;
+  const activeRunTabId = tabId ?? threadId;
   const modelRef = options?.modelRef;
   const engineRef = options?.engineRef;
   const effortRef = options?.effortRef;
@@ -2244,6 +2248,18 @@ export function createAgentChatAdapter(
         typeof runConfig.custom === "object" &&
         (runConfig.custom as { trackInRunsTray?: unknown }).trackInRunsTray ===
           true;
+      const actionScope: AgentActionScope | undefined = (() => {
+        if (
+          !runConfig?.custom ||
+          typeof runConfig.custom !== "object" ||
+          !("actionScope" in runConfig.custom)
+        ) {
+          return undefined;
+        }
+        return normalizeAgentActionScope(
+          (runConfig.custom as { actionScope?: unknown }).actionScope,
+        );
+      })();
       // Names what the turn is for (`sendToAgentChat({ usageLabel })`). Rides
       // the run config so a queued send keeps its label when it finally flushes,
       // and every auto-continuation of the turn re-sends the same one.
@@ -2316,7 +2332,7 @@ export function createAgentChatAdapter(
             : undefined;
         return typeof raw === "string" && raw.trim() ? raw.trim() : undefined;
       })();
-      const turnId = requestedTurnId ?? generateTurnId();
+      const turnId = requestedTurnId ?? generateAgentChatTurnId();
       let streamTransportFallbackUsed = false;
 
       const withRequestModeMetadata = (
@@ -2335,6 +2351,7 @@ export function createAgentChatAdapter(
               ...custom,
               turnId,
               ...(requestMode ? { requestMode } : {}),
+              ...(actionScope ? { actionScope } : {}),
             },
           },
         };
@@ -2380,17 +2397,42 @@ export function createAgentChatAdapter(
 
       const content: ContentPart[] = [];
       const toolCallCounter = { value: 0 };
-      if (threadId) setPendingTurn({ threadId, turnId });
+      if (threadId) {
+        setPendingTurn({
+          threadId,
+          turnId,
+          ...(activeRunTabId ? { tabId: activeRunTabId } : {}),
+        });
+      }
       let runId: string | null = null;
       let lastSeq = -1;
+      const hasPendingSuccessorRequest = () => {
+        const pendingTurn = getPendingTurn();
+        const pendingTurnBelongsToSurface = pendingTurn?.tabId
+          ? pendingTurn.tabId === activeRunTabId
+          : pendingTurn?.threadId === threadId;
+        return Boolean(
+          pendingTurn &&
+          pendingTurnBelongsToSurface &&
+          (pendingTurn.threadId !== threadId || pendingTurn.turnId !== turnId),
+        );
+      };
+      const activeRunMatchesTab = (
+        activeRun: ReturnType<typeof getActiveRun>,
+      ) =>
+        !activeRun?.tabId ||
+        !activeRunTabId ||
+        activeRun.tabId === activeRunTabId;
       const ownsActiveRunState = () => {
+        if (hasPendingSuccessorRequest()) return false;
         const activeRun = getActiveRun();
         return (
           !activeRun ||
           (!!threadId &&
             !!runId &&
             activeRun.threadId === threadId &&
-            activeRun.runId === runId)
+            activeRun.runId === runId &&
+            activeRunMatchesTab(activeRun))
         );
       };
       const clearOwnedActiveRun = () => {
@@ -2407,7 +2449,7 @@ export function createAgentChatAdapter(
       const streamOwnershipToken = createRunStreamToken(`adapter:${turnId}`);
       const takeRunStreamOwnership = () => {
         if (threadId && runId) {
-          preemptRunStream(threadId, runId, streamOwnershipToken);
+          preemptRunStream(threadId, runId, streamOwnershipToken, turnId);
         }
       };
       let terminalChatUiStopped = false;
@@ -2424,9 +2466,39 @@ export function createAgentChatAdapter(
       };
       const settleTerminalChatRun = () => {
         if (threadId && runId) {
-          releaseRunStream(threadId, runId, streamOwnershipToken);
+          releaseRunStream(threadId, runId, streamOwnershipToken, turnId);
         }
-        if (!ownsActiveRunState()) return;
+        // A successor claims the surface before its response can publish an
+        // active run. Keep the old stream from clearing that successor's UI
+        // after releasing its completed stream ownership claim.
+        if (hasPendingSuccessorRequest()) return;
+        const activeRun = getActiveRun();
+        const ownsActiveRun =
+          !activeRun ||
+          (!!threadId &&
+            !!runId &&
+            activeRun.threadId === threadId &&
+            activeRun.runId === runId &&
+            activeRunMatchesTab(activeRun));
+        if (!ownsActiveRun) {
+          // A newer run in this tab must keep its running state intact. A
+          // different run on another surface must not leave this surface
+          // marked running after its own stream finishes. The same run on
+          // another surface still owns the shared stream and is left alone.
+          if (!activeRun || activeRunMatchesTab(activeRun)) {
+            return;
+          }
+          if (
+            threadId &&
+            runId &&
+            activeRun.threadId === threadId &&
+            activeRun.runId === runId
+          ) {
+            return;
+          }
+          publishTerminalChatUiStopped();
+          return;
+        }
         if (threadId && runId) {
           clearActiveRunIfMatches(threadId, runId);
         } else {
@@ -2435,6 +2507,8 @@ export function createAgentChatAdapter(
         publishTerminalChatUiStopped();
       };
       const seenRunSeqs = new Map<string, number>();
+      const seenEventSeqsByRun = new Map<string, Set<number>>();
+      const seenEventIds = new Set<string>();
       const preparingActionStatesByRun = new Map<
         string,
         PreparingActionState
@@ -2690,6 +2764,14 @@ export function createAgentChatAdapter(
         }
       };
 
+      const seenEventSeqsForRun = (id: string): Set<number> => {
+        const existing = seenEventSeqsByRun.get(id);
+        if (existing) return existing;
+        const seen = new Set<number>();
+        seenEventSeqsByRun.set(id, seen);
+        return seen;
+      };
+
       const canAttachRun = (candidateRunId: string, candidateTurnId: string) =>
         attemptedRunIds.includes(candidateRunId) ||
         (candidateTurnId.length > 0 && candidateTurnId === turnId);
@@ -2714,6 +2796,14 @@ export function createAgentChatAdapter(
         markTerminalResults: true,
         durableBackgroundRun:
           currentRunDispatchMode?.startsWith("background") === true,
+        ...(runId
+          ? {
+              runId,
+              turnId,
+              seenEventSeqs: seenEventSeqsForRun(runId),
+              seenEventIds,
+            }
+          : {}),
         ...(runId
           ? { preparingActionState: preparingActionStateForRun(runId) }
           : {}),
@@ -2936,6 +3026,7 @@ export function createAgentChatAdapter(
                   runId: activeRunId,
                   turnId,
                   lastSeq,
+                  ...(activeRunTabId ? { tabId: activeRunTabId } : {}),
                 });
                 const reconnected = yield* reconnectCurrentRun();
                 if (reconnected) return true;
@@ -3021,6 +3112,7 @@ export function createAgentChatAdapter(
                   runId: activeRunId,
                   turnId,
                   lastSeq,
+                  ...(activeRunTabId ? { tabId: activeRunTabId } : {}),
                 });
                 const reconnected = yield* reconnectCurrentRun();
                 if (reconnected) return true;
@@ -3113,6 +3205,7 @@ export function createAgentChatAdapter(
           if (isUserInitiatedTerminalReason(rawTerminalReason)) {
             settleInterruptedToolCalls(content, undefined, {
               includeActivity: true,
+              userStopped: true,
             });
             settleTerminalChatRun();
             yield {
@@ -3712,6 +3805,7 @@ export function createAgentChatAdapter(
                   runId: activeRunId,
                   turnId,
                   lastSeq,
+                  ...(activeRunTabId ? { tabId: activeRunTabId } : {}),
                 });
               }
               const seqBeforeAttach = lastSeq;
@@ -4165,6 +4259,7 @@ export function createAgentChatAdapter(
                   turnId,
                   ...(trackInRunsTray ? { trackInRunsTray: true } : {}),
                   ...(usageLabel ? { usageLabel } : {}),
+                  ...(actionScope ? { actionScope } : {}),
                   ...(threadId ? { threadId } : {}),
                   ...(unstable_parentId !== undefined
                     ? { parentId: unstable_parentId }
@@ -4530,7 +4625,13 @@ export function createAgentChatAdapter(
             }
             if (runId && threadId) {
               clearPendingTurnIfMatches(threadId, turnId);
-              setActiveRun({ threadId, runId, turnId, lastSeq: -1 });
+              setActiveRun({
+                threadId,
+                runId,
+                turnId,
+                lastSeq: -1,
+                ...(activeRunTabId ? { tabId: activeRunTabId } : {}),
+              });
             }
 
             takeRunStreamOwnership();
@@ -5097,9 +5198,11 @@ export function createAgentChatAdapter(
           }
         }
       } finally {
-        if (ownsActiveRunState()) {
-          publishTerminalChatUiStopped();
-        }
+        if (threadId) clearPendingTurnIfMatches(threadId, turnId);
+        // Abort and retry-delay exits do not necessarily reach a terminal
+        // result. Apply the same surface-only cleanup without clearing a
+        // newer run owned by this or another surface.
+        settleTerminalChatRun();
       }
     },
   };

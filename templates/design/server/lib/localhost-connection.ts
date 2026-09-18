@@ -267,6 +267,60 @@ export function localhostBridgeRequestError(
   );
 }
 
+/** Fetch the read-only DOM snapshot used by live Design screens. */
+export async function fetchLocalhostSnapshot(args: {
+  bridgeUrl: string;
+  previewToken: string | null;
+  url: string;
+}): Promise<string> {
+  if (!args.previewToken) {
+    throw new LocalhostConnectionError(
+      "bridge-token-missing",
+      "This URL-backed screen has no preview token. Reload the frame or reconnect the localhost app before requesting a live snapshot.",
+      424,
+    );
+  }
+  const endpoint = new URL("/snapshot", args.bridgeUrl);
+  endpoint.searchParams.set("url", args.url);
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
+      headers: {
+        accept: "application/json",
+        "x-design-preview-token": args.previewToken,
+      },
+    });
+  } catch (error) {
+    throw new LocalhostConnectionError(
+      "bridge-unreachable",
+      `Could not reach the localhost bridge for snapshot (${error instanceof Error ? error.message : String(error)}).`,
+      424,
+    );
+  }
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => response.statusText);
+    throw localhostBridgeRequestError("snapshot", response.status, errorText);
+  }
+  let payload: { html?: unknown } | null;
+  try {
+    payload = (await response.json()) as { html?: unknown } | null;
+  } catch {
+    throw new LocalhostConnectionError(
+      "bridge-request-failed",
+      "The localhost bridge returned invalid snapshot JSON.",
+      424,
+    );
+  }
+  if (!payload || typeof payload.html !== "string") {
+    throw new LocalhostConnectionError(
+      "bridge-request-failed",
+      "The localhost bridge returned no HTML snapshot.",
+      424,
+    );
+  }
+  return payload.html;
+}
+
 /** Bridge token for callers that have no other source for one. */
 export function requireLocalhostBridgeToken(
   connectionId: string,

@@ -1,5 +1,6 @@
 import { SharedRichEditor } from "@agent-native/toolkit/editor";
 import { Extension } from "@tiptap/core";
+import Bold from "@tiptap/extension-bold";
 import { TextStyle } from "@tiptap/extension-text-style";
 import type { Editor } from "@tiptap/react";
 import {
@@ -10,6 +11,8 @@ import {
   useRef,
   useState,
 } from "react";
+
+import { sanitizeSlideHtml } from "@/lib/sanitize-slide-html";
 
 import { isBulletMarker } from "./bullet-editing";
 import type { InlineTextStylePatch } from "./rich-text-selection";
@@ -47,7 +50,27 @@ const SLIDE_TEXT_CONTAINER_TAGS = new Set([
 
 // A slide text block is one bounded block; StarterKit's trailing paragraph
 // would add an empty line under an edited list that the canvas never shows.
-const SLIDE_STARTER_KIT = { trailingNode: false } as const;
+const SLIDE_STARTER_KIT = { bold: false, trailingNode: false } as const;
+
+// TipTap treats font-weight values from 500 through 900 as bold marks. Slides
+// uses those values for ordinary block typography, so only semantic bold HTML
+// should create a bold mark while entering edit mode.
+export const SlideBold = Bold.extend({
+  parseHTML() {
+    return [
+      { tag: "strong" },
+      {
+        tag: "b",
+        getAttrs: (node) =>
+          (node as HTMLElement).style.fontWeight !== "normal" && null,
+      },
+      {
+        style: "font-weight=400",
+        clearMark: (mark) => mark.type.name === this.name,
+      },
+    ];
+  },
+});
 
 const SLIDE_EDITOR_BLOCK_ATTRIBUTES = ["dir", "data-pptx-paragraph"] as const;
 const SLIDE_EDITOR_BLOCK_STYLE_PROPERTIES = [
@@ -719,19 +742,163 @@ export function normalizeSlideEditorContent(html: string): string {
   };
 
   convert(doc.body);
-  return stripEditorOnlyTrailingParagraphs(doc.body.innerHTML);
+  return doc.body.innerHTML;
 }
 
-function stripEditorOnlyTrailingParagraphs(html: string): string {
-  if (!html || typeof DOMParser === "undefined") return html;
-  const doc = new DOMParser().parseFromString(html, "text/html");
-  while (
-    doc.body.lastElementChild?.tagName === "P" &&
-    doc.body.lastElementChild.attributes.length === 0 &&
-    !doc.body.lastElementChild.textContent?.trim()
-  ) {
-    doc.body.lastElementChild.remove();
+const SLIDE_CLIPBOARD_BLOCK_TAGS = new Set([
+  "ADDRESS",
+  "ARTICLE",
+  "ASIDE",
+  "BLOCKQUOTE",
+  "DIV",
+  "DL",
+  "FIGCAPTION",
+  "FIGURE",
+  "FOOTER",
+  "FORM",
+  "H1",
+  "H2",
+  "H3",
+  "H4",
+  "H5",
+  "H6",
+  "HEADER",
+  "LI",
+  "MAIN",
+  "NAV",
+  "OL",
+  "P",
+  "PRE",
+  "SECTION",
+  "TABLE",
+  "TBODY",
+  "TD",
+  "TFOOT",
+  "TH",
+  "THEAD",
+  "TR",
+  "UL",
+]);
+
+const SLIDE_CLIPBOARD_LAYOUT_STYLE_PROPERTIES = [
+  "position",
+  "inset",
+  "top",
+  "right",
+  "bottom",
+  "left",
+  "width",
+  "height",
+  "min-width",
+  "min-height",
+  "max-width",
+  "max-height",
+  "margin",
+  "margin-top",
+  "margin-right",
+  "margin-bottom",
+  "margin-left",
+  "box-sizing",
+  "visibility",
+  "pointer-events",
+  "user-select",
+  "flex",
+  "flex-grow",
+  "flex-shrink",
+  "flex-basis",
+  "align-self",
+  "z-index",
+  "transform",
+  "transform-origin",
+] as const;
+
+function hasSlideClipboardText(element: Element): boolean {
+  return (
+    Boolean(element.textContent?.trim()) ||
+    element.querySelector("img") !== null
+  );
+}
+
+function isSlideClipboardBlock(element: Element): boolean {
+  return SLIDE_CLIPBOARD_BLOCK_TAGS.has(element.tagName);
+}
+
+/** Keep selected rich text, but discard editor context and source geometry. */
+export function normalizeSlideClipboardHtml(html: string): string | null {
+  if (!html || typeof DOMParser === "undefined") return null;
+  const sanitized = sanitizeSlideHtml(html);
+  if (!sanitized.trim()) return null;
+
+  const doc = new DOMParser().parseFromString(sanitized, "text/html");
+  doc
+    .querySelectorAll(
+      "style, .fmd-layout-spacer, [data-slide-layout-spacer-for]",
+    )
+    .forEach((element) => element.remove());
+  doc.querySelectorAll<HTMLImageElement>("img").forEach((image) => {
+    if (!image.getAttribute("src")?.trim().toLowerCase().startsWith("data:")) {
+      return;
+    }
+    const alt = image.getAttribute("alt");
+    if (alt) image.replaceWith(doc.createTextNode(alt));
+    else image.remove();
+  });
+  doc.querySelectorAll<HTMLElement>("*").forEach((element) => {
+    if (
+      element.style.visibility === "hidden" ||
+      (element.style.pointerEvents === "none" &&
+        element.style.userSelect === "none")
+    ) {
+      element.remove();
+      return;
+    }
+    for (const attribute of Array.from(element.attributes)) {
+      if (attribute.name.startsWith("data-"))
+        element.removeAttribute(attribute.name);
+    }
+    for (const property of SLIDE_CLIPBOARD_LAYOUT_STYLE_PROPERTIES) {
+      element.style.removeProperty(property);
+    }
+  });
+
+  for (const node of Array.from(doc.body.childNodes)) {
+    if (node.nodeType === Node.TEXT_NODE && !node.textContent?.trim()) {
+      node.remove();
+    }
   }
+
+  const wrapper = doc.body.firstElementChild;
+  if (
+    doc.body.children.length === 1 &&
+    wrapper?.tagName === "DIV" &&
+    !wrapper.attributes.length
+  ) {
+    while (wrapper.firstChild) doc.body.append(wrapper.firstChild);
+    wrapper.remove();
+  }
+
+  const children = Array.from(doc.body.children);
+  if (!children.some(isSlideClipboardBlock)) {
+    const paragraph = doc.createElement("p");
+    while (doc.body.firstChild) paragraph.append(doc.body.firstChild);
+    doc.body.append(paragraph);
+  }
+
+  const content = Array.from(doc.body.children);
+  const firstTextIndex = content.findIndex(hasSlideClipboardText);
+  if (firstTextIndex < 0) return null;
+  let lastTextIndex = -1;
+  content.forEach((element, index) => {
+    if (hasSlideClipboardText(element)) lastTextIndex = index;
+  });
+  content.slice(0, firstTextIndex).forEach((element) => element.remove());
+  content.slice(firstTextIndex + 1, lastTextIndex + 1).forEach((element) => {
+    if (element.tagName === "P" && !hasSlideClipboardText(element)) {
+      element.innerHTML = "<br>";
+    }
+  });
+  content.slice(lastTextIndex + 1).forEach((element) => element.remove());
+
   return doc.body.innerHTML;
 }
 
@@ -805,11 +972,9 @@ export const SlideRichTextEditor = forwardRef<
     () => ({
       getEditor: () => editor,
       getHTML: () =>
-        stripEditorOnlyTrailingParagraphs(
-          editor && !editor.isDestroyed
-            ? editor.getHTML()
-            : normalizeSlideEditorContent(value),
-        ),
+        editor && !editor.isDestroyed
+          ? editor.getHTML()
+          : normalizeSlideEditorContent(value),
       setSelectionFromRange,
       setSelectionFromOffsets,
       applyTextStyleToContent: (patch) => {
@@ -976,12 +1141,10 @@ export const SlideRichTextEditor = forwardRef<
       starterKit={SLIDE_STARTER_KIT}
       className="slide-shared-rich-editor"
       ariaLabel="Slide text"
-      getMarkdown={(currentEditor) =>
-        stripEditorOnlyTrailingParagraphs(currentEditor.getHTML())
-      }
+      getMarkdown={(currentEditor) => currentEditor.getHTML()}
       parseValue={false}
       normalizeValue={(nextValue) => nextValue}
-      extraExtensions={[SlideTextStyle, SlideBlockStyle]}
+      extraExtensions={[SlideBold, SlideTextStyle, SlideBlockStyle]}
     />
   );
 });

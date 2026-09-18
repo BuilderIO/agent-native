@@ -21,8 +21,11 @@ import {
 import { useEffect, useState } from "react";
 
 import {
+  deleteAgentEnginePersonalProviderSettings,
+  getAgentEngineProviderKeyStatus,
   saveAgentEngineProviderSettings,
   setAgentEngineProvider,
+  type AgentEngineProviderKeyStatus,
 } from "../agent-engine-key.js";
 import {
   AGENT_PROVIDER_CATALOG,
@@ -202,6 +205,7 @@ export interface AgentProviderSetupFormProps {
   initialProvider?: AgentProviderId;
   configuredProviders?: ReadonlySet<AgentProviderId>;
   onConnected?: (provider: AgentProviderId) => void;
+  /** @deprecated Provider keys are saved at organization scope. */
   scope?: "user" | "org";
   layout?: "compact" | "page";
   showTitle?: boolean;
@@ -212,7 +216,6 @@ export function AgentProviderSetupForm({
   initialProvider = "anthropic",
   configuredProviders,
   onConnected,
-  scope = "user",
   layout = "compact",
   showTitle = true,
   className,
@@ -227,9 +230,52 @@ export function AgentProviderSetupForm({
     initialProvider === "ollama",
   );
   const [saving, setSaving] = useState(false);
+  const [removingPersonalKey, setRemovingPersonalKey] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [providerKeyStatus, setProviderKeyStatus] =
+    useState<AgentEngineProviderKeyStatus | null>(null);
+  const [statusError, setStatusError] = useState(false);
   const active = getAgentProviderOption(provider);
+
+  const refreshProviderKeyStatus = async () => {
+    if (!active.key) {
+      setProviderKeyStatus(null);
+      setStatusError(false);
+      return;
+    }
+    try {
+      const status = await getAgentEngineProviderKeyStatus(provider);
+      setProviderKeyStatus(status);
+      setStatusError(status.status === "unknown");
+    } catch {
+      setProviderKeyStatus(null);
+      setStatusError(true);
+    }
+  };
+
+  useEffect(() => {
+    if (!active.key) {
+      setProviderKeyStatus(null);
+      setStatusError(false);
+      return;
+    }
+    let cancelled = false;
+    void getAgentEngineProviderKeyStatus(provider)
+      .then((status) => {
+        if (cancelled) return;
+        setProviderKeyStatus(status);
+        setStatusError(status.status === "unknown");
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setProviderKeyStatus(null);
+        setStatusError(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [provider]);
 
   useEffect(() => {
     setModel(active.defaultModel);
@@ -264,7 +310,7 @@ export function AgentProviderSetupForm({
           ...(active.key ? { key: active.key } : {}),
           ...(apiKey.trim() ? { apiKey } : {}),
           ...(endpoint.trim() ? { baseUrl: endpoint } : {}),
-          scope,
+          scope: "org",
         });
       }
       await setAgentEngineProvider({
@@ -273,6 +319,7 @@ export function AgentProviderSetupForm({
       });
       setApiKey("");
       setSaved(true);
+      void refreshProviderKeyStatus();
       onConnected?.(provider);
       window.setTimeout(() => setSaved(false), 2200);
     } catch (err) {
@@ -288,8 +335,33 @@ export function AgentProviderSetupForm({
     }
   };
 
-  const isConfigured = configuredProviders?.has(provider) || saved;
-  const modelInputVisible = active.supportsCustomModel;
+  const handleUseOrganizationKey = async () => {
+    if (removingPersonalKey) return;
+    setRemovingPersonalKey(true);
+    setError(null);
+    try {
+      await deleteAgentEnginePersonalProviderSettings(provider);
+      await refreshProviderKeyStatus();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : t("agentPanel.providerSetupFailed", {
+              defaultValue: "Could not configure this provider.",
+            }),
+      );
+    } finally {
+      setRemovingPersonalKey(false);
+    }
+  };
+
+  const isConfigured =
+    configuredProviders?.has(provider) ||
+    providerKeyStatus?.status === "set" ||
+    saved;
+  // The catalog provides current suggestions, while the free-form field keeps
+  // newly released provider models usable before the catalog is refreshed.
+  const modelInputVisible = Boolean(active.key) || active.supportsCustomModel;
   const endpointVisible = active.supportsEndpoint;
 
   return (
@@ -329,6 +401,36 @@ export function AgentProviderSetupForm({
             })}
           </p>
         </div>
+      ) : null}
+
+      {providerKeyStatus?.effectiveScope === "user" ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground">
+          <span>{t("agentPanel.personalKeyInEffect")}</span>
+          {providerKeyStatus.organizationKeyPresent ? (
+            <button
+              type="button"
+              disabled={removingPersonalKey || saving}
+              onClick={() => void handleUseOrganizationKey()}
+              className="font-medium text-foreground underline-offset-2 hover:underline disabled:opacity-50"
+            >
+              {removingPersonalKey
+                ? t("agentPanel.savingProvider", { defaultValue: "Saving..." })
+                : t("agentPanel.useOrganizationKey")}
+            </button>
+          ) : null}
+        </div>
+      ) : providerKeyStatus?.effectiveScope === "org" ? (
+        <p className="text-[11px] text-muted-foreground">
+          {t("agentPanel.organizationKeyInEffect")}
+        </p>
+      ) : providerKeyStatus?.effectiveScope === "workspace" ? (
+        <p className="text-[11px] text-muted-foreground">
+          {t("agentPanel.sharedKeyInEffect")}
+        </p>
+      ) : statusError ? (
+        <p className="text-[11px] text-muted-foreground">
+          {t("agentPanel.keyStatusUnavailable")}
+        </p>
       ) : null}
 
       <AgentProviderPicker

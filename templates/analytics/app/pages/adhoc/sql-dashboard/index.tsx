@@ -21,6 +21,7 @@ import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
   CreativeContextShareSheet,
   CreativeContextShareTab,
+  useCreativeContextLab,
 } from "@agent-native/creative-context/client";
 import { PresenceBar } from "@agent-native/toolkit/collab-ui";
 import {
@@ -606,6 +607,7 @@ function SqlDashboardPageContent({
   session: AuthSession | null;
 }) {
   const t = useT();
+  const creativeContextEnabled = useCreativeContextLab();
   const { canManageOrg, org } = useOrgRole();
   const [searchParams, setSearchParams] = useSearchParams();
   const { id: routeId } = useParams<{ id: string }>();
@@ -1955,29 +1957,33 @@ function SqlDashboardPageContent({
             variant="compact"
             triggerClassName="border-0 bg-accent text-accent-foreground hover:bg-accent/80 hover:text-accent-foreground"
             shareUrl={dashboardShareUrl}
-            shareTabs={{
-              tabs: [
-                {
-                  value: "context",
-                  label: t("creativeContext.share.tabLabel"),
-                  content: (
-                    <CreativeContextShareTab
-                      resource={{
-                        appId: "analytics",
-                        resourceType: "dashboard",
-                        resourceId: dashboardId,
-                        title: dashboard.name,
-                        updatedAt: dashboardUpdatedAt ?? undefined,
-                        preview: {
-                          kind: "document",
-                          label: t("dashboard.sqlDashboard"),
-                        },
-                      }}
-                    />
-                  ),
-                },
-              ],
-            }}
+            shareTabs={
+              creativeContextEnabled
+                ? {
+                    tabs: [
+                      {
+                        value: "context",
+                        label: t("creativeContext.share.tabLabel"),
+                        content: (
+                          <CreativeContextShareTab
+                            resource={{
+                              appId: "analytics",
+                              resourceType: "dashboard",
+                              resourceId: dashboardId,
+                              title: dashboard.name,
+                              updatedAt: dashboardUpdatedAt ?? undefined,
+                              preview: {
+                                kind: "document",
+                                label: t("dashboard.sqlDashboard"),
+                              },
+                            }}
+                          />
+                        ),
+                      },
+                    ],
+                  }
+                : undefined
+            }
           />
         ) : null}
         {canEdit ? (
@@ -2013,7 +2019,7 @@ function SqlDashboardPageContent({
             <TooltipContent>{t("sqlDashboard.details")}</TooltipContent>
           </Tooltip>
           <DropdownMenuContent align="end" className="w-72">
-            {dashboardId && canEdit && !archivedAt ? (
+            {creativeContextEnabled && dashboardId && canEdit && !archivedAt ? (
               <DropdownMenuItem
                 onSelect={(event) => {
                   event.preventDefault();
@@ -2188,7 +2194,7 @@ function SqlDashboardPageContent({
             onRestored={resetRevisionNavigation}
           />
         ) : null}
-        {dashboardId ? (
+        {creativeContextEnabled && dashboardId ? (
           <CreativeContextShareSheet
             open={contextSheetOpen}
             onOpenChange={setContextSheetOpen}

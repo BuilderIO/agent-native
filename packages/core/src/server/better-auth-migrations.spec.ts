@@ -80,4 +80,67 @@ describe("Better Auth migrations", () => {
       'ON "user" (LOWER(email))',
     );
   });
+
+  it("adds the Better Auth 1.7 jwks key metadata columns", async () => {
+    const db = await createTestPglite();
+    await db.exec(`CREATE TABLE "jwks" (
+        id TEXT PRIMARY KEY,
+        public_key TEXT NOT NULL,
+        private_key TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        expires_at TIMESTAMPTZ
+      );
+      INSERT INTO "jwks" (id, public_key, private_key, created_at)
+        VALUES ('key-1', 'public', 'private', CURRENT_TIMESTAMP)`);
+    await db.exec(postgresSql("better-auth-jwks-alg-crv-columns"));
+    const columns = await db
+      .prepare(
+        "SELECT column_name FROM information_schema.columns WHERE table_name = 'jwks' ORDER BY ordinal_position",
+      )
+      .all();
+    expect(columns.map((column) => column.column_name)).toEqual([
+      "id",
+      "public_key",
+      "private_key",
+      "created_at",
+      "expires_at",
+      "alg",
+      "crv",
+    ]);
+    await expect(
+      db.prepare('SELECT alg, crv FROM "jwks" WHERE id = ?').get("key-1"),
+    ).resolves.toMatchObject({ alg: null, crv: null });
+    await db.exec(postgresSql("better-auth-jwks-alg-crv-columns"));
+    await db.close();
+  });
+
+  it("provisions opt-in TOTP storage without replacing existing users", async () => {
+    const db = await createTestPglite();
+    await db.exec(
+      `CREATE TABLE "user" (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE);
+       INSERT INTO "user" (id, email) VALUES ('user-1', 'user@example.com')`,
+    );
+    await db.exec(postgresSql("better-auth-two-factor-tables"));
+    await db.exec(postgresSql("better-auth-two-factor-tables"));
+    await expect(
+      db
+        .prepare('SELECT two_factor_enabled FROM "user" WHERE id = ?')
+        .get("user-1"),
+    ).resolves.toMatchObject({ two_factor_enabled: false });
+    const columns = await db
+      .prepare(
+        "SELECT column_name FROM information_schema.columns WHERE table_name = 'twoFactor' ORDER BY ordinal_position",
+      )
+      .all();
+    expect(columns.map((column) => column.column_name)).toEqual([
+      "id",
+      "secret",
+      "backup_codes",
+      "user_id",
+      "verified",
+      "failed_verification_count",
+      "locked_until",
+    ]);
+    await db.close();
+  });
 });

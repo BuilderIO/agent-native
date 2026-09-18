@@ -80,6 +80,7 @@ const messages = {
     createFolderError: "만들기 실패",
     folderCreated: "폴더가 생성됨",
     folderNamePlaceholder: "폴더 이름",
+    breadcrumbBack: "{{label}}(으)로 돌아가기",
   },
   empty: {
     library: {
@@ -649,6 +650,7 @@ const messages = {
     organizationFallback: "조직",
     saving: "저장 중…",
     save: "저장",
+    saved: "저장됨",
   },
   downloadRoute: {
     pageTitle: "Clips Desktop 다운로드",
@@ -1844,6 +1846,13 @@ const messages = {
     capturedFrom: "{{source}}에서 캡처",
     browserCapture: "브라우저 캡처",
     views: "진단 보기",
+    timeline: "타임라인",
+    navigation: "탐색",
+    click: "클릭",
+    input: "입력",
+    scroll: "스크롤",
+    requestStarted: "요청 시작",
+    responseReceived: "응답 수신",
     issues: "문제",
     consoleSource: "콘솔",
     networkSource: "네트워크",

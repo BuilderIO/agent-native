@@ -140,6 +140,16 @@ export const hitTestBridgeScript: string = `"use strict";
       }
       return "y";
     }
+    function wrappedFlexMainAxis(parent) {
+      var cs = window.getComputedStyle(parent);
+      if (cs.display !== "flex" && cs.display !== "inline-flex") {
+        return null;
+      }
+      if (cs.flexWrap !== "wrap" && cs.flexWrap !== "wrap-reverse") {
+        return null;
+      }
+      return cs.flexDirection && cs.flexDirection.indexOf("row") === 0 ? "x" : "y";
+    }
     function isAutoLayoutElement(el) {
       if (!el) return false;
       var cs = window.getComputedStyle(el);
@@ -169,6 +179,7 @@ export const hitTestBridgeScript: string = `"use strict";
       if (!el || el === document.body || el === document.documentElement) {
         return false;
       }
+      if (isAutoLayoutElement(el)) return false;
       if (window.getComputedStyle(el).position === "static") return false;
       var children = el.children;
       if (children.length === 0) return false;
@@ -184,13 +195,15 @@ export const hitTestBridgeScript: string = `"use strict";
     function isAbsolutePrimitiveContainer(el) {
       if (!el || el.nodeType !== 1) return false;
       if (BRIDGE_REPLACED_TAGS[(el.tagName || "").toLowerCase()]) return false;
+      if (isAutoLayoutElement(el)) return false;
       var primitive = (el.getAttribute("data-an-primitive") || el.getAttribute("data-agent-native-primitive") || "").toLowerCase();
       if (primitive) {
         if (!BRIDGE_ADOPTING_PRIMITIVES[primitive]) return false;
-      } else if (isAutoLayoutElement(el) || !hasAbsolutePositionedChild(el)) {
+      } else if (!hasAbsolutePositionedChild(el)) {
         return false;
       }
       var cs = window.getComputedStyle(el);
+      if (primitive === "frame" && cs.position === "relative") return true;
       return cs.position === "absolute" || cs.position === "fixed";
     }
     function hasAbsolutePositionedChild(el) {
@@ -239,25 +252,63 @@ export const hitTestBridgeScript: string = `"use strict";
     }
     function getNodeId(el) {
       if (!el) return "";
-      return el.getAttribute("data-agent-native-node-id") || el.getAttribute("data-code-layer-id") || el.getAttribute("data-layer-id") || el.getAttribute("data-builder-id") || el.id || "";
+      return el.getAttribute("data-agent-native-node-id") || el.getAttribute("data-code-layer-id") || el.getAttribute("data-layer-id") || el.getAttribute("data-builder-id") || el.getAttribute("data-loc") || el.id || "";
+    }
+    function escapeAttribute(value) {
+      var text = String(value);
+      if (window.CSS && typeof window.CSS.escape === "function") {
+        return window.CSS.escape(text);
+      }
+      return text.replace(/[\\0-\\x1f\\x7f\\\\"]/g, function(character) {
+        if (character === "\\\\" || character === '"') return "\\\\" + character;
+        return "\\\\" + character.charCodeAt(0).toString(16) + " ";
+      });
+    }
+    function isUniqueRenderedNodeId(nodeId, expectedElement) {
+      if (!nodeId) return false;
+      var selectors = [
+        '[data-agent-native-node-id="' + escapeAttribute(nodeId) + '"]',
+        '[data-code-layer-id="' + escapeAttribute(nodeId) + '"]',
+        '[data-layer-id="' + escapeAttribute(nodeId) + '"]',
+        '[data-builder-id="' + escapeAttribute(nodeId) + '"]',
+        '[data-loc="' + escapeAttribute(nodeId) + '"]',
+        '[id="' + escapeAttribute(nodeId) + '"]'
+      ];
+      var matches = document.querySelectorAll(selectors.join(","));
+      return matches.length === 1 && matches[0] === expectedElement;
+    }
+    function getAnchorNodeProvenance(nodeId, anchor) {
+      if (!anchor || isTemplateCloneElement(anchor)) return void 0;
+      var candidate = window.__agentNativeSourceProvenance;
+      if (!candidate || typeof candidate !== "object") return void 0;
+      var versionHash = typeof candidate.versionHash === "string" && candidate.versionHash ? candidate.versionHash : void 0;
+      var uniqueNodeId = nodeId && Array.isArray(candidate.uniqueNodeIds) && candidate.uniqueNodeIds.indexOf(nodeId) !== -1 && isUniqueRenderedNodeId(nodeId, anchor) ? nodeId : void 0;
+      if (!versionHash && !uniqueNodeId) return void 0;
+      var provenance = {};
+      if (versionHash) provenance.versionHash = versionHash;
+      if (uniqueNodeId) provenance.uniqueNodeId = uniqueNodeId;
+      return provenance;
     }
     function layerNameForElement(el) {
       if (!el || !el.getAttribute) return "";
-      return el.getAttribute("data-agent-native-layer-name") || el.getAttribute("data-layer-name") || "";
+      var attributes = [
+        "data-agent-native-layer-name",
+        "data-layer-name",
+        "layer-name"
+      ];
+      for (var i = 0; i < attributes.length; i += 1) {
+        var value = el.getAttribute(attributes[i]);
+        var trimmed = value && value.trim ? value.trim() : "";
+        if (trimmed) return trimmed;
+      }
+      return "";
     }
     function isTemplateCloneElement(el) {
       var node = el;
       while (node && node !== document.documentElement) {
-        if (getNodeId(node)) return false;
         var parent = node.parentElement;
         if (!parent) return false;
-        var siblings = parent.children;
-        for (var i = 0; i < siblings.length; i += 1) {
-          var sib = siblings[i];
-          if (sib !== node && sib.tagName && sib.tagName.toLowerCase() === "template" && sib.hasAttribute("x-for")) {
-            return true;
-          }
-        }
+        if (alpineGeneratedChildrenOf(parent).indexOf(node) !== -1) return true;
         node = parent;
       }
       return false;
@@ -285,6 +336,7 @@ export const hitTestBridgeScript: string = `"use strict";
     }
     function getOrMintPendingNodeId(el) {
       if (!el || !el.getAttribute || !el.setAttribute) return "";
+      if (el === document.body || el === document.documentElement) return "";
       if (isTemplateCloneElement(el)) return "";
       var existing = el.getAttribute("data-an-pending-node-id");
       if (existing) return existing;
@@ -307,10 +359,18 @@ export const hitTestBridgeScript: string = `"use strict";
           if (child._x_currentIfEl) generated.push(child._x_currentIfEl);
           var lookup = child._x_lookup;
           if (lookup) {
-            for (var key in lookup) {
-              if (Object.prototype.hasOwnProperty.call(lookup, key)) {
-                var item = lookup[key];
-                if (item) generated.push(item);
+            var map = lookup;
+            if (typeof map.forEach === "function" && typeof map.get === "function") {
+              map.forEach(function(item2) {
+                if (item2) generated.push(item2);
+              });
+            } else {
+              var record = lookup;
+              for (var key in record) {
+                if (Object.prototype.hasOwnProperty.call(record, key)) {
+                  var item = record[key];
+                  if (item) generated.push(item);
+                }
               }
             }
           }
@@ -357,7 +417,10 @@ export const hitTestBridgeScript: string = `"use strict";
     function nearestChildInsertionTarget(container, clientX, clientY) {
       var children = draggableElementChildren(container);
       if (!children.length) return null;
-      var axis = parentFlowAxis(container);
+      var wrappedFlexAxis = wrappedFlexMainAxis(container);
+      var axis = wrappedFlexAxis || parentFlowAxis(container);
+      var containerStyles = window.getComputedStyle(container);
+      var multiTrackGrid = (containerStyles.display === "grid" || containerStyles.display === "inline-grid") && (containerStyles.gridTemplateColumns || "").split(" ").filter(Boolean).length > 1;
       var best = null;
       var bestDistance = Infinity;
       var placement = "after";
@@ -366,11 +429,15 @@ export const hitTestBridgeScript: string = `"use strict";
         if (rect.width <= 0 || rect.height <= 0) continue;
         var center = axis === "x" ? rect.left + rect.width / 2 : rect.top + rect.height / 2;
         var pointer = axis === "x" ? clientX : clientY;
-        var distance = Math.abs(pointer - center);
+        var distance = multiTrackGrid || wrappedFlexAxis ? Math.hypot(
+          clientX - (rect.left + rect.width / 2),
+          clientY - (rect.top + rect.height / 2)
+        ) : Math.abs(pointer - center);
         if (distance < bestDistance) {
           bestDistance = distance;
           best = children[j];
-          placement = pointer < center ? "before" : "after";
+          var placementPointer = axis === "x" ? clientX : clientY;
+          placement = multiTrackGrid || wrappedFlexAxis ? placementPointer < center ? "before" : "after" : pointer < center ? "before" : "after";
         }
       }
       if (!best) return null;
@@ -402,6 +469,15 @@ export const hitTestBridgeScript: string = `"use strict";
               axis: parentFlowAxis(parent),
               dropMode: "flow-insert"
             };
+          }
+          var wrappedParentAxis = wrappedFlexMainAxis(parent);
+          if (wrappedParentAxis) {
+            var wrappedParentSlot = nearestChildInsertionTarget(
+              parent,
+              clientX,
+              clientY
+            );
+            if (wrappedParentSlot) return wrappedParentSlot;
           }
           var parentAxis = parentFlowAxis(parent);
           var childRect = cursor.getBoundingClientRect();
@@ -513,9 +589,17 @@ export const hitTestBridgeScript: string = `"use strict";
     function reviewAnchorElementAtPoint(clientX, clientY) {
       var element = elementFromEditorPoint(clientX, clientY);
       if (!element) return null;
-      var identifiedAncestor = element.closest(
-        "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[id]"
-      );
+      var identifiedAncestor = null;
+      var current = element;
+      while (current && current !== document.body && current !== document.documentElement) {
+        if (current.matches(
+          "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[id]"
+        )) {
+          identifiedAncestor = current;
+          break;
+        }
+        current = current.parentElement;
+      }
       if (identifiedAncestor && identifiedAncestor !== document.body && identifiedAncestor !== document.documentElement) {
         return identifiedAncestor;
       }
@@ -736,7 +820,14 @@ export const hitTestBridgeScript: string = `"use strict";
       if (e.data.preview) showInsertionGuideFor(result);
       var anchorNodeId = result ? getNodeId(result.anchor) : "";
       var pendingNodeId = result && !anchorNodeId ? getOrMintPendingNodeId(result.anchor) : "";
-      var anchorSelector = pendingNodeId ? buildSourceEquivalentSelector(result ? result.anchor : null) : "";
+      var targetAnchorProvenance = getAnchorNodeProvenance(
+        anchorNodeId,
+        result ? result.anchor : null
+      );
+      var needsSourceSelector = Boolean(pendingNodeId) || Boolean(
+        anchorNodeId && targetAnchorProvenance && targetAnchorProvenance.versionHash && !targetAnchorProvenance.uniqueNodeId
+      );
+      var anchorSelector = needsSourceSelector ? buildSourceEquivalentSelector(result ? result.anchor : null) : "";
       var placement = result ? result.placement : "inside";
       var axis = result ? result.axis : "y";
       var dropMode = result ? result.dropMode : "flow-insert";
@@ -747,11 +838,13 @@ export const hitTestBridgeScript: string = `"use strict";
             type: "agent-native:hit-test-result",
             correlationId,
             anchorNodeId,
+            targetAnchorProvenance,
             pendingNodeId: pendingNodeId || void 0,
             anchorSelector: anchorSelector || void 0,
             placement,
             axis,
             dropMode,
+            layerName: result ? layerNameForElement(result.anchor) || void 0 : void 0,
             anchorRect: anchorRect ? {
               left: anchorRect.left,
               top: anchorRect.top,

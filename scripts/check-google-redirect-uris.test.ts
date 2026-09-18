@@ -7,11 +7,23 @@ import {
   classifyGoogleAuthorizeResponse,
   classifyGoogleHealthResponse,
   fetchWithRetry,
+  googleCanonicalHost,
   googleHealthRedirectUriMismatch,
   googleRedirectProbeExitCode,
   healthContractDisagreement,
   isInconclusiveGoogleHealthStatus,
 } from "./check-google-redirect-uris.ts";
+
+test("uses chat as the canonical Google host for the starter alias", () => {
+  assert.equal(
+    googleCanonicalHost("starter.agent-native.com"),
+    "chat.agent-native.com",
+  );
+  assert.equal(
+    googleCanonicalHost("calendar.agent-native.com"),
+    "calendar.agent-native.com",
+  );
+});
 
 const redirectUri =
   "https://calendar.agent-native.com/_agent-native/google/callback";

@@ -5,6 +5,7 @@ import { trackEvent } from "../analytics.js";
 import { agentNativePath } from "../api-path.js";
 import { getCallbackOrigin } from "../frame.js";
 import { openMcpAppHostLink } from "../mcp-app-host.js";
+import { oauthPopupWaitingUrl } from "../oauth-popup.js";
 import { scheduleAfterPaint } from "../use-after-paint.js";
 import { usePollLoop } from "../use-poll-loop.js";
 
@@ -210,6 +211,14 @@ export interface BuilderConnectFlow {
   /** True after at least one successful Builder connection-status response. */
   statusResolved: boolean;
   /**
+   * Increments every time a `retry`/lifecycle status read settles, whether it
+   * resolved or failed. `statusResolved` alone cannot bound a caller waiting
+   * on a read, because a second failure leaves it false with no observable
+   * change. Consumers that queue work on a read need the settle, not the
+   * outcome.
+   */
+  statusReadSettledCount: number;
+  /**
    * True when the deploy has BUILDER_PRIVATE_KEY set as a fallback. Connect
    * is still available so users can override the fallback with their own
    * Builder account.
@@ -247,8 +256,12 @@ export interface BuilderConnectFlow {
   hasFetchedStatus: boolean;
   /** Open the popup and begin polling. Must be called from a user-gesture handler. */
   start: (options?: BuilderConnectStartOptions) => void;
-  /** Retry the status request before choosing a connection path. */
-  retry: () => void;
+  /**
+   * Retry the status request before choosing a connection path. Returns true
+   * when a read actually started. A disabled flow never reads, so a caller
+   * that waits on the result must be able to tell the difference.
+   */
+  retry: () => boolean;
 }
 
 const POLL_INTERVAL_MS = 2000;
@@ -260,6 +273,9 @@ const POLL_TIMEOUT_MS = 5 * 60 * 1000;
 // this replaced). Anything past this is a cancelled/closed popup, not a slow
 // success, and the button must not spin for the full 5-minute ceiling.
 const POPUP_CLOSED_CONFIRMATION_GRACE_MS = 20_000;
+// A waiting page that never loads cannot hand off the popup, so keep the
+// connect flow bounded even when the popup remains open.
+const POPUP_LOAD_TIMEOUT_MS = 20_000;
 // Fallback timeout for callers of fetchStatus() with no external signal of
 // their own (the initial status fetch, the popup-open branches in `start`).
 // The connect-flow poll loop below gets its timeout from usePollLoop instead.
@@ -504,6 +520,44 @@ function navigateBuilderConnectPopup(opened: Window, url: string): boolean {
   }
 }
 
+function waitForBuilderConnectPopupLoad(
+  opened: Window,
+  shouldCancel: () => boolean,
+): Promise<boolean> {
+  return new Promise((resolve) => {
+    let settled = false;
+    let cancellationTimer: ReturnType<typeof setInterval> | null = null;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const onLoad = () => finish(true);
+    const finish = (ready: boolean) => {
+      if (settled) return;
+      settled = true;
+      if (cancellationTimer !== null) clearInterval(cancellationTimer);
+      if (timeoutId !== null) clearTimeout(timeoutId);
+      try {
+        opened.removeEventListener("load", onLoad);
+      } catch {
+        // coercion-ok: cleanup is best effort after a popup becomes unavailable.
+        // Ignore a popup that became unavailable before cleanup.
+      }
+      resolve(ready);
+    };
+    try {
+      if (shouldCancel()) {
+        finish(false);
+        return;
+      }
+      cancellationTimer = setInterval(() => {
+        if (shouldCancel()) finish(false);
+      }, POLL_INTERVAL_MS);
+      timeoutId = setTimeout(() => finish(false), POPUP_LOAD_TIMEOUT_MS);
+      opened.addEventListener("load", onLoad);
+    } catch {
+      finish(false);
+    }
+  });
+}
+
 function isPopupClosed(popup: Window | null): boolean {
   if (!popup) return false;
   try {
@@ -662,6 +716,7 @@ export function useBuilderConnectFlow(
   const [accountExists, setAccountExists] = useState(false);
   const [hasFetchedStatus, setHasFetchedStatus] = useState(false);
   const [statusResolved, setStatusResolved] = useState(false);
+  const [statusReadSettledCount, setStatusReadSettledCount] = useState(0);
   const [statusConnectUrl, setStatusConnectUrl] = useState<string | null>(null);
   // When statusConnectUrl was last fetched. The server signs the embedded
   // _an_connect token with a 10-minute TTL; using an older URL fails the
@@ -676,7 +731,7 @@ export function useBuilderConnectFlow(
   const activePopupRef = useRef<Window | null>(null);
   const popupClosedAtRef = useRef<number | null>(null);
   const callbackSuccessStartedAtRef = useRef<number | null>(null);
-  const retryStatusRef = useRef<() => void>(() => {});
+  const retryStatusRef = useRef<() => boolean>(() => false);
   const statusUnavailableRef = useRef(false);
   const mountedRef = useRef(true);
   const notifiedConnectedRef = useRef(false);
@@ -770,10 +825,11 @@ export function useBuilderConnectFlow(
       setAccountExists(false);
       setHasFetchedStatus(false);
       setStatusResolved(false);
+      setStatusReadSettledCount(0);
       setStatusConnectUrl(null);
       statusConnectUrlAtRef.current = null;
       connectAttemptIdRef.current = null;
-      retryStatusRef.current = () => {};
+      retryStatusRef.current = () => false;
       return;
     }
     mountedRef.current = true;
@@ -790,6 +846,7 @@ export function useBuilderConnectFlow(
       // "use initial props until the hook has an answer" pattern wants to
       // stop waiting after we've tried, regardless of network outcome.
       setHasFetchedStatus(true);
+      setStatusReadSettledCount((count) => count + 1);
       if (!s) {
         // "Could not read the status" must not render the same as "no status
         // yet". `statusResolved` only flips on success, so without a visible
@@ -844,7 +901,10 @@ export function useBuilderConnectFlow(
         setError(null);
       }
     };
-    retryStatusRef.current = () => void refresh();
+    retryStatusRef.current = () => {
+      void refresh();
+      return true;
+    };
     // Connect-CTA cards render above the fold but their status is not needed
     // for first paint; defer the initial read. Focus/visibility/event
     // refreshes below stay immediate.
@@ -873,16 +933,14 @@ export function useBuilderConnectFlow(
       cancelled = true;
       mountedRef.current = false;
       cancelInitialRefresh();
-      retryStatusRef.current = () => {};
+      retryStatusRef.current = () => false;
       window.removeEventListener("focus", refreshNow);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("agent-engine:configured-changed", refreshNow);
     };
   }, [enabled, fetchStatus]);
 
-  const retry = useCallback(() => {
-    retryStatusRef.current();
-  }, []);
+  const retry = useCallback(() => retryStatusRef.current(), []);
 
   const start = useCallback(
     (startOptions?: BuilderConnectStartOptions) => {
@@ -918,8 +976,9 @@ export function useBuilderConnectFlow(
         ? statusConnectUrl
         : null;
       // popupUrl props and statusConnectUrl are signed URLs minted before the
-      // click. In web browsers, always refresh inside an about:blank popup so a
-      // server/package restart cannot leave the user with a stale signed state.
+      // click. Top-level browsers use about:blank so the waiting document
+      // cannot race the refreshed signed URL navigation. Embedded hosts use
+      // the inert HTTP page because their popup policy can reject about:blank.
       // Desktop keeps the direct path because the Electron shell owns the popup.
       const signedPropUrl = hasSignedConnectToken(popupUrl) ? popupUrl : null;
       const fallbackUrl = new URL(
@@ -969,15 +1028,16 @@ export function useBuilderConnectFlow(
           // null to the embedded webview, so null is not a blocker here.
         }
       } else {
+        const embeddedWindow = isEmbeddedWindow();
         const opened = openBuilderConnectPopup({
-          url: "about:blank",
+          url: embeddedWindow ? oauthPopupWaitingUrl() : "about:blank",
           source: clickTrackingSource,
           flow: clickTrackingFlow,
           features: "width=600,height=700",
         });
         if (opened) activePopupRef.current = opened;
         if (!opened) {
-          if (!isEmbeddedWindow()) {
+          if (!embeddedWindow) {
             connectStartedAtRef.current = null;
             setConnecting(false);
             setError("Couldn't open Builder. Allow popups and try again.");
@@ -1030,14 +1090,25 @@ export function useBuilderConnectFlow(
             );
           })();
         } else {
+          const isCurrentConnectAttempt = () =>
+            mountedRef.current &&
+            connectAttemptIdRef.current === connectAttemptId &&
+            connectStartedAtRef.current === started;
+          const popupReady = embeddedWindow
+            ? waitForBuilderConnectPopupLoad(
+                opened,
+                () => !isCurrentConnectAttempt() || isPopupClosed(opened),
+              )
+            : Promise.resolve(true);
           showBuilderConnectPopupPlaceholder(opened);
           void (async () => {
             const s = await fetchStatus(undefined, connectAttemptId);
-            if (!mountedRef.current) {
+            if (!isCurrentConnectAttempt()) {
               try {
                 opened.close();
               } catch {
-                // Ignore close failures.
+                // coercion-ok: closing a popup from a superseded attempt is
+                // best effort.
               }
               return;
             }
@@ -1084,6 +1155,30 @@ export function useBuilderConnectFlow(
               setConnecting(false);
               setError(
                 "Couldn't start Builder connect. Refresh this page and try again.",
+              );
+              return;
+            }
+            const popupLoaded = await popupReady;
+            if (!isCurrentConnectAttempt()) {
+              try {
+                opened.close();
+              } catch {
+                // coercion-ok: closing a popup from a superseded attempt is
+                // best effort.
+              }
+              return;
+            }
+            if (!popupLoaded) {
+              try {
+                opened.close();
+              } catch {
+                // coercion-ok: closing a failed popup is best effort.
+                // Ignore close failures.
+              }
+              connectStartedAtRef.current = null;
+              setConnecting(false);
+              setError(
+                "Couldn't navigate the Builder popup. Allow popups and try again.",
               );
               return;
             }
@@ -1397,6 +1492,7 @@ export function useBuilderConnectFlow(
     configured,
     codeChangeConfigured,
     statusResolved,
+    statusReadSettledCount,
     envManaged,
     credentialSource,
     canDisconnect,

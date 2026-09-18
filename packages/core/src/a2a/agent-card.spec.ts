@@ -111,6 +111,16 @@ describe("generateAgentCard", () => {
     expect(card.capabilities.streaming).toBe(true);
   });
 
+  it("advertises connect support only when configured", () => {
+    expect(
+      generateAgentCard({ ...baseConfig, connect: true }, "https://example.com")
+        .capabilities.connect,
+    ).toBe(true);
+    expect(
+      generateAgentCard(baseConfig, "https://example.com").capabilities.connect,
+    ).toBeUndefined();
+  });
+
   it("always sets pushNotifications to false and stateTransitionHistory to true", () => {
     const card = generateAgentCard(baseConfig, "https://example.com");
     expect(card.capabilities.pushNotifications).toBe(false);

@@ -6,8 +6,10 @@ import {
   AuthPage,
   isAuthenticatedAuthSession,
   isConfirmedAnonymousAuthSession,
+  isVerificationLinkInvalid,
   oauthReturnTarget,
   resolveGoogleAuthUrlPath,
+  shouldUseIdentitySsoForGoogle,
   shouldAutoFederateIdentitySso,
   shouldHideAuthSubtitle,
   type AuthPageProps,
@@ -22,6 +24,17 @@ function propsFromHtml(html: string): AuthPageProps {
 }
 
 describe("AuthPage", () => {
+  it("recognizes Better Auth invalid-token redirects as expired verification links", () => {
+    expect(isVerificationLinkInvalid("verification_link_invalid")).toBe(true);
+    expect(isVerificationLinkInvalid("INVALID_TOKEN")).toBe(true);
+    expect(isVerificationLinkInvalid("INVALID_CALLBACK_URL")).toBe(false);
+
+    expect(
+      propsFromHtml(getOnboardingHtml({ requestPath: "/?error=INVALID_TOKEN" }))
+        .initialView,
+    ).toBe("login");
+  });
+
   it("hides account-only guidance when local development sign-in is available", () => {
     expect(shouldHideAuthSubtitle("signup", true)).toBe(true);
     expect(shouldHideAuthSubtitle("signup", false)).toBe(false);
@@ -82,6 +95,61 @@ describe("AuthPage", () => {
     ).toBe(false);
   });
 
+  it("uses Identity SSO for Google sign-in on immutable Netlify deploy URLs", () => {
+    const deployOrigin = `https://${"a".repeat(24)}--agent-native-analytics.netlify.app`;
+    expect(
+      shouldUseIdentitySsoForGoogle({
+        googleViaIdentitySso: true,
+        currentOrigin: deployOrigin,
+      }),
+    ).toBe(true);
+    expect(
+      shouldUseIdentitySsoForGoogle({
+        googleViaIdentitySso: true,
+        currentOrigin:
+          "https://deploy-preview-42--agent-native-analytics.netlify.app",
+      }),
+    ).toBe(false);
+    expect(
+      shouldUseIdentitySsoForGoogle({
+        googleViaIdentitySso: false,
+        currentOrigin: deployOrigin,
+      }),
+    ).toBe(false);
+  });
+
+  it("enables preview Google SSO only for the current immutable site deploy", () => {
+    const previousSiteName = process.env.SITE_NAME;
+    process.env.SITE_NAME = "agent-native-analytics";
+    const deployHost = `${"a".repeat(24)}--agent-native-analytics.netlify.app`;
+
+    try {
+      const deployProps = propsFromHtml(
+        getOnboardingHtml({ requestHost: deployHost }),
+      );
+      const aliasProps = propsFromHtml(
+        getOnboardingHtml({
+          requestHost: "deploy-preview-42--agent-native-analytics.netlify.app",
+        }),
+      );
+
+      expect(deployProps.googleViaIdentitySso).toBe(true);
+      expect(aliasProps.googleViaIdentitySso).toBe(false);
+      expect(deployProps.identitySsoEnabled).toBe(false);
+
+      const mailProps = propsFromHtml(
+        getOnboardingHtml({
+          requestHost: deployHost,
+          googleScopes: ["https://www.googleapis.com/auth/gmail.readonly"],
+        }),
+      );
+      expect(mailProps.googleViaIdentitySso).toBe(false);
+    } finally {
+      if (previousSiteName === undefined) delete process.env.SITE_NAME;
+      else process.env.SITE_NAME = previousSiteName;
+    }
+  });
+
   it("renders the password auth surface on the server without browser globals", () => {
     const props = propsFromHtml(getOnboardingHtml());
     const html = renderToString(
@@ -96,6 +164,14 @@ describe("AuthPage", () => {
     expect(html).toContain('id="login-form"');
     expect(html).toContain('id="forgot-form"');
     expect(html).not.toContain("onclick");
+  });
+
+  it("renders the organization SSO email entry point when enabled", () => {
+    const props = propsFromHtml(getOnboardingHtml());
+    const html = renderToString(<AuthPage {...props} organizationSsoEnabled />);
+
+    expect(html).toContain('id="organization-sso-form"');
+    expect(html).toContain('id="organization-sso-submit"');
   });
 
   it("composes the shared marketing home and animated background for branded auth", () => {
@@ -189,6 +265,27 @@ describe("AuthPage", () => {
     expect(html).toContain('id="magic-link-success"');
     expect(html).toContain('id="magic-link-success-email"');
     expect(html).toContain('id="use-password-link"');
+  });
+
+  it("keeps the magic-link entry subtitle honest about the controls it renders", () => {
+    const props = propsFromHtml(getOnboardingHtml({ authMode: "magic-link" }));
+    const html = renderToString(<AuthPage {...props} />);
+
+    expect(props.initialView).toBe("magicLink");
+    // The Create account / Sign in tabs are the only account chooser, and this
+    // view hides them on purpose: one email field registers and signs in.
+    expect(html).toMatch(/id="auth-tabs"[^>]*\shidden=""/);
+    expect(html).toContain("Continue to sign in or create your account");
+    expect(html).not.toContain("Create an account or sign in");
+  });
+
+  it("still shows the account chooser on the password entry view", () => {
+    const props = propsFromHtml(getOnboardingHtml());
+    const html = renderToString(<AuthPage {...props} />);
+
+    expect(props.initialView).toBe("signup");
+    expect(html).toContain('id="auth-tabs"');
+    expect(html).not.toMatch(/id="auth-tabs"[^>]*\shidden=""/);
   });
 
   it("returns Builder Electron OAuth to the local workspace gateway", () => {

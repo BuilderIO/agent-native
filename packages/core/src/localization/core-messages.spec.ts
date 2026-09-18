@@ -7,6 +7,7 @@ import {
   loadCoreMessagesForLocale,
 } from "./core-messages.js";
 import { ENVIRONMENT_BADGE_MESSAGES } from "./environment-badge-messages.js";
+import { PRIVACY_SETTINGS_MESSAGES } from "./privacy-settings-messages.js";
 import { SUPPORTED_LOCALES } from "./shared.js";
 
 function placeholders(value: string): string[] {
@@ -21,6 +22,15 @@ describe("built-in Core chat translations", () => {
       const messages = await loadCoreMessagesForLocale(locale);
       expect(messages.environmentBadge, locale).toEqual(
         ENVIRONMENT_BADGE_MESSAGES[locale],
+      );
+    }
+  });
+
+  it("localizes privacy settings copy in every built-in locale", async () => {
+    for (const locale of SUPPORTED_LOCALES) {
+      const messages = await loadCoreMessagesForLocale(locale);
+      expect(messages.settings, locale).toMatchObject(
+        PRIVACY_SETTINGS_MESSAGES[locale],
       );
     }
   });

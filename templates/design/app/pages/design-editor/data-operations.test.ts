@@ -9,7 +9,9 @@ import {
   clearAcknowledgedDesignDataOperations,
   clearAcknowledgedDesignDataOperationsThroughRevision,
   compactDesignDataOperations,
+  invertDesignDataOperations,
   pendingDesignDataOperations,
+  rebaseDesignDataWithPendingOperations,
   stagePendingDesignDataOperations,
   type DesignDataOperation,
 } from "./data-operations";
@@ -75,6 +77,33 @@ describe("Design editor data operations", () => {
     ).toEqual([]);
   });
 
+  it("inverts data operations using the prior values and paths", () => {
+    const data = {
+      screenMetadata: { a: { heightPinned: false } },
+      canvasFrames: { a: frameA },
+    };
+    const operations: DesignDataOperation[] = [
+      { op: "set", path: ["screenMetadata", "a", "heightMode"], value: "hug" },
+      {
+        op: "set",
+        path: ["canvasFrames", "a"],
+        value: { ...frameA, height: 84 },
+      },
+    ];
+    const next = applyDesignDataOperations(data, operations);
+
+    expect(
+      applyDesignDataOperations(
+        next,
+        invertDesignDataOperations(data, operations),
+      ),
+    ).toEqual(data);
+    expect(invertDesignDataOperations(data, operations)).toEqual([
+      { op: "set", path: ["canvasFrames", "a"], value: frameA },
+      { op: "delete", path: ["screenMetadata", "a", "heightMode"] },
+    ]);
+  });
+
   it("syncs only changed viewport fields without replacing peer metadata", () => {
     const designData = {
       screenMetadata: {
@@ -111,6 +140,36 @@ describe("Design editor data operations", () => {
       localhostScreens: {
         a: { path: "/", width: 400, height: 300, peerField: "keep" },
       },
+    });
+  });
+
+  it("pins an explicitly resized screen as fixed height mode", () => {
+    const operations = buildFrameGeometryDataOperations({
+      previousGeometry: { a: { ...frameA, width: 400, height: 280 } },
+      nextGeometry: { a: { ...frameA, width: 440, height: 280 } },
+      designData: {
+        screenMetadata: {
+          a: {
+            width: 400,
+            height: 280,
+            heightPinned: false,
+            heightMode: "hug",
+          },
+        },
+      },
+      syncViewportFrameIds: ["a"],
+      pinHeightFrameIds: ["a"],
+    });
+
+    expect(operations).toContainEqual({
+      op: "set",
+      path: ["screenMetadata", "a", "heightPinned"],
+      value: true,
+    });
+    expect(operations).toContainEqual({
+      op: "set",
+      path: ["screenMetadata", "a", "heightMode"],
+      value: "fixed",
     });
   });
 
@@ -228,5 +287,64 @@ describe("Design editor data operations", () => {
     );
     expect(source).not.toContain("operationSource: TAB_ID");
     expect(source).toContain("operationRevision: revision");
+  });
+
+  it("rebases rapid Screen H over an older render while W is pending", () => {
+    const screenId = "screen";
+    const initialGeometry = { x: 0, y: 0, width: 402, height: 874 };
+    const initialData = {
+      canvasFrames: { [screenId]: initialGeometry },
+      screenMetadata: { [screenId]: { width: 402, height: 874 } },
+    };
+    const widthOperations = buildFrameGeometryDataOperations({
+      previousGeometry: { [screenId]: initialGeometry },
+      nextGeometry: { [screenId]: { ...initialGeometry, width: 800 } },
+      designData: initialData,
+      syncViewportFrameIds: [screenId],
+    });
+    const pendingAfterWidth = stagePendingDesignDataOperations(
+      {},
+      widthOperations,
+      1,
+    );
+
+    const designDataJsonRef = rebaseDesignDataWithPendingOperations(
+      initialData,
+      pendingAfterWidth,
+    );
+    const beforeHeight = designDataJsonRef.canvasFrames as Record<
+      string,
+      typeof initialGeometry
+    >;
+    const nextGeometry = {
+      [screenId]: { ...beforeHeight[screenId]!, height: 800 },
+    };
+    const heightOperations = buildFrameGeometryDataOperations({
+      previousGeometry: beforeHeight,
+      nextGeometry,
+      designData: designDataJsonRef,
+      syncViewportFrameIds: [screenId],
+      pinHeightFrameIds: [screenId],
+    });
+    const secondRequestOperations = compactDesignDataOperations([
+      ...pendingDesignDataOperations(pendingAfterWidth),
+      ...heightOperations,
+    ]);
+    expect(secondRequestOperations).toContainEqual({
+      op: "set",
+      path: ["canvasFrames", screenId],
+      value: { ...initialGeometry, width: 800, height: 800 },
+    });
+    const persisted = applyDesignDataOperations(
+      applyDesignDataOperations(initialData, widthOperations),
+      secondRequestOperations,
+    );
+
+    expect(persisted.canvasFrames).toEqual({
+      [screenId]: { ...initialGeometry, width: 800, height: 800 },
+    });
+    expect(persisted.screenMetadata).toMatchObject({
+      [screenId]: { width: 800, height: 800 },
+    });
   });
 });

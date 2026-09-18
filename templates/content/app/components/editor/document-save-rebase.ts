@@ -1,6 +1,6 @@
 import { planDocReconcile } from "@agent-native/toolkit/editor";
 import type { Document } from "@shared/api";
-import { nfmToDoc } from "@shared/nfm";
+import { docToNfm, nfmToDoc } from "@shared/nfm";
 import { getSchema } from "@tiptap/core";
 
 import { isDocumentUpdateConflict } from "@/hooks/use-documents";
@@ -8,7 +8,11 @@ import type { DocumentUpdateConflictResponse } from "@/hooks/use-documents";
 
 import { createVisualEditorExtensions } from "./VisualEditor";
 
-export type DocumentContentBase = { content: string; updatedAt: string | null };
+export type DocumentContentBase = {
+  content: string;
+  updatedAt: string | null;
+  revision?: string;
+};
 export type RebasedDocumentSaveResult =
   | { status: "saved"; document: Document; content: string }
   | { status: "conflict"; localDraft: string };
@@ -38,13 +42,15 @@ export async function saveDocumentWithRebase({
   };
 }): Promise<RebasedDocumentSaveResult> {
   let attemptedBase = base;
-  const draft = content;
+  let candidate = content;
   const conflict = (): RebasedDocumentSaveResult => {
     const current = owner?.current();
     return {
       status: "conflict",
       localDraft:
-        current && current.version !== owner!.version ? current.content : draft,
+        current && current.version !== owner!.version
+          ? current.content
+          : candidate,
     };
   };
   const confirmed = (document: Document): RebasedDocumentSaveResult => {
@@ -53,12 +59,12 @@ export async function saveDocumentWithRebase({
     return { status: "saved", document, content: document.content };
   };
   for (let attempt = 0; attempt <= 2; attempt++) {
-    const saved = await persist(draft, attemptedBase);
+    const saved = await persist(candidate, attemptedBase);
     if (!isDocumentUpdateConflict(saved)) {
       return confirmed(saved);
     }
     const winner = saved.document;
-    if (winner.content === draft && confirmsWrite(winner)) {
+    if (winner.content === candidate && confirmsWrite(winner)) {
       return confirmed(winner);
     }
     if (
@@ -71,19 +77,24 @@ export async function saveDocumentWithRebase({
     }
     try {
       contentSchema ??= getSchema(createVisualEditorExtensions());
-      const localDoc = contentSchema.nodeFromJSON(nfmToDoc(draft));
+      const localDoc = contentSchema.nodeFromJSON(nfmToDoc(candidate));
       const plan = planDocReconcile(
         localDoc,
         contentSchema.nodeFromJSON(nfmToDoc(attemptedBase.content)),
         contentSchema.nodeFromJSON(nfmToDoc(winner.content)),
       );
-      // Only advance the CAS base when the editor already contains the winner.
-      // A server-only change must reach the live Y.Doc through its elected
-      // reconciler before later keystrokes can safely include that change.
-      if (plan.status !== "noop") {
+      // Carry an unambiguous three-way merge into the retry. Ambiguous edits
+      // still need recovery because choosing either side would discard work.
+      if (plan.status === "applied") {
+        candidate = docToNfm(plan.mergedDoc.toJSON());
+      } else if (plan.status !== "noop") {
         return conflict();
       }
-      attemptedBase = { content: winner.content, updatedAt: winner.updatedAt };
+      attemptedBase = {
+        content: winner.content,
+        updatedAt: winner.updatedAt,
+        revision: winner.revision,
+      };
     } catch {
       return conflict();
     }

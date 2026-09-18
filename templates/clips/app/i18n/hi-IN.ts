@@ -80,6 +80,7 @@ const messages = {
     createFolderError: "बनाने में विफल",
     folderCreated: "फ़ोल्डर बन गया",
     folderNamePlaceholder: "फ़ोल्डर का नाम",
+    breadcrumbBack: "{{label}} पर वापस जाएँ",
   },
   empty: {
     library: {
@@ -641,6 +642,7 @@ const messages = {
     organizationFallback: "संगठन",
     saving: "सहेजा जा रहा है…",
     save: "सहेजें",
+    saved: "सहेजा गया",
   },
   downloadRoute: {
     pageTitle: "Clips Desktop डाउनलोड करें",
@@ -1822,6 +1824,13 @@ const messages = {
     capturedFrom: "{{source}} से कैप्चर किया गया",
     browserCapture: "ब्राउज़र कैप्चर",
     views: "डायग्नोस्टिक दृश्य",
+    timeline: "टाइमलाइन",
+    navigation: "नेविगेशन",
+    click: "क्लिक",
+    input: "इनपुट",
+    scroll: "स्क्रॉल",
+    requestStarted: "अनुरोध शुरू हुआ",
+    responseReceived: "प्रतिक्रिया मिली",
     issues: "समस्याएँ",
     consoleSource: "कंसोल",
     networkSource: "नेटवर्क",

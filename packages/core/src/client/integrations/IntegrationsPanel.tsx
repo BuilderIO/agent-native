@@ -1165,7 +1165,12 @@ export function IntegrationsPanel() {
     null,
   );
   const [showEmailDetail, setShowEmailDetail] = useState(false);
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(
+    () =>
+      (typeof window === "undefined"
+        ? ""
+        : new URLSearchParams(window.location.search).get("q")) ?? "",
+  );
   const { configured: emailConfigured, refresh: refreshEmailConfigured } =
     useEmailProviderConfigured();
   const statusMap = new Map(statuses.map((s) => [s.platform, s]));
@@ -1352,7 +1357,6 @@ export function IntegrationsPanel() {
           const builderItem: IntegrationGridItem = {
             id: "builder-cms",
             name: "Builder.io",
-            fullWidth: true,
             badge: t("integrations.recommended"),
             description: viewModel.description,
             logo: (
@@ -1362,10 +1366,6 @@ export function IntegrationsPanel() {
                 integrationId="builder-cms"
               />
             ),
-            status: viewModel.status.label,
-            statusClassName: builderConnected
-              ? "text-emerald-600 dark:text-emerald-400"
-              : undefined,
             actionKind: builderConnected ? "manage" : "connect",
             actionLabel: builderConnected
               ? t("integrations.manage")

@@ -1,5 +1,6 @@
 import {
   parseCssColor,
+  parseCssColorExtended,
   rgbaToCss,
   withColorOpacity,
 } from "@shared/color-utils";
@@ -269,7 +270,7 @@ export function compactCssValue(value: string | undefined, fallback: string) {
 }
 
 export function colorHasVisibleAlpha(value: string | undefined): boolean {
-  const parsed = parseCssColor(value || "");
+  const parsed = parseCssColorExtended(value || "");
   if (!parsed) return Boolean(value && value !== "transparent");
   return parsed.a > 0;
 }

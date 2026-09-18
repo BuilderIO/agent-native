@@ -14,6 +14,16 @@ const DESIGN_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
 const DESIGN_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS = 12 * 60_000;
 
 const EXTERNAL_CONNECTOR_TOOL_NAMES = [
+  // Local visual-edit tools are intentionally explicit: the connector
+  // catalog otherwise hides them from Claude Code/Codex hosts without a
+  // browser WebMCP surface.
+  "open-visual-edit",
+  "connect-localhost",
+  "add-localhost-screens",
+  "list-localhost-connections",
+  "update-screen-source",
+  "add-breakpoint",
+  "remove-breakpoint",
   "view-screen",
   // Pairs with view-screen: an external agent that can read the screen but
   // cannot move it has to drive the browser to change screens, which is the
@@ -108,6 +118,7 @@ const DESIGN_EDIT_TOOLS = new Set([
   "rename-screen",
   "swap-component-instance",
   "update-design",
+  "update-breakpoint",
   "update-file",
   "update-screen-source",
 ]);
@@ -266,6 +277,10 @@ When a user message begins with [Selection question], answer about the captured 
 When the user asks for a new design and the current navigation view is list, settings, design-systems, or otherwise has no designId, create a new design first. Do not reuse, delete screens from, or edit a previous design unless the user explicitly names that design or the current navigation state is an editor/present view with that designId.
 
 Every web design must be responsive. Use mobile-first CSS, a viewport meta tag, and responsive layout changes for narrow widths; never ship a fixed-width desktop shell. Desktop is the default primary artboard: use a 1440×1024 canvas frame (or primaryViewport "desktop") unless the user explicitly asks for a mobile- or tablet-primary design. After generation, inspect desktop and mobile screenshots and correct overflow or broken reflow before reporting completion.
+
+Treat explicit visual direction, requested content, named pages, and page counts as acceptance criteria. When the user asks for multiple distinct pages or states, call generate-screens with every requested page before generating their files; do not substitute responsive breakpoint frames for requested pages. Verify the saved design contains each requested page before reporting completion.
+
+Generated controls that look interactive must work in the prototype. Give links valid destinations and wire buttons to the requested navigation or state change; if no behavior is intended, render the element as non-interactive content instead of a dead control. Exercise the primary links and buttons before reporting completion.
 
 When the user asks to start from a template or references a prior design/past work as the starting point, call both list-design-templates and list-designs before generating so you resolve the existing resource instead of recreating it. For a template, call create-design-from-template. The copied files and canvas dimensions are already the starting point. If the user also supplied a prompt or selected a different linked design system, call get-design-snapshot once and refine unlocked content with edit-design; do not call generate-design or replace the template with a fresh screen. Layers marked data-agent-native-locked="true" and their descendants must remain byte-for-byte unchanged. Ask the user to unlock one explicitly if they want it changed.
 

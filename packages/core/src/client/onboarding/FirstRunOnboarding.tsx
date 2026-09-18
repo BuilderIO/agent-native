@@ -53,6 +53,7 @@ import {
   formatMcpServersLoadError,
   useCreateMcpServer,
   useMcpServers,
+  type CreateMcpServerArgs,
 } from "../resources/use-mcp-servers.js";
 import { BuilderConnectPopover } from "../settings/BuilderConnectPopover.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
@@ -61,7 +62,10 @@ import { shouldSkipFirstRunIntegrations } from "./first-run-enabled.js";
 import { listFirstRunOnboardingExtensions } from "./first-run-registry.js";
 import { saveFirstRunOnboardingRole } from "./first-run-status.js";
 import { trackOnboardingEvent, useOnboarding } from "./use-onboarding.js";
-import { useOnboardingPreviewMode } from "./use-preview-mode.js";
+import {
+  useOnboardingPreviewMode,
+  useOnboardingPreviewStep,
+} from "./use-preview-mode.js";
 
 type FirstRunScreen =
   | "intro"
@@ -123,6 +127,30 @@ const BUILDER_MORE_SERVICES = [
   "Embeddings",
 ] as const;
 
+function integrationTrackingProperties(
+  integration: DefaultMcpIntegration,
+  scope?: string,
+): Record<string, unknown> {
+  return {
+    flow: "first_run",
+    step_id: "tools",
+    integration_id: integration.id,
+    connection_mode: integration.connectionMode,
+    auth_mode: integration.authMode,
+    availability: integration.availability,
+    ...(scope ? { scope } : {}),
+  };
+}
+
+function tryNavigateToMcpOAuthStart(url: string): boolean {
+  try {
+    return navigateToMcpOAuthStart(url);
+  } catch {
+    // coercion-ok: the caller turns false into terminal failure telemetry.
+    return false;
+  }
+}
+
 export interface FirstRunOnboardingProps {
   /** Test hook; generated apps use the public Vite flag instead. */
   skipIntegrations?: boolean;
@@ -137,6 +165,7 @@ export function FirstRunOnboarding({
   const t = useT();
   const builderMoreServicesTitleId = React.useId();
   const previewMode = useOnboardingPreviewMode();
+  const previewStep = useOnboardingPreviewStep();
   const {
     firstRun,
     loading,
@@ -145,7 +174,9 @@ export function FirstRunOnboarding({
     completeFirstRun,
     completeFirstRunError,
   } = useOnboarding({ preview: previewMode, initialFirstRun });
-  const [screen, setScreen] = useState<FirstRunScreen>("intro");
+  const [screen, setScreen] = useState<FirstRunScreen>(() =>
+    previewStep === "references" ? "extension" : (previewStep ?? "intro"),
+  );
   const [extensionIndex, setExtensionIndex] = useState(0);
   const [selectedRole, setSelectedRole] = useState<string | null>(null);
   const [savingRole, setSavingRole] = useState(false);
@@ -162,6 +193,10 @@ export function FirstRunOnboarding({
     "existing" | "provision"
   >("existing");
   const extensions = useMemo(() => listFirstRunOnboardingExtensions(), []);
+  useEffect(() => {
+    if (!previewMode || !previewStep) return;
+    setScreen(previewStep === "references" ? "extension" : previewStep);
+  }, [previewMode, previewStep]);
   const mcpCatalog = useMemo(() => getDefaultMcpIntegrations(), []);
   const mcpServersQuery = useMcpServers();
   const createMcpServer = useCreateMcpServer();
@@ -180,6 +215,20 @@ export function FirstRunOnboarding({
         "onboarding_step_completed",
         firstRunStepProperties(stepScreen, extensions, stepExtensionIndex),
       );
+    },
+    [extensionIndex, extensions, previewMode],
+  );
+  const trackFirstRunStepSkipped = useCallback(
+    (
+      stepScreen: FirstRunScreen,
+      reason = "user_action",
+      stepExtensionIndex = extensionIndex,
+    ) => {
+      if (previewMode) return;
+      trackOnboardingEvent("onboarding_step_skipped", {
+        ...firstRunStepProperties(stepScreen, extensions, stepExtensionIndex),
+        reason,
+      });
     },
     [extensionIndex, extensions, previewMode],
   );
@@ -263,8 +312,14 @@ export function FirstRunOnboarding({
     connectFlow.agentNativeProvisioningEnabled;
   const builderCtaRef = useRef<HTMLButtonElement>(null);
   const dismissOnboarding = useCallback(() => {
+    if (!previewMode) {
+      trackOnboardingEvent("onboarding_dismissed", {
+        ...firstRunStepProperties(screen, extensions, extensionIndex),
+        reason: "user_action",
+      });
+    }
     void finishOnboarding(null);
-  }, [finishOnboarding]);
+  }, [extensionIndex, extensions, finishOnboarding, previewMode, screen]);
   const retryOnboardingCompletion = useCallback(() => {
     const attempt = completionAttemptRef.current;
     void finishOnboarding(
@@ -363,6 +418,13 @@ export function FirstRunOnboarding({
     if (!selectedRole || savingRole) return;
     setSavingRole(true);
     setRoleSaveError(null);
+    if (!previewMode) {
+      trackOnboardingEvent("onboarding_role_save_started", {
+        flow: "first_run",
+        step_id: "role",
+        role: selectedRole,
+      });
+    }
     try {
       if (!previewMode) await saveFirstRunOnboardingRole(selectedRole);
       handleFinish();
@@ -390,6 +452,10 @@ export function FirstRunOnboarding({
       return;
     }
     setConnectError(null);
+    trackOnboardingEvent(
+      "integration_cta_clicked",
+      integrationTrackingProperties(integration),
+    );
 
     if (
       connectedServers.some((server) =>
@@ -404,11 +470,19 @@ export function FirstRunOnboarding({
 
     if (hasOrg) {
       setIntegrationDialogId(integration.id);
+      trackOnboardingEvent(
+        "integration_dialog_opened",
+        integrationTrackingProperties(integration),
+      );
       return;
     }
 
     if (!integration.url.trim()) {
       setIntegrationDialogId(integration.id);
+      trackOnboardingEvent(
+        "integration_dialog_opened",
+        integrationTrackingProperties(integration),
+      );
       return;
     }
 
@@ -417,6 +491,10 @@ export function FirstRunOnboarding({
       integration.connectionMode === "direct"
     ) {
       setConnectingIntegrationId(integration.id);
+      trackOnboardingEvent(
+        "integration_connect_started",
+        integrationTrackingProperties(integration, "user"),
+      );
       try {
         await createMcpServer.mutateAsync({
           scope: "user",
@@ -424,7 +502,15 @@ export function FirstRunOnboarding({
           url: integration.url,
           description: integration.description,
         });
+        trackOnboardingEvent(
+          "integration_connect_completed",
+          integrationTrackingProperties(integration, "user"),
+        );
       } catch (error) {
+        trackOnboardingEvent("integration_connect_failed", {
+          ...integrationTrackingProperties(integration, "user"),
+          error_type: error instanceof Error ? error.name : "unknown",
+        });
         setConnectError(
           formatMcpServerError(
             error instanceof Error ? error.message : String(error),
@@ -444,7 +530,11 @@ export function FirstRunOnboarding({
       // no workspace yet the dialog is the surface that explains why.
       !requiresMcpIntegrationOrganizationScope(integration)
     ) {
-      const opened = navigateToMcpOAuthStart(
+      trackOnboardingEvent(
+        "integration_connect_started",
+        integrationTrackingProperties(integration, "user"),
+      );
+      const opened = tryNavigateToMcpOAuthStart(
         appPath(
           buildMcpOAuthStartUrl({
             name: integration.name,
@@ -452,16 +542,72 @@ export function FirstRunOnboarding({
             description: integration.description,
             scope: "user",
             returnUrl,
+            trackingFlow: "first_run",
+            trackingIntegrationId: integration.id,
           }),
         ),
       );
       if (!opened) {
+        trackOnboardingEvent("integration_connect_failed", {
+          ...integrationTrackingProperties(integration, "user"),
+          error_type: "popup_or_navigation_blocked",
+        });
         setConnectError(t("mcpIntegrations.connectionError"));
       }
       return;
     }
 
     setIntegrationDialogId(integration.id);
+    trackOnboardingEvent(
+      "integration_dialog_opened",
+      integrationTrackingProperties(integration),
+    );
+  };
+
+  const handleCreateMcpServer = async (args: CreateMcpServerArgs) => {
+    const integration = mcpCatalog.find(
+      (candidate) => candidate.id === integrationDialogId,
+    );
+    if (!integration) {
+      return createMcpServer.mutateAsync(args);
+    }
+    const properties = integrationTrackingProperties(integration, args.scope);
+    trackOnboardingEvent("integration_connect_started", properties);
+    try {
+      const result = await createMcpServer.mutateAsync(args);
+      trackOnboardingEvent("integration_connect_completed", properties);
+      return result;
+    } catch (error) {
+      trackOnboardingEvent("integration_connect_failed", {
+        ...properties,
+        error_type: error instanceof Error ? error.name : "unknown",
+      });
+      throw error;
+    }
+  };
+
+  const handleMcpOAuthStart = (url: string) => {
+    const integration = mcpCatalog.find(
+      (candidate) => candidate.id === integrationDialogId,
+    );
+    const scope = URL.canParse(url, window.location.origin)
+      ? new URL(url, window.location.origin).searchParams.get("scope")
+      : null;
+    if (integration) {
+      trackOnboardingEvent(
+        "integration_connect_started",
+        integrationTrackingProperties(integration, scope ?? "user"),
+      );
+    }
+    if (!tryNavigateToMcpOAuthStart(url)) {
+      if (integration) {
+        trackOnboardingEvent("integration_connect_failed", {
+          ...integrationTrackingProperties(integration, scope ?? "user"),
+          error_type: "popup_or_navigation_blocked",
+        });
+      }
+      throw new Error(t("mcpIntegrations.connectionError"));
+    }
   };
 
   if (screen === "extension") {
@@ -488,7 +634,14 @@ export function FirstRunOnboarding({
       >
         <Extension
           onComplete={advanceExtension}
-          onSkip={() => void finishOnboarding(null)}
+          onSkip={() => {
+            trackFirstRunStepSkipped(
+              "extension",
+              "user_action",
+              extensionIndex,
+            );
+            void finishOnboarding(null);
+          }}
         />
       </OnboardingShell>
     );
@@ -813,7 +966,7 @@ export function FirstRunOnboarding({
                   data-testid="first-run-skip-keys"
                   className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   onClick={() => {
-                    trackFirstRunStepCompleted("manual");
+                    trackFirstRunStepSkipped("manual");
                     showTools();
                   }}
                 >
@@ -853,7 +1006,10 @@ export function FirstRunOnboarding({
             <button
               type="button"
               className={secondaryButtonClass}
-              onClick={() => setScreen("role")}
+              onClick={() => {
+                trackFirstRunStepSkipped("tools");
+                setScreen("role");
+              }}
             >
               {t("agentChat.onboarding.skipForNow")}
             </button>
@@ -968,7 +1124,10 @@ export function FirstRunOnboarding({
             defaultScope="user"
             canCreateOrgMcp={canCreateOrgMcp}
             hasOrg={hasOrg}
-            onCreateMcpServer={createMcpServer.mutateAsync}
+            onCreateMcpServer={handleCreateMcpServer}
+            onOAuthStart={handleMcpOAuthStart}
+            trackingFlow="first_run"
+            trackingIntegrationId={integrationDialogId}
           />
         )}
       </OnboardingShell>
@@ -1020,7 +1179,14 @@ export function FirstRunOnboarding({
                   name="first-run-role"
                   value={value}
                   checked={selectedRole === value}
-                  onChange={() => setSelectedRole(value)}
+                  onChange={() => {
+                    setSelectedRole(value);
+                    trackOnboardingEvent("onboarding_role_option_selected", {
+                      flow: "first_run",
+                      step_id: "role",
+                      role: value,
+                    });
+                  }}
                   className="size-4 accent-primary"
                 />
                 <span>{t(labelKey)}</span>
@@ -1036,7 +1202,10 @@ export function FirstRunOnboarding({
             <button
               type="button"
               className={secondaryButtonClass}
-              onClick={() => handleFinish(false)}
+              onClick={() => {
+                trackFirstRunStepSkipped("role");
+                handleFinish(false);
+              }}
               disabled={savingRole}
             >
               {t("agentChat.onboarding.skipForNow")}

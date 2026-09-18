@@ -1,3 +1,7 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
 import { convertSetCookieToCookie, getTestInstance } from "better-auth/test";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
@@ -11,6 +15,7 @@ import {
   desktopMagicLinkLandingUrl,
   ensureGoogleAuthIdentityWithAdapter,
   getAuthSecret,
+  normalizeBetterAuthInternalAdapter,
   withBetterAuthActionSession,
   type BetterAuthInternalAdapter,
 } from "./better-auth-instance.js";
@@ -70,6 +75,8 @@ describe("resolveAuthSecret", () => {
     delete process.env.A2A_SECRET;
     delete process.env.AGENT_NATIVE_WORKSPACE;
     delete process.env.VITE_AGENT_NATIVE_WORKSPACE;
+    delete process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT;
+    delete process.env.SENTRY_ENVIRONMENT;
     delete process.env.NODE_ENV;
   });
 
@@ -88,6 +95,34 @@ describe("resolveAuthSecret", () => {
   it("throws in production when BETTER_AUTH_SECRET is missing", () => {
     process.env.NODE_ENV = "production";
     expect(() => getAuthSecret()).toThrow(/BETTER_AUTH_SECRET is not set/);
+  });
+
+  it.each(["beta", "preview", "production"])(
+    "never persists a generated secret in %s",
+    (environment) => {
+      process.env.NODE_ENV = "development";
+      process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT = environment;
+      expect(() => getAuthSecret()).toThrow(/BETTER_AUTH_SECRET is not set/);
+    },
+  );
+
+  it("does not let Sentry metadata weaken the production guard", () => {
+    process.env.NODE_ENV = "production";
+    process.env.SENTRY_ENVIRONMENT = "development";
+    expect(() => getAuthSecret()).toThrow(/BETTER_AUTH_SECRET is not set/);
+  });
+
+  it("allows the dedicated deployment setting to opt into local development", () => {
+    process.env.NODE_ENV = "production";
+    process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT = "local";
+    const appRoot = fs.mkdtempSync(path.join(os.tmpdir(), "dev-auth-secret-"));
+    const cwd = vi.spyOn(process, "cwd").mockReturnValue(appRoot);
+    try {
+      expect(getAuthSecret()).toBeTruthy();
+    } finally {
+      cwd.mockRestore();
+      fs.rmSync(appRoot, { recursive: true, force: true });
+    }
   });
 
   it("derives a production workspace auth secret from A2A_SECRET", () => {
@@ -116,10 +151,19 @@ describe("resolveAuthSecret", () => {
     expect(() => getAuthSecret()).toThrow(/openssl rand -hex 32/);
   });
 
-  it("does not throw in dev when missing (auto-generates instead)", () => {
+  it("persists and reuses a generated secret in local development", () => {
     process.env.NODE_ENV = "development";
-    expect(() => getAuthSecret()).not.toThrow();
-    expect(getAuthSecret()).toBeTruthy();
+    const appRoot = fs.mkdtempSync(path.join(os.tmpdir(), "dev-auth-secret-"));
+    const cwd = vi.spyOn(process, "cwd").mockReturnValue(appRoot);
+    try {
+      const first = getAuthSecret();
+      const secretFile = path.join(appRoot, ".agent-native", "dev-auth-secret");
+      expect(fs.readFileSync(secretFile, "utf8").trim()).toBe(first);
+      expect(getAuthSecret()).toBe(first);
+    } finally {
+      cwd.mockRestore();
+      fs.rmSync(appRoot, { recursive: true, force: true });
+    }
   });
 
   // SECURITY (audit 09 LOW-2): the dev-mode fallback used to chain to
@@ -133,8 +177,15 @@ describe("resolveAuthSecret", () => {
     delete process.env.BETTER_AUTH_SECRET;
     delete process.env.GOOGLE_CLIENT_SECRET;
     delete process.env.ACCESS_TOKEN;
-    const secret = getAuthSecret();
-    expect(secret).not.toBe("agent-native-local-dev-secret-k9x2m7q4w8");
+    const appRoot = fs.mkdtempSync(path.join(os.tmpdir(), "dev-auth-secret-"));
+    const cwd = vi.spyOn(process, "cwd").mockReturnValue(appRoot);
+    try {
+      const secret = getAuthSecret();
+      expect(secret).not.toBe("agent-native-local-dev-secret-k9x2m7q4w8");
+    } finally {
+      cwd.mockRestore();
+      fs.rmSync(appRoot, { recursive: true, force: true });
+    }
   });
 });
 
@@ -471,6 +522,32 @@ describe("ensureGoogleAuthIdentityWithAdapter", () => {
     ).rejects.toThrow("unverified email/password identity");
     expect(replaceUnverifiedCredentialWithGoogle).not.toHaveBeenCalled();
     expect(linkAccount).not.toHaveBeenCalled();
+  });
+});
+
+describe("normalizeBetterAuthInternalAdapter", () => {
+  it("bridges Better Auth 1.7 account keys to the framework lookup", async () => {
+    const findAccountByKey = vi.fn(async () => ({
+      id: "google-account",
+      userId: "user-1",
+    }));
+    const adapter = normalizeBetterAuthInternalAdapter({
+      findUserByEmail: vi.fn(),
+      linkAccount: vi.fn(),
+      createUser: vi.fn(),
+      createSession: vi.fn(),
+      deleteSession: vi.fn(),
+      findAccountByKey,
+    });
+
+    expect(adapter).toBeDefined();
+    await expect(
+      adapter!.findAccountByProviderId("google-sub-1", "google"),
+    ).resolves.toEqual({ id: "google-account", userId: "user-1" });
+    expect(findAccountByKey).toHaveBeenCalledWith({
+      accountId: "google-sub-1",
+      providerId: "google",
+    });
   });
 });
 

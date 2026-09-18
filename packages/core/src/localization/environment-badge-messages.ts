@@ -9,6 +9,8 @@ export interface EnvironmentBadgeMessages {
   betaLabel: string;
   betaTitle: string;
   productionTitle: string;
+  activeDevelopment: string;
+  feedbackPrompt: string;
   continuePrompt: string;
   switchToProduction: string;
   goToBeta: string;
@@ -26,6 +28,9 @@ export const ENVIRONMENT_BADGE_MESSAGES: Record<
     betaLabel: "beta",
     betaTitle: "You're on Agent-Native {{label}}",
     productionTitle: "You're on Agent-Native Production",
+    activeDevelopment: "Under active development",
+    feedbackPrompt:
+      "This template is under active development. We'd love your feedback as we build it.",
     continuePrompt: "Choose where you want to continue.",
     switchToProduction: "Switch to production",
     goToBeta: "Go to beta",
@@ -38,6 +43,9 @@ export const ENVIRONMENT_BADGE_MESSAGES: Record<
     betaLabel: "beta",
     betaTitle: "Estás en Agent-Native {{label}}",
     productionTitle: "Estás en Agent-Native Production",
+    activeDevelopment: "En desarrollo activo",
+    feedbackPrompt:
+      "Esta plantilla está en desarrollo activo. Nos encantaría recibir tus comentarios mientras la construimos.",
     continuePrompt: "Elige dónde quieres continuar.",
     switchToProduction: "Cambiar a producción",
     goToBeta: "Ir a beta",
@@ -50,6 +58,9 @@ export const ENVIRONMENT_BADGE_MESSAGES: Record<
     betaLabel: "bêta",
     betaTitle: "Vous êtes sur Agent-Native {{label}}",
     productionTitle: "Vous êtes sur Agent-Native Production",
+    activeDevelopment: "En développement actif",
+    feedbackPrompt:
+      "Ce modèle est en développement actif. Vos retours nous aideront à le construire.",
     continuePrompt: "Choisissez où continuer.",
     switchToProduction: "Passer en production",
     goToBeta: "Accéder à la bêta",
@@ -62,6 +73,9 @@ export const ENVIRONMENT_BADGE_MESSAGES: Record<
     betaLabel: "beta",
     betaTitle: "Du verwendest Agent-Native {{label}}",
     productionTitle: "Du verwendest Agent-Native Production",
+    activeDevelopment: "In aktiver Entwicklung",
+    feedbackPrompt:
+      "Diese Vorlage befindet sich in aktiver Entwicklung. Wir freuen uns über dein Feedback.",
     continuePrompt: "Wähle aus, wo du fortfahren möchtest.",
     switchToProduction: "Zur Produktionsumgebung wechseln",
     goToBeta: "Zur Beta wechseln",
@@ -74,6 +88,9 @@ export const ENVIRONMENT_BADGE_MESSAGES: Record<
     betaLabel: "beta",
     betaTitle: "Você está no Agent-Native {{label}}",
     productionTitle: "Você está no Agent-Native Production",
+    activeDevelopment: "Em desenvolvimento ativo",
+    feedbackPrompt:
+      "Este template está em desenvolvimento ativo. Adoraríamos receber seu feedback enquanto o construímos.",
     continuePrompt: "Escolha onde deseja continuar.",
     switchToProduction: "Mudar para produção",
     goToBeta: "Ir para beta",
@@ -86,6 +103,8 @@ export const ENVIRONMENT_BADGE_MESSAGES: Record<
     betaLabel: "测试版",
     betaTitle: "你正在使用 Agent-Native {{label}}",
     productionTitle: "你正在使用 Agent-Native 正式版",
+    activeDevelopment: "正在积极开发",
+    feedbackPrompt: "此模板正在积极开发中。欢迎在我们完善它的过程中提供反馈。",
     continuePrompt: "选择要继续使用的环境。",
     switchToProduction: "切换到正式版",
     goToBeta: "前往测试版",
@@ -98,6 +117,9 @@ export const ENVIRONMENT_BADGE_MESSAGES: Record<
     betaLabel: "測試版",
     betaTitle: "你目前正在使用 Agent-Native {{label}}",
     productionTitle: "你目前正在使用 Agent-Native 正式版",
+    activeDevelopment: "正在積極開發",
+    feedbackPrompt:
+      "此範本正在積極開發中。歡迎在我們完善它的過程中提供意見回饋。",
     continuePrompt: "選擇要繼續使用的環境。",
     switchToProduction: "切換至正式版",
     goToBeta: "前往測試版",
@@ -110,6 +132,9 @@ export const ENVIRONMENT_BADGE_MESSAGES: Record<
     betaLabel: "ベータ",
     betaTitle: "Agent-Native {{label}}を使用中です",
     productionTitle: "Agent-Native 本番環境を使用中です",
+    activeDevelopment: "積極的に開発中",
+    feedbackPrompt:
+      "このテンプレートは積極的に開発中です。開発を進めるため、ぜひフィードバックをお寄せください。",
     continuePrompt: "続行する環境を選択してください。",
     switchToProduction: "本番環境に切り替え",
     goToBeta: "ベータ版へ移動",
@@ -122,6 +147,9 @@ export const ENVIRONMENT_BADGE_MESSAGES: Record<
     betaLabel: "베타",
     betaTitle: "Agent-Native {{label}}를 사용 중입니다",
     productionTitle: "Agent-Native 프로덕션을 사용 중입니다",
+    activeDevelopment: "활발히 개발 중",
+    feedbackPrompt:
+      "이 템플릿은 활발히 개발 중입니다. 만들어 가는 과정에서 의견을 들려주세요.",
     continuePrompt: "계속할 환경을 선택하세요.",
     switchToProduction: "프로덕션으로 전환",
     goToBeta: "베타로 이동",
@@ -134,6 +162,9 @@ export const ENVIRONMENT_BADGE_MESSAGES: Record<
     betaLabel: "बीटा",
     betaTitle: "आप Agent-Native {{label}} पर हैं",
     productionTitle: "आप Agent-Native प्रोडक्शन पर हैं",
+    activeDevelopment: "सक्रिय विकास के तहत",
+    feedbackPrompt:
+      "यह टेम्पलेट सक्रिय विकास के तहत है। इसे बेहतर बनाने के लिए आपका फ़ीडबैक हमें पसंद आएगा।",
     continuePrompt: "चुनें कि आप कहाँ जारी रखना चाहते हैं।",
     switchToProduction: "प्रोडक्शन पर स्विच करें",
     goToBeta: "बीटा पर जाएँ",
@@ -146,6 +177,9 @@ export const ENVIRONMENT_BADGE_MESSAGES: Record<
     betaLabel: "بيتا",
     betaTitle: "أنت على إصدار Agent-Native {{label}}",
     productionTitle: "أنت على إصدار Agent-Native للإنتاج",
+    activeDevelopment: "قيد التطوير النشط",
+    feedbackPrompt:
+      "هذا القالب قيد التطوير النشط. يسعدنا تلقي ملاحظاتك بينما نعمل على تطويره.",
     continuePrompt: "اختر أين تريد المتابعة.",
     switchToProduction: "التبديل إلى إصدار الإنتاج",
     goToBeta: "الانتقال إلى الإصدار التجريبي",

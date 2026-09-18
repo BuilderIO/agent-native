@@ -5,8 +5,9 @@
 // null under `typeof window === "undefined"` (the default node test
 // environment), so this needs a real DOM.
 import { buildCodeLayerProjection } from "@shared/code-layer";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
+import { prepareCanonicalSourceContent } from "@/pages/design-editor/source-publication";
 import type { DesignFile } from "@/pages/design-editor/types";
 
 import {
@@ -31,7 +32,9 @@ function buildArgs(
     createdAt: "",
     updatedAt: "",
   };
-  const nodeId = buildCodeLayerProjection(content).nodes.find(
+  const nodeId = buildCodeLayerProjection(content, {
+    source: { kind: "design-file", fileId: "index.html" },
+  }).nodes.find(
     (node) => node.dataAttributes["data-agent-native-node-id"] === "t1",
   )!.id;
 
@@ -39,13 +42,24 @@ function buildArgs(
     activeCanvasSourceType: "inline",
     activeFile,
     applyLocalContentUpdate: (nextContent) => {
-      stored = nextContent;
+      const publication = prepareCanonicalSourceContent(nextContent, {
+        fileId: activeFile.id,
+        fileType: activeFile.fileType,
+      });
+      stored = publication.content;
+      return { status: "accepted", ...publication };
     },
     canEditDesign: true,
-    // Mirrors finalizePendingTextCreation's own contract: true only when
-    // this exact node is the one whose creation is being finalized.
-    finalizePendingTextCreation: (_fileId, nodeIds) =>
-      isPendingCreation && nodeIds.some((id) => id === nodeId),
+    // Mirrors prepareTextCreationFinalization's own contract: only this exact
+    // node's creation commit names the layer. historyHandled is deliberately
+    // false — an unrelated write can leave the undo stack stale without making
+    // this any less the creation's first commit, and the name must still land.
+    prepareTextCreationFinalization: (_fileId, nodeIds) => ({
+      isCreationCommit:
+        isPendingCreation && nodeIds.some((id) => id === nodeId),
+      historyHandled: false,
+      confirm: () => {},
+    }),
     getFreshActiveContent: () => stored,
     liveScreenSnapshotsById: {},
     recordPendingLiveTextEdit: () => {},
@@ -70,9 +84,9 @@ describe("runTextContentChange default text-layer naming", () => {
 
     runTextContentChange(args, `[data-agent-native-node-id="t1"]`, "Button");
 
-    const nextNode = buildCodeLayerProjection(getContent()).nodes.find(
-      (node) => node.id === nodeId,
-    )!;
+    const nextNode = buildCodeLayerProjection(getContent(), {
+      source: { kind: "design-file", fileId: "index.html" },
+    }).nodes.find((node) => node.id === nodeId)!;
     expect(nextNode.dataAttributes["data-agent-native-layer-name"]).toBe(
       "Button",
     );
@@ -84,12 +98,42 @@ describe("runTextContentChange default text-layer naming", () => {
 
     runTextContentChange(args, `[data-agent-native-node-id="t1"]`, "Sign up");
 
-    const nextNode = buildCodeLayerProjection(getContent()).nodes.find(
-      (node) => node.id === nodeId,
-    )!;
+    const nextNode = buildCodeLayerProjection(getContent(), {
+      source: { kind: "design-file", fileId: "index.html" },
+    }).nodes.find((node) => node.id === nodeId)!;
     expect(nextNode.dataAttributes["data-agent-native-layer-name"]).toBe(
       "Label",
     );
     expect(nextNode.textSnippet?.trim()).toBe("Sign up");
+  });
+});
+
+describe("runTextContentChange rejected live-snapshot write", () => {
+  it("keeps the creation record when the live snapshot write is rejected", () => {
+    const content = `<body><div data-agent-native-node-id="t1" data-agent-native-layer-name="Text"></div></body>`;
+    const { args } = buildArgs(content, true);
+    const confirm = vi.fn();
+    const rejected: TextContentChangeArgs = {
+      ...args,
+      liveScreenSnapshotsById: {
+        "index.html": { html: content } as never,
+      },
+      // The snapshot vanished, or integrity validation refused this edit.
+      updateLiveScreenSnapshotContent: () => false,
+      prepareTextCreationFinalization: () => ({
+        isCreationCommit: true,
+        historyHandled: true,
+        confirm,
+      }),
+    };
+
+    runTextContentChange(
+      rejected,
+      `[data-agent-native-node-id="t1"]`,
+      "Standalone",
+    );
+
+    // The source is unchanged, so the creation still owns its pending history.
+    expect(confirm).not.toHaveBeenCalled();
   });
 });

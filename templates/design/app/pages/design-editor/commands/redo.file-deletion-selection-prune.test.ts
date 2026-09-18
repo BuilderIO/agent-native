@@ -1,27 +1,31 @@
-import { describe, expect, it } from "vitest";
-import { vi } from "vitest";
+import { toast } from "sonner";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { runRedo } from "./redo";
+vi.mock("sonner", () => ({
+  toast: { error: vi.fn() },
+}));
+
+import { runRedo } from "@/pages/design-editor/commands/redo";
 
 /**
- * Redo's counterpart to undo.file-deletion-selection-remap.test.ts: undoing a
- * deletion recreates the screen under a brand-new id and remaps stale
- * `SelectionHistoryEntry` ids to it (`remapSelectionHistoryStackIds`). Redo
- * re-deletes the same screen under its ORIGINAL id instead — there is no new
- * id to remap to, so a stale entry naming it must be pruned
- * (`pruneSelectionHistoryStackIds`) or a later selection-only undo/redo would
- * restore a selection pointing at a screen that no longer exists.
- *
- * Repro: redo a screen-a deletion while the selection history still carries
- * (1) a mixed entry naming both screen-a and a surviving screen-b, and (2) an
- * entry that only ever named screen-a.
+ * Redo preserves selection history while the deleted file is dormant in the
+ * redo stack. Undoing that deletion can recreate it under a new id and remap
+ * these original selection snapshots; pruning them at redo time would lose
+ * that history. `preserveHistory` tells the shared delete action to retain the
+ * stacks during this replay.
  */
 function sharedRefs() {
   return {
     redoOrderRef: {
-      current: ["file-deleted"] as ("selection" | "file-deleted")[],
+      current: ["file-deleted"] as (
+        | "selection"
+        | "file-deleted"
+        | "file-created"
+      )[],
     },
-    historyOrderRef: { current: [] as ("selection" | "file-deleted")[] },
+    historyOrderRef: {
+      current: [] as ("selection" | "file-deleted" | "file-created")[],
+    },
     fileDeletionRedoStackRef: {
       current: [
         {
@@ -42,7 +46,7 @@ function sharedRefs() {
     selectionUndoStackRef: {
       current: [
         {
-          // Mixed entry: screen-a's ids must be stripped, screen-b's kept.
+          // Mixed entry remains intact while screen-a is dormant.
           before: {
             overviewSelectedScreenIds: ["screen-a"],
             selectedLayerIds: ["screen-a"],
@@ -55,8 +59,7 @@ function sharedRefs() {
           },
         },
         {
-          // screen-a-only entry: pruning both sides collapses before/after
-          // to the same empty selection, so the whole entry must be dropped.
+          // A screen-a-only entry remains available for a later undo restore.
           before: {
             overviewSelectedScreenIds: ["screen-a"],
             selectedLayerIds: [],
@@ -90,10 +93,11 @@ function commonArgs(refs: ReturnType<typeof sharedRefs>) {
     contentUndoSelectionStackRef: { current: [] },
     contentUndoStackRef: { current: [] },
     createFileMutation: { mutateAsync: vi.fn() },
+    deleteFileMutation: { mutateAsync: vi.fn() },
     deleteRuntimeElement: vi.fn(() => true),
     designDataJsonRef: { current: {} },
-    fileCreationRedoStackRef: { current: [] },
-    fileCreationUndoStackRef: { current: [] },
+    fileCreationRedoStackRef: { current: [] as any[] },
+    fileCreationUndoStackRef: { current: [] as any[] },
     fileDeletionRedoStackRef: refs.fileDeletionRedoStackRef,
     fileDeletionUndoStackRef: refs.fileDeletionUndoStackRef,
     fileHistoryMutationPendingRef: { current: false },
@@ -130,7 +134,11 @@ function commonArgs(refs: ReturnType<typeof sharedRefs>) {
       options?.onMutationSettled?.(filesToDelete, []);
     }),
     publishAuthoritativeClipboardMutation: vi.fn(),
-    queryClient: { invalidateQueries: vi.fn(), setQueryData: vi.fn() },
+    queryClient: {
+      getQueryData: vi.fn().mockReturnValue(undefined),
+      invalidateQueries: vi.fn(),
+      setQueryData: vi.fn(),
+    },
     queueFileContentSave: vi.fn(),
     recordLocalContentHistoryChangeFallback: vi.fn(),
     redoOrderRef: refs.redoOrderRef,
@@ -161,36 +169,303 @@ function commonArgs(refs: ReturnType<typeof sharedRefs>) {
     t: (key: string) => key,
     undoManagerRef: { current: null },
     updateLiveScreenSnapshotContent: vi.fn(),
+    updateDesignAsync: vi.fn(),
     viewModeRef: { current: "overview" as const },
     writeFrameGeometrySnapshot: vi.fn(),
     ydoc: null,
   };
 }
 
+beforeEach(() => {
+  vi.clearAllMocks();
+});
+
 describe("redo — selection history after a file-deletion redo", () => {
-  it("prunes stale screen ids re-deleted under their original id instead of remapping them", () => {
+  it("preserves dormant selection history and requests history-preserving deletion", () => {
     const refs = sharedRefs();
+    const originalSelectionHistory = structuredClone(
+      refs.selectionUndoStackRef.current,
+    );
     const args = commonArgs(refs);
 
     runRedo(args as unknown as Parameters<typeof runRedo>[0]);
 
     expect(args.performDeleteFiles).toHaveBeenCalledTimes(1);
-    // The mixed entry survives with screen-a stripped and screen-b intact.
-    expect(refs.selectionUndoStackRef.current).toEqual([
+    expect(args.performDeleteFiles).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ id: "screen-a" })]),
+      expect.objectContaining({ preserveHistory: true }),
+    );
+    expect(refs.selectionUndoStackRef.current).toEqual(
+      originalSelectionHistory,
+    );
+    expect(
+      refs.selectionUndoStackRef.current[0]?.before.selectedLayerIds,
+    ).toEqual(["screen-a"]);
+    expect(
+      refs.selectionUndoStackRef.current[0]?.after.selectedLayerIds,
+    ).toEqual(["screen-b"]);
+    expect(
+      refs.selectionUndoStackRef.current[1]?.before.overviewSelectedScreenIds,
+    ).toEqual(["screen-a"]);
+  });
+
+  it("cleans up a partial create before retrying file-creation redo", async () => {
+    const refs = sharedRefs();
+    let activeFileId: string | undefined;
+    let sequence = 0;
+    const createFileMutation = {
+      mutateAsync: vi.fn().mockImplementation(async () => {
+        if (activeFileId) throw new Error("filename collision");
+        sequence += 1;
+        activeFileId = `copy-${sequence}`;
+        return { id: activeFileId };
+      }),
+    };
+    const deleteFileMutation = {
+      mutateAsync: vi.fn().mockImplementation(async ({ id }) => {
+        expect(id).toBe("copy-1");
+        activeFileId = undefined;
+        return { id, deleted: true };
+      }),
+    };
+    const updateDesignAsync = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("metadata failed"))
+      .mockResolvedValueOnce({});
+    refs.redoOrderRef.current = ["file-created"];
+    refs.historyOrderRef.current = [];
+    const args = commonArgs(refs);
+    args.createFileMutation = createFileMutation;
+    args.deleteFileMutation = deleteFileMutation;
+    args.updateDesignAsync = updateDesignAsync;
+    args.fileCreationRedoStackRef.current = [
       {
-        before: {
-          overviewSelectedScreenIds: [],
-          selectedLayerIds: [],
-          activeFileId: null,
-        },
-        after: {
-          overviewSelectedScreenIds: ["screen-b"],
-          selectedLayerIds: ["screen-b"],
-          activeFileId: "screen-b",
-        },
+        filename: "index-copy.html",
+        content: "<html></html>",
+        fileType: "html",
+        geometry: { x: 100, y: 100, width: 640, height: 480 },
+        screenMetadata: { sourceType: "inline" },
       },
+    ];
+
+    runRedo(args as unknown as Parameters<typeof runRedo>[0]);
+    await vi.waitFor(() =>
+      expect(deleteFileMutation.mutateAsync).toHaveBeenCalledTimes(1),
+    );
+    expect(args.fileCreationRedoStackRef.current).toHaveLength(1);
+
+    runRedo(args as unknown as Parameters<typeof runRedo>[0]);
+    await vi.waitFor(() =>
+      expect(args.focusCreatedScreen).toHaveBeenCalledWith(
+        "copy-2",
+        expect.any(Object),
+        expect.any(Object),
+      ),
+    );
+
+    expect(createFileMutation.mutateAsync).toHaveBeenCalledTimes(2);
+    expect(toast.error).toHaveBeenCalledWith("metadata failed");
+  });
+
+  it("fails loudly when file-creation redo returns no id", async () => {
+    const refs = sharedRefs();
+    refs.redoOrderRef.current = ["file-created"];
+    refs.historyOrderRef.current = [];
+    const args = commonArgs(refs);
+    args.createFileMutation = {
+      mutateAsync: vi.fn().mockResolvedValue({}),
+    };
+    args.fileCreationRedoStackRef.current = [
+      {
+        filename: "index-copy.html",
+        content: "<html></html>",
+        fileType: "html",
+      },
+    ];
+
+    runRedo(args as unknown as Parameters<typeof runRedo>[0]);
+    await vi.waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith(
+        expect.stringContaining("create-file returned no id"),
+      ),
+    );
+
+    expect(args.fileCreationRedoStackRef.current).toHaveLength(1);
+    expect(args.fileCreationRedoStackRef.current[0]?.recoveryFileId).toBe(null);
+    expect(args.fileCreationUndoStackRef.current).toHaveLength(0);
+    expect(args.optimisticallyInsertCreatedFile).not.toHaveBeenCalled();
+    expect(args.focusCreatedScreen).not.toHaveBeenCalled();
+  });
+
+  it("reuses a redo survivor when cleanup fails", async () => {
+    const refs = sharedRefs();
+    let rowPresent = false;
+    const deleteFileMutation = {
+      mutateAsync: vi.fn().mockRejectedValue(new Error("cleanup failed")),
+    };
+    const updateDesignAsync = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("metadata failed"))
+      .mockResolvedValueOnce({});
+    refs.redoOrderRef.current = ["file-created"];
+    const args = commonArgs(refs);
+    args.createFileMutation = {
+      mutateAsync: vi.fn().mockImplementation(async () => {
+        rowPresent = true;
+        return { id: "copy-1" };
+      }),
+    };
+    args.deleteFileMutation = deleteFileMutation;
+    args.updateDesignAsync = updateDesignAsync;
+    args.queryClient = {
+      getQueryData: vi.fn(() =>
+        rowPresent
+          ? {
+              files: [
+                {
+                  id: "copy-1",
+                  filename: "index-copy.html",
+                  fileType: "html",
+                  content: "<html></html>",
+                },
+              ],
+            }
+          : { files: [] },
+      ),
+      invalidateQueries: vi.fn(),
+      setQueryData: vi.fn(),
+    };
+    args.fileCreationRedoStackRef.current = [
+      {
+        filename: "index-copy.html",
+        content: "<html></html>",
+        fileType: "html",
+        geometry: { x: 100, y: 100, width: 640, height: 480 },
+        screenMetadata: { sourceType: "inline" },
+      },
+    ];
+
+    runRedo(args as unknown as Parameters<typeof runRedo>[0]);
+    await vi.waitFor(() =>
+      expect(deleteFileMutation.mutateAsync).toHaveBeenCalledTimes(1),
+    );
+    expect(args.fileCreationRedoStackRef.current[0]?.recoveryFileId).toBe(
+      "copy-1",
+    );
+
+    runRedo(args as unknown as Parameters<typeof runRedo>[0]);
+    await vi.waitFor(() =>
+      expect(args.focusCreatedScreen).toHaveBeenCalledWith(
+        "copy-1",
+        expect.any(Object),
+        expect.any(Object),
+      ),
+    );
+
+    expect(args.createFileMutation.mutateAsync).toHaveBeenCalledTimes(1);
+    expect(args.fileCreationUndoStackRef.current[0]?.recoveryFileId).toBe(
+      undefined,
+    );
+  });
+
+  it("reconciles a committed create response without an id", async () => {
+    const refs = sharedRefs();
+    refs.redoOrderRef.current = ["file-created"];
+    let cached: unknown;
+    const persistedFile = {
+      id: "copy-1",
+      filename: "index-copy.html",
+      fileType: "html",
+      content: "<html></html>",
+    };
+    const args = commonArgs(refs);
+    args.createFileMutation = {
+      mutateAsync: vi.fn().mockImplementation(async () => {
+        cached = { files: [persistedFile] };
+        return {};
+      }),
+    };
+    args.queryClient = {
+      getQueryData: vi.fn(() => cached),
+      invalidateQueries: vi.fn(),
+      setQueryData: vi.fn(),
+    };
+    args.fileCreationRedoStackRef.current = [
+      {
+        filename: "index-copy.html",
+        content: "<html></html>",
+        fileType: "html",
+      },
+    ];
+
+    runRedo(args as unknown as Parameters<typeof runRedo>[0]);
+    await vi.waitFor(() =>
+      expect(args.focusCreatedScreen).toHaveBeenCalledWith(
+        "copy-1",
+        expect.any(Object),
+        expect.any(Object),
+      ),
+    );
+
+    expect(args.createFileMutation.mutateAsync).toHaveBeenCalledTimes(1);
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it("restores the full selection after redoing a multi-screen create batch", async () => {
+    const refs = sharedRefs();
+    refs.redoOrderRef.current = ["file-created"];
+    const args = commonArgs(refs);
+    args.createFileMutation = {
+      mutateAsync: vi
+        .fn()
+        .mockResolvedValueOnce({ id: "copy-a" })
+        .mockResolvedValueOnce({ id: "copy-b" }),
+    };
+    args.fileCreationRedoStackRef.current = [
+      {
+        filename: "index-copy.html",
+        content: "<html></html>",
+        fileType: "html",
+        historyBatchId: "duplicate-1",
+        geometry: { x: 100, y: 100, width: 640, height: 480 },
+      },
+      {
+        filename: "index-copy-2.html",
+        content: "<html></html>",
+        fileType: "html",
+        historyBatchId: "duplicate-1",
+        geometry: { x: 900, y: 100, width: 640, height: 480 },
+      },
+    ];
+
+    runRedo(args as unknown as Parameters<typeof runRedo>[0]);
+
+    await vi.waitFor(() =>
+      expect(args.focusCreatedScreen).toHaveBeenCalledTimes(2),
+    );
+    expect(args.setOverviewSelectedScreenIds).toHaveBeenCalledWith([
+      "copy-a",
+      "copy-b",
     ]);
-    // The screen-a-only entry collapsed to a no-op and was dropped entirely.
-    expect(refs.selectionUndoStackRef.current).toHaveLength(1);
+  });
+
+  it("keeps a redo ledger entry when the design id is unavailable", () => {
+    const refs = sharedRefs();
+    refs.redoOrderRef.current = ["file-created"];
+    const args = commonArgs(refs);
+    args.id = undefined as any;
+    args.fileCreationRedoStackRef.current = [
+      {
+        filename: "index-copy.html",
+        content: "<html></html>",
+        fileType: "html",
+      },
+    ];
+
+    runRedo(args as unknown as Parameters<typeof runRedo>[0]);
+
+    expect(args.fileCreationRedoStackRef.current).toHaveLength(1);
+    expect(args.redoOrderRef.current).toEqual(["file-created"]);
+    expect(args.createFileMutation.mutateAsync).not.toHaveBeenCalled();
   });
 });

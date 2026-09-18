@@ -178,6 +178,8 @@ export interface DiscoveredAction {
    * (`action-routes.ts`: `path = http?.path ?? name`).
    */
   path?: string;
+  /** Whether the action requires the signed browser UI capability. */
+  uiOnly?: boolean;
 }
 
 /** HTTP methods an action may expose via `http.method`. */
@@ -269,6 +271,36 @@ function extractActionHttpConfig(content: string): false | string | undefined {
   }
 
   return undefined;
+}
+
+function hasActionBooleanOption(content: string, option: string): boolean {
+  for (let i = 0; i < content.length; ) {
+    const skipped = skipNonCode(content, i);
+    if (skipped !== i) {
+      i = skipped;
+      continue;
+    }
+
+    if (
+      content.startsWith(option, i) &&
+      !isIdentifierChar(content[i - 1]) &&
+      !isIdentifierChar(content[i + option.length])
+    ) {
+      let valueStart = skipWhitespaceAndComments(content, i + option.length);
+      if (content[valueStart] === ":") {
+        valueStart = skipWhitespaceAndComments(content, valueStart + 1);
+        if (
+          content.startsWith("true", valueStart) &&
+          !isIdentifierChar(content[valueStart + 4])
+        ) {
+          return true;
+        }
+      }
+    }
+
+    i += 1;
+  }
+  return false;
 }
 
 function extractBalancedObjectBody(
@@ -394,6 +426,7 @@ async function scanActionsDir(actionsDir: string): Promise<DiscoveredAction[]> {
       absPath,
       method: http.method,
       ...(http.path ? { path: http.path } : {}),
+      ...(hasActionBooleanOption(content, "uiOnly") ? { uiOnly: true } : {}),
     });
   }
 

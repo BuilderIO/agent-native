@@ -14,7 +14,13 @@ const mocks = vi.hoisted(() => ({
       updatedAt: "connections.updatedAt",
     },
     designs: { id: "designs.id", data: "designs.data" },
-    designFiles: { id: "files.id", designId: "files.designId" },
+    designFiles: {
+      id: "files.id",
+      designId: "files.designId",
+      filename: "files.filename",
+      fileType: "files.fileType",
+      content: "files.content",
+    },
   },
   state: {
     connection: {} as Record<string, unknown>,
@@ -78,9 +84,8 @@ vi.mock("drizzle-orm", () => ({
   sql: (...values: unknown[]) => values,
 }));
 
-vi.mock("../server/db/index.js", () => ({
-  schema: mocks.schema,
-  getDb: () => ({
+vi.mock("../server/db/index.js", () => {
+  const db = {
     select: () => {
       mocks.state.selectCount += 1;
       return {
@@ -104,13 +109,29 @@ vi.mock("../server/db/index.js", () => ({
               }),
             };
           }
-          const rows = Object.assign(Promise.resolve(mocks.state.files), {
-            limit: () =>
-              Promise.resolve(
-                mocks.state.winnerFile ? [mocks.state.winnerFile] : [],
-              ),
-          });
-          return { where: () => rows };
+          return {
+            where: (condition: unknown) => {
+              const conditions = Array.isArray(condition)
+                ? condition
+                : [condition];
+              const matches = (file: Record<string, unknown>) =>
+                conditions.every((entry) => {
+                  const comparison = entry as {
+                    left?: unknown;
+                    right?: unknown;
+                  };
+                  const column = String(comparison.left).split(".").pop();
+                  return column ? file[column] === comparison.right : true;
+                });
+              const matchedFiles = mocks.state.files.filter(matches);
+              const candidates = mocks.state.winnerFile
+                ? [mocks.state.winnerFile].filter(matches)
+                : matchedFiles;
+              return Object.assign(Promise.resolve(matchedFiles), {
+                limit: () => Promise.resolve(candidates.slice(0, 1)),
+              });
+            },
+          };
         },
       };
     },
@@ -147,8 +168,19 @@ vi.mock("../server/db/index.js", () => ({
         },
       }),
     }),
-  }),
-}));
+  };
+  return {
+    schema: mocks.schema,
+    getDb: () => ({
+      ...db,
+      transaction: async (
+        callback: (
+          tx: typeof db & { execute: () => Promise<unknown> },
+        ) => Promise<unknown>,
+      ) => callback({ ...db, execute: async () => ({ rows: [] }) }),
+    }),
+  };
+});
 
 import { makeLocalhostRouteId } from "../shared/source-mode.js";
 import action from "./add-localhost-screens.js";
@@ -225,7 +257,7 @@ describe("add-localhost-screens refresh behavior", () => {
         designId: "design_1",
         filename: "localhost-settings.html",
         fileType: "html",
-        content: "http://localhost:5173/settings?old=1",
+        content: "http://localhost:5173/settings",
       },
     ];
     mocks.state.designData = {
@@ -239,7 +271,7 @@ describe("add-localhost-screens refresh behavior", () => {
           connectionId: "conn_1",
           routeId: "route-settings",
           path: "/settings",
-          url: "http://localhost:5173/settings?old=1",
+          url: "http://localhost:5173/settings",
           stateRef: "state-selected-tab",
           routeMetadata: { stateName: "selected-tab" },
         },
@@ -301,7 +333,7 @@ describe("add-localhost-screens refresh behavior", () => {
         designId: "design_1",
         filename: "localhost-settings.html",
         fileType: "html",
-        content: "http://localhost:5173/settings?old=1",
+        content: "http://localhost:5173/settings",
       },
     ];
     mocks.state.designData = {
@@ -322,6 +354,102 @@ describe("add-localhost-screens refresh behavior", () => {
     expect(mocks.state.insertedFile).toBeNull();
     expect(mocks.state.updatedFiles).toHaveLength(1);
     expect(result.screens[0]?.id).toBe("legacy_file");
+  });
+
+  it("refreshes a legacy localhost screen when its content is inline HTML", async () => {
+    mocks.state.files = [
+      {
+        id: "legacy_file",
+        designId: "design_1",
+        filename: "localhost-settings.html",
+        fileType: "html",
+        content: "<main>Existing screen</main>",
+      },
+    ];
+    mocks.state.designData = {
+      screenMetadata: {
+        legacy_file: {
+          sourceType: "localhost",
+          connectionId: "conn_1",
+          routeId: "route-settings",
+          path: "/settings",
+        },
+      },
+    };
+
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_1",
+      paths: ["/settings"],
+      startX: 0,
+      startY: 0,
+      gap: 160,
+    });
+
+    expect(result.screens[0]?.id).toBe("legacy_file");
+    expect(mocks.state.insertedFile).toBeNull();
+    expect(mocks.state.updatedFiles).toHaveLength(1);
+  });
+
+  it("keeps query-backed routes distinct from the same pathname", async () => {
+    mocks.state.files = [
+      {
+        id: "base_file",
+        designId: "design_1",
+        filename: "localhost-settings.html",
+        fileType: "html",
+        content: "http://localhost:5173/settings",
+      },
+    ];
+    mocks.state.designData = {
+      screenMetadata: {
+        base_file: {
+          sourceType: "localhost",
+          connectionId: "conn_1",
+          routeId: "route-settings",
+          path: "/settings",
+          url: "http://localhost:5173/settings",
+        },
+      },
+    };
+
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_1",
+      paths: ["/settings?onboarding=preview"],
+      startX: 0,
+      startY: 0,
+      gap: 160,
+    });
+
+    expect(result.screens[0]?.id).not.toBe("base_file");
+    expect(mocks.state.insertedFile).toMatchObject({
+      content: "http://localhost:5173/settings?onboarding=preview",
+    });
+  });
+
+  it("keeps query variants distinct within one request", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_1",
+      routes: [
+        { routeId: "route-settings", path: "/settings" },
+        {
+          routeId: "route-settings",
+          url: "http://localhost:5173/settings?onboarding=preview",
+        },
+      ],
+      startX: 0,
+      startY: 0,
+      gap: 160,
+    });
+
+    expect(result.screens).toHaveLength(2);
+    expect(result.screens.map((screen) => screen.url)).toEqual([
+      "http://localhost:5173/settings",
+      "http://localhost:5173/settings?onboarding=preview",
+    ]);
+    expect(mocks.state.insertedFiles).toHaveLength(2);
   });
 
   it("never overwrites an unrelated inline file that uses the generated localhost filename", async () => {
@@ -822,7 +950,7 @@ describe("add-localhost-screens refresh behavior", () => {
       designId: "design_1",
       filename: "localhost-settings.html",
       fileType: "html",
-      content: "http://localhost:5173/settings?winner=1",
+      content: "http://localhost:5173/settings",
     };
 
     const result = await action.run({

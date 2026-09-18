@@ -123,6 +123,7 @@ import {
   getRecentEditPresenceMarkerRect,
   hasAncestorType,
   parseNfmForCollabReconcile,
+  parseMarkdownClipboardSlice,
   ensurePendingImageUpload,
   restorePendingImagePicker,
   runIfMediaCreationAllowed,
@@ -146,6 +147,154 @@ import {
 } from "./VisualEditor";
 
 describe("suggestion replacement intent", () => {
+  it("keeps a plain-word replacement on the canonical paragraph/list revision", () => {
+    const canonical =
+      "Alpha bravo charlie delta.\n\n- Echo foxtrot golf\n- Hotel india juliet\n- Kilo lima mike";
+    const editor = createMarkdownEditor(canonical);
+    const session = createSuggestionDraftSession({
+      id: "paragraph-list-word",
+      baseContent: canonical,
+      baseRevision: "one",
+      startedAt: "now",
+    });
+    try {
+      const from = 7;
+      const to = from + "bravo".length;
+      const transaction = editor.state.tr.insertText("BRAVISSIMO", from, to);
+      const intent = suggestionReplacementIntentForTransaction(transaction, {
+        from,
+        to,
+        empty: false,
+      });
+      expect(intent).toMatchObject({
+        beforeText: "bravo",
+        afterText: "BRAVISSIMO",
+        startOffset: canonical.indexOf("bravo"),
+      });
+      recordSuggestionReplacementIntent(
+        session,
+        intent!,
+        intent!.beforeMarkdown,
+      );
+      editor.view.dispatch(transaction);
+      const draft = docToNfm(editor.state.doc.toJSON());
+      const operations = suggestionDraftOperations(session, draft);
+
+      expect(operations).toHaveLength(1);
+      expect(operations[0]).toMatchObject({
+        kind: "replace_text",
+        before: { markdown: canonical, changedText: "bravo" },
+        after: {
+          markdown: canonical.replace("bravo", "BRAVISSIMO"),
+          changedText: "BRAVISSIMO",
+        },
+        anchor: {
+          from: canonical.indexOf("bravo"),
+          to: canonical.indexOf("bravo") + "bravo".length,
+        },
+      });
+      const draftAnchor = draftSuggestionAnchors(operations, draft)[0]!;
+      expect(
+        suggestionTextPresentationForSource(operations[0]!.after.changedText, {
+          source: operations[0]!.after.markdown,
+          from: operations[0]!.anchor.from,
+          to:
+            operations[0]!.anchor.from +
+            operations[0]!.after.changedText.length,
+        }),
+      ).not.toBeNull();
+      expect(
+        suggestionHighlightSpec(editor.state.doc, {
+          id: "paragraph-list-word",
+          kind: operations[0]!.kind,
+          beforeText: operations[0]!.before.changedText,
+          afterText: operations[0]!.after.changedText,
+          beforePresentation: {
+            source: operations[0]!.before.markdown,
+            from: operations[0]!.anchor.from,
+            to: operations[0]!.anchor.to,
+          },
+          afterPresentation: {
+            source: operations[0]!.after.markdown,
+            from: operations[0]!.anchor.from,
+            to:
+              operations[0]!.anchor.from +
+              operations[0]!.after.changedText.length,
+          },
+          anchor: draftAnchor,
+          presentation: "draft",
+        }),
+      ).not.toBeNull();
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("maps three raw-revision replacements to every draft preview and highlight", () => {
+    const raw = "one alpha.\n\n- two beta\n- three gamma";
+    const draft = "ONE alpha.\n- TWO beta\n- THREE gamma";
+    const session = createSuggestionDraftSession({
+      id: "three-replacements",
+      baseContent: raw,
+      baseRevision: "one",
+      startedAt: "now",
+    });
+    const operations = suggestionDraftOperations(session, draft);
+    expect(
+      operations.map(({ before, after }) => [
+        before.changedText,
+        after.changedText,
+      ]),
+    ).toEqual([
+      ["one", "ONE"],
+      ["two", "TWO"],
+      ["three", "THREE"],
+    ]);
+    expect(
+      operations.every((operation) => operation.before.markdown === raw),
+    ).toBe(true);
+
+    const anchors = draftSuggestionAnchors(operations, draft);
+    const editor = createMarkdownEditor(draft);
+    try {
+      operations.forEach((operation, index) => {
+        const anchor = anchors[index]!;
+        expect(draft.slice(anchor.from, anchor.to)).toBe(
+          operation.after.changedText,
+        );
+        expect(
+          suggestionTextPresentationForSource(operation.after.changedText, {
+            source: operation.after.markdown,
+            from: operation.anchor.from,
+            to: operation.anchor.from + operation.after.changedText.length,
+          }),
+        ).not.toBeNull();
+        expect(
+          suggestionHighlightSpec(editor.state.doc, {
+            id: `three-replacements-${index}`,
+            kind: operation.kind,
+            beforeText: operation.before.changedText,
+            afterText: operation.after.changedText,
+            beforePresentation: {
+              source: operation.before.markdown,
+              from: operation.anchor.from,
+              to: operation.anchor.to,
+            },
+            afterPresentation: {
+              source: operation.after.markdown,
+              from: operation.anchor.from,
+              to: operation.anchor.from + operation.after.changedText.length,
+            },
+            anchor,
+            presentation: "draft",
+          }),
+        ).not.toBeNull();
+      });
+    } finally {
+      editor.destroy();
+    }
+  });
+
   it("keeps a suffix Add after native backspaces cancel an insertion in a mixed session", () => {
     const editor = createMarkdownEditor(
       "This reads better compared to the original.\n\nEditors publish carefully.\n\nFinal sentence.",
@@ -351,6 +500,525 @@ function createFullEditor(content = "") {
       : { type: "doc", content: [{ type: "paragraph" }] },
   });
 }
+
+describe("markdown clipboard parsing", () => {
+  it("parses a large multi-block Markdown document as block content", () => {
+    const section = [
+      "## A section heading",
+      "",
+      "A paragraph with **bold text** and [a link](https://example.test).",
+      "",
+      "- First item",
+      "- Second item",
+      "",
+      "```ts",
+      'const message = "still responsive";',
+      "```",
+    ].join("\n");
+    const markdown = ["# Large pasted draft", ...Array(120).fill(section)].join(
+      "\n\n",
+    );
+    const editor = createFullEditor();
+
+    try {
+      expect(markdown.length).toBeGreaterThan(15_000);
+      const slice = parseMarkdownClipboardSlice(editor, markdown);
+      expect(slice).not.toBeNull();
+      expect(slice?.openStart).toBeGreaterThan(0);
+      expect(slice?.openEnd).toBeGreaterThan(0);
+
+      editor.view.dispatch(
+        editor.state.tr.replaceSelection(slice!).scrollIntoView(),
+      );
+      const saved = docToNfm(editor.state.doc.toJSON());
+      expect(saved).toContain("# Large pasted draft");
+      expect(saved.match(/^## A section heading$/gm)).toHaveLength(120);
+      expect(saved).toContain('const message = "still responsive";');
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("leaves non-Markdown clipboard text to the default paste behavior", () => {
+    const editor = createFullEditor();
+    try {
+      expect(
+        parseMarkdownClipboardSlice(
+          editor,
+          "An ordinary plain text paragraph.",
+        ),
+      ).toBeNull();
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("preserves top-level Markdown block types", () => {
+    const editor = createFullEditor();
+    try {
+      const slice = parseMarkdownClipboardSlice(
+        editor,
+        "# Heading\n\n- list item\n\n> quoted",
+      );
+      expect(slice).not.toBeNull();
+      editor.view.dispatch(editor.state.tr.replaceSelection(slice!));
+
+      expect(editor.state.doc.firstChild?.type.name).toBe("heading");
+      expect(
+        editor.state.doc.content.content.some(
+          (node) => node.type.name === "bulletList",
+        ),
+      ).toBe(true);
+      expect(
+        editor.state.doc.content.content.some(
+          (node) => node.type.name === "blockquote",
+        ),
+      ).toBe(true);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("fits Markdown to a nested list-item selection", () => {
+    const editor = createFullEditor();
+    try {
+      editor.commands.setContent({
+        type: "doc",
+        content: [
+          {
+            type: "bulletList",
+            content: [
+              {
+                type: "listItem",
+                content: [
+                  {
+                    type: "paragraph",
+                    content: [{ type: "text", text: "Existing item" }],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      });
+      let cursor = 1;
+      editor.state.doc.descendants((node, pos) => {
+        if (node.type.name === "paragraph")
+          cursor = pos + node.content.size + 1;
+      });
+      editor.commands.setTextSelection(cursor);
+      const slice = parseMarkdownClipboardSlice(
+        editor,
+        "Nested paragraph with **bold** text.\n\n- nested item",
+      );
+      expect(slice).not.toBeNull();
+      editor.view.dispatch(editor.state.tr.replaceSelection(slice!));
+
+      expect(editor.state.doc.firstChild?.type.name).toBe("bulletList");
+      expect(editor.state.doc.textContent).toContain("Existing item");
+      expect(editor.state.doc.textContent).toContain("Nested paragraph");
+      expect(editor.state.doc.textContent).toContain("nested item");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it.each([
+    ["**bold**", "bold"],
+    ["*italic*", "italic"],
+    ["[link](https://example.test)", "link"],
+  ])("preserves standalone inline Markdown %s", (markdown, markName) => {
+    const editor = createFullEditor();
+    try {
+      const slice = parseMarkdownClipboardSlice(editor, markdown);
+      expect(slice).not.toBeNull();
+      editor.view.dispatch(editor.state.tr.replaceSelection(slice!));
+      expect(editor.state.doc.firstChild?.firstChild?.marks[0]?.type.name).toBe(
+        markName,
+      );
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it.each([
+    ["**bold**after", "bold"],
+    ["*italic*after", "italic"],
+  ])(
+    "recognizes inline Markdown followed by text: %s",
+    (markdown, markName) => {
+      const editor = createFullEditor();
+      try {
+        const slice = parseMarkdownClipboardSlice(editor, markdown);
+        expect(slice).not.toBeNull();
+        editor.view.dispatch(editor.state.tr.replaceSelection(slice!));
+        expect(
+          editor.state.doc.firstChild?.firstChild?.marks[0]?.type.name,
+        ).toBe(markName);
+        expect(editor.state.doc.textContent).toBe(markdown.replace(/\*/g, ""));
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
+  it.each([
+    ["- first\n- second", "bulletList"],
+    ["1. first\n2. second", "orderedList"],
+    ["> first\n> second", "blockquote"],
+    ["```ts\nconst value = 1;\n```", "codeBlock"],
+  ])("parses standalone block Markdown: %s", (markdown, nodeName) => {
+    const editor = createFullEditor();
+    try {
+      const slice = parseMarkdownClipboardSlice(editor, markdown);
+      expect(slice).not.toBeNull();
+      editor.view.dispatch(editor.state.tr.replaceSelection(slice!));
+      expect(
+        editor.state.doc.content.content.some(
+          (node) => node.type.name === nodeName,
+        ),
+      ).toBe(true);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it.each(["Formula: 2*3*4", "Use * asterisk * literally"])(
+    "keeps ordinary asterisk text literal: %s",
+    (text) => {
+      const editor = createFullEditor();
+      try {
+        expect(parseMarkdownClipboardSlice(editor, text)).toBeNull();
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
+  it("keeps ordinary asterisks literal through the paste event", () => {
+    const editor = createFullEditor();
+    const clipboardData = new DataTransfer();
+    clipboardData.setData(
+      "text/plain",
+      "Formula: 2*3*4\n\nUse * asterisk * literally",
+    );
+    const pasteMetadata: unknown[][] = [];
+    editor.on("transaction", ({ transaction }) => {
+      if (transaction.docChanged && transaction.getMeta("paste")) {
+        pasteMetadata.push([
+          transaction.getMeta("paste"),
+          transaction.getMeta("uiEvent"),
+        ]);
+      }
+    });
+
+    try {
+      editor.view.dom.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+
+      expect(editor.state.doc.textContent).toBe(
+        "Formula: 2*3*4Use * asterisk * literally",
+      );
+      expect(
+        editor.state.doc.firstChild?.firstChild?.marks.map(
+          (mark) => mark.type.name,
+        ),
+      ).toEqual([]);
+      expect(editor.state.doc.lastChild?.firstChild?.marks).toHaveLength(0);
+      expect(pasteMetadata).toContainEqual([true, "paste"]);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("rejects large unmatched link delimiters without reparsing", () => {
+    const editor = createFullEditor();
+    try {
+      expect(
+        parseMarkdownClipboardSlice(editor, "[".repeat(100_000)),
+      ).toBeNull();
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("keeps paste-as-plain-text Markdown literal", () => {
+    const editor = createFullEditor();
+    const markdown = "# Plain paste heading\n\n- first\n- second";
+    try {
+      const slice = editor.view.someProp("clipboardTextParser", (parse) =>
+        parse(markdown, editor.state.selection.$from, true, editor.view),
+      );
+      expect(slice).toBeDefined();
+      editor.view.dispatch(editor.state.tr.replaceSelection(slice!));
+
+      expect(editor.state.doc.textContent).toContain("# Plain paste heading");
+      expect(editor.state.doc.textContent).toContain("- first");
+      expect(editor.state.doc.childCount).toBe(3);
+      expect(
+        Array.from(
+          { length: editor.state.doc.childCount },
+          (_, index) => editor.state.doc.child(index).type.name,
+        ),
+      ).toEqual(["paragraph", "paragraph", "paragraph"]);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("keeps dual-format paste-as-plain-text Markdown literal", () => {
+    const editor = createFullEditor();
+    const clipboardData = new DataTransfer();
+    clipboardData.setData(
+      "text/html",
+      "<pre><code># Plain paste heading\n\n- first</code></pre>",
+    );
+    clipboardData.setData("text/plain", "# Plain paste heading\n\n- first");
+
+    try {
+      const input = (
+        editor.view as unknown as {
+          input: { shiftKey: boolean; lastKeyCode: number | null };
+        }
+      ).input;
+      input.shiftKey = true;
+      input.lastKeyCode = 86;
+      editor.view.dom.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+
+      expect(editor.state.doc.textContent).toContain("# Plain paste heading");
+      expect(editor.state.doc.textContent).toContain("- first");
+      expect(
+        editor.state.doc.content.content.some(
+          (node) =>
+            node.type.name === "heading" || node.type.name === "bulletList",
+        ),
+      ).toBe(false);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("keeps Markdown literal when pasting into a code block", () => {
+    const editor = createFullEditor();
+    const clipboardData = new DataTransfer();
+    clipboardData.setData(
+      "text/html",
+      "<pre><code># Literal heading\n**literal bold**</code></pre>",
+    );
+    clipboardData.setData("text/plain", "# Literal heading\n**literal bold**");
+
+    try {
+      editor.commands.setContent({
+        type: "doc",
+        content: [{ type: "codeBlock" }],
+      });
+      editor.commands.setTextSelection(1);
+      editor.view.dom.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+
+      expect(editor.state.doc.firstChild?.type.name).toBe("codeBlock");
+      expect(editor.state.doc.textContent).toContain("# Literal heading");
+      expect(editor.state.doc.textContent).toContain("**literal bold**");
+      expect(editor.state.doc.firstChild?.firstChild?.marks).toHaveLength(0);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("preserves inline code HTML instead of reparsing its text", () => {
+    const editor = createFullEditor();
+    const clipboardData = new DataTransfer();
+    clipboardData.setData("text/html", "<p><code>**literal**</code></p>");
+    clipboardData.setData("text/plain", "**literal**");
+    const pasteMetadata: unknown[][] = [];
+    editor.on("transaction", ({ transaction }) => {
+      if (transaction.docChanged && transaction.getMeta("paste")) {
+        pasteMetadata.push([
+          transaction.getMeta("paste"),
+          transaction.getMeta("uiEvent"),
+        ]);
+      }
+    });
+
+    try {
+      editor.view.dom.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+
+      const text = editor.state.doc.firstChild?.firstChild;
+      expect(text?.text).toBe("**literal**");
+      expect(text?.marks.map((mark) => mark.type.name)).toEqual(["code"]);
+      expect(pasteMetadata).toContainEqual([true, "paste"]);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("accepts empty inline code HTML without creating an empty text node", () => {
+    const editor = createFullEditor();
+    const clipboardData = new DataTransfer();
+    clipboardData.setData("text/html", "<p><code></code></p>");
+    clipboardData.setData("text/plain", "**literal**");
+
+    try {
+      expect(() =>
+        editor.view.dom.dispatchEvent(
+          new ClipboardEvent("paste", {
+            clipboardData,
+            bubbles: true,
+            cancelable: true,
+          }),
+        ),
+      ).not.toThrow();
+      expect(editor.state.doc.textContent).toBe("");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("preserves line breaks inside rich inline code HTML", () => {
+    const editor = createFullEditor();
+    const clipboardData = new DataTransfer();
+    clipboardData.setData("text/html", "<p><code>first<br>second</code></p>");
+    clipboardData.setData("text/plain", "first\nsecond");
+
+    try {
+      editor.view.dom.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+
+      expect(editor.state.doc.firstChild?.childCount).toBe(3);
+      expect(editor.state.doc.firstChild?.child(1).type.name).toBe("hardBreak");
+      expect(editor.state.doc.firstChild?.child(0).marks[0]?.type.name).toBe(
+        "code",
+      );
+      expect(editor.state.doc.firstChild?.child(2).marks[0]?.type.name).toBe(
+        "code",
+      );
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("marks intercepted code-wrapper Markdown as a paste transaction", () => {
+    const editor = createFullEditor();
+    const clipboardData = new DataTransfer();
+    clipboardData.setData("text/html", "<pre><code># Heading</code></pre>");
+    clipboardData.setData("text/plain", "# Heading");
+    const pasteMetadata: unknown[][] = [];
+    editor.on("transaction", ({ transaction }) => {
+      if (transaction.docChanged) {
+        pasteMetadata.push([
+          transaction.getMeta("paste"),
+          transaction.getMeta("uiEvent"),
+        ]);
+      }
+    });
+
+    try {
+      editor.view.dom.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+
+      expect(editor.state.doc.firstChild?.type.name).toBe("heading");
+      expect(pasteMetadata).toContainEqual([true, "paste"]);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("preserves paragraph-only rich HTML instead of reparsing its text", () => {
+    const editor = createFullEditor();
+    const clipboardData = new DataTransfer();
+    clipboardData.setData(
+      "text/html",
+      "<p><strong># Rich heading</strong></p><p><em>- first</em><br>- second</p>",
+    );
+    clipboardData.setData("text/plain", "# Rich heading\n\n- first\n- second");
+
+    try {
+      editor.view.dom.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+
+      expect(editor.state.doc.firstChild?.type.name).toBe("paragraph");
+      expect(editor.state.doc.firstChild?.firstChild?.marks[0]?.type.name).toBe(
+        "bold",
+      );
+      expect(editor.state.doc.textContent).toContain("# Rich heading");
+      expect(
+        editor.state.doc.content.content.some(
+          (node) => node.type.name === "heading",
+        ),
+      ).toBe(false);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("preserves media-bearing rich HTML instead of dropping the media", () => {
+    const editor = createFullEditor();
+    const clipboardData = new DataTransfer();
+    clipboardData.setData(
+      "text/html",
+      '<p># Caption</p><img src="https://example.test/image.png">',
+    );
+    clipboardData.setData("text/plain", "# Caption\n\n**alt text**");
+
+    try {
+      const event = new ClipboardEvent("paste", {
+        clipboardData,
+        bubbles: true,
+        cancelable: true,
+      });
+      editor.view.dom.dispatchEvent(event);
+
+      expect(editor.state.doc.textContent).toContain("# Caption");
+      expect(JSON.stringify(editor.state.doc.toJSON())).toContain(
+        '"type":"image"',
+      );
+      expect(
+        editor.state.doc.content.content.some(
+          (node) => node.type.name === "heading",
+        ),
+      ).toBe(false);
+    } finally {
+      editor.destroy();
+    }
+  });
+});
 
 describe("live suggestion presentation", () => {
   function createSuggestionEditor(content: string) {
@@ -1366,6 +2034,12 @@ describe("live suggestion presentation", () => {
         kind: "delete_text",
         beforeText: "Whole document",
         afterText: "",
+        beforePresentation: {
+          source: "Whole document",
+          from: 0,
+          to: "Whole document".length,
+        },
+        afterPresentation: { source: "", from: 0, to: 0 },
         anchor: { from: 0, prefix: "", suffix: "" },
         presentation: "draft",
       });
@@ -1375,6 +2049,154 @@ describe("live suggestion presentation", () => {
         editor.view.dom.querySelector(".suggestion-delete-widget")?.textContent,
       ).toBe("Whole document");
       expect(editor.state.doc.textContent).toBe("");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it.each([
+    {
+      name: "middle paragraph",
+      canonical: "First paragraph.\nMiddle paragraph.\nLast paragraph.",
+      childIndex: 1,
+    },
+    {
+      name: "final paragraph",
+      canonical: "First paragraph.\nFinal paragraph.",
+      childIndex: 1,
+    },
+    {
+      name: "middle paragraph with repeated context",
+      canonical: "Repeat.\nRepeat.\nRepeat.",
+      childIndex: 1,
+    },
+  ])(
+    "maps a mounted deletion of all text in the $name to its empty textblock",
+    ({ canonical, childIndex }) => {
+      const editor = createSuggestionEditor(canonical);
+      try {
+        let childPos = 0;
+        for (let index = 0; index < childIndex; index += 1)
+          childPos += editor.state.doc.child(index).nodeSize;
+        const paragraph = editor.state.doc.child(childIndex);
+        editor.view.dispatch(
+          editor.state.tr.delete(
+            childPos + 1,
+            childPos + 1 + paragraph.content.size,
+          ),
+        );
+        const draft = docToNfm(editor.state.doc.toJSON());
+        const [operation] = markdownSuggestionOperations(canonical, draft);
+        const expectedFrom =
+          canonical.split("\n").slice(0, childIndex).join("\n").length +
+          (childIndex > 0 ? 1 : 0);
+        expect(operation).toMatchObject({
+          kind: "delete_text",
+          before: { changedText: paragraph.textContent },
+          after: { changedText: "<empty-block/>" },
+          anchor: {
+            from: expectedFrom,
+            to: expectedFrom + paragraph.content.size,
+          },
+        });
+        const [anchor] = draftSuggestionAnchors([operation!], draft);
+        const spec = suggestionHighlightSpec(editor.state.doc, {
+          id: `clear-${childIndex}`,
+          kind: operation!.kind,
+          beforeText: operation!.before.changedText,
+          afterText: operation!.after.changedText,
+          beforePresentation: {
+            source: operation!.before.markdown,
+            from: operation!.anchor.from,
+            to: operation!.anchor.to,
+          },
+          afterPresentation: {
+            source: operation!.after.markdown,
+            from: anchor!.from,
+            to: anchor!.to,
+          },
+          anchor: anchor!,
+          presentation: "draft",
+        });
+        expect(spec).toMatchObject({
+          kind: "delete",
+          from: childPos + 1,
+          to: childPos + 1,
+          deletedText: paragraph.textContent,
+        });
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
+  it("keeps a mounted paragraph-boundary deletion distinct from clearing a textblock", () => {
+    const canonical = "First paragraph.\nSecond paragraph.";
+    const editor = createSuggestionEditor(canonical);
+    try {
+      const boundary = editor.state.doc.child(0).nodeSize - 1;
+      editor.view.dispatch(editor.state.tr.delete(boundary, boundary + 2));
+      expect(editor.state.doc.childCount).toBe(1);
+      const draft = docToNfm(editor.state.doc.toJSON());
+      const [operation] = markdownSuggestionOperations(canonical, draft);
+      expect(operation).toMatchObject({
+        kind: "delete_text",
+        before: { changedText: "\n" },
+        after: { changedText: "" },
+      });
+      const [anchor] = draftSuggestionAnchors([operation!], draft);
+      const spec = suggestionHighlightSpec(editor.state.doc, {
+        id: "delete-boundary",
+        kind: operation!.kind,
+        beforeText: operation!.before.changedText,
+        afterText: operation!.after.changedText,
+        beforePresentation: {
+          source: operation!.before.markdown,
+          from: operation!.anchor.from,
+          to: operation!.anchor.to,
+        },
+        afterPresentation: {
+          source: operation!.after.markdown,
+          from: anchor!.from,
+          to: anchor!.to,
+        },
+        anchor: anchor!,
+        presentation: "draft",
+      });
+      expect(spec).toMatchObject({ kind: "delete" });
+      expect(spec?.from).toBe(spec?.to);
+      expect(spec?.deletedText).toBe("\n");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("fails closed when the deletion does not identify one empty textblock", () => {
+    const editor = createSuggestionEditor("");
+    try {
+      editor.view.dispatch(
+        editor.state.tr.insert(
+          editor.state.doc.content.size,
+          editor.schema.nodes.paragraph.create(),
+        ),
+      );
+      expect(editor.state.doc.childCount).toBe(2);
+      expect(
+        suggestionHighlightSpec(editor.state.doc, {
+          id: "ambiguous-clear",
+          kind: "delete_text",
+          beforeText: "Whole document",
+          afterText: "",
+          beforePresentation: {
+            source: "Whole document",
+            from: 0,
+            to: "Whole document".length,
+          },
+          afterPresentation: { source: "", from: 0, to: 0 },
+          anchor: { from: 0, prefix: "", suffix: "" },
+          presentation: "draft",
+        }),
+      ).toBeNull();
     } finally {
       editor.destroy();
     }

@@ -64,8 +64,8 @@ pour obtenir un point de départ reproductible. Sans référence, la CLI essaie
 `main`, puis `master` :
 
 ```bash
-npx @agent-native/core@latest create my-app --template community:owner/repo#v1.2.0
-npx @agent-native/core@latest create my-app --template https://github.com/owner/repo#v1.2.0
+npx --yes @agent-native/core@latest create my-app --template community:owner/repo#v1.2.0
+npx --yes @agent-native/core@latest create my-app --template https://github.com/owner/repo#v1.2.0
 ```
 
 Pour choisir l'app source d'un dépôt d'espace de travail sans interaction,
@@ -74,8 +74,8 @@ la valeur entière entre guillemets, car les shells comme zsh interprètent `?`
 comme un glob :
 
 ```bash
-npx @agent-native/core@latest create my-app --template 'community:owner/repo?app=analytics#v1.2.0'
-npx @agent-native/core@latest create my-app --template 'https://github.com/owner/repo?app=analytics#v1.2.0'
+npx --yes @agent-native/core@latest create my-app --template 'community:owner/repo?app=analytics#v1.2.0'
+npx --yes @agent-native/core@latest create my-app --template 'https://github.com/owner/repo?app=analytics#v1.2.0'
 ```
 
 En dehors d'un espace de travail, `create` transforme l'app source sélectionnée
@@ -306,10 +306,10 @@ Vous pouvez ajouter des capacités Agent-Native à un agent de codage que vous u
 Pour générer l'échafaudage d'une nouvelle app :
 
 ```bash
-npx @agent-native/core@latest create my-platform
+npx --yes @agent-native/core@latest create my-platform
 ```
 
-La CLI demande d’abord **Comment souhaitez-vous commencer ?** Choisissez **Chat** pour un espace de travail minimal avec Chat et Dispatch, ou **First-party template(s)** pour ouvrir le sélecteur multiple. Community et Headless sont les accès pour une app autonome. Les apps de l’espace de travail partagent l’authentification, la marque, la configuration de l’agent et la base de données ; chaque app est intégrée dans `apps/<name>/` avec tous les fichiers nécessaires. Pour une automation sans UI navigateur au lieu d’une UI d’app, utilisez `npx @agent-native/core@latest create my-agent --headless`.
+La CLI demande d’abord **Comment souhaitez-vous commencer ?** Choisissez **Chat** pour un espace de travail minimal avec Chat et Dispatch, ou **First-party template(s)** pour ouvrir le sélecteur multiple. Community et Headless sont les accès pour une app autonome. Les apps de l’espace de travail partagent l’authentification, la marque, la configuration de l’agent et la base de données ; chaque app est intégrée dans `apps/<name>/` avec tous les fichiers nécessaires. Pour une automation sans UI navigateur au lieu d’une UI d’app, utilisez `npx --yes @agent-native/core@latest create my-agent --headless`.
 
 Remplissez `.env` (`ANTHROPIC_API_KEY` et `DATABASE_URL`), puis exécutez `pnpm install` et `pnpm dev`. Il n'y a pas de connexion à implémenter, ni de routes d'espace réservé.
 

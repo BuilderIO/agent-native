@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
-import { canvasZoom, designFrame, gotoEditor } from "./helpers";
+import { appPath, canvasZoom, designFrame, gotoEditor } from "./helpers";
 
 /**
  * Figma-parity check for §2 Move / auto-nesting (Part 3 resolutions): drag an
@@ -30,12 +30,14 @@ const SCREEN_ONE = `<!doctype html>
            style="position:absolute;left:40px;top:40px;width:140px;height:90px;background:#3b82f6"></div>
     </main>
     <span data-agent-native-node-id="root-gap-2" data-agent-native-layer-name="RootGap2"
-          style="position:absolute;left:400px;top:680px;width:60px;height:20px"></span>
+          style="position:absolute;left:400px;top:200px;width:60px;height:20px"></span>
     <footer data-agent-native-node-id="footer" data-agent-native-layer-name="Footer"
             style="position:absolute;left:0;top:780px;width:900px;height:180px;background:#1f2937">
       <div data-agent-native-node-id="footer-item" data-agent-native-layer-name="FooterItem"
            style="position:absolute;left:30px;top:30px;width:120px;height:70px;background:#f59e0b"></div>
     </footer>
+    <div data-agent-native-node-id="later-overlay" data-agent-native-layer-name="LaterOverlay"
+         style="position:absolute;left:380px;top:190px;width:220px;height:90px;background:#dc2626;pointer-events:none"></div>
   </body>
 </html>`;
 
@@ -48,11 +50,7 @@ const SCREEN_TWO = `<!doctype html>
   </body>
 </html>`;
 
-// Style-carry fixture (host-path proof for portableStyleTagDefaults/
-// collectPortableStyleSnapshot in editor-chrome.bridge.ts): the card's
-// appearance comes ONLY from a class rule the destination screen doesn't
-// have, so it can only survive the cross-screen move if the bare-tag-probe
-// diff actually ran and captured it as an inline style.
+// The source class rules are deliberately absent from the destination.
 const STYLE_CARRY_SOURCE = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Style Carry Source</title>
@@ -163,6 +161,18 @@ async function fileIdFor(
   const file = (record.files ?? []).find((f: any) => f.filename === filename);
   if (!file) throw new Error(`no file ${filename} in design ${id}`);
   return file.id;
+}
+
+async function selectionContext(page: Page) {
+  const response = await page.request.get(
+    appPath("/_agent-native/application-state/design-selection"),
+  );
+  if (!response.ok()) {
+    throw new Error(
+      `could not read design selection: ${response.status()} ${await response.text()}`,
+    );
+  }
+  return response.json();
 }
 
 /**
@@ -366,6 +376,45 @@ test.describe("drag reparent parity", () => {
         },
       )
       .toBe(true);
+
+    const moved = designFrame(page, screenId).locator(
+      '[data-agent-native-node-id="footer-item"]',
+    );
+    await expect(moved).toBeVisible();
+    const renderedState = await moved.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      const laterOverlay = document.querySelector<HTMLElement>(
+        '[data-agent-native-node-id="later-overlay"]',
+      );
+      const rootGap = document.querySelector<HTMLElement>(
+        '[data-agent-native-node-id="root-gap-2"]',
+      );
+      const overlayRect = laterOverlay?.getBoundingClientRect();
+      return {
+        overlapsLaterOverlay: Boolean(
+          overlayRect &&
+          rect.left < overlayRect.right &&
+          rect.right > overlayRect.left &&
+          rect.top < overlayRect.bottom &&
+          rect.bottom > overlayRect.top,
+        ),
+        paintsAfterDropTarget: Boolean(
+          rootGap &&
+          rootGap.compareDocumentPosition(element) &
+            Node.DOCUMENT_POSITION_FOLLOWING,
+        ),
+        remainsBelowLaterSibling: Boolean(
+          laterOverlay &&
+          element.compareDocumentPosition(laterOverlay) &
+            Node.DOCUMENT_POSITION_FOLLOWING,
+        ),
+      };
+    });
+    expect(renderedState, JSON.stringify(renderedState)).toEqual({
+      overlapsLaterOverlay: true,
+      paintsAfterDropTarget: true,
+      remainsBelowLaterSibling: true,
+    });
   });
 
   test("dragging an element from inside a screen onto the empty board turns it into a board object", async ({
@@ -377,6 +426,21 @@ test.describe("drag reparent parity", () => {
 
     const widget = await boxFor(page, screenId, "widget");
     const boardPoint = await emptyBoardPoint(page);
+
+    const deepSelectModifier =
+      process.platform === "darwin" ? "Meta" : "Control";
+    await page.keyboard.down(deepSelectModifier);
+    await page.mouse.click(
+      widget.x + widget.width / 2,
+      widget.y + widget.height / 2,
+    );
+    await page.keyboard.up(deepSelectModifier);
+    await expect
+      .poll(
+        async () =>
+          (await selectionContext(page)).selectedElement?.sourceId ?? null,
+      )
+      .toBe("widget");
 
     await page.mouse.move(
       widget.x + widget.width / 2,
@@ -391,6 +455,38 @@ test.describe("drag reparent parity", () => {
     await page.mouse.move(boardPoint.x, boardPoint.y, { steps: 30 });
     await page.waitForTimeout(500);
     const trace = await dumpTrace(page);
+    const ghost = page.locator("[data-cross-screen-drag-ghost]");
+    await expect(ghost).toBeVisible({ timeout: 5_000 });
+    const ghostAtBoard = await ghost.boundingBox();
+    expect(
+      ghostAtBoard,
+      `drag ghost geometry missing. Trace: ${trace.slice(-800)}`,
+    ).not.toBeNull();
+    expect(ghostAtBoard!.width).toBeGreaterThan(widget.width * 0.8);
+    expect(ghostAtBoard!.height).toBeGreaterThan(widget.height * 0.8);
+    expect(ghostAtBoard!.x + ghostAtBoard!.width / 2).toBeCloseTo(
+      boardPoint.x,
+      0,
+    );
+    expect(ghostAtBoard!.y + ghostAtBoard!.height / 2).toBeCloseTo(
+      boardPoint.y,
+      0,
+    );
+    await page.mouse.move(boardPoint.x + 40, boardPoint.y + 24, { steps: 8 });
+    await page.waitForTimeout(250);
+    const ghostAtSecondPoint = await ghost.boundingBox();
+    expect(
+      ghostAtSecondPoint,
+      `the cross-screen drag ghost must remain rendered as the pointer moves. ` +
+        `Trace: ${trace.slice(-800)}`,
+    ).not.toBeNull();
+    expect(
+      Math.hypot(
+        ghostAtSecondPoint!.x - ghostAtBoard!.x,
+        ghostAtSecondPoint!.y - ghostAtBoard!.y,
+      ),
+      `the cross-screen drag ghost must follow the held pointer. Trace: ${trace.slice(-800)}`,
+    ).toBeGreaterThan(1);
     await page.mouse.up();
 
     let indexHtml = "";
@@ -418,9 +514,24 @@ test.describe("drag reparent parity", () => {
       `Widget must leave the screen document once dropped outside it on the board. Trace: ${trace.slice(-800)}`,
     ).toBe(false);
     expect(
-      boardHtml.includes("widget") || boardHtml.length > 0,
+      boardHtml.includes('data-agent-native-node-id="widget"'),
       `Widget dropped on the empty board must become a board object (checked __board__.html). Got boardHtml length=${boardHtml.length}`,
     ).toBe(true);
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(
+      page.getByRole("button", { name: "Move", exact: true }),
+    ).toBeVisible({ timeout: 30_000 });
+    await expect
+      .poll(async () => {
+        const reloadedIndexHtml = await fileContent(page, id, "index.html");
+        const reloadedBoardHtml = await fileContent(page, id, "__board__.html");
+        return (
+          !reloadedIndexHtml.includes('data-agent-native-node-id="widget"') &&
+          reloadedBoardHtml.includes("widget")
+        );
+      })
+      .toBe(true);
   });
 
   test("dragging a board rectangle into a screen inserts it into that screen at the drop position", async ({
@@ -481,6 +592,10 @@ test.describe("drag reparent parity", () => {
       steps: 24,
     });
     await page.waitForTimeout(400);
+    await expect(page.locator("[data-cross-screen-drop-guide]")).toBeVisible({
+      timeout: 5_000,
+    });
+    const trace = await dumpTrace(page);
     await page.mouse.up();
 
     let indexHtmlAfter = "";
@@ -501,6 +616,30 @@ test.describe("drag reparent parity", () => {
           timeout: 10_000,
           message:
             "dragging the board rectangle into the screen's Main must insert it into that screen and remove it from the board",
+        },
+      )
+      .toBe(true);
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(
+      page.getByRole("button", { name: "Move", exact: true }),
+    ).toBeVisible({ timeout: 30_000 });
+    await expect
+      .poll(
+        async () => {
+          const reloadedIndexHtml = await fileContent(page, id, "index.html");
+          const reloadedBoardHtml = await fileContent(
+            page,
+            id,
+            "__board__.html",
+          );
+          return (
+            reloadedIndexHtml.includes('data-an-primitive="rectangle"') &&
+            !reloadedBoardHtml.includes('data-an-primitive="rectangle"')
+          );
+        },
+        {
+          message: `board-to-screen persistence did not survive reload. Trace: ${trace.slice(-800)}`,
         },
       )
       .toBe(true);
@@ -652,6 +791,21 @@ test.describe("drag reparent parity", () => {
     const widget = await boxFor(page, screenId, "widget");
     const boardPoint = await emptyBoardPoint(page);
 
+    const deepSelectModifier =
+      process.platform === "darwin" ? "Meta" : "Control";
+    await page.keyboard.down(deepSelectModifier);
+    await page.mouse.click(
+      widget.x + widget.width / 2,
+      widget.y + widget.height / 2,
+    );
+    await page.keyboard.up(deepSelectModifier);
+    await expect
+      .poll(
+        async () =>
+          (await selectionContext(page)).selectedElement?.sourceId ?? null,
+      )
+      .toBe("widget");
+
     await page.mouse.move(
       widget.x + widget.width / 2,
       widget.y + widget.height / 2,
@@ -744,6 +898,21 @@ test.describe("drag reparent parity", () => {
     const widget = await boxFor(page, screenOneId, "widget");
     const target = await boxFor(page, screenTwoId, "page2-target");
 
+    const deepSelectModifier =
+      process.platform === "darwin" ? "Meta" : "Control";
+    await page.keyboard.down(deepSelectModifier);
+    await page.mouse.click(
+      widget.x + widget.width / 2,
+      widget.y + widget.height / 2,
+    );
+    await page.keyboard.up(deepSelectModifier);
+    await expect
+      .poll(
+        async () =>
+          (await selectionContext(page)).selectedElement?.sourceId ?? null,
+      )
+      .toBe("widget");
+
     await page.mouse.move(
       widget.x + widget.width / 2,
       widget.y + widget.height / 2,
@@ -780,6 +949,28 @@ test.describe("drag reparent parity", () => {
           message: `Widget must leave screen one and land inside screen two after the cross-screen drop. Trace: ${trace.slice(-800)}`,
         },
       )
+      .toBe(true);
+
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect
+      .poll(async () => {
+        const selection = await selectionContext(page);
+        return (
+          selection.activeFileId === screenOneId &&
+          selection.selectedElement?.sourceId === "widget"
+        );
+      })
+      .toBe(true);
+
+    await page.keyboard.press("ControlOrMeta+Shift+z");
+    await expect
+      .poll(async () => {
+        const selection = await selectionContext(page);
+        return (
+          selection.activeFileId === screenTwoId &&
+          selection.selectedElement?.sourceId === "widget"
+        );
+      })
       .toBe(true);
   });
 
@@ -821,6 +1012,18 @@ test.describe("drag reparent parity", () => {
     const card = await boxFor(page, screenOneId, "style-card");
     const target = await boxFor(page, screenTwoId, "style-dest-target");
 
+    const deepSelectModifier =
+      process.platform === "darwin" ? "Meta" : "Control";
+    await page.keyboard.down(deepSelectModifier);
+    await page.mouse.click(card.x + card.width / 2, card.y + card.height / 2);
+    await page.keyboard.up(deepSelectModifier);
+    await expect
+      .poll(
+        async () =>
+          (await selectionContext(page)).selectedElement?.sourceId ?? null,
+      )
+      .toBe("style-card");
+
     await page.mouse.move(card.x + card.width / 2, card.y + card.height / 2);
     await page.mouse.down();
     await page.mouse.move(
@@ -837,12 +1040,8 @@ test.describe("drag reparent parity", () => {
     const trace = await dumpTrace(page);
     await page.mouse.up();
 
-    // The move writes screen one (source) and screen two (destination) as
-    // two separate, independently debounced (~400ms) autosaves — polling
-    // the destination alone and then reading the source ONCE is a race, not
-    // proof of move-not-copy semantics: the destination save can win that
-    // race while the source save is still in flight. Poll both together
-    // until they agree on the same instant.
+    // Source and destination files save independently, so poll both to confirm
+    // the move has settled in each.
     let screenTwoHtml = "";
     let screenOneHtmlAfter = "";
     await expect
@@ -869,9 +1068,7 @@ test.describe("drag reparent parity", () => {
       )
       .toBe(true);
 
-    // Live check: screen two has no `.card` rule, so the destination node's
-    // rendered appearance must match the source's only via the carried
-    // inline style, not any stylesheet it inherited.
+    // The destination has no `.card` rule; carried styles must render inline.
     const destNode = designFrame(page, screenTwoId).locator(
       '[data-agent-native-node-id="style-card"]',
     );
@@ -884,12 +1081,8 @@ test.describe("drag reparent parity", () => {
       )
       .toEqual([colorBefore, backgroundBefore]);
 
-    // `.card`'s `width:320px` is class-authored (not inline) but is the ONE
-    // rule matching `style-card` for width, agreeing with its rendered size
-    // — resolvePortableBoxSizeValue's unambiguous case (see
-    // editor-chrome.bridge.ts / portable-style-snapshot.bridge.spec.ts) — so
-    // the moved node must keep it as a persisted inline style, and its
-    // rendered box in screen two must match.
+    // Read computed width inside the iframe; overview zoom affects canvas
+    // coordinates, not this layout value.
     expect(
       styleOf(screenTwoHtml, "style-card"),
       "Style Card must persist width:320px as inline style after landing in screen two",

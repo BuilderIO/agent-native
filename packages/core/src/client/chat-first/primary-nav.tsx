@@ -12,10 +12,15 @@ import {
 } from "@tabler/icons-react";
 import type { ReactNode } from "react";
 
+import {
+  chatFirstActiveSurface,
+  chatFirstNavTabActive,
+  type ChatFirstPrimaryTab,
+} from "./active-surface.js";
 import { defaultChatFirstCopy } from "./copy.js";
 import type { ChatFirstCopy } from "./types.js";
 
-export type ChatFirstPrimaryTab = "new-chat" | "integrations" | "scheduled";
+export type { ChatFirstPrimaryTab };
 
 export function ChatFirstPrimaryNavigation({
   onNewChat,
@@ -36,11 +41,15 @@ export function ChatFirstPrimaryNavigation({
   stickyNewChat?: boolean;
   copy?: ChatFirstCopy;
 }) {
+  const surface = chatFirstActiveSurface({ activeTab });
+  const isTabActive = (tab: ChatFirstPrimaryTab) =>
+    chatFirstNavTabActive(surface, tab);
+
   const tabClassName = (tab: ChatFirstPrimaryTab) =>
     `flex h-8 w-full items-center gap-2 rounded-md text-[13px] font-medium transition-[background-color,color] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
       collapsed ? "justify-center px-0" : "px-2"
     } ${
-      activeTab === tab
+      isTabActive(tab)
         ? "bg-sidebar-accent text-sidebar-accent-foreground"
         : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
     }`;
@@ -50,7 +59,9 @@ export function ChatFirstPrimaryNavigation({
       ? copy("newChat")
       : tab === "integrations"
         ? copy("integrations")
-        : copy("scheduled");
+        : tab === "search"
+          ? copy("search")
+          : copy("scheduled");
 
   const renderTab = (
     tab: ChatFirstPrimaryTab,
@@ -63,7 +74,7 @@ export function ChatFirstPrimaryNavigation({
       <button
         type="button"
         role="tab"
-        aria-selected={activeTab === tab}
+        aria-selected={isTabActive(tab)}
         aria-label={collapsed || tab === "new-chat" ? label : undefined}
         className={[tabClassName(tab), className].filter(Boolean).join(" ")}
         onClick={onSelect}
@@ -115,30 +126,17 @@ export function ChatFirstPrimaryNavigation({
     </>,
     onOpenScheduled,
   );
-  const searchAction = onSearch
-    ? (() => {
-        const label = copy("search");
-        const control = (
-          <button
-            type="button"
-            aria-label={collapsed ? label : undefined}
-            className={`mt-px flex h-8 w-full items-center gap-2 rounded-md text-[13px] font-medium text-sidebar-foreground/80 transition-[background-color,color] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${collapsed ? "justify-center px-0" : "px-2"}`}
-            onClick={onSearch}
-          >
-            <IconSearch size={15} className="shrink-0" aria-hidden="true" />
-            <span className={collapsed ? "sr-only" : undefined}>{label}</span>
-          </button>
-        );
-
-        return collapsed ? (
-          <Tooltip>
-            <TooltipTrigger asChild>{control}</TooltipTrigger>
-            <TooltipContent side="right">{label}</TooltipContent>
-          </Tooltip>
-        ) : (
-          control
-        );
-      })()
+  const searchTab = onSearch
+    ? renderTab(
+        "search",
+        <>
+          <IconSearch size={15} className="shrink-0" aria-hidden="true" />
+          <span className={collapsed ? "sr-only" : undefined}>
+            {copy("search")}
+          </span>
+        </>,
+        onSearch,
+      )
     : null;
 
   return (
@@ -158,8 +156,8 @@ export function ChatFirstPrimaryNavigation({
             >
               {integrationsTab}
               {scheduledTab}
+              {searchTab}
             </div>
-            {searchAction}
           </div>
         </>
       ) : (
@@ -172,8 +170,8 @@ export function ChatFirstPrimaryNavigation({
             {newChatTab}
             {integrationsTab}
             {scheduledTab}
+            {searchTab}
           </div>
-          {searchAction}
         </div>
       )}
     </TooltipProvider>
