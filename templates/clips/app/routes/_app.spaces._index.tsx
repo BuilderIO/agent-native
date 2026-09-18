@@ -62,11 +62,12 @@ export default function SpacesIndexRoute() {
     recordingCount: s.recordingCount ?? 0,
     memberEmails: s.memberEmails ?? [],
   }));
-  const emptyStateDescription = canManageOrg
-    ? t("createSpaceDialog.description")
-    : role === "member"
-      ? t("navigation.noSpacesAdminCta")
-      : undefined;
+  const emptyStateDescription = [
+    t("createSpaceDialog.description"),
+    ...(!canManageOrg && role === "member"
+      ? [t("navigation.noSpacesAdminCta")]
+      : []),
+  ].join(" ");
 
   return (
     <div className="flex flex-1 flex-col min-h-0">

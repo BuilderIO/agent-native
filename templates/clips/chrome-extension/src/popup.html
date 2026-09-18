@@ -161,6 +161,7 @@
         </button>
       </header>
 
+      <div class="recorder-content">
       <div id="idle-content">
         <div id="unsupported-notice" class="notice" role="alert" hidden>
           <svg
@@ -209,7 +210,7 @@
               </svg>
             </span>
             <button id="source-button" type="button" class="row-button">
-              <span id="source-label" class="row-label">Current tab</span>
+              <span id="source-label" class="row-label">Browser tab</span>
               <span class="row-flex" aria-hidden="true"></span>
               <span class="row-chev" aria-hidden="true">
                 <svg viewBox="0 0 24 24" fill="none">
@@ -230,7 +231,7 @@
                 data-surface="browser"
               >
                 <span class="row-menu-check" aria-hidden="true"></span>
-                <span class="row-menu-label">Current tab</span>
+                <span class="row-menu-label">Browser tab</span>
               </button>
               <button class="row-menu-item" type="button" data-surface="window">
                 <span class="row-menu-check" aria-hidden="true"></span>
@@ -290,6 +291,7 @@
               class="toggle toggle-on"
               role="switch"
               aria-checked="true"
+              aria-label="Camera"
               type="button"
             >
               On
@@ -322,7 +324,7 @@
               class="row-button"
             >
               <span id="microphone-device-label" class="row-label"
-                >Default mic</span
+                >Default microphone</span
               >
               <span class="row-flex" aria-hidden="true"></span>
               <span class="row-chev" aria-hidden="true">
@@ -343,6 +345,7 @@
               class="toggle toggle-on"
               role="switch"
               aria-checked="true"
+              aria-label="Microphone"
               type="button"
             >
               On
@@ -389,7 +392,8 @@
       </div>
 
       <button id="start" class="primary start" type="button" hidden>
-        Start recording
+        <span class="rec-dot" aria-hidden="true"></span>
+        <span class="start-label">Start recording</span>
       </button>
       <button id="sign-in" class="primary start" type="button" hidden>
         Sign in to Clips
@@ -420,8 +424,29 @@
           </span>
         </span>
       </div>
+      </div>
 
       <nav class="bottom-row" aria-label="Clips shortcuts">
+        <button id="open-dictate" class="bottom-button" type="button">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <rect
+              x="9"
+              y="3"
+              width="6"
+              height="12"
+              rx="3"
+              stroke="currentColor"
+              stroke-width="1.75"
+            />
+            <path
+              d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6"
+              stroke="currentColor"
+              stroke-width="1.75"
+              stroke-linecap="round"
+            />
+          </svg>
+          <span>Dictate</span>
+        </button>
         <button id="open-library" class="bottom-button" type="button">
           <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <rect
@@ -487,25 +512,6 @@
             />
           </svg>
           <span>Settings</span>
-        </button>
-        <button id="open-recent" class="bottom-button" type="button">
-          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <path
-              d="M4 9a8 8 0 1 1 .5 6"
-              stroke="currentColor"
-              stroke-width="1.75"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            />
-            <path
-              d="M4 15v-5h5M12 7v5l3 2"
-              stroke="currentColor"
-              stroke-width="1.75"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            />
-          </svg>
-          <span>Recent</span>
         </button>
       </nav>
 

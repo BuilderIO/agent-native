@@ -158,7 +158,30 @@ pub(crate) mod macos {
     const SPEECH_USAGE_DESCRIPTION_ERROR: &str =
         "Clips cannot start macOS speech recognition because the app bundle is missing NSSpeechRecognitionUsageDescription.";
 
+    fn is_macos_app_bundle_path(path: &std::path::Path) -> bool {
+        let Some(contents) = path.parent().and_then(|path| path.parent()) else {
+            return false;
+        };
+        contents.file_name().is_some_and(|name| name == "Contents")
+            && contents
+                .parent()
+                .and_then(|path| path.extension())
+                .is_some_and(|extension| extension == "app")
+    }
+
+    /// TCC does not honor the embedded development plist when `tauri dev`
+    /// launches the executable directly. Treat that process as unavailable
+    /// for Speech.framework instead of letting Apple's privacy check abort it.
+    fn running_from_macos_app_bundle() -> bool {
+        std::env::current_exe()
+            .ok()
+            .is_some_and(|path| is_macos_app_bundle_path(&path))
+    }
+
     pub(crate) fn has_speech_usage_description() -> bool {
+        if !running_from_macos_app_bundle() {
+            return false;
+        }
         let bundle = NSBundle::mainBundle();
         let Some(info) = bundle.infoDictionary() else {
             return false;
@@ -170,10 +193,32 @@ pub(crate) mod macos {
     }
 
     fn ensure_speech_usage_description() -> Result<(), String> {
+        if !running_from_macos_app_bundle() {
+            return Err(
+                "Native macOS dictation is unavailable in tauri dev; run the bundled Clips app to test it."
+                    .into(),
+            );
+        }
         if has_speech_usage_description() {
             Ok(())
         } else {
             Err(SPEECH_USAGE_DESCRIPTION_ERROR.into())
+        }
+    }
+
+    #[cfg(test)]
+    mod bundle_tests {
+        use super::is_macos_app_bundle_path;
+        use std::path::Path;
+
+        #[test]
+        fn only_bundled_macos_executables_can_request_speech_permission() {
+            assert!(is_macos_app_bundle_path(Path::new(
+                "/Applications/Clips.app/Contents/MacOS/Clips",
+            )));
+            assert!(!is_macos_app_bundle_path(Path::new(
+                "/workspace/desktop/src-tauri/target/debug/Clips",
+            )));
         }
     }
 
@@ -984,6 +1029,12 @@ pub(crate) mod macos {
             }
         }
 
+        // Validate TCC prerequisites before touching a live session. In an
+        // unbundled `tauri dev` process this returns a recoverable error; it
+        // must happen before any Speech.framework call because macOS aborts
+        // the process when the privacy description is not bundle-backed.
+        ensure_authorized()?;
+
         // Bump the generation so any pending auto-restart for the previous
         // session's transient error will see the counter has changed and abort.
         let my_gen = session_generation().fetch_add(1, Ordering::SeqCst) + 1;
@@ -1005,8 +1056,6 @@ pub(crate) mod macos {
                 stop_engine_and_remove_tap(&prev);
             }
         }
-
-        ensure_authorized()?;
 
         let recognizer = build_recognizer(locale.as_deref())?;
 
