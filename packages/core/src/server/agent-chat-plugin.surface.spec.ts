@@ -515,18 +515,29 @@ describe("interactive agent run options — wiring guards", () => {
       encoding: "utf-8",
     });
 
-    const handlerCallSites = source.match(/createProductionAgentHandler\(\{/g);
-    const spreadSites = source.match(
-      /\.\.\.resolveInteractiveAgentRunOptions\(options\),\s*\n\s*finalResponseGuard: options\?\.finalResponseGuard,/g,
-    );
+    const callSiteStarts = [
+      ...source.matchAll(/createProductionAgentHandler\(\{/g),
+    ].map((match) => match.index);
 
     // Three interactive handlers are created today (prod, anonymous
     // read-only, dev). If this count changes, a new call site was added or
     // removed — update this guard alongside it, and confirm the new/changed
-    // site still spreads the run options immediately before
-    // `finalResponseGuard`.
-    expect(handlerCallSites).toHaveLength(3);
-    expect(spreadSites).toHaveLength(handlerCallSites?.length ?? 0);
+    // site still spreads the run options into its options object.
+    expect(callSiteStarts).toHaveLength(3);
+
+    // Each call site's options object may have unrelated fields (e.g.
+    // `jevContextCompact`) between the spread and `finalResponseGuard`, so
+    // this checks that both are present in the call site's block rather than
+    // requiring them to sit on adjacent lines.
+    const callSiteBlocks = callSiteStarts.map((start, i) =>
+      source.slice(start, callSiteStarts[i + 1] ?? source.length),
+    );
+    const sitesWithBoth = callSiteBlocks.filter(
+      (block) =>
+        block.includes("...resolveInteractiveAgentRunOptions(options),") &&
+        block.includes("finalResponseGuard: options?.finalResponseGuard,"),
+    );
+    expect(sitesWithBoth).toHaveLength(callSiteStarts.length);
   });
 
   it("threads runNoProgressTimeoutMs into startRun's noProgressTimeoutMs option", () => {
