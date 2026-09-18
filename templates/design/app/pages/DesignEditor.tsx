@@ -21943,38 +21943,38 @@ function DesignEditor() {
       // mouseup "final" report — see coalesceMarqueeSelectionHistory's doc
       // comment); every other caller of this handler is a single, complete
       // selection change. Route on the marquee-only `intent.final` field.
-      recordMarqueeSelectionHistoryAroundChange(
-        () =>
-          runLayerMarqueeSelectionChange(
-            {
-              clearPendingOverviewLayerSelectionTimer,
-              focusDesignInspectorForSelection,
-              getCodeLayerProjectionForScreen,
-              hasActiveSelectionRef,
-              lastMarqueeSelectionSignatureRef,
-              pendingOverviewLayerSelectionRef,
-              pendingOverviewScreenSelectionRef,
-              renderedElementInfoByLayerKeyRef,
-              setActiveFileId,
-              setActiveTool,
-              setCreatedOverviewLayerSelection,
-              setMode,
-              setOverviewClearSelectionRequest,
-              setOverviewSelectedScreenIds,
-              setSelectedElement,
-              setSelectedLayerIdsState,
-              viewModeRef,
-            },
-            selection,
-            intent,
-          ),
-        intent,
-      );
-      const firstSelection = selection.length === 1 ? selection[0] : null;
-      if (firstSelection) {
+      const acceptedPrimary: {
+        current: { screenId: string; info: ElementInfo } | null;
+      } = { current: null };
+      recordMarqueeSelectionHistoryAroundChange(() => {
+        acceptedPrimary.current = runLayerMarqueeSelectionChange(
+          {
+            clearPendingOverviewLayerSelectionTimer,
+            focusDesignInspectorForSelection,
+            getCodeLayerProjectionForScreen,
+            hasActiveSelectionRef,
+            lastMarqueeSelectionSignatureRef,
+            pendingOverviewLayerSelectionRef,
+            pendingOverviewScreenSelectionRef,
+            renderedElementInfoByLayerKeyRef,
+            setActiveFileId,
+            setActiveTool,
+            setCreatedOverviewLayerSelection,
+            setMode,
+            setOverviewClearSelectionRequest,
+            setOverviewSelectedScreenIds,
+            setSelectedElement,
+            setSelectedLayerIdsState,
+            viewModeRef,
+          },
+          selection,
+          intent,
+        );
+      }, intent);
+      if (selection.length === 1 && acceptedPrimary.current) {
         maybeShowDeepSelectGuidance(
-          firstSelection.screenId,
-          firstSelection.info,
+          acceptedPrimary.current.screenId,
+          acceptedPrimary.current.info,
           intent,
         );
       }

@@ -93,13 +93,13 @@ export function runLayerMarqueeSelectionChange(
   }: LayerMarqueeSelectionChangeArgs,
   selection: CanvasLayerMarqueeSelection[],
   intent: ElementSelectionIntent,
-) {
+): { screenId: string; info: ElementInfo } | null {
   if (intent.cancelled) {
     pendingOverviewScreenSelectionRef.current = null;
     pendingOverviewLayerSelectionRef.current = null;
     lastMarqueeSelectionSignatureRef.current = null;
     clearPendingOverviewLayerSelectionTimer();
-    return;
+    return null;
   }
   const additive = resolveMarqueeAdditive(intent);
   // PF10: MultiScreenCanvas reports the marquee hit-set on every
@@ -124,7 +124,7 @@ export function runLayerMarqueeSelectionChange(
       )
       .join("|") + `#${additive ? "1" : "0"}`;
   if (selection.length > 0 && intent.final !== true) {
-    if (lastMarqueeSelectionSignatureRef.current === signature) return;
+    if (lastMarqueeSelectionSignatureRef.current === signature) return null;
   }
   lastMarqueeSelectionSignatureRef.current = signature;
 
@@ -224,6 +224,9 @@ export function runLayerMarqueeSelectionChange(
 
   setActiveTool(resolveToolAfterSelection);
   setMode("edit");
+  return primary
+    ? { screenId: primary.screenId, info: primary.elementInfo }
+    : null;
 }
 
 /**
