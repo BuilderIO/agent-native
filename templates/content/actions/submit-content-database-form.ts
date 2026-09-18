@@ -154,24 +154,24 @@ function resolveOption(
 
 function isValidSubmittedDatePart(value: unknown): boolean {
   if (typeof value === "number") {
-    return Number.isFinite(value) && !Number.isNaN(new Date(value).getTime());
+    return (
+      Number.isFinite(value) &&
+      value % 60_000 === 0 &&
+      !Number.isNaN(new Date(value).getTime())
+    );
   }
   if (typeof value !== "string") return false;
   const match = value
     .trim()
-    .match(
-      /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?)?$/,
-    );
+    .match(/^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}))?$/);
   if (!match) return false;
-  const [, yearText, monthText, dayText, hourText, minuteText, secondText] =
-    match;
+  const [, yearText, monthText, dayText, hourText, minuteText] = match;
   const year = Number(yearText);
   const month = Number(monthText);
   const day = Number(dayText);
   const hour = hourText === undefined ? 0 : Number(hourText);
   const minute = minuteText === undefined ? 0 : Number(minuteText);
-  const second = secondText === undefined ? 0 : Number(secondText);
-  if (hour > 23 || minute > 59 || second > 59) return false;
+  if (hour > 23 || minute > 59) return false;
   const calendarDate = new Date(Date.UTC(year, month - 1, day));
   return (
     calendarDate.getUTCFullYear() === year &&
@@ -194,7 +194,7 @@ function normalizeSubmittedPropertyValue(
   if (type === "select" || type === "status" || type === "multi_select") {
     if (Array.isArray(value)) {
       const invalidCandidates = value.filter(
-        (candidate) => typeof candidate !== "string",
+        (candidate) => typeof candidate !== "string" || candidate.trim() === "",
       );
       const nonEmptyCandidates = value.filter(
         (candidate): candidate is string =>
@@ -210,9 +210,21 @@ function normalizeSubmittedPropertyValue(
       }
     }
     const options = parsePropertyOptions(definition.optionsJson).options ?? [];
-    const values = optionCandidates(value, type === "multi_select").map(
-      (candidate) => resolveOption(candidate, options, definition.name),
-    );
+    const scalarOption =
+      type === "multi_select" && typeof value === "string" ? value.trim() : "";
+    const exactScalarOption =
+      scalarOption &&
+      options.some(
+        (option) =>
+          option.id === scalarOption ||
+          option.name.trim().toLocaleLowerCase() ===
+            scalarOption.toLocaleLowerCase(),
+      );
+    const values = (
+      exactScalarOption
+        ? [scalarOption]
+        : optionCandidates(value, type === "multi_select")
+    ).map((candidate) => resolveOption(candidate, options, definition.name));
     normalized =
       type === "multi_select" ? [...new Set(values)] : (values[0] ?? null);
   } else {

@@ -476,6 +476,8 @@ describe("submit-content-database-form", () => {
     "2026-09-20T25:00",
     "2026-09-20T12:00+99:99",
     "2026-09-20T12:00Z",
+    "2026-09-20T12:34:56.789",
+    Date.parse("2026-09-20T12:34:56.789Z"),
   ])("rejects the calendar-invalid date %s", async (value) => {
     const seeded = await seedFormDatabase();
 
@@ -555,9 +557,7 @@ describe("submit-content-database-form", () => {
     ).rejects.toThrow(
       _label === "backwards end"
         ? "the supplied date end could not be preserved"
-        : _label === "invalid end"
-          ? "use a real ISO calendar date"
-          : "the supplied date end could not be preserved",
+        : "use a real ISO calendar date",
     );
 
     const items = await getDb()
@@ -606,6 +606,7 @@ describe("submit-content-database-form", () => {
     ["invalid multi-select array", "Tags", [42]],
     ["partially invalid multi-select array", "Tags", ["Design", 42]],
     ["null-containing multi-select array", "Tags", ["Design", null]],
+    ["blank-containing multi-select array", "Tags", ["Design", ""]],
   ])(
     "rejects %s values that would be verified as empty",
     async (_label, property, value) => {
@@ -682,6 +683,75 @@ describe("submit-content-database-form", () => {
       );
     },
   );
+
+  it("resolves an exact multi-select label containing a comma", async () => {
+    const seeded = await seedFormDatabase();
+    const now = new Date().toISOString();
+    const tagsId = `comma_tags_${Date.now()}`;
+    await getDb()
+      .insert(schema.documentPropertyDefinitions)
+      .values({
+        id: tagsId,
+        ownerEmail: OWNER,
+        databaseId: seeded.databaseId,
+        name: "Comma Tags",
+        type: "multi_select",
+        optionsJson: serializePropertyOptions({
+          options: [
+            {
+              id: "research-development",
+              name: "Research, Development",
+              color: "blue",
+            },
+          ],
+        }),
+        position: 99,
+        createdAt: now,
+        updatedAt: now,
+      });
+    const [database] = await getDb()
+      .select({ viewConfigJson: schema.contentDatabases.viewConfigJson })
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, seeded.databaseId));
+    const viewConfig = JSON.parse(database.viewConfigJson);
+    viewConfig.views[0].formQuestions.push({
+      key: tagsId,
+      enabled: true,
+      required: false,
+    });
+    await getDb()
+      .update(schema.contentDatabases)
+      .set({ viewConfigJson: JSON.stringify(viewConfig) })
+      .where(eq(schema.contentDatabases.id, seeded.databaseId));
+
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      submitForm.run({
+        databaseId: seeded.databaseId,
+        viewId: "request-form",
+        title: "Comma option",
+        propertyEntries: [
+          { property: "Description", value: "Keep valid fields." },
+          { property: "Priority", value: "P1 — High" },
+          { property: tagsId, value: "Research, Development" },
+        ],
+      }),
+    );
+
+    expect(result.verified).toBe(true);
+    const [saved] = await getDb()
+      .select({ valueJson: schema.documentPropertyValues.valueJson })
+      .from(schema.documentPropertyValues)
+      .where(
+        and(
+          eq(
+            schema.documentPropertyValues.documentId,
+            result.createdDocumentId,
+          ),
+          eq(schema.documentPropertyValues.propertyId, tagsId),
+        ),
+      );
+    expect(JSON.parse(saved.valueJson)).toEqual(["research-development"]);
+  });
 
   it("accepts an intentionally blank optional date", async () => {
     const seeded = await seedFormDatabase();
