@@ -557,7 +557,9 @@ describe("submit-content-database-form", () => {
     ).rejects.toThrow(
       _label === "backwards end"
         ? "the supplied date end could not be preserved"
-        : "use a real ISO calendar date",
+        : _label === "non-string end"
+          ? "numeric dates are only supported as scalar values"
+          : "use a real ISO calendar date",
     );
 
     const items = await getDb()
@@ -597,6 +599,53 @@ describe("submit-content-database-form", () => {
       .from(schema.contentDatabaseItems)
       .where(eq(schema.contentDatabaseItems.databaseId, seeded.databaseId));
     expect(items).toHaveLength(0);
+  });
+
+  it.each([
+    ["drops time", { start: "2026-09-20T12:30", includeTime: false }],
+    ["invents time", { start: "2026-09-20", includeTime: true }],
+  ])("rejects a date whose includeTime flag %s", async (_label, value) => {
+    const seeded = await seedFormDatabase();
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        submitForm.run({
+          databaseId: seeded.databaseId,
+          viewId: "request-form",
+          title: "Conflicting date precision",
+          propertyEntries: [
+            { property: "Description", value: "Keep valid fields." },
+            { property: "Priority", value: "P1 — High" },
+            { property: "Deadline", value },
+          ],
+        }),
+      ),
+    ).rejects.toThrow("includeTime must match the supplied date precision");
+  });
+
+  it("rejects numeric parts inside a date range", async () => {
+    const seeded = await seedFormDatabase();
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        submitForm.run({
+          databaseId: seeded.databaseId,
+          viewId: "request-form",
+          title: "Numeric date range",
+          propertyEntries: [
+            { property: "Description", value: "Keep valid fields." },
+            { property: "Priority", value: "P1 — High" },
+            {
+              property: "Deadline",
+              value: {
+                start: Date.parse("2026-09-20T12:30:00.000Z"),
+                includeTime: true,
+              },
+            },
+          ],
+        }),
+      ),
+    ).rejects.toThrow("numeric dates are only supported as scalar values");
   });
 
   it.each([

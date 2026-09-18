@@ -245,6 +245,40 @@ function normalizeSubmittedPropertyValue(
               ...("end" in value ? [(value as { end?: unknown }).end] : []),
             ]
           : [value];
+      const explicitIncludeTime =
+        value !== null && typeof value === "object" && !Array.isArray(value)
+          ? (value as { includeTime?: unknown }).includeTime
+          : undefined;
+      if (
+        value !== null &&
+        typeof value === "object" &&
+        !Array.isArray(value) &&
+        dateParts.some((part) => typeof part === "number")
+      ) {
+        throw new Error(
+          `Invalid value for "${definition.name}"; numeric dates are only supported as scalar values.`,
+        );
+      }
+      if (
+        typeof explicitIncludeTime === "boolean" &&
+        dateParts.some((part) => {
+          if (
+            part === undefined ||
+            part === null ||
+            (typeof part === "string" && part.trim() === "")
+          ) {
+            return false;
+          }
+          const hasTime =
+            typeof part === "number" ||
+            (typeof part === "string" && part.includes("T"));
+          return hasTime !== explicitIncludeTime;
+        })
+      ) {
+        throw new Error(
+          `Invalid value for "${definition.name}"; includeTime must match the supplied date precision.`,
+        );
+      }
       if (
         dateParts.some(
           (part) =>
