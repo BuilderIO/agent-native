@@ -675,6 +675,68 @@ describe("RecorderEngine streaming connection recovery", () => {
     expect(resetUploadedChunks).not.toHaveBeenCalled();
   });
 
+  it("skips queued chunks from an aborted take when retrying", async () => {
+    const engine = makeEngine();
+    const first = new Blob([new Uint8Array(STREAM_CHUNK_BYTES)], {
+      type: "video/webm",
+    });
+    const second = new Blob([new Uint8Array(STREAM_CHUNK_BYTES)], {
+      type: "video/webm",
+    });
+    let firstUploadStarted!: () => void;
+    const uploadChunk = vi.fn(
+      (_blob: Blob, _index: number, options?: { signal?: AbortSignal }) =>
+        new Promise<void>((_resolve, reject) => {
+          firstUploadStarted = () => reject(options?.signal?.reason);
+          options?.signal?.addEventListener("abort", firstUploadStarted, {
+            once: true,
+          });
+        }),
+    );
+    const uploadBufferedChunks = vi.fn(async () => ({ status: "ready" }));
+    const internals = engine as unknown as {
+      queueChunk: (blob: Blob, index: number, isFinal: boolean) => void;
+      chunkQueue: Promise<void>;
+      uploadChunk: typeof uploadChunk;
+      uploadBufferedChunks: typeof uploadBufferedChunks;
+      uploadAbort: AbortController | null;
+      uploadMode: "streaming" | "buffered";
+      localChunks: Blob[];
+      lastFinalizeMeta: {
+        durationMs: number;
+        dimensions: { width: number; height: number };
+        hasAudio: boolean;
+        hasCamera: boolean;
+      } | null;
+    };
+    internals.uploadAbort = new AbortController();
+    internals.uploadMode = "streaming";
+    internals.localChunks = [first, second];
+    internals.lastFinalizeMeta = {
+      durationMs: 1,
+      dimensions: { width: 1280, height: 720 },
+      hasAudio: false,
+      hasCamera: false,
+    };
+    internals.uploadChunk = uploadChunk;
+    internals.uploadBufferedChunks = uploadBufferedChunks;
+
+    internals.queueChunk(first, 0, false);
+    internals.queueChunk(second, 1, false);
+    await vi.waitFor(() => {
+      expect(uploadChunk).toHaveBeenCalledOnce();
+    });
+
+    const abortError = new Error("Recording stopped offline");
+    abortError.name = "AbortError";
+    internals.uploadAbort.abort(abortError);
+    await engine.retryUpload();
+    await internals.chunkQueue;
+
+    expect(uploadBufferedChunks).toHaveBeenCalledOnce();
+    expect(uploadChunk).toHaveBeenCalledOnce();
+  });
+
   it("drains paused delivery before sending the final streaming chunk", async () => {
     vi.useRealTimers();
     vi.stubGlobal(

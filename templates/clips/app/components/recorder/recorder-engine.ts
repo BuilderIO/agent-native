@@ -1597,6 +1597,7 @@ export class RecorderEngine {
     }
 
     this.uploadFailure = null;
+    this.streamingUploadGeneration += 1;
     this.chunkIndex = 0;
     this.uploadAbort = new AbortController();
 
