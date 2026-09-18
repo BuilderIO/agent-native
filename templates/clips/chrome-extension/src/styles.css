@@ -465,8 +465,8 @@ svg {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: #ffffff;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+  background: var(--primary-foreground);
+  box-shadow: var(--shadow-sm);
   content: "";
   transition: transform 120ms ease-out;
 }
@@ -535,7 +535,7 @@ svg {
   height: 8px;
   flex: 0 0 auto;
   border-radius: 50%;
-  background: #fb7185;
+  background: var(--danger);
 }
 
 .secondary-action {

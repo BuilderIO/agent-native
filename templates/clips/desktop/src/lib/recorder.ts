@@ -5312,8 +5312,8 @@ async function startRecordingInner(
               "[clips-recorder] recorder pause: pausing transcription",
             );
             void transcriptionCapture?.pause().catch(() => {});
-          } catch {
-            // ignore
+          } catch (error) {
+            console.warn("[clips-recorder] recorder pause failed", error);
           }
         }
       }),
@@ -5328,8 +5328,8 @@ async function startRecordingInner(
               "[clips-recorder] recorder resume: resuming transcription",
             );
             void transcriptionCapture?.resume().catch(() => {});
-          } catch {
-            // ignore
+          } catch (error) {
+            console.warn("[clips-recorder] recorder resume failed", error);
           }
         }
       }),
@@ -5340,8 +5340,11 @@ async function startRecordingInner(
             pausedAt = Date.now();
             emitState(true);
             void transcriptionCapture?.pause().catch(() => {});
-          } catch {
-            // ignore
+          } catch (error) {
+            console.warn(
+              "[clips-recorder] recorder toggle pause failed",
+              error,
+            );
           }
         } else if (recorder.state === "paused") {
           try {
@@ -5350,8 +5353,11 @@ async function startRecordingInner(
             pausedAt = null;
             emitState(false);
             void transcriptionCapture?.resume().catch(() => {});
-          } catch {
-            // ignore
+          } catch (error) {
+            console.warn(
+              "[clips-recorder] recorder toggle resume failed",
+              error,
+            );
           }
         }
       }),

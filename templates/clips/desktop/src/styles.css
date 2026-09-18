@@ -3952,11 +3952,11 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   justify-content: center;
   height: 32px;
   border-radius: 16px;
-  background: rgba(18, 18, 20, 0.92);
+  background: var(--pill-chrome);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  color: white;
+  border: 1px solid color-mix(in srgb, var(--pill-on-chrome) 6%, transparent);
+  color: var(--pill-on-chrome);
   pointer-events: auto;
   /* Subtle fade-in so the pill doesn't hard-pop on appear. */
   animation: flow-bar-in 140ms ease-out;
@@ -4027,7 +4027,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 
 .flow-bar-time {
   min-width: 38px;
-  color: rgba(255, 255, 255, 0.9);
+  color: var(--pill-q-ink);
   font-family: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
   font-size: 14px;
   font-weight: 500;
@@ -4044,10 +4044,10 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   height: 30px;
   margin: 0;
   padding: 0;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid color-mix(in srgb, var(--pill-on-chrome) 12%, transparent);
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.16);
-  color: rgba(255, 255, 255, 0.92);
+  background: var(--pill-soft);
+  color: var(--pill-q-ink);
   cursor: pointer;
   pointer-events: auto;
   transition:
@@ -4056,22 +4056,22 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 }
 
 .flow-bar-control:hover {
-  background: rgba(255, 255, 255, 0.28);
-  color: rgba(255, 255, 255, 0.98);
+  background: color-mix(in srgb, var(--pill-on-chrome) 28%, transparent);
+  color: var(--pill-on-chrome);
 }
 
 .flow-bar-control:active {
-  background: rgba(255, 255, 255, 0.36);
+  background: color-mix(in srgb, var(--pill-on-chrome) 36%, transparent);
 }
 
 .flow-bar-accept {
-  border-color: var(--status-ok, #22c55e);
-  background: var(--status-ok, #22c55e);
-  color: white;
+  border-color: var(--status-ok);
+  background: var(--status-ok);
+  color: var(--pill-on-chrome);
 }
 
 .flow-bar-accept:hover {
-  background: var(--status-ok, #22c55e);
+  background: var(--status-ok);
   filter: brightness(1.08);
 }
 
@@ -4089,7 +4089,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   margin-top: 4px;
   flex: 0 0 auto;
   border-radius: 50%;
-  background: #f4d35e;
+  background: var(--status-warn);
 }
 
 .flow-bar-notice-copy {
@@ -4107,13 +4107,13 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 }
 
 .flow-bar-notice-copy strong {
-  color: rgba(255, 255, 255, 0.92);
+  color: var(--pill-q-ink);
   font-size: 12px;
   font-weight: 600;
 }
 
 .flow-bar-notice-copy span {
-  color: rgba(255, 255, 255, 0.66);
+  color: var(--pill-ghost-ink);
   font-size: 11px;
 }
 
@@ -4133,7 +4133,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   align-items: center;
   gap: 6px;
   padding: 0 14px;
-  color: rgba(255, 255, 255, 0.88);
+  color: var(--pill-q-ink);
   font-size: 12px;
   font-weight: 500;
 }
@@ -4150,7 +4150,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 .flow-bar-shimmer {
   font-size: 12px;
   font-weight: 500;
-  color: rgba(255, 255, 255, 0.85);
+  color: var(--pill-q-ink);
   letter-spacing: 0.1px;
   animation: flow-shimmer 1.2s ease-in-out infinite;
 }
@@ -4158,7 +4158,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 .flow-bar-error {
   font-size: 12px;
   font-weight: 500;
-  color: #fecaca;
+  color: var(--status-warn);
 }
 
 /* Right-edge cancel — subtle monochrome chip, only there if the user
@@ -4177,8 +4177,8 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   padding: 0;
   border: none;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.12);
-  color: rgba(255, 255, 255, 0.6);
+  background: var(--pill-soft);
+  color: var(--pill-ghost-ink);
   cursor: pointer;
   /* Override the root's `pointer-events: none` so the click registers. */
   pointer-events: auto;
@@ -4194,12 +4194,12 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 }
 
 .flow-bar-cancel:hover {
-  background: rgba(255, 255, 255, 0.22);
-  color: rgba(255, 255, 255, 0.95);
+  background: color-mix(in srgb, var(--pill-on-chrome) 22%, transparent);
+  color: var(--pill-on-chrome);
 }
 
 .flow-bar-cancel:active {
-  background: rgba(255, 255, 255, 0.3);
+  background: color-mix(in srgb, var(--pill-on-chrome) 30%, transparent);
 }
 
 .flow-bar-cancel svg {

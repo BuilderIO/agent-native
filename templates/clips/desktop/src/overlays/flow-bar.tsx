@@ -134,7 +134,11 @@ export function FlowBar() {
               : "";
 
   return (
-    <div className="flow-bar-root" role="status" aria-live="polite">
+    <div
+      className="flow-bar-root record-pill-scope"
+      role="status"
+      aria-live="polite"
+    >
       {/* Pill is ALWAYS mounted — when state goes idle we fade the
           opacity to 0 (see CSS) instead of removing it from the DOM.
           Inner content keeps its last frame rendered during the fade
