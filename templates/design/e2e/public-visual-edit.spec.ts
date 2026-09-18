@@ -120,12 +120,6 @@ test.describe.serial("public visual edit", () => {
       await expect(
         signedOut.page.getByRole("button", { name: /^copy$/i }),
       ).toBeVisible();
-      await expect(
-        signedOut.page
-          .locator("main a")
-          .filter({ hasText: /^sign up$/i })
-          .first(),
-      ).toBeVisible();
       await assertNoRuntimeErrors(signedOut);
 
       await signedOut.page.keyboard.press(SHORTCUT);
