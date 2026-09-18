@@ -446,6 +446,8 @@ const messages = {
     aiFilter: {
       title: "AI filter",
       subtitle: "A reversible label that learns from your decisions.",
+      rulesTitle: "Rules",
+      newRule: "New rule",
       lunaBadge: "Luna when available",
       toggle: "Toggle AI filter",
       autoFilterTitle: "Auto-filter high confidence",
@@ -508,6 +510,7 @@ const messages = {
       previewTitle: "Preview recent mail",
       previewDescription:
         "Review the last 20 Inbox messages before enabling a new rule. Archived and auto-archived mail is never sent for evaluation.",
+      previewScope: "Inbox only · archived excluded",
       previewButton: "Run preview",
       previewRunning: "Checking recent Inbox mail…",
       jevBadge: "Jev",

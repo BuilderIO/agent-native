@@ -453,6 +453,8 @@ const messages = {
     aiFilter: {
       title: "KI-Filter",
       subtitle: "Ein umkehrbares Label, das aus deinen Entscheidungen lernt.",
+      rulesTitle: "Regeln",
+      newRule: "Neue Regel",
       lunaBadge: "Luna, wenn verfügbar",
       toggle: "KI-Filter aktivieren",
       autoFilterTitle: "Mit hoher Sicherheit automatisch filtern",
@@ -521,6 +523,7 @@ const messages = {
       previewTitle: "Letzte E-Mails prüfen",
       previewDescription:
         "Prüfe die letzten 20 Nachrichten im Posteingang, bevor du eine neue Regel aktivierst. Archivierte und automatisch archivierte E-Mails werden nie ausgewertet.",
+      previewScope: "Nur Posteingang · archivierte E-Mails ausgeschlossen",
       previewButton: "Vorschau starten",
       previewRunning: "Letzte Posteingang-E-Mails werden geprüft…",
       jevBadge: "Jev",

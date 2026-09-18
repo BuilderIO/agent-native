@@ -283,7 +283,11 @@ describe("list-events inventory contract", () => {
           source: "google",
           accountEmail: "steve@example.com",
           attendees: [
-            { email: "guest@example.com", responseStatus: "accepted" },
+            {
+              email: "guest@example.com",
+              responseStatus: "accepted",
+              additionalGuests: 2,
+            },
           ],
           createdAt: "2026-06-12T10:13:39.746Z",
           updatedAt: "2026-06-12T10:13:39.746Z",
@@ -307,8 +311,8 @@ describe("list-events inventory contract", () => {
       id: "event-1",
       source: "google",
       accountEmail: "steve@example.com",
-      attendeeCount: 1,
-      attendeeStatusCounts: { accepted: 1 },
+      attendeeCount: 3,
+      attendeeStatusCounts: { accepted: 3 },
     });
     expect(result.items[0]).not.toHaveProperty("description");
   });

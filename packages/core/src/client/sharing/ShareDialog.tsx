@@ -131,7 +131,7 @@ export function ShareDialog({
         <div
           role="tablist"
           aria-label={controller.labels.shareOptions}
-          className="mx-5 mt-1 flex gap-1 rounded-xl bg-muted/70 p-1"
+          className="mx-5 mt-10 flex gap-1 rounded-xl bg-muted/70 p-1"
         >
           {controller.tabs.map((tab) => {
             return (

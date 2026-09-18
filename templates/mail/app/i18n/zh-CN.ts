@@ -439,6 +439,8 @@ const messages = {
     aiFilter: {
       title: "AI 筛选",
       subtitle: "可撤销的标签，会根据你的决定学习。",
+      rulesTitle: "规则",
+      newRule: "新建规则",
       lunaBadge: "有条件时使用 Luna",
       toggle: "切换 AI 筛选",
       autoFilterTitle: "自动筛选高置信度邮件",
@@ -496,6 +498,7 @@ const messages = {
       previewTitle: "预览最近邮件",
       previewDescription:
         "启用新规则前，先检查收件箱中的最近 20 封邮件。已归档或自动归档的邮件不会被评估。",
+      previewScope: "仅收件箱 · 已归档邮件排除",
       previewButton: "运行预览",
       previewRunning: "正在检查最近的收件箱邮件…",
       jevBadge: "Jev",

@@ -93,13 +93,23 @@ describe("usePinchZoom", () => {
     zoom,
     setZoom,
     onRef,
+    onZoomFrame,
+    onZoomEnd,
   }: {
     zoom: number;
     setZoom: (n: number) => void;
     onRef: (el: HTMLDivElement) => void;
+    onZoomFrame?: (n: number) => void;
+    onZoomEnd?: (n: number) => void;
   }) {
     const ref = useRef<HTMLDivElement | null>(null);
-    usePinchZoom({ containerRef: ref, zoom, setZoom });
+    usePinchZoom({
+      containerRef: ref,
+      zoom,
+      setZoom,
+      onZoomFrame,
+      onZoomEnd,
+    });
     return (
       <div
         ref={(el) => {
@@ -111,7 +121,13 @@ describe("usePinchZoom", () => {
     );
   }
 
-  async function renderHarness(initialZoom: number) {
+  async function renderHarness(
+    initialZoom: number,
+    callbacks?: {
+      onZoomFrame?: (n: number) => void;
+      onZoomEnd?: (n: number) => void;
+    },
+  ) {
     let zoom = initialZoom;
     let scrollEl: HTMLDivElement | null = null;
     const setZoom = vi.fn((next: number) => {
@@ -123,6 +139,8 @@ describe("usePinchZoom", () => {
         <Harness
           zoom={zoom}
           setZoom={setZoom}
+          onZoomFrame={callbacks?.onZoomFrame}
+          onZoomEnd={callbacks?.onZoomEnd}
           onRef={(el) => {
             scrollEl = el;
           }}
@@ -298,5 +316,64 @@ describe("usePinchZoom", () => {
     expect(setZoom.mock.calls[0][0] as number).toBeCloseTo(state.z, 6);
     expect(scrollEl.scrollLeft).toBeCloseTo(state.s.x, 6);
     expect(scrollEl.scrollTop).toBeCloseTo(state.s.y, 6);
+  });
+
+  it("paints imperative zoom frames and commits once after the gesture settles", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const frames: number[] = [];
+      const settled: number[] = [];
+      const { scrollEl, setZoom, getZoom } = await renderHarness(100, {
+        onZoomFrame: (next) => frames.push(next),
+        onZoomEnd: (next) => settled.push(next),
+      });
+
+      dispatchWheel(scrollEl, { clientX: 200, clientY: 150, deltaY: -20 });
+      flushRaf();
+
+      expect(frames).toHaveLength(1);
+      expect(setZoom).not.toHaveBeenCalled();
+      expect(getZoom()).toBe(100);
+
+      vi.advanceTimersByTime(119);
+      expect(settled).toEqual([]);
+      vi.advanceTimersByTime(1);
+      expect(settled).toEqual(frames);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not commit a gesture after a newer controlled zoom arrives", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const frames: number[] = [];
+      const settled: number[] = [];
+      const { scrollEl } = await renderHarness(100, {
+        onZoomFrame: (next) => frames.push(next),
+        onZoomEnd: (next) => settled.push(next),
+      });
+
+      dispatchWheel(scrollEl, { clientX: 200, clientY: 150, deltaY: -20 });
+      flushRaf();
+      expect(frames).toHaveLength(1);
+
+      await act(async () => {
+        root.render(
+          <Harness
+            zoom={240}
+            setZoom={() => {}}
+            onRef={() => {}}
+            onZoomFrame={(next) => frames.push(next)}
+            onZoomEnd={(next) => settled.push(next)}
+          />,
+        );
+      });
+      vi.advanceTimersByTime(120);
+
+      expect(settled).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

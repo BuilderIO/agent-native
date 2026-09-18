@@ -9,16 +9,7 @@ import type {
 } from "@shared/ai-filter";
 import { AI_FILTER_LABEL, AI_FILTER_RULE_NAME } from "@shared/ai-filter";
 import type { AutomationRule, EmailMessage } from "@shared/types";
-import {
-  IconArrowUpRight,
-  IconFilter,
-  IconLoader2,
-  IconPlus,
-  IconShieldCheck,
-  IconTag,
-  IconTrash,
-  IconWand,
-} from "@tabler/icons-react";
+import { IconLoader2, IconTrash } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
@@ -26,6 +17,13 @@ import { toast } from "sonner";
 import { AiFilterDialog } from "@/components/email/AiFilterDialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -118,27 +116,16 @@ function InstructionRow({
   return (
     <div
       className={cn(
-        "group flex cursor-pointer items-start gap-3 border-b border-border/40 px-1 py-3 last:border-0",
-        selected && "-mx-3 bg-accent/25 px-4",
+        "group flex items-center gap-3 border-b border-border/40 px-3 py-3 last:border-0",
+        selected && "bg-accent/25",
       )}
-      role="button"
-      tabIndex={0}
-      onClick={onSelect}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          onSelect();
-        }
-      }}
     >
-      <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-        {mode === "spam" ? (
-          <IconShieldCheck className="size-4" />
-        ) : (
-          <IconTag className="size-4" />
-        )}
-      </span>
-      <div className="min-w-0 flex-1">
+      <button
+        type="button"
+        className="min-w-0 flex-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        aria-pressed={selected}
+        onClick={onSelect}
+      >
         <div className="flex items-center gap-2">
           <p
             className={cn(
@@ -159,7 +146,7 @@ function InstructionRow({
             {rule.actions.find((action) => action.type === "label")?.labelName}
           </p>
         )}
-      </div>
+      </button>
       <div className="flex shrink-0 items-center gap-1">
         <Switch
           checked={rule.enabled}
@@ -206,7 +193,7 @@ function DecisionRow({
   const isFiltered = decision.disposition === "filtered";
 
   return (
-    <div className="flex items-start gap-3 border-b border-border/40 px-1 py-3 last:border-0">
+    <div className="flex items-start gap-3 border-b border-border/40 py-3 last:border-0">
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className="truncate text-[13px] font-medium text-foreground">
@@ -284,34 +271,20 @@ function PreviewRow({
       : t("mail.aiFilter.notMatchShort");
 
   return (
-    <div className="flex items-start gap-3 border-b border-border/40 px-1 py-3 last:border-0">
+    <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-3 border-b border-border/40 px-3 py-3 last:border-0">
       <Checkbox
         checked={correction}
         onCheckedChange={(checked) => onCorrectionChange(checked === true)}
         disabled={!hasMatch}
-        className="mt-1"
+        className="mt-0.5"
         aria-label={`${correctionLabel}: ${email.subject}`}
       />
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <span className="truncate text-[13px] font-medium text-foreground">
-            {email.from}
-          </span>
-          {hasMatch ? (
-            <span className="shrink-0 rounded-full bg-agent-kit-positive/10 px-1.5 py-0.5 text-[10px] font-medium text-agent-kit-positive">
-              {Math.round((match?.confidence ?? 0) * 100)}%
-            </span>
-          ) : (
-            <span className="shrink-0 text-[10px] text-muted-foreground/60">
-              {t("mail.aiFilter.noMatch")}
-            </span>
-          )}
-        </div>
-        <p className="truncate text-[12px] text-muted-foreground">
+      <div className="min-w-0">
+        <p className="truncate text-[12px] font-medium text-foreground">
           {email.subject || t("mail.aiFilter.noSubject")}
         </p>
-        <p className="mt-1 line-clamp-1 text-[11px] leading-4 text-muted-foreground/70">
-          {email.snippet}
+        <p className="truncate text-[11px] text-muted-foreground">
+          {email.from}
         </p>
         {correction && (
           <p className="mt-1 text-[11px] font-medium text-muted-foreground">
@@ -319,6 +292,18 @@ function PreviewRow({
           </p>
         )}
       </div>
+      <span
+        className={cn(
+          "pt-0.5 text-[11px] tabular-nums",
+          hasMatch
+            ? "font-medium text-agent-kit-positive"
+            : "text-muted-foreground/60",
+        )}
+      >
+        {hasMatch
+          ? `${Math.round((match?.confidence ?? 0) * 100)}%`
+          : t("mail.aiFilter.noMatch")}
+      </span>
     </div>
   );
 }
@@ -337,7 +322,9 @@ export function AiFilterSection() {
   const [mode, setMode] = useState<RuleMode>("tag");
   const [tagName, setTagName] = useState("");
   const [instruction, setInstruction] = useState("");
+  const [composerOpen, setComposerOpen] = useState(false);
   const [selectedRuleId, setSelectedRuleId] = useState<string>();
+  const [previewRuleId, setPreviewRuleId] = useState<string>();
   const [corrections, setCorrections] = useState<Record<string, boolean>>({});
   const [feedback, setFeedback] = useState("");
   const [review, setReview] = useState<{
@@ -353,8 +340,13 @@ export function AiFilterSection() {
       ),
     [rules],
   );
+  const enabledInstructions = useMemo(
+    () => instructions.filter((rule) => rule.enabled),
+    [instructions],
+  );
   const selectedRule =
-    instructions.find((rule) => rule.id === selectedRuleId) ?? instructions[0];
+    enabledInstructions.find((rule) => rule.id === selectedRuleId) ??
+    enabledInstructions[0];
   const recentEmails = useMemo(
     () =>
       (emailData ?? [])
@@ -362,7 +354,10 @@ export function AiFilterSection() {
         .slice(0, 20),
     [emailData],
   );
-  const previewData = preview.data as PreviewResult | undefined;
+  const previewData =
+    previewRuleId === selectedRule?.id
+      ? (preview.data as PreviewResult | undefined)
+      : undefined;
   const previewEmails = previewData?.emails ?? [];
   const previewRule = selectedRule
     ? previewData?.rules.find((rule) => rule.id === selectedRule.id)
@@ -386,6 +381,15 @@ export function AiFilterSection() {
         .filter((item): item is AiFilterPreviewCorrection => Boolean(item)),
     [corrections, recentEmails],
   );
+
+  const selectRule = (ruleId: string) => {
+    setSelectedRuleId(ruleId);
+    setPreviewRuleId(undefined);
+    setCorrections({});
+    setFeedback("");
+    preview.reset();
+  };
+
   const updateSettings = (patch: {
     enabled?: boolean;
     autoFilter?: boolean;
@@ -429,7 +433,8 @@ export function AiFilterSection() {
         onSuccess: (rule) => {
           setInstruction("");
           if (mode === "tag") setTagName("");
-          setSelectedRuleId(rule.id);
+          selectRule(rule.id);
+          setComposerOpen(false);
           toast.success(t("mail.aiFilter.ruleAdded"));
         },
         onError: (error) =>
@@ -448,6 +453,7 @@ export function AiFilterSection() {
       return;
     }
     setCorrections({});
+    setPreviewRuleId(selectedRule.id);
     preview.mutate(
       { emails: recentEmails.map(toPreviewEmail) },
       {
@@ -492,10 +498,12 @@ export function AiFilterSection() {
 
   if (isLoading || !state) {
     return (
-      <div className="max-w-2xl space-y-3">
-        <Skeleton className="h-20 w-full" />
-        <Skeleton className="h-36 w-full" />
-        <Skeleton className="h-48 w-full" />
+      <div className="max-w-4xl space-y-4">
+        <Skeleton className="h-12 w-full" />
+        <div className="grid gap-8 lg:grid-cols-2">
+          <Skeleton className="h-56 w-full" />
+          <Skeleton className="h-72 w-full" />
+        </div>
       </div>
     );
   }
@@ -504,328 +512,248 @@ export function AiFilterSection() {
 
   return (
     <>
-      <div className="max-w-2xl space-y-5">
-        <div className="flex items-center justify-between border-b border-border/50 pb-3">
-          <div className="flex min-w-0 items-center gap-2">
-            <IconWand className="size-4 shrink-0 text-primary" />
-            <h2 className="truncate text-[16px] font-semibold text-foreground">
-              {t("mail.aiFilter.title")}
-            </h2>
-          </div>
+      <div className="max-w-4xl space-y-8 pb-10">
+        <div className="flex items-center justify-between border-b border-border/50 pb-4">
+          <h2 className="truncate text-[16px] font-semibold text-foreground">
+            {t("mail.aiFilter.title")}
+          </h2>
           <Switch
             checked={state.enabled}
             onCheckedChange={(enabled) => updateSettings({ enabled })}
             aria-label={t("mail.aiFilter.toggle")}
           />
         </div>
-        <p className="-mt-3 text-xs text-muted-foreground">
-          {t("mail.aiFilter.subtitle")}
-        </p>
 
-        <div className="rounded-lg border border-border/50 bg-card/50">
-          <div className="flex items-center justify-between gap-3 px-4 py-3">
-            <div className="flex min-w-0 items-center gap-2">
-              <IconShieldCheck className="size-4 shrink-0 text-muted-foreground" />
-              <p className="text-[13px] font-medium text-foreground">
-                {t("mail.aiFilter.autoFilterTitle")}
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <Select
-                value={String(state.autoFilterThreshold)}
-                onValueChange={(value) =>
-                  updateSettings({ autoFilterThreshold: Number(value) })
-                }
-                disabled={!state.autoFilter || manage.isPending}
-              >
-                <SelectTrigger
-                  className="h-8 w-[76px] text-xs"
-                  aria-label={t("mail.aiFilter.thresholdLabel")}
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {THRESHOLD_OPTIONS.map((threshold) => (
-                    <SelectItem key={threshold} value={String(threshold)}>
-                      {Math.round(threshold * 100)}%
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Switch
-                checked={state.autoFilter}
-                onCheckedChange={(autoFilter) => updateSettings({ autoFilter })}
-                aria-label={t("mail.aiFilter.autoFilterToggle")}
-              />
-            </div>
-          </div>
-          <div className="flex items-center justify-between border-t border-border/40 px-4 py-3">
-            <div className="flex min-w-0 items-center gap-2 text-[12px] text-muted-foreground">
-              <span className="shrink-0 font-medium text-foreground">
-                {t("mail.aiFilter.labelName")}
-              </span>
-              <code className="truncate rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                {AI_FILTER_LABEL}
-              </code>
-            </div>
-            <Link
-              to={`/all?label=${encodeURIComponent(AI_FILTER_LABEL)}`}
-              className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
-            >
-              {t("mail.aiFilter.reviewLabel")}
-              <IconArrowUpRight className="size-3.5" />
-            </Link>
-          </div>
-        </div>
-
-        <section>
-          <div className="mb-2 flex items-center justify-between">
-            <h3 className="text-[13px] font-semibold text-foreground">
-              {t("mail.aiFilter.instructionsTitle")}
-            </h3>
-            <span className="text-[11px] text-muted-foreground">
-              {t("mail.aiFilter.instructionHelp")}
-            </span>
-          </div>
-          <div className="rounded-lg border border-border/50 bg-card/50 px-3">
-            <div className="space-y-2 border-b border-border/40 py-3">
-              <div className="flex items-center gap-2">
-                <Select
-                  value={mode}
-                  onValueChange={(value) => setMode(value as RuleMode)}
-                >
-                  <SelectTrigger className="h-8 w-[112px] text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="tag">
-                      <span className="inline-flex items-center gap-1.5">
-                        <IconTag className="size-3.5" />
-                        {t("mail.aiFilter.tagMode")}
-                      </span>
-                    </SelectItem>
-                    <SelectItem value="spam">
-                      <span className="inline-flex items-center gap-1.5">
-                        <IconShieldCheck className="size-3.5" />
-                        {t("mail.aiFilter.spamMode")}
-                      </span>
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-                {mode === "tag" ? (
-                  <Input
-                    value={tagName}
-                    onChange={(event) => setTagName(event.target.value)}
-                    placeholder={t("mail.aiFilter.tagNamePlaceholder")}
-                    className="h-8 min-w-0 flex-1 text-xs"
-                    maxLength={128}
-                  />
-                ) : (
-                  <p className="min-w-0 flex-1 text-[11px] text-muted-foreground">
-                    {t("mail.aiFilter.spamLabelHint")}
-                  </p>
-                )}
-              </div>
-              <div className="flex items-end gap-2">
-                <Textarea
-                  value={instruction}
-                  onChange={(event) => setInstruction(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (
-                      (event.metaKey || event.ctrlKey) &&
-                      event.key === "Enter"
-                    ) {
-                      event.preventDefault();
-                      addInstruction();
-                    }
-                  }}
-                  placeholder={
-                    mode === "spam"
-                      ? t("mail.aiFilter.spamPlaceholder")
-                      : t("mail.aiFilter.tagPlaceholder")
-                  }
-                  className="min-h-16 flex-1 resize-none text-xs"
-                  maxLength={2_000}
-                />
-                <Button
-                  size="sm"
-                  className="h-8 shrink-0 px-2.5 text-xs"
-                  onClick={addInstruction}
-                  disabled={
-                    !instruction.trim() ||
-                    (mode === "tag" && !tagName.trim()) ||
-                    createRule.isPending
-                  }
-                >
-                  {createRule.isPending ? (
-                    <IconLoader2 className="size-3.5 animate-spin" />
-                  ) : (
-                    <IconPlus className="size-3.5" />
-                  )}
-                  {t("mail.aiFilter.addInstruction")}
-                </Button>
-              </div>
-              <p className="text-[10px] text-muted-foreground/60">
-                {t("mail.aiFilter.addShortcut")}
-              </p>
-            </div>
-            {instructions.length > 0 ? (
-              instructions.map((rule) => (
-                <InstructionRow
-                  key={rule.id}
-                  rule={rule}
-                  selected={rule.id === selectedRule?.id}
-                  onSelect={() => setSelectedRuleId(rule.id)}
-                />
-              ))
-            ) : (
-              <div className="py-6 text-center text-xs text-muted-foreground">
-                {t("mail.aiFilter.noInstructions")}
-              </div>
-            )}
-          </div>
-        </section>
-
-        <section>
-          <div className="mb-2 flex items-center justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-2">
-              <IconFilter className="size-4 shrink-0 text-muted-foreground" />
+        <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+          <section className="min-w-0">
+            <div className="mb-3 flex items-center justify-between gap-3">
               <h3 className="text-[13px] font-semibold text-foreground">
-                {t("mail.aiFilter.previewTitle")}
+                {t("mail.aiFilter.rulesTitle")}
               </h3>
-            </div>
-            <div className="flex shrink-0 items-center gap-2">
-              {previewData?.model && (
-                <span className="rounded-full bg-primary/10 px-2 py-1 text-[10px] font-medium text-primary">
-                  {previewData.model.engine === "typesafe"
-                    ? t("mail.aiFilter.jevBadge")
-                    : t("mail.aiFilter.lunaBadge")}
-                </span>
-              )}
               <Button
-                size="sm"
                 variant="outline"
+                size="sm"
                 className="h-8 px-2.5 text-xs"
-                onClick={runPreview}
-                disabled={preview.isPending || recentEmails.length === 0}
+                onClick={() => setComposerOpen(true)}
               >
-                {preview.isPending ? (
-                  <IconLoader2 className="size-3.5 animate-spin" />
-                ) : (
-                  <IconWand className="size-3.5" />
-                )}
-                {t("mail.aiFilter.previewButton")}
+                {t("mail.aiFilter.newRule")}
               </Button>
             </div>
-          </div>
-          <p className="mb-2 text-[11px] text-muted-foreground">
-            {t("mail.aiFilter.previewDescription")}
-          </p>
-          <div className="rounded-lg border border-border/50 bg-card/50 px-3">
-            {instructions.length > 1 && (
-              <div className="border-b border-border/40 py-3">
-                <Select
-                  value={selectedRule?.id}
-                  onValueChange={setSelectedRuleId}
+            <div className="rounded-lg border border-border/50 bg-card/40">
+              {instructions.length > 0 ? (
+                instructions.map((rule) => (
+                  <InstructionRow
+                    key={rule.id}
+                    rule={rule}
+                    selected={rule.id === selectedRule?.id}
+                    onSelect={() => rule.enabled && selectRule(rule.id)}
+                  />
+                ))
+              ) : (
+                <div className="px-3 py-8 text-center text-xs text-muted-foreground">
+                  {t("mail.aiFilter.noInstructions")}
+                </div>
+              )}
+            </div>
+          </section>
+
+          <section className="min-w-0">
+            <div className="mb-3 flex items-end justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="text-[13px] font-semibold text-foreground">
+                  {t("mail.aiFilter.previewTitle")}
+                </h3>
+                <p
+                  className="mt-1 truncate text-[11px] text-muted-foreground"
+                  title={t("mail.aiFilter.previewDescription")}
                 >
-                  <SelectTrigger className="h-8 w-full text-xs">
+                  {t("mail.aiFilter.previewScope")}
+                </p>
+              </div>
+              <div className="flex shrink-0 items-center gap-3">
+                {previewData?.model && (
+                  <span className="text-[11px] text-muted-foreground">
+                    {previewData.model.engine === "typesafe"
+                      ? t("mail.aiFilter.jevBadge")
+                      : t("mail.aiFilter.lunaBadge")}
+                  </span>
+                )}
+                <Button
+                  size="sm"
+                  className="h-8 px-2.5 text-xs"
+                  onClick={runPreview}
+                  disabled={preview.isPending || recentEmails.length === 0}
+                >
+                  {preview.isPending && (
+                    <IconLoader2 className="size-3.5 animate-spin" />
+                  )}
+                  {t("mail.aiFilter.previewButton")}
+                </Button>
+              </div>
+            </div>
+            <div className="rounded-lg border border-border/50 bg-card/40">
+              {enabledInstructions.length > 1 && (
+                <div className="border-b border-border/40 p-3">
+                  <Select
+                    value={selectedRule?.id}
+                    onValueChange={setSelectedRuleId}
+                  >
+                    <SelectTrigger className="h-8 w-full text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {enabledInstructions.map((rule) => (
+                        <SelectItem key={rule.id} value={rule.id}>
+                          {rule.condition}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              {previewEmails.length === 0 ? (
+                <div className="px-4 py-10 text-center text-xs text-muted-foreground">
+                  {recentEmails.length === 0
+                    ? t("mail.aiFilter.noRecentMail")
+                    : preview.isPending
+                      ? t("mail.aiFilter.previewRunning")
+                      : instructions.length === 0
+                        ? t("mail.aiFilter.addRuleToPreview")
+                        : t("mail.aiFilter.previewEmpty")}
+                </div>
+              ) : (
+                <>
+                  <p className="border-b border-border/40 px-3 py-2 text-[10px] text-muted-foreground">
+                    {t("mail.aiFilter.feedbackLabel")}
+                    {correctionItems.length > 0 &&
+                      ` (${correctionItems.length})`}
+                  </p>
+                  {previewEmails.map((email) => (
+                    <PreviewRow
+                      key={email.id}
+                      email={email}
+                      match={email.matches.find(
+                        (match) => match.ruleId === previewRule?.id,
+                      )}
+                      correction={Boolean(corrections[email.id])}
+                      mode={previewMode}
+                      onCorrectionChange={(checked) =>
+                        setCorrections((current) => ({
+                          ...current,
+                          [email.id]: checked,
+                        }))
+                      }
+                    />
+                  ))}
+                  {correctionItems.length > 0 && (
+                    <div className="border-t border-border/40 p-3">
+                      <Textarea
+                        value={feedback}
+                        onChange={(event) => setFeedback(event.target.value)}
+                        placeholder={t("mail.aiFilter.feedbackPlaceholder")}
+                        className="min-h-16 resize-none text-xs"
+                        maxLength={1_000}
+                      />
+                      <div className="mt-2 flex justify-end">
+                        <Button
+                          size="sm"
+                          className="h-8 text-xs"
+                          onClick={refineRule}
+                          disabled={refine.isPending}
+                        >
+                          {refine.isPending && (
+                            <IconLoader2 className="size-3.5 animate-spin" />
+                          )}
+                          {t("mail.aiFilter.refineButton")}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </section>
+        </div>
+
+        <details className="border-t border-border/50 pt-5">
+          <summary className="flex cursor-pointer list-none items-center justify-between text-[13px] font-medium text-foreground">
+            <span>{t("settings.automations")}</span>
+            <span className="text-[11px] font-normal text-muted-foreground">
+              {state.autoFilter
+                ? `${Math.round(state.autoFilterThreshold * 100)}%`
+                : ""}
+            </span>
+          </summary>
+          <div className="mt-3 rounded-lg border border-border/50 bg-card/40">
+            <div className="flex items-center justify-between gap-3 px-3 py-3">
+              <p className="min-w-0 text-[12px] text-foreground">
+                {t("mail.aiFilter.autoFilterTitle")}
+              </p>
+              <div className="flex shrink-0 items-center gap-2">
+                <Select
+                  value={String(state.autoFilterThreshold)}
+                  onValueChange={(value) =>
+                    updateSettings({ autoFilterThreshold: Number(value) })
+                  }
+                  disabled={!state.autoFilter || manage.isPending}
+                >
+                  <SelectTrigger
+                    className="h-8 w-[68px] text-xs"
+                    aria-label={t("mail.aiFilter.thresholdLabel")}
+                  >
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {instructions.map((rule) => (
-                      <SelectItem key={rule.id} value={rule.id}>
-                        {rule.condition}
+                    {THRESHOLD_OPTIONS.map((threshold) => (
+                      <SelectItem key={threshold} value={String(threshold)}>
+                        {Math.round(threshold * 100)}%
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+                <Switch
+                  checked={state.autoFilter}
+                  onCheckedChange={(autoFilter) =>
+                    updateSettings({ autoFilter })
+                  }
+                  aria-label={t("mail.aiFilter.autoFilterToggle")}
+                />
               </div>
-            )}
-            {previewEmails.length === 0 ? (
-              <div className="py-7 text-center text-xs text-muted-foreground">
-                {recentEmails.length === 0
-                  ? t("mail.aiFilter.noRecentMail")
-                  : preview.isPending
-                    ? t("mail.aiFilter.previewRunning")
-                    : instructions.length === 0
-                      ? t("mail.aiFilter.addRuleToPreview")
-                      : t("mail.aiFilter.previewEmpty")}
+            </div>
+            <div className="flex items-center justify-between gap-3 border-t border-border/40 px-3 py-3">
+              <div className="flex min-w-0 items-center gap-2 text-[12px]">
+                <span className="shrink-0 text-muted-foreground">
+                  {t("mail.aiFilter.labelName")}
+                </span>
+                <code className="truncate rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                  {AI_FILTER_LABEL}
+                </code>
               </div>
-            ) : (
-              <>
-                <div className="flex items-center gap-2 border-b border-border/40 py-2 text-[10px] text-muted-foreground">
-                  <span className="size-3.5" />
-                  <span>
-                    {t("mail.aiFilter.feedbackLabel")}{" "}
-                    {correctionItems.length > 0 &&
-                      `(${correctionItems.length})`}
-                  </span>
-                </div>
-                {previewEmails.map((email) => (
-                  <PreviewRow
-                    key={email.id}
-                    email={email}
-                    match={email.matches.find(
-                      (match) => match.ruleId === previewRule?.id,
-                    )}
-                    correction={Boolean(corrections[email.id])}
-                    mode={previewMode}
-                    onCorrectionChange={(checked) =>
-                      setCorrections((current) => ({
-                        ...current,
-                        [email.id]: checked,
-                      }))
-                    }
-                  />
-                ))}
-                {correctionItems.length > 0 && (
-                  <div className="space-y-2 border-t border-border/40 py-3">
-                    <Textarea
-                      value={feedback}
-                      onChange={(event) => setFeedback(event.target.value)}
-                      placeholder={t("mail.aiFilter.feedbackPlaceholder")}
-                      className="min-h-16 resize-none text-xs"
-                      maxLength={1_000}
-                    />
-                    <Button
-                      size="sm"
-                      className="h-8 text-xs"
-                      onClick={refineRule}
-                      disabled={refine.isPending}
-                    >
-                      {refine.isPending ? (
-                        <IconLoader2 className="size-3.5 animate-spin" />
-                      ) : (
-                        <IconWand className="size-3.5" />
-                      )}
-                      {t("mail.aiFilter.refineButton")}
-                    </Button>
-                  </div>
-                )}
-              </>
-            )}
+              <Link
+                to={`/all?label=${encodeURIComponent(AI_FILTER_LABEL)}`}
+                className="shrink-0 text-xs font-medium text-primary hover:underline"
+              >
+                {t("mail.aiFilter.reviewLabel")}
+              </Link>
+            </div>
           </div>
-        </section>
+        </details>
 
-        <section>
-          <div className="mb-2 flex items-center justify-between">
-            <h3 className="text-[13px] font-semibold text-foreground">
-              {t("mail.aiFilter.activityTitle")}
-            </h3>
-            <Link
-              to={`/all?label=${encodeURIComponent(AI_FILTER_LABEL)}`}
-              className="text-[11px] font-medium text-primary hover:underline"
-            >
-              {t("mail.aiFilter.viewAll")}
-            </Link>
-          </div>
-          <div className="rounded-lg border border-border/50 bg-card/50 px-3">
-            {decisions.length === 0 ? (
-              <div className="py-6 text-center text-xs text-muted-foreground">
-                {t("mail.aiFilter.noActivity")}
-              </div>
-            ) : (
-              decisions.map((decision) => (
+        {decisions.length > 0 && (
+          <section>
+            <div className="flex items-center justify-between">
+              <h3 className="text-[13px] font-semibold text-foreground">
+                {t("mail.aiFilter.activityTitle")}
+              </h3>
+              <Link
+                to={`/all?label=${encodeURIComponent(AI_FILTER_LABEL)}`}
+                className="text-[11px] font-medium text-primary hover:underline"
+              >
+                {t("mail.aiFilter.viewAll")}
+              </Link>
+            </div>
+            <div className="mt-3 rounded-lg border border-border/50 bg-card/40 px-3">
+              {decisions.map((decision) => (
                 <DecisionRow
                   key={decision.id}
                   decision={decision}
@@ -833,11 +761,90 @@ export function AiFilterSection() {
                     setReview({ action, decision: next })
                   }
                 />
-              ))
-            )}
-          </div>
-        </section>
+              ))}
+            </div>
+          </section>
+        )}
       </div>
+
+      <Dialog open={composerOpen} onOpenChange={setComposerOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{t("mail.aiFilter.newRule")}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <Select
+              value={mode}
+              onValueChange={(value) => setMode(value as RuleMode)}
+            >
+              <SelectTrigger
+                className="h-9 w-full text-sm"
+                aria-label={t("mail.aiFilter.rulesTitle")}
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="tag">
+                  {t("mail.aiFilter.tagMode")}
+                </SelectItem>
+                <SelectItem value="spam">
+                  {t("mail.aiFilter.spamMode")}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            {mode === "tag" && (
+              <Input
+                value={tagName}
+                onChange={(event) => setTagName(event.target.value)}
+                placeholder={t("mail.aiFilter.tagNamePlaceholder")}
+                aria-label={t("mail.aiFilter.tagNamePlaceholder")}
+                className="h-9 text-sm"
+                maxLength={128}
+              />
+            )}
+            <Textarea
+              value={instruction}
+              onChange={(event) => setInstruction(event.target.value)}
+              onKeyDown={(event) => {
+                if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                  event.preventDefault();
+                  addInstruction();
+                }
+              }}
+              placeholder={
+                mode === "spam"
+                  ? t("mail.aiFilter.spamPlaceholder")
+                  : t("mail.aiFilter.tagPlaceholder")
+              }
+              aria-label={t("mail.aiFilter.instructionsTitle")}
+              className="min-h-28 resize-none text-sm"
+              maxLength={2_000}
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => setComposerOpen(false)}
+              disabled={createRule.isPending}
+            >
+              {t("settings.cancel")}
+            </Button>
+            <Button
+              onClick={addInstruction}
+              disabled={
+                !instruction.trim() ||
+                (mode === "tag" && !tagName.trim()) ||
+                createRule.isPending
+              }
+            >
+              {createRule.isPending && (
+                <IconLoader2 className="size-4 animate-spin" />
+              )}
+              {t("mail.aiFilter.addInstruction")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {review && (
         <AiFilterDialog

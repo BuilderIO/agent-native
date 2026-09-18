@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
-import { and, eq, gte, inArray } from "drizzle-orm";
+import { and, eq, gte, inArray, ne, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -46,22 +46,67 @@ function boundedText(value: string | null | undefined, limit: number): string {
   return (value ?? "").replace(/\s+/g, " ").trim().slice(0, limit);
 }
 
+async function filterFederatedRecordingAccess<
+  T extends {
+    id: string;
+    visibility?: string | null;
+  },
+>(rows: T[], accessCache: Map<string, Promise<boolean>>): Promise<T[]> {
+  const filtered: Array<T | null> = await Promise.all(
+    rows.map(async (row): Promise<T | null> => {
+      if (row.visibility !== "org") return row;
+
+      let access = accessCache.get(row.id);
+      if (!access) {
+        access = resolveAccess("recording", row.id, undefined, {
+          skipResourceBody: true,
+        }).then(Boolean);
+        accessCache.set(row.id, access);
+      }
+      return (await access) ? row : null;
+    }),
+  );
+  return filtered.filter((row): row is T => row !== null);
+}
+
 async function claimantMayClaim(
   job: TransactionalEmailJob,
   claimantEmail: string,
+  accessCache: Map<string, Promise<boolean>>,
 ): Promise<boolean> {
   if (normalizeEmail(job.recipient) === claimantEmail) return true;
   if (normalizeEmail(job.requestedBy) !== claimantEmail) return false;
 
-  const access = await Promise.all(
-    job.recordingIds.map((recordingId) =>
-      resolveAccess("recording", recordingId),
-    ),
-  );
-  if (!access.every(Boolean)) return false;
-
   const db = getDb();
-  const [directShares, countedViews] = await Promise.all([
+  // Resolve private/public/share access through one projected query. Org-visible
+  // rows use the authoritative by-ID resolver below so owner, membership,
+  // explicit-share, and federation semantics stay identical.
+  const [accessibleCandidates, directShares, countedViews] = await Promise.all([
+    db
+      .select({
+        id: schema.recordings.id,
+        ownerEmail: schema.recordings.ownerEmail,
+        visibility: schema.recordings.visibility,
+      })
+      .from(schema.recordings)
+      .where(
+        and(
+          inArray(schema.recordings.id, job.recordingIds),
+          or(
+            and(
+              ne(schema.recordings.visibility, "org"),
+              accessFilter(
+                schema.recordings,
+                schema.recordingShares,
+                undefined,
+                "viewer",
+                { includePublic: true },
+              ),
+            ),
+            eq(schema.recordings.visibility, "org"),
+          ),
+        ),
+      ),
     db
       .select({ recordingId: schema.recordingShares.resourceId })
       .from(schema.recordingShares)
@@ -83,39 +128,59 @@ async function claimantMayClaim(
         ),
       ),
   ]);
+  const accessibleRows = await filterFederatedRecordingAccess(
+    accessibleCandidates,
+    accessCache,
+  );
+  const accessibleIds = new Set(accessibleRows.map((row) => row.id));
   const directlyRelatedIds = new Set([
-    ...access.flatMap((entry, index) =>
-      entry?.role === "owner" ? [job.recordingIds[index]] : [],
+    ...accessibleRows.flatMap((row) =>
+      normalizeEmail(row.ownerEmail) === claimantEmail ? [row.id] : [],
     ),
     ...directShares.map((share) => share.recordingId),
     ...countedViews.map((view) => view.recordingId),
   ]);
-  return job.recordingIds.every((recordingId) =>
-    directlyRelatedIds.has(recordingId),
+  return job.recordingIds.every(
+    (recordingId) =>
+      accessibleIds.has(recordingId) && directlyRelatedIds.has(recordingId),
   );
 }
 
 async function loadContextPackets(
   job: TransactionalEmailJob,
   enabledAt: string,
+  accessCache: Map<string, Promise<boolean>>,
 ): Promise<
   [TransactionalEmailContextPacket, TransactionalEmailContextPacket] | null
 > {
   if (job.type !== "two-clips" || job.recordingIds.length !== 2) return null;
 
   const db = getDb();
-  const [recordings, transcripts, shares] = await Promise.all([
+  const [recordingCandidates, transcripts, shares] = await Promise.all([
     db
       .select({
         id: schema.recordings.id,
         title: schema.recordings.title,
         description: schema.recordings.description,
+        visibility: schema.recordings.visibility,
       })
       .from(schema.recordings)
       .where(
         and(
           inArray(schema.recordings.id, job.recordingIds),
-          accessFilter(schema.recordings, schema.recordingShares),
+          or(
+            and(
+              ne(schema.recordings.visibility, "org"),
+              accessFilter(
+                schema.recordings,
+                schema.recordingShares,
+                undefined,
+                "viewer",
+                { includePublic: true },
+              ),
+            ),
+            eq(schema.recordings.visibility, "org"),
+          ),
         ),
       ),
     db
@@ -144,6 +209,10 @@ async function loadContextPackets(
         ),
       ),
   ]);
+  const recordings = await filterFederatedRecordingAccess(
+    recordingCandidates,
+    accessCache,
+  );
 
   const recordingById = new Map(recordings.map((row) => [row.id, row]));
   const transcriptById = new Map(
@@ -200,7 +269,9 @@ export async function claimTransactionalEmailAiRequests(
   const config = await transactionalEmailStore.readConfig();
   if (!config) return { requests: [] };
   const staleBefore = new Date(Date.now() - AI_DISPATCH_STALE_MS);
-  const candidates = (await transactionalEmailStore.listJobs()).filter(
+  const candidates = (
+    await transactionalEmailStore.listJobs(["awaiting_ai", "ai_dispatched"])
+  ).filter(
     (job) =>
       isAiBackedType(job.type) &&
       (job.state === "awaiting_ai" ||
@@ -210,13 +281,15 @@ export async function claimTransactionalEmailAiRequests(
       job.recordingIds.length === 2,
   );
   const requests: ClaimedTransactionalEmailAiRequest[] = [];
+  const accessCache = new Map<string, Promise<boolean>>();
 
   for (const candidate of candidates) {
     if (requests.length >= claimLimit) break;
-    if (!(await claimantMayClaim(candidate, claimant))) continue;
+    if (!(await claimantMayClaim(candidate, claimant, accessCache))) continue;
     const contextPackets = await loadContextPackets(
       candidate,
       config.enabledAt,
+      accessCache,
     );
     if (!contextPackets) continue;
     const claimed =
