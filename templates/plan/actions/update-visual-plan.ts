@@ -450,28 +450,28 @@ function contentPatchDetails(input: {
   });
 }
 
+function canvasSurfaceProjection(content: PlanContent) {
+  return (content.canvas?.frames ?? []).map((frame) => ({
+    frame,
+    referencedBlock: frame.blockId
+      ? findContentBlock(content.blocks, frame.blockId)
+      : null,
+  }));
+}
+
 function surfaceParityWarnings(
   before: PlanContent | null,
   after: PlanContent | null,
-  patches: PlanContentPatch[],
 ) {
   if (!before?.canvas?.frames.length || !after?.canvas?.frames.length) {
     return [];
   }
-  const hasPrototypeEdit = patches.some(
-    (patch) =>
-      patch.op === "set-prototype" ||
-      patch.op === "update-prototype-screen" ||
-      patch.op === "patch-prototype-html",
-  );
   const prototypeChanged =
-    hasPrototypeEdit ||
-    (before.prototype !== undefined &&
-      after.prototype !== undefined &&
-      JSON.stringify(before.prototype) !== JSON.stringify(after.prototype));
+    JSON.stringify(before.prototype) !== JSON.stringify(after.prototype);
   if (
     !prototypeChanged ||
-    JSON.stringify(before.canvas.frames) !== JSON.stringify(after.canvas.frames)
+    JSON.stringify(canvasSurfaceProjection(before)) !==
+      JSON.stringify(canvasSurfaceProjection(after))
   ) {
     return [];
   }
@@ -791,7 +791,6 @@ export default defineAction({
     surfaceWarnings = surfaceParityWarnings(
       bundleAtLoad?.plan.content ?? null,
       nextContent,
-      args.contentPatches,
     );
     if (surfaceWarnings.length > 0 && !args.allowSurfaceMismatch) {
       throw new Error(surfaceWarnings.join(" "));
