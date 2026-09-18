@@ -2233,6 +2233,59 @@ function findReactRouterManifest(distDir: string): ReactRouterAssetManifest {
   return JSON.parse(match[1].replace(/;$/, "")) as ReactRouterAssetManifest;
 }
 
+function clientAssetLogicalName(fileName: string): string {
+  const extension = path.extname(fileName);
+  if (!extension) return fileName;
+  const stem = fileName.slice(0, -extension.length);
+  return `${stem.replace(/-[A-Za-z0-9_-]{8,}$/, "")}${extension}`;
+}
+
+function createPairedClientAssetReplacements(
+  trustedClientDirectory: string,
+  pairedClientDirectory: string,
+): Map<string, string> {
+  const trustedAssetsDirectory = path.join(trustedClientDirectory, "assets");
+  const pairedAssetsDirectory = path.join(pairedClientDirectory, "assets");
+  if (
+    !fs.existsSync(trustedAssetsDirectory) ||
+    !fs.existsSync(pairedAssetsDirectory)
+  ) {
+    return new Map();
+  }
+
+  const pairedByLogicalName = new Map<string, string | undefined>();
+  for (const fileName of fs.readdirSync(pairedAssetsDirectory)) {
+    const logicalName = clientAssetLogicalName(fileName);
+    if (!pairedByLogicalName.has(logicalName)) {
+      pairedByLogicalName.set(logicalName, fileName);
+    } else {
+      pairedByLogicalName.set(logicalName, undefined);
+    }
+  }
+
+  const replacements = new Map<string, string>();
+  for (const fileName of fs.readdirSync(trustedAssetsDirectory)) {
+    const pairedFileName = pairedByLogicalName.get(
+      clientAssetLogicalName(fileName),
+    );
+    if (pairedFileName && pairedFileName !== fileName) {
+      replacements.set(`/assets/${fileName}`, `/assets/${pairedFileName}`);
+    }
+  }
+  return replacements;
+}
+
+function replacePairedClientAssetReferences(
+  source: string,
+  replacements: Map<string, string>,
+): string {
+  let replaced = source;
+  for (const [from, to] of replacements) {
+    replaced = replaced.replaceAll(from, to);
+  }
+  return replaced;
+}
+
 const REACT_ROUTER_ASSET_MANIFEST_FIELDS = [
   "module",
   "imports",
@@ -2444,21 +2497,33 @@ function patchReactRouterServerManifestSource(
 
 function patchReactRouterServerManifestInOutput(
   serverDirectory: string,
-  clientDirectory: string,
+  trustedClientDirectory: string,
+  pairedClientDirectory: string,
 ): void {
-  const clientManifest = findReactRouterManifest(clientDirectory);
+  const clientManifest = findReactRouterManifest(pairedClientDirectory);
+  const assetReplacements = createPairedClientAssetReplacements(
+    trustedClientDirectory,
+    pairedClientDirectory,
+  );
   let patchedFile: string | undefined;
   walkServerJavaScriptFiles(serverDirectory, (serverBuildFile) => {
-    if (patchedFile) return;
     const source = fs.readFileSync(serverBuildFile, "utf8");
-    const patched = patchReactRouterServerManifestSource(
+    let rewritten = replacePairedClientAssetReferences(
       source,
-      serverBuildFile,
-      clientManifest,
+      assetReplacements,
     );
-    if (patched === undefined) return;
-    fs.writeFileSync(serverBuildFile, patched);
-    patchedFile = serverBuildFile;
+    if (!patchedFile) {
+      const patched = patchReactRouterServerManifestSource(
+        rewritten,
+        serverBuildFile,
+        clientManifest,
+      );
+      if (patched !== undefined) {
+        rewritten = patched;
+        patchedFile = serverBuildFile;
+      }
+    }
+    if (rewritten !== source) fs.writeFileSync(serverBuildFile, rewritten);
   });
   if (!patchedFile) {
     throw new Error(
@@ -2466,7 +2531,7 @@ function patchReactRouterServerManifestInOutput(
     );
   }
   console.log(
-    `[deploy] Paired React Router server manifest in ${path.relative(process.cwd(), patchedFile)} with ${path.basename(clientDirectory)}`,
+    `[deploy] Paired React Router server manifest in ${path.relative(process.cwd(), patchedFile)} with ${path.basename(pairedClientDirectory)}`,
   );
 }
 
@@ -5350,6 +5415,7 @@ export async function runNitroBuildPipeline(
     cwd,
     includeImmutableAssetRouteRules = true,
   } = opts;
+  const trustedClientDirectory = path.resolve(cwd, clientDir);
   const resolvedClientDir = resolveNitroClientDirectory(cwd, clientDir);
   const hasClientBuild =
     fs.existsSync(resolvedClientDir) && Boolean(publicOutputDir);
@@ -5394,6 +5460,7 @@ export async function runNitroBuildPipeline(
   if (hasClientBuild && usingPairedClientArtifact) {
     patchReactRouterServerManifestInOutput(
       nitro.options.output.serverDir,
+      trustedClientDirectory,
       resolvedClientDir,
     );
   }

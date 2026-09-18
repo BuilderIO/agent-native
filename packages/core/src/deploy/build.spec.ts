@@ -2754,6 +2754,10 @@ describe("runNitroBuildPipeline", () => {
       path.join(clientDir, "assets", "entry.client-aB12_cdE.js"),
       "console.log('hashed-client')",
     );
+    fs.writeFileSync(
+      path.join(clientDir, "assets", "global-aaaa1111.css"),
+      "base-css",
+    );
     fs.writeFileSync(path.join(clientDir, "assets", "logo.png"), "png");
 
     // Simulate the cleared publicDir Nitro would set up in `prepare`.
@@ -2823,6 +2827,10 @@ describe("runNitroBuildPipeline", () => {
       "paired-root",
     );
     fs.writeFileSync(
+      path.join(pairedClientDir, "assets", "global-bbbb2222.css"),
+      "paired-css",
+    );
+    fs.writeFileSync(
       path.join(pairedClientDir, "assets", "manifest-paired.js"),
       `window.__reactRouterManifest=${JSON.stringify({
         entry: {
@@ -2877,7 +2885,7 @@ describe("runNitroBuildPipeline", () => {
             fs.mkdirSync(serverDir, { recursive: true });
             fs.writeFileSync(
               path.join(serverDir, "main.mjs"),
-              `const $9 = ${JSON.stringify(serverManifest)};`,
+              `const stylesheet = "/assets/global-aaaa1111.css";\nconst $9 = ${JSON.stringify(serverManifest)};`,
             );
           },
         },
@@ -2903,7 +2911,9 @@ describe("runNitroBuildPipeline", () => {
       expect(patchedServerBuild).toContain("/assets/entry.client-paired.js");
       expect(patchedServerBuild).toContain("/assets/root-paired.js");
       expect(patchedServerBuild).toContain("/assets/manifest-paired.js");
+      expect(patchedServerBuild).toContain("/assets/global-bbbb2222.css");
       expect(patchedServerBuild).not.toContain("/assets/entry.client-base.js");
+      expect(patchedServerBuild).not.toContain("/assets/global-aaaa1111.css");
     } finally {
       if (previous === undefined)
         delete process.env.AGENT_NATIVE_PREBUILT_CLIENT_DIR;
