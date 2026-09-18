@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   reconcileRecordingRecovery,
+  shouldShowRecordingRecoveryBanner,
   type PendingDesktopUpload,
   type PendingNativeUpload,
 } from "./recording-recovery";
@@ -52,6 +53,13 @@ const prior: PendingNativeUpload = {
 };
 
 describe("recording recovery state", () => {
+  it("only shows the recovery banner on the signed-in recorder surface", () => {
+    expect(shouldShowRecordingRecoveryBanner("recorder", true)).toBe(true);
+    expect(shouldShowRecordingRecoveryBanner("recorder", false)).toBe(false);
+    expect(shouldShowRecordingRecoveryBanner("settings", true)).toBe(false);
+    expect(shouldShowRecordingRecoveryBanner("recovery", true)).toBe(false);
+  });
+
   it("retains last known entries on rejected lookup and distinguishes failure from empty", () => {
     const cause = new Error("Disk unavailable");
     const result = reconcileRecordingRecovery(

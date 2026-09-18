@@ -161,6 +161,7 @@ import {
 import {
   reconcileRecordingRecovery,
   recordingRecoveryKey,
+  shouldShowRecordingRecoveryBanner,
   type PendingDesktopUpload,
   type PendingNativeUpload,
   type RecoverySnapshot,
@@ -4441,13 +4442,16 @@ export function App({
       });
     },
   };
-  const pendingUploadBanner = (
+  const pendingUploadBanner = shouldShowRecordingRecoveryBanner(
+    popoverView,
+    authStatus === "authed",
+  ) ? (
     <RecordingRecovery
       {...recoveryProps}
       onOpen={recoveryNavigation.openRecovery}
       triggerRef={recoveryNavigation.triggerRef}
     />
-  );
+  ) : null;
 
   async function copyRewindAgentPrompt() {
     try {
@@ -4626,7 +4630,6 @@ export function App({
   if (popoverView === "memory") {
     return (
       <div className="app app-settings" ref={appRef}>
-        {pendingUploadBanner}
         {isRecording ? <ActiveRecordingBanner /> : null}
         <Setup
           surface="memory"
@@ -4673,7 +4676,6 @@ export function App({
   if (popoverView === "settings") {
     return (
       <div className="app app-settings" ref={appRef}>
-        {pendingUploadBanner}
         {isRecording ? <ActiveRecordingBanner /> : null}
         <Setup
           initialSettingsTab={initialSettingsTab}
@@ -4722,7 +4724,6 @@ export function App({
   if (popoverView === "meetings" && meetingsLabEnabled) {
     return (
       <div className="app app-popover-view" ref={appRef}>
-        {pendingUploadBanner}
         {isRecording ? <ActiveRecordingBanner /> : null}
         <MeetingsPopoverView
           meetings={meetings}

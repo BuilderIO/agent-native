@@ -34,6 +34,13 @@ export function recordingRecoveryKey(upload: PendingDesktopUpload): string {
   return `${upload.kind}:${upload.recordingId}`;
 }
 
+export function shouldShowRecordingRecoveryBanner(
+  view: string,
+  authenticated: boolean,
+): boolean {
+  return authenticated && view === "recorder";
+}
+
 export function classifyRecordingRecoveryError(
   message: string,
   options: {
