@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
-import { orgMembers } from "@agent-native/core/org";
-import { accessFilter } from "@agent-native/core/sharing";
+import { orgMembers, organizations } from "@agent-native/core/org";
+import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
 import { and, eq, gte, inArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
@@ -64,6 +64,34 @@ function recordingOrgMembershipFilter(userEmail: string) {
   return orgMemberAccess ?? sql`1 = 0`;
 }
 
+async function filterFederatedRecordingAccess<
+  T extends {
+    id: string;
+    visibility?: string | null;
+    orgId?: string | null;
+    identityAuthority?: string | null;
+    identityId?: string | null;
+  },
+>(rows: T[]): Promise<T[]> {
+  const filtered: T[] = [];
+  for (const row of rows) {
+    const linkedOrganization =
+      row.visibility === "org" &&
+      row.orgId &&
+      (String(row.identityAuthority ?? "").trim() ||
+        String(row.identityId ?? "").trim());
+    if (
+      !linkedOrganization ||
+      (await resolveAccess("recording", row.id, undefined, {
+        skipResourceBody: true,
+      }))
+    ) {
+      filtered.push(row);
+    }
+  }
+  return filtered;
+}
+
 async function claimantMayClaim(
   job: TransactionalEmailJob,
   claimantEmail: string,
@@ -75,13 +103,18 @@ async function claimantMayClaim(
   // Resolve both recordings through one projected access query. Calling
   // resolveAccess() once per recording reloads the full resource and its
   // shares, which turned each two-clip candidate into an N+1 fanout.
-  const [accessibleRows, directShares, countedViews] = await Promise.all([
+  const [accessibleCandidates, directShares, countedViews] = await Promise.all([
     db
       .select({
         id: schema.recordings.id,
         ownerEmail: schema.recordings.ownerEmail,
+        visibility: schema.recordings.visibility,
+        orgId: schema.recordings.orgId,
+        identityAuthority: organizations.identityAuthority,
+        identityId: organizations.identityId,
       })
       .from(schema.recordings)
+      .leftJoin(organizations, eq(organizations.id, schema.recordings.orgId))
       .where(
         and(
           inArray(schema.recordings.id, job.recordingIds),
@@ -118,6 +151,8 @@ async function claimantMayClaim(
         ),
       ),
   ]);
+  const accessibleRows =
+    await filterFederatedRecordingAccess(accessibleCandidates);
   const accessibleIds = new Set(accessibleRows.map((row) => row.id));
   const directlyRelatedIds = new Set([
     ...accessibleRows.flatMap((row) =>
@@ -142,14 +177,19 @@ async function loadContextPackets(
   if (job.type !== "two-clips" || job.recordingIds.length !== 2) return null;
 
   const db = getDb();
-  const [recordings, transcripts, shares] = await Promise.all([
+  const [recordingCandidates, transcripts, shares] = await Promise.all([
     db
       .select({
         id: schema.recordings.id,
         title: schema.recordings.title,
         description: schema.recordings.description,
+        visibility: schema.recordings.visibility,
+        orgId: schema.recordings.orgId,
+        identityAuthority: organizations.identityAuthority,
+        identityId: organizations.identityId,
       })
       .from(schema.recordings)
+      .leftJoin(organizations, eq(organizations.id, schema.recordings.orgId))
       .where(
         and(
           inArray(schema.recordings.id, job.recordingIds),
@@ -191,6 +231,7 @@ async function loadContextPackets(
         ),
       ),
   ]);
+  const recordings = await filterFederatedRecordingAccess(recordingCandidates);
 
   const recordingById = new Map(recordings.map((row) => [row.id, row]));
   const transcriptById = new Map(

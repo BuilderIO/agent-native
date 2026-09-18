@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   claimAwaitingAi: vi.fn(),
   reclaimStaleAiDispatch: vi.fn(),
   readConfig: vi.fn(),
+  resolveAccess: vi.fn(),
   gte: vi.fn((...args: unknown[]) => args),
   select: vi.fn(),
 }));
@@ -16,6 +17,7 @@ vi.mock("@agent-native/core/action", () => ({
 }));
 vi.mock("@agent-native/core/sharing", () => ({
   accessFilter: mocks.accessFilter,
+  resolveAccess: mocks.resolveAccess,
 }));
 vi.mock("drizzle-orm", () => ({
   and: (...args: unknown[]) => args,
@@ -51,6 +53,8 @@ vi.mock("../server/db/index.js", () => ({
       ownerEmail: "recordings.ownerEmail",
       title: "recordings.title",
       description: "recordings.description",
+      visibility: "recordings.visibility",
+      orgId: "recordings.orgId",
     },
     recordingTranscripts: {
       recordingId: "transcripts.recordingId",
@@ -68,6 +72,11 @@ vi.mock("../server/db/index.js", () => ({
       principalId: "shares.principalId",
       createdBy: "shares.createdBy",
       createdAt: "shares.createdAt",
+    },
+    organizations: {
+      id: "organizations.id",
+      identityAuthority: "organizations.identityAuthority",
+      identityId: "organizations.identityId",
     },
   },
 }));
@@ -96,6 +105,9 @@ function setupSelectRows(rows: unknown[][]) {
     const result = rows.shift() ?? [];
     return {
       from() {
+        return this;
+      },
+      leftJoin() {
         return this;
       },
       where: async () => result,
@@ -325,5 +337,53 @@ describe("list-transactional-email-ai-requests", () => {
       claimTransactionalEmailAiRequests(mocks.claimant),
     ).resolves.toEqual({ requests: [] });
     expect(mocks.claimAwaitingAi).not.toHaveBeenCalled();
+  });
+
+  it("rechecks linked organization recordings through the authoritative resolver", async () => {
+    mocks.claimant = "second-sender@example.test";
+    mocks.resolveAccess.mockImplementation(async (_type, recordingId) =>
+      recordingId === "recording-1" ? null : { role: "viewer" },
+    );
+    mocks.select.mockReset();
+    setupSelectRows([
+      [
+        {
+          id: "recording-1",
+          ownerEmail: "other@example.test",
+          visibility: "org",
+          orgId: "linked-org",
+          identityAuthority: "https://identity.example.test",
+          identityId: "identity-org",
+        },
+        {
+          id: "recording-2",
+          ownerEmail: "other@example.test",
+          visibility: "org",
+          orgId: "linked-org",
+          identityAuthority: "https://identity.example.test",
+          identityId: "identity-org",
+        },
+      ],
+      [{ recordingId: "recording-2" }],
+      [],
+    ]);
+
+    await expect(
+      claimTransactionalEmailAiRequests(mocks.claimant),
+    ).resolves.toEqual({ requests: [] });
+    expect(mocks.resolveAccess).toHaveBeenNthCalledWith(
+      1,
+      "recording",
+      "recording-1",
+      undefined,
+      { skipResourceBody: true },
+    );
+    expect(mocks.resolveAccess).toHaveBeenNthCalledWith(
+      2,
+      "recording",
+      "recording-2",
+      undefined,
+      { skipResourceBody: true },
+    );
   });
 });
