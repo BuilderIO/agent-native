@@ -14,6 +14,11 @@ import { appPath, designFrame, expandAllLayers, gotoEditor } from "./helpers";
 // version/zoom dependent.
 const CONTROL = "Control";
 const COMMAND = process.platform === "darwin" ? "Meta" : "Control";
+const LINKED_COMPONENT_OVERRIDES = encodeURIComponent(
+  JSON.stringify([
+    { sourceNodeId: "play-label", property: "style:background-color" },
+  ]),
+);
 
 const MATRIX_HTML = `<!doctype html>
 <html lang="en">
@@ -56,6 +61,17 @@ const SECOND_SCREEN_HTML = `<!doctype html>
 <body style="margin:0;position:relative;width:1000px;height:780px;background:#111827;color:#f8fafc;font-family:system-ui,sans-serif">
   <section data-agent-native-node-id="cross-target" data-agent-native-layer-name="Cross target" style="position:absolute;left:80px;top:120px;width:400px;height:140px;box-sizing:border-box;display:flex;flex-direction:row;gap:12px;padding:12px;background:#334155">
     <div data-agent-native-node-id="cross-anchor" data-agent-native-layer-name="Cross anchor" style="flex:0 0 120px;width:120px;height:50px;background:#94a3b8;color:#0f172a">Anchor</div>
+  </section>
+</body></html>`;
+
+const LINKED_COMPONENT_HTML = `<!doctype html><html><body style="margin:0;width:900px;height:360px;box-sizing:border-box;display:flex;flex-direction:row;align-items:flex-start;gap:32px;padding:40px;background:#111827;color:#f8fafc">
+  <section data-agent-native-node-id="play-main" data-agent-native-layer-name="Play main" data-agent-native-component-id="cmp-play" data-agent-native-component="PlayButton" style="box-sizing:border-box;display:flex;flex-direction:row;gap:12px;padding:16px;width:340px;height:120px;background:#1e293b">
+    <div data-agent-native-node-id="play-label" data-agent-native-layer-name="Canonical play label" style="flex:0 0 120px;height:56px;background:#38bdf8;color:#082f49"></div>
+    <div data-agent-native-node-id="play-badge" data-agent-native-layer-name="Canonical play badge" style="flex:0 0 100px;height:56px;background:#fbbf24;color:#451a03"></div>
+  </section>
+  <section data-agent-native-node-id="play-instance" data-agent-native-layer-name="Play instance" data-agent-native-component-ref="cmp-play" data-agent-native-component="PlayButton" data-agent-native-component-overrides="${LINKED_COMPONENT_OVERRIDES}" style="box-sizing:border-box;display:flex;flex-direction:row;gap:12px;padding:16px;width:340px;height:120px;background:#334155">
+    <div data-agent-native-node-id="play-label-instance" data-agent-native-component-source-node-id="play-label" data-agent-native-layer-name="Play label instance" style="flex:0 0 120px;height:56px;background:#67e8f9;color:#164e63"></div>
+    <div data-agent-native-node-id="play-badge-instance" data-agent-native-component-source-node-id="play-badge" data-agent-native-layer-name="Play badge instance" style="flex:0 0 100px;height:56px;background:#fde68a;color:#78350f"></div>
   </section>
 </body></html>`;
 
@@ -440,6 +456,7 @@ async function dragRootHeldWithOracle(
   targetId: string,
   targetEdge: "leading" | "trailing" | "center" = "center",
   axis: "horizontal" | "vertical" = "horizontal",
+  sourceLayerName?: string,
 ): Promise<{
   initialHtml: string;
   beforeReleaseHtml: string;
@@ -449,7 +466,8 @@ async function dragRootHeldWithOracle(
 }> {
   await selectLayer(
     page,
-    sourceId.replaceAll("-", " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+    sourceLayerName ??
+      sourceId.replaceAll("-", " ").replace(/\b\w/g, (c) => c.toUpperCase()),
   );
   const source = await boxFor(page, screenId, sourceId);
   const target = await boxFor(page, screenId, targetId);
@@ -527,13 +545,15 @@ async function dragHeld(
   options: {
     modifier?: string;
     releaseModifierBeforeMouse?: boolean;
+    sourceLayerName?: string;
     targetEdge?: "leading" | "trailing" | "center";
     axis?: "horizontal" | "vertical";
   } = {},
 ) {
   await selectLayer(
     page,
-    sourceId.replaceAll("-", " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+    options.sourceLayerName ??
+      sourceId.replaceAll("-", " ").replace(/\b\w/g, (c) => c.toUpperCase()),
   );
   const source = await boxFor(page, screenId, sourceId);
   const target = await boxFor(page, screenId, targetId);
@@ -1073,6 +1093,194 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
         "[figma-autolayout-matrix] ROOT-1 Option-before-pointerdown PASS",
         { heldCount },
       );
+    } finally {
+      await deleteDesign(request, design.id);
+    }
+  });
+
+  test("linked component drag propagates to its instance and keeps overrides through duplicate, undo, redo, and reload", async ({
+    page,
+    request,
+  }) => {
+    const design = await createDesign(request, {
+      primaryHtml: LINKED_COMPONENT_HTML,
+    });
+    try {
+      await gotoEditor(page, design.id);
+      const linkedState = () =>
+        designFrame(page, design.primaryId)
+          .locator("body")
+          .evaluate((body) => {
+            const readRoot = (root: Element) => ({
+              nodeId: root.getAttribute("data-agent-native-node-id"),
+              componentId: root.getAttribute("data-agent-native-component-id"),
+              componentRef: root.getAttribute(
+                "data-agent-native-component-ref",
+              ),
+              cloneRoot: root.getAttribute("data-agent-native-clone-root"),
+              overrides: root.getAttribute(
+                "data-agent-native-component-overrides",
+              ),
+              children: Array.from(root.children).map(
+                (child) =>
+                  child.getAttribute("data-agent-native-node-id") ?? "",
+              ),
+              sourceNodeIds: Array.from(root.children).map(
+                (child) =>
+                  child.getAttribute(
+                    "data-agent-native-component-source-node-id",
+                  ) ?? "",
+              ),
+            });
+            return {
+              main: readRoot(
+                body.querySelector(
+                  '[data-agent-native-component-id="cmp-play"]',
+                )!,
+              ),
+              instances: Array.from(
+                body.querySelectorAll(
+                  '[data-agent-native-component-ref="cmp-play"]',
+                ),
+              ).map(readRoot),
+            };
+          });
+
+      const initial = await linkedState();
+      expect(initial.main).toMatchObject({
+        nodeId: "play-main",
+        componentId: "cmp-play",
+        children: ["play-label", "play-badge"],
+      });
+      expect(initial.instances).toEqual([
+        expect.objectContaining({
+          nodeId: "play-instance",
+          componentRef: "cmp-play",
+          overrides: LINKED_COMPONENT_OVERRIDES,
+          children: ["play-label-instance", "play-badge-instance"],
+          sourceNodeIds: ["play-label", "play-badge"],
+        }),
+      ]);
+
+      const result = await dragRootHeldWithOracle(
+        page,
+        request,
+        design.id,
+        design.primaryId,
+        "play-badge",
+        "play-label",
+        "leading",
+        "horizontal",
+        "Canonical play badge",
+      );
+      const belowThreshold = result.snapshots.find(
+        (snapshot) => snapshot.stage === "below-threshold",
+      );
+      const lifted = result.snapshots.find(
+        (snapshot) => snapshot.source?.lifted,
+      );
+      expect(belowThreshold?.source?.lifted).toBe(false);
+      expect(lifted?.source?.lifted).toBe(true);
+      expect(lifted?.source?.parentId).toBe("play-main");
+      expect(lifted?.guide?.display).toBe("block");
+      expect(result.beforeReleaseHtml).toBe(result.initialHtml);
+      expect(result.after.source?.lifted).toBe(false);
+      await expect
+        .poll(async () => (await linkedState()).main.children)
+        .toEqual(["play-badge", "play-label"]);
+      await expect
+        .poll(async () => (await linkedState()).instances[0]?.children)
+        .toEqual(["play-badge-instance", "play-label-instance"]);
+      expect((await linkedState()).instances[0]).toMatchObject({
+        componentRef: "cmp-play",
+        overrides: LINKED_COMPONENT_OVERRIDES,
+        sourceNodeIds: ["play-badge", "play-label"],
+      });
+
+      await page.keyboard.press(`${COMMAND}+z`);
+      await expect
+        .poll(async () => (await linkedState()).main.children)
+        .toEqual(["play-label", "play-badge"]);
+      await expect
+        .poll(async () => (await linkedState()).instances[0]?.children)
+        .toEqual(["play-label-instance", "play-badge-instance"]);
+      await page.keyboard.press(`${COMMAND}+Shift+z`);
+      await expect
+        .poll(async () => (await linkedState()).main.children)
+        .toEqual(["play-badge", "play-label"]);
+      await expect
+        .poll(async () => (await linkedState()).instances[0]?.children)
+        .toEqual(["play-badge-instance", "play-label-instance"]);
+
+      await selectLayer(page, "Play instance");
+      const originalInstance = (await linkedState()).instances.find(
+        (instance) => instance.nodeId === "play-instance",
+      );
+      const source = await boxFor(page, design.primaryId, "play-instance");
+      const target = await boxFor(page, design.primaryId, "play-main");
+      await page.keyboard.down("Alt");
+      await page.mouse.move(
+        source.x + source.width / 2,
+        source.y + source.height / 2,
+      );
+      await page.mouse.down();
+      await page.mouse.move(source.x + 12, source.y + 8, { steps: 5 });
+      await page.mouse.move(
+        target.x + target.width - 3,
+        target.y + target.height / 2,
+        { steps: 24 },
+      );
+      await page.waitForTimeout(250);
+      const held = await linkedState();
+      expect(held.instances).toHaveLength(2);
+      expect(
+        held.instances.filter((instance) => instance.cloneRoot === "true"),
+      ).toHaveLength(1);
+      expect(
+        held.instances.find((instance) => instance.nodeId === "play-instance"),
+      ).toEqual(originalInstance);
+      expect(
+        held.instances.every(
+          (instance) =>
+            instance.componentRef === "cmp-play" &&
+            instance.overrides === LINKED_COMPONENT_OVERRIDES &&
+            instance.sourceNodeIds.length === 2,
+        ),
+      ).toBe(true);
+      await page.mouse.up();
+      await page.keyboard.up("Alt");
+
+      await expect
+        .poll(async () => (await linkedState()).instances.length)
+        .toBe(2);
+      const duplicated = await linkedState();
+      expect(
+        new Set(duplicated.instances.map((instance) => instance.nodeId)).size,
+      ).toBe(2);
+      expect(
+        duplicated.instances.every(
+          (instance) =>
+            instance.componentRef === "cmp-play" &&
+            instance.overrides === LINKED_COMPONENT_OVERRIDES &&
+            instance.sourceNodeIds.length === 2,
+        ),
+      ).toBe(true);
+      await settleReload(page, design.primaryId);
+      const reloaded = await linkedState();
+      expect(reloaded.main.children).toEqual(["play-badge", "play-label"]);
+      expect(reloaded.instances).toHaveLength(2);
+      expect(
+        reloaded.instances.every(
+          (instance) =>
+            instance.componentRef === "cmp-play" &&
+            instance.overrides === LINKED_COMPONENT_OVERRIDES &&
+            instance.sourceNodeIds.length === 2,
+        ),
+      ).toBe(true);
+      console.log("[figma-autolayout-matrix] LINKED-COMPONENT PASS", {
+        main: reloaded.main,
+        instances: reloaded.instances,
+      });
     } finally {
       await deleteDesign(request, design.id);
     }
