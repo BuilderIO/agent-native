@@ -741,6 +741,10 @@ function isApprovedDesignOrigin(
   rawOrigin: string,
   configuredOrigins: ReadonlySet<string>,
 ): boolean {
+  // Sandboxed loopback preview documents have an opaque `null` origin. The
+  // bridge token still gates every preview/control response; this CORS grant
+  // only lets their module scripts and editor bridge boot under COEP.
+  if (rawOrigin === "null") return true;
   let parsed: URL;
   try {
     parsed = new URL(rawOrigin);
@@ -778,7 +782,8 @@ function configureBridgeCors(
         "access-control-allow-methods":
           "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS",
         "access-control-allow-headers":
-          "authorization, content-type, x-bridge-token, x-design-preview-token, x-csrf-token, x-xsrf-token, x-requested-with",
+          "accept, authorization, content-type, x-agent-native-browser-tab, x-agent-native-build-id, x-agent-native-client-compatibility, x-agent-native-client-platform, x-agent-native-csrf, x-agent-native-desktop-verifier, x-agent-native-embed-target, x-agent-native-embed-transplant, x-agent-native-frontend, x-agent-native-session-id, x-bridge-token, x-csrf-token, x-design-preview-token, x-request-source, x-requested-with, x-xsrf-token, x-user-timezone",
+        "access-control-allow-credentials": "true",
         "access-control-allow-private-network": "true",
         vary: "Origin",
       }
@@ -831,6 +836,7 @@ function sendBytes(
 ) {
   const responseHeaders: Record<string, string | string[]> = {
     ...bridgeCorsHeaders(res),
+    "cross-origin-resource-policy": "cross-origin",
     "content-length": String(contentLength),
     ...(setCookieHeaders.length > 0 ? { "set-cookie": setCookieHeaders } : {}),
   };
@@ -1416,6 +1422,69 @@ function addLiveEditBaseHref(html: string, href: string): string {
   return `<!DOCTYPE html><html><head>${baseTag}<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>${html}</body></html>`;
 }
 
+function addOpaqueFrameCredentials(
+  html: string,
+  previewToken?: string,
+): string {
+  const withCredentialedResources = html.replace(
+    /<(script|link)\b([^>]*?)>/gi,
+    (fullTag, tagName: string, attributes: string) => {
+      const resourceMatch = attributes.match(
+        /\b(?:src|href)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i,
+      );
+      const resourceUrl =
+        resourceMatch?.[1] ?? resourceMatch?.[2] ?? resourceMatch?.[3] ?? "";
+      if (!resourceUrl || /^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(resourceUrl)) {
+        return fullTag;
+      }
+      if (/\bcrossorigin\s*=/i.test(attributes)) {
+        return `<${tagName}${attributes.replace(
+          /\bcrossorigin\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/i,
+          'crossorigin="use-credentials"',
+        )}>`;
+      }
+      return `<${tagName}${attributes} crossorigin="use-credentials">`;
+    },
+  );
+  if (!previewToken) return withCredentialedResources;
+  const hmrImport = "/@id/__x00__virtual:react-router/inject-hmr-runtime";
+  const hmrImportWithToken = `${hmrImport}?previewToken=${encodeURIComponent(previewToken)}`;
+  const withHmrToken = withCredentialedResources
+    .replaceAll(`"${hmrImport}"`, `"${hmrImportWithToken}"`)
+    .replaceAll(`'${hmrImport}'`, `'${hmrImportWithToken}'`);
+  const previewTokenLiteral = JSON.stringify(previewToken).replace(
+    /</g,
+    "\\u003c",
+  );
+  return injectDocumentMarkup(
+    withHmrToken,
+    // coercion-ok: invalid browser-owned URLs stay unchanged in the frame.
+    String.raw`<script data-agent-native-opaque-preview-auth>(function(){var t=${previewTokenLiteral},o;try{o=new URL(document.baseURI).origin}catch(_){return}function u(v){try{var a=new URL(String(v),document.baseURI);if(a.origin!==o||a.searchParams.has("previewToken"))return null;a.searchParams.set("previewToken",t);return a.toString()}catch(_){return null}}function c(v){return String(v).replace(/url\(\s*(["']?)([^"'()]+)\1\s*\)/gi,function(h,q,v){var s=u(v);return s?"url("+q+s+q+")":h})}var f=window.fetch.bind(window);window.fetch=function(i,n){var v=i instanceof Request?i.url:i,s=u(v);return s?f(i instanceof Request?new Request(s,i):s,n):f(i,n)};var x=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,v){var s=u(v);return x.call(this,m,s||v,...Array.prototype.slice.call(arguments,2))};var p=Node.prototype.appendChild;Node.prototype.appendChild=function(n){if(n&&n.nodeType===1){var a=n.tagName==="SCRIPT"?"src":n.tagName==="LINK"?"href":n.tagName==="IMG"?"src":n.tagName==="IFRAME"?"src":null;if(a){var v=n.getAttribute(a),s=u(v);if(s)n.setAttribute(a,s)}else if(n.tagName==="STYLE"&&n.textContent){n.textContent=c(n.textContent)}}return p.call(this,n)};var e=window.EventSource;if(e){var E=function(v,n){return new e(u(v)||v,n)};E.prototype=e.prototype;window.EventSource=E}})();</script>`,
+    { target: "head" },
+  );
+}
+
+function addOpaqueFrameResourceTokens(
+  css: string,
+  previewToken: string,
+): string {
+  return css.replace(
+    /url\(\s*(["']?)([^"'()]+)\1\s*\)/gi,
+    (full, quote: string, resourceUrl: string) => {
+      if (!resourceUrl || /^(?:[a-z][a-z\d+.-]*:|\/\/|#)/i.test(resourceUrl)) {
+        return full;
+      }
+      const hashIndex = resourceUrl.indexOf("#");
+      const path =
+        hashIndex === -1 ? resourceUrl : resourceUrl.slice(0, hashIndex);
+      const hash = hashIndex === -1 ? "" : resourceUrl.slice(hashIndex);
+      if (!path || /(?:[?&])previewToken=/.test(path)) return full;
+      const separator = path.includes("?") ? "&" : "?";
+      return `url(${quote}${path}${separator}previewToken=${encodeURIComponent(previewToken)}${hash}${quote})`;
+    },
+  );
+}
+
 /**
  * Rewrite the iframe path to the real target route before the proxied app's
  * bundle runs. The bridge serves snapshots from its own `/live-edit` path, so a
@@ -1466,10 +1535,17 @@ function injectLiveEditBridge(
   baseHref: string,
   script: string,
   targetPath: string,
-  identity: { bridgeKey?: string; recoverTargetUrl?: string } = {},
+  identity: {
+    bridgeKey?: string;
+    previewToken?: string;
+    recoverTargetUrl?: string;
+  } = {},
 ) {
   const withBase = injectPreBootLocationShim(
-    addLiveEditBaseHref(html, baseHref),
+    addOpaqueFrameCredentials(
+      addLiveEditBaseHref(html, baseHref),
+      identity.previewToken,
+    ),
     targetPath,
     identity,
   );
@@ -2579,7 +2655,9 @@ export async function startDesignConnectBridge(
               new URL("/", manifest.bridgeUrl).toString(),
               includeEditorBridge ? editorBridgeScript : "",
               targetPath,
-              requestedBridgeKey ? { bridgeKey: requestedBridgeKey } : {},
+              requestedBridgeKey
+                ? { bridgeKey: requestedBridgeKey, previewToken }
+                : { previewToken },
             );
             sendText(
               res,
@@ -3021,19 +3099,30 @@ export async function startDesignConnectBridge(
                       // only offered to GET navigations: a body-bearing POST
                       // that already reached the app must keep its response.
                       keyed
-                        ? { bridgeKey: keyed.bridgeKey }
+                        ? { bridgeKey: keyed.bridgeKey, previewToken }
                         : method === "GET"
-                          ? { recoverTargetUrl: targetUrl }
-                          : {},
+                          ? { recoverTargetUrl: targetUrl, previewToken }
+                          : { previewToken },
                     ),
                   )
                 : proxied.body;
+            const responseText = responseBody.toString("utf8");
+            const opaqueFrameStylesheet =
+              contentType.includes("text/css") ||
+              (contentType.includes("javascript") &&
+                responseText.includes("__vite__css"));
+            const opaqueFrameResponseBody =
+              previewTokenValid && opaqueFrameStylesheet && method !== "HEAD"
+                ? Buffer.from(
+                    addOpaqueFrameResourceTokens(responseText, previewToken),
+                  )
+                : responseBody;
             sendBytes(
               res,
               proxied.status,
-              method === "HEAD" ? Buffer.alloc(0) : responseBody,
+              method === "HEAD" ? Buffer.alloc(0) : opaqueFrameResponseBody,
               proxied.headers,
-              responseBody.length,
+              opaqueFrameResponseBody.length,
               proxied.setCookieHeaders,
             );
           } catch (err: unknown) {

@@ -249,7 +249,7 @@ describe("DesignCanvas iframe sandbox policy", () => {
     expect(sandbox).not.toContain("allow-same-origin");
   });
 
-  it("retains same-origin only for URL apps and editable live-DOM workflows", () => {
+  it("retains same-origin only for trusted URL apps and editable inline workflows", () => {
     expect(
       getDesignCanvasIframeSandbox({
         externalPreview: false,
@@ -271,7 +271,7 @@ describe("DesignCanvas iframe sandbox policy", () => {
         parentOrigin: "https://design.agent-native.com",
         previewUrl: "http://127.0.0.1:7331/live-edit?url=%2Fforms",
       }),
-    ).toContain("allow-same-origin");
+    ).not.toContain("allow-same-origin");
   });
 
   it("only grants same-origin access to trusted cross-origin preview URLs", () => {

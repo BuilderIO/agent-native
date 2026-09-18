@@ -207,7 +207,13 @@ export function isTrustedCrossOriginPreviewUrl(
   previewUrl: string | null | undefined,
   parentOrigin?: string,
 ): boolean {
-  if (!previewUrl || !isBuilderPreviewUrl(previewUrl)) return false;
+  if (
+    !previewUrl ||
+    isLoopbackPreviewUrl(previewUrl) ||
+    !isBuilderPreviewUrl(previewUrl)
+  ) {
+    return false;
+  }
 
   const effectiveParentOrigin =
     parentOrigin ??
@@ -229,10 +235,10 @@ export function getDesignCanvasIframeSandbox(args: {
   parentOrigin?: string;
 }): string {
   if (args.externalPreview) {
-    // Loopback previews need a real origin inside the sandbox: an opaque
-    // origin makes the dev app's same-site resource policy reject the frame.
-    return isTrustedCrossOriginPreviewUrl(args.previewUrl, args.parentOrigin) ||
-      isLoopbackPreviewUrl(args.previewUrl)
+    // Keep loopback previews opaque: a local page with scripts and
+    // allow-same-origin could navigate to the editor origin and remove its
+    // own sandbox. The bridge opts opaque frames into COEP/CORS instead.
+    return isTrustedCrossOriginPreviewUrl(args.previewUrl, args.parentOrigin)
       ? TRUSTED_EXTERNAL_PREVIEW_IFRAME_SANDBOX
       : EXTERNAL_PREVIEW_IFRAME_SANDBOX;
   }
