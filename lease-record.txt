@@ -1,9 +1,9 @@
 pr=5345
 owner_thread=01a0b1fc-e680-7f83-8ace-ce119b98153e
-version=10
+version=11
 claimed_at=1789762705
-renewed_at=1789765514
-expires_at=1789766414
+renewed_at=1789765695
+expires_at=1789766595
 observed_legacy_heartbeat=none
 legacy_retired=true
 branch_head=bfb15ef97cabb764aed8f03b2040b41e793be2e0
