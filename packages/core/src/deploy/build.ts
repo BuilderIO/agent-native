@@ -1244,6 +1244,7 @@ export function generateWorkerEntry(
     const routePath = `/_agent-native/actions/${a.path ?? a.name}`;
     actionRegistrations.push(
       `  const ${handlerName} = defineEventHandler(async (event) => {
+    setResponseHeader(event, "Cache-Control", "no-" + "store");
     const actionIsUiOnly = ${a.uiOnly ? "true" : `${varName}.uiOnly === true`};
     const uiActionContext = actionIsUiOnly
       ? await getGeneratedUiActionContext(event)
@@ -1404,7 +1405,13 @@ ${hasActions ? "  getSession as getGeneratedSession,\n  hasUiActionCapability as
 
   return `
 // Auto-generated worker entry point for ${preset}
-import { H3, defineEventHandler, readBody, toResponse } from "h3";
+import {
+  H3,
+  defineEventHandler,
+  readBody,
+  setResponseHeader,
+  toResponse,
+} from "h3";
 ${includeReactRouterSsr ? 'import { createRequestHandler } from "react-router";' : ""}
 ${includeReactRouterSsr ? 'import * as serverBuild from "./server-build.js";' : ""}
 ${includeReactRouterSsr ? `import { runWithRequestContext } from "${EDGE_SERVER_ENTRYPOINT}";` : ""}

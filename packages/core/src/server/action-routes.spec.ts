@@ -16,6 +16,7 @@ const mockResolveEmbedSessionFromRequest = vi.hoisted(() =>
   vi.fn(async () => null),
 );
 const mockRegisterAuthPublicPaths = vi.hoisted(() => vi.fn());
+const mockHasUiActionCapability = vi.hoisted(() => vi.fn(() => false));
 
 function fakeUnsignedJwt(payload: Record<string, string>): string {
   const encode = (value: Record<string, string>) =>
@@ -92,6 +93,10 @@ vi.mock("../a2a-claims.js", () => ({
 vi.mock("./identity-sso-store.js", () => ({
   consumeOneTimeJti: (...args: unknown[]) => mockConsumeOneTimeJti(...args),
 }));
+vi.mock("./ui-action-capability.js", () => ({
+  hasUiActionCapability: (...args: unknown[]) =>
+    mockHasUiActionCapability(...args),
+}));
 
 describe("mountActionRoutes", () => {
   afterEach(() => {
@@ -116,6 +121,8 @@ describe("mountActionRoutes", () => {
     mockConsumeOneTimeJti.mockResolvedValue(false);
     mockResolveEmbedSessionFromRequest.mockReset();
     mockResolveEmbedSessionFromRequest.mockResolvedValue(null);
+    mockHasUiActionCapability.mockReset();
+    mockHasUiActionCapability.mockReturnValue(false);
     vi.restoreAllMocks();
   });
 
@@ -278,6 +285,49 @@ describe("mountActionRoutes", () => {
     const event = {
       _method: "POST",
       _headers: { "x-agent-native-frontend": "1" },
+      req: { json: async () => ({}) },
+    };
+
+    await expect(mounted[0]!.handler(event)).resolves.toEqual({
+      error: "This action can only be called from the signed-in app UI.",
+      errorCode: "ui_capability_required",
+    });
+    expect(event._status).toBe(403);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("rejects cross-origin UI-only actions even with a valid capability", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const run = vi.fn(async () => ({ ok: true }));
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    mockHasUiActionCapability.mockReturnValue(true);
+
+    mountActionRoutes(
+      nitroApp,
+      {
+        "delete-account-data": {
+          run,
+          uiOnly: true,
+          agentTool: false,
+          mcpTool: false,
+          toolCallable: false,
+        } as any,
+      },
+      { getOwnerFromEvent: async () => "owner@example.com" },
+    );
+
+    const event = {
+      _method: "POST",
+      _headers: {
+        host: "app.example.com",
+        origin: "https://evil.example.com",
+        "x-agent-native-frontend": "1",
+      },
       req: { json: async () => ({}) },
     };
 

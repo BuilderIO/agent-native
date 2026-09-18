@@ -1036,6 +1036,9 @@ describe("generateWorkerEntry", { timeout: 15_000 }, () => {
     );
     expect(source).toContain("!isGeneratedSameOriginRequest(event)");
     expect(source).toContain(
+      'setResponseHeader(event, "Cache-Control", "no-" + "store");',
+    );
+    expect(source).toContain(
       "resolveOrgIdForEmailViaEvent as resolveGeneratedOrgId",
     );
     expect(source).toContain(

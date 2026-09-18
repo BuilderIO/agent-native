@@ -60,7 +60,10 @@ import {
 } from "./embed-session.js";
 import { getHttpRequestTelemetryId } from "./http-response-telemetry.js";
 import { consumeOneTimeJti } from "./identity-sso-store.js";
-import { getForwardedRequestOrigin } from "./request-origin.js";
+import {
+  getForwardedRequestOrigin,
+  isSameOriginRequest,
+} from "./request-origin.js";
 import { hasUiActionCapability } from "./ui-action-capability.js";
 
 declare const __AGENT_NATIVE_BUILD_ID__: string | undefined;
@@ -719,6 +722,7 @@ function mountActionRoutesInternal(
           entry.uiOnly === true &&
           (!frontendCaller ||
             !userEmail ||
+            !isSameOriginRequest(event) ||
             !hasUiActionCapability(event, userEmail))
         ) {
           setResponseStatus(event, 403);
