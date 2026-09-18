@@ -1916,6 +1916,7 @@ export class RecorderEngine {
       this.uploadAbort = null;
     }
     this.cleanupTracks();
+    const uploadAttemptId = this.uploadAttemptId;
     const uploadGenerationId = this.uploadGenerationId;
     this.chunkIndex = 0;
     this.uploadFailure = null;
@@ -1936,6 +1937,7 @@ export class RecorderEngine {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            ...(uploadAttemptId ? { attemptId: uploadAttemptId } : {}),
             ...(uploadGenerationId ? { uploadGenerationId } : {}),
           }),
         });
