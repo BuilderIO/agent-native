@@ -1036,6 +1036,13 @@ export function runCrossScreenElementDrop(
       ` grab=${point(sourcePointerOffset)}`,
   );
   const nextDestContent = placed.content;
+  dndHostLog("persist:placement", {
+    branch: placed.branch,
+    sourceLength: result.sourceHtml.length,
+    destinationLength: nextDestContent.length,
+    sourceHasNode: result.sourceHtml.includes(nodeAttrId),
+    destinationHasNode: nextDestContent.includes(nodeAttrId),
+  });
 
   // Both halves of a cross-screen move must pass the exact publication
   // integrity boundary before either file or the history stack is changed.
@@ -1051,6 +1058,10 @@ export function runCrossScreenElementDrop(
       previousContent: rawDestContent,
     });
   } catch {
+    dndHostLog("persist:publication-preflight-rejected", {
+      sourceScreenId,
+      targetScreenId,
+    });
     toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
     return;
   }
@@ -1095,6 +1106,13 @@ export function runCrossScreenElementDrop(
       awaitSave: true,
     },
   );
+  dndHostLog("persist:target-publication", {
+    status: targetPublication.status,
+    contentLength:
+      targetPublication.status === "accepted"
+        ? targetPublication.content.length
+        : 0,
+  });
   if (targetPublication.status !== "accepted") return;
 
   const sourcePublication = applyFileContentUpdate(
@@ -1109,6 +1127,13 @@ export function runCrossScreenElementDrop(
       awaitSave: true,
     },
   );
+  dndHostLog("persist:source-publication", {
+    status: sourcePublication.status,
+    contentLength:
+      sourcePublication.status === "accepted"
+        ? sourcePublication.content.length
+        : 0,
+  });
   if (sourcePublication.status !== "accepted") {
     const rollback = applyFileContentUpdate(targetScreenId, rawDestContent, {
       recordHistory: false,
