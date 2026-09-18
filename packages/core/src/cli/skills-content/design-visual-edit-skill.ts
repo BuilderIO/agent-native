@@ -19,6 +19,21 @@ iframe-backed screens on the infinite canvas.
 The editor is hosted at \`https://design.agent-native.com\`. Never start local
 Design; only the target app and bridge run locally.
 
+## Fast local startup
+
+- Do not install this skill into the target app or start a local Design server.
+  The skill belongs to the coding host; Design is always the hosted app above.
+- If you need to start an Agent-Native framework app yourself, use
+  \`AUTH_DISABLED=1\` with its normal dev command. This is local-only and gives
+  the visual editor the framework's dev identity without a user login.
+- If an agent-owned local server redirects a requested screen to \`/sign-in\`,
+  restart that server with \`AUTH_DISABLED=1\` and probe the route again before
+  opening Design. Never present a sign-in page as the requested screen.
+- Preserve a server you did not start; use its existing authenticated browser
+  session or explain that the target app, rather than Design, requires login.
+- When the user gives explicit paths, skip route inventory and place those
+  paths directly. Discover routes only when paths were not supplied.
+
 ## Installation
 
 \`npx @agent-native/core@latest skills add visual-edit\` installs the skill and
