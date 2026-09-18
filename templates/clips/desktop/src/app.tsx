@@ -4761,7 +4761,6 @@ export function App({
             modes, Feedback, and Settings all act on an account that does not
             exist yet, so they appear after auth rather than competing with it.
             The menubar toggle remains the single way to dismiss the popover. */}
-        {pendingUploadBanner}
         {signInPending === "google" ? (
           /* `data-tw-surface` marks only this subtree: the sign-in form beside
              it is still hand-written CSS that the scoped preflight would
