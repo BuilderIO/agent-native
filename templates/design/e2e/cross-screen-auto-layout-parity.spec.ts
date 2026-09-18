@@ -270,6 +270,19 @@ async function dragScreenNode(
   nodeId: string,
   destination: { x: number; y: number },
 ): Promise<{ guide: number; ghost: number; sourceVisible: number }> {
+  const logs: string[] = [];
+  page.on("console", (message) => {
+    if (
+      message.text().includes("[drop:") ||
+      message.text().includes("[dnd:host:")
+    ) {
+      logs.push(message.text());
+    }
+  });
+  await page.evaluate(() => {
+    window.__DESIGN_TRACE = true;
+    window.__DND_DEBUG = true;
+  });
   await selectScreenNode(page, screenId, nodeId);
   const source = await boxFor(page, screenId, nodeId);
   await page.mouse.move(
@@ -286,9 +299,17 @@ async function dragScreenNode(
   );
   await page.mouse.move(destination.x, destination.y, { steps: 30 });
   await page.waitForTimeout(500);
-  await expect(page.locator("[data-cross-screen-drop-guide]")).toHaveCount(1, {
-    timeout: 5_000,
-  });
+  try {
+    await expect(page.locator("[data-cross-screen-drop-guide]")).toHaveCount(
+      1,
+      {
+        timeout: 5_000,
+      },
+    );
+  } catch (error) {
+    console.log(logs.join("\n"));
+    throw error;
+  }
   const evidence = {
     guide: await page.locator("[data-cross-screen-drop-guide]").count(),
     ghost: await page.locator("[data-cross-screen-drag-ghost]").count(),
