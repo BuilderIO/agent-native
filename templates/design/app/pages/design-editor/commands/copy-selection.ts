@@ -33,6 +33,9 @@ export interface CopySelectionArgs {
   files: DesignFile[];
   getScreenContent: (screenId: string) => string;
   getSelectedLayerSnapshots: () => SelectedCanvasLayerSnapshot[];
+  getSelectedLayerSnapshotsWithFullInfo?: () => Promise<
+    SelectedCanvasLayerSnapshot[]
+  >;
   lastWrittenClipboardMarkerRef: RefObject<string | null>;
   lastWrittenClipboardPlainTextRef: RefObject<string | null>;
   liveScreenSnapshotsById: Record<string, LiveScreenSnapshot>;
@@ -54,6 +57,7 @@ export async function runCopySelection({
   files,
   getScreenContent,
   getSelectedLayerSnapshots,
+  getSelectedLayerSnapshotsWithFullInfo,
   lastWrittenClipboardMarkerRef,
   lastWrittenClipboardPlainTextRef,
   liveScreenSnapshotsById,
@@ -65,7 +69,10 @@ export async function runCopySelection({
   t,
   viewModeRef,
 }: CopySelectionArgs) {
-  const entries = getSelectedLayerSnapshots().map((snapshot) => ({
+  const snapshots = getSelectedLayerSnapshotsWithFullInfo
+    ? await getSelectedLayerSnapshotsWithFullInfo()
+    : getSelectedLayerSnapshots();
+  const entries = snapshots.map((snapshot) => ({
     html: preserveClipboardLayerName(snapshot.html, snapshot.node.layerName),
     rootNodeId: snapshot.rootNodeId,
     sourceParentNodeId: snapshot.sourceParentNodeId,

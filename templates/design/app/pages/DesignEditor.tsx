@@ -13063,7 +13063,7 @@ function DesignEditor() {
 
   // ── Clipboard copy and paste ───────────────────────────────────────────────
   const getSelectedLayerSnapshots = useCallback(
-    () =>
+    (selectedElementOverride?: ElementInfo | null) =>
       runGetSelectedLayerSnapshots({
         activeFile,
         designSourceType,
@@ -13073,7 +13073,10 @@ function DesignEditor() {
         liveScreenSnapshotsById,
         overviewScreens,
         runtimeLayerSnapshotsById,
-        selectedElement,
+        selectedElement:
+          selectedElementOverride === undefined
+            ? selectedElement
+            : selectedElementOverride,
         selectedElementLayerId,
         selectedLayerIdsState,
       }),
@@ -13091,6 +13094,45 @@ function DesignEditor() {
       selectedLayerIdsState,
     ],
   );
+
+  // Overview marquee collection deliberately omits portable subtree styles so
+  // the preview stays responsive while the hit-set is still changing. Copy is
+  // the first boundary that needs those styles; refresh just the selected
+  // element there instead of making every marquee tick pay for a full snapshot.
+  const getSelectedLayerSnapshotsWithFullInfo = useCallback(async () => {
+    const snapshots = getSelectedLayerSnapshots();
+    if (
+      !selectedElement ||
+      selectedElement.portableStyleSnapshot !== undefined ||
+      selectedElement.styleSnapshotCaptureFailed === true
+    ) {
+      return snapshots;
+    }
+    const screenId =
+      selectedElement.sourceLayerIdentity?.screenId ??
+      activeFile?.id ??
+      activeFileId;
+    const selector =
+      selectedElement.runtimeSelector ?? selectedElement.selector ?? null;
+    if (!screenId || !selector) return snapshots;
+    const measured = await requestSelectionMeasurement({
+      targetWindows: () =>
+        designPreviewWindowsForScreen(
+          screenId,
+          activeBreakpointWidthStateRef.current,
+          boardFileId,
+        ),
+      screenId,
+      selector,
+    });
+    return measured ? getSelectedLayerSnapshots(measured) : snapshots;
+  }, [
+    activeFile?.id,
+    activeFileId,
+    boardFileId,
+    getSelectedLayerSnapshots,
+    selectedElement,
+  ]);
 
   const getCanvasClipboardEntries = useCallback(() => {
     if (copiedLayerEntriesRef.current.length > 0) {
@@ -13209,6 +13251,7 @@ function DesignEditor() {
         files,
         getScreenContent,
         getSelectedLayerSnapshots,
+        getSelectedLayerSnapshotsWithFullInfo,
         lastWrittenClipboardMarkerRef,
         lastWrittenClipboardPlainTextRef,
         liveScreenSnapshotsById,
@@ -13226,6 +13269,7 @@ function DesignEditor() {
       files,
       getScreenContent,
       getSelectedLayerSnapshots,
+      getSelectedLayerSnapshotsWithFullInfo,
       liveScreenSnapshotsById,
       overviewSelectedScreenIds,
       overviewScreens,

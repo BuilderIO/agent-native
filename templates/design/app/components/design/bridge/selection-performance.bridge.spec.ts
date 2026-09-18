@@ -109,6 +109,17 @@ async function openBridgePage(page: Page) {
       window.__styleReads += 1;
       return rawGetComputedStyle(el, pseudo);
     };
+    window.__subtreeQueries = 0;
+    window.__subtreeNodes = 0;
+    var rawQuerySelectorAll = Element.prototype.querySelectorAll;
+    Element.prototype.querySelectorAll = function (selector) {
+      var result = rawQuerySelectorAll.call(this, selector);
+      if (selector === "*" && this !== document.body) {
+        window.__subtreeQueries += 1;
+        window.__subtreeNodes += result.length;
+      }
+      return result;
+    };
     window.__marqueeMessages = [];
     window.addEventListener("message", function (event) {
       if (event.data && event.data.type === "agent-native:layer-marquee-selection") {
@@ -514,7 +525,20 @@ describe("overview marquee selectable-rects collection", () => {
           (window as typeof window & { __styleReads?: number }).__styleReads ??
           0,
       );
+      const fullSubtreeNodes = await page.evaluate(
+        () =>
+          (window as typeof window & { __subtreeNodes?: number })
+            .__subtreeNodes ?? 0,
+      );
       await page.evaluate("window.__styleReads = 0;");
+      await page.evaluate(() => {
+        const win = window as typeof window & {
+          __subtreeQueries?: number;
+          __subtreeNodes?: number;
+        };
+        win.__subtreeQueries = 0;
+        win.__subtreeNodes = 0;
+      });
       const lightweight = await collectSelectableRects(page, {
         deep: false,
         includePortableStyleSnapshot: false,
@@ -524,10 +548,17 @@ describe("overview marquee selectable-rects collection", () => {
           (window as typeof window & { __styleReads?: number }).__styleReads ??
           0,
       );
+      const lightweightSubtreeNodes = await page.evaluate(
+        () =>
+          (window as typeof window & { __subtreeNodes?: number })
+            .__subtreeNodes ?? 0,
+      );
 
       expect(errors, errors.join("\n")).toEqual([]);
       expect(lightweight).toHaveLength(full.length);
       expect(lightweight.length).toBeGreaterThan(20);
+      expect(fullSubtreeNodes).toBeGreaterThan(0);
+      expect(lightweightSubtreeNodes).toBe(0);
       expect(lightweightReads).toBeGreaterThan(0);
       expect(lightweightReads).toBeLessThan(fullReads);
       expect(
@@ -849,6 +880,99 @@ describe("large concurrent selectable-rects requests", () => {
       expect(live.leaf).toBe(live.child);
       expect(live.state).toBe("running");
       expect(portableLeaf).toBe(live.leaf);
+    } finally {
+      await browser.close();
+    }
+  }, 60_000);
+
+  it("refreshes descendants when paused and finished animations seek mid-request", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 600, height: 420 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+        <div id="parent" data-agent-native-node-id="parent" style="position:relative;width:500px;height:360px">
+          <div id="paused-child" data-agent-native-node-id="paused-child" style="position:absolute;left:20px;top:20px;width:180px;height:80px;color:rgb(255,0,0)">
+            <div id="paused-leaf" data-agent-native-node-id="paused-leaf" style="width:90px;height:40px"></div>
+          </div>
+          <div id="finished-child" data-agent-native-node-id="finished-child" style="position:absolute;left:20px;top:140px;width:180px;height:80px;color:rgb(255,0,0)">
+            <div id="finished-leaf" data-agent-native-node-id="finished-leaf" style="width:90px;height:40px"></div>
+          </div>
+        </div>
+      </body></html>`);
+      await page.evaluate(() => {
+        const pausedChild =
+          document.querySelector<HTMLElement>("#paused-child");
+        const finishedChild =
+          document.querySelector<HTMLElement>("#finished-child");
+        if (!pausedChild || !finishedChild) {
+          throw new Error("paused animation fixture did not attach");
+        }
+        const pausedAnimation = pausedChild.animate(
+          [{ color: "rgb(255,0,0)" }, { color: "rgb(0,0,255)" }],
+          { duration: 1000, fill: "both" },
+        );
+        const finishedAnimation = finishedChild.animate(
+          [{ color: "rgb(255,0,0)" }, { color: "rgb(0,0,255)" }],
+          { duration: 1000, fill: "both" },
+        );
+        pausedAnimation.pause();
+        finishedAnimation.pause();
+        pausedAnimation.currentTime = 0;
+        finishedAnimation.currentTime = 0;
+        const mutations = new Map<HTMLElement, number>([
+          [pausedChild, 0],
+          [finishedChild, 0],
+        ]);
+        const mutateOnSecondRectRead = (
+          child: HTMLElement,
+          mutate: () => void,
+        ) => {
+          const nativeRect = child.getBoundingClientRect.bind(child);
+          child.getBoundingClientRect = () => {
+            const rect = nativeRect();
+            const reads = (mutations.get(child) ?? 0) + 1;
+            mutations.set(child, reads);
+            if (reads === 2) mutate();
+            return rect;
+          };
+        };
+        mutateOnSecondRectRead(pausedChild, () => {
+          pausedAnimation.currentTime = 500;
+        });
+        mutateOnSecondRectRead(finishedChild, () => {
+          finishedAnimation.finish();
+        });
+      });
+      await page.addScriptTag({ content: hydratedBridge() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+      const payload = await collectSelectableRects(page, { deep: true });
+      const live = await page.evaluate(() =>
+        ["paused", "finished"].map((kind) => {
+          const child = document.querySelector<HTMLElement>(`#${kind}-child`)!;
+          const leaf = document.querySelector<HTMLElement>(`#${kind}-leaf`)!;
+          return {
+            kind,
+            child: getComputedStyle(child).color,
+            leaf: getComputedStyle(leaf).color,
+            state: child.getAnimations()[0]?.playState,
+          };
+        }),
+      );
+      for (const item of live) {
+        const childInfo = payload.find(
+          (candidate) => candidate.sourceId === `${item.kind}-child`,
+        );
+        expect(childInfo).toBeDefined();
+        const portableLeaf = childInfo?.portableStyleSnapshot?.nodes?.find(
+          (node) => node.sourceId === `${item.kind}-leaf`,
+        )?.styles?.color;
+        expect(item.child).toBe(item.leaf);
+        expect(item.state).toBe(item.kind === "paused" ? "paused" : "finished");
+        expect(portableLeaf).toBe(item.leaf);
+      }
     } finally {
       await browser.close();
     }

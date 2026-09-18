@@ -3099,6 +3099,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (typeof MutationObserver === "undefined") return void 0;
       var cache = {
         entries: /* @__PURE__ */ new Map(),
+        animationFingerprints: /* @__PURE__ */ new Map(),
         mutationObserver: null,
         mutationGeneration: 0,
         observedMutationRoots: [],
@@ -3143,32 +3144,58 @@ export const editorChromeBridgeScript: string = `"use strict";
         return void 0;
       }
     }
-    function canReadPortableAnimationState(el) {
+    function readPortableAnimationState(el) {
       var animatedElement = el;
       try {
         var getAnimations = animatedElement.getAnimations;
         if (typeof getAnimations !== "function") {
           dndLog("style:animation-state-unreadable", { tag: el.tagName });
-          return false;
+          return void 0;
         }
         var animations = getAnimations.call(animatedElement);
         if (!Array.isArray(animations)) {
           dndLog("style:animation-state-unreadable", { tag: el.tagName });
-          return false;
+          return void 0;
         }
+        var cacheable = true;
+        var fingerprintParts = [];
         for (var index = 0; index < animations.length; index += 1) {
-          var playState = animations[index]?.playState;
-          if (typeof playState !== "string") {
+          var animation = animations[index];
+          var playState = animation?.playState;
+          if (!animation || typeof playState !== "string") {
             dndLog("style:animation-state-unreadable", { tag: el.tagName });
-            return false;
+            return void 0;
           }
-          if (playState === "running" || playState === "pending") return false;
+          if (playState === "running" || playState === "pending") {
+            cacheable = false;
+          }
+          fingerprintParts.push(
+            [
+              index,
+              playState,
+              animation.currentTime,
+              animation.startTime,
+              animation.playbackRate
+            ].map(function(value) {
+              if (value === null) return "null";
+              if (value === void 0) return "undefined";
+              return \`\${typeof value}:\${String(value)}\`;
+            }).join(":")
+          );
         }
-        return true;
+        return {
+          cacheable,
+          fingerprint: fingerprintParts.join("|") || "none"
+        };
       } catch (_error) {
         dndLog("style:animation-state-read-failed", { tag: el.tagName });
-        return false;
+        return void 0;
       }
+    }
+    function recordPortableStyleAnimationState(cache, el) {
+      var state = readPortableAnimationState(el);
+      if (state) cache.animationFingerprints.set(el, state.fingerprint);
+      else cache.animationFingerprints.delete(el);
     }
     function canReusePortableComputedStyles(el, cache) {
       var current = el;
@@ -3177,8 +3204,19 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (cache && (!portableStyleObserveElementRoot(cache, current) || parent && !portableStyleObserveElementRoot(cache, parent))) {
           return false;
         }
-        if (parent === void 0 || !canReadPortableAnimationState(current)) {
+        var animationState = readPortableAnimationState(current);
+        if (parent === void 0 || !animationState || !animationState.cacheable) {
           return false;
+        }
+        if (cache) {
+          var previousFingerprint = cache.animationFingerprints.get(current);
+          if (previousFingerprint === void 0) {
+            cache.animationFingerprints.set(current, animationState.fingerprint);
+          } else if (previousFingerprint !== animationState.fingerprint) {
+            cache.entries.delete(current);
+            cache.animationFingerprints.set(current, animationState.fingerprint);
+            return false;
+          }
         }
         current = parent;
       }
@@ -3303,6 +3341,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         dndLog("style:snapshot-skipped", { el: getSelector(root) });
         return null;
       }
+      if (cache) recordPortableStyleAnimationState(cache, root);
       return {
         version: 1,
         rootSourceId: getSourceId(root) || void 0,

@@ -2976,8 +2976,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     styles: Record<string, string> | null;
   };
 
+  type PortableStyleAnimationState = {
+    fingerprint: string;
+    cacheable: boolean;
+  };
+
   type PortableStyleComputedStylesCache = {
     entries: Map<Element, PortableStyleCacheEntry>;
+    animationFingerprints: Map<Element, string>;
     mutationObserver: MutationObserver;
     mutationGeneration: number;
     observedMutationRoots: Node[];
@@ -3348,6 +3354,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (typeof MutationObserver === "undefined") return undefined;
     var cache = {
       entries: new Map<Element, PortableStyleCacheEntry>(),
+      animationFingerprints: new Map<Element, string>(),
       mutationObserver: null as unknown as MutationObserver,
       mutationGeneration: 0,
       observedMutationRoots: [],
@@ -3397,34 +3404,73 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
   }
 
-  function canReadPortableAnimationState(el: Element): boolean {
+  function readPortableAnimationState(
+    el: Element,
+  ): PortableStyleAnimationState | undefined {
     var animatedElement = el as Element & {
-      getAnimations?: () => Array<{ playState?: string }>;
+      getAnimations?: () => Array<{
+        playState?: string;
+        currentTime?: unknown;
+        startTime?: unknown;
+        playbackRate?: unknown;
+      }>;
     };
     try {
       var getAnimations = animatedElement.getAnimations;
       if (typeof getAnimations !== "function") {
         dndLog("style:animation-state-unreadable", { tag: el.tagName });
-        return false;
+        return undefined;
       }
       var animations = getAnimations.call(animatedElement);
       if (!Array.isArray(animations)) {
         dndLog("style:animation-state-unreadable", { tag: el.tagName });
-        return false;
+        return undefined;
       }
+      var cacheable = true;
+      var fingerprintParts: string[] = [];
       for (var index = 0; index < animations.length; index += 1) {
-        var playState = animations[index]?.playState;
-        if (typeof playState !== "string") {
+        var animation = animations[index];
+        var playState = animation?.playState;
+        if (!animation || typeof playState !== "string") {
           dndLog("style:animation-state-unreadable", { tag: el.tagName });
-          return false;
+          return undefined;
         }
-        if (playState === "running" || playState === "pending") return false;
+        if (playState === "running" || playState === "pending") {
+          cacheable = false;
+        }
+        fingerprintParts.push(
+          [
+            index,
+            playState,
+            animation.currentTime,
+            animation.startTime,
+            animation.playbackRate,
+          ]
+            .map(function (value) {
+              if (value === null) return "null";
+              if (value === undefined) return "undefined";
+              return `${typeof value}:${String(value)}`;
+            })
+            .join(":"),
+        );
       }
-      return true;
+      return {
+        cacheable,
+        fingerprint: fingerprintParts.join("|") || "none",
+      };
     } catch (_error) {
       dndLog("style:animation-state-read-failed", { tag: el.tagName });
-      return false;
+      return undefined;
     }
+  }
+
+  function recordPortableStyleAnimationState(
+    cache: PortableStyleComputedStylesCache,
+    el: Element,
+  ): void {
+    var state = readPortableAnimationState(el);
+    if (state) cache.animationFingerprints.set(el, state.fingerprint);
+    else cache.animationFingerprints.delete(el);
   }
 
   function canReusePortableComputedStyles(
@@ -3444,8 +3490,23 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       ) {
         return false;
       }
-      if (parent === undefined || !canReadPortableAnimationState(current)) {
+      var animationState = readPortableAnimationState(current);
+      if (
+        parent === undefined ||
+        !animationState ||
+        !animationState.cacheable
+      ) {
         return false;
+      }
+      if (cache) {
+        var previousFingerprint = cache.animationFingerprints.get(current);
+        if (previousFingerprint === undefined) {
+          cache.animationFingerprints.set(current, animationState.fingerprint);
+        } else if (previousFingerprint !== animationState.fingerprint) {
+          cache.entries.delete(current);
+          cache.animationFingerprints.set(current, animationState.fingerprint);
+          return false;
+        }
       }
       current = parent;
     }
@@ -3596,6 +3657,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         probeFailed = true;
         return;
       }
+      // Keep an existing root fingerprint until every descendant has been
+      // checked. A root's computed style is captured before its rect read, so
+      // a timeline seek during that read must invalidate descendants against
+      // the previous fingerprint before this request records the new one.
       nodes.push({
         sourceId: getSourceId(node) || undefined,
         path: path,
@@ -3621,6 +3686,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // drop a class-only appearance it never got to measure.
       return null;
     }
+    if (cache) recordPortableStyleAnimationState(cache, root);
     return {
       version: 1,
       rootSourceId: getSourceId(root) || undefined,
