@@ -1,0 +1,154 @@
+---
+title: "Kalender: Mit dem Agent sprechen"
+description: "Was der Agent sieht, wenn Sie sich in Kalender befinden, Eingabeaufforderungen nach Aufgabe organisiert, und wann er statt einer vorgefertigten Aktion auf die rohe Google Calendar API zugreift."
+---
+
+# Mit dem Agent sprechen
+
+Alles in Kalender steht dem Agenten über dieselben Aktionen zur Verfügung, die auch die Oberfläche verwendet. Alles, was Sie anklicken können, können Sie also auch in einfacher Sprache erfragen. Diese Seite behandelt, wie der Agent Ihren Bildschirm sieht, nützliche Eingabeaufforderungen nach Aufgabe und wo er über die integrierten Aktionen hinausgeht. Einen Überblick finden Sie unter [Kalender](/docs/template-calendar).
+
+## Wie der Agent Ihren Bildschirm sieht
+
+Der Agent weiß immer, welche Kalenderansicht gerade aktiv ist, welchen Datumsbereich Sie sich ansehen und welcher Termin ausgewählt ist. Deshalb löst sich „verschiebe das“ oder „wer ist bei diesem Anruf dabei“ korrekt auf, ohne dass Sie den Termin benennen müssen. Der Agent weiß bereits, worauf sich „das“ bezieht.
+
+## Nützliche Eingabeaufforderungen nach Aufgabe
+
+Jede Eingabeaufforderung unten wird zu einer echten Aktion gegen Ihren tatsächlichen Kalender, denselben, aus dem auch die Oberfläche liest und in den sie schreibt. Hier ist ein durchgerechnetes Beispiel:
+
+<Comparison>
+
+### :blue: Sie fragen
+
+„Habe ich Donnerstagnachmittag Zeit?“
+
+### :green: Was passiert
+
+Das ist eine reine Leseabfrage. Der Agent prüft Ihren echten Kalender und Ihre Verfügbarkeitsregeln und antwortet dann direkt im Chat, zum Beispiel „Du hast von 13 bis 16 Uhr Zeit.“ Auf Ihrem Bildschirm ändert sich nichts, da nichts erstellt oder verschoben wurde.
+
+</Comparison>
+
+<Cards columns={2}>
+
+### Termine vereinbaren
+
+- **„Vereinbare morgen um 14 Uhr ein 30-minütiges Gespräch mit Alex.“** Der Termin erscheint in Ihrem Kalender in dem Moment, in dem er erstellt wird. Kein Dialog nötig.
+- **„Erstelle am Donnerstag um 10 Uhr ein Zoom-Meeting mit dem Design-Team.“** Wie oben, und ein Zoom-Link wird automatisch angehängt.
+- **„Setze mich für Freitag auf abwesend.“** Ein ganztägiger Abwesenheitstermin erscheint sofort in Ihrem Kalender.
+
+### Zeit finden
+
+- **„Finde nächste Woche einen einstündigen Slot mit Sam und Priya und buche dort 'Planning'.“** Der Agent prüft die echte Verfügbarkeit aller Beteiligten, und der neue Termin erscheint dann live in Ihrem Kalender. Kein Dialog nötig.
+
+### Termine verwalten
+
+_Bei einem ausgewählten Termin lösen sich „das“ und „dieses Meeting“ von selbst auf._
+
+- **„Verschiebe diesen Termin auf Freitag um 14 Uhr.“** Der Termin verschiebt sich live in Ihrem Kalenderraster.
+- **„Füge Jordan als optionalen Gast zu diesem Meeting hinzu.“** Jordan erscheint sofort in der Teilnehmerliste.
+- **„Nimm diese Einladung an.“ / „Lehne ab mit dem Hinweis, dass ich an dem Tag nicht da bin.“** Ihre Zusage bzw. Absage wird sofort am Termin aktualisiert.
+- **„Lösche dieses Meeting, nur für mich. Ich bin nicht der Organisator.“** Das Meeting verschwindet aus Ihrem Kalender. Andere Teilnehmer sehen es weiterhin in ihrem.
+
+### Buchungslinks
+
+- **„Erstelle einen 15-minütigen Intro-Buchungslink mit einem Namensfeld.“** Der neue Termintyp erscheint live in Ihrer Liste der Buchungslinks.
+- **„Füge Brent als erforderlichen Co-Host zu meinem Link 'Steve + Brent' hinzu.“** Brent erscheint sofort als Co-Host, und künftige Slots öffnen sich nur noch, wenn Sie beide frei sind.
+- **„Pausiere meinen Link '30 min demo'.“** Der Link wird sofort als pausiert angezeigt und nimmt keine neuen Buchungen mehr an.
+- **„Zeig mir die Buchungen dieser Woche.“** Eine reine Leseabfrage. Der Agent antwortet im Chat mit der Liste.
+
+### Personen und Ansicht
+
+- „Wer ist jane bei acme.com?“
+- „Füge Priyas Kalender zu meiner Ansicht hinzu.“
+- „Wechsle zur Tagesansicht und springe zum nächsten Montag.“
+
+</Cards>
+
+## Buchungslinks mit Gruppen und Co-Hosts
+
+Wenn ein Buchungslink erforderliche Co-Hosts hat, bietet der Agent (und die Oberfläche) einen Slot nur an, wenn der Inhaber _und_ jeder Co-Host frei sind. Er prüft alle ihre Kalender, nicht nur den des Inhabers. Sobald jemand bucht, lädt der Agent jeden Co-Host zusammen mit dem Besucher zu dem erstellten Google Calendar-Termin ein.
+
+<Diagram id="doc-block-calendar5" title="Wie eine Planungsanfrage abläuft" summary="Egal, ob Sie im Kalender klicken oder den Agenten fragen: Dieselben Aktionen lesen live aus Google Calendar und schreiben in dieselbe Ansicht zurück. Zoom und die Personensuche sind in denselben Ablauf eingebunden.">
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Sie klicken<br /><small class="diagram-muted"
+        >Ziehen, Symbolleiste, Tastenkürzel</small
+      >
+    </div>
+    <div class="diagram-node">
+      Sie fragen den Agenten<br /><small class="diagram-muted"
+        >"Finde nächste Woche einen einstündigen Termin"</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Aktionen</span
+    ><small class="diagram-muted"
+      >list-events · find-a-time · search-people · create-event</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">
+      Google Calendar<br /><small class="diagram-muted"
+        >live, mehrere Konten</small
+      >
+    </div>
+    <div class="diagram-box">
+      Zoom<br /><small class="diagram-muted"
+        >Meeting wird bei Buchung erstellt</small
+      >
+    </div>
+    <div class="diagram-box">
+      SQL<br /><small class="diagram-muted">Buchungen · Verfügbarkeit</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
+  <div class="diagram-box">Kalenderansicht aktualisiert live</div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## Wann der Agent direkt auf die Google Calendar API zugreift
+
+Die integrierten Aktionen (`list-events`, `search-events`, `find-a-time` und so weiter) decken die alltägliche Terminplanung ab. Manche Anfragen brauchen einen genauen Google Calendar-Endpunkt, Filter oder Paginierungsmodus, den die Aktionen nicht anbieten, etwa das Durchsuchen jedes Termins über sechs Monate für einen Bericht, oder eine ungewöhnliche Kalenderlisten-Abfrage. Dafür kann der Agent die echte Google Calendar API direkt aufrufen, statt die Antwort durch eine zu enge Aktion zu zwingen. Bei großen Scans legt er die Ergebnisse in einem Scratch-Dataset ab und arbeitet mit einer kompakten Zusammenfassung, statt Tausende von Terminen in die Konversation zu kippen. Das erkennen Sie meist daran, dass er sagt „lass mich das direkt aus Google Calendar holen“, bei Anfragen, die über eine normale Terminfrage hinausgehen.
+
+## Erweiterungen
+
+Kalender unterstützt Erweiterungen: kleine, isolierte Widgets, die Sie oder der Agent bauen und in die App einfügen können. Das Termin-Detailpanel stellt am unteren Rand einen Slot bereit, in dem eine Erweiterung rendern kann, wobei ihr die ID, der Titel, die Zeiten, Zeitzonen, der Ort, die Teilnehmer und das Konto des Termins bereits zur Verfügung stehen. Wie Sie eine solche bauen, erfahren Sie unter [Erweiterungen](/docs/extensions).
+
+## Wie geht es weiter?
+
+- [**Kalender**](/docs/template-calendar) — der Überblick und die ersten Schritte
+- [**Funktionen**](/docs/template-calendar-features) — Ansichten, Verfügbarkeit, Terminsuche und Buchungslinks, jeweils mit Einrichtungsschritten
+- [**Kalender in einem Multi-App-Arbeitsbereich**](/docs/template-calendar-integrations) — Integrationsstrategien und die Verbindung zu Dispatch
+- [**Entwicklerhandbuch**](/docs/template-calendar-developers) — jede Aktion, das Datenmodell und wie Sie die App erweitern
+- [**Erweiterungen**](/docs/extensions) — einen Widget für den Termin-Detail-Slot bauen

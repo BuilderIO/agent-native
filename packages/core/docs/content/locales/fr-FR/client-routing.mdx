@@ -1,0 +1,121 @@
+---
+title: "Routage"
+description: "Routage basé sur des fichiers pour les applications natives d'agent avec React Router v8 : pages, paramètres dynamiques, et navigation."
+---
+
+# Routage
+
+Les applications natives d'agent utilisent **React Router v8** avec un routage basé sur des fichiers via `flatRoutes()` de `@react-router/fs-routes`. Chaque fichier dans `app/routes/` devient une URL. Les modèles utilisent la convention de notation par points. Les points séparent les segments d'URL à l'intérieur d'un seul nom de fichier.
+
+Cette page couvre les routes client, les pages rendues dans le navigateur à partir de `app/routes/`. Les routes serveur sont un système distinct : les fichiers de routes Nitro sous `server/routes/`, plus les points de terminaison propres au framework `/_agent-native/*`. Ceux-ci vivent sur la page [Routes](/docs/server-routes). Les deux ne partagent ni répertoire, ni convention de nommage, ni routeur, donc un fichier de `server/routes/` ne devient jamais une page ici et un fichier de `app/routes/` ne devient jamais un point de terminaison serveur.
+
+<Diagram id="doc-block-client-routing-1" title="Nom de fichier → URL" summary="Chaque fichier dans app/routes/ devient une URL. Les points deviennent des barres obliques, et un segment $ devient un paramètre dynamique.">
+
+```html
+<div class="diagram-filemap">
+  <div class="diagram-filemap-row">
+    <span class="diagram-node">_index.tsx</span>
+    <span class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+    <span class="diagram-pill accent">/</span>
+  </div>
+  <div class="diagram-filemap-row">
+    <span class="diagram-node">dashboard.tsx</span>
+    <span class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+    <span class="diagram-pill accent">/dashboard</span>
+  </div>
+  <div class="diagram-filemap-row">
+    <span class="diagram-node">dashboard_.$ticketId.tsx</span>
+    <span class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+    <span class="diagram-pill accent">/dashboard/:ticketId</span>
+  </div>
+</div>
+```
+
+```css
+.diagram-filemap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-filemap-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-filemap-row .diagram-arrow {
+  font-size: 18px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## Routage basé sur des fichiers {#file-based-routing}
+
+### Mappage fichier → URL
+
+| Fichier                    | URL                    | Remarques                                                                          |
+| -------------------------- | ---------------------- | ---------------------------------------------------------------------------------- |
+| `_index.tsx`               | `/`                    | Route d'index                                                                      |
+| `dashboard.tsx`            | `/dashboard`           | Page simple                                                                        |
+| `extensions.$id.tsx`       | `/extensions/:id`      | S'imbrique dans le `<Outlet/>` de `extensions.tsx`. `$` est un paramètre dynamique |
+| `dashboard_.$ticketId.tsx` | `/dashboard/:ticketId` | Le `_` final évite l'imbrication sous `dashboard.tsx`, donc c'est sa propre page   |
+| `_app.tsx`                 | (pas de segment URL)   | Mise en page sans chemin. Préfixe avec `_`                                         |
+| `inbox/route.tsx`          | `/inbox`               | Forme dossier. `route.tsx` est l'index                                             |
+
+Préfixez un segment avec `$` pour un paramètre dynamique. Préfixez avec `_` pour en faire une route de mise en page sans chemin (pas de segment URL), ou ajoutez un `_` final avant un point pour qu'un chemin d'apparence imbriquée renonce à l'imbrication sous la mise en page de son parent. Les modèles utilisent `flatRoutes()`. Le fichier en notation par points ci-dessus est la forme principale. La forme en dossier imbriqué `inbox/route.tsx` fonctionne aussi.
+
+## Ajouter une nouvelle page {#adding-a-page}
+
+Créez le fichier et exportez un composant par défaut :
+
+```tsx filename="app/routes/settings.tsx"
+export function meta() {
+  return [{ title: "Settings" }];
+}
+
+export default function SettingsPage() {
+  return <div>Settings</div>;
+}
+```
+
+C'est tout. Le serveur de développement lit les fichiers de route au démarrage. Si `pnpm dev` est déjà en cours d'exécution, redémarrez-le après avoir ajouté le fichier. Aucune inscription n'est nécessaire.
+
+## Paramètres dynamiques {#dynamic-params}
+
+```tsx filename="app/routes/dashboard_.$ticketId.tsx"
+import { useParams } from "react-router";
+
+export default function TicketDetailPage() {
+  const { ticketId } = useParams();
+  return <div>Ticket: {ticketId}</div>;
+}
+```
+
+Le `_` final avant le point évite que cette page ne s'imbrique dans le `<Outlet/>` de `dashboard.tsx`, elle s'affiche donc comme sa propre page complète à `/dashboard/:ticketId` au lieu d'apparaître dans la mise en page de la file d'attente de tickets.
+
+## Navigation {#navigation}
+
+Utilisez `<Link>` pour la navigation côté client et `useNavigate()` pour la navigation par programmation :
+
+```tsx
+import { Link, useNavigate } from "react-router";
+
+// In JSX
+<Link to="/dashboard">Dashboard</Link>;
+
+// Programmatic
+const navigate = useNavigate();
+navigate(`/dashboard/${ticketId}`);
+```
+
+Aucun des deux n'informe l'agent de lui-même de ce que l'utilisateur regarde. C'est une préoccupation distincte, prise en charge par `useAgentRouteState()` qui écrit la route actuelle dans l'état de l'application. Voir [Conscience du contexte](/docs/context-awareness).
+
+## Quelle est la prochaine étape
+
+- [**Vue d’ensemble**](/docs/client-overview) — où `app/routes/` s'intègre parmi le reste de `app/` et `public/`
+- [**Données et synchronisation**](/docs/client-data) — lire et écrire des données depuis une route
+- [**Chat de l’Agent**](/docs/client-agent-chat) — envoyer des prompts et préparer du contexte depuis une route
+- [**Routes**](/docs/server-routes) — le système de routage serveur distinct : les fichiers de routes sous `server/routes/` et l'espace de noms `/_agent-native/` du framework
+- [**Conscience du contexte**](/docs/context-awareness) — comment l'agent apprend la route et la sélection actuelles

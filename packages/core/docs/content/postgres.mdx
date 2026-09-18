@@ -1,0 +1,36 @@
+---
+title: "Plain Postgres"
+description: "Use any managed or self-hosted PostgreSQL service through a standard DATABASE_URL."
+---
+
+# Plain Postgres
+
+Any provider that gives you a standard PostgreSQL connection URL works with
+the framework. This includes managed services such as Railway, Render, Fly.io,
+and Amazon RDS, as well as a self-hosted Postgres server.
+
+## Configure the app
+
+Set `DATABASE_URL` in the server environment:
+
+```bash
+DATABASE_URL=postgresql://app_user:YOUR_PASSWORD@db.example.com:5432/app
+```
+
+The framework uses its standard Postgres driver for non-Neon URLs. Your
+provider must allow the deployed app to reach the database and should use TLS
+for production connections.
+
+If your provider offers separate pooled and direct endpoints, use the pooled
+endpoint for runtime traffic and the direct endpoint for migrations.
+
+## Migrations
+
+Run production migrations in the release or deployment step. Follow the
+embedded migration guidance in the [database guide](/docs/server-database#migrations),
+and never run `drizzle-kit push` against a production database.
+
+## What's next
+
+- [Database](/docs/server-database) - schema, migrations, and connection rules
+- [Deployment](/docs/deployment) - choose a runtime and deployment preset

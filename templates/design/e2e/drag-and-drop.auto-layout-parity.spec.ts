@@ -1,0 +1,439 @@
+import { expect, test, type Locator, type Page } from "@playwright/test";
+
+import {
+  indexHtml,
+  newDesign,
+  node,
+  openEditor,
+  postAction,
+  setBaseURL,
+} from "./drag-and-drop.shared";
+
+test.use({ viewport: { width: 1600, height: 1000 } });
+
+test.beforeEach(async ({}, testInfo) => {
+  setBaseURL(testInfo);
+});
+
+const VERTICAL_FIXTURE = `<!doctype html>
+<html><body style="margin:0;min-height:900px;background:#0f1115">
+  <section data-agent-native-node-id="vertical" data-agent-native-layer-name="Vertical"
+    style="position:absolute;left:60px;top:80px;width:320px;padding:16px;display:flex;flex-direction:column;gap:12px;background:#1f2937">
+    <div data-agent-native-node-id="v1" data-agent-native-layer-name="V1" style="width:180px;height:48px;background:#6366f1">V1</div>
+    <div data-agent-native-node-id="v2" data-agent-native-layer-name="V2" style="width:180px;height:48px;background:#a855f7">V2</div>
+    <div data-agent-native-node-id="v3" data-agent-native-layer-name="V3" style="width:180px;height:48px;background:#ec4899">V3</div>
+  </section>
+</body></html>`;
+
+const WRAP_FIXTURE = `<!doctype html>
+<html><body style="margin:0;min-height:900px;background:#0f1115">
+  <section data-agent-native-node-id="wrap" data-agent-native-layer-name="Wrap"
+    style="position:absolute;left:60px;top:80px;width:256px;height:190px;padding:16px;display:flex;flex-direction:row;flex-wrap:wrap;gap:12px;background:#1f2937">
+    <div data-agent-native-node-id="w1" data-agent-native-layer-name="W1" style="flex:0 0 104px;height:48px;background:#6366f1">W1</div>
+    <div data-agent-native-node-id="w2" data-agent-native-layer-name="W2" style="flex:0 0 104px;height:48px;background:#a855f7">W2</div>
+    <div data-agent-native-node-id="w3" data-agent-native-layer-name="W3" style="flex:0 0 104px;height:48px;background:#ec4899">W3</div>
+  </section>
+</body></html>`;
+
+const GRID_FIXTURE = `<!doctype html>
+<html><body style="margin:0;min-height:900px;background:#0f1115">
+  <div data-agent-native-node-id="grid-source" data-agent-native-layer-name="Grid Source"
+    style="position:absolute;left:60px;top:420px;width:80px;height:44px;background:#6366f1">Source</div>
+  <section data-agent-native-node-id="grid" data-agent-native-layer-name="Grid"
+    style="position:absolute;left:360px;top:80px;width:300px;height:220px;padding:12px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:72px;gap:12px;background:#1f2937;box-sizing:border-box">
+    <div data-agent-native-node-id="g1" data-agent-native-layer-name="G1" style="min-width:0;background:#6366f1">G1</div>
+    <div data-agent-native-node-id="g2" data-agent-native-layer-name="G2" style="min-width:0;background:#a855f7">G2</div>
+    <div data-agent-native-node-id="g3" data-agent-native-layer-name="G3" style="min-width:0;background:#ec4899">G3</div>
+    <div data-agent-native-node-id="g4" data-agent-native-layer-name="G4" style="min-width:0;background:#f59e0b">G4</div>
+  </section>
+</body></html>`;
+
+const NEST_FIXTURE = `<!doctype html>
+<html><body style="margin:0;min-height:900px;background:#0f1115">
+  <div data-agent-native-node-id="nest-source" data-agent-native-layer-name="Nest Source"
+    style="position:absolute;left:60px;top:420px;width:80px;height:44px;background:#6366f1">Source</div>
+  <section data-agent-native-node-id="nest-row" data-agent-native-layer-name="Nest Row"
+    style="position:absolute;left:360px;top:80px;width:300px;padding:12px;display:flex;gap:12px;background:#1f2937">
+    <section data-agent-native-node-id="nested-frame" data-agent-native-layer-name="Nested Frame"
+      data-an-primitive="frame" style="width:180px;height:100px;background:#374151"></section>
+  </section>
+</body></html>`;
+
+const META_FIXTURE = `<!doctype html>
+<html><body style="margin:0;min-height:900px;background:#0f1115">
+  <section data-agent-native-node-id="meta-row" data-agent-native-layer-name="Meta Row"
+    style="position:absolute;left:60px;top:80px;width:300px;height:100px;padding:16px;display:flex;flex-direction:row;gap:12px;background:#1f2937">
+    <div data-agent-native-node-id="meta-child" data-agent-native-layer-name="Meta Child" style="width:100px;height:48px;background:#6366f1">Child</div>
+    <div data-agent-native-node-id="meta-peer" data-agent-native-layer-name="Meta Peer" style="width:100px;height:48px;background:#a855f7">Peer</div>
+  </section>
+</body></html>`;
+
+function preview(page: Page): Locator {
+  return page
+    .locator("iframe[data-design-preview-iframe]")
+    .first()
+    .contentFrame()
+    .locator("body");
+}
+
+async function insertionGuideKind(
+  page: Page,
+): Promise<"inside" | "line" | null> {
+  return preview(page)
+    .locator("[data-agent-native-insertion-guide]")
+    .evaluateAll((elements) => {
+      const guide = elements.find((element) => {
+        const style = getComputedStyle(element);
+        return style.display !== "none";
+      }) as HTMLElement | undefined;
+      if (!guide) return null;
+      const rect = guide.getBoundingClientRect();
+      if (!rect.width || !rect.height) return null;
+      return parseFloat(getComputedStyle(guide).borderTopWidth) > 0
+        ? "inside"
+        : "line";
+    });
+}
+
+async function selectCanvasNode(page: Page, rawNodeId: string): Promise<void> {
+  const layerName = await node(page, rawNodeId).getAttribute(
+    "data-agent-native-layer-name",
+  );
+  if (!layerName) throw new Error(`missing layer name for ${rawNodeId}`);
+  const tree = page.getByRole("tree", { name: "Layers" });
+  const row = tree
+    .getByRole("button", { name: layerName, exact: true })
+    .first();
+  await expect(row).toBeVisible();
+  await row.click({ force: true });
+  const selected = tree.locator(
+    '[role="treeitem"][aria-selected="true"] [data-layer-row-button][data-layer-node-id]',
+  );
+  await expect(selected).toHaveCount(1);
+  await expect(selected).toHaveText(layerName);
+  expect(await selected.getAttribute("data-layer-node-id")).toBeTruthy();
+}
+
+async function dragCanvasNode(
+  page: Page,
+  designId: string,
+  sourceId: string,
+  target: { x: number; y: number },
+  feedback?: "inside" | "line" | "ghost",
+  modifier?: "Meta" | "Control",
+): Promise<void> {
+  const beforeHtml = await indexHtml(page, designId);
+  const source = (await node(page, sourceId).boundingBox())!;
+  const start = {
+    x: source.x + source.width / 2,
+    y: source.y + source.height / 2,
+  };
+  if (modifier) await page.keyboard.down(modifier);
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await page.mouse.move(start.x + 10, start.y + 6, { steps: 5 });
+  await page.mouse.move(target.x, target.y, { steps: 20 });
+  if (feedback === "line" || feedback === "inside") {
+    await expect
+      .poll(() => insertionGuideKind(page), {
+        timeout: 5_000,
+        message: `no ${feedback} guide while dragging ${sourceId}`,
+      })
+      .toBe(feedback);
+  }
+  if (feedback === "ghost") {
+    await expect
+      .poll(
+        () =>
+          node(page, sourceId).evaluate(
+            (element) => getComputedStyle(element).transform !== "none",
+          ),
+        { timeout: 5_000, message: `no drag ghost for ${sourceId}` },
+      )
+      .toBe(true);
+  }
+  await page.mouse.up();
+  if (modifier) await page.keyboard.up(modifier);
+  await expect
+    .poll(() => indexHtml(page, designId), {
+      timeout: 5_000,
+      message: `dragging ${sourceId} did not persist a source update`,
+    })
+    .not.toBe(beforeHtml);
+}
+
+async function deleteDesign(page: Page, designId: string): Promise<void> {
+  await postAction(page, "delete-design", { id: designId }).catch(() => {});
+}
+
+test("physical vertical auto-layout reorder keeps parent, order, and geometry", async ({
+  page,
+}) => {
+  const designId = await newDesign(page, VERTICAL_FIXTURE);
+  try {
+    await openEditor(page, designId);
+    await selectCanvasNode(page, "v1");
+    const v3 = (await node(page, "v3").boundingBox())!;
+    await dragCanvasNode(page, designId, "v1", {
+      x: v3.x + v3.width / 2,
+      y: v3.y + v3.height * 0.8,
+    });
+
+    await openEditor(page, designId);
+    const html = await indexHtml(page, designId);
+    expect(html.indexOf("v3")).toBeLessThan(html.indexOf("v1"));
+    const state = await preview(page).evaluate(() => {
+      const parent = document.querySelector(
+        '[data-agent-native-node-id="vertical"]',
+      );
+      const child = document.querySelector(
+        '[data-agent-native-node-id="v1"]',
+      ) as HTMLElement | null;
+      const rect = child?.getBoundingClientRect();
+      return {
+        parent: child?.parentElement?.getAttribute("data-agent-native-node-id"),
+        position: child ? getComputedStyle(child).position : null,
+        width: rect?.width ?? 0,
+        parentContains: !!parent && !!child && parent.contains(child),
+      };
+    });
+    expect(state).toMatchObject({
+      parent: "vertical",
+      position: "static",
+      parentContains: true,
+    });
+    expect(state.width).toBeGreaterThan(0);
+  } finally {
+    await deleteDesign(page, designId);
+  }
+});
+
+test("physical wrap auto-layout reorder moves a wrapped child between rows", async ({
+  page,
+}) => {
+  const designId = await newDesign(page, WRAP_FIXTURE);
+  try {
+    await openEditor(page, designId);
+    await selectCanvasNode(page, "w3");
+    const w1 = (await node(page, "w1").boundingBox())!;
+    await dragCanvasNode(
+      page,
+      designId,
+      "w3",
+      { x: w1.x + 4, y: w1.y + w1.height / 2 },
+      "line",
+    );
+
+    await openEditor(page, designId);
+    const html = await indexHtml(page, designId);
+    expect(html.indexOf("w3")).toBeLessThan(html.indexOf("w1"));
+    const state = await preview(page).evaluate(() => {
+      const parent = document.querySelector(
+        '[data-agent-native-node-id="wrap"]',
+      );
+      const child = document.querySelector(
+        '[data-agent-native-node-id="w3"]',
+      ) as HTMLElement | null;
+      return {
+        parent: child?.parentElement?.getAttribute("data-agent-native-node-id"),
+        position: child ? getComputedStyle(child).position : null,
+        parentContains: !!parent && !!child && parent.contains(child),
+      };
+    });
+    expect(state).toEqual({
+      parent: "wrap",
+      position: "static",
+      parentContains: true,
+    });
+  } finally {
+    await deleteDesign(page, designId);
+  }
+});
+
+test("physical grid drop resolves the pointer row and persists flow placement", async ({
+  page,
+}) => {
+  const designId = await newDesign(page, GRID_FIXTURE);
+  try {
+    await openEditor(page, designId);
+    await selectCanvasNode(page, "grid-source");
+    const g3 = (await node(page, "g3").boundingBox())!;
+    await dragCanvasNode(
+      page,
+      designId,
+      "grid-source",
+      { x: g3.x + 4, y: g3.y + g3.height / 2 },
+      "line",
+    );
+
+    await openEditor(page, designId);
+    const html = await indexHtml(page, designId);
+    expect(html.indexOf("g2")).toBeLessThan(html.indexOf("grid-source"));
+    expect(html.indexOf("grid-source")).toBeLessThan(html.indexOf("g3"));
+    const state = await preview(page).evaluate(() => {
+      const parent = document.querySelector(
+        '[data-agent-native-node-id="grid"]',
+      );
+      const child = document.querySelector(
+        '[data-agent-native-node-id="grid-source"]',
+      ) as HTMLElement | null;
+      const rect = child?.getBoundingClientRect();
+      return {
+        parent: child?.parentElement?.getAttribute("data-agent-native-node-id"),
+        position: child ? getComputedStyle(child).position : null,
+        left: rect?.left ?? 0,
+        top: rect?.top ?? 0,
+        parentContains: !!parent && !!child && parent.contains(child),
+      };
+    });
+    expect(state).toMatchObject({
+      parent: "grid",
+      position: "static",
+      parentContains: true,
+    });
+    expect(state.left).toBeGreaterThan(0);
+    expect(state.top).toBeGreaterThan(0);
+  } finally {
+    await deleteDesign(page, designId);
+  }
+});
+
+test("physical drop into a nested frame in a regular flex row still nests", async ({
+  page,
+}) => {
+  const designId = await newDesign(page, NEST_FIXTURE);
+  try {
+    await openEditor(page, designId);
+    await selectCanvasNode(page, "nest-source");
+    const frame = (await node(page, "nested-frame").boundingBox())!;
+    const start = (await node(page, "nest-source").boundingBox())!;
+    await page.mouse.move(
+      start.x + start.width / 2,
+      start.y + start.height / 2,
+    );
+    await page.mouse.down();
+    await page.mouse.move(
+      start.x + start.width / 2 + 10,
+      start.y + start.height / 2 + 6,
+      { steps: 5 },
+    );
+    await page.mouse.move(
+      frame.x + frame.width / 2,
+      frame.y + frame.height / 2,
+      { steps: 20 },
+    );
+    expect(await insertionGuideKind(page)).toBe("inside");
+    await page.mouse.up();
+    await expect
+      .poll(
+        () =>
+          indexHtml(page, designId).then((html) =>
+            /data-agent-native-node-id="nested-frame"[\s\S]*data-agent-native-node-id="nest-source"/.test(
+              html,
+            ),
+          ),
+        {
+          timeout: 5_000,
+          message: "nested frame drop did not persist the new parent",
+        },
+      )
+      .toBe(true);
+
+    await openEditor(page, designId);
+    const state = await preview(page).evaluate(() => {
+      const source = document.querySelector(
+        '[data-agent-native-node-id="nest-source"]',
+      ) as HTMLElement | null;
+      return {
+        parent: source?.parentElement?.getAttribute(
+          "data-agent-native-node-id",
+        ),
+        position: source ? getComputedStyle(source).position : null,
+      };
+    });
+    expect(state).toEqual({
+      parent: "nested-frame",
+      position: "static",
+    });
+  } finally {
+    await deleteDesign(page, designId);
+  }
+});
+
+test("physical Meta-drag overrides auto-layout resistance", async ({
+  page,
+}) => {
+  const designId = await newDesign(page, META_FIXTURE);
+  try {
+    await openEditor(page, designId);
+    await selectCanvasNode(page, "meta-child");
+    const source = (await node(page, "meta-child").boundingBox())!;
+    const start = {
+      x: source.x + source.width / 2,
+      y: source.y + source.height / 2,
+    };
+    await page.keyboard.down("Meta");
+    await page.mouse.move(start.x, start.y);
+    await page.mouse.down();
+    await page.mouse.move(start.x + 10, start.y + 6, { steps: 5 });
+    await page.mouse.move(start.x + 460, start.y + 220, { steps: 20 });
+    await expect
+      .poll(() =>
+        preview(page)
+          .locator("[data-agent-native-transform-badge]")
+          .evaluate(
+            (element) =>
+              getComputedStyle(element).display !== "none" &&
+              element.textContent === "Move layer",
+          ),
+      )
+      .toBe(true);
+    await page.mouse.up();
+    await page.keyboard.up("Meta");
+    await expect
+      .poll(
+        () =>
+          indexHtml(page, designId).then((html) =>
+            /data-agent-native-node-id="meta-child"[^>]*style="[^"]*position:\s*absolute/i.test(
+              html,
+            ),
+          ),
+        {
+          timeout: 5_000,
+          message: "Meta-drag did not persist free placement",
+        },
+      )
+      .toBe(true);
+
+    await openEditor(page, designId);
+    const html = await indexHtml(page, designId);
+    const state = await preview(page).evaluate(() => {
+      const child = document.querySelector(
+        '[data-agent-native-node-id="meta-child"]',
+      ) as HTMLElement | null;
+      const row = document.querySelector(
+        '[data-agent-native-node-id="meta-row"]',
+      );
+      const parent = child?.parentElement ?? null;
+      return {
+        parent:
+          parent?.tagName === "BODY"
+            ? "BODY"
+            : (parent?.getAttribute("data-agent-native-node-id") ??
+              parent?.tagName),
+        position: child ? getComputedStyle(child).position : null,
+        rowContains: !!row && !!child && row.contains(child),
+        left: child?.getBoundingClientRect().left ?? 0,
+        top: child?.getBoundingClientRect().top ?? 0,
+      };
+    });
+    expect(html).toContain('data-agent-native-node-id="meta-child"');
+    expect(state.parent).toBe("BODY");
+    expect(state.position).toBe("absolute");
+    expect(state.rowContains).toBe(false);
+    expect(state.left).toBeGreaterThan(0);
+    expect(state.top).toBeGreaterThan(0);
+  } finally {
+    await deleteDesign(page, designId);
+  }
+});
