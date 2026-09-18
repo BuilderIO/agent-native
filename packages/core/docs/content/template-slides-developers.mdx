@@ -336,18 +336,18 @@ Each slide inside `decks.data` is:
 
 ## Routes reference
 
-| Route                              | Renders                                                                |
-| ---------------------------------- | ----------------------------------------------------------------------- |
-| `/`                                | Public marketing/SEO landing page                                       |
-| `/home`                            | Deck list, the private app home                                         |
-| `/deck/:id`                        | The editor                                                              |
-| `/deck/:id/present`                | Full-screen presentation                                                |
-| `/p/:id`                           | Public/agent-readable live deck preview, distinct from `/share/:token` |
-| `/share/:token`                    | Public read-only snapshot, frozen at share time                         |
-| `/slide`                           | Single-slide embed used for chat previews                               |
-| `/design-systems`                  | Manage saved design systems                                             |
-| `/access-request/approve`          | Approve a request for access to a private deck                          |
-| `/agent`, `/extensions`, `/team`   | Redirect into the relevant `/settings` tab                              |
+| Route                            | Renders                                                                |
+| -------------------------------- | ---------------------------------------------------------------------- |
+| `/`                              | Public marketing/SEO landing page                                      |
+| `/home`                          | Deck list, the private app home                                        |
+| `/deck/:id`                      | The editor                                                             |
+| `/deck/:id/present`              | Full-screen presentation                                               |
+| `/p/:id`                         | Public/agent-readable live deck preview, distinct from `/share/:token` |
+| `/share/:token`                  | Public read-only snapshot, frozen at share time                        |
+| `/slide`                         | Single-slide embed used for chat previews                              |
+| `/design-systems`                | Manage saved design systems                                            |
+| `/access-request/approve`        | Approve a request for access to a private deck                         |
+| `/agent`, `/extensions`, `/team` | Redirect into the relevant `/settings` tab                             |
 
 ## Customize it
 
@@ -379,7 +379,7 @@ Every agent-callable operation lives here as a TypeScript file, mounted automati
     {
       lines: "29-37",
       label: "Fail loud, don't return quietly",
-      note: "`fail(...)` throws a structured error instead of returning a plain value. This action used to return `{ ok: false, message: \"Text not found\" }` for a bad match, which a caller could too easily read as success. Throwing is the only channel that reliably says the deck was not modified.",
+      note: '`fail(...)` throws a structured error instead of returning a plain value. This action used to return `{ ok: false, message: "Text not found" }` for a bad match, which a caller could too easily read as success. Throwing is the only channel that reliably says the deck was not modified.',
     },
     {
       lines: "39-51",

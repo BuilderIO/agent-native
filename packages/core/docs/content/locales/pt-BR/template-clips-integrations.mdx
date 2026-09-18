@@ -29,11 +29,11 @@ Cole um link público de compartilhamento do Clipes em um agente, ou use **Compa
 
 A maioria dos agentes que conseguem visualizar imagens lida com isso por conta própria, incluindo ChatGPT, Claude Code, Cursor e Codex. Alguns chats somente de texto conseguem ler a transcrição, mas não os quadros, então abra o clipe em um agente com capacidade de imagem para esses casos.
 
-| Ponto final                                        | O que os agentes recebem                                                                                                                       |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `/api/agent-context.json?id=<recordingId>`         | Metadados do clipe, status da transcrição, capítulos, CTAs, quadros recomendados e links para as APIs de transcrição/quadro                    |
-| `/api/agent-transcript.json?id=<recordingId>`      | Segmentos de transcrição com carimbo de data e hora, com `startMs`, `endMs`, carimbos de data e hora legíveis, texto e rótulos de origem opcionais |
-| `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>`  | Um quadro JPEG extraído do vídeo em um carimbo de data e hora do vídeo original                                                                 |
+| Ponto final                                       | O que os agentes recebem                                                                                                                           |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/api/agent-context.json?id=<recordingId>`        | Metadados do clipe, status da transcrição, capítulos, CTAs, quadros recomendados e links para as APIs de transcrição/quadro                        |
+| `/api/agent-transcript.json?id=<recordingId>`     | Segmentos de transcrição com carimbo de data e hora, com `startMs`, `endMs`, carimbos de data e hora legíveis, texto e rótulos de origem opcionais |
+| `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` | Um quadro JPEG extraído do vídeo em um carimbo de data e hora do vídeo original                                                                    |
 
 Os endpoints seguem as mesmas regras de público/senha/expiração da página de compartilhamento, ou aceitam o token `agent_access` com escopo definido de um link temporário de agente. Clipes protegidos por senha exigem a senha uma vez; respostas bem-sucedidas retornam links tokenizados de curta duração para que os agentes downstream não precisem da senha em texto simples.
 

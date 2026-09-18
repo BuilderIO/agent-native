@@ -43,86 +43,86 @@ pnpm dev
 
 ### ライブラリと録画
 
-| Action                                          | 内容                                             |
-| ------------------------------------------------ | --------------------------------------------------------- |
-| `list-recordings`、`search-recordings`          | ライブラリ、共有されたもの、ゴミ箱、スペース単位での一覧表示 |
-| `create-recording`、`finalize-recording`        | 行の作成、アップロードの完了                        |
-| `import-loom-recording`                         | Loom の動画、または直接の MP4/WebM URL をインポート              |
-| `update-recording`                               | タイトル、説明、パスワード、有効期限、公開範囲          |
-| `move-recording`                                 | 1 件または複数の録画をフォルダやルートに移動         |
-| `archive-recording`、`trash-recording`、`restore-recording`、`delete-recording-permanent` | ライフサイクル: 隠す、ソフト削除、取り消し、完全に削除 |
-| `reprocess-recording`                            | シークできない、またはフリーズしたメディアの修復                          |
-| `generate-filmstrip`                             | エディターのタイムライン フレーム スプライト                               |
-| `tag-recording`、`set-thumbnail`                 | タグ付けと、手動で選んだサムネイル フレーム              |
+| Action                                                                                    | 内容                                                         |
+| ----------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| `list-recordings`、`search-recordings`                                                    | ライブラリ、共有されたもの、ゴミ箱、スペース単位での一覧表示 |
+| `create-recording`、`finalize-recording`                                                  | 行の作成、アップロードの完了                                 |
+| `import-loom-recording`                                                                   | Loom の動画、または直接の MP4/WebM URL をインポート          |
+| `update-recording`                                                                        | タイトル、説明、パスワード、有効期限、公開範囲               |
+| `move-recording`                                                                          | 1 件または複数の録画をフォルダやルートに移動                 |
+| `archive-recording`、`trash-recording`、`restore-recording`、`delete-recording-permanent` | ライフサイクル: 隠す、ソフト削除、取り消し、完全に削除       |
+| `reprocess-recording`                                                                     | シークできない、またはフリーズしたメディアの修復             |
+| `generate-filmstrip`                                                                      | エディターのタイムライン フレーム スプライト                 |
+| `tag-recording`、`set-thumbnail`                                                          | タグ付けと、手動で選んだサムネイル フレーム                  |
 
 ### フォルダとスペース
 
-| Action                                                       | 内容                                    |
-| -------------------------------------------------------------- | -------------------------------------------------- |
-| `create-folder`、`rename-folder`、`delete-folder`             | 入れ子フォルダ。削除すると中身は上位に移動 |
-| `create-space`、`rename-space`、`delete-space`                | 組織単位の、トピックベースの録画コンテナ        |
-| `add-recording-to-space`                                       | スペースへの録画の追加・削除 (多対多) |
-| `add-space-member`、`remove-space-member`                      | スペース単位の閲覧者、コントリビューター、管理者のロール    |
+| Action                                            | 内容                                                     |
+| ------------------------------------------------- | -------------------------------------------------------- |
+| `create-folder`、`rename-folder`、`delete-folder` | 入れ子フォルダ。削除すると中身は上位に移動               |
+| `create-space`、`rename-space`、`delete-space`    | 組織単位の、トピックベースの録画コンテナ                 |
+| `add-recording-to-space`                          | スペースへの録画の追加・削除 (多対多)                    |
+| `add-space-member`、`remove-space-member`         | スペース単位の閲覧者、コントリビューター、管理者のロール |
 
 ### 編集
 
-| Action                                                | 内容                                             |
-| -------------------------------------------------------- | ----------------------------------------------------------- |
-| `trim-recording`、`split-recording`                    | カットの指示を重ねる。元のメディアには一切触れない    |
-| `remove-silences`、`remove-filler-words`               | エージェントが実行: トランスクリプトを読み取り、代わりにトリムを適用する |
-| `stitch-recordings`                                    | 複数の録画を順番どおりに 1 つに結合する              |
-| `undo-edit`、`clear-edits`                             | 直前の編集を取り消す、または元の状態にリセットする       |
+| Action                                   | 内容                                                                     |
+| ---------------------------------------- | ------------------------------------------------------------------------ |
+| `trim-recording`、`split-recording`      | カットの指示を重ねる。元のメディアには一切触れない                       |
+| `remove-silences`、`remove-filler-words` | エージェントが実行: トランスクリプトを読み取り、代わりにトリムを適用する |
+| `stitch-recordings`                      | 複数の録画を順番どおりに 1 つに結合する                                  |
+| `undo-edit`、`clear-edits`               | 直前の編集を取り消す、または元の状態にリセットする                       |
 
 ### 文字起こしと AI メタデータ
 
-| Action                                                  | 内容                                     |
-| ---------------------------------------------------------- | ------------------------------------------------------ |
-| `request-transcript`、`cleanup-transcript`             | 文字起こしを行う。`force`/`regenerate` で新規にやり直す       |
-| `regenerate-title`、`regenerate-summary`、`regenerate-chapters`、`set-chapters` | AI メタデータの生成、またはチャプターを手動で設定 |
-| `get-builder-credit-status`                             | Builder.io の AI クレジットが一時停止しているかどうか                |
+| Action                                                                          | 内容                                                    |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| `request-transcript`、`cleanup-transcript`                                      | 文字起こしを行う。`force`/`regenerate` で新規にやり直す |
+| `regenerate-title`、`regenerate-summary`、`regenerate-chapters`、`set-chapters` | AI メタデータの生成、またはチャプターを手動で設定       |
+| `get-builder-credit-status`                                                     | Builder.io の AI クレジットが一時停止しているかどうか   |
 
 ### コメントとリアクション
 
-| Action                                                      | 内容                                    |
-| --------------------------------------------------------------| ---------------------------------------------------|
-| `add-comment`、`update-comment`、`delete-comment`、`reply-to-comment`、`resolve-comment` | スレッド化された、タイムスタンプ付きのコメント |
-| `react-to-comment`、`react-to-recording`                    | 絵文字リアクション                                  |
-| `list-comments`、`list-recording-mention-members`           | コメントの読み取り、@メンション可能な相手の確認      |
+| Action                                                                                   | 内容                                            |
+| ---------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| `add-comment`、`update-comment`、`delete-comment`、`reply-to-comment`、`resolve-comment` | スレッド化された、タイムスタンプ付きのコメント  |
+| `react-to-comment`、`react-to-recording`                                                 | 絵文字リアクション                              |
+| `list-comments`、`list-recording-mention-members`                                        | コメントの読み取り、@メンション可能な相手の確認 |
 
 ### スクリーンメモリ (Rewind)
 
-| Action                                                                              | 内容                                             |
-| ---------------------------------------------------------------------------------------| ---------------------------------------------------------- |
-| `get-screen-memory-status`、`query-screen-memory-context`                            | ローカルの Rewind バッファを読み取る                              |
+| Action                                                                                                                          | 内容                                                        |
+| ------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| `get-screen-memory-status`、`query-screen-memory-context`                                                                       | ローカルの Rewind バッファを読み取る                        |
 | `request-rewind-extension`、`get-rewind-extension-request`、`list-rewind-extension-requests`、`update-rewind-extension-request` | Rewind の履歴をクリップに追加するための、確認と承認のフロー |
-| `apply-rewind-extension`、`make-recording-private-for-rewind`                        | 承認された拡張の適用。先にクリップを非公開にする |
+| `apply-rewind-extension`、`make-recording-private-for-rewind`                                                                   | 承認された拡張の適用。先にクリップを非公開にする            |
 
 ### クロスアプリとインサイト
 
-| Action                          | 内容                                                  |
-| ------------------------------------| ------------------------------------------------------------------ |
-| `export-to-brain`                | バックフィルと再開可能なカーソルを使って、準備の整ったトランスクリプトを Brain に送信する |
-| `prepare-crm-call-evidence`      | CRM の自動化向けに、不透明なクリップ ID と確かな `/r/<id>` リンクを用意する     |
-| `create-recording-agent-link`   | 1 件の録画に対する、スコープ付きで期限のある `agent_access` リンクを発行する    |
-| `get-recording-insights`、`get-organization-insights`、`export-insights-csv` | 視聴回数、エンゲージメント、組織全体の CSV エクスポート |
-| `list-viewers`、`list-clip-views` | 誰が、いつ視聴したか                                              |
+| Action                                                                       | 内容                                                                                      |
+| ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `export-to-brain`                                                            | バックフィルと再開可能なカーソルを使って、準備の整ったトランスクリプトを Brain に送信する |
+| `prepare-crm-call-evidence`                                                  | CRM の自動化向けに、不透明なクリップ ID と確かな `/r/<id>` リンクを用意する               |
+| `create-recording-agent-link`                                                | 1 件の録画に対する、スコープ付きで期限のある `agent_access` リンクを発行する              |
+| `get-recording-insights`、`get-organization-insights`、`export-insights-csv` | 視聴回数、エンゲージメント、組織全体の CSV エクスポート                                   |
+| `list-viewers`、`list-clip-views`                                            | 誰が、いつ視聴したか                                                                      |
 
 ### 組織
 
-| Action                                                        | 内容                                          |
-| ------------------------------------------------------------------| ------------------------------------------------------- |
-| `create-organization`、`invite-member`、`accept-invite`、`decline-invite`、`get-invite` | 組織の作成と招待 |
-| `remove-member`、`update-member-role`                         | メンバーシップとロールの管理                            |
-| `set-organization-branding`、`list-organization-state`         | ブランド カラー/ロゴ、デフォルトの公開範囲、組織全体の読み取り    |
+| Action                                                                                  | 内容                                                           |
+| --------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `create-organization`、`invite-member`、`accept-invite`、`decline-invite`、`get-invite` | 組織の作成と招待                                               |
+| `remove-member`、`update-member-role`                                                   | メンバーシップとロールの管理                                   |
+| `set-organization-branding`、`list-organization-state`                                  | ブランド カラー/ロゴ、デフォルトの公開範囲、組織全体の読み取り |
 
 ### ナビゲーション、埋め込み、バグ報告
 
-| Action                                                                 | 内容                                             |
-| ---------------------------------------------------------------------------| ---------------------------------------------------------- |
-| `view-screen`、`navigate`、`refresh-list`                             | コンテキストの読み取り、UI の移動                                |
-| `get-playback-position`、`save-playback-position`、`get-recording-player-data` | 再生の再開、フルトランスクリプトと診断情報 |
+| Action                                                                                | 内容                                                                                        |
+| ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `view-screen`、`navigate`、`refresh-list`                                             | コンテキストの読み取り、UI の移動                                                           |
+| `get-playback-position`、`save-playback-position`、`get-recording-player-data`        | 再生の再開、フルトランスクリプトと診断情報                                                  |
 | `create-recording-intake-link`、`create-intake-recording`、`create-intake-agent-link` | 匿名のサードパーティ埋め込みフロー。[クリップを埋め込む](/docs/template-clips-embed) を参照 |
-| `save-bug-report-context`、`save-browser-diagnostics`、`save-browser-transcript` | 埋め込みバグ報告ランチャーと Chrome 拡張機能の診断情報 |
+| `save-bug-report-context`、`save-browser-diagnostics`、`save-browser-transcript`      | 埋め込みバグ報告ランチャーと Chrome 拡張機能の診断情報                                      |
 
 ## データモデル
 
@@ -249,7 +249,12 @@ pnpm dev
       kind: "n-n",
       label: "録画はいくつでもスペースに参加できる",
     },
-    { from: "spaces", to: "space_members", kind: "1-n", label: "メンバーを持つ" },
+    {
+      from: "spaces",
+      to: "space_members",
+      kind: "1-n",
+      label: "メンバーを持つ",
+    },
     {
       from: "recordings",
       to: "recording_comments",
@@ -324,7 +329,10 @@ pnpm dev
       path: "app/routes/_app.r.$recordingId.tsx",
       note: "録画の詳細ページとエディター",
     },
-    { path: "app/routes/_app.agent.tsx", note: "全画面のエージェント チャット タブ" },
+    {
+      path: "app/routes/_app.agent.tsx",
+      note: "全画面のエージェント チャット タブ",
+    },
     {
       path: "app/routes/_app.settings._index.tsx",
       note: "設定 (Labs タブを含む)",

@@ -336,18 +336,18 @@ npx @agent-native/core@latest create my-slides --standalone --template slides
 
 ## 路由参考
 
-| 路由                              | 渲染内容                                                                |
-| ---------------------------------- | ----------------------------------------------------------------------- |
-| `/`                                | 公开的营销/SEO 落地页                                                    |
-| `/home`                            | 演示文稿列表，私有的应用主页                                             |
-| `/deck/:id`                        | 编辑器                                                                  |
-| `/deck/:id/present`                | 全屏演示                                                                |
-| `/p/:id`                           | 公开/可供代理读取的实时演示文稿预览，与 `/share/:token` 不同             |
-| `/share/:token`                    | 公开只读快照，冻结于共享时的状态                                         |
-| `/slide`                           | 用于聊天预览的单张幻灯片嵌入                                             |
-| `/design-systems`                  | 管理已保存的设计系统                                                    |
-| `/access-request/approve`          | 批准对某份私密演示文稿的访问请求                                         |
-| `/agent`、`/extensions`、`/team`   | 重定向到相应的 `/settings` 标签页                                        |
+| 路由                             | 渲染内容                                                     |
+| -------------------------------- | ------------------------------------------------------------ |
+| `/`                              | 公开的营销/SEO 落地页                                        |
+| `/home`                          | 演示文稿列表，私有的应用主页                                 |
+| `/deck/:id`                      | 编辑器                                                       |
+| `/deck/:id/present`              | 全屏演示                                                     |
+| `/p/:id`                         | 公开/可供代理读取的实时演示文稿预览，与 `/share/:token` 不同 |
+| `/share/:token`                  | 公开只读快照，冻结于共享时的状态                             |
+| `/slide`                         | 用于聊天预览的单张幻灯片嵌入                                 |
+| `/design-systems`                | 管理已保存的设计系统                                         |
+| `/access-request/approve`        | 批准对某份私密演示文稿的访问请求                             |
+| `/agent`、`/extensions`、`/team` | 重定向到相应的 `/settings` 标签页                            |
 
 ## 自定义
 
@@ -379,7 +379,7 @@ npx @agent-native/core@latest create my-slides --standalone --template slides
     {
       lines: "29-37",
       label: "响亮地失败，而不是悄悄返回",
-      note: "`fail(...)` 会抛出一个结构化错误，而不是返回一个普通值。这个 action 过去在匹配失败时会返回 `{ ok: false, message: \"Text not found\" }`，调用者很容易把它误读为成功。抛出异常是唯一能够可靠地表明这份演示文稿未被修改的通道。",
+      note: '`fail(...)` 会抛出一个结构化错误，而不是返回一个普通值。这个 action 过去在匹配失败时会返回 `{ ok: false, message: "Text not found" }`，调用者很容易把它误读为成功。抛出异常是唯一能够可靠地表明这份演示文稿未被修改的通道。',
     },
     {
       lines: "39-51",

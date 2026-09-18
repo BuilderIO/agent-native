@@ -49,116 +49,116 @@ Design 전용 작업은 모두 `templates/design/actions/`에 있는 TypeScript
 
 ### 디자인
 
-| 액션 | 동작 |
-| --- | --- |
-| `create-design` | 빈 디자인 셸 생성 |
-| `generate-design` | 생성된 HTML/JSX 파일 내용 작성 |
-| `edit-design` | 기존 파일에 정교한 검색/바꾸기 편집 적용 |
-| `update-design` | 디자인의 메타데이터(제목, 연결된 디자인 시스템 등) 수정 |
-| `get-design` | id로 디자인 하나 조회 |
-| `list-designs` | 접근 가능한 디자인 목록 조회 |
-| `duplicate-design` | 디자인과 그 파일 복사 |
-| `delete-design` | 디자인 삭제 |
-| `apply-tweaks` | 실시간 조정 손잡이 값 저장 |
+| 액션                      | 동작                                                         |
+| ------------------------- | ------------------------------------------------------------ |
+| `create-design`           | 빈 디자인 셸 생성                                            |
+| `generate-design`         | 생성된 HTML/JSX 파일 내용 작성                               |
+| `edit-design`             | 기존 파일에 정교한 검색/바꾸기 편집 적용                     |
+| `update-design`           | 디자인의 메타데이터(제목, 연결된 디자인 시스템 등) 수정      |
+| `get-design`              | id로 디자인 하나 조회                                        |
+| `list-designs`            | 접근 가능한 디자인 목록 조회                                 |
+| `duplicate-design`        | 디자인과 그 파일 복사                                        |
+| `delete-design`           | 디자인 삭제                                                  |
+| `apply-tweaks`            | 실시간 조정 손잡이 값 저장                                   |
 | `present-design-variants` | 몇 가지 방향을 화면으로 저장하고 나란히 비교하는 선택기 표시 |
-| `show-design-questions` | 모호한 프롬프트에 대한 확인 질문 오버레이 표시 |
-| `generate-screens` | 여러 화면을 한 번에 일괄 생성 |
+| `show-design-questions`   | 모호한 프롬프트에 대한 확인 질문 오버레이 표시               |
+| `generate-screens`        | 여러 화면을 한 번에 일괄 생성                                |
 
 ### 파일
 
-| 액션 | 동작 |
-| --- | --- |
-| `create-file` | 디자인에 새 파일 추가 |
-| `update-file` | 파일 내용 수정 |
-| `list-files` | 디자인의 파일 목록 조회 |
-| `delete-file` | 디자인에서 파일 삭제 |
+| 액션          | 동작                    |
+| ------------- | ----------------------- |
+| `create-file` | 디자인에 새 파일 추가   |
+| `update-file` | 파일 내용 수정          |
+| `list-files`  | 디자인의 파일 목록 조회 |
+| `delete-file` | 디자인에서 파일 삭제    |
 
 ### 템플릿
 
-| 액션 | 동작 |
-| --- | --- |
-| `list-design-templates` | 기본 제공 템플릿과 저장된 템플릿 목록 조회 |
+| 액션                          | 동작                                                  |
+| ----------------------------- | ----------------------------------------------------- |
+| `list-design-templates`       | 기본 제공 템플릿과 저장된 템플릿 목록 조회            |
 | `create-design-from-template` | 템플릿의 파일, 크기, 잠긴 레이어를 새 디자인으로 복사 |
-| `save-design-as-template` | 현재 디자인을 재사용 가능한 템플릿으로 저장 |
-| `delete-design-template` | 저장된 템플릿 삭제 |
+| `save-design-as-template`     | 현재 디자인을 재사용 가능한 템플릿으로 저장           |
+| `delete-design-template`      | 저장된 템플릿 삭제                                    |
 
 ### 디자인 시스템과 브랜드 가져오기
 
-| 액션 | 동작 |
-| --- | --- |
-| `create-design-system` | 처음부터, 또는 Material 3, Carbon, Primer 같은 공개 프리셋에서 디자인 시스템 생성 |
-| `update-design-system` | 디자인 시스템의 토큰이나 설정 수정 |
-| `get-design-system` | id로 디자인 시스템 하나 조회 |
-| `list-design-systems` | 접근 가능한 디자인 시스템 목록 조회 |
-| `delete-design-system` | 디자인 시스템 삭제 |
-| `set-default-design-system` | 계정 기본값으로 사용할 디자인 시스템 설정 |
-| `analyze-brand-assets` | 업로드된 브랜드 에셋에서 색상, 타이포그래피, 로고 참조 추출 |
-| `import-from-url` | 실제 웹사이트에서 계산된 색상, 타이포그래피, 로고 참조 가져오기 |
+| 액션                               | 동작                                                                                                                             |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `create-design-system`             | 처음부터, 또는 Material 3, Carbon, Primer 같은 공개 프리셋에서 디자인 시스템 생성                                                |
+| `update-design-system`             | 디자인 시스템의 토큰이나 설정 수정                                                                                               |
+| `get-design-system`                | id로 디자인 시스템 하나 조회                                                                                                     |
+| `list-design-systems`              | 접근 가능한 디자인 시스템 목록 조회                                                                                              |
+| `delete-design-system`             | 디자인 시스템 삭제                                                                                                               |
+| `set-default-design-system`        | 계정 기본값으로 사용할 디자인 시스템 설정                                                                                        |
+| `analyze-brand-assets`             | 업로드된 브랜드 에셋에서 색상, 타이포그래피, 로고 참조 추출                                                                      |
+| `import-from-url`                  | 실제 웹사이트에서 계산된 색상, 타이포그래피, 로고 참조 가져오기                                                                  |
 | `index-design-system-with-builder` | 연결된 코드, GitHub 저장소, 또는 `.fig`를 포함한 디자인 파일로부터 Builder DSI를 통해 디자인 시스템 인덱싱(Builder.io 연결 필요) |
-| `import-design-tokens` | 디자인 토큰 직접 가져오기 |
-| `import-document` | 업로드된 DOCX, PPTX, 또는 PDF에서 브랜드 신호 추출 |
-| `import-design-project` | 기존 디자인이나 디자인 시스템에서 디자인 시스템 시작 |
+| `import-design-tokens`             | 디자인 토큰 직접 가져오기                                                                                                        |
+| `import-document`                  | 업로드된 DOCX, PPTX, 또는 PDF에서 브랜드 신호 추출                                                                               |
+| `import-design-project`            | 기존 디자인이나 디자인 시스템에서 디자인 시스템 시작                                                                             |
 
 ### Figma
 
-| 액션 | 동작 |
-| --- | --- |
-| `import-figma-frame` | Figma 프레임이나 파일을 실제로 편집 가능한 화면으로 가져오고 충실도 보고서 제공 |
-| `import-figma-clipboard` | Figma 클립보드 붙여넣기를 가져오되, 숨겨진 메타데이터로 매칭하거나 그렇지 않으면 확실한 텍스트 일치 2개 이상으로 매칭 |
-| `get-figma-design-context` | 아무것도 가져오지 않고 Figma 파일이나 프레임의 구조 조회 |
-| `get-figma-styles` | Figma 파일에 게시된 Styles 패널 요약. Enterprise Variables API는 아님 |
-| `get-figma-connection-status` | Figma 계정 연결 여부 확인 |
-| `list-figma-library-assets` | Figma에 연결된 라이브러리에서 삽입 가능한 컴포넌트 목록 조회 |
-| `insert-figma-library-asset` | 게시된 Figma 컴포넌트 하나를 디자인에 삽입 |
-| `hydrate-figma-paste-images` | Figma 클립보드 붙여넣기의 이미지 참조 해석 |
+| 액션                          | 동작                                                                                                                  |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `import-figma-frame`          | Figma 프레임이나 파일을 실제로 편집 가능한 화면으로 가져오고 충실도 보고서 제공                                       |
+| `import-figma-clipboard`      | Figma 클립보드 붙여넣기를 가져오되, 숨겨진 메타데이터로 매칭하거나 그렇지 않으면 확실한 텍스트 일치 2개 이상으로 매칭 |
+| `get-figma-design-context`    | 아무것도 가져오지 않고 Figma 파일이나 프레임의 구조 조회                                                              |
+| `get-figma-styles`            | Figma 파일에 게시된 Styles 패널 요약. Enterprise Variables API는 아님                                                 |
+| `get-figma-connection-status` | Figma 계정 연결 여부 확인                                                                                             |
+| `list-figma-library-assets`   | Figma에 연결된 라이브러리에서 삽입 가능한 컴포넌트 목록 조회                                                          |
+| `insert-figma-library-asset`  | 게시된 Figma 컴포넌트 하나를 디자인에 삽입                                                                            |
+| `hydrate-figma-paste-images`  | Figma 클립보드 붙여넣기의 이미지 참조 해석                                                                            |
 
 ### 브레이크포인트와 화면 상태
 
-| 액션 | 동작 |
-| --- | --- |
-| `add-breakpoint` | 반응형 브레이크포인트 추가 |
-| `remove-breakpoint` | 반응형 브레이크포인트 제거 |
-| `set-active-breakpoint` | 현재 편집 중인 브레이크포인트 설정 |
-| `create-design-state` | 비어 있음, 오류 같은 이름 붙은 대체 상태 저장 |
-| `apply-design-state` | 저장된 상태 적용 |
-| `capture-design-state` | 현재 상태를 이름 붙은 스냅샷으로 캡처 |
-| `list-design-states` | 저장된 상태 목록 조회 |
-| `delete-design-state` | 저장된 상태 삭제 |
+| 액션                    | 동작                                          |
+| ----------------------- | --------------------------------------------- |
+| `add-breakpoint`        | 반응형 브레이크포인트 추가                    |
+| `remove-breakpoint`     | 반응형 브레이크포인트 제거                    |
+| `set-active-breakpoint` | 현재 편집 중인 브레이크포인트 설정            |
+| `create-design-state`   | 비어 있음, 오류 같은 이름 붙은 대체 상태 저장 |
+| `apply-design-state`    | 저장된 상태 적용                              |
+| `capture-design-state`  | 현재 상태를 이름 붙은 스냅샷으로 캡처         |
+| `list-design-states`    | 저장된 상태 목록 조회                         |
+| `delete-design-state`   | 저장된 상태 삭제                              |
 
 ### 컴포넌트
 
-| 액션 | 동작 |
-| --- | --- |
-| `create-component` | 선택한 요소를 재사용 가능한 컴포넌트로 승격 |
-| `index-components` | 기존에 반복되는 요소를 감지해 컴포넌트로 등록 |
-| `get-component-details` | 컴포넌트 인스턴스의 변형과 프롭 조회 |
-| `preview-component-prop-edit` | 프롭 변경을 적용하기 전에 미리보기 |
-| `apply-component-prop-edit` | 컴포넌트 인스턴스 하나에 프롭 변경 적용 |
-| `detach-component-instance` | 인스턴스를 분리해 더 이상 컴포넌트를 추적하지 않게 함 |
-| `swap-component-instance` | 인스턴스가 가리키는 컴포넌트 교체 |
-| `go-to-main-component` | 참조 지점으로서 컴포넌트의 가장 처음 인스턴스로 이동 |
-| `open-component-source` | 컴포넌트의 소스 위치 열기 |
+| 액션                          | 동작                                                  |
+| ----------------------------- | ----------------------------------------------------- |
+| `create-component`            | 선택한 요소를 재사용 가능한 컴포넌트로 승격           |
+| `index-components`            | 기존에 반복되는 요소를 감지해 컴포넌트로 등록         |
+| `get-component-details`       | 컴포넌트 인스턴스의 변형과 프롭 조회                  |
+| `preview-component-prop-edit` | 프롭 변경을 적용하기 전에 미리보기                    |
+| `apply-component-prop-edit`   | 컴포넌트 인스턴스 하나에 프롭 변경 적용               |
+| `detach-component-instance`   | 인스턴스를 분리해 더 이상 컴포넌트를 추적하지 않게 함 |
+| `swap-component-instance`     | 인스턴스가 가리키는 컴포넌트 교체                     |
+| `go-to-main-component`        | 참조 지점으로서 컴포넌트의 가장 처음 인스턴스로 이동  |
+| `open-component-source`       | 컴포넌트의 소스 위치 열기                             |
 
 ### 모션과 셰이더
 
-| 액션 | 동작 |
-| --- | --- |
-| `get-motion-timeline` | 요소의 모션 타임라인 조회 |
-| `apply-motion-edit` | 모션 타임라인에 키프레임 추가 또는 편집 |
-| `remove-motion-timeline` | 모션 타임라인 제거 |
-| `apply-shader` | 셰이더 효과 적용 |
-| `apply-shader-fill` | 셰이더를 채우기로 적용 |
-| `preview-shader-fill` | 셰이더 채우기를 적용하기 전에 미리보기 |
-| `get-shader` | 셰이더의 현재 매개변수 조회 |
+| 액션                     | 동작                                    |
+| ------------------------ | --------------------------------------- |
+| `get-motion-timeline`    | 요소의 모션 타임라인 조회               |
+| `apply-motion-edit`      | 모션 타임라인에 키프레임 추가 또는 편집 |
+| `remove-motion-timeline` | 모션 타임라인 제거                      |
+| `apply-shader`           | 셰이더 효과 적용                        |
+| `apply-shader-fill`      | 셰이더를 채우기로 적용                  |
+| `preview-shader-fill`    | 셰이더 채우기를 적용하기 전에 미리보기  |
+| `get-shader`             | 셰이더의 현재 매개변수 조회             |
 
 ### 품질 {#quality}
 
-| 액션 | 동작 |
-| --- | --- |
-| `run-design-audit` | 화면의 접근성, 대비, 화면 간 불일치 문제 확인 |
-| `apply-a11y-fix` | 감사에서 발견된 문제에 대한 자동 수정 적용 |
+| 액션                     | 동작                                                                    |
+| ------------------------ | ----------------------------------------------------------------------- |
+| `run-design-audit`       | 화면의 접근성, 대비, 화면 간 불일치 문제 확인                           |
+| `apply-a11y-fix`         | 감사에서 발견된 문제에 대한 자동 수정 적용                              |
 | `take-design-screenshot` | 실제 브라우저에서 화면을 렌더링해 오버플로, 깨진 이미지, 콘솔 오류 확인 |
-| `get-design-review` | 캐시된 접근성 및 시각적 차이 검사 결과 조회 |
+| `get-design-review`      | 캐시된 접근성 및 시각적 차이 검사 결과 조회                             |
 
 ### 리뷰 피드백
 
@@ -166,28 +166,28 @@ Design 전용 작업은 모두 `templates/design/actions/`에 있는 TypeScript
 앱이든 붙일 수 있는 같은 시스템인 `@agent-native/core/review`에서
 제공됩니다.
 
-| 액션 | 동작 |
-| --- | --- |
-| `get-review-feedback` | 리소스의 열린 리뷰 댓글 조회 |
-| `create-review-comment` | 요소에 고정된 댓글 남기기 |
-| `reply-review-comment` | 댓글 스레드에 답글 달기 |
-| `resolve-review-thread` | 한 줄 메모와 함께 스레드 해결 |
+| 액션                          | 동작                                           |
+| ----------------------------- | ---------------------------------------------- |
+| `get-review-feedback`         | 리소스의 열린 리뷰 댓글 조회                   |
+| `create-review-comment`       | 요소에 고정된 댓글 남기기                      |
+| `reply-review-comment`        | 댓글 스레드에 답글 달기                        |
+| `resolve-review-thread`       | 한 줄 메모와 함께 스레드 해결                  |
 | `send-review-thread-to-agent` | 처리할 수 있도록 에이전트에게 댓글 스레드 전달 |
-| `consume-review-feedback` | 에이전트가 처리했다고 피드백에 표시 |
-| `list-review-comments` | 리소스의 댓글 목록 조회 |
-| `delete-review-comment` | 댓글 삭제 |
-| `set-review-status` | 디자인의 전체 리뷰 상태 설정 |
+| `consume-review-feedback`     | 에이전트가 처리했다고 피드백에 표시            |
+| `list-review-comments`        | 리소스의 댓글 목록 조회                        |
+| `delete-review-comment`       | 댓글 삭제                                      |
+| `set-review-status`           | 디자인의 전체 리뷰 상태 설정                   |
 
 ### 내보내기와 핸드오프
 
-| 액션 | 동작 |
-| --- | --- |
-| `export-html` | 독립형 HTML 파일 내보내기 |
-| `export-zip` | 유형별로 정리된 모든 디자인 파일과 메타데이터 파일 내보내기 |
-| `export-pdf` | 다중 화면 개요를 위한 클라이언트 측 렌더링 PDF 내보내기 |
-| `export-svg` | 실제 HTML을 감싼 SVG 내보내기 |
-| `export-design-as-figma-svg` | 실제 벡터 도형을 편집 가능한 Figma SVG로 내보내기 |
-| `export-coding-handoff` | 디자인 토큰, 파일, 외부 코딩 에이전트를 위해 바로 붙여넣을 수 있는 프롬프트 복사 |
+| 액션                         | 동작                                                                             |
+| ---------------------------- | -------------------------------------------------------------------------------- |
+| `export-html`                | 독립형 HTML 파일 내보내기                                                        |
+| `export-zip`                 | 유형별로 정리된 모든 디자인 파일과 메타데이터 파일 내보내기                      |
+| `export-pdf`                 | 다중 화면 개요를 위한 클라이언트 측 렌더링 PDF 내보내기                          |
+| `export-svg`                 | 실제 HTML을 감싼 SVG 내보내기                                                    |
+| `export-design-as-figma-svg` | 실제 벡터 도형을 편집 가능한 Figma SVG로 내보내기                                |
+| `export-coding-handoff`      | 디자인 토큰, 파일, 외부 코딩 에이전트를 위해 바로 붙여넣을 수 있는 프롬프트 복사 |
 
 ### 전체 앱 빌딩(fusion, 플래그 게이팅) {#full-app-building}
 
@@ -195,57 +195,57 @@ Design 전용 작업은 모두 `templates/design/actions/`에 있는 TypeScript
 Builder.io 연결이 필요합니다. 아래 [전체 앱 빌딩](#full-app-building)을
 참고하세요.
 
-| 액션 | 동작 |
-| --- | --- |
-| `create-fusion-app` | Builder Fusion 브랜치를 프로비저닝하고 프롬프트로 실제 앱 뼈대 생성 |
-| `sync-fusion-app` | fusion 브랜치의 컨테이너를 폴링해 미리보기 URL 확인 |
-| `add-fusion-screens` | fusion 기반 디자인에 화면 추가 |
-| `queue-fusion-edit` | 앱 자체의 코딩 에이전트를 위해 편집 대기열에 추가 |
-| `list-fusion-edits` | 대기 중이거나 적용된 fusion 편집 목록 조회 |
-| `apply-fusion-edits` | 대기 중인 편집을 앱의 코딩 에이전트로 전달 |
-| `send-fusion-message` | fusion 앱의 코딩 에이전트에 메시지 전송 |
-| `push-fusion-app` | fusion 브랜치 푸시 |
-| `deploy-fusion-app` | fusion 브랜치를 실제 URL로 배포 |
-| `get-fusion-deploy-status` | 배포 상태 확인 |
-| `create-design-branch` | fusion 기반 디자인을 위한 새 브랜치 생성 |
-| `get-design-branch-diff` | fusion 브랜치를 이전 버전과 비교(diff) |
-| `deploy-design-preview` | fusion 기반 디자인의 미리보기 배포 |
-| `migrate-inline-design-to-app` | 인라인 프로토타입을 fusion 기반 앱으로 전환 |
-| `connect-builder-app` | Builder.io OAuth 연결 흐름 시작 |
+| 액션                           | 동작                                                                |
+| ------------------------------ | ------------------------------------------------------------------- |
+| `create-fusion-app`            | Builder Fusion 브랜치를 프로비저닝하고 프롬프트로 실제 앱 뼈대 생성 |
+| `sync-fusion-app`              | fusion 브랜치의 컨테이너를 폴링해 미리보기 URL 확인                 |
+| `add-fusion-screens`           | fusion 기반 디자인에 화면 추가                                      |
+| `queue-fusion-edit`            | 앱 자체의 코딩 에이전트를 위해 편집 대기열에 추가                   |
+| `list-fusion-edits`            | 대기 중이거나 적용된 fusion 편집 목록 조회                          |
+| `apply-fusion-edits`           | 대기 중인 편집을 앱의 코딩 에이전트로 전달                          |
+| `send-fusion-message`          | fusion 앱의 코딩 에이전트에 메시지 전송                             |
+| `push-fusion-app`              | fusion 브랜치 푸시                                                  |
+| `deploy-fusion-app`            | fusion 브랜치를 실제 URL로 배포                                     |
+| `get-fusion-deploy-status`     | 배포 상태 확인                                                      |
+| `create-design-branch`         | fusion 기반 디자인을 위한 새 브랜치 생성                            |
+| `get-design-branch-diff`       | fusion 브랜치를 이전 버전과 비교(diff)                              |
+| `deploy-design-preview`        | fusion 기반 디자인의 미리보기 배포                                  |
+| `migrate-inline-design-to-app` | 인라인 프로토타입을 fusion 기반 앱으로 전환                         |
+| `connect-builder-app`          | Builder.io OAuth 연결 흐름 시작                                     |
 
 ### 로컬호스트 브리지(/visual-edit)
 
-| 액션 | 동작 |
-| --- | --- |
-| `connect-localhost` | 실행 중인 로컬 앱을 디자인에 등록 |
-| `list-localhost-connections` | 연결된 로컬 앱 목록 조회 |
-| `add-localhost-screens` | 연결된 로컬 앱에서 화면 추가 |
+| 액션                              | 동작                                  |
+| --------------------------------- | ------------------------------------- |
+| `connect-localhost`               | 실행 중인 로컬 앱을 디자인에 등록     |
+| `list-localhost-connections`      | 연결된 로컬 앱 목록 조회              |
+| `add-localhost-screens`           | 연결된 로컬 앱에서 화면 추가          |
 | `request-localhost-write-consent` | 로컬 파일에 다시 쓸 수 있는 권한 요청 |
-| `grant-localhost-write-consent` | 해당 권한 승인 |
-| `revoke-localhost-write-consent` | 해당 권한 취소 |
+| `grant-localhost-write-consent`   | 해당 권한 승인                        |
+| `revoke-localhost-write-consent`  | 해당 권한 취소                        |
 
 ### 로컬 및 코드 소스 편집
 
 로컬호스트 기반 및 fusion 기반 디자인처럼, 실제 파일이 인라인 HTML 행이
 아닌 경우에 사용합니다.
 
-| 액션 | 동작 |
-| --- | --- |
-| `read-source-file` | 실제 소스 파일 조회 |
-| `apply-source-edit` | 실제 소스 파일에 편집 적용 |
-| `list-source-files` | 실제 앱의 소스 파일 목록 조회 |
+| 액션                        | 동작                                  |
+| --------------------------- | ------------------------------------- |
+| `read-source-file`          | 실제 소스 파일 조회                   |
+| `apply-source-edit`         | 실제 소스 파일에 편집 적용            |
+| `list-source-files`         | 실제 앱의 소스 파일 목록 조회         |
 | `get-code-layer-projection` | 캔버스 레이어를 원래 소스 위치로 매핑 |
-| `read-local-file` | 연결된 로컬 앱에서 파일 조회 |
-| `write-local-file` | 연결된 로컬 앱에 파일 쓰기 |
-| `list-local-files` | 연결된 로컬 앱의 파일 목록 조회 |
+| `read-local-file`           | 연결된 로컬 앱에서 파일 조회          |
+| `write-local-file`          | 연결된 로컬 앱에 파일 쓰기            |
+| `list-local-files`          | 연결된 로컬 앱의 파일 목록 조회       |
 
 ### 컨텍스트와 탐색
 
-| 액션 | 동작 |
-| --- | --- |
-| `view-screen` | 보류 중인 질문이나 변형 선택을 포함해 사용자가 현재 보고 있는 것 확인 |
-| `get-design-snapshot` | 외부 에이전트가 이어서 작업할 수 있도록 디자인의 현재 상태 조회 |
-| `navigate` | UI를 특정 보기, 패널, 탭, 도구로 이동 |
+| 액션                  | 동작                                                                  |
+| --------------------- | --------------------------------------------------------------------- |
+| `view-screen`         | 보류 중인 질문이나 변형 선택을 포함해 사용자가 현재 보고 있는 것 확인 |
+| `get-design-snapshot` | 외부 에이전트가 이어서 작업할 수 있도록 디자인의 현재 상태 조회       |
+| `navigate`            | UI를 특정 보기, 패널, 탭, 도구로 이동                                 |
 
 ## 데이터 모델
 
@@ -257,16 +257,16 @@ Builder.io 연결이 필요합니다. 아래 [전체 앱 빌딩](#full-app-build
 아래 표는 디자인, 파일, 템플릿, 버전, 디자인 시스템이라는 핵심 소유 가능
 리소스를 다룹니다.
 
-| 테이블                                    | 무엇을 담고 있는지                                                                                                                    |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 테이블                                   | 무엇을 담고 있는지                                                                                                                         |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | `designs`                                | 디자인 프로젝트 — `title`, `description`, `project_type`(`prototype` / `other`), `data` JSON blob, 그리고 선택적인 `design_system_id` 링크 |
-| `design_files`                           | 디자인에 속하는 개별 파일(`filename`, `content`, 기본값이 `html`인 `file_type`)                                                 |
-| `design_templates`                       | 재사용 가능한 템플릿 메타데이터, 크기, 기본값, 원본 디자인 참조, 잠긴 레이어 개수                                                               |
-| `design_template_files`                  | 사용자가 템플릿에서 시작할 때 일반 편집 가능한 디자인으로 복사되는, 스냅숏된 템플릿 파일                                               |
-| `design_template_shares`                 | 비공개, 조직, 명시적 공유, 공개 템플릿 검색을 위한 프레임워크 공유 테이블                                                                 |
-| `design_versions`                        | 이력과 롤백을 위한, 선택적 `label`이 있는 디자인의 특정 시점 `snapshot`                                                         |
-| `design_systems`                         | 재사용 가능한 브랜드 토큰 — `data`(색상/타이포그래피/간격), `assets`, `custom_instructions`, 그리고 `is_default` 플래그            |
-| `design_shares` / `design_system_shares` | 주체(사용자 또는 조직)를 역할(뷰어, 편집자, 관리자)에 매핑하는 프레임워크 공유 테이블                                     |
+| `design_files`                           | 디자인에 속하는 개별 파일(`filename`, `content`, 기본값이 `html`인 `file_type`)                                                            |
+| `design_templates`                       | 재사용 가능한 템플릿 메타데이터, 크기, 기본값, 원본 디자인 참조, 잠긴 레이어 개수                                                          |
+| `design_template_files`                  | 사용자가 템플릿에서 시작할 때 일반 편집 가능한 디자인으로 복사되는, 스냅숏된 템플릿 파일                                                   |
+| `design_template_shares`                 | 비공개, 조직, 명시적 공유, 공개 템플릿 검색을 위한 프레임워크 공유 테이블                                                                  |
+| `design_versions`                        | 이력과 롤백을 위한, 선택적 `label`이 있는 디자인의 특정 시점 `snapshot`                                                                    |
+| `design_systems`                         | 재사용 가능한 브랜드 토큰 — `data`(색상/타이포그래피/간격), `assets`, `custom_instructions`, 그리고 `is_default` 플래그                    |
+| `design_shares` / `design_system_shares` | 주체(사용자 또는 조직)를 역할(뷰어, 편집자, 관리자)에 매핑하는 프레임워크 공유 테이블                                                      |
 
 <DataModel
   id="doc-block-design11"
@@ -574,7 +574,10 @@ AI 기반 변경에는 선택된 요소의 selector/source id와 요청한 변�
   id="doc-block-design12"
   title="templates/design/: 라우트, 스키마, skill"
   entries={[
-    { path: "actions/", note: "~240개 파일, 에이전트가 호출할 수 있는 작업마다 하나씩" },
+    {
+      path: "actions/",
+      note: "~240개 파일, 에이전트가 호출할 수 있는 작업마다 하나씩",
+    },
     { path: "app/routes/_index.tsx", note: "디자인 목록 라우트" },
     { path: "app/routes/design.$id.tsx", note: "편집기 라우트" },
     { path: "app/routes/present.$id.tsx", note: "프레젠테이션 / 공유 보기" },

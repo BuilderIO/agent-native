@@ -55,86 +55,86 @@ pnpm dev
 
 ### المكتبة والتسجيلات
 
-| الإجراء                                          | ما يفعله                                                   |
-| ------------------------------------------------- | ------------------------------------------------------------ |
-| `list-recordings`, `search-recordings`          | سرد المكتبة، ومشترك معي، والمهملات، والقوائم المحددة بمساحة |
-| `create-recording`, `finalize-recording`        | إنشاء الصف؛ وإنهاء الرفع                                    |
-| `import-loom-recording`                         | استيراد فيديو Loom أو رابط MP4/WebM مباشر                    |
-| `update-recording`                               | العنوان، والوصف، وكلمة المرور، وانتهاء الصلاحية، والرؤية     |
-| `move-recording`                                 | نقل تسجيل واحد أو عدة تسجيلات إلى مجلد أو الجذر               |
+| الإجراء                                                                                   | ما يفعله                                                        |
+| ----------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `list-recordings`, `search-recordings`                                                    | سرد المكتبة، ومشترك معي، والمهملات، والقوائم المحددة بمساحة     |
+| `create-recording`, `finalize-recording`                                                  | إنشاء الصف؛ وإنهاء الرفع                                        |
+| `import-loom-recording`                                                                   | استيراد فيديو Loom أو رابط MP4/WebM مباشر                       |
+| `update-recording`                                                                        | العنوان، والوصف، وكلمة المرور، وانتهاء الصلاحية، والرؤية        |
+| `move-recording`                                                                          | نقل تسجيل واحد أو عدة تسجيلات إلى مجلد أو الجذر                 |
 | `archive-recording`, `trash-recording`, `restore-recording`, `delete-recording-permanent` | دورة الحياة: الإخفاء، والحذف المؤقت، والتراجع، أو الحذف نهائيًا |
-| `reprocess-recording`                            | إصلاح وسائط غير قابلة للتقديم أو متجمدة                        |
-| `generate-filmstrip`                             | شريط إطارات الخط الزمني في المحرر                             |
-| `tag-recording`, `set-thumbnail`                 | الوسم واختيار إطار صورة مصغرة يدويًا                          |
+| `reprocess-recording`                                                                     | إصلاح وسائط غير قابلة للتقديم أو متجمدة                         |
+| `generate-filmstrip`                                                                      | شريط إطارات الخط الزمني في المحرر                               |
+| `tag-recording`, `set-thumbnail`                                                          | الوسم واختيار إطار صورة مصغرة يدويًا                            |
 
 ### المجلدات والمساحات
 
-| الإجراء                                                        | ما يفعله                                             |
-| ---------------------------------------------------------------- | ------------------------------------------------------- |
-| `create-folder`, `rename-folder`, `delete-folder`              | مجلدات متداخلة؛ حذف أحدها ينقل محتوياته للأعلى         |
-| `create-space`, `rename-space`, `delete-space`                 | حاويات تسجيل محددة بموضوع وضمن نطاق المؤسسة             |
-| `add-recording-to-space`                                        | إضافة أو إزالة تسجيل من مساحة (علاقة متعددة لمتعددة)    |
-| `add-space-member`, `remove-space-member`                       | أدوار المشاهد والمساهم والمشرف على مستوى المساحة        |
+| الإجراء                                           | ما يفعله                                             |
+| ------------------------------------------------- | ---------------------------------------------------- |
+| `create-folder`, `rename-folder`, `delete-folder` | مجلدات متداخلة؛ حذف أحدها ينقل محتوياته للأعلى       |
+| `create-space`, `rename-space`, `delete-space`    | حاويات تسجيل محددة بموضوع وضمن نطاق المؤسسة          |
+| `add-recording-to-space`                          | إضافة أو إزالة تسجيل من مساحة (علاقة متعددة لمتعددة) |
+| `add-space-member`, `remove-space-member`         | أدوار المشاهد والمساهم والمشرف على مستوى المساحة     |
 
 ### التحرير
 
-| الإجراء                                                | ما يفعله                                                     |
-| -------------------------------------------------------- | --------------------------------------------------------------- |
-| `trim-recording`, `split-recording`                    | إضافة طبقة تعليمات قطع؛ لا تلمس الوسائط المصدر أبدًا           |
-| `remove-silences`, `remove-filler-words`               | يُنفَّذ من قبل الوكيل: يقرأ النص، ويطبّق الاقتطاعات من أجلك    |
-| `stitch-recordings`                                    | دمج عدة تسجيلات في واحد، بالترتيب                              |
-| `undo-edit`, `clear-edits`                             | إزالة التعديل الأخير، أو إعادة الضبط إلى الأصل                 |
+| الإجراء                                  | ما يفعله                                                    |
+| ---------------------------------------- | ----------------------------------------------------------- |
+| `trim-recording`, `split-recording`      | إضافة طبقة تعليمات قطع؛ لا تلمس الوسائط المصدر أبدًا        |
+| `remove-silences`, `remove-filler-words` | يُنفَّذ من قبل الوكيل: يقرأ النص، ويطبّق الاقتطاعات من أجلك |
+| `stitch-recordings`                      | دمج عدة تسجيلات في واحد، بالترتيب                           |
+| `undo-edit`, `clear-edits`               | إزالة التعديل الأخير، أو إعادة الضبط إلى الأصل              |
 
 ### النسخ والبيانات الوصفية للذكاء الاصطناعي
 
-| الإجراء                                                  | ما يفعله                                          |
-| ---------------------------------------------------------- | ------------------------------------------------------ |
-| `request-transcript`, `cleanup-transcript`             | النسخ؛ `force`/`regenerate` لتمرير جديد                |
-| `regenerate-title`, `regenerate-summary`, `regenerate-chapters`, `set-chapters` | بيانات وصفية بالذكاء الاصطناعي، أو ضبط الفصول يدويًا |
-| `get-builder-credit-status`                             | ما إذا كان رصيد الذكاء الاصطناعي في Builder.io متوقفًا مؤقتًا |
+| الإجراء                                                                         | ما يفعله                                                      |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| `request-transcript`, `cleanup-transcript`                                      | النسخ؛ `force`/`regenerate` لتمرير جديد                       |
+| `regenerate-title`, `regenerate-summary`, `regenerate-chapters`, `set-chapters` | بيانات وصفية بالذكاء الاصطناعي، أو ضبط الفصول يدويًا          |
+| `get-builder-credit-status`                                                     | ما إذا كان رصيد الذكاء الاصطناعي في Builder.io متوقفًا مؤقتًا |
 
 ### التعليقات وردود الفعل
 
-| الإجراء                                                      | ما يفعله                                            |
-| ---------------------------------------------------------------| ------------------------------------------------------|
-| `add-comment`, `update-comment`, `delete-comment`, `reply-to-comment`, `resolve-comment` | تعليقات مترابطة وذات طابع زمني |
-| `react-to-comment`, `react-to-recording`                    | ردود فعل بالرموز التعبيرية                            |
-| `list-comments`, `list-recording-mention-members`           | قراءة التعليقات؛ البحث عن من يمكن الإشارة إليه بـ @mention |
+| الإجراء                                                                                  | ما يفعله                                                   |
+| ---------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| `add-comment`, `update-comment`, `delete-comment`, `reply-to-comment`, `resolve-comment` | تعليقات مترابطة وذات طابع زمني                             |
+| `react-to-comment`, `react-to-recording`                                                 | ردود فعل بالرموز التعبيرية                                 |
+| `list-comments`, `list-recording-mention-members`                                        | قراءة التعليقات؛ البحث عن من يمكن الإشارة إليه بـ @mention |
 
 ### ذاكرة الشاشة (Rewind)
 
-| الإجراء                                                                              | ما يفعله                                                 |
-| ---------------------------------------------------------------------------------------| ------------------------------------------------------------ |
-| `get-screen-memory-status`, `query-screen-memory-context`                            | قراءة المخزن المؤقت المحلي لـ Rewind                          |
-| `request-rewind-extension`, `get-rewind-extension-request`, `list-rewind-extension-requests`, `update-rewind-extension-request` | تدفق المراجعة والموافقة لإضافة سجل Rewind إلى مقطع |
-| `apply-rewind-extension`, `make-recording-private-for-rewind`                        | تطبيق تمديد معتمد؛ إجبار المقطع على أن يكون خاصًا أولاً |
+| الإجراء                                                                                                                         | ما يفعله                                                |
+| ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| `get-screen-memory-status`, `query-screen-memory-context`                                                                       | قراءة المخزن المؤقت المحلي لـ Rewind                    |
+| `request-rewind-extension`, `get-rewind-extension-request`, `list-rewind-extension-requests`, `update-rewind-extension-request` | تدفق المراجعة والموافقة لإضافة سجل Rewind إلى مقطع      |
+| `apply-rewind-extension`, `make-recording-private-for-rewind`                                                                   | تطبيق تمديد معتمد؛ إجبار المقطع على أن يكون خاصًا أولاً |
 
 ### التطبيقات المتقاطعة والرؤى
 
-| الإجراء                          | ما يفعله                                                            |
-| ------------------------------------| ---------------------------------------------------------------------- |
-| `export-to-brain`                | إرسال النصوص الجاهزة إلى الدماغ، مع تعبئة بأثر رجعي ومؤشر قابل للاستئناف |
-| `prepare-crm-call-evidence`      | معرّف مقطع غامض بالإضافة إلى رابط `/r/<id>` دائم لأتمتات CRM             |
-| `create-recording-agent-link`   | سكّ رابط `agent_access` محدد النطاق ومحدود المدة لتسجيل واحد             |
-| `get-recording-insights`, `get-organization-insights`, `export-insights-csv` | المشاهدات، والتفاعل، وتصدير CSV على مستوى المؤسسة |
-| `list-viewers`, `list-clip-views` | من شاهد، ومتى                                                          |
+| الإجراء                                                                      | ما يفعله                                                                 |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `export-to-brain`                                                            | إرسال النصوص الجاهزة إلى الدماغ، مع تعبئة بأثر رجعي ومؤشر قابل للاستئناف |
+| `prepare-crm-call-evidence`                                                  | معرّف مقطع غامض بالإضافة إلى رابط `/r/<id>` دائم لأتمتات CRM             |
+| `create-recording-agent-link`                                                | سكّ رابط `agent_access` محدد النطاق ومحدود المدة لتسجيل واحد             |
+| `get-recording-insights`, `get-organization-insights`, `export-insights-csv` | المشاهدات، والتفاعل، وتصدير CSV على مستوى المؤسسة                        |
+| `list-viewers`, `list-clip-views`                                            | من شاهد، ومتى                                                            |
 
 ### المؤسسة
 
-| الإجراء                                                        | ما يفعله                                              |
-| ------------------------------------------------------------------| --------------------------------------------------------|
-| `create-organization`, `invite-member`, `accept-invite`, `decline-invite`, `get-invite` | إنشاء المؤسسة والدعوات |
-| `remove-member`, `update-member-role`                         | إدارة العضوية والأدوار                                  |
-| `set-organization-branding`, `list-organization-state`         | لون العلامة التجارية/الشعار، والرؤية الافتراضية، والقراءات على مستوى المؤسسة |
+| الإجراء                                                                                 | ما يفعله                                                                     |
+| --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `create-organization`, `invite-member`, `accept-invite`, `decline-invite`, `get-invite` | إنشاء المؤسسة والدعوات                                                       |
+| `remove-member`, `update-member-role`                                                   | إدارة العضوية والأدوار                                                       |
+| `set-organization-branding`, `list-organization-state`                                  | لون العلامة التجارية/الشعار، والرؤية الافتراضية، والقراءات على مستوى المؤسسة |
 
 ### التنقل والتضمين وتقارير الأخطاء
 
-| الإجراء                                                                 | ما يفعله                                                 |
-| ---------------------------------------------------------------------------| ------------------------------------------------------------ |
-| `view-screen`, `navigate`, `refresh-list`                             | قراءة السياق؛ تحريك واجهة المستخدم                          |
-| `get-playback-position`, `save-playback-position`, `get-recording-player-data` | استئناف التشغيل؛ النص الكامل والتشخيصات |
+| الإجراء                                                                               | ما يفعله                                                                             |
+| ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `view-screen`, `navigate`, `refresh-list`                                             | قراءة السياق؛ تحريك واجهة المستخدم                                                   |
+| `get-playback-position`, `save-playback-position`, `get-recording-player-data`        | استئناف التشغيل؛ النص الكامل والتشخيصات                                              |
 | `create-recording-intake-link`, `create-intake-recording`, `create-intake-agent-link` | تدفق التضمين المجهول من جهة خارجية. راجع [تضمين المقاطع](/docs/template-clips-embed) |
-| `save-bug-report-context`, `save-browser-diagnostics`, `save-browser-transcript` | مُشغّل تقارير الأخطاء المضمّن وتشخيصات ملحق Chrome |
+| `save-bug-report-context`, `save-browser-diagnostics`, `save-browser-transcript`      | مُشغّل تقارير الأخطاء المضمّن وتشخيصات ملحق Chrome                                   |
 
 ## نموذج البيانات
 
@@ -345,7 +345,10 @@ pnpm dev
       path: "app/routes/_app.r.$recordingId.tsx",
       note: "صفحة تفاصيل التسجيل والمحرر",
     },
-    { path: "app/routes/_app.agent.tsx", note: "تبويب دردشة الوكيل بملء الصفحة" },
+    {
+      path: "app/routes/_app.agent.tsx",
+      note: "تبويب دردشة الوكيل بملء الصفحة",
+    },
     {
       path: "app/routes/_app.settings._index.tsx",
       note: "الإعدادات، بما فيها تبويب Labs",

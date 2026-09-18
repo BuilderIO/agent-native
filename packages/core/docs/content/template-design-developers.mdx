@@ -36,148 +36,149 @@ if you try a Figma import or Full App Building before setting those up.
 Every design-specific operation is a TypeScript file in
 `templates/design/actions/`, auto-mounted at `POST
 /_agent-native/actions/:name` and runnable from the CLI as `pnpm action
+
 <name>`.
 
 ### Designs
 
-| Action | What it does |
-| --- | --- |
-| `create-design` | Create the empty design shell |
-| `generate-design` | Write generated HTML/JSX file content |
-| `edit-design` | Make a surgical search/replace edit to an existing file |
-| `update-design` | Update a design's metadata, like its title or linked design system |
-| `get-design` | Read one design by id |
-| `list-designs` | List accessible designs |
-| `duplicate-design` | Copy a design and its files |
-| `delete-design` | Delete a design |
-| `apply-tweaks` | Persist live tweak-knob values |
-| `present-design-variants` | Save a few directions as screens and show the side-by-side picker |
-| `show-design-questions` | Show the clarifying-questions overlay for a vague prompt |
-| `generate-screens` | Generate more than one screen in a batch |
+| Action                    | What it does                                                       |
+| ------------------------- | ------------------------------------------------------------------ |
+| `create-design`           | Create the empty design shell                                      |
+| `generate-design`         | Write generated HTML/JSX file content                              |
+| `edit-design`             | Make a surgical search/replace edit to an existing file            |
+| `update-design`           | Update a design's metadata, like its title or linked design system |
+| `get-design`              | Read one design by id                                              |
+| `list-designs`            | List accessible designs                                            |
+| `duplicate-design`        | Copy a design and its files                                        |
+| `delete-design`           | Delete a design                                                    |
+| `apply-tweaks`            | Persist live tweak-knob values                                     |
+| `present-design-variants` | Save a few directions as screens and show the side-by-side picker  |
+| `show-design-questions`   | Show the clarifying-questions overlay for a vague prompt           |
+| `generate-screens`        | Generate more than one screen in a batch                           |
 
 ### Files
 
-| Action | What it does |
-| --- | --- |
-| `create-file` | Add a new file to a design |
-| `update-file` | Update a file's content |
-| `list-files` | List a design's files |
+| Action        | What it does                |
+| ------------- | --------------------------- |
+| `create-file` | Add a new file to a design  |
+| `update-file` | Update a file's content     |
+| `list-files`  | List a design's files       |
 | `delete-file` | Delete a file from a design |
 
 ### Templates
 
-| Action | What it does |
-| --- | --- |
-| `list-design-templates` | List built-in and saved templates |
+| Action                        | What it does                                                             |
+| ----------------------------- | ------------------------------------------------------------------------ |
+| `list-design-templates`       | List built-in and saved templates                                        |
 | `create-design-from-template` | Copy a template's files, dimensions, and locked layers into a new design |
-| `save-design-as-template` | Save the current design as a reusable template |
-| `delete-design-template` | Delete a saved template |
+| `save-design-as-template`     | Save the current design as a reusable template                           |
+| `delete-design-template`      | Delete a saved template                                                  |
 
 ### Design systems and brand import
 
-| Action | What it does |
-| --- | --- |
-| `create-design-system` | Create a design system from scratch, or from a public preset like Material 3, Carbon, or Primer |
-| `update-design-system` | Update a design system's tokens or settings |
-| `get-design-system` | Read one design system by id |
-| `list-design-systems` | List accessible design systems |
-| `delete-design-system` | Delete a design system |
-| `set-default-design-system` | Set which design system is the account default |
-| `analyze-brand-assets` | Extract colors, typography, and logo references from uploaded brand assets |
-| `import-from-url` | Pull computed colors, typography, and logo references from a live website |
+| Action                             | What it does                                                                                                                                 |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `create-design-system`             | Create a design system from scratch, or from a public preset like Material 3, Carbon, or Primer                                              |
+| `update-design-system`             | Update a design system's tokens or settings                                                                                                  |
+| `get-design-system`                | Read one design system by id                                                                                                                 |
+| `list-design-systems`              | List accessible design systems                                                                                                               |
+| `delete-design-system`             | Delete a design system                                                                                                                       |
+| `set-default-design-system`        | Set which design system is the account default                                                                                               |
+| `analyze-brand-assets`             | Extract colors, typography, and logo references from uploaded brand assets                                                                   |
+| `import-from-url`                  | Pull computed colors, typography, and logo references from a live website                                                                    |
 | `index-design-system-with-builder` | Index a design system from connected code, a GitHub repo, or design files, including `.fig`, via Builder DSI (requires Builder.io connected) |
-| `import-design-tokens` | Import design tokens directly |
-| `import-document` | Extract brand signal from a DOCX, PPTX, or PDF upload |
-| `import-design-project` | Start a design system from an existing design or design system |
+| `import-design-tokens`             | Import design tokens directly                                                                                                                |
+| `import-document`                  | Extract brand signal from a DOCX, PPTX, or PDF upload                                                                                        |
+| `import-design-project`            | Start a design system from an existing design or design system                                                                               |
 
 ### Figma
 
-| Action | What it does |
-| --- | --- |
-| `import-figma-frame` | Import a Figma frame or file as a real, editable screen, with a fidelity report |
-| `import-figma-clipboard` | Import a Figma clipboard paste, matching by hidden metadata or, otherwise, at least 2 confident text matches |
-| `get-figma-design-context` | Read a Figma file or frame's structure without importing anything |
-| `get-figma-styles` | Summarize a Figma file's published Styles panel. Not the Enterprise Variables API |
-| `get-figma-connection-status` | Check whether a Figma account is connected |
-| `list-figma-library-assets` | List insertable components from a Figma-connected library |
-| `insert-figma-library-asset` | Insert one published Figma component into the design |
-| `hydrate-figma-paste-images` | Resolve image references from a Figma clipboard paste |
+| Action                        | What it does                                                                                                 |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `import-figma-frame`          | Import a Figma frame or file as a real, editable screen, with a fidelity report                              |
+| `import-figma-clipboard`      | Import a Figma clipboard paste, matching by hidden metadata or, otherwise, at least 2 confident text matches |
+| `get-figma-design-context`    | Read a Figma file or frame's structure without importing anything                                            |
+| `get-figma-styles`            | Summarize a Figma file's published Styles panel. Not the Enterprise Variables API                            |
+| `get-figma-connection-status` | Check whether a Figma account is connected                                                                   |
+| `list-figma-library-assets`   | List insertable components from a Figma-connected library                                                    |
+| `insert-figma-library-asset`  | Insert one published Figma component into the design                                                         |
+| `hydrate-figma-paste-images`  | Resolve image references from a Figma clipboard paste                                                        |
 
 ### Breakpoints and screen states
 
-| Action | What it does |
-| --- | --- |
-| `add-breakpoint` | Add a responsive breakpoint |
-| `remove-breakpoint` | Remove a responsive breakpoint |
-| `set-active-breakpoint` | Set which breakpoint is being edited |
-| `create-design-state` | Save a named alternate state, like empty or error |
-| `apply-design-state` | Apply a saved state |
-| `capture-design-state` | Capture the current state as a named snapshot |
-| `list-design-states` | List saved states |
-| `delete-design-state` | Delete a saved state |
+| Action                  | What it does                                      |
+| ----------------------- | ------------------------------------------------- |
+| `add-breakpoint`        | Add a responsive breakpoint                       |
+| `remove-breakpoint`     | Remove a responsive breakpoint                    |
+| `set-active-breakpoint` | Set which breakpoint is being edited              |
+| `create-design-state`   | Save a named alternate state, like empty or error |
+| `apply-design-state`    | Apply a saved state                               |
+| `capture-design-state`  | Capture the current state as a named snapshot     |
+| `list-design-states`    | List saved states                                 |
+| `delete-design-state`   | Delete a saved state                              |
 
 ### Components
 
-| Action | What it does |
-| --- | --- |
-| `create-component` | Promote a selected element into a reusable component |
-| `index-components` | Detect and register existing repeated elements as components |
-| `get-component-details` | Read a component instance's variants and props |
-| `preview-component-prop-edit` | Preview a prop change before applying it |
-| `apply-component-prop-edit` | Apply a prop change to one component instance |
-| `detach-component-instance` | Detach an instance so it no longer tracks the component |
-| `swap-component-instance` | Swap which component an instance points at |
-| `go-to-main-component` | Jump to the earliest instance of a component as a reference point |
-| `open-component-source` | Open a component's source location |
+| Action                        | What it does                                                      |
+| ----------------------------- | ----------------------------------------------------------------- |
+| `create-component`            | Promote a selected element into a reusable component              |
+| `index-components`            | Detect and register existing repeated elements as components      |
+| `get-component-details`       | Read a component instance's variants and props                    |
+| `preview-component-prop-edit` | Preview a prop change before applying it                          |
+| `apply-component-prop-edit`   | Apply a prop change to one component instance                     |
+| `detach-component-instance`   | Detach an instance so it no longer tracks the component           |
+| `swap-component-instance`     | Swap which component an instance points at                        |
+| `go-to-main-component`        | Jump to the earliest instance of a component as a reference point |
+| `open-component-source`       | Open a component's source location                                |
 
 ### Motion and shaders
 
-| Action | What it does |
-| --- | --- |
-| `get-motion-timeline` | Read an element's motion timeline |
-| `apply-motion-edit` | Add or edit a keyframe on a motion timeline |
-| `remove-motion-timeline` | Remove a motion timeline |
-| `apply-shader` | Apply a shader effect |
-| `apply-shader-fill` | Apply a shader as a fill |
-| `preview-shader-fill` | Preview a shader fill before applying it |
-| `get-shader` | Read a shader's current parameters |
+| Action                   | What it does                                |
+| ------------------------ | ------------------------------------------- |
+| `get-motion-timeline`    | Read an element's motion timeline           |
+| `apply-motion-edit`      | Add or edit a keyframe on a motion timeline |
+| `remove-motion-timeline` | Remove a motion timeline                    |
+| `apply-shader`           | Apply a shader effect                       |
+| `apply-shader-fill`      | Apply a shader as a fill                    |
+| `preview-shader-fill`    | Preview a shader fill before applying it    |
+| `get-shader`             | Read a shader's current parameters          |
 
 ### Quality {#quality}
 
-| Action | What it does |
-| --- | --- |
-| `run-design-audit` | Check a screen for accessibility, contrast, and cross-screen drift issues |
-| `apply-a11y-fix` | Apply an automatic fix for an audit finding |
+| Action                   | What it does                                                                                  |
+| ------------------------ | --------------------------------------------------------------------------------------------- |
+| `run-design-audit`       | Check a screen for accessibility, contrast, and cross-screen drift issues                     |
+| `apply-a11y-fix`         | Apply an automatic fix for an audit finding                                                   |
 | `take-design-screenshot` | Render the screen in a real browser and check for overflow, broken images, and console errors |
-| `get-design-review` | Read the cached accessibility and visual-diff findings |
+| `get-design-review`      | Read the cached accessibility and visual-diff findings                                        |
 
 ### Review feedback
 
 Framework-level, not in `templates/design/actions`. Comes from
 `@agent-native/core/review`, the same system any app can attach.
 
-| Action | What it does |
-| --- | --- |
-| `get-review-feedback` | Read open review comments for a resource |
-| `create-review-comment` | Leave an element-anchored comment |
-| `reply-review-comment` | Reply to a comment thread |
-| `resolve-review-thread` | Resolve a thread with a one-line note |
+| Action                        | What it does                                 |
+| ----------------------------- | -------------------------------------------- |
+| `get-review-feedback`         | Read open review comments for a resource     |
+| `create-review-comment`       | Leave an element-anchored comment            |
+| `reply-review-comment`        | Reply to a comment thread                    |
+| `resolve-review-thread`       | Resolve a thread with a one-line note        |
 | `send-review-thread-to-agent` | Send a comment thread to the agent to act on |
-| `consume-review-feedback` | Mark feedback as picked up by the agent |
-| `list-review-comments` | List comments for a resource |
-| `delete-review-comment` | Delete a comment |
-| `set-review-status` | Set a design's overall review status |
+| `consume-review-feedback`     | Mark feedback as picked up by the agent      |
+| `list-review-comments`        | List comments for a resource                 |
+| `delete-review-comment`       | Delete a comment                             |
+| `set-review-status`           | Set a design's overall review status         |
 
 ### Export and handoff
 
-| Action | What it does |
-| --- | --- |
-| `export-html` | Export a self-contained HTML file |
-| `export-zip` | Export all design files organized by type, plus a metadata file |
-| `export-pdf` | Export a client-side rendered PDF, for the multi-screen overview |
-| `export-svg` | Export an SVG wrapper around the live HTML |
-| `export-design-as-figma-svg` | Export real vector shapes as an editable Figma SVG |
-| `export-coding-handoff` | Copy design tokens, files, and a ready-to-paste prompt for an external coding agent |
+| Action                       | What it does                                                                        |
+| ---------------------------- | ----------------------------------------------------------------------------------- |
+| `export-html`                | Export a self-contained HTML file                                                   |
+| `export-zip`                 | Export all design files organized by type, plus a metadata file                     |
+| `export-pdf`                 | Export a client-side rendered PDF, for the multi-screen overview                    |
+| `export-svg`                 | Export an SVG wrapper around the live HTML                                          |
+| `export-design-as-figma-svg` | Export real vector shapes as an editable Figma SVG                                  |
+| `export-coding-handoff`      | Copy design tokens, files, and a ready-to-paste prompt for an external coding agent |
 
 ### Full App Building (fusion, flag-gated) {#full-app-building}
 
@@ -185,57 +186,57 @@ Behind the `full-app-building` feature flag, and needs Builder.io connected
 with a branch project id configured. See [Full App
 Building](#full-app-building) below.
 
-| Action | What it does |
-| --- | --- |
-| `create-fusion-app` | Provision a Builder Fusion branch and scaffold a real app from a prompt |
-| `sync-fusion-app` | Poll a fusion branch's container for its preview URL |
-| `add-fusion-screens` | Add screens to a fusion-backed design |
-| `queue-fusion-edit` | Queue an edit for the app's own coding agent |
-| `list-fusion-edits` | List queued and applied fusion edits |
-| `apply-fusion-edits` | Dispatch queued edits to the app's coding agent |
-| `send-fusion-message` | Send a message to the fusion app's coding agent |
-| `push-fusion-app` | Push a fusion branch |
-| `deploy-fusion-app` | Deploy a fusion branch to a real URL |
-| `get-fusion-deploy-status` | Check a deploy's status |
-| `create-design-branch` | Create a new branch for a fusion-backed design |
-| `get-design-branch-diff` | Diff a fusion branch against an earlier version |
-| `deploy-design-preview` | Deploy a preview of a fusion-backed design |
-| `migrate-inline-design-to-app` | Convert an inline prototype into a fusion-backed app |
-| `connect-builder-app` | Start the Builder.io OAuth connect flow |
+| Action                         | What it does                                                            |
+| ------------------------------ | ----------------------------------------------------------------------- |
+| `create-fusion-app`            | Provision a Builder Fusion branch and scaffold a real app from a prompt |
+| `sync-fusion-app`              | Poll a fusion branch's container for its preview URL                    |
+| `add-fusion-screens`           | Add screens to a fusion-backed design                                   |
+| `queue-fusion-edit`            | Queue an edit for the app's own coding agent                            |
+| `list-fusion-edits`            | List queued and applied fusion edits                                    |
+| `apply-fusion-edits`           | Dispatch queued edits to the app's coding agent                         |
+| `send-fusion-message`          | Send a message to the fusion app's coding agent                         |
+| `push-fusion-app`              | Push a fusion branch                                                    |
+| `deploy-fusion-app`            | Deploy a fusion branch to a real URL                                    |
+| `get-fusion-deploy-status`     | Check a deploy's status                                                 |
+| `create-design-branch`         | Create a new branch for a fusion-backed design                          |
+| `get-design-branch-diff`       | Diff a fusion branch against an earlier version                         |
+| `deploy-design-preview`        | Deploy a preview of a fusion-backed design                              |
+| `migrate-inline-design-to-app` | Convert an inline prototype into a fusion-backed app                    |
+| `connect-builder-app`          | Start the Builder.io OAuth connect flow                                 |
 
 ### Localhost bridge (/visual-edit)
 
-| Action | What it does |
-| --- | --- |
-| `connect-localhost` | Register a running local app with a design |
-| `list-localhost-connections` | List connected local apps |
-| `add-localhost-screens` | Add screens from a connected local app |
+| Action                            | What it does                                    |
+| --------------------------------- | ----------------------------------------------- |
+| `connect-localhost`               | Register a running local app with a design      |
+| `list-localhost-connections`      | List connected local apps                       |
+| `add-localhost-screens`           | Add screens from a connected local app          |
 | `request-localhost-write-consent` | Request permission to write back to local files |
-| `grant-localhost-write-consent` | Grant that permission |
-| `revoke-localhost-write-consent` | Revoke that permission |
+| `grant-localhost-write-consent`   | Grant that permission                           |
+| `revoke-localhost-write-consent`  | Revoke that permission                          |
 
 ### Local and code source editing
 
 For localhost- and fusion-backed designs, where the underlying files aren't
 inline HTML rows.
 
-| Action | What it does |
-| --- | --- |
-| `read-source-file` | Read a real source file |
-| `apply-source-edit` | Apply an edit to a real source file |
-| `list-source-files` | List a real app's source files |
+| Action                      | What it does                                   |
+| --------------------------- | ---------------------------------------------- |
+| `read-source-file`          | Read a real source file                        |
+| `apply-source-edit`         | Apply an edit to a real source file            |
+| `list-source-files`         | List a real app's source files                 |
 | `get-code-layer-projection` | Map a canvas layer back to its source location |
-| `read-local-file` | Read a file from a connected local app |
-| `write-local-file` | Write a file to a connected local app |
-| `list-local-files` | List a connected local app's files |
+| `read-local-file`           | Read a file from a connected local app         |
+| `write-local-file`          | Write a file to a connected local app          |
+| `list-local-files`          | List a connected local app's files             |
 
 ### Context and navigation
 
-| Action | What it does |
-| --- | --- |
-| `view-screen` | See what the user is currently looking at, including any pending question or variant choice |
-| `get-design-snapshot` | Read a design's current state for an external agent to continue from |
-| `navigate` | Move the UI to a view, panel, tab, or tool |
+| Action                | What it does                                                                                |
+| --------------------- | ------------------------------------------------------------------------------------------- |
+| `view-screen`         | See what the user is currently looking at, including any pending question or variant choice |
+| `get-design-snapshot` | Read a design's current state for an external agent to continue from                        |
+| `navigate`            | Move the UI to a view, panel, tab, or tool                                                  |
 
 ## Data model
 
@@ -244,7 +245,7 @@ All data lives in SQL via Drizzle ORM. Schema: `templates/design/server/db/schem
 The table below covers the core ownable resources: designs, files, templates, versions, and design systems.
 
 | Table                                    | What it holds                                                                                                                                    |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `designs`                                | A design project — `title`, `description`, `project_type` (`prototype` / `other`), the `data` JSON blob, and an optional `design_system_id` link |
 | `design_files`                           | Individual files belonging to a design (`filename`, `content`, `file_type` defaulting to `html`)                                                 |
 | `design_templates`                       | Reusable template metadata, dimensions, defaults, source design reference, and locked-layer count                                                |

@@ -43,86 +43,86 @@ Cada operação é um arquivo TypeScript em `templates/clips/actions/`, montado 
 
 ### Biblioteca e gravações
 
-| Action                                          | O que faz                                                                                  |
-| ------------------------------------------------ | -------------------------------------------------------------------------------------------- |
-| `list-recordings`, `search-recordings`          | Listagem da biblioteca, compartilhado comigo, lixeira e com escopo de espaço               |
-| `create-recording`, `finalize-recording`        | Cria a linha; finaliza o upload                                                             |
-| `import-loom-recording`                         | Importa um vídeo do Loom ou uma URL direta de MP4/WebM                                      |
-| `update-recording`                               | Título, descrição, senha, expiração, visibilidade                                           |
-| `move-recording`                                 | Move uma ou várias gravações para uma pasta ou para a raiz                                  |
+| Action                                                                                    | O que faz                                                                             |
+| ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `list-recordings`, `search-recordings`                                                    | Listagem da biblioteca, compartilhado comigo, lixeira e com escopo de espaço          |
+| `create-recording`, `finalize-recording`                                                  | Cria a linha; finaliza o upload                                                       |
+| `import-loom-recording`                                                                   | Importa um vídeo do Loom ou uma URL direta de MP4/WebM                                |
+| `update-recording`                                                                        | Título, descrição, senha, expiração, visibilidade                                     |
+| `move-recording`                                                                          | Move uma ou várias gravações para uma pasta ou para a raiz                            |
 | `archive-recording`, `trash-recording`, `restore-recording`, `delete-recording-permanent` | Ciclo de vida: esconder, excluir de forma reversível, desfazer ou excluir para sempre |
-| `reprocess-recording`                            | Repara mídia não navegável ou congelada                                                      |
-| `generate-filmstrip`                             | Sprite de quadros da linha do tempo do editor                                                |
-| `tag-recording`, `set-thumbnail`                 | Marcação com tags e uma miniatura escolhida manualmente                                      |
+| `reprocess-recording`                                                                     | Repara mídia não navegável ou congelada                                               |
+| `generate-filmstrip`                                                                      | Sprite de quadros da linha do tempo do editor                                         |
+| `tag-recording`, `set-thumbnail`                                                          | Marcação com tags e uma miniatura escolhida manualmente                               |
 
 ### Pastas e espaços
 
-| Action                                                       | O que faz                                                              |
-| -------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| `create-folder`, `rename-folder`, `delete-folder`             | Pastas aninhadas; excluir uma move seu conteúdo para cima                |
-| `create-space`, `rename-space`, `delete-space`                | Contêineres de gravação com escopo de organização, baseados em tópico    |
-| `add-recording-to-space`                                       | Adiciona ou remove uma gravação de um espaço (muitos-para-muitos)        |
-| `add-space-member`, `remove-space-member`                      | Funções de visualizador, colaborador e administrador em nível de espaço  |
+| Action                                            | O que faz                                                               |
+| ------------------------------------------------- | ----------------------------------------------------------------------- |
+| `create-folder`, `rename-folder`, `delete-folder` | Pastas aninhadas; excluir uma move seu conteúdo para cima               |
+| `create-space`, `rename-space`, `delete-space`    | Contêineres de gravação com escopo de organização, baseados em tópico   |
+| `add-recording-to-space`                          | Adiciona ou remove uma gravação de um espaço (muitos-para-muitos)       |
+| `add-space-member`, `remove-space-member`         | Funções de visualizador, colaborador e administrador em nível de espaço |
 
 ### Edição
 
-| Action                                                | O que faz                                                                   |
-| ---------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| `trim-recording`, `split-recording`                    | Aplica uma instrução de corte em camadas; nunca toca na mídia de origem      |
-| `remove-silences`, `remove-filler-words`               | Executado pelo agente: lê a transcrição, aplica cortes para você             |
-| `stitch-recordings`                                    | Combina várias gravações em uma só, em ordem                                 |
-| `undo-edit`, `clear-edits`                             | Remove a edição mais recente, ou reseta para o original                      |
+| Action                                   | O que faz                                                               |
+| ---------------------------------------- | ----------------------------------------------------------------------- |
+| `trim-recording`, `split-recording`      | Aplica uma instrução de corte em camadas; nunca toca na mídia de origem |
+| `remove-silences`, `remove-filler-words` | Executado pelo agente: lê a transcrição, aplica cortes para você        |
+| `stitch-recordings`                      | Combina várias gravações em uma só, em ordem                            |
+| `undo-edit`, `clear-edits`               | Remove a edição mais recente, ou reseta para o original                 |
 
 ### Transcrição e metadados de IA
 
-| Action                                                  | O que faz                                              |
-| ------------------------------------------------------------ | -------------------------------------------------------- |
-| `request-transcript`, `cleanup-transcript`             | Transcreve; `force`/`regenerate` para uma nova passada  |
-| `regenerate-title`, `regenerate-summary`, `regenerate-chapters`, `set-chapters` | Metadados de IA, ou definir capítulos manualmente |
-| `get-builder-credit-status`                             | Se os créditos de IA da Builder.io estão pausados        |
+| Action                                                                          | O que faz                                              |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| `request-transcript`, `cleanup-transcript`                                      | Transcreve; `force`/`regenerate` para uma nova passada |
+| `regenerate-title`, `regenerate-summary`, `regenerate-chapters`, `set-chapters` | Metadados de IA, ou definir capítulos manualmente      |
+| `get-builder-credit-status`                                                     | Se os créditos de IA da Builder.io estão pausados      |
 
 ### Comentários e reações
 
-| Action                                                      | O que faz                                                          |
-| --------------------------------------------------------------| ----------------------------------------------------------------------|
-| `add-comment`, `update-comment`, `delete-comment`, `reply-to-comment`, `resolve-comment` | Comentários encadeados e com carimbo de data e hora |
-| `react-to-comment`, `react-to-recording`                    | Reações com emoji                                                   |
-| `list-comments`, `list-recording-mention-members`           | Lê comentários; consulta quem pode ser mencionado com @               |
+| Action                                                                                   | O que faz                                               |
+| ---------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| `add-comment`, `update-comment`, `delete-comment`, `reply-to-comment`, `resolve-comment` | Comentários encadeados e com carimbo de data e hora     |
+| `react-to-comment`, `react-to-recording`                                                 | Reações com emoji                                       |
+| `list-comments`, `list-recording-mention-members`                                        | Lê comentários; consulta quem pode ser mencionado com @ |
 
 ### Memória de tela (Rewind)
 
-| Action                                                                              | O que faz                                                                       |
-| ---------------------------------------------------------------------------------------| ------------------------------------------------------------------------------------ |
-| `get-screen-memory-status`, `query-screen-memory-context`                            | Lê o buffer local do Rewind                                                          |
+| Action                                                                                                                          | O que faz                                                                    |
+| ------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `get-screen-memory-status`, `query-screen-memory-context`                                                                       | Lê o buffer local do Rewind                                                  |
 | `request-rewind-extension`, `get-rewind-extension-request`, `list-rewind-extension-requests`, `update-rewind-extension-request` | O fluxo de revisão e aprovação para adicionar histórico do Rewind a um clipe |
-| `apply-rewind-extension`, `make-recording-private-for-rewind`                        | Aplica uma extensão aprovada; força o clipe a ficar privado primeiro                 |
+| `apply-rewind-extension`, `make-recording-private-for-rewind`                                                                   | Aplica uma extensão aprovada; força o clipe a ficar privado primeiro         |
 
 ### Entre apps e insights
 
-| Action                          | O que faz                                                                            |
-| ------------------------------------| ---------------------------------------------------------------------------------------- |
-| `export-to-brain`                | Envia transcrições prontas para o Brain, com preenchimento retroativo e um cursor retomável |
-| `prepare-crm-call-evidence`      | ID de clipe opaco mais um link durável `/r/<id>` para automações de CRM               |
-| `create-recording-agent-link`   | Gera um link `agent_access` com escopo e tempo limitado para uma gravação             |
-| `get-recording-insights`, `get-organization-insights`, `export-insights-csv` | Visualizações, engajamento e exportação em CSV para toda a organização |
-| `list-viewers`, `list-clip-views` | Quem assistiu, e quando                                                                |
+| Action                                                                       | O que faz                                                                                   |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `export-to-brain`                                                            | Envia transcrições prontas para o Brain, com preenchimento retroativo e um cursor retomável |
+| `prepare-crm-call-evidence`                                                  | ID de clipe opaco mais um link durável `/r/<id>` para automações de CRM                     |
+| `create-recording-agent-link`                                                | Gera um link `agent_access` com escopo e tempo limitado para uma gravação                   |
+| `get-recording-insights`, `get-organization-insights`, `export-insights-csv` | Visualizações, engajamento e exportação em CSV para toda a organização                      |
+| `list-viewers`, `list-clip-views`                                            | Quem assistiu, e quando                                                                     |
 
 ### Organização
 
-| Action                                                        | O que faz                                                             |
-| ------------------------------------------------------------------| --------------------------------------------------------------------------|
-| `create-organization`, `invite-member`, `accept-invite`, `decline-invite`, `get-invite` | Criação de organização e convites |
-| `remove-member`, `update-member-role`                         | Gerencia membros e funções                                                |
-| `set-organization-branding`, `list-organization-state`         | Cor/logotipo da marca, visibilidade padrão, leituras de toda a organização |
+| Action                                                                                  | O que faz                                                                  |
+| --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `create-organization`, `invite-member`, `accept-invite`, `decline-invite`, `get-invite` | Criação de organização e convites                                          |
+| `remove-member`, `update-member-role`                                                   | Gerencia membros e funções                                                 |
+| `set-organization-branding`, `list-organization-state`                                  | Cor/logotipo da marca, visibilidade padrão, leituras de toda a organização |
 
 ### Navegação, incorporação e relatórios de bugs
 
-| Action                                                                 | O que faz                                                                  |
-| ---------------------------------------------------------------------------| ------------------------------------------------------------------------------|
-| `view-screen`, `navigate`, `refresh-list`                             | Lê o contexto; move a interface                                               |
-| `get-playback-position`, `save-playback-position`, `get-recording-player-data` | Retoma a reprodução; transcrição completa e diagnósticos            |
+| Action                                                                                | O que faz                                                                                            |
+| ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `view-screen`, `navigate`, `refresh-list`                                             | Lê o contexto; move a interface                                                                      |
+| `get-playback-position`, `save-playback-position`, `get-recording-player-data`        | Retoma a reprodução; transcrição completa e diagnósticos                                             |
 | `create-recording-intake-link`, `create-intake-recording`, `create-intake-agent-link` | O fluxo de incorporação anônima e de terceiros. Veja [Incorporar Clipes](/docs/template-clips-embed) |
-| `save-bug-report-context`, `save-browser-diagnostics`, `save-browser-transcript` | O lançador de relatório de bugs incorporado e os diagnósticos da extensão do Chrome |
+| `save-bug-report-context`, `save-browser-diagnostics`, `save-browser-transcript`      | O lançador de relatório de bugs incorporado e os diagnósticos da extensão do Chrome                  |
 
 ## Modelo de dados
 
@@ -280,7 +280,8 @@ As linhas de equipe, membro e convite vivem nas próprias tabelas `organizations
   annotations={[
     {
       lines: "60-74",
-      label: "O estado do recurso é verificado antes de qualquer coisa ser gerada",
+      label:
+        "O estado do recurso é verificado antes de qualquer coisa ser gerada",
       note: "resolveAccess() confirma que quem chamou pode ver essa gravação, e então uma verificação explícita de archivedAt/trashedAt se recusa a entregar um link para um clipe que não deveria mais ser compartilhável, mesmo para alguém que tecnicamente ainda tem acesso a ele.",
     },
     {
@@ -324,7 +325,10 @@ As linhas de equipe, membro e convite vivem nas próprias tabelas `organizations
       path: "app/routes/_app.r.$recordingId.tsx",
       note: "a página de detalhes da gravação e o editor",
     },
-    { path: "app/routes/_app.agent.tsx", note: "aba de chat do agente em página inteira" },
+    {
+      path: "app/routes/_app.agent.tsx",
+      note: "aba de chat do agente em página inteira",
+    },
     {
       path: "app/routes/_app.settings._index.tsx",
       note: "Configurações, incluindo a aba Labs",

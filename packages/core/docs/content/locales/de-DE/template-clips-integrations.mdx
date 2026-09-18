@@ -29,11 +29,11 @@ Fügen Sie einen öffentlichen Clips-Freigabelink in einen Agenten ein, oder ver
 
 Die meisten Agenten, die Bilder ansehen können, erledigen das von selbst, darunter ChatGPT, Claude Code, Cursor und Codex. Einige reine Text-Chats können das Transkript lesen, aber nicht die Frames, öffnen Sie den Clip für diese in einem bildfähigen Agenten.
 
-| Endpunkt                                          | Was Agenten erhalten                                                                                                |
-| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `/api/agent-context.json?id=<recordingId>`        | Clip-Metadaten, Transkriptstatus, Kapitel, CTAs, empfohlene Frames und Links zu den Transkript-/Frame-APIs           |
+| Endpunkt                                          | Was Agenten erhalten                                                                                                        |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `/api/agent-context.json?id=<recordingId>`        | Clip-Metadaten, Transkriptstatus, Kapitel, CTAs, empfohlene Frames und Links zu den Transkript-/Frame-APIs                  |
 | `/api/agent-transcript.json?id=<recordingId>`     | Transkriptsegmente mit Zeitstempel, mit `startMs`, `endMs`, lesbaren Zeitstempeln, Text und optionalen Quellenbezeichnungen |
-| `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` | Ein aus dem Video extrahierter JPEG-Frame zu einem Zeitstempel des Originalvideos                                    |
+| `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` | Ein aus dem Video extrahierter JPEG-Frame zu einem Zeitstempel des Originalvideos                                           |
 
 Die Endpunkte folgen denselben öffentlichen/Passwort-/Ablaufregeln wie die Freigabeseite, oder akzeptieren das gescopte `agent_access`-Token von einem temporären Agentenlink. Passwortgeschützte Clips erfordern das Passwort einmalig; erfolgreiche Antworten geben kurzlebige tokenisierte Links zurück, damit nachgeschaltete Agenten das Klartext-Passwort nicht benötigen.
 
@@ -121,7 +121,9 @@ CRM-Tools benötigen manchmal einen Nachweis, dass ein Anruf stattgefunden hat, 
   <div class="diagram-node">Aufnahme fertig</div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-box" data-rough>
-    clip.created<br /><small class="diagram-muted">genehmigte Automatisierung</small>
+    clip.created<br /><small class="diagram-muted"
+      >genehmigte Automatisierung</small
+    >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-panel center">

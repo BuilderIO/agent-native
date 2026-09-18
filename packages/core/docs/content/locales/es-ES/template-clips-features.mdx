@@ -34,12 +34,12 @@ Los administradores de la organización configuran la visibilidad predeterminada
 
 Genera una URL de incrustación para un clip para colocarlo en una página wiki, una herramienta interna o cualquier otro sitio que acepte un `<iframe>`:
 
-| Param             | Meaning                                                 |
-| ----------------- | -------------------------------------------------------- |
-| `?t=80`           | Inicia la reproducción en el segundo 80                            |
+| Param             | Meaning                                                                                                     |
+| ----------------- | ----------------------------------------------------------------------------------------------------------- |
+| `?t=80`           | Inicia la reproducción en el segundo 80                                                                     |
 | `?autoplay=1`     | Reproducción automática (silenciada, ya que los navegadores bloquean la reproducción automática con sonido) |
-| `?hideControls=1` | Oculta los controles del reproductor                  |
-| `?loop=1`         | Reproducción en bucle                                    |
+| `?hideControls=1` | Oculta los controles del reproductor                                                                        |
+| `?loop=1`         | Reproducción en bucle                                                                                       |
 
 Los enlaces públicos para compartir también se muestran como un vídeo reproducible, al estilo Loom, en cuanto tu espacio de trabajo instala su app de Clips para Slack. Solo los clips públicos y listos, sin contraseña, sin haber alcanzado la caducidad y sin marca de archivado o papelera, generan una vista previa reproducible en Slack. Cualquier otro caso vuelve a los metadatos de enlace normales de título y miniatura.
 
@@ -47,11 +47,11 @@ Los enlaces públicos para compartir también se muestran como un vídeo reprodu
 
 Una vez que un clip se comparte, su propietario puede ver quién lo está viendo realmente:
 
-| What                      | Shows you                                                                                                                                                                        |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| What                                | Shows you                                                                                                                                                                                                                      |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **Estadísticas de la grabación**    | Visualizaciones, contadas por separado para personas y para agentes externos que leen las API de contexto para agentes del clip, además de espectadores únicos, tasa de finalización, una curva de abandono y clics en las CTA |
-| **Estadísticas de la organización** | Totales de todo el periodo para toda la organización, los clips más destacados por visualizaciones, reacciones y comentarios, los principales creadores y una tendencia de interacción día por día, el Insights Hub                                   |
-| **Exportación CSV**            | Cada grabación de la organización con sus recuentos de visualizaciones e interacción, como un CSV descargable, hasta las 5000 grabaciones más recientes                                           |
+| **Estadísticas de la organización** | Totales de todo el periodo para toda la organización, los clips más destacados por visualizaciones, reacciones y comentarios, los principales creadores y una tendencia de interacción día por día, el Insights Hub            |
+| **Exportación CSV**                 | Cada grabación de la organización con sus recuentos de visualizaciones e interacción, como un CSV descargable, hasta las 5000 grabaciones más recientes                                                                        |
 
 Las visualizaciones humanas y las de agentes se registran a propósito en contadores separados, de modo que un agente que consulta periódicamente la transcripción de un clip compartido nunca infla el número de personas que realmente lo vieron.
 
@@ -98,11 +98,11 @@ Un espacio es un contenedor delimitado por un tema que pertenece a una organizac
 
 Un administrador de la organización crea un espacio y añade miembros a él de forma individual. La pertenencia a un espacio tiene sus propios roles:
 
-| Role            | Can do                                       |
-| --------------- | --------------------------------------------- |
+| Role            | Can do                                                   |
+| --------------- | -------------------------------------------------------- |
 | **Admin**       | Añadir y eliminar miembros, cambiar su rol en el espacio |
-| **Contributor** | Añadir y eliminar grabaciones del espacio      |
-| **Viewer**      | Ver lo que hay en el espacio                       |
+| **Contributor** | Añadir y eliminar grabaciones del espacio                |
+| **Viewer**      | Ver lo que hay en el espacio                             |
 
 Eliminar un espacio elimina el espacio y su lista de miembros. Las grabaciones que estaban en él no se ven afectadas. Simplemente dejan de aparecer allí.
 
@@ -150,11 +150,11 @@ Solo observa la pestaña que estás grabando activamente, y solo mientras la gra
 
 La transcripción prueba primero la opción más rápida y gratuita, y solo recurre a una de pago cuando es necesario:
 
-| Order | Provider                        | Notes                                                                                                                                          |
-| ----- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 1     | Nativa (en el dispositivo)              | API Web Speech del navegador o Whisper local/voz de macOS en el escritorio. Instantánea, sin clave de API.                                                             |
-| 2     | Gestionada por Builder.io (Gemini)     | Alternativa en la nube cuando falta el texto nativo. No hace falta ninguna clave adicional una vez que Builder está conectado. El plan gratuito de Builder.io incluye créditos de IA gestionados. |
-| 3     | Groq (`whisper-large-v3-turbo`) | Alternativa opcional si prefieres usar tu propia clave.                                                                                            |
+| Order | Provider                           | Notes                                                                                                                                                                                             |
+| ----- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | Nativa (en el dispositivo)         | API Web Speech del navegador o Whisper local/voz de macOS en el escritorio. Instantánea, sin clave de API.                                                                                        |
+| 2     | Gestionada por Builder.io (Gemini) | Alternativa en la nube cuando falta el texto nativo. No hace falta ninguna clave adicional una vez que Builder está conectado. El plan gratuito de Builder.io incluye créditos de IA gestionados. |
+| 3     | Groq (`whisper-large-v3-turbo`)    | Alternativa opcional si prefieres usar tu propia clave.                                                                                                                                           |
 
 En cuanto una transcripción está lista, el agente completa automáticamente un título, un resumen y marcadores de capítulo, y los mantiene actualizados mientras editas. También puedes pedirlo directamente:
 
@@ -195,10 +195,10 @@ Cualquiera puede crear una organización para compartir un espacio de trabajo de
 - **Default visibility.** Los administradores eligen qué visibilidad tienen las nuevas grabaciones de forma predeterminada (pública, de organización o privada) cuando nadie elige una explícitamente.
 - **Invite members** por correo electrónico. Una invitación se acepta o se rechaza, y los administradores pueden cambiar el rol de un miembro o eliminarlo más adelante.
 
-| Role       | Can do                                                                                                        |
-| ---------- | ------------------------------------------------------------------------------------------------------------- |
+| Role       | Can do                                                                                                                                        |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Admin**  | Invitar y eliminar miembros, cambiar roles, configurar la marca y la visibilidad predeterminada, además de todo lo que puede hacer un miembro |
-| **Member** | Grabar, editar y compartir sus propios clips, y trabajar en cualquier espacio al que haya sido añadido                          |
+| **Member** | Grabar, editar y compartir sus propios clips, y trabajar en cualquier espacio al que haya sido añadido                                        |
 
 ## Qué sigue
 

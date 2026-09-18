@@ -339,18 +339,18 @@ Cada diapositiva dentro de `decks.data` es:
 
 ## Referencia de rutas
 
-| Ruta                              | Renderiza                                                                |
-| ---------------------------------- | ----------------------------------------------------------------------- |
-| `/`                                | Página pública de marketing/SEO                                        |
-| `/home`                            | Lista de presentaciones, la página de inicio privada de la app         |
-| `/deck/:id`                        | El editor                                                               |
-| `/deck/:id/present`                | Presentación en pantalla completa                                      |
-| `/p/:id`                           | Vista previa pública/legible por el agente de la presentación en vivo, distinta de `/share/:token` |
-| `/share/:token`                    | Instantánea pública de solo lectura, congelada en el momento de compartir |
-| `/slide`                           | Inserción de una sola diapositiva usada en las vistas previas del chat |
-| `/design-systems`                  | Gestionar los sistemas de diseño guardados                             |
-| `/access-request/approve`          | Aprobar una solicitud de acceso a una presentación privada             |
-| `/agent`, `/extensions`, `/team`   | Redirige a la pestaña `/settings` correspondiente                      |
+| Ruta                             | Renderiza                                                                                          |
+| -------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `/`                              | Página pública de marketing/SEO                                                                    |
+| `/home`                          | Lista de presentaciones, la página de inicio privada de la app                                     |
+| `/deck/:id`                      | El editor                                                                                          |
+| `/deck/:id/present`              | Presentación en pantalla completa                                                                  |
+| `/p/:id`                         | Vista previa pública/legible por el agente de la presentación en vivo, distinta de `/share/:token` |
+| `/share/:token`                  | Instantánea pública de solo lectura, congelada en el momento de compartir                          |
+| `/slide`                         | Inserción de una sola diapositiva usada en las vistas previas del chat                             |
+| `/design-systems`                | Gestionar los sistemas de diseño guardados                                                         |
+| `/access-request/approve`        | Aprobar una solicitud de acceso a una presentación privada                                         |
+| `/agent`, `/extensions`, `/team` | Redirige a la pestaña `/settings` correspondiente                                                  |
 
 ## Personalizarla
 
@@ -382,7 +382,7 @@ Cada operación que el agente puede llamar vive aquí como un archivo TypeScript
     {
       lines: "29-37",
       label: "Falla en voz alta, no devuelvas un valor en silencio",
-      note: "`fail(...)` lanza un error estructurado en lugar de devolver un valor simple. Esta acción antes devolvía `{ ok: false, message: \"Text not found\" }` cuando no había coincidencia, algo que quien la llamaba podía interpretar demasiado fácilmente como un éxito. Lanzar un error es el único canal que garantiza indicar que la presentación no se modificó.",
+      note: '`fail(...)` lanza un error estructurado en lugar de devolver un valor simple. Esta acción antes devolvía `{ ok: false, message: "Text not found" }` cuando no había coincidencia, algo que quien la llamaba podía interpretar demasiado fácilmente como un éxito. Lanzar un error es el único canal que garantiza indicar que la presentación no se modificó.',
     },
     {
       lines: "39-51",

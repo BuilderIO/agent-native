@@ -336,18 +336,18 @@ Cada slide dentro de `decks.data` é:
 
 ## Referência de rotas
 
-| Rota                              | Renderiza                                                                |
-| ---------------------------------- | ----------------------------------------------------------------------- |
-| `/`                                | Página inicial pública de marketing/SEO                                |
-| `/home`                            | Lista de decks, a página inicial privada do aplicativo                 |
-| `/deck/:id`                        | O editor                                                                |
-| `/deck/:id/present`                | Apresentação em tela inteira                                           |
-| `/p/:id`                           | Pré-visualização pública/legível pelo agente do deck ao vivo, distinta de `/share/:token` |
-| `/share/:token`                    | Snapshot público somente leitura, congelado no momento do compartilhamento |
-| `/slide`                           | Incorporação de slide único usada em pré-visualizações no chat         |
-| `/design-systems`                  | Gerenciar sistemas de design salvos                                     |
-| `/access-request/approve`          | Aprovar uma solicitação de acesso a um deck privado                     |
-| `/agent`, `/extensions`, `/team`   | Redirecionam para a aba relevante de `/settings`                        |
+| Rota                             | Renderiza                                                                                 |
+| -------------------------------- | ----------------------------------------------------------------------------------------- |
+| `/`                              | Página inicial pública de marketing/SEO                                                   |
+| `/home`                          | Lista de decks, a página inicial privada do aplicativo                                    |
+| `/deck/:id`                      | O editor                                                                                  |
+| `/deck/:id/present`              | Apresentação em tela inteira                                                              |
+| `/p/:id`                         | Pré-visualização pública/legível pelo agente do deck ao vivo, distinta de `/share/:token` |
+| `/share/:token`                  | Snapshot público somente leitura, congelado no momento do compartilhamento                |
+| `/slide`                         | Incorporação de slide único usada em pré-visualizações no chat                            |
+| `/design-systems`                | Gerenciar sistemas de design salvos                                                       |
+| `/access-request/approve`        | Aprovar uma solicitação de acesso a um deck privado                                       |
+| `/agent`, `/extensions`, `/team` | Redirecionam para a aba relevante de `/settings`                                          |
 
 ## Personalize
 
@@ -379,7 +379,7 @@ Toda operação que o agente pode chamar vive aqui como um arquivo TypeScript, m
     {
       lines: "29-37",
       label: "Falhe alto, não retorne silenciosamente",
-      note: "`fail(...)` lança um erro estruturado em vez de retornar um valor simples. Esta action costumava retornar `{ ok: false, message: \"Text not found\" }` para uma correspondência inválida, o que um chamador poderia facilmente interpretar como sucesso. Lançar o erro é o único canal que garante de forma confiável que o deck não foi modificado.",
+      note: '`fail(...)` lança um erro estruturado em vez de retornar um valor simples. Esta action costumava retornar `{ ok: false, message: "Text not found" }` para uma correspondência inválida, o que um chamador poderia facilmente interpretar como sucesso. Lançar o erro é o único canal que garante de forma confiável que o deck não foi modificado.',
     },
     {
       lines: "39-51",

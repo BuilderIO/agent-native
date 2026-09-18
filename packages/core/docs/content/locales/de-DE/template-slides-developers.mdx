@@ -336,18 +336,18 @@ Jede Folie innerhalb von `decks.data` sieht so aus:
 
 ## Routen-Referenz
 
-| Route                              | Rendert                                                                 |
-| ---------------------------------- | ------------------------------------------------------------------------ |
-| `/`                                | Öffentliche Marketing-/SEO-Landingpage                                   |
-| `/home`                            | Deckliste, die private App-Startseite                                   |
-| `/deck/:id`                        | Der Editor                                                               |
-| `/deck/:id/present`                | Vollbildpräsentation                                                     |
-| `/p/:id`                           | Öffentliche, vom Agenten lesbare Live-Deck-Vorschau, getrennt von `/share/:token` |
-| `/share/:token`                    | Öffentlicher, schreibgeschützter Snapshot, eingefroren zum Zeitpunkt der Freigabe |
-| `/slide`                           | Einzelfolien-Einbettung für Chat-Vorschauen                              |
-| `/design-systems`                  | Gespeicherte Designsysteme verwalten                                     |
-| `/access-request/approve`          | Eine Zugriffsanfrage für ein privates Deck genehmigen                    |
-| `/agent`, `/extensions`, `/team`   | Leiten in den jeweiligen `/settings`-Tab weiter                          |
+| Route                            | Rendert                                                                           |
+| -------------------------------- | --------------------------------------------------------------------------------- |
+| `/`                              | Öffentliche Marketing-/SEO-Landingpage                                            |
+| `/home`                          | Deckliste, die private App-Startseite                                             |
+| `/deck/:id`                      | Der Editor                                                                        |
+| `/deck/:id/present`              | Vollbildpräsentation                                                              |
+| `/p/:id`                         | Öffentliche, vom Agenten lesbare Live-Deck-Vorschau, getrennt von `/share/:token` |
+| `/share/:token`                  | Öffentlicher, schreibgeschützter Snapshot, eingefroren zum Zeitpunkt der Freigabe |
+| `/slide`                         | Einzelfolien-Einbettung für Chat-Vorschauen                                       |
+| `/design-systems`                | Gespeicherte Designsysteme verwalten                                              |
+| `/access-request/approve`        | Eine Zugriffsanfrage für ein privates Deck genehmigen                             |
+| `/agent`, `/extensions`, `/team` | Leiten in den jeweiligen `/settings`-Tab weiter                                   |
 
 ## Anpassen
 
@@ -379,7 +379,7 @@ Jede vom Agenten aufrufbare Operation befindet sich hier als TypeScript-Datei, a
     {
       lines: "29-37",
       label: "Laut fehlschlagen, nicht leise zurückkehren",
-      note: "`fail(...)` wirft einen strukturierten Fehler, statt einen einfachen Wert zurückzugeben. Diese Aktion gab früher bei einer fehlgeschlagenen Übereinstimmung `{ ok: false, message: \"Text not found\" }` zurück, was ein Aufrufer allzu leicht als Erfolg lesen konnte. Das Werfen eines Fehlers ist der einzige Kanal, der zuverlässig mitteilt, dass das Deck nicht verändert wurde.",
+      note: '`fail(...)` wirft einen strukturierten Fehler, statt einen einfachen Wert zurückzugeben. Diese Aktion gab früher bei einer fehlgeschlagenen Übereinstimmung `{ ok: false, message: "Text not found" }` zurück, was ein Aufrufer allzu leicht als Erfolg lesen konnte. Das Werfen eines Fehlers ist der einzige Kanal, der zuverlässig mitteilt, dass das Deck nicht verändert wurde.',
     },
     {
       lines: "39-51",

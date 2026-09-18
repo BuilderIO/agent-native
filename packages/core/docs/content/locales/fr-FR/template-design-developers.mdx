@@ -51,116 +51,116 @@ action <name>`.
 
 ### Designs
 
-| Action | Ce qu'elle fait |
-| --- | --- |
-| `create-design` | Créer la coquille de design vide |
-| `generate-design` | Écrire le contenu de fichier HTML/JSX généré |
-| `edit-design` | Effectuer une modification chirurgicale de recherche/remplacement sur un fichier existant |
-| `update-design` | Mettre à jour les métadonnées d'un design, comme son titre ou son système de conception lié |
-| `get-design` | Lire un design par son id |
-| `list-designs` | Lister les designs accessibles |
-| `duplicate-design` | Copier un design et ses fichiers |
-| `delete-design` | Supprimer un design |
-| `apply-tweaks` | Enregistrer les valeurs actives des contrôles de réglage |
-| `present-design-variants` | Enregistrer quelques directions comme écrans et afficher le sélecteur côte à côte |
-| `show-design-questions` | Afficher la superposition de questions de clarification pour une invite vague |
-| `generate-screens` | Générer plusieurs écrans en un lot |
+| Action                    | Ce qu'elle fait                                                                             |
+| ------------------------- | ------------------------------------------------------------------------------------------- |
+| `create-design`           | Créer la coquille de design vide                                                            |
+| `generate-design`         | Écrire le contenu de fichier HTML/JSX généré                                                |
+| `edit-design`             | Effectuer une modification chirurgicale de recherche/remplacement sur un fichier existant   |
+| `update-design`           | Mettre à jour les métadonnées d'un design, comme son titre ou son système de conception lié |
+| `get-design`              | Lire un design par son id                                                                   |
+| `list-designs`            | Lister les designs accessibles                                                              |
+| `duplicate-design`        | Copier un design et ses fichiers                                                            |
+| `delete-design`           | Supprimer un design                                                                         |
+| `apply-tweaks`            | Enregistrer les valeurs actives des contrôles de réglage                                    |
+| `present-design-variants` | Enregistrer quelques directions comme écrans et afficher le sélecteur côte à côte           |
+| `show-design-questions`   | Afficher la superposition de questions de clarification pour une invite vague               |
+| `generate-screens`        | Générer plusieurs écrans en un lot                                                          |
 
 ### Fichiers
 
-| Action | Ce qu'elle fait |
-| --- | --- |
+| Action        | Ce qu'elle fait                        |
+| ------------- | -------------------------------------- |
 | `create-file` | Ajouter un nouveau fichier à un design |
-| `update-file` | Mettre à jour le contenu d'un fichier |
-| `list-files` | Lister les fichiers d'un design |
-| `delete-file` | Supprimer un fichier d'un design |
+| `update-file` | Mettre à jour le contenu d'un fichier  |
+| `list-files`  | Lister les fichiers d'un design        |
+| `delete-file` | Supprimer un fichier d'un design       |
 
 ### Modèles
 
-| Action | Ce qu'elle fait |
-| --- | --- |
-| `list-design-templates` | Lister les modèles intégrés et enregistrés |
+| Action                        | Ce qu'elle fait                                                                             |
+| ----------------------------- | ------------------------------------------------------------------------------------------- |
+| `list-design-templates`       | Lister les modèles intégrés et enregistrés                                                  |
 | `create-design-from-template` | Copier les fichiers, dimensions, et couches verrouillées d'un modèle dans un nouveau design |
-| `save-design-as-template` | Enregistrer le design actuel comme modèle réutilisable |
-| `delete-design-template` | Supprimer un modèle enregistré |
+| `save-design-as-template`     | Enregistrer le design actuel comme modèle réutilisable                                      |
+| `delete-design-template`      | Supprimer un modèle enregistré                                                              |
 
 ### Systèmes de conception et import de marque
 
-| Action | Ce qu'elle fait |
-| --- | --- |
-| `create-design-system` | Créer un système de conception à partir de zéro, ou à partir d'un préréglage public comme Material 3, Carbon, ou Primer |
-| `update-design-system` | Mettre à jour les jetons ou paramètres d'un système de conception |
-| `get-design-system` | Lire un système de conception par son id |
-| `list-design-systems` | Lister les systèmes de conception accessibles |
-| `delete-design-system` | Supprimer un système de conception |
-| `set-default-design-system` | Définir quel système de conception est celui par défaut du compte |
-| `analyze-brand-assets` | Extraire les couleurs, la typographie, et les références de logo des assets de marque importés |
-| `import-from-url` | Récupérer les couleurs calculées, la typographie, et les références de logo d'un site web en direct |
+| Action                             | Ce qu'elle fait                                                                                                                                                            |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `create-design-system`             | Créer un système de conception à partir de zéro, ou à partir d'un préréglage public comme Material 3, Carbon, ou Primer                                                    |
+| `update-design-system`             | Mettre à jour les jetons ou paramètres d'un système de conception                                                                                                          |
+| `get-design-system`                | Lire un système de conception par son id                                                                                                                                   |
+| `list-design-systems`              | Lister les systèmes de conception accessibles                                                                                                                              |
+| `delete-design-system`             | Supprimer un système de conception                                                                                                                                         |
+| `set-default-design-system`        | Définir quel système de conception est celui par défaut du compte                                                                                                          |
+| `analyze-brand-assets`             | Extraire les couleurs, la typographie, et les références de logo des assets de marque importés                                                                             |
+| `import-from-url`                  | Récupérer les couleurs calculées, la typographie, et les références de logo d'un site web en direct                                                                        |
 | `index-design-system-with-builder` | Indexer un système de conception à partir de code connecté, d'un dépôt GitHub, ou de fichiers de design, y compris `.fig`, via Builder DSI (nécessite Builder.io connecté) |
-| `import-design-tokens` | Importer directement des jetons de design |
-| `import-document` | Extraire un signal de marque à partir d'un import DOCX, PPTX, ou PDF |
-| `import-design-project` | Démarrer un système de conception à partir d'un design ou d'un système de conception existant |
+| `import-design-tokens`             | Importer directement des jetons de design                                                                                                                                  |
+| `import-document`                  | Extraire un signal de marque à partir d'un import DOCX, PPTX, ou PDF                                                                                                       |
+| `import-design-project`            | Démarrer un système de conception à partir d'un design ou d'un système de conception existant                                                                              |
 
 ### Figma
 
-| Action | Ce qu'elle fait |
-| --- | --- |
-| `import-figma-frame` | Importer un cadre ou fichier Figma comme véritable écran modifiable, avec un rapport de fidélité |
-| `import-figma-clipboard` | Importer un collage du presse-papiers Figma, en faisant correspondre par métadonnées cachées ou, sinon, au moins 2 correspondances de texte fiables |
-| `get-figma-design-context` | Lire la structure d'un fichier ou cadre Figma sans rien importer |
-| `get-figma-styles` | Résumer le panneau Styles publié d'un fichier Figma. Pas l'API Enterprise Variables |
-| `get-figma-connection-status` | Vérifier si un compte Figma est connecté |
-| `list-figma-library-assets` | Lister les composants insérables d'une bibliothèque connectée à Figma |
-| `insert-figma-library-asset` | Insérer un composant Figma publié dans le design |
-| `hydrate-figma-paste-images` | Résoudre les références d'image d'un collage du presse-papiers Figma |
+| Action                        | Ce qu'elle fait                                                                                                                                     |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `import-figma-frame`          | Importer un cadre ou fichier Figma comme véritable écran modifiable, avec un rapport de fidélité                                                    |
+| `import-figma-clipboard`      | Importer un collage du presse-papiers Figma, en faisant correspondre par métadonnées cachées ou, sinon, au moins 2 correspondances de texte fiables |
+| `get-figma-design-context`    | Lire la structure d'un fichier ou cadre Figma sans rien importer                                                                                    |
+| `get-figma-styles`            | Résumer le panneau Styles publié d'un fichier Figma. Pas l'API Enterprise Variables                                                                 |
+| `get-figma-connection-status` | Vérifier si un compte Figma est connecté                                                                                                            |
+| `list-figma-library-assets`   | Lister les composants insérables d'une bibliothèque connectée à Figma                                                                               |
+| `insert-figma-library-asset`  | Insérer un composant Figma publié dans le design                                                                                                    |
+| `hydrate-figma-paste-images`  | Résoudre les références d'image d'un collage du presse-papiers Figma                                                                                |
 
 ### Points de rupture et états d'écran
 
-| Action | Ce qu'elle fait |
-| --- | --- |
-| `add-breakpoint` | Ajouter un point de rupture responsive |
-| `remove-breakpoint` | Supprimer un point de rupture responsive |
+| Action                  | Ce qu'elle fait                                            |
+| ----------------------- | ---------------------------------------------------------- |
+| `add-breakpoint`        | Ajouter un point de rupture responsive                     |
+| `remove-breakpoint`     | Supprimer un point de rupture responsive                   |
 | `set-active-breakpoint` | Définir quel point de rupture est en cours de modification |
-| `create-design-state` | Enregistrer un état alternatif nommé, comme vide ou erreur |
-| `apply-design-state` | Appliquer un état enregistré |
-| `capture-design-state` | Capturer l'état actuel comme instantané nommé |
-| `list-design-states` | Lister les états enregistrés |
-| `delete-design-state` | Supprimer un état enregistré |
+| `create-design-state`   | Enregistrer un état alternatif nommé, comme vide ou erreur |
+| `apply-design-state`    | Appliquer un état enregistré                               |
+| `capture-design-state`  | Capturer l'état actuel comme instantané nommé              |
+| `list-design-states`    | Lister les états enregistrés                               |
+| `delete-design-state`   | Supprimer un état enregistré                               |
 
 ### Composants
 
-| Action | Ce qu'elle fait |
-| --- | --- |
-| `create-component` | Promouvoir un élément sélectionné en composant réutilisable |
-| `index-components` | Détecter et enregistrer les éléments répétés existants comme composants |
-| `get-component-details` | Lire les variantes et props d'une instance de composant |
-| `preview-component-prop-edit` | Prévisualiser un changement de prop avant de l'appliquer |
-| `apply-component-prop-edit` | Appliquer un changement de prop à une instance de composant |
-| `detach-component-instance` | Détacher une instance pour qu'elle ne suive plus le composant |
-| `swap-component-instance` | Changer le composant que pointe une instance |
-| `go-to-main-component` | Aller à la première instance d'un composant comme point de référence |
-| `open-component-source` | Ouvrir l'emplacement source d'un composant |
+| Action                        | Ce qu'elle fait                                                         |
+| ----------------------------- | ----------------------------------------------------------------------- |
+| `create-component`            | Promouvoir un élément sélectionné en composant réutilisable             |
+| `index-components`            | Détecter et enregistrer les éléments répétés existants comme composants |
+| `get-component-details`       | Lire les variantes et props d'une instance de composant                 |
+| `preview-component-prop-edit` | Prévisualiser un changement de prop avant de l'appliquer                |
+| `apply-component-prop-edit`   | Appliquer un changement de prop à une instance de composant             |
+| `detach-component-instance`   | Détacher une instance pour qu'elle ne suive plus le composant           |
+| `swap-component-instance`     | Changer le composant que pointe une instance                            |
+| `go-to-main-component`        | Aller à la première instance d'un composant comme point de référence    |
+| `open-component-source`       | Ouvrir l'emplacement source d'un composant                              |
 
 ### Mouvement et shaders
 
-| Action | Ce qu'elle fait |
-| --- | --- |
-| `get-motion-timeline` | Lire la chronologie de mouvement d'un élément |
-| `apply-motion-edit` | Ajouter ou modifier une image clé sur une chronologie de mouvement |
-| `remove-motion-timeline` | Supprimer une chronologie de mouvement |
-| `apply-shader` | Appliquer un effet de shader |
-| `apply-shader-fill` | Appliquer un shader comme remplissage |
-| `preview-shader-fill` | Prévisualiser un remplissage shader avant de l'appliquer |
-| `get-shader` | Lire les paramètres actuels d'un shader |
+| Action                   | Ce qu'elle fait                                                    |
+| ------------------------ | ------------------------------------------------------------------ |
+| `get-motion-timeline`    | Lire la chronologie de mouvement d'un élément                      |
+| `apply-motion-edit`      | Ajouter ou modifier une image clé sur une chronologie de mouvement |
+| `remove-motion-timeline` | Supprimer une chronologie de mouvement                             |
+| `apply-shader`           | Appliquer un effet de shader                                       |
+| `apply-shader-fill`      | Appliquer un shader comme remplissage                              |
+| `preview-shader-fill`    | Prévisualiser un remplissage shader avant de l'appliquer           |
+| `get-shader`             | Lire les paramètres actuels d'un shader                            |
 
 ### Qualité {#quality}
 
-| Action | Ce qu'elle fait |
-| --- | --- |
-| `run-design-audit` | Vérifier un écran pour des problèmes d'accessibilité, de contraste, et de dérive entre écrans |
-| `apply-a11y-fix` | Appliquer une correction automatique pour un constat d'audit |
+| Action                   | Ce qu'elle fait                                                                                                 |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| `run-design-audit`       | Vérifier un écran pour des problèmes d'accessibilité, de contraste, et de dérive entre écrans                   |
+| `apply-a11y-fix`         | Appliquer une correction automatique pour un constat d'audit                                                    |
 | `take-design-screenshot` | Rendre l'écran dans un véritable navigateur et vérifier les débordements, images cassées, et erreurs de console |
-| `get-design-review` | Lire les constats en cache d'accessibilité et de diff visuel |
+| `get-design-review`      | Lire les constats en cache d'accessibilité et de diff visuel                                                    |
 
 ### Retours de révision
 
@@ -168,28 +168,28 @@ Au niveau du framework, pas dans `templates/design/actions`. Provient de
 `@agent-native/core/review`, le même système que toute application peut
 attacher.
 
-| Action | Ce qu'elle fait |
-| --- | --- |
-| `get-review-feedback` | Lire les commentaires de révision ouverts pour une ressource |
-| `create-review-comment` | Laisser un commentaire ancré à un élément |
-| `reply-review-comment` | Répondre à un fil de commentaires |
-| `resolve-review-thread` | Résoudre un fil avec une note d'une ligne |
-| `send-review-thread-to-agent` | Envoyer un fil de commentaires à l'agent pour qu'il agisse |
-| `consume-review-feedback` | Marquer un retour comme pris en compte par l'agent |
-| `list-review-comments` | Lister les commentaires pour une ressource |
-| `delete-review-comment` | Supprimer un commentaire |
-| `set-review-status` | Définir le statut de révision global d'un design |
+| Action                        | Ce qu'elle fait                                              |
+| ----------------------------- | ------------------------------------------------------------ |
+| `get-review-feedback`         | Lire les commentaires de révision ouverts pour une ressource |
+| `create-review-comment`       | Laisser un commentaire ancré à un élément                    |
+| `reply-review-comment`        | Répondre à un fil de commentaires                            |
+| `resolve-review-thread`       | Résoudre un fil avec une note d'une ligne                    |
+| `send-review-thread-to-agent` | Envoyer un fil de commentaires à l'agent pour qu'il agisse   |
+| `consume-review-feedback`     | Marquer un retour comme pris en compte par l'agent           |
+| `list-review-comments`        | Lister les commentaires pour une ressource                   |
+| `delete-review-comment`       | Supprimer un commentaire                                     |
+| `set-review-status`           | Définir le statut de révision global d'un design             |
 
 ### Export et transfert
 
-| Action | Ce qu'elle fait |
-| --- | --- |
-| `export-html` | Exporter un fichier HTML autonome |
-| `export-zip` | Exporter tous les fichiers du design organisés par type, plus un fichier de métadonnées |
-| `export-pdf` | Exporter un PDF rendu côté client, pour la vue d'ensemble multi-écrans |
-| `export-svg` | Exporter une enveloppe SVG autour du HTML en direct |
-| `export-design-as-figma-svg` | Exporter de véritables formes vectorielles comme SVG Figma modifiable |
-| `export-coding-handoff` | Copier les jetons de design, les fichiers, et une invite prête à coller pour un agent de codage externe |
+| Action                       | Ce qu'elle fait                                                                                         |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `export-html`                | Exporter un fichier HTML autonome                                                                       |
+| `export-zip`                 | Exporter tous les fichiers du design organisés par type, plus un fichier de métadonnées                 |
+| `export-pdf`                 | Exporter un PDF rendu côté client, pour la vue d'ensemble multi-écrans                                  |
+| `export-svg`                 | Exporter une enveloppe SVG autour du HTML en direct                                                     |
+| `export-design-as-figma-svg` | Exporter de véritables formes vectorielles comme SVG Figma modifiable                                   |
+| `export-coding-handoff`      | Copier les jetons de design, les fichiers, et une invite prête à coller pour un agent de codage externe |
 
 ### Construction d'application complète (fusion, conditionnée par un feature flag) {#full-app-building}
 
@@ -197,57 +197,57 @@ Derrière le feature flag `full-app-building`, et nécessite Builder.io
 connecté avec un id de projet de branche configuré. Voir [Construction
 d'application complète](#full-app-building) ci-dessous.
 
-| Action | Ce qu'elle fait |
-| --- | --- |
-| `create-fusion-app` | Provisionner une branche Builder Fusion et échafauder une véritable application à partir d'une invite |
-| `sync-fusion-app` | Interroger le conteneur d'une branche fusion pour son URL d'aperçu |
-| `add-fusion-screens` | Ajouter des écrans à un design adossé à fusion |
-| `queue-fusion-edit` | Mettre en file d'attente une modification pour l'agent de codage propre à l'application |
-| `list-fusion-edits` | Lister les modifications fusion en file d'attente et appliquées |
-| `apply-fusion-edits` | Distribuer les modifications en file d'attente à l'agent de codage de l'application |
-| `send-fusion-message` | Envoyer un message à l'agent de codage de l'application fusion |
-| `push-fusion-app` | Pousser une branche fusion |
-| `deploy-fusion-app` | Déployer une branche fusion vers une véritable URL |
-| `get-fusion-deploy-status` | Vérifier le statut d'un déploiement |
-| `create-design-branch` | Créer une nouvelle branche pour un design adossé à fusion |
-| `get-design-branch-diff` | Comparer une branche fusion à une version antérieure |
-| `deploy-design-preview` | Déployer un aperçu d'un design adossé à fusion |
-| `migrate-inline-design-to-app` | Convertir un prototype en ligne en application adossée à fusion |
-| `connect-builder-app` | Démarrer le flux de connexion OAuth Builder.io |
+| Action                         | Ce qu'elle fait                                                                                       |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| `create-fusion-app`            | Provisionner une branche Builder Fusion et échafauder une véritable application à partir d'une invite |
+| `sync-fusion-app`              | Interroger le conteneur d'une branche fusion pour son URL d'aperçu                                    |
+| `add-fusion-screens`           | Ajouter des écrans à un design adossé à fusion                                                        |
+| `queue-fusion-edit`            | Mettre en file d'attente une modification pour l'agent de codage propre à l'application               |
+| `list-fusion-edits`            | Lister les modifications fusion en file d'attente et appliquées                                       |
+| `apply-fusion-edits`           | Distribuer les modifications en file d'attente à l'agent de codage de l'application                   |
+| `send-fusion-message`          | Envoyer un message à l'agent de codage de l'application fusion                                        |
+| `push-fusion-app`              | Pousser une branche fusion                                                                            |
+| `deploy-fusion-app`            | Déployer une branche fusion vers une véritable URL                                                    |
+| `get-fusion-deploy-status`     | Vérifier le statut d'un déploiement                                                                   |
+| `create-design-branch`         | Créer une nouvelle branche pour un design adossé à fusion                                             |
+| `get-design-branch-diff`       | Comparer une branche fusion à une version antérieure                                                  |
+| `deploy-design-preview`        | Déployer un aperçu d'un design adossé à fusion                                                        |
+| `migrate-inline-design-to-app` | Convertir un prototype en ligne en application adossée à fusion                                       |
+| `connect-builder-app`          | Démarrer le flux de connexion OAuth Builder.io                                                        |
 
 ### Pont localhost (/visual-edit)
 
-| Action | Ce qu'elle fait |
-| --- | --- |
-| `connect-localhost` | Enregistrer une application locale en cours d'exécution auprès d'un design |
-| `list-localhost-connections` | Lister les applications locales connectées |
-| `add-localhost-screens` | Ajouter des écrans depuis une application locale connectée |
-| `request-localhost-write-consent` | Demander la permission d'écrire dans les fichiers locaux |
-| `grant-localhost-write-consent` | Accorder cette permission |
-| `revoke-localhost-write-consent` | Révoquer cette permission |
+| Action                            | Ce qu'elle fait                                                            |
+| --------------------------------- | -------------------------------------------------------------------------- |
+| `connect-localhost`               | Enregistrer une application locale en cours d'exécution auprès d'un design |
+| `list-localhost-connections`      | Lister les applications locales connectées                                 |
+| `add-localhost-screens`           | Ajouter des écrans depuis une application locale connectée                 |
+| `request-localhost-write-consent` | Demander la permission d'écrire dans les fichiers locaux                   |
+| `grant-localhost-write-consent`   | Accorder cette permission                                                  |
+| `revoke-localhost-write-consent`  | Révoquer cette permission                                                  |
 
 ### Modification de source locale et de code
 
 Pour les designs adossés à localhost ou à fusion, où les fichiers
 sous-jacents ne sont pas des lignes HTML en ligne.
 
-| Action | Ce qu'elle fait |
-| --- | --- |
-| `read-source-file` | Lire un véritable fichier source |
-| `apply-source-edit` | Appliquer une modification à un véritable fichier source |
-| `list-source-files` | Lister les fichiers source d'une véritable application |
+| Action                      | Ce qu'elle fait                                                   |
+| --------------------------- | ----------------------------------------------------------------- |
+| `read-source-file`          | Lire un véritable fichier source                                  |
+| `apply-source-edit`         | Appliquer une modification à un véritable fichier source          |
+| `list-source-files`         | Lister les fichiers source d'une véritable application            |
 | `get-code-layer-projection` | Faire correspondre une couche du canevas à son emplacement source |
-| `read-local-file` | Lire un fichier depuis une application locale connectée |
-| `write-local-file` | Écrire un fichier dans une application locale connectée |
-| `list-local-files` | Lister les fichiers d'une application locale connectée |
+| `read-local-file`           | Lire un fichier depuis une application locale connectée           |
+| `write-local-file`          | Écrire un fichier dans une application locale connectée           |
+| `list-local-files`          | Lister les fichiers d'une application locale connectée            |
 
 ### Contexte et navigation
 
-| Action | Ce qu'elle fait |
-| --- | --- |
-| `view-screen` | Voir ce que l'utilisateur regarde actuellement, y compris toute question en attente ou choix de variante |
-| `get-design-snapshot` | Lire l'état actuel d'un design pour qu'un agent externe puisse continuer à partir de là |
-| `navigate` | Déplacer l'interface vers une vue, un panneau, un onglet, ou un outil |
+| Action                | Ce qu'elle fait                                                                                          |
+| --------------------- | -------------------------------------------------------------------------------------------------------- |
+| `view-screen`         | Voir ce que l'utilisateur regarde actuellement, y compris toute question en attente ou choix de variante |
+| `get-design-snapshot` | Lire l'état actuel d'un design pour qu'un agent externe puisse continuer à partir de là                  |
+| `navigate`            | Déplacer l'interface vers une vue, un panneau, un onglet, ou un outil                                    |
 
 ## Modèle de données
 
@@ -260,16 +260,16 @@ partage par utilisateur / par organisation.
 Le tableau ci-dessous couvre les ressources possédables principales :
 designs, fichiers, modèles, versions, et systèmes de conception.
 
-| Table                                    | Ce qu'elle contient                                                                                                                                    |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Table                                    | Ce qu'elle contient                                                                                                                                |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `designs`                                | Un projet de design — `title`, `description`, `project_type` (`prototype` / `other`), le blob JSON `data`, et un lien `design_system_id` optionnel |
-| `design_files`                           | Fichiers individuels appartenant à un design (`filename`, `content`, `file_type` par défaut à `html`)                                                 |
-| `design_templates`                       | Métadonnées de modèle réutilisable, dimensions, valeurs par défaut, référence au design source, et nombre de couches verrouillées                                               |
-| `design_template_files`                  | Fichiers de modèle instantanés copiés dans un design normal modifiable quand un utilisateur démarre à partir d'un modèle                                               |
-| `design_template_shares`                 | Table de partages du framework pour la découverte de modèles privés, d'organisation, explicitement partagés, et publics                                                        |
-| `design_versions`                        | `snapshot`s ponctuels d'un design avec un `label` optionnel, pour l'historique et la restauration                                                         |
-| `design_systems`                         | Jetons de marque réutilisables — `data` (couleurs/typographie/espacement), `assets`, `custom_instructions`, et un drapeau `is_default`                            |
-| `design_shares` / `design_system_shares` | Tables de partages du framework mappant les principaux (utilisateurs ou organisations) aux rôles (spectateur, éditeur, administrateur)                  |
+| `design_files`                           | Fichiers individuels appartenant à un design (`filename`, `content`, `file_type` par défaut à `html`)                                              |
+| `design_templates`                       | Métadonnées de modèle réutilisable, dimensions, valeurs par défaut, référence au design source, et nombre de couches verrouillées                  |
+| `design_template_files`                  | Fichiers de modèle instantanés copiés dans un design normal modifiable quand un utilisateur démarre à partir d'un modèle                           |
+| `design_template_shares`                 | Table de partages du framework pour la découverte de modèles privés, d'organisation, explicitement partagés, et publics                            |
+| `design_versions`                        | `snapshot`s ponctuels d'un design avec un `label` optionnel, pour l'historique et la restauration                                                  |
+| `design_systems`                         | Jetons de marque réutilisables — `data` (couleurs/typographie/espacement), `assets`, `custom_instructions`, et un drapeau `is_default`             |
+| `design_shares` / `design_system_shares` | Tables de partages du framework mappant les principaux (utilisateurs ou organisations) aux rôles (spectateur, éditeur, administrateur)             |
 
 <DataModel
   id="doc-block-design11"
@@ -594,10 +594,16 @@ l'état persistant, et les API du pont.
   id="doc-block-design12"
   title="templates/design/ : routes, schéma, et skills"
   entries={[
-    { path: "actions/", note: "~240 fichiers, un par opération appelable par l'agent" },
+    {
+      path: "actions/",
+      note: "~240 fichiers, un par opération appelable par l'agent",
+    },
     { path: "app/routes/_index.tsx", note: "La route de liste des designs" },
     { path: "app/routes/design.$id.tsx", note: "La route de l'éditeur" },
-    { path: "app/routes/present.$id.tsx", note: "Vue de présentation / partage" },
+    {
+      path: "app/routes/present.$id.tsx",
+      note: "Vue de présentation / partage",
+    },
     { path: "app/routes/templates.tsx", note: "La page Modèles" },
     {
       path: "app/routes/design-systems.tsx",

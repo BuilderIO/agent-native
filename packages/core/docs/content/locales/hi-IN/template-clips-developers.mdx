@@ -58,86 +58,86 @@ pnpm dev
 
 ### लाइब्रेरी और रिकॉर्डिंग
 
-| Action                                          | यह क्या करता है                                             |
-| ------------------------------------------------ | ------------------------------------------------------------- |
-| `list-recordings`, `search-recordings`          | लाइब्रेरी, शेयर्ड-विद-मी, ट्रैश, और स्पेस-स्कोप्ड लिस्टिंग    |
-| `create-recording`, `finalize-recording`        | रो बनाना; अपलोड पूरा करना                                     |
-| `import-loom-recording`                         | किसी Loom वीडियो या सीधे MP4/WebM URL को इम्पोर्ट करना        |
-| `update-recording`                               | शीर्षक, विवरण, पासवर्ड, एक्सपायरी, दृश्यता                    |
-| `move-recording`                                 | एक या कई रिकॉर्डिंग को किसी फ़ोल्डर या रूट में मूव करना        |
+| Action                                                                                    | यह क्या करता है                                                              |
+| ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `list-recordings`, `search-recordings`                                                    | लाइब्रेरी, शेयर्ड-विद-मी, ट्रैश, और स्पेस-स्कोप्ड लिस्टिंग                   |
+| `create-recording`, `finalize-recording`                                                  | रो बनाना; अपलोड पूरा करना                                                    |
+| `import-loom-recording`                                                                   | किसी Loom वीडियो या सीधे MP4/WebM URL को इम्पोर्ट करना                       |
+| `update-recording`                                                                        | शीर्षक, विवरण, पासवर्ड, एक्सपायरी, दृश्यता                                   |
+| `move-recording`                                                                          | एक या कई रिकॉर्डिंग को किसी फ़ोल्डर या रूट में मूव करना                      |
 | `archive-recording`, `trash-recording`, `restore-recording`, `delete-recording-permanent` | लाइफ़साइकल: छुपाना, सॉफ़्ट-डिलीट करना, अनडू करना, या हमेशा के लिए डिलीट करना |
-| `reprocess-recording`                            | अनसीकेबल या फ़्रोज़न मीडिया को ठीक करना                        |
-| `generate-filmstrip`                             | एडिटर टाइमलाइन फ़्रेम स्प्राइट                                 |
-| `tag-recording`, `set-thumbnail`                 | टैगिंग और हाथ से चुना गया थंबनेल फ़्रेम                        |
+| `reprocess-recording`                                                                     | अनसीकेबल या फ़्रोज़न मीडिया को ठीक करना                                      |
+| `generate-filmstrip`                                                                      | एडिटर टाइमलाइन फ़्रेम स्प्राइट                                               |
+| `tag-recording`, `set-thumbnail`                                                          | टैगिंग और हाथ से चुना गया थंबनेल फ़्रेम                                      |
 
 ### फ़ोल्डर और स्पेस
 
-| Action                                                       | यह क्या करता है                                    |
-| -------------------------------------------------------------- | ------------------------------------------------------ |
-| `create-folder`, `rename-folder`, `delete-folder`             | नेस्टेड फ़ोल्डर; किसी को डिलीट करने पर उसकी कंटेंट ऊपर चली जाती है |
-| `create-space`, `rename-space`, `delete-space`                | ऑर्ग-स्कोप्ड, टॉपिक-बेस्ड रिकॉर्डिंग कंटेनर             |
-| `add-recording-to-space`                                       | किसी स्पेस से रिकॉर्डिंग जोड़ना या हटाना (मैनी-टू-मैनी) |
-| `add-space-member`, `remove-space-member`                      | स्पेस-लेवल viewer, contributor, और admin रोल            |
+| Action                                            | यह क्या करता है                                                    |
+| ------------------------------------------------- | ------------------------------------------------------------------ |
+| `create-folder`, `rename-folder`, `delete-folder` | नेस्टेड फ़ोल्डर; किसी को डिलीट करने पर उसकी कंटेंट ऊपर चली जाती है |
+| `create-space`, `rename-space`, `delete-space`    | ऑर्ग-स्कोप्ड, टॉपिक-बेस्ड रिकॉर्डिंग कंटेनर                        |
+| `add-recording-to-space`                          | किसी स्पेस से रिकॉर्डिंग जोड़ना या हटाना (मैनी-टू-मैनी)            |
+| `add-space-member`, `remove-space-member`         | स्पेस-लेवल viewer, contributor, और admin रोल                       |
 
 ### एडिटिंग
 
-| Action                                                | यह क्या करता है                                             |
-| -------------------------------------------------------- | -------------------------------------------------------------- |
-| `trim-recording`, `split-recording`                    | एक कट इंस्ट्रक्शन लेयर करना; असली मीडिया को कभी नहीं छूता       |
-| `remove-silences`, `remove-filler-words`               | एजेंट-एक्ज़िक्यूटेड: ट्रांसक्रिप्ट पढ़ता है, आपके लिए ट्रिम लगाता है |
-| `stitch-recordings`                                    | कई रिकॉर्डिंग को क्रम में एक में मिलाना                         |
-| `undo-edit`, `clear-edits`                             | सबसे हाल का एडिट हटाना, या असली पर रीसेट करना                    |
+| Action                                   | यह क्या करता है                                                      |
+| ---------------------------------------- | -------------------------------------------------------------------- |
+| `trim-recording`, `split-recording`      | एक कट इंस्ट्रक्शन लेयर करना; असली मीडिया को कभी नहीं छूता            |
+| `remove-silences`, `remove-filler-words` | एजेंट-एक्ज़िक्यूटेड: ट्रांसक्रिप्ट पढ़ता है, आपके लिए ट्रिम लगाता है |
+| `stitch-recordings`                      | कई रिकॉर्डिंग को क्रम में एक में मिलाना                              |
+| `undo-edit`, `clear-edits`               | सबसे हाल का एडिट हटाना, या असली पर रीसेट करना                        |
 
 ### ट्रांसक्रिप्शन और AI मेटाडेटा
 
-| Action                                                  | यह क्या करता है                                     |
-| ---------------------------------------------------------- | -------------------------------------------------------- |
-| `request-transcript`, `cleanup-transcript`             | ट्रांसक्राइब करना; फिर से करने के लिए `force`/`regenerate` |
-| `regenerate-title`, `regenerate-summary`, `regenerate-chapters`, `set-chapters` | AI मेटाडेटा, या हाथ से अध्याय सेट करना |
-| `get-builder-credit-status`                             | क्या Builder.io AI क्रेडिट पॉज़ हैं                    |
+| Action                                                                          | यह क्या करता है                                            |
+| ------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| `request-transcript`, `cleanup-transcript`                                      | ट्रांसक्राइब करना; फिर से करने के लिए `force`/`regenerate` |
+| `regenerate-title`, `regenerate-summary`, `regenerate-chapters`, `set-chapters` | AI मेटाडेटा, या हाथ से अध्याय सेट करना                     |
+| `get-builder-credit-status`                                                     | क्या Builder.io AI क्रेडिट पॉज़ हैं                        |
 
 ### कमेंट और रिएक्शन
 
-| Action                                                      | यह क्या करता है                                     |
-| --------------------------------------------------------------| ---------------------------------------------------|
-| `add-comment`, `update-comment`, `delete-comment`, `reply-to-comment`, `resolve-comment` | थ्रेडेड, टाइमस्टैम्प्ड कमेंट |
-| `react-to-comment`, `react-to-recording`                    | इमोजी रिएक्शन                                        |
-| `list-comments`, `list-recording-mention-members`           | कमेंट पढ़ना; कौन @mention हो सकता है यह देखना          |
+| Action                                                                                   | यह क्या करता है                               |
+| ---------------------------------------------------------------------------------------- | --------------------------------------------- |
+| `add-comment`, `update-comment`, `delete-comment`, `reply-to-comment`, `resolve-comment` | थ्रेडेड, टाइमस्टैम्प्ड कमेंट                  |
+| `react-to-comment`, `react-to-recording`                                                 | इमोजी रिएक्शन                                 |
+| `list-comments`, `list-recording-mention-members`                                        | कमेंट पढ़ना; कौन @mention हो सकता है यह देखना |
 
 ### स्क्रीन मेमोरी (Rewind)
 
-| Action                                                                              | यह क्या करता है                                             |
-| ---------------------------------------------------------------------------------------| ---------------------------------------------------------- |
-| `get-screen-memory-status`, `query-screen-memory-context`                            | लोकल Rewind बफ़र पढ़ना                                      |
-| `request-rewind-extension`, `get-rewind-extension-request`, `list-rewind-extension-requests`, `update-rewind-extension-request` | किसी क्लिप में Rewind हिस्ट्री जोड़ने के लिए रिव्यू-एंड-अप्रूव फ़्लो |
-| `apply-rewind-extension`, `make-recording-private-for-rewind`                        | किसी अप्रूव्ड एक्सटेंशन को अप्लाई करना; पहले क्लिप को ज़बरदस्ती निजी बनाना |
+| Action                                                                                                                          | यह क्या करता है                                                            |
+| ------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `get-screen-memory-status`, `query-screen-memory-context`                                                                       | लोकल Rewind बफ़र पढ़ना                                                     |
+| `request-rewind-extension`, `get-rewind-extension-request`, `list-rewind-extension-requests`, `update-rewind-extension-request` | किसी क्लिप में Rewind हिस्ट्री जोड़ने के लिए रिव्यू-एंड-अप्रूव फ़्लो       |
+| `apply-rewind-extension`, `make-recording-private-for-rewind`                                                                   | किसी अप्रूव्ड एक्सटेंशन को अप्लाई करना; पहले क्लिप को ज़बरदस्ती निजी बनाना |
 
 ### क्रॉस-ऐप और इनसाइट्स
 
-| Action                          | यह क्या करता है                                                    |
-| ------------------------------------| ------------------------------------------------------------------ |
-| `export-to-brain`                | तैयार ट्रांसक्रिप्ट को ब्रेन को भेजना, बैकफ़िल और रिज़्यूमेबल कर्सर के साथ |
-| `prepare-crm-call-evidence`      | CRM ऑटोमेशन के लिए ओपेक क्लिप id और एक टिकाऊ `/r/<id>` लिंक             |
-| `create-recording-agent-link`   | किसी एक रिकॉर्डिंग के लिए स्कोप्ड, टाइम-लिमिटेड `agent_access` लिंक बनाना |
-| `get-recording-insights`, `get-organization-insights`, `export-insights-csv` | व्यूज़, एंगेजमेंट, और org-wide CSV एक्सपोर्ट |
-| `list-viewers`, `list-clip-views` | किसने देखा, और कब                                                    |
+| Action                                                                       | यह क्या करता है                                                            |
+| ---------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `export-to-brain`                                                            | तैयार ट्रांसक्रिप्ट को ब्रेन को भेजना, बैकफ़िल और रिज़्यूमेबल कर्सर के साथ |
+| `prepare-crm-call-evidence`                                                  | CRM ऑटोमेशन के लिए ओपेक क्लिप id और एक टिकाऊ `/r/<id>` लिंक                |
+| `create-recording-agent-link`                                                | किसी एक रिकॉर्डिंग के लिए स्कोप्ड, टाइम-लिमिटेड `agent_access` लिंक बनाना  |
+| `get-recording-insights`, `get-organization-insights`, `export-insights-csv` | व्यूज़, एंगेजमेंट, और org-wide CSV एक्सपोर्ट                               |
+| `list-viewers`, `list-clip-views`                                            | किसने देखा, और कब                                                          |
 
 ### संगठन
 
-| Action                                                        | यह क्या करता है                                        |
-| ------------------------------------------------------------------| ------------------------------------------------------- |
-| `create-organization`, `invite-member`, `accept-invite`, `decline-invite`, `get-invite` | Org बनाना और इनवाइटेशन |
-| `remove-member`, `update-member-role`                         | मेंबरशिप और रोल मैनेज करना                              |
-| `set-organization-branding`, `list-organization-state`         | ब्रांड कलर/लोगो, डिफ़ॉल्ट दृश्यता, org-wide रीड           |
+| Action                                                                                  | यह क्या करता है                                 |
+| --------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| `create-organization`, `invite-member`, `accept-invite`, `decline-invite`, `get-invite` | Org बनाना और इनवाइटेशन                          |
+| `remove-member`, `update-member-role`                                                   | मेंबरशिप और रोल मैनेज करना                      |
+| `set-organization-branding`, `list-organization-state`                                  | ब्रांड कलर/लोगो, डिफ़ॉल्ट दृश्यता, org-wide रीड |
 
 ### नेविगेशन, एम्बेडिंग, और बग रिपोर्ट
 
-| Action                                                                 | यह क्या करता है                                            |
-| ---------------------------------------------------------------------------| ---------------------------------------------------------- |
-| `view-screen`, `navigate`, `refresh-list`                             | कॉन्टेक्स्ट पढ़ना; UI मूव करना                              |
-| `get-playback-position`, `save-playback-position`, `get-recording-player-data` | प्लेबैक रिज़्यूम करना; पूरा ट्रांसक्रिप्ट और डायग्नोस्टिक्स |
+| Action                                                                                | यह क्या करता है                                                                               |
+| ------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `view-screen`, `navigate`, `refresh-list`                                             | कॉन्टेक्स्ट पढ़ना; UI मूव करना                                                                |
+| `get-playback-position`, `save-playback-position`, `get-recording-player-data`        | प्लेबैक रिज़्यूम करना; पूरा ट्रांसक्रिप्ट और डायग्नोस्टिक्स                                   |
 | `create-recording-intake-link`, `create-intake-recording`, `create-intake-agent-link` | एनोनिमस, थर्ड-पार्टी एम्बेडिंग फ़्लो। देखें [क्लिप्स एम्बेड करें](/docs/template-clips-embed) |
-| `save-bug-report-context`, `save-browser-diagnostics`, `save-browser-transcript` | एम्बेडेड बग-रिपोर्ट लॉन्चर और Chrome एक्सटेंशन डायग्नोस्टिक्स |
+| `save-bug-report-context`, `save-browser-diagnostics`, `save-browser-transcript`      | एम्बेडेड बग-रिपोर्ट लॉन्चर और Chrome एक्सटेंशन डायग्नोस्टिक्स                                 |
 
 ## डेटा मॉडल
 
@@ -270,7 +270,12 @@ pnpm dev
       kind: "n-n",
       label: "रिकॉर्डिंग किसी भी संख्या में स्पेस से जुड़ सकती हैं",
     },
-    { from: "spaces", to: "space_members", kind: "1-n", label: "के मेंबर होते हैं" },
+    {
+      from: "spaces",
+      to: "space_members",
+      kind: "1-n",
+      label: "के मेंबर होते हैं",
+    },
     {
       from: "recordings",
       to: "recording_comments",

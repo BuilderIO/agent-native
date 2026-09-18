@@ -43,86 +43,86 @@ Every operation is a TypeScript file in `templates/clips/actions/`, auto-mounted
 
 ### Library & recordings
 
-| Action                                          | What it does                                             |
-| ------------------------------------------------ | --------------------------------------------------------- |
-| `list-recordings`, `search-recordings`          | Library, shared-with-me, trash, and space-scoped listing |
-| `create-recording`, `finalize-recording`        | Create the row; finish the upload                        |
-| `import-loom-recording`                         | Import a Loom video or a direct MP4/WebM URL              |
-| `update-recording`                               | Title, description, password, expiry, visibility          |
-| `move-recording`                                 | Move one or several recordings to a folder or root         |
-| `archive-recording`, `trash-recording`, `restore-recording`, `delete-recording-permanent` | Lifecycle: hide, soft-delete, undo, or delete forever |
-| `reprocess-recording`                            | Repair unseekable or frozen media                          |
-| `generate-filmstrip`                             | Editor timeline frame sprite                               |
-| `tag-recording`, `set-thumbnail`                 | Tagging and a manually chosen thumbnail frame              |
+| Action                                                                                    | What it does                                             |
+| ----------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| `list-recordings`, `search-recordings`                                                    | Library, shared-with-me, trash, and space-scoped listing |
+| `create-recording`, `finalize-recording`                                                  | Create the row; finish the upload                        |
+| `import-loom-recording`                                                                   | Import a Loom video or a direct MP4/WebM URL             |
+| `update-recording`                                                                        | Title, description, password, expiry, visibility         |
+| `move-recording`                                                                          | Move one or several recordings to a folder or root       |
+| `archive-recording`, `trash-recording`, `restore-recording`, `delete-recording-permanent` | Lifecycle: hide, soft-delete, undo, or delete forever    |
+| `reprocess-recording`                                                                     | Repair unseekable or frozen media                        |
+| `generate-filmstrip`                                                                      | Editor timeline frame sprite                             |
+| `tag-recording`, `set-thumbnail`                                                          | Tagging and a manually chosen thumbnail frame            |
 
 ### Folders & spaces
 
-| Action                                                       | What it does                                    |
-| -------------------------------------------------------------- | -------------------------------------------------- |
-| `create-folder`, `rename-folder`, `delete-folder`             | Nested folders; deleting one moves its contents up |
-| `create-space`, `rename-space`, `delete-space`                | Org-scoped, topic-based recording containers        |
-| `add-recording-to-space`                                       | Add or remove a recording from a space (many-to-many) |
-| `add-space-member`, `remove-space-member`                      | Space-level viewer, contributor, and admin roles    |
+| Action                                            | What it does                                          |
+| ------------------------------------------------- | ----------------------------------------------------- |
+| `create-folder`, `rename-folder`, `delete-folder` | Nested folders; deleting one moves its contents up    |
+| `create-space`, `rename-space`, `delete-space`    | Org-scoped, topic-based recording containers          |
+| `add-recording-to-space`                          | Add or remove a recording from a space (many-to-many) |
+| `add-space-member`, `remove-space-member`         | Space-level viewer, contributor, and admin roles      |
 
 ### Editing
 
-| Action                                                | What it does                                             |
-| -------------------------------------------------------- | ----------------------------------------------------------- |
-| `trim-recording`, `split-recording`                    | Layer a cut instruction; never touches the source media    |
-| `remove-silences`, `remove-filler-words`               | Agent-executed: reads the transcript, applies trims for you |
-| `stitch-recordings`                                    | Combine several recordings into one, in order              |
-| `undo-edit`, `clear-edits`                             | Remove the most recent edit, or reset to the original       |
+| Action                                   | What it does                                                |
+| ---------------------------------------- | ----------------------------------------------------------- |
+| `trim-recording`, `split-recording`      | Layer a cut instruction; never touches the source media     |
+| `remove-silences`, `remove-filler-words` | Agent-executed: reads the transcript, applies trims for you |
+| `stitch-recordings`                      | Combine several recordings into one, in order               |
+| `undo-edit`, `clear-edits`               | Remove the most recent edit, or reset to the original       |
 
 ### Transcription & AI metadata
 
-| Action                                                  | What it does                                     |
-| ---------------------------------------------------------- | ------------------------------------------------------ |
-| `request-transcript`, `cleanup-transcript`             | Transcribe; `force`/`regenerate` for a fresh pass       |
-| `regenerate-title`, `regenerate-summary`, `regenerate-chapters`, `set-chapters` | AI metadata, or set chapters manually |
-| `get-builder-credit-status`                             | Whether Builder.io AI credits are paused                |
+| Action                                                                          | What it does                                      |
+| ------------------------------------------------------------------------------- | ------------------------------------------------- |
+| `request-transcript`, `cleanup-transcript`                                      | Transcribe; `force`/`regenerate` for a fresh pass |
+| `regenerate-title`, `regenerate-summary`, `regenerate-chapters`, `set-chapters` | AI metadata, or set chapters manually             |
+| `get-builder-credit-status`                                                     | Whether Builder.io AI credits are paused          |
 
 ### Comments & reactions
 
-| Action                                                      | What it does                                    |
-| --------------------------------------------------------------| ---------------------------------------------------|
-| `add-comment`, `update-comment`, `delete-comment`, `reply-to-comment`, `resolve-comment` | Threaded, timestamped comments |
-| `react-to-comment`, `react-to-recording`                    | Emoji reactions                                  |
-| `list-comments`, `list-recording-mention-members`           | Read comments; look up who can be @mentioned      |
+| Action                                                                                   | What it does                                 |
+| ---------------------------------------------------------------------------------------- | -------------------------------------------- |
+| `add-comment`, `update-comment`, `delete-comment`, `reply-to-comment`, `resolve-comment` | Threaded, timestamped comments               |
+| `react-to-comment`, `react-to-recording`                                                 | Emoji reactions                              |
+| `list-comments`, `list-recording-mention-members`                                        | Read comments; look up who can be @mentioned |
 
 ### Screen Memory (Rewind)
 
-| Action                                                                              | What it does                                             |
-| ---------------------------------------------------------------------------------------| ---------------------------------------------------------- |
-| `get-screen-memory-status`, `query-screen-memory-context`                            | Read the local Rewind buffer                              |
+| Action                                                                                                                          | What it does                                                    |
+| ------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `get-screen-memory-status`, `query-screen-memory-context`                                                                       | Read the local Rewind buffer                                    |
 | `request-rewind-extension`, `get-rewind-extension-request`, `list-rewind-extension-requests`, `update-rewind-extension-request` | The review-and-approve flow for adding Rewind history to a clip |
-| `apply-rewind-extension`, `make-recording-private-for-rewind`                        | Apply an approved extension; force the clip private first |
+| `apply-rewind-extension`, `make-recording-private-for-rewind`                                                                   | Apply an approved extension; force the clip private first       |
 
 ### Cross-app & insights
 
-| Action                          | What it does                                                  |
-| ------------------------------------| ------------------------------------------------------------------ |
-| `export-to-brain`                | Send ready transcripts to Brain, with backfill and a resumable cursor |
-| `prepare-crm-call-evidence`      | Opaque clip id plus a durable `/r/<id>` link for CRM automations     |
-| `create-recording-agent-link`   | Mint a scoped, time-limited `agent_access` link for one recording    |
-| `get-recording-insights`, `get-organization-insights`, `export-insights-csv` | Views, engagement, and org-wide CSV export |
-| `list-viewers`, `list-clip-views` | Who watched, and when                                              |
+| Action                                                                       | What it does                                                          |
+| ---------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `export-to-brain`                                                            | Send ready transcripts to Brain, with backfill and a resumable cursor |
+| `prepare-crm-call-evidence`                                                  | Opaque clip id plus a durable `/r/<id>` link for CRM automations      |
+| `create-recording-agent-link`                                                | Mint a scoped, time-limited `agent_access` link for one recording     |
+| `get-recording-insights`, `get-organization-insights`, `export-insights-csv` | Views, engagement, and org-wide CSV export                            |
+| `list-viewers`, `list-clip-views`                                            | Who watched, and when                                                 |
 
 ### Organization
 
-| Action                                                        | What it does                                          |
-| ------------------------------------------------------------------| ------------------------------------------------------- |
-| `create-organization`, `invite-member`, `accept-invite`, `decline-invite`, `get-invite` | Org creation and invitations |
-| `remove-member`, `update-member-role`                         | Manage membership and roles                            |
-| `set-organization-branding`, `list-organization-state`         | Brand color/logo, default visibility, org-wide reads    |
+| Action                                                                                  | What it does                                         |
+| --------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| `create-organization`, `invite-member`, `accept-invite`, `decline-invite`, `get-invite` | Org creation and invitations                         |
+| `remove-member`, `update-member-role`                                                   | Manage membership and roles                          |
+| `set-organization-branding`, `list-organization-state`                                  | Brand color/logo, default visibility, org-wide reads |
 
 ### Navigation, embedding & bug reports
 
-| Action                                                                 | What it does                                             |
-| ---------------------------------------------------------------------------| ---------------------------------------------------------- |
-| `view-screen`, `navigate`, `refresh-list`                             | Read context; move the UI                                |
-| `get-playback-position`, `save-playback-position`, `get-recording-player-data` | Resume playback; full transcript and diagnostics |
+| Action                                                                                | What it does                                                                             |
+| ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `view-screen`, `navigate`, `refresh-list`                                             | Read context; move the UI                                                                |
+| `get-playback-position`, `save-playback-position`, `get-recording-player-data`        | Resume playback; full transcript and diagnostics                                         |
 | `create-recording-intake-link`, `create-intake-recording`, `create-intake-agent-link` | The anonymous, third-party embedding flow. See [Embed Clips](/docs/template-clips-embed) |
-| `save-bug-report-context`, `save-browser-diagnostics`, `save-browser-transcript` | The embedded bug-report launcher and Chrome extension diagnostics |
+| `save-bug-report-context`, `save-browser-diagnostics`, `save-browser-transcript`      | The embedded bug-report launcher and Chrome extension diagnostics                        |
 
 ## Data model
 

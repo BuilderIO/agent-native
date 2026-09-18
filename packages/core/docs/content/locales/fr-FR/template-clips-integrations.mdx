@@ -29,11 +29,11 @@ Collez un lien de partage public de Clips dans un agent, ou utilisez **Partager 
 
 La plupart des agents capables de voir des images gèrent cela eux-mêmes, y compris ChatGPT, Claude Code, Cursor et Codex. Quelques chats en texte seul peuvent lire la transcription mais pas les images, alors ouvrez le clip dans un agent capable de voir des images pour ceux-là.
 
-| Point de terminaison                              | Ce que les agents obtiennent                                                                                |
-| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `/api/agent-context.json?id=<recordingId>`        | Métadonnées du clip, statut de la transcription, chapitres, CTA, images recommandées, et liens vers les API de transcription/image   |
+| Point de terminaison                              | Ce que les agents obtiennent                                                                                                              |
+| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `/api/agent-context.json?id=<recordingId>`        | Métadonnées du clip, statut de la transcription, chapitres, CTA, images recommandées, et liens vers les API de transcription/image        |
 | `/api/agent-transcript.json?id=<recordingId>`     | Segments de transcription horodatés avec `startMs`, `endMs`, des horodatages lisibles, le texte, et des étiquettes de source facultatives |
-| `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` | Une image JPEG extraite de la vidéo à un horodatage de la vidéo d'origine                                           |
+| `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` | Une image JPEG extraite de la vidéo à un horodatage de la vidéo d'origine                                                                 |
 
 Les points de terminaison suivent les mêmes règles de public/mot de passe/expiration que la page de partage, ou acceptent le jeton `agent_access` limité provenant d'un lien d'agent temporaire. Les clips protégés par mot de passe demandent le mot de passe une fois ; les réponses réussies renvoient des liens tokenisés de courte durée pour que les agents en aval n'aient pas besoin du mot de passe en clair.
 
@@ -121,7 +121,9 @@ Les outils CRM ont parfois besoin d'une preuve qu'un appel a eu lieu, sans l'enr
   <div class="diagram-node">Enregistrement prêt</div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-box" data-rough>
-    clip.created<br /><small class="diagram-muted">automatisation approuvée</small>
+    clip.created<br /><small class="diagram-muted"
+      >automatisation approuvée</small
+    >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-panel center">

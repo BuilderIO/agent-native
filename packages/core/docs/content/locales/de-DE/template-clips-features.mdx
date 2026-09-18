@@ -34,12 +34,12 @@ Organisationsadmins legen die Standardsichtbarkeit fest, die neue Aufnahmen erha
 
 Erstellen Sie eine Einbettungs-URL für einen Clip, um ihn in eine Wiki-Seite, ein internes Tool oder überall sonst einzufügen, wo ein `<iframe>` akzeptiert wird:
 
-| Param             | Bedeutung                                                 |
+| Param             | Bedeutung                                                  |
 | ----------------- | ---------------------------------------------------------- |
-| `?t=80`           | Wiedergabe bei 80 Sekunden starten                        |
+| `?t=80`           | Wiedergabe bei 80 Sekunden starten                         |
 | `?autoplay=1`     | Autoplay (stumm, da Browser unstummes Autoplay blockieren) |
 | `?hideControls=1` | Die Player-Steuerelemente ausblenden                       |
-| `?loop=1`         | Wiedergabe wiederholen                                      |
+| `?loop=1`         | Wiedergabe wiederholen                                     |
 
 Öffentliche Freigabelinks werden außerdem als abspielbares Video im Loom-Stil in der Vorschau angezeigt, sobald Ihr Arbeitsbereich seine Clips-Slack-App installiert. Nur fertige, öffentliche Clips ohne Passwort, ohne erreichtes Ablaufdatum und ohne Archiv-/Papierkorb-Markierung erzeugen eine abspielbare Slack-Vorschau. Alles andere fällt auf normale Titel- und Vorschaubild-Metadaten für Links zurück.
 
@@ -47,11 +47,11 @@ Möchten Sie, dass Transkript und Frames eines freigegebenen Clips nicht nur fü
 
 Sobald ein Clip freigegeben ist, kann der Eigentümer sehen, wer ihn tatsächlich ansieht:
 
-| Was                        | Zeigt Ihnen                                                                                                                                                                        |
-| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Aufnahme-Einblicke**     | Aufrufe, getrennt gezählt für Menschen und für externe Agenten, die die Agent-Context-APIs des Clips lesen, plus eindeutige Zuschauer, Abschlussrate, eine Abbruchkurve und CTA-Klickrate |
-| **Organisations-Einblicke** | Organisationsweite Summen für den Zeitraum, Top-Clips nach Aufrufen, Reaktionen und Kommentaren, Top-Ersteller und ein tagesgenauer Engagement-Trend, der Insights Hub            |
-| **CSV-Export**             | Jede Aufnahme in der Organisation mit ihren Aufruf- und Engagement-Zahlen, als herunterladbare CSV-Datei, für bis zu die letzten 5.000 Aufnahmen                                  |
+| Was                         | Zeigt Ihnen                                                                                                                                                                               |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Aufnahme-Einblicke**      | Aufrufe, getrennt gezählt für Menschen und für externe Agenten, die die Agent-Context-APIs des Clips lesen, plus eindeutige Zuschauer, Abschlussrate, eine Abbruchkurve und CTA-Klickrate |
+| **Organisations-Einblicke** | Organisationsweite Summen für den Zeitraum, Top-Clips nach Aufrufen, Reaktionen und Kommentaren, Top-Ersteller und ein tagesgenauer Engagement-Trend, der Insights Hub                    |
+| **CSV-Export**              | Jede Aufnahme in der Organisation mit ihren Aufruf- und Engagement-Zahlen, als herunterladbare CSV-Datei, für bis zu die letzten 5.000 Aufnahmen                                          |
 
 Menschliche Aufrufe und Agenten-Aufrufe werden absichtlich in getrennten Zählern erfasst, damit ein Agent, der das Transkript eines freigegebenen Clips abfragt, nie die Zahl der Menschen aufbläht, die ihn tatsächlich angesehen haben.
 
@@ -98,11 +98,11 @@ Ein Bereich ist ein themenbezogener Container, der zu einer Organisation gehört
 
 Ein Organisationsadmin erstellt einen Bereich und fügt einzeln Mitglieder hinzu. Die Mitgliedschaft in einem Bereich hat eigene Rollen:
 
-| Rolle           | Kann                                           |
-| --------------- | ----------------------------------------------- |
+| Rolle           | Kann                                                            |
+| --------------- | --------------------------------------------------------------- |
 | **Admin**       | Mitglieder hinzufügen und entfernen, deren Bereichsrolle ändern |
-| **Contributor** | Aufnahmen zum Bereich hinzufügen und daraus entfernen |
-| **Viewer**      | Sehen, was sich im Bereich befindet             |
+| **Contributor** | Aufnahmen zum Bereich hinzufügen und daraus entfernen           |
+| **Viewer**      | Sehen, was sich im Bereich befindet                             |
 
 Das Löschen eines Bereichs entfernt den Bereich und seine Mitgliederliste. Die Aufnahmen, die sich darin befanden, bleiben unberührt. Sie werden dort einfach nicht mehr angezeigt.
 
@@ -150,11 +150,11 @@ Sie beobachtet nur den Tab, den Sie aktiv aufnehmen, und nur während die Aufnah
 
 Die Transkription versucht zuerst die schnellste, kostenlose Option und weicht nur bei Bedarf auf eine kostenpflichtige aus:
 
-| Reihenfolge | Anbieter                        | Hinweise                                                                                                                                        |
-| ----------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1           | Nativ (auf dem Gerät)            | Web Speech API des Browsers oder lokales Whisper/macOS-Speech auf dem Desktop. Sofort, kein API-Schlüssel.                                       |
-| 2           | Builder.io verwaltet (Gemini)    | Cloud-Fallback, wenn nativer Text fehlt. Kein zusätzlicher Schlüssel nötig, sobald Builder verbunden ist. Der kostenlose Tarif von Builder.io enthält verwaltete KI-Guthaben. |
-| 3           | Groq (`whisper-large-v3-turbo`) | Optionales Backup, wenn Sie lieber Ihren eigenen Schlüssel mitbringen.                                                                            |
+| Reihenfolge | Anbieter                        | Hinweise                                                                                                                                                                      |
+| ----------- | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1           | Nativ (auf dem Gerät)           | Web Speech API des Browsers oder lokales Whisper/macOS-Speech auf dem Desktop. Sofort, kein API-Schlüssel.                                                                    |
+| 2           | Builder.io verwaltet (Gemini)   | Cloud-Fallback, wenn nativer Text fehlt. Kein zusätzlicher Schlüssel nötig, sobald Builder verbunden ist. Der kostenlose Tarif von Builder.io enthält verwaltete KI-Guthaben. |
+| 3           | Groq (`whisper-large-v3-turbo`) | Optionales Backup, wenn Sie lieber Ihren eigenen Schlüssel mitbringen.                                                                                                        |
 
 Sobald ein Transkript fertig ist, füllt der Agent automatisch Titel, Zusammenfassung und Kapitelmarkierungen aus und hält sie aktuell, während Sie bearbeiten. Sie können auch direkt fragen:
 
@@ -195,10 +195,10 @@ Jeder kann eine Organisation erstellen, um einen Clips-Arbeitsbereich mit einem 
 - **Standardsichtbarkeit.** Admins wählen, worauf neue Aufnahmen standardmäßig gesetzt werden (öffentlich, Organisation oder privat), wenn niemand ausdrücklich eine auswählt.
 - **Mitglieder einladen** per E-Mail. Eine Einladung wird entweder angenommen oder abgelehnt, und Admins können die Rolle eines Mitglieds später ändern oder es entfernen.
 
-| Rolle      | Kann                                                                                                                    |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Rolle      | Kann                                                                                                                             |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | **Admin**  | Mitglieder einladen und entfernen, Rollen ändern, Branding und Standardsichtbarkeit festlegen, plus alles, was ein Mitglied kann |
-| **Member** | Eigene Clips aufnehmen, bearbeiten und teilen, und in jedem Bereich arbeiten, zu dem sie hinzugefügt wurden               |
+| **Member** | Eigene Clips aufnehmen, bearbeiten und teilen, und in jedem Bereich arbeiten, zu dem sie hinzugefügt wurden                      |
 
 ## Wie geht es weiter?
 

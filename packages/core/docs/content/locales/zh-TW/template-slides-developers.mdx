@@ -336,18 +336,18 @@ npx @agent-native/core@latest create my-slides --standalone --template slides
 
 ## 路由參考
 
-| 路由                              | 渲染內容                                                                |
-| --------------------------------- | ------------------------------------------------------------------------ |
-| `/`                                | 公開的行銷/SEO 到達頁面                                                  |
-| `/home`                            | 簡報清單，私人的應用程式首頁                                              |
-| `/deck/:id`                        | 編輯器                                                                    |
-| `/deck/:id/present`                | 全螢幕呈現                                                                |
-| `/p/:id`                           | 公開／代理可讀取的即時簡報預覽，與 `/share/:token` 不同                   |
-| `/share/:token`                    | 公開唯讀快照，於分享當下凝結                                              |
-| `/slide`                           | 用於聊天預覽的單張投影片嵌入畫面                                          |
-| `/design-systems`                  | 管理已儲存的設計系統                                                      |
-| `/access-request/approve`          | 核准對私人簡報的存取請求                                                  |
-| `/agent`、`/extensions`、`/team`   | 重新導向到相應的 `/settings` 分頁                                         |
+| 路由                             | 渲染內容                                                |
+| -------------------------------- | ------------------------------------------------------- |
+| `/`                              | 公開的行銷/SEO 到達頁面                                 |
+| `/home`                          | 簡報清單，私人的應用程式首頁                            |
+| `/deck/:id`                      | 編輯器                                                  |
+| `/deck/:id/present`              | 全螢幕呈現                                              |
+| `/p/:id`                         | 公開／代理可讀取的即時簡報預覽，與 `/share/:token` 不同 |
+| `/share/:token`                  | 公開唯讀快照，於分享當下凝結                            |
+| `/slide`                         | 用於聊天預覽的單張投影片嵌入畫面                        |
+| `/design-systems`                | 管理已儲存的設計系統                                    |
+| `/access-request/approve`        | 核准對私人簡報的存取請求                                |
+| `/agent`、`/extensions`、`/team` | 重新導向到相應的 `/settings` 分頁                       |
 
 ## 自訂它
 
@@ -379,7 +379,7 @@ npx @agent-native/core@latest create my-slides --standalone --template slides
     {
       lines: "29-37",
       label: "大聲失敗，不要悄悄回傳",
-      note: "`fail(...)` 會丟出一個結構化的錯誤，而不是回傳一個普通的值。這個 action 過去在比對失敗時會回傳 `{ ok: false, message: \"Text not found\" }`，呼叫者很容易把這誤讀成成功。丟出例外是唯一能可靠地表示這份簡報並未被修改的管道。",
+      note: '`fail(...)` 會丟出一個結構化的錯誤，而不是回傳一個普通的值。這個 action 過去在比對失敗時會回傳 `{ ok: false, message: "Text not found" }`，呼叫者很容易把這誤讀成成功。丟出例外是唯一能可靠地表示這份簡報並未被修改的管道。',
     },
     {
       lines: "39-51",

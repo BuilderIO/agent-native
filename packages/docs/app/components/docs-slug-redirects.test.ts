@@ -40,8 +40,12 @@ describe("resolveFragmentRedirect", () => {
   });
 
   it("returns undefined for an empty hash", () => {
-    expect(resolveFragmentRedirect("template-clips-features", "")).toBeUndefined();
-    expect(resolveFragmentRedirect("template-clips-features", "#")).toBeUndefined();
+    expect(
+      resolveFragmentRedirect("template-clips-features", ""),
+    ).toBeUndefined();
+    expect(
+      resolveFragmentRedirect("template-clips-features", "#"),
+    ).toBeUndefined();
   });
 
   it("resolves a Slides gerund-to-imperative heading rename", () => {

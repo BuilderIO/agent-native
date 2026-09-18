@@ -43,86 +43,86 @@ pnpm dev
 
 ### 媒體庫和錄音
 
-| Action                                                                                     | 作用                                                       |
-| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| `list-recordings`、`search-recordings`                                                     | 媒體庫、與我共用、垃圾桶，以及空間範圍內的清單               |
-| `create-recording`、`finalize-recording`                                                   | 建立資料列；完成上傳                                         |
-| `import-loom-recording`                                                                     | 匯入 Loom 影片，或直接匯入 MP4/WebM 網址                     |
-| `update-recording`                                                                          | 標題、描述、密碼、到期日、可見性                             |
-| `move-recording`                                                                            | 把一段或多段錄音移到資料夾或根目錄                           |
-| `archive-recording`、`trash-recording`、`restore-recording`、`delete-recording-permanent` | 生命週期：隱藏、軟刪除、復原，或永久刪除                     |
-| `reprocess-recording`                                                                       | 修復無法拖曳或凍結的媒體                                     |
-| `generate-filmstrip`                                                                        | 編輯器時間軸的畫格縮圖條                                     |
-| `tag-recording`、`set-thumbnail`                                                           | 標籤，以及手動選擇的縮圖畫格                                 |
+| Action                                                                                    | 作用                                           |
+| ----------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| `list-recordings`、`search-recordings`                                                    | 媒體庫、與我共用、垃圾桶，以及空間範圍內的清單 |
+| `create-recording`、`finalize-recording`                                                  | 建立資料列；完成上傳                           |
+| `import-loom-recording`                                                                   | 匯入 Loom 影片，或直接匯入 MP4/WebM 網址       |
+| `update-recording`                                                                        | 標題、描述、密碼、到期日、可見性               |
+| `move-recording`                                                                          | 把一段或多段錄音移到資料夾或根目錄             |
+| `archive-recording`、`trash-recording`、`restore-recording`、`delete-recording-permanent` | 生命週期：隱藏、軟刪除、復原，或永久刪除       |
+| `reprocess-recording`                                                                     | 修復無法拖曳或凍結的媒體                       |
+| `generate-filmstrip`                                                                      | 編輯器時間軸的畫格縮圖條                       |
+| `tag-recording`、`set-thumbnail`                                                          | 標籤，以及手動選擇的縮圖畫格                   |
 
 ### 資料夾和空間
 
-| Action                                                       | 作用                                    |
-| --------------------------------------------------------------| ---------------------------------------- |
-| `create-folder`、`rename-folder`、`delete-folder`             | 巢狀資料夾；刪除一個會把內容往上移       |
-| `create-space`、`rename-space`、`delete-space`                | 組織範圍、以主題為基礎的錄音容器          |
-| `add-recording-to-space`                                       | 把一段錄音加入或移出空間（多對多）        |
-| `add-space-member`、`remove-space-member`                      | 空間層級的檢視者、貢獻者和管理員角色       |
+| Action                                            | 作用                                 |
+| ------------------------------------------------- | ------------------------------------ |
+| `create-folder`、`rename-folder`、`delete-folder` | 巢狀資料夾；刪除一個會把內容往上移   |
+| `create-space`、`rename-space`、`delete-space`    | 組織範圍、以主題為基礎的錄音容器     |
+| `add-recording-to-space`                          | 把一段錄音加入或移出空間（多對多）   |
+| `add-space-member`、`remove-space-member`         | 空間層級的檢視者、貢獻者和管理員角色 |
 
 ### 編輯
 
-| Action                                                | 作用                                             |
-| -------------------------------------------------------- | -------------------------------------------------- |
-| `trim-recording`、`split-recording`                    | 疊加一個剪切指令；永不動到原始媒體                 |
-| `remove-silences`、`remove-filler-words`               | 由代理執行：讀取逐字稿，為您套用修剪               |
-| `stitch-recordings`                                    | 依序把多段錄音合併成一段                           |
-| `undo-edit`、`clear-edits`                             | 移除最近一次編輯，或重設為原始狀態                 |
+| Action                                   | 作用                                 |
+| ---------------------------------------- | ------------------------------------ |
+| `trim-recording`、`split-recording`      | 疊加一個剪切指令；永不動到原始媒體   |
+| `remove-silences`、`remove-filler-words` | 由代理執行：讀取逐字稿，為您套用修剪 |
+| `stitch-recordings`                      | 依序把多段錄音合併成一段             |
+| `undo-edit`、`clear-edits`               | 移除最近一次編輯，或重設為原始狀態   |
 
 ### 逐字稿和 AI 中繼資料
 
-| Action                                                  | 作用                                     |
-| ---------------------------------------------------------- | ------------------------------------------ |
-| `request-transcript`、`cleanup-transcript`             | 轉錄；使用 `force`/`regenerate` 重新進行一次 |
-| `regenerate-title`、`regenerate-summary`、`regenerate-chapters`、`set-chapters` | AI 中繼資料，或手動設定章節 |
-| `get-builder-credit-status`                             | Builder.io 的 AI 額度是否已被暫停           |
+| Action                                                                          | 作用                                         |
+| ------------------------------------------------------------------------------- | -------------------------------------------- |
+| `request-transcript`、`cleanup-transcript`                                      | 轉錄；使用 `force`/`regenerate` 重新進行一次 |
+| `regenerate-title`、`regenerate-summary`、`regenerate-chapters`、`set-chapters` | AI 中繼資料，或手動設定章節                  |
+| `get-builder-credit-status`                                                     | Builder.io 的 AI 額度是否已被暫停            |
 
 ### 留言和 reactions
 
-| Action                                                      | 作用                                    |
-| --------------------------------------------------------------| ---------------------------------------- |
-| `add-comment`、`update-comment`、`delete-comment`、`reply-to-comment`、`resolve-comment` | 對話串化、帶時間戳的留言 |
-| `react-to-comment`、`react-to-recording`                    | 表情符號 reactions                       |
-| `list-comments`、`list-recording-mention-members`           | 讀取留言；查詢誰可以被 @提及              |
+| Action                                                                                   | 作用                         |
+| ---------------------------------------------------------------------------------------- | ---------------------------- |
+| `add-comment`、`update-comment`、`delete-comment`、`reply-to-comment`、`resolve-comment` | 對話串化、帶時間戳的留言     |
+| `react-to-comment`、`react-to-recording`                                                 | 表情符號 reactions           |
+| `list-comments`、`list-recording-mention-members`                                        | 讀取留言；查詢誰可以被 @提及 |
 
 ### 螢幕記憶（Rewind）
 
-| Action                                                                              | 作用                                             |
-| ---------------------------------------------------------------------------------------| -------------------------------------------------- |
-| `get-screen-memory-status`、`query-screen-memory-context`                            | 讀取本機 Rewind 緩衝區                             |
+| Action                                                                                                                          | 作用                                       |
+| ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| `get-screen-memory-status`、`query-screen-memory-context`                                                                       | 讀取本機 Rewind 緩衝區                     |
 | `request-rewind-extension`、`get-rewind-extension-request`、`list-rewind-extension-requests`、`update-rewind-extension-request` | 把 Rewind 歷史紀錄加進剪輯的審核與核准流程 |
-| `apply-rewind-extension`、`make-recording-private-for-rewind`                        | 套用已核准的延伸內容；先強制將剪輯設為私人           |
+| `apply-rewind-extension`、`make-recording-private-for-rewind`                                                                   | 套用已核准的延伸內容；先強制將剪輯設為私人 |
 
 ### 跨應用和洞察
 
-| Action                          | 作用                                                  |
-| ------------------------------------| -------------------------------------------------------- |
-| `export-to-brain`                | 把已就緒的逐字稿傳送到 Brain，支援回填和可續傳的游標       |
-| `prepare-crm-call-evidence`      | 給 CRM 自動化使用的不透明剪輯 id，加上一個持久的 `/r/<id>` 連結 |
-| `create-recording-agent-link`   | 為一段錄音發行一個範圍受限、限時的 `agent_access` 連結      |
-| `get-recording-insights`、`get-organization-insights`、`export-insights-csv` | 觀看次數、參與度，以及整個組織的 CSV 匯出 |
-| `list-viewers`、`list-clip-views` | 誰看過，以及何時看的                                    |
+| Action                                                                       | 作用                                                            |
+| ---------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `export-to-brain`                                                            | 把已就緒的逐字稿傳送到 Brain，支援回填和可續傳的游標            |
+| `prepare-crm-call-evidence`                                                  | 給 CRM 自動化使用的不透明剪輯 id，加上一個持久的 `/r/<id>` 連結 |
+| `create-recording-agent-link`                                                | 為一段錄音發行一個範圍受限、限時的 `agent_access` 連結          |
+| `get-recording-insights`、`get-organization-insights`、`export-insights-csv` | 觀看次數、參與度，以及整個組織的 CSV 匯出                       |
+| `list-viewers`、`list-clip-views`                                            | 誰看過，以及何時看的                                            |
 
 ### 組織
 
-| Action                                                        | 作用                                          |
-| ------------------------------------------------------------------| ----------------------------------------------- |
-| `create-organization`、`invite-member`、`accept-invite`、`decline-invite`、`get-invite` | 組織建立和邀請 |
-| `remove-member`、`update-member-role`                         | 管理成員資格和角色                              |
-| `set-organization-branding`、`list-organization-state`         | 品牌顏色/標誌、預設可見性、整個組織範圍的讀取     |
+| Action                                                                                  | 作用                                          |
+| --------------------------------------------------------------------------------------- | --------------------------------------------- |
+| `create-organization`、`invite-member`、`accept-invite`、`decline-invite`、`get-invite` | 組織建立和邀請                                |
+| `remove-member`、`update-member-role`                                                   | 管理成員資格和角色                            |
+| `set-organization-branding`、`list-organization-state`                                  | 品牌顏色/標誌、預設可見性、整個組織範圍的讀取 |
 
 ### 導覽、嵌入和錯誤回報
 
-| Action                                                                 | 作用                                             |
-| ---------------------------------------------------------------------------| -------------------------------------------------- |
-| `view-screen`、`navigate`、`refresh-list`                             | 讀取脈絡；移動 UI                                  |
-| `get-playback-position`、`save-playback-position`、`get-recording-player-data` | 恢復播放；完整逐字稿和診斷資訊 |
+| Action                                                                                | 作用                                                                |
+| ------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `view-screen`、`navigate`、`refresh-list`                                             | 讀取脈絡；移動 UI                                                   |
+| `get-playback-position`、`save-playback-position`、`get-recording-player-data`        | 恢復播放；完整逐字稿和診斷資訊                                      |
 | `create-recording-intake-link`、`create-intake-recording`、`create-intake-agent-link` | 匿名的第三方嵌入流程。請參閱 [嵌入剪輯](/docs/template-clips-embed) |
-| `save-bug-report-context`、`save-browser-diagnostics`、`save-browser-transcript` | 嵌入式錯誤回報啟動器，以及 Chrome 擴充功能診斷資訊 |
+| `save-bug-report-context`、`save-browser-diagnostics`、`save-browser-transcript`      | 嵌入式錯誤回報啟動器，以及 Chrome 擴充功能診斷資訊                  |
 
 ## 資料模型
 

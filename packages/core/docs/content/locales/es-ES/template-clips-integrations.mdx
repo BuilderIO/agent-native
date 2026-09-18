@@ -13,7 +13,7 @@ Que esto sea automático depende de cómo se configuraron juntos Clips y Dispatc
 
 ### Mismo espacio de trabajo: automático
 
-Si Clips y Dispatch se generaron o se añadieron juntos en un mismo espacio de trabajo de Agent Native (mediante `create` o `add-app`) y se desplegaron como una sola unidad, ya comparten un `.env`, un `A2A_SECRET` y un registro de espacio de trabajo. Tanto el descubrimiento como las llamadas A2A autenticadas simplemente funcionan, sin nada que configurar, ya sea que ese espacio de trabajo se ejecute en tu máquina o en producción. Esta es la configuración esperada para un producto real con varias apps construido sobre Clips.
+Si Clips y Dispatch se generaron o se añadieron juntos en un mismo espacio de trabajo de Agent-Native (mediante `create` o `add-app`) y se desplegaron como una sola unidad, ya comparten un `.env`, un `A2A_SECRET` y un registro de espacio de trabajo. Tanto el descubrimiento como las llamadas A2A autenticadas simplemente funcionan, sin nada que configurar, ya sea que ese espacio de trabajo se ejecute en tu máquina o en producción. Esta es la configuración esperada para un producto real con varias apps construido sobre Clips.
 
 ### Despliegues separados: un paso manual
 
@@ -29,8 +29,8 @@ Pega un enlace público para compartir de Clips en un agente, o usa **Share → 
 
 La mayoría de los agentes que pueden ver imágenes gestionan esto por su cuenta, incluidos ChatGPT, Claude Code, Cursor y Codex. Algunos chats de solo texto pueden leer la transcripción pero no los fotogramas, así que abre el clip en un agente con capacidad de imagen para esos casos.
 
-| Endpoint                                          | What agents get                                                                                                |
-| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Endpoint                                          | What agents get                                                                                                                          |
+| ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | `/api/agent-context.json?id=<recordingId>`        | Metadatos del clip, estado de la transcripción, capítulos, CTA, fotogramas recomendados y enlaces a las API de transcripción/fotograma   |
 | `/api/agent-transcript.json?id=<recordingId>`     | Segmentos de transcripción con marca de tiempo con `startMs`, `endMs`, marcas de tiempo legibles, texto y etiquetas de origen opcionales |
 | `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` | Un fotograma JPEG extraído del vídeo en una marca de tiempo del vídeo original                                                           |
@@ -121,7 +121,9 @@ Las herramientas de CRM a veces necesitan probar que una llamada ocurrió, sin l
   <div class="diagram-node">Grabación lista</div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-box" data-rough>
-    clip.created<br /><small class="diagram-muted">automatización aprobada</small>
+    clip.created<br /><small class="diagram-muted"
+      >automatización aprobada</small
+    >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-panel center">

@@ -35,7 +35,7 @@ Organization admins set the default visibility new recordings get when nobody ch
 Build an embed URL for a clip to drop it into a wiki page, an internal tool, or anywhere else that accepts an `<iframe>`:
 
 | Param             | Meaning                                                 |
-| ----------------- | -------------------------------------------------------- |
+| ----------------- | ------------------------------------------------------- |
 | `?t=80`           | Start playback at 80 seconds                            |
 | `?autoplay=1`     | Autoplay (muted, since browsers block unmuted autoplay) |
 | `?hideControls=1` | Hide the player chrome                                  |
@@ -48,7 +48,7 @@ Want a shared clip's transcript and frames to be readable by an outside agent li
 Once a clip is shared, its owner can see who's actually watching:
 
 | What                      | Shows you                                                                                                                                                                        |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Recording insights**    | Views, counted separately for humans and for outside agents reading the clip's agent-context APIs, plus unique viewers, completion rate, a drop-off curve, and CTA click-through |
 | **Organization insights** | Org-wide totals for the period, top clips by views, reactions, and comments, top creators, and a day-by-day engagement trend, the Insights Hub                                   |
 | **CSV export**            | Every recording in the organization with its view and engagement counts, as a downloadable CSV, up to the most recent 5,000 recordings                                           |
@@ -98,11 +98,11 @@ A space is a topic-scoped container that belongs to one organization, something 
 
 An org admin creates a space and adds members to it individually. Space membership has its own roles:
 
-| Role            | Can do                                       |
-| --------------- | --------------------------------------------- |
+| Role            | Can do                                          |
+| --------------- | ----------------------------------------------- |
 | **Admin**       | Add and remove members, change their space role |
-| **Contributor** | Add and remove recordings from the space      |
-| **Viewer**      | See what's in the space                       |
+| **Contributor** | Add and remove recordings from the space        |
+| **Viewer**      | See what's in the space                         |
 
 Deleting a space removes the space and its membership list. The recordings that were in it are untouched. They just stop showing up there.
 

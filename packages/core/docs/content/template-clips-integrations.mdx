@@ -13,7 +13,7 @@ Whether this is automatic depends on how Clips and Dispatch were set up together
 
 ### Same workspace: automatic
 
-If Clips and Dispatch were generated or added together into one Agent Native workspace (via `create` or `add-app`) and deployed as one unit, they already share one `.env`, one `A2A_SECRET`, and one workspace registry. Discovery and authenticated A2A calling both just work, with nothing to set up, whether that workspace is running on your machine or in production. This is the expected setup for a real multi-app product built on Clips.
+If Clips and Dispatch were generated or added together into one Agent-Native workspace (via `create` or `add-app`) and deployed as one unit, they already share one `.env`, one `A2A_SECRET`, and one workspace registry. Discovery and authenticated A2A calling both just work, with nothing to set up, whether that workspace is running on your machine or in production. This is the expected setup for a real multi-app product built on Clips.
 
 ### Separate deployments: one manual step
 
@@ -30,7 +30,7 @@ Paste a public Clips share link into an agent, or use **Share → Copy** in the 
 Most agents that can view images handle this on their own, including ChatGPT, Claude Code, Cursor, and Codex. A few text-only chats can read the transcript but not the frames, so open the clip in an image-capable agent for those.
 
 | Endpoint                                          | What agents get                                                                                                |
-| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | `/api/agent-context.json?id=<recordingId>`        | Clip metadata, transcript status, chapters, CTAs, recommended frames, and links to the transcript/frame APIs   |
 | `/api/agent-transcript.json?id=<recordingId>`     | Timestamped transcript segments with `startMs`, `endMs`, readable timestamps, text, and optional source labels |
 | `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` | A JPEG frame extracted from the video at an original-video timestamp                                           |

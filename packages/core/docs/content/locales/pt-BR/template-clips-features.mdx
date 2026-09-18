@@ -34,12 +34,12 @@ Os administradores da organização definem a visibilidade padrão que novas gra
 
 Crie uma URL de incorporação para um clipe para colocá-lo em uma página de wiki, uma ferramenta interna, ou qualquer outro lugar que aceite um `<iframe>`:
 
-| Parâmetro          | Significado                                                                          |
-| ------------------ | ------------------------------------------------------------------------------------- |
-| `?t=80`            | Inicia a reprodução em 80 segundos                                                   |
-| `?autoplay=1`      | Reprodução automática (sem áudio, já que navegadores bloqueiam a reprodução automática com áudio) |
-| `?hideControls=1`  | Oculta os controles do player                                                        |
-| `?loop=1`          | Reproduz em loop                                                                      |
+| Parâmetro         | Significado                                                                                       |
+| ----------------- | ------------------------------------------------------------------------------------------------- |
+| `?t=80`           | Inicia a reprodução em 80 segundos                                                                |
+| `?autoplay=1`     | Reprodução automática (sem áudio, já que navegadores bloqueiam a reprodução automática com áudio) |
+| `?hideControls=1` | Oculta os controles do player                                                                     |
+| `?loop=1`         | Reproduz em loop                                                                                  |
 
 Links de compartilhamento públicos também são exibidos como uma prévia de vídeo reproduzível, no estilo Loom, depois que o seu workspace instala o aplicativo do Clipes para o Slack. Apenas clipes prontos, públicos, sem senha, sem expiração vencida e sem marcador de arquivo/lixeira geram uma prévia reproduzível no Slack. Qualquer outro caso volta aos metadados normais de título e miniatura em links.
 
@@ -47,11 +47,11 @@ Quer que a transcrição e os quadros de um clipe compartilhado sejam legíveis 
 
 Depois que um clipe é compartilhado, seu proprietário pode ver quem realmente está assistindo:
 
-| O que                      | Mostra a você                                                                                                                                                                           |
-| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Insights da gravação**   | Visualizações, contadas separadamente para humanos e para agentes externos que leem as APIs de contexto de agente do clipe, além de espectadores únicos, taxa de conclusão, uma curva de abandono e taxa de cliques em CTA |
-| **Insights da organização**| Totais da organização para o período, principais clipes por visualizações, reações e comentários, principais criadores, e uma tendência de engajamento dia a dia, o Insights Hub       |
-| **Exportação em CSV**      | Toda gravação na organização com suas contagens de visualizações e engajamento, como um CSV para download, até as 5.000 gravações mais recentes                                        |
+| O que                       | Mostra a você                                                                                                                                                                                                              |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Insights da gravação**    | Visualizações, contadas separadamente para humanos e para agentes externos que leem as APIs de contexto de agente do clipe, além de espectadores únicos, taxa de conclusão, uma curva de abandono e taxa de cliques em CTA |
+| **Insights da organização** | Totais da organização para o período, principais clipes por visualizações, reações e comentários, principais criadores, e uma tendência de engajamento dia a dia, o Insights Hub                                           |
+| **Exportação em CSV**       | Toda gravação na organização com suas contagens de visualizações e engajamento, como um CSV para download, até as 5.000 gravações mais recentes                                                                            |
 
 As visualizações humanas e as visualizações de agentes são rastreadas em contadores separados de propósito, para que um agente consultando periodicamente a transcrição de um clipe compartilhado nunca infle a contagem de pessoas que realmente o assistiram.
 
@@ -98,11 +98,11 @@ Um espaço é um contêiner com escopo de tópico que pertence a uma organizaç�
 
 Um administrador da organização cria um espaço e adiciona membros a ele individualmente. A participação em um espaço tem suas próprias funções:
 
-| Função             | Pode fazer                                          |
-| ------------------ | ---------------------------------------------------- |
-| **Administrador**  | Adicionar e remover membros, alterar a função deles  |
-| **Colaborador**    | Adicionar e remover gravações do espaço              |
-| **Visualizador**   | Ver o que há no espaço                                |
+| Função            | Pode fazer                                          |
+| ----------------- | --------------------------------------------------- |
+| **Administrador** | Adicionar e remover membros, alterar a função deles |
+| **Colaborador**   | Adicionar e remover gravações do espaço             |
+| **Visualizador**  | Ver o que há no espaço                              |
 
 Excluir um espaço remove o espaço e sua lista de membros. As gravações que estavam nele permanecem intactas. Elas só deixam de aparecer lá.
 
@@ -150,11 +150,11 @@ Ela só observa a aba que você está gravando ativamente, e apenas enquanto a g
 
 A transcrição tenta primeiro a opção mais rápida e gratuita, e só recorre a uma paga quando é necessário:
 
-| Ordem | Provedor                        | Observações                                                                                                                                     |
-| ----- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 1     | Nativo (no dispositivo)          | Web Speech API do navegador ou Whisper local/fala do macOS no desktop. Instantâneo, sem chave de API.                                           |
+| Ordem | Provedor                            | Observações                                                                                                                                                                                       |
+| ----- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | Nativo (no dispositivo)             | Web Speech API do navegador ou Whisper local/fala do macOS no desktop. Instantâneo, sem chave de API.                                                                                             |
 | 2     | Gerenciado pela Builder.io (Gemini) | Alternativa na nuvem quando o texto nativo está faltando. Nenhuma chave extra é necessária depois que o Builder está conectado. O plano gratuito da Builder.io inclui créditos de IA gerenciados. |
-| 3     | Groq (`whisper-large-v3-turbo`)  | Alternativa opcional se você preferir usar sua própria chave.                                                                                    |
+| 3     | Groq (`whisper-large-v3-turbo`)     | Alternativa opcional se você preferir usar sua própria chave.                                                                                                                                     |
 
 Depois que uma transcrição fica pronta, o agente preenche automaticamente um título, um resumo e marcadores de capítulo, e os mantém atualizados enquanto você edita. Você também pode pedir diretamente:
 
@@ -195,10 +195,10 @@ Qualquer pessoa pode criar uma organização para compartilhar um workspace do C
 - **Visibilidade padrão.** Os administradores escolhem o que as novas gravações recebem por padrão (público, organização ou privado) quando ninguém escolhe uma explicitamente.
 - **Convide membros** por e-mail. Um convite é aceito ou recusado, e os administradores podem alterar a função de um membro ou removê-lo depois.
 
-| Função             | Pode fazer                                                                                                             |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------ |
-| **Administrador**  | Convidar e remover membros, alterar funções, definir identidade visual e visibilidade padrão, além de tudo o que um membro pode fazer |
-| **Membro**         | Gravar, editar e compartilhar seus próprios clipes, e trabalhar em qualquer espaço ao qual tenha sido adicionado          |
+| Função            | Pode fazer                                                                                                                            |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| **Administrador** | Convidar e remover membros, alterar funções, definir identidade visual e visibilidade padrão, além de tudo o que um membro pode fazer |
+| **Membro**        | Gravar, editar e compartilhar seus próprios clipes, e trabalhar em qualquer espaço ao qual tenha sido adicionado                      |
 
 ## Próximos passos
 
