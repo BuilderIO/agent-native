@@ -20,18 +20,18 @@ async function requestTwoFactor<T>(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  let data: Record<string, unknown> = {};
+  let data: Record<string, unknown> | undefined;
   try {
     const parsed: unknown = await response.json();
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
       data = parsed as Record<string, unknown>;
     }
   } catch {
-    // Keep the HTTP status as the error signal when the server returned no JSON.
+    data = undefined;
   }
   if (!response.ok) {
     const message =
-      typeof data.error === "string"
+      typeof data?.error === "string"
         ? data.error
         : "Two-factor authentication could not be completed.";
     throw new Error(message);
