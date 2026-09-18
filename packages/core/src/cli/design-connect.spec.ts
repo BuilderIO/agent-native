@@ -5,6 +5,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 
+import { chromium, type Browser } from "playwright";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -32,6 +33,14 @@ async function freePort(): Promise<number> {
     });
     srv.once("error", reject);
   });
+}
+
+async function launchBrowser(): Promise<Browser> {
+  try {
+    return await chromium.launch({ headless: true });
+  } catch {
+    return chromium.launch({ channel: "chrome", headless: true });
+  }
 }
 
 async function postJson(
@@ -1074,6 +1083,10 @@ describe("design connect bridge endpoints", () => {
       );
       expect(html.status).toBe(200);
       expect(html.headers["content-type"]).toContain("text/html");
+      expect(html.headers["cross-origin-resource-policy"]).toBe("cross-origin");
+      expect(html.headers["cross-origin-embedder-policy"]).toBe(
+        "credentialless",
+      );
       expect(html.body).toContain(`<base href="${base}/">`);
       expect(html.body).toContain(
         `src="/src/main.ts?previewToken=${bridge.previewToken}" crossorigin="use-credentials"`,
@@ -1141,14 +1154,13 @@ describe("design connect bridge endpoints", () => {
       expect(module.headers["content-type"]).toContain(
         "application/javascript",
       );
+      expect(module.headers["cross-origin-resource-policy"]).toBeUndefined();
+      expect(module.headers["cross-origin-embedder-policy"]).toBeUndefined();
       expect(module.headers["content-length"]).toBe(
         String(Buffer.byteLength(module.body)),
       );
       expect(module.headers["access-control-allow-origin"]).toBe("null");
       expect(module.headers["access-control-allow-credentials"]).toBe("true");
-      expect(module.headers["cross-origin-resource-policy"]).toBe(
-        "cross-origin",
-      );
       expect(module.body).toContain(
         `/src/dependency.ts?previewToken=${bridge.previewToken}`,
       );
@@ -1247,6 +1259,101 @@ describe("design connect bridge endpoints", () => {
       await new Promise<void>((resolve) => devServer.close(() => resolve()));
     }
   });
+
+  it("does not make third-party preview resources opt into CORP or CORS", async () => {
+    const root = tmpDir();
+    const assetPort = await freePort();
+    let externalAssetRequests = 0;
+    const assetServer = http.createServer((req, res) => {
+      if (req.url === "/third-party.js") {
+        externalAssetRequests += 1;
+        // Deliberately omit both CORP and CORS: this models a normal CDN
+        // script that was valid before the preview was embedded in Design.
+        res.writeHead(200, { "content-type": "application/javascript" });
+        res.end("window.__thirdPartyPreviewAssetLoaded = true;");
+        return;
+      }
+      res.writeHead(404).end();
+    });
+    await new Promise<void>((resolve, reject) => {
+      assetServer.once("error", reject);
+      assetServer.listen(assetPort, "127.0.0.1", () => {
+        assetServer.off("error", reject);
+        resolve();
+      });
+    });
+
+    const devPort = await freePort();
+    const devServer = http.createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end(`<!doctype html>
+<html><body><div id="asset-status">Loading</div>
+<script src="http://127.0.0.1:${assetPort}/third-party.js"></script>
+<script>document.querySelector('#asset-status').textContent = window.__thirdPartyPreviewAssetLoaded ? 'Loaded' : 'Missing';</script>
+</body></html>`);
+    });
+    await new Promise<void>((resolve, reject) => {
+      devServer.once("error", reject);
+      devServer.listen(devPort, "127.0.0.1", () => {
+        devServer.off("error", reject);
+        resolve();
+      });
+    });
+
+    const bridgePort = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: `http://127.0.0.1:${devPort}`,
+      port: bridgePort,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    const hostPort = await freePort();
+    const hostServer = http.createServer((_req, res) => {
+      res.writeHead(200, {
+        "content-type": "text/html; charset=utf-8",
+        // Model the production Design page that embeds the loopback frame.
+        "cross-origin-embedder-policy": "require-corp",
+      });
+      res.end(
+        `<!doctype html><iframe title="preview" src="${
+          manifest.bridgeUrl
+        }/live-edit?path=/&previewToken=${bridge.previewToken}"></iframe>`,
+      );
+    });
+    await new Promise<void>((resolve, reject) => {
+      hostServer.once("error", reject);
+      hostServer.listen(hostPort, "127.0.0.1", () => {
+        hostServer.off("error", reject);
+        resolve();
+      });
+    });
+
+    const browser = await launchBrowser();
+    try {
+      const page = await browser.newPage();
+      await page.goto(`http://127.0.0.1:${hostPort}/`);
+      const frame = page
+        .frames()
+        .find((candidate) => candidate !== page.mainFrame());
+      if (!frame) throw new Error("preview iframe did not load");
+      await frame.waitForFunction(
+        () =>
+          (window as Window & { __thirdPartyPreviewAssetLoaded?: boolean })
+            .__thirdPartyPreviewAssetLoaded === true,
+        { timeout: 10_000 },
+      );
+      expect(await frame.locator("#asset-status").textContent()).toBe("Loaded");
+      expect(externalAssetRequests).toBeGreaterThan(0);
+    } finally {
+      await browser.close();
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+      await new Promise<void>((resolve) => hostServer.close(() => resolve()));
+      await new Promise<void>((resolve) => devServer.close(() => resolve()));
+      await new Promise<void>((resolve) => assetServer.close(() => resolve()));
+    }
+  }, 60_000);
 
   it("proxies a query-string-suffixed asset request to the dev server byte-for-byte, without dropping or rewriting the query", async () => {
     const root = tmpDir();
@@ -1730,6 +1837,12 @@ describe("design connect bridge endpoints", () => {
       });
       expect(framed.status).toBe(200);
       expect(framed.headers.get("content-type") ?? "").toContain("text/html");
+      expect(framed.headers.get("cross-origin-resource-policy")).toBe(
+        "cross-origin",
+      );
+      expect(framed.headers.get("cross-origin-embedder-policy")).toBe(
+        "credentialless",
+      );
       const framedHtml = await framed.text();
       expect(framedHtml).toContain("app root");
       // The frame keeps live editing after navigating: the proxy must inject
