@@ -80,7 +80,7 @@ export function buildContentDocumentMcpGuidance(
   );
   const accessState = options.accessState ?? "authentication-required";
   const summary = contentDocumentAccessSummary(accessState);
-  const access = {
+  const access: ContentDocumentMcpGuidance["access"] = {
     state: accessState,
     summary,
     authenticationRequired: accessState === "authentication-required",
