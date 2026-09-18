@@ -90,7 +90,7 @@ describe("exportConcat", () => {
       },
     });
 
-    await exportConcat([
+    const result = await exportConcat([
       { url: "/one.webm", width: 1920, height: 1080 },
       { url: "/two.webm", width: 0, height: 0 },
     ]);
@@ -99,6 +99,7 @@ describe("exportConcat", () => {
     expect(filter).toContain(
       "[1:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2",
     );
+    expect(result).toMatchObject({ width: 1920, height: 1080 });
   });
 });
 

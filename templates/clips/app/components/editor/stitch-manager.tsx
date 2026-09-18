@@ -118,7 +118,7 @@ export function StitchManager({
     setProgress(0);
     try {
       // 1) Client-side ffmpeg concat.
-      const blob = await exportConcat(
+      const { blob, width, height } = await exportConcat(
         queue.map((r) => ({
           url: r.videoUrl!,
           format: r.videoFormat ?? "webm",
@@ -147,6 +147,8 @@ export function StitchManager({
         sourceRecordingIds: queue.map((r) => r.id),
         videoUrl,
         durationMs: totalDuration,
+        width,
+        height,
       });
       const newRecordingId = (result as { id?: string } | null)?.id;
       if (newRecordingId) {

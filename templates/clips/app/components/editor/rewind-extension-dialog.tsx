@@ -166,7 +166,7 @@ export function RewindExtensionDialog({
         }
 
         setStatus("Combining the selected history with this Clip…");
-        const blob = await exportConcat(
+        const { blob, width, height } = await exportConcat(
           [
             {
               url: `${appBasePath()}/api/video/${encodeURIComponent(request.preRollRecordingId)}`,
@@ -195,6 +195,8 @@ export function RewindExtensionDialog({
           videoUrl: upload.url,
           durationMs: durationMs + request.actualDurationMs,
           addedMs: request.actualDurationMs,
+          width,
+          height,
         });
         if (hasAudio) {
           void requestTranscript

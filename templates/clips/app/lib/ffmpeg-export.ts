@@ -50,6 +50,12 @@ export interface ExportResult {
   filename: string;
 }
 
+export interface ConcatExportResult {
+  blob: Blob;
+  width: number;
+  height: number;
+}
+
 /** Threshold above which the UI should warn the user before exporting. */
 export const LONG_EXPORT_THRESHOLD_MS = 10 * 60 * 1000;
 
@@ -357,7 +363,7 @@ export async function exportConcat(
     height?: number;
   }>,
   onProgress?: (p: ExportProgress) => void,
-): Promise<Blob> {
+): Promise<ConcatExportResult> {
   if (sources.length < 2) {
     throw new Error("exportConcat needs at least 2 sources");
   }
@@ -484,7 +490,7 @@ export async function exportConcat(
     } catch {
       // noop
     }
-    return blob;
+    return { blob, width: targetWidth, height: targetHeight };
   } finally {
     ffmpeg.off("progress", handleProgress);
   }
