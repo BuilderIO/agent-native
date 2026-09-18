@@ -114,6 +114,7 @@ describe("open-visual-edit", () => {
     mocks.getRequestContext.mockReturnValue({
       userEmail: undefined,
       orgId: undefined,
+      requestOrigin: "https://design.example.com",
     });
     mocks.getRequestOrgId.mockReset();
     mocks.getRequestOrgId.mockReturnValue("org_1");
@@ -647,6 +648,10 @@ describe("open-visual-edit", () => {
         caller: "frontend",
         userEmail: undefined,
         orgId: null,
+        requestHeaders: new Headers({
+          origin: "https://design.example.com",
+          "sec-fetch-site": "same-origin",
+        }),
       },
     );
 
@@ -695,6 +700,10 @@ describe("open-visual-edit", () => {
           caller: "webmcp",
           userEmail: undefined,
           orgId: null,
+          requestHeaders: new Headers({
+            origin: "https://design.example.com",
+            "sec-fetch-site": "same-origin",
+          }),
         },
       ),
     ).rejects.toThrow(/does not match the visual-edit target/);
@@ -736,6 +745,10 @@ describe("open-visual-edit", () => {
           caller: "frontend",
           userEmail: undefined,
           orgId: null,
+          requestHeaders: new Headers({
+            origin: "https://design.example.com",
+            "sec-fetch-site": "same-origin",
+          }),
         },
       ),
     ).rejects.toThrow(/could not prove the local bridge/);

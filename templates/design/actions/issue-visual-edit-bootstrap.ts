@@ -1,8 +1,10 @@
 import crypto from "node:crypto";
 
 import { defineAction } from "@agent-native/core/action";
-import { signEmbedSessionToken } from "@agent-native/core/server";
+import { fail, signEmbedSessionToken } from "@agent-native/core/server";
 import { z } from "zod";
+
+import { isSameOriginVisualEditBrowserRequest } from "./visual-edit-browser-request.js";
 
 const BOOTSTRAP_TTL_SECONDS = 5 * 60;
 const BOOTSTRAP_SCOPE_PREFIX = "capability:visual-edit-bootstrap:";
@@ -21,7 +23,13 @@ export default defineAction({
   agentTool: false,
   mcpTool: false,
   schema: z.object({}),
-  run: async () => {
+  run: async (_args, ctx) => {
+    if (!isSameOriginVisualEditBrowserRequest(ctx)) {
+      fail(
+        "Visual-edit bootstrap is available only from the same-origin Design page.",
+        { errorCode: "signed_out_visual_edit_browser_required" },
+      );
+    }
     const nonce = crypto.randomBytes(24).toString("base64url");
     const scope = `${BOOTSTRAP_SCOPE_PREFIX}${nonce}`;
     return {

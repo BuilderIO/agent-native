@@ -34,6 +34,7 @@ import connectLocalhostAction, {
 } from "./connect-localhost.js";
 import createDesignAction from "./create-design.js";
 import navigateAction from "./navigate.js";
+import { isSameOriginVisualEditBrowserRequest } from "./visual-edit-browser-request.js";
 
 const connectionRouteSchema = z.object({
   id: z.string().optional(),
@@ -550,6 +551,12 @@ export default defineAction({
     const devServerUrl = normalizeBaseUrl(args.devServerUrl);
     const authCapability = getRequestAuthCapability();
     const isPageBootstrap = isVisualEditBootstrapCapability(authCapability);
+    if (isPageBootstrap && !isSameOriginVisualEditBrowserRequest(ctx)) {
+      fail(
+        "Signed-out visual-edit bootstrap is available only from the same-origin Design page.",
+        { errorCode: "signed_out_visual_edit_browser_required" },
+      );
+    }
     const runForPrincipal = async () => {
       const routeManifest = args.routeManifest
         ? {
