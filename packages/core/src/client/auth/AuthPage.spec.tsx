@@ -186,6 +186,7 @@ describe("AuthPage", () => {
     expect(html).toContain('data-agent-native-starfield="true"');
     expect(html).toContain("New to Slides?");
     expect(html).toContain("Welcome to Slides");
+    expect(html).toContain('data-i18n="welcomeToApp"');
     expect(html).toContain("Sign in or create your account");
     expect(html).toContain("Say it. Show it.");
     expect(html).toContain('class="app-status-badge">alpha</span>');

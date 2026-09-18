@@ -584,6 +584,12 @@ describe("getOnboardingHtml", () => {
     expect(pageData.marketingLocales["zh-CN"]?.tagline).toContain(
       "构建、发布和分析表单",
     );
+    expect(pageData.marketingLocales["zh-CN"]?.authHeadline).toContain(
+      "构建、发布和分析表单",
+    );
+    expect(pageData.marketingLocales["zh-CN"]?.authHeadline).not.toContain(
+      "Ask it. See it.",
+    );
     expect(pageData.marketingLocales["zh-CN"]?.features?.[0]).toContain(
       "用一句话创建完整表单",
     );
@@ -616,7 +622,10 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain(
       "One-click screen recording (Loom-style) with auto titles, summaries, and chapters",
     );
-    expect(readAuthPageData(html).marketingLocales).toEqual({});
+    const pageData = readAuthPageData(html);
+    expect(pageData.marketingLocales).toEqual({});
+    expect(pageData.marketing?.authHeadline).toBeUndefined();
+    expect(pageData.marketing?.authDescription).toBeUndefined();
     expect(html).not.toContain("var rootLocale =");
   });
 

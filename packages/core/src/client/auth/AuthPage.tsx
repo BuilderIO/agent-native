@@ -2431,11 +2431,11 @@ export function AuthPage(props: AuthPageProps) {
     <div className={cardClassName}>
       <h1
         id="heading"
-        data-i18n={usesMarketingWelcome ? undefined : keys.heading}
+        data-i18n={usesMarketingWelcome ? "welcomeToApp" : keys.heading}
         data-auth-marketing-title={usesMarketingWelcome ? "true" : undefined}
       >
         {usesMarketingWelcome
-          ? "Welcome to " + marketingAppName
+          ? t("welcomeToApp").replace("{appName}", marketingAppName)
           : t(keys.heading)}
       </h1>
       <p

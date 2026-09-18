@@ -18,6 +18,7 @@ export interface NativeAuthCopy {
   ssoFailed: string;
   dividerOr: string;
   welcomeTitle: string;
+  welcomeToApp: string;
   welcomeSubtitle: string;
   email: string;
   emailPlaceholder: string;
@@ -57,6 +58,7 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     ssoFailed: "No SSO provider was found for that email.",
     dividerOr: "or",
     welcomeTitle: "Welcome",
+    welcomeToApp: "Welcome to {appName}",
     // No surface using this subtitle renders an account chooser: one email
     // field both registers and signs in. Naming a separate "create an account"
     // step sends new users hunting for a control that is not there.
@@ -100,6 +102,7 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     ssoFailed: "未找到该邮箱对应的 SSO 提供商。",
     dividerOr: "或",
     welcomeTitle: "欢迎",
+    welcomeToApp: "欢迎使用 {appName}",
     welcomeSubtitle: "继续以登录或创建账户",
     email: "电子邮箱",
     emailPlaceholder: "you@example.com",
@@ -138,6 +141,7 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     ssoFailed: "找不到該電子郵件對應的 SSO 提供者。",
     dividerOr: "或",
     welcomeTitle: "歡迎",
+    welcomeToApp: "歡迎使用 {appName}",
     welcomeSubtitle: "繼續以登入或建立帳戶",
     email: "電子郵件",
     emailPlaceholder: "you@example.com",
@@ -176,6 +180,7 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     ssoFailed: "No se encontró un proveedor SSO para ese correo.",
     dividerOr: "o",
     welcomeTitle: "Bienvenido",
+    welcomeToApp: "Bienvenido a {appName}",
     welcomeSubtitle: "Continúa para iniciar sesión o crear tu cuenta",
     email: "Email",
     emailPlaceholder: "you@example.com",
@@ -215,6 +220,7 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     ssoFailed: "Aucun fournisseur SSO n'a été trouvé pour cet e-mail.",
     dividerOr: "ou",
     welcomeTitle: "Bienvenue",
+    welcomeToApp: "Bienvenue sur {appName}",
     welcomeSubtitle: "Continuez pour vous connecter ou créer votre compte",
     email: "E-mail",
     emailPlaceholder: "you@example.com",
@@ -254,6 +260,7 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     ssoFailed: "Für diese E-Mail wurde kein SSO-Anbieter gefunden.",
     dividerOr: "oder",
     welcomeTitle: "Willkommen",
+    welcomeToApp: "Willkommen bei {appName}",
     welcomeSubtitle:
       "Fahre fort, um dich anzumelden oder ein Konto zu erstellen",
     email: "E-Mail",
@@ -295,6 +302,7 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
       "このメールアドレスに対応する SSO プロバイダーが見つかりません。",
     dividerOr: "または",
     welcomeTitle: "ようこそ",
+    welcomeToApp: "{appName}へようこそ",
     welcomeSubtitle: "続けてサインインするか、アカウントを作成します",
     email: "メール",
     emailPlaceholder: "you@example.com",
@@ -335,6 +343,7 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     ssoFailed: "해당 이메일에 대한 SSO 제공업체를 찾을 수 없습니다.",
     dividerOr: "또는",
     welcomeTitle: "환영합니다",
+    welcomeToApp: "{appName}에 오신 것을 환영합니다",
     welcomeSubtitle: "계속해서 로그인하거나 계정을 만드세요",
     email: "이메일",
     emailPlaceholder: "you@example.com",
@@ -374,6 +383,7 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     ssoFailed: "Nenhum provedor SSO foi encontrado para esse e-mail.",
     dividerOr: "ou",
     welcomeTitle: "Bem-vindo",
+    welcomeToApp: "Bem-vindo ao {appName}",
     welcomeSubtitle: "Continue para entrar ou criar sua conta",
     email: "Email",
     emailPlaceholder: "you@example.com",
@@ -413,6 +423,7 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     ssoFailed: "इस ईमेल के लिए कोई SSO प्रदाता नहीं मिला।",
     dividerOr: "या",
     welcomeTitle: "स्वागत है",
+    welcomeToApp: "{appName} में आपका स्वागत है",
     welcomeSubtitle: "साइन इन करने या अपना खाता बनाने के लिए जारी रखें",
     email: "ईमेल",
     emailPlaceholder: "you@example.com",
@@ -452,6 +463,7 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     ssoFailed: "لم يتم العثور على موفر SSO لهذا البريد الإلكتروني.",
     dividerOr: "أو",
     welcomeTitle: "مرحبًا",
+    welcomeToApp: "مرحبًا بك في {appName}",
     welcomeSubtitle: "تابع لتسجيل الدخول أو إنشاء حسابك",
     email: "البريد الإلكتروني",
     emailPlaceholder: "you@example.com",

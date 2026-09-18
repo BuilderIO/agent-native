@@ -1234,17 +1234,19 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
       requestPath: opts.requestPath,
     });
   const hasMarketing = !!marketing && !simplifiedAuth;
-  const marketingSlug = resolveBuiltInMarketingSlug(marketing, {
-    requestHost: opts.requestHost,
-    requestPath: opts.requestPath,
-  });
-  const marketingPresentation = resolveBuiltInAuthMarketingPresentation(
-    marketing,
-    {
-      requestHost: opts.requestHost,
-      requestPath: opts.requestPath,
-    },
-  );
+  const marketingWasResolvedFromCatalog = !opts.marketing;
+  const marketingSlug = marketingWasResolvedFromCatalog
+    ? resolveBuiltInMarketingSlug(marketing, {
+        requestHost: opts.requestHost,
+        requestPath: opts.requestPath,
+      })
+    : undefined;
+  const marketingPresentation = marketingWasResolvedFromCatalog
+    ? resolveBuiltInAuthMarketingPresentation(marketing, {
+        requestHost: opts.requestHost,
+        requestPath: opts.requestPath,
+      })
+    : undefined;
   const localizedMarketingCopy: Record<string, AuthMarketingLocaleCopy> = {};
   if (marketingSlug) {
     for (const [locale, copyBySlug] of Object.entries(
@@ -1665,14 +1667,8 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
           tagline: copy.tagline ?? marketing?.tagline ?? "",
           description: copy.description ?? marketing?.description,
           features: copy.features ?? marketing?.features,
-          authHeadline:
-            copy.authHeadline ??
-            marketing?.authHeadline ??
-            marketingPresentation?.headline,
-          authDescription:
-            copy.authDescription ??
-            marketing?.authDescription ??
-            marketingPresentation?.description,
+          authHeadline: copy.authHeadline ?? copy.tagline,
+          authDescription: copy.authDescription ?? copy.description,
         },
       ]),
     );
