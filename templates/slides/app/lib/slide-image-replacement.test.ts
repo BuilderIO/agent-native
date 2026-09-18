@@ -97,12 +97,39 @@ describe("slide image replacement", () => {
     );
 
     try {
-      await prefetchImage("https://cdn.builder.io/api/v1/image/assets%2Fphoto");
+      await expect(
+        prefetchImage("https://cdn.builder.io/api/v1/image/assets%2Fphoto"),
+      ).resolves.toBe(true);
       expect(requestedSrc).toBe(
         "https://cdn.builder.io/api/v1/image/assets%2Fphoto",
       );
       expect(decoded).toBe(true);
       expect(decode).toHaveBeenCalledOnce();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("does not report a hosted image as ready when it cannot decode", async () => {
+    vi.stubGlobal(
+      "Image",
+      class MockImage {
+        onload: (() => void) | null = null;
+        onerror: (() => void) | null = null;
+        decode = vi.fn(async () => {
+          throw new Error("decode failed");
+        });
+
+        set src(_value: string) {
+          queueMicrotask(() => this.onload?.());
+        }
+      },
+    );
+
+    try {
+      await expect(
+        prefetchImage("https://cdn.builder.io/broken"),
+      ).resolves.toBe(false);
     } finally {
       vi.unstubAllGlobals();
     }

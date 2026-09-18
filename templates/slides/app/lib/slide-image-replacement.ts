@@ -219,22 +219,30 @@ export function swapImageSourcesInPlace(
 }
 
 /** Resolve after a hosted image is decoded, keeping the old preview visible. */
-export function prefetchImage(src: string): Promise<void> {
-  if (typeof Image === "undefined") return Promise.resolve();
+export function prefetchImage(src: string): Promise<boolean> {
+  if (typeof Image === "undefined") return Promise.resolve(true);
 
-  return new Promise<void>((resolve) => {
+  return new Promise<boolean>((resolve) => {
     const image = new Image();
-    const settle = () => resolve();
+    let settled = false;
+    const settle = (ready: boolean) => {
+      if (settled) return;
+      settled = true;
+      resolve(ready);
+    };
     image.onload = () => {
       if (typeof image.decode !== "function") {
-        settle();
+        settle(true);
         return;
       }
       void Promise.resolve()
         .then(() => image.decode())
-        .then(settle, settle);
+        .then(
+          () => settle(true),
+          () => settle(false),
+        );
     };
-    image.onerror = settle;
+    image.onerror = () => settle(false);
     image.src = src;
   });
 }
