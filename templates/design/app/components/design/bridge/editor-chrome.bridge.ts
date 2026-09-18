@@ -14843,14 +14843,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
     }
     correctAbsoluteMemberClientPosition(el, desiredDropPoint);
-    // The optimistic DOM order/reparent now diverges from authored source.
-    // Keep known unique IDs, but invalidate the complete-source revision.
-    publishSourceDocumentProvenance(undefined, true);
-    return (
+    var runtimeMutationApplied =
       previousParent !== el.parentElement ||
       previousNextSibling !== el.nextElementSibling ||
-      previousInlineStyle !== el.getAttribute("style")
-    );
+      previousInlineStyle !== el.getAttribute("style");
+    if (runtimeMutationApplied) {
+      // The optimistic DOM order/reparent now diverges from authored source.
+      // Keep known unique IDs, but invalidate the complete-source revision.
+      publishSourceDocumentProvenance(undefined, true);
+    }
+    return runtimeMutationApplied;
   }
 
   function postVisualStructureChange(

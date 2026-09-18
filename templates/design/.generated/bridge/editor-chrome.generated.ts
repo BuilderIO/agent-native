@@ -10588,8 +10588,11 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
       }
       correctAbsoluteMemberClientPosition(el, desiredDropPoint);
-      publishSourceDocumentProvenance(void 0, true);
-      return previousParent !== el.parentElement || previousNextSibling !== el.nextElementSibling || previousInlineStyle !== el.getAttribute("style");
+      var runtimeMutationApplied = previousParent !== el.parentElement || previousNextSibling !== el.nextElementSibling || previousInlineStyle !== el.getAttribute("style");
+      if (runtimeMutationApplied) {
+        publishSourceDocumentProvenance(void 0, true);
+      }
+      return runtimeMutationApplied;
     }
     function postVisualStructureChange(el, target, origin, insertedHtml, replaced, replacementSnapshotHtml) {
       if (!el || !target || !target.anchor) return;

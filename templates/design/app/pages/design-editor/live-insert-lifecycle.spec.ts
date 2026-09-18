@@ -282,6 +282,14 @@ describe("live insert lifecycle", () => {
       try {
         const page = await browser.newPage();
         await page.setContent(FIXTURE);
+        await page.evaluate(() => {
+          (
+            window as Window & { __agentNativeSourceProvenance?: unknown }
+          ).__agentNativeSourceProvenance = {
+            versionHash: "head-before-no-op",
+            uniqueNodeIds: ["card", "copy"],
+          };
+        });
         await page.addScriptTag({
           content: hydratedEditorChromeBridgeScript(),
         });
@@ -313,6 +321,19 @@ describe("live insert lifecycle", () => {
             (message) => message.type === "visual-structure-change",
           ),
         ).toEqual([]);
+        expect(
+          await page.evaluate(
+            () =>
+              (
+                window as Window & {
+                  __agentNativeSourceProvenance?: unknown;
+                }
+              ).__agentNativeSourceProvenance,
+          ),
+        ).toEqual({
+          versionHash: "head-before-no-op",
+          uniqueNodeIds: ["card", "copy"],
+        });
         expect(
           await page
             .locator('[data-agent-native-node-id="card"] > *')
