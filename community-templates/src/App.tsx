@@ -482,7 +482,7 @@ function ViewHeader({
   count,
   children,
 }: {
-  kicker: string;
+  kicker?: string;
   title: string;
   count?: string;
   children?: ReactNode;
@@ -490,7 +490,7 @@ function ViewHeader({
   return (
     <div className="view-header">
       <div>
-        <span className="view-kicker">{kicker}</span>
+        {kicker ? <span className="view-kicker">{kicker}</span> : null}
         <div className="view-title-row">
           <h2>{title}</h2>
           {count ? <span className="count-badge">{count}</span> : null}
