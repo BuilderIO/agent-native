@@ -2659,9 +2659,19 @@ ${marketingStyles}
     }
   }
   @media (max-width: 900px) {
+    .auth-marketing-home .auth-marketing-shell-with-top-right {
+      flex-direction: column;
+    }
     .auth-marketing-home .auth-marketing-top-right {
-      top: 1.5rem;
-      inset-inline-end: 1.5rem;
+      position: sticky;
+      top: max(1rem, env(safe-area-inset-top));
+      inset-inline: auto 1.5rem;
+      align-self: flex-end;
+      margin: 1.5rem 1.5rem 2rem auto;
+      padding: 0;
+    }
+    .auth-marketing-home .auth-marketing-layout {
+      flex-direction: column;
     }
     .auth-marketing-home .auth-marketing-visual {
       min-height: min(62vh, 560px);
@@ -2674,6 +2684,7 @@ ${marketingStyles}
       font-size: 2.25rem;
     }
     .auth-marketing-home .form-panel {
+      order: -1;
       padding: 2rem 1rem 5rem;
       border-inline-start: 0;
       border-top: 1px solid var(--auth-marketing-border);

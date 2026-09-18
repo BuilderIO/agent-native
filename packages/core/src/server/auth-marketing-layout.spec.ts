@@ -74,6 +74,15 @@ describe("built-in auth marketing layout contract", () => {
     expect(html).toMatch(
       /\.auth-marketing-home \.form-panel\s*{[^}]*flex:\s*1 1 50%;[^}]*max-width:\s*none;/,
     );
+    expect(html).toMatch(
+      /@media \(max-width: 900px\)[\s\S]*?\.auth-marketing-home \.auth-marketing-top-right\s*{[^}]*position:\s*sticky;[^}]*margin:/,
+    );
+    expect(html).toMatch(
+      /@media \(max-width: 900px\)[\s\S]*?\.auth-marketing-home \.auth-marketing-layout\s*{[^}]*flex-direction:\s*column;/,
+    );
+    expect(html).toMatch(
+      /@media \(max-width: 900px\)[\s\S]*?\.auth-marketing-home \.form-panel\s*{[^}]*order:\s*-1;/,
+    );
     expect(html).toContain("--b-hero-ocean-opacity: 0.32;");
     expect(html).toContain("--b-hero-shader-opacity: 0.15;");
     expect(html).toContain("--b-hero-ocean-opacity: 0.3;");
