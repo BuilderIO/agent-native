@@ -2,6 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { withDbTimeout } from "../db/client.js";
 import {
+  type AgentSpan,
+  __resetAgentTracerCache,
+  __setAgentTracerForTests,
+} from "../observability/tracing.js";
+import {
   registerTrackingProvider,
   unregisterTrackingProvider,
   type TrackingEvent,
@@ -31,6 +36,7 @@ beforeEach(() => {
 afterEach(() => {
   logSpy.mockRestore();
   unregisterTrackingProvider("http-response-telemetry-test");
+  __resetAgentTracerCache();
   vi.unstubAllEnvs();
 });
 
@@ -154,6 +160,30 @@ describe("http response telemetry", () => {
     );
   });
 
+  it("flushes the response OTel mirror from its request scope", async () => {
+    const spanNames: string[] = [];
+    __setAgentTracerForTests({
+      startSpan(name: string): AgentSpan {
+        spanNames.push(name);
+        return {
+          setAttribute() {},
+          setAttributes() {},
+          setStatus() {},
+          recordException() {},
+          end() {},
+        };
+      },
+    });
+    processState.requestSequence = 5;
+    const { requestHooks, responseHooks } = createHooks();
+    const event = eventFor("/");
+
+    await requestHooks[0](event);
+    await responseHooks[0](new Response("ok"), event);
+
+    expect(spanNames).toContain("http.server");
+  });
+
   it("weights sampled warm action responses", async () => {
     vi.stubEnv("AGENT_NATIVE_HTTP_TELEMETRY_SAMPLE_RATE", "0.25");
     processState.requestSequence = 5;
@@ -272,6 +302,7 @@ describe("http response telemetry", () => {
   });
 
   it("uses registered action metadata before the route handler runs", async () => {
+    vi.stubEnv("VITE_APP_BASE_PATH", "/docs");
     registerHttpRequestTelemetryActionRoute(
       "/mcp/tool/protected-report",
       "protected-report",
@@ -287,7 +318,7 @@ describe("http response telemetry", () => {
       },
     });
 
-    const event = eventFor("/mcp/tool/protected-report");
+    const event = eventFor("/docs/mcp/tool/protected-report");
     await requestHooks[0](event);
     await responseHooks[0](new Response("forbidden", { status: 401 }), event);
 

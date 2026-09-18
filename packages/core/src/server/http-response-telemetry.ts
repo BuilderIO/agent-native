@@ -24,8 +24,8 @@ import {
   type TrackingEventScope,
 } from "../observability/tracing.js";
 import { track } from "../tracking/index.js";
-import { getConfiguredAppBasePath } from "./app-base-path.js";
-import { getRequestContext } from "./request-context.js";
+import { getAppBasePathFromViteEnv } from "./app-base-path.js";
+import { runWithRequestContext } from "./request-context.js";
 
 const TELEMETRY_EVENT_NAME = "http.response";
 const REQUEST_ID_HEADER = "x-agent-native-request-id";
@@ -171,7 +171,7 @@ export function registerHttpRequestTelemetryActionRoute(
     routeTemplate: normalizedRouteTemplate,
   };
   trustedActionRoutes.set(normalizedRoutePathValue, route);
-  const appBasePath = getConfiguredAppBasePath();
+  const appBasePath = getAppBasePathFromViteEnv();
   if (appBasePath) {
     trustedActionRoutes.set(
       normalizedRoutePath(`${appBasePath}${normalizedRoutePathValue}`),
@@ -329,83 +329,86 @@ async function emitTelemetry(
       const host = hostForEvent(event);
       const actionName = state.actionName;
       const db = getDatabaseRuntimeFingerprint();
-      track(TELEMETRY_EVENT_NAME, {
-        source: "server",
-        app: getAppConfig().app.name,
-        template: envValue("AGENT_NATIVE_TEMPLATE") ?? getAppConfig().app.name,
-        organization: organizationForHost(host),
-        method: getMethod(event),
-        path: normalizeHttpTelemetryPath(pathname),
-        route_kind: routeKind(pathname),
-        ...(actionName
-          ? {
-              action_name: actionName,
-              route_template: state.routeTemplate,
-            }
-          : {}),
-        status_code: statusCode,
-        status_class: statusClass(statusCode),
-        sample_rate: decision.sampleRate,
-        sample_weight: 1 / decision.sampleRate,
-        sampled: decision.sampled,
-        duration_ms: Math.max(0, Date.now() - state.startedAt),
-        request_id: state.requestId,
-        measurement: "nitro_request",
-        cold_start: state.requestSequence === 1,
-        request_sequence: state.requestSequence,
-        process_age_ms: state.processAgeAtStartMs,
-        boot_to_module_ms: processState.moduleEvalUptimeMs,
-        module_to_request_ms: moduleToRequestMs(state),
-        framework_ready_wait_ms: state.frameworkReadyWaitMs,
-        runtime_provider: runtimeProvider(),
-        function_name: envValue("AWS_LAMBDA_FUNCTION_NAME"),
-        function_memory_mb: envValue("AWS_LAMBDA_FUNCTION_MEMORY_SIZE"),
-        region: envValue("AWS_REGION") ?? envValue("VERCEL_REGION"),
-        host,
-        environment: envValue("NODE_ENV"),
-        deploy_context: envValue("CONTEXT") ?? envValue("VERCEL_ENV"),
-        deploy_id: envValue("DEPLOY_ID") ?? envValue("VERCEL_DEPLOYMENT_ID"),
-        commit_ref:
-          envValue("COMMIT_REF") ??
-          envValue("NETLIFY_COMMIT_REF") ??
-          envValue("VERCEL_GIT_COMMIT_SHA") ??
-          envValue("GIT_COMMIT_SHA"),
-        db_source: db.source,
-        db_url_hash: db.urlHash,
-        db_neon_endpoint: db.neon?.endpointId,
-        db_neon_pooled: db.neon?.pooled,
-        db_operation_count: state.db.operationCount,
-        db_query_count: state.db.queryCount,
-        db_connect_count: state.db.connectCount,
-        db_retry_count: state.db.retryCount,
-        db_error_count: state.db.errorCount,
-        db_timeout_count: state.db.timeoutCount,
-        db_operation_total_ms: Math.round(state.db.operationTotalMs),
-        db_operation_wall_ms: Math.round(state.db.operationWallMs),
-        db_query_total_ms: Math.round(state.db.queryTotalMs),
-        db_connect_total_ms: Math.round(state.db.connectTotalMs),
-        db_slowest_operation_ms: Math.round(state.db.slowestOperationMs),
-        startup_db_operation_count: state.startupDb?.operationCount,
-        startup_db_query_count: state.startupDb?.queryCount,
-        startup_db_connect_count: state.startupDb?.connectCount,
-        startup_db_retry_count: state.startupDb?.retryCount,
-        startup_db_error_count: state.startupDb?.errorCount,
-        startup_db_timeout_count: state.startupDb?.timeoutCount,
-        startup_db_operation_total_ms: state.startupDb
-          ? Math.round(state.startupDb.operationTotalMs)
-          : undefined,
-        startup_db_operation_wall_ms: state.startupDb
-          ? Math.round(state.startupDb.operationWallMs)
-          : undefined,
-        startup_db_query_total_ms: state.startupDb
-          ? Math.round(state.startupDb.queryTotalMs)
-          : undefined,
-        startup_db_connect_total_ms: state.startupDb
-          ? Math.round(state.startupDb.connectTotalMs)
-          : undefined,
-        startup_db_slowest_operation_ms: state.startupDb
-          ? Math.round(state.startupDb.slowestOperationMs)
-          : undefined,
+      runWithRequestContext({ trackingScope: state.trackingScope }, () => {
+        track(TELEMETRY_EVENT_NAME, {
+          source: "server",
+          app: getAppConfig().app.name,
+          template:
+            envValue("AGENT_NATIVE_TEMPLATE") ?? getAppConfig().app.name,
+          organization: organizationForHost(host),
+          method: getMethod(event),
+          path: normalizeHttpTelemetryPath(pathname),
+          route_kind: routeKind(pathname),
+          ...(actionName
+            ? {
+                action_name: actionName,
+                route_template: state.routeTemplate,
+              }
+            : {}),
+          status_code: statusCode,
+          status_class: statusClass(statusCode),
+          sample_rate: decision.sampleRate,
+          sample_weight: 1 / decision.sampleRate,
+          sampled: decision.sampled,
+          duration_ms: Math.max(0, Date.now() - state.startedAt),
+          request_id: state.requestId,
+          measurement: "nitro_request",
+          cold_start: state.requestSequence === 1,
+          request_sequence: state.requestSequence,
+          process_age_ms: state.processAgeAtStartMs,
+          boot_to_module_ms: processState.moduleEvalUptimeMs,
+          module_to_request_ms: moduleToRequestMs(state),
+          framework_ready_wait_ms: state.frameworkReadyWaitMs,
+          runtime_provider: runtimeProvider(),
+          function_name: envValue("AWS_LAMBDA_FUNCTION_NAME"),
+          function_memory_mb: envValue("AWS_LAMBDA_FUNCTION_MEMORY_SIZE"),
+          region: envValue("AWS_REGION") ?? envValue("VERCEL_REGION"),
+          host,
+          environment: envValue("NODE_ENV"),
+          deploy_context: envValue("CONTEXT") ?? envValue("VERCEL_ENV"),
+          deploy_id: envValue("DEPLOY_ID") ?? envValue("VERCEL_DEPLOYMENT_ID"),
+          commit_ref:
+            envValue("COMMIT_REF") ??
+            envValue("NETLIFY_COMMIT_REF") ??
+            envValue("VERCEL_GIT_COMMIT_SHA") ??
+            envValue("GIT_COMMIT_SHA"),
+          db_source: db.source,
+          db_url_hash: db.urlHash,
+          db_neon_endpoint: db.neon?.endpointId,
+          db_neon_pooled: db.neon?.pooled,
+          db_operation_count: state.db.operationCount,
+          db_query_count: state.db.queryCount,
+          db_connect_count: state.db.connectCount,
+          db_retry_count: state.db.retryCount,
+          db_error_count: state.db.errorCount,
+          db_timeout_count: state.db.timeoutCount,
+          db_operation_total_ms: Math.round(state.db.operationTotalMs),
+          db_operation_wall_ms: Math.round(state.db.operationWallMs),
+          db_query_total_ms: Math.round(state.db.queryTotalMs),
+          db_connect_total_ms: Math.round(state.db.connectTotalMs),
+          db_slowest_operation_ms: Math.round(state.db.slowestOperationMs),
+          startup_db_operation_count: state.startupDb?.operationCount,
+          startup_db_query_count: state.startupDb?.queryCount,
+          startup_db_connect_count: state.startupDb?.connectCount,
+          startup_db_retry_count: state.startupDb?.retryCount,
+          startup_db_error_count: state.startupDb?.errorCount,
+          startup_db_timeout_count: state.startupDb?.timeoutCount,
+          startup_db_operation_total_ms: state.startupDb
+            ? Math.round(state.startupDb.operationTotalMs)
+            : undefined,
+          startup_db_operation_wall_ms: state.startupDb
+            ? Math.round(state.startupDb.operationWallMs)
+            : undefined,
+          startup_db_query_total_ms: state.startupDb
+            ? Math.round(state.startupDb.queryTotalMs)
+            : undefined,
+          startup_db_connect_total_ms: state.startupDb
+            ? Math.round(state.startupDb.connectTotalMs)
+            : undefined,
+          startup_db_slowest_operation_ms: state.startupDb
+            ? Math.round(state.startupDb.slowestOperationMs)
+            : undefined,
+        });
       });
       // coercion-ok: response telemetry must never affect request handling.
     } catch {
@@ -584,10 +587,6 @@ export function installHttpResponseTelemetryHooks(nitroApp: any): void {
 
   hooks.hook("request", (event: H3Event) => {
     const trackingScope = getOrCreateHttpRequestTrackingScope(event);
-    const requestContext = getRequestContext();
-    if (requestContext && requestContext.trackingScope === undefined) {
-      requestContext.trackingScope = trackingScope;
-    }
     const trustedActionRoute = trustedActionRouteForPath(requestPath(event));
     const state: HttpRequestTelemetryState = {
       startedAt: Date.now(),
