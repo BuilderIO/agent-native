@@ -3,6 +3,7 @@ import {
   AGENT_NATIVE_ACTION_EVENTS,
   normalizeTrackingDimension,
 } from "../shared/analytics-events.js";
+import { classifyTrackingFailure } from "./failure-category.js";
 
 const IGNORED_ACTION_NAMES = new Set(["refresh-list"]);
 const IGNORED_ACTION_PATTERN =
@@ -58,29 +59,6 @@ function outputId(result: unknown): string | undefined {
   return undefined;
 }
 
-function errorType(error: unknown): string {
-  if (error instanceof Error && error.name.trim()) return error.name.trim();
-  return typeof error;
-}
-
-function failureOutcome(
-  error: unknown,
-): "cancelled" | "timeout" | "network_error" | "http_error" | "error" {
-  const name = errorType(error);
-  if (name === "AbortError" || /cancel/i.test(name)) return "cancelled";
-  if (/timeout/i.test(name)) return "timeout";
-  if (
-    error &&
-    typeof error === "object" &&
-    "status" in error &&
-    typeof error.status === "number"
-  ) {
-    return "http_error";
-  }
-  if (name === "TypeError") return "network_error";
-  return "error";
-}
-
 export function wrapRunWithActionTracking(
   run: (args: any, ctx?: ActionRunContext) => any,
   readOnly: boolean | undefined,
@@ -125,10 +103,10 @@ export function wrapRunWithActionTracking(
         actionProperties(ctx, {
           operation_id: operationId,
           status: "failed",
-          outcome: failureOutcome(error),
+          outcome: classifyTrackingFailure(error),
           success: false,
           duration_ms: Date.now() - startedAt,
-          failure_type: errorType(error),
+          failure_type: classifyTrackingFailure(error),
         }),
         ctx,
       );

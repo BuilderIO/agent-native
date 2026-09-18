@@ -197,6 +197,7 @@ export async function handleAbortRecordingUpload(
           ...existingUploadState,
           recordingId,
           status: "failed",
+          aborted: true,
           failureReason,
           updatedAt: now,
         },

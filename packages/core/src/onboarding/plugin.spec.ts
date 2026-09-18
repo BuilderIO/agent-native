@@ -39,6 +39,7 @@ vi.mock("../user-profile/store.js", () => ({
 }));
 
 vi.mock("../tracking/index.js", () => ({
+  classifyTrackingFailure: () => "error",
   track: (...args: any[]) => trackMock(...args),
 }));
 
@@ -452,6 +453,38 @@ describe("onboarding plugin routes", () => {
         step_id: "role",
         role: "developer",
         outcome: "success",
+      },
+      { userId: "alice@example.com", sessionId: "session-role-save" },
+    );
+  });
+
+  it("tracks a bounded category when the role save fails", async () => {
+    const failure = new Error("provider details stay out of analytics");
+    updateUserOnboardingRoleMock.mockRejectedValueOnce(failure);
+    const nitroApp = createNitroApp();
+    await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/onboarding/first-run/role",
+      "POST",
+      {
+        "content-type": "application/json",
+        "x-agent-native-session-id": "session-role-save",
+      },
+      { role: "developer" },
+    );
+
+    expect(result.status).toBe(500);
+    expect(result.body).toEqual({ error: failure.message });
+
+    expect(trackMock).toHaveBeenCalledWith(
+      "onboarding_role_save_failed",
+      {
+        flow: "first_run",
+        step_id: "role",
+        role: "developer",
+        failure_type: "error",
       },
       { userId: "alice@example.com", sessionId: "session-role-save" },
     );

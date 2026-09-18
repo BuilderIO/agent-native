@@ -90,7 +90,7 @@ describe("action lifecycle tracking", () => {
     expect(events[1]).toMatchObject({
       properties: {
         action_name: "create-clip",
-        failure_type: "AbortError",
+        failure_type: "cancelled",
         operation_id: expect.any(String),
         outcome: "cancelled",
         success: false,
@@ -100,6 +100,42 @@ describe("action lifecycle tracking", () => {
     expect(events[0]?.properties?.operation_id).toEqual(
       events[1]?.properties?.operation_id,
     );
+  });
+
+  it("classifies framework statusCode failures as HTTP errors", async () => {
+    const events = captureEvents();
+    const failure = Object.assign(new Error("request failed"), {
+      statusCode: 503,
+    });
+    const trackedRun = wrapRunWithActionTracking(async () => {
+      throw failure;
+    }, false);
+
+    await expect(trackedRun({}, context)).rejects.toBe(failure);
+
+    expect(events[1]).toMatchObject({
+      properties: {
+        failure_type: "http_error",
+        outcome: "http_error",
+      },
+    });
+  });
+
+  it("keeps arbitrary TypeErrors in the generic error bucket", async () => {
+    const events = captureEvents();
+    const failure = new TypeError("invalid property access");
+    const trackedRun = wrapRunWithActionTracking(async () => {
+      throw failure;
+    }, false);
+
+    await expect(trackedRun({}, context)).rejects.toBe(failure);
+
+    expect(events[1]).toMatchObject({
+      properties: {
+        failure_type: "error",
+        outcome: "error",
+      },
+    });
   });
 
   it("skips reads and high-frequency background/state actions", async () => {

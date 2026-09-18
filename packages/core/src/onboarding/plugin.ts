@@ -44,7 +44,7 @@ import {
   FIRST_RUN_ONBOARDING_COOKIE,
   FIRST_RUN_ONBOARDING_ELIGIBLE_KEY,
 } from "../shared/first-run-onboarding.js";
-import { track } from "../tracking/index.js";
+import { classifyTrackingFailure, track } from "../tracking/index.js";
 import { onboardingRoleSchema } from "../user-profile/shared.js";
 import { updateUserOnboardingRole } from "../user-profile/store.js";
 import { getOnboardingAppProfile } from "./app-profile.js";
@@ -457,10 +457,7 @@ export function createOnboardingPlugin(
                 flow: "first_run",
                 step_id: "role",
                 role: parsed.data,
-                failure_type:
-                  error instanceof Error && error.name.trim()
-                    ? error.name.trim()
-                    : typeof error,
+                failure_type: classifyTrackingFailure(error),
               },
               trackingSource,
             );
