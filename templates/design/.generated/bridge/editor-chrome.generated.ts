@@ -2835,6 +2835,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       width: true,
       height: true
     };
+    var portableStyleCssomHooks = /* @__PURE__ */ new WeakMap();
     var portableStyleMutationObserverOptions = {
       subtree: true,
       childList: true,
@@ -2920,14 +2921,90 @@ export const editorChromeBridgeScript: string = `"use strict";
         return true;
       }
     }
+    function portableStyleCssomHookKey(property, kind) {
+      return kind + ":" + property;
+    }
+    function portableStyleCssomHookMap(owner, create) {
+      var hooks = portableStyleCssomHooks.get(owner);
+      if (!hooks && create) {
+        hooks = /* @__PURE__ */ new Map();
+        portableStyleCssomHooks.set(owner, hooks);
+      }
+      return hooks;
+    }
+    function portableStyleCssomHookInstalled(found2, hook) {
+      return hook.kind === "method" ? found2.descriptor.value === hook.wrappedValue : found2.descriptor.set === hook.wrappedSetter;
+    }
+    function portableStyleCssomExistingHook(found2, property, kind) {
+      var hooks = portableStyleCssomHookMap(found2.owner, false);
+      var key = portableStyleCssomHookKey(property, kind);
+      var hook = hooks?.get(key);
+      if (!hook) return void 0;
+      if (portableStyleCssomHookInstalled(found2, hook)) return hook;
+      hooks?.delete(key);
+      return void 0;
+    }
+    function portableStyleCssomInvalidateHook(hook, receiver) {
+      hook.subscribers.slice().forEach(function(subscriber) {
+        try {
+          if (!subscriber.shouldInvalidate || subscriber.shouldInvalidate(receiver)) {
+            subscriber.cache.mutationGeneration += 1;
+          }
+        } catch (_error) {
+          subscriber.cache.mutationGeneration += 1;
+        }
+      });
+    }
+    function portableStyleCssomSubscribe(hook, cache, shouldInvalidate) {
+      var subscriber = { cache, shouldInvalidate };
+      hook.subscribers.push(subscriber);
+      var released = false;
+      return function() {
+        if (released) return;
+        released = true;
+        var subscriberIndex = hook.subscribers.indexOf(subscriber);
+        if (subscriberIndex !== -1) hook.subscribers.splice(subscriberIndex, 1);
+        if (hook.subscribers.length > 0) return;
+        var hooks = portableStyleCssomHookMap(hook.owner, false);
+        var current = Object.getOwnPropertyDescriptor(hook.owner, hook.property);
+        if (current && portableStyleCssomHookInstalled(
+          { owner: hook.owner, descriptor: current },
+          hook
+        )) {
+          try {
+            Object.defineProperty(hook.owner, hook.property, hook.descriptor);
+          } catch (_error) {
+            dndLog("style:cssom-hook-restore-failed", {
+              property: hook.property
+            });
+          }
+        }
+        var key = portableStyleCssomHookKey(hook.property, hook.kind);
+        if (hooks?.get(key) === hook) hooks.delete(key);
+        if (hooks?.size === 0) portableStyleCssomHooks.delete(hook.owner);
+      };
+    }
     function portableStyleWrapCssomMethod(cache, target, property, shouldInvalidate) {
       var found2 = portableStylePropertyDescriptor(target, property);
       if (!found2 || typeof found2.descriptor.value !== "function") return true;
+      var existingHook = portableStyleCssomExistingHook(
+        found2,
+        property,
+        "method"
+      );
+      if (existingHook) {
+        return portableStyleCssomSubscribe(existingHook, cache, shouldInvalidate);
+      }
       var original = found2.descriptor.value;
+      var hook = {
+        owner: found2.owner,
+        property,
+        kind: "method",
+        descriptor: found2.descriptor,
+        subscribers: []
+      };
       var wrapped = function(...args) {
-        if (!shouldInvalidate || shouldInvalidate(this)) {
-          cache.mutationGeneration += 1;
-        }
+        portableStyleCssomInvalidateHook(hook, this);
         var result = original.apply(this, args);
         if (property === "replace" && result) {
           try {
@@ -2936,19 +3013,20 @@ export const editorChromeBridgeScript: string = `"use strict";
               then.call(
                 result,
                 function() {
-                  cache.mutationGeneration += 1;
+                  portableStyleCssomInvalidateHook(hook);
                 },
                 function() {
-                  cache.mutationGeneration += 1;
+                  portableStyleCssomInvalidateHook(hook);
                 }
               );
             }
           } catch (_error) {
-            cache.mutationGeneration += 1;
+            portableStyleCssomInvalidateHook(hook);
           }
         }
         return result;
       };
+      hook.wrappedValue = wrapped;
       try {
         Object.defineProperty(found2.owner, property, {
           ...found2.descriptor,
@@ -2958,24 +3036,36 @@ export const editorChromeBridgeScript: string = `"use strict";
         dndLog("style:cssom-hook-install-failed", { property });
         return false;
       }
-      return function() {
-        try {
-          Object.defineProperty(found2.owner, property, found2.descriptor);
-        } catch (_error) {
-          dndLog("style:cssom-hook-restore-failed", { property });
-        }
-      };
+      portableStyleCssomHookMap(found2.owner, true).set(
+        portableStyleCssomHookKey(property, "method"),
+        hook
+      );
+      return portableStyleCssomSubscribe(hook, cache, shouldInvalidate);
     }
     function portableStyleWrapCssomSetter(cache, target, property, shouldInvalidate) {
       var found2 = portableStylePropertyDescriptor(target, property);
       if (!found2 || typeof found2.descriptor.set !== "function") return true;
+      var existingHook = portableStyleCssomExistingHook(
+        found2,
+        property,
+        "setter"
+      );
+      if (existingHook) {
+        return portableStyleCssomSubscribe(existingHook, cache, shouldInvalidate);
+      }
       var original = found2.descriptor.set;
+      var hook = {
+        owner: found2.owner,
+        property,
+        kind: "setter",
+        descriptor: found2.descriptor,
+        subscribers: []
+      };
       var wrapped = function(value) {
-        if (!shouldInvalidate || shouldInvalidate(this)) {
-          cache.mutationGeneration += 1;
-        }
+        portableStyleCssomInvalidateHook(hook, this);
         original.call(this, value);
       };
+      hook.wrappedSetter = wrapped;
       try {
         Object.defineProperty(found2.owner, property, {
           ...found2.descriptor,
@@ -2985,13 +3075,11 @@ export const editorChromeBridgeScript: string = `"use strict";
         dndLog("style:cssom-hook-install-failed", { property });
         return false;
       }
-      return function() {
-        try {
-          Object.defineProperty(found2.owner, property, found2.descriptor);
-        } catch (_error) {
-          dndLog("style:cssom-hook-restore-failed", { property });
-        }
-      };
+      portableStyleCssomHookMap(found2.owner, true).set(
+        portableStyleCssomHookKey(property, "setter"),
+        hook
+      );
+      return portableStyleCssomSubscribe(hook, cache, shouldInvalidate);
     }
     function portableStyleWrapCssomSetters(cache, target, shouldInvalidate, restorers) {
       if (!target) return true;

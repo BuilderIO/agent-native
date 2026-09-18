@@ -27,6 +27,20 @@ function hydratedBridge(): string {
     .replace(/__INITIAL_SOURCE_HEAD__/g, '""');
 }
 
+function hydratedBridgeWithCssomCacheFactory(): string {
+  const script = hydratedBridge();
+  const marker = '    var shieldOverlay = document.createElement("div");';
+  const withFactory = script.replace(
+    marker,
+    `    window.__testCreatePortableStyleComputedStylesCache = createPortableStyleComputedStylesCache;
+${marker}`,
+  );
+  if (withFactory === script) {
+    throw new Error("CSSOM cache factory test hook insertion point changed");
+  }
+  return withFactory;
+}
+
 const CARDS = 60;
 const LARGE_CANDIDATES = 849;
 const LARGE_DOM_ELEMENTS = 883;
@@ -1147,6 +1161,81 @@ describe("large concurrent selectable-rects requests", () => {
       )?.styles?.color;
       expect(liveLeaf).toBe("rgb(0, 0, 255)");
       expect(portableLeaf).toBe(liveLeaf);
+    } finally {
+      await browser.close();
+    }
+  }, 60_000);
+
+  it("keeps same-global CSSOM hook ownership through non-LIFO teardown", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 600, height: 300 },
+      });
+      await page.setContent(`<!doctype html><html><head><style id="theme">
+        #leaf { color: rgb(255, 0, 0); }
+      </style></head><body style="margin:0">
+        <div id="leaf" data-agent-native-node-id="leaf">Leaf</div>
+      </body></html>`);
+      await page.addScriptTag({
+        content: hydratedBridgeWithCssomCacheFactory(),
+      });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+      const result = await page.evaluate(() => {
+        const win = window as typeof window & {
+          __testCreatePortableStyleComputedStylesCache?: () => {
+            mutationGeneration: number;
+            mutationObserver: MutationObserver;
+            restoreCssomHooks: () => void;
+          };
+        };
+        const createCache = win.__testCreatePortableStyleComputedStylesCache;
+        const style = document.querySelector<HTMLStyleElement>("#theme");
+        const rule = style?.sheet?.cssRules[0];
+        if (!createCache || !(rule instanceof CSSStyleRule)) {
+          throw new Error("CSSOM cache factory fixture did not attach");
+        }
+        let owner: object = CSSStyleDeclaration.prototype;
+        while (
+          owner &&
+          !Object.prototype.hasOwnProperty.call(owner, "setProperty")
+        ) {
+          owner = Object.getPrototypeOf(owner) as object;
+        }
+        const original = Object.getOwnPropertyDescriptor(
+          owner,
+          "setProperty",
+        )?.value;
+        if (typeof original !== "function") {
+          throw new Error("CSSOM setProperty descriptor did not attach");
+        }
+        const first = createCache();
+        const second = createCache();
+        if (!first || !second) {
+          throw new Error("CSSOM cache factory returned no cache");
+        }
+        try {
+          const before = second.mutationGeneration;
+          // Releasing the older owner first used to restore the original
+          // descriptor and strand the newer wrapper/cache pair.
+          first.restoreCssomHooks();
+          rule.style.setProperty("color", "rgb(0, 0, 255)");
+          const after = second.mutationGeneration;
+          second.restoreCssomHooks();
+          const restored =
+            Object.getOwnPropertyDescriptor(owner, "setProperty")?.value ===
+            original;
+          return { invalidated: after > before, restored };
+        } finally {
+          first.mutationObserver.disconnect();
+          second.mutationObserver.disconnect();
+          first.restoreCssomHooks();
+          second.restoreCssomHooks();
+        }
+      });
+
+      expect(result).toEqual({ invalidated: true, restored: true });
     } finally {
       await browser.close();
     }
