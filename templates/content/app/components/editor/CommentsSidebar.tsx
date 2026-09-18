@@ -1,3 +1,4 @@
+import { chatModelSelectionStorageKey } from "@agent-native/core/client/agent-chat";
 import { emailToColor } from "@agent-native/core/client/collab";
 import { useAvatarUrl } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
@@ -13,9 +14,9 @@ import type {
   ResourceSuggestion,
   SuggestionDecision,
 } from "@agent-native/core/review";
+import type { TiptapComposerHandle } from "@agent-native/toolkit/composer";
 import {
   IconCheck,
-  IconMessageCircle,
   IconArrowUp,
   IconArrowBackUp,
   IconFilter,
@@ -77,16 +78,21 @@ import {
   useCommentDraft,
   useCommentDraftContext,
   useCommentPanelSession,
+  type CommentDraft,
 } from "./comment-drafts";
-import { CommentComposer, type MentionEntry } from "./CommentComposer";
+import {
+  CommentComposer,
+  type CommentAiDraft,
+  type CommentAiSubmitPayload,
+  type MentionEntry,
+} from "./CommentComposer";
 import { CommentEntry, CommentAttributionBadge } from "./CommentEntry";
 export { getAiCommentSource } from "./CommentEntry";
 import {
   CommentAiConversation,
-  CommentAiReplyTarget,
   CommentAiRequestStatus,
-  CommentAiThreadActions,
   latestCommentAiRequest,
+  startCommentAiSubmission,
   type CommentAiController,
 } from "./comment-ai";
 import { ReviewCommentMenu, ReviewReactionList } from "./ReviewDiscussionTools";
@@ -408,7 +414,9 @@ export function preserveCommentReplyEscape(event: KeyboardEvent) {
   const target = event.target;
   if (
     event.key === "Escape" &&
-    target instanceof HTMLTextAreaElement &&
+    target instanceof HTMLElement &&
+    (target instanceof HTMLTextAreaElement ||
+      target.getAttribute("contenteditable") === "true") &&
     target === target.ownerDocument.activeElement &&
     target.closest("[data-comment-reply-composer]")
   ) {
@@ -508,14 +516,11 @@ export function useCommentReplyDrafts(
   );
   const update = (
     threadId: string,
-    change: (draft: { text: string; mentions: MentionEntry[] }) => {
-      text: string;
-      mentions: MentionEntry[];
-    },
+    change: (draft: CommentDraft) => CommentDraft,
   ) => {
     draftStore.updateDraft(
       `reply:${documentId}:${threadId}`,
-      { text: "", mentions: [] },
+      { text: "", mentions: [], aiDraft: null },
       change,
     );
   };
@@ -539,17 +544,26 @@ export function useCommentReplyDrafts(
       draftStore.drafts.get(`reply:${documentId}:${threadId}`) ?? {
         text: "",
         mentions: [],
+        aiDraft: null,
         revision: 0,
       },
-    setText: (threadId: string, text: string) =>
-      update(threadId, (draft) => ({ ...draft, text })),
+    setText: (threadId: string, text: string) => {
+      if (
+        text === "" &&
+        !draftStore.drafts.has(`reply:${documentId}:${threadId}`)
+      )
+        return;
+      update(threadId, (draft) => ({ ...draft, text }));
+    },
     addMention: (threadId: string, mention: MentionEntry) =>
       update(threadId, (draft) => ({
         ...draft,
         mentions: [...draft.mentions, mention],
       })),
+    setAiDraft: (threadId: string, aiDraft: CommentAiDraft | null) =>
+      update(threadId, (draft) => ({ ...draft, aiDraft })),
     clear: (threadId: string) =>
-      update(threadId, () => ({ text: "", mentions: [] })),
+      update(threadId, () => ({ text: "", mentions: [], aiDraft: null })),
   };
 }
 
@@ -671,6 +685,7 @@ interface CommentsSidebarOptions {
   onSelectedThreadChange?: (id: string | null) => void;
   onHoveredThreadChange?: (id: string | null) => void;
   currentUserEmail?: string;
+  currentUserOrgId?: string;
   canComment?: boolean;
   canResolve?: boolean;
   canSuggest?: boolean;
@@ -706,6 +721,18 @@ type CommentsSidebarProps = CommentsSidebarOptions &
       }
   );
 
+export function commentAiModelStorageKey(
+  currentUserEmail?: string,
+  currentUserOrgId?: string,
+) {
+  const email = currentUserEmail?.trim().toLowerCase();
+  if (!email) return undefined;
+  const orgId = currentUserOrgId?.trim();
+  return chatModelSelectionStorageKey(
+    `content-comment-ai:${orgId ? `org:${orgId}` : "personal"}:${email}`,
+  );
+}
+
 export function CommentsSidebar({
   compact = false,
   replyDrafts,
@@ -729,6 +756,7 @@ export function CommentsSidebar({
   onSelectedThreadChange,
   onHoveredThreadChange,
   currentUserEmail,
+  currentUserOrgId,
   canComment = true,
   canResolve = false,
   canSuggest = false,
@@ -745,6 +773,10 @@ export function CommentsSidebar({
   presentation = "inline",
 }: CommentsSidebarProps) {
   const t = useT();
+  const aiModelStorageKey = commentAiModelStorageKey(
+    currentUserEmail,
+    currentUserOrgId,
+  );
   const { data: members = [] } = useMentionMembers();
   const createComment = useCreateComment({ email: currentUserEmail });
   const resolveComment = useResolveComment();
@@ -767,7 +799,6 @@ export function CommentsSidebar({
     ? null
     : (replyDrafts.openReply?.threadId ?? null);
   const expandedSuggestionId = replyDrafts.openReply?.suggestionId ?? null;
-  const [aiReplyTarget, setAiReplyTarget] = useState<string | null>(null);
   const setReplyingThreadId = replyDrafts.setOpenReply;
   const setExpandedSuggestionId = (id: string | null) => {
     const suggestion = suggestions.find((entry) => entry.id === id);
@@ -809,7 +840,7 @@ export function CommentsSidebar({
     presentation,
   ]);
   const sidebarRef = useRef<HTMLDivElement>(null);
-  const pendingInputRef = useRef<HTMLTextAreaElement>(null);
+  const pendingInputRef = useRef<TiptapComposerHandle>(null);
 
   const openThreads = useMemo(() => {
     if (presentation === "inline" && !alignToAnchors && activeSuggestionId)
@@ -985,51 +1016,23 @@ export function CommentsSidebar({
   const pendingFocus = pendingComment?.focus;
   useEffect(() => {
     if (!pendingFocus || presentation !== "inline") return;
-    const relinquishFocus = (event: FocusEvent) => {
-      if (event.target !== pendingInputRef.current) pendingFocus.current = null;
-    };
-    document.addEventListener("focusin", relinquishFocus);
     const timer = setTimeout(() => {
-      document.removeEventListener("focusin", relinquishFocus);
       const input = pendingInputRef.current;
       const saved = pendingFocus.current;
-      if (!input || !saved || input.closest("[inert]")) return;
-      input.focus({ preventScroll: true });
+      if (!input || !saved) return;
+      const active = document.activeElement;
+      if (
+        active &&
+        active !== document.body &&
+        active !== document.documentElement &&
+        active.isConnected
+      )
+        return;
+      input.focus();
       if (saved.start !== undefined && saved.end !== undefined)
-        input.setSelectionRange(saved.start, saved.end, saved.direction);
+        input.setSelection(saved.start, saved.end, saved.direction);
     }, 50);
-    return () => {
-      clearTimeout(timer);
-      document.removeEventListener("focusin", relinquishFocus);
-    };
-  }, [pendingFocus, presentation]);
-
-  useLayoutEffect(() => {
-    const input = pendingInputRef.current;
-    if (!input || !pendingFocus) return;
-    const capture = () => {
-      if (document.activeElement !== input) return;
-      pendingFocus.current = {
-        start: input.selectionStart,
-        end: input.selectionEnd,
-        direction: input.selectionDirection,
-      };
-    };
-    const blur = () => {
-      if (input.isConnected && !input.closest("[inert]"))
-        pendingFocus.current = null;
-    };
-    input.addEventListener("focus", capture);
-    input.addEventListener("select", capture);
-    input.addEventListener("input", capture);
-    input.addEventListener("blur", blur);
-    return () => {
-      capture();
-      input.removeEventListener("focus", capture);
-      input.removeEventListener("select", capture);
-      input.removeEventListener("input", capture);
-      input.removeEventListener("blur", blur);
-    };
+    return () => clearTimeout(timer);
   }, [pendingFocus, presentation]);
 
   const handlePendingSubmit = async () => {
@@ -1084,29 +1087,6 @@ export function CommentsSidebar({
       return;
     const thread = threads?.find((t) => t.threadId === threadId);
     if (!thread || thread.resolved) return;
-    const aiRequest = aiReplyTarget
-      ? commentAi?.requests.find(
-          (request) =>
-            request.operationId === aiReplyTarget &&
-            request.threadId === threadId,
-        )
-      : undefined;
-    if (aiRequest && commentAi) {
-      const submitted = replyDrafts.get(threadId);
-      try {
-        await commentAi.continue(aiRequest, replyText.trim());
-        draftStore.clearIfUnchanged(
-          `reply:${documentId}:${threadId}`,
-          submitted,
-        );
-        setAiReplyTarget(null);
-      } catch (error) {
-        toast.error(t("empty.genericError"), {
-          description: error instanceof Error ? error.message : undefined,
-        });
-      }
-      return;
-    }
     const clientOperationId = crypto.randomUUID();
     const submitted = replyDrafts.get(threadId);
     draftStore.submittedDrafts.set(clientOperationId, submitted);
@@ -1325,18 +1305,28 @@ export function CommentsSidebar({
     const continuation = aiRequest
       ? commentAi?.continuations.get(aiRequest.operationId)
       : undefined;
-    const startAi = async (
-      intent: "suggest" | "reply" | "apply-resolve",
-      requestId?: string,
-    ) => {
+    const submitAi = async (selection: CommentAiSubmitPayload) => {
       if (!commentAi || !thread.comments[0]) return;
+      const instructions = replyDrafts.get(thread.threadId).text.trim();
+      if (!instructions) return;
+      const submitted = replyDrafts.get(thread.threadId);
       try {
-        await commentAi.start({
+        const outcome = await startCommentAiSubmission(commentAi, {
           threadId: thread.threadId,
           rootCommentId: thread.comments[0].id,
-          intent,
-          requestId,
+          submittedMode: selection.intent,
+          instructions,
+          provider: selection.provider,
+          model: selection.model,
+          engine: selection.engine,
+          priorRequest: aiRequest,
         });
+        if (outcome === "confirmed-start") {
+          draftStore.clearIfUnchanged(
+            `reply:${documentId}:${thread.threadId}`,
+            submitted,
+          );
+        }
       } catch (error) {
         toast.error(t("empty.genericError"), {
           description: error instanceof Error ? error.message : undefined,
@@ -1371,6 +1361,7 @@ export function CommentsSidebar({
           )
         }
         replyText={replyDrafts.get(thread.threadId).text}
+        aiDraft={replyDrafts.get(thread.threadId).aiDraft}
         onHoverChange={(hovered) =>
           onHoveredThreadChange?.(hovered ? thread.threadId : null)
         }
@@ -1387,12 +1378,14 @@ export function CommentsSidebar({
         onCollapse={() => {
           if (createComment.isPending) return;
           setReplyingThreadId(null);
-          setAiReplyTarget(null);
           onSelectedThreadChange?.(null);
         }}
         onReplyChange={(text) => replyDrafts.setText(thread.threadId, text)}
         onReplyMentionAdd={(mention) =>
           replyDrafts.addMention(thread.threadId, mention)
+        }
+        onAiDraftChange={(aiDraft) =>
+          replyDrafts.setAiDraft(thread.threadId, aiDraft)
         }
         onHeightChange={handleThreadCardHeightChange}
         members={members}
@@ -1411,25 +1404,16 @@ export function CommentsSidebar({
             canComment={canComment}
             members={members}
             reserveThreadActions={id === thread.comments[0]?.id}
+            onOpenAiConversation={
+              id === thread.comments[0]?.id &&
+              aiRequest?.agentThreadId &&
+              aiRequest.agentTurnId &&
+              commentAi
+                ? () => commentAi.open(aiRequest)
+                : undefined
+            }
           />
         )}
-        threadActions={
-          commentAi ? (
-            <CommentAiThreadActions
-              aria-label={t("comments.askAi")}
-              request={aiRequest}
-              starting={commentAi.startingThreadIds.has(thread.threadId)}
-              canSuggest={canSuggest}
-              canReply={canComment && !thread.resolved}
-              canApply={
-                canResolve &&
-                !thread.resolved &&
-                thread.comments.some((comment) => comment.parent_id === null)
-              }
-              onStart={startAi}
-            />
-          ) : undefined
-        }
         feedback={
           aiRequest && commentAi ? (
             <>
@@ -1450,22 +1434,13 @@ export function CommentsSidebar({
                   aiRequest.operationId,
                 )}
                 onRetry={() => commentAi.retry(aiRequest)}
-                onReply={() => {
-                  setAiReplyTarget(aiRequest.operationId);
-                  onActivateThread?.(thread.threadId);
-                  setReplyingThreadId(thread.threadId);
-                }}
                 onStop={stopAi}
-                onOpen={() => commentAi.open(aiRequest)}
               />
             </>
           ) : undefined
         }
-        replyTarget={
-          aiRequest && aiReplyTarget === aiRequest.operationId ? (
-            <CommentAiReplyTarget onCancel={() => setAiReplyTarget(null)} />
-          ) : undefined
-        }
+        onAiSubmit={commentAi ? submitAi : undefined}
+        aiModelStorageKey={commentAi ? aiModelStorageKey : undefined}
         t={t}
       />
     );
@@ -1760,6 +1735,16 @@ export function CommentsSidebar({
             onSubmit={handlePendingSubmit}
             onEscape={() => {
               if (!pendingText.trim()) handlePendingCancel();
+            }}
+            onFocus={() => {
+              const selection = pendingInputRef.current?.getSelection();
+              if (selection && pendingFocus) pendingFocus.current = selection;
+            }}
+            onSelectionChange={(selection) => {
+              if (pendingFocus) pendingFocus.current = selection;
+            }}
+            onBlur={() => {
+              if (pendingFocus) pendingFocus.current = null;
             }}
             members={members}
             placeholder={t("comments.add")}
@@ -2409,23 +2394,25 @@ function ThreadView({
   isSubmitting,
   timeLabel,
   replyText,
+  aiDraft,
   members,
   onHoverChange,
   onExpand,
   onCollapse,
   onReplyChange,
   onReplyMentionAdd,
+  onAiDraftChange,
   onHeightChange,
   onSubmitReply,
   onResolve,
   canComment,
   canResolve,
-  onSendToAI,
+  onAiSubmit,
+  aiModelStorageKey,
   expandLabel,
   firstEntryBody,
   threadActions,
   feedback,
-  replyTarget,
   headerStatus,
   renderCommentActions,
   renderCommentFooter,
@@ -2454,29 +2441,31 @@ function ThreadView({
   isSubmitting: boolean;
   timeLabel?: string;
   replyText: string;
+  aiDraft?: CommentAiDraft | null;
   members: MentionMember[];
   onHoverChange: (hovered: boolean) => void;
   onExpand: () => void;
   onCollapse: () => void;
   onReplyChange: (text: string) => void;
   onReplyMentionAdd: (entry: MentionEntry) => void;
+  onAiDraftChange?: (draft: CommentAiDraft | null) => void;
   onHeightChange: (threadId: string, height: number) => void;
   onSubmitReply: () => void;
   onResolve: () => void;
   canComment: boolean;
   canResolve: boolean;
-  onSendToAI?: () => void;
+  onAiSubmit?: (payload: CommentAiSubmitPayload) => void;
+  aiModelStorageKey?: string;
   expandLabel?: string;
   firstEntryBody?: ReactNode;
   threadActions?: ReactNode;
   feedback?: ReactNode;
-  replyTarget?: ReactNode;
   headerStatus?: ReactNode;
   renderCommentActions?: (commentId: string) => ReactNode;
   renderCommentFooter?: (commentId: string) => ReactNode;
   t: ReturnType<typeof useT>;
 }) {
-  const replyInputRef = useRef<HTMLTextAreaElement>(null);
+  const replyInputRef = useRef<TiptapComposerHandle>(null);
   const cardRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -2487,54 +2476,18 @@ function ThreadView({
         if (
           !input ||
           !saved ||
-          input.closest("[inert]") ||
           saved?.documentId !== documentId ||
           saved.threadId !== thread.threadId
         )
           return;
-        input.focus({ preventScroll: true });
+        input.focus();
         if (saved.start !== undefined && saved.end !== undefined) {
-          input.setSelectionRange(saved.start, saved.end, saved.direction);
+          input.setSelection(saved.start, saved.end, saved.direction);
         }
       }, 50);
       return () => clearTimeout(timer);
     }
   }, [isExpanded, canComment]);
-
-  useLayoutEffect(() => {
-    const input = replyInputRef.current;
-    if (!input || !replyDrafts || !documentId) return;
-    const capture = () => {
-      if (document.activeElement !== input) return;
-      replyDrafts.focus.current = {
-        documentId,
-        threadId: thread.threadId,
-        start: input.selectionStart,
-        end: input.selectionEnd,
-        direction: input.selectionDirection,
-      };
-    };
-    const blur = () => {
-      if (
-        input.isConnected &&
-        !input.closest("[inert]") &&
-        replyDrafts.focus.current?.threadId === thread.threadId
-      ) {
-        replyDrafts.focus.current = null;
-      }
-    };
-    input.addEventListener("focus", capture);
-    input.addEventListener("select", capture);
-    input.addEventListener("input", capture);
-    input.addEventListener("blur", blur);
-    return () => {
-      if (replyDrafts.focus.current?.threadId === thread.threadId) capture();
-      input.removeEventListener("focus", capture);
-      input.removeEventListener("select", capture);
-      input.removeEventListener("input", capture);
-      input.removeEventListener("blur", blur);
-    };
-  }, [isExpanded, documentId, thread.threadId, replyDrafts?.focus]);
 
   useEffect(() => {
     const element = cardRef.current;
@@ -2591,24 +2544,6 @@ function ThreadView({
         {/* Hover actions — top right, Notion style pill */}
         <div className="pointer-events-none absolute top-2 right-2 flex items-center rounded-md bg-accent/80 opacity-0 ring-1 ring-border/50 transition-opacity group-hover/thread:pointer-events-auto group-hover/thread:opacity-100 group-focus-within/thread:pointer-events-auto group-focus-within/thread:opacity-100">
           {threadActions}
-          {onSendToAI ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  aria-label={t("comments.askAi")}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onSendToAI();
-                  }}
-                  className="p-1.5 text-muted-foreground hover:text-foreground rounded-l-md hover:bg-accent"
-                >
-                  <IconMessageCircle size={14} />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>{t("comments.askAi")}</TooltipContent>
-            </Tooltip>
-          ) : null}
           {canResolve ? (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -2698,7 +2633,6 @@ function ThreadView({
       {/* Expanded: Notion-style reply input */}
       {isExpanded && canComment && !resolved && (
         <>
-          {replyTarget}
           <div
             data-comment-reply-composer
             className="flex items-center gap-2 px-3 pb-3 pt-1"
@@ -2719,9 +2653,35 @@ function ThreadView({
                 onChange={onReplyChange}
                 onMentionAdd={onReplyMentionAdd}
                 onSubmit={onSubmitReply}
+                onAiSubmit={onAiSubmit}
+                aiDraft={aiDraft}
+                onAiDraftChange={onAiDraftChange}
+                aiModelStorageKey={aiModelStorageKey}
                 onEscape={() => {
                   onCollapse();
                   requestAnimationFrame(() => cardRef.current?.focus());
+                }}
+                onFocus={() => {
+                  const selection = replyInputRef.current?.getSelection();
+                  if (!selection || !replyDrafts || !documentId) return;
+                  replyDrafts.focus.current = {
+                    documentId,
+                    threadId: thread.threadId,
+                    ...selection,
+                  };
+                }}
+                onSelectionChange={(selection) => {
+                  if (!replyDrafts || !documentId) return;
+                  replyDrafts.focus.current = {
+                    documentId,
+                    threadId: thread.threadId,
+                    ...selection,
+                  };
+                }}
+                onBlur={() => {
+                  if (cardRef.current?.closest("[inert]")) return;
+                  if (replyDrafts?.focus.current?.threadId === thread.threadId)
+                    replyDrafts.focus.current = null;
                 }}
                 members={members}
                 placeholder={t("comments.reply")}

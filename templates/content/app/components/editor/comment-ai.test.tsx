@@ -6,8 +6,6 @@ import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { TooltipProvider } from "@/components/ui/tooltip";
-
 import {
   acknowledgeCommentAiContinuation,
   boundedContinuationContext,
@@ -15,8 +13,8 @@ import {
   commentAiRequestsRefetchInterval,
   shouldReconcileCommentAiSnapshot,
   shouldIgnoreContinuationAcceptanceError,
+  startCommentAiSubmission,
   CommentAiRequestStatus,
-  CommentAiThreadActions,
   type CommentAiController,
   useCommentAiRequests,
 } from "./comment-ai";
@@ -65,6 +63,11 @@ function request(overrides: Partial<CommentAiRequest> = {}): CommentAiRequest {
     documentId: "document-1",
     threadId: "thread-1",
     rootCommentId: "comment-1",
+    submittedMode: "suggest",
+    instructions: "Please suggest a change",
+    submittedProvider: null,
+    submittedModel: null,
+    submittedEngine: null,
     intent: "suggest",
     status: "failed",
     attemptId: null,
@@ -127,39 +130,6 @@ describe("comment AI controls", () => {
     vi.clearAllMocks();
   });
 
-  function renderControls(
-    props: Partial<Parameters<typeof CommentAiThreadActions>[0]> = {},
-  ) {
-    const onStart = vi.fn().mockResolvedValue(undefined);
-    act(() =>
-      root.render(
-        createElement(
-          MemoryRouter,
-          null,
-          createElement(
-            TooltipProvider,
-            null,
-            createElement(
-              "div",
-              null,
-              createElement("textarea", { defaultValue: "unfinished reply" }),
-              createElement(CommentAiThreadActions, {
-                "aria-label": "comments.askAi",
-                starting: false,
-                canSuggest: true,
-                canReply: true,
-                canApply: true,
-                onStart,
-                ...props,
-              }),
-            ),
-          ),
-        ),
-      ),
-    );
-    return onStart;
-  }
-
   it("shows the provider family and exact model for inline AI turns", () => {
     expect(commentAiModelLabel("gpt-5-6-sol")).toBe("GPT · gpt-5-6-sol");
     expect(commentAiModelLabel("claude-sonnet-4-5")).toBe(
@@ -167,74 +137,38 @@ describe("comment AI controls", () => {
     );
   });
 
-  async function openMenu(trigger: HTMLButtonElement) {
-    await act(async () => {
-      trigger.dispatchEvent(
-        new PointerEvent("pointerdown", {
-          bubbles: true,
-          button: 0,
-          ctrlKey: false,
-        }),
-      );
+  it("starts every structured AI submission and links the prior exact request", async () => {
+    const start = vi.fn().mockResolvedValue(undefined);
+    const priorRequest = request({
+      requestId: "prior-request",
+      status: "replied",
+      error: null,
     });
-  }
 
-  it("opens and dismisses the ordered menu without dispatching", async () => {
-    const onStart = renderControls();
-    const trigger = container.querySelector<HTMLButtonElement>(
-      '[aria-label="comments.askAi"]',
-    )!;
-    await openMenu(trigger);
-    const items = [
-      ...document.querySelectorAll<HTMLElement>("[role=menuitem]"),
-    ];
-    expect(items.map((item) => item.textContent)).toEqual([
-      "comments.aiSuggestChanges",
-      "comments.aiReplyInThread",
-      "comments.aiApplyAndResolve",
-    ]);
-    await act(async () =>
-      document.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
-      ),
+    await startCommentAiSubmission(
+      { start },
+      {
+        threadId: "thread-1",
+        rootCommentId: "comment-1",
+        submittedMode: "auto",
+        instructions: "Please decide whether to answer or edit",
+        provider: "OpenAI",
+        model: "gpt-5-6-sol",
+        engine: "builder",
+        priorRequest,
+      },
     );
-    expect(onStart).not.toHaveBeenCalled();
-    expect(container.querySelector("textarea")?.value).toBe("unfinished reply");
-  });
 
-  it("supports keyboard selection and keeps Apply independent from Suggest permission", async () => {
-    const onStart = renderControls();
-    const trigger = container.querySelector<HTMLButtonElement>(
-      '[aria-label="comments.askAi"]',
-    )!;
-    await act(async () =>
-      trigger.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
-      ),
-    );
-    const first = document.querySelector<HTMLElement>("[role=menuitem]")!;
-    await act(async () =>
-      first.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
-      ),
-    );
-    expect(onStart).toHaveBeenCalledWith("suggest", undefined);
-
-    act(() => root.unmount());
-    root = createRoot(container);
-    const permissionOnStart = renderControls({ canSuggest: false });
-    await openMenu(
-      container.querySelector<HTMLButtonElement>(
-        '[aria-label="comments.askAi"]',
-      )!,
-    );
-    const permissionItems = [
-      ...document.querySelectorAll<HTMLElement>("[role=menuitem]"),
-    ];
-    expect(permissionItems[0]?.getAttribute("data-disabled")).not.toBeNull();
-    expect(permissionItems[2]?.getAttribute("data-disabled")).toBeNull();
-    await act(async () => permissionItems[2]?.click());
-    expect(permissionOnStart).toHaveBeenCalledWith("apply-resolve", undefined);
+    expect(start).toHaveBeenCalledWith({
+      threadId: "thread-1",
+      rootCommentId: "comment-1",
+      submittedMode: "auto",
+      instructions: "Please decide whether to answer or edit",
+      provider: "OpenAI",
+      model: "gpt-5-6-sol",
+      engine: "builder",
+      continuationOfRequestId: "prior-request",
+    });
   });
 
   it("shows actionable errors and retries with the same request id", async () => {
@@ -245,9 +179,7 @@ describe("comment AI controls", () => {
         createElement(CommentAiRequestStatus, {
           request: failed,
           onRetry,
-          onReply: vi.fn(),
           onStop: vi.fn().mockResolvedValue(undefined),
-          onOpen: vi.fn(),
         }),
       );
     });
@@ -279,9 +211,7 @@ describe("comment AI controls", () => {
             request: statusRequest,
             continuation,
             onRetry,
-            onReply: vi.fn(),
             onStop: vi.fn().mockResolvedValue(undefined),
-            onOpen: vi.fn(),
           }),
         );
       });
@@ -368,6 +298,7 @@ describe("comment AI controls", () => {
     }
     api.callAction.mockResolvedValue({
       ...request({ status: "queued", error: null }),
+      outcome: "confirmed-start",
       dispatch: true,
       prompt: "Handle the source comment",
       context: "Hidden comment AI instructions",
@@ -385,18 +316,25 @@ describe("comment AI controls", () => {
     const input = {
       threadId: "thread-1",
       rootCommentId: "comment-1",
-      intent: "suggest" as const,
+      submittedMode: "suggest" as const,
+      instructions: "Please suggest a change",
     };
+    let outcomes: Array<"confirmed-start" | "busy"> = [];
     await act(async () => {
-      await Promise.all([controller!.start(input), controller!.start(input)]);
+      outcomes = await Promise.all([
+        controller!.start(input),
+        controller!.start(input),
+      ]);
     });
 
     expect(api.callAction).toHaveBeenCalledOnce();
+    expect(outcomes).toEqual(["confirmed-start", "busy"]);
     expect(api.callAction).toHaveBeenCalledWith("start-comment-ai-request", {
       documentId: "document-1",
       threadId: "thread-1",
       rootCommentId: "comment-1",
-      intent: "suggest",
+      submittedMode: "suggest",
+      instructions: "Please suggest a change",
       requestId,
     });
     expect(api.startBackgroundAgentSession).toHaveBeenCalledWith({
@@ -418,6 +356,7 @@ describe("comment AI controls", () => {
     }
     api.callAction.mockResolvedValue({
       ...request({ status: "running", error: null }),
+      outcome: "busy",
       dispatch: false,
       prompt: "Reply in thread for this comment.",
       context: "Hidden comment AI instructions",
@@ -425,17 +364,133 @@ describe("comment AI controls", () => {
     });
     act(() => root.render(createElement(Probe)));
 
+    let outcome: "confirmed-start" | "busy" | undefined;
     await act(async () => {
-      await controller!.start({
+      outcome = await controller!.start({
         threadId: "thread-1",
         rootCommentId: "comment-1",
-        intent: "reply",
+        submittedMode: "reply",
+        instructions: "Please reply",
       });
     });
 
     expect(api.callAction).toHaveBeenCalledOnce();
+    expect(outcome).toBe("busy");
     expect(api.startBackgroundAgentSession).not.toHaveBeenCalled();
     expect(api.refetch).toHaveBeenCalledOnce();
+  });
+
+  it("returns busy without starting when another tab already exposed an active operation", async () => {
+    api.requests = [request({ status: "running", error: null })];
+    let controller: CommentAiController;
+    function Probe() {
+      controller = useCommentAiRequests("document-1", { enabled: true });
+      return null;
+    }
+    act(() => root.render(createElement(Probe)));
+
+    let outcome: "confirmed-start" | "busy" | undefined;
+    await act(async () => {
+      outcome = await controller!.start({
+        threadId: "thread-1",
+        rootCommentId: "comment-1",
+        submittedMode: "reply",
+        instructions: "A second cross-tab draft",
+      });
+    });
+
+    expect(outcome).toBe("busy");
+    expect(api.callAction).not.toHaveBeenCalled();
+    expect(api.startBackgroundAgentSession).not.toHaveBeenCalled();
+  });
+
+  it("replays the submitted provider, model, and engine through classifying and classified reload recovery", async () => {
+    const operationId = "00000000-0000-4000-8000-000000000099";
+    api.requests = [
+      request({
+        operationId,
+        requestId: operationId,
+        status: "classifying",
+        submittedMode: "auto",
+        instructions: "Decide how to handle this",
+        submittedProvider: "OpenAI",
+        submittedModel: "gpt-5-6-sol",
+        submittedEngine: "builder",
+        intent: null,
+        pendingSession: {
+          phase: "classification",
+          backgroundSession: {
+            operationId: `${operationId}:classification`,
+            threadId: "classifier-thread",
+            turnId: "classifier-turn",
+            scope: { type: "content-comment-ai-classifier", id: operationId },
+            actionScope: {
+              kind: "content-comment-ai-classifier",
+              requestId: operationId,
+            },
+            model: "gpt-5-6-sol",
+            engine: "builder",
+          },
+          prompt: "Decide how to handle this",
+        },
+      }),
+    ];
+    api.callAction.mockResolvedValue({
+      ...api.requests[0],
+      outcome: "confirmed-start",
+      dispatch: false,
+    });
+    function Probe() {
+      useCommentAiRequests("document-1", { enabled: true });
+      return null;
+    }
+    await act(async () => root.render(createElement(Probe)));
+
+    expect(api.callAction).toHaveBeenCalledWith(
+      "start-comment-ai-request",
+      expect.objectContaining({
+        requestId: operationId,
+        provider: "OpenAI",
+        model: "gpt-5-6-sol",
+        engine: "builder",
+      }),
+    );
+
+    api.callAction.mockClear();
+    api.requests = [
+      request({
+        ...api.requests[0],
+        status: "classified",
+        intent: "suggest",
+        pendingSession: {
+          phase: "execution",
+          backgroundSession: {
+            operationId,
+            threadId: "execution-thread",
+            turnId: "execution-turn",
+            scope: { type: "content-comment-ai", id: operationId },
+            actionScope: {
+              kind: "content-comment-ai",
+              requestId: operationId,
+            },
+            model: "gpt-5-6-sol",
+            engine: "builder",
+          },
+          prompt: "Suggest changes: Decide how to handle this",
+        },
+      }),
+    ];
+    await act(async () => root.render(createElement(Probe)));
+
+    expect(api.callAction).toHaveBeenCalledWith(
+      "start-comment-ai-request",
+      expect.objectContaining({
+        requestId: operationId,
+        provider: "OpenAI",
+        model: "gpt-5-6-sol",
+        engine: "builder",
+      }),
+    );
   });
 
   it("makes a rejected initial dispatch recoverable with the exact same tuple", async () => {
@@ -451,9 +506,17 @@ describe("comment AI controls", () => {
       threadId: "agent-thread-1",
       scope: { type: "content-comment-ai", id: "request-1" },
       actionScope: { kind: "content-comment-ai", requestId: "request-1" },
+      model: "gpt-5-6-sol",
+      engine: "builder",
     };
     api.callAction.mockResolvedValue({
-      ...request({ status: "queued", error: null }),
+      ...request({
+        status: "queued",
+        error: null,
+        submittedProvider: "OpenAI",
+        submittedModel: "gpt-5-6-sol",
+        submittedEngine: "builder",
+      }),
       dispatch: true,
       prompt: options.message,
       context: options.instructions,
@@ -463,6 +526,8 @@ describe("comment AI controls", () => {
         threadId: options.threadId,
         scope: options.scope,
         actionScope: options.actionScope,
+        model: options.model,
+        engine: options.engine,
       },
     });
     api.startBackgroundAgentSession
@@ -495,13 +560,25 @@ describe("comment AI controls", () => {
       await controller!.start({
         threadId: "thread-1",
         rootCommentId: "comment-1",
-        intent: "suggest",
+        submittedMode: "suggest",
+        instructions: "Please suggest a change",
+        provider: "OpenAI",
+        model: "gpt-5-6-sol",
+        engine: "builder",
         requestId: "request-1",
       });
       await Promise.resolve();
       await Promise.resolve();
     });
-    api.requests = [request({ status: "queued", error: null })];
+    api.requests = [
+      request({
+        status: "queued",
+        error: null,
+        submittedProvider: "OpenAI",
+        submittedModel: "gpt-5-6-sol",
+        submittedEngine: "builder",
+      }),
+    ];
     act(() => root.render(createElement(Probe)));
     expect(controller!.requests[0]).toMatchObject({
       status: "needs-review",
@@ -513,7 +590,11 @@ describe("comment AI controls", () => {
       await controller!.start({
         threadId: "thread-1",
         rootCommentId: "comment-1",
-        intent: "suggest",
+        submittedMode: "suggest",
+        instructions: "Please suggest a change",
+        provider: "OpenAI",
+        model: "gpt-5-6-sol",
+        engine: "builder",
         requestId: "request-1",
       });
     });
@@ -528,22 +609,9 @@ describe("comment AI controls", () => {
   it("keeps fresh Ask AI blocked while a transport-unknown original completes late", async () => {
     vi.useFakeTimers();
     let controller: CommentAiController;
-    const onFreshStart = vi.fn().mockResolvedValue(undefined);
     function Probe() {
       controller = useCommentAiRequests("document-1", { enabled: true });
-      return createElement(
-        TooltipProvider,
-        null,
-        createElement(CommentAiThreadActions, {
-          "aria-label": "comments.askAi",
-          request: controller.requests[0],
-          starting: false,
-          canSuggest: true,
-          canReply: true,
-          canApply: true,
-          onStart: onFreshStart,
-        }),
-      );
+      return null;
     }
     const started = {
       ...request({ status: "queued", error: null }),
@@ -579,7 +647,8 @@ describe("comment AI controls", () => {
       await controller!.start({
         threadId: "thread-1",
         rootCommentId: "comment-1",
-        intent: "suggest",
+        submittedMode: "suggest",
+        instructions: "Please suggest a change",
         requestId: "request-1",
       });
       await Promise.resolve();
@@ -596,16 +665,12 @@ describe("comment AI controls", () => {
     act(() => root.render(createElement(Probe)));
 
     expect(controller!.requests[0]).toMatchObject({ status: "needs-review" });
-    expect(
-      container
-        .querySelector('[aria-label="comments.askAi"]')
-        ?.getAttribute("aria-busy"),
-    ).toBe("true");
     await act(async () => {
       await controller!.start({
         threadId: "thread-1",
         rootCommentId: "comment-1",
-        intent: "reply",
+        submittedMode: "reply",
+        instructions: "Please reply",
       });
     });
     expect(api.startBackgroundAgentSession).toHaveBeenCalledOnce();
@@ -673,7 +738,8 @@ describe("comment AI controls", () => {
       await controller!.start({
         threadId: "thread-1",
         rootCommentId: "comment-1",
-        intent: "suggest",
+        submittedMode: "suggest",
+        instructions: "Please suggest a change",
         requestId: "request-1",
       });
       await Promise.resolve();
@@ -721,7 +787,8 @@ describe("comment AI controls", () => {
       await controller!.start({
         threadId: "thread-1",
         rootCommentId: "comment-1",
-        intent: "suggest",
+        submittedMode: "suggest",
+        instructions: "Please suggest a change",
         requestId: "request-1",
       });
     });
@@ -922,7 +989,8 @@ describe("comment AI controls", () => {
         await controller!.start({
           threadId: "thread-1",
           rootCommentId: "comment-1",
-          intent: "reply",
+          submittedMode: "reply",
+          instructions: "Please reply",
         });
       }),
     ).rejects.toThrow("The comment is stale");

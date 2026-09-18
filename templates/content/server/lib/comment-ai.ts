@@ -17,14 +17,22 @@ import { commentIdForIdempotency } from "../../actions/add-comment.js";
 import type {
   CommentAiErrorCode,
   CommentAiIntent,
+  CommentAiPendingSession,
   CommentAiRequest,
   CommentAiSessionStatus,
   CommentAiStatus,
+  CommentAiSubmittedMode,
   StartCommentAiResult,
 } from "../../shared/comment-ai.js";
 import { getDb, schema } from "../db/index.js";
 
-const ACTIVE_STATUSES = ["queued", "running", "refreshing"] as const;
+const ACTIVE_STATUSES = [
+  "classifying",
+  "classified",
+  "queued",
+  "running",
+  "refreshing",
+] as const;
 const TERMINAL_SUCCESS = ["replied", "suggested", "resolved"] as const;
 const MAX_ATTEMPTS = 2;
 
@@ -32,6 +40,10 @@ export const commentAiIntentSchema = z.enum([
   "suggest",
   "reply",
   "apply-resolve",
+]);
+export const commentAiSubmittedModeSchema = z.union([
+  z.literal("auto"),
+  commentAiIntentSchema,
 ]);
 export const commentAiScopeSchema = z
   .object({
@@ -45,7 +57,21 @@ export const commentAiActionScopeSchema = z
     requestId: z.string().uuid(),
   })
   .strict();
+export const commentAiClassifierScopeSchema = z
+  .object({
+    type: z.literal("content-comment-ai-classifier"),
+    id: z.string().uuid(),
+  })
+  .strict();
+export const commentAiClassifierActionScopeSchema = z
+  .object({
+    kind: z.literal("content-comment-ai-classifier"),
+    requestId: z.string().uuid(),
+  })
+  .strict();
 const statusSchema = z.enum([
+  "classifying",
+  "classified",
   "queued",
   "running",
   "refreshing",
@@ -187,11 +213,19 @@ export function serializeCommentAiRequest(
     | "documentId"
     | "threadId"
     | "rootCommentId"
+    | "submittedMode"
+    | "instructions"
     | "intent"
     | "status"
     | "activeAttemptId"
     | "attemptCount"
     | "runId"
+    | "submittedProvider"
+    | "submittedModel"
+    | "submittedEngine"
+    | "classificationThreadId"
+    | "classificationTurnId"
+    | "continuationOfRequestId"
     | "agentThreadId"
     | "agentTurnId"
     | "model"
@@ -209,7 +243,16 @@ export function serializeCommentAiRequest(
     documentId: row.documentId,
     threadId: row.threadId,
     rootCommentId: row.rootCommentId,
-    intent: commentAiIntentSchema.parse(row.intent),
+    submittedMode: commentAiSubmittedModeSchema.parse(row.submittedMode),
+    instructions: row.instructions,
+    submittedProvider: row.submittedProvider,
+    submittedModel: row.submittedModel,
+    submittedEngine: row.submittedEngine,
+    continuationOfRequestId: row.continuationOfRequestId,
+    intent:
+      row.intent === "unresolved"
+        ? null
+        : commentAiIntentSchema.parse(row.intent),
     status: statusSchema.parse(row.status),
     attemptId: row.activeAttemptId,
     attemptCount: row.attemptCount,
@@ -224,6 +267,7 @@ export function serializeCommentAiRequest(
         : resultSchema.parse(JSON.parse(row.resultJson)),
     errorCode: errorCodeSchema.parse(row.errorCode),
     error: row.error,
+    pendingSession: pendingSession(row as RequestRow),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -370,30 +414,135 @@ export async function assertCommentAiSourceUnchanged(request: RequestRow) {
 }
 
 function backgroundSession(request: RequestRow) {
-  if (!request.agentThreadId) {
-    throw new Error("Comment AI operation is missing its agent thread");
+  if (!request.agentThreadId || !request.agentTurnId) {
+    throw new Error(
+      "Comment AI operation is missing its agent session binding",
+    );
   }
   return {
     operationId: request.id,
     threadId: request.agentThreadId,
+    turnId: request.agentTurnId,
     scope: { type: "content-comment-ai" as const, id: request.id },
     actionScope: {
       kind: "content-comment-ai" as const,
       requestId: request.id,
     },
+    ...(request.submittedModel ? { model: request.submittedModel } : {}),
+    ...(request.submittedEngine ? { engine: request.submittedEngine } : {}),
   };
 }
 
-export async function startCommentAiRequest(args: {
+function classificationBackgroundSession(request: RequestRow) {
+  if (!request.classificationThreadId || !request.classificationTurnId) {
+    throw new Error(
+      "Comment AI operation is missing its classifier session binding",
+    );
+  }
+  return {
+    operationId: `${request.id}:classification`,
+    threadId: request.classificationThreadId,
+    turnId: request.classificationTurnId,
+    scope: {
+      type: "content-comment-ai-classifier" as const,
+      id: request.id,
+    },
+    actionScope: {
+      kind: "content-comment-ai-classifier" as const,
+      requestId: request.id,
+    },
+    ...(request.submittedModel ? { model: request.submittedModel } : {}),
+    ...(request.submittedEngine ? { engine: request.submittedEngine } : {}),
+  };
+}
+
+function executionPrompt(request: RequestRow) {
+  const intent = {
+    suggest: "Suggest changes",
+    reply: "Reply in thread",
+    "apply-resolve": "Apply changes and resolve",
+  }[commentAiIntentSchema.parse(request.intent)];
+  return `${intent}: ${request.instructions}`;
+}
+
+function executionContext(request: RequestRow) {
+  const continuation = request.continuationOfRequestId
+    ? ` This operation continues the prior request ${request.continuationOfRequestId} on the same comment; use only the current scoped comment context as authority.`
+    : "";
+  return `Original comment: /page/${encodeURIComponent(request.documentId)}?comment=${encodeURIComponent(request.threadId)}.${continuation} Read the scoped context before acting and follow any refresh instruction before publishing.`;
+}
+
+function pendingSession(request: RequestRow): CommentAiPendingSession | null {
+  if (request.status === "classifying") {
+    return {
+      phase: "classification",
+      backgroundSession: classificationBackgroundSession(request),
+      prompt: request.instructions,
+      context:
+        "Classify this request by calling submit-comment-ai-classification exactly once. Choose reply for conversation or explanation, suggest for uncertain or reviewable action, and apply-resolve only for a clear instruction to change the Page and resolve the comment. No other actions are authorized.",
+    };
+  }
+  if (request.status === "classified" || request.status === "queued") {
+    return {
+      phase: "execution",
+      backgroundSession: backgroundSession(request),
+      prompt: executionPrompt(request),
+      context: executionContext(request),
+    };
+  }
+  return null;
+}
+
+type StartCommentAiRequestArgs = {
   requestId: string;
   agentThreadId?: string;
   documentId: string;
   threadId: string;
   rootCommentId: string;
-  intent: CommentAiIntent;
-}): Promise<StartCommentAiResult> {
+  continuationOfRequestId?: string;
+  submittedMode?: CommentAiSubmittedMode;
+  instructions?: string;
+  provider?: string;
+  model?: string;
+  engine?: string;
+  /** Compatibility for callers that predate the submitted-mode contract. */
+  intent?: CommentAiIntent;
+};
+
+function normalizeStartArgs(args: StartCommentAiRequestArgs) {
+  const submittedMode = commentAiSubmittedModeSchema.parse(
+    args.submittedMode ?? args.intent,
+  );
+  if (args.submittedMode && args.intent) {
+    throw new Error("Pass submittedMode, not both submittedMode and intent");
+  }
+  const instructions =
+    args.instructions?.trim() ||
+    (submittedMode === "auto"
+      ? ""
+      : {
+          suggest: "Suggest changes for this comment.",
+          reply: "Reply in this comment thread.",
+          "apply-resolve":
+            "Apply the requested changes and resolve this comment.",
+        }[submittedMode]);
+  if (!instructions) throw new Error("Comment AI instructions are required");
+  return {
+    submittedMode,
+    instructions,
+    provider: args.provider?.trim() || null,
+    model: args.model?.trim() || null,
+    engine: args.engine?.trim() || null,
+    continuationOfRequestId: args.continuationOfRequestId ?? null,
+  };
+}
+
+export async function startCommentAiRequest(
+  args: StartCommentAiRequestArgs,
+): Promise<StartCommentAiResult> {
   const email = getRequestUserEmail();
   if (!email) throw new Error("Sign in to use Ask AI");
+  const submission = normalizeStartArgs(args);
   const db = getDb();
   const [sameId] = await db
     .select()
@@ -402,6 +551,7 @@ export async function startCommentAiRequest(args: {
     .limit(1);
   let request: RequestRow;
   let dispatch = false;
+  let outcome: StartCommentAiResult["outcome"] = "confirmed-start";
 
   if (sameId) {
     if (sameId.requesterEmail !== email) {
@@ -412,7 +562,12 @@ export async function startCommentAiRequest(args: {
       request.documentId !== args.documentId ||
       request.threadId !== args.threadId ||
       request.rootCommentId !== args.rootCommentId ||
-      request.intent !== args.intent ||
+      request.submittedMode !== submission.submittedMode ||
+      request.instructions !== submission.instructions ||
+      request.submittedProvider !== submission.provider ||
+      request.submittedModel !== submission.model ||
+      request.submittedEngine !== submission.engine ||
+      request.continuationOfRequestId !== submission.continuationOfRequestId ||
       (args.agentThreadId &&
         request.agentThreadId !== args.agentThreadId.trim())
     ) {
@@ -422,7 +577,41 @@ export async function startCommentAiRequest(args: {
       });
     }
   } else {
-    const source = await readCommentAiSource(args);
+    const resolvedIntent =
+      submission.submittedMode === "auto"
+        ? null
+        : commentAiIntentSchema.parse(submission.submittedMode);
+    const continuation = submission.continuationOfRequestId
+      ? await loadCommentAiRequest(submission.continuationOfRequestId)
+      : null;
+    if (
+      continuation &&
+      (continuation.id === args.requestId ||
+        continuation.documentId !== args.documentId ||
+        continuation.threadId !== args.threadId ||
+        continuation.rootCommentId !== args.rootCommentId ||
+        !continuation.agentThreadId)
+    ) {
+      fail("The prior Comment AI request cannot continue this comment", {
+        statusCode: 409,
+        errorCode: "comment_ai_operation_conflict",
+      });
+    }
+    if (
+      continuation &&
+      resolvedIntent === "reply" &&
+      args.agentThreadId?.trim() &&
+      args.agentThreadId.trim() !== continuation.agentThreadId
+    ) {
+      fail("The continuation thread does not match the prior request", {
+        statusCode: 409,
+        errorCode: "comment_ai_thread_conflict",
+      });
+    }
+    const source = await readCommentAiSource({
+      ...args,
+      intent: resolvedIntent ?? "reply",
+    });
     if (source.root.resolved)
       throw new Error("Reopen the comment before asking AI");
     if (
@@ -437,7 +626,13 @@ export async function startCommentAiRequest(args: {
       );
     }
     const agentThreadId =
-      args.agentThreadId?.trim() || `comment-ai-${crypto.randomUUID()}`;
+      (resolvedIntent === "reply" ? continuation?.agentThreadId : null) ||
+      args.agentThreadId?.trim() ||
+      `comment-ai-${crypto.randomUUID()}`;
+    const classificationThreadId =
+      submission.submittedMode === "auto"
+        ? `comment-ai-classifier-${crypto.randomUUID()}`
+        : null;
     const snapshot = snapshotComments(source.comments);
     const inserted = await db
       .insert(schema.commentAiRequests)
@@ -449,7 +644,13 @@ export async function startCommentAiRequest(args: {
         threadId: args.threadId,
         rootCommentId: args.rootCommentId,
         fieldId: "body",
-        intent: args.intent,
+        intent: resolvedIntent ?? "unresolved",
+        submittedMode: submission.submittedMode,
+        instructions: submission.instructions,
+        submittedProvider: submission.provider,
+        submittedModel: submission.model,
+        submittedEngine: submission.engine,
+        status: resolvedIntent ? "queued" : "classifying",
         submittedThreadDigest: commentThreadDigest(source.comments),
         submittedSnapshotJson: JSON.stringify(snapshot),
         threadDigest: commentThreadDigest(source.comments),
@@ -460,6 +661,8 @@ export async function startCommentAiRequest(args: {
         ),
         suggestionRevision: source.document.updatedAt,
         agentThreadId,
+        classificationThreadId,
+        continuationOfRequestId: continuation?.id ?? null,
       })
       .onConflictDoNothing()
       .returning();
@@ -485,55 +688,164 @@ export async function startCommentAiRequest(args: {
         });
       }
       request = await loadCommentAiRequest(winner.id);
+      outcome = "busy";
+      if (
+        request.submittedMode !== submission.submittedMode ||
+        request.instructions !== submission.instructions ||
+        request.submittedProvider !== submission.provider ||
+        request.submittedModel !== submission.model ||
+        request.submittedEngine !== submission.engine ||
+        request.continuationOfRequestId !== submission.continuationOfRequestId
+      ) {
+        fail("Another Ask AI submission is already active for this comment", {
+          statusCode: 409,
+          errorCode: "comment_ai_operation_conflict",
+        });
+      }
     }
   }
 
-  const agentTurnId = backgroundAgentTurnIdForReceipt(
-    request.agentThreadId!,
-    request.id,
+  const sessionThreadId =
+    request.status === "classifying"
+      ? request.classificationThreadId
+      : request.agentThreadId;
+  if (!sessionThreadId) throw new Error("Comment AI session is unavailable");
+  const sessionOperationId =
+    request.status === "classifying"
+      ? `${request.id}:classification`
+      : request.id;
+  const sessionTurnId = backgroundAgentTurnIdForReceipt(
+    sessionThreadId,
+    sessionOperationId,
   );
-  if (!request.agentTurnId) {
+  const storedTurnId =
+    request.status === "classifying"
+      ? request.classificationTurnId
+      : request.agentTurnId;
+  if (!storedTurnId) {
     const [bound] = await db
       .update(schema.commentAiRequests)
-      .set({ agentTurnId, updatedAt: new Date().toISOString() })
+      .set({
+        ...(request.status === "classifying"
+          ? { classificationTurnId: sessionTurnId }
+          : { agentTurnId: sessionTurnId }),
+        updatedAt: new Date().toISOString(),
+      })
       .where(eq(schema.commentAiRequests.id, request.id))
       .returning();
     request = bound ?? (await loadCommentAiRequest(request.id));
-  } else if (request.agentTurnId !== agentTurnId) {
+  } else if (storedTurnId !== sessionTurnId) {
     fail("This agent turn is not bound to the selected comment operation", {
       statusCode: 409,
       errorCode: "comment_ai_turn_conflict",
     });
   }
 
-  const intent = {
-    suggest: "Suggest changes",
-    reply: "Reply in thread",
-    "apply-resolve": "Apply changes and resolve",
-  }[commentAiIntentSchema.parse(request.intent)];
+  const pending = pendingSession(request);
+  const next =
+    pending ??
+    ({
+      phase: "execution",
+      backgroundSession: backgroundSession(request),
+      prompt: executionPrompt(request),
+      context: executionContext(request),
+    } satisfies CommentAiPendingSession);
   await writeAppState("comment-ai-request", {
     operationId: request.id,
     documentId: request.documentId,
     fieldId: request.fieldId,
     threadId: request.threadId,
-    intent: request.intent,
+    intent: request.intent === "unresolved" ? null : request.intent,
   });
   return {
     ...serializeCommentAiRequest(request),
-    dispatch,
-    backgroundSession: backgroundSession(request),
-    actionScope: {
-      kind: "content-comment-ai" as const,
-      requestId: request.id,
-    },
-    prompt: `${intent} for this comment.`,
-    context: `Original comment: /page/${encodeURIComponent(request.documentId)}?comment=${encodeURIComponent(request.threadId)}. Read the scoped context before acting and follow any refresh instruction before publishing.`,
+    outcome,
+    dispatch:
+      outcome === "confirmed-start" &&
+      (dispatch ||
+        request.status === "classifying" ||
+        request.status === "classified"),
+    pendingSession: next,
+    backgroundSession: next.backgroundSession,
+    actionScope: next.backgroundSession.actionScope,
+    prompt: next.prompt,
+    context: next.context,
   };
 }
 
 export async function resolveCommentAiActionSurface(
   details: CommentAiActionSurfaceDetails,
 ) {
+  const parsedClassifierActionScope =
+    commentAiClassifierActionScopeSchema.safeParse(details.actionScope);
+  const declaresClassifierScope =
+    typeof details.actionScope === "object" &&
+    details.actionScope !== null &&
+    details.actionScope.kind === "content-comment-ai-classifier";
+  if (declaresClassifierScope && !parsedClassifierActionScope.success) {
+    fail("This comment classifier scope is invalid", {
+      statusCode: 409,
+      errorCode: "comment_ai_binding_missing",
+    });
+  }
+  const classifierThread = details.threadId
+    ? await getThread(details.threadId)
+    : null;
+  const protectedClassifierScope = commentAiClassifierScopeSchema.safeParse(
+    classifierThread?.scope,
+  );
+  if (parsedClassifierActionScope.success || protectedClassifierScope.success) {
+    const requestId = parsedClassifierActionScope.success
+      ? parsedClassifierActionScope.data.requestId
+      : protectedClassifierScope.data!.id;
+    const request = await loadCommentAiRequest(
+      requestId,
+      details.ownerEmail ?? undefined,
+    );
+    if (
+      classifierThread &&
+      classifierThread.ownerEmail !== details.ownerEmail
+    ) {
+      fail("This classifier thread is unavailable", {
+        statusCode: 409,
+        errorCode: "comment_ai_thread_conflict",
+      });
+    }
+    if (
+      !details.threadId ||
+      details.threadId !== request.classificationThreadId ||
+      (protectedClassifierScope.success &&
+        protectedClassifierScope.data!.id !== request.id)
+    ) {
+      fail("This classifier thread is not bound to the selected operation", {
+        statusCode: 409,
+        errorCode: "comment_ai_thread_conflict",
+      });
+    }
+    if (details.queuedMessageId === `${request.id}:classification`) {
+      if (
+        !details.requestedTurnId ||
+        details.requestedTurnId !== request.classificationTurnId
+      ) {
+        fail("This classifier turn is not bound to the selected operation", {
+          statusCode: 409,
+          errorCode: "comment_ai_turn_conflict",
+        });
+      }
+    } else if (!request.classificationTurnId) {
+      fail("This classifier operation is missing its turn binding", {
+        statusCode: 409,
+        errorCode: "comment_ai_binding_missing",
+      });
+    }
+    return {
+      allowedActionNames: ["submit-comment-ai-classification"],
+      actionScope: {
+        kind: "content-comment-ai-classifier" as const,
+        requestId: request.id,
+      },
+    };
+  }
   const parsedActionScope = commentAiActionScopeSchema.safeParse(
     details.actionScope,
   );
@@ -665,6 +977,82 @@ export async function resolveCommentAiActionSurface(
   };
 }
 
+export async function submitCommentAiClassification(intent: CommentAiIntent) {
+  const run = getRequestRunContext();
+  if (!run) throw new Error("This classification requires a scoped agent run");
+  const scope = commentAiClassifierActionScopeSchema.parse(run.actionScope);
+  let request = await loadCommentAiRequest(scope.requestId);
+  if (run.threadId !== request.classificationThreadId) {
+    throw new Error("This classifier thread is not bound to the operation");
+  }
+  const resolvedIntent = commentAiIntentSchema.parse(intent);
+  if (request.status !== "classifying") {
+    if (
+      request.submittedMode === "auto" &&
+      request.intent === resolvedIntent &&
+      request.status === "classified"
+    ) {
+      const next = pendingSession(request);
+      if (!next)
+        throw new Error("Classified operation has no execution session");
+      return {
+        request: serializeCommentAiRequest(request),
+        pendingSession: next,
+      };
+    }
+    fail("This comment operation is no longer awaiting classification", {
+      statusCode: 409,
+      errorCode: "comment_ai_operation_conflict",
+    });
+  }
+
+  await readCommentAiSource({ ...request, intent: resolvedIntent });
+  const continuation = request.continuationOfRequestId
+    ? await loadCommentAiRequest(request.continuationOfRequestId)
+    : null;
+  const executionThreadId =
+    resolvedIntent === "reply" && continuation?.agentThreadId
+      ? continuation.agentThreadId
+      : request.agentThreadId;
+  if (!executionThreadId) {
+    throw new Error("Classified operation has no execution thread");
+  }
+  const turnId = backgroundAgentTurnIdForReceipt(executionThreadId, request.id);
+  const [updated] = await getDb()
+    .update(schema.commentAiRequests)
+    .set({
+      intent: resolvedIntent,
+      status: "classified",
+      agentThreadId: executionThreadId,
+      agentTurnId: turnId,
+      updatedAt: new Date().toISOString(),
+    })
+    .where(
+      and(
+        eq(schema.commentAiRequests.id, request.id),
+        eq(schema.commentAiRequests.status, "classifying"),
+      ),
+    )
+    .returning();
+  request = updated ?? (await loadCommentAiRequest(request.id));
+  if (request.intent !== resolvedIntent || request.status !== "classified") {
+    fail("A different classifier result already won this operation", {
+      statusCode: 409,
+      errorCode: "comment_ai_operation_conflict",
+    });
+  }
+  await writeAppState("comment-ai-request", {
+    operationId: request.id,
+    documentId: request.documentId,
+    fieldId: request.fieldId,
+    threadId: request.threadId,
+    intent: resolvedIntent,
+  });
+  const next = pendingSession(request);
+  if (!next) throw new Error("Classified operation has no execution session");
+  return { request: serializeCommentAiRequest(request), pendingSession: next };
+}
+
 export async function requireCommentAiRequest(intent?: CommentAiIntent) {
   const run = getRequestRunContext();
   if (!run) throw new Error("This operation requires a scoped comment AI run");
@@ -685,7 +1073,10 @@ export async function requireCommentAiRequest(intent?: CommentAiIntent) {
   const [updated] = await getDb()
     .update(schema.commentAiRequests)
     .set({
-      status: request.status === "queued" ? "running" : request.status,
+      status:
+        request.status === "queued" || request.status === "classified"
+          ? "running"
+          : request.status,
       runId: run.runId ?? request.runId,
       model: run.model?.trim().slice(0, 120) || request.model,
       engine: run.engine?.name ?? request.engine,
@@ -1104,6 +1495,51 @@ export async function reconcileCommentAiSession(args: {
       .where(eq(schema.commentAiRequests.id, args.operationId))
       .for("update");
     if (!request) throw new Error("Comment AI operation not found");
+    const classifierSession = args.threadId === request.classificationThreadId;
+    if (classifierSession) {
+      if (
+        !request.classificationTurnId ||
+        request.classificationTurnId !== args.turnId
+      ) {
+        fail(
+          "This classifier turn is not bound to the selected comment operation",
+          {
+            statusCode: 409,
+            errorCode: "comment_ai_turn_conflict",
+          },
+        );
+      }
+      if (request.status !== "classifying") return request;
+      if (args.status === "queued" || args.status === "running") return request;
+
+      const now = new Date().toISOString();
+      const status: CommentAiStatus =
+        args.status === "aborted"
+          ? "cancelled"
+          : args.status === "errored"
+            ? "failed"
+            : "needs-review";
+      const errorCode: CommentAiErrorCode =
+        status === "cancelled" ? null : "run_unavailable";
+      const error =
+        status === "cancelled"
+          ? null
+          : args.terminalReason?.trim().slice(0, 500) ||
+            (args.status === "errored"
+              ? "The classifier run failed before selecting an intent"
+              : "The classifier ended without selecting an intent. Review or retry this operation.");
+      const [updated] = await tx
+        .update(schema.commentAiRequests)
+        .set({ status, errorCode, error, updatedAt: now })
+        .where(
+          and(
+            eq(schema.commentAiRequests.id, request.id),
+            eq(schema.commentAiRequests.status, "classifying"),
+          ),
+        )
+        .returning();
+      return updated ?? request;
+    }
     if (request.agentThreadId !== args.threadId) {
       fail("This agent thread is not bound to the selected comment operation", {
         statusCode: 409,

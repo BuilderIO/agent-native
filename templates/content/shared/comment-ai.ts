@@ -1,6 +1,9 @@
 export type CommentAiIntent = "suggest" | "reply" | "apply-resolve";
+export type CommentAiSubmittedMode = "auto" | CommentAiIntent;
 
 export type CommentAiStatus =
+  | "classifying"
+  | "classified"
   | "queued"
   | "running"
   | "refreshing"
@@ -55,7 +58,13 @@ export interface CommentAiRequest {
   documentId: string;
   threadId: string;
   rootCommentId: string;
-  intent: CommentAiIntent;
+  submittedMode?: CommentAiSubmittedMode;
+  instructions?: string;
+  submittedProvider?: string | null;
+  submittedModel?: string | null;
+  submittedEngine?: string | null;
+  continuationOfRequestId?: string | null;
+  intent: CommentAiIntent | null;
   status: CommentAiStatus;
   attemptId: string | null;
   attemptCount: number;
@@ -67,6 +76,7 @@ export interface CommentAiRequest {
   result: CommentAiOperationResult | null;
   errorCode: CommentAiErrorCode;
   error: string | null;
+  pendingSession?: CommentAiPendingSession | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -74,14 +84,32 @@ export interface CommentAiRequest {
 export interface CommentAiBackgroundSession {
   operationId: string;
   threadId: string;
-  scope: { type: "content-comment-ai"; id: string };
-  actionScope: { kind: "content-comment-ai"; requestId: string };
+  turnId: string;
+  scope: {
+    type: "content-comment-ai" | "content-comment-ai-classifier";
+    id: string;
+  };
+  actionScope: {
+    kind: "content-comment-ai" | "content-comment-ai-classifier";
+    requestId: string;
+  };
+  model?: string;
+  engine?: string;
+}
+
+export interface CommentAiPendingSession {
+  phase: "classification" | "execution";
+  backgroundSession: CommentAiBackgroundSession;
+  prompt: string;
+  context?: string;
 }
 
 export interface StartCommentAiResult extends CommentAiRequest {
+  outcome: "confirmed-start" | "busy";
   dispatch: boolean;
+  pendingSession: CommentAiPendingSession;
   backgroundSession: CommentAiBackgroundSession;
-  actionScope: { kind: "content-comment-ai"; requestId: string };
+  actionScope: CommentAiBackgroundSession["actionScope"];
   prompt: string;
   context?: string;
 }

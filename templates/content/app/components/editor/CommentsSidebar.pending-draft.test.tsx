@@ -22,6 +22,15 @@ function createRoot(container: Parameters<typeof createReactRoot>[0]) {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  richEditor,
+  richEditorValue,
+  richSelectionDirection,
+  selectedRichText,
+  setRichEditorSelection,
+  setRichEditorValue,
+  typeRichEditorText,
+} from "./comment-composer-test-utils";
+import {
   CommentsSidebar,
   useCommentReplyDrafts,
   usePendingCommentDraft,
@@ -33,6 +42,16 @@ const { createComment, notifyError } = vi.hoisted(() => ({
   notifyError: vi.fn(),
 }));
 vi.mock("@agent-native/core/client/agent-chat", () => ({
+  chatModelSelectionStorageKey: (scope: string) => `model:${scope}`,
+  useChatModels: () => ({
+    configuredModels: [],
+    selectionReady: false,
+    selectedModel: "",
+    selectedEngine: "",
+    selectedEffort: undefined,
+    unavailableSelection: null,
+    onModelChange: vi.fn(),
+  }),
   sendToAgentChat: vi.fn(),
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -150,7 +169,7 @@ describe("new comment responsive draft", () => {
     act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 75));
     });
-  const input = () => container.querySelector("textarea")!;
+  const input = () => richEditor(container)!;
   const show = async (width: number, documentId = "document-one") => {
     await act(async () =>
       root.render(<Owner width={width} documentId={documentId} />),
@@ -162,16 +181,8 @@ describe("new comment responsive draft", () => {
     await settle();
   };
   const type = async (value: string) => {
-    const node = input();
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(
-        HTMLTextAreaElement.prototype,
-        "value",
-      )!.set!.call(node, value);
-      node.setSelectionRange(value.length, value.length);
-      node.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    expect(input().value).toBe(value);
+    await setRichEditorValue(input(), value);
+    expect(richEditorValue(input())).toBe(value);
   };
   const press = async (key: string) =>
     act(async () => {
@@ -180,10 +191,11 @@ describe("new comment responsive draft", () => {
       );
     });
   const addMention = async () => {
-    await type("Mobile @Rev");
+    await type("Mobile");
+    await typeRichEditorText(input(), " @Rev");
     await press("Enter");
     await settle();
-    expect(input().value).toBe("Mobile @Reviewer ");
+    expect(richEditorValue(input())).toBe("Mobile Reviewer ");
   };
   const submit = async () => {
     const button = [...container.querySelectorAll("button")].find(
@@ -198,11 +210,11 @@ describe("new comment responsive draft", () => {
     await addMention();
     await type("Mobile @Reviewer baseline comment");
     await show(768);
-    expect(input().value).toBe("Mobile @Reviewer baseline comment");
+    expect(richEditorValue(input())).toBe("Mobile @Reviewer baseline comment");
     await show(1280);
-    expect(input().value).toBe("Mobile @Reviewer baseline comment");
+    expect(richEditorValue(input())).toBe("Mobile @Reviewer baseline comment");
     await show(390);
-    expect(input().value).toBe("Mobile @Reviewer baseline comment");
+    expect(richEditorValue(input())).toBe("Mobile @Reviewer baseline comment");
     expect(owner.pendingComment).toMatchObject({
       quotedText: selected.quotedText,
       anchor: selected.anchor,
@@ -227,22 +239,17 @@ describe("new comment responsive draft", () => {
     await show(390);
     await open();
     await type("Mobile baseline comment");
-    input().focus();
-    input().setSelectionRange(7, 15, "backward");
-    input().dispatchEvent(new Event("select"));
+    await setRichEditorSelection(input(), 7, 15, "backward");
     await show(1280);
     expect(document.activeElement).toBe(input());
-    expect([
-      input().selectionStart,
-      input().selectionEnd,
-      input().selectionDirection,
-    ]).toEqual([7, 15, "backward"]);
+    expect(selectedRichText(input())).toBe("baseline");
+    expect(richSelectionDirection(input())).toBe("backward");
     await type(
-      input().value.slice(0, input().selectionStart) +
+      richEditorValue(input()).slice(0, 7) +
         "updated" +
-        input().value.slice(input().selectionEnd),
+        richEditorValue(input()).slice(15),
     );
-    expect(input().value).toBe("Mobile updated comment");
+    expect(richEditorValue(input())).toBe("Mobile updated comment");
   });
 
   it("does not steal deliberately moved focus on a responsive remount", async () => {
@@ -251,10 +258,13 @@ describe("new comment responsive draft", () => {
     await type("Keep this draft");
     const outside =
       container.querySelector<HTMLButtonElement>("[data-outside]")!;
+    input().dispatchEvent(
+      new FocusEvent("blur", { bubbles: true, relatedTarget: outside }),
+    );
     outside.focus();
     await show(1280);
     expect(document.activeElement).toBe(outside);
-    expect(input().value).toBe("Keep this draft");
+    expect(richEditorValue(input())).toBe("Keep this draft");
   });
 
   it("retains a failed submission, clears success and explicitly starts a fresh selection", async () => {
@@ -265,29 +275,29 @@ describe("new comment responsive draft", () => {
     await act(async () =>
       createComment.mock.calls[0]![1].onError(new Error("offline")),
     );
-    expect(input().value).toBe("Retry this comment");
+    expect(richEditorValue(input())).toBe("Retry this comment");
     expect(completed).not.toHaveBeenCalled();
     await submit();
     await act(async () =>
       createComment.mock.calls[1]![1].onSuccess({ threadId: "created-thread" }),
     );
-    expect(container.querySelector("textarea")).toBeNull();
+    expect(richEditor(container)).toBeNull();
     expect(completed).toHaveBeenCalledWith("created-thread");
     await open({
       ...selected,
       quotedText: "other",
       range: { from: 20, to: 25 },
     });
-    expect(input().value).toBe("");
+    expect(richEditorValue(input())).toBe("");
     await type("Cancel this comment");
     await act(async () =>
       [...container.querySelectorAll("button")]
         .find((node) => node.textContent === "comments.cancel")!
         .click(),
     );
-    expect(container.querySelector("textarea")).toBeNull();
+    expect(richEditor(container)).toBeNull();
     await open();
-    expect(input().value).toBe("");
+    expect(richEditorValue(input())).toBe("");
   });
 
   it("isolates document drafts and does not preserve text when a new selection replaces one", async () => {
@@ -295,12 +305,12 @@ describe("new comment responsive draft", () => {
     await open();
     await addMention();
     await open({ ...selected, quotedText: "replacement" });
-    expect(input().value).toBe("");
+    expect(richEditorValue(input())).toBe("");
     await type("Other selection draft");
     await show(390, "document-two");
-    expect(container.querySelector("textarea")).toBeNull();
+    expect(richEditor(container)).toBeNull();
     await open();
-    expect(input().value).toBe("");
+    expect(richEditorValue(input())).toBe("");
     await type("Document two draft");
     await submit();
     expect(createComment.mock.calls[0]![0]).toMatchObject({
@@ -329,7 +339,7 @@ describe("new comment responsive draft", () => {
           ? oldSubmission.onSuccess({ threadId: "old-thread" })
           : oldSubmission.onError(new Error("late error")),
       );
-      expect(input().value).toBe("New comment");
+      expect(richEditorValue(input())).toBe("New comment");
       expect(completed).not.toHaveBeenCalled();
       expect(owner.pendingComment).toMatchObject({
         quotedText: "new selection",
@@ -350,7 +360,7 @@ describe("new comment responsive draft", () => {
     await act(async () =>
       oldSubmission.onSuccess({ threadId: "old-document-thread" }),
     );
-    expect(input().value).toBe("Current document comment");
+    expect(richEditorValue(input())).toBe("Current document comment");
     expect(owner.pendingComment?.documentId).toBe("document-two");
     expect(completed).not.toHaveBeenCalled();
   });
@@ -365,7 +375,7 @@ describe("new comment responsive draft", () => {
     );
     await submit();
     expect(createComment).not.toHaveBeenCalled();
-    expect(input().value).toBe("Permission changed");
+    expect(richEditorValue(input())).toBe("Permission changed");
   });
 
   it("keeps an in-flight submission disabled through remount and retains it on failure", async () => {
@@ -374,23 +384,22 @@ describe("new comment responsive draft", () => {
     await type("Pending comment");
     await submit();
     await show(1280);
-    expect(input().value).toBe("Pending comment");
-    expect(input().disabled).toBe(true);
+    expect(richEditorValue(input())).toBe("Pending comment");
+    expect(input().getAttribute("contenteditable") === "false").toBe(true);
     await submit();
     expect(createComment).toHaveBeenCalledTimes(1);
     await act(async () =>
       createComment.mock.calls[0]![1].onError(new Error("offline")),
     );
-    expect(input().disabled).toBe(false);
-    expect(input().value).toBe("Pending comment");
+    expect(input().getAttribute("contenteditable") === "false").toBe(false);
+    expect(richEditorValue(input())).toBe("Pending comment");
   });
 
   it("does not refocus or replace a native selection on text-only owner updates", async () => {
     await show(390);
     await open();
     await type("Keep the caret");
-    input().setSelectionRange(5, 8, "backward");
-    input().dispatchEvent(new Event("select"));
+    await setRichEditorSelection(input(), 5, 8, "backward");
     const focus = vi.spyOn(input(), "focus");
     await act(async () =>
       owner.changePendingComment(owner.pendingComment!.id, () => ({
@@ -399,11 +408,8 @@ describe("new comment responsive draft", () => {
     );
     await settle();
     expect(focus).not.toHaveBeenCalled();
-    expect([
-      input().selectionStart,
-      input().selectionEnd,
-      input().selectionDirection,
-    ]).toEqual([5, 8, "backward"]);
+    expect(selectedRichText(input())).toBe("the");
+    expect(richSelectionDirection(input())).toBe("backward");
   });
 
   it("does not steal focus moved after remount but before deferred restoration", async () => {

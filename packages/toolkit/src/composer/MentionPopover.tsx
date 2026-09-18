@@ -190,6 +190,13 @@ export const MentionPopover = forwardRef<
 
   const itemCount =
     type === "@" ? mentionItems.length : commands.length + skills.length;
+  const itemIdentitySignature =
+    type === "@"
+      ? mentionItems.map((item) => item.id).join("\0")
+      : [
+          ...commands.map((command) => `command:${command.name}`),
+          ...skills.map((skill) => `skill:${skill.path}`),
+        ].join("\0");
 
   // Group mention items by section for @ popover
   const groupedMentions = React.useMemo(() => {
@@ -245,8 +252,8 @@ export const MentionPopover = forwardRef<
 
   // Reset selection when items change
   useEffect(() => {
-    setSelectedIndex(0);
-  }, [commands, mentionItems, skills, query]);
+    setSelectedIndex((current) => (current === 0 ? current : 0));
+  }, [itemIdentitySignature, query]);
 
   // Scroll selected item into view
   useEffect(() => {
@@ -347,6 +354,7 @@ export const MentionPopover = forwardRef<
                                 : "hover:bg-accent/50"
                             }`}
                             onMouseEnter={() => setSelectedIndex(idx)}
+                            onMouseDown={(event) => event.preventDefault()}
                             onClick={() => onSelectMention(item)}
                           >
                             <MentionItemMedia

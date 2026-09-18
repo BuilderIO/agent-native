@@ -34,6 +34,12 @@ export type MentionItemMedia =
 export interface MentionItem {
   id: string;
   label: string;
+  /** Label stored in the inserted reference when it differs from the menu row. */
+  referenceLabel?: string;
+  /** Exact case-insensitive names that may commit this item with Space. */
+  aliases?: string[];
+  /** Replace the existing inline reference of this type instead of adding another. */
+  replaceExisting?: boolean;
   description?: string;
   icon?: string;
   /** Optional presentation that takes precedence over the legacy icon. */

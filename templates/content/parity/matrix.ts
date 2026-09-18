@@ -796,15 +796,15 @@ export const parityMatrix: ParityRow[] = [
     id: "comments.ai-intents",
     surface: "comments",
     label:
-      "Ask AI to reply, propose a suggestion, or apply an edit and resolve feedback",
+      "Mention AI in a comment to reply, suggest an edit, or apply it and resolve feedback",
     uiEntrypoints: [
       "app/components/editor/CommentsSidebar.tsx",
       "app/components/editor/comment-ai.tsx",
     ],
     durableEffect:
-      "Intent-bound requests retain their feedback and document revisions, dispatch one scoped agent run, and persist the resulting reply, suggestion, or verified edit receipt.",
+      "Requests retain the submitted mode, selected provider and model, source feedback, and document revisions. Auto persists one classified intent before a separately scoped execution run records the reply, suggestion, or verified edit receipt.",
     uiImplementation:
-      "Comment thread controls start a request through the shared action surface; the scoped agent can call only the context action and the operation bound to the selected intent.",
+      "A structured AI recipient in the Comment composer starts the request through the shared action surface. Auto classification can submit only a finite intent; execution can call only the context action and the operation bound to that persisted intent.",
     status: "action-backed",
     actions: [
       "apply-comment-ai-request",
@@ -814,6 +814,7 @@ export const parityMatrix: ParityRow[] = [
       "reconcile-comment-ai-session",
       "reply-to-comment-ai-request",
       "start-comment-ai-request",
+      "submit-comment-ai-classification",
     ],
     exception: null,
     reliabilityRisk: "none",

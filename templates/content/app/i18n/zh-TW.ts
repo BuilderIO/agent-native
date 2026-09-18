@@ -905,6 +905,11 @@ const overrides = {
   },
   comments: {
     aiBadge: "AI",
+    aiAuto: "自動",
+    aiModel: "AI 模型",
+    aiRemoveRecipient: "移除 AI 收件者",
+    aiSend: "傳送給 AI",
+    aiChooseSendMode: "選擇 AI 傳送模式",
     aiAttribution: "由 AI 代表 {{name}} 發佈",
     aiSourceMcp: "MCP",
     aiSourceAgent: "應用程式內代理程式",

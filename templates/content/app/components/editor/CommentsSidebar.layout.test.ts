@@ -335,7 +335,8 @@ describe("comments sidebar layout", () => {
       encoding: "utf8",
     });
 
-    expect(source).toContain('aria-label={t("comments.askAi")}');
+    expect(source).not.toContain('aria-label={t("comments.askAi")}');
+    expect(source).toContain("onAiDraftChange={onAiDraftChange}");
     expect(source).toContain(
       'resolved ? "comments.reopen" : "comments.resolve"',
     );

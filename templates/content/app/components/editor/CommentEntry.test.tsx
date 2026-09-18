@@ -99,6 +99,7 @@ function DraftProbe() {
   editDraft = useCommentDraft("edit:comment-1", {
     text: comment.content,
     mentions: [],
+    aiDraft: null,
   });
   return null;
 }
@@ -259,4 +260,28 @@ it("reserves stable header space for overlaid thread actions", async () => {
 
   const header = container.querySelector("[data-thread-actions-reserved]");
   expect(header?.className).toContain("pr-16");
+});
+
+it("keeps the exact AI conversation link in the comment overflow", async () => {
+  const onOpenAiConversation = vi.fn();
+  await act(async () =>
+    root.render(
+      <CommentDraftProvider
+        documentId="doc-1"
+        currentUserEmail={comment.author_email}
+      >
+        <CommentEntry
+          comment={comment}
+          documentId="doc-1"
+          currentUserEmail={comment.author_email}
+          canComment
+          members={[]}
+          onOpenAiConversation={onOpenAiConversation}
+        />
+      </CommentDraftProvider>,
+    ),
+  );
+
+  await click("comments.aiOpenConversation");
+  expect(onOpenAiConversation).toHaveBeenCalledOnce();
 });

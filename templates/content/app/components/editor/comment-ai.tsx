@@ -16,35 +16,19 @@ import type {
   CommentAiSessionStatus,
   StartCommentAiResult,
 } from "@shared/comment-ai";
-import {
-  IconExternalLink,
-  IconMessageCircle,
-  IconX,
-} from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Spinner } from "@/components/ui/spinner";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import { loadCommentAiConversation } from "@/lib/comment-ai-client";
 
 import { AgentAvatar, agentDisplayName } from "./agent-identity";
 
 const ACTIVE_STATUSES = new Set<CommentAiRequest["status"]>([
+  "classifying",
+  "classified",
   "queued",
   "running",
   "refreshing",
@@ -119,12 +103,9 @@ export interface CommentAiContinuationState {
 
 interface CommentAiDispatchRecovery {
   options: BackgroundAgentSessionStartOptions;
+  phase?: "classification" | "execution";
   error?: string;
 }
-
-type PresentedCommentAiRequest = CommentAiRequest & {
-  transportUnknown?: boolean;
-};
 
 export interface CommentAiController {
   requests: CommentAiRequest[];
@@ -135,14 +116,46 @@ export interface CommentAiController {
   start(input: {
     threadId: string;
     rootCommentId: string;
-    intent: CommentAiIntent;
+    submittedMode: "auto" | CommentAiIntent;
+    instructions: string;
+    provider?: string;
+    model?: string;
+    engine?: string;
+    continuationOfRequestId?: string;
     requestId?: string;
-  }): Promise<void>;
+  }): Promise<"confirmed-start" | "busy">;
   continue(request: CommentAiRequest, message: string): Promise<void>;
   retry(request: CommentAiRequest): Promise<void>;
   resume(request: CommentAiRequest): Promise<void>;
   stop(request: CommentAiRequest): Promise<void>;
   open(request: CommentAiRequest): void;
+}
+
+export function startCommentAiSubmission(
+  controller: Pick<CommentAiController, "start">,
+  input: {
+    threadId: string;
+    rootCommentId: string;
+    submittedMode: "auto" | CommentAiIntent;
+    instructions: string;
+    provider?: string;
+    model?: string;
+    engine?: string;
+    priorRequest?: CommentAiRequest;
+  },
+) {
+  return controller.start({
+    threadId: input.threadId,
+    rootCommentId: input.rootCommentId,
+    submittedMode: input.submittedMode,
+    instructions: input.instructions,
+    ...(input.provider ? { provider: input.provider } : {}),
+    ...(input.model ? { model: input.model } : {}),
+    ...(input.engine ? { engine: input.engine } : {}),
+    ...(input.priorRequest
+      ? { continuationOfRequestId: input.priorRequest.requestId }
+      : {}),
+  });
 }
 
 export function acknowledgeCommentAiContinuation(
@@ -201,6 +214,13 @@ export function latestCommentAiRequest(
 }
 
 function sessionReceipt(request: CommentAiRequest) {
+  if (request.pendingSession) {
+    return {
+      operationId: request.operationId,
+      threadId: request.pendingSession.backgroundSession.threadId,
+      turnId: request.pendingSession.backgroundSession.turnId,
+    };
+  }
   if (!request.agentThreadId || !request.agentTurnId) return null;
   return {
     operationId: request.operationId,
@@ -303,10 +323,14 @@ export function useCommentAiRequests(
   const t = useT();
 
   const dispatch = useCallback(
-    async (requestId: string, options: BackgroundAgentSessionStartOptions) => {
+    async (
+      requestId: string,
+      options: BackgroundAgentSessionStartOptions,
+      phase?: "classification" | "execution",
+    ) => {
       setDispatchRecoveryRecord((current) => ({
         ...current,
-        [requestId]: { options },
+        [requestId]: { options, phase },
       }));
       const handle = startBackgroundAgentSession(options);
       try {
@@ -340,6 +364,7 @@ export function useCommentAiRequests(
           ...current,
           [requestId]: {
             options,
+            phase,
             error: [
               error instanceof Error
                 ? error.message
@@ -358,17 +383,15 @@ export function useCommentAiRequests(
   const reconcile = useCallback(
     async (
       request: CommentAiRequest,
+      threadId: string,
       turnId: string,
       status: CommentAiSessionStatus,
       runId?: string,
       terminalReason?: string | null,
     ) => {
-      if (!request.agentThreadId) {
-        throw new Error("This AI conversation is not available yet");
-      }
       await callAction("reconcile-comment-ai-session", {
         operationId: request.operationId,
-        threadId: request.agentThreadId,
+        threadId,
         turnId,
         status,
         ...(runId ? { runId } : {}),
@@ -419,6 +442,7 @@ export function useCommentAiRequests(
             if (shouldReconcileCommentAiSnapshot(snapshot)) {
               await reconcile(
                 request,
+                receipt.threadId,
                 receipt.turnId,
                 snapshot.status,
                 snapshot.runId,
@@ -437,8 +461,19 @@ export function useCommentAiRequests(
     }
   }, [reconcile, serverRequests]);
 
+  const resumedPendingRequestsRef = useRef(new Set<string>());
   const start = useCallback<CommentAiController["start"]>(
-    async ({ threadId, rootCommentId, intent, requestId: retryRequestId }) => {
+    async ({
+      threadId,
+      rootCommentId,
+      submittedMode,
+      instructions,
+      provider,
+      model,
+      engine,
+      continuationOfRequestId,
+      requestId: retryRequestId,
+    }) => {
       const recovery = retryRequestId
         ? dispatchRecoveryRecord[retryRequestId]
         : undefined;
@@ -450,10 +485,13 @@ export function useCommentAiRequests(
           request.threadId === threadId && ACTIVE_STATUSES.has(request.status),
       );
       if (
-        (active && !recovery && !continuationRecovery?.error) ||
+        (active &&
+          !retryRequestId &&
+          !recovery &&
+          !continuationRecovery?.error) ||
         startingRef.current.has(threadId)
       )
-        return;
+        return "busy";
 
       const requestId = retryRequestId ?? globalThis.crypto.randomUUID();
       startingRef.current.add(threadId);
@@ -500,26 +538,53 @@ export function useCommentAiRequests(
               });
             }
           }
-          return;
+          return "confirmed-start";
         }
         if (recovery) {
-          await dispatch(requestId, recovery.options);
-          return;
+          await dispatch(requestId, recovery.options, recovery.phase);
+          return "confirmed-start";
         }
         started = await callAction<StartCommentAiResult>(
           "start-comment-ai-request",
-          { documentId, threadId, rootCommentId, intent, requestId },
+          {
+            documentId,
+            threadId,
+            rootCommentId,
+            submittedMode,
+            instructions,
+            ...(provider ? { provider } : {}),
+            ...(model ? { model } : {}),
+            ...(engine ? { engine } : {}),
+            ...(continuationOfRequestId ? { continuationOfRequestId } : {}),
+            requestId,
+          },
         );
+        if (started.outcome === "busy") {
+          await query.refetch();
+          return "busy";
+        }
         if (started.dispatch) {
+          const pendingSession =
+            started.pendingSession ??
+            ({
+              phase: "execution",
+              backgroundSession: started.backgroundSession,
+              prompt: started.prompt,
+              context: started.context,
+            } as const);
+          resumedPendingRequestsRef.current.add(
+            `${started.operationId}:${started.status}`,
+          );
           const options = {
-            message: started.prompt,
-            instructions: started.context,
-            ...started.backgroundSession,
+            message: pendingSession.prompt,
+            instructions: pendingSession.context,
+            ...pendingSession.backgroundSession,
             usageLabel: "content:comment-ai",
           } satisfies BackgroundAgentSessionStartOptions;
-          void dispatch(requestId, options);
+          void dispatch(requestId, options, pendingSession.phase);
         }
         await query.refetch();
+        return "confirmed-start";
       } catch (error) {
         throw error;
       } finally {
@@ -529,6 +594,35 @@ export function useCommentAiRequests(
     },
     [dispatch, dispatchRecoveryRecord, documentId, query, updateContinuation],
   );
+
+  useEffect(() => {
+    for (const request of serverRequests) {
+      if (
+        (request.status !== "classifying" && request.status !== "classified") ||
+        resumedPendingRequestsRef.current.has(
+          `${request.operationId}:${request.status}`,
+        )
+      )
+        continue;
+      const resumeKey = `${request.operationId}:${request.status}`;
+      resumedPendingRequestsRef.current.add(resumeKey);
+      void start({
+        threadId: request.threadId,
+        rootCommentId: request.rootCommentId,
+        submittedMode: request.submittedMode ?? request.intent ?? "auto",
+        instructions: request.instructions ?? t("comments.retry"),
+        ...(request.submittedProvider
+          ? { provider: request.submittedProvider }
+          : {}),
+        ...(request.submittedModel ? { model: request.submittedModel } : {}),
+        ...(request.submittedEngine ? { engine: request.submittedEngine } : {}),
+        ...(request.continuationOfRequestId
+          ? { continuationOfRequestId: request.continuationOfRequestId }
+          : {}),
+        requestId: request.requestId,
+      }).catch(() => resumedPendingRequestsRef.current.delete(resumeKey));
+    }
+  }, [serverRequests, start, t]);
 
   const monitorContinuation = useCallback(
     async (request: CommentAiRequest, receipt: CommentAiContinuationState) => {
@@ -698,22 +792,34 @@ export function useCommentAiRequests(
   );
 
   const retryConversation = useCallback<CommentAiController["retry"]>(
-    (request) => {
+    async (request) => {
       const continuation = continuationRecordRef.current[request.operationId];
       if (
         (continuation?.status === "unavailable" && continuation.options) ||
         dispatchRecoveryRecord[request.operationId]
       ) {
-        return start({
+        await start({
           threadId: request.threadId,
           rootCommentId: request.rootCommentId,
-          intent: request.intent,
+          submittedMode: request.submittedMode ?? request.intent ?? "auto",
+          instructions: request.instructions ?? t("comments.retry"),
+          ...(request.submittedProvider
+            ? { provider: request.submittedProvider }
+            : {}),
+          ...(request.submittedModel ? { model: request.submittedModel } : {}),
+          ...(request.submittedEngine
+            ? { engine: request.submittedEngine }
+            : {}),
+          ...(request.continuationOfRequestId
+            ? { continuationOfRequestId: request.continuationOfRequestId }
+            : {}),
           requestId: request.requestId,
         });
+        return;
       }
-      return resumeConversation(request);
+      await resumeConversation(request);
     },
-    [dispatchRecoveryRecord, resumeConversation, start],
+    [dispatchRecoveryRecord, resumeConversation, start, t],
   );
 
   const stop = useCallback<CommentAiController["stop"]>(
@@ -748,7 +854,7 @@ export function useCommentAiRequests(
           turnId: receipt.turnId,
           reason: "user",
         });
-        await reconcile(request, receipt.turnId, "aborted");
+        await reconcile(request, receipt.threadId, receipt.turnId, "aborted");
       } catch (error) {
         const recovery = dispatchRecoveryRecord[request.operationId];
         if (recovery && ACTIVE_STATUSES.has(request.status)) {
@@ -822,102 +928,12 @@ export function useCommentAiRequests(
   );
 }
 
-export function CommentAiThreadActions({
-  "aria-label": ariaLabel,
-  request,
-  starting,
-  canSuggest,
-  canReply,
-  canApply,
-  onStart,
-}: {
-  "aria-label": string;
-  request?: CommentAiRequest;
-  starting: boolean;
-  canSuggest: boolean;
-  canReply: boolean;
-  canApply: boolean;
-  onStart: (intent: CommentAiIntent, requestId?: string) => Promise<void>;
-}) {
-  const t = useT();
-  const transportUnknown = Boolean(
-    (request as PresentedCommentAiRequest | undefined)?.transportUnknown,
-  );
-  const active =
-    starting ||
-    transportUnknown ||
-    Boolean(request && ACTIVE_STATUSES.has(request.status));
-  const start = (intent: CommentAiIntent, requestId?: string) => {
-    if (!active) void onStart(intent, requestId);
-  };
-
-  return (
-    <DropdownMenu>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              aria-label={ariaLabel}
-              aria-busy={active}
-              className="size-8 shrink-0 text-muted-foreground hover:text-foreground [@media(pointer:coarse)]:size-10"
-              onClick={(event) => event.stopPropagation()}
-            >
-              {active ? (
-                <Spinner aria-hidden className="size-3.5" />
-              ) : (
-                <IconMessageCircle size={14} />
-              )}
-            </Button>
-          </DropdownMenuTrigger>
-        </TooltipTrigger>
-        <TooltipContent>{ariaLabel}</TooltipContent>
-      </Tooltip>
-      <DropdownMenuContent
-        align="end"
-        data-comment-ai-menu
-        data-comment-menu
-        onEscapeKeyDown={(event) => event.stopPropagation()}
-        onClick={(event) => event.stopPropagation()}
-      >
-        <DropdownMenuGroup>
-          <DropdownMenuItem
-            disabled={active || !canSuggest}
-            onSelect={() => start("suggest")}
-          >
-            {t("comments.aiSuggestChanges")}
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            disabled={active || !canReply}
-            onSelect={() => start("reply")}
-          >
-            {t("comments.aiReplyInThread")}
-          </DropdownMenuItem>
-        </DropdownMenuGroup>
-        {canApply ? (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuGroup>
-              <DropdownMenuItem
-                disabled={active}
-                onSelect={() => start("apply-resolve")}
-              >
-                {t("comments.aiApplyAndResolve")}
-              </DropdownMenuItem>
-            </DropdownMenuGroup>
-          </>
-        ) : null}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
 function requestStatusLabel(
   request: CommentAiRequest,
   t: ReturnType<typeof useT>,
 ) {
+  if (request.status === "classifying" || request.status === "classified")
+    return t("comments.aiWorking");
   if (request.status === "queued") return t("comments.aiQueued");
   if (request.status === "running") return t("comments.aiWorking");
   if (request.status === "refreshing") return t("comments.aiRefreshing");
@@ -934,17 +950,13 @@ export function CommentAiRequestStatus({
   continuation,
   stopping = false,
   onRetry,
-  onReply,
   onStop,
-  onOpen,
 }: {
   request: CommentAiRequest;
   continuation?: CommentAiContinuationState;
   stopping?: boolean;
   onRetry: () => Promise<void>;
-  onReply: () => void;
   onStop: () => Promise<void>;
-  onOpen: () => void;
 }) {
   const t = useT();
   const active =
@@ -966,11 +978,6 @@ export function CommentAiRequestStatus({
           ? t("comments.aiReplied")
           : t("comments.aiFailed")
     : null;
-  const canContinue = continuation
-    ? continuation.status === "completed"
-    : request.status === "replied" ||
-      request.status === "suggested" ||
-      request.status === "resolved";
   const canRetry = failed;
   return (
     <div
@@ -1018,27 +1025,6 @@ export function CommentAiRequestStatus({
               {t("comments.retry")}
             </Button>
           ) : null}
-          {canContinue ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-7 px-2"
-              onClick={onReply}
-            >
-              {t("comments.aiReplyToAi")}
-            </Button>
-          ) : null}
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-7 gap-1 px-2"
-            onClick={onOpen}
-          >
-            <IconExternalLink size={13} />
-            {t("comments.aiOpenConversation")}
-          </Button>
         </div>
       ) : null}
     </div>
@@ -1092,35 +1078,31 @@ export function CommentAiConversation({
       className="grid gap-2 border-t border-border px-3 py-2"
       data-comment-ai-conversation
     >
-      {query.data.map((turn) => (
-        <div key={turn.turnId} className="grid gap-1.5">
-          {turn.userText ? (
-            <div className="ml-8 rounded-md bg-muted px-2.5 py-2 text-[13px] leading-relaxed">
-              <span className="sr-only">{t("comments.aiFollowUpYou")}: </span>
-              <InlineMarkdown content={turn.userText} inline />
-            </div>
-          ) : null}
-          {turn.assistantText ? (
-            <div className="flex items-start gap-2 text-[13px] leading-relaxed">
-              <AgentAvatar model={request.model} />
-              <div className="min-w-0 flex-1">
-                <span className="sr-only">
-                  {agentDisplayName(request.model)}:{" "}
-                </span>
-                <div className="mb-0.5 text-[11px] font-medium text-muted-foreground">
-                  {commentAiModelLabel(request.model)}
-                </div>
-                <InlineMarkdown content={turn.assistantText} />
-                {turn.status === "incomplete" ? (
-                  <div className="mt-1 text-xs text-destructive">
-                    {t("comments.aiFollowUpIncomplete")}
+      {query.data
+        .filter((turn) => turn.assistantText)
+        .map((turn) => (
+          <div key={turn.turnId} className="grid gap-1.5">
+            {turn.assistantText ? (
+              <div className="flex items-start gap-2 text-[13px] leading-relaxed">
+                <AgentAvatar model={request.model} />
+                <div className="min-w-0 flex-1">
+                  <span className="sr-only">
+                    {agentDisplayName(request.model)}:{" "}
+                  </span>
+                  <div className="mb-0.5 text-[11px] font-medium text-muted-foreground">
+                    {commentAiModelLabel(request.model)}
                   </div>
-                ) : null}
+                  <InlineMarkdown content={turn.assistantText} />
+                  {turn.status === "incomplete" ? (
+                    <div className="mt-1 text-xs text-destructive">
+                      {t("comments.aiFollowUpIncomplete")}
+                    </div>
+                  ) : null}
+                </div>
               </div>
-            </div>
-          ) : null}
-        </div>
-      ))}
+            ) : null}
+          </div>
+        ))}
     </div>
   );
 }
@@ -1130,26 +1112,4 @@ export function commentAiModelLabel(model: string | null | undefined): string {
   return normalized
     ? `${agentDisplayName(normalized)} · ${normalized}`
     : agentDisplayName(normalized);
-}
-
-export function CommentAiReplyTarget({ onCancel }: { onCancel: () => void }) {
-  const t = useT();
-  return (
-    <div
-      className="flex items-center justify-between gap-2 px-3 pt-2 text-xs text-muted-foreground"
-      data-comment-ai-reply-target
-    >
-      <span>{t("comments.aiReplyingToAi")}</span>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        className="size-6"
-        aria-label={t("comments.cancel")}
-        onClick={onCancel}
-      >
-        <IconX size={13} />
-      </Button>
-    </div>
-  );
 }

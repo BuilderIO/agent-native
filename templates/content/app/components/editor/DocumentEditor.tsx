@@ -761,6 +761,7 @@ function DocumentCommentDraftProvider({
     <CommentDraftProvider
       documentId={documentId}
       currentUserEmail={session?.email}
+      currentUserOrgId={session?.orgId}
     >
       {children}
     </CommentDraftProvider>
@@ -4804,6 +4805,7 @@ function PageEditorSessionBody({
       onSelectedThreadChange={setSelectedThreadId}
       onHoveredThreadChange={setHoveredThreadId}
       currentUserEmail={session?.email}
+      currentUserOrgId={session?.orgId}
       canComment={canComment}
       canResolve={canEdit}
       canSuggest={canSuggest}

@@ -5,7 +5,8 @@ import {
   InlineMarkdown,
   type InlineMarkdownProtectedSpan,
 } from "@agent-native/core/client/markdown";
-import { IconDots } from "@tabler/icons-react";
+import type { TiptapComposerHandle } from "@agent-native/toolkit/composer";
+import { IconDots, IconExternalLink } from "@tabler/icons-react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -181,6 +182,7 @@ export function CommentEntry({
   canComment,
   members,
   reserveThreadActions = false,
+  onOpenAiConversation,
 }: {
   comment: Comment;
   documentId: string;
@@ -188,6 +190,7 @@ export function CommentEntry({
   canComment: boolean;
   members: MentionMember[];
   reserveThreadActions?: boolean;
+  onOpenAiConversation?: () => void;
 }) {
   const t = useT();
   const { formatDate } = useFormatters();
@@ -198,9 +201,13 @@ export function CommentEntry({
     comment.parent_id ? `reply:${documentId}:${comment.thread_id}` : "pending",
   );
   const [editing, setEditing] = useState(false);
-  const initialDraft = { text: comment.content, mentions: comment.mentions };
+  const initialDraft = {
+    text: comment.content,
+    mentions: comment.mentions,
+    aiDraft: null,
+  };
   const draft = useCommentDraft(`edit:${comment.id}`, initialDraft);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const inputRef = useRef<TiptapComposerHandle>(null);
   const menuRef = useRef<HTMLButtonElement>(null);
   const pending = comment.mutation?.status === "pending";
   const showMutationStatus =
@@ -301,7 +308,7 @@ export function CommentEntry({
         <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">
           {formatDate(comment.created_at, { month: "short", day: "numeric" })}
         </span>
-        {canEdit && !editing && (
+        {(canEdit || onOpenAiConversation) && !editing && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
@@ -317,9 +324,17 @@ export function CommentEntry({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" data-comment-menu>
               <DropdownMenuGroup>
-                <DropdownMenuItem onSelect={() => setEditing(true)}>
-                  {t("comments.edit")}
-                </DropdownMenuItem>
+                {canEdit ? (
+                  <DropdownMenuItem onSelect={() => setEditing(true)}>
+                    {t("comments.edit")}
+                  </DropdownMenuItem>
+                ) : null}
+                {onOpenAiConversation ? (
+                  <DropdownMenuItem onSelect={onOpenAiConversation}>
+                    <IconExternalLink size={14} />
+                    {t("comments.aiOpenConversation")}
+                  </DropdownMenuItem>
+                ) : null}
               </DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>

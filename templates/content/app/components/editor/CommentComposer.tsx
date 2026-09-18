@@ -1,21 +1,49 @@
+import { useChatModels } from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
+import { resolveAgentProviderLogo } from "@agent-native/core/client/resources";
 import {
+  PromptComposer,
+  type MentionItem,
+  type ComposerTextSelection,
+  type Reference,
+  type TiptapComposerHandle,
+} from "@agent-native/toolkit/composer";
+import {
+  forwardRef,
+  useCallback,
   useEffect,
+  useImperativeHandle,
+  useMemo,
   useRef,
   useState,
-  forwardRef,
-  type KeyboardEvent,
 } from "react";
 
 import type { MentionMember } from "@/hooks/use-mention-members";
+
+import {
+  CommentAiSendControl,
+  modelFamilyAlias,
+  type CommentAiMode,
+  type CommentAiSelection,
+} from "./CommentAiRecipient";
 
 export interface MentionEntry {
   email: string;
   name: string;
 }
 
-/** Display label used for a member in the composer and stored mention. */
 export function mentionLabel(member: MentionMember): string {
   return member.name?.trim() || member.email.split("@")[0];
+}
+
+export interface CommentAiSubmitPayload extends CommentAiSelection {
+  intent: CommentAiMode;
+  effort?: string;
+}
+
+export interface CommentAiDraft {
+  selection: CommentAiSelection;
+  mode: CommentAiMode;
 }
 
 interface CommentComposerProps {
@@ -23,8 +51,14 @@ interface CommentComposerProps {
   onChange: (value: string) => void;
   onSubmit: () => void;
   onMentionAdd: (entry: MentionEntry) => void;
+  onAiSubmit?: (payload: CommentAiSubmitPayload) => void;
+  aiDraft?: CommentAiDraft | null;
+  onAiDraftChange?: (draft: CommentAiDraft | null) => void;
+  aiModelStorageKey?: string;
   onEscape?: () => void;
   onBlur?: () => void;
+  onFocus?: () => void;
+  onSelectionChange?: (selection: ComposerTextSelection) => void;
   members: MentionMember[];
   placeholder?: string;
   ariaLabel?: string;
@@ -34,14 +68,29 @@ interface CommentComposerProps {
   className?: string;
 }
 
-/**
- * A comment text input with Notion-style `@mention` autocomplete. Typing `@`
- * opens a filtered list of organization members; selecting one inserts the
- * member's name and reports it via `onMentionAdd`. Enter submits (unless the
- * mention menu is open, where it picks the highlighted member).
- */
+const AI_REFERENCE_TYPE = "content-comment-ai-recipient";
+const MEMBER_REFERENCE_TYPE = "content-comment-member";
+
+function aiReference(draft: CommentAiDraft) {
+  const providerLogo = resolveAgentProviderLogo(
+    draft.selection.engine,
+    draft.selection.provider,
+  );
+  return {
+    label: `${draft.selection.provider} · ${modelFamilyAlias(draft.selection.model)}`,
+    icon: "agent",
+    media: providerLogo.logoUrl
+      ? { type: "image" as const, src: providerLogo.logoUrl }
+      : { type: "text" as const, text: draft.selection.provider.slice(0, 1) },
+    source: "content",
+    refType: AI_REFERENCE_TYPE,
+    refId: `${draft.selection.engine}:${draft.selection.model}`,
+    metadata: { selection: draft.selection },
+  };
+}
+
 export const CommentComposer = forwardRef<
-  HTMLTextAreaElement,
+  TiptapComposerHandle,
   CommentComposerProps
 >(function CommentComposer(
   {
@@ -49,185 +98,314 @@ export const CommentComposer = forwardRef<
     onChange,
     onSubmit,
     onMentionAdd,
+    onAiSubmit,
+    aiDraft = null,
+    onAiDraftChange,
+    aiModelStorageKey,
     onEscape,
     onBlur,
+    onFocus,
+    onSelectionChange,
     members,
     placeholder,
     ariaLabel,
     autoFocus,
     disabled = false,
-    rows = 2,
     className,
   },
-  ref,
+  forwardedRef,
 ) {
-  const innerRef = useRef<HTMLTextAreaElement | null>(null);
-  const [query, setQuery] = useState<string | null>(null);
-  const [highlight, setHighlight] = useState(0);
-  const consumedKeys = useRef(new Set<string>());
+  const t = useT();
+  const composerRef = useRef<TiptapComposerHandle>(null);
+  const [composerReady, setComposerReady] = useState(false);
+  const bindComposer = useCallback((handle: TiptapComposerHandle | null) => {
+    composerRef.current = handle;
+    if (handle) setComposerReady(true);
+  }, []);
+  const observedMemberIds = useRef(new Set<string>());
+  const aiReferenceSeen = useRef(false);
+  const hydratingControlledText = useRef(false);
+  const lastEditorValue = useRef(value);
+  const models = useChatModels({
+    enabled: Boolean(onAiSubmit && onAiDraftChange && aiModelStorageKey),
+    storageKey: aiModelStorageKey ?? null,
+    unavailableSelectionPolicy: "require-explicit",
+  });
+  const aiDraftRef = useRef(aiDraft);
+  const onAiDraftChangeRef = useRef(onAiDraftChange);
+  const onMentionAddRef = useRef(onMentionAdd);
+  const onModelChangeRef = useRef(models.onModelChange);
+  aiDraftRef.current = aiDraft;
+  onAiDraftChangeRef.current = onAiDraftChange;
+  onMentionAddRef.current = onMentionAdd;
+  onModelChangeRef.current = models.onModelChange;
 
-  const setRefs = (el: HTMLTextAreaElement | null) => {
-    innerRef.current = el;
-    if (typeof ref === "function") ref(el);
-    else if (ref) (ref as { current: HTMLTextAreaElement | null }).current = el;
-  };
+  useImperativeHandle(forwardedRef, () => ({
+    focus: () => composerRef.current?.focus(),
+    insertText: (text) => composerRef.current?.insertText(text),
+    setText: (text) => composerRef.current?.setText(text),
+    insertReference: (reference) =>
+      composerRef.current?.insertReference(reference),
+    replaceReference: (refType, reference) =>
+      composerRef.current?.replaceReference(refType, reference),
+    getSelection: () => composerRef.current?.getSelection() ?? null,
+    setSelection: (start, end, direction) =>
+      composerRef.current?.setSelection(start, end, direction),
+    dismissPopover: () => composerRef.current?.dismissPopover() ?? false,
+  }));
+
+  const connectedModels = useMemo(
+    () =>
+      (models.configuredModels ?? []).flatMap((group) =>
+        group.models.map((model) => ({
+          model,
+          engine: group.engine,
+          provider: group.label,
+        })),
+      ),
+    [models.configuredModels],
+  );
+
+  const mentionItems = useMemo<MentionItem[]>(() => {
+    const memberItems = members.map((member) => {
+      const label = mentionLabel(member);
+      return {
+        id: `member:${member.email}`,
+        label,
+        description: member.email,
+        source: "content",
+        refType: MEMBER_REFERENCE_TYPE,
+        refId: member.email,
+        metadata: { email: member.email, name: label },
+      };
+    });
+    if (!onAiSubmit || !onAiDraftChange || !aiModelStorageKey)
+      return memberItems;
+    const aiItems = connectedModels.map((selection) => ({
+      id: `ai:${selection.engine}:${selection.model}`,
+      label: `${selection.provider} · ${modelFamilyAlias(selection.model)}`,
+      aliases: [modelFamilyAlias(selection.model)],
+      replaceExisting: true,
+      source: "content",
+      refType: AI_REFERENCE_TYPE,
+      refId: `${selection.engine}:${selection.model}`,
+      media: (() => {
+        const identity = resolveAgentProviderLogo(
+          selection.engine,
+          selection.provider,
+        );
+        return identity.logoUrl
+          ? ({ type: "image", src: identity.logoUrl } as const)
+          : ({ type: "text", text: selection.provider.slice(0, 1) } as const);
+      })(),
+      metadata: { selection },
+    }));
+    const selected = models.selectionReady
+      ? connectedModels.find(
+          (candidate) =>
+            candidate.model === models.selectedModel &&
+            candidate.engine === models.selectedEngine,
+        )
+      : undefined;
+    return [
+      ...(selected
+        ? [
+            {
+              ...aiItems.find(
+                (item) => item.refId === `${selected.engine}:${selected.model}`,
+              )!,
+              id: "ai",
+              label: "AI",
+              referenceLabel: `${selected.provider} · ${modelFamilyAlias(selected.model)}`,
+              aliases: ["AI"],
+              replaceExisting: true,
+              description: `${selected.provider} · ${modelFamilyAlias(selected.model)}`,
+            },
+          ]
+        : []),
+      ...aiItems,
+      ...memberItems,
+    ];
+  }, [
+    aiModelStorageKey,
+    aiDraft,
+    connectedModels,
+    members,
+    models.selectedEngine,
+    models.selectedModel,
+    models.selectionReady,
+    onAiDraftChange,
+    onAiSubmit,
+  ]);
 
   useEffect(() => {
-    if (!autoFocus) return;
-    const timer = setTimeout(() => innerRef.current?.focus(), 50);
+    if (!composerReady || (!aiDraft && !aiReferenceSeen.current)) return;
+    const timer = setTimeout(() => {
+      composerRef.current?.replaceReference(
+        AI_REFERENCE_TYPE,
+        aiDraft ? aiReference(aiDraft) : null,
+      );
+    }, 0);
     return () => clearTimeout(timer);
-  }, [autoFocus]);
+  }, [aiDraft, composerReady]);
 
-  const filtered =
-    query === null
-      ? []
-      : members
-          .filter((m) => {
-            const q = query.toLowerCase();
-            return (
-              !q ||
-              (m.name ?? "").toLowerCase().includes(q) ||
-              m.email.toLowerCase().includes(q)
-            );
-          })
-          .slice(0, 6);
+  useEffect(() => {
+    if (!composerReady || value === lastEditorValue.current) return;
+    lastEditorValue.current = value;
+    hydratingControlledText.current = true;
+    composerRef.current?.setText(value);
+    const currentAiDraft = aiDraftRef.current;
+    if (currentAiDraft) {
+      composerRef.current?.replaceReference(
+        AI_REFERENCE_TYPE,
+        aiReference(currentAiDraft),
+      );
+    }
+    hydratingControlledText.current = false;
+  }, [composerReady, value]);
 
-  // Detect an in-progress `@query` immediately before the caret.
-  const refreshQuery = (el: HTMLTextAreaElement) => {
-    const caret = el.selectionStart ?? el.value.length;
-    const before = el.value.slice(0, caret);
-    const match = before.match(/(?:^|\s)@([^\s@]*)$/);
-    const nextQuery = match ? match[1] : null;
-    setQuery(nextQuery);
-    if (nextQuery !== query) setHighlight(0);
-  };
-
-  const selectMember = (member: MentionMember) => {
-    const el = innerRef.current;
-    if (!el) return;
-    const caret = el.selectionStart ?? value.length;
-    const before = value.slice(0, caret);
-    const match = before.match(/(?:^|\s)@([^\s@]*)$/);
-    if (!match) return;
-    const label = mentionLabel(member);
-    const atStart = caret - match[1].length - 1;
-    const next = `${value.slice(0, atStart)}@${label} ${value.slice(caret)}`;
-    onChange(next);
-    onMentionAdd({ email: member.email, name: label });
-    setQuery(null);
-    // Restore the caret just after the inserted mention.
-    const nextCaret = atStart + label.length + 2;
-    requestAnimationFrame(() => {
-      const node = innerRef.current;
-      if (node) {
-        node.focus();
-        node.setSelectionRange(nextCaret, nextCaret);
+  const handleReferencesChange = useCallback((references: Reference[]) => {
+    const currentAiDraft = aiDraftRef.current;
+    const ai = [...references]
+      .reverse()
+      .find((reference) => reference.refType === AI_REFERENCE_TYPE);
+    if (ai) aiReferenceSeen.current = true;
+    if (ai) {
+      const selection = (
+        ai.metadata as { selection?: CommentAiSelection } | undefined
+      )?.selection;
+      const selectionChanged =
+        selection &&
+        (!currentAiDraft ||
+          selection.model !== currentAiDraft.selection.model ||
+          selection.engine !== currentAiDraft.selection.engine ||
+          selection.provider !== currentAiDraft.selection.provider);
+      if (selectionChanged) {
+        const nextDraft = {
+          selection,
+          mode: currentAiDraft?.mode ?? ("auto" as const),
+        };
+        aiDraftRef.current = nextDraft;
+        onModelChangeRef.current(selection.model, selection.engine);
+        onAiDraftChangeRef.current?.(nextDraft);
       }
+    } else if (
+      !hydratingControlledText.current &&
+      currentAiDraft &&
+      aiReferenceSeen.current
+    ) {
+      aiReferenceSeen.current = false;
+      aiDraftRef.current = null;
+      onAiDraftChangeRef.current?.(null);
+    }
+    for (const reference of references) {
+      if (reference.refType !== MEMBER_REFERENCE_TYPE || !reference.refId)
+        continue;
+      if (observedMemberIds.current.has(reference.refId)) continue;
+      observedMemberIds.current.add(reference.refId);
+      onMentionAddRef.current({
+        email: reference.refId,
+        name: reference.name,
+      });
+    }
+    for (const id of [...observedMemberIds.current]) {
+      if (
+        !references.some(
+          (reference) =>
+            reference.refType === MEMBER_REFERENCE_TYPE &&
+            reference.refId === id,
+        )
+      ) {
+        observedMemberIds.current.delete(id);
+      }
+    }
+  }, []);
+
+  const submitAi = () => {
+    if (!aiDraft || !onAiSubmit) return;
+    onAiSubmit({
+      ...aiDraft.selection,
+      intent: aiDraft.mode,
+      effort: models.selectedEffort,
     });
   };
 
-  const menuOpen = query !== null && filtered.length > 0;
-
-  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (
-      e.key === "Escape" &&
-      (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229)
-    ) {
-      e.stopPropagation();
-      return true;
-    }
-    if (menuOpen) {
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        setHighlight((h) => (h + 1) % filtered.length);
-        return true;
-      }
-      if (e.key === "ArrowUp") {
-        e.preventDefault();
-        setHighlight((h) => (h - 1 + filtered.length) % filtered.length);
-        return true;
-      }
-      if (e.key === "Enter" || e.key === "Tab") {
-        e.preventDefault();
-        selectMember(filtered[highlight]);
-        return true;
-      }
-      if (e.key === "Escape") {
-        e.preventDefault();
-        e.stopPropagation();
-        setQuery(null);
-        return true;
-      }
-    }
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      onSubmit();
-      return true;
-    }
-    if (e.key === "Escape" && onEscape) {
-      onEscape();
-      return true;
-    }
-    return false;
-  };
-
   return (
-    <div className="relative">
-      <textarea
-        ref={setRefs}
-        value={value}
-        disabled={disabled}
-        rows={rows}
-        onChange={(e) => {
-          onChange(e.target.value);
-          refreshQuery(e.target);
+    <div
+      onKeyDownCapture={(event) => {
+        if (event.key !== "Escape" || !event.defaultPrevented) return;
+        if (
+          event.nativeEvent.isComposing ||
+          event.nativeEvent.keyCode === 229
+        ) {
+          event.stopPropagation();
+          return;
+        }
+        if (!composerRef.current?.dismissPopover()) onEscape?.();
+        event.stopPropagation();
+      }}
+    >
+      <PromptComposer
+        composerRef={bindComposer}
+        initialText={value}
+        initialTextKey="comment-composer-controlled"
+        onTextChange={(text) => {
+          if (text === lastEditorValue.current) return;
+          lastEditorValue.current = text;
+          onChange(text);
         }}
-        onKeyUp={(e) => {
-          if (!consumedKeys.current.delete(e.key))
-            refreshQuery(e.currentTarget);
+        onSubmit={() => {
+          if (aiDraft) submitAi();
+          else onSubmit();
         }}
-        onClick={(e) => refreshQuery(e.currentTarget)}
-        onKeyDown={(e) => {
-          if (handleKeyDown(e)) consumedKeys.current.add(e.key);
-        }}
-        onBlur={() => {
-          consumedKeys.current.clear();
-          // Defer so a mention click registers before the menu unmounts.
-          setTimeout(() => setQuery(null), 120);
-          onBlur?.();
-        }}
+        mentionItems={mentionItems}
+        includeDefaultMentionSearch={false}
+        onReferencesChange={handleReferencesChange}
+        onEscape={onEscape}
+        onFocus={onFocus}
+        onBlur={onBlur}
+        onSelectionChange={onSelectionChange}
         placeholder={placeholder}
-        aria-label={ariaLabel}
-        className={`[field-sizing:content] max-h-48 ${
-          className ??
-          "w-full resize-none bg-transparent text-sm placeholder:text-muted-foreground focus:outline-none"
-        }`}
+        ariaLabel={ariaLabel}
+        autoFocus={autoFocus}
+        disabled={disabled}
+        attachmentsEnabled={false}
+        plusMenuMode="hidden"
+        voiceEnabled={false}
+        showModelSelector={Boolean(aiDraft)}
+        showAutoModelOption={false}
+        availableModels={models.configuredModels}
+        selectedModel={aiDraft?.selection.model ?? models.selectedModel}
+        selectedEngine={aiDraft?.selection.engine ?? models.selectedEngine}
+        selectedEffort={models.selectedEffort}
+        onModelChange={(model, engine) => {
+          const selection = connectedModels.find(
+            (candidate) =>
+              candidate.model === model && candidate.engine === engine,
+          );
+          if (!selection || !aiDraft) return;
+          models.onModelChange(model, engine);
+          onAiDraftChange?.({ ...aiDraft, selection });
+        }}
+        onEffortChange={models.onEffortChange}
+        actionButton={
+          aiDraft ? (
+            <CommentAiSendControl
+              mode={aiDraft.mode}
+              disabled={disabled || !value.trim() || !models.selectionReady}
+              onModeChange={(mode) => onAiDraftChange?.({ ...aiDraft, mode })}
+              onSubmit={submitAi}
+            />
+          ) : undefined
+        }
+        className={className}
+        rootClassName="min-w-0"
       />
-      {!disabled && menuOpen && (
-        <div className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-md border border-border bg-popover py-1 shadow-md">
-          {filtered.map((member, i) => (
-            <button
-              key={member.email}
-              type="button"
-              onMouseDown={(e) => {
-                e.preventDefault();
-                selectMember(member);
-              }}
-              onMouseEnter={() => setHighlight(i)}
-              className={`flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[13px] ${
-                i === highlight ? "bg-accent" : "hover:bg-accent/60"
-              }`}
-            >
-              <span className="font-medium text-foreground">
-                {mentionLabel(member)}
-              </span>
-              <span className="truncate text-xs text-muted-foreground">
-                {member.email}
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
+      {onAiSubmit && aiModelStorageKey && models.unavailableSelection ? (
+        <span role="status" className="text-xs text-muted-foreground">
+          {t("comments.aiUnavailable")}
+        </span>
+      ) : null}
     </div>
   );
 });

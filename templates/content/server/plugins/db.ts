@@ -1214,6 +1214,34 @@ export const runContentMigrations = runMigrations(
       CREATE INDEX IF NOT EXISTS comment_ai_attempts_request_idx
         ON comment_ai_attempts (request_id)`,
     },
+    {
+      version: 96,
+      name: "content-comment-ai-submitted-mode",
+      sql: `ALTER TABLE comment_ai_requests ADD COLUMN IF NOT EXISTS submitted_mode TEXT NOT NULL DEFAULT 'reply';
+      ALTER TABLE comment_ai_requests ADD COLUMN IF NOT EXISTS instructions TEXT NOT NULL DEFAULT '';
+      ALTER TABLE comment_ai_requests ADD COLUMN IF NOT EXISTS submitted_model TEXT;
+      ALTER TABLE comment_ai_requests ADD COLUMN IF NOT EXISTS submitted_engine TEXT;
+      ALTER TABLE comment_ai_requests ADD COLUMN IF NOT EXISTS classification_thread_id TEXT;
+      ALTER TABLE comment_ai_requests ADD COLUMN IF NOT EXISTS classification_turn_id TEXT;
+      DROP INDEX IF EXISTS comment_ai_requests_active_thread_idx;
+      DROP INDEX IF EXISTS comment_ai_requests_active_comment_idx;
+      CREATE UNIQUE INDEX comment_ai_requests_active_thread_idx
+        ON comment_ai_requests (document_id, thread_id, requester_email)
+        WHERE status IN ('classifying', 'classified', 'queued', 'running');
+      CREATE UNIQUE INDEX comment_ai_requests_active_comment_idx
+        ON comment_ai_requests (document_id, root_comment_id)
+        WHERE status IN ('classifying', 'classified', 'queued', 'running', 'refreshing')`,
+    },
+    {
+      version: 97,
+      name: "content-comment-ai-continuation",
+      sql: `ALTER TABLE comment_ai_requests ADD COLUMN IF NOT EXISTS continuation_of_request_id TEXT`,
+    },
+    {
+      version: 98,
+      name: "content-comment-ai-submitted-provider",
+      sql: `ALTER TABLE comment_ai_requests ADD COLUMN IF NOT EXISTS submitted_provider TEXT`,
+    },
   ],
   { table: "content_migrations" },
 );
