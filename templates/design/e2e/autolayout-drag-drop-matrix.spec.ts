@@ -5,7 +5,7 @@ import {
   type Page,
 } from "@playwright/test";
 
-import { chromeBounds, layerRow } from "./drag-and-drop.shared";
+import { chromeBounds } from "./drag-and-drop.shared";
 import { appPath, designFrame, expandAllLayers, gotoEditor } from "./helpers";
 
 // Oracle: Figma Guide to auto layout (D-AL/D-HV/D-IGNORE/D-COPY) and the
@@ -273,9 +273,14 @@ async function settleReload(page: Page, screenId: string): Promise<void> {
 
 async function selectLayer(page: Page, name: string): Promise<void> {
   await expandAllLayers(page);
-  const row = layerRow(page, name);
+  const row = page
+    .getByRole("tree", { name: "Layers" })
+    .locator("[data-layer-row-button][data-layer-node-id]")
+    .filter({ has: page.getByTitle(name, { exact: true }) })
+    .first()
+    .locator('xpath=ancestor::*[@role="treeitem"][1]');
   await expect(row).toBeVisible();
-  await row.click();
+  await row.locator("[data-layer-row-button]").click();
   await expect.poll(() => chromeBounds(page)).not.toBeNull();
 }
 
@@ -1025,25 +1030,34 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
                 source.x + source.width / 2,
                 source.y + source.height / 2,
               );
-              await page.mouse.down();
-              await page.mouse.move(source.x + 12, source.y + 8, { steps: 5 });
-              await page.keyboard.down(modifier);
-              await page.mouse.move(
-                target.x + target.width / 2,
-                target.y + target.height / 2,
-                { steps: 24 },
-              );
-              await page.waitForTimeout(250);
-              const guide = designFrame(page, design.primaryId).locator(
-                "[data-agent-native-insertion-guide]",
-              );
-              const during = await guide.evaluate((element) => ({
-                display: getComputedStyle(element).display,
-                border: getComputedStyle(element).border,
-              }));
-              expect(during.display).toBe("block");
-              await page.mouse.up();
-              await page.keyboard.up(modifier);
+              let mouseHeld = false;
+              let modifierHeld = false;
+              try {
+                mouseHeld = true;
+                await page.mouse.down();
+                await page.mouse.move(source.x + 12, source.y + 8, {
+                  steps: 5,
+                });
+                modifierHeld = true;
+                await page.keyboard.down(modifier);
+                await page.mouse.move(
+                  target.x + target.width / 2,
+                  target.y + target.height / 2,
+                  { steps: 24 },
+                );
+                await page.waitForTimeout(250);
+                const guide = designFrame(page, design.primaryId).locator(
+                  "[data-agent-native-insertion-guide]",
+                );
+                const during = await guide.evaluate((element) => ({
+                  display: getComputedStyle(element).display,
+                  border: getComputedStyle(element).border,
+                }));
+                expect(during.display).toBe("block");
+              } finally {
+                if (mouseHeld) await page.mouse.up();
+                if (modifierHeld) await page.keyboard.up(modifier);
+              }
             }
             await expect
               .poll(() => parentId(page, design.primaryId, "ignore-source"))

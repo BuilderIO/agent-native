@@ -137,6 +137,26 @@ async function readSource(
   return result.content;
 }
 
+async function readScreenMetadata(
+  page: Page,
+  designId: string,
+  screenId: string,
+): Promise<Record<string, unknown>> {
+  const response = await page.request.get(
+    `${ORIGIN}/_agent-native/actions/get-design?id=${encodeURIComponent(designId)}`,
+  );
+  if (!response.ok()) {
+    throw new Error(`get-design failed: HTTP ${response.status()}`);
+  }
+  const record = (await response.json()) as {
+    screenMetadata?: Record<string, Record<string, unknown>>;
+  };
+  const metadata = record.screenMetadata?.[screenId];
+  if (!metadata)
+    throw new Error(`get-design returned no metadata for ${screenId}`);
+  return metadata;
+}
+
 async function directChildIds(
   page: Page,
   source: string,
@@ -759,6 +779,16 @@ test.describe("authenticated beta Design interactions", () => {
           .contentFrame()
           .locator('[data-agent-native-node-id="external-target"]'),
       ).toBeVisible({ timeout: 30_000 });
+      await expect
+        .poll(() => readScreenMetadata(page, designId, urlTargetId), {
+          timeout: 20_000,
+        })
+        .toMatchObject({
+          sourceType: "localhost",
+          previewState: "live",
+          url: URL_BACKED_TARGET_URL,
+          previewUrl: URL_BACKED_TARGET_URL,
+        });
 
       await expect
         .poll(async () => {
