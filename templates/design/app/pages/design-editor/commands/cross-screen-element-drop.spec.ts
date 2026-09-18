@@ -1046,22 +1046,22 @@ describe("runCrossScreenElementDrop shader publication preflight", () => {
 });
 
 describe("runCrossScreenElementDrop real publication refusal", () => {
-  it("rolls the source back when the destination refuses after source publication", () => {
+  it("rolls the destination back when the source refuses after destination publication", () => {
     const sourceContent = `<!doctype html><html><body><button data-agent-native-node-id="moving">Move</button></body></html>`;
     const destinationContent = `<!doctype html><html><body><main data-agent-native-node-id="target-root"></main></body></html>`;
     const calls: Array<{ fileId: string; content: string }> = [];
-    let targetAttempted = false;
+    let sourceAttempted = false;
     const result = runStoredCrossScreenDrop({
       sourceContent,
       destinationContent,
       publish: (fileId, content) => {
         calls.push({ fileId, content });
-        if (fileId === "target") {
-          targetAttempted = true;
+        if (fileId === "source") {
+          sourceAttempted = true;
           return { status: "refused" as const };
         }
-        if (fileId === "source" && targetAttempted) {
-          return acceptFixture(fileId, sourceContent);
+        if (fileId === "target" && sourceAttempted) {
+          return acceptFixture(fileId, destinationContent);
         }
         return acceptFixture(fileId, content);
       },
@@ -1079,11 +1079,11 @@ describe("runCrossScreenElementDrop real publication refusal", () => {
     });
 
     expect(calls.map(({ fileId }) => fileId)).toEqual([
-      "source",
       "target",
       "source",
+      "target",
     ]);
-    expect(calls[2]?.content).toBe(sourceContent);
+    expect(calls[2]?.content).toBe(destinationContent);
     expect(result.historyEntries).toEqual([]);
     expect(result.selectionEvents).toEqual([]);
   });
@@ -1168,9 +1168,9 @@ describe("runCrossScreenElementDrop real publication refusal", () => {
 
     expect(writer.calls).toEqual([
       {
-        fileId: "source",
+        fileId: "target",
         status: "refused",
-        historyBeforeContent: sourceContent,
+        historyBeforeContent: destinationContent,
       },
     ]);
     expect(writer.history).toEqual([]);
