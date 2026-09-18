@@ -148,6 +148,32 @@ describe("slack outbound installation selection", () => {
     expect(postedTokens).toEqual(["Bearer xoxb-selected-token"]);
   });
 
+  it("fails closed when a named installation is missing", async () => {
+    getActiveIntegrationInstallationByKeyMock.mockResolvedValue(null);
+    listActiveIntegrationInstallationsForTenantMock.mockResolvedValue([
+      installation("T1:other-app", "A-OTHER"),
+    ]);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      slackAdapter().sendMessageToTarget!(
+        { text: "hello", platformContext: {} },
+        {
+          destination: "C123",
+          tenantId: "T1",
+          installationKey: "T1:stale-app",
+        },
+      ),
+    ).rejects.toThrow("no bot token for outbound target");
+
+    expect(
+      listActiveIntegrationInstallationsForTenantMock,
+    ).not.toHaveBeenCalled();
+    expect(resolveIntegrationTokenBundleMock).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("rejects a named installation token from another Slack app", async () => {
     getActiveIntegrationInstallationByKeyMock.mockResolvedValue(
       installation("T1:agent-native", "A-NAMED"),
