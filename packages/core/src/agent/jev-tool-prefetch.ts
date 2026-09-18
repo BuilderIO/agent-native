@@ -1,3 +1,6 @@
+import type { BuilderGatewayAuth } from "../server/credential-provider.js";
+import { resolveDeployEnvironment } from "../server/deploy-environment.js";
+import { getBuilderGatewayRequestHeaders } from "./engine/builder-gateway-headers.js";
 import type { EngineTool } from "./engine/types.js";
 import type { ActionEntry } from "./production-agent.js";
 import { searchToolRegistry, TOOL_SEARCH_ACTION_NAME } from "./tool-search.js";
@@ -6,6 +9,7 @@ const MAX_JEV_CANDIDATES = 128;
 const DEFAULT_PREFETCH_LIMIT = 3;
 const MAX_PREFETCH_LIMIT = 5;
 const JEV_TIMEOUT_MS = 750;
+const JEV_MODEL = "jev-latest";
 
 type JevChoiceAnswer = {
   choice?: unknown;
@@ -26,6 +30,7 @@ export interface JevCandidate {
 export interface JevRankCandidatesOptions {
   request: string;
   apiKey?: string;
+  builderAuth?: BuilderGatewayAuth | null;
   candidates: readonly JevCandidate[];
   candidateStateKey: string;
   answerKey: string;
@@ -54,19 +59,14 @@ export async function rankJevCandidates(
   if (candidates.length === 1) return [candidates[0]!.id];
 
   try {
-    const { choice, TypeSafeClient } = await import("@typesafe-ai/sdk");
-    const client = new TypeSafeClient({
-      apiKey,
-      timeout: JEV_TIMEOUT_MS,
-      retry: { maxRetries: 0 },
-    });
     const criteria = Object.fromEntries(
       candidates.map((candidate) => [
         candidate.id,
         candidate.description || candidate.id,
       ]),
     );
-    const response = (await client.systemOne({
+    const jevRequest = {
+      model: JEV_MODEL,
       state: {
         task: request,
         [options.candidateStateKey]: candidates.map((candidate) => ({
@@ -76,9 +76,19 @@ export async function rankJevCandidates(
         })),
       },
       questions: {
-        [options.answerKey]: choice(options.question, criteria),
+        [options.answerKey]: {
+          type: "choice" as const,
+          instructions: options.question,
+          criteria,
+        },
       },
-    })) as JevResponse;
+    };
+
+    const response = await requestJev({
+      apiKey,
+      builderAuth: options.builderAuth,
+      request: jevRequest,
+    });
 
     const answer = response.answers?.[options.answerKey];
     const probabilities =
@@ -153,6 +163,7 @@ export function shortlistJevCandidates<T extends JevCandidate>(
 export interface JevToolPrefetchOptions {
   request: string;
   apiKey?: string;
+  builderAuth?: BuilderGatewayAuth | null;
   registry: Record<string, ActionEntry>;
   initialTools: EngineTool[];
   availableTools: EngineTool[];
@@ -221,6 +232,7 @@ export async function preloadJevTools(
     })),
     candidateStateKey: "candidate_tools",
     answerKey: "best_tool",
+    builderAuth: options.builderAuth,
     question:
       "Which tools should be loaded into the agent context first for this task? Pick the most useful tool; probabilities may be used to keep a small ranked shortlist.",
     limit: prefetchLimit,
@@ -228,6 +240,105 @@ export async function preloadJevTools(
   return selectedNames.length > 0
     ? prependSelectedTools(options, selectedNames)
     : options.initialTools;
+}
+
+type JevRequest = {
+  model: string;
+  state: Record<string, unknown>;
+  questions: Record<
+    string,
+    {
+      type: "choice";
+      instructions: string;
+      criteria: Record<string, string>;
+    }
+  >;
+};
+
+async function requestJev(options: {
+  apiKey: string;
+  builderAuth?: BuilderGatewayAuth | null;
+  request: JevRequest;
+}): Promise<JevResponse> {
+  if (options.builderAuth && resolveDeployEnvironment() !== "production") {
+    try {
+      return await requestJevThroughBuilder(
+        options.builderAuth,
+        options.request,
+      );
+    } catch (error) {
+      console.warn(
+        "[agent] Builder Jev proxy unavailable; falling back to the direct Jev API.",
+        error instanceof Error ? error.message : "unknown error",
+      );
+    }
+  }
+
+  const { choice, TypeSafeClient } = await import("@typesafe-ai/sdk");
+  const client = new TypeSafeClient({
+    apiKey: options.apiKey,
+    timeout: JEV_TIMEOUT_MS,
+    retry: { maxRetries: 0 },
+  });
+  const systemOne = client.systemOne as unknown as (
+    request: unknown,
+  ) => Promise<unknown>;
+  return (await systemOne({
+    ...options.request,
+    questions: {
+      [Object.keys(options.request.questions)[0]!]: choice(
+        Object.values(options.request.questions)[0]!.instructions,
+        Object.values(options.request.questions)[0]!.criteria,
+      ),
+    },
+  })) as JevResponse;
+}
+
+async function requestJevThroughBuilder(
+  auth: BuilderGatewayAuth,
+  request: JevRequest,
+): Promise<JevResponse> {
+  const { getBuilderProxyOrigin } =
+    await import("../server/credential-provider.js");
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), JEV_TIMEOUT_MS);
+  try {
+    const response = await fetch(
+      `${getBuilderProxyOrigin().replace(/\/+$/, "")}/agent-native/jev/v1/systemone`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: auth.authorization,
+          ...(auth.spaceId ? { "x-builder-api-key": auth.spaceId } : {}),
+          ...(auth.userId ? { "x-builder-user-id": auth.userId } : {}),
+          ...getBuilderGatewayRequestHeaders(),
+        },
+        body: JSON.stringify(request),
+        signal: controller.signal,
+      },
+    );
+    if (!response.ok) {
+      throw new Error(`Builder Jev proxy returned HTTP ${response.status}.`);
+    }
+    const result = (await response.json()) as unknown;
+    if (!isJevResponse(result)) {
+      throw new Error("Builder Jev proxy returned an invalid response.");
+    }
+    return result;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function isJevResponse(value: unknown): value is JevResponse {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "answers" in value &&
+    typeof value.answers === "object" &&
+    value.answers !== null
+  );
 }
 
 function prependSelectedTools(

@@ -77,7 +77,10 @@ import {
   getProviderCredentialAuthFailure,
   isBuilderGatewayDeployConfigured,
   readDeployCredentialEnv,
+  resolveBuilderGatewayAuth,
+  type BuilderGatewayAuth,
 } from "../server/credential-provider.js";
+import { resolveDeployEnvironment } from "../server/deploy-environment.js";
 import { readBody } from "../server/h3-helpers.js";
 import { resolveHostedHarnessPolicy } from "../server/hosted-harness-policy.js";
 import {
@@ -663,6 +666,23 @@ export async function getOwnerJevApiKey(
   const value = await getOwnerApiKey("jev", ownerEmail);
   writeOptionalKeyCache(cacheKey, value);
   return value;
+}
+
+async function getJevContextCredentials(
+  ownerEmail: string | null | undefined,
+): Promise<{
+  apiKey: string | undefined;
+  builderAuth: BuilderGatewayAuth | null;
+}> {
+  const apiKey = await getOwnerJevApiKey(ownerEmail);
+  if (!apiKey || resolveDeployEnvironment() === "production") {
+    return { apiKey, builderAuth: null };
+  }
+  try {
+    return { apiKey, builderAuth: await resolveBuilderGatewayAuth() };
+  } catch {
+    return { apiKey, builderAuth: null };
+  }
 }
 
 /**
@@ -10543,7 +10563,7 @@ export function createProductionAgentHandler(
       filesContext,
       loopSettings,
       enrichedMessage,
-      jevApiKey,
+      jevContextCredentials,
     ] = await Promise.all([
       presendCap("systemPrompt", systemPromptThunk, "", 13000, () => {
         // An empty configured prompt is valid, but an empty timeout fallback
@@ -10559,7 +10579,7 @@ export function createProductionAgentHandler(
       presendCap("files", filesContextThunk, "", 12000),
       presendCap("loopSettings", loopSettingsThunk, fallbackLoopSettings, 9000),
       presendCap("enrichedMessage", enrichedMessageThunk, requestMessage, 9000),
-      getOwnerJevApiKey(ownerEmail ?? getRequestUserEmail()),
+      getJevContextCredentials(ownerEmail ?? getRequestUserEmail()),
     ]);
     setupMark("ctxAll");
     // DIAGNOSTIC-ONLY: all parallel context gathering (system prompt, screen,
@@ -10616,7 +10636,8 @@ export function createProductionAgentHandler(
     const [requestTools, jevContext] = await Promise.all([
       preloadJevTools({
         request: requestMessage,
-        apiKey: jevApiKey,
+        apiKey: jevContextCredentials.apiKey,
+        builderAuth: jevContextCredentials.builderAuth,
         registry: requestActions,
         initialTools: curatedRequestTools,
         availableTools: availableRequestTools,
@@ -10624,7 +10645,8 @@ export function createProductionAgentHandler(
       }),
       preloadJevContextForPrompt({
         request: requestMessage,
-        apiKey: jevApiKey,
+        apiKey: jevContextCredentials.apiKey,
+        builderAuth: jevContextCredentials.builderAuth,
         compact: options.jevContextCompact,
         maxChars: jevContextMaxChars,
       }),

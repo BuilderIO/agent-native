@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const systemOne = vi.hoisted(() => vi.fn());
 const typeSafeClient = vi.hoisted(() => vi.fn());
@@ -10,6 +10,9 @@ vi.mock("@typesafe-ai/sdk", () => ({
     criteria,
   }),
   TypeSafeClient: typeSafeClient,
+}));
+vi.mock("../server/credential-provider.js", () => ({
+  getBuilderProxyOrigin: () => "https://api.builder.io",
 }));
 
 import type { EngineTool } from "./engine/types.js";
@@ -45,6 +48,11 @@ describe("preloadJevTools", () => {
         systemOne = systemOne;
       },
     );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it("does not import or call Jev without a saved key", async () => {
@@ -132,6 +140,99 @@ describe("preloadJevTools", () => {
     });
 
     expect(result).toBe(initialTools);
+  });
+
+  it("prefers the Builder proxy outside production when Builder auth is available", async () => {
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "beta");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            model: "jev-latest",
+            answers: {
+              best_tool: {
+                type: "choice",
+                choice: "search-crm",
+                probabilities: { "search-crm": 0.9, "send-email": 0.1 },
+                confidence: 0.9,
+              },
+            },
+            usage: { input_tokens: 10, output_tokens: 2 },
+          }),
+          { status: 200 },
+        ),
+      ),
+    );
+
+    const result = await rankJevCandidates({
+      apiKey: "jev-test-key",
+      builderAuth: {
+        authorization: "Bearer builder-test-token",
+        spaceId: "space-test",
+        userId: "user-test",
+      },
+      request: "Find the customer and email me the record",
+      candidates: [
+        { id: "search-crm", description: "Search customer records" },
+        { id: "send-email", description: "Send an email" },
+      ],
+      candidateStateKey: "candidate_tools",
+      answerKey: "best_tool",
+      question: "Which tool is best?",
+    });
+
+    expect(result).toEqual(["search-crm", "send-email"]);
+    expect(typeSafeClient).not.toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalledWith(
+      "https://api.builder.io/agent-native/jev/v1/systemone",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          Authorization: "Bearer builder-test-token",
+          "x-builder-api-key": "space-test",
+          "x-builder-user-id": "user-test",
+        }),
+      }),
+    );
+    expect(
+      JSON.parse(vi.mocked(fetch).mock.calls[0]?.[1]?.body as string),
+    ).toMatchObject({ model: "jev-latest" });
+  });
+
+  it("keeps the Builder proxy disabled in production", async () => {
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "production");
+    systemOne.mockResolvedValue({
+      answers: {
+        best_tool: {
+          probabilities: { "search-crm": 0.8, "send-email": 0.2 },
+        },
+      },
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      rankJevCandidates({
+        apiKey: "jev-test-key",
+        builderAuth: {
+          authorization: "Bearer builder-test-token",
+          spaceId: "space-test",
+          userId: "user-test",
+        },
+        request: "Find the customer",
+        candidates: [
+          { id: "search-crm", description: "Search customer records" },
+          { id: "send-email", description: "Send an email" },
+        ],
+        candidateStateKey: "candidate_tools",
+        answerKey: "best_tool",
+        question: "Which tool is best?",
+      }),
+    ).resolves.toEqual(["search-crm", "send-email"]);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(systemOne).toHaveBeenCalledTimes(1);
   });
 
   it("ranks context candidates from metadata without sending their bodies", async () => {

@@ -30,6 +30,7 @@ import type {
   ContextSystemProvenance,
 } from "../../shared/context-xray.js";
 import { discoverAgents } from "../agent-discovery.js";
+import type { BuilderGatewayAuth } from "../credential-provider.js";
 import { getRequestOrgId } from "../request-context.js";
 import {
   isRuntimeVisibleScope,
@@ -919,6 +920,7 @@ async function collectJevPromptCandidates(): Promise<JevPromptCandidate[]> {
 export async function preloadJevContextForPrompt(options: {
   request: string;
   apiKey?: string;
+  builderAuth?: BuilderGatewayAuth | null;
   compact?: boolean;
   maxChars?: number;
 }): Promise<string> {
@@ -930,6 +932,7 @@ export async function preloadJevContextForPrompt(options: {
   const selectedIds = await rankJevCandidates({
     request,
     apiKey,
+    builderAuth: options.builderAuth,
     candidates,
     candidateStateKey: "candidate_context",
     answerKey: "best_context",
