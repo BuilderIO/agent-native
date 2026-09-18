@@ -979,6 +979,11 @@ export default defineAction({
       contentPatchChanged ||
       args.markdown !== undefined ||
       args.sections.length > 0;
+    const hasPersistedPlanChanges =
+      hasPlanAuthoringChanges ||
+      pendingCommentInserts.length > 0 ||
+      existingCommentUpdates.length > 0 ||
+      args.consumedCommentIds.length > 0;
     const diffCount =
       args.contentPatches.length +
       args.sections.length +
@@ -1269,16 +1274,18 @@ export default defineAction({
       });
     }
     const local = isLocalPlanRuntime()
-      ? await writePlanLocalFiles({
-          planId: bundle.plan.id,
-          title: bundle.plan.title,
-          brief: bundle.plan.brief,
-          content: bundle.plan.content,
-          url: planPath(bundle.plan.id, bundle.plan.kind),
-          referencedBlockIds: referencedBlockIdsForPlanComments(
-            bundle.comments,
-          ),
-        })
+      ? hasPersistedPlanChanges
+        ? await writePlanLocalFiles({
+            planId: bundle.plan.id,
+            title: bundle.plan.title,
+            brief: bundle.plan.brief,
+            content: bundle.plan.content,
+            url: planPath(bundle.plan.id, bundle.plan.kind),
+            referencedBlockIds: referencedBlockIdsForPlanComments(
+              bundle.comments,
+            ),
+          })
+        : null
       : null;
     if (isAgentCaller) {
       return {
