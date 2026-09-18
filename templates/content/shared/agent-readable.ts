@@ -51,9 +51,11 @@ export interface ContentDocumentMcpGuidance {
     summary: string;
     sharePageAuthenticationRequired: boolean;
     sharePageHttpAccess: "readable" | "authorized" | "denied";
-    mcpConnectionRequired: boolean;
+    sharePageAuthorization: "public" | "scoped-token" | "none";
+    mcpActionAuthenticationRequired: true;
+    mcpConnectionRequiredForPageAccess: boolean;
     mcpAccountPermission: "not-required" | "not-evaluated";
-    authorization: "connected-account-existing-permissions";
+    mcpAuthorization: "connected-account-existing-permissions";
     setupDocumentationUrl: typeof CONTENT_MCP_SETUP_DOCUMENTATION_URL;
     connectionUrl: string;
     missingMcpConnectionPath:
@@ -92,10 +94,18 @@ export function buildContentDocumentMcpGuidance(
         : accessState === "authorized"
           ? "authorized"
           : "denied",
+    sharePageAuthorization:
+      accessState === "public"
+        ? "public"
+        : accessState === "authorized"
+          ? "scoped-token"
+          : "none",
+    mcpActionAuthenticationRequired: true,
     mcpAccountPermission:
       accessState === "public" ? "not-required" : "not-evaluated",
-    mcpConnectionRequired: accessState === "authentication-required",
-    authorization: "connected-account-existing-permissions" as const,
+    mcpConnectionRequiredForPageAccess:
+      accessState === "authentication-required",
+    mcpAuthorization: "connected-account-existing-permissions" as const,
     setupDocumentationUrl: CONTENT_MCP_SETUP_DOCUMENTATION_URL,
     connectionUrl: mcpConnectUrl,
     missingMcpConnectionPath:

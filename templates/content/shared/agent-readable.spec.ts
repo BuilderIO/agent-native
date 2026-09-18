@@ -60,9 +60,11 @@ describe("content agent-readable discovery", () => {
           "This Content document is private. Authenticated access is available through the Content MCP integration.",
         sharePageAuthenticationRequired: true,
         sharePageHttpAccess: "denied",
-        mcpConnectionRequired: true,
+        sharePageAuthorization: "none",
+        mcpActionAuthenticationRequired: true,
+        mcpConnectionRequiredForPageAccess: true,
         mcpAccountPermission: "not-evaluated",
-        authorization: "connected-account-existing-permissions",
+        mcpAuthorization: "connected-account-existing-permissions",
         setupDocumentationUrl:
           "https://www.agent-native.com/docs/external-agents/#private-content-links",
         connectionUrl: "https://content.example.test/content/mcp/connect",
@@ -84,9 +86,11 @@ describe("content agent-readable discovery", () => {
         "This Content document is private. Authenticated access is available through the Content MCP integration.",
       sharePageAuthenticationRequired: true,
       sharePageHttpAccess: "denied",
-      mcpConnectionRequired: true,
+      sharePageAuthorization: "none",
+      mcpActionAuthenticationRequired: true,
+      mcpConnectionRequiredForPageAccess: true,
       mcpAccountPermission: "not-evaluated",
-      authorization: "connected-account-existing-permissions",
+      mcpAuthorization: "connected-account-existing-permissions",
       setupDocumentationUrl:
         "https://www.agent-native.com/docs/external-agents/#private-content-links",
       connectionUrl: "https://content.example.test/content/mcp/connect",
@@ -117,7 +121,9 @@ describe("content agent-readable discovery", () => {
     });
 
     expect(guidance.access.sharePageAuthenticationRequired).toBe(false);
-    expect(guidance.access.mcpConnectionRequired).toBe(false);
+    expect(guidance.access.sharePageAuthorization).toBe("public");
+    expect(guidance.access.mcpConnectionRequiredForPageAccess).toBe(false);
+    expect(guidance.access.mcpActionAuthenticationRequired).toBe(true);
     expect(guidance.access.state).toBe("public");
     expect(guidance.instructions).toContain(
       "available through its public Content share page",
@@ -143,7 +149,9 @@ describe("content agent-readable discovery", () => {
       state: "authorized",
       sharePageHttpAccess: "authorized",
       sharePageAuthenticationRequired: false,
-      mcpConnectionRequired: false,
+      sharePageAuthorization: "scoped-token",
+      mcpActionAuthenticationRequired: true,
+      mcpConnectionRequiredForPageAccess: false,
       mcpAccountPermission: "not-evaluated",
     });
     expect(discovery.accessContractVersion).toBe(2);
