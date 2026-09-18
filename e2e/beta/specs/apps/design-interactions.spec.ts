@@ -723,7 +723,8 @@ test.describe("authenticated beta Design interactions", () => {
       );
       const copy = rootState.nodes.find((node) => node.id !== ROOT_FRAME_ID);
       expect(original).toBeTruthy();
-      expect(copy?.id).toMatch(/^an-copy-/);
+      const copyId = copy!.id!;
+      expect(copyId).toMatch(/^an-copy-/);
       expect(copy!.rect.x).toBeGreaterThan(original!.rect.x);
       expect(rootState.selectionRect).toMatchObject({
         x: copy!.rect.x,
@@ -734,6 +735,9 @@ test.describe("authenticated beta Design interactions", () => {
       expect(await readSource(page, designId)).toContain(
         `data-agent-native-node-id="${ROOT_FRAME_ID}"`,
       );
+      await expect
+        .poll(() => readSource(page, designId), { timeout: 20_000 })
+        .toContain(`data-agent-native-node-id="${copyId}"`);
 
       await expandLayers(page);
       await expect(
