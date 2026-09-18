@@ -1224,6 +1224,7 @@ export default function DeckEditor() {
       try {
         const newUrl = await uploadImageAsset(file);
         if (!(await prefetchImage(newUrl))) {
+          clearPreview();
           toast.error(t("deckEditor.imageUploadFailed"), {
             description: t("deckEditor.imageUploadError"),
           });
