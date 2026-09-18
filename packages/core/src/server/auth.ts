@@ -38,6 +38,11 @@ import {
   resolveEmbedSessionFromRequest,
 } from "./embed-session.js";
 import type { H3AppShim } from "./framework-request-handler.js";
+import {
+  canonicalFrameworkPathname,
+  getFrameworkRoutePrefix,
+  publicFrameworkPath,
+} from "./framework-route-prefix.js";
 
 // In h3 v2, `event.req` IS the web Request — but in Nitro's dev server (srvx
 // runtime), event.url and event.req share the same underlying URL object.
@@ -55,7 +60,12 @@ function toWebRequest(event: H3Event): Request {
   if (ctx?._mountedPathname && ctx._mountPrefix) {
     try {
       const url = new URL(req.url);
-      const mountedPathname = stripAppBasePath(ctx._mountedPathname);
+      // Better Auth is configured with the PUBLIC base path (it builds its
+      // own callback and verification URLs from it), so hand it the public
+      // form of the internal pathname the boundary dispatched on.
+      const mountedPathname = publicFrameworkPath(
+        stripAppBasePath(ctx._mountedPathname),
+      );
       if (url.pathname !== mountedPathname) {
         url.pathname = mountedPathname;
         const method = req.method.toUpperCase();
@@ -2416,9 +2426,9 @@ function parseDesktopExchangeStoredEntry(
 
 function isDesktopMagicLinkCallbackPath(value: string): boolean {
   try {
-    return new URL(value, "http://agent-native.invalid").pathname.endsWith(
-      "/_agent-native/auth/magic-link/desktop-callback",
-    );
+    return canonicalFrameworkPathname(
+      new URL(value, "http://agent-native.invalid").pathname,
+    ).endsWith("/_agent-native/auth/magic-link/desktop-callback");
   } catch {
     // coercion-ok: malformed callback URLs are treated as non-desktop callbacks.
     return false;
@@ -3084,7 +3094,7 @@ function extractMcpOAuthCookieAppId(
     return undefined;
   }
 
-  const match = redirectUri.pathname.match(
+  const match = canonicalFrameworkPathname(redirectUri.pathname).match(
     /^\/([a-z0-9][a-z0-9-]*)\/_agent-native\/mcp\/servers\/oauth\/callback$/,
   );
   const appId = match?.[1];
@@ -3400,7 +3410,9 @@ function desktopMagicLinkVerificationUrl(
     const callback = new URL(callbackURL, getOrigin(event));
     if (
       callback.origin !== new URL(getOrigin(event)).origin ||
-      !callback.pathname.endsWith(DESKTOP_MAGIC_LINK_CALLBACK_PATH) ||
+      !canonicalFrameworkPathname(callback.pathname).endsWith(
+        DESKTOP_MAGIC_LINK_CALLBACK_PATH,
+      ) ||
       !normalizeDesktopFlowId(callback.searchParams.get("flow_id")) ||
       !normalizeDesktopFlowVerifier(callback.searchParams.get("verifier"))
     ) {
@@ -3565,6 +3577,7 @@ function loginHtmlResponse(
       getSsrAuthRedirectScript(
         SESSION_HINT_COOKIE,
         resolveAppHomePath(getAppConfig().app),
+        getFrameworkRoutePrefix(),
       ),
     );
   }
@@ -6572,7 +6585,7 @@ async function mountBetterAuthRoutes(
         const query = getQuery(event);
         if (typeof query.token === "string") {
           const verificationUrl = new URL(
-            `${getAppBasePath()}/_agent-native/auth/ba/magic-link/verify`,
+            `${getAppBasePath()}${publicFrameworkPath("/_agent-native/auth/ba/magic-link/verify")}`,
             getOrigin(event),
           );
           for (const key of [
@@ -6637,7 +6650,7 @@ async function mountBetterAuthRoutes(
             )
           : undefined;
         const newUserCallbackUrl = new URL(
-          `${getAppBasePath()}/_agent-native/auth/magic-link/new-user?return=${encodeURIComponent(callbackPath)}`,
+          `${getAppBasePath()}${publicFrameworkPath("/_agent-native/auth/magic-link/new-user")}?return=${encodeURIComponent(callbackPath)}`,
           getOrigin(event),
         );
         if (attributionToken) {

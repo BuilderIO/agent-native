@@ -20,6 +20,7 @@ import {
   resolveSecretPairs,
 } from "../server/credential-provider.js";
 import { getH3App } from "../server/framework-request-handler.js";
+import { canonicalFrameworkPathname } from "../server/framework-route-prefix.js";
 import {
   getAppBasePath,
   getAppUrl,
@@ -913,7 +914,8 @@ function isRootGoogleCallback(value: string): boolean {
   try {
     const url = new URL(value);
     return (
-      url.pathname === "/_agent-native/google/callback" &&
+      canonicalFrameworkPathname(url.pathname) ===
+        "/_agent-native/google/callback" &&
       !url.search &&
       !url.hash
     );
@@ -925,7 +927,7 @@ function isRootGoogleCallback(value: string): boolean {
 
 function isMcpOAuthRedirectUri(value: string): boolean {
   try {
-    const pathname = new URL(value).pathname;
+    const pathname = canonicalFrameworkPathname(new URL(value).pathname);
     return (
       pathname.endsWith("/_agent-native/mcp/servers/oauth/callback") ||
       pathname.endsWith("/_agent-native/google/callback")

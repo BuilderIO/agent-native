@@ -218,6 +218,67 @@ describe("agent-native app config", () => {
     });
   });
 
+  it("validates the public framework route prefix", () => {
+    expect(
+      resolveAgentNativeConfig(
+        { runtime: { frameworkRoutePrefix: " /_platform " } },
+        devContext,
+      ).runtime?.frameworkRoutePrefix,
+    ).toBe("/_platform");
+    expect(
+      resolveAgentNativeConfig(
+        { runtime: { auth: { enabled: true } } },
+        devContext,
+      ).runtime?.frameworkRoutePrefix,
+    ).toBeUndefined();
+    expect(() =>
+      resolveAgentNativeConfig(
+        { runtime: { frameworkRoutePrefix: "/api" } },
+        devContext,
+      ),
+    ).toThrow(
+      /runtime\.frameworkRoutePrefix must not use the reserved namespace/,
+    );
+    expect(() =>
+      resolveAgentNativeConfig(
+        { runtime: { frameworkRoutePrefix: "/a/b" } },
+        devContext,
+      ),
+    ).toThrow(
+      /runtime\.frameworkRoutePrefix must be one absolute path segment/,
+    );
+    expect(() =>
+      resolveAgentNativeConfig(
+        { runtime: { frameworkRoutePrefix: 7 as unknown as string } },
+        devContext,
+      ),
+    ).toThrow("runtime.frameworkRoutePrefix must be a string");
+  });
+
+  it("keeps the framework route prefix through runtime merges", () => {
+    const merged = mergeAgentNativeConfigs(
+      {
+        runtime: {
+          frameworkRoutePrefix: "/_platform",
+          auth: { enabled: true },
+        },
+      },
+      { runtime: { database: { required: true } } },
+    );
+    expect(merged.runtime).toEqual({
+      frameworkRoutePrefix: "/_platform",
+      auth: { enabled: true },
+      database: { required: true },
+      environment: undefined,
+    });
+    expect(
+      mergeAgentNativeConfigs(
+        { runtime: { frameworkRoutePrefix: "/_platform" } },
+        { runtime: { frameworkRoutePrefix: "/_gateway" } },
+      ).runtime?.frameworkRoutePrefix,
+    ).toBe("/_gateway");
+  });
+
   it("validates non-secret runtime requirements", () => {
     expect(() =>
       normalizeAgentNativeConfig({
@@ -269,6 +330,25 @@ describe("agent-native app config", () => {
 });
 
 describe("agent-native config environment aliases", () => {
+  it("reads the framework route prefix from its deployment alias", () => {
+    expect(agentNativeConfigEnvName(["runtime", "frameworkRoutePrefix"])).toBe(
+      "AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX",
+    );
+    expect(
+      readAgentNativeConfigEnv({
+        AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX: "/_platform",
+      }).runtime?.frameworkRoutePrefix,
+    ).toBe("/_platform");
+    expect(() =>
+      resolveAgentNativeConfig(
+        readAgentNativeConfigEnv({
+          AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX: "/",
+        }),
+        devContext,
+      ),
+    ).toThrow(/frameworkRoutePrefix must be a single absolute path segment/);
+  });
+
   it("maps config paths to deterministic environment names", () => {
     expect(agentNativeConfigEnvName([])).toBe("AGENT_NATIVE_CONFIG");
     expect(agentNativeConfigEnvName(["runtime"])).toBe(

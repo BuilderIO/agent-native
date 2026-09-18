@@ -94,20 +94,21 @@ recommended form.
 These are the shared options read from the typed config and the shared
 configuration portion of `agent-native.json`:
 
-| Option                         | Type                                                              | Effect                                                                                                                                                                                    |
-| ------------------------------ | ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `version`                      | `1`                                                               | Optional schema version. If provided, it must be `1`.                                                                                                                                     |
-| `onboarding.firstRun`          | `"off"`, `"connect"`, `"connect-and-integrations"`, or a mode map | Chooses the first-run Agent Sidebar setup. `off` hides it. `connect` shows Builder/BYOK setup without the generic integrations catalog. `connect-and-integrations` includes that catalog. |
-| `runtime.auth.enabled`         | `boolean`                                                         | Declares whether the app expects the framework or a custom authentication layer.                                                                                                          |
-| `runtime.database.required`    | `boolean`                                                         | Declares whether production needs a persistent remote PostgreSQL database.                                                                                                                |
-| `runtime.environment.required` | `string[]`                                                        | Declares additional required environment variable names. Names must match `[A-Za-z_][A-Za-z0-9_]*`; values do not belong in the config.                                                   |
-| `deployment.environment`       | `"local"`, `"beta"`, `"production"`, or `"preview"`               | Records the release lane that produced the current client bundle.                                                                                                                         |
-| `diagnostics.failOnBuild`      | `boolean`                                                         | When `true`, a production Vite build throws on runtime configuration issues. When absent or `false`, it reports them without failing the build.                                           |
-| `instructions.runtime`         | `string`                                                          | Optional relative Markdown path for the in-app runtime agent. Defaults to `AGENTS.md`.                                                                                                    |
-| `instructions.development`     | `string`                                                          | Optional relative Markdown path for development/coding agents. Defaults to `AGENTS.md`.                                                                                                   |
-| `translations.locales`         | `string[]`                                                        | Lists the locales the app intentionally ships. `en-US` remains the source locale.                                                                                                         |
-| `changelog.enabled`            | `boolean`                                                         | Enables the app changelog workflow and lets agents create user-facing entries.                                                                                                            |
-| `harness`                      | `boolean` or `{ runtimes: string[] }`                             | Enables the hosted tools-only harness, optionally narrowed to `claude-code`, `codex`, `pi`, or `opencode`. See [Harness Agents](/docs/harness-agents).                                    |
+| Option                         | Type                                                              | Effect                                                                                                                                                                                                                                                            |
+| ------------------------------ | ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `version`                      | `1`                                                               | Optional schema version. If provided, it must be `1`.                                                                                                                                                                                                             |
+| `onboarding.firstRun`          | `"off"`, `"connect"`, `"connect-and-integrations"`, or a mode map | Chooses the first-run Agent Sidebar setup. `off` hides it. `connect` shows Builder/BYOK setup without the generic integrations catalog. `connect-and-integrations` includes that catalog.                                                                         |
+| `runtime.auth.enabled`         | `boolean`                                                         | Declares whether the app expects the framework or a custom authentication layer.                                                                                                                                                                                  |
+| `runtime.database.required`    | `boolean`                                                         | Declares whether production needs a persistent remote PostgreSQL database.                                                                                                                                                                                        |
+| `runtime.environment.required` | `string[]`                                                        | Declares additional required environment variable names. Names must match `[A-Za-z_][A-Za-z0-9_]*`; values do not belong in the config.                                                                                                                           |
+| `runtime.frameworkRoutePrefix` | `string`                                                          | The public URL namespace the deployment serves framework routes under. Defaults to `/_agent-native`. One absolute segment of letters, digits, `_`, or `-`; `/api`, `/mcp`, and `/.well-known` are refused. See [Framework route prefix](#framework-route-prefix). |
+| `deployment.environment`       | `"local"`, `"beta"`, `"production"`, or `"preview"`               | Records the release lane that produced the current client bundle.                                                                                                                                                                                                 |
+| `diagnostics.failOnBuild`      | `boolean`                                                         | When `true`, a production Vite build throws on runtime configuration issues. When absent or `false`, it reports them without failing the build.                                                                                                                   |
+| `instructions.runtime`         | `string`                                                          | Optional relative Markdown path for the in-app runtime agent. Defaults to `AGENTS.md`.                                                                                                                                                                            |
+| `instructions.development`     | `string`                                                          | Optional relative Markdown path for development/coding agents. Defaults to `AGENTS.md`.                                                                                                                                                                           |
+| `translations.locales`         | `string[]`                                                        | Lists the locales the app intentionally ships. `en-US` remains the source locale.                                                                                                                                                                                 |
+| `changelog.enabled`            | `boolean`                                                         | Enables the app changelog workflow and lets agents create user-facing entries.                                                                                                                                                                                    |
+| `harness`                      | `boolean` or `{ runtimes: string[] }`                             | Enables the hosted tools-only harness, optionally narrowed to `claude-code`, `codex`, `pi`, or `opencode`. See [Harness Agents](/docs/harness-agents).                                                                                                            |
 
 ## Deterministic environment aliases
 
@@ -115,23 +116,24 @@ Every supported public config path has an environment alias under the
 `AGENT_NATIVE_CONFIG` namespace. Convert each lower-camel-case path segment to
 upper snake case and join segments with underscores:
 
-| Config path                    | Environment alias                                  |
-| ------------------------------ | -------------------------------------------------- |
-| the whole config               | `AGENT_NATIVE_CONFIG`                              |
-| `onboarding.firstRun`          | `AGENT_NATIVE_CONFIG_ONBOARDING_FIRST_RUN`         |
-| `runtime`                      | `AGENT_NATIVE_CONFIG_RUNTIME`                      |
-| `runtime.auth`                 | `AGENT_NATIVE_CONFIG_RUNTIME_AUTH`                 |
-| `runtime.auth.enabled`         | `AGENT_NATIVE_CONFIG_RUNTIME_AUTH_ENABLED`         |
-| `runtime.database.required`    | `AGENT_NATIVE_CONFIG_RUNTIME_DATABASE_REQUIRED`    |
-| `runtime.environment.required` | `AGENT_NATIVE_CONFIG_RUNTIME_ENVIRONMENT_REQUIRED` |
-| `deployment.environment`       | `AGENT_NATIVE_CONFIG_DEPLOYMENT_ENVIRONMENT`       |
-| `diagnostics.failOnBuild`      | `AGENT_NATIVE_CONFIG_DIAGNOSTICS_FAIL_ON_BUILD`    |
-| `instructions.runtime`         | `AGENT_NATIVE_CONFIG_INSTRUCTIONS_RUNTIME`         |
-| `instructions.development`     | `AGENT_NATIVE_CONFIG_INSTRUCTIONS_DEVELOPMENT`     |
-| `translations.locales`         | `AGENT_NATIVE_CONFIG_TRANSLATIONS_LOCALES`         |
-| `changelog.enabled`            | `AGENT_NATIVE_CONFIG_CHANGELOG_ENABLED`            |
-| `harness`                      | `AGENT_NATIVE_CONFIG_HARNESS`                      |
-| `harness.runtimes`             | `AGENT_NATIVE_CONFIG_HARNESS_RUNTIMES`             |
+| Config path                    | Environment alias                                    |
+| ------------------------------ | ---------------------------------------------------- |
+| the whole config               | `AGENT_NATIVE_CONFIG`                                |
+| `onboarding.firstRun`          | `AGENT_NATIVE_CONFIG_ONBOARDING_FIRST_RUN`           |
+| `runtime`                      | `AGENT_NATIVE_CONFIG_RUNTIME`                        |
+| `runtime.auth`                 | `AGENT_NATIVE_CONFIG_RUNTIME_AUTH`                   |
+| `runtime.auth.enabled`         | `AGENT_NATIVE_CONFIG_RUNTIME_AUTH_ENABLED`           |
+| `runtime.database.required`    | `AGENT_NATIVE_CONFIG_RUNTIME_DATABASE_REQUIRED`      |
+| `runtime.environment.required` | `AGENT_NATIVE_CONFIG_RUNTIME_ENVIRONMENT_REQUIRED`   |
+| `runtime.frameworkRoutePrefix` | `AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX` |
+| `deployment.environment`       | `AGENT_NATIVE_CONFIG_DEPLOYMENT_ENVIRONMENT`         |
+| `diagnostics.failOnBuild`      | `AGENT_NATIVE_CONFIG_DIAGNOSTICS_FAIL_ON_BUILD`      |
+| `instructions.runtime`         | `AGENT_NATIVE_CONFIG_INSTRUCTIONS_RUNTIME`           |
+| `instructions.development`     | `AGENT_NATIVE_CONFIG_INSTRUCTIONS_DEVELOPMENT`       |
+| `translations.locales`         | `AGENT_NATIVE_CONFIG_TRANSLATIONS_LOCALES`           |
+| `changelog.enabled`            | `AGENT_NATIVE_CONFIG_CHANGELOG_ENABLED`              |
+| `harness`                      | `AGENT_NATIVE_CONFIG_HARNESS`                        |
+| `harness.runtimes`             | `AGENT_NATIVE_CONFIG_HARNESS_RUNTIMES`               |
 
 The whole config, an object section, or a deeply nested object can be supplied
 as one JSON string. Arrays also use JSON strings. More-specific aliases are
@@ -409,3 +411,29 @@ see [Environment Variables](/docs/environment-variables). A deployment-level
 key is not a substitute for user- or organization-scoped credentials in a
 hosted multi-user app. See [Authentication](/docs/authentication) and
 [Security](/docs/security) for those boundaries.
+
+## Framework route prefix
+
+The framework serves its own routes — actions, the agent chat stream, events, uploads, authentication — under `/_agent-native`. That namespace keeps framework routes apart from an app's `/api/*` routes and is the default for every deployment.
+
+A gateway or reverse proxy in front of the app may own a different namespace. `runtime.frameworkRoutePrefix` selects the public one:
+
+```ts
+import { defineAgentNativeConfig } from "@agent-native/core/config";
+
+export default defineAgentNativeConfig({
+  runtime: {
+    frameworkRoutePrefix: "/_platform",
+  },
+});
+```
+
+With that setting the browser calls `/_platform/actions/...`, sign-in and OAuth callbacks are issued under `/_platform/...`, background self-dispatch targets `/_platform/...`, and the deploy adapters route `/_platform/*` to the app. Route registration does not change: plugins still mount on `/_agent-native/...`, and the framework translates the public prefix to the internal one once, at the request boundary, before route selection, authentication classification, and the CSRF check. The internal name is not served once a custom prefix is configured; a request to `/_agent-native/...` answers `404`.
+
+The value is resolved once, at `agent-native dev` startup or at deploy build, and written into the browser bundle and the server bundle together. Changing it needs a restart or a new build. The prefix composes with `APP_BASE_PATH`: an app mounted at `/mail` with the prefix `/_platform` serves `/mail/_platform/actions/...`.
+
+A remote installation keeps its own namespace. Requests the framework makes to another Agent-Native app — the MCP hub, the organization directory, A2A peers — are not affected by this deployment's prefix.
+
+Changing the prefix changes URLs registered elsewhere. Before deploying, update OAuth redirect registrations, webhook subscriptions, MCP connection URLs, and external monitors that point at `/_agent-native/...`; magic links and password-reset links issued before the change stop working, and a cached browser bundle must be reloaded.
+
+For a multi-app workspace deploy, set the `AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX` alias in the deploy environment so the workspace gateway and every app build read the same value.

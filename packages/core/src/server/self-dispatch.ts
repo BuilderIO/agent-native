@@ -31,6 +31,7 @@ import {
   getConfiguredAppBasePath,
   withConfiguredAppBasePath,
 } from "./app-base-path.js";
+import { publicFrameworkPath } from "./framework-route-prefix.js";
 import { getRequestContext } from "./request-context.js";
 
 /**
@@ -177,7 +178,7 @@ export async function fireInternalDispatch(
   // routes land on the right app; for a host-root function url we must dispatch
   // to `https://host/.netlify/functions/<name>` instead. Strip the base path
   // suffix from the resolved base url for `/.netlify/*` dispatch targets only.
-  const url = `${rootBaseUrlForPath(baseUrl, options.path)}${options.path}`;
+  const url = `${rootBaseUrlForPath(baseUrl, options.path)}${publicFrameworkPath(options.path)}`;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };

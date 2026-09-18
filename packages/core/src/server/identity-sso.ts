@@ -42,6 +42,7 @@ import {
 } from "./better-auth-instance.js";
 import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import { readDeployCredentialEnv } from "./credential-provider.js";
+import { publicFrameworkPath } from "./framework-route-prefix.js";
 import { createOAuthSession, getAppUrl, getOrigin } from "./google-oauth.js";
 import { hasIdentityGoogleAuthCookie } from "./identity-auth-provider.js";
 import { IDENTITY_SSO_PROVIDER_ID } from "./identity-sso-provider.js";
@@ -206,7 +207,7 @@ function setPkceVerifierCookie(
   setCookie(event, verifierCookieName(state), verifier, {
     httpOnly: true,
     maxAge: Math.floor(SSO_STATE_TTL_MS / 1_000),
-    path: IDENTITY_SSO_CALLBACK_PATH,
+    path: publicFrameworkPath(IDENTITY_SSO_CALLBACK_PATH),
     sameSite: "lax",
     secure,
   });
@@ -353,7 +354,7 @@ function addBridgeParams(url: string, sourceOrigin: string): string {
 
 function clearPkceVerifierCookie(event: H3Event, state: string): void {
   deleteCookie(event, verifierCookieName(state), {
-    path: IDENTITY_SSO_CALLBACK_PATH,
+    path: publicFrameworkPath(IDENTITY_SSO_CALLBACK_PATH),
   });
 }
 
@@ -384,7 +385,7 @@ function resolveClientBinding(
 ): SsoClientBinding | null {
   const appId = resolveIdentitySsoAppId(event);
   const clientId = resolveClientId(appId);
-  const redirectUri = `${resolveIdentitySsoClientOrigin(event)}${IDENTITY_SSO_CALLBACK_PATH}`;
+  const redirectUri = `${resolveIdentitySsoClientOrigin(event)}${publicFrameworkPath(IDENTITY_SSO_CALLBACK_PATH)}`;
   const authority = normalizeAuthority(hub);
   if (!authority || !appId || !clientId || !redirectUri) return null;
   return { appId, clientId, redirectUri, authority };
