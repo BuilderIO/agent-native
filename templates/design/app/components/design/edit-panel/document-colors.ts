@@ -2,6 +2,7 @@ import {
   applyVisualEdit,
   buildCodeLayerProjection,
   resolveCodeLayerTarget,
+  type CodeLayerSource,
   type EditIntentTarget,
   type CodeLayerNode,
   wrapBareTextLeavesInHtml,
@@ -416,8 +417,8 @@ function readCssIdentifier(
   return name ? { end: cursor, name: name.toLowerCase() } : null;
 }
 
-function isInsideUrl(value: string, index: number): boolean {
-  const functions: boolean[] = [];
+function isInsideExcludedColorFunction(value: string, index: number): boolean {
+  const functions: string[] = [];
   let quote: string | null = null;
   let escaped = false;
   for (let cursor = 0; cursor < index; ) {
@@ -442,7 +443,7 @@ function isInsideUrl(value: string, index: number): boolean {
       const identifier = readCssIdentifier(value, cursor, index);
       if (identifier) {
         if (value[identifier.end] === "(") {
-          functions.push(identifier.name === "url");
+          functions.push(identifier.name);
           cursor = identifier.end + 1;
           continue;
         }
@@ -456,14 +457,14 @@ function isInsideUrl(value: string, index: number): boolean {
       continue;
     }
     if (character === "(") {
-      functions.push(false);
+      functions.push("");
       cursor += 1;
       continue;
     }
     if (character === ")") functions.pop();
     cursor += 1;
   }
-  return functions.includes(true);
+  return functions.some((name) => name === "url" || name === "var");
 }
 
 function colorTokenSpansInCss(
@@ -480,7 +481,7 @@ function colorTokenSpansInCss(
       for (const match of value.matchAll(matcher)) {
         const token = match[0];
         const relativeStart = match.index ?? 0;
-        if (isInsideUrl(value, relativeStart)) continue;
+        if (isInsideExcludedColorFunction(value, relativeStart)) continue;
         tokens.push({
           value: token,
           start: start + relativeStart,
@@ -560,9 +561,17 @@ export interface SelectionColorValue {
   layerIndex?: number;
 }
 
+export interface SelectionColorTarget {
+  fileId: string;
+  nodeId: string;
+  selector: string;
+  tag: string;
+}
+
 export interface SelectionColorScope {
   fileId: string;
   content: string;
+  source?: CodeLayerSource;
   sourceId?: string;
   selector?: string;
   wholeDocument?: boolean;
@@ -721,6 +730,7 @@ function resolveSelectionScope(scope: SelectionColorScope): {
   const { projection, resolution } = resolveCodeLayerTarget(
     scope.content,
     selectionScopeTarget(scope),
+    { source: scope.source },
   );
   return {
     projection,
@@ -869,6 +879,63 @@ export function selectionColorValues(
   }
 
   return Array.from(values.values());
+}
+
+function selectionColorNodesForScope(
+  scope: SelectionColorScope,
+): CodeLayerNode[] {
+  const { projection, node: root } = scope.wholeDocument
+    ? {
+        projection: buildCodeLayerProjection(scope.content, {
+          source: scope.source,
+        }),
+        node: null,
+      }
+    : resolveSelectionScope(scope);
+  if (scope.wholeDocument) return projection.nodes;
+  if (!root) return [];
+
+  const nodesById = new Map(projection.nodes.map((node) => [node.id, node]));
+  const selected: CodeLayerNode[] = [];
+  const visit = (node: CodeLayerNode) => {
+    selected.push(node);
+    node.children.forEach((childId) => {
+      const child = nodesById.get(childId);
+      if (child) visit(child);
+    });
+  };
+  visit(root);
+  return selected;
+}
+
+export function selectionColorTargets(
+  scopes: SelectionColorScope[],
+  color: string,
+): SelectionColorTarget[] {
+  const target = colorKey(color);
+  const targets: SelectionColorTarget[] = [];
+  const seen = new Set<string>();
+  for (const scope of scopes) {
+    for (const node of selectionColorNodesForScope(scope)) {
+      const source = node.source;
+      if (!source) continue;
+      const openingTag = scope.content.slice(source.openStart, source.openEnd);
+      const matches = colorTokenSpansInHtml(openingTag).some(
+        ({ value }) => colorKey(value) === target,
+      );
+      if (!matches) continue;
+      const key = `${scope.fileId}:${node.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      targets.push({
+        fileId: scope.fileId,
+        nodeId: node.id,
+        selector: node.selector,
+        tag: node.tag,
+      });
+    }
+  }
+  return targets;
 }
 
 export function selectionFillColorValues(

@@ -259,7 +259,10 @@ import {
 } from "@/components/design/DesignExtensionsPanel";
 import { DesignImportPanel } from "@/components/design/DesignImportPanel";
 import { componentInstanceHasLocalOverrides } from "@/components/design/edit-panel/component-section";
-import { rewriteSelectionFillStyles } from "@/components/design/edit-panel/document-colors";
+import {
+  rewriteSelectionFillStyles,
+  selectionColorTargets,
+} from "@/components/design/edit-panel/document-colors";
 import { sizeNeedsMeasurement } from "@/components/design/edit-panel/element-classification";
 import { inspectCodeDataForElement } from "@/components/design/edit-panel/inspect-code-source";
 import type { CapturedStyleTarget } from "@/components/design/edit-panel/style-change-types";
@@ -20508,6 +20511,7 @@ function DesignEditor() {
           target.fileId === activeFile?.id
             ? activeContent
             : getScreenContent(target.fileId),
+        source: codeLayerSourceForScreen(target.fileId),
         sourceId: bridgeSourceIdForCodeLayerNode(target.node),
         selector: target.node.selector,
       }));
@@ -20517,6 +20521,7 @@ function DesignEditor() {
         {
           fileId: activeFile.id,
           content: activeContent,
+          source: codeLayerSourceForScreen(activeFile.id),
           sourceId: selectedElement.sourceId,
           selector: selectedElement.selector,
         },
@@ -20526,11 +20531,19 @@ function DesignEditor() {
     return overviewSelectedScreenIds.flatMap((screenId) => {
       const content = getProjectionContentForScreen(screenId);
       return content && externalPreviewUrlForContent(content) === null
-        ? [{ fileId: screenId, content, wholeDocument: true }]
+        ? [
+            {
+              fileId: screenId,
+              content,
+              source: codeLayerSourceForScreen(screenId),
+              wholeDocument: true,
+            },
+          ]
         : [];
     });
   }, [
     activeContent,
+    codeLayerSourceForScreen,
     activeFile?.id,
     getProjectionContentForScreen,
     getScreenContent,
@@ -20740,6 +20753,93 @@ function DesignEditor() {
       canEditDesign,
       getFreshSelectionColorScopes,
       t,
+    ],
+  );
+
+  const handleSelectionColorTarget = useCallback(
+    (color: string) => {
+      const targets = selectionColorTargets(
+        getFreshSelectionColorScopes(),
+        color,
+      );
+      if (targets.length === 0) return;
+
+      recordSelectionHistoryAroundChange(() => {
+        const nextLayerIds: string[] = [];
+        const nextScreenIds: string[] = [];
+        const addUnique = (ids: string[], id: string) => {
+          if (!ids.includes(id)) ids.push(id);
+        };
+
+        for (const target of targets) {
+          if (target.tag === "html" || target.tag === "body") {
+            addUnique(nextScreenIds, target.fileId);
+          } else {
+            addUnique(nextLayerIds, target.nodeId);
+          }
+          const owner = codeLayerOwnerByNodeId.get(target.nodeId);
+          if (owner) {
+            addUnique(nextLayerIds, target.nodeId);
+            addUnique(nextScreenIds, owner.fileId);
+          }
+        }
+
+        if (viewModeRef.current === "overview") {
+          const nextActiveFileId = nextScreenIds[0] ?? targets[0]?.fileId;
+          if (nextActiveFileId) setActiveFileId(nextActiveFileId);
+          setOverviewSelectedScreenIds(nextScreenIds);
+          setSelectedLayerIdsState(
+            nextScreenIds.length > 0
+              ? [...nextScreenIds, ...nextLayerIds]
+              : nextLayerIds,
+          );
+        } else {
+          const fileId = targets[0]?.fileId;
+          if (fileId) setActiveFileId(fileId);
+          setOverviewSelectedScreenIds([]);
+          setSelectedLayerIdsState(nextLayerIds);
+        }
+
+        const lastLayerTarget = [...targets]
+          .reverse()
+          .find((target) => target.tag !== "html" && target.tag !== "body");
+        const lastOwner = lastLayerTarget
+          ? codeLayerOwnerByNodeId.get(lastLayerTarget.nodeId)
+          : null;
+        setSelectedElement(
+          lastOwner
+            ? elementInfoForOwnedCodeLayerNode({
+                info: selectedElement,
+                node: lastOwner.node,
+                ownerFileId: lastOwner.fileId,
+              })
+            : null,
+        );
+        setActiveTool("move");
+        setMode("edit");
+        setExpandedLayerIds((current) => {
+          const next = new Set(current);
+          for (const target of targets) {
+            const owner = codeLayerOwnerByNodeId.get(target.nodeId);
+            if (!owner) continue;
+            next.add(owner.fileId);
+            collectCodeLayerAncestors(owner.tree, target.nodeId).forEach(
+              (ancestorId) => next.add(ancestorId),
+            );
+          }
+          return next.size === current.length ? current : Array.from(next);
+        });
+        if (viewModeRef.current === "overview") {
+          window.requestAnimationFrame(() => handleZoomToSelectionFit());
+        }
+      });
+    },
+    [
+      codeLayerOwnerByNodeId,
+      getFreshSelectionColorScopes,
+      handleZoomToSelectionFit,
+      recordSelectionHistoryAroundChange,
+      selectedElement,
     ],
   );
 
@@ -24478,6 +24578,7 @@ function DesignEditor() {
       ? handleSelectedScreenStylesChange
       : undefined,
     selectionColorScopes,
+    onSelectionColorTarget: handleSelectionColorTarget,
     onSelectionColorChange: canEditDesign
       ? handleSelectionColorChange
       : undefined,
