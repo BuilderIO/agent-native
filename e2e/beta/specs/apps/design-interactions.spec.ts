@@ -148,10 +148,19 @@ async function readScreenMetadata(
   if (!response.ok()) {
     throw new Error(`get-design failed: HTTP ${response.status()}`);
   }
-  const record = (await response.json()) as {
-    screenMetadata?: Record<string, Record<string, unknown>>;
-  };
-  const metadata = record.screenMetadata?.[screenId];
+  const record = (await response.json()) as { data?: unknown };
+  const data =
+    typeof record.data === "string"
+      ? JSON.parse(record.data || "{}")
+      : record.data;
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    throw new Error("get-design returned invalid design data");
+  }
+  const metadata = (
+    data as {
+      screenMetadata?: Record<string, Record<string, unknown>>;
+    }
+  ).screenMetadata?.[screenId];
   if (!metadata)
     throw new Error(`get-design returned no metadata for ${screenId}`);
   return metadata;
@@ -855,23 +864,30 @@ test.describe("authenticated beta Design interactions", () => {
         rootBefore.y + rootBefore.height / 2,
       );
       // Playwright calls the browser-level Option key Alt on Linux CI.
-      await page.keyboard.down("Alt");
-      await page.mouse.down();
-      await page.mouse.move(
-        rootBefore.x + rootBefore.width / 2 + 6,
-        rootBefore.y + rootBefore.height / 2 + 3,
-        { steps: 2 },
-      );
-      await expect(
-        screen.locator("[data-agent-native-transform-badge]"),
-      ).toHaveText("Duplicate layer");
-      await page.mouse.move(
-        rootBefore.x + rootBefore.width / 2 + 120,
-        rootBefore.y + rootBefore.height / 2 + 60,
-        { steps: 12 },
-      );
-      await page.mouse.up();
-      await page.keyboard.up("Alt");
+      let mouseHeld = false;
+      let modifierHeld = false;
+      try {
+        modifierHeld = true;
+        await page.keyboard.down("Alt");
+        mouseHeld = true;
+        await page.mouse.down();
+        await page.mouse.move(
+          rootBefore.x + rootBefore.width / 2 + 6,
+          rootBefore.y + rootBefore.height / 2 + 3,
+          { steps: 2 },
+        );
+        await expect(
+          screen.locator("[data-agent-native-transform-badge]"),
+        ).toHaveText("Duplicate layer");
+        await page.mouse.move(
+          rootBefore.x + rootBefore.width / 2 + 120,
+          rootBefore.y + rootBefore.height / 2 + 60,
+          { steps: 12 },
+        );
+      } finally {
+        if (mouseHeld) await page.mouse.up();
+        if (modifierHeld) await page.keyboard.up("Alt");
+      }
 
       const roots = screen.locator(
         `[data-agent-native-layer-name="${ROOT_FRAME_NAME}"]`,

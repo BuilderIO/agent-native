@@ -1100,25 +1100,32 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
       await selectLayer(page, "H Middle");
       const source = await boxFor(page, design.primaryId, "h-middle");
       const target = await boxFor(page, design.primaryId, "h-last");
-      await page.keyboard.down("Alt");
-      await page.mouse.move(
-        source.x + source.width / 2,
-        source.y + source.height / 2,
-      );
-      await page.mouse.down();
-      await page.mouse.move(source.x + 12, source.y + 8, { steps: 5 });
-      await page.mouse.move(
-        target.x + target.width / 2,
-        target.y + target.height / 2,
-        { steps: 24 },
-      );
-      await page.waitForTimeout(250);
-      const heldCount = await designFrame(page, design.primaryId)
-        .locator("#hrow > [data-agent-native-node-id]")
-        .count();
-      expect(heldCount).toBe(4);
-      await page.mouse.up();
-      await page.keyboard.up("Alt");
+      let mouseHeld = false;
+      let modifierHeld = false;
+      try {
+        modifierHeld = true;
+        await page.keyboard.down("Alt");
+        await page.mouse.move(
+          source.x + source.width / 2,
+          source.y + source.height / 2,
+        );
+        mouseHeld = true;
+        await page.mouse.down();
+        await page.mouse.move(source.x + 12, source.y + 8, { steps: 5 });
+        await page.mouse.move(
+          target.x + target.width / 2,
+          target.y + target.height / 2,
+          { steps: 24 },
+        );
+        await page.waitForTimeout(250);
+        const heldCount = await designFrame(page, design.primaryId)
+          .locator("#hrow > [data-agent-native-node-id]")
+          .count();
+        expect(heldCount).toBe(4);
+      } finally {
+        if (mouseHeld) await page.mouse.up();
+        if (modifierHeld) await page.keyboard.up("Alt");
+      }
       let html = "";
       await expect
         .poll(
@@ -1263,39 +1270,48 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
       );
       const source = await boxFor(page, design.primaryId, "play-instance");
       const target = await boxFor(page, design.primaryId, "play-main");
-      await page.keyboard.down("Alt");
-      await page.mouse.move(
-        source.x + source.width / 2,
-        source.y + source.height / 2,
-      );
-      await page.mouse.down();
-      await page.mouse.move(source.x + 12, source.y + 8, { steps: 5 });
-      await page.mouse.move(
-        target.x + target.width - 3,
-        target.y + target.height / 2,
-        { steps: 24 },
-      );
-      await page.waitForTimeout(250);
-      const held = await linkedState();
-      expect(held.instances).toHaveLength(2);
-      expect(
-        held.instances.filter((instance) => instance.cloneRoot === "true"),
-      ).toHaveLength(1);
-      expect(
-        held.instances.find((instance) => instance.nodeId === "play-instance"),
-      ).toEqual(originalInstance);
-      expect(
-        held.instances.every(
-          (instance) =>
-            instance.componentRef === "cmp-play" &&
-            instance.overrides === LINKED_COMPONENT_OVERRIDES &&
-            instance.sourceNodeIds.length === 2,
-        ),
-      ).toBe(true);
-      for (const instance of held.instances)
-        expect(instance.sourceNodeIds).toEqual(reorderedSourceNodeIds);
-      await page.mouse.up();
-      await page.keyboard.up("Alt");
+      let mouseHeld = false;
+      let modifierHeld = false;
+      try {
+        modifierHeld = true;
+        await page.keyboard.down("Alt");
+        await page.mouse.move(
+          source.x + source.width / 2,
+          source.y + source.height / 2,
+        );
+        mouseHeld = true;
+        await page.mouse.down();
+        await page.mouse.move(source.x + 12, source.y + 8, { steps: 5 });
+        await page.mouse.move(
+          target.x + target.width - 3,
+          target.y + target.height / 2,
+          { steps: 24 },
+        );
+        await page.waitForTimeout(250);
+        const held = await linkedState();
+        expect(held.instances).toHaveLength(2);
+        expect(
+          held.instances.filter((instance) => instance.cloneRoot === "true"),
+        ).toHaveLength(1);
+        expect(
+          held.instances.find(
+            (instance) => instance.nodeId === "play-instance",
+          ),
+        ).toEqual(originalInstance);
+        expect(
+          held.instances.every(
+            (instance) =>
+              instance.componentRef === "cmp-play" &&
+              instance.overrides === LINKED_COMPONENT_OVERRIDES &&
+              instance.sourceNodeIds.length === 2,
+          ),
+        ).toBe(true);
+        for (const instance of held.instances)
+          expect(instance.sourceNodeIds).toEqual(reorderedSourceNodeIds);
+      } finally {
+        if (mouseHeld) await page.mouse.up();
+        if (modifierHeld) await page.keyboard.up("Alt");
+      }
 
       await expect
         .poll(async () => (await linkedState()).instances.length)
@@ -1634,61 +1650,71 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
         design.secondId!,
         "cross-target",
       );
-      await page.keyboard.down(COMMAND);
-      await page.mouse.click(
-        settledSource.x + settledSource.width / 2,
-        settledSource.y + settledSource.height / 2,
-      );
-      await page.keyboard.up(COMMAND);
+      let commandHeld = false;
+      try {
+        commandHeld = true;
+        await page.keyboard.down(COMMAND);
+        await page.mouse.click(
+          settledSource.x + settledSource.width / 2,
+          settledSource.y + settledSource.height / 2,
+        );
+      } finally {
+        if (commandHeld) await page.keyboard.up(COMMAND);
+      }
       await expect.poll(() => selectionSourceId(request)).toBe("free-shape");
       await page.mouse.move(
         settledSource.x + settledSource.width / 2,
         settledSource.y + settledSource.height / 2,
       );
-      await page.mouse.down();
-      await page.mouse.move(settledSource.x + 12, settledSource.y + 8, {
-        steps: 5,
-      });
-      await page.mouse.move(
-        settledTarget.x + settledTarget.width / 2,
-        settledTarget.y + settledTarget.height / 2,
-        { steps: 30 },
-      );
-      await page.waitForTimeout(400);
-      const guide = page.locator("[data-cross-screen-drop-guide]");
-      let guideCount = await guide.count();
-      for (let attempt = 0; attempt < 10 && guideCount === 0; attempt += 1) {
-        await page.waitForTimeout(200);
-        guideCount = await guide.count();
+      let mouseHeld = false;
+      try {
+        mouseHeld = true;
+        await page.mouse.down();
+        await page.mouse.move(settledSource.x + 12, settledSource.y + 8, {
+          steps: 5,
+        });
+        await page.mouse.move(
+          settledTarget.x + settledTarget.width / 2,
+          settledTarget.y + settledTarget.height / 2,
+          { steps: 30 },
+        );
+        await page.waitForTimeout(400);
+        const guide = page.locator("[data-cross-screen-drop-guide]");
+        let guideCount = await guide.count();
+        for (let attempt = 0; attempt < 10 && guideCount === 0; attempt += 1) {
+          await page.waitForTimeout(200);
+          guideCount = await guide.count();
+        }
+        const heldEvidence = {
+          guide: guideCount,
+          ghost: await page.locator("[data-cross-screen-drag-ghost]").count(),
+          sourceBox: settledSource,
+          targetBox: settledTarget,
+          screenShells: await page.locator("[data-screen-shell]").count(),
+          iframes: await page
+            .locator("[data-design-preview-iframe]")
+            .evaluateAll((frames) =>
+              frames.map((frame) => ({
+                id: frame.getAttribute("data-screen-id"),
+                pointerEvents: getComputedStyle(frame).pointerEvents,
+              })),
+            ),
+        };
+        // Cross-Screen uses the host drag ghost as its held overlay; the iframe
+        // insertion guide is intentionally not mounted during that handoff.
+        expect(heldEvidence.ghost).toBeGreaterThan(0);
+        expect(heldEvidence.screenShells).toBe(2);
+        const sourceBeforeRelease = await fileHtml(
+          request,
+          design.id,
+          design.primaryId,
+        );
+        expect(sourceBeforeRelease).toContain(
+          'data-agent-native-node-id="free-shape"',
+        );
+      } finally {
+        if (mouseHeld) await page.mouse.up();
       }
-      const heldEvidence = {
-        guide: guideCount,
-        ghost: await page.locator("[data-cross-screen-drag-ghost]").count(),
-        sourceBox: settledSource,
-        targetBox: settledTarget,
-        screenShells: await page.locator("[data-screen-shell]").count(),
-        iframes: await page
-          .locator("[data-design-preview-iframe]")
-          .evaluateAll((frames) =>
-            frames.map((frame) => ({
-              id: frame.getAttribute("data-screen-id"),
-              pointerEvents: getComputedStyle(frame).pointerEvents,
-            })),
-          ),
-      };
-      // Cross-Screen uses the host drag ghost as its held overlay; the iframe
-      // insertion guide is intentionally not mounted during that handoff.
-      expect(heldEvidence.ghost).toBeGreaterThan(0);
-      expect(heldEvidence.screenShells).toBe(2);
-      const sourceBeforeRelease = await fileHtml(
-        request,
-        design.id,
-        design.primaryId,
-      );
-      expect(sourceBeforeRelease).toContain(
-        'data-agent-native-node-id="free-shape"',
-      );
-      await page.mouse.up();
       await expect
         .poll(async () => {
           const [from, to] = await Promise.all([
