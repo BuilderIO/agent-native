@@ -155,6 +155,12 @@ const PROMPT_INSTRUCTION_SUMMARY_LIMIT = 20;
 const PROMPT_SUMMARY_DESCRIPTION_MAX_CHARS = 180;
 const JEV_CONTEXT_ITEM_MAX_CHARS = 10_000;
 const JEV_CONTEXT_TOTAL_MAX_CHARS = 24_000;
+const JEV_CONTEXT_PREFIX =
+  "<jev-prefetched-context>\nJev ranked these bundled skills for this task. Mandatory AGENTS.md instructions remain authoritative. Treat these sources as task-specific guidance and use the existing tools to read anything else you need.\n\n";
+const JEV_CONTEXT_SUFFIX = "\n</jev-prefetched-context>";
+const JEV_CONTEXT_SEPARATOR = "\n\n";
+const JEV_CONTEXT_WRAPPER_OVERHEAD_CHARS =
+  JEV_CONTEXT_PREFIX.length + JEV_CONTEXT_SUFFIX.length;
 
 type JevPromptCandidate = JevCandidate & {
   kind: "skill";
@@ -947,26 +953,43 @@ export async function preloadJevContextForPrompt(options: {
     options.compact ? 16_000 : JEV_CONTEXT_TOTAL_MAX_CHARS,
     Math.max(0, options.maxChars ?? Number.POSITIVE_INFINITY),
   );
+  const contentBudget = Math.max(
+    0,
+    maxTotalChars - JEV_CONTEXT_WRAPPER_OVERHEAD_CHARS,
+  );
   const blocks: string[] = [];
   let usedChars = 0;
   for (const id of selectedIds) {
     const candidate = candidates.find((item) => item.id === id);
     if (!candidate?.content) continue;
-    const remaining = maxTotalChars - usedChars;
+    const separatorChars = blocks.length > 0 ? JEV_CONTEXT_SEPARATOR.length : 0;
+    const remaining = contentBudget - usedChars - separatorChars;
     if (remaining <= 0) break;
-    const block = promptResourceBlock({
+    let blockMaxChars = Math.min(maxItemChars, remaining);
+    let block = promptResourceBlock({
       name: candidate.name,
       scope: candidate.scope,
       path: candidate.path,
       content: candidate.content,
-      maxChars: Math.min(maxItemChars, remaining),
+      maxChars: blockMaxChars,
     });
+    while (block && block.length > remaining && blockMaxChars > 0) {
+      blockMaxChars = Math.max(0, blockMaxChars - (block.length - remaining));
+      block = promptResourceBlock({
+        name: candidate.name,
+        scope: candidate.scope,
+        path: candidate.path,
+        content: candidate.content,
+        maxChars: blockMaxChars,
+      });
+    }
     if (!block) continue;
+    if (block.length > remaining) break;
     blocks.push(block);
-    usedChars += block.length;
+    usedChars += separatorChars + block.length;
   }
   if (blocks.length === 0) return "";
-  return `<jev-prefetched-context>\nJev ranked these bundled skills for this task. Mandatory AGENTS.md instructions remain authoritative. Treat these sources as task-specific guidance and use the existing tools to read anything else you need.\n\n${blocks.join("\n\n")}\n</jev-prefetched-context>`;
+  return `${JEV_CONTEXT_PREFIX}${blocks.join(JEV_CONTEXT_SEPARATOR)}${JEV_CONTEXT_SUFFIX}`;
 }
 
 /**

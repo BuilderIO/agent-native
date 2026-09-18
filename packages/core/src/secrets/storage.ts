@@ -179,13 +179,12 @@ export async function writeAppSecret(args: WriteSecretArgs): Promise<string> {
     now,
   ];
 
-  invalidateRequestSecret(args);
-  invalidateOptionalKeyCache();
-
   const { rows } = await client.execute({
     sql: `${upsertSql} RETURNING id`,
     args: upsertArgs,
   });
+  invalidateRequestSecret(args);
+  invalidateOptionalKeyCache();
   return String(rows[0]?.id ?? id);
 }
 
@@ -629,13 +628,13 @@ function parseAllowlist(raw: string | null): string[] | null {
 
 export async function deleteAppSecret(ref: SecretRef): Promise<boolean> {
   await ensureTable();
-  invalidateRequestSecret(ref);
-  invalidateOptionalKeyCache();
   const { key, scope, scopeId } = ref;
   const client = getDbExec();
   const { rowsAffected } = await client.execute({
     sql: `DELETE FROM app_secrets WHERE scope = ? AND scope_id = ? AND key = ?`,
     args: [scope, scopeId, key],
   });
+  invalidateRequestSecret(ref);
+  invalidateOptionalKeyCache();
   return rowsAffected > 0;
 }

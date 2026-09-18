@@ -572,8 +572,15 @@ async function readAppStateForBrowserTab<T>(
 export async function getOwnerApiKey(
   provider: string,
   ownerEmail: string | null | undefined,
+  options?: { onLookupFailure?: () => void },
 ): Promise<string | undefined> {
   if (!ownerEmail) return undefined;
+  let lookupFailed = false;
+  const reportLookupFailure = (): void => {
+    if (!lookupFailed) return;
+    options?.onLookupFailure?.();
+    lookupFailed = false;
+  };
   const secretKey =
     PROVIDER_TO_ENV[provider] ?? `${provider.toUpperCase()}_API_KEY`;
   const syntheticTraffic = getRequestContext()?.isSyntheticTraffic === true;
@@ -609,11 +616,18 @@ export async function getOwnerApiKey(
       }
     }
   } catch {
+    lookupFailed = true;
     // app_secrets table not ready — only non-synthetic traffic may fall through
     // to legacy lookup. A synthetic run must never bill an alternate key.
-    if (syntheticTraffic) return undefined;
+    if (syntheticTraffic) {
+      reportLookupFailure();
+      return undefined;
+    }
   }
-  if (syntheticTraffic) return undefined;
+  if (syntheticTraffic) {
+    reportLookupFailure();
+    return undefined;
+  }
   try {
     const { getSetting } = await import("../settings/store.js");
     const stored = await getSetting(`user-api-key:${provider}:${ownerEmail}`);
@@ -638,10 +652,14 @@ export async function getOwnerApiKey(
       ) {
         return legacyKey;
       }
+      reportLookupFailure();
       return undefined;
     }
+    reportLookupFailure();
     return undefined;
   } catch {
+    lookupFailed = true;
+    reportLookupFailure();
     return undefined;
   }
 }
@@ -663,8 +681,13 @@ export async function getOwnerJevApiKey(
   ].join("\u0000");
   const cached = readOptionalKeyCache(cacheKey);
   if (cached.hit) return cached.value;
-  const value = await getOwnerApiKey("jev", ownerEmail);
-  writeOptionalKeyCache(cacheKey, value);
+  let lookupFailed = false;
+  const value = await getOwnerApiKey("jev", ownerEmail, {
+    onLookupFailure: () => {
+      lookupFailed = true;
+    },
+  });
+  if (!lookupFailed) writeOptionalKeyCache(cacheKey, value);
   return value;
 }
 
@@ -10579,7 +10602,12 @@ export function createProductionAgentHandler(
       presendCap("files", filesContextThunk, "", 12000),
       presendCap("loopSettings", loopSettingsThunk, fallbackLoopSettings, 9000),
       presendCap("enrichedMessage", enrichedMessageThunk, requestMessage, 9000),
-      getJevContextCredentials(ownerEmail ?? getRequestUserEmail()),
+      presendCap(
+        "jevContextCredentials",
+        () => getJevContextCredentials(ownerEmail ?? getRequestUserEmail()),
+        { apiKey: undefined, builderAuth: null },
+        9000,
+      ),
     ]);
     setupMark("ctxAll");
     // DIAGNOSTIC-ONLY: all parallel context gathering (system prompt, screen,

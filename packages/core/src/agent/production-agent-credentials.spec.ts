@@ -19,7 +19,8 @@ vi.mock("../server/request-context.js", () => ({
   getRequestUserEmail: () => undefined,
 }));
 
-import { getOwnerApiKey } from "./production-agent.js";
+import { resetOptionalKeyCache } from "../secrets/optional-key-cache.js";
+import { getOwnerApiKey, getOwnerJevApiKey } from "./production-agent.js";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -27,6 +28,7 @@ beforeEach(() => {
   mockGetSetting.mockResolvedValue(undefined);
   mockGetRequestContext.mockReturnValue(undefined);
   mockGetRequestOrgId.mockReturnValue(undefined);
+  resetOptionalKeyCache();
 });
 
 describe("getOwnerApiKey", () => {
@@ -113,5 +115,18 @@ describe("getOwnerApiKey", () => {
         scopeId: "solo:solo@example.com",
       },
     ]);
+  });
+
+  it("does not cache Jev as absent when the secret store is unreadable", async () => {
+    mockReadAppSecret.mockRejectedValue(new Error("database unavailable"));
+
+    await expect(
+      getOwnerJevApiKey("owner@example.com"),
+    ).resolves.toBeUndefined();
+    await expect(
+      getOwnerJevApiKey("owner@example.com"),
+    ).resolves.toBeUndefined();
+
+    expect(mockReadAppSecret).toHaveBeenCalledTimes(2);
   });
 });

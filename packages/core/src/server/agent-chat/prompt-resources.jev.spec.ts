@@ -97,4 +97,27 @@ describe("preloadJevContextForPrompt", () => {
     expect(mocks.resourceList).not.toHaveBeenCalled();
     expect(mocks.resourceListAccessible).not.toHaveBeenCalled();
   });
+
+  it("keeps the Jev wrapper inside an explicit context budget", async () => {
+    mocks.rankJevCandidates.mockResolvedValue(["context-0"]);
+    mocks.getRuntimeSkills.mockReturnValue([
+      {
+        meta: {
+          name: "large-skill",
+          description: "A large skill.",
+          scope: "both",
+        },
+        dir: ".agents/skills/large-skill",
+        content: "x".repeat(10_000),
+      },
+    ]);
+
+    const result = await preloadJevContextForPrompt({
+      request: "use the large skill",
+      apiKey: "jev-test-key",
+      maxChars: 2_000,
+    });
+
+    expect(result.length).toBeLessThanOrEqual(2_000);
+  });
 });
