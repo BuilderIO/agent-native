@@ -58,20 +58,54 @@ export function buildTransactionalEmailChatOptions(
   };
 }
 
+async function releaseClaimedTransactionalEmailAiRequests(
+  jobIds: string[],
+): Promise<void> {
+  if (jobIds.length === 0) return;
+  try {
+    await callAction(
+      "release-transactional-email-ai-requests" as any,
+      { jobIds } as any,
+    );
+  } catch (error) {
+    console.error("Failed to release abandoned transactional email AI claims", {
+      jobIds,
+      error,
+    });
+  }
+}
+
 export async function dispatchClaimedTransactionalEmailAiRequests(
   dispatched: Set<string>,
   send: (options: AgentChatMessage) => unknown = sendToAgentChat,
-  signal?: AbortSignal,
+  isActive?: () => boolean,
 ): Promise<number> {
-  if (signal?.aborted) return 0;
+  if (isActive && !isActive()) return 0;
+  const dispatchedBefore = new Set(dispatched);
   const result = (await callAction(
     "list-transactional-email-ai-requests" as any,
     {} as any,
-    signal ? { method: "GET", signal } : { method: "GET" },
+    { method: "GET" },
   )) as { requests?: ClaimedTransactionalEmailAiRequest[] } | null;
-  if (signal?.aborted) return 0;
+  const requests = result?.requests ?? [];
+  if (isActive && !isActive()) {
+    await releaseClaimedTransactionalEmailAiRequests(
+      requests
+        .filter(({ jobId }) => !dispatchedBefore.has(jobId))
+        .map(({ jobId }) => jobId),
+    );
+    return 0;
+  }
   let dispatchCount = 0;
-  for (const request of result?.requests ?? []) {
+  for (const request of requests) {
+    if (isActive && !isActive()) {
+      await releaseClaimedTransactionalEmailAiRequests(
+        requests
+          .filter(({ jobId }) => !dispatched.has(jobId))
+          .map(({ jobId }) => jobId),
+      );
+      return dispatchCount;
+    }
     if (dispatched.has(request.jobId)) continue;
     dispatched.add(request.jobId);
     try {
@@ -103,7 +137,7 @@ export function useTransactionalEmailBridge(): void {
       void dispatchClaimedTransactionalEmailAiRequests(
         dispatched.current,
         sendToAgentChat,
-        controller.signal,
+        () => !controller.signal.aborted,
       )
         .catch(() => undefined)
         .finally(() => {

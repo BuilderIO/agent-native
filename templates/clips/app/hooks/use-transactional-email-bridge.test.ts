@@ -165,20 +165,28 @@ describe("transactional email bridge", () => {
     await act(async () => {
       root?.render(createElement(BridgeHarness));
     });
-    const signal = mocks.callAction.mock.calls[0]?.[2]?.signal as AbortSignal;
-    expect(signal).toBeInstanceOf(AbortSignal);
+    expect(mocks.callAction).toHaveBeenNthCalledWith(
+      1,
+      "list-transactional-email-ai-requests",
+      {},
+      { method: "GET" },
+    );
 
     mocks.sessionStatus = "unauthenticated";
     await act(async () => {
       root?.render(createElement(BridgeHarness));
     });
-    expect(signal.aborted).toBe(true);
 
     await act(async () => {
       resolveAction({ requests: [request] });
       await pending;
     });
     expect(mocks.sendToAgentChat).not.toHaveBeenCalled();
+    expect(mocks.callAction).toHaveBeenNthCalledWith(
+      2,
+      "release-transactional-email-ai-requests",
+      { jobIds: [request.jobId] },
+    );
     container.remove();
   });
 
