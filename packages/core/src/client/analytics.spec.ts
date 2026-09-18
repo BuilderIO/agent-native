@@ -30,10 +30,14 @@ const replayMock = vi.hoisted(() => ({
   startSessionReplay: vi.fn(async () => ({ started: false })),
   stopSessionReplay: vi.fn(async () => undefined),
 }));
+const tracingMock = vi.hoisted(() => ({
+  recordTrackingEvent: vi.fn(async () => undefined),
+}));
 
 vi.mock("@sentry/browser", () => sentryMock);
 vi.mock("@amplitude/analytics-browser", () => amplitudeMock);
 vi.mock("./session-replay.js", () => replayMock);
+vi.mock("../observability/tracing.js", () => tracingMock);
 
 const pageviewStateKey = Symbol.for("agent-native.client.pageviewTracking");
 const appEntryStateKey = Symbol.for("agent-native.client.appEntryTracking");
@@ -191,6 +195,7 @@ describe("browser analytics pageviews", () => {
     replayMock.startSessionReplay.mockClear();
     replayMock.stopSessionReplay.mockClear();
     replayMock.emitSessionReplayAgentChatEvent.mockClear();
+    tracingMock.recordTrackingEvent.mockClear();
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -475,6 +480,27 @@ describe("browser analytics pageviews", () => {
     expect(gtag).not.toHaveBeenCalled();
     expect(amplitudeMock.init).not.toHaveBeenCalled();
     expect(sentryMock.init).not.toHaveBeenCalled();
+  });
+
+  it("mirrors timing browser events to the OTel bridge", async () => {
+    installBrowser();
+    const { trackEvent } = await freshAnalytics();
+
+    trackEvent("action.response", {
+      action: "get-deck",
+      duration_ms: 42,
+      outcome: "success",
+    });
+
+    expect(tracingMock.recordTrackingEvent).toHaveBeenCalledWith(
+      "action.response",
+      expect.objectContaining({
+        action: "get-deck",
+        duration_ms: 42,
+        outcome: "success",
+      }),
+      "client",
+    );
   });
 
   it("uses the configured native client platform for every pageview", async () => {

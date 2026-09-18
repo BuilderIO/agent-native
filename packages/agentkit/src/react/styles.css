@@ -238,7 +238,7 @@
   z-index: 0;
   inline-size: calc(100% - 4rem);
   block-size: var(--agent-message-queue-height, 0);
-  margin: 0 auto -1rem;
+  margin: 0 auto;
   padding-block-end: 0.625rem;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--agentkit-border) 70%, transparent);

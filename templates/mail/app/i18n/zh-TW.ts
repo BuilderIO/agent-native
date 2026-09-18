@@ -437,6 +437,8 @@ const messages = {
     aiFilter: {
       title: "AI 篩選",
       subtitle: "可復原的標籤，會根據你的決定學習。",
+      rulesTitle: "規則",
+      newRule: "新增規則",
       lunaBadge: "可用時使用 Luna",
       toggle: "切換 AI 篩選",
       autoFilterTitle: "自動篩選高信心郵件",
@@ -494,6 +496,7 @@ const messages = {
       previewTitle: "預覽最近郵件",
       previewDescription:
         "啟用新規則前，先檢查收件匣中的最近 20 封郵件。已封存或自動封存的郵件不會被評估。",
+      previewScope: "僅限收件匣 · 已封存郵件排除",
       previewButton: "執行預覽",
       previewRunning: "正在檢查最近的收件匣郵件…",
       jevBadge: "Jev",

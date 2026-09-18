@@ -4333,7 +4333,7 @@ function DesignEditor() {
         identityMigrationSourceContent?: string;
       },
     ) => {
-      if (!canEditDesignRef.current) return;
+      if (!canEditDesignRef.current) return Promise.resolve(false);
       const queuedIdentityMigration = pendingFileSavesRef.current[fileId];
       const latestIdentityMigration =
         latestFileSaveForUnloadRef.current[fileId];
@@ -4383,8 +4383,7 @@ function DesignEditor() {
           delete fileSaveTimersRef.current[fileId];
         }
         delete pendingFileSavesRef.current[fileId];
-        saveFileContent(pending);
-        return;
+        return saveFileContent(pending);
       }
       pendingFileSavesRef.current[fileId] = pending;
       const timer = fileSaveTimersRef.current[fileId];
@@ -9511,6 +9510,7 @@ function DesignEditor() {
         skipPreview?: boolean;
         forcePreviewFullDocument?: boolean;
         immediateSave?: boolean;
+        awaitSave?: boolean;
         persist?: boolean;
         recordHistory?: boolean;
         historyBeforeContent?: string;
@@ -9604,6 +9604,7 @@ function DesignEditor() {
         skipPreview?: boolean;
         forcePreviewFullDocument?: boolean;
         immediateSave?: boolean;
+        awaitSave?: boolean;
         persist?: boolean;
         recordHistory?: boolean;
         historyBeforeContent?: string;
@@ -15145,6 +15146,21 @@ function DesignEditor() {
           contentUndoStackRef,
           contentHistorySelectionAfterRef,
           designSourceType,
+          fileSaveOperationRevisionRef,
+          getCurrentSelectionFingerprint: () =>
+            JSON.stringify({
+              activeFileId: activeFileIdRef.current,
+              selectedLayerIds: selectedLayerIdsStateRef.current,
+              overviewSelectedScreenIds: overviewSelectedScreenIdsRef.current,
+              selectedElement: selectedElementRef.current
+                ? {
+                    id: selectedElementRef.current.id ?? null,
+                    selector: selectedElementRef.current.selector ?? null,
+                    sourceId: selectedElementRef.current.sourceId ?? null,
+                  }
+                : null,
+              viewMode: viewModeRef.current,
+            }),
           getScreenContent,
           id,
           overviewScreens,

@@ -21,6 +21,7 @@ import {
   sanitizeSlideHtml,
   sanitizeSlideUrl,
 } from "@/lib/sanitize-slide-html";
+import { swapImageSourcesInPlace } from "@/lib/slide-image-replacement";
 
 import type { DesignSystemData } from "../../../shared/api";
 import {
@@ -851,52 +852,79 @@ function loadImportedFonts(hrefs: string[]) {
 }
 
 /** Renders blank slide HTML content and applies white filter to logo images */
+function RawSlideHtmlContent({
+  html,
+  scopeId,
+}: {
+  html: string;
+  scopeId: string;
+}) {
+  const contentRef = useRef<HTMLDivElement>(null);
+  const renderedHtmlRef = useRef(html);
+  const dangerousHtmlRef = useRef({ __html: html });
+
+  useLayoutEffect(() => {
+    const root = contentRef.current;
+    if (!root || renderedHtmlRef.current === html) return;
+
+    // Keep the live image node for upload-only changes so pointer-driven transforms survive.
+    if (!swapImageSourcesInPlace(root, renderedHtmlRef.current, html)) {
+      root.innerHTML = html;
+    }
+    renderedHtmlRef.current = html;
+  }, [html]);
+
+  return (
+    <div
+      ref={contentRef}
+      className="slide-content w-full block h-full"
+      // guard:allow-raw-color - design-system text fallback for raw HTML
+      style={{ color: "var(--ds-text, #1f2933)" }}
+      data-slide-content-scope={scopeId}
+      dangerouslySetInnerHTML={dangerousHtmlRef.current}
+    />
+  );
+}
+
 function BlankSlideContent({ content }: { content: string }) {
   const scopeId = `slide-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const scopeSelector = `[data-slide-content-scope="${scopeId}"]`;
-  // Memoize derived strings + the dangerouslySetInnerHTML object on `content` so
-  // the prop value has a stable reference across re-renders. React 19 only checks
-  // reference equality on `dangerouslySetInnerHTML` and unconditionally re-assigns
-  // `domElement.innerHTML` when the object reference differs — a fresh `{ __html }`
-  // literal each render therefore wipes any DOM mutations made on children. That
-  // includes the per-block `contentEditable="true"` set by SlideEditor's
-  // double-click-to-edit flow, which made inline text editing appear to do nothing.
-  const { mermaidBlocks, htmlWithPlaceholders, dangerousHtml, fontHrefs } =
-    useMemo(() => {
-      // Extract mermaid blocks BEFORE sanitization — see mermaid-blocks.ts for
-      // why (sanitizer HTML-escaping breaks the mermaid parser).
-      const { blocks, contentWithPlaceholders } = extractMermaidBlocks(content);
+  // Memoize derived strings on `content`; RawSlideHtmlContent owns the stable
+  // dangerouslySetInnerHTML object so React does not wipe live child mutations.
+  const { mermaidBlocks, htmlWithPlaceholders, fontHrefs } = useMemo(() => {
+    // Extract mermaid blocks BEFORE sanitization — see mermaid-blocks.ts for
+    // why (sanitizer HTML-escaping breaks the mermaid parser).
+    const { blocks, contentWithPlaceholders } = extractMermaidBlocks(content);
 
-      // Apply white filter to all logo images (brandfetch, logo.dev, etc.) for dark backgrounds
-      const sanitized = sanitizeSlideHtml(
-        contentWithPlaceholders.replace(
-          /(<img\s+(?=[^>]*src="[^"]*(?:brandfetch|logo\.dev)[^"]*")[^>]*)(\/?>)/gi,
-          (_match, before, close) => {
-            if (before.includes('style="')) {
-              return (
-                before.replace(
-                  'style="',
-                  'style="filter:brightness(0) invert(1);',
-                ) + close
-              );
-            }
-            return before + ' style="filter:brightness(0) invert(1);"' + close;
-          },
-        ),
-        {
-          scopeSelector,
-          allowBlobImages: typeof window !== "undefined",
+    // Apply white filter to all logo images (brandfetch, logo.dev, etc.) for dark backgrounds
+    const sanitized = sanitizeSlideHtml(
+      contentWithPlaceholders.replace(
+        /(<img\s+(?=[^>]*src="[^"]*(?:brandfetch|logo\.dev)[^"]*")[^>]*)(\/?>)/gi,
+        (_match, before, close) => {
+          if (before.includes('style="')) {
+            return (
+              before.replace(
+                'style="',
+                'style="filter:brightness(0) invert(1);',
+              ) + close
+            );
+          }
+          return before + ' style="filter:brightness(0) invert(1);"' + close;
         },
-      );
-      const { html: processed, hrefs } = prepareImportedFonts(sanitized);
+      ),
+      {
+        scopeSelector,
+        allowBlobImages: typeof window !== "undefined",
+      },
+    );
+    const { html: processed, hrefs } = prepareImportedFonts(sanitized);
 
-      return {
-        mermaidBlocks: blocks,
-        htmlWithPlaceholders: processed,
-        dangerousHtml: { __html: processed },
-        fontHrefs: hrefs,
-      };
-    }, [content, scopeSelector]);
+    return {
+      mermaidBlocks: blocks,
+      htmlWithPlaceholders: processed,
+      fontHrefs: hrefs,
+    };
+  }, [content, scopeSelector]);
 
   useEffect(() => {
     loadImportedFonts(fontHrefs);
@@ -918,15 +946,7 @@ function BlankSlideContent({ content }: { content: string }) {
     );
   }
 
-  return (
-    <div
-      className="slide-content w-full block h-full"
-      // guard:allow-raw-color - design-system text fallback for raw HTML
-      style={{ color: "var(--ds-text, #1f2933)" }}
-      data-slide-content-scope={scopeId}
-      dangerouslySetInnerHTML={dangerousHtml}
-    />
-  );
+  return <RawSlideHtmlContent html={htmlWithPlaceholders} scopeId={scopeId} />;
 }
 
 /** Renders HTML content with mermaid placeholders replaced by React MermaidRenderer */

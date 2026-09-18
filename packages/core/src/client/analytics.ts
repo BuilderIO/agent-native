@@ -1,6 +1,7 @@
 import type * as amplitude from "@amplitude/analytics-browser";
 import type * as Sentry from "@sentry/browser";
 
+import { recordTrackingEvent } from "../observability/tracing.js";
 import {
   AGENT_NATIVE_LIFECYCLE_EVENTS,
   canonicalTrackingEvent,
@@ -2293,6 +2294,7 @@ export function trackEvent(
       sendGtag: !gtagNameMatchesCanonical,
     });
   }
+  void recordTrackingEvent(name, props, "client");
   const lifecycle = legacyLifecycleEvent(name, props);
   if (lifecycle) trackEvent(lifecycle.name, lifecycle.properties);
 }

@@ -70,7 +70,10 @@ import {
   useEmailTracking,
   releaseSuppressionClaims,
 } from "@/hooks/use-emails";
-import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
+import {
+  isMailSearchActive,
+  useKeyboardShortcuts,
+} from "@/hooks/use-keyboard-shortcuts";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { setUndoAction, setUndoToastId, UNDO_DURATION } from "@/hooks/use-undo";
 import {
@@ -927,6 +930,7 @@ export function EmailThread({
     [
       {
         key: "Escape",
+        shouldHandle: () => !isMailSearchActive(),
         handler: () => {
           // If a multi-selection is active, first Escape clears it; second
           // Escape goes back to the list. Matches Gmail / Superhuman feel.

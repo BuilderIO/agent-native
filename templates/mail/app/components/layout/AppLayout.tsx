@@ -1170,6 +1170,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     },
     {
       key: "Escape",
+      shouldHandle: () => Boolean(activeSearchQuery || searchFocused),
       handler: () => {
         setSearchQuery("");
         setSearchFocused(false);

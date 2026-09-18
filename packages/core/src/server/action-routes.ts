@@ -58,7 +58,11 @@ import {
   resolveEmbedSessionFromRequest,
   resolvedEmbedCapabilityScope,
 } from "./embed-session.js";
-import { getHttpRequestTelemetryId } from "./http-response-telemetry.js";
+import {
+  getHttpRequestTelemetryId,
+  registerHttpRequestTelemetryActionRoute,
+  setHttpRequestTelemetryActionName,
+} from "./http-response-telemetry.js";
 import { consumeOneTimeJti } from "./identity-sso-store.js";
 import {
   getForwardedRequestOrigin,
@@ -490,7 +494,16 @@ function mountActionRoutesInternal(
     const http = entry.http || undefined;
     const method = options?.forcePost ? "POST" : (http?.method ?? "POST");
     const path = options?.forcePost ? name : (http?.path ?? name);
-    const routePath = `${options?.routePrefix ?? ROUTE_PREFIX}/${path}`;
+    const routePrefix = options?.routePrefix ?? ROUTE_PREFIX;
+    const routePath = `${routePrefix}/${path}`;
+    const routeTemplate =
+      !options?.forcePost && http?.path ? routePath : `${routePrefix}/:action`;
+    registerHttpRequestTelemetryActionRoute(
+      routePath,
+      name,
+      routeTemplate,
+      nitroApp,
+    );
 
     // `requiresAuth: false` is the action's explicit contract that its own
     // run() can handle an anonymous request. The auth guard runs before this
@@ -514,6 +527,7 @@ function mountActionRoutesInternal(
     app.use(
       routePath,
       defineEventHandler(async (event) => {
+        setHttpRequestTelemetryActionName(event, name, routeTemplate);
         const reqMethod = getMethod(event);
         const effectiveMethod =
           reqMethod === "HEAD" && method === "GET" ? "GET" : reqMethod;

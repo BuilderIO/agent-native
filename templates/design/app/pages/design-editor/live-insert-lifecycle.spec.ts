@@ -19,10 +19,12 @@ import { chromium, type Page } from "@playwright/test";
 import { describe, expect, it } from "vitest";
 
 import { editorChromeBridgeScript } from "../../../.generated/bridge/editor-chrome.generated";
+import type { ElementInfo } from "../../components/design/types";
 import {
   runRecordPendingLiveStructureEdit,
   type RecordPendingLiveStructureEditArgs,
 } from "./commands/record-pending-live-structure-edit";
+import type { OverviewScreen } from "./derive/overview-screens";
 import {
   formatPendingVisualStylePrompt,
   mergePendingLiveNonStyleEdits,
@@ -64,6 +66,16 @@ const FIXTURE = `<!doctype html><html><body>
   <main>
     <div id="card" data-agent-native-node-id="card" style="display:flex;width:300px;height:200px">
       <p data-agent-native-node-id="copy">Copy</p>
+    </div>
+  </main>
+</body></html>`;
+
+const REORDER_FIXTURE = `<!doctype html><html><body>
+  <main>
+    <div id="card" data-agent-native-node-id="card" style="display:flex;flex-direction:column;width:300px;height:200px">
+      <p data-agent-native-node-id="v1">V1</p>
+      <p data-agent-native-node-id="v2">V2</p>
+      <p data-agent-native-node-id="v3">V3</p>
     </div>
   </main>
 </body></html>`;
@@ -166,7 +178,236 @@ function pendingEditFromEcho(
     .current[0] as PendingLiveStructureEdit;
 }
 
+const POST_GESTURE_REORDER_SNAPSHOT = `<!doctype html><html><body>
+  <div data-agent-native-node-id="flow-root" style="display:flex;flex-direction:column">
+    <div data-agent-native-node-id="v2">V2</div>
+    <div data-agent-native-node-id="v3">V3</div>
+    <div data-agent-native-node-id="v1">V1</div>
+  </div>
+</body></html>`;
+
+function reorderElementInfo(
+  sourceId: string,
+  textContent: string,
+  column: number,
+): ElementInfo {
+  return {
+    tagName: "div",
+    sourceId,
+    selector: `[data-agent-native-node-id="${sourceId}"]`,
+    textContent,
+    classes: [],
+    computedStyles: {},
+    boundingRect: { x: 0, y: 0, width: 100, height: 40 },
+    isFlexChild: true,
+    isFlexContainer: false,
+    provenance: {
+      framework: "html",
+      sourceFile: "index.html",
+      line: 1,
+      column,
+      method: "data-attribute",
+    },
+  };
+}
+
+function recordReorderAgainstRunningSnapshot(
+  sourceType: "inline" | "localhost" | "fusion",
+) {
+  const pendingLiveNonStyleEditsRef = {
+    current: [] as PendingLiveNonStyleEdit[],
+  };
+  const subjectInfo = reorderElementInfo("v1", "V1", 2);
+  const anchorInfo = reorderElementInfo("v3", "V3", 4);
+  const state: RecordPendingLiveStructureEditArgs = {
+    canEditDesign: true,
+    cancelPendingStructureVerification: () => {},
+    files: [],
+    localhostConnectionRootPathByIdRef: { current: new Map() },
+    overviewScreens: [
+      {
+        id: SCREEN_ID,
+        filename: "index.html",
+        content: "http://127.0.0.1:7331/",
+        updatedAt: "1",
+        sourceFile: "index.html",
+        sourceType,
+        heightPinned: false,
+      } satisfies OverviewScreen,
+    ],
+    pendingLiveNonStyleEditsRef,
+    pendingLiveNonStyleRedoStackRef: { current: [] },
+    pendingLiveNonStyleUndoStackRef: { current: [] },
+    pendingStructureRedoReplayRef: { current: undefined },
+    pendingStructureRedoReplayTimerRef: { current: undefined },
+    pendingVisualStyleRedoStackRef: { current: [] },
+    runtimeLayerSnapshotsById: {
+      [SCREEN_ID]: {
+        html: POST_GESTURE_REORDER_SNAPSHOT,
+        nodeCount: 4,
+      },
+    },
+    setPendingLiveNonStyleEdits: () => {},
+  };
+  runRecordPendingLiveStructureEdit(
+    state,
+    SCREEN_ID,
+    subjectInfo.selector!,
+    anchorInfo.selector!,
+    "after",
+    subjectInfo,
+    {
+      sourceId: subjectInfo.sourceId,
+      anchorSourceId: anchorInfo.sourceId,
+      anchorElementInfo: anchorInfo,
+      requestId: "reorder-post-gesture",
+      dropMode: "flow-insert",
+    },
+  );
+  return pendingLiveNonStyleEditsRef.current;
+}
+
 describe("live insert lifecycle", () => {
+  it("skips persisted static no-ops but queues running-app post-gesture snapshots", () => {
+    expect(recordReorderAgainstRunningSnapshot("inline")).toEqual([]);
+    expect(recordReorderAgainstRunningSnapshot("fusion")).toEqual([]);
+    expect(recordReorderAgainstRunningSnapshot("localhost")).toHaveLength(1);
+  });
+
+  it(
+    "does not emit a pending edit when a runtime move preserves the same slot",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage();
+        await page.setContent(FIXTURE);
+        await page.evaluate(() => {
+          (
+            window as Window & { __agentNativeSourceProvenance?: unknown }
+          ).__agentNativeSourceProvenance = {
+            versionHash: "head-before-no-op",
+            uniqueNodeIds: ["card", "copy"],
+          };
+        });
+        await page.addScriptTag({
+          content: hydratedEditorChromeBridgeScript(),
+        });
+        await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+        await collectBridgeMessages(page);
+
+        await page.evaluate(() => {
+          window.postMessage(
+            {
+              type: "runtime-structure-move",
+              subjectSelector: '[data-agent-native-node-id="copy"]',
+              subjectSourceId: "copy",
+              anchorSelector: '[data-agent-native-node-id="card"]',
+              anchorSourceId: "card",
+              placement: "inside",
+            },
+            "*",
+          );
+        });
+        await page.waitForTimeout(100);
+
+        const messages = await page.evaluate(
+          () =>
+            (window as Window & { __messages?: Array<{ type?: string }> })
+              .__messages ?? [],
+        );
+        expect(
+          messages.filter(
+            (message) => message.type === "visual-structure-change",
+          ),
+        ).toEqual([]);
+        expect(
+          await page.evaluate(
+            () =>
+              (
+                window as Window & {
+                  __agentNativeSourceProvenance?: unknown;
+                }
+              ).__agentNativeSourceProvenance,
+          ),
+        ).toEqual({
+          versionHash: "head-before-no-op",
+          uniqueNodeIds: ["card", "copy"],
+        });
+        expect(
+          await page
+            .locator('[data-agent-native-node-id="card"] > *')
+            .allTextContents(),
+        ).toEqual(["Copy"]);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it(
+    "emits and acknowledges an actual runtime reorder after a whitespace-separated no-op",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage();
+        await page.setContent(REORDER_FIXTURE);
+        await page.addScriptTag({
+          content: hydratedEditorChromeBridgeScript(),
+        });
+        await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+        await collectBridgeMessages(page);
+
+        await page.evaluate(() => {
+          window.postMessage(
+            {
+              type: "runtime-structure-move",
+              subjectSelector: '[data-agent-native-node-id="v1"]',
+              subjectSourceId: "v1",
+              anchorSelector: '[data-agent-native-node-id="v3"]',
+              anchorSourceId: "v3",
+              placement: "after",
+            },
+            "*",
+          );
+        });
+
+        const structureMessage = await nextStructureChange(page, 0);
+        expect(structureMessage).toMatchObject({
+          sourceId: "v1",
+          anchorSourceId: "v3",
+          placement: "after",
+          dropMode: "flow-insert",
+        });
+        expect(
+          await page
+            .locator('[data-agent-native-node-id="card"] > *')
+            .allTextContents(),
+        ).toEqual(["V2", "V3", "V1"]);
+
+        await page.evaluate((requestId: string) => {
+          window.postMessage(
+            {
+              type: "visual-structure-ack",
+              requestId,
+              applied: true,
+            },
+            "*",
+          );
+        }, structureMessage.requestId);
+        await page.waitForTimeout(100);
+        expect(
+          await page
+            .locator('[data-agent-native-node-id="card"] > *')
+            .allTextContents(),
+        ).toEqual(["V2", "V3", "V1"]);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
   it(
     "accepts replacement snapshots at the size cap and rolls back one character above it",
     { timeout: 60_000 },
