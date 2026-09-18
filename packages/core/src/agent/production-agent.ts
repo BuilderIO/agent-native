@@ -10,6 +10,7 @@ import {
 } from "h3";
 import type { EventHandler as H3EventHandler } from "h3";
 
+import "../authorization/check-action.js";
 import { parseA2AAgentActivityPart } from "../a2a/activity.js";
 import type { A2AConnectionRequestMetadata, Task } from "../a2a/types.js";
 import {
@@ -769,6 +770,8 @@ export type { ActionRunContext, ActionCaller } from "../action.js";
 export interface ActionEntry {
   tool: ActionTool;
   run: (args: any, context?: import("../action.js").ActionRunContext) => any;
+  /** Declarative action access contract, preserved from defineAction. */
+  access?: import("../authorization/check-action.js").ActionAccessConfig;
   fileMutationProof?: (args: unknown) => AgentFileMutationProof | undefined;
   /** Standard Schema input validator when declared through defineAction. */
   schema?: unknown;
@@ -781,6 +784,9 @@ export interface ActionEntry {
   /** Max HTTP request body in bytes; the route 413s on `Content-Length` before
    *  parsing. For public, no-auth POST actions. */
   maxBodyBytes?: number;
+  /** Require the server-minted browser capability and hide this action from
+   * every agent surface. */
+  uiOnly?: boolean;
   /** Whether the action is exposed to the agent as a callable tool. Only an
    *  explicit `false` hides it from every agent tool surface (in-app assistant,
    *  MCP, A2A, job/trigger runners) while leaving it frontend/HTTP-callable.
@@ -3560,7 +3566,7 @@ export function actionsToEngineTools(
 ): EngineTool[] {
   const tools: EngineTool[] = [];
   for (const [name, entry] of Object.entries(actions)) {
-    if (entry.agentTool === false) continue;
+    if (entry.agentTool === false || entry.uiOnly === true) continue;
     const inputSchema = normalizeToolInputSchema(entry.tool.parameters);
     if (!inputSchema) {
       console.warn(
@@ -4981,6 +4987,10 @@ export async function runAgentLoop(opts: {
   ownerEmail?: string | null;
   orgId?: string | null;
   appId?: string;
+  /** One-turn authorization snapshot prepared by the request transport. */
+  appAuthorization?:
+    | import("../org/app-roles.js").AppAuthorizationContext
+    | null;
   /** Action invocation attribution. Defaults to the normal agent tool loop. */
   actionCaller?: ActionCaller;
   /** Trusted trigger lineage for automation-dispatched action calls. */
@@ -5114,6 +5124,29 @@ export async function runAgentLoop(opts: {
   );
   const activeToolNames = new Set(tools.map((tool) => tool.name));
   let activeTools = tools;
+  let appAuthorizationPromise:
+    | Promise<import("../org/app-roles.js").AppAuthorizationContext | null>
+    | undefined;
+  const resolveTurnAppAuthorization = (
+    userEmail: string | undefined,
+    orgId: string | null,
+  ) => {
+    if (!appAuthorizationPromise) {
+      appAuthorizationPromise =
+        opts.appAuthorization !== undefined
+          ? Promise.resolve(opts.appAuthorization)
+          : opts.appId && userEmail && orgId
+            ? import("../org/app-roles.js").then(
+                ({ resolveAppAuthorizationContext }) =>
+                  resolveAppAuthorizationContext(opts.appId!, {
+                    userEmail,
+                    orgId,
+                  }),
+              )
+            : Promise.resolve(null);
+    }
+    return appAuthorizationPromise;
+  };
 
   let expandedToolSchemaBytes = 0;
   let reportedExpandedToolSchemaBytes = false;
@@ -7139,11 +7172,27 @@ export async function runAgentLoop(opts: {
           const timeoutSignal = AbortSignal.timeout(toolTimeoutMs);
           const actionUserEmail = opts.ownerEmail ?? getRequestUserEmail();
           const actionOrgId = opts.orgId ?? getRequestOrgId() ?? null;
+          const appAuthorization = await resolveTurnAppAuthorization(
+            actionUserEmail ?? undefined,
+            actionOrgId,
+          );
           const actionContext = {
             send,
             userEmail: actionUserEmail ?? undefined,
             orgId: actionOrgId,
             appId: opts.appId,
+            ...(appAuthorization
+              ? {
+                  appRoles: appAuthorization.roles,
+                  appPermissions: Object.entries(appAuthorization.permissions)
+                    .filter(([, roles]) =>
+                      roles.some((role) =>
+                        appAuthorization.roles.includes(role),
+                      ),
+                    )
+                    .map(([permission]) => permission),
+                }
+              : {}),
             caller: opts.actionCaller ?? "tool",
             automation: opts.automation,
             networkProtocol: opts.networkProtocol,
@@ -11750,6 +11799,9 @@ export function createProductionAgentHandler(
           },
           ownerEmail,
           orgId: getRequestOrgId() ?? null,
+          ...(options.appId && getRequestOrgId()
+            ? { appAuthorization: getRequestRunContext()?.appAuthorization }
+            : {}),
           attachments: requestAttachments,
           reasoningEffort,
           // The interactive chat turn needs real completion headroom — the

@@ -91,6 +91,42 @@ export function prepareCanonicalSourceContent(
   };
 }
 
+export function resolveSourceBaseForPublication(args: {
+  fileId: string;
+  fileType?: string | null;
+  pending?: {
+    content: string;
+    identityMigrationSourceContent?: string;
+  };
+  collabContent?: string | null;
+  persistedContent?: string | null;
+  beforeContent: string;
+}): string {
+  const pendingContent = args.pending?.content;
+  const migrationSource = args.pending?.identityMigrationSourceContent;
+  // Identity repair is a real full-document save. Keep its raw CAS base while
+  // that save is still in flight, but switch to the canonical pending bytes as
+  // soon as the collab or persisted mirror has acknowledged them.
+  if (
+    pendingContent !== undefined &&
+    migrationSource !== undefined &&
+    args.collabContent !== pendingContent &&
+    args.persistedContent !== pendingContent
+  ) {
+    return migrationSource;
+  }
+  const raw =
+    pendingContent ??
+    args.collabContent ??
+    args.persistedContent ??
+    args.beforeContent;
+  const canonical = prepareCanonicalSourceContent(raw, {
+    fileId: args.fileId,
+    fileType: args.fileType,
+  }).content;
+  return canonical === args.beforeContent ? raw : args.beforeContent;
+}
+
 /** The same pure acceptance boundary used by writers and multi-file preflight. */
 export function prepareAcceptedSourceContent(
   content: string,

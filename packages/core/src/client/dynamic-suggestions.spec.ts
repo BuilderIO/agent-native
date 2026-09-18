@@ -10,6 +10,7 @@ import {
   normalizeAgentDynamicSuggestionsConfig,
   useAgentDynamicSuggestionsResult,
 } from "./dynamic-suggestions.js";
+import type { ChatThreadScope } from "./use-chat-threads.js";
 
 describe("buildDynamicAgentSuggestions", () => {
   it("prioritizes selection-aware suggestions", () => {
@@ -132,6 +133,22 @@ function SuggestionsProbe() {
   });
 }
 
+function ScopedSuggestionsProbe({ scope }: { scope: ChatThreadScope }) {
+  const result = useAgentDynamicSuggestionsResult({
+    dynamicSuggestions: {
+      getSuggestions: ({ scope: currentScope }) =>
+        currentScope?.contextVersion
+          ? [`Current ${currentScope.contextVersion}`]
+          : [],
+    },
+    scope,
+  });
+  return React.createElement("div", {
+    "data-testid": "scoped-suggestions-probe",
+    "data-suggestions": (result.suggestions ?? []).join("|"),
+  });
+}
+
 describe("useAgentDynamicSuggestionsResult", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -183,5 +200,46 @@ describe("useAgentDynamicSuggestionsResult", () => {
 
     expect(probe().dataset.loading).toBe("false");
     expect(probe().dataset.suggestions).toBe("Static prompt");
+  });
+
+  it("refreshes suggestions when scoped context changes", async () => {
+    const scope = {
+      type: "deck",
+      id: "deck-1",
+      contextVersion: "slide-1",
+    } satisfies ChatThreadScope;
+    act(() => {
+      root.render(React.createElement(ScopedSuggestionsProbe, { scope }));
+    });
+
+    await act(async () => {
+      releaseFetches();
+      await fetchGate;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(
+      container
+        .querySelector("[data-testid='scoped-suggestions-probe']")
+        ?.getAttribute("data-suggestions"),
+    ).toBe("Current slide-1");
+
+    act(() => {
+      root.render(
+        React.createElement(ScopedSuggestionsProbe, {
+          scope: { ...scope, contextVersion: "slide-2" },
+        }),
+      );
+    });
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(
+      container
+        .querySelector("[data-testid='scoped-suggestions-probe']")
+        ?.getAttribute("data-suggestions"),
+    ).toBe("Current slide-2");
   });
 });

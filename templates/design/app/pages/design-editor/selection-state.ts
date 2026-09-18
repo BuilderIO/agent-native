@@ -161,6 +161,24 @@ export function isScreenRootElementInfo(info: ElementInfo | null | undefined) {
   return tagName === "BODY" || tagName === "HTML";
 }
 
+/** Show the first-click hint only for plain pointer picks on containers. */
+export function shouldShowDeepSelectGuidance(
+  info: ElementInfo | null | undefined,
+  intent: ElementSelectionIntent | undefined,
+): boolean {
+  return Boolean(
+    info &&
+    intent?.source === "pointer" &&
+    !intent.additive &&
+    !intent.range &&
+    !intent.shiftKey &&
+    !intent.metaKey &&
+    !intent.ctrlKey &&
+    !isScreenRootElementInfo(info) &&
+    (info.childElementCount ?? 0) > 0,
+  );
+}
+
 /**
  * MultiScreenCanvas keeps the owning screen in `selectedIds` while an element
  * inside it is selected, so every overview command reading that array (Delete,
@@ -553,11 +571,15 @@ export function resolveMarqueeAdditive(
   return Boolean(intent?.additive || intent?.range || intent?.shiftKey);
 }
 
-/** Clear element context only when a selected review thread changes screens. */
+/** Clear stale element context when review focus changes screens or the board. */
 export function shouldClearSelectionForReviewThreadTarget(args: {
   activeFileId?: string | null;
   targetId?: string | null;
+  boardFileId?: string | null;
 }): boolean {
+  if (args.targetId === null) {
+    return Boolean(args.boardFileId && args.activeFileId !== args.boardFileId);
+  }
   return Boolean(args.targetId && args.targetId !== args.activeFileId);
 }
 

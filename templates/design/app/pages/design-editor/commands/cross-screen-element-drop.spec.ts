@@ -920,6 +920,31 @@ describe("runCrossScreenElementDrop duplicate routing", () => {
 });
 
 describe("runCrossScreenElementDrop ordinary move routing", () => {
+  it("absolute-places a move dropped onto an empty screen root", () => {
+    const selection = runStoredCrossScreenDrop({
+      sourceContent: `<!DOCTYPE html>
+<html><body><div id="move-me" data-agent-native-node-id="move-id" style="position:absolute;left:10px;top:10px;width:40px;height:40px"></div></body></html>`,
+      destinationContent: EMPTY_SCREEN,
+      drop: {
+        sourceSelector: "#move-me",
+        sourceNodeId: "move-id",
+        sourceProvenance: { uniqueNodeId: "move-id" },
+        sourceScreenId: "source",
+        targetScreenId: "target",
+        targetLocalPoint: { x: 180, y: 240 },
+      },
+    });
+
+    const nextSource = selection.writes.get("source");
+    const nextDestination = selection.writes.get("target");
+    expect(nextSource).toBeTruthy();
+    expect(nextDestination).toContain('data-agent-native-node-id="move-id"');
+    expect(nextDestination).toMatch(
+      /data-agent-native-node-id="move-id"[^>]*style="[^"]*position:\s*absolute[^\"]*left:\s*180px[^\"]*top:\s*240px/i,
+    );
+    expect(nextSource).not.toContain('data-agent-native-node-id="move-id"');
+  });
+
   it("keeps the moved node's authored id — only duplicates need a fresh one", () => {
     const sourceContent = `<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"></head><body>
@@ -1021,22 +1046,22 @@ describe("runCrossScreenElementDrop shader publication preflight", () => {
 });
 
 describe("runCrossScreenElementDrop real publication refusal", () => {
-  it("rolls the source back when the destination refuses after source publication", () => {
+  it("rolls the destination back when the source refuses after destination publication", () => {
     const sourceContent = `<!doctype html><html><body><button data-agent-native-node-id="moving">Move</button></body></html>`;
     const destinationContent = `<!doctype html><html><body><main data-agent-native-node-id="target-root"></main></body></html>`;
     const calls: Array<{ fileId: string; content: string }> = [];
-    let targetAttempted = false;
+    let sourceAttempted = false;
     const result = runStoredCrossScreenDrop({
       sourceContent,
       destinationContent,
       publish: (fileId, content) => {
         calls.push({ fileId, content });
-        if (fileId === "target") {
-          targetAttempted = true;
+        if (fileId === "source") {
+          sourceAttempted = true;
           return { status: "refused" as const };
         }
-        if (fileId === "source" && targetAttempted) {
-          return acceptFixture(fileId, sourceContent);
+        if (fileId === "target" && sourceAttempted) {
+          return acceptFixture(fileId, destinationContent);
         }
         return acceptFixture(fileId, content);
       },
@@ -1054,11 +1079,11 @@ describe("runCrossScreenElementDrop real publication refusal", () => {
     });
 
     expect(calls.map(({ fileId }) => fileId)).toEqual([
-      "source",
       "target",
       "source",
+      "target",
     ]);
-    expect(calls[2]?.content).toBe(sourceContent);
+    expect(calls[2]?.content).toBe(destinationContent);
     expect(result.historyEntries).toEqual([]);
     expect(result.selectionEvents).toEqual([]);
   });
@@ -1143,9 +1168,9 @@ describe("runCrossScreenElementDrop real publication refusal", () => {
 
     expect(writer.calls).toEqual([
       {
-        fileId: "source",
+        fileId: "target",
         status: "refused",
-        historyBeforeContent: sourceContent,
+        historyBeforeContent: destinationContent,
       },
     ]);
     expect(writer.history).toEqual([]);

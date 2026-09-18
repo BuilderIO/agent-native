@@ -73,6 +73,304 @@ describe("classifyAgentEvent", () => {
 });
 
 describe("AgentKit lifecycle projections", () => {
+  it("keeps deltas when lifecycle markers arrive late", () => {
+    const reduced = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "reasoning.delta",
+        messageId: "assistant-1",
+        text: "Thinking first",
+      }),
+      event(3, {
+        type: "message.created",
+        message: {
+          id: "assistant-1",
+          role: "assistant",
+          status: "streaming",
+          parts: [],
+        },
+      }),
+      event(4, {
+        type: "message.delta",
+        messageId: "assistant-1",
+        text: "Answer",
+      }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+
+    expect(reduced.messages).toEqual([
+      expect.objectContaining({
+        id: "assistant-1",
+        status: "streaming",
+        parts: [
+          { type: "reasoning", text: "Thinking first", visibility: "summary" },
+          { type: "text", text: "Answer" },
+        ],
+      }),
+    ]);
+  });
+
+  it("retains tool deltas even when the start marker is missing", () => {
+    const reduced = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "tool.delta",
+        toolCallId: "tool-1",
+        inputTextDelta: '{"query":"agentkit"}',
+        outputTextDelta: "result",
+        metadata: { toolName: "search" },
+      }),
+      event(3, { type: "run.completed" }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+
+    expect(reduced.tools["tool-1"]).toMatchObject({
+      id: "tool-1",
+      name: "search",
+      input: '{"query":"agentkit"}',
+      output: "result",
+      status: "completed",
+    });
+  });
+
+  it("settles incomplete run work from an authoritative terminal event", () => {
+    const reduced = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "message.created",
+        message: {
+          id: "assistant-1",
+          role: "assistant",
+          status: "streaming",
+          parts: [{ type: "text", text: "Partial response" }],
+        },
+      }),
+      event(3, {
+        type: "activity.started",
+        activity: {
+          id: "activity-1",
+          kind: "tool",
+          label: "Search workspace",
+          status: "running",
+        },
+      }),
+      event(4, {
+        type: "tool.started",
+        toolCall: { id: "tool-1", name: "Search", status: "running" },
+      }),
+      event(5, {
+        type: "task.created",
+        task: { id: "task-1", title: "Search", status: "running" },
+      }),
+      event(6, { type: "run.completed" }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+
+    expect(reduced.runs["run-1"]?.status).toBe("completed");
+    expect(reduced.activeRunIds).toEqual([]);
+    expect(reduced.messages[0]?.status).toBe("complete");
+    expect(reduced.activities["activity-1"]?.status).toBe("completed");
+    expect(reduced.tools["tool-1"]?.status).toBe("completed");
+    expect(reduced.tasks["task-1"]?.status).toBe("completed");
+  });
+
+  it("ignores late work after a terminal lifecycle event", () => {
+    const terminal = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "message.created",
+        message: {
+          id: "assistant-1",
+          role: "assistant",
+          status: "streaming",
+          parts: [{ type: "text", text: "Done" }],
+        },
+      }),
+      event(3, { type: "run.status", status: "completed" }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+
+    const late = reduceAgentEvent(
+      terminal,
+      event(4, { type: "message.delta", messageId: "assistant-1", text: "!" }),
+    );
+
+    expect(late).toBe(terminal);
+    expect(late.messages[0]).toMatchObject({
+      status: "complete",
+      parts: [{ type: "text", text: "Done" }],
+    });
+  });
+
+  it("does not mutate a completed message with late lifecycle work", () => {
+    const reduced = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "message.created",
+        message: {
+          id: "assistant-1",
+          role: "assistant",
+          status: "streaming",
+          parts: [],
+        },
+      }),
+      event(3, {
+        type: "message.delta",
+        messageId: "assistant-1",
+        text: "Answer",
+      }),
+      event(4, {
+        type: "message.completed",
+        message: {
+          id: "assistant-1",
+          role: "assistant",
+          status: "complete",
+          parts: [],
+        },
+      }),
+      event(5, {
+        type: "message.delta",
+        messageId: "assistant-1",
+        text: " should be ignored",
+      }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+
+    expect(reduced.messages).toEqual([
+      expect.objectContaining({
+        status: "complete",
+        parts: [{ type: "text", text: "Answer" }],
+      }),
+    ]);
+  });
+
+  it("preserves a failed synthetic completion status while retaining deltas", () => {
+    const reduced = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "message.created",
+        message: {
+          id: "assistant-1",
+          role: "assistant",
+          status: "streaming",
+          parts: [],
+        },
+      }),
+      event(3, {
+        type: "message.delta",
+        messageId: "assistant-1",
+        text: "Partial response",
+      }),
+      event(4, {
+        type: "message.completed",
+        message: {
+          id: "assistant-1",
+          role: "assistant",
+          status: "error",
+          parts: [],
+        },
+      }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+
+    expect(reduced.messages).toEqual([
+      expect.objectContaining({
+        status: "error",
+        parts: [{ type: "text", text: "Partial response" }],
+      }),
+    ]);
+  });
+
+  it("ignores late tool deltas after a tool reaches a terminal status", () => {
+    const reduced = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "tool.updated",
+        toolCall: {
+          id: "tool-1",
+          name: "Search",
+          status: "completed",
+          output: "final result",
+        },
+      }),
+      event(3, {
+        type: "tool.delta",
+        toolCallId: "tool-1",
+        inputTextDelta: "late input",
+        outputTextDelta: "late output",
+      }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+
+    expect(reduced.tools["tool-1"]).toMatchObject({
+      status: "completed",
+      output: "final result",
+    });
+    expect(reduced.tools["tool-1"]?.input).toBeUndefined();
+  });
+
+  it("does not reopen settled tool, activity, task, or action projections", () => {
+    const reduced = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "activity.completed",
+        activity: {
+          id: "activity-1",
+          kind: "tool",
+          label: "Search",
+          status: "completed",
+        },
+      }),
+      event(3, {
+        type: "activity.updated",
+        activity: {
+          id: "activity-1",
+          kind: "tool",
+          label: "Search",
+          status: "running",
+        },
+      }),
+      event(4, {
+        type: "tool.updated",
+        toolCall: { id: "tool-1", name: "Search", status: "completed" },
+      }),
+      event(5, {
+        type: "tool.started",
+        toolCall: { id: "tool-1", name: "Search", status: "running" },
+      }),
+      event(6, {
+        type: "task.completed",
+        task: { id: "task-1", title: "Search", status: "completed" },
+      }),
+      event(7, {
+        type: "task.updated",
+        task: { id: "task-1", title: "Search", status: "running" },
+      }),
+      event(8, {
+        type: "action.started",
+        invocation: {
+          id: "action-1",
+          action: "search",
+          threadId: "thread-1",
+          runId: "run-1",
+        },
+      }),
+      event(9, {
+        type: "action.completed",
+        result: { invocationId: "action-1", status: "completed" },
+      }),
+      event(10, {
+        type: "action.started",
+        invocation: {
+          id: "action-1",
+          action: "search",
+          threadId: "thread-1",
+          runId: "run-1",
+        },
+      }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+
+    expect(reduced.activities["activity-1"]?.status).toBe("completed");
+    expect(reduced.tools["tool-1"]?.status).toBe("completed");
+    expect(reduced.tasks["task-1"]?.status).toBe("completed");
+    expect(reduced.actions["action-1"]).toMatchObject({
+      result: { status: "completed" },
+    });
+  });
+
   it("rejects sequence gaps without advancing the run projection", () => {
     const initial = reduceAgentEvent(
       createAgentThreadState("thread-1"),

@@ -64,6 +64,8 @@ export interface FileUploadProvider {
    * Use for DB-backed user/org/workspace secrets that require request context.
    */
   isConfiguredForRequest?: () => Promise<boolean>;
+  /** Returns true when a URL belongs to this provider's configured public origin. */
+  isOwnedUrl?: (url: string) => boolean | Promise<boolean>;
   /** Upload a file and return a URL. Throw on failure. */
   upload: (input: FileUploadInput) => Promise<FileUploadResult>;
   /** Delete a previously uploaded file when the provider supports it. */

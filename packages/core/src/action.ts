@@ -12,6 +12,10 @@ import type {
 } from "./agent/types.js";
 import { normalizeAuditConfig, resolveAuditAttach } from "./audit/config.js";
 import type { ActionAuditConfig } from "./audit/types.js";
+import {
+  assertRegisteredActionAccess,
+  type ActionAccessConfig,
+} from "./authorization/action-access-runtime.js";
 import { wrapRunWithActionTracking } from "./tracking/action-lifecycle.js";
 
 /**
@@ -86,6 +90,10 @@ export interface ActionRunContext {
   orgId?: string | null;
   /** Hosting app/template id used for app-owned resource boundaries. */
   appId?: string;
+  /** Server-resolved app roles for this turn, for model context only. */
+  appRoles?: string[];
+  /** Server-resolved app permission grants for this turn, for model context only. */
+  appPermissions?: string[];
   /** How this action was invoked. */
   caller: ActionCaller;
   /** Present only for trigger-dispatched automation calls. */
@@ -595,6 +603,9 @@ interface DefineActionWithSchema<
    *  `Content-Length` before parsing. Use for public, no-auth POST actions;
    *  unset = no route-level cap. */
   maxBodyBytes?: number;
+  /** Require a server-minted browser capability and hide this action from
+   * every agent surface. */
+  uiOnly?: boolean;
   /** Whether this action is exposed to the agent — the in-app assistant and the
    *  app's MCP/A2A tool surfaces — as a callable tool. **Default-allow opt-out**:
    *  `undefined` / `true` expose it; only an explicit `false` hides it from every
@@ -780,6 +791,8 @@ interface DefineActionWithSchema<
    * ```
    */
   authorize?: ActionAuthorize<StandardSchemaV1.InferOutput<TSchema>>;
+  /** Shared app, organization, permission, and resource access contract. */
+  access?: ActionAccessConfig;
   /**
    * Audit-log configuration. **Default-on for mutating actions** — you only
    * need this to tune capture: declare the mutated `target` (so the change
@@ -832,6 +845,9 @@ interface DefineActionWithParams<
   /** Max HTTP request body in bytes; 413s on `Content-Length` before parsing.
    *  See the schema overload above. */
   maxBodyBytes?: number;
+  /** Require the server-minted browser capability and hide this action from
+   * every agent surface. See the schema overload above. */
+  uiOnly?: boolean;
   /** Whether this action is exposed to the agent as a callable tool. Only an
    *  explicit `false` hides it from every agent tool list while keeping it
    *  frontend/HTTP-callable. See the schema overload above and actions.md. */
@@ -897,6 +913,8 @@ interface DefineActionWithParams<
   /** Pre-run authorization gate applied to every caller. See the schema
    *  overload above for full semantics. */
   authorize?: ActionAuthorize<InferParams<TParams>>;
+  /** Shared app, organization, permission, and resource access contract. */
+  access?: ActionAccessConfig;
   /** Audit-log configuration (default-on for mutations). See the schema
    *  overload above and the `audit-log` skill. */
   audit?: ActionAuditConfig;
@@ -933,6 +951,7 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly http?: ActionHttpConfig | false;
   readonly requiresAuth?: boolean;
   readonly maxBodyBytes?: number;
+  readonly uiOnly?: boolean;
   readonly agentTool?: boolean;
   readonly mcpTool?: boolean;
   readonly deferLoading?: boolean;
@@ -973,6 +992,8 @@ export interface ActionDefinition<TInput, TReturn> {
    *  `audit`. The audit capture wrapper is baked into `run`; this field is for
    *  introspection. */
   readonly audit?: ActionAuditConfig;
+  /** Declarative access contract enforced before the action body runs. */
+  readonly access?: ActionAccessConfig;
 }
 
 // ---------------------------------------------------------------------------
@@ -1068,16 +1089,28 @@ export function defineAction(options: any) {
   // shape the caller sent. Putting it outside would have every guard reading
   // attacker-shaped input while typed as though it were validated.
   const guardedRun =
-    typeof options.authorize === "function"
-      ? wrapRunWithAuthorize(options.run, options.authorize)
+    typeof options.authorize === "function" || options.access
+      ? wrapRunWithAccess(options.run, options.access, options.authorize)
       : options.run;
+  const uiOnlyGuardedRun =
+    options.uiOnly === true
+      ? async (args: any, ctx?: ActionRunContext) => {
+          if (ctx?.caller !== "frontend") {
+            fail("This action can only be called from the signed-in app UI.", {
+              errorCode: "ui_only_action",
+              statusCode: 403,
+            });
+          }
+          return guardedRun(args, ctx);
+        }
+      : guardedRun;
 
   // Wrap run() with INPUT validation when schema is provided.
   // Pass toolParameters so the validation error can echo the expected signature
   // (required vs optional fields) and help the caller self-correct.
   const inputValidatedRun = hasSchema
-    ? wrapWithValidation(options.schema, guardedRun, toolParameters)
-    : guardedRun;
+    ? wrapWithValidation(options.schema, uiOnlyGuardedRun, toolParameters)
+    : uiOnlyGuardedRun;
 
   // Then wrap with OUTPUT validation when an outputSchema is provided. This
   // composes AROUND the input-validated run so the order is: validate input →
@@ -1120,6 +1153,8 @@ export function defineAction(options: any) {
       : inferredReadOnly
         ? true
         : undefined;
+  const uiOnly: boolean | undefined =
+    typeof options.uiOnly === "boolean" ? options.uiOnly : undefined;
 
   // Audit: wrap the validated run so every mutating call records an audit
   // event (who/what/when/from-where, and for the agent which run). Default-on
@@ -1223,6 +1258,7 @@ export function defineAction(options: any) {
     ...(typeof options.maxBodyBytes === "number"
       ? { maxBodyBytes: options.maxBodyBytes }
       : {}),
+    ...(typeof uiOnly === "boolean" ? { uiOnly } : {}),
     ...(typeof agentTool === "boolean" ? { agentTool } : {}),
     ...(typeof mcpTool === "boolean" ? { mcpTool } : {}),
     ...(typeof deferLoading === "boolean" ? { deferLoading } : {}),
@@ -1277,6 +1313,7 @@ export function defineAction(options: any) {
       ? { allowPersistentApproval: options.allowPersistentApproval }
       : {}),
     ...(auditConfig ? { audit: auditConfig } : {}),
+    ...(options.access ? { access: options.access } : {}),
   };
 }
 
@@ -1303,7 +1340,9 @@ export function isActionExposedToExternalAgents(entry: {
   agentTool?: boolean;
   mcpTool?: boolean;
   endsTurn?: boolean;
+  uiOnly?: boolean;
 }): boolean {
+  if (entry.uiOnly === true) return false;
   // An action that ends the in-app agent's turn is in-app only by default,
   // because the user's answer flows back through the in-app chat that an
   // external caller is not on — only an explicit `mcpTool: true` opts back in.
@@ -1329,37 +1368,33 @@ export function isActionExposedToExternalAgents(entry: {
 export function isActionHiddenFromEveryAgentSurface(entry: {
   agentTool?: boolean;
   mcpTool?: boolean;
+  uiOnly?: boolean;
 }): boolean {
-  return entry.agentTool === false && entry.mcpTool !== true;
+  return (
+    entry.uiOnly === true ||
+    (entry.agentTool === false && entry.mcpTool !== true)
+  );
 }
 
-/**
- * Wrap an action's run with its `authorize` gate.
- *
- * The gate is applied here, around `run`, rather than exposed as a flag on the
- * action entry: `run` is the one thing all six dispatch sites (agent loop, HTTP
- * route, frontend, MCP, A2A, CLI) go through, so there is no caller that can
- * reach the body without passing the check. `needsApproval` took the flag route
- * and is consequently honoured only inside the agent loop.
- *
- * Composed so the full order is: validate input → authorize → run → validate
- * output → audit. The audit wrapper is outermost, so a denial is still recorded
- * as an attempt — which is precisely what an audit trail is for.
- *
- * A guard that throws denies with its own message. A guard that returns `false`
- * denies generically. Anything else — including `undefined` — allows.
- */
-function wrapRunWithAuthorize(
+function wrapRunWithAccess(
   run: (args: any, ctx?: ActionRunContext) => any,
-  authorize: ActionAuthorize<any>,
+  access: ActionAccessConfig | undefined,
+  authorize: ActionAuthorize<any> | undefined,
 ): (args: any, ctx?: ActionRunContext) => Promise<any> {
-  return async function authorizedRun(args: any, ctx?: ActionRunContext) {
-    const verdict = await authorize(args, ctx);
-    if (verdict === false) {
-      const err = new Error("Not authorized") as Error & { statusCode: number };
-      err.name = "ForbiddenError";
-      err.statusCode = 403;
-      throw err;
+  return async function accessCheckedRun(args: any, ctx?: ActionRunContext) {
+    if (access) {
+      await assertRegisteredActionAccess(access, args, ctx);
+    }
+    if (authorize) {
+      const verdict = await authorize(args, ctx);
+      if (verdict === false) {
+        const err = new Error("Not authorized") as Error & {
+          statusCode: number;
+        };
+        err.name = "ForbiddenError";
+        err.statusCode = 403;
+        throw err;
+      }
     }
     return run(args, ctx);
   };

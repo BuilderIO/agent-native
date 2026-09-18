@@ -1,3 +1,18 @@
+import { isBuilderPreviewUrl } from "@shared/builder-preview-url";
+import { useSyncExternalStore } from "react";
+
+const subscribeToBrowserOrigin = () => () => {};
+const getBrowserOrigin = () => window.location.origin;
+const getServerOrigin = () => null;
+
+export function useBrowserOrigin(): string | null {
+  return useSyncExternalStore(
+    subscribeToBrowserOrigin,
+    getBrowserOrigin,
+    getServerOrigin,
+  );
+}
+
 export function liveEditEndpointUrl(
   bridgeUrl: string,
   previewUrl: string,
@@ -68,7 +83,8 @@ export function resolveLiveEditPreviewUrl(args: {
  */
 export type BridgeRegistrationFailureKind =
   | "maybePermissionBlocked"
-  | "unreachable";
+  | "unreachable"
+  | "stalePreviewToken";
 
 export async function classifyBridgeRegistrationFailure(): Promise<BridgeRegistrationFailureKind> {
   try {
@@ -156,17 +172,43 @@ export function sanitizeLocalhostSourceSnapshotHtml(html: string): string {
 // work inside an iframe. Without these tokens the browser silently ignores
 // the common "Download / Print PDF" pattern.
 const EXTERNAL_PREVIEW_IFRAME_SANDBOX =
-  "allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals allow-same-origin";
+  "allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals";
+const TRUSTED_EXTERNAL_PREVIEW_IFRAME_SANDBOX = `${EXTERNAL_PREVIEW_IFRAME_SANDBOX} allow-same-origin`;
 const EDITABLE_INLINE_IFRAME_SANDBOX =
   "allow-scripts allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals allow-same-origin";
 const READ_ONLY_INLINE_IFRAME_SANDBOX =
   "allow-scripts allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals";
 
+export function isTrustedCrossOriginPreviewUrl(
+  previewUrl: string | null | undefined,
+  parentOrigin?: string,
+): boolean {
+  if (!previewUrl || !isBuilderPreviewUrl(previewUrl)) return false;
+
+  const effectiveParentOrigin =
+    parentOrigin ??
+    (typeof window === "undefined" ? undefined : window.location.origin);
+  if (!effectiveParentOrigin) return false;
+
+  try {
+    return new URL(previewUrl).origin !== new URL(effectiveParentOrigin).origin;
+    // coercion-ok: invalid origins are untrusted and cannot grant same-origin access.
+  } catch {
+    return false;
+  }
+}
+
 export function getDesignCanvasIframeSandbox(args: {
   externalPreview: boolean;
   readOnly: boolean;
+  previewUrl?: string | null;
+  parentOrigin?: string;
 }): string {
-  if (args.externalPreview) return EXTERNAL_PREVIEW_IFRAME_SANDBOX;
+  if (args.externalPreview) {
+    return isTrustedCrossOriginPreviewUrl(args.previewUrl, args.parentOrigin)
+      ? TRUSTED_EXTERNAL_PREVIEW_IFRAME_SANDBOX
+      : EXTERNAL_PREVIEW_IFRAME_SANDBOX;
+  }
   return args.readOnly
     ? READ_ONLY_INLINE_IFRAME_SANDBOX
     : EDITABLE_INLINE_IFRAME_SANDBOX;
@@ -179,4 +221,8 @@ export function getSnapshotRetryDelayMs(attempt: number): number {
   const safeAttempt = Number.isFinite(attempt) ? Math.max(0, attempt) : 0;
   const delay = SNAPSHOT_RETRY_BASE_DELAY_MS * 2 ** safeAttempt;
   return Math.min(SNAPSHOT_RETRY_MAX_DELAY_MS, delay);
+}
+
+export function isPreviewTokenStaleStatus(status: number): boolean {
+  return status === 401;
 }

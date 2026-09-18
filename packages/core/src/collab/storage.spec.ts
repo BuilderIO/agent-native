@@ -2,10 +2,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { getDbExec } from "../db/client.js";
 import {
-  listCollabDocIds,
   loadYDocRecord,
   loadYDocRecordWithClient,
   saveYDocState,
+  hasCollabState,
   trySaveYDocState,
   trySaveYDocStateWithClient,
 } from "./storage.js";
@@ -37,9 +37,10 @@ vi.mock("../db/client.js", () => ({
         return { rows: row ? [row] : [], rowsAffected: 0 };
       }
 
-      if (/^\s*SELECT doc_id FROM _collab_docs/i.test(sql)) {
+      if (/^\s*SELECT 1 FROM _collab_docs/i.test(sql)) {
+        const row = rows.get(String(args[0]));
         return {
-          rows: [...rows.keys()].map((doc_id) => ({ doc_id })),
+          rows: row && row.yjs_state !== "" ? [{ "1": 1 }] : [],
           rowsAffected: 0,
         };
       }
@@ -114,13 +115,6 @@ describe("collab storage optimistic saves", () => {
     expect(rows.get("doc-1")?.yjs_state).toBe(toBase64(new Uint8Array([2])));
   });
 
-  it("lists existing document ids in one read", async () => {
-    await saveYDocState("doc-1", new Uint8Array([1]), "one");
-    await saveYDocState("doc-2", new Uint8Array([2]), "two");
-
-    expect(await listCollabDocIds()).toEqual(new Set(["doc-1", "doc-2"]));
-  });
-
   it("uses an injected client for reads and stale CAS writes", async () => {
     vi.mocked(getDbExec).mockClear();
     const injectedClient = {
@@ -157,5 +151,17 @@ describe("collab storage optimistic saves", () => {
     ).toBe(false);
     expect(injectedClient.execute).toHaveBeenCalledTimes(2);
     expect(getDbExec).not.toHaveBeenCalled();
+  });
+
+  it("does not treat an empty persisted state as seeded", async () => {
+    rows.set("empty", { yjs_state: "", text_snapshot: "", version: 0 });
+    rows.set("seeded", {
+      yjs_state: toBase64(new Uint8Array([1])),
+      text_snapshot: "content",
+      version: 0,
+    });
+
+    await expect(hasCollabState("empty")).resolves.toBe(false);
+    await expect(hasCollabState("seeded")).resolves.toBe(true);
   });
 });

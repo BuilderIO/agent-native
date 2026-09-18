@@ -1,5 +1,46 @@
 # @agent-native/dispatch
 
+## 0.38.2
+
+### Patch Changes
+
+- ffafd84: Keep the Apps page readable when the hosted workspace registry denies a read. A
+  gateway authorization denial now falls back to the deployment-owned manifest
+  without persisting or reconciling unverified access rows.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [5ede9f7]
+- Updated dependencies
+- Updated dependencies [ffafd84]
+- Updated dependencies [424d0cd]
+  - @agent-native/toolkit@0.20.4
+
+## 0.38.1
+
+### Patch Changes
+
+- c9e5889: Fix `import-agent-pack`, `import-agent`, and `connect-external-agent` throwing an unhandled 500 when given invalid input (a non-agent-pack file, malformed JSON, a malformed endpoint URL, or a duplicate destination). These now return a clean, actionable validation error instead.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [901376b]
+- Updated dependencies [b35949b]
+- Updated dependencies [116c315]
+- Updated dependencies
+  - @agent-native/toolkit@0.20.3
+
+## 0.38.0
+
+### Minor Changes
+
+- 99e1584: Expose the opt-in labs flag for the Connect Apps surface.
+
+### Patch Changes
+
+- bd9b451: Infer a root home route for workspace apps that do not define a `/home` route, and keep local and autonomous app discovery aligned with the deployed registry.
+- Release all public npm packages with a patch version bump.
+- c9cb7de: Remove retired Macros app references from dispatch and toolkit surfaces.
+- Updated dependencies
+- Updated dependencies [c9cb7de]
+  - @agent-native/toolkit@0.20.2
+
 ## 0.37.0
 
 ### Minor Changes
@@ -971,24 +1012,5 @@
 
 - Updated dependencies [a107169]
   - @agent-native/toolkit@0.13.5
-
-## 0.20.2
-
-### Patch Changes
-
-- 6071f7d: Provision and reuse the connected Builder workspace project automatically for hosted Turn Into App requests.
-- 6071f7d: Keep language selection in Settings instead of the Dispatch header.
-
-## 0.20.1
-
-### Patch Changes
-
-- c440e50: Route Turn Into App requests from Claude Web, ChatGPT Web, and web Projects to Builder through Dispatch instead of building in the host sandbox.
-
-## 0.20.0
-
-### Minor Changes
-
-- 1d5bab1: Simplify the Dispatch Admin overview and Apps catalog with shared icon cards, app colors, and lighter progressive disclosure.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

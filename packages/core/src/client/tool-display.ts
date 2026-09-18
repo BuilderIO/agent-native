@@ -26,6 +26,24 @@ export function humanizeToolName(toolName: string | undefined): string {
   return (name || "tool").toLowerCase();
 }
 
+/**
+ * A tool row's label, translated when the app ships a string for this action.
+ *
+ * Without a catalog entry the label is derived from the action name itself
+ * (`get-case` reads "get case"), which leaves every non-English app with
+ * English rows it cannot translate. Apps add `agentChat.toolLabels.<action>`;
+ * the derived name stays the fallback, so nothing changes until they do.
+ */
+export function toolLabel(
+  translate: (key: string, options?: Record<string, unknown>) => string,
+  toolName: string | undefined,
+): string {
+  const humanized = humanizeToolName(toolName);
+  const raw = (toolName ?? "").trim();
+  if (!raw) return humanized;
+  return translate(`agentChat.toolLabels.${raw}`, { defaultValue: humanized });
+}
+
 export function runningToolLabel(toolName: string | undefined): string {
   return `Running ${humanizeToolName(toolName)}`;
 }

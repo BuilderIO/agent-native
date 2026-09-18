@@ -9,6 +9,7 @@ import {
 } from "@shared/code-layer";
 import { parseCssColorExtended } from "@shared/color-utils";
 import { isComponentInstance } from "@shared/component-model";
+import { resolveLayerNameAttribute } from "@shared/layer-name";
 import {
   ELEMENT_PROVENANCE_METHODS,
   type ElementProvenanceFramework,
@@ -498,6 +499,8 @@ export function elementInfoFromCodeLayerNode(node: CodeLayerNode): ElementInfo {
   return {
     tagName: node.tag,
     id: typeof node.attributes.id === "string" ? node.attributes.id : undefined,
+    componentAnnotation:
+      node.dataAttributes["data-agent-native-component"]?.trim() || undefined,
     sourceId: bridgeSourceIdForCodeLayerNode(node),
     provenance: provenanceForCodeLayerNode(node),
     selector: preferredCodeLayerSelector(node),
@@ -887,6 +890,8 @@ export function remapLegacyCodeLayerNodeId(
 }
 
 export function collapsedElementText(value: string | null | undefined): string {
+  // Runtime structure signatures cap the normalized result at 120 characters;
+  // this shared projection step must preserve the prefix before that cap.
   return value?.replace(/\s+/g, " ").trim() ?? "";
 }
 
@@ -966,13 +971,72 @@ export function resolveCodeLayerNodeFromElementInfo(
   return resolution.status === "resolved" ? resolution.node : null;
 }
 
+// The live bridge's inline-style read (collectInlineStyles, a
+// CSSStyleDeclaration getter) reflects a bare zero-length grid track back
+// with its implied unit ("minmax(0, 1fr)" reads as "minmax(0px, 1fr)"),
+// while a PASSIVE multi-selection member that falls through to
+// elementInfoFromCodeLayerNode(node) reads the same declaration straight
+// off the raw source instead — same authored template, two byte-different
+// strings, which made mixedElementFromSelection's exact-string compare
+// report a false Mixed for an otherwise-identical multi-selection. Reusing
+// elementInfoFromCodeLayerNode's own parser (rather than a parallel
+// extraction) guarantees this overlay is byte-identical to what a passive
+// member already shows, so it can't accidentally equate two declarations
+// the parser doesn't otherwise fold together (e.g. differing var()/custom
+// grid syntax).
+function sourceAuthoredGridTemplateOverlay(node: CodeLayerNode): {
+  gridTemplateColumns: string | undefined;
+  gridTemplateRows: string | undefined;
+} {
+  // Cheap pre-check on the raw declaration before paying for the parser
+  // below: parseStyle/cssPropertyKey store CodeLayerNode.style hyphen-cased
+  // and lowercased, and elementInfoFromCodeLayerNode runs cssStyleAliases
+  // over EVERY declaration (throwaway DOM elements for background/font
+  // shorthands included) just to read two keys — skip it entirely when
+  // neither is declared.
+  if (
+    !("grid-template-columns" in node.style) &&
+    !("grid-template-rows" in node.style)
+  ) {
+    return { gridTemplateColumns: undefined, gridTemplateRows: undefined };
+  }
+  const sourceInlineStyles = elementInfoFromCodeLayerNode(node).inlineStyles;
+  return {
+    gridTemplateColumns: sourceInlineStyles?.gridTemplateColumns,
+    gridTemplateRows: sourceInlineStyles?.gridTemplateRows,
+  };
+}
+
 export function canonicalElementInfoForCodeLayerNode(
   info: ElementInfo,
   node: CodeLayerNode,
   ownerScreenId?: string,
 ): ElementInfo {
+  // Overlay only the two keys the source declaration actually specifies —
+  // a dynamically-applied (non-source) grid template must keep the live
+  // read untouched. `undefined` inlineStyles means "no inline snapshot
+  // captured" (authoredStyleValue and friends rely on that), a different
+  // state from "captured, empty" — so with no overlay to apply,
+  // info.inlineStyles is returned exactly as-is (same undefined-ness, same
+  // object identity), never coerced into a new `{}`.
+  const gridTemplateOverlay = sourceAuthoredGridTemplateOverlay(node);
+  const hasGridTemplateOverlay =
+    gridTemplateOverlay.gridTemplateColumns !== undefined ||
+    gridTemplateOverlay.gridTemplateRows !== undefined;
+  const inlineStyles = hasGridTemplateOverlay
+    ? {
+        ...info.inlineStyles,
+        ...(gridTemplateOverlay.gridTemplateColumns !== undefined
+          ? { gridTemplateColumns: gridTemplateOverlay.gridTemplateColumns }
+          : {}),
+        ...(gridTemplateOverlay.gridTemplateRows !== undefined
+          ? { gridTemplateRows: gridTemplateOverlay.gridTemplateRows }
+          : {}),
+      }
+    : info.inlineStyles;
   return {
     ...info,
+    inlineStyles,
     vectorStrokeCanAlign:
       info.vectorStrokeCanAlign ||
       node.style["--an-vector-stroke-can-align"] === "true",
@@ -1034,6 +1098,7 @@ export function canonicalizeElementInfoFromProjection(
   },
   info: ElementInfo,
   ownerScreenId?: string,
+  resolvedNode?: CodeLayerNode | null,
 ): ElementInfo {
   if (
     info.sourceLayerIdentity?.screenId &&
@@ -1042,7 +1107,10 @@ export function canonicalizeElementInfoFromProjection(
   ) {
     return info;
   }
-  const node = resolveCodeLayerNodeFromElementInfo(projection, info);
+  const node =
+    resolvedNode === undefined
+      ? resolveCodeLayerNodeFromElementInfo(projection, info)
+      : resolvedNode;
   if (node)
     return canonicalElementInfoForCodeLayerNode(info, node, ownerScreenId);
   return ownerScreenId && info.sourceLayerIdentity
@@ -1302,6 +1370,10 @@ export function refreshElementInfoFromContent(
       ),
       computedStyles,
       inlineStyles: sourceInfo.inlineStyles ?? {},
+      // Source projection refreshes cannot recompute the live CSS cascade;
+      // discard any bridge hint so it cannot outrank these fresh inline
+      // values until the next selection payload.
+      authoredSizeStyles: undefined,
       boundingRect: refreshedBoundingRectSize(info, computedStyles),
       textContent: sourceInfo.textContent,
       childElementCount: sourceInfo.childElementCount,
@@ -1332,6 +1404,7 @@ export function refreshElementInfoFromContent(
       classes,
       computedStyles,
       inlineStyles,
+      authoredSizeStyles: undefined,
       boundingRect: refreshedBoundingRectSize(info, computedStyles),
       textContent: element.textContent?.slice(0, 200) ?? info.textContent,
       childElementCount: element.children.length,
@@ -1412,9 +1485,11 @@ export function isGeneratedGroupWrapperNode(node: CodeLayerNode): boolean {
     return true;
   }
   const layerName =
-    node.dataAttributes["data-agent-native-layer-name"] ??
-    node.dataAttributes["data-layer-name"] ??
-    "";
+    resolveLayerNameAttribute((attribute) => {
+      const value =
+        node.attributes[attribute] ?? node.dataAttributes[attribute];
+      return typeof value === "string" ? value : null;
+    })?.value ?? "";
   const nodeId = node.dataAttributes["data-agent-native-node-id"] ?? "";
   // Pre-marker group wrappers use hash-based an-* ids; copied roots use copy-* ids.
   return (

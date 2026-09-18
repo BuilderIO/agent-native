@@ -20,6 +20,7 @@ import { useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router";
 
 import { setBrowserDemoModeEnabled } from "../../demo/browser-state.js";
+import { canInviteOrgMembers } from "../../org/permissions.js";
 import { shouldOfferWorkspace } from "../../org/workspace-url.js";
 import {
   Tooltip,
@@ -210,7 +211,7 @@ export function OrgSwitcher({
   }
 
   const canInvite =
-    !!org.orgId && (org.role === "owner" || org.role === "admin");
+    !!org.orgId && canInviteOrgMembers(org.role, org.emailConfigured);
 
   const personalLabel = session?.name || personalLabelFromEmail(org.email);
   const inOrg = !!org.orgId;

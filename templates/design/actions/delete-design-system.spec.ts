@@ -58,6 +58,7 @@ const mocks = vi.hoisted(() => {
     delete: vi.fn(() => txDeleteChain),
     update: vi.fn(() => txUpdateChain),
     select: vi.fn(() => promotionSelectChain),
+    execute: vi.fn().mockResolvedValue({ rows: [] }),
   };
 
   const dbUpdateChain = { set: vi.fn(), where: vi.fn() };

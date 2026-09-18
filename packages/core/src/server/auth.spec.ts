@@ -3406,6 +3406,34 @@ describe("server/auth", () => {
       ).resolves.toBeUndefined();
     });
 
+    it("lets the OAuth popup waiting page bypass auth for reads only", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("AUTH_DISABLED", "0");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      await expect(
+        guard(createMockEvent({ path: "/_agent-native/oauth/popup" })),
+      ).resolves.toBeUndefined();
+
+      const writeEvent = createMockEvent({
+        path: "/_agent-native/oauth/popup",
+      });
+      writeEvent.req.method = "POST";
+      writeEvent.node.req.method = "POST";
+      await expect(guard(writeEvent)).resolves.toEqual({
+        error: "Unauthorized",
+      });
+    });
+
     it("lets public liveness probes bypass auth", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");

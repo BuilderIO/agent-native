@@ -1,6 +1,7 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "activity.reasoning": "तर्क",
   "approval.alwaysAllow": "हमेशा अनुमति दें",
   "approval.alwaysAllowHint": "इस सटीक कमांड को स्वीकृत करें और हमेशा अनुमति दें",
   "approval.alwaysAllowAction": "इस कार्रवाई को हमेशा अनुमति दें",
@@ -68,13 +69,28 @@ const messages: AgentChatTranslation = {
     "आपका Builder.io खाता बनाया या फिर से इस्तेमाल किया जा रहा है। इसमें आमतौर पर कुछ सेकंड लगते हैं।",
   "onboarding.builderConnectionDescription":
     "नई विंडो में एक क्लिक से कनेक्शन पूरा करें।",
+  "onboarding.builderReadyWithCodeChanges":
+    "AI क्रेडिट और क्लाउड कोड बदलाव उपयोग के लिए तैयार हैं।",
+  "onboarding.builderReadyCreditsOnly":
+    "AI क्रेडिट उपयोग के लिए तैयार हैं। क्लाउड कोड संपादन के लिए Background Agent सेटिंग्स में Builder प्रोजेक्ट आवश्यक है।",
+  "onboarding.openBackgroundAgentSettings": "Background Agent सेटिंग्स खोलें",
   "onboarding.capability.llm.keySummary": "AI प्रदाता या स्थानीय मॉडल कनेक्ट करें",
   "onboarding.capability.fileStorage.keySummary": "Builder स्टोरेज या S3-संगत बकेट",
+  "onboarding.fileStorage.title": "फ़ाइल स्टोरेज चुनें",
+  "onboarding.fileStorage.description":
+    "प्रबंधित Builder स्टोरेज चुनें या अपने S3-संगत बकेट के लिए कस्टम स्टोरेज कुंजियों का उपयोग करें।",
+  "onboarding.fileStorage.custom": "कस्टम स्टोरेज कुंजियों का उपयोग करें",
+  "onboarding.fileStorage.customDescription":
+    "स्थिर सार्वजनिक URL वाला S3-संगत बकेट कॉन्फ़िगर करें।",
   "onboarding.capability.voiceInput.label": "वॉइस इनपुट",
   "onboarding.capability.voiceInput.keySummary":
     "ब्राउज़र स्पीच रिकग्निशन या स्पीच-टू-टेक्स्ट",
   "onboarding.capability.voiceInput.why":
     "वॉइस इनपुट बोले गए अनुरोधों को टेक्स्ट में बदलता है; टाइप करना हमेशा उपलब्ध है।",
+  "onboarding.capability.embeddings.label": "एंबेडिंग",
+  "onboarding.capability.embeddings.keySummary": "Gemini, Cohere या Voyage कुंजी",
+  "onboarding.capability.embeddings.why":
+    "एंबेडिंग अर्थपूर्ण खोज को बेहतर बनाती हैं। इनके बिना भी कीवर्ड खोज काम करती है।",
   "onboarding.capability.assetsImageGeneration.label": "इमेज जनरेशन",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Builder क्रेडिट या इमेज प्रदाता की कुंजी",
@@ -164,6 +180,24 @@ const messages: AgentChatTranslation = {
   "agents.statusReachable": "पहुंच योग्य",
   "agents.statusAuthRejected": "प्रमाणीकरण अस्वीकार",
   "agents.statusNoJsonRpc": "कोई JSON-RPC नहीं",
+  "agents.directoryTab": "एजेंट डायरेक्टरी",
+  "agents.directoryPageHint": "एजेंट बैकएंड खोजें और उसे अपने वर्कस्पेस से कनेक्ट करें।",
+  "agents.directorySearch": "प्रदाता खोजें",
+  "agents.directoryProviders": "प्रदाता",
+  "agents.directoryManual": "URL से जोड़ें",
+  "agents.directoryA2A": "A2A",
+  "agents.directoryManaged": "प्रबंधित API",
+  "agents.directoryFoundry": "Microsoft Foundry",
+  "agents.directoryFoundryHint": "A2A के ज़रिए Foundry एजेंट कनेक्ट करें।",
+  "agents.directoryGemini": "Gemini Enterprise",
+  "agents.directoryGeminiHint": "A2A के ज़रिए Gemini Enterprise एजेंट कनेक्ट करें।",
+  "agents.directoryAnthropic": "Anthropic द्वारा प्रबंधित एजेंट",
+  "agents.directoryAnthropicHint": "Anthropic से सेशन और अनुमोदन कनेक्ट करें।",
+  "agents.directoryNoMatches": "आपकी खोज से कोई प्रदाता मेल नहीं खाता।",
+  "agents.directoryRegistry": "वैश्विक A2A रजिस्ट्री",
+  "agents.directoryRegistryHint":
+    "सार्वजनिक Agent Cards देखें और कनेक्ट करने से पहले सत्यापित करें।",
+  "agents.directoryBrowse": "रजिस्ट्री ब्राउज़ करें",
   "common.saveFailed": "सहेजा नहीं जा सका",
   "common.saveFailedStatus": "सहेजा नहीं जा सका ({{status}})",
   "common.saving": "सहेजा जा रहा है...",
@@ -707,6 +741,7 @@ const messages: AgentChatTranslation = {
   "status.preparing": "{{activity}} तैयार किया जा रहा है...",
   "status.writing": "{{activity}} लिखा जा रहा है...",
   "status.stillGenerating": "{{activity}} अभी भी बनाया जा रहा है",
+  "status.runningTool": "{{activity}} चल रहा है",
   "tabs.allChats": "सभी चैट",
   "tabs.closeTab": "टैब बंद करें",
   "tabs.main": "मुख्य",

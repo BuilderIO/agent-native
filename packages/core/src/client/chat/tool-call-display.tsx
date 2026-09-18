@@ -53,10 +53,10 @@ import {
   FilesChangedSummary,
 } from "../tool-cells/index.js";
 import {
-  humanizeToolName,
   isCallAgentToolCallShadowed,
   isToolCallActive,
   resolveToolCallRowContext,
+  toolLabel,
 } from "../tool-display.js";
 import { useAgentChatContext } from "../use-agent-chat-context.js";
 import { cn } from "../utils.js";
@@ -995,7 +995,7 @@ function ToolCallDisplayGeneric({
       : isAgentError
         ? t("agentChat.tool.askingAgentFailed", { agent: agentName })
         : t("agentChat.tool.askedAgent", { agent: agentName })
-    : humanizeToolName(toolName);
+    : toolLabel(t, toolName);
   const rowContext = isAgentCall ? null : resolveToolCallRowContext(args);
 
   const canExpand = isAgentCall
@@ -1227,11 +1227,6 @@ function AgentCallCell({
                     activity?.activePhase === "responding" &&
                     index === inlineSegments.length - 1
                   }
-                  caret={
-                    isRunning &&
-                    activity?.activePhase === "responding" &&
-                    index === inlineSegments.length - 1
-                  }
                   resetKey={`agent-response-${responseKey}-${index}`}
                   statusType={isRunning ? "running" : "complete"}
                 />
@@ -1313,7 +1308,6 @@ function AgentCallCell({
               <SmoothMarkdownText
                 text={finalText}
                 streaming={isRunning}
-                caret={isRunning}
                 resetKey={`agent-response-${responseKey}`}
                 statusType={isRunning ? "running" : "complete"}
               />
@@ -1332,6 +1326,7 @@ function AgentActivityToolCallRow({
   tool: A2AAgentActivityToolCall;
   isActiveTail: boolean;
 }) {
+  const t = useT();
   const isRunning = tool.status === "running";
   const ToolIcon = resolveToolIcon(tool.name);
 
@@ -1356,7 +1351,7 @@ function AgentActivityToolCallRow({
             isActiveTail && "agent-running-shimmer",
           )}
         >
-          {humanizeToolName(tool.name)}
+          {toolLabel(t, tool.name)}
         </span>
       </div>
     </ToolActivityPresentation>
@@ -1472,7 +1467,6 @@ export function ReconnectStreamMessage({
           key={`reconnect-text-${i}`}
           text={part.text}
           streaming={partStreaming}
-          caret={partStreaming}
           resetKey={`reconnect-text-${i}`}
           statusType={partStreaming ? "running" : "complete"}
         />

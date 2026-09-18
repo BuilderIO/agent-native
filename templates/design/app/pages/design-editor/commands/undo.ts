@@ -410,6 +410,13 @@ export interface UndoArgs {
   createFileMutation: ReturnType<
     typeof useActionMutation<undefined, undefined, "create-file">
   >;
+  optimisticallyInsertCreatedFile?: (args: {
+    fileId: string;
+    filename: string;
+    fileType: DesignFile["fileType"];
+    content: string;
+    result?: Record<string, unknown> | null;
+  }) => void;
   deleteFileMutation: ReturnType<
     typeof useActionMutation<undefined, undefined, "delete-file">
   >;
@@ -419,7 +426,9 @@ export interface UndoArgs {
   fileDeletionRedoStackRef: RefObject<FileDeletionHistoryEntry[]>;
   fileDeletionUndoStackRef: RefObject<FileDeletionHistoryEntry[]>;
   fileHistoryMutationPendingRef: RefObject<boolean>;
+  clearPendingHistory?: () => void;
   files: DesignFile[];
+  filesRef?: RefObject<DesignFile[]>;
   geometryRedoStackRef: RefObject<GeometryHistoryEntry[]>;
   geometryUndoStackRef: RefObject<GeometryHistoryEntry[]>;
   getFreshActiveContent: () => string;
@@ -428,6 +437,7 @@ export interface UndoArgs {
   id: string | undefined;
   isSynced: boolean;
   lastLocalContentRef: RefObject<string | null>;
+  resetGeometryCommitCoalescing?: () => void;
   liveFrameGeometryRef: RefObject<CanvasFrameGeometryById>;
   liveScreenSnapshotsById: Record<string, LiveScreenSnapshot>;
   localContentRedoStackRef: RefObject<ContentHistoryChange[]>;
@@ -520,7 +530,11 @@ export interface UndoArgs {
   viewModeRef: RefObject<"single" | "overview">;
   writeFrameGeometrySnapshot: (
     geometryById: CanvasFrameGeometryById,
-    options?: { syncViewportFrameIds?: string[]; pinHeightFrameIds?: string[] },
+    options?: {
+      replacePendingGeometrySave?: boolean;
+      syncViewportFrameIds?: string[];
+      pinHeightFrameIds?: string[];
+    },
   ) => void;
   ydoc: Y.Doc | null;
 }
@@ -542,6 +556,7 @@ export function runUndo({
   contentUndoSelectionStackRef,
   contentUndoStackRef,
   createFileMutation,
+  optimisticallyInsertCreatedFile,
   deleteFileMutation,
   designDataJsonRef,
   fileCreationRedoStackRef,
@@ -549,7 +564,9 @@ export function runUndo({
   fileDeletionRedoStackRef,
   fileDeletionUndoStackRef,
   fileHistoryMutationPendingRef,
+  clearPendingHistory,
   files,
+  filesRef,
   geometryRedoStackRef,
   geometryUndoStackRef,
   getFreshActiveContent,
@@ -558,6 +575,7 @@ export function runUndo({
   id,
   isSynced,
   lastLocalContentRef,
+  resetGeometryCommitCoalescing,
   liveFrameGeometryRef,
   liveScreenSnapshotsById,
   localContentRedoStackRef,
@@ -603,8 +621,9 @@ export function runUndo({
     selection: GeometryHistorySelection | undefined,
     replaySources: Record<string, string> = {},
   ) => {
+    const currentFiles = filesRef?.current ?? files;
     const actualSources = Object.fromEntries(
-      files.map((file) => [
+      currentFiles.map((file) => [
         file.id,
         replaySources[file.id] ?? getScreenContent(file.id),
       ]),
@@ -626,6 +645,7 @@ export function runUndo({
   // until the drag finishes (or is cancelled).
   if (activeEditorDragRef.current) return;
   if (fileHistoryMutationPendingRef.current) return;
+  resetGeometryCommitCoalescing?.();
   const pendingStyleUndoStack = pendingVisualStyleUndoStackRef.current;
   const pendingStyleUndo =
     pendingStyleUndoStack[pendingStyleUndoStack.length - 1];
@@ -1250,6 +1270,7 @@ export function runUndo({
         "undo",
       ),
       {
+        replacePendingGeometrySave: true,
         syncViewportFrameIds: viewportChangedFrameIds(
           entry.after,
           entry.before,
@@ -1299,13 +1320,28 @@ export function runUndo({
   // entry itself doesn't carry the id assigned by the create mutation.
   const undoFileCreation = () => {
     if (!canUseOverviewHistory) return false;
-    const entry = fileCreationUndoStackRef.current.pop();
+    const stack = fileCreationUndoStackRef.current;
+    const entry = stack[stack.length - 1];
     if (!entry) return false;
-    const createdFile = files.find((file) => file.filename === entry.filename);
-    if (!createdFile) return false;
+    let batchStart = stack.length - 1;
+    while (
+      batchStart > 0 &&
+      entry.historyBatchId &&
+      stack[batchStart - 1]?.historyBatchId === entry.historyBatchId
+    ) {
+      batchStart -= 1;
+    }
+    const entries = stack.slice(batchStart);
+    const createdFiles = entries.map((item) =>
+      files.find((file) => file.filename === item.filename),
+    );
+    if (createdFiles.some((file) => !file)) return false;
+    stack.splice(batchStart, entries.length);
     fileCreationRedoStackRef.current = [
-      ...fileCreationRedoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
-      entry,
+      ...fileCreationRedoStackRef.current.slice(
+        -(MAX_DESIGN_UNDO_STACK - entries.length),
+      ),
+      ...entries,
     ];
     redoOrderRef.current = [
       ...redoOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
@@ -1315,7 +1351,10 @@ export function runUndo({
     // stack above for this exact filename — without this flag
     // performDeleteFiles' filename-keyed redo prune would immediately pop
     // it back off, leaving redo permanently empty after this undo.
-    performDeleteFiles([createdFile], { skipFileCreationRedoPrune: true });
+    performDeleteFiles(
+      createdFiles.filter((file): file is DesignFile => Boolean(file)),
+      { skipFileCreationRedoPrune: true },
+    );
     return true;
   };
   const undoFileDeletion = () => {
@@ -1470,6 +1509,17 @@ export function runUndo({
           ...file,
           content: preparedFiles[index]?.content ?? file.content,
         }));
+        entry.files.forEach((file, index) => {
+          const recreatedFile = recreatedEntry.files[index];
+          const prepared = preparedFiles[index];
+          if (!recreatedFile || !prepared) return;
+          optimisticallyInsertCreatedFile?.({
+            fileId: recreatedFile.id,
+            filename: file.filename,
+            fileType: file.fileType,
+            content: prepared.content,
+          });
+        });
         const metadataRestore = restoreMetadataAndGeometry(
           restoreEntry,
           recreatedEntry,
@@ -1540,6 +1590,7 @@ export function runUndo({
           setSelectedLayerIdsState(recreatedEntry.files.map((file) => file.id));
         }
       } catch (error) {
+        clearPendingHistory?.();
         const cleanupResults = await Promise.allSettled(
           recreatedIds.map((fileId) =>
             deleteFileMutation.mutateAsync({

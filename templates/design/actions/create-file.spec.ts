@@ -60,6 +60,16 @@ const mocks = vi.hoisted(() => {
   updateChain.where.mockResolvedValue(undefined);
   const update = vi.fn(() => updateChain);
 
+  const tx = {
+    select: vi.fn(() => {
+      whereCondition = undefined;
+      return selectChain;
+    }),
+    insert,
+    update,
+    execute: vi.fn().mockResolvedValue({ rows: [] }),
+  };
+
   const db = {
     select: vi.fn(() => {
       whereCondition = undefined;
@@ -67,6 +77,7 @@ const mocks = vi.hoisted(() => {
     }),
     insert,
     update,
+    transaction: vi.fn(async (callback) => callback(tx)),
   };
 
   let designData: Record<string, unknown> = {};
@@ -147,6 +158,7 @@ function loadOptimisticCreatedFileInsertion(queryClient: QueryClient) {
     "id",
     "queryClient",
     "annotateScreenHtmlForPersist",
+    "historyFilesRef",
     `${callback}\nreturn optimisticallyInsertCreatedFile;`,
   );
   return create(
@@ -154,6 +166,7 @@ function loadOptimisticCreatedFileInsertion(queryClient: QueryClient) {
     "design-1",
     queryClient,
     annotateScreenHtmlForPersist,
+    { current: [] },
   ) as (args: {
     fileId: string;
     filename: string;
@@ -207,6 +220,24 @@ describe("create-file: node-id annotation", () => {
     expect(mocks.seedFromText).toHaveBeenCalledWith(
       expect.any(String),
       insertedValues.content,
+    );
+  });
+
+  it("stamps the body of a new blank screen before persistence", async () => {
+    await action.run({
+      designId: "design-1",
+      filename: "screen-1.html",
+      content:
+        "<!doctype html><html><head><title>Screen 1</title></head>" +
+        '<body data-agent-native-layer-name="Screen 1"></body></html>',
+      fileType: "html",
+    });
+
+    const insertedValues = mocks.insertValues.mock.calls[0]![0] as {
+      content: string;
+    };
+    expect(insertedValues.content).toMatch(
+      /<body[^>]*data-agent-native-node-id="[^"]+"/,
     );
   });
 
@@ -449,7 +480,7 @@ describe("create-file: canvas placement and landing URL", () => {
       height: 1024,
     });
     expect(result.urlPath).toBe(
-      `/design/design-1?view=overview&screen=${result.id}`,
+      `/design/design-1?editorView=overview&screen=${result.id}`,
     );
   });
 

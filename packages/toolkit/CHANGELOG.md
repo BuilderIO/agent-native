@@ -1,5 +1,31 @@
 # @agent-native/toolkit
 
+## 0.20.4
+
+### Patch Changes
+
+- 5ede9f7: Keep editor recovery bases stable and combine non-overlapping concurrent edits before asking the user to recover a draft.
+  Keep optional Node SQLite cache code from breaking Cloudflare Pages bundles.
+- Release all public npm packages with a patch version bump.
+- ffafd84: Keep tall dialog content inside the viewport with internal vertical scrolling.
+- 424d0cd: Add `sortFontFamilyOptions` to alphabetize font family picker options (keeping "Inherit" pinned first), and use it in the Design and Slides typography font pickers.
+
+## 0.20.3
+
+### Patch Changes
+
+- 901376b: Keep composer controls balanced, keep popovers within the viewport, and prevent first-run prompts from racing model authentication.
+- b35949b: Distinguish acknowledged editor saves from external revisions during concurrent document reconciliation.
+- 116c315: Keep embedded Design editor agent chat aligned with the shared sidebar and use concise OpenAI model labels.
+- Release all public npm packages with a patch version bump.
+
+## 0.20.2
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- c9cb7de: Remove retired Macros app references from dispatch and toolkit surfaces.
+
 ## 0.20.1
 
 ### Patch Changes

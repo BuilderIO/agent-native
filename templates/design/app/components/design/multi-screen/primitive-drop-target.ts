@@ -62,11 +62,24 @@ export interface ParsedScreenPrimitive {
   /**
    * Set when this primitive is itself an auto-layout (flex/grid) container,
    * to the flow axis new children are inserted along ("x" for a row flex/
-   * multi-column grid, "y" for column flex/single-column grid). Undefined
-   * for plain absolute/canvas-frame containers, which only ever accept an
-   * "inside" (append) drop.
+   * multi-column grid, "y" for column flex/single-column grid). Wrapped flex
+   * containers keep their main axis here while insertion distance also uses
+   * the cross axis. Undefined for plain absolute/canvas-frame containers,
+   * which only ever accept an "inside" (append) drop.
    */
   autoLayoutAxis?: CrossScreenDropAxis;
+  /** Wrapped flex containers choose the nearest child by two-dimensional distance. */
+  autoLayoutWrapped?: boolean;
+}
+
+function primitiveMatchesNodeId(
+  primitive: ParsedScreenPrimitive,
+  nodeId: string,
+): boolean {
+  return (
+    primitive.nodeId === nodeId ||
+    primitive.projectionIdentity?.nodeId === nodeId
+  );
 }
 
 /**
@@ -85,10 +98,8 @@ function computeAutoLayoutAxis(style: {
 }): CrossScreenDropAxis | undefined {
   if (style.display === "flex" || style.display === "inline-flex") {
     const direction = style.flexDirection || "row";
-    const wraps =
-      style.flexWrap === "wrap" || style.flexWrap === "wrap-reverse";
     const isRow = direction.startsWith("row");
-    return isRow && !wraps ? "x" : "y";
+    return isRow ? "x" : "y";
   }
   if (style.display === "grid" || style.display === "inline-grid") {
     const columns = (style.gridTemplateColumns || "")
@@ -101,7 +112,8 @@ function computeAutoLayoutAxis(style: {
 
 /**
  * Resolves a between-children flow-insert slot inside `container` from a
- * screen-local drop point — the nearest child (by flow-axis center) becomes
+ * screen-local drop point — the nearest child (by flow-axis center, or
+ * two-dimensional visual distance for wrapped flex) becomes
  * the anchor with before/after placement, exactly mirroring hit-test.bridge.
  * ts's nearestChildInsertionTarget so overview-canvas drag-drop and in-iframe
  * cross-screen drag-drop produce the same Figma-style insertion behavior.
@@ -133,13 +145,20 @@ export function findAutoLayoutInsertionAnchor(
     } else if (sibling.parentNodeId !== container.nodeId) {
       continue;
     }
-    if (excludeNodeId && sibling.nodeId === excludeNodeId) continue;
+    if (excludeNodeId && primitiveMatchesNodeId(sibling, excludeNodeId)) {
+      continue;
+    }
     const center =
       axis === "x"
         ? sibling.localLeft + sibling.localWidth / 2
         : sibling.localTop + sibling.localHeight / 2;
     const pointer = axis === "x" ? localPoint.x : localPoint.y;
-    const distance = Math.abs(pointer - center);
+    const distance = container.autoLayoutWrapped
+      ? Math.hypot(
+          localPoint.x - (sibling.localLeft + sibling.localWidth / 2),
+          localPoint.y - (sibling.localTop + sibling.localHeight / 2),
+        )
+      : Math.abs(pointer - center);
     if (distance < bestDistance) {
       bestDistance = distance;
       best = sibling;
@@ -503,6 +522,9 @@ export function parsePrimitivesFromScreen(
         flexWrap: style.flexWrap,
         gridTemplateColumns: style.gridTemplateColumns,
       });
+      const autoLayoutWrapped =
+        (style.display === "flex" || style.display === "inline-flex") &&
+        (style.flexWrap === "wrap" || style.flexWrap === "wrap-reverse");
 
       // Nearest ancestor primitive id, used to resolve direct children of a
       // container for auto-layout before/after anchor resolution — see
@@ -530,6 +552,7 @@ export function parsePrimitivesFromScreen(
         localHeight: height,
         isContainer,
         autoLayoutAxis,
+        ...(autoLayoutWrapped ? { autoLayoutWrapped: true } : {}),
       });
     });
   } catch {
@@ -609,7 +632,7 @@ export function getPrimitiveDropTargetForPoint(
       const metadata = getMetadata(screen);
       const primitives = parsePrimitivesFromScreen(screen);
       for (const primitive of primitives) {
-        if (primitive.nodeId === draggedNodeId) {
+        if (primitiveMatchesNodeId(primitive, draggedNodeId)) {
           draggedBoardRect = toBoardRect(primitive, frameGeometry, metadata);
           draggedScreenId = screen.id;
           break outer;
@@ -652,8 +675,20 @@ export function getPrimitiveDropTargetForPoint(
   let best: PrimitiveDropTarget | null = null;
   for (const primitive of primitives) {
     if (!primitive.isContainer) continue;
-    if (draggedNodeId && primitive.nodeId === draggedNodeId) continue;
+    if (draggedNodeId && primitiveMatchesNodeId(primitive, draggedNodeId)) {
+      continue;
+    }
     const boardRect = toBoardRect(primitive, topScreen.geometry, metadata);
+    // A reparent target must contain the dragged layer's rendered bounds. The
+    // loop naturally falls through from an undersized nested target to an
+    // eligible ancestor when one exists.
+    if (
+      draggedBoardRect &&
+      (draggedBoardRect.width > boardRect.width + 1 ||
+        draggedBoardRect.height > boardRect.height + 1)
+    ) {
+      continue;
+    }
     if (
       draggedBoardRect &&
       draggedScreenId === topScreen.screen.id &&
@@ -726,6 +761,35 @@ export function getPrimitiveDropTargetForPoint(
     }
   }
 
+  if (best) return best;
+
+  // The bridge's hit-test resolver falls back to document.body for ordinary
+  // block-layout pages. Mirror that fallback here so a board primitive can be
+  // dropped into blank Screen canvas space, not only onto an authored frame.
+  // The body is intentionally resolved from the projection rather than the
+  // primitive parser: body often has no authored width/height and is therefore
+  // not a ParsedScreenPrimitive.
+  const source =
+    topScreen.screen.codeLayerSource ??
+    ({ kind: "design-file" as const, fileId: topScreen.screen.id } as const);
+  const projection = buildCodeLayerProjection(topScreen.screen.content, {
+    source,
+  });
+  const body = projection.nodes.find((node) => node.tag === "body");
+  const bodyNodeId = body?.dataAttributes["data-agent-native-node-id"];
+  if (body && bodyNodeId) {
+    return {
+      nodeId: bodyNodeId,
+      screenId: topScreen.screen.id,
+      boardRect: topScreen.geometry,
+      targetIdentity: {
+        projection,
+        nodeId: body.id,
+        authoredNodeId: bodyNodeId,
+      },
+    };
+  }
+
   return best;
 }
 
@@ -735,7 +799,9 @@ export function resolveNodeScreenId(
 ): string | null {
   for (const screen of screens) {
     const primitives = parsePrimitivesFromScreen(screen);
-    if (primitives.some((primitive) => primitive.nodeId === nodeId)) {
+    if (
+      primitives.some((primitive) => primitiveMatchesNodeId(primitive, nodeId))
+    ) {
       return screen.id;
     }
   }

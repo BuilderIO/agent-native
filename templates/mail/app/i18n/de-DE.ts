@@ -40,6 +40,7 @@ const messages = {
       unpinSidebar: "Seitenleiste lösen",
       closeSidebar: "Seitenleiste schließen",
       settings: "Einstellungen",
+      aiSettings: "KI-Tags & Spam",
     },
     search: {
       label: "Suchen",
@@ -506,6 +507,37 @@ const messages = {
         "Die Einstellungen des KI-Filters konnten nicht gespeichert werden.",
       instructionFailed:
         "Die KI-Filter-Anweisung konnte nicht gespeichert werden.",
+      spamMode: "Unerwünscht",
+      tagMode: "Tag",
+      ruleAdded: "KI-Regel hinzugefügt.",
+      instructionHelp: "Klare Sprache verwenden",
+      tagNamePlaceholder: "Tag-Name",
+      spamLabelHint:
+        "Treffer werden markiert und aus dem Posteingang verschoben.",
+      spamPlaceholder:
+        "z. B. Nachrichten, die eindeutig Werbung oder unerwünscht sind",
+      tagPlaceholder: "z. B. Belege und Bestellbestätigungen von Onlineshops",
+      addShortcut: "⌘ Enter zum Hinzufügen",
+      previewTitle: "Letzte E-Mails prüfen",
+      previewDescription:
+        "Prüfe die letzten 20 Nachrichten im Posteingang, bevor du eine neue Regel aktivierst. Archivierte und automatisch archivierte E-Mails werden nie ausgewertet.",
+      previewButton: "Vorschau starten",
+      previewRunning: "Letzte Posteingang-E-Mails werden geprüft…",
+      jevBadge: "Jev",
+      feedbackLabel: "Treffer auswählen, die nicht enthalten sein sollen",
+      notSpamShort: "Kein Spam",
+      notMatchShort: "Kein Treffer",
+      noMatch: "Kein Treffer",
+      feedbackPlaceholder:
+        "Optional: Beschreibe, was die KI missverstanden hat oder wonach sie stattdessen suchen soll",
+      refineButton: "Regel aktualisieren & erneut prüfen",
+      instructionsUpdated: "Regel aktualisiert und Vorschau erneut ausgeführt.",
+      noRecentMail: "Keine aktuellen E-Mails im Posteingang zu prüfen.",
+      addRuleToPreview:
+        "Füge eine KI-Regel hinzu, um aktuelle E-Mails zu prüfen.",
+      previewEmpty:
+        "Starte eine Vorschau, um wahrscheinliche Treffer zu sehen.",
+      previewFailed: "Die aktuellen E-Mails konnten nicht geprüft werden.",
     },
     draftQueue: {
       title: "Cola de borradores",

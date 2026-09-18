@@ -1,6 +1,12 @@
+import http, { type Server } from "node:http";
 import path from "node:path";
 
 import { decodeContinuation } from "@agent-native/core/shared";
+import {
+  prepareDesignConnectManifest,
+  startDesignConnectBridge,
+  type DesignConnectBridge,
+} from "@agent-native/core/testing";
 import {
   expect,
   test,
@@ -26,6 +32,10 @@ const SHORTCUT = process.platform === "darwin" ? "Meta+k" : "Control+k";
 
 let designId: string;
 let linkedScreenId: string;
+let visualEditTargetServer: Server | null = null;
+let visualEditBridge: DesignConnectBridge | null = null;
+let visualEditTargetUrl = "";
+const VISUAL_EDIT_BRIDGE_TOKEN = "signed-out-visual-edit-e2e-bridge-token";
 
 type PageRuntimeErrors = {
   consoleErrors: string[];
@@ -49,15 +59,40 @@ function ownScreenFrame(page: Page) {
 
 test.describe.serial("public visual edit", () => {
   test.beforeAll(async ({ browser }) => {
+    visualEditTargetServer = http.createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      response.end(
+        "<!doctype html><html><body><main><h1>Local visual edit target</h1></main></body></html>",
+      );
+    });
+    const address = await listen(visualEditTargetServer);
+    visualEditTargetUrl = `http://${address.host}:${address.port}`;
+    const bridgePortServer = http.createServer();
+    const bridgeAddress = await listen(bridgePortServer);
+    await closeServer(bridgePortServer);
+    const manifest = await prepareDesignConnectManifest({
+      root: path.resolve(import.meta.dirname, "fixtures"),
+      url: visualEditTargetUrl,
+      port: bridgeAddress.port,
+    });
+    visualEditBridge = await startDesignConnectBridge(manifest, {
+      bridgeToken: VISUAL_EDIT_BRIDGE_TOKEN,
+      allowedOrigins: [new URL(BASE_URL).origin],
+    });
     designId = await readSeedDesignId();
     linkedScreenId = await createLinkedScreen(browser, designId);
     await setDesignVisibility(browser, designId, "public");
   });
 
   test.afterAll(async ({ browser }) => {
-    if (!designId) return;
-    if (linkedScreenId) await deleteLinkedScreen(browser, linkedScreenId);
-    await setDesignVisibility(browser, designId, "private");
+    if (designId) {
+      if (linkedScreenId) await deleteLinkedScreen(browser, linkedScreenId);
+      await setDesignVisibility(browser, designId, "private");
+    }
+    await closeServer(visualEditBridge?.server ?? null);
+    visualEditBridge = null;
+    await closeServer(visualEditTargetServer);
+    visualEditTargetServer = null;
   });
 
   test("loads the public /visual-edit route without a session and stays crash-free", async ({
@@ -84,6 +119,250 @@ test.describe.serial("public visual edit", () => {
       await expect(
         signedOut.page.getByRole("dialog").filter({ visible: true }),
       ).toHaveCount(0);
+      await assertNoRuntimeErrors(signedOut);
+    } finally {
+      await signedOut.close();
+    }
+  });
+
+  test("signed-out /visual-edit opens a capability-scoped editor through page WebMCP", async ({
+    browser,
+  }) => {
+    const signedOut = await openSignedOutPage(browser, "/visual-edit");
+    try {
+      if (!visualEditBridge)
+        throw new Error("visual-edit bridge is not running");
+      const bridgeInput = {
+        bridgeUrl: visualEditBridge.manifest.bridgeUrl,
+        bridgeToken: VISUAL_EDIT_BRIDGE_TOKEN,
+        rootPath: visualEditBridge.manifest.rootPath,
+      };
+      await expect
+        .poll(
+          () =>
+            signedOut.page.evaluate(() => {
+              const status = (
+                window as Window & {
+                  __agentNativeWebMcpStatus?: {
+                    state?: string;
+                    registered?: number;
+                    total?: number;
+                    error?: string;
+                  };
+                }
+              ).__agentNativeWebMcpStatus;
+              return status ?? null;
+            }),
+          { timeout: 15_000 },
+        )
+        .toMatchObject({ state: "ready" });
+
+      const preflightPromise = signedOut.page.evaluate(
+        ({ devServerUrl, bridgeInput }) => {
+          const helper = (
+            window as typeof window & {
+              __agentNativeWebMcp?: {
+                call(
+                  name: string,
+                  args?: Record<string, unknown>,
+                ): Promise<unknown>;
+              };
+            }
+          ).__agentNativeWebMcp;
+          if (!helper) throw new Error("WebMCP page helper missing");
+          return helper.call("open-visual-edit", {
+            devServerUrl,
+            paths: ["/"],
+            navigate: false,
+            ...bridgeInput,
+          });
+        },
+        { devServerUrl: visualEditTargetUrl, bridgeInput },
+      );
+
+      const dialog = signedOut.page.getByRole("alertdialog");
+      await expect(dialog).toBeVisible();
+      await signedOut.page.screenshot({
+        path: test.info().outputPath("signed-out-visual-edit-approval.png"),
+      });
+      await dialog.getByRole("button", { name: /open visual edit/i }).click();
+      const preflight = await preflightPromise;
+      if (!(preflight as { ok?: boolean }).ok) {
+        throw new Error(
+          `open-visual-edit preflight failed: ${JSON.stringify(preflight)}`,
+        );
+      }
+      expect(preflight).toMatchObject({
+        state: "done",
+        ok: true,
+        tool: "open-visual-edit",
+      });
+
+      const preflightResult = (
+        preflight as { result?: Record<string, unknown> }
+      ).result;
+      expect(preflightResult?.designId).toEqual(expect.any(String));
+
+      await signedOut.page.evaluate(
+        ({ designId, devServerUrl, bridgeInput }) => {
+          const helper = (
+            window as typeof window & {
+              __agentNativeWebMcp?: {
+                call(
+                  name: string,
+                  args?: Record<string, unknown>,
+                ): Promise<unknown>;
+              };
+            }
+          ).__agentNativeWebMcp;
+          if (!helper) throw new Error("WebMCP page helper missing");
+          void helper
+            .call("open-visual-edit", {
+              designId,
+              devServerUrl,
+              paths: ["/"],
+              ...bridgeInput,
+            })
+            .catch(() => {
+              // A successful call replaces this page while its evaluator is
+              // still settling, so navigation can abort the promise normally.
+            });
+        },
+        {
+          designId: preflightResult?.designId,
+          devServerUrl: visualEditTargetUrl,
+          bridgeInput,
+        },
+      );
+
+      await expect(dialog).toBeVisible();
+      await dialog.getByRole("button", { name: /open visual edit/i }).click();
+
+      await expect
+        .poll(
+          () => {
+            const url = new URL(signedOut.page.url());
+            return {
+              editorPath: url.pathname.startsWith("/visual-edit/"),
+              hasCapability: url.searchParams.has("__an_embed_token"),
+            };
+          },
+          { timeout: 30_000 },
+        )
+        .toEqual({ editorPath: true, hasCapability: true });
+      await expect(signedOut.page.locator("[data-design-editor]")).toBeVisible({
+        timeout: 30_000,
+      });
+      await expect
+        .poll(
+          () =>
+            signedOut.page.evaluate(async () => {
+              const helper = (
+                window as typeof window & {
+                  __agentNativeWebMcp?: {
+                    tools(): Promise<Array<{ name: string }>>;
+                  };
+                }
+              ).__agentNativeWebMcp;
+              if (!helper) throw new Error("WebMCP page helper missing");
+              return (await helper.tools()).map((tool) => tool.name).sort();
+            }),
+          { timeout: 15_000 },
+        )
+        .toEqual(
+          expect.arrayContaining([
+            "get-visual-edit-prompt",
+            "list-localhost-connections",
+            "request-localhost-write-consent",
+            "update-screen-source",
+          ]),
+        );
+
+      await expect
+        .poll(async () =>
+          signedOut.page.evaluate(async () => {
+            const helper = (
+              window as typeof window & {
+                __agentNativeWebMcp?: {
+                  call(
+                    name: string,
+                    args?: Record<string, unknown>,
+                  ): Promise<unknown>;
+                };
+              }
+            ).__agentNativeWebMcp;
+            if (!helper) throw new Error("WebMCP page helper missing");
+            return helper.call("get-visual-edit-prompt", {});
+          }),
+        )
+        .toMatchObject({
+          state: "done",
+          ok: true,
+          tool: "get-visual-edit-prompt",
+          result: { pendingEditCount: 0, status: "empty" },
+        });
+
+      const capabilityDesignId = new URL(signedOut.page.url()).pathname
+        .split("/")
+        .pop();
+      expect(capabilityDesignId).toEqual(preflightResult?.designId);
+      await expect
+        .poll(async () =>
+          signedOut.page.evaluate(async (designId) => {
+            const helper = (
+              window as typeof window & {
+                __agentNativeWebMcp?: {
+                  call(
+                    name: string,
+                    args?: Record<string, unknown>,
+                  ): Promise<unknown>;
+                };
+              }
+            ).__agentNativeWebMcp;
+            if (!helper) throw new Error("WebMCP page helper missing");
+            return helper.call("list-localhost-connections", { designId });
+          }, capabilityDesignId),
+        )
+        .toMatchObject({
+          state: "done",
+          ok: true,
+          tool: "list-localhost-connections",
+          result: { count: 1 },
+        });
+      const consentRequest = await signedOut.page.evaluate(
+        async ({ designId, connectionId }) => {
+          const helper = (
+            window as typeof window & {
+              __agentNativeWebMcp?: {
+                call(
+                  name: string,
+                  args?: Record<string, unknown>,
+                ): Promise<unknown>;
+              };
+            }
+          ).__agentNativeWebMcp;
+          if (!helper) throw new Error("WebMCP page helper missing");
+          return helper.call("request-localhost-write-consent", {
+            designId,
+            connectionId,
+            files: ["src/App.tsx"],
+          });
+        },
+        {
+          designId: preflightResult?.designId,
+          connectionId: preflightResult?.connectionId,
+        },
+      );
+      expect(consentRequest).toMatchObject({
+        state: "done",
+        ok: true,
+        tool: "request-localhost-write-consent",
+        result: {
+          designId: preflightResult?.designId,
+          connectionId: preflightResult?.connectionId,
+        },
+      });
+
       await assertNoRuntimeErrors(signedOut);
     } finally {
       await signedOut.close();
@@ -129,6 +408,7 @@ test.describe.serial("public visual edit", () => {
                 }
               : null,
             toolCount: tools.length,
+            toolNames: tools.map((tool) => tool.name),
           };
         })()`,
         awaitPromise: true,
@@ -143,6 +423,7 @@ test.describe.serial("public visual edit", () => {
           total: number;
         } | null;
         toolCount: number;
+        toolNames: string[];
       };
     };
 
@@ -150,6 +431,7 @@ test.describe.serial("public visual edit", () => {
       helper: true,
       modelContext: true,
       status: { state: "ready" },
+      toolNames: expect.arrayContaining(["get-visual-edit-prompt"]),
     });
     expect((await readWebMcpState()).toolCount).toBeGreaterThan(0);
     const promptCall = await page.evaluate(async () => {
@@ -348,6 +630,25 @@ test.describe.serial("public visual edit", () => {
     );
   });
 });
+
+async function listen(server: Server): Promise<{ host: string; port: number }> {
+  return new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      if (typeof address !== "object" || !address) {
+        reject(new Error("Visual-edit target server did not bind."));
+        return;
+      }
+      resolve({ host: address.address, port: address.port });
+    });
+  });
+}
+
+async function closeServer(server: Server | null): Promise<void> {
+  if (!server) return;
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+}
 
 async function setDesignVisibility(
   browser: Browser,

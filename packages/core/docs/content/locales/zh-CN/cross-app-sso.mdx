@@ -107,4 +107,8 @@ ID、客户端 ID、HTTPS 来源、回调路径和 <code>identity-sso</code> 能
 - [安全与数据范围](/docs/security)
 - [多应用工作区](/docs/multi-app-workspace)
 
-通过 OIDC 或 SAML 进行企业登录，与应用之间的身份联邦不同。[管理式部署指南](/docs/administered-deployments)介绍企业部署模式。浏览器中的 Agent-Native 登录仍已移除。
+通过 OIDC 或 SAML 进行企业登录，与应用之间的身份联邦不同。[管理式部署指南](/docs/administered-deployments)介绍企业部署模式。启用 `browser.identity-sso` 后，应用会尝试静默的 `prompt=none` 检查，并保留本地登录表单作为回退。请参阅[跨应用连接设计](/docs/cross-app-connect-design)。
+
+## 浏览器身份 SSO 发布步骤
+
+先仅为一个测试邮箱启用 `browser.identity-sso`。登录 Dispatch，退出目标应用并重新加载以确认静默检查。没有 hub 会话时再次测试，确认 `login_required` 返回本地登录表单后再扩大范围。首次启用可能需要一次性撤销现有会话。

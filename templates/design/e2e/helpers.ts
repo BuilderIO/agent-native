@@ -356,13 +356,11 @@ async function waitForDesignBridgeReady(page: Page): Promise<void> {
   await expect
     .poll(
       async () => {
-        const previewIframes = await page
-          .locator(DESIGN_PREVIEW_IFRAME_SELECTOR)
-          .elementHandles();
+        const previewIframes = page.locator(DESIGN_PREVIEW_IFRAME_SELECTOR);
+        const previewIframeCount = await previewIframes.count();
         let selectableNodeCount = 0;
-        for (const iframe of previewIframes) {
-          const frame = await iframe.contentFrame();
-          if (!frame) continue;
+        for (let index = 0; index < previewIframeCount; index += 1) {
+          const frame = previewIframes.nth(index).contentFrame();
           selectableNodeCount += await frame
             .locator("[data-agent-native-node-id], h1, h2, p, button")
             .count()
@@ -444,7 +442,12 @@ export async function enterInteractView(
         .locator("[data-frame-full-view]")
     : page.locator("[data-frame-full-view]").last();
   await expect(fullView).toHaveCount(1);
-  await fullView.click();
+  // The screen card can extend beneath the fixed inspector at narrow canvas
+  // widths; invoke the button without relying on the panel's overlapping
+  // physical hit area.
+  await fullView.evaluate((element) => {
+    (element as HTMLButtonElement).click();
+  });
   // The overview screen shells are the boundary that actually unmounts; the
   // toolbar's own Interact button stays mounted and merely becomes pressed.
   await expect(page.locator("[data-screen-shell]")).toHaveCount(0);

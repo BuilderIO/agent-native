@@ -216,6 +216,8 @@ export interface ClientActionCallOptions {
   signal?: AbortSignal;
   /** Override the default 60s fetch timeout for long-running actions. */
   timeoutMs?: number;
+  /** Additional same-origin headers for a narrowly scoped capability call. */
+  headers?: Record<string, string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -283,11 +285,34 @@ export interface ActionFetchOptions {
   serializedBody?: string;
   /** Omit the tab echo-suppression tag for imperative callers. */
   includeRequestSource?: boolean;
+  /** Additional same-origin headers for a narrowly scoped capability call. */
+  headers?: Record<string, string>;
 }
 
 type InternalActionFetchOptions = ActionFetchOptions & {
   onResponse?: (response: Response) => void;
+  uiCapabilityRetry?: boolean;
 };
+
+let uiCapabilityRequest: Promise<void> | undefined;
+
+async function ensureUiActionCapability(): Promise<void> {
+  const request =
+    uiCapabilityRequest ??
+    (uiCapabilityRequest = fetch(
+      agentNativePath("/_agent-native/ui-capability"),
+      { credentials: "same-origin", cache: "no-store" },
+    )
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error("Could not establish the browser UI capability.");
+        }
+      })
+      .finally(() => {
+        uiCapabilityRequest = undefined;
+      }));
+  return request;
+}
 
 /**
  * Conservative per-document keepalive body budget. Browsers commonly enforce
@@ -345,6 +370,7 @@ async function performActionFetch<T>(
           "X-Request-Source": browserTabId,
         }
       : {}),
+    ...(options?.headers ?? {}),
   };
   const compatibilityVersion = clientCompatibilityVersion();
   if (compatibilityVersion) {
@@ -494,6 +520,19 @@ async function performActionFetch<T>(
   }
 
   if (!res.ok) {
+    if (
+      res.status === 403 &&
+      data?.errorCode === "ui_capability_required" &&
+      !options?.uiCapabilityRetry &&
+      typeof window !== "undefined"
+    ) {
+      await ensureUiActionCapability();
+      return performActionFetch<T>(name, method, params, {
+        ...options,
+        uiCapabilityRetry: true,
+      });
+    }
+
     // The server does not recognise this browser any more. Nothing else
     // tells the session gate that, so without this the shell stays mounted
     // on a stale authenticated answer and the failure reaches the user as a
@@ -744,6 +783,7 @@ export function callAction<
     signal: options.signal,
     timeoutMs: options.timeoutMs,
     includeRequestSource: false,
+    headers: options.headers,
   });
 }
 

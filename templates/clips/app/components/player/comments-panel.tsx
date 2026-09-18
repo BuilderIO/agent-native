@@ -9,10 +9,10 @@ import {
 } from "@agent-native/core/client/markdown";
 import {
   IconArrowUp,
+  IconMessageCircle,
   IconMoodSmile,
   IconCornerDownRight,
   IconDots,
-  IconMessageCircle,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -872,7 +872,6 @@ export function CommentsPanel(props: CommentsPanelProps) {
           <EmptyCommentsState
             enableComments={enableComments}
             isSharePresentation={isSharePresentation}
-            isInlinePresentation={isInlinePresentation}
           />
         ) : (
           <ul
@@ -906,11 +905,9 @@ export function CommentsPanel(props: CommentsPanelProps) {
 function EmptyCommentsState({
   enableComments,
   isSharePresentation,
-  isInlinePresentation,
 }: {
   enableComments: boolean;
   isSharePresentation: boolean;
-  isInlinePresentation: boolean;
 }) {
   const t = useT();
   if (!enableComments) {
@@ -932,11 +929,6 @@ function EmptyCommentsState({
       </Empty>
     );
   }
-
-  // Inline comments keep the composer in the reading flow for every viewer;
-  // the signed-out composer is the empty-state affordance, so a second
-  // centered prompt would make the public and signed-in layouts diverge.
-  if (isInlinePresentation) return null;
 
   return (
     <Empty
@@ -1408,6 +1400,7 @@ function CommentCard({
             <InlineMarkdown
               content={comment.content}
               className="mt-0.5 text-sm leading-5 text-foreground [overflow-wrap:anywhere]"
+              linkClassName="text-link underline-offset-2 hover:underline"
               renderLists
               protectedSpans={commentMentionSpans(comment.mentions)}
             />

@@ -12,6 +12,7 @@ import {
   type SignInJourney,
 } from "../../shared/sign-in-journey.js";
 import { isSyntheticTrafficValue } from "../../shared/test-traffic.js";
+import { openOAuthPopup } from "../oauth-popup.js";
 import { OceanBackground } from "../ocean/OceanBackground.js";
 
 export type AuthView =
@@ -1537,11 +1538,24 @@ export function AuthPage(props: AuthPageProps) {
     }
     let popup: Window | null = null;
     if (flow === "popup") {
-      const builderPreviewFrame = isBuilderPreview() && isInFrame();
+      // A same-frame redirect fallback is safe only at the true top level:
+      // Google's accounts pages refuse to render at all once they detect
+      // Sec-Fetch-Dest: iframe (a blank "403 — you do not have access to this
+      // page"), regardless of which host framed the page. This used to only
+      // guard Builder's own preview iframe, so any OTHER embedding — the
+      // Design app's local visual-edit canvas included — fell through to the
+      // redirect and hit that same 403 the moment the popup failed to open.
+      const redirectFallbackUnsafe = isInFrame();
       try {
-        popup = window.open("", "_blank", "width=640,height=760");
+        popup = openOAuthPopup({
+          initialUrl: new URL(
+            `${runtimeAppBasePath}/_agent-native/oauth/popup`,
+            window.location.origin,
+          ).href,
+          features: "width=640,height=760",
+        });
         if (!popup) {
-          if (builderPreviewFrame) {
+          if (redirectFallbackUnsafe) {
             setGoogleBusy(false);
             setNotice("google", {
               kind: "error",
@@ -1562,7 +1576,7 @@ export function AuthPage(props: AuthPageProps) {
           // coercion-ok: some browsers expose popup.opener as read-only.
         }
       } catch {
-        if (builderPreviewFrame) {
+        if (redirectFallbackUnsafe) {
           setGoogleBusy(false);
           setNotice("google", {
             kind: "error",
@@ -1639,6 +1653,7 @@ export function AuthPage(props: AuthPageProps) {
     googleViaIdentitySso,
     resolveGoogleFlow,
     resumeHref,
+    runtimeAppBasePath,
     setNotice,
     showGoogle,
     startOAuthExchange,

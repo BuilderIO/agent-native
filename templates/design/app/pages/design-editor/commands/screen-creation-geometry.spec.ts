@@ -106,4 +106,62 @@ describe("screen creation geometry snapshots", () => {
       },
     );
   });
+
+  it("places toolbar Add Screen after visible breakpoint previews", () => {
+    const deferred = deferredCreateFileMutation();
+    const writeFrameGeometrySnapshot = vi.fn();
+    const designDataJsonRef = ref<Record<string, unknown>>({
+      canvasFrames: {
+        "screen-1": { x: 555, y: 0, width: 402, height: 874 },
+        "screen-2": { x: 1013, y: 0, width: 320, height: 640 },
+      },
+    });
+
+    runAddScreen({
+      canEditDesign: true,
+      createFileMutation: deferred.createFileMutation,
+      designDataJsonRef,
+      files: [],
+      focusCreatedScreen: vi.fn(),
+      id: "design-1",
+      optimisticallyInsertCreatedFile: vi.fn(),
+      overviewScreens: [
+        {
+          id: "screen-1",
+          filename: "screen-1.html",
+          content: "",
+          updatedAt: "",
+          heightPinned: false,
+          width: 402,
+          height: 874,
+          breakpointWidths: [360, 375],
+        },
+        {
+          id: "screen-2",
+          filename: "screen-2.html",
+          content: "",
+          updatedAt: "",
+          heightPinned: false,
+          width: 320,
+          height: 640,
+        },
+      ],
+      queryClient: { invalidateQueries: vi.fn() } as never,
+      recordFileCreationHistoryEntry: vi.fn(),
+      t: (key: string) => key,
+      writeFrameGeometrySnapshot,
+    });
+
+    deferred.complete();
+
+    const written = writeFrameGeometrySnapshot.mock.calls[0]?.[0] as
+      | CanvasFrameGeometryById
+      | undefined;
+    expect(written?.["created-screen"]).toMatchObject({
+      x: 1796,
+      y: 0,
+      width: 320,
+      height: 640,
+    });
+  });
 });

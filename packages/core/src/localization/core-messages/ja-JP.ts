@@ -1,6 +1,7 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "activity.reasoning": "推論",
   "approval.alwaysAllow": "常に許可",
   "approval.alwaysAllowHint":
     "この完全に同じコマンドを承認し、今後も常に許可します",
@@ -72,15 +73,31 @@ const messages: AgentChatTranslation = {
     "Builder.io アカウントを作成または再利用しています。通常は数秒かかります。",
   "onboarding.builderConnectionDescription":
     "新しいウィンドウでワンクリック接続を完了してください。",
+  "onboarding.builderReadyWithCodeChanges":
+    "AI クレジットとクラウドコードの変更を利用できます。",
+  "onboarding.builderReadyCreditsOnly":
+    "AI クレジットを利用できます。クラウドコードの編集には、Background Agent 設定で Builder プロジェクトが必要です。",
+  "onboarding.openBackgroundAgentSettings": "Background Agent 設定を開く",
   "onboarding.capability.llm.keySummary":
     "AIプロバイダーまたはローカルモデルに接続",
   "onboarding.capability.fileStorage.keySummary":
     "BuilderストレージまたはS3互換バケット",
+  "onboarding.fileStorage.title": "ファイルストレージを選択",
+  "onboarding.fileStorage.description":
+    "Builderの管理ストレージ、または独自のS3互換バケット用のカスタムストレージキーを選択します。",
+  "onboarding.fileStorage.custom": "カスタムストレージキーを使用",
+  "onboarding.fileStorage.customDescription":
+    "安定した公開URLを持つS3互換バケットを設定します。",
   "onboarding.capability.voiceInput.label": "音声入力",
   "onboarding.capability.voiceInput.keySummary":
     "ブラウザーの音声認識または音声文字変換",
   "onboarding.capability.voiceInput.why":
     "音声入力は話したリクエストをテキストに変換します。入力はいつでも使えます。",
+  "onboarding.capability.embeddings.label": "埋め込み",
+  "onboarding.capability.embeddings.keySummary":
+    "Gemini、Cohere、またはVoyageのキー",
+  "onboarding.capability.embeddings.why":
+    "埋め込みは意味検索を改善します。埋め込みがなくてもキーワード検索は使えます。",
   "onboarding.capability.assetsImageGeneration.label": "画像生成",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Builderクレジットまたは画像プロバイダーのキー",
@@ -172,6 +189,27 @@ const messages: AgentChatTranslation = {
   "agents.statusReachable": "接続可能",
   "agents.statusAuthRejected": "認証拒否",
   "agents.statusNoJsonRpc": "JSON-RPC なし",
+  "agents.directoryTab": "エージェントディレクトリ",
+  "agents.directoryPageHint":
+    "エージェントバックエンドを見つけてワークスペースに接続します。",
+  "agents.directorySearch": "プロバイダーを検索",
+  "agents.directoryProviders": "プロバイダー",
+  "agents.directoryManual": "URL で追加",
+  "agents.directoryA2A": "A2A",
+  "agents.directoryManaged": "マネージド API",
+  "agents.directoryFoundry": "Microsoft Foundry",
+  "agents.directoryFoundryHint":
+    "A2A 経由で Foundry エージェントを接続します。",
+  "agents.directoryGemini": "Gemini Enterprise",
+  "agents.directoryGeminiHint":
+    "A2A 経由で Gemini Enterprise エージェントを接続します。",
+  "agents.directoryAnthropic": "Anthropic 管理エージェント",
+  "agents.directoryAnthropicHint": "Anthropic のセッションと承認を接続します。",
+  "agents.directoryNoMatches": "検索に一致するプロバイダーはありません。",
+  "agents.directoryRegistry": "グローバル A2A レジストリ",
+  "agents.directoryRegistryHint":
+    "公開 Agent Card を参照し、接続前に確認してください。",
+  "agents.directoryBrowse": "レジストリを開く",
   "common.saveFailed": "保存に失敗しました",
   "common.saveFailedStatus": "保存に失敗しました（{{status}}）",
   "common.saving": "保存中...",
@@ -724,6 +762,7 @@ const messages: AgentChatTranslation = {
   "status.preparing": "{{activity}} を準備中...",
   "status.writing": "{{activity}} を書き込み中...",
   "status.stillGenerating": "{{activity}} を引き続き生成中",
+  "status.runningTool": "{{activity}} を実行中",
   "tabs.allChats": "すべてのチャット",
   "tabs.closeTab": "タブを閉じる",
   "tabs.main": "メイン",

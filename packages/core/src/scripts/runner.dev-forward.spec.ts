@@ -41,6 +41,22 @@ vi.mock("../server/dev-action-bridge.js", () => ({
   hashDatabaseKey: (...args: unknown[]) => mockHashDatabaseKey(...args),
   readDevActionDiscoveryFile: (...args: unknown[]) =>
     mockReadDevActionDiscoveryFile(...args),
+  isLoopbackDevActionOrigin: (origin: string) => {
+    try {
+      const url = new URL(origin);
+      return (
+        (url.protocol === "http:" || url.protocol === "https:") &&
+        (url.hostname === "127.0.0.1" ||
+          url.hostname === "localhost" ||
+          url.hostname === "[::1]") &&
+        url.pathname === "/" &&
+        !url.search &&
+        !url.hash
+      );
+    } catch {
+      return false;
+    }
+  },
 }));
 
 import { tryForwardToDevServer } from "./runner.js";
@@ -311,7 +327,7 @@ describe("tryForwardToDevServer", () => {
 
     expect(mockIsValidDevActionHandoffUrl).toHaveBeenCalledWith(
       "https://evil.example/_agent-native/embed/start?ticket=secret",
-      undefined,
+      "http://127.0.0.1:1",
     );
     expect(logSpy).toHaveBeenCalledWith("forwarded-ok");
     expect(exit).toHaveBeenCalledWith(0);

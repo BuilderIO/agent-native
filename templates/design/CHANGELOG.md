@@ -3,11 +3,90 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
-## 2026-09-16
+## 2026-09-17
+
+### Added
+
+- Design can open running localhost apps through the current browser session
+
+### Improved
+
+- Design loads faster and large .fig imports can target selected frames
 
 ### Fixed
 
+- Large .fig files import directly in the browser without the old upload ceiling
+
+## 2026-09-16
+
+### Improved
+
+- Design files avoid cold-start scans and open faster after idle periods
+- Design marquee selections stay responsive on large screens
+- Design editor agent chat uses shared conversation tabs and stays usable at narrow widths
+- Empty template libraries now link directly back to your designs.
+
+### Fixed
+
+- Design comments keep keyboard mentions and selected recipients through drafts and replies
+- Design Fill editing uses the visible background paint on text-bearing controls
+- Design inspector controls match compact Figma spacing
+- URL-backed visual edits keep their editor state through consent and source writeback
+- Canvas zoom controls and keyboard shortcuts now update the canvas immediately
+- Design auto layout controls stay aligned to the 28-column inspector grid
+- Design review pins follow screens and keep comment actions together
+- Honor requested Design page counts, visual direction, and interactive prototype controls.
+- Inspector alignment, gap, and padding controls keep their 8px spacing at narrow widths
+- Imported layer names stay consistent across editing, selection, comments, exports, and linked components.
+- URL-backed design previews keep authenticated sessions across screens
+- URL-backed overview screens keep their app session and same-origin resources
+- Visual edits stay applied when the page structure shifts after a replacement.
+- Authored flex direction, wrap, gaps, justify-content, and padding now survive layout edits instead of being reset.
 - A message that only mentions a design, or pastes Design's own guidance back into chat, no longer ends with a false "couldn't confirm that a Design artifact was saved" reply.
+
+## 2026-09-15
+
+### Added
+
+- Added draggable corner-radius handles to the selection outline (drag inward to round corners, like Figma) and polished the outer resize handle styling
+
+### Improved
+
+- Auto layout controls use a compact alignment and gap layout with smaller constraint controls.
+- Keep the Screens list focused and resize its split with Layers
+- Large-design element selection keeps bulk geometry collection lightweight for faster marquee interactions.
+- Large visual-edit maps limit concurrent live app boots so more screens stay responsive
+- Layers have more breathing room, smaller chevrons, and balanced toolbar icons; inspector tabs have more vertical padding.
+- Main component structure edits stay linked across instances, and deleted main components can be restored from an instance.
+- Marquee select and double-click element select on the canvas are much faster on large screens.
+- Responsive breakpoint edits preserve authored CSS, and Shift-dragging a padding handle updates all four sides together.
+- Account menus are now shorter, with workspace apps and agent management available in Settings.
+- Visual structure reorders now verify after source updates even when HMR changes runtime identities
+
+### Fixed
+
+- Fixed .fig file import placing multi-frame flows in reverse order — frames now import in left-to-right canvas order instead of layer/creation order
+- Fixed fill dialog tooltips (paint type tabs, eyedropper, document colors) rendering behind the dialog instead of in front of it
+- Fixed the live width × height readout shown while drawing a new shape to render as a rounded blue pill, matching the equivalent resize readout
+- Fixed polygon and star shapes getting letterboxed instead of resizing with their bounding box
+- Fixed the width × height label shown while resizing an element rendering as plain unstyled text instead of a visible colored badge
+- Alt-dragging a layer inside a group now keeps the duplicate under the cursor for the whole drag instead of jumping into place on release.
+- Breakpoint width edits preserve the existing breakpoint, and new Screens stay clear of visible breakpoint previews.
+- Changing a grid's column or row count no longer turns fill or hug tracks into fixed pixel sizes
+- Creating and focusing Screens keeps the canvas zoom and position stable.
+- Figma imports preserve original layer names in the Layers panel
+- Figma layer names now survive import, rename, and reload in Design
+- Fixed padding indicator tick marks so they render at the same length on every edge
+- Groups now resize with linked text overrides in the editor, previews, and exports.
+- Keep local Design rotation edits undoable while preserving collaboration conflict checks.
+- New designs start with fresh prompts, reliable asset picking, and responsive screens.
+- Overview canvas no longer shows generated screens as blank or black frames at low zoom
+- Prevent pending visual edits from being lost during screen navigation
+- Rapid dependent layout edits now retain changes made immediately before them.
+- Restore the standard Agent-Native chat header and tabs in the Design editor.
+- Text typed immediately after clicking the Text tool on empty canvas space is no longer lost, and the new layer is named from what you typed
+- The Letter spacing field now accepts percentages and em values like Figma, and keeps two decimals instead of rounding 0.64 to 0.6
+- Visual edit maps keep query-specific screens distinct and expose the latest native WebMCP surface.
 
 ## 2026-09-14
 

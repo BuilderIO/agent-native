@@ -1,6 +1,7 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "activity.reasoning": "Razonamiento",
   "approval.alwaysAllow": "Permitir siempre",
   "approval.alwaysAllowHint": "Aprobar y permitir siempre este comando exacto",
   "approval.alwaysAllowAction": "Permitir siempre esta acción",
@@ -76,15 +77,32 @@ const messages: AgentChatTranslation = {
     "Creando o reutilizando tu cuenta de Builder.io. Esto suele tardar unos segundos.",
   "onboarding.builderConnectionDescription":
     "Finaliza la conexión con un clic en la nueva ventana.",
+  "onboarding.builderReadyWithCodeChanges":
+    "Los créditos de IA y los cambios de código en la nube están listos para usarse.",
+  "onboarding.builderReadyCreditsOnly":
+    "Los créditos de IA están listos para usarse. Las ediciones de código en la nube requieren un proyecto de Builder en la configuración del agente en segundo plano.",
+  "onboarding.openBackgroundAgentSettings":
+    "Abrir la configuración del agente en segundo plano",
   "onboarding.capability.llm.keySummary":
     "Conecta un proveedor de IA o un modelo local",
   "onboarding.capability.fileStorage.keySummary":
     "Almacenamiento de Builder o un bucket compatible con S3",
+  "onboarding.fileStorage.title": "Elige el almacenamiento de archivos",
+  "onboarding.fileStorage.description":
+    "Elige el almacenamiento administrado de Builder o tus propias claves para un bucket compatible con S3.",
+  "onboarding.fileStorage.custom": "Usar claves de almacenamiento propias",
+  "onboarding.fileStorage.customDescription":
+    "Configura un bucket compatible con S3 con una URL pública estable.",
   "onboarding.capability.voiceInput.label": "Entrada de voz",
   "onboarding.capability.voiceInput.keySummary":
     "Reconocimiento de voz del navegador o conversión de voz a texto",
   "onboarding.capability.voiceInput.why":
     "La entrada de voz convierte tus solicitudes habladas en texto; escribir siempre funciona.",
+  "onboarding.capability.embeddings.label": "Vectores semánticos",
+  "onboarding.capability.embeddings.keySummary":
+    "Clave de Gemini, Cohere o Voyage",
+  "onboarding.capability.embeddings.why":
+    "Los vectores semánticos mejoran la búsqueda semántica. La búsqueda por palabras clave sigue funcionando sin ellos.",
   "onboarding.capability.assetsImageGeneration.label": "Generación de imágenes",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Créditos de Builder o una clave de proveedor de imágenes",
@@ -180,6 +198,27 @@ const messages: AgentChatTranslation = {
   "agents.statusReachable": "Accesible",
   "agents.statusAuthRejected": "Autenticación rechazada",
   "agents.statusNoJsonRpc": "Sin JSON-RPC",
+  "agents.directoryTab": "Directorio de agentes",
+  "agents.directoryPageHint":
+    "Encuentra un backend de agentes y conéctalo a tu espacio de trabajo.",
+  "agents.directorySearch": "Buscar proveedores",
+  "agents.directoryProviders": "Proveedores",
+  "agents.directoryManual": "Añadir por URL",
+  "agents.directoryA2A": "A2A",
+  "agents.directoryManaged": "API administrada",
+  "agents.directoryFoundry": "Microsoft Foundry",
+  "agents.directoryFoundryHint": "Conecta un agente de Foundry mediante A2A.",
+  "agents.directoryGemini": "Gemini Enterprise",
+  "agents.directoryGeminiHint":
+    "Conecta un agente de Gemini Enterprise mediante A2A.",
+  "agents.directoryAnthropic": "Agentes administrados de Anthropic",
+  "agents.directoryAnthropicHint":
+    "Conecta sesiones y aprobaciones de Anthropic.",
+  "agents.directoryNoMatches": "Ningún proveedor coincide con tu búsqueda.",
+  "agents.directoryRegistry": "Registro global de A2A",
+  "agents.directoryRegistryHint":
+    "Explora Agent Cards públicas y verifícalas antes de conectar.",
+  "agents.directoryBrowse": "Explorar registro",
   "common.saveFailed": "Error al guardar",
   "common.saveFailedStatus": "Error al guardar ({{status}})",
   "common.saving": "Guardando...",
@@ -357,6 +396,7 @@ const messages: AgentChatTranslation = {
   "status.preparing": "Preparando {{activity}}...",
   "status.writing": "Escribiendo {{activity}}...",
   "status.stillGenerating": "Sigue generando {{activity}}",
+  "status.runningTool": "Ejecutando {{activity}}",
   "tabs.allChats": "Todos los chats",
   "tabs.closeTab": "Cerrar pestaña",
   "tabs.main": "Principal",

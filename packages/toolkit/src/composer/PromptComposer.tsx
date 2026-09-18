@@ -658,9 +658,27 @@ function PromptComposerInner({
       window.dispatchEvent(new Event("agent-engine:configured-changed"));
     }
   }, []);
+  const useInlineMissingKeySetup = layoutVariant === "compact";
+  const gateComposer = shouldGateComposerForMissingEngine({
+    state: agentEngineConfigured.state,
+    hasSetupComponent: Boolean(
+      useInlineMissingKeySetup ? BuilderSetupContent : BuilderSetupCard,
+    ),
+  });
+  const ensureEngineReadyBeforeSubmit = useCallback(async () => {
+    if (agentEngineConfigured.state !== "unknown") return true;
+    const state = await modelsAdapter.fetchAgentEngineConfiguredState?.(true, {
+      timeoutMs: 5_000,
+    });
+    if (state === "missing") {
+      bounceMissingKeySetup();
+      return false;
+    }
+    return true;
+  }, [agentEngineConfigured.state, bounceMissingKeySetup, modelsAdapter]);
 
   useEffect(() => {
-    if (!autoFocus) return;
+    if (!autoFocus || gateComposer) return;
     const id = window.setTimeout(() => {
       const target =
         typeof handleRef === "object" && handleRef && "current" in handleRef
@@ -669,7 +687,7 @@ function PromptComposerInner({
       target?.focus();
     }, 50);
     return () => window.clearTimeout(id);
-  }, [autoFocus, handleRef]);
+  }, [autoFocus, gateComposer, handleRef]);
 
   const handleSubmit = useCallback(
     async (
@@ -698,14 +716,6 @@ function PromptComposerInner({
     },
     [composerEffort, composerEngine, composerModel, onSubmit],
   );
-  const useInlineMissingKeySetup = layoutVariant === "compact";
-  const gateComposer = shouldGateComposerForMissingEngine({
-    state: agentEngineConfigured.state,
-    hasSetupComponent: Boolean(
-      useInlineMissingKeySetup ? BuilderSetupContent : BuilderSetupCard,
-    ),
-  });
-
   return (
     <>
       {missingApiKey && !useInlineMissingKeySetup && BuilderSetupCard ? (
@@ -764,6 +774,7 @@ function PromptComposerInner({
           initialText={initialText}
           initialTextKey={initialTextKey}
           onSubmit={handleSubmit}
+          onBeforeSubmit={ensureEngineReadyBeforeSubmit}
           clearOnSubmit={!preserveDraftOnSubmit}
           plusMenuMode={
             plusMenuMode ?? (attachmentsEnabled ? "upload-only" : "hidden")

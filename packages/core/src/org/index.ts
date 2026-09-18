@@ -45,6 +45,11 @@ export type { AutoJoinDomainResult } from "./auto-join-domain.js";
 export { setActiveOrgId } from "./active-org.js";
 export { invalidateMemberOrgCaches } from "./request-org-cache.js";
 export { isMissingOrganizationTableError } from "./membership.js";
+export { offboardMember } from "../identity/offboard.js";
+export type {
+  OffboardMemberOptions,
+  OffboardMemberResult,
+} from "../identity/offboard.js";
 export {
   claimWorkspaceAppForOrganization,
   isStandaloneDispatchRuntime,
@@ -57,10 +62,12 @@ export {
   listRegisteredAppRoles,
   listAppMemberRoles,
   resolveAppRole,
+  setAppMemberRole,
   setAppMemberRoles,
   applyInvitationAppRoles,
   getAppPermissionOverrides,
   setAppPermissionRoles,
+  resolveAppAuthorizationContext,
 } from "./app-roles.js";
 export type {
   AppRoles,
@@ -68,6 +75,7 @@ export type {
   AppRoleCaller,
   AppRoleLookup,
   AppMemberRoleRow,
+  AppAuthorizationContext,
 } from "./app-roles.js";
 
 export { ORG_MIGRATIONS } from "./migrations.js";

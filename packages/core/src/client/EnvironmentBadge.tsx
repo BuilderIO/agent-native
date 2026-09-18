@@ -11,6 +11,7 @@ import type {
   AgentNativeDeploymentEnvironment,
   AgentNativeConfig,
 } from "../config.js";
+import { getAppStatus } from "../shared/app-status.js";
 import {
   BETA_FORCE_QUERY_PARAM,
   BETA_FORCE_SESSION_STORAGE_KEY,
@@ -26,6 +27,7 @@ import {
 } from "../shared/environment-lanes.js";
 import { trackEvent } from "./analytics.js";
 import { injectedAgentNativeConfig } from "./app-config.js";
+import { FeedbackButton } from "./FeedbackButton.js";
 import { useT } from "./i18n.js";
 import { useSession } from "./use-session.js";
 import { cn } from "./utils.js";
@@ -252,19 +254,37 @@ function EnvironmentBadgeContent({
 
   if (!isBuilder) {
     return (
-      <div
-        aria-label={title}
-        className={cn(
-          badgeClasses,
-          "inline-flex items-center justify-center select-none",
-          environment === "beta"
-            ? "border-primary/80 bg-primary text-primary-foreground"
-            : "border-border/80 bg-background/95 text-foreground",
-        )}
-        role="status"
-      >
-        {label}
-      </div>
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button
+            aria-label={t("environmentBadge.activeDevelopment")}
+            className={badgeClasses}
+            size="sm"
+            variant={environment === "beta" ? "default" : "outline"}
+          >
+            {label}
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent
+          align="start"
+          className="w-[280px] p-4"
+          side={placement === "inline" ? "bottom" : "top"}
+          sideOffset={8}
+        >
+          <div className="text-sm font-semibold leading-5">
+            {t("environmentBadge.activeDevelopment")}
+          </div>
+          <div className="mt-1 text-sm text-muted-foreground">
+            {t("environmentBadge.feedbackPrompt")}
+          </div>
+          <FeedbackButton
+            align="start"
+            className="mt-4 w-full justify-center"
+            side="bottom"
+            variant="outlined"
+          />
+        </PopoverContent>
+      </Popover>
     );
   }
 
@@ -413,6 +433,7 @@ function ProductionEnvironmentBadge({
 export interface EnvironmentBadgeProps {
   placement?: EnvironmentBadgePlacement;
   showProduction?: boolean;
+  appId?: string;
   badgeText?: string;
   collapsed?: boolean;
   className?: string;
@@ -427,6 +448,7 @@ export interface EnvironmentBadgeProps {
 export function EnvironmentBadge({
   placement = "fixed",
   showProduction = true,
+  appId,
   badgeText,
   collapsed,
   className,
@@ -441,7 +463,10 @@ export function EnvironmentBadge({
   const environment = resolveEnvironmentChannel(config, hostname);
   const targets = resolveEnvironmentTargets(hostname);
   const resolvedBadgeText =
-    badgeText ?? config.deployment?.badgeText ?? config.badgeText ?? "alpha";
+    badgeText ??
+    config.deployment?.badgeText ??
+    config.badgeText ??
+    getAppStatus(appId);
 
   useEffect(() => {
     setHydrated(true);

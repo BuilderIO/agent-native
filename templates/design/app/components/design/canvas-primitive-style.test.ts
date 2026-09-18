@@ -4,6 +4,7 @@ import {
   canvasPrimitiveReactStyle,
   canvasPrimitiveStyleString,
   canvasPrimitiveVisual,
+  canvasVectorPaint,
   DEFAULT_LINE_STROKE,
   DEFAULT_LINE_STROKE_WIDTH_PX,
 } from "./canvas-primitive-style";
@@ -102,5 +103,11 @@ describe("canvas line/arrow/pen default stroke tokens (Figma parity)", () => {
     // appendCanvasPrimitiveToHtml) must agree on.
     expect(DEFAULT_LINE_STROKE).toBe("#000000");
     expect(DEFAULT_LINE_STROKE_WIDTH_PX).toBe(1);
+  });
+
+  it("never fills an open path", () => {
+    expect(canvasVectorPaint({ closed: false, fill: "#ff0000" }).fill).toBe(
+      "none",
+    );
   });
 });

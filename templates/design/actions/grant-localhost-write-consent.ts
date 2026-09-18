@@ -28,6 +28,7 @@ export default defineAction({
   // token intentionally stays server-side: browser callers only need grant
   // metadata because write-local-file adds bridge authentication itself.
   agentTool: false,
+  capabilityScopes: ["visual-edit"],
   schema: z.object({
     designId: z.string().describe("Design ID."),
     connectionId: z
@@ -37,7 +38,9 @@ export default defineAction({
   run: async ({ designId, connectionId }) => {
     await assertAccess("design", designId, "editor");
 
-    const { ownerEmail, orgId } = await resolveLocalhostConnectionScope();
+    const { ownerEmail, orgId } = await resolveLocalhostConnectionScope({
+      designId,
+    });
 
     const db = getDb();
 

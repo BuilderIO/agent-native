@@ -1,4 +1,7 @@
-import type { ElementProvenance } from "@shared/source-mode";
+import type {
+  ElementProvenance,
+  RuntimeComponentIdentity,
+} from "@shared/source-mode";
 
 export interface PortableStyleSnapshotNode {
   sourceId?: string;
@@ -47,6 +50,10 @@ export interface RuntimeVerificationRequest {
 export interface ElementInfo {
   tagName: string;
   componentName?: string;
+  /** The durable inline/component annotation, distinct from runtime labels. */
+  componentAnnotation?: string;
+  /** Framework-derived identity for an unannotated runtime component. */
+  runtimeComponent?: RuntimeComponentIdentity;
   id?: string;
   sourceId?: string;
   /**
@@ -127,6 +134,12 @@ export interface ElementInfo {
    */
   inlineStyles?: Record<string, string>;
   /**
+   * Winning width/height values from the active CSS computed style map.
+   * Unlike `inlineStyles`, these values are not safe write targets; they only
+   * preserve sizing intent when computed styles have resolved them to pixels.
+   */
+  authoredSizeStyles?: Partial<Record<"width" | "height", string>>;
+  /**
    * Value of the element's `data-an-primitive` attribute (e.g. "text",
    * "rectangle", "frame", "ellipse") when present. Canvas-drawn primitives —
    * including T-tool text, which is a plain `div` — carry this marker so the
@@ -178,6 +191,7 @@ export interface ElementInfo {
     alignItems?: string;
     justifyContent?: string;
     gap?: string;
+    gridAutoFlow?: string;
     gridTemplateColumns?: string;
     gridTemplateRows?: string;
     position?: string;
@@ -211,6 +225,13 @@ export interface ElementSelectionIntent {
   additive?: boolean;
   range?: boolean;
   source?: "pointer" | "keyboard" | "marquee";
+  final?: boolean;
+  /** Ends a marquee lifecycle without changing the current selection. */
+  cancelled?: boolean;
+  /** Restores the host selection captured before an Escape-cancelled marquee. */
+  restoreHostSelection?: boolean;
+  /** Retires any pending marquee history before the next gesture starts. */
+  resetHistory?: boolean;
   shiftKey?: boolean;
   metaKey?: boolean;
   ctrlKey?: boolean;

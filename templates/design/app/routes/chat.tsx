@@ -65,10 +65,11 @@ export default function ChatRoute() {
         defaultMode="chat"
         storageKey={DESIGN_CHAT_STORAGE_KEY}
         scope={scope}
+        isolateHistoryByScope={true}
         threadUrlSync={threadUrlSync}
         browserTabId={getBrowserTabId()}
-        showHeader={false}
-        showTabBar={false}
+        showHeader
+        showTabBar
         dynamicSuggestions={false}
         suggestions={[
           t("chat.suggestionLandingPage"),

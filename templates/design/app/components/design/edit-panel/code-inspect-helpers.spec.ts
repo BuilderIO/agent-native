@@ -206,6 +206,30 @@ describe("openingTagOf / truncateOpeningTag / elementHtmlPreview", () => {
     );
   });
 
+  it("preserves child content while stripping runtime attributes", () => {
+    expect(
+      elementHtmlPreview({
+        html: `<section title="Hero" data-agent-native-node-id="section"><h1 data-agent-native-layer-name="Title">Title</h1><p>Feature text</p></section>`,
+        tagName: "section",
+      }),
+    ).toBe(
+      `<section title="Hero">\n  <h1>Title</h1><p>Feature text</p>\n</section>`,
+    );
+  });
+
+  it("leaves tag-looking text in raw-text elements and comments untouched", () => {
+    const literalTag =
+      '<span style="color: red" data-agent-native-node-id="literal">Text</span>';
+    expect(
+      elementHtmlPreview({
+        html: `<div><script>const value = '${literalTag}';</script><textarea>${literalTag}</textarea><!-- ${literalTag} --><span data-agent-native-layer-name="Real">Real</span></div>`,
+        tagName: "div",
+      }),
+    ).toBe(
+      `<div>\n  <script>const value = '${literalTag}';</script><textarea>${literalTag}</textarea><!-- ${literalTag} --><span>Real</span>\n</div>`,
+    );
+  });
+
   it("builds a fallback opening tag from metadata when there is no HTML", () => {
     expect(
       elementHtmlPreview({

@@ -434,14 +434,35 @@ function exactAnchor(
   anchor: ReactSourceAnchor,
   index: number,
 ): ExactReactSourceAnchor | ReactSemanticHandoffBuildResult {
-  const relPath = safeRelativePath(anchor.relPath);
-  const sourceFile = safeRelativePath(anchor.sourceFile);
-  const canonicalPath = relPath ?? sourceFile;
+  const leafRelPath = safeRelativePath(anchor.relPath);
+  const leafSourceFile = safeRelativePath(anchor.sourceFile);
+  const ownerRelPath = safeRelativePath(anchor.ownerRelPath);
+  const ownerSourceFile = safeRelativePath(anchor.ownerSourceFile);
+  const leafPath = leafRelPath ?? leafSourceFile;
+  const ownerPath = ownerRelPath ?? ownerSourceFile;
+  // A toolkit-rendered leaf can be outside the connected root while its
+  // owning app component is inside it. In that case the owner coordinates are
+  // the only source location this handoff can safely give the coding agent.
+  const useOwnerPath = !leafPath && Boolean(ownerPath);
+  const canonicalPath = leafPath ?? ownerPath;
+  const sourceFile =
+    leafSourceFile ?? leafRelPath ?? ownerSourceFile ?? ownerRelPath;
+  const line = useOwnerPath ? anchor.ownerLine : anchor.line;
+  const column = useOwnerPath ? anchor.ownerColumn : anchor.column;
+  const method = useOwnerPath ? anchor.ownerMethod : anchor.method;
+  const component = useOwnerPath
+    ? (anchor.ownerComponent ?? anchor.component)
+    : anchor.component;
   if (!canonicalPath) {
-    if (anchor.relPath || anchor.sourceFile) {
+    if (
+      anchor.relPath ||
+      anchor.sourceFile ||
+      anchor.ownerRelPath ||
+      anchor.ownerSourceFile
+    ) {
       return anchorFailure(
         "unsafe-source-path",
-        `Source anchor ${index + 1} does not include a safe project-relative path.`,
+        `Source anchor ${index + 1} has neither a safe project-relative leaf path nor an app-authored owner path.`,
       );
     }
     return anchorFailure(
@@ -450,10 +471,10 @@ function exactAnchor(
     );
   }
   if (
-    !Number.isInteger(anchor.line) ||
-    !Number.isInteger(anchor.column) ||
-    (anchor.line ?? 0) < 1 ||
-    (anchor.column ?? 0) < 1
+    !Number.isInteger(line) ||
+    !Number.isInteger(column) ||
+    (line ?? 0) < 1 ||
+    (column ?? 0) < 1
   ) {
     return anchorFailure(
       "invalid-source-location",
@@ -467,12 +488,12 @@ function exactAnchor(
     // Never forward an absolute jsxDEV/Fiber path. The verified root-relative
     // path is exact for the bridge and safe to include in an agent prompt.
     sourceFile: sourceFile ?? canonicalPath,
-    line: anchor.line!,
-    column: anchor.column!,
-    positionPrecision: sourcePositionPrecision(anchor.method),
-    ...(anchor.method ? { method: anchor.method } : {}),
-    ...(bounded(anchor.component, MAX_COMPONENT_LENGTH)
-      ? { component: bounded(anchor.component, MAX_COMPONENT_LENGTH) }
+    line: line!,
+    column: column!,
+    positionPrecision: sourcePositionPrecision(method),
+    ...(method ? { method } : {}),
+    ...(bounded(component, MAX_COMPONENT_LENGTH)
+      ? { component: bounded(component, MAX_COMPONENT_LENGTH) }
       : {}),
     ...ownerAnchorFields(anchor),
     runtimeMultiplicity:

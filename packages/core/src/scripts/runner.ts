@@ -15,6 +15,7 @@ import { spawnSync } from "node:child_process";
 import path from "path";
 import { pathToFileURL } from "url";
 
+import "../authorization/check-action.js";
 import { Agent } from "undici";
 
 import type { ActionEntry } from "../agent/production-agent.js";
@@ -35,6 +36,7 @@ import {
   DEV_ACTION_USER_HEADER,
   devActionHandoffUrl,
   hashDatabaseKey,
+  isLoopbackDevActionOrigin,
   isValidDevActionHandoffUrl,
   readDevActionDiscoveryFile,
 } from "../server/dev-action-bridge.js";
@@ -101,6 +103,8 @@ type CliHandoffLaunchOutcome =
     };
 
 interface CliHandoffLaunchDeps {
+  /** Override the app origin when a verified dev-server discovery supplies it. */
+  baseUrl?: string;
   env?: NodeJS.ProcessEnv;
   platform?: NodeJS.Platform;
   spawn?: (
@@ -131,7 +135,7 @@ export function openCliHandoff(
         "Secure browser handoff is disabled by AGENT_NATIVE_NO_OPEN. Remove it and rerun this action.",
     };
   }
-  const baseUrl = resolveCliHandoffBaseUrl(env);
+  const baseUrl = deps.baseUrl ?? resolveCliHandoffBaseUrl(env);
   if (!isValidDevActionHandoffUrl(urlOrPath, baseUrl)) {
     return {
       ok: false,
@@ -452,35 +456,16 @@ export async function tryForwardToDevServer(
   }
   const validHandoffUrl = isValidDevActionHandoffUrl(
     handoffUrl,
-    resolveCliHandoffBaseUrl(process.env),
+    discovery.origin,
   )
     ? handoffUrl
     : undefined;
   assertCliHandoffLaunched(
-    validHandoffUrl ? openCliHandoff(validHandoffUrl) : null,
+    validHandoffUrl
+      ? openCliHandoff(validHandoffUrl, { baseUrl: discovery.origin })
+      : null,
   );
   process.exit(0);
-}
-
-function isLoopbackDevActionOrigin(origin: string): boolean {
-  try {
-    const url = new URL(origin);
-    // Discovery files record the URL Vite prints — `localhost` on the default
-    // wildcard bind; older dev servers recorded the 127.0.0.1 literal. Both
-    // are loopback labels for the same local server.
-    return (
-      (url.protocol === "http:" || url.protocol === "https:") &&
-      (url.hostname === "127.0.0.1" ||
-        url.hostname === "localhost" ||
-        url.hostname === "[::1]") &&
-      url.pathname === "/" &&
-      !url.search &&
-      !url.hash
-    );
-  } catch {
-    // coercion-ok: an unparseable origin is simply not a dev server to trust.
-    return false;
-  }
 }
 
 function coerceCliValue(

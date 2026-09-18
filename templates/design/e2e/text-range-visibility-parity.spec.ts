@@ -4,6 +4,7 @@ import {
   appPath,
   createFixtureDesign,
   designFrame,
+  expandAllLayers,
   gotoEditor,
   selectByText,
 } from "./helpers";
@@ -22,6 +23,52 @@ async function sizeInput(page: Page) {
   const input = typographySection(page).locator('input[aria-label="Size" i]');
   await expect(input).toBeVisible();
   return input;
+}
+
+function layerRow(page: Page, name: string): Locator {
+  return page
+    .getByRole("tree", { name: "Layers" })
+    .locator("[data-layer-row-button][data-layer-node-id]")
+    .filter({ has: page.locator(`span[title="${name}"]`) })
+    .first()
+    .locator('xpath=ancestor::*[@role="treeitem"][1]');
+}
+
+async function selectTextLayers(page: Page, names: string[]): Promise<void> {
+  await expandAllLayers(page);
+  await layerRow(page, names[0]).locator("[data-layer-row-button]").click({
+    force: true,
+  });
+  for (const name of names.slice(1)) {
+    await layerRow(page, name)
+      .locator("[data-layer-row-button]")
+      .click({ force: true, modifiers: [MOD] });
+  }
+  await expect
+    .poll(() => page.locator('[role="treeitem"][aria-selected="true"]').count())
+    .toBe(names.length);
+}
+
+async function textLeafStyles(page: Page) {
+  return designFrame(page)
+    .locator("body")
+    .evaluate(() => {
+      const heading = document.querySelector("h1");
+      const paragraph = [...document.querySelectorAll("p")].find((node) =>
+        node.textContent?.includes("First fixture paragraph"),
+      );
+      if (!heading || !paragraph) throw new Error("text fixture nodes missing");
+      const read = (node: Element) => {
+        const styles = getComputedStyle(node);
+        return {
+          family: styles.fontFamily,
+          size: styles.fontSize,
+          lineHeight: styles.lineHeight,
+          color: styles.color,
+        };
+      };
+      return { heading: read(heading), paragraph: read(paragraph) };
+    });
 }
 
 async function headingRangeStyles(page: Page) {
@@ -485,6 +532,130 @@ test("Typography applies to a selected range after focus moves to its controls",
         rangeWeight: "600",
         rangeColor: "rgb(51, 102, 255)",
         rangeTransform: "uppercase",
+      });
+  } finally {
+    await deleteDesign(page, designId);
+  }
+});
+
+test("multi-selected text leaves share inspector styles and one undo restores both", async ({
+  page,
+}) => {
+  const designId = await createFixtureDesign(
+    page,
+    "Multi-selected text inspector parity",
+  );
+  const headingName = "E2E Hero Heading";
+  const paragraphName = "First fixture paragraph for selection tests.";
+  try {
+    await gotoEditor(page, designId);
+    // Re-enter through a hard reload so the initial mixed inspector state is
+    // proven against persisted source, not just the first render.
+    await page.reload();
+    await selectTextLayers(page, [headingName, paragraphName]);
+
+    const typography = typographySection(page);
+    const fontPicker = typography.getByRole("button", { name: "Font" });
+    const lineHeight = typography.locator('input[aria-label="Line height" i]');
+    await expect(fontPicker).toHaveText("System UI");
+    await expect(await sizeInput(page)).toHaveValue("Mixed");
+    await expect(lineHeight).toHaveValue("Mixed");
+
+    await fontPicker.click();
+    const search = page.getByRole("combobox", { name: "Search" });
+    await search.fill("Monospace");
+    await page.getByRole("option", { name: "Monospace", exact: true }).click();
+    await expect
+      .poll(() => textLeafStyles(page))
+      .toMatchObject({
+        heading: { family: "monospace" },
+        paragraph: { family: "monospace" },
+      });
+
+    const sharedSize = await sizeInput(page);
+    await sharedSize.fill("24");
+    await sharedSize.press("Enter");
+    await expect
+      .poll(() => textLeafStyles(page))
+      .toMatchObject({
+        heading: { size: "24px" },
+        paragraph: { size: "24px" },
+      });
+    await lineHeight.fill("32");
+    await lineHeight.press("Enter");
+    await expect
+      .poll(() => textLeafStyles(page))
+      .toMatchObject({
+        heading: { lineHeight: "32px" },
+        paragraph: { lineHeight: "32px" },
+      });
+
+    const selectionColors = page
+      .locator("section")
+      .filter({
+        has: page.getByRole("heading", {
+          name: "Selection colors",
+          exact: true,
+        }),
+      })
+      .first();
+    await selectionColors
+      .getByRole("button", { name: "Show selection colors" })
+      .click();
+    for (const sourceColor of ["#f4f4f5", "#a1a1aa"]) {
+      await selectionColors
+        .getByRole("button", { name: new RegExp(`^${sourceColor}$`, "i") })
+        .click();
+      const hex = page.getByRole("textbox", { name: "Hex", exact: true });
+      await expect(hex).toBeVisible();
+      await hex.fill("3366FF");
+      await hex.press("Enter");
+      await page.keyboard.press("Escape");
+      await expect
+        .poll(() => textLeafStyles(page))
+        .toMatchObject(
+          sourceColor === "#f4f4f5"
+            ? { heading: { color: "rgb(51, 102, 255)" } }
+            : { paragraph: { color: "rgb(51, 102, 255)" } },
+        );
+    }
+
+    await expect
+      .poll(() => textLeafStyles(page))
+      .toEqual({
+        heading: {
+          family: "monospace",
+          size: "24px",
+          lineHeight: "32px",
+          color: "rgb(51, 102, 255)",
+        },
+        paragraph: {
+          family: "monospace",
+          size: "24px",
+          lineHeight: "32px",
+          color: "rgb(51, 102, 255)",
+        },
+      });
+
+    // Keep the multi-selection active for a second shared write so the next
+    // history step is the style transaction, not a selection change.
+    const undoSize = await sizeInput(page);
+    await undoSize.fill("26");
+    await undoSize.press("Enter");
+    await expect
+      .poll(() => textLeafStyles(page))
+      .toMatchObject({
+        heading: { size: "26px" },
+        paragraph: { size: "26px" },
+      });
+    await page.keyboard.press(
+      process.platform === "darwin" ? "Meta+z" : "Control+z",
+    );
+    await expect
+      .poll(() => textLeafStyles(page))
+      .toMatchObject({
+        heading: { size: "24px" },
+        paragraph: { size: "24px" },
       });
   } finally {
     await deleteDesign(page, designId);

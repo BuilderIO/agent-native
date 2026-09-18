@@ -19,9 +19,15 @@ function args(overrides: Record<string, unknown> = {}) {
     applyLinkedComponentEdit: vi.fn(),
     canEditDesign: true,
     designSourceType: "inline" as const,
-    finalizePendingTextCreation: vi.fn(() => false),
+    prepareTextCreationFinalization: vi.fn(() => ({
+      isCreationCommit: false,
+      historyHandled: false,
+      confirm: () => {},
+    })),
     getScreenContent: vi.fn(() => html),
-    handleTextContentChange: vi.fn(),
+    // Returns a real status: the `as unknown as Parameters<…>` cast below
+    // would have let a void stub through until it failed somewhere else.
+    handleTextContentChange: vi.fn(() => "accepted" as const),
     liveScreenSnapshotsById: {},
     overviewScreens: [
       { id: "screen-1", sourceType: "inline", heightPinned: false },

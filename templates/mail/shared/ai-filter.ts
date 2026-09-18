@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { automationActionSchema } from "./automation-schema.js";
 import type { AutomationAction } from "./types.js";
 
 export const AI_FILTER_LABEL = "agent-native-filtered";
@@ -60,6 +61,51 @@ export const aiFilterStateSchema = z.object({
 });
 
 export type AiFilterState = z.infer<typeof aiFilterStateSchema>;
+
+export const aiFilterPreviewEmailSchema = z.object({
+  id: z.string().min(1).max(256),
+  threadId: z.string().max(256),
+  accountEmail: z.string().email().optional(),
+  from: z.string().max(320),
+  to: z.string().max(320),
+  subject: z.string().max(500),
+  snippet: z.string().max(2_000),
+  labelIds: z.array(z.string().max(128)).max(64),
+  date: z.string().max(128),
+  isArchived: z.boolean(),
+  isTrashed: z.boolean(),
+});
+
+export type AiFilterPreviewEmail = z.infer<typeof aiFilterPreviewEmailSchema>;
+
+export const aiFilterPreviewCorrectionSchema = z.object({
+  emailId: z.string().min(1).max(256),
+  sender: z.string().max(320),
+  subject: z.string().max(500),
+  snippet: z.string().max(2_000),
+  expectedMatch: z.boolean(),
+});
+
+export type AiFilterPreviewCorrection = z.infer<
+  typeof aiFilterPreviewCorrectionSchema
+>;
+
+export const aiFilterPreviewMatchSchema = z.object({
+  ruleId: z.string().min(1).max(64),
+  confidence: z.number().min(0).max(1),
+  reason: z.string().max(500).optional(),
+});
+
+export type AiFilterPreviewMatch = z.infer<typeof aiFilterPreviewMatchSchema>;
+
+export const aiFilterPreviewRuleSchema = z.object({
+  id: z.string().min(1).max(64),
+  name: z.string().max(200),
+  condition: z.string().max(2_000),
+  actions: z.array(automationActionSchema),
+});
+
+export type AiFilterPreviewRule = z.infer<typeof aiFilterPreviewRuleSchema>;
 
 export function createDefaultAiFilterState(): AiFilterState {
   return {

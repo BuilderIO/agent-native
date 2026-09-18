@@ -7,6 +7,7 @@ import {
   serializeBreakpointMediaModel,
   type BreakpointMediaModel,
 } from "@shared/breakpoint-media";
+import { ensureGroupRuntime } from "@shared/group-runtime";
 import {
   extractManagedInteractionStateCss,
   extractManagedResponsiveInteractionStateCss,
@@ -193,7 +194,11 @@ export function applyDesignClipboardManagedStyles(
   targetHtml: string,
   snapshots: Array<DesignClipboardManagedStyleSnapshot | null | undefined>,
   nodeIdMap: ReadonlyMap<string, string>,
+  options: { ensureGroupRuntime?: boolean } = {},
 ): string {
+  if (options.ensureGroupRuntime !== false) {
+    targetHtml = ensureGroupRuntime(targetHtml);
+  }
   if (snapshots.length === 0 || nodeIdMap.size === 0) return targetHtml;
 
   const breakpoints: BreakpointMediaModel = parseBreakpointMediaCss(

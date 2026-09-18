@@ -420,6 +420,10 @@ const enUS = {
   },
   designEditor: {
     askAgent: "Ask agent",
+    deepSelectGuidance: {
+      message: "Hold {{modifier}} and click to select an inner layer.",
+      dismiss: "Dismiss layer selection tip",
+    },
     autoLayoutSuggestion: {
       menuLabel: "Suggest auto layout…",
       title: "Suggest auto layout",
@@ -446,6 +450,7 @@ const enUS = {
     componentInstances: {
       selectLayer: "Select layer",
       goToMain: "Go to main component",
+      restore: "Restore component",
       swap: "Swap instance",
       detach: "Detach instance",
       searchComponents: "Search components…",
@@ -527,16 +532,6 @@ const enUS = {
       zoomOut: "Zoom out",
       zoomToPreset: "Zoom to {{percent}}%",
       exit: "Exit responsive preview",
-    },
-    screenDeletion: {
-      titleOne: "Delete this screen?",
-      titleMany: "Delete {{count}} screens?",
-      descriptionOne:
-        '"{{filename}}" and all of its responsive variants will be deleted. You can undo this while the editor remains open.',
-      descriptionMany:
-        "These screens and all of their responsive variants will be deleted. You can undo this while the editor remains open.",
-      cancel: "Cancel",
-      confirm: "Delete",
     },
     motion: {
       dockLabel: "Motion dock",
@@ -681,8 +676,20 @@ const enUS = {
       chooseFigFile: "Choose .fig file",
       figUploadUploading: "Uploading {{progress}}%",
       figUploadProcessing: "Converting…",
+      figImportWarningTitle: "Large .fig import",
+      figImportWarningDescription:
+        "This file contains {{frames}} frames and {{nodes}} layers. Importing everything may slow the editor. Choose the frames you need.",
+      figImportFrameCount: "{{selected}} of {{total}} frames selected",
+      figImportSelectAll: "Select all",
+      figImportClearAll: "Clear all",
+      figImportCancel: "Cancel",
+      figImportSelected: "Import {{count}} selected",
+      figImportAll: "Import all",
+      figImportAnalyzing: "Analyzing…",
       figUploadDescriptionShort:
-        "Local import — no Figma API quota used. Embedded images included.",
+        "Local import — no Figma API quota used. Supported embedded images are included.",
+      figUploadImagesSkippedWarning:
+        "Skipped embedded images ({{count}}) because browser uploads have a per-image limit.",
       figmaPasteBodyUnlimited:
         "Works without a Figma token — geometry, layout, and text import immediately.",
       figmaPasteBodyImages:
@@ -1976,6 +1983,10 @@ const designLocaleOverrides = {
       },
     },
     designEditor: {
+      deepSelectGuidance: {
+        message: "按住 {{modifier}} 并点击以选择内部图层。",
+        dismiss: "关闭图层选择提示",
+      },
       generationMayHaveStopped:
         "创建文件之前生成可能已停止。检查代理消息或重试。",
       generationMayHaveStoppedToast: "创建文件之前生成可能已停止。",
@@ -2418,6 +2429,11 @@ const designLocaleOverrides = {
       },
     },
     designEditor: {
+      deepSelectGuidance: {
+        message:
+          "Mantén presionada la tecla {{modifier}} y haz clic para seleccionar una capa interna.",
+        dismiss: "Descartar el consejo de selección de capas",
+      },
       generationMayHaveStopped:
         "Es posible que la generación se haya detenido antes de crear archivos. Verifique el mensaje del agente o inténtelo nuevamente.",
       generationMayHaveStoppedToast:
@@ -2888,6 +2904,11 @@ const designLocaleOverrides = {
       },
     },
     designEditor: {
+      deepSelectGuidance: {
+        message:
+          "Maintenez {{modifier}} enfoncé et cliquez pour sélectionner un calque interne.",
+        dismiss: "Fermer l’astuce de sélection des calques",
+      },
       generationMayHaveStopped:
         "La génération s'est peut-être arrêtée avant la création des fichiers. Vérifiez le message de l'agent ou réessayez.",
       generationMayHaveStoppedToast:
@@ -3362,6 +3383,11 @@ const designLocaleOverrides = {
       },
     },
     designEditor: {
+      deepSelectGuidance: {
+        message:
+          "Halte {{modifier}} gedrückt und klicke, um eine innere Ebene auszuwählen.",
+        dismiss: "Tipp zur Ebenenauswahl schließen",
+      },
       generationMayHaveStopped:
         "Die Generierung wurde möglicherweise vor dem Erstellen der Dateien gestoppt. Überprüfen Sie die Agentennachricht oder versuchen Sie es erneut.",
       generationMayHaveStoppedToast:
@@ -3835,6 +3861,11 @@ const designLocaleOverrides = {
       },
     },
     designEditor: {
+      deepSelectGuidance: {
+        message:
+          "{{modifier}}を押しながらクリックすると、内側のレイヤーを選択できます。",
+        dismiss: "レイヤー選択のヒントを閉じる",
+      },
       generationMayHaveStopped:
         "ファイルを作成する前に生成が停止している可能性があります。エージェントのメッセージを確認するか、再試行してください。",
       generationMayHaveStoppedToast:
@@ -4303,6 +4334,11 @@ const designLocaleOverrides = {
       },
     },
     designEditor: {
+      deepSelectGuidance: {
+        message:
+          "{{modifier}}를 누른 채 클릭하면 내부 레이어를 선택할 수 있습니다.",
+        dismiss: "레이어 선택 팁 닫기",
+      },
       generationMayHaveStopped:
         "파일을 생성하기 전에 생성이 중지되었을 수 있습니다. 상담원 메시지를 확인하거나 다시 시도하세요.",
       generationMayHaveStoppedToast:
@@ -4763,6 +4799,11 @@ const designLocaleOverrides = {
       },
     },
     designEditor: {
+      deepSelectGuidance: {
+        message:
+          "Segure {{modifier}} e clique para selecionar uma camada interna.",
+        dismiss: "Fechar dica de seleção de camadas",
+      },
       generationMayHaveStopped:
         "A geração pode ter parado antes da criação dos arquivos. Verifique a mensagem do agente ou tente novamente.",
       generationMayHaveStoppedToast:
@@ -5231,6 +5272,10 @@ const designLocaleOverrides = {
       },
     },
     designEditor: {
+      deepSelectGuidance: {
+        message: "{{modifier}} दबाकर क्लिक करें और अंदर की लेयर चुनें।",
+        dismiss: "लेयर चयन की टिप बंद करें",
+      },
       generationMayHaveStopped:
         "फ़ाइलें बनाने से पहले जनरेशन बंद हो गया होगा. एजेंट संदेश की जाँच करें या पुनः प्रयास करें।",
       generationMayHaveStoppedToast: "फ़ाइलें बनाने से पहले जनरेशन बंद हो गया होगा.",
@@ -5687,6 +5732,10 @@ const designLocaleOverrides = {
       },
     },
     designEditor: {
+      deepSelectGuidance: {
+        message: "اضغط باستمرار على {{modifier}} وانقر لتحديد طبقة داخلية.",
+        dismiss: "إغلاق تلميح تحديد الطبقات",
+      },
       generationMayHaveStopped:
         "ربما توقف الإنشاء قبل إنشاء الملفات. تحقق من رسالة الوكيل أو حاول مرة أخرى.",
       generationMayHaveStoppedToast: "ربما توقف الإنشاء قبل إنشاء الملفات.",
@@ -12865,6 +12914,16 @@ const designImportOverrides = {
         chooseFigFile: "選擇 .fig 檔案",
         figUploadUploading: "上傳中 {{progress}}%",
         figUploadProcessing: "轉換中…",
+        figImportWarningTitle: "大型 .fig 匯入",
+        figImportWarningDescription:
+          "此檔案包含 {{frames}} 個畫框和 {{nodes}} 個圖層。全部匯入可能會讓編輯器變慢。請選擇需要的畫框。",
+        figImportFrameCount: "已選取 {{selected}} / {{total}} 個畫框",
+        figImportSelectAll: "全選",
+        figImportClearAll: "全部清除",
+        figImportCancel: "取消",
+        figImportSelected: "匯入已選取的 {{count}} 個",
+        figImportAll: "全部匯入",
+        figImportAnalyzing: "分析中…",
         htmlTitle: "匯入 HTML",
         htmlDescription:
           "貼上或上傳獨立 HTML。Design 會將其儲存為新螢幕，不會注入到此編輯器 UI。",
@@ -12935,6 +12994,16 @@ const designImportOverrides = {
         chooseFigFile: "选择 .fig 文件",
         figUploadUploading: "正在上传 {{progress}}%",
         figUploadProcessing: "正在转换…",
+        figImportWarningTitle: "大型 .fig 导入",
+        figImportWarningDescription:
+          "此文件包含 {{frames}} 个画框和 {{nodes}} 个图层。全部导入可能会让编辑器变慢。请选择需要的画框。",
+        figImportFrameCount: "已选择 {{selected}} / {{total}} 个画框",
+        figImportSelectAll: "全选",
+        figImportClearAll: "全部清除",
+        figImportCancel: "取消",
+        figImportSelected: "导入已选择的 {{count}} 个",
+        figImportAll: "全部导入",
+        figImportAnalyzing: "正在分析…",
         htmlTitle: "导入 HTML",
         htmlDescription:
           "粘贴或上传独立 HTML。Design 会将其保存为新屏幕，不会注入到此编辑器界面。",
@@ -13008,6 +13077,16 @@ const designImportOverrides = {
         chooseFigFile: "Elegir archivo .fig",
         figUploadUploading: "Subiendo {{progress}}%",
         figUploadProcessing: "Convirtiendo…",
+        figImportWarningTitle: "Importación .fig grande",
+        figImportWarningDescription:
+          "Este archivo contiene {{frames}} marcos y {{nodes}} capas. Importarlo todo puede ralentizar el editor. Elige los marcos que necesitas.",
+        figImportFrameCount: "{{selected}} de {{total}} marcos seleccionados",
+        figImportSelectAll: "Seleccionar todo",
+        figImportClearAll: "Borrar todo",
+        figImportCancel: "Cancelar",
+        figImportSelected: "Importar {{count}} seleccionados",
+        figImportAll: "Importar todo",
+        figImportAnalyzing: "Analizando…",
         htmlTitle: "Importar HTML",
         htmlDescription:
           "Pega o sube HTML independiente. Design lo guarda como una pantalla nueva sin inyectarlo en esta interfaz.",
@@ -13083,6 +13162,16 @@ const designImportOverrides = {
         chooseFigFile: "Choisir un fichier .fig",
         figUploadUploading: "Téléversement {{progress}} %",
         figUploadProcessing: "Conversion…",
+        figImportWarningTitle: "Importation .fig volumineuse",
+        figImportWarningDescription:
+          "Ce fichier contient {{frames}} cadres et {{nodes}} calques. Tout importer peut ralentir l’éditeur. Choisissez les cadres nécessaires.",
+        figImportFrameCount: "{{selected}} cadres sur {{total}} sélectionnés",
+        figImportSelectAll: "Tout sélectionner",
+        figImportClearAll: "Tout effacer",
+        figImportCancel: "Annuler",
+        figImportSelected: "Importer {{count}} sélectionnés",
+        figImportAll: "Tout importer",
+        figImportAnalyzing: "Analyse…",
         htmlTitle: "Importer HTML",
         htmlDescription:
           "Collez ou téléversez du HTML autonome. Design l’enregistre comme nouvel écran sans l’injecter dans cette interface.",
@@ -13158,6 +13247,16 @@ const designImportOverrides = {
         chooseFigFile: ".fig-Datei wählen",
         figUploadUploading: "Wird hochgeladen: {{progress}} %",
         figUploadProcessing: "Wird konvertiert…",
+        figImportWarningTitle: "Großer .fig-Import",
+        figImportWarningDescription:
+          "Diese Datei enthält {{frames}} Frames und {{nodes}} Ebenen. Alles zu importieren kann den Editor verlangsamen. Wähle die benötigten Frames aus.",
+        figImportFrameCount: "{{selected}} von {{total}} Frames ausgewählt",
+        figImportSelectAll: "Alle auswählen",
+        figImportClearAll: "Alle löschen",
+        figImportCancel: "Abbrechen",
+        figImportSelected: "{{count}} ausgewählte importieren",
+        figImportAll: "Alle importieren",
+        figImportAnalyzing: "Wird analysiert…",
         htmlTitle: "HTML importieren",
         htmlDescription:
           "Füge eigenständiges HTML ein oder lade es hoch. Design speichert es als neuen Bildschirm, ohne es in diese Editor-UI einzufügen.",
@@ -13232,6 +13331,16 @@ const designImportOverrides = {
         chooseFigFile: ".fig ファイルを選択",
         figUploadUploading: "アップロード中 {{progress}}%",
         figUploadProcessing: "変換中…",
+        figImportWarningTitle: "大規模な .fig のインポート",
+        figImportWarningDescription:
+          "このファイルには {{frames}} 個のフレームと {{nodes}} 個のレイヤーがあります。すべてをインポートするとエディターが遅くなる可能性があります。必要なフレームを選択してください。",
+        figImportFrameCount: "{{total}} 個中 {{selected}} 個のフレームを選択",
+        figImportSelectAll: "すべて選択",
+        figImportClearAll: "すべて解除",
+        figImportCancel: "キャンセル",
+        figImportSelected: "選択した {{count}} 個をインポート",
+        figImportAll: "すべてインポート",
+        figImportAnalyzing: "分析中…",
         htmlTitle: "HTML をインポート",
         htmlDescription:
           "単体 HTML を貼り付けるかアップロードします。Design はこのエディター UI に注入せず、新しい画面として保存します。",
@@ -13306,6 +13415,16 @@ const designImportOverrides = {
         chooseFigFile: ".fig 파일 선택",
         figUploadUploading: "업로드 중 {{progress}}%",
         figUploadProcessing: "변환 중…",
+        figImportWarningTitle: "대용량 .fig 가져오기",
+        figImportWarningDescription:
+          "이 파일에는 프레임 {{frames}}개와 레이어 {{nodes}}개가 있습니다. 모두 가져오면 편집기가 느려질 수 있습니다. 필요한 프레임을 선택하세요.",
+        figImportFrameCount: "{{total}}개 중 {{selected}}개 프레임 선택",
+        figImportSelectAll: "모두 선택",
+        figImportClearAll: "모두 지우기",
+        figImportCancel: "취소",
+        figImportSelected: "선택한 {{count}}개 가져오기",
+        figImportAll: "모두 가져오기",
+        figImportAnalyzing: "분석 중…",
         htmlTitle: "HTML 가져오기",
         htmlDescription:
           "독립 HTML을 붙여넣거나 업로드하세요. Design은 이를 새 화면으로 저장하며 이 편집기 UI에 삽입하지 않습니다.",
@@ -13382,6 +13501,16 @@ const designImportOverrides = {
         chooseFigFile: "Escolher arquivo .fig",
         figUploadUploading: "Enviando {{progress}}%",
         figUploadProcessing: "Convertendo…",
+        figImportWarningTitle: "Importação de .fig grande",
+        figImportWarningDescription:
+          "Este arquivo contém {{frames}} quadros e {{nodes}} camadas. Importar tudo pode deixar o editor lento. Escolha os quadros necessários.",
+        figImportFrameCount: "{{selected}} de {{total}} quadros selecionados",
+        figImportSelectAll: "Selecionar tudo",
+        figImportClearAll: "Limpar tudo",
+        figImportCancel: "Cancelar",
+        figImportSelected: "Importar {{count}} selecionados",
+        figImportAll: "Importar tudo",
+        figImportAnalyzing: "Analisando…",
         htmlTitle: "Importar HTML",
         htmlDescription:
           "Cole ou envie HTML independente. O Design salva como uma nova tela sem injetar nesta interface.",
@@ -13457,6 +13586,16 @@ const designImportOverrides = {
         chooseFigFile: ".fig file चुनें",
         figUploadUploading: "अपलोड हो रहा है {{progress}}%",
         figUploadProcessing: "बदला जा रहा है…",
+        figImportWarningTitle: "बड़ा .fig आयात",
+        figImportWarningDescription:
+          "इस फ़ाइल में {{frames}} फ़्रेम और {{nodes}} लेयर हैं। सब कुछ आयात करने से एडिटर धीमा हो सकता है। ज़रूरी फ़्रेम चुनें।",
+        figImportFrameCount: "{{total}} में से {{selected}} फ़्रेम चुने गए",
+        figImportSelectAll: "सभी चुनें",
+        figImportClearAll: "सभी हटाएँ",
+        figImportCancel: "रद्द करें",
+        figImportSelected: "{{count}} चुने हुए आयात करें",
+        figImportAll: "सभी आयात करें",
+        figImportAnalyzing: "विश्लेषण हो रहा है…",
         htmlTitle: "HTML आयात करें",
         htmlDescription:
           "Standalone HTML paste या upload करें। Design इसे नए screen के रूप में save करता है, editor UI में inject नहीं करता।",
@@ -13531,6 +13670,16 @@ const designImportOverrides = {
         chooseFigFile: "اختر ملف .fig",
         figUploadUploading: "جار الرفع {{progress}}%",
         figUploadProcessing: "جار التحويل…",
+        figImportWarningTitle: "استيراد .fig كبير",
+        figImportWarningDescription:
+          "يحتوي هذا الملف على {{frames}} إطارًا و{{nodes}} طبقة. قد يؤدي استيراد كل شيء إلى إبطاء المحرر. اختر الإطارات التي تحتاجها.",
+        figImportFrameCount: "تم تحديد {{selected}} من أصل {{total}} إطارًا",
+        figImportSelectAll: "تحديد الكل",
+        figImportClearAll: "مسح الكل",
+        figImportCancel: "إلغاء",
+        figImportSelected: "استيراد {{count}} المحددة",
+        figImportAll: "استيراد الكل",
+        figImportAnalyzing: "جار التحليل…",
         htmlTitle: "استيراد HTML",
         htmlDescription:
           "الصق أو ارفع HTML مستقلا. يحفظه Design كشاشة جديدة دون حقنه في واجهة المحرر.",

@@ -76,8 +76,8 @@ describe("AgentPanel header tab visibility", () => {
     ).toBe(0);
   });
 
-  it("hides sidebar chat tabs until a second main tab is open", () => {
-    expect(shouldShowAgentPanelSidebarChatTabs([chatTab("main")])).toBe(false);
+  it("shows sidebar chat tabs when a main tab is open", () => {
+    expect(shouldShowAgentPanelSidebarChatTabs([chatTab("main")])).toBe(true);
     expect(
       shouldShowAgentPanelSidebarChatTabs([
         chatTab("main"),
@@ -401,6 +401,7 @@ describe("AgentPanel mode and full-view visibility", () => {
   it("hides mode buttons in the sidebar and shows them on the full page", () => {
     expect(shouldShowAgentPanelModeButtons(true)).toBe(false);
     expect(shouldShowAgentPanelModeButtons(false)).toBe(true);
+    expect(shouldShowAgentPanelModeButtons(false, true)).toBe(false);
   });
 
   it("shows the full-view action for resources when a page href exists", () => {

@@ -216,6 +216,21 @@ describe("code-layer projection", () => {
     expect(button?.layerNameSource).toBe("semantic");
   });
 
+  it("keeps names from the legacy .fig layer-name attribute", () => {
+    const projection = buildCodeLayerProjection(
+      '<body><section data-agent-native-node-id="legacy" layer-name="Legacy hero"><h1>Fallback text</h1></section></body>',
+    );
+    const section = projection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "legacy",
+    );
+
+    expect(section).toMatchObject({
+      layerName: "Legacy hero",
+      layerNameSource: "attribute",
+      layerNameAttribute: "layer-name",
+    });
+  });
+
   it("marks component instance nodes with componentInstance metadata", () => {
     const html = `
       <section class="flex gap-4">
@@ -242,7 +257,11 @@ describe("code-layer projection", () => {
     expect(cardNode).toBeTruthy();
     expect(cardNode?.componentInstance).toBeDefined();
     expect(cardNode?.componentInstance?.name).toBe("HeroCard");
-    expect(cardNode?.componentInstance?.nodeId).toBe(cardNode?.id);
+    expect(cardNode?.componentInstance?.instanceId).toBe("hero-card-1");
+    expect(cardNode?.componentInstance?.nodeId).toBe("hero-card-1");
+    expect(cardNode?.componentInstance?.nodeId).toBe(
+      cardNode?.dataAttributes["data-agent-native-node-id"],
+    );
     expect(cardNode?.componentInstance?.selector).toBe(cardNode?.selector);
     expect(cardNode?.componentInstance?.alpineData).toBe("{ open: false }");
     expect(cardNode?.componentInstance?.props).toEqual(
@@ -273,6 +292,24 @@ describe("code-layer projection", () => {
     );
     expect(componentChild).toBeTruthy();
     expect(componentChild?.name).toBe("NavBar");
+  });
+
+  it("keeps explicit human layer names ahead of component identifiers", () => {
+    const html = `
+      <main>
+        <div data-agent-native-node-id="main" data-agent-native-layer-name="Play button" data-agent-native-component="PlayButton" data-agent-native-component-id="cmp-play"></div>
+        <div data-agent-native-node-id="default" data-agent-native-layer-name="Play button" data-agent-native-component="PlayButton" data-agent-native-component-ref="cmp-play"></div>
+        <div data-agent-native-node-id="renamed" data-agent-native-layer-name="Play button instance" data-agent-native-component="PlayButton" data-agent-native-component-ref="cmp-play"></div>
+      </main>
+    `;
+
+    const tree = buildCodeLayerTree(buildCodeLayerProjection(html));
+    const componentNodes = tree[0]?.children ?? [];
+    expect(componentNodes.map((node) => node.name)).toEqual([
+      "Play button",
+      "Play button",
+      "Play button instance",
+    ]);
   });
 
   it("builds a design-editor DOM layer tree from projection parentage", () => {

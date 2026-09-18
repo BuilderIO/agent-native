@@ -14,7 +14,12 @@ const mockGetResumableSession = vi.hoisted(() => vi.fn());
 const mockAbortSession = vi.hoisted(() => vi.fn());
 const mockResolveResumableUploadProvider = vi.hoisted(() => vi.fn());
 const mockUpdateSets = vi.hoisted(() => [] as Record<string, unknown>[]);
-const mockUpdateRows = vi.hoisted(() => ({ rows: [{ id: "rec-1" }] }));
+const mockUpdateRows = vi.hoisted(() => ({
+  rows: [{ id: "rec-1" }] as Array<{
+    id: string;
+    uploadGenerationId?: string;
+  }>,
+}));
 const mockSelectRows = vi.hoisted(() => ({
   rows: [] as Array<Record<string, unknown>>,
 }));
@@ -364,6 +369,66 @@ describe("/api/uploads/:recordingId/abort route", () => {
     expect(mockGetResumableSession).toHaveBeenCalledWith(
       "rec-1",
       "generation-1",
+    );
+  });
+
+  it("rejects a legacy abort for an older generation", async () => {
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "uploading",
+        videoUrl: null,
+        failureReason: null,
+        uploadAttemptId: null,
+        uploadGenerationId: "generation-2",
+      },
+    ];
+    mockReadBody.mockResolvedValue({
+      reason: "Cancelled",
+      uploadGenerationId: "generation-1",
+    });
+
+    await expect(handler({} as any)).resolves.toEqual({
+      error: "A newer upload retry is already active.",
+      staleAttempt: true,
+    });
+
+    expect(mockSetResponseStatus).toHaveBeenCalledWith(expect.anything(), 409);
+    expect(mockDb.update).not.toHaveBeenCalled();
+  });
+
+  it("cancels a reset generation that keeps the same upload attempt", async () => {
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "uploading",
+        videoUrl: null,
+        failureReason: null,
+        uploadAttemptId: "attempt-1",
+        uploadGenerationId: "generation-1",
+      },
+    ];
+    mockReadBody.mockResolvedValue({
+      reason: "Cancelled",
+      attemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+    });
+    mockUpdateRows.rows = [{ id: "rec-1", uploadGenerationId: "generation-2" }];
+
+    await expect(handler({} as any)).resolves.toEqual({
+      ok: true,
+      recordingId: "rec-1",
+      chunksCleared: 2,
+    });
+
+    expect(mockGetResumableSession).toHaveBeenLastCalledWith(
+      "rec-1",
+      "generation-2",
+    );
+    expect(mockDeleteRecordingChunks).toHaveBeenCalledWith(
+      "owner@example.com",
+      "rec-1",
+      "generation-2",
     );
   });
 

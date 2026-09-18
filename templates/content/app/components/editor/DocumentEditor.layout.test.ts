@@ -496,7 +496,7 @@ describe("document editor layout", () => {
     );
     const handler = source.slice(
       source.indexOf("const handleContentChange"),
-      source.indexOf("const handleContentSaveNow"),
+      source.indexOf("const handleImmediateContentChange"),
     );
     expect(handler).toContain("localContentRef.current = newContent");
     expect(
@@ -511,22 +511,24 @@ describe("document editor layout", () => {
     );
     const handler = source.slice(
       source.indexOf("const handleContentChange"),
-      source.indexOf("const handleContentSaveNow"),
+      source.indexOf("const handleImmediateContentChange"),
     );
-    expect(handler).toContain("if (documentReconcileConflict)");
-    expect(handler).toContain(
-      "setDocumentReconcileConflict({ localDraft: newContent });",
-    );
+    expect(handler).toContain("if (updateReconcileDraft(newContent)) {");
+    expect(handler).toContain("retainActiveRecoveryDraft({");
     expect(handler.indexOf("return;")).toBeLessThan(
       handler.indexOf("debouncedSave("),
     );
-    expect(source).toContain('{t("editor.keepLocalDraft")}');
-    expect(source).toContain("void handleContentSaveNow(localDraft, true);");
-    expect(source).toContain("handleContentSaveNow(result.content, true)");
-    expect(source).toContain("if (options.adoptCurrentServerBase)");
-    expect(source).toContain(
-      "else if (contentEditVersionRef.current === contentEditVersion)",
+    expect(handler.indexOf("updateReconcileDraft(newContent)")).toBeLessThan(
+      handler.indexOf("debouncedSave("),
     );
+    expect(source).toContain("if (reconcileRecoveryStateRef.current) return;");
+    expect(handler).toContain("retainActiveRecoveryDraft({");
+    expect(source).toContain(
+      "void reconcileRetainRef.current(draft).catch(reportRetentionFailure)",
+    );
+    expect(source).toContain("<DocumentReconcileRecovery");
+    expect(source).toContain("onKeepMine={handleResolveReconcile}");
+    expect(source).toContain("contentBase: reconcileBase");
     expect(source).toContain("if (!result.contentPersisted)");
   });
 
@@ -1674,6 +1676,34 @@ describe("document editor layout", () => {
     );
     expect(source).toContain(
       "saved?.content === lastSavedContentRef.current.content",
+    );
+  });
+
+  it("uses the reviewed title base throughout recovery saves", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    const persistUpdates = source.slice(
+      source.indexOf("const persistDocumentUpdates"),
+      source.indexOf("const saveDocumentImmediately"),
+    );
+    const baseAwareReconcile = source.slice(
+      source.indexOf("const handleBaseAwareReconcile"),
+      source.indexOf("const handleResolveReconcile"),
+    );
+
+    expect(persistUpdates).toContain(
+      "options.titleBase ?? lastSavedTitleRef.current.title",
+    );
+    expect(baseAwareReconcile).toContain("title: documentTitleRef.current");
+    expect(baseAwareReconcile).not.toContain("title: document.title");
+    expect(baseAwareReconcile).toContain("resolveReconcileAutomatically");
+    expect(
+      baseAwareReconcile.indexOf('result.status === "merged"'),
+    ).toBeLessThan(baseAwareReconcile.indexOf("reportReconcile(result.status"));
+    expect(baseAwareReconcile).toContain(
+      'reportReconcile("failed", result.content)',
     );
   });
 

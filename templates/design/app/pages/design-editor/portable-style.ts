@@ -1,3 +1,5 @@
+import { resolveLayerNameAttribute } from "@shared/layer-name";
+
 import type {
   PortableStyleSnapshot,
   PortableStyleSnapshotNode,
@@ -99,9 +101,8 @@ export function applyPortableStyleSnapshotToHtml(
     });
     if (appliedAny) {
       const layerName =
-        root.getAttribute("data-agent-native-layer-name") ||
-        root.getAttribute("data-layer-name") ||
-        "";
+        resolveLayerNameAttribute((attribute) => root.getAttribute(attribute))
+          ?.value ?? "";
       const nodeId = root.getAttribute("data-agent-native-node-id") || "";
       const legacyGeneratedGroup =
         /^an-[a-z0-9]+$/i.test(nodeId) &&

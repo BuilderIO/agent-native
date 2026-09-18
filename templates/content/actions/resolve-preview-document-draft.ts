@@ -23,7 +23,10 @@ const exactDraft = {
 
 const durableClaimPayload = z.object({
   choice: z.enum(["keep_mine", "use_saved", "save_separately"]),
-  status: z.enum(["claimed", "resolved"]),
+  status: z.enum(["claimed", "processing", "resolved"]),
+  expectedDocumentUpdatedAt: z.string().optional(),
+  processingToken: z.string().optional(),
+  processingStartedAt: z.string().optional(),
   draftId: z.string().min(1),
   baseDocumentUpdatedAt: z.string().nullable(),
   loadedContentWasEmpty: z.number().int(),
@@ -31,6 +34,8 @@ const durableClaimPayload = z.object({
   createdAt: z.string().min(1),
   updatedAt: z.string().min(1),
 });
+
+const PROCESSING_LEASE_MS = 5 * 60_000;
 
 function conflict(message: string, details?: Record<string, unknown>): never {
   throw new ActionContractError(message, {
@@ -45,8 +50,10 @@ async function recoveryDocumentId(args: {
   expectedDraftVersion: number;
   expectedDraftTitle: string;
   expectedDraftContent: string;
+  expectedDocumentUpdatedAt: string;
   ownerEmail: string;
   orgId: string;
+  includeDocumentVersion: boolean;
 }): Promise<string> {
   const input = JSON.stringify([
     args.ownerEmail,
@@ -55,6 +62,7 @@ async function recoveryDocumentId(args: {
     args.expectedDraftVersion,
     args.expectedDraftTitle,
     args.expectedDraftContent,
+    ...(args.includeDocumentVersion ? [args.expectedDocumentUpdatedAt] : []),
   ]);
   const digest = await crypto.subtle.digest(
     "SHA-256",
@@ -78,8 +86,16 @@ export default defineAction({
       ...exactDraft,
       expectedDocumentUpdatedAt: z.string().min(1),
     }),
-    z.object({ choice: z.literal("use_saved"), ...exactDraft }),
-    z.object({ choice: z.literal("save_separately"), ...exactDraft }),
+    z.object({
+      choice: z.literal("use_saved"),
+      ...exactDraft,
+      expectedDocumentUpdatedAt: z.string().min(1),
+    }),
+    z.object({
+      choice: z.literal("save_separately"),
+      ...exactDraft,
+      expectedDocumentUpdatedAt: z.string().min(1),
+    }),
   ]),
   run: async (args, ctx) => {
     const userEmail = getRequestUserEmail();
@@ -93,14 +109,89 @@ export default defineAction({
     const access = await assertAccess("document", args.documentId, "editor");
     const ownerEmail = access.resource.ownerEmail as string;
     const db = getDb();
-    const recoveryId = await recoveryDocumentId({
+    let recoveryId = await recoveryDocumentId({
       ...args,
       ownerEmail: userEmail,
       orgId,
+      includeDocumentVersion: true,
     });
-    const claimId = `draft-claim-${recoveryId.slice("recovery-".length)}`;
-    const claimDocumentId =
-      ownerEmail === userEmail ? args.documentId : claimId;
+    let claimId = `draft-claim-${recoveryId.slice("recovery-".length)}`;
+    let claimDocumentId = ownerEmail === userEmail ? args.documentId : claimId;
+    const legacyRecoveryId = await recoveryDocumentId({
+      ...args,
+      ownerEmail: userEmail,
+      orgId,
+      includeDocumentVersion: false,
+    });
+    const legacyClaimId = `draft-claim-${legacyRecoveryId.slice(
+      "recovery-".length,
+    )}`;
+    const [currentClaim] = await db
+      .select({ id: schema.documentVersions.id })
+      .from(schema.documentVersions)
+      .where(
+        and(
+          eq(schema.documentVersions.id, claimId),
+          eq(schema.documentVersions.ownerEmail, userEmail),
+          eq(schema.documentVersions.documentId, claimDocumentId),
+        ),
+      )
+      .limit(1);
+    if (legacyClaimId !== claimId && !currentClaim) {
+      const [legacyClaim] = await db
+        .select({
+          id: schema.documentVersions.id,
+          chatContext: schema.documentVersions.chatContext,
+        })
+        .from(schema.documentVersions)
+        .where(
+          and(
+            eq(schema.documentVersions.id, legacyClaimId),
+            eq(schema.documentVersions.ownerEmail, userEmail),
+            eq(
+              schema.documentVersions.documentId,
+              ownerEmail === userEmail ? args.documentId : legacyClaimId,
+            ),
+          ),
+        )
+        .limit(1);
+      const [matchingDraft] = await db
+        .select({ id: schema.documentPreviewDrafts.id })
+        .from(schema.documentPreviewDrafts)
+        .where(
+          and(
+            eq(schema.documentPreviewDrafts.ownerEmail, userEmail),
+            eq(schema.documentPreviewDrafts.orgId, orgId),
+            eq(schema.documentPreviewDrafts.documentId, args.documentId),
+            eq(schema.documentPreviewDrafts.version, args.expectedDraftVersion),
+            eq(schema.documentPreviewDrafts.title, args.expectedDraftTitle),
+            eq(schema.documentPreviewDrafts.content, args.expectedDraftContent),
+          ),
+        )
+        .limit(1);
+      let legacyPayload: ReturnType<
+        typeof durableClaimPayload.safeParse
+      > | null = null;
+      if (legacyClaim?.chatContext) {
+        try {
+          legacyPayload = durableClaimPayload.safeParse(
+            JSON.parse(legacyClaim.chatContext),
+          );
+        } catch {
+          legacyPayload = null;
+        }
+      }
+      if (
+        legacyClaim &&
+        legacyPayload?.success &&
+        (!matchingDraft || legacyPayload.data.draftId === matchingDraft.id)
+      ) {
+        recoveryId = legacyRecoveryId;
+        claimId = legacyClaimId;
+        claimDocumentId = ownerEmail === userEmail ? args.documentId : claimId;
+      }
+    }
+    const processingToken = crypto.randomUUID();
     const draftFilter = and(
       eq(schema.documentPreviewDrafts.ownerEmail, userEmail),
       eq(schema.documentPreviewDrafts.orgId, orgId),
@@ -143,23 +234,68 @@ export default defineAction({
           if (payload.choice !== args.choice) {
             conflict("This draft was already resolved with another choice.");
           }
+          if (payload.status === "resolved") {
+            return { status: "resolved" as const };
+          }
+          const [currentDocument] = await tx
+            .select()
+            .from(schema.documents)
+            .where(eq(schema.documents.id, args.documentId))
+            .for("update")
+            .limit(1);
+          const expectedUpdatedAt =
+            payload.expectedDocumentUpdatedAt ?? args.expectedDocumentUpdatedAt;
+          if (
+            args.expectedDocumentUpdatedAt !== expectedUpdatedAt ||
+            !currentDocument ||
+            (currentDocument.updatedAt !== expectedUpdatedAt &&
+              !(
+                args.choice === "keep_mine" &&
+                currentDocument.title === claim.title &&
+                currentDocument.content === claim.content
+              ))
+          ) {
+            return {
+              status: "document_conflict" as const,
+              document: currentDocument ?? null,
+            };
+          }
           return {
-            id: payload.draftId,
-            ownerEmail: userEmail,
-            orgId,
-            documentId: args.documentId,
-            title: claim.title,
-            content: claim.content,
-            baseDocumentUpdatedAt: payload.baseDocumentUpdatedAt,
-            loadedContentWasEmpty: payload.loadedContentWasEmpty,
-            deferredReason: payload.deferredReason,
-            version: args.expectedDraftVersion,
-            createdAt: payload.createdAt,
-            updatedAt: payload.updatedAt,
+            status: "claimed" as const,
+            draft: {
+              id: payload.draftId,
+              ownerEmail: userEmail,
+              orgId,
+              documentId: args.documentId,
+              title: claim.title,
+              content: claim.content,
+              baseDocumentUpdatedAt: payload.baseDocumentUpdatedAt,
+              loadedContentWasEmpty: payload.loadedContentWasEmpty,
+              deferredReason: payload.deferredReason,
+              version: args.expectedDraftVersion,
+              createdAt: payload.createdAt,
+              updatedAt: payload.updatedAt,
+            },
+            acquired: false,
+          };
+        }
+        const [currentDocument] = await tx
+          .select()
+          .from(schema.documents)
+          .where(eq(schema.documents.id, args.documentId))
+          .for("update")
+          .limit(1);
+        if (
+          !currentDocument ||
+          currentDocument.updatedAt !== args.expectedDocumentUpdatedAt
+        ) {
+          return {
+            status: "document_conflict" as const,
+            document: currentDocument ?? null,
           };
         }
         const now = new Date().toISOString();
-        await tx
+        const inserted = await tx
           .insert(schema.documentVersions)
           .values({
             id: claimId,
@@ -169,7 +305,10 @@ export default defineAction({
             content: draft.content,
             chatContext: JSON.stringify({
               choice: args.choice,
-              status: "claimed",
+              status: "processing",
+              expectedDocumentUpdatedAt: args.expectedDocumentUpdatedAt,
+              processingToken,
+              processingStartedAt: now,
               draftId: draft.id,
               baseDocumentUpdatedAt: draft.baseDocumentUpdatedAt,
               loadedContentWasEmpty: draft.loadedContentWasEmpty,
@@ -190,64 +329,305 @@ export default defineAction({
             createdAt: now,
             updatedAt: now,
           })
-          .onConflictDoNothing();
+          .onConflictDoNothing()
+          .returning({ id: schema.documentVersions.id });
+        if (inserted.length === 0) {
+          const [claim] = await tx
+            .select()
+            .from(schema.documentVersions)
+            .where(
+              and(
+                eq(schema.documentVersions.id, claimId),
+                eq(schema.documentVersions.ownerEmail, userEmail),
+                eq(schema.documentVersions.documentId, claimDocumentId),
+              ),
+            )
+            .for("update")
+            .limit(1);
+          if (!claim?.chatContext) conflict("The recovery claim was lost.");
+          const payload = durableClaimPayload.parse(
+            JSON.parse(claim.chatContext),
+          );
+          if (payload.choice !== args.choice)
+            conflict("This draft was already resolved with another choice.");
+          if (payload.status === "resolved") {
+            if (
+              payload.draftId !== draft.id ||
+              payload.expectedDocumentUpdatedAt !==
+                args.expectedDocumentUpdatedAt
+            ) {
+              conflict("The saved draft changed during recovery.");
+            }
+            const deleted = await tx
+              .delete(schema.documentPreviewDrafts)
+              .where(draftFilter)
+              .returning({ id: schema.documentPreviewDrafts.id });
+            if (deleted.length !== 1)
+              conflict("The saved draft changed during recovery.");
+            return { status: "resolved" as const };
+          }
+          if (payload.draftId !== draft.id)
+            conflict("The saved draft changed during recovery.");
+          if (
+            payload.status === "processing" &&
+            (!payload.processingStartedAt ||
+              Date.now() - Date.parse(payload.processingStartedAt) <
+                PROCESSING_LEASE_MS)
+          )
+            conflict("This recovery choice is already being applied.");
+          await tx
+            .update(schema.documentVersions)
+            .set({
+              chatContext: JSON.stringify({
+                ...payload,
+                status: "processing",
+                processingToken,
+                processingStartedAt: now,
+              }),
+              updatedAt: now,
+            })
+            .where(eq(schema.documentVersions.id, claimId));
+        }
         const deleted = await tx
           .delete(schema.documentPreviewDrafts)
           .where(draftFilter)
           .returning({ id: schema.documentPreviewDrafts.id });
         if (deleted.length !== 1)
           conflict("The saved draft changed during recovery.");
-        return draft;
+        return { status: "claimed" as const, draft, acquired: true };
       });
     };
-    const markClaimResolved = async () => {
-      const [claim] = await db
-        .select({ chatContext: schema.documentVersions.chatContext })
-        .from(schema.documentVersions)
-        .where(
-          and(
-            eq(schema.documentVersions.id, claimId),
-            eq(schema.documentVersions.ownerEmail, userEmail),
-            eq(schema.documentVersions.documentId, claimDocumentId),
-          ),
-        )
-        .limit(1);
-      if (!claim?.chatContext) conflict("The recovery claim was lost.");
-      const payload = durableClaimPayload.parse(JSON.parse(claim.chatContext));
-      if (payload.choice !== args.choice) {
-        conflict("This draft was already resolved with another choice.");
-      }
-      await db
-        .update(schema.documentVersions)
-        .set({
-          chatContext: JSON.stringify({ ...payload, status: "resolved" }),
-          updatedAt: new Date().toISOString(),
-        })
-        .where(
-          and(
-            eq(schema.documentVersions.id, claimId),
-            eq(schema.documentVersions.ownerEmail, userEmail),
-            eq(schema.documentVersions.documentId, claimDocumentId),
-          ),
+    const acquireClaim = async () =>
+      db.transaction(async (tx) => {
+        const [claim] = await tx
+          .select()
+          .from(schema.documentVersions)
+          .where(
+            and(
+              eq(schema.documentVersions.id, claimId),
+              eq(schema.documentVersions.ownerEmail, userEmail),
+              eq(schema.documentVersions.documentId, claimDocumentId),
+            ),
+          )
+          .for("update")
+          .limit(1);
+        if (!claim?.chatContext) conflict("The recovery claim was lost.");
+        const payload = durableClaimPayload.parse(
+          JSON.parse(claim.chatContext),
         );
+        if (payload.choice !== args.choice)
+          conflict("This draft was already resolved with another choice.");
+        if (payload.status === "resolved") return false;
+        const [currentDocument] = await tx
+          .select({
+            updatedAt: schema.documents.updatedAt,
+            title: schema.documents.title,
+            content: schema.documents.content,
+          })
+          .from(schema.documents)
+          .where(eq(schema.documents.id, args.documentId))
+          .for("update")
+          .limit(1);
+        if (
+          !currentDocument ||
+          (currentDocument.updatedAt !== args.expectedDocumentUpdatedAt &&
+            !(
+              args.choice === "keep_mine" &&
+              currentDocument.title === claim.title &&
+              currentDocument.content === claim.content
+            ))
+        ) {
+          conflict("The page changed after this recovery choice was reviewed.");
+        }
+        if (payload.status === "processing") {
+          const alreadyApplied =
+            args.choice === "use_saved" ||
+            (args.choice === "keep_mine" &&
+              currentDocument.title === claim.title &&
+              currentDocument.content === claim.content) ||
+            (args.choice === "save_separately" &&
+              (
+                await tx
+                  .select({
+                    ownerEmail: schema.documents.ownerEmail,
+                    title: schema.documents.title,
+                    content: schema.documents.content,
+                  })
+                  .from(schema.documents)
+                  .where(
+                    and(
+                      eq(schema.documents.id, recoveryId),
+                      eq(schema.documents.ownerEmail, userEmail),
+                      eq(schema.documents.title, claim.title),
+                      eq(schema.documents.content, claim.content),
+                    ),
+                  )
+                  .limit(1)
+              ).length === 1);
+          if (!alreadyApplied) {
+            if (
+              !payload.processingStartedAt ||
+              Date.now() - Date.parse(payload.processingStartedAt) <
+                PROCESSING_LEASE_MS
+            ) {
+              conflict("This recovery choice is already being applied.");
+            }
+          } else {
+            const resolvedAt = new Date().toISOString();
+            const resolved = await tx
+              .update(schema.documentVersions)
+              .set({
+                chatContext: JSON.stringify({
+                  ...payload,
+                  status: "resolved",
+                }),
+                updatedAt: resolvedAt,
+              })
+              .where(
+                and(
+                  eq(schema.documentVersions.id, claimId),
+                  eq(schema.documentVersions.chatContext, claim.chatContext),
+                ),
+              )
+              .returning({ id: schema.documentVersions.id });
+            if (resolved.length !== 1)
+              conflict("This recovery choice is already being applied.");
+            return false;
+          }
+        }
+        const now = new Date().toISOString();
+        const acquired = await tx
+          .update(schema.documentVersions)
+          .set({
+            chatContext: JSON.stringify({
+              ...payload,
+              status: "processing",
+              processingToken,
+              processingStartedAt: now,
+            }),
+            updatedAt: now,
+          })
+          .where(
+            and(
+              eq(schema.documentVersions.id, claimId),
+              eq(schema.documentVersions.chatContext, claim.chatContext),
+            ),
+          )
+          .returning({ id: schema.documentVersions.id });
+        if (acquired.length !== 1)
+          conflict("This recovery choice is already being applied.");
+        return true;
+      });
+    const markClaimResolved = async () => {
+      await db.transaction(async (tx) => {
+        const [claim] = await tx
+          .select({ chatContext: schema.documentVersions.chatContext })
+          .from(schema.documentVersions)
+          .where(
+            and(
+              eq(schema.documentVersions.id, claimId),
+              eq(schema.documentVersions.ownerEmail, userEmail),
+              eq(schema.documentVersions.documentId, claimDocumentId),
+            ),
+          )
+          .limit(1);
+        if (!claim?.chatContext) conflict("The recovery claim was lost.");
+        const payload = durableClaimPayload.parse(
+          JSON.parse(claim.chatContext),
+        );
+        if (payload.choice !== args.choice) {
+          conflict("This draft was already resolved with another choice.");
+        }
+        if (payload.status === "resolved") return;
+        if (payload.processingToken !== processingToken)
+          conflict("This recovery choice is already being applied.");
+        const resolved = await tx
+          .update(schema.documentVersions)
+          .set({
+            chatContext: JSON.stringify({ ...payload, status: "resolved" }),
+            updatedAt: new Date().toISOString(),
+          })
+          .where(
+            and(
+              eq(schema.documentVersions.id, claimId),
+              eq(schema.documentVersions.ownerEmail, userEmail),
+              eq(schema.documentVersions.documentId, claimDocumentId),
+              eq(schema.documentVersions.chatContext, claim.chatContext),
+            ),
+          )
+          .returning({ id: schema.documentVersions.id });
+        if (resolved.length !== 1) conflict("The recovery claim was lost.");
+      });
     };
     const restoreClaimedDraft = async (
       draft: typeof schema.documentPreviewDrafts.$inferSelect,
     ) => {
-      const restored = await db
-        .insert(schema.documentPreviewDrafts)
-        .values(draft)
-        .onConflictDoNothing()
-        .returning({ id: schema.documentPreviewDrafts.id });
-      if (restored.length === 1) return;
+      await db.transaction(async (tx) => {
+        const [claim] = await tx
+          .select({ chatContext: schema.documentVersions.chatContext })
+          .from(schema.documentVersions)
+          .where(eq(schema.documentVersions.id, claimId))
+          .for("update")
+          .limit(1);
+        if (!claim?.chatContext) conflict("The recovery claim was lost.");
+        const payload = durableClaimPayload.parse(
+          JSON.parse(claim.chatContext),
+        );
+        if (
+          payload.status === "resolved" ||
+          payload.processingToken !== processingToken
+        )
+          return;
+        const restored = await tx
+          .insert(schema.documentPreviewDrafts)
+          .values(draft)
+          .onConflictDoNothing()
+          .returning({ id: schema.documentPreviewDrafts.id });
+        if (restored.length === 1) {
+          await tx
+            .update(schema.documentVersions)
+            .set({
+              chatContext: JSON.stringify({ ...payload, status: "claimed" }),
+              updatedAt: new Date().toISOString(),
+            })
+            .where(eq(schema.documentVersions.id, claimId));
+          return;
+        }
 
-      conflict(
-        "A newer draft replaced this recovery draft. The claimed version was preserved in Version History.",
-        { recoveryVersionId: claimId },
-      );
+        conflict(
+          "A newer draft replaced this recovery draft. The claimed version was preserved in Version History.",
+          { recoveryVersionId: claimId },
+        );
+      });
     };
     if (args.choice === "keep_mine") {
-      const draft = await claimExactDraft();
+      const claimed = await claimExactDraft();
+      if (claimed.status === "document_conflict") return claimed;
+      if (claimed.status === "resolved") {
+        const [current] = await db
+          .select()
+          .from(schema.documents)
+          .where(eq(schema.documents.id, args.documentId))
+          .limit(1);
+        return {
+          status: "resolved" as const,
+          choice: args.choice,
+          document: current,
+        };
+      }
+      if (!claimed.acquired && !(await acquireClaim())) {
+        const [current] = await db
+          .select()
+          .from(schema.documents)
+          .where(eq(schema.documents.id, args.documentId))
+          .limit(1);
+        return {
+          status: "resolved" as const,
+          choice: args.choice,
+          document: current,
+        };
+      }
+      const { draft } = claimed;
       try {
         const [current] = await db
           .select()
@@ -280,6 +660,22 @@ export default defineAction({
           ctx,
         );
         if ((saved as DocumentUpdateConflictResponse).conflict === true) {
+          const [winner] = await db
+            .select()
+            .from(schema.documents)
+            .where(eq(schema.documents.id, args.documentId))
+            .limit(1);
+          if (
+            winner?.title === draft.title &&
+            winner.content === draft.content
+          ) {
+            await markClaimResolved();
+            return {
+              status: "resolved" as const,
+              choice: args.choice,
+              document: winner,
+            };
+          }
           await restoreClaimedDraft(draft);
           return {
             status: "document_conflict" as const,
@@ -299,7 +695,12 @@ export default defineAction({
     }
 
     if (args.choice === "use_saved") {
-      await claimExactDraft();
+      const claimed = await claimExactDraft();
+      if (claimed.status === "document_conflict") return claimed;
+      if (claimed.status === "resolved")
+        return { status: "resolved" as const, choice: args.choice };
+      if (!claimed.acquired && !(await acquireClaim()))
+        return { status: "resolved" as const, choice: args.choice };
       await markClaimResolved();
       return { status: "resolved" as const, choice: args.choice };
     }
@@ -318,7 +719,31 @@ export default defineAction({
         ? existing
         : null;
     };
-    const draft = await claimExactDraft();
+    const claimed = await claimExactDraft();
+    if (claimed.status === "document_conflict") return claimed;
+    if (claimed.status === "resolved") {
+      const existing = await findExistingRecovery();
+      if (!existing) conflict("The recovered copy could not be found.");
+      return {
+        status: "resolved" as const,
+        choice: args.choice,
+        document: existing,
+        createdDocumentId: existing.id,
+        urlPath: `/page/${existing.id}`,
+      };
+    }
+    if (!claimed.acquired && !(await acquireClaim())) {
+      const existing = await findExistingRecovery();
+      if (!existing) conflict("The recovered copy could not be found.");
+      return {
+        status: "resolved" as const,
+        choice: args.choice,
+        document: existing,
+        createdDocumentId: existing.id,
+        urlPath: `/page/${existing.id}`,
+      };
+    }
+    const { draft } = claimed;
     const existingRecovery = await findExistingRecovery();
     if (existingRecovery) {
       await markClaimResolved();

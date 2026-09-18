@@ -140,6 +140,16 @@ export const hitTestBridgeScript: string = `"use strict";
       }
       return "y";
     }
+    function wrappedFlexMainAxis(parent) {
+      var cs = window.getComputedStyle(parent);
+      if (cs.display !== "flex" && cs.display !== "inline-flex") {
+        return null;
+      }
+      if (cs.flexWrap !== "wrap" && cs.flexWrap !== "wrap-reverse") {
+        return null;
+      }
+      return cs.flexDirection && cs.flexDirection.indexOf("row") === 0 ? "x" : "y";
+    }
     function isAutoLayoutElement(el) {
       if (!el) return false;
       var cs = window.getComputedStyle(el);
@@ -281,7 +291,17 @@ export const hitTestBridgeScript: string = `"use strict";
     }
     function layerNameForElement(el) {
       if (!el || !el.getAttribute) return "";
-      return el.getAttribute("data-agent-native-layer-name") || el.getAttribute("data-layer-name") || "";
+      var attributes = [
+        "data-agent-native-layer-name",
+        "data-layer-name",
+        "layer-name"
+      ];
+      for (var i = 0; i < attributes.length; i += 1) {
+        var value = el.getAttribute(attributes[i]);
+        var trimmed = value && value.trim ? value.trim() : "";
+        if (trimmed) return trimmed;
+      }
+      return "";
     }
     function isTemplateCloneElement(el) {
       var node = el;
@@ -316,6 +336,7 @@ export const hitTestBridgeScript: string = `"use strict";
     }
     function getOrMintPendingNodeId(el) {
       if (!el || !el.getAttribute || !el.setAttribute) return "";
+      if (el === document.body || el === document.documentElement) return "";
       if (isTemplateCloneElement(el)) return "";
       var existing = el.getAttribute("data-an-pending-node-id");
       if (existing) return existing;
@@ -396,7 +417,10 @@ export const hitTestBridgeScript: string = `"use strict";
     function nearestChildInsertionTarget(container, clientX, clientY) {
       var children = draggableElementChildren(container);
       if (!children.length) return null;
-      var axis = parentFlowAxis(container);
+      var wrappedFlexAxis = wrappedFlexMainAxis(container);
+      var axis = wrappedFlexAxis || parentFlowAxis(container);
+      var containerStyles = window.getComputedStyle(container);
+      var multiTrackGrid = (containerStyles.display === "grid" || containerStyles.display === "inline-grid") && (containerStyles.gridTemplateColumns || "").split(" ").filter(Boolean).length > 1;
       var best = null;
       var bestDistance = Infinity;
       var placement = "after";
@@ -405,11 +429,15 @@ export const hitTestBridgeScript: string = `"use strict";
         if (rect.width <= 0 || rect.height <= 0) continue;
         var center = axis === "x" ? rect.left + rect.width / 2 : rect.top + rect.height / 2;
         var pointer = axis === "x" ? clientX : clientY;
-        var distance = Math.abs(pointer - center);
+        var distance = multiTrackGrid || wrappedFlexAxis ? Math.hypot(
+          clientX - (rect.left + rect.width / 2),
+          clientY - (rect.top + rect.height / 2)
+        ) : Math.abs(pointer - center);
         if (distance < bestDistance) {
           bestDistance = distance;
           best = children[j];
-          placement = pointer < center ? "before" : "after";
+          var placementPointer = axis === "x" ? clientX : clientY;
+          placement = multiTrackGrid || wrappedFlexAxis ? placementPointer < center ? "before" : "after" : pointer < center ? "before" : "after";
         }
       }
       if (!best) return null;
@@ -441,6 +469,15 @@ export const hitTestBridgeScript: string = `"use strict";
               axis: parentFlowAxis(parent),
               dropMode: "flow-insert"
             };
+          }
+          var wrappedParentAxis = wrappedFlexMainAxis(parent);
+          if (wrappedParentAxis) {
+            var wrappedParentSlot = nearestChildInsertionTarget(
+              parent,
+              clientX,
+              clientY
+            );
+            if (wrappedParentSlot) return wrappedParentSlot;
           }
           var parentAxis = parentFlowAxis(parent);
           var childRect = cursor.getBoundingClientRect();
@@ -552,9 +589,17 @@ export const hitTestBridgeScript: string = `"use strict";
     function reviewAnchorElementAtPoint(clientX, clientY) {
       var element = elementFromEditorPoint(clientX, clientY);
       if (!element) return null;
-      var identifiedAncestor = element.closest(
-        "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[id]"
-      );
+      var identifiedAncestor = null;
+      var current = element;
+      while (current && current !== document.body && current !== document.documentElement) {
+        if (current.matches(
+          "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[id]"
+        )) {
+          identifiedAncestor = current;
+          break;
+        }
+        current = current.parentElement;
+      }
       if (identifiedAncestor && identifiedAncestor !== document.body && identifiedAncestor !== document.documentElement) {
         return identifiedAncestor;
       }
@@ -799,6 +844,7 @@ export const hitTestBridgeScript: string = `"use strict";
             placement,
             axis,
             dropMode,
+            layerName: result ? layerNameForElement(result.anchor) || void 0 : void 0,
             anchorRect: anchorRect ? {
               left: anchorRect.left,
               top: anchorRect.top,

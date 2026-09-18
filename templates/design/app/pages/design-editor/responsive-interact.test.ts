@@ -152,9 +152,11 @@ describe("responsive Interact wiring", () => {
     const pinnedExit = source.slice(pinnedExitIndex, pinnedExitIndex + 400);
     expect(pinnedExit).toContain("<ResponsiveInteractExitButton");
     expect(pinnedExit).toContain("onClose={handleExitResponsiveInteract}");
-    // Height/edge-matched to the bar's own row (h-12, pr-3) so it reads as
-    // one row, not a second floating control competing with the first.
-    expect(pinnedExit).toContain("flex h-12 items-center pr-3");
+    // Height/edge-matched to the bar's own row, with an opaque panel
+    // background so scrollable dimensions cannot render through the exit.
+    expect(pinnedExit).toContain(
+      "flex h-12 items-center bg-[var(--design-editor-panel-bg)] pl-1 pr-3",
+    );
   });
 
   it("uses focused embedded defaults and a separate minimal-mode floating bar", () => {

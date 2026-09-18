@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildMcpOAuthStartUrl,
@@ -24,24 +24,34 @@ import {
 } from "./mcp-integration-catalog.js";
 
 describe("MCP integration catalog", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
   it("opens OAuth setup without replacing the current app", () => {
-    const replace = vi.fn();
     const popup = {
       opener: {},
-      location: { replace },
     } as unknown as Window;
     const open = vi.fn(() => popup);
-    vi.stubGlobal("window", { open });
+    vi.stubGlobal("window", {
+      open,
+      location: {
+        href: "https://content.example.test/settings",
+        pathname: "/settings",
+      },
+    });
 
     expect(
       navigateToMcpOAuthStart("/_agent-native/mcp/servers/oauth/start"),
     ).toBe(true);
 
-    expect(open).toHaveBeenCalledWith("about:blank", "_blank");
-    expect(popup.opener).toBeNull();
-    expect(replace).toHaveBeenCalledWith(
-      "/_agent-native/mcp/servers/oauth/start",
+    expect(open).toHaveBeenCalledWith(
+      "https://content.example.test/_agent-native/mcp/servers/oauth/start",
+      "_blank",
+      "width=640,height=760",
     );
+    expect(popup.opener).toBeNull();
 
     open.mockReturnValueOnce(null);
     expect(
@@ -54,7 +64,6 @@ describe("MCP integration catalog", () => {
     expect(
       navigateToMcpOAuthStart("/_agent-native/mcp/servers/oauth/start"),
     ).toBe(false);
-    vi.unstubAllGlobals();
   });
 
   it("includes direct-connect defaults that do not need headers", () => {
@@ -560,6 +569,22 @@ describe("MCP integration catalog", () => {
     expect(params.get("return")).toBe("/settings/integrations");
     expect(params.get("tracking_flow")).toBe("first_run");
     expect(params.get("tracking_integration_id")).toBe("linear");
+  });
+
+  it("builds the OAuth start URL under a configured app mount", () => {
+    vi.stubEnv("VITE_APP_BASE_PATH", "/content");
+
+    const url = buildMcpOAuthStartUrl({
+      name: "Linear",
+      url: "https://mcp.linear.app/sse",
+      description: "Read and write issues",
+      scope: "user",
+      returnUrl: "/content/settings/integrations",
+    });
+
+    expect(new URL(url, "https://example.com").pathname).toBe(
+      "/content/_agent-native/mcp/servers/oauth/start",
+    );
   });
 
   it("falls back to personal scope when organization access is unavailable", () => {

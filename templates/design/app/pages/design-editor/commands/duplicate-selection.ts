@@ -5,13 +5,20 @@ import { toast } from "sonner";
 import * as Y from "yjs";
 
 import { trace } from "@/components/design/design-trace";
-import type { ElementInfo } from "@/components/design/types";
+import type {
+  ElementInfo,
+  RuntimeStructureInsertRequest,
+} from "@/components/design/types";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
 import {
   extractLayerPosition,
   getElementOuterHtml,
   insertClonedHtmlLayer,
   insertClonedHtmlLayers,
+  planLinkedComponentStructureClone,
+  prepareClonedHtmlLayersForLiveInsert,
+  type ComponentCloneBatchContext,
+  type LinkedComponentStructureClonePlan,
 } from "@/pages/design-editor/clone-and-pen-edit";
 import {
   codeLayerSelectorAliases,
@@ -25,10 +32,79 @@ import {
   mapAcceptedSelectionNode,
   projectAcceptedSource,
 } from "@/pages/design-editor/commands/selection-publication";
+import { isStandaloneHttpUrl } from "@/pages/design-editor/editor-state";
+import type { GeometryHistorySelection } from "@/pages/design-editor/history";
 import type { DesignFile } from "@/pages/design-editor/types";
+
+import type { ApplyLinkedComponentEdit } from "./linked-component-structure";
+
+function planLinkedDuplicateSelection(args: {
+  content: string;
+  group: SelectedCanvasLayerSnapshot[];
+  source: {
+    kind: "design-file";
+    designId?: string;
+    fileId: string;
+    filename?: string;
+  };
+  componentLinks: ComponentCloneBatchContext;
+  repeatTransform: { dx: number; dy: number } | null;
+  onUnsupportedStructure: () => void;
+}): LinkedComponentStructureClonePlan | null {
+  let content = args.content;
+  let targetNodeId: string | null = null;
+  const selectionNodeIds: string[] = [];
+  const nodeIdMap = new Map<string, string>();
+  for (const snapshot of args.group) {
+    const projection = buildCodeLayerProjection(content, {
+      source: args.source,
+    });
+    const anchorNode =
+      projection.nodes.find(
+        (node) =>
+          node.id === snapshot.node.id ||
+          node.dataAttributes["data-agent-native-node-id"] ===
+            snapshot.rootNodeId,
+      ) ?? snapshot.node;
+    const sourcePosition = extractLayerPosition(snapshot.html);
+    const plan = planLinkedComponentStructureClone(content, [snapshot.html], {
+      onUnsupportedStructure: args.onUnsupportedStructure,
+      targetSelectors: codeLayerSelectorAliases(anchorNode),
+      placement: "after",
+      stripRootPosition: !sourcePosition,
+      positions: sourcePosition
+        ? [
+            {
+              x: sourcePosition.x + (args.repeatTransform?.dx ?? 0),
+              y: sourcePosition.y + (args.repeatTransform?.dy ?? 0),
+              space: "layout",
+            },
+          ]
+        : undefined,
+      componentLinks: args.componentLinks,
+    });
+    if (!plan) return null;
+    targetNodeId ??= plan.targetNodeId;
+    if (targetNodeId !== plan.targetNodeId) return null;
+    content = plan.mainAfter;
+    selectionNodeIds.push(...plan.selectionNodeIds);
+    plan.nodeIdMap.forEach((value, key) => nodeIdMap.set(key, value));
+  }
+  return targetNodeId
+    ? {
+        mainBefore: args.content,
+        mainAfter: content,
+        targetNodeId,
+        selectionNodeIds,
+        rootNodeIds: selectionNodeIds,
+        nodeIdMap,
+      }
+    : null;
+}
 
 export interface DuplicateSelectionArgs {
   activeFile: DesignFile;
+  applyLinkedComponentEdit?: ApplyLinkedComponentEdit;
   designId: string | undefined;
   applyFileContentUpdate: (
     fileId: string,
@@ -76,9 +152,16 @@ export interface DuplicateSelectionArgs {
     nodeIdMap: Map<string, string>,
     targetFileId: string,
   ) => void;
+  runtimeStructureInsertRevisionRef?: RefObject<number>;
+  selectionBefore?: GeometryHistorySelection;
   selectedCanvasSelector: string;
   selectedElement: ElementInfo | null;
   selectedLayerIdsState: string[];
+  setRuntimeStructureInsertRequest?: Dispatch<
+    SetStateAction<
+      (RuntimeStructureInsertRequest & { screenId: string }) | null
+    >
+  >;
   setOverviewSelectedScreenIds: Dispatch<SetStateAction<string[]>>;
   setSelectedElement: Dispatch<SetStateAction<ElementInfo | null>>;
   setSelectedLayerIdsState: Dispatch<SetStateAction<string[]>>;
@@ -89,6 +172,7 @@ export interface DuplicateSelectionArgs {
 
 export function runDuplicateSelection({
   activeFile,
+  applyLinkedComponentEdit,
   designId,
   applyFileContentUpdate,
   applyLocalContentUpdate,
@@ -101,9 +185,12 @@ export function runDuplicateSelection({
   lastDuplicateTransformRef,
   overviewSelectedScreenIds,
   remapMotionTracksForClone,
+  runtimeStructureInsertRevisionRef,
+  selectionBefore,
   selectedCanvasSelector,
   selectedElement,
   selectedLayerIdsState,
+  setRuntimeStructureInsertRequest,
   setOverviewSelectedScreenIds,
   setSelectedElement,
   setSelectedLayerIdsState,
@@ -189,10 +276,124 @@ export function runDuplicateSelection({
         : null;
     const nextDuplicateRootNodeIds: string[] = [];
 
-    for (const file of files) {
-      const group = snapshots.filter(
-        (snapshot) => snapshot.sourceFileId === file.id,
+    // A localhost screen stores its route URL, while the selected layer only
+    // exists in the running iframe. Reusing the design-file clone path here
+    // would ask the URL string for an HTML projection and silently turn Cmd+D
+    // into a no-op. Prepare the runtime snapshots for the same one-shot bridge
+    // insert lifecycle used by paste so the clone gets a fresh identity and
+    // participates in pending-edit undo/redo.
+    if (
+      activeFile &&
+      isStandaloneHttpUrl(activeFile.content ?? "") &&
+      snapshots.every((snapshot) => snapshot.sourceFileId === activeFile.id)
+    ) {
+      const sourcePositions = snapshots.map((snapshot) =>
+        extractLayerPosition(snapshot.html),
       );
+      const prepared = prepareClonedHtmlLayersForLiveInsert(
+        activeFile.content ?? "",
+        snapshots.map((snapshot) => snapshot.html),
+        {
+          stripRootPosition: true,
+          positions: sourcePositions.map((position) =>
+            position
+              ? {
+                  x: position.x + (repeatTransform?.dx ?? 0),
+                  y: position.y + (repeatTransform?.dy ?? 0),
+                  space: "layout" as const,
+                }
+              : undefined,
+          ),
+        },
+      );
+      if (
+        prepared &&
+        runtimeStructureInsertRevisionRef &&
+        setRuntimeStructureInsertRequest
+      ) {
+        const anchorSelector =
+          selectedElement?.runtimeSelector ??
+          selectedCanvasSelector ??
+          selectedElement?.selector;
+        const anchorSourceId =
+          selectedElement?.runtimeSourceId ?? selectedElement?.sourceId;
+        const hasAnchor = Boolean(anchorSelector);
+        runtimeStructureInsertRevisionRef.current += 1;
+        setRuntimeStructureInsertRequest({
+          requestId: runtimeStructureInsertRevisionRef.current,
+          screenId: activeFile.id,
+          html: prepared.htmlFragments[0]!,
+          additionalHtml: prepared.htmlFragments.slice(1),
+          anchor: hasAnchor
+            ? { selector: anchorSelector!, sourceId: anchorSourceId }
+            : { selector: "body" },
+          placement: hasAnchor ? "after" : "inside",
+        });
+        lastDuplicateTransformRef.current = {
+          rootNodeIds: [...prepared.rootNodeIds].sort(),
+          dx: repeatTransform?.dx ?? 0,
+          dy: repeatTransform?.dy ?? 0,
+        };
+        return;
+      }
+    }
+
+    const sortedSnapshotsByFile = new Map(
+      files.map((file) => [
+        file.id,
+        snapshots
+          .filter((snapshot) => snapshot.sourceFileId === file.id)
+          .sort((a, b) => b.sourceIndex - a.sourceIndex),
+      ]),
+    );
+    const linkedGroups = [...sortedSnapshotsByFile.values()].filter(
+      (group) => group.length > 0,
+    );
+    if (applyLinkedComponentEdit && linkedGroups.length === 1) {
+      const group = linkedGroups[0]!;
+      const file = files.find(
+        (candidate) => candidate.id === group[0]!.sourceFileId,
+      );
+      if (file) {
+        const source = {
+          kind: "design-file" as const,
+          designId,
+          fileId: file.id,
+          filename: file.filename,
+        };
+        const componentLinks: ComponentCloneBatchContext = {
+          sourceFileIds: group.map((snapshot) => snapshot.sourceFileId),
+          targetSource: source,
+          documents: componentDocuments,
+        };
+        const plan = planLinkedDuplicateSelection({
+          content: getScreenContent(file.id),
+          group,
+          source,
+          componentLinks,
+          repeatTransform,
+          onUnsupportedStructure,
+        });
+        if (plan) {
+          applyLinkedComponentEdit(
+            file.id,
+            plan.targetNodeId,
+            {
+              kind: "structure",
+              before: plan.mainBefore,
+              after: plan.mainAfter,
+              selectionNodeIds: plan.selectionNodeIds,
+            },
+            selectionBefore,
+            () => remapMotionTracksForClone(plan.nodeIdMap, file.id),
+          );
+          return;
+        }
+      }
+    }
+
+    for (const file of files) {
+      const group = sortedSnapshotsByFile.get(file.id) ?? [];
       if (group.length === 0) continue;
       let content = getScreenContent(file.id);
       const source = {
@@ -202,9 +403,7 @@ export function runDuplicateSelection({
         filename: file.filename,
       };
       const insertedRootNodeIds: string[] = [];
-      for (const snapshot of [...group].sort(
-        (a, b) => b.sourceIndex - a.sourceIndex,
-      )) {
+      for (const snapshot of group) {
         const projection = buildCodeLayerProjection(content, { source });
         const anchorNode =
           projection.nodes.find(

@@ -1367,6 +1367,10 @@ function LayersPanelImpl(
   const hasAnyRows = roots.length > 0;
   const screenRows = screens ?? files ?? [];
   const shouldShowSearch = searchOpen || Boolean(searchQuery.trim());
+  const collapsedIds = useMemo(
+    () => expandedIds.filter((id) => selectedAncestorIds.includes(id)),
+    [expandedIds, selectedAncestorIds],
+  );
 
   const refreshScreenResizeMetrics = useCallback(() => {
     const panelHeight = layersPanelRef.current?.getBoundingClientRect().height;
@@ -1407,25 +1411,10 @@ function LayersPanelImpl(
     });
     return () => window.cancelAnimationFrame(frame);
   }, [activeScreenId, screenOverviewActive, screenRows]);
-  const collapseTargetId = useMemo(() => {
-    for (let index = selectedIds.length - 1; index >= 0; index -= 1) {
-      const selectedRow = visibleRows.find(
-        (row) => row.node.id === selectedIds[index],
-      );
-      if (!selectedRow) continue;
-      if (selectedRow.hasChildren && expandedIdSet.has(selectedRow.node.id)) {
-        return selectedRow.node.id;
-      }
-    }
-    return null;
-  }, [expandedIdSet, selectedIds, visibleRows]);
 
-  const collapseSelectedLayer = useCallback(() => {
-    if (!collapseTargetId) return;
-    onExpandedIdsChange(
-      expandedIds.filter((expandedId) => expandedId !== collapseTargetId),
-    );
-  }, [collapseTargetId, expandedIds, onExpandedIdsChange]);
+  const collapseLayers = useCallback(() => {
+    onExpandedIdsChange(collapsedIds);
+  }, [collapsedIds, onExpandedIdsChange]);
 
   // L20: auto-scroll the rows list while dragging near the top/bottom edge.
   // Runs a rAF loop so the scroll speed stays smooth and independent of the
@@ -1565,8 +1554,6 @@ function LayersPanelImpl(
         ref={layersPanelRef}
         data-layers-panel
         className={cn(
-          // Compact Figma-like density for the layers tree only — leave the
-          // editor-wide 32px/16px tokens alone for inspector controls.
           "[--design-baseline-unit:4px] [--design-control-height:20px] [--design-icon-size:12px] [--design-row-height:24px] [--design-section-height:28px]",
           "flex h-full min-h-0 w-full flex-col overflow-hidden bg-[var(--design-editor-panel-bg)] text-[11px] font-normal text-foreground",
           className,
@@ -1585,17 +1572,21 @@ function LayersPanelImpl(
                 : { height: `${screenSectionHeight}px` }),
             }}
           >
-            <div className="flex h-[var(--design-section-height)] items-center justify-between px-2">
+            <div
+              data-layers-panel-header="screens"
+              className="flex h-[var(--design-section-height)] items-center justify-between px-2"
+            >
               <h2 className="truncate text-[11px] font-semibold text-foreground">
                 {labels.screens}
               </h2>
               <div className="flex items-center gap-0.5 text-muted-foreground">
                 <IconTooltipButton
                   label={labels.addScreen}
+                  dataAction="add-screen"
                   disabled={!onAddScreen}
                   onClick={onAddScreen}
                 >
-                  <IconPlus className="size-[var(--design-icon-size)]" />
+                  <IconPlus className="!size-[var(--design-icon-size)]" />
                 </IconTooltipButton>
               </div>
             </div>
@@ -1628,6 +1619,7 @@ function LayersPanelImpl(
                     <button
                       key={screen.id}
                       type="button"
+                      data-screen-row
                       ref={(element) => {
                         if (element)
                           screenRowRefs.current.set(screen.id, element);
@@ -1681,7 +1673,10 @@ function LayersPanelImpl(
           </div>
         ) : null}
 
-        <div className="flex h-[var(--design-section-height)] shrink-0 items-center justify-between px-2">
+        <div
+          data-layers-panel-header="layers"
+          className="flex h-[var(--design-section-height)] shrink-0 items-center justify-between px-2"
+        >
           <div className="min-w-0">
             <h2 className="truncate text-[11px] font-semibold text-foreground">
               {labels.title}
@@ -1690,18 +1685,26 @@ function LayersPanelImpl(
           <div className="flex items-center gap-0.5 text-muted-foreground">
             <IconTooltipButton
               label={labels.searchPlaceholder}
+              dataAction="search"
               onClick={focusSearch}
             >
-              <IconSearch className="size-[var(--design-icon-size)]" />
+              <IconSearch
+                className="!size-[var(--design-icon-size)]"
+                strokeWidth={1.8}
+              />
             </IconTooltipButton>
             <button
               type="button"
+              data-layers-panel-action="collapse"
               className="flex size-5 items-center justify-center rounded-sm text-muted-foreground hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground disabled:pointer-events-none disabled:opacity-35"
               aria-label={labels.collapse}
-              disabled={!collapseTargetId}
-              onClick={collapseSelectedLayer}
+              disabled={collapsedIds.length === expandedIds.length}
+              onClick={collapseLayers}
             >
-              <IconListTree className="size-[var(--design-icon-size)]" />
+              <IconListTree
+                className="!size-[var(--design-icon-size)]"
+                strokeWidth={1.5}
+              />
             </button>
           </div>
         </div>
@@ -1929,7 +1932,7 @@ function LayerRowIndentSlots({
           key={index}
           data-layer-row-indent
           className={cn(
-            "flex h-full w-[var(--design-icon-size)] shrink-0 items-center justify-center",
+            "flex h-full w-5 shrink-0 items-center justify-center",
             index > 0 && "mr-[var(--design-baseline-unit)]",
           )}
         >
@@ -2473,7 +2476,10 @@ const LayerRow = memo(function LayerRow({
                     type="button"
                     variant="ghost"
                     size="icon"
-                    className="size-[var(--design-icon-size)] shrink-0 rounded-sm p-0 text-muted-foreground hover:bg-transparent hover:text-foreground"
+                    data-layer-row-chevron={
+                      isExpanded ? "expanded" : "collapsed"
+                    }
+                    className="size-5 shrink-0 rounded-sm p-0 text-muted-foreground hover:bg-transparent hover:text-foreground"
                     aria-label={isExpanded ? labels.collapse : labels.expand}
                     onClick={(event) => {
                       event.stopPropagation();
@@ -2487,9 +2493,15 @@ const LayerRow = memo(function LayerRow({
                     }}
                   >
                     {isExpanded ? (
-                      <IconChevronDown className="size-[var(--design-icon-size)]" />
+                      <IconChevronDown
+                        className="!size-2.5"
+                        strokeWidth={1.8}
+                      />
                     ) : (
-                      <IconChevronRight className="size-[var(--design-icon-size)] rtl:-scale-x-100" />
+                      <IconChevronRight
+                        className="!size-2.5 rtl:-scale-x-100"
+                        strokeWidth={1.8}
+                      />
                     )}
                   </Button>
                 ) : undefined
@@ -2510,6 +2522,7 @@ const LayerRow = memo(function LayerRow({
               onKeyDown={handleKeyDown}
             >
               <span
+                data-layer-row-icon
                 className={cn(
                   "flex size-[var(--design-icon-size)] shrink-0 items-center justify-center text-muted-foreground",
                   isComponentLayer
@@ -2930,11 +2943,13 @@ const LayerRow = memo(function LayerRow({
 
 function IconTooltipButton({
   label,
+  dataAction,
   onClick,
   disabled,
   children,
 }: {
   label: string;
+  dataAction?: string;
   onClick?: () => void;
   disabled?: boolean;
   children: ReactNode;
@@ -2947,6 +2962,7 @@ function IconTooltipButton({
             type="button"
             variant="ghost"
             size="icon"
+            data-layers-panel-action={dataAction}
             className="size-5 rounded-sm p-0 text-muted-foreground hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground"
             aria-label={label}
             disabled={disabled}

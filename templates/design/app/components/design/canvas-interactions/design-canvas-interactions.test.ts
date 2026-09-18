@@ -30,6 +30,14 @@ describe("Design canvas interaction adapter", () => {
       resolveDesignCanvasShortcut({ key, code, metaKey: true, shiftKey: true }),
     ).toBeNull();
   });
+
+  it.each([
+    ["BracketRight", "bring-to-front"],
+    ["BracketLeft", "send-to-back"],
+  ])("resolves plain physical %s", (code, command) => {
+    expect(resolveDesignCanvasShortcut({ key: code, code })).toBe(command);
+  });
+
   it("resolves Design's standard commands through the shared shortcut registry", () => {
     expect(resolveDesignCanvasShortcut({ key: "d", metaKey: true })).toBe(
       "duplicate",
@@ -37,6 +45,13 @@ describe("Design canvas interaction adapter", () => {
     expect(
       resolveDesignCanvasShortcut({
         key: "}",
+        code: "BracketRight",
+        metaKey: true,
+      }),
+    ).toBe("bring-forward");
+    expect(
+      resolveDesignCanvasShortcut({
+        key: "BracketRight",
         code: "BracketRight",
         metaKey: true,
       }),

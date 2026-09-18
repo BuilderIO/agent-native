@@ -37,7 +37,10 @@ import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-c
 import { embeddedWheelBridgeScript } from "../../../../.generated/bridge/embedded-wheel.generated";
 import { hitTestBridgeScript } from "../../../../.generated/bridge/hit-test.generated";
 import { buildCodeLayerProjection } from "../../../../shared/code-layer";
-import { isTextElement } from "../edit-panel/element-classification";
+import {
+  inferElementSizing,
+  isTextElement,
+} from "../edit-panel/element-classification";
 
 declare global {
   interface Window {
@@ -421,6 +424,84 @@ describe("editor chrome shared gesture controller", () => {
           top: 242,
           styleChanges: 1,
         });
+
+        // An alt-drag starts through the same shield threshold, but the clone
+        // must travel from the original press rather than from that threshold
+        // event. This is the one-step-short regression that plain dragging
+        // above must continue to reject.
+        const beforeAltDuplicate = await page.evaluate(() => {
+          const target = document.getElementById(
+            "shield-target",
+          ) as HTMLElement;
+          const rect = target.getBoundingClientRect();
+          return { left: rect.left, top: rect.top };
+        });
+        const altStartX = beforeAltDuplicate.left + 80;
+        const altStartY = beforeAltDuplicate.top + 45;
+        await page.evaluate(
+          async ({ startX, startY }) => {
+            const shield = document.querySelector<HTMLElement>(
+              '[data-agent-native-edit-overlay="shield"]',
+            )!;
+            const event = (
+              type: string,
+              clientX: number,
+              clientY: number,
+              buttons: number,
+            ) =>
+              new PointerEvent(type, {
+                bubbles: true,
+                cancelable: true,
+                altKey: true,
+                button: 0,
+                buttons,
+                clientX,
+                clientY,
+                isPrimary: true,
+                pointerId: 17,
+                pointerType: "mouse",
+              });
+            shield.dispatchEvent(event("pointerdown", startX, startY, 1));
+            document.dispatchEvent(
+              event("pointermove", startX + 10, startY, 1),
+            );
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            document.dispatchEvent(
+              event("pointermove", startX + 12, startY + 2, 1),
+            );
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            document.dispatchEvent(
+              event("pointerup", startX + 12, startY + 2, 0),
+            );
+          },
+          { startX: altStartX, startY: altStartY },
+        );
+        await page.waitForTimeout(20);
+        const afterAltDuplicate = await page.evaluate(() => {
+          const nodes = Array.from(
+            document.querySelectorAll<HTMLElement>(
+              "[data-agent-native-node-id]",
+            ),
+          );
+          return nodes.map((node) => {
+            const rect = node.getBoundingClientRect();
+            return {
+              id: node.dataset.agentNativeNodeId,
+              left: rect.left,
+              top: rect.top,
+            };
+          });
+        });
+        const duplicate = afterAltDuplicate.find(
+          (node) => node.id !== "target" && node.id !== "shield-target",
+        );
+        expect(duplicate).toBeDefined();
+        expect(Math.round(duplicate!.left)).toBe(
+          Math.round(beforeAltDuplicate.left + 12),
+        );
+        expect(Math.round(duplicate!.top)).toBe(
+          Math.round(beforeAltDuplicate.top + 2),
+        );
         expect(pageErrors).toEqual([]);
       } finally {
         await browser.close();
@@ -1758,7 +1839,7 @@ it(
 // ── Figma-parity in-iframe editing behavior ────────────────────────────────
 
 it(
-  "editor chrome bridge shows a live position badge and locks to the dominant axis while Shift is held during a move drag",
+  "editor chrome bridge omits a move position badge and locks to the dominant axis while Shift is held during a move drag",
   { timeout: 30_000 },
   async () => {
     const browser = await chromium.launch({ headless: true });
@@ -1814,15 +1895,13 @@ it(
       // (280, 270) is a further +30/+30 delta from origin (200, 200).
       expect(draggedPosition).toEqual({ left: "230px", top: "230px" });
 
-      const badgeText = await page.evaluate(() => {
+      const badgeDisplay = await page.evaluate(() => {
         const badge = document.querySelector<HTMLElement>(
           "[data-agent-native-transform-badge]",
         );
-        return badge && window.getComputedStyle(badge).display !== "none"
-          ? badge.textContent
-          : null;
+        return badge ? window.getComputedStyle(badge).display : null;
       });
-      expect(badgeText).toBe("230, 230");
+      expect(badgeDisplay).toBe("none");
 
       await page.keyboard.down("Shift");
       await page.mouse.move(400, 400);
@@ -6336,6 +6415,96 @@ it(
   },
 );
 
+it(
+  "editor chrome bridge maps radius drags through rotated and independently scaled ancestors",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      .rotated-parent {
+        position: absolute;
+        left: 440px;
+        top: 100px;
+        width: 360px;
+        height: 360px;
+        transform-origin: 0 0;
+        transform: rotate(90deg);
+        scale: 2 3;
+      }
+      #target {
+        position: absolute;
+        left: 20px;
+        top: 20px;
+        width: 100px;
+        height: 60px;
+        border-top-left-radius: 20px;
+        background: #6366f1;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="rotated-parent" data-agent-native-node-id="parent">
+      <div id="target" data-agent-native-node-id="target"></div>
+    </div>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+      await selectElementDirect(page, "#target");
+
+      const handle = page.locator('[data-agent-native-radius-handle="nw"]');
+      await page.waitForFunction(() => {
+        const handle = document.querySelector<HTMLElement>(
+          '[data-agent-native-radius-handle="nw"]',
+        );
+        return handle && window.getComputedStyle(handle).display === "block";
+      });
+      const handleBox = await handle.boundingBox();
+      if (!handleBox) throw new Error("nw radius handle not visible");
+
+      await page.mouse.move(
+        handleBox.x + handleBox.width / 2,
+        handleBox.y + handleBox.height / 2,
+      );
+      await page.mouse.down();
+      await page.mouse.move(
+        handleBox.x + handleBox.width / 2 + 12,
+        handleBox.y + handleBox.height / 2,
+        { steps: 4 },
+      );
+      await page.mouse.up();
+      const radius = await page.evaluate(
+        () =>
+          document.querySelector<HTMLElement>("#target")!.style
+            .borderTopLeftRadius,
+      );
+      const messages = await readBridgeMessages(page);
+      const styleChange = messages.find(
+        (message) => message.type === "visual-style-change",
+      );
+      expect(radius).toBe("20px 14px");
+      expect(styleChange).toMatchObject({
+        styles: { borderTopLeftRadius: "20px 14px" },
+      });
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
 // ── Nest-on-drop into plain rectangles (Figma "drop into a frame" parity) ───
 //
 // Product decision: dragging a rectangle onto another rectangle, or text onto
@@ -6353,9 +6522,30 @@ function collectBridgeMessages(page: import("@playwright/test").Page) {
   });
 }
 
+// The bridge posts synchronously, but `message` events are delivered as tasks;
+// a fixed wait before reading loses that race under CPU load. Same-window
+// postMessage delivery is FIFO, so a sentinel's arrival proves every message
+// posted before this read has been delivered. The sentinel is removed from the
+// collected list in place: some tests read that list directly afterwards.
 async function readBridgeMessages(page: import("@playwright/test").Page) {
   return page.evaluate(
-    () => (window as any).__bridgeMessages as Array<Record<string, unknown>>,
+    () =>
+      new Promise<Array<Record<string, unknown>>>((resolve) => {
+        const sentinel = `__bridge-read-${Math.random()}`;
+        const onMessage = (event: MessageEvent) => {
+          if (event.data?.type !== sentinel) return;
+          window.removeEventListener("message", onMessage);
+          const messages = (window as any).__bridgeMessages as Array<
+            Record<string, unknown>
+          >;
+          for (let index = messages.length - 1; index >= 0; index -= 1) {
+            if (messages[index]?.type === sentinel) messages.splice(index, 1);
+          }
+          resolve([...messages]);
+        };
+        window.addEventListener("message", onMessage);
+        window.postMessage({ type: sentinel }, "*");
+      }),
   );
 }
 
@@ -9531,6 +9721,7 @@ it(
   <body style="margin:0">
     <h1 data-agent-native-node-id="hero-title" data-agent-native-layer-name="Hero title" style="margin:40px;width:320px;height:80px">Hello</h1>
     <div style="position:absolute;left:500px;top:100px;width:200px;height:100px"><span style="display:block;width:160px;height:60px">Nested layer</span></div>
+    <div data-agent-native-node-id="nested-parent" style="position:absolute;left:700px;top:100px;width:160px;height:100px"><span data-agent-native-node-id="nested-child" style="display:block;width:120px;height:60px">Nested identity</span></div>
   </body>
 </html>`);
       await page.addScriptTag({ content: hydratedHitTestBridgeScript() });
@@ -9569,6 +9760,15 @@ it(
           },
           "agent-native:review-anchor-at-point-result",
         );
+        const nestedAnchor = await request(
+          {
+            type: "agent-native:review-anchor-at-point",
+            correlationId: "review-nested-point",
+            x: 720,
+            y: 120,
+          },
+          "agent-native:review-anchor-at-point-result",
+        );
         const rects = await request(
           {
             type: "agent-native:review-node-rects",
@@ -9585,7 +9785,7 @@ it(
           },
           "agent-native:review-focus-result",
         );
-        return { anchor, selectorAnchor, rects, focus };
+        return { anchor, selectorAnchor, nestedAnchor, rects, focus };
       });
 
       expect(result.anchor).toMatchObject({
@@ -9598,6 +9798,7 @@ it(
         tagName: "span",
       });
       expect(result.selectorAnchor.nodeId).toBeUndefined();
+      expect(result.nestedAnchor).toMatchObject({ nodeId: "nested-child" });
       expect(result.rects).toMatchObject({
         rects: {
           "hero-title": { left: 40, top: 40, width: 320, height: 80 },
@@ -9760,6 +9961,68 @@ it(
         () => document.querySelectorAll("[data-an-pending-node-id]").length,
       );
       expect(stampedCount).toBe(0);
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "hit-test bridge keeps the document body as the root fallback without minting an anchor id",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+
+      await page.setContent(`<!doctype html>
+<html><head><meta charset="utf-8"></head>
+<body style="margin:0;min-height:600px;background:#fff"></body></html>`);
+      await page.addScriptTag({ content: hydratedHitTestBridgeScript() });
+
+      const reply = (await page.evaluate(
+        () =>
+          new Promise((resolve) => {
+            const onMsg = (event: MessageEvent) => {
+              if (event.data?.type !== "agent-native:hit-test-result") return;
+              window.removeEventListener("message", onMsg);
+              resolve(event.data);
+            };
+            window.addEventListener("message", onMsg);
+            window.postMessage(
+              {
+                type: "agent-native:hit-test",
+                correlationId: "empty-root",
+                x: 180,
+                y: 240,
+                preview: false,
+              },
+              "*",
+            );
+          }),
+      )) as {
+        anchorNodeId: string;
+        pendingNodeId?: string;
+        placement: string;
+        dropMode: string;
+      };
+
+      expect(reply).toMatchObject({
+        anchorNodeId: "",
+        placement: "inside",
+        dropMode: "flow-insert",
+      });
+      expect(reply.pendingNodeId).toBeUndefined();
+      expect(
+        await page.evaluate(
+          () => document.querySelectorAll("[data-an-pending-node-id]").length,
+        ),
+      ).toBe(0);
       expect(pageErrors).toEqual([]);
     } finally {
       await browser.close();
@@ -11316,6 +11579,7 @@ it(
 const PRIMARY_HOTKEY_FORWARDING_CASES: Array<{
   name: string;
   key: string;
+  code?: string;
   shift?: boolean;
   alt?: boolean;
   ctrlOnly?: boolean;
@@ -11370,6 +11634,16 @@ const PRIMARY_HOTKEY_FORWARDING_CASES: Array<{
   { name: "Cmd/Ctrl+Alt+B detach instance", key: "b", alt: true },
   { name: "Cmd/Ctrl+] bring forward", key: "]" },
   { name: "Cmd/Ctrl+[ send backward", key: "[" },
+  {
+    name: "Cmd/Ctrl+physical BracketRight bring forward",
+    key: "BracketRight",
+    code: "BracketRight",
+  },
+  {
+    name: "Cmd/Ctrl+physical BracketLeft send backward",
+    key: "BracketLeft",
+    code: "BracketLeft",
+  },
   { name: "Cmd/Ctrl+Backspace ungroup", key: "Backspace" },
   {
     name: "Ctrl+Alt+H distribute horizontal (literal Control)",
@@ -11423,7 +11697,30 @@ it(
         await page.keyboard.down(modifier);
         if (testCase.alt) await page.keyboard.down("Alt");
         if (testCase.shift) await page.keyboard.down("Shift");
-        await page.keyboard.press(testCase.key);
+        if (testCase.code) {
+          await page.evaluate(
+            (chord) => {
+              document.body.dispatchEvent(
+                new KeyboardEvent("keydown", {
+                  key: chord.key,
+                  code: chord.code,
+                  metaKey: chord.modifier === "Meta",
+                  ctrlKey: chord.modifier === "Control",
+                  altKey: Boolean(chord.alt),
+                  shiftKey: Boolean(chord.shift),
+                  bubbles: true,
+                  cancelable: true,
+                }),
+              );
+            },
+            {
+              ...testCase,
+              modifier,
+            },
+          );
+        } else {
+          await page.keyboard.press(testCase.key);
+        }
         if (testCase.shift) await page.keyboard.up("Shift");
         if (testCase.alt) await page.keyboard.up("Alt");
         await page.keyboard.up(modifier);
@@ -11507,6 +11804,16 @@ const NON_PRIMARY_HOTKEY_FORWARDING_CASES: Array<{
   { name: "\\ select parent", key: "\\", code: "Backslash" },
   { name: "] bring to front", key: "]", code: "BracketRight" },
   { name: "[ send to back", key: "[", code: "BracketLeft" },
+  {
+    name: "physical BracketRight bring to front",
+    key: "BracketRight",
+    code: "BracketRight",
+  },
+  {
+    name: "physical BracketLeft send to back",
+    key: "BracketLeft",
+    code: "BracketLeft",
+  },
   { name: "= zoom in", key: "=", code: "Equal" },
   { name: "- zoom out", key: "-", code: "Minus" },
   { name: "5 opacity 50%", key: "5", code: "Digit5" },
@@ -12948,10 +13255,18 @@ it(
         position: absolute; left: 40px; top: 40px; width: 120px; height: 60px;
         background: linear-gradient(90deg, red 0%, green 50%, blue 100%);
       }
+      #text-target {
+        position: absolute; left: 220px; top: 40px;
+        background-image: linear-gradient(90deg, red 0%, blue 100%);
+        background-clip: text;
+        -webkit-background-clip: text;
+        color: transparent;
+      }
     </style>
   </head>
   <body>
     <div id="target" data-agent-native-node-id="target"></div>
+    <button id="text-target" data-agent-native-node-id="text-target">Listen now</button>
   </body>
 </html>`);
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
@@ -13027,6 +13342,32 @@ it(
       expect(
         replayMessages.some((message) => message.type === "element-select"),
       ).toBe(false);
+
+      await page.evaluate(() => {
+        window.postMessage(
+          {
+            type: "select-element",
+            selector: "#text-target",
+            selectorCandidates: ["#text-target"],
+          },
+          "*",
+        );
+      });
+      await page.waitForFunction(() =>
+        ((window as any).__bridgeMessages ?? []).some(
+          (message: any) =>
+            message.type === "element-select" &&
+            message.payload?.id === "text-target",
+        ),
+      );
+      const textSelect = (await readBridgeMessages(page)).find(
+        (message) =>
+          message.type === "element-select" &&
+          (message as any).payload?.id === "text-target",
+      ) as
+        | { payload?: { computedStyles?: Record<string, string> } }
+        | undefined;
+      expect(textSelect?.payload?.computedStyles?.backgroundClip).toBe("text");
 
       expect(pageErrors).toEqual([]);
     } finally {
@@ -13660,6 +14001,168 @@ it("keeps the authored inline-style key list in sync with the bridge", () => {
     bridgeKeys.sort(),
   );
 });
+
+it(
+  "carries an authored grid-auto-flow into the selection's inline-style payload",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(`<!doctype html><html><body>
+        <div id="dense-grid" data-agent-native-node-id="dense-grid" style="display:grid;grid-auto-flow:dense;grid-template-columns:repeat(2, 1fr)"><div>Cell</div></div>
+        <div id="column-grid" data-agent-native-node-id="column-grid" style="display:grid;grid-auto-flow:column"><div id="column-grid-child">Cell</div></div>
+      </body></html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+
+      const selectElementPayload = async (selector: string) => {
+        await page.evaluate((targetSelector) => {
+          (window as any).__bridgeMessages = [];
+          window.postMessage(
+            {
+              type: "select-element",
+              selector: targetSelector,
+              selectorCandidates: [targetSelector],
+            },
+            "*",
+          );
+        }, selector);
+        await page.waitForFunction(
+          (targetSelector) =>
+            ((window as any).__bridgeMessages ?? []).some(
+              (message: any) =>
+                message.type === "element-select" &&
+                message.payload?.selector?.includes(targetSelector.slice(1)),
+            ),
+          selector,
+        );
+        const message = (await readBridgeMessages(page)).find(
+          (entry) => entry.type === "element-select",
+        ) as
+          | {
+              payload?: {
+                inlineStyles?: Record<string, string>;
+                parentLayout?: { gridAutoFlow?: string };
+              };
+            }
+          | undefined;
+        return message?.payload;
+      };
+      const selectInlineStyles = async (selector: string) =>
+        (await selectElementPayload(selector))?.inlineStyles;
+
+      // The track templates are carried for provenance; grid-auto-flow is
+      // written by the same grid edit (gridChangePatch) and needs it for the
+      // same reason — unreported, an authored "dense"/"column" is
+      // indistinguishable from the browser's default and a later grid edit
+      // overwrites it as "row".
+      const dense = await selectInlineStyles("#dense-grid");
+      expect(dense?.gridAutoFlow).toContain("dense");
+      expect(dense?.gridTemplateColumns).toBe("repeat(2, 1fr)");
+      expect((await selectInlineStyles("#column-grid"))?.gridAutoFlow).toBe(
+        "column",
+      );
+      const childPayload = await selectElementPayload("#column-grid-child");
+      expect(childPayload?.parentLayout?.gridAutoFlow).toBe("column");
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "keeps stylesheet-authored flex/grid sizing distinct from auto defaults",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 800, height: 500 },
+      });
+      await page.setContent(`<!doctype html><style>
+        html, body { margin: 0; }
+        .flex-explicit { display: flex; width: 240px; height: 100px; }
+        .flex-important { display: flex; width: 240px !important; height: 100px !important; }
+        .flex-auto { display: flex; }
+        .grid-explicit { display: grid; width: 240px; height: 100px; }
+        .grid-auto { display: grid; }
+      </style>
+      <div id="flex-explicit" class="flex-explicit"><span>Explicit flex</span></div>
+      <div id="flex-important" class="flex-important" style="width:auto;height:auto"><span>Important flex</span></div>
+      <div id="flex-auto" class="flex-auto"><span>Auto flex</span></div>
+      <div id="grid-explicit" class="grid-explicit"><span>Explicit grid</span></div>
+      <div id="grid-auto" class="grid-auto"><span>Auto grid</span></div>`);
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(),
+      });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await page.evaluate(() => {
+        (window as any).__lastElementSelection = undefined;
+        window.addEventListener("message", (event: MessageEvent) => {
+          if (event.data?.type === "element-select") {
+            (window as any).__lastElementSelection = event.data.payload;
+          }
+        });
+      });
+
+      const select = async (id: string) => {
+        await page.evaluate((id) => {
+          window.postMessage(
+            {
+              type: "select-element",
+              selector: `#${id}`,
+              selectorCandidates: [`#${id}`],
+            },
+            "*",
+          );
+        }, id);
+        await page.waitForFunction(
+          (id) => (window as any).__lastElementSelection?.sourceId === id,
+          id,
+        );
+        return page.evaluate(() => (window as any).__lastElementSelection);
+      };
+
+      for (const id of ["flex-explicit", "grid-explicit"] as const) {
+        const payload = await select(id);
+        expect(payload.inlineStyles).toEqual({});
+        expect(payload.authoredSizeStyles).toEqual({
+          width: "240px",
+          height: "100px",
+        });
+        expect(inferElementSizing(payload, "horizontal")).toBe("fixed");
+        expect(inferElementSizing(payload, "vertical")).toBe("fixed");
+      }
+
+      const important = await select("flex-important");
+      expect(important.inlineStyles).toMatchObject({
+        width: "auto",
+        height: "auto",
+      });
+      expect(important.authoredSizeStyles).toEqual({
+        width: "240px",
+        height: "100px",
+      });
+      expect(inferElementSizing(important, "horizontal")).toBe("fixed");
+      expect(inferElementSizing(important, "vertical")).toBe("fixed");
+
+      for (const id of ["flex-auto", "grid-auto"] as const) {
+        const payload = await select(id);
+        expect(payload.inlineStyles).toEqual({});
+        expect(payload.authoredSizeStyles).toEqual({
+          width: "auto",
+          height: "auto",
+        });
+        expect(inferElementSizing(payload, "horizontal")).toBe("hug");
+        expect(inferElementSizing(payload, "vertical")).toBe("hug");
+      }
+    } finally {
+      await browser.close();
+    }
+  },
+);
 
 // PR #3585 review: keying free-form on the CONTAINER's own position swept in
 // ordinary absolutely positioned cards and modals, whose children are in

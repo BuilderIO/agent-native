@@ -48,6 +48,19 @@ const messages = {
     roleOther: "Other",
     skipForNow: "Skip for now",
     saveRoleError: "Could not save your role.",
+    builderReadyWithCodeChanges:
+      "AI credits and cloud code changes are ready to use.",
+    builderReadyCreditsOnly:
+      "AI credits are ready to use. Cloud code edits require a Builder project in Background Agent settings.",
+    openBackgroundAgentSettings: "Open Background Agent settings",
+    fileStorage: {
+      title: "Choose file storage",
+      description:
+        "Choose Builder.io for managed file storage, or use custom storage keys for your own S3-compatible bucket.",
+      custom: "Use custom storage keys",
+      customDescription:
+        "Configure an S3-compatible bucket with a stable public URL.",
+    },
   },
   settings: {
     title: "Settings",
@@ -134,6 +147,24 @@ const messages = {
     passwordSaving: "Saving...",
     passwordSaved: "Password updated",
     passwordSaveError: "Could not update password",
+    privacyTitle: "Privacy & data",
+    privacyDescription:
+      "Request a copy of your data or ask for your personal data to be deleted.",
+    privacyManage: "Manage",
+    privacyRightsTitle: "Your data rights",
+    privacyRightsDescription:
+      "Requests are recorded for review by a workspace administrator, who will verify your identity and follow up.",
+    privacyRequestCopy: "Request a copy",
+    privacyRequestDeletion: "Request deletion",
+    privacyRequesting: "Recording request...",
+    privacyRequestRecorded:
+      "Request recorded. An administrator will follow up.",
+    privacyRequestRecordedShort: "Request recorded",
+    privacyRequestError: "Could not record your request. Please try again.",
+    privacyDeletionTitle: "Request deletion of your data?",
+    privacyDeletionDescription:
+      "This records a deletion request; it does not delete data immediately. An administrator will verify your identity and complete the request under the deployment's retention and legal obligations.",
+    privacyDocsLink: "Read privacy and data rights",
     profileMenuItem: "Profile",
     manageAgentMenuItem: "Manage agent",
     timezoneLabel: "Timezone",
@@ -1134,6 +1165,13 @@ const messages = {
     askAdminDescription:
       "Ask an administrator for an invitation to join this workspace.",
     appPermissions: "App permissions",
+    applications: "Applications",
+    applicationsEmpty: "No workspace applications are registered yet.",
+    applicationsLoadFailed: "Couldn't load workspace applications.",
+    applicationAccess: "Access for {{name}}",
+    applicationAccessAll: "All members",
+    applicationAccessRestricted: "Restricted",
+    applicationAccessDisabled: "Disabled",
     appRolesOptional: "App roles",
     noAppRolesFound: "No roles found.",
     notAssigned: "Not assigned",
@@ -1225,6 +1263,7 @@ const messages = {
     createGroupForBulk: "Create group",
     changeRole: "Change role",
     removeMember: "Remove member",
+    transferTo: "Transfer ownership to",
     cancel: "Cancel",
     remove: "Remove",
     save: "Save",

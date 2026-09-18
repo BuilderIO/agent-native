@@ -283,6 +283,7 @@ import {
 } from "./scoped-key-storage.js";
 import { shouldDisableInProcessSweeps } from "./sweep-runtime.js";
 import { createTranscribeVoiceHandler } from "./transcribe-voice.js";
+import { mountUiActionCapabilityRoute } from "./ui-action-capability.js";
 import { createVoiceProvidersStatusHandler } from "./voice-providers-status.js";
 import { createWorkspaceProviderOAuthHandler } from "./workspace-provider-oauth.js";
 
@@ -1977,6 +1978,27 @@ export async function resolveOAuthCustodyBuilderKeyStatus(
   }
 }
 
+const OAUTH_POPUP_WAITING_HTML =
+  '<!doctype html><html><head><meta charset="utf-8"><meta name="color-scheme" content="light dark"><title></title></head><body></body></html>';
+
+export function createOAuthPopupWaitingHandler() {
+  return defineEventHandler((event: H3Event) => {
+    if (getMethod(event) !== "GET") {
+      setResponseStatus(event, 405);
+      return { error: "Method not allowed" };
+    }
+    setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
+    setResponseHeader(event, "Cache-Control", "public, max-age=300");
+    setResponseHeader(
+      event,
+      "Content-Security-Policy",
+      "default-src 'none'; frame-ancestors 'none'",
+    );
+    setResponseHeader(event, "X-Frame-Options", "DENY");
+    return OAUTH_POPUP_WAITING_HTML;
+  });
+}
+
 export function mountApplicationStateRoutes(
   nitroApp: any,
   routePrefix: string = FRAMEWORK_ROUTE_PREFIX,
@@ -2061,6 +2083,7 @@ export function createCoreRoutesPlugin(
         `${FRAMEWORK_ROUTE_PREFIX}/ping`,
         `${FRAMEWORK_ROUTE_PREFIX}/health`,
         `${FRAMEWORK_ROUTE_PREFIX}/identity`,
+        `${FRAMEWORK_ROUTE_PREFIX}/oauth/popup`,
         `${FRAMEWORK_ROUTE_PREFIX}/embed/start`,
         `${FRAMEWORK_ROUTE_PREFIX}/application-state`,
         ...FRAMEWORK_AUTH_EARLY_PATHS,
@@ -2068,10 +2091,12 @@ export function createCoreRoutesPlugin(
     });
     try {
       const P = FRAMEWORK_ROUTE_PREFIX;
+      mountUiActionCapabilityRoute(nitroApp, P);
       markFrameworkRoutesReadyBeforeBootstrap(nitroApp, [
         ...(!options.disablePing ? [`${P}/ping`] : []),
         ...(!options.disableHealth ? [`${P}/health`] : []),
         `${P}/identity`,
+        `${P}/oauth/popup`,
         ...(!options.disableEmbedRoute ? [`${P}/embed/start`] : []),
         ...(!options.disableAppState ? [`${P}/application-state`] : []),
       ]);
@@ -2082,6 +2107,11 @@ export function createCoreRoutesPlugin(
       // provider under the conventional `s3` id, so preserve that explicit
       // registration instead of replacing it during core bootstrap.
       ensureS3FileUploadProvider();
+
+      getH3App(nitroApp).use(
+        `${P}/oauth/popup`,
+        createOAuthPopupWaitingHandler(),
+      );
 
       if (!options.disableAppState) {
         // Application state is part of the client bootstrap contract. Register

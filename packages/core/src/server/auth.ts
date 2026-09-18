@@ -3946,6 +3946,9 @@ function createAuthGuardFn(
     // route tree, no per-user data.
     if (p === "/__manifest") return;
     if (p === "/_agent-native/speculation-rules.json") return;
+    if (getMethod(event) === "GET" && p === "/_agent-native/oauth/popup") {
+      return;
+    }
     // Liveness probes: always public so uptime monitors and the keep-warm cron
     // can reach them without a session. Ping exposes only a static message;
     // health exposes only aggregate readiness and a trivial `SELECT 1`.
@@ -3956,6 +3959,16 @@ function createAuthGuardFn(
     // 401ing a loopback dev request before that check can run.
     if (
       p === "/_agent-native/dev/action" &&
+      resolveDeployEnvironment() !== "production" &&
+      isLoopbackRequest(event)
+    ) {
+      return;
+    }
+    // `pnpm action db-query` forwarding target (dev-action-bridge.ts) — same
+    // reasoning as the dev/action bypass above, for the dedicated db-query
+    // route.
+    if (
+      p === "/_agent-native/dev/db-query" &&
       resolveDeployEnvironment() !== "production" &&
       isLoopbackRequest(event)
     ) {

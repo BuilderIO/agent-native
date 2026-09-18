@@ -74,6 +74,22 @@ describe("run stream ownership", () => {
     expect(claimRunStream(THREAD, RUN, reconnect)).toBe(false);
   });
 
+  it("keeps one owner across background continuation run ids in one turn", () => {
+    const reconnect = createRunStreamToken("reconnect");
+    const adapter = createRunStreamToken("adapter");
+    const turn = "turn-1";
+
+    claimRunStream(THREAD, "run-a", reconnect, turn);
+    expect(preemptRunStream(THREAD, "run-b", adapter, turn)).toBe(true);
+    expect(ownsRunStream(THREAD, "run-a", reconnect, turn)).toBe(false);
+    expect(ownsRunStream(THREAD, "run-b", adapter, turn)).toBe(true);
+
+    // The old reader's late cleanup must not release the successor run's
+    // logical-turn claim.
+    releaseRunStream(THREAD, "run-a", reconnect, turn);
+    expect(claimRunStream(THREAD, "run-c", reconnect, turn)).toBe(false);
+  });
+
   it("frees the run for the next reader once the owner releases", () => {
     const first = createRunStreamToken("first");
     const second = createRunStreamToken("second");

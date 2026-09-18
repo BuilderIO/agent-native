@@ -24,9 +24,11 @@ Chat 專用外掛、選項與別名。
 對於獨立應用程式，請建置 Netlify 輸出並部署靜態資源與函式：
 
 ```bash
-NITRO_PRESET=netlify npx @agent-native/core@latest build
+NITRO_PRESET=netlify pnpm build
 npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
 ```
+
+首次正式部署前，請在 Netlify 網站環境變數中設定 `DATABASE_URL` 和穩定的 `BETTER_AUTH_SECRET`。不要依賴本機開發使用的 PGlite 資料庫；`DATABASE_URL` 必須指向部署函式可存取的持久 PostgreSQL 資料庫。
 
 對於工作區，執行以下指令，從一個 Netlify 網站部署每個應用程式：
 

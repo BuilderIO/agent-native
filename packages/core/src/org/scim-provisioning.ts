@@ -92,6 +92,35 @@ export const frameworkOrgBridgePlugin = {
         },
       },
     },
+    agentAuditLog: {
+      fields: {
+        createdAt: { type: "number", required: true, fieldName: "createdAt" },
+        action: { type: "string", required: true },
+        caller: { type: "string", required: true },
+        actorKind: { type: "string", required: true, fieldName: "actorKind" },
+        actorEmail: {
+          type: "string",
+          required: false,
+          fieldName: "actorEmail",
+        },
+        orgId: { type: "string", required: false, fieldName: "orgId" },
+        targetType: {
+          type: "string",
+          required: false,
+          fieldName: "targetType",
+        },
+        targetId: { type: "string", required: false, fieldName: "targetId" },
+        status: { type: "string", required: true },
+        summary: { type: "string", required: false },
+        input: { type: "string", required: false },
+        ownerEmail: {
+          type: "string",
+          required: false,
+          fieldName: "ownerEmail",
+        },
+        visibility: { type: "string", required: true },
+      },
+    },
   },
 } as const;
 
@@ -102,6 +131,7 @@ type MemberRow = {
   orgId: string;
   email: string;
   role: string;
+  federationRemovalPendingAt?: number | null;
 };
 type ScimMembershipRow = {
   id: string;
@@ -187,7 +217,7 @@ async function ensureMembership(
   if (!org) return;
 
   const member = await findMember(database, orgId, email);
-  const mapping = await findMapping(database, orgId, userId);
+  let mapping = await findMapping(database, orgId, userId);
   if (mapping?.memberId) {
     const mappedMember = await database.findOne<MemberRow>({
       model: "orgMember",
@@ -213,7 +243,25 @@ async function ensureMembership(
         update: { email },
       });
     }
-    if (mappedMember) return;
+    if (mappedMember) {
+      if (mappedMember.federationRemovalPendingAt != null) {
+        await database.update({
+          model: "orgMember",
+          where: [{ field: "id", value: mappedMember.id }],
+          update: { federationRemovalPendingAt: null },
+        });
+      }
+      return;
+    }
+    // Local offboarding can remove the SCIM-owned membership while retaining
+    // this durable source mapping for retry. Drop the dangling mapping before
+    // creating a replacement so the unique (org_id, user_id) key remains
+    // singular on reactivation.
+    await database.delete({
+      model: "orgScimMembership",
+      where: [{ field: "id", value: mapping.id }],
+    });
+    mapping = null;
   }
   if (member) {
     if (mapping) return;
@@ -260,10 +308,6 @@ async function removeMembershipIfOwned(
   mapping: ScimMembershipRow,
   email: string,
 ): Promise<void> {
-  await database.delete({
-    model: "orgScimMembership",
-    where: [{ field: "id", value: mapping.id }],
-  });
   if (!mapping.createdMembership) return;
 
   // Prefer the immutable row id so a profile update or email rekey cannot
@@ -285,10 +329,21 @@ async function removeMembershipIfOwned(
         (row) => normalizeEmail(row.email) === normalizeEmail(email),
       ) ?? null;
   }
-  if (!member) return;
-  await database.delete({
+  if (!member) {
+    // A stale mapping must not delete a manually recreated membership. The
+    // mapping is safe to discard because no SCIM-owned row remains to mark.
+    await database.delete({
+      model: "orgScimMembership",
+      where: [{ field: "id", value: mapping.id }],
+    });
+    return;
+  }
+  if (member.federationRemovalPendingAt != null) return;
+  const pendingAt = Date.now();
+  await database.update({
     model: "orgMember",
     where: [{ field: "id", value: member.id }],
+    update: { federationRemovalPendingAt: pendingAt },
   });
   // App-role rows are an overlay on membership. Remove rows for a membership
   // SCIM created, but never touch manually-owned memberships.
@@ -302,6 +357,30 @@ async function removeMembershipIfOwned(
         mode: "insensitive",
       },
     ],
+  });
+  await database.create({
+    model: "agentAuditLog",
+    data: {
+      createdAt: pendingAt,
+      action: "org.member.scim-removal-pending",
+      caller: "scim",
+      actorKind: "system",
+      actorEmail: null,
+      orgId: mapping.orgId,
+      targetType: "identity",
+      targetId: normalizeEmail(member.email),
+      status: "pending",
+      summary:
+        "SCIM deprovisioning marked membership pending successor transfer.",
+      input: JSON.stringify({
+        userId: mapping.userId,
+        memberId: member.id,
+        orgId: mapping.orgId,
+      }),
+      ownerEmail: normalizeEmail(member.email),
+      visibility: "org",
+    },
+    forceAllowId: true,
   });
   invalidateMemberOrgCaches();
 }
@@ -363,6 +442,31 @@ export function createFrameworkSCIMIdentity(): SCIMIdentity {
         if (!activeOrgIds.has(mapping.orgId)) {
           await removeMembershipIfOwned(context.database, mapping, user.email);
         }
+      }
+      // A directory deactivation revokes local and connected-app sessions only
+      // when no active organization membership remains for the identity. The
+      // Better Auth transaction owns the session rows, so this stays atomic
+      // with the membership mapping cleanup without pretending to cover other
+      // app DBs.
+      if (activeOrgIds.size === 0) {
+        const remainingMembers = await context.database.findMany<MemberRow>({
+          model: "orgMember",
+          where: [
+            {
+              field: "email",
+              value: normalizeEmail(user.email),
+              mode: "insensitive",
+            },
+          ],
+        });
+        const hasActiveMembership = remainingMembers.some(
+          (member) => member.federationRemovalPendingAt == null,
+        );
+        if (hasActiveMembership) return;
+        await context.database.deleteMany({
+          model: "session",
+          where: [{ field: "userId", value: input.userId }],
+        });
       }
     },
   };
