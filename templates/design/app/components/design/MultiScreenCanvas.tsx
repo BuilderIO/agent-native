@@ -3491,13 +3491,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           })
         ) {
           const previewPoint =
+            crossScreenLastBoardPointRef.current ??
             boardPointFromDragMessage(
               sourceScreenId,
               iframeX,
               iframeY,
               viewportW,
               viewportH,
-            ) ?? crossScreenLastBoardPointRef.current;
+            );
           if (previewPoint) {
             updateCrossScreenTargetFromBoardPoint(previewPoint, sourceScreenId);
           }
