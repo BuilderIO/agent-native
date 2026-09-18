@@ -1125,25 +1125,33 @@ describe("runCrossScreenElementDrop real publication refusal", () => {
     expect(result.selectionEvents).toEqual([]);
   });
 
-  it("compensates the destination after a queued source conflict", () => {
+  it("compensates a completed destination save when the source save conflicts later", async () => {
     const sourceContent = `<!doctype html><html><body><button data-agent-native-node-id="moving">Move</button></body></html>`;
     const destinationContent = `<!doctype html><html><body><main data-agent-native-node-id="target-root"></main></body></html>`;
-    const saves: Array<{
-      content: string;
-      fileId: string;
-      settle?: (settlement: { persisted: boolean }) => void;
-    }> = [];
+    const calls: Array<{ fileId: string; content: string }> = [];
+    let resolveTarget!: (saved: boolean) => void;
+    let resolveSource!: (saved: boolean) => void;
+    const targetSave = new Promise<boolean>((resolve) => {
+      resolveTarget = resolve;
+    });
+    const sourceSave = new Promise<boolean>((resolve) => {
+      resolveSource = resolve;
+    });
+    let publicationCount = 0;
     const result = runStoredCrossScreenDrop({
       sourceContent,
       destinationContent,
-      autoSettle: false,
-      publish: (fileId, content, options) => {
-        saves.push({
-          content,
-          fileId,
-          settle: options?.onSaveSettled,
-        });
-        return acceptFixture(fileId, content);
+      publish: (fileId, content) => {
+        calls.push({ fileId, content });
+        publicationCount += 1;
+        const publication = acceptFixture(fileId, content);
+        if (publicationCount === 1) {
+          return { ...publication, saveCompletion: targetSave };
+        }
+        if (publicationCount === 2) {
+          return { ...publication, saveCompletion: sourceSave };
+        }
+        return { ...publication, saveCompletion: Promise.resolve(true) };
       },
       drop: {
         sourceSelector: '[data-agent-native-node-id="moving"]',
@@ -1158,32 +1166,19 @@ describe("runCrossScreenElementDrop real publication refusal", () => {
       },
     });
 
-    const sourceMove = saves.find(
-      ({ fileId, content }) => fileId === "source" && content !== sourceContent,
-    );
-    const targetMove = saves.find(
-      ({ fileId, content }) =>
-        fileId === "target" && content !== destinationContent,
-    );
-    expect(sourceMove).toBeDefined();
-    expect(targetMove).toBeDefined();
+    expect(result.historyEntries).toEqual([]);
+    resolveTarget(true);
+    resolveSource(false);
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
-    sourceMove?.settle?.({ persisted: false });
-    targetMove?.settle?.({ persisted: true });
-
-    const targetRollback = saves.find(
-      ({ fileId, content }) =>
-        fileId === "target" && content === destinationContent,
-    );
-    expect(targetRollback).toBeDefined();
-    targetRollback?.settle?.({ persisted: true });
-
-    expect(result.contentByFile.get("source")).toBe(
-      result.baseContentByFile.get("source"),
-    );
-    expect(result.contentByFile.get("target")).toBe(
-      result.baseContentByFile.get("target"),
-    );
+    expect(calls.map(({ fileId }) => fileId)).toEqual([
+      "target",
+      "source",
+      "target",
+    ]);
+    expect(calls[2]?.content).toBe(destinationContent);
+    expect(result.historyEntries).toEqual([]);
+    expect(result.selectionEvents).toEqual([]);
   });
 
   it("records no duplicate history or selection when the real writer rejects Alpine content", () => {

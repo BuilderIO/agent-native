@@ -39,6 +39,7 @@ export interface ApplyFileContentUpdateArgs {
       skipPreview?: boolean;
       forcePreviewFullDocument?: boolean;
       immediateSave?: boolean;
+      awaitSave?: boolean;
       persist?: boolean;
       recordHistory?: boolean;
       historyBeforeContent?: string;
@@ -57,6 +58,7 @@ export interface ApplyFileContentUpdateArgs {
       skipPreview?: boolean;
       forcePreviewFullDocument?: boolean;
       immediateSave?: boolean;
+      awaitSave?: boolean;
       persist?: boolean;
       recordHistory?: boolean;
       historyBeforeContent?: string;
@@ -84,7 +86,7 @@ export interface ApplyFileContentUpdateArgs {
       identityMigrationSourceContent?: string;
       onSaveSettled?: FileContentSaveSettledHandler;
     },
-  ) => void;
+  ) => unknown;
   files: DesignFile[];
   getScreenContent: (screenId: string) => string;
   id: string | undefined;
@@ -132,6 +134,7 @@ export function runApplyFileContentUpdate(
     skipPreview?: boolean;
     forcePreviewFullDocument?: boolean;
     immediateSave?: boolean;
+    awaitSave?: boolean;
     persist?: boolean;
     recordHistory?: boolean;
     historyBeforeContent?: string;
@@ -242,10 +245,11 @@ export function runApplyFileContentUpdate(
       TAB_ID,
     );
   }
+  let saveCompletion: Promise<boolean> | undefined;
   if (options.persist === false && !needsIdentityMigration) {
     cancelQueuedFileContentSave(fileId);
   } else {
-    queueFileContentSave(fileId, acceptedContent, {
+    const completion = queueFileContentSave(fileId, acceptedContent, {
       expectedVersionHash: sourceContentHash(
         needsIdentityMigration
           ? nextContent
@@ -256,10 +260,14 @@ export function runApplyFileContentUpdate(
       identityMigrationSourceContent,
       onSaveSettled: options.onSaveSettled,
     });
+    if (completion instanceof Promise) saveCompletion = completion;
   }
   return {
     status: "accepted",
     content: acceptedContent,
     nodeIdMap: prepared.nodeIdMap,
+    ...(options.awaitSave && saveCompletion instanceof Promise
+      ? { saveCompletion }
+      : {}),
   };
 }

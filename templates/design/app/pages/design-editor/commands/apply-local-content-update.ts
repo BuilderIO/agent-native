@@ -65,7 +65,7 @@ export interface ApplyLocalContentUpdateArgs {
       identityMigrationSourceContent?: string;
       onSaveSettled?: FileContentSaveSettledHandler;
     },
-  ) => void;
+  ) => unknown;
   recordContentHistoryEntry: (
     entry: ContentHistoryEntry,
     selectedLayerIdsOverride?: string[],
@@ -94,6 +94,7 @@ export type ApplyLocalContentUpdateResult =
       status: "accepted";
       content: string;
       nodeIdMap: ReadonlyMap<string, string>;
+      saveCompletion?: Promise<boolean>;
     }
   | { status: "refused" };
 
@@ -146,7 +147,7 @@ export function runApplyLocalContentUpdate(
     shaderWriteCompletion?: true;
     updatedAt?: string;
     clipboardMutation?: ClipboardContentMutationPublication;
-    onSaveSettled?: FileContentSaveSettledHandler;
+    awaitSave?: boolean;
     /** Figma-parity undo selection restore for when this write lands on the
      * non-Yjs local fallback stack (e.g. `!isSynced` yet) — see
      * ContentHistoryChange.selectionBefore's doc comment. Ignored on the
@@ -355,10 +356,11 @@ export function runApplyLocalContentUpdate(
       );
     }
   }
+  let saveCompletion: Promise<boolean> | undefined;
   if (options.persist === false && !needsIdentityMigration) {
     cancelQueuedFileContentSave(activeFile.id);
   } else {
-    queueFileContentSave(activeFile.id, nextContent, {
+    const completion = queueFileContentSave(activeFile.id, nextContent, {
       expectedVersionHash: sourceContentHash(
         needsIdentityMigration
           ? inputContent
@@ -369,10 +371,14 @@ export function runApplyLocalContentUpdate(
       identityMigrationSourceContent,
       onSaveSettled: options.onSaveSettled,
     });
+    if (completion instanceof Promise) saveCompletion = completion;
   }
   return {
     status: "accepted",
     content: nextContent,
     nodeIdMap: prepared.nodeIdMap,
+    ...(options.awaitSave && saveCompletion instanceof Promise
+      ? { saveCompletion }
+      : {}),
   };
 }

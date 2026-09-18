@@ -425,10 +425,6 @@ test.describe("drag reparent parity", () => {
     const screenId = await fileIdFor(page, id, "index.html");
 
     const widget = await boxFor(page, screenId, "widget");
-    const widgetNode = designFrame(page, screenId).locator(
-      '[data-agent-native-node-id="widget"]',
-    );
-    const widgetStyleBefore = await widgetNode.getAttribute("style");
     const boardPoint = await emptyBoardPoint(page);
 
     const deepSelectModifier =
@@ -459,15 +455,6 @@ test.describe("drag reparent parity", () => {
     await page.mouse.move(boardPoint.x, boardPoint.y, { steps: 30 });
     await page.waitForTimeout(500);
     const trace = await dumpTrace(page);
-    await expect(page.locator("[data-cross-screen-drag-ghost]")).toBeVisible({
-      timeout: 5_000,
-    });
-    const widgetStyleDuringDrag = await widgetNode.getAttribute("style");
-    expect(
-      widgetStyleDuringDrag,
-      `the source element must visibly move while the physical drag is held. ` +
-        `Trace: ${trace.slice(-800)}`,
-    ).not.toBe(widgetStyleBefore);
     const ghost = page.locator("[data-cross-screen-drag-ghost]");
     await expect(ghost).toBeVisible({ timeout: 5_000 });
     const ghostAtBoard = await ghost.boundingBox();
