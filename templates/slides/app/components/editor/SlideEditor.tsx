@@ -2794,12 +2794,30 @@ export default function SlideEditor({
             : 1;
         const safeScaleX = Number.isFinite(scaleX) && scaleX > 0 ? scaleX : 1;
         const safeScaleY = Number.isFinite(scaleY) && scaleY > 0 ? scaleY : 1;
+        const { transform: elementTransform, transformOrigin } =
+          readSlideObjectTransformSnapshot(el);
+        const hasElementTransform = elementTransform !== "none";
+        const layoutWidth = hasElementTransform
+          ? el.offsetWidth || rect.width / safeScaleX
+          : rect.width / safeScaleX;
+        const layoutHeight = hasElementTransform
+          ? el.offsetHeight || rect.height / safeScaleY
+          : rect.height / safeScaleY;
+        host.style.width = `${layoutWidth}px`;
+        host.style.minHeight = `${layoutHeight}px`;
+        host.style.transformOrigin = hasElementTransform
+          ? transformOrigin
+          : "top left";
+        host.style.transform = hasElementTransform
+          ? `scale(${safeScaleX}, ${safeScaleY}) ${elementTransform}`
+          : `scale(${safeScaleX}, ${safeScaleY})`;
         host.style.left = `${rect.left}px`;
         host.style.top = `${rect.top}px`;
-        host.style.width = `${rect.width / safeScaleX}px`;
-        host.style.minHeight = `${rect.height / safeScaleY}px`;
-        host.style.transformOrigin = "top left";
-        host.style.transform = `scale(${safeScaleX}, ${safeScaleY})`;
+        if (hasElementTransform) {
+          const hostRect = host.getBoundingClientRect();
+          host.style.left = `${rect.left + rect.left - hostRect.left}px`;
+          host.style.top = `${rect.top + rect.top - hostRect.top}px`;
+        }
       };
       host.style.position = "fixed";
       host.style.zIndex = "1000";

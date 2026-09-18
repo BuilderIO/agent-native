@@ -179,9 +179,17 @@ describe("SlideEditor render-phase safety", () => {
     expect(enterBody).toContain(
       'el.closest<HTMLElement>("[data-slide-canvas]")',
     );
-    expect(enterBody).toContain('host.style.transformOrigin = "top left"');
+    expect(enterBody).toContain("readSlideObjectTransformSnapshot(el)");
     expect(enterBody).toContain(
-      "host.style.transform = `scale(${safeScaleX}, ${safeScaleY})`",
+      "host.style.transformOrigin = hasElementTransform",
+    );
+    expect(enterBody).toContain(
+      "`scale(${safeScaleX}, ${safeScaleY}) ${elementTransform}`",
+    );
+    expect(enterBody).toContain(': "top left"');
+    expect(enterBody).toContain(": `scale(${safeScaleX}, ${safeScaleY})`");
+    expect(enterBody).toContain(
+      "const hostRect = host.getBoundingClientRect()",
     );
     expect(enterBody).toContain("new ResizeObserver(positionHost)");
     expect(enterBody).toContain("resizeObserver?.observe(slideCanvas)");
