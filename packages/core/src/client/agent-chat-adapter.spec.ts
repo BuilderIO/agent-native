@@ -7658,6 +7658,66 @@ describe("createAgentChatAdapter", () => {
     );
   });
 
+  it("stops its surface in finally when an abort follows another surface claim", async () => {
+    vi.stubGlobal("sessionStorage", createMemoryStorage());
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        setActiveRun({
+          threadId: "other-thread",
+          runId: "other-run",
+          tabId: "other-surface",
+          lastSeq: 0,
+        });
+        throw new DOMException("The operation was aborted.", "AbortError");
+      }),
+    );
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-current",
+      threadId: "current-thread",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "stop this" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agentNative.chatRunning",
+        detail: { isRunning: false, tabId: "chat-current" },
+      }),
+    );
+    expect(getActiveRun()).toMatchObject({
+      threadId: "other-thread",
+      runId: "other-run",
+      tabId: "other-surface",
+    });
+  });
+
   it("does not stop its tab when another thread in the same tab claims the run", async () => {
     vi.stubGlobal("sessionStorage", createMemoryStorage());
     const dispatchEvent = vi.fn();

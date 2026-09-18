@@ -5199,9 +5199,10 @@ export function createAgentChatAdapter(
         }
       } finally {
         if (threadId) clearPendingTurnIfMatches(threadId, turnId);
-        if (ownsActiveRunState()) {
-          publishTerminalChatUiStopped();
-        }
+        // Abort and retry-delay exits do not necessarily reach a terminal
+        // result. Apply the same surface-only cleanup without clearing a
+        // newer run owned by this or another surface.
+        settleTerminalChatRun();
       }
     },
   };

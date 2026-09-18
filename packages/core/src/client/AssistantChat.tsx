@@ -758,7 +758,6 @@ function clearPendingSelection() {
 export async function waitForThreadRunToClear(
   apiUrl: string,
   threadId?: string,
-  tabId?: string,
 ): Promise<boolean> {
   if (!threadId) return true;
   const deadline = Date.now() + ACTIVE_RUN_CLEAR_TIMEOUT_MS;
@@ -770,10 +769,13 @@ export async function waitForThreadRunToClear(
     const stored = getActiveRun();
     const sameStoredRun =
       stored?.threadId === threadId && stored.runId === info.runId;
+    const storedOwnerTabId = sameStoredRun ? stored?.tabId : undefined;
     setActiveRun({
       threadId,
       runId: info.runId,
-      ...(tabId ? { tabId } : {}),
+      // Waiting to reconnect does not transfer stream ownership. Preserve
+      // the current owner's surface until that surface actually claims it.
+      ...(storedOwnerTabId ? { tabId: storedOwnerTabId } : {}),
       ...(info.turnId ? { turnId: info.turnId } : {}),
       lastSeq: sameStoredRun ? stored.lastSeq : -1,
       ...(sameStoredRun && stored.activityTool
@@ -5293,11 +5295,7 @@ const AssistantChatInner = forwardRef<
           // terminal SSE event a beat before SQL has marked the previous run
           // complete. Starting the queued turn during that window can reconnect
           // to the old run and replay the old answer under the new prompt.
-          const runCleared = await waitForThreadRunToClear(
-            apiUrl,
-            threadId,
-            tabId,
-          );
+          const runCleared = await waitForThreadRunToClear(apiUrl, threadId);
           if (cancelled) return;
           if (!runCleared) {
             // The server still owns this turn (including a deferred durable
