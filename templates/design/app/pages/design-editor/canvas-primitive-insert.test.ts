@@ -5,6 +5,7 @@ import { createCornerNode, type PenPath } from "@shared/pen-path";
 import {
   VECTOR_END_ENDPOINT_PROPERTY,
   VECTOR_START_ENDPOINT_PROPERTY,
+  isVectorEndpointPrimitiveKind,
   vectorEndpointMarkerId,
 } from "@shared/vector-endpoints";
 import { describe, expect, it } from "vitest";
@@ -1030,6 +1031,20 @@ describe("arrow paint target", () => {
       vectorEndpointMarkerId("a-b", "end"),
     );
   });
+
+  it.each(["path", "line", "arrow"] as const)(
+    "recognizes %s as a live endpoint primitive",
+    (kind) => {
+      expect(isVectorEndpointPrimitiveKind(kind)).toBe(true);
+    },
+  );
+
+  it.each(["polygon", "star", "rect", "ellipse", "circle", "boolean"])(
+    "keeps %s out of live endpoint primitives",
+    (kind) => {
+      expect(isVectorEndpointPrimitiveKind(kind)).toBe(false);
+    },
+  );
 });
 
 // search-icon-2: a freshly drawn shape must expose a `backgroundColor` the

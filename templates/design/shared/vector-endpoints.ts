@@ -20,6 +20,7 @@ export const VECTOR_ENDPOINT_STYLES = [
 
 export type VectorEndpointStyle = (typeof VECTOR_ENDPOINT_STYLES)[number];
 export type VectorEndpointSide = "start" | "end";
+export type VectorEndpointPrimitiveKind = "path" | "line" | "arrow";
 
 export const VECTOR_START_ENDPOINT_PROPERTY = "--an-vector-start-point";
 export const VECTOR_END_ENDPOINT_PROPERTY = "--an-vector-end-point";
@@ -28,6 +29,12 @@ export const VECTOR_ENDPOINT_PROPERTIES = [
   VECTOR_START_ENDPOINT_PROPERTY,
   VECTOR_END_ENDPOINT_PROPERTY,
 ] as const;
+
+export function isVectorEndpointPrimitiveKind(
+  value: unknown,
+): value is VectorEndpointPrimitiveKind {
+  return value === "path" || value === "line" || value === "arrow";
+}
 
 export function isVectorEndpointProperty(
   value: string,

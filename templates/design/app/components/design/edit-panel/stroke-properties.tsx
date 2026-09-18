@@ -6,6 +6,7 @@ import {
 } from "@shared/color-utils";
 import {
   isVectorEndpointStyle,
+  isVectorEndpointPrimitiveKind,
   vectorEndpointPairForPrimitive,
   VECTOR_END_ENDPOINT_PROPERTY,
   VECTOR_ENDPOINT_STYLES,
@@ -978,6 +979,9 @@ function VectorStrokeProperties({
   )
     ? (styles["--an-vector-stroke-position"] as StrokePosition)
     : "center";
+  const supportsEndpointControls =
+    element.tagName?.toLowerCase() === "svg" &&
+    isVectorEndpointPrimitiveKind(element.primitiveKind);
 
   return (
     <PanelSection
@@ -1063,12 +1067,14 @@ function VectorStrokeProperties({
               </SectionIconButton>
             </InspectorGridCell>
           </InspectorPaintRow>
-          <VectorEndpointControls
-            element={element}
-            styles={styles}
-            onStyleChange={onStyleChange}
-            onStylesChange={onStylesChange}
-          />
+          {supportsEndpointControls ? (
+            <VectorEndpointControls
+              element={element}
+              styles={styles}
+              onStyleChange={onStyleChange}
+              onStylesChange={onStylesChange}
+            />
+          ) : null}
           <InspectorGrid className="items-center" layout="stroke-details">
             <InspectorGridCell span={INSPECTOR_GRID_STROKE_POSITION_SPAN}>
               {canAlignStroke ? (
