@@ -2,6 +2,7 @@ import type { ActionRunContext } from "../action.js";
 import { resolveDeployEnvironment } from "../server/deploy-environment.js";
 import { getRequestContext } from "../server/request-context.js";
 import {
+  canonicalTrackingEvent,
   legacyLifecycleEvent,
   withCanonicalTrackingProperties,
 } from "../shared/analytics-events.js";
@@ -143,6 +144,16 @@ export function track(
     sessionId,
     occurredAt,
   });
+
+  const canonical = canonicalTrackingEvent(name, trackedProperties);
+  if (canonical) {
+    emitTrackingEvent(canonical.name, canonical.properties, {
+      userId,
+      anonymousId,
+      sessionId,
+      occurredAt,
+    });
+  }
 
   const lifecycle = legacyLifecycleEvent(name, trackedProperties);
   if (lifecycle) {

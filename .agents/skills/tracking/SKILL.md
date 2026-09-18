@@ -302,6 +302,17 @@ Existing legacy events remain available and emit their canonical lifecycle
 counterpart where the meaning is unambiguous, so downstream dashboards can
 migrate without losing historical names.
 
+### Event name migration
+
+All new event names and properties use lowercase `snake_case`. The shared
+`track()` and browser `trackEvent()` emitters preserve a legacy event exactly
+and, for names in `LEGACY_TRACKING_EVENT_NAME_ALIASES`, emit a canonical alias
+with `legacy_event_name` and `canonical_event_name` provenance properties. Use
+the canonical alias for new dashboards and new call sites; do not normalize
+historical warehouse rows or add new legacy names. Provider/framework names
+such as `$ai_*`, `$mcp_*`, `$exception`, `action.response`, `app.first_action`,
+and `http.response` are intentional exceptions.
+
 ## Provider Interface
 
 ```ts

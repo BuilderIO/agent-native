@@ -3,6 +3,7 @@ import type * as Sentry from "@sentry/browser";
 
 import {
   AGENT_NATIVE_LIFECYCLE_EVENTS,
+  canonicalTrackingEvent,
   legacyLifecycleEvent,
   normalizeTrackingDimension,
   withCanonicalTrackingProperties,
@@ -2250,6 +2251,23 @@ function sendAgentNativeAnalytics(
   }
 }
 
+function emitBrowserTrackingEvent(
+  name: string,
+  props: Record<string, unknown>,
+  sendGtag = true,
+): void {
+  const amplitudeProps = amplitudeEventProperties(name, props);
+  if (sendGtag) window.gtag?.("event", name.replace(/\s+/g, "_"), props);
+  if (ensureAmplitude()) {
+    _amplitudeModule?.track(name, amplitudeProps);
+  } else if (_amplitudeApiKey) {
+    if (_pendingAmplitudeEvents.length < 100) {
+      _pendingAmplitudeEvents.push([name, amplitudeProps]);
+    }
+  }
+  sendAgentNativeAnalytics(name, props);
+}
+
 export function trackEvent(
   name: string,
   params?: Record<string, unknown>,
@@ -2259,16 +2277,15 @@ export function trackEvent(
   if (isQaTrackingIdentity(_trackingIdentity)) return;
   ensureSentry();
   const props = resolveProps(name, params);
-  const amplitudeProps = amplitudeEventProperties(name, props);
-  window.gtag?.("event", name.replace(/\s+/g, "_"), props);
-  if (ensureAmplitude()) {
-    _amplitudeModule?.track(name, amplitudeProps);
-  } else if (_amplitudeApiKey) {
-    if (_pendingAmplitudeEvents.length < 100) {
-      _pendingAmplitudeEvents.push([name, amplitudeProps]);
-    }
+  emitBrowserTrackingEvent(name, props);
+  const canonical = canonicalTrackingEvent(name, props);
+  if (canonical) {
+    emitBrowserTrackingEvent(
+      canonical.name,
+      canonical.properties,
+      name.replace(/\s+/g, "_") !== canonical.name,
+    );
   }
-  sendAgentNativeAnalytics(name, props);
   const lifecycle = legacyLifecycleEvent(name, props);
   if (lifecycle) trackEvent(lifecycle.name, lifecycle.properties);
 }
