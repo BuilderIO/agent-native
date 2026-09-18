@@ -4,6 +4,10 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+  getBoardSurfaceStaticPreviewTransform,
+  getBoardSurfaceStaticPreviewViewport,
+} from "./multi-screen/overview-layout";
 import { MAX_ZOOM_FACTOR_PER_FRAME } from "./multi-screen/zoom-gesture";
 import { MultiScreenCanvas } from "./MultiScreenCanvas";
 
@@ -192,6 +196,98 @@ describe("MultiScreenCanvas wheel zoom and pan", () => {
     const view = await applyTicks(surface, [{ deltaX: 0, deltaY: 240 }]);
     expect(view.y).toBeCloseTo(-240, 10);
   });
+
+  it.each([false, true])(
+    "preserves iframe paint surfaces during a wheel gesture (zoom=%s)",
+    async (zoom) => {
+      const surface = await renderSurface();
+      const content = document.createElement("div");
+      content.dataset.screenContent = "large-import";
+      content.style.pointerEvents = "auto";
+      const iframe = document.createElement("iframe");
+      iframe.style.width = "1440px";
+      iframe.style.height = "42728px";
+      iframe.style.filter = "opacity(0.9)";
+      content.append(iframe);
+      surface.append(content);
+      const before = readView(container);
+
+      const during = await applyTicks(surface, [
+        { deltaY: -100, ctrlKey: zoom },
+      ]);
+
+      if (zoom) expect(during.scale).toBeGreaterThan(before.scale);
+      else expect(during.y).toBeGreaterThan(before.y);
+      expect(content.style.pointerEvents).toBe("none");
+      expect(iframe.style.filter).toBe("opacity(0.9)");
+
+      await act(async () => {
+        await new Promise<void>((resolve) => setTimeout(resolve, 140));
+      });
+      expect(content.style.pointerEvents).toBe("auto");
+      expect(iframe.style.filter).toBe("opacity(0.9)");
+    },
+  );
+
+  it.each([false, true])(
+    "moves the board paint window before the gesture commits (zoom=%s)",
+    async (zooming) => {
+      const geometry = { x: -65536, y: -65536, width: 131072, height: 131072 };
+      await act(async () =>
+        root.render(
+          <MultiScreenCanvas
+            screens={[]}
+            zoom={zooming ? 3 : 2}
+            activeTool="move"
+            onPick={() => {}}
+            boardFileId="board"
+            boardFrameGeometry={geometry}
+            boardFileContent={
+              '<html><body><div data-agent-native-node-id="shape" style="position:absolute;left:0;top:0;width:100px;height:100px"></div></body></html>'
+            }
+          />,
+        ),
+      );
+      const surface = container.querySelector<HTMLElement>(
+        "[data-multi-screen-canvas-surface]",
+      )!;
+      const replica = container.querySelector<HTMLIFrameElement>(
+        "[data-board-static-preview-iframe]",
+      )!;
+      expect(replica).not.toBeNull();
+      const before = replica.style.transform;
+      expect(
+        container
+          .querySelector("[data-multi-screen-canvas-world]")!
+          .contains(replica),
+      ).toBe(false);
+      expect(replica.parentElement!.style.inset).toBe("0");
+      const beforeView = readView(container);
+
+      const during = await applyTicks(
+        surface,
+        zooming
+          ? [{ deltaY: -100, ctrlKey: true }]
+          : [{ deltaX: 160, deltaY: 240 }],
+      );
+
+      if (zooming) {
+        expect(during.scale).toBeGreaterThan(beforeView.scale);
+        expect(replica.style.backfaceVisibility).toBe("visible");
+      } else {
+        expect(during.y).toBeCloseTo(beforeView.y - 240);
+      }
+      expect(replica.style.transform).not.toBe(before);
+      expect(replica.style.transform).toBe(
+        getBoardSurfaceStaticPreviewTransform({
+          logicalGeometry: geometry,
+          viewport: getBoardSurfaceStaticPreviewViewport(geometry),
+          pan: { x: during.x, y: during.y },
+          zoom: during.scale * 100,
+        }),
+      );
+    },
+  );
 
   it("does not report a zoom change after a pan-only scroll", async () => {
     const onZoomChange = vi.fn();

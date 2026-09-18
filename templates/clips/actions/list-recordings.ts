@@ -377,30 +377,20 @@ export default defineAction({
       .offset(args.offset);
 
     const ids = rows.map((r) => r.recording.id);
-    const ownerProfiles = await getUserProfiles(
+    const ownerProfilesPromise = getUserProfiles(
       rows.map((row) => row.recording.ownerEmail),
     );
 
-    // Gather tags for the result set in one query
-    let tagsByRec: Record<string, string[]> = {};
-    if (ids.length) {
-      const tagRows = await db
-        .select()
-        .from(schema.recordingTags)
-        .where(inArray(schema.recordingTags.recordingId, ids));
-      for (const t of tagRows) {
-        tagsByRec[t.recordingId] ??= [];
-        tagsByRec[t.recordingId].push(t.tag);
-      }
-    }
-
-    // Count views per recording — set-wide grouped reads, never one per
-    // recording.
-    let viewsByRec: Record<string, number> = {};
-    let agentViewsByRec: Record<string, number> = {};
-    if (ids.length) {
-      const [countedViewerRows, viewLogRows, agentViewRows] = await Promise.all(
-        [
+    // These set-wide reads are independent. Start them together so profile,
+    // tag, and view latency does not add up for every library page.
+    const tagRowsPromise = ids.length
+      ? db
+          .select()
+          .from(schema.recordingTags)
+          .where(inArray(schema.recordingTags.recordingId, ids))
+      : Promise.resolve([]);
+    const viewRowsPromise = ids.length
+      ? Promise.all([
           db
             .select({
               recordingId: schema.recordingViewers.recordingId,
@@ -430,8 +420,27 @@ export default defineAction({
             .from(schema.recordingAgentViews)
             .where(inArray(schema.recordingAgentViews.recordingId, ids))
             .groupBy(schema.recordingAgentViews.recordingId),
-        ],
-      );
+        ])
+      : Promise.resolve(null);
+    const [ownerProfiles, tagRows, viewRows] = await Promise.all([
+      ownerProfilesPromise,
+      tagRowsPromise,
+      viewRowsPromise,
+    ]);
+
+    // Gather tags for the result set in one query.
+    const tagsByRec: Record<string, string[]> = {};
+    for (const t of tagRows) {
+      tagsByRec[t.recordingId] ??= [];
+      tagsByRec[t.recordingId].push(t.tag);
+    }
+
+    // Count views per recording — set-wide grouped reads, never one per
+    // recording.
+    let viewsByRec: Record<string, number> = {};
+    let agentViewsByRec: Record<string, number> = {};
+    if (viewRows) {
+      const [countedViewerRows, viewLogRows, agentViewRows] = viewRows;
       viewsByRec = mergeViewCounts(countedViewerRows, viewLogRows);
       agentViewsByRec = Object.fromEntries(
         agentViewRows.map((r) => [r.recordingId, Number(r.count ?? 0)]),

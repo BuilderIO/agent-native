@@ -222,4 +222,124 @@ describe("EventDetailPanel source identity", () => {
       container.querySelector('[data-testid="event-description"]')?.textContent,
     ).toBe("Second calendar description");
   });
+
+  it("traps focus, closes on Escape, and restores the trigger focus", () => {
+    const trigger = document.createElement("button");
+    document.body.appendChild(trigger);
+    trigger.focus();
+    const onClose = vi.fn();
+    const event = calendarEvent("calendar-one");
+
+    act(() =>
+      root.render(
+        <EventDetailPanel
+          event={event}
+          onClose={onClose}
+          onDelete={() => undefined}
+        />,
+      ),
+    );
+
+    const panel = container.querySelector<HTMLElement>('[role="dialog"]');
+    expect(panel).not.toBeNull();
+    expect(panel!.contains(document.activeElement)).toBe(true);
+
+    const focusable = Array.from(
+      panel!.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ),
+    );
+    expect(focusable.length).toBeGreaterThan(1);
+
+    const lastFocusable = focusable[focusable.length - 1]!;
+    lastFocusable.focus();
+    act(() =>
+      lastFocusable.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Tab", bubbles: true }),
+      ),
+    );
+    expect(document.activeElement).toBe(focusable[0]);
+
+    act(() =>
+      panel!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      ),
+    );
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    act(() =>
+      root.render(
+        <EventDetailPanel
+          event={null}
+          onClose={onClose}
+          onDelete={() => undefined}
+        />,
+      ),
+    );
+    expect(document.activeElement).toBe(trigger);
+    trigger.remove();
+  });
+
+  it("keeps the panel open when Escape cancels title editing", () => {
+    const onClose = vi.fn();
+    const event = calendarEvent("calendar-one");
+
+    act(() =>
+      root.render(
+        <EventDetailPanel
+          event={event}
+          onClose={onClose}
+          onDelete={() => undefined}
+        />,
+      ),
+    );
+    act(() => container.querySelector("h2")?.click());
+
+    const titleInput = container.querySelector<HTMLInputElement>(
+      'input[placeholder="eventForm.addTitle"]',
+    );
+    expect(titleInput).not.toBeNull();
+    expect(
+      container
+        .querySelector<HTMLElement>('[role="dialog"]')
+        ?.getAttribute("aria-label"),
+    ).toBe(event.title);
+    act(() =>
+      titleInput!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      ),
+    );
+
+    expect(onClose).not.toHaveBeenCalled();
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(
+      container.querySelector('input[placeholder="eventForm.addTitle"]'),
+    ).toBeNull();
+  });
+
+  it("restores the trigger focus when the sidebar unmounts", () => {
+    const trigger = document.createElement("button");
+    document.body.appendChild(trigger);
+    trigger.focus();
+
+    act(() =>
+      root.render(
+        <EventDetailPanel
+          event={calendarEvent("calendar-one")}
+          onClose={() => undefined}
+          onDelete={() => undefined}
+        />,
+      ),
+    );
+    expect(
+      container
+        .querySelector<HTMLElement>('[role="dialog"]')
+        ?.contains(document.activeElement),
+    ).toBe(true);
+
+    act(() => root.render(null));
+
+    expect(document.activeElement).toBe(trigger);
+    trigger.remove();
+  });
 });

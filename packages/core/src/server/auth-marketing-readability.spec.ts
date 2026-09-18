@@ -20,10 +20,7 @@ const MARKETING_TEXT_SELECTORS = [
   ".oss-link",
 ];
 
-/** Apps with no screenshot render `.marketing-content`, so the copy is on the page background. */
-const TEXT_PANEL_APPS = Object.entries(BUILT_IN_AUTH_MARKETING).filter(
-  ([, config]) => config.screenshotPath === undefined,
-);
+const MARKETING_APPS = Object.entries(BUILT_IN_AUTH_MARKETING);
 
 /** Slice a balanced `{...}` block starting at the first brace after `fromIndex`. */
 function balancedBlock(css: string, fromIndex: number): string {
@@ -73,17 +70,18 @@ function contrastRatio(foreground: string, background: string): number {
 }
 
 describe("auth marketing panel readability", () => {
-  it("has text-panel apps to cover", () => {
-    expect(TEXT_PANEL_APPS.length).toBeGreaterThan(0);
+  it("has marketing apps to cover", () => {
+    expect(MARKETING_APPS.length).toBeGreaterThan(0);
   });
 
-  it.each(TEXT_PANEL_APPS)(
-    "renders the text marketing panel for %s",
+  it.each(MARKETING_APPS)(
+    "renders the shared visual marketing panel for %s",
     (slug) => {
       const html = getOnboardingHtml({
         requestHost: `${slug}.agent-native.com`,
       });
       try {
+        expect(html).toContain('class="auth-marketing-visual"');
         expect(html).toContain('class="marketing-content"');
         expect(html).not.toMatch(/<img[^>]*class="auth-marketing-screenshot"/);
       } finally {
@@ -92,7 +90,7 @@ describe("auth marketing panel readability", () => {
     },
   );
 
-  it.each(TEXT_PANEL_APPS)(
+  it.each(MARKETING_APPS)(
     "gives every marketing text selector a light-scheme color for %s",
     (slug) => {
       const html = getOnboardingHtml({

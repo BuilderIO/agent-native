@@ -201,7 +201,8 @@ export function ResearchMeetingButton({ event }: { event: CalendarEvent }) {
   const { send, codeRequiredDialog } = useSendToAgentChat();
 
   const attendees = (event.attendees ?? []).filter((a) => !a.self);
-  if (attendees.length === 0) return null;
+  const attendeeCount = attendees.length;
+  if (attendeeCount === 0) return null;
 
   const handleResearch = () => {
     if (!connected) {
@@ -243,7 +244,7 @@ Use the Apollo API (/api/apollo/person?email=...) to look up each attendee and c
         </div>
         {t("apollo.researchMeeting")}
         <span className="ml-auto text-xs text-muted-foreground/40">
-          {t("apollo.attendeeCount", { count: attendees.length })}
+          {t("apollo.attendeeCount", { count: attendeeCount })}
         </span>
       </button>
     </>

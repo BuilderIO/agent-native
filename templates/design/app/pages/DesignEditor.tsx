@@ -338,7 +338,6 @@ import {
 } from "@/components/design/multi-screen/measure-selection";
 import { getCurrentBoardSelectionWorldBounds } from "@/components/design/multi-screen/overview-layout";
 import {
-  isImportedStaticScreenSource,
   resolveScreenHeightMode,
   type ScreenHeightMode,
 } from "@/components/design/multi-screen/screen-height";
@@ -4334,7 +4333,7 @@ function DesignEditor() {
         identityMigrationSourceContent?: string;
       },
     ) => {
-      if (!canEditDesignRef.current) return;
+      if (!canEditDesignRef.current) return Promise.resolve(false);
       const queuedIdentityMigration = pendingFileSavesRef.current[fileId];
       const latestIdentityMigration =
         latestFileSaveForUnloadRef.current[fileId];
@@ -4384,8 +4383,7 @@ function DesignEditor() {
           delete fileSaveTimersRef.current[fileId];
         }
         delete pendingFileSavesRef.current[fileId];
-        saveFileContent(pending);
-        return;
+        return saveFileContent(pending);
       }
       pendingFileSavesRef.current[fileId] = pending;
       const timer = fileSaveTimersRef.current[fileId];
@@ -9513,6 +9511,7 @@ function DesignEditor() {
         skipPreview?: boolean;
         forcePreviewFullDocument?: boolean;
         immediateSave?: boolean;
+        awaitSave?: boolean;
         persist?: boolean;
         recordHistory?: boolean;
         historyBeforeContent?: string;
@@ -9606,6 +9605,7 @@ function DesignEditor() {
         skipPreview?: boolean;
         forcePreviewFullDocument?: boolean;
         immediateSave?: boolean;
+        awaitSave?: boolean;
         persist?: boolean;
         recordHistory?: boolean;
         historyBeforeContent?: string;
@@ -15147,6 +15147,21 @@ function DesignEditor() {
           contentUndoStackRef,
           contentHistorySelectionAfterRef,
           designSourceType,
+          fileSaveOperationRevisionRef,
+          getCurrentSelectionFingerprint: () =>
+            JSON.stringify({
+              activeFileId: activeFileIdRef.current,
+              selectedLayerIds: selectedLayerIdsStateRef.current,
+              overviewSelectedScreenIds: overviewSelectedScreenIdsRef.current,
+              selectedElement: selectedElementRef.current
+                ? {
+                    id: selectedElementRef.current.id ?? null,
+                    selector: selectedElementRef.current.selector ?? null,
+                    sourceId: selectedElementRef.current.sourceId ?? null,
+                  }
+                : null,
+              viewMode: viewModeRef.current,
+            }),
           getScreenContent,
           id,
           overviewScreens,
@@ -20271,18 +20286,11 @@ function DesignEditor() {
       );
       const operations: DesignDataOperation[] = [];
       if (mode === "auto") {
-        if (isImportedStaticScreenSource(screenMetadata.sourceType)) {
-          if (screenMetadata.heightMode !== "auto") {
-            operations.push({
-              op: "set",
-              path: ["screenMetadata", screenId, "heightMode"],
-              value: "auto",
-            });
-          }
-        } else if (screenMetadata.heightMode !== undefined) {
+        if (screenMetadata.heightMode !== "auto") {
           operations.push({
-            op: "delete",
+            op: "set",
             path: ["screenMetadata", screenId, "heightMode"],
+            value: "auto",
           });
         }
       } else if (screenMetadata.heightMode !== mode) {
@@ -25314,9 +25322,13 @@ function DesignEditor() {
                   className="relative min-w-0 flex-1 overflow-hidden bg-[var(--design-editor-canvas-bg)]"
                   // Overrides the themed canvas colour rather than a background
                   // shorthand, so every descendant reading the var follows.
+                  // A backdrop root must live outside the scaled world. Without
+                  // it, iframe backdrop filters inherit the shell's rounded clip
+                  // and Chrome sizes their masks in inverse-zoom coordinates.
                   style={
                     {
                       isolation: "isolate",
+                      willChange: "opacity",
                       ...(canvasBackground
                         ? {
                             "--design-editor-canvas-bg": canvasBackground,

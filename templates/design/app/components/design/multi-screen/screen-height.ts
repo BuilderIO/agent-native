@@ -21,6 +21,7 @@ const IMPORTED_STATIC_SCREEN_SOURCE_TYPES = new Set([
   "html-upload",
 ]);
 
+/** Imported documents have a frame size, not an unconstrained page size. */
 export function isImportedStaticScreenSource(sourceType: unknown): boolean {
   return (
     typeof sourceType === "string" &&

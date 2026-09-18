@@ -164,6 +164,12 @@ function isLoopbackPreviewUrl(value: string | null | undefined): boolean {
   }
 }
 
+export function getDesignCanvasIframeAllow(
+  previewUrl: string | null | undefined,
+): string | undefined {
+  return isLoopbackPreviewUrl(previewUrl) ? "local-network-access" : undefined;
+}
+
 /**
  * Remove development-server HTML transforms before treating a live snapshot as
  * writable source. Vite injects its HMR client and React Refresh preamble into

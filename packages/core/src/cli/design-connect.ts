@@ -148,6 +148,13 @@ const PREVIEW_TOKEN_DOMAIN = "agent-native-design-preview-v1\0";
 const PREVIEW_ATTESTATION_DOMAIN =
   "agent-native-design-preview-attestation-v1\0";
 const PREVIEW_SESSION_COOKIE_NAME = "agent-native-preview-token";
+const BRIDGE_FRAME_HEADERS = {
+  // Design's COEP requires the cross-origin iframe document to opt in too.
+  // `credentialless` preserves public CDN resources that lack CORP/CORS while
+  // keeping the policy off JSON and proxied assets outside the frame document.
+  "cross-origin-embedder-policy": "credentialless",
+  "cross-origin-resource-policy": "cross-origin",
+} as const;
 
 /**
  * Derive a read-only preview credential from the stronger filesystem token.
@@ -719,13 +726,6 @@ export async function prepareDesignConnectManifest(
 }
 
 const BRIDGE_CORS_HEADERS = Symbol("agent-native-design-bridge-cors");
-const BRIDGE_EMBEDDED_DOCUMENT_HEADERS = {
-  "cross-origin-resource-policy": "cross-origin",
-  // Keep the preview cross-origin isolated while allowing anonymous third-party
-  // assets that cannot opt into CORP. Bridge resources carry previewToken, so
-  // they do not depend on cookies being sent by credentialless requests.
-  "cross-origin-embedder-policy": "credentialless",
-} as const;
 
 type CorsAwareResponse = ServerResponse & {
   [BRIDGE_CORS_HEADERS]?: Record<string, string>;
@@ -818,13 +818,11 @@ function sendText(
   body: string,
   contentType: string,
   setCookieHeaders: string[] = [],
+  extraHeaders: Record<string, string> = {},
 ) {
   res.writeHead(statusCode, {
     "content-type": contentType,
-    // Design's editor is cross-origin isolated. The live-edit document is
-    // intentionally embedded from the loopback bridge, so opt it into the
-    // same document policy before Chromium creates the frame.
-    ...BRIDGE_EMBEDDED_DOCUMENT_HEADERS,
+    ...extraHeaders,
     ...(setCookieHeaders.length > 0 ? { "set-cookie": setCookieHeaders } : {}),
     ...bridgeCorsHeaders(res),
   });
@@ -838,17 +836,15 @@ function sendBytes(
   headers: Headers,
   contentLength = body.length,
   setCookieHeaders: string[] = [],
+  extraHeaders: Record<string, string> = {},
   transformed = false,
 ) {
   const responseHeaders: Record<string, string | string[]> = {
+    ...extraHeaders,
     ...bridgeCorsHeaders(res),
-    "cross-origin-resource-policy": "cross-origin",
     "content-length": String(contentLength),
     ...(setCookieHeaders.length > 0 ? { "set-cookie": setCookieHeaders } : {}),
   };
-  if (headers.get("content-type")?.includes("html")) {
-    Object.assign(responseHeaders, BRIDGE_EMBEDDED_DOCUMENT_HEADERS);
-  }
   for (const name of [
     "content-type",
     "cache-control",
@@ -2796,6 +2792,7 @@ export async function startDesignConnectBridge(
                 ...snapshot.setCookieHeaders,
                 previewSessionSetCookie(previewToken),
               ],
+              BRIDGE_FRAME_HEADERS,
             );
           } catch (err: unknown) {
             sendJson(res, 400, {
@@ -3134,7 +3131,7 @@ export async function startDesignConnectBridge(
                 }
                 res.writeHead(302, {
                   location: next.toString(),
-                  ...BRIDGE_EMBEDDED_DOCUMENT_HEADERS,
+                  ...BRIDGE_FRAME_HEADERS,
                   ...bridgeCorsHeaders(res),
                 });
                 res.end();
@@ -3282,6 +3279,9 @@ export async function startDesignConnectBridge(
               proxied.headers,
               advertisedContentLength,
               proxied.setCookieHeaders,
+              documentNavigation && contentType.includes("html")
+                ? BRIDGE_FRAME_HEADERS
+                : {},
               shouldRewriteOpaqueFrameResources,
             );
           } catch (err: unknown) {
