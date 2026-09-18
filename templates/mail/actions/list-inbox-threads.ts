@@ -109,12 +109,14 @@ function paginateIntoResult(
   const pageSource = page.unreadOnly
     ? activeMembers.filter((item) => item.unreadCount > 0)
     : activeMembers;
+  const pageItems = pageSource.slice(page.offset, page.offset + page.limit);
 
   return {
     tabs: resultTabs,
     activeTabId,
-    items: pageSource.slice(page.offset, page.offset + page.limit),
+    items: pageItems,
     total: activeMembers.length,
+    complete: page.offset + pageItems.length >= pageSource.length,
     syncing,
     accounts,
     labels,

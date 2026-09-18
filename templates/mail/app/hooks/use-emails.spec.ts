@@ -18,6 +18,7 @@ import {
   releaseSuppression,
   releaseSuppressionClaims,
   rollbackReadMutation,
+  settleSuppression,
   setOptimisticOverride,
   suppressThread,
   hasFreshOptimisticOverrideEvidence,
@@ -93,6 +94,8 @@ describe("removal undo claim ownership", () => {
     for (const source of [listSource, threadSource]) {
       expect(source).not.toContain("unsuppressThread");
       expect(source).toContain("releaseSuppressionClaims");
+      expect(source).toContain("releaseOwnedInboxRemoval");
+      expect(source).toContain("inboxRemovalSnapshot");
       expect(source).toContain("createSuppressionToken");
       expect(source).toContain("getSuppressionIds");
     }
@@ -184,6 +187,8 @@ describe("optimistic property overrides", () => {
       source.indexOf("export function useMarkRead()"),
     );
     expect(threadHook).toContain("subscribeToOptimisticOverrides");
+    expect(threadHook).toContain("reconcileOptimisticOverrides");
+    expect(threadHook).toContain("providerSnapshotId");
     expect(threadHook).toContain("applyOverrides(messages)");
   });
 });
@@ -207,9 +212,26 @@ describe("suppression evidence", () => {
 
     // Provider evidence can retire the active suppression before the toast's
     // Undo callback runs.
-    expect(releaseSuppression(threadId, id)).toBe(true);
+    expect(settleSuppression(threadId, id)).toBe(true);
     expect(releaseSuppressionClaims(threadId, [id])).toBe(true);
     expect(releaseSuppressionClaims(threadId, [])).toBe(false);
+  });
+
+  it("does not undo an older claim after newer evidence has settled", () => {
+    const threadId = "thread-settled-overlap";
+    const archived = suppressThread(threadId, "archive", {
+      views: ["inbox", "unread"],
+    });
+    const muted = suppressThread(threadId, "mute", {
+      views: ["inbox", "unread"],
+    });
+
+    expect(settleSuppression(threadId, muted)).toBe(true);
+    expect(releaseSuppressionClaims(threadId, [archived])).toBe(false);
+
+    // Releasing the newer committed claim removes its tombstone, so the
+    // older Undo can be honored after the newer action is explicitly undone.
+    expect(releaseSuppressionClaims(threadId, [muted])).toBe(true);
   });
 
   it("removes failed claims from a still-visible Undo token", () => {
@@ -678,8 +700,7 @@ describe("inbox-thread cache rollback on mutation error", () => {
 
       expect(hook).toContain("onMutate:");
       expect(hook).toContain("findInboxThreadIdByMessageId(qc, id)");
-      expect(hook).toContain("clearInboxThreadRemoval(");
-      expect(hook).toContain("getInboxMutationIds(suppressionToken, threadId)");
+      expect(hook).toContain("releaseOwnedInboxRemoval(qc, threadId");
       expect(hook).toContain("restoreInboxThreadRemovals(qc");
     }
   });

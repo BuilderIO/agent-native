@@ -58,6 +58,7 @@ import {
   EMPTY_LABELS,
   useMoveEmail,
   MoveEmailPartialFailure,
+  releaseOwnedInboxRemoval,
   releaseSuppressionClaims,
   type AccountError,
 } from "@/hooks/use-emails";
@@ -741,14 +742,25 @@ export function EmailList({
             ? bulkArchiveEmails.getSuppressionIds
             : archiveEmail.getSuppressionIds;
         const restorableThreadIds = new Set<string>();
+        const inboxRemovalSnapshots = new Map<
+          string,
+          ReturnType<typeof releaseOwnedInboxRemoval>
+        >();
         for (const key of threadKeys) {
+          const inboxRemovalSnapshot = releaseOwnedInboxRemoval(
+            queryClient,
+            key,
+            suppressionToken,
+          );
           if (
             releaseSuppressionClaims(
               key,
               getSuppressionIds(suppressionToken, key),
             )
-          )
+          ) {
             restorableThreadIds.add(key);
+            inboxRemovalSnapshots.set(key, inboxRemovalSnapshot);
+          }
         }
         const restorableSnapshots = snapshots.filter((email) =>
           restorableThreadIds.has(email.threadId || email.id),
@@ -779,7 +791,13 @@ export function EmailList({
         }
         for (const ref of emailRefs) {
           if (restorableThreadIds.has(ref.threadId || ref.id))
-            unarchiveEmail.mutate({ ...ref, suppressionToken });
+            unarchiveEmail.mutate({
+              ...ref,
+              suppressionToken,
+              inboxRemovalSnapshot: inboxRemovalSnapshots.get(
+                ref.threadId || ref.id,
+              ),
+            });
         }
       };
       const consumeUndo = setUndoAction(undo);
@@ -889,14 +907,25 @@ export function EmailList({
             ? bulkTrashEmails.getSuppressionIds
             : trashEmail.getSuppressionIds;
         const restorableThreadIds = new Set<string>();
+        const inboxRemovalSnapshots = new Map<
+          string,
+          ReturnType<typeof releaseOwnedInboxRemoval>
+        >();
         for (const key of threadKeys) {
+          const inboxRemovalSnapshot = releaseOwnedInboxRemoval(
+            queryClient,
+            key,
+            suppressionToken,
+          );
           if (
             releaseSuppressionClaims(
               key,
               getSuppressionIds(suppressionToken, key),
             )
-          )
+          ) {
             restorableThreadIds.add(key);
+            inboxRemovalSnapshots.set(key, inboxRemovalSnapshot);
+          }
         }
         const restorableSnapshots = snapshots.filter((email) =>
           restorableThreadIds.has(email.threadId || email.id),
@@ -926,7 +955,13 @@ export function EmailList({
         }
         for (const ref of emailRefs) {
           if (restorableThreadIds.has(ref.threadId || ref.id))
-            untrashEmail.mutate({ ...ref, suppressionToken });
+            untrashEmail.mutate({
+              ...ref,
+              suppressionToken,
+              inboxRemovalSnapshot: inboxRemovalSnapshots.get(
+                ref.threadId || ref.id,
+              ),
+            });
         }
       };
       const consumeUndo = setUndoAction(undo);
@@ -1592,6 +1627,11 @@ export function EmailList({
 
       const suppressionToken = archiveEmail.createSuppressionToken();
       const undo = () => {
+        const inboxRemovalSnapshot = releaseOwnedInboxRemoval(
+          queryClient,
+          tid,
+          suppressionToken,
+        );
         const shouldRestore = releaseSuppressionClaims(
           tid,
           archiveEmail.getSuppressionIds(suppressionToken, tid),
@@ -1619,6 +1659,7 @@ export function EmailList({
           accountEmail,
           threadId: tid,
           suppressionToken,
+          inboxRemovalSnapshot,
         });
       };
       const consumeUndo = setUndoAction(undo);

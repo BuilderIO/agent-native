@@ -1,4 +1,5 @@
-import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
+import { callActionWithRetry } from "@agent-native/core/client/hooks";
+import { agentNativeApiDisabledReason } from "@agent-native/core/client/host";
 import type {
   InboxThreadItem,
   ListInboxThreadsInput,
@@ -6,8 +7,10 @@ import type {
 } from "@shared/inbox-threads";
 import {
   keepPreviousData,
+  useQuery,
   useQueries,
   useQueryClient,
+  type QueryKey,
   type QueryClient,
   type UseQueryResult,
 } from "@tanstack/react-query";
@@ -24,6 +27,64 @@ const IDLE_POLL_MS = 20_000;
  * that come from `useInboxThreadsPages` (fetched on demand, no poll). */
 export const INBOX_PAGE_SIZE = 100;
 
+type InboxQueryResult = ListInboxThreadsResult & {
+  /** Client-only request-start fence for optimistic journal evidence. */
+  clientSnapshotId: number;
+};
+
+let nextInboxSnapshotId = 0;
+
+function readInboxQueryParams(key: QueryKey): Record<string, unknown> | null {
+  const params = key[2];
+  return params && typeof params === "object"
+    ? (params as Record<string, unknown>)
+    : null;
+}
+
+function inboxQueryScope(key: QueryKey): string {
+  const params = readInboxQueryParams(key);
+  if (!params) return JSON.stringify(key);
+  return JSON.stringify([key[0], key[1], { ...params, offset: 0 }]);
+}
+
+function inboxQueryOffset(key: QueryKey): number {
+  const offset = readInboxQueryParams(key)?.offset;
+  return typeof offset === "number" && Number.isFinite(offset) ? offset : 0;
+}
+
+function freshCompleteInboxScope(
+  snapshots: ReadonlyArray<[QueryKey, InboxQueryResult | undefined]>,
+  scope: string,
+  fence: number,
+): boolean {
+  const pages = snapshots
+    .filter(([key]) => inboxQueryScope(key) === scope)
+    .sort(([a], [b]) => inboxQueryOffset(a) - inboxQueryOffset(b));
+  if (pages.length === 0) return false;
+  const total = pages[0][1]?.total;
+  if (typeof total !== "number") return false;
+  let covered = 0;
+  for (const [key, data] of pages) {
+    if (!data || data.clientSnapshotId <= fence) return false;
+    const offset = inboxQueryOffset(key);
+    if (offset > covered) return false;
+    covered = Math.max(covered, offset + data.items.length);
+  }
+  return covered >= total && pages.some(([, data]) => data?.complete === true);
+}
+
+function fetchInboxThreads(
+  input: ListInboxThreadsInput,
+  signal: AbortSignal,
+): Promise<InboxQueryResult> {
+  const clientSnapshotId = ++nextInboxSnapshotId;
+  return callActionWithRetry<ListInboxThreadsResult>(
+    "list-inbox-threads",
+    input,
+    { method: "GET", signal },
+  ).then((data) => ({ ...data, clientSnapshotId }));
+}
+
 /**
  * The inbox tab bar and list's first page both read through this hook with
  * identical `input`, so React Query dedupes them into one network request —
@@ -36,8 +97,11 @@ export function useInboxThreads(
   opts?: { enabled?: boolean },
 ) {
   const qc = useQueryClient();
-  return useActionQuery<ListInboxThreadsResult>("list-inbox-threads", input, {
-    enabled: opts?.enabled,
+  return useQuery<InboxQueryResult>({
+    queryKey: ["action", "list-inbox-threads", input],
+    queryFn: ({ signal }) => fetchInboxThreads(input, signal),
+    enabled: (opts?.enabled ?? true) && !agentNativeApiDisabledReason(),
+    retry: false,
     // The 3s/20s poll below already keeps this fresh — an extra unbounded
     // window-focus refetch fans out across every mounted instance (bar +
     // list) and isn't worth the added request-storm risk.
@@ -45,7 +109,7 @@ export function useInboxThreads(
       query.state.data?.syncing ? SYNCING_POLL_MS : IDLE_POLL_MS,
     // Tab switches must never blank the list while the new tab's page loads.
     placeholderData: keepPreviousData,
-    select: (data) => applyInboxMutationOverlay(qc, data),
+    select: (data) => applyInboxMutationOverlay(qc, data) as InboxQueryResult,
   });
 }
 
@@ -69,14 +133,13 @@ export function useInboxThreadsPages(
       const params: ListInboxThreadsInput = { ...input, offset };
       return {
         queryKey: ["action", "list-inbox-threads", params],
-        queryFn: () =>
-          callAction<ListInboxThreadsResult>("list-inbox-threads", params, {
-            method: "GET",
-          }),
-        enabled: opts?.enabled ?? true,
+        queryFn: ({ signal }: { signal: AbortSignal }) =>
+          fetchInboxThreads(params, signal),
+        enabled: (opts?.enabled ?? true) && !agentNativeApiDisabledReason(),
+        retry: false,
         placeholderData: keepPreviousData,
         select: (data: ListInboxThreadsResult) =>
-          applyInboxMutationOverlay(qc, data),
+          applyInboxMutationOverlay(qc, data) as InboxQueryResult,
         staleTime: 60_000,
       };
     }),
@@ -183,22 +246,27 @@ type InboxMutation =
       id: string;
       kind: "remove";
       observedThreadIds: string[];
+      observedQueryScopesByThread: Record<string, string[]>;
+      providerSnapshotFence: number;
       threadIds: string[];
     }
   | {
       id: string;
       kind: "read";
+      providerSnapshotFence: number;
       states: InboxThreadState[];
     }
   | {
       id: string;
       kind: "unread-count";
+      providerSnapshotFence: number;
       state: InboxThreadState;
     }
   | {
       id: string;
       isStarred: boolean;
       kind: "star";
+      providerSnapshotFence: number;
       threadIds: string[];
     };
 
@@ -210,10 +278,22 @@ export type InboxThreadRemovalSnapshot = Array<{
 }>;
 
 type InboxMutationInput =
-  | Omit<Extract<InboxMutation, { kind: "remove" }>, "id">
-  | Omit<Extract<InboxMutation, { kind: "read" }>, "id">
-  | Omit<Extract<InboxMutation, { kind: "unread-count" }>, "id">
-  | Omit<Extract<InboxMutation, { kind: "star" }>, "id">;
+  | Omit<
+      Extract<InboxMutation, { kind: "remove" }>,
+      "id" | "providerSnapshotFence"
+    >
+  | Omit<
+      Extract<InboxMutation, { kind: "read" }>,
+      "id" | "providerSnapshotFence"
+    >
+  | Omit<
+      Extract<InboxMutation, { kind: "unread-count" }>,
+      "id" | "providerSnapshotFence"
+    >
+  | Omit<
+      Extract<InboxMutation, { kind: "star" }>,
+      "id" | "providerSnapshotFence"
+    >;
 
 const inboxMutationJournals = new WeakMap<
   QueryClient,
@@ -355,6 +435,7 @@ function recordInboxMutation(
   const recorded = {
     ...mutation,
     id,
+    providerSnapshotFence: nextInboxSnapshotId,
   } as InboxMutation;
   inboxMutationJournal(qc).set(id, recorded);
   return recorded;
@@ -381,11 +462,17 @@ export function retainInboxMutationTargets(
     const keptObservedThreadIds = mutation.observedThreadIds.filter(
       (threadId) => threadIds.has(threadId),
     );
+    const observedQueryScopesByThread = Object.fromEntries(
+      Object.entries(mutation.observedQueryScopesByThread).filter(
+        ([threadId]) => threadIds.has(threadId),
+      ),
+    );
     if (keptThreadIds.length === 0) journal.delete(id);
     else
       journal.set(id, {
         ...mutation,
         observedThreadIds: keptObservedThreadIds,
+        observedQueryScopesByThread,
         threadIds: keptThreadIds,
       });
   } else if (mutation.kind === "read") {
@@ -416,24 +503,49 @@ export function settleInboxMutationIfObserved(
   if (!id) return;
   const mutation = inboxMutationJournal(qc).get(id);
   if (!mutation) return;
-  const items = snapshotInboxThreads(qc).flatMap(
-    ([, data]) => data?.items ?? [],
-  );
+  const snapshots = snapshotInboxThreads(qc) as Array<
+    [QueryKey, InboxQueryResult | undefined]
+  >;
+  const items = snapshots.flatMap(([, data]) => data?.items ?? []);
   const itemByThread = new Map(
     items.map((item) => [threadKeyOf(item), item] as const),
   );
 
   if (mutation.kind === "remove") {
-    if (
-      mutation.observedThreadIds.length !== mutation.threadIds.length ||
-      mutation.observedThreadIds.some((threadId) => itemByThread.has(threadId))
-    ) {
+    if (mutation.observedThreadIds.length !== mutation.threadIds.length) {
       return;
     }
+    for (const threadId of mutation.threadIds) {
+      if (itemByThread.has(threadId)) return;
+      const scopes = mutation.observedQueryScopesByThread[threadId] ?? [];
+      if (
+        scopes.length === 0 ||
+        scopes.some(
+          (scope) =>
+            !freshCompleteInboxScope(
+              snapshots,
+              scope,
+              mutation.providerSnapshotFence,
+            ),
+        )
+      ) {
+        return;
+      }
+    }
   } else if (mutation.kind === "star") {
+    const freshItems = snapshots
+      .filter(
+        ([, data]) =>
+          data !== undefined &&
+          data.clientSnapshotId > mutation.providerSnapshotFence,
+      )
+      .flatMap(([, data]) => data?.items ?? []);
+    const freshItemByThread = new Map(
+      freshItems.map((item) => [threadKeyOf(item), item] as const),
+    );
     if (
       !mutation.threadIds.every((threadId) => {
-        const item = itemByThread.get(threadId);
+        const item = freshItemByThread.get(threadId);
         return item !== undefined && item.isStarred === mutation.isStarred;
       })
     ) {
@@ -442,9 +554,19 @@ export function settleInboxMutationIfObserved(
   } else {
     const states =
       mutation.kind === "read" ? mutation.states : [mutation.state];
+    const freshItemByThread = new Map(
+      snapshots
+        .filter(
+          ([, data]) =>
+            data !== undefined &&
+            data.clientSnapshotId > mutation.providerSnapshotFence,
+        )
+        .flatMap(([, data]) => data?.items ?? [])
+        .map((item) => [threadKeyOf(item), item] as const),
+    );
     if (
       !states.every((state) => {
-        const item = itemByThread.get(state.threadId);
+        const item = freshItemByThread.get(state.threadId);
         return (
           item !== undefined &&
           item.isRead === state.isRead &&
@@ -483,6 +605,11 @@ export function clearInboxThreadRemoval(
     else
       journal.set(id, {
         ...mutation,
+        observedQueryScopesByThread: Object.fromEntries(
+          Object.entries(mutation.observedQueryScopesByThread).filter(
+            ([value]) => value !== threadId,
+          ),
+        ),
         observedThreadIds: mutation.observedThreadIds.filter(
           (value) => value !== threadId,
         ),
@@ -504,6 +631,10 @@ export function restoreInboxThreadRemovals(
       if (!current.threadIds.includes(threadId)) {
         journal.set(id, {
           ...current,
+          observedQueryScopesByThread: {
+            ...current.observedQueryScopesByThread,
+            [threadId]: mutation.observedQueryScopesByThread[threadId] ?? [],
+          },
           threadIds: [...current.threadIds, threadId],
           observedThreadIds: current.observedThreadIds.includes(threadId)
             ? current.observedThreadIds
@@ -516,6 +647,9 @@ export function restoreInboxThreadRemovals(
     }
     journal.set(id, {
       ...mutation,
+      observedQueryScopesByThread: {
+        [threadId]: mutation.observedQueryScopesByThread[threadId] ?? [],
+      },
       threadIds: [threadId],
       observedThreadIds: mutation.observedThreadIds.includes(threadId)
         ? [threadId]
@@ -645,16 +779,28 @@ export function removeInboxThreadsOptimistic(
   qc: QueryClient,
   threadIds: ReadonlySet<string>,
 ) {
+  const snapshots = snapshotInboxThreads(qc);
+  const observedQueryScopesByThread: Record<string, string[]> = {};
+  for (const threadId of threadIds) {
+    const scopes = new Set<string>();
+    for (const [key, data] of snapshots) {
+      if (data?.items.some((item) => threadKeyOf(item) === threadId)) {
+        scopes.add(inboxQueryScope(key));
+      }
+    }
+    observedQueryScopesByThread[threadId] = [...scopes];
+  }
   const cachedThreadIds = new Set(
-    snapshotInboxThreads(qc)
-      .flatMap(([, data]) => data?.items ?? [])
-      .map(threadKeyOf),
+    Object.entries(observedQueryScopesByThread)
+      .filter(([, scopes]) => scopes.length > 0)
+      .map(([threadId]) => threadId),
   );
   const mutation = recordInboxMutation(qc, {
     kind: "remove",
     observedThreadIds: [...threadIds].filter((threadId) =>
       cachedThreadIds.has(threadId),
     ),
+    observedQueryScopesByThread,
     threadIds: [...threadIds],
   });
   notifyInboxQueries(qc);

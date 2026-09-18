@@ -68,6 +68,7 @@ import {
   useSettings,
   useUpdateSettings,
   useEmailTracking,
+  releaseOwnedInboxRemoval,
   releaseSuppressionClaims,
 } from "@/hooks/use-emails";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
@@ -711,16 +712,27 @@ export function EmailThread({
 
     const suppressionToken = archiveEmail.createSuppressionToken();
     const restorableThreadIds = new Set<string>();
+    const inboxRemovalSnapshots = new Map<
+      string,
+      ReturnType<typeof releaseOwnedInboxRemoval>
+    >();
     const undo = () => {
       for (const target of targets) {
         const key = target.threadId || target.id;
+        const inboxRemovalSnapshot = releaseOwnedInboxRemoval(
+          queryClient,
+          key,
+          suppressionToken,
+        );
         if (
           releaseSuppressionClaims(
             key,
             archiveEmail.getSuppressionIds(suppressionToken, key),
           )
-        )
+        ) {
           restorableThreadIds.add(key);
+          inboxRemovalSnapshots.set(key, inboxRemovalSnapshot);
+        }
       }
       for (const t of targets) {
         if (restorableThreadIds.has(t.threadId || t.id))
@@ -729,6 +741,7 @@ export function EmailThread({
             accountEmail: t.accountEmail,
             threadId: t.threadId || t.id,
             suppressionToken,
+            inboxRemovalSnapshot: inboxRemovalSnapshots.get(t.threadId || t.id),
           });
       }
       void queryClient.invalidateQueries({ queryKey: ["emails"] });
@@ -789,16 +802,27 @@ export function EmailThread({
 
     const suppressionToken = trashEmail.createSuppressionToken();
     const restorableThreadIds = new Set<string>();
+    const inboxRemovalSnapshots = new Map<
+      string,
+      ReturnType<typeof releaseOwnedInboxRemoval>
+    >();
     const undo = () => {
       for (const target of targets) {
         const key = target.threadId || target.id;
+        const inboxRemovalSnapshot = releaseOwnedInboxRemoval(
+          queryClient,
+          key,
+          suppressionToken,
+        );
         if (
           releaseSuppressionClaims(
             key,
             trashEmail.getSuppressionIds(suppressionToken, key),
           )
-        )
+        ) {
           restorableThreadIds.add(key);
+          inboxRemovalSnapshots.set(key, inboxRemovalSnapshot);
+        }
       }
       for (const t of targets) {
         if (restorableThreadIds.has(t.threadId || t.id))
@@ -807,6 +831,7 @@ export function EmailThread({
             accountEmail: t.accountEmail,
             threadId: t.threadId || t.id,
             suppressionToken,
+            inboxRemovalSnapshot: inboxRemovalSnapshots.get(t.threadId || t.id),
           });
       }
       void queryClient.invalidateQueries({ queryKey: ["emails"] });

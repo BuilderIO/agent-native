@@ -37,12 +37,17 @@ import {
   settleInboxMutationIfObserved,
   snapshotInboxThreads,
   toggleInboxThreadsStarOptimistic,
+  type InboxThreadRemovalSnapshot,
 } from "@/hooks/use-inbox-threads";
 import {
   gmailMutationQueue,
   type GmailMutationKind,
   type GmailMutationTarget,
 } from "@/lib/gmail-mutation-queue";
+import {
+  beginProviderSnapshot,
+  currentProviderSnapshotId,
+} from "@/lib/provider-snapshot";
 import { TAB_ID } from "@/lib/tab-id";
 import {
   useThreadCache,
@@ -438,6 +443,7 @@ type SuppressionEntry = {
 // once, and each must be able to drop its own claim without revealing a thread
 // the other still hides.
 const suppressedThreads = new Map<string, Map<number, SuppressionEntry>>();
+const settledSuppressionIds = new Map<string, Set<number>>();
 const suppressionListeners = new Set<() => void>();
 let suppressionVersion = 0;
 let nextSuppressionId = 1;
@@ -476,11 +482,29 @@ export function releaseSuppression(
 ): boolean {
   if (id === undefined) return false;
   const entries = suppressedThreads.get(threadId);
-  if (!entries?.delete(id)) return false;
+  const settled = settledSuppressionIds.get(threadId);
+  const removedSettled = settled?.delete(id) ?? false;
+  if (settled?.size === 0) settledSuppressionIds.delete(threadId);
+  if (!entries?.delete(id)) {
+    if (removedSettled) notifySuppressionListeners();
+    return false;
+  }
   const isLastClaim = entries.size === 0;
   if (isLastClaim) suppressedThreads.delete(threadId);
   notifySuppressionListeners();
   return isLastClaim;
+}
+
+/** Release a claim after a fresh provider response confirms its outcome. */
+export function settleSuppression(threadId: string, id: number): boolean {
+  const entries = suppressedThreads.get(threadId);
+  if (!entries?.delete(id)) return false;
+  if (entries.size === 0) suppressedThreads.delete(threadId);
+  const settled = settledSuppressionIds.get(threadId) ?? new Set<number>();
+  settled.add(id);
+  settledSuppressionIds.set(threadId, settled);
+  notifySuppressionListeners();
+  return true;
 }
 
 /** Release only the supplied claims and report whether the thread is clear. */
@@ -489,10 +513,14 @@ export function releaseSuppressionClaims(
   ids: readonly number[],
 ): boolean {
   if (ids.length === 0) return false;
+  const newestOwnId = Math.max(...ids);
+  const hasNewerSettledClaim = [
+    ...(settledSuppressionIds.get(threadId) ?? []),
+  ].some((id) => id > newestOwnId);
   for (const id of ids) releaseSuppression(threadId, id);
   // Keep token ids stable after provider evidence retires a claim: an Undo
   // toast can outlive that evidence and still needs to send its inverse.
-  return !suppressedThreads.has(threadId);
+  return !suppressedThreads.has(threadId) && !hasNewerSettledClaim;
 }
 
 export type SuppressionClaimToken = {
@@ -540,6 +568,22 @@ function getInboxMutationIds(
   threadId: string,
 ): readonly string[] {
   return token?.inboxMutationIds.get(threadId) ?? [];
+}
+
+/** Release the undo action's inbox journal synchronously, even when a newer
+ * same-thread suppression means its provider inverse must not be sent. */
+export function releaseOwnedInboxRemoval(
+  qc: QueryClient,
+  threadId: string,
+  token: SuppressionClaimToken | undefined,
+): InboxThreadRemovalSnapshot {
+  const snapshot = clearInboxThreadRemoval(
+    qc,
+    threadId,
+    getInboxMutationIds(token, threadId),
+  );
+  token?.inboxMutationIds.delete(threadId);
+  return snapshot;
 }
 
 function useSuppressionClaims() {
@@ -638,7 +682,7 @@ function reconcileSuppressionEvidence(
     }
   }
 
-  for (const [threadId, id] of releases) releaseSuppression(threadId, id);
+  for (const [threadId, id] of releases) settleSuppression(threadId, id);
 }
 
 export function filterSuppressedThreads(
@@ -899,7 +943,7 @@ function refreshThreadAfterMutations(thread: {
 export function setOptimisticOverride(
   emailId: string,
   props: Partial<EmailMessage>,
-  providerSnapshotFence = nextEmailProviderSnapshotId,
+  providerSnapshotFence = currentProviderSnapshotId(),
 ) {
   const existing = optimisticOverrides.get(emailId);
   optimisticOverrides.set(emailId, {
@@ -950,7 +994,7 @@ export function hasFreshOptimisticOverrideEvidence(
   );
 }
 
-function reconcileOptimisticOverrides(
+export function reconcileOptimisticOverrides(
   pages: ReadonlyArray<{
     emails: EmailMessage[];
     providerSnapshotId?: number;
@@ -1126,8 +1170,6 @@ interface EmailsPage {
   suppressionFence?: number;
 }
 
-let nextEmailProviderSnapshotId = 0;
-
 // Retryable: transient upstream trouble (gateway) and network errors with no
 // status at all. Never an auth failure — retrying a 401/403 just burns time
 // before the UI can show the real "reconnect" state. Never a 429 either — that
@@ -1157,7 +1199,7 @@ function emailQueryOptions(
       pageParam: string | undefined;
       signal: AbortSignal;
     }) => {
-      const providerSnapshotId = ++nextEmailProviderSnapshotId;
+      const providerSnapshotId = beginProviderSnapshot();
       const suppressionFence = nextSuppressionId - 1;
       const params = new URLSearchParams({ view });
       params.set("limit", String(EMAIL_PAGE_SIZE));
@@ -1380,11 +1422,8 @@ export function useThreadMessages(threadId: string | undefined) {
     }
     return undefined;
   })();
-  const { messages, isFromCache, isLoading } = useThreadCache(
-    threadId,
-    placeholder,
-    placeholder?.[0]?.accountEmail,
-  );
+  const { messages, isFromCache, isLoading, providerSnapshotId } =
+    useThreadCache(threadId, placeholder, placeholder?.[0]?.accountEmail);
   // Thread refreshes can return an older Gmail read/star value after the
   // mutation has already completed. Subscribe here as well as in useEmails so
   // the detail view applies the same durable override while that fetch catches
@@ -1394,6 +1433,10 @@ export function useThreadMessages(threadId: string | undefined) {
     () => optimisticOverrideVersion,
     () => optimisticOverrideVersion,
   );
+  useEffect(() => {
+    if (!messages || !isFromCache || providerSnapshotId <= 0) return;
+    reconcileOptimisticOverrides([{ emails: messages, providerSnapshotId }]);
+  }, [isFromCache, messages, providerSnapshotId]);
   return {
     data: messages ? applyOverrides(messages) : messages,
     isLoading: isLoading && !messages,
@@ -1850,6 +1893,7 @@ export interface EmailAccountRef {
   accountEmail?: string;
   threadId?: string;
   suppressionToken?: SuppressionClaimToken;
+  inboxRemovalSnapshot?: InboxThreadRemovalSnapshot;
 }
 
 export function useUnarchiveEmail() {
@@ -1873,15 +1917,14 @@ export function useUnarchiveEmail() {
       id,
       threadId: hintedThreadId,
       suppressionToken,
+      inboxRemovalSnapshot: suppliedInboxRemovalSnapshot,
     }: EmailAccountRef) => {
       const threadId = hintedThreadId || findInboxThreadIdByMessageId(qc, id);
-      const inboxRemovalSnapshot = threadId
-        ? clearInboxThreadRemoval(
-            qc,
-            threadId,
-            getInboxMutationIds(suppressionToken, threadId),
-          )
-        : [];
+      const inboxRemovalSnapshot =
+        suppliedInboxRemovalSnapshot ??
+        (threadId
+          ? releaseOwnedInboxRemoval(qc, threadId, suppressionToken)
+          : []);
       return { inboxRemovalSnapshot };
     },
     onError: (_error, _variables, context) => {
@@ -1913,15 +1956,14 @@ export function useUntrashEmail() {
       id,
       threadId: hintedThreadId,
       suppressionToken,
+      inboxRemovalSnapshot: suppliedInboxRemovalSnapshot,
     }: EmailAccountRef) => {
       const threadId = hintedThreadId || findInboxThreadIdByMessageId(qc, id);
-      const inboxRemovalSnapshot = threadId
-        ? clearInboxThreadRemoval(
-            qc,
-            threadId,
-            getInboxMutationIds(suppressionToken, threadId),
-          )
-        : [];
+      const inboxRemovalSnapshot =
+        suppliedInboxRemovalSnapshot ??
+        (threadId
+          ? releaseOwnedInboxRemoval(qc, threadId, suppressionToken)
+          : []);
       return { inboxRemovalSnapshot };
     },
     onError: (_error, _variables, context) => {
