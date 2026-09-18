@@ -380,8 +380,9 @@ pub struct NativeCaptureRegion {
 }
 
 struct NativeFullscreenSession {
-    /// Active capture backend. `None` while paused — pause finalizes the
-    /// current segment and tears the backend down so the OS stops capturing.
+    /// Active capture backend. `None` while paused or waiting for recovery —
+    /// pause finalizes the current segment and tears the backend down so the
+    /// OS stops capturing.
     backend: Option<NativeFullscreenBackend>,
     /// Path the caller expects the final (single-file) recording at. When
     /// only one segment was recorded, this points directly at it. When the
@@ -411,6 +412,10 @@ struct NativeFullscreenSession {
     /// When the current pause began, if paused. Folded into `paused_total`
     /// on resume.
     paused_at: Option<Instant>,
+    /// A pause failure after backend teardown leaves the take paused for
+    /// recovery, but without a backend that can be resumed. Keep the error
+    /// explicit so Resume cannot treat that state as already running.
+    pause_failure: Option<String>,
     /// Info needed to spin up a fresh SCStream / screencapture child on
     /// resume so the new segment captures the same source with the same
     /// audio configuration as the initial start.
@@ -3023,6 +3028,11 @@ pub async fn native_fullscreen_recording_pause(
     let session = guard
         .as_mut()
         .ok_or_else(|| "No native full-screen recording is active.".to_string())?;
+    if let Some(error) = session.pause_failure.as_deref() {
+        return Err(format!(
+            "Recording pause needs recovery before another pause can be requested: {error}"
+        ));
+    }
     if session.paused_at.is_some() {
         return Ok(());
     }
@@ -3083,30 +3093,36 @@ pub async fn native_fullscreen_recording_pause(
         live.ctrl.cancelled.store(true, Ordering::SeqCst);
     }
     if session.backend.is_none() {
-        return Err("Unable to pause recording safely: the capture backend is unavailable; the local recording was retained for recovery.".into());
+        return Err(mark_pause_failure(
+            session,
+            "Unable to pause recording safely: the capture backend is unavailable; the local recording was retained for recovery.",
+        ));
     }
     let stop_outcome = finalize_active_backend(session, true);
     if let Err(err) = &stop_outcome {
         eprintln!("[clips-tray] pause finalize reported an error: {err}");
-        return Err(format!(
-            "Unable to pause recording safely: {err}. The local recording was retained for recovery."
+        return Err(mark_pause_failure(
+            session,
+            format!(
+                "Unable to pause recording safely: {err}. The local recording was retained for recovery."
+            ),
         ));
     }
     if recover_from_unusable_current_segment(session, "pause", false) {
-        return Err(
-            "Unable to pause recording safely: the current segment was unusable; earlier local segments were retained for recovery."
-                .into(),
-        );
+        return Err(mark_pause_failure(
+            session,
+            "Unable to pause recording safely: the current segment was unusable; earlier local segments were retained for recovery.",
+        ));
     }
     if !session
         .segments
         .last()
         .is_some_and(|path| playable_recording_file(path, session.mime_type))
     {
-        return Err(
-            "Unable to pause recording safely: no usable local segment was finalized; the recording was retained for recovery."
-                .into(),
-        );
+        return Err(mark_pause_failure(
+            session,
+            "Unable to pause recording safely: no usable local segment was finalized; the recording was retained for recovery.",
+        ));
     }
     session.paused_at = Some(Instant::now());
     let current_segment_bytes = session
@@ -3135,6 +3151,11 @@ pub async fn native_fullscreen_recording_resume(
     let session = guard
         .as_mut()
         .ok_or_else(|| "No native full-screen recording is active.".to_string())?;
+    if let Some(error) = session.pause_failure.as_deref() {
+        return Err(format!(
+            "Cannot resume recording after pause failed: {error} Stop recording to preserve the local take."
+        ));
+    }
     let Some(paused_at) = session.paused_at else {
         // Already running — nothing to do.
         return Ok(());
@@ -3461,6 +3482,13 @@ fn finalize_active_backend(
     stop_native_recording(&mut backend, wait_for_finalize)
 }
 
+fn mark_pause_failure(session: &mut NativeFullscreenSession, message: impl Into<String>) -> String {
+    let message = message.into();
+    session.paused_at = Some(Instant::now());
+    session.pause_failure = Some(message.clone());
+    message
+}
+
 fn playable_recording_file(path: &Path, mime_type: &str) -> bool {
     match std::fs::metadata(path) {
         Ok(metadata) if metadata.len() > 0 => {}
@@ -3570,6 +3598,7 @@ mod detached_discard_tests {
             lost_segment_duration: Duration::ZERO,
             lost_segment_count: 0,
             paused_at: None,
+            pause_failure: None,
             restart: RestartInfo {
                 safe_id: "test".to_string(),
                 include_audio: false,
@@ -6082,6 +6111,7 @@ fn new_fullscreen_session(
         lost_segment_duration: Duration::ZERO,
         lost_segment_count: 0,
         paused_at: None,
+        pause_failure: None,
         restart,
         pending_recording_output: false,
         custom_pipeline,
@@ -10161,7 +10191,7 @@ mod audio_track_probe_tests {
 #[cfg(test)]
 mod segment_recovery_tests {
     use super::{
-        recover_from_unusable_current_segment, validate_recording_segment_file,
+        mark_pause_failure, recover_from_unusable_current_segment, validate_recording_segment_file,
         NativeFullscreenSession, RestartInfo, MP4_RECORDING_MIME_TYPE,
     };
     use std::io::Write;
@@ -10217,6 +10247,7 @@ mod segment_recovery_tests {
             lost_segment_duration: Duration::ZERO,
             lost_segment_count: 0,
             paused_at: None,
+            pause_failure: None,
             restart: RestartInfo {
                 safe_id: "test".to_string(),
                 include_audio: true,
@@ -10238,6 +10269,20 @@ mod segment_recovery_tests {
             had_live_upload: false,
             disk_monitor_stop: None,
         }
+    }
+
+    #[test]
+    fn failed_pause_enters_an_explicit_recoverable_state() {
+        let mut session = test_session(Vec::new());
+        let message = mark_pause_failure(&mut session, "backend finalize failed");
+
+        assert_eq!(message, "backend finalize failed");
+        assert!(session.paused_at.is_some());
+        assert_eq!(
+            session.pause_failure.as_deref(),
+            Some("backend finalize failed")
+        );
+        assert!(session.backend.is_none());
     }
 
     #[test]
