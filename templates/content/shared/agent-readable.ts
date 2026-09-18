@@ -38,6 +38,7 @@ function contentDocumentAccessSummary(
 }
 
 export interface ContentDocumentMcpGuidance {
+  accessContractVersion: 2;
   preferredTransport: "mcp";
   mcpUrl: string;
   mcpConnectUrl: string;
@@ -91,9 +92,7 @@ export function buildContentDocumentMcpGuidance(
           ? "authorized"
           : "denied",
     mcpAccountPermission:
-      accessState === "authentication-required"
-        ? "not-evaluated"
-        : "not-required",
+      accessState === "public" ? "not-required" : "not-evaluated",
     authorization: "connected-account-existing-permissions" as const,
     setupDocumentationUrl: CONTENT_MCP_SETUP_DOCUMENTATION_URL,
     connectionUrl: mcpConnectUrl,
@@ -103,6 +102,7 @@ export function buildContentDocumentMcpGuidance(
         : "not-required",
   };
   return {
+    accessContractVersion: 2,
     preferredTransport: "mcp",
     mcpUrl,
     mcpConnectUrl,
@@ -143,7 +143,13 @@ export function contentDocumentMcpInstructionText(
     options.accessState === "authentication-required" || !options.accessState
       ? " This response establishes only that anonymous HTTP access is unavailable; the connected account's document permission has not been evaluated. For an MCP-capable agent without a Content connection, the normal access path is for the user to add this instance as a remote MCP server, authenticate, enable the connection or its tools, and retry the original document request. Only an authenticated get-document denial establishes that the connected account lacks document permission."
       : "";
-  return `Content access information: ${summary}${privateAccessFacts} Content MCP server: ${mcpUrl}. Connection setup for this Content instance: ${mcpConnectUrl}. Official Agent-Native setup documentation: ${CONTENT_MCP_SETUP_DOCUMENTATION_URL}. Document access uses the connected account's existing permissions. Content MCP read action: ${CONTENT_DOCUMENT_READ_ACTION} with id ${JSON.stringify(documentId)}.`;
+  const mcpPermissionFacts =
+    options.accessState === "public"
+      ? " This public share page does not require an MCP account permission."
+      : options.accessState === "authorized"
+        ? " This page is authorized by its scoped share token. MCP access separately uses the connected account's existing document permissions."
+        : " Document access through MCP uses the connected account's existing permissions.";
+  return `Content access information: ${summary}${privateAccessFacts}${mcpPermissionFacts} Content MCP server: ${mcpUrl}. Connection setup for this Content instance: ${mcpConnectUrl}. Official Agent-Native setup documentation: ${CONTENT_MCP_SETUP_DOCUMENTATION_URL}. Content MCP read action: ${CONTENT_DOCUMENT_READ_ACTION} with id ${JSON.stringify(documentId)}.`;
 }
 
 export function buildContentPublicDocumentPath(documentId: string): string {

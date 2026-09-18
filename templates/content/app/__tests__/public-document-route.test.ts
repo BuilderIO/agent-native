@@ -106,7 +106,7 @@ describe("public document route", () => {
       "https://www.agent-native.com/docs/external-agents/#private-content-links",
     );
     expect(html).toContain(
-      "Document access uses the connected account&#x27;s existing permissions",
+      "Document access through MCP uses the connected account&#x27;s existing permissions",
     );
     expect(html).not.toContain("tell the user");
     expect(html).not.toContain("Do not ask");

@@ -46,6 +46,7 @@ describe("content agent-readable discovery", () => {
       contextUrl:
         "/content/api/document-agent-context.json?id=doc+1&agent_access=tok%2B1",
       instructions: expect.stringContaining("This Content document is private"),
+      accessContractVersion: 2,
       preferredTransport: "mcp",
       mcpUrl: "https://content.example.test/content/mcp",
       mcpConnectUrl: "https://content.example.test/content/mcp/connect",
@@ -94,7 +95,7 @@ describe("content agent-readable discovery", () => {
       "https://www.agent-native.com/docs/external-agents/#private-content-links",
     );
     expect(guidance.instructions).toContain(
-      "Document access uses the connected account's existing permissions",
+      "Document access through MCP uses the connected account's existing permissions",
     );
     expect(guidance.instructions).toContain(
       "connected account's document permission has not been evaluated",
@@ -118,6 +119,12 @@ describe("content agent-readable discovery", () => {
       "available through its public Content share page",
     );
     expect(guidance.instructions).not.toContain("document is private");
+    expect(guidance.instructions).toContain(
+      "This public share page does not require an MCP account permission",
+    );
+    expect(guidance.instructions).not.toContain(
+      "connected account's existing permissions",
+    );
   });
 
   it("preserves authorized tokenized-share discovery", () => {
@@ -132,7 +139,15 @@ describe("content agent-readable discovery", () => {
       state: "authorized",
       anonymousHttp: "authorized",
       authenticationRequired: false,
+      mcpAccountPermission: "not-evaluated",
     });
+    expect(discovery.accessContractVersion).toBe(2);
+    expect(discovery.instructions).toContain(
+      "This page is authorized by its scoped share token",
+    );
+    expect(discovery.instructions).toContain(
+      "MCP access separately uses the connected account's existing document permissions",
+    );
     expect(discovery.url).toContain("agent_access=share-token");
     expect(discovery.contextUrl).toContain("agent_access=share-token");
   });
