@@ -24,6 +24,7 @@ import {
   decryptSecretValue as decryptLegacyValue,
   hasSharedSecretEncryptionKeyMaterial,
 } from "./crypto.js";
+import { invalidateOptionalKeyCache } from "./optional-key-cache.js";
 import type { SecretScope } from "./register.js";
 import { APP_SECRETS_CREATE_SQL } from "./schema.js";
 
@@ -179,6 +180,7 @@ export async function writeAppSecret(args: WriteSecretArgs): Promise<string> {
   ];
 
   invalidateRequestSecret(args);
+  invalidateOptionalKeyCache();
 
   const { rows } = await client.execute({
     sql: `${upsertSql} RETURNING id`,
@@ -628,6 +630,7 @@ function parseAllowlist(raw: string | null): string[] | null {
 export async function deleteAppSecret(ref: SecretRef): Promise<boolean> {
   await ensureTable();
   invalidateRequestSecret(ref);
+  invalidateOptionalKeyCache();
   const { key, scope, scopeId } = ref;
   const client = getDbExec();
   const { rowsAffected } = await client.execute({

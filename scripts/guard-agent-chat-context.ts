@@ -157,41 +157,88 @@ const FRAMEWORK_STARTER_TOOL_NAMES = new Set([
   "update-extension",
 ]);
 
+const ACTION_DISCOVERY_SKIP_FILES = new Set([
+  "helpers",
+  "run",
+  "db-connect",
+  "db-status",
+  "registry",
+]);
+
+function frameworkActionNames(repoRoot: string): Set<string> {
+  const names = new Set(FRAMEWORK_STARTER_TOOL_NAMES);
+  const source = readFileSync(
+    path.join(repoRoot, "packages/core/src/framework-tools.ts"),
+    "utf8",
+  );
+  for (const match of source.matchAll(/^\s*"([^"\n]+)":\s*"[^"\n]+",?$/gm)) {
+    if (match[1]) names.add(match[1]);
+  }
+  return names;
+}
+
 function collectActionNames(dir: string, names: Set<string>): void {
   if (!existsSync(dir)) return;
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const entryPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      collectActionNames(entryPath, names);
-      continue;
-    }
+    if (entry.isDirectory()) continue;
     if (
       !/\.(?:ts|tsx)$/.test(entry.name) ||
       /\.(?:spec|test)\.(?:ts|tsx)$/.test(entry.name)
     ) {
       continue;
     }
-    names.add(entry.name.replace(/\.(?:ts|tsx)$/, ""));
-  }
-}
-
-function collectActionDirectories(dir: string, names: Set<string>): void {
-  if (!existsSync(dir)) return;
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    if (!entry.isDirectory() || entry.name === "node_modules") continue;
-    const entryPath = path.join(dir, entry.name);
-    if (entry.name === "actions") {
-      collectActionNames(entryPath, names);
-    } else {
-      collectActionDirectories(entryPath, names);
+    if (entry.name.startsWith("_")) continue;
+    const name = entry.name.replace(/\.(?:ts|tsx)$/, "");
+    if (ACTION_DISCOVERY_SKIP_FILES.has(name)) continue;
+    const source = readFileSync(path.join(dir, entry.name), "utf8");
+    const isActionSource =
+      source.includes("defineAction") ||
+      /export\s*\{\s*default\s*\}\s*from\s*["'][^"']+["']/.test(source) ||
+      /export\s+default\s+(?:create[A-Z][A-Za-z0-9]*Action|defineActionFactory)\s*\(/.test(
+        source,
+      );
+    if (!isActionSource) {
+      continue;
     }
+    names.add(name);
   }
 }
 
-function discoverActionNames(repoRoot: string): Set<string> {
-  const names = new Set(FRAMEWORK_STARTER_TOOL_NAMES);
-  collectActionDirectories(path.join(repoRoot, "templates"), names);
-  collectActionDirectories(path.join(repoRoot, "packages"), names);
+function actionDirectoriesForPlugin(
+  repoRoot: string,
+  pluginFile: string,
+): string[] {
+  const relative = path.relative(repoRoot, pluginFile).split(path.sep);
+  const directories: string[] = [];
+  if (relative[0] === "templates" && relative[2] === "server") {
+    directories.push(path.join(repoRoot, "templates", relative[1]!, "actions"));
+  }
+  if (
+    relative[0] === "packages" &&
+    relative[2] === "src" &&
+    relative[3] === "server"
+  ) {
+    directories.push(
+      path.join(repoRoot, "packages", relative[1]!, "src", "actions"),
+    );
+  }
+  const source = readFileSync(pluginFile, "utf8");
+  if (/@agent-native\/dispatch(?:\/|["'])/.test(source)) {
+    directories.push(
+      path.join(repoRoot, "packages", "dispatch", "src", "actions"),
+    );
+  }
+  return [...new Set(directories)];
+}
+
+function discoverActionNames(
+  repoRoot: string,
+  pluginFile: string,
+): Set<string> {
+  const names = frameworkActionNames(repoRoot);
+  for (const actionDir of actionDirectoriesForPlugin(repoRoot, pluginFile)) {
+    collectActionNames(actionDir, names);
+  }
   return names;
 }
 
@@ -283,17 +330,22 @@ export function checkAgentChatContextPolicies(repoRoot: string): {
   policies: AgentChatContextPolicy[];
   errors: string[];
 } {
-  const knownActionNames = discoverActionNames(repoRoot);
-  const policies = discoverAgentChatPlugins(repoRoot)
-    .map((file) =>
-      analyzeAgentChatContextPolicy({
+  const policiesWithFiles = discoverAgentChatPlugins(repoRoot)
+    .map((file) => ({
+      file,
+      policy: analyzeAgentChatContextPolicy({
         file: path.relative(repoRoot, file),
         source: readFileSync(file, "utf8"),
         readSource: (importedFile) => readFileSync(importedFile, "utf8"),
       }),
-    )
-    .filter((policy): policy is AgentChatContextPolicy => policy !== null);
-  const errors = policies.flatMap((policy) => {
+    }))
+    .filter(
+      (entry): entry is { file: string; policy: AgentChatContextPolicy } =>
+        entry.policy !== null,
+    );
+  const policies = policiesWithFiles.map(({ policy }) => policy);
+  const errors = policiesWithFiles.flatMap(({ file, policy }) => {
+    const knownActionNames = discoverActionNames(repoRoot, file);
     const missing = (policy.starterToolNames ?? []).filter(
       (name) => !knownActionNames.has(name),
     );
@@ -301,7 +353,7 @@ export function checkAgentChatContextPolicies(repoRoot: string): {
       ...policy.errors,
       ...missing.map(
         (name) =>
-          `${policy.file}: starter tool "${name}" has no matching action source under templates/ or packages/; remove it or restore the action before shipping.`,
+          `${path.relative(repoRoot, file)}: starter tool "${name}" has no matching action source under this app's actions/ directory or the framework catalog; remove it or restore the action before shipping.`,
       ),
     ];
   });

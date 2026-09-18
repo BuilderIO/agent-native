@@ -183,4 +183,29 @@ describe("preloadJevTools", () => {
     ]);
     expect(JSON.stringify(state)).not.toContain("body");
   });
+
+  it("does not promote candidates omitted from an incomplete probability map", async () => {
+    systemOne.mockResolvedValue({
+      answers: {
+        best_context: {
+          probabilities: { "context-1": 0.9 },
+        },
+      },
+    });
+
+    await expect(
+      rankJevCandidates({
+        apiKey: "jev-test-key",
+        request: "draft a launch email",
+        candidates: [
+          { id: "context-0", description: "Brand guidelines" },
+          { id: "context-1", description: "Launch messaging skill" },
+        ],
+        candidateStateKey: "candidate_context",
+        answerKey: "best_context",
+        question: "Which context applies?",
+        limit: 3,
+      }),
+    ).resolves.toEqual(["context-1"]);
+  });
 });

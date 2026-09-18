@@ -60,6 +60,10 @@ import {
   startRun as startProgressRun,
   updateRunProgress,
 } from "../progress/registry.js";
+import {
+  readOptionalKeyCache,
+  writeOptionalKeyCache,
+} from "../secrets/optional-key-cache.js";
 import { preloadJevContextForPrompt } from "../server/agent-chat/prompt-resources.js";
 import {
   isRuntimeVisibleScope,
@@ -634,6 +638,28 @@ export async function getOwnerApiKey(
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Jev is optional, so cache its present/absent result across turns. Secret
+ * writes clear this process-local cache; the short TTL bounds cross-instance
+ * staleness without adding a secret-store read to every request.
+ */
+export async function getOwnerJevApiKey(
+  ownerEmail: string | null | undefined,
+): Promise<string | undefined> {
+  if (!ownerEmail) return undefined;
+  const cacheKey = [
+    "jev",
+    ownerEmail,
+    getRequestOrgId() ?? `solo:${ownerEmail}`,
+    getRequestContext()?.isSyntheticTraffic === true ? "synthetic" : "normal",
+  ].join("\u0000");
+  const cached = readOptionalKeyCache(cacheKey);
+  if (cached.hit) return cached.value;
+  const value = await getOwnerApiKey("jev", ownerEmail);
+  writeOptionalKeyCache(cacheKey, value);
+  return value;
 }
 
 /**
@@ -10528,7 +10554,7 @@ export function createProductionAgentHandler(
       presendCap("files", filesContextThunk, "", 12000),
       presendCap("loopSettings", loopSettingsThunk, fallbackLoopSettings, 9000),
       presendCap("enrichedMessage", enrichedMessageThunk, requestMessage, 9000),
-      getOwnerApiKey("jev", ownerEmail ?? getRequestUserEmail()),
+      getOwnerJevApiKey(ownerEmail ?? getRequestUserEmail()),
     ]);
     setupMark("ctxAll");
     // DIAGNOSTIC-ONLY: all parallel context gathering (system prompt, screen,

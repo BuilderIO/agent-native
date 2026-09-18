@@ -86,12 +86,14 @@ export async function rankJevCandidates(
         ? (answer.probabilities as Record<string, unknown>)
         : {};
     const rankedNames = candidates
+      .filter(
+        (candidate) =>
+          typeof probabilities[candidate.id] === "number" &&
+          Number.isFinite(probabilities[candidate.id]),
+      )
       .map((candidate) => ({
         name: candidate.id,
-        probability:
-          typeof probabilities[candidate.id] === "number"
-            ? (probabilities[candidate.id] as number)
-            : 0,
+        probability: probabilities[candidate.id] as number,
       }))
       .sort(
         (a, b) => b.probability - a.probability || a.name.localeCompare(b.name),
@@ -103,7 +105,9 @@ export async function rankJevCandidates(
         ? answer.choice
         : undefined;
     const hasProbabilities = candidates.some(
-      (candidate) => typeof probabilities[candidate.id] === "number",
+      (candidate) =>
+        typeof probabilities[candidate.id] === "number" &&
+        Number.isFinite(probabilities[candidate.id]),
     );
     if (!chosenName && !hasProbabilities) return [];
     return [chosenName, ...rankedNames]
