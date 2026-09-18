@@ -1,5 +1,9 @@
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
+import {
   IconArrowUpRight,
   IconCircleCheck,
   IconCircleDashed,
@@ -7,13 +11,13 @@ import {
   IconClock,
   IconSparkles,
 } from "@tabler/icons-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { APP_TITLE } from "@/lib/app-config";
 import { cn } from "@/lib/utils";
-import { type WorkflowDefinition } from "@/lib/workflow";
+import { type WorkflowDefinition, type WorkflowSnapshot } from "@/lib/workflow";
 
 function statusIcon(status: string) {
   const normalized = status.toLowerCase();
@@ -30,15 +34,26 @@ function statusIcon(status: string) {
 }
 
 export function WorkflowHome({ workflow }: { workflow: WorkflowDefinition }) {
-  const [selectedId, setSelectedId] = useState(workflow.items[0]?.id ?? "");
+  const { data } = useActionQuery<WorkflowSnapshot>("get-workflow");
+  const selectItem = useActionMutation<{ selectedId: string }, { id: string }>(
+    "set-workflow-selection",
+  );
+  const currentWorkflow = data?.workflow ?? workflow;
+  const [selectedId, setSelectedId] = useState(
+    currentWorkflow.items[0]?.id ?? "",
+  );
+  useEffect(() => {
+    if (data?.selectedId) setSelectedId(data.selectedId);
+  }, [data?.selectedId]);
   const selected =
-    workflow.items.find((item) => item.id === selectedId) ?? workflow.items[0];
+    currentWorkflow.items.find((item) => item.id === selectedId) ??
+    currentWorkflow.items[0];
 
   function askAgent() {
     if (!selected) return;
     sendToAgentChat({
-      message: `${workflow.primaryAction} for ${selected.name}.`,
-      context: `${workflow.title} workspace. Selected item: ${selected.name}. ${selected.detail} Status: ${selected.status}. Score: ${selected.score}.`,
+      message: `${currentWorkflow.primaryAction} for ${selected.name}.`,
+      context: `${currentWorkflow.title} workspace. Selected item: ${selected.name}. ${selected.detail} Status: ${selected.status}. Score: ${selected.score}.`,
       submit: true,
       openSidebar: true,
     });
@@ -53,15 +68,15 @@ export function WorkflowHome({ workflow }: { workflow: WorkflowDefinition }) {
               {APP_TITLE}
             </p>
             <h1 className="mt-1 text-2xl font-semibold tracking-tight">
-              {workflow.title}
+              {currentWorkflow.title}
             </h1>
             <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-              {workflow.summary}
+              {currentWorkflow.summary}
             </p>
           </div>
           <Button className="shrink-0 gap-2" onClick={askAgent}>
             <IconSparkles className="size-4" />
-            {workflow.primaryAction}
+            {currentWorkflow.primaryAction}
             <IconArrowUpRight className="size-4" />
           </Button>
         </div>
@@ -69,25 +84,30 @@ export function WorkflowHome({ workflow }: { workflow: WorkflowDefinition }) {
         <div className="grid min-h-0 flex-1 gap-6 lg:grid-cols-[minmax(0,1.35fr)_minmax(20rem,0.65fr)]">
           <Card className="min-h-0 overflow-hidden">
             <CardHeader className="flex flex-row items-center justify-between gap-4 border-b py-4">
-              <CardTitle className="text-base">{workflow.queueLabel}</CardTitle>
+              <CardTitle className="text-base">
+                {currentWorkflow.queueLabel}
+              </CardTitle>
               <div className="text-right">
                 <div className="text-lg font-semibold leading-none">
-                  {workflow.metric.value}
+                  {currentWorkflow.metric.value}
                 </div>
                 <div className="mt-1 text-xs text-muted-foreground">
-                  {workflow.metric.label}
+                  {currentWorkflow.metric.label}
                 </div>
               </div>
             </CardHeader>
             <CardContent className="p-0">
               <div className="divide-y">
-                {workflow.items.map((item) => {
+                {currentWorkflow.items.map((item) => {
                   const active = item.id === selected?.id;
                   return (
                     <button
                       key={item.id}
                       type="button"
-                      onClick={() => setSelectedId(item.id)}
+                      onClick={() => {
+                        setSelectedId(item.id);
+                        selectItem.mutate({ id: item.id });
+                      }}
                       className={cn(
                         "flex w-full items-start gap-3 px-5 py-4 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
                         active && "bg-muted/60",
@@ -132,7 +152,7 @@ export function WorkflowHome({ workflow }: { workflow: WorkflowDefinition }) {
           <Card className="h-fit">
             <CardHeader className="border-b py-4">
               <CardTitle className="text-base">
-                {workflow.detailTitle}
+                {currentWorkflow.detailTitle}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-5 p-5">
@@ -149,14 +169,13 @@ export function WorkflowHome({ workflow }: { workflow: WorkflowDefinition }) {
                   </div>
                   <div className="grid grid-cols-2 gap-3 text-sm">
                     <div className="rounded-lg border p-3">
-                      <div className="text-xs text-muted-foreground">
-                        Status
-                      </div>
-                      <div className="mt-1 font-medium">{selected.status}</div>
+                      <div className="font-medium">{selected.status}</div>
                     </div>
                     <div className="rounded-lg border p-3">
-                      <div className="text-xs text-muted-foreground">Score</div>
-                      <div className="mt-1 font-medium">{selected.score}</div>
+                      <div className="font-medium">{selected.score}</div>
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        {currentWorkflow.metric.label}
+                      </div>
                     </div>
                   </div>
                   <Button
@@ -164,7 +183,7 @@ export function WorkflowHome({ workflow }: { workflow: WorkflowDefinition }) {
                     className="w-full"
                     onClick={askAgent}
                   >
-                    Review with agent
+                    {currentWorkflow.primaryAction}
                   </Button>
                 </>
               ) : null}

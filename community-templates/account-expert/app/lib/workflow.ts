@@ -18,6 +18,11 @@ export interface WorkflowDefinition {
   items: WorkflowItem[];
 }
 
+export interface WorkflowSnapshot {
+  workflow: WorkflowDefinition;
+  selectedId: string;
+}
+
 export const workflow: WorkflowDefinition = {
   title: "Account Expert",
   summary: "Give every account conversation a concise, current point of view.",

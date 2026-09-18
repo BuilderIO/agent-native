@@ -18,6 +18,11 @@ export interface WorkflowDefinition {
   items: WorkflowItem[];
 }
 
+export interface WorkflowSnapshot {
+  workflow: WorkflowDefinition;
+  selectedId: string;
+}
+
 export const workflow: WorkflowDefinition = {
   title: "Account Tiering",
   summary: "Keep account priority aligned with the signals that matter now.",

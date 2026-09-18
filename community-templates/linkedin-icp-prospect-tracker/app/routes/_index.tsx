@@ -25,11 +25,6 @@ export default function MarketingHomeRoute() {
       appName={APP_TITLE}
       tagline={workflow.summary}
       description={SEO_DESCRIPTION}
-      valueProps={[
-        "Keep a focused queue of work in one place",
-        "Review context before asking the agent to act",
-        "Use durable chat alongside the workflow",
-      ]}
       primaryActionHref={appPath("/workspace")}
       secondaryActionHref={appPath("/sign-in")}
     />

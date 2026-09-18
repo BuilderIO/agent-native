@@ -3,7 +3,7 @@ import { createProviderApiRequestAction } from "@agent-native/core/provider-api/
 import { z } from "zod";
 
 const runtime = createProviderApiRuntime({
-  appId: "chat",
+  appId: "account-expert",
   providerIds: ["slack"],
 });
 
@@ -39,7 +39,7 @@ export function requiresProviderApiApproval(args: { method: string }): boolean {
 }
 
 export default createProviderApiRequestAction(runtime, {
-  appId: "chat",
+  appId: "account-expert",
   schema,
   http: false,
   needsApproval: requiresProviderApiApproval,

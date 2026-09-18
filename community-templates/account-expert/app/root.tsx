@@ -139,6 +139,11 @@ function AppContent() {
               {t("navigation.chat")}
             </CommandMenu.Item>
           ) : null}
+          {location.pathname !== "/workspace" ? (
+            <CommandMenu.Item onSelect={() => navigate("/workspace")}>
+              {t("settings.workspaceTitle")}
+            </CommandMenu.Item>
+          ) : null}
           <CommandMenu.Item
             onSelect={() => navigate("/settings/agent")}
             keywords={[

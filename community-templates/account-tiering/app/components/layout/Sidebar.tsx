@@ -507,7 +507,7 @@ export function Sidebar({
         ) : (
           <>
             <Link
-              to="/"
+              to="/workspace"
               className="flex min-w-0 flex-1 items-center gap-3 rounded outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
             >
               <AgentNativeIcon
@@ -539,7 +539,7 @@ export function Sidebar({
         <OrgSwitcher
           reserveSpace
           compact={collapsed}
-          currentAppId="chat"
+          currentAppId="account-tiering"
           className={
             collapsed
               ? "size-8 bg-transparent p-0 hover:bg-sidebar-accent"
