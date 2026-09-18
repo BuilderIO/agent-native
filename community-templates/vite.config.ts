@@ -1,20 +1,21 @@
+import { existsSync, readdirSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
-const appSlugs = [
-  "agent-advisor",
-  "account-tiering",
-  "call-follow-up-drafter",
-  "win-loss-memo",
-  "churn-early-warning",
-  "account-expert",
-  "demo-clip-library",
-  "outbound-in-your-voice",
-  "linkedin-signal-watch",
-  "linkedin-icp-prospect-tracker",
-];
+const appSlugs = readdirSync(new URL("./apps/", import.meta.url), {
+  withFileTypes: true,
+})
+  .filter(
+    (entry) =>
+      entry.isDirectory() &&
+      existsSync(new URL(`./apps/${entry.name}/index.html`, import.meta.url)),
+  )
+  .map((entry) => entry.name)
+  .sort();
 
-const page = (path: string) => new URL(path, import.meta.url).pathname;
+const page = (path: string) => fileURLToPath(new URL(path, import.meta.url));
 
 export default defineConfig({
   plugins: [react()],

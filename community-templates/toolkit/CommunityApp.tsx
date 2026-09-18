@@ -112,6 +112,8 @@ export function CommunityApp({ template }: { template: Template }) {
   );
   const [agentOpen, setAgentOpen] = useState(false);
   const [planStatus, setPlanStatus] = useState<"ready" | "staged">("ready");
+  const canStageInHostChat =
+    typeof window !== "undefined" && window.parent !== window;
 
   const selectedRecord = useMemo(() => {
     return (
@@ -124,21 +126,23 @@ export function CommunityApp({ template }: { template: Template }) {
   }, [selectedId, template]);
 
   const openPlan = () => {
-    sendToAgentChat({
-      message: template.prompt,
-      context: [
-        `Community template: ${template.title}`,
-        `Selected record: ${selectedRecord}`,
-        `Requested boundary: ${template.setup}`,
-        "This is a bounded planning request. Explain evidence and ask for approval before any write-back.",
-      ].join("\n"),
-      submit: false,
-      openSidebar: true,
-      chatTarget: "local",
-      usageLabel: `community-template:${template.slug}`,
-    });
+    if (canStageInHostChat) {
+      sendToAgentChat({
+        message: template.prompt,
+        context: [
+          `Community template: ${template.title}`,
+          `Selected record: ${selectedRecord}`,
+          `Requested boundary: ${template.setup}`,
+          "This is a bounded planning request. Explain evidence and ask for approval before any write-back.",
+        ].join("\n"),
+        submit: false,
+        openSidebar: true,
+        chatTarget: "auto",
+        usageLabel: `community-template:${template.slug}`,
+      });
+      setPlanStatus("staged");
+    }
     setAgentOpen(true);
-    setPlanStatus("staged");
   };
 
   return (
@@ -229,6 +233,7 @@ export function CommunityApp({ template }: { template: Template }) {
             selectedRecord={selectedRecord}
             open={agentOpen}
             status={planStatus}
+            canStageInHostChat={canStageInHostChat}
             onOpen={openPlan}
           />
         </div>
@@ -295,12 +300,14 @@ function AgentPlan({
   selectedRecord,
   open,
   status,
+  canStageInHostChat,
   onOpen,
 }: {
   template: Template;
   selectedRecord: string;
   open: boolean;
   status: "ready" | "staged";
+  canStageInHostChat: boolean;
   onOpen: () => void;
 }) {
   const steps = template.advisor?.steps ?? [
@@ -319,7 +326,11 @@ function AgentPlan({
         </div>
         <span className={`plan-indicator ${status}`}>
           <span className="status-dot" />{" "}
-          {status === "staged" ? "In chat" : "Idle"}
+          {status === "staged"
+            ? "In chat"
+            : canStageInHostChat
+              ? "Idle"
+              : "Local"}
         </span>
       </div>
 
@@ -349,9 +360,12 @@ function AgentPlan({
             <span>Review before write-back.</span>
           </div>
           <button className="button button-plan" type="button" onClick={onOpen}>
-            <IconMessageCircle size={16} /> Stage in chat
+            <IconMessageCircle size={16} />
+            {canStageInHostChat ? "Stage in chat" : "Review flow"}
           </button>
-          <span className="plan-footnote">Nothing is sent.</span>
+          {canStageInHostChat && (
+            <span className="plan-footnote">Nothing is sent.</span>
+          )}
         </div>
       ) : (
         <div className="agent-empty-state">
@@ -360,7 +374,8 @@ function AgentPlan({
           </div>
           <p>Review the selected context.</p>
           <button className="button button-plan" type="button" onClick={onOpen}>
-            <IconMessageCircle size={16} /> Open plan
+            <IconMessageCircle size={16} />
+            {canStageInHostChat ? "Open plan" : "Review flow"}
           </button>
         </div>
       )}
