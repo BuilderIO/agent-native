@@ -6,7 +6,11 @@ import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
-import { assertAccess, type ShareRole } from "@agent-native/core/sharing";
+import {
+  assertAccess,
+  ForbiddenError,
+  type ShareRole,
+} from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import {
   recordGenerationCreativeContext,
@@ -261,10 +265,7 @@ export default defineAction({
           parentId = null;
         } else {
           await assertAccess("document", parentId, "editor");
-          throw new ActionContractError(
-            "Contributor access is required for this Content space.",
-            { errorCode: "FORBIDDEN", statusCode: 403 },
-          );
+          throw new ForbiddenError(`No access to document ${parentId}`);
         }
       }
     }

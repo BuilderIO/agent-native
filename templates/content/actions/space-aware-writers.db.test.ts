@@ -221,15 +221,32 @@ describe("space-aware document writers", () => {
       createdBy: OWNER,
       createdAt: new Date().toISOString(),
     });
-    await expect(
-      runWithRequestContext({ userEmail: VIEWER, orgId }, () =>
-        createDocument.run({
-          id: "rejected-guest-files-target",
-          title: "Guest page via Files target",
-          parentId: filesDatabase.documentId,
-        }),
-      ),
-    ).rejects.toThrow("Contributor access is required");
+    const guestAttempt = async (parentId: string, id: string) => {
+      try {
+        await runWithRequestContext({ userEmail: VIEWER, orgId }, () =>
+          createDocument.run({ title: id, id, parentId }),
+        );
+        return null;
+      } catch (error) {
+        return {
+          name: error instanceof Error ? error.name : typeof error,
+          message: (error instanceof Error
+            ? error.message
+            : String(error)
+          ).replace(parentId, "<parentId>"),
+        };
+      }
+    };
+    const guestRealFilesError = await guestAttempt(
+      filesDatabase.documentId,
+      "rejected-guest-files-target",
+    );
+    const guestFakeFilesError = await guestAttempt(
+      "content_document_files_guest-not-real",
+      "rejected-guest-fake-files-target",
+    );
+    expect(guestRealFilesError).not.toBeNull();
+    expect(guestRealFilesError).toEqual(guestFakeFilesError);
     await expect(
       runWithRequestContext({ userEmail: VIEWER, orgId }, () =>
         createDocument.run({
@@ -288,6 +305,7 @@ describe("space-aware document writers", () => {
     const rejectedIds = [
       "rejected-conflicting-files-target",
       "rejected-guest-files-target",
+      "rejected-guest-fake-files-target",
       "rejected-guest-child",
       "rejected-fake-files-target",
       "rejected-outsider-real-files",
